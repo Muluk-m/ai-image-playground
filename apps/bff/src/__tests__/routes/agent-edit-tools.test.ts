@@ -1,7 +1,12 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentTurnEvent } from '@image-playground/shared'
+import {
+  type AgentBackgroundJobsResponse,
+  type AgentToolResultBlock,
+  type AgentTurnEvent,
+  DEVICE_ID_HEADER,
+} from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
@@ -137,6 +142,24 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   return () => {
     stopped = true
   }
+}
+
+/** 等迷你 worker 把任务推到终态，读回结算过的结果卡。 */
+async function settledResults(conversationId: string): Promise<AgentToolResultBlock[]> {
+  for (let i = 0; i < 400; i++) {
+    const queued = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.status, 'queued'))
+    if (queued.length === 0) break
+    await Bun.sleep(5)
+  }
+  const response = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/jobs`, {
+      headers: { [DEVICE_ID_HEADER]: DEVICE },
+    }),
+  )
+  return ((await response.json()) as AgentBackgroundJobsResponse).jobs.map((job) => job.result)
 }
 
 async function createUser(id: string): Promise<string> {
@@ -287,8 +310,9 @@ describe('智能体改图工具', () => {
           }),
         ]),
       )
+      // 没有选区的普通改图是后台任务：提交即收尾，产物之后按任务结算。
       expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
-        status: 'succeeded',
+        status: 'submitted',
         anchorObjectId: 'canvas-original',
       })
     } finally {
@@ -322,7 +346,7 @@ describe('智能体改图工具', () => {
     try {
       const continued = await runTurn(conversationId, '继续修改')
       expect(eventsOfType(continued, 'toolEnd')[0]).toMatchObject({
-        status: 'succeeded',
+        status: 'submitted',
         anchorObjectId: 'canvas-svg',
       })
       for (const call of calls.slice(0, 2)) {
@@ -387,17 +411,18 @@ describe('智能体改图工具', () => {
         { imageId: 'original-b', dataUrl: otherPixel },
       ])
       const result = eventsOfType(replacement, 'toolEnd')[0]!
-      expect(result).toMatchObject({ status: 'succeeded', anchorObjectId: 'original-b' })
+      expect(result).toMatchObject({ status: 'submitted', anchorObjectId: 'original-b' })
       const [replacementTask] = await db
         .select()
         .from(schema.tasks)
-        .where(eq(schema.tasks.id, result.artifacts![0]!.taskId))
+        .where(eq(schema.tasks.id, result.job!.taskId))
       const request = await hydrateInputImages(replacementTask!.request_payload)
       expect(request.input_images).toEqual([otherPixel])
       expect(request.mask).toBeUndefined()
 
       const old = await edit(conversationId, 'original-a')
       const oldResult = eventsOfType(old, 'toolEnd')[0]!
+      // 旧图带着选区：局部改图仍在这一轮里等结果。
       expect(oldResult).toMatchObject({ status: 'succeeded', anchorObjectId: 'original-a' })
       const [oldTask] = await db
         .select()
@@ -474,12 +499,15 @@ describe('智能体改图工具', () => {
     })
     stop()
 
+    // 参考图上没有真选区：这是普通改图，提交即收尾。
     const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end).toMatchObject({ toolCallId: 'call-1', status: 'succeeded' })
+    expect(end).toMatchObject({ toolCallId: 'call-1', status: 'submitted' })
     // 产出贴着源图放，源图本身不进这次任务的产出。
     expect(end!.anchorObjectId).toBe('canvas-1')
-    expect(end!.artifacts).toHaveLength(1)
-    expect(end!.artifacts![0]!.artifactId).not.toBe('canvas-1')
+    const [settled] = await settledResults(conversationId)
+    expect(settled).toMatchObject({ status: 'succeeded', anchorObjectId: 'canvas-1' })
+    expect(settled!.artifacts).toHaveLength(1)
+    expect(settled!.artifacts![0]!.artifactId).not.toBe('canvas-1')
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.prompt).toBe('把背景换成浅木色')
@@ -525,6 +553,94 @@ describe('智能体改图工具', () => {
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.mask).toBeTruthy()
+  })
+
+  it('keeps a local edit in the turn and withdraws it when the wait runs out', async () => {
+    setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 20 })
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'editImage',
+              args: {
+                prompt: '只改这一块',
+                imageIds: ['canvas-1'],
+                selectionBindings: bindings('canvas-1'),
+              },
+            }),
+          () => completionStream('这次没改成'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+
+    // 没有 worker：局部改图仍在这一轮里等结果，等不到就撤掉任务，按可重试的超时收场。
+    const frames = await runTurn(conversationId, '把 [image 1] 圈出来的部分改掉', {
+      references: [{ imageId: 'canvas-1', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'timeout',
+    })
+    const [task] = await db.select().from(schema.tasks)
+    // 撤掉了，不会在没人等的时候出图计费。
+    expect(task!.status).toBe('cancelled')
+  })
+
+  it.each([
+    'queued',
+    'in_progress',
+  ] as const)('stopping the turn cancels a %s local edit and does not call the model again', async (status) => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-stop',
+            name: 'editImage',
+            args: {
+              prompt: '只改这一块',
+              imageIds: ['canvas-1'],
+              selectionBindings: bindings('canvas-1'),
+            },
+          }),
+      ]),
+    )
+    const conversationId = await startConversation()
+    // 没有 worker：局部改图停在这一轮里等结果，直到用户停止这一轮。
+    const finished = runTurn(conversationId, '把 [image 1] 圈出来的部分改掉', {
+      references: [{ imageId: 'canvas-1', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    let task: typeof schema.tasks.$inferSelect | undefined
+    for (let i = 0; i < 400 && !task; i++) {
+      ;[task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.agent_conversation_id, conversationId))
+      if (!task) await Bun.sleep(5)
+    }
+    expect(task).toBeDefined()
+    await db.update(schema.tasks).set({ status }).where(eq(schema.tasks.id, task!.id))
+
+    const stopped = await post(
+      `/api/agent/conversations/${conversationId}/turns/${task!.agent_turn_id}/abort`,
+      { deviceId: DEVICE },
+    )
+    expect(stopped.status).toBe(200)
+    const frames = await finished
+    expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'aborted' })
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+    // 取消即按原桶退回：任务行停在 cancelled，不会在没人等的时候出图计费。
+    const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
+    expect(stored!.status).toBe('cancelled')
+    expect(calls).toHaveLength(1)
   })
 
   it('keeps the turn alive when the model names an image it cannot reach', async () => {
@@ -631,7 +747,7 @@ describe('智能体读素材库工具', () => {
     stop()
 
     const ends = eventsOfType(frames, 'toolEnd')
-    expect(ends.map((event) => event.status)).toEqual(['succeeded', 'succeeded'])
+    expect(ends.map((event) => event.status)).toEqual(['succeeded', 'submitted'])
     expect(ends[1]!.anchorObjectId).toBe('img-cat')
 
     const [task] = await db.select().from(schema.tasks)

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type {
+  AgentBackgroundJobView,
   AgentToolArtifact,
   AgentToolEndEvent,
   AgentToolStartEvent,
@@ -14,7 +15,7 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
 }))
 
 import { agentCanvasSink, setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
-import { useAgentStore } from '../../../features/agent/store'
+import { setAgentJobPollIntervalForTesting, useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -89,6 +90,8 @@ function turnStream(...events: AgentTurnEvent[]): Response {
 
 let turnResponse: () => Response
 let messagesResponse: () => Response
+/** 后台任务列表：每问一次按当时的服务端结算回。 */
+let jobsResponse: () => readonly AgentBackgroundJobView[]
 let imageResponse: () => Response | Promise<Response>
 const onCanvas = new Set<string>()
 const placed: {
@@ -112,6 +115,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
     })
   }
   if (url.includes('/turns')) return turnResponse()
+  if (url.endsWith('/jobs')) return Response.json({ jobs: jobsResponse() })
   if (url.includes('/v1/queue/requests/')) {
     return imageResponse()
   }
@@ -174,6 +178,8 @@ beforeEach(() => {
   })
   turnResponse = () => turnStream(TURN_START, TURN_END)
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+  jobsResponse = () => []
+  setAgentJobPollIntervalForTesting(5)
   useAgentStore.setState({
     conversationId: null,
     messages: [],
@@ -186,6 +192,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setAgentJobPollIntervalForTesting()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()
@@ -559,6 +566,129 @@ describe('视频产物', () => {
       String(input).includes('/v1/queue/requests/'),
     )
     expect(downloads).toEqual([])
+  })
+})
+
+describe('后台任务', () => {
+  const SUBMITTED: AgentToolEndEvent = {
+    type: 'toolEnd',
+    messageId: 'tool-1',
+    toolCallId: 'call-1',
+    toolName: 'generateImage',
+    status: 'submitted',
+    title: '一只橘猫坐在窗台上',
+    job: { taskId: 'task-1', media: 'image' },
+  }
+  const { type: _event, messageId: _id, ...submittedBlock } = SUBMITTED
+  const pendingJob: AgentBackgroundJobView = {
+    messageId: 'tool-1',
+    turnId: 'turn-1',
+    result: { ...submittedBlock, type: 'toolResult' },
+  }
+  const finished = (
+    patch: Partial<AgentBackgroundJobView['result']>,
+  ): readonly AgentBackgroundJobView[] => [
+    { ...pendingJob, result: { ...pendingJob.result, ...patch } },
+  ]
+
+  it('轮收尾后占位还在，任务结束时产物落进这个位', async () => {
+    let done = false
+    jobsResponse = () =>
+      done ? finished({ status: 'succeeded', artifacts: [IMAGE] }) : [pendingJob]
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+
+    await state().send('画一只橘猫')
+
+    // 轮已经交还，占的位没被当成僵尸收掉。
+    expect(state().turn).toBe('idle')
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+    expect(discarded).toEqual([])
+    expect(placed).toEqual([])
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    expect(toolMessages()[0]).toMatchObject({ status: 'succeeded', artifacts: [IMAGE] })
+    expect(placedInto).toEqual([['placeholder-1']])
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
+    expect(discarded).toEqual([])
+  })
+
+  it('任务失败时占的位就地标错，卡按错误码给出路', async () => {
+    jobsResponse = () => finished({ status: 'failed', message: '上游超时', errorCode: 'timeout' })
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+
+    await state().send('画一只橘猫')
+
+    await vi.waitFor(() => expect(failed).toHaveLength(1))
+    expect(failed[0]!.id).toBe('placeholder-1')
+    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
+    expect(discarded).toEqual([])
+  })
+
+  it('刷新后读回还没结束的任务，接着等它，结束了照常落画布', async () => {
+    let done = false
+    jobsResponse = () =>
+      done ? finished({ status: 'succeeded', artifacts: [IMAGE] }) : [pendingJob]
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        turns: [],
+        messages: [
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [pendingJob.result],
+            createdAt: 2,
+          },
+        ],
+      })
+
+    await state().selectConversation(CONVERSATION)
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
+  })
+
+  it('切走再切回时旧的占位收掉，任务结束后在当前画布上照常落图', async () => {
+    let done = false
+    jobsResponse = () =>
+      done ? finished({ status: 'succeeded', artifacts: [IMAGE] }) : [pendingJob]
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+    await state().send('画一只橘猫')
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+
+    // 切到另一个会话：移交出去的占位就地收掉，不会在原画布上一直转圈。
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    await state().selectConversation('conversation-2')
+    expect(discarded).toEqual(['placeholder-1'])
+
+    // 任务还没结束就切回来：读回的仍是已提交的卡，接着等。
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        turns: [],
+        messages: [
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [pendingJob.result],
+            createdAt: 2,
+          },
+        ],
+      })
+    await state().selectConversation(CONVERSATION)
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
   })
 })
 

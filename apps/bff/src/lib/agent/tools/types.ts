@@ -1,5 +1,6 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
+  AgentBackgroundJob,
   AgentMode,
   AgentSkillOutcome,
   AgentToolArtifact,
@@ -33,11 +34,15 @@ export interface AgentToolContext {
   readonly params?: AgentTurnParams
 }
 
-/** 进行中的 `onUpdate` 只填 `stage`，终局填 `artifacts`。 */
+/**
+ * 进行中的 `onUpdate` 只填 `stage`，终局填 `artifacts`；提交成后台任务的调用填 `job`，
+ * 产物要等任务结束才有。
+ */
 export interface AgentToolDetails {
   readonly executedPrompt?: string
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
+  readonly job?: AgentBackgroundJob
   readonly anchorObjectId?: string
   /** 读取技能这一步读到了什么；只有那个工具会填。 */
   readonly skill?: AgentSkillOutcome

@@ -1,7 +1,12 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentTurnEvent } from '@image-playground/shared'
+import {
+  type AgentBackgroundJobsResponse,
+  type AgentToolResultBlock,
+  type AgentTurnEvent,
+  DEVICE_ID_HEADER,
+} from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
@@ -100,6 +105,27 @@ async function runTurn(conversationId: string, text: string, references: unknown
     }),
   )
   return parseFrames(await response.text())
+}
+
+/** 等迷你 worker 把任务推到终态，读回结算过的后台任务。 */
+async function settledJobs(conversationId: string): Promise<AgentToolResultBlock[]> {
+  for (let i = 0; i < 400; i++) {
+    const queued = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.status, 'queued'))
+    if (queued.length === 0) break
+    await Bun.sleep(5)
+  }
+  const response = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/jobs`, {
+      headers: {
+        [DEVICE_ID_HEADER]: DEVICE,
+        cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+      },
+    }),
+  )
+  return ((await response.json()) as AgentBackgroundJobsResponse).jobs.map((job) => job.result)
 }
 
 function types(frames: { event: AgentTurnEvent }[]): string[] {
@@ -202,12 +228,11 @@ describe('智能体生视频工具', () => {
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '来一段海浪的视频')
-    stop()
 
+    // 生视频是后台任务：提交即收尾，片子之后按任务结算。
     expect(types(frames)).toEqual([
       'turnStart',
       'toolStart',
-      'toolProgress',
       'toolEnd',
       'assistantStart',
       'textDelta',
@@ -216,19 +241,27 @@ describe('智能体生视频工具', () => {
 
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', toolName: 'generateVideo' })
-    expect(end!.status).toBe('succeeded')
-    expect(end!.artifacts).toHaveLength(1)
-    expect(end!.artifacts![0]).toMatchObject({
-      media: 'video',
-      mime: 'video/mp4',
-      outputIndex: 0,
-    })
+    expect(end!.status).toBe('submitted')
+    const record = { model: GROK, duration: 5, resolution: '720p', aspectRatio: '16:9' }
+    expect(end!.job).toMatchObject({ media: 'video', video: record })
     // 文生视频没有源图可贴，产出落视口中央。
     expect(end!.anchorObjectId).toBeUndefined()
 
+    const [settled] = await settledJobs(conversationId)
+    stop()
+    expect(settled!.status).toBe('succeeded')
+    expect(settled!.artifacts).toHaveLength(1)
+    // 实际提交的档位随任务记下，结算时落到产物上。
+    expect(settled!.artifacts![0]).toMatchObject({
+      media: 'video',
+      mime: 'video/mp4',
+      outputIndex: 0,
+      video: record,
+    })
+
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
     const [task] = await db.select().from(schema.tasks)
-    expect(task!.id).toBe(end!.artifacts![0]!.taskId)
+    expect(task!.id).toBe(end!.job!.taskId)
     expect(task!.model).toBe(GROK)
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
     expect(task!.request_payload.prompt).toBe('海浪拍打礁石，镜头缓慢推进')
@@ -253,8 +286,9 @@ describe('智能体生视频工具', () => {
     stop()
 
     const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.status).toBe('succeeded')
+    expect(end!.status).toBe('submitted')
     expect(end!.anchorObjectId).toBe('canvas-1')
+    expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1' })
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.input_images).toHaveLength(1)
@@ -301,7 +335,7 @@ describe('智能体生视频工具', () => {
       aspect_ratio: '16:9',
       resolution: '720p',
     })
-    expect(eventsOfType(frames, 'toolEnd')[0]!.status).toBe('succeeded')
+    expect(eventsOfType(frames, 'toolEnd')[0]!.status).toBe('submitted')
     // 退档也要说出口：模型照着这句话才讲得出「我替你定了 4 秒」。
     const report = modelReport(calls)
     expect(report).toContain('4 秒')

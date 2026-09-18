@@ -144,6 +144,17 @@ export function toolResultBlock(
     }
   }
   const details = piToolResult<AgentToolDetails>(result).details
+  if (details?.job) {
+    // 后台任务：调用已经收尾，结局要等任务结束再由服务端改写（见 `background-jobs.ts`）。
+    return {
+      ...head,
+      status: 'submitted',
+      ...(details.executedPrompt ? { prompt: details.executedPrompt } : {}),
+      title: start.title,
+      ...(details.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
+      job: details.job,
+    }
+  }
   return {
     ...head,
     status: 'succeeded',

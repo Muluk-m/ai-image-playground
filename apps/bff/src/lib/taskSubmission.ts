@@ -364,6 +364,44 @@ export type QueueTaskOutcome =
       readonly stillRunning?: true
     }
 
+/** 读一条队列任务的终局要用到的那几列。 */
+export interface QueueTaskTerminalRow {
+  readonly status: TaskStatus
+  readonly provider: string
+  readonly result_payload: unknown
+  readonly error_message: string | null
+  readonly error_type: string | null
+}
+
+/** 任务行此刻的终局；还没到终态就是 null。等结果与后台任务结算读的是同一个算式。 */
+export function queueTaskOutcome(task: QueueTaskTerminalRow): QueueTaskOutcome | null {
+  if (task.status === 'failed') {
+    return {
+      kind: 'failed',
+      reason: task.error_message ?? '任务失败',
+      // 列是自由文本；写它的只有 worker，值域就是 `TaskErrorType`。
+      errorType: (task.error_type as TaskErrorType | null) ?? null,
+    }
+  }
+  if (task.status === 'cancelled')
+    return { kind: 'failed', reason: '任务被取消了', errorType: null, cancelled: true }
+  if (task.status === 'completed') {
+    const provider = asQueueProvider(task.provider)
+    if (!provider)
+      return { kind: 'failed', reason: `未知的上游：${task.provider}`, errorType: 'unknown' }
+    const result = extractMeta(provider, task.result_payload)
+    if (result.images.length === 0) {
+      return {
+        kind: 'failed',
+        reason: describeEmptyResult(provider, task.result_payload),
+        errorType: 'upstream_no_image',
+      }
+    }
+    return { kind: 'completed', result }
+  }
+  return null
+}
+
 interface Polling {
   readonly intervalMs: number
   readonly budgetMs: number
@@ -416,30 +454,8 @@ export async function awaitQueueTask(
       announced = task.status
       options.onStatus?.(task.status)
     }
-    if (task.status === 'failed') {
-      return {
-        kind: 'failed',
-        reason: task.error_message ?? '任务失败',
-        // 列是自由文本；写它的只有 worker，值域就是 `TaskErrorType`。
-        errorType: (task.error_type as TaskErrorType | null) ?? null,
-      }
-    }
-    if (task.status === 'cancelled')
-      return { kind: 'failed', reason: '任务被取消了', errorType: null, cancelled: true }
-    if (task.status === 'completed') {
-      const provider = asQueueProvider(task.provider)
-      if (!provider)
-        return { kind: 'failed', reason: `未知的上游：${task.provider}`, errorType: 'unknown' }
-      const result = extractMeta(provider, task.result_payload)
-      if (result.images.length === 0) {
-        return {
-          kind: 'failed',
-          reason: describeEmptyResult(provider, task.result_payload),
-          errorType: 'upstream_no_image',
-        }
-      }
-      return { kind: 'completed', result }
-    }
+    const settled = queueTaskOutcome(task)
+    if (settled) return settled
 
     const waited = Date.now() - startedAt
     if (waited > polling.budgetMs)
