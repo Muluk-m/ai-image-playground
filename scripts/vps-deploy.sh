@@ -104,4 +104,5 @@ EOF
 done
 docker tag "$backup_image" ai-image-playground-pg-backup:local
 prune_old_images ai-image-playground:backup "$backup_image"
+prune_old_releases "$release"
 echo "Deployed prebuilt release: $release"
