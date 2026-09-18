@@ -335,6 +335,21 @@ export function answerableClarificationId(messages: readonly AgentPanelMessage[]
 }
 
 /**
+ * 一条澄清选了什么：它之后的第一条用户消息就是回填的答案（选项或自己写的那句）。
+ * 历史与直播用同一份消息，所以刷新后照样读得出来。还没作答就是 null。
+ */
+export function clarificationAnswer(
+  messages: readonly AgentPanelMessage[],
+  clarificationId: string,
+): string | null {
+  const at = messages.findIndex((one) => one.id === clarificationId)
+  if (at < 0) return null
+  for (const message of messages.slice(at + 1))
+    if (message.kind === 'text' && message.role === 'user') return message.text
+  return null
+}
+
+/**
  * 这个会话有没有"开始"：敲下回车那条先上屏的消息也算。欢迎页据此让位——
  * 发送是乐观的，视图不等服务端确认；起轮失败会把那条撤回，欢迎页随之回来。
  */
