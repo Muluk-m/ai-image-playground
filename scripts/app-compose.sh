@@ -80,20 +80,30 @@ MIGRATOR_ENV_FILE=${MIGRATOR_ENV_FILE:-$APP_CONFIG_DIR/migrate.env}
 export MIGRATOR_ENV_FILE
 export APP_ENV_FILE APP_CONFIG_DIR
 
-# Read-only inputs of the operations board. The collector learns container names from this table
-# (cgroups only know IDs, and it never gets the Docker socket); admin lists recent deployments
-# from the deploy log. Both are rewritten in place, never replaced, so the bind mounts follow.
+# Read-only inputs of the operations board. The collector learns container names from a table in
+# OPS_BOARD_DIR (cgroups only know IDs, and it never gets the Docker socket); admin lists recent
+# deployments from the deploy log, which is only ever appended to.
+#
+# The table lives in a directory of its own that is mounted whole. A single-file bind mount goes
+# wrong twice: Docker turns a missing source into a root-owned directory, and a rename leaves the
+# container on the old file. The directory is created here, before any compose command runs.
 ops_root=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground
-CONTAINER_NAMES_SOURCE=$ops_root/container-names.tsv
+OPS_BOARD_DIR=$ops_root/ops-board
+mkdir -p "$OPS_BOARD_DIR"
+# An earlier release bind-mounted the table itself, and Docker left a directory in its place.
+if [ -d "$ops_root/container-names.tsv" ]; then rmdir "$ops_root/container-names.tsv" 2>/dev/null || true; fi
 DEPLOYMENTS_LOG_SOURCE=$ops_root/deployments.log
 [ -f "$DEPLOYMENTS_LOG_SOURCE" ] || DEPLOYMENTS_LOG_SOURCE=/dev/null
-export CONTAINER_NAMES_SOURCE DEPLOYMENTS_LOG_SOURCE
+export OPS_BOARD_DIR DEPLOYMENTS_LOG_SOURCE
 
 write_container_names() {
-  mkdir -p "$ops_root"
-  # Truncate and rewrite: a rename would leave the collector's bind mount on the old file.
-  docker ps --all --no-trunc --format '{{.ID}}	{{.Names}}' >"$CONTAINER_NAMES_SOURCE" ||
-    echo "Could not refresh $CONTAINER_NAMES_SOURCE; the board will show container IDs." >&2
+  names=$OPS_BOARD_DIR/container-names.tsv
+  if docker ps --all --no-trunc --format '{{.ID}}	{{.Names}}' >"$names.next"; then
+    mv "$names.next" "$names"
+  else
+    rm -f "$names.next"
+    echo "Could not refresh $names; the board will show container IDs." >&2
+  fi
 }
 
 compose() {
@@ -121,8 +131,6 @@ require_tunnel_credentials() {
 }
 
 activate_backend_then_ingress() {
-  mkdir -p "$ops_root"
-  [ -f "$CONTAINER_NAMES_SOURCE" ] || : >"$CONTAINER_NAMES_SOURCE"
   compose up --detach --wait "$@" dependency-check bff worker admin
   compose up --detach --wait "$@" cloudflared pg-backup
   write_container_names
@@ -157,6 +165,8 @@ case "$command" in
     ;;
   compose)
     compose "$@"
+    # Release rollouts start runtime and ancillary containers through here; name them.
+    case " $* " in *" up "*) write_container_names ;; esac
     ;;
   rollback)
     require_migrator_env

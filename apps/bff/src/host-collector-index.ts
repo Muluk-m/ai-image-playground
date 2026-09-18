@@ -12,7 +12,7 @@ const paths = {
   procStat: process.env.HOST_PROC_STAT?.trim() || '/host/stat',
   loadavg: process.env.HOST_LOADAVG?.trim() || '/host/loadavg',
   cgroupRoot: process.env.HOST_CGROUP?.trim() || '/host/cgroup',
-  containerNames: process.env.HOST_CONTAINER_NAMES?.trim() || '/host/container-names.tsv',
+  containerNames: process.env.HOST_CONTAINER_NAMES?.trim() || '/host/ops-board/container-names.tsv',
 }
 const intervalMs = Number(process.env.HOST_SAMPLE_INTERVAL_MS) || 60_000
 const bffUrl = process.env.BFF_INTERNAL_URL?.trim()
