@@ -3,15 +3,21 @@ import type {
   AgentQueuedMessageFailure,
   AgentTurnParams,
   AgentTurnReference,
+  AgentWakeSkipReason,
 } from '@image-playground/shared'
-import { AGENT_QUEUE_MAX_PENDING, agentConversationTitle } from '@image-playground/shared'
+import {
+  AGENT_MAX_CONSECUTIVE_WAKES,
+  AGENT_QUEUE_MAX_PENDING,
+  agentConversationTitle,
+} from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
-import type { TaskReservationFailure } from '../private-overlay'
+import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
+import { markAgentJobsWakeSkipped } from './background-jobs'
 import { type ChatTaskReserved, chatTaskPricing, reserveChatTask } from './chat-task'
 import {
   type AgentOwner,
@@ -32,15 +38,20 @@ import {
 } from './execution'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import {
+  consecutiveAgentWakes,
   consumeAgentMessage,
   failAgentMessage,
   nextAgentInboxEntry,
+  pendingAgentWakes,
   type QueuedWake,
+  skipAgentWake,
 } from './inbox'
 import { type RunningTurn, runningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
 import { deliverDueAgentWakes, wakePlan } from './wake'
 import {
+  mergedWakePrompt,
+  type WakeJob,
   wakeAuthorizationPrompt,
   wakeJobs,
   wakeReviewImageIds,
@@ -202,15 +213,18 @@ async function drainOnce(
         // 放手之后才进来的那条若在这期间入队，会被这里抢去开轮，它自己的请求反倒拿不到流。
         // 都没有就不再领租约——空领一次也会让刚收尾的会话在那一瞬间显得还忙，删会话之类的操作
         // 会撞上 409。
+        // 队里已经有排着的，也先投递这一轮凑齐的唤醒：它并进下一条消息的轮，不再单独起一轮。
         () =>
           void nextAgentInboxEntry(conversationId)
-            .then(
-              async (waiting) =>
-                waiting ??
-                ((await deliverDueAgentWakes([conversationId])) > 0
-                  ? nextAgentInboxEntry(conversationId)
-                  : null),
-            )
+            .then(async (waiting) => {
+              if (waiting) {
+                await deliverDueAgentWakes([conversationId])
+                return waiting
+              }
+              return (await deliverDueAgentWakes([conversationId])) > 0
+                ? nextAgentInboxEntry(conversationId)
+                : null
+            })
             .then((waiting) => (waiting ? drainConversationInbox(conversationId) : undefined))
             .catch((err) =>
               log.error(
@@ -280,6 +294,9 @@ async function executeWakeTurn(
     )
     return { kind: 'withdrawn' }
   }
+  // 用户没说话时连续自动唤醒到了上限：停下等用户，结果照常在画布上，他下次说话时智能体看得到。
+  if ((await consecutiveAgentWakes(conversationId)) >= AGENT_MAX_CONSECUTIVE_WAKES)
+    return skipWake(conversationId, turnId, wake, jobs, 'wake_limit')
   const setup = wakeTurnSetup(jobs)
   const mode = resolveAgentMode(setup.mode)
   const { params } = setup
@@ -316,6 +333,9 @@ async function executeWakeTurn(
     if (error instanceof TurnStartRollback) return error.result
     throw error
   })
+  // 积分不够再起一轮：不唤醒，也不欠费。结果照常落画布，面板说明智能体没有查看。
+  if (written.kind === 'insufficient_credits')
+    return skipWake(conversationId, turnId, wake, jobs, 'insufficient_credits')
   if (written.kind !== 'reserved') return written
 
   await assertOwnership()
@@ -344,6 +364,67 @@ async function executeWakeTurn(
       settle: written.reserved?.settle,
     }),
   }
+}
+
+/**
+ * 不起轮就了结这条唤醒：收件箱里记成已撤回，结果卡记下没唤醒的原因。两步同在租约下的一个
+ * 事务里；它若已被别处取走，就什么都不记。
+ */
+async function skipWake(
+  conversationId: string,
+  turnId: string,
+  wake: QueuedWake,
+  jobs: readonly WakeJob[],
+  reason: AgentWakeSkipReason,
+): Promise<StartConversationTurnResult> {
+  await withConversationExecution(conversationId, turnId, async (tx) => {
+    if (!(await skipAgentWake(tx, conversationId, wake.id))) return
+    await markAgentJobsWakeSkipped(
+      tx,
+      conversationId,
+      jobs.map((job) => job.block.job!.taskId),
+      reason,
+    )
+  })
+  log.info(
+    { event: 'agent.wake_skipped', conversationId, wakeId: wake.id, reason },
+    'background job wake skipped',
+  )
+  return { kind: 'withdrawn' }
+}
+
+/**
+ * 并进用户消息这一轮的唤醒：此刻排着的全部唤醒，连同它们点名的结果与要复核的产物。
+ * 点名的结果卡一张都不在时照样取走，只是不附说明。
+ */
+interface MergedWakes {
+  readonly ids: readonly string[]
+  readonly note?: { readonly text: string; readonly reviewImageIds: readonly string[] }
+}
+
+function mergeWakes(
+  wakes: readonly QueuedWake[],
+  history: Parameters<typeof wakeJobs>[0],
+): MergedWakes {
+  const jobs = wakeJobs(
+    history,
+    wakes.flatMap((wake) => wake.taskIds),
+  )
+  return {
+    ids: wakes.map((wake) => wake.id),
+    ...(jobs.length > 0
+      ? { note: { text: mergedWakePrompt(jobs), reviewImageIds: wakeReviewImageIds(jobs) } }
+      : {}),
+  }
+}
+
+async function consumeMergedWakes(
+  tx: BffTransaction,
+  conversationId: string,
+  merged: MergedWakes,
+  turnId: string,
+): Promise<void> {
+  for (const id of merged.ids) await consumeAgentMessage(tx, conversationId, id, turnId)
 }
 
 /** 开不了轮的原因换成界面认得的错误码，与发送时同一情形的 HTTP 错误码一致。 */
@@ -432,15 +513,20 @@ async function executeConversationTurn(
     overlay,
     history,
     pricing,
+    wakes,
   ] = await Promise.all([
     import('./turn-input'),
     import('./turn'),
     import('./tools'),
     overlayPromise,
+    // 读历史会把结束了的后台任务结算成终局：并进这一轮的唤醒看到的就是它们的结果。
     listAgentMessages(conversationId, owner),
     billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
+    // 恰好排着的唤醒并进这一轮，不再单独起轮。
+    pendingAgentWakes(conversationId),
     import('./skills').then((it) => it.ensureAgentSkills()),
   ])
+  const merged = mergeWakes(wakes, history)
   const mode: AgentMode = resolveAgentMode(input.mode ?? 'image')
   const chatTask =
     pricing && userId
@@ -451,7 +537,15 @@ async function executeConversationTurn(
           userId,
           deviceId,
           model: selectedModel,
-          estimatedInputTokens: estimateTurnInputTokens(history, text, references, mode),
+          estimatedInputTokens: merged.note
+            ? estimateTurnInputTokens(
+                history,
+                `${text}\n\n${merged.note.text}`,
+                references,
+                mode,
+                merged.note.reviewImageIds,
+              )
+            : estimateTurnInputTokens(history, text, references, mode),
           pricing,
         }
       : null
@@ -461,6 +555,7 @@ async function executeConversationTurn(
     // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
     if (!(await consumeAgentMessage(tx, conversationId, queued.id, turnId)))
       throw new TurnStartRollback({ kind: 'withdrawn' })
+    await consumeMergedWakes(tx, conversationId, merged, turnId)
     let reserved: ChatTaskReserved | undefined
     if (chatTask) {
       const reservation = await reserveChatTask({ tx, ...chatTask })
@@ -508,6 +603,7 @@ async function executeConversationTurn(
       userId,
       deviceId,
       ...(params ? { params } : {}),
+      ...(merged.note ? { wakeNote: merged.note } : {}),
       reservedCredits: written.reserved?.reservedCredits,
       settle: written.reserved?.settle,
     }),

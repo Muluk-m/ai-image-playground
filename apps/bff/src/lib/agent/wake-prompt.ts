@@ -88,3 +88,14 @@ export function wakeTurnPrompt(jobs: readonly WakeJob[]): string {
   lines.push('产物已经自动放在用户的画布上，不要让用户自己去保存。')
   return lines.join('\n')
 }
+
+/**
+ * 唤醒并进用户消息的那一轮时，跟在用户原话后面的那段说明：用户的话优先，结果顺带交代。
+ * 它同样不落库，只进这一轮的模型输入。
+ */
+export function mergedWakePrompt(jobs: readonly WakeJob[]): string {
+  return [
+    wakeTurnPrompt(jobs),
+    '用户刚好也说了话（就是上面那条）：先回应用户这条消息，再顺带交代这些结果。',
+  ].join('\n')
+}

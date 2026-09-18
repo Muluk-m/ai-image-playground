@@ -4,10 +4,12 @@ import type {
   AgentContentBlock,
   AgentMessageView,
   AgentToolResultBlock,
+  AgentWakeSkipReason,
 } from '@image-playground/shared'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
+import type { BffTransaction } from '../private-overlay'
 import { taskProgressPhase } from '../task-progress'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
 import { taskFailureCode } from './tools/errors'
@@ -114,6 +116,48 @@ export async function settleAgentJobs(
     settled.push({ ...message, content })
   }
   return settled
+}
+
+/**
+ * 这些后台任务本该唤醒智能体却没有唤醒：在它们的结果卡上记下原因，面板据此说明智能体没有
+ * 查看结果。结果卡在唤醒之前已经结算成终局，这里只添一个标记，别的不动。
+ */
+export async function markAgentJobsWakeSkipped(
+  tx: BffTransaction,
+  conversationId: string,
+  taskIds: readonly string[],
+  reason: AgentWakeSkipReason,
+): Promise<void> {
+  if (taskIds.length === 0) return
+  const wanted = new Set(taskIds)
+  const rows = await tx
+    .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        sql`${schema.agent_messages.content} @> '[{"type":"toolResult"}]'::jsonb`,
+      ),
+    )
+    .for('update')
+  for (const row of rows) {
+    let changed = false
+    const content = row.content.map((block) => {
+      if (block.type !== 'toolResult' || !block.job || !wanted.has(block.job.taskId)) return block
+      changed = true
+      return { ...block, wakeSkipped: reason }
+    })
+    if (!changed) continue
+    await tx
+      .update(schema.agent_messages)
+      .set({ content })
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversationId),
+          eq(schema.agent_messages.id, row.id),
+        ),
+      )
+  }
 }
 
 /** 删除会话时一并取消它的后台任务；对话任务不在此列，它跟着轮走。取消按原桶退回。 */

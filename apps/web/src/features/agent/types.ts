@@ -12,6 +12,7 @@ import type {
   AgentTurnCost,
   AgentTurnReference,
   AgentTurnStopReason,
+  AgentWakeSkipReason,
 } from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
@@ -60,6 +61,8 @@ export interface AgentToolMessage {
   readonly job?: AgentBackgroundJob
   /** 这张卡是一条重试记录：指回原失败卡与要落回的失败占位。 */
   readonly retryOf?: AgentToolRetryOrigin
+  /** 这个后台任务结束后没有唤醒智能体的原因；卡上据此说明智能体没有查看结果。 */
+  readonly wakeSkipped?: AgentWakeSkipReason
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */

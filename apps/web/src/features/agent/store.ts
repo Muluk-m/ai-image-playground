@@ -3,6 +3,7 @@ import type {
   AgentBackgroundJobProgress,
   AgentBackgroundJobView,
   AgentConversationView,
+  AgentMessageView,
   AgentMode,
   AgentQueuedMessageView,
   AgentThinkingDepth,
@@ -254,6 +255,26 @@ const wakesAgent = (result: AgentBackgroundJobView['result']) =>
   result.status === 'failed'
     ? result.errorCode !== 'cancelled'
     : result.status === 'succeeded' && result.job?.review === true
+
+/**
+ * 快照里有结果卡记下了「没有唤醒智能体」，面板上的那张还没有：服务端没起唤醒轮，而是跳过了它
+ * （积分不足、连续唤醒到了上限）。面板据此换上快照，卡上才说得出智能体为什么没回来。
+ */
+function wakeSkipNews(
+  snapshot: readonly AgentMessageView[],
+  shown: readonly AgentPanelMessage[],
+): boolean {
+  const skipped = new Set(
+    snapshot.flatMap((message) =>
+      message.content.some((block) => block.type === 'toolResult' && block.wakeSkipped)
+        ? [message.id]
+        : [],
+    ),
+  )
+  return shown.some(
+    (message) => message.kind === 'tool' && skipped.has(message.id) && !message.wakeSkipped,
+  )
+}
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
@@ -637,7 +658,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return
         }
         const shown = new Set(get().messages.map((message) => message.id))
-        if (snapshot.messages.some((message) => !shown.has(message.id))) {
+        if (
+          snapshot.messages.some((message) => !shown.has(message.id)) ||
+          wakeSkipNews(snapshot.messages, get().messages)
+        ) {
           const history = panelStateFromHistory(snapshot)
           const before = new Map(get().messages.map((message) => [message.id, message]))
           set({
