@@ -6,16 +6,13 @@ import type {
   PersistedVideoRequest,
   QueueProvider,
 } from '@image-playground/shared'
-import { AGENT_ARTIFACT_NOUN, projectArtifactId } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { projectArtifactId } from '@image-playground/shared'
 import { config } from '../../../config'
-import { schema } from '../../../db/client'
-import { cancelTasks } from '../../../db/task-transitions'
 import { resolveQueueModel } from '../../channels'
 import type { ExtractedResult } from '../../extractImages'
-import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
+import { type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
-import { AgentToolError, queueRefusalCode, taskFailureCode } from './errors'
+import { AgentToolError, queueRefusalCode } from './errors'
 import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
@@ -60,18 +57,21 @@ export interface QueueTaskInput {
   /** 产出落画布时贴着这个画布对象放。 */
   readonly anchorObjectId?: string
   /**
-   * 提交后立即交还对话，产物等任务结束后按产物交付落画布（后台任务）。缺席即留在这一轮里
-   * 等结果：局部改图要在同一轮里复核候选，只能同步。
+   * 成功后要不要唤醒智能体回来复核（失败一律唤醒）。模型在提交时自己选；局部改图的候选
+   * 必须复核，由改图工具定死。
    */
-  readonly background?: boolean
+  readonly review?: boolean
 }
 
 /**
  * 后台任务提交成功时给模型的那句话。结果此刻还不存在，模型最容易犯的错是顺口说「画好了」，
  * 所以这里把「没好」和「什么时候能看到」一起说清。
  */
-function backgroundText(words: MediaWords, count: number, taskId: string): string {
-  return `已提交后台${words.verb}任务（${count} ${words.unit}），结果尚未就绪。任务在后台生成，完成后自动放到用户的画布上；用户下次说话时你会在对话记录里看到结果。结果出来之前不要说已经生成好，也不要描述成品的样子。任务 id：${taskId}`
+function backgroundText(words: MediaWords, count: number, taskId: string, review: boolean): string {
+  const after = review
+    ? '任务结束后系统会唤醒你来复核结果。'
+    : '失败时系统会唤醒你向用户说明；成功时用户下次说话你会在对话记录里看到结果。'
+  return `已提交后台${words.verb}任务（${count} ${words.unit}），结果尚未就绪。任务在后台生成，完成后自动放到用户的画布上；${after}结果出来之前不要说已经生成好，也不要描述成品的样子。任务 id：${taskId}`
 }
 
 /**
@@ -114,15 +114,16 @@ export function noModelMessage(media: ChannelMedia): string {
 }
 
 /**
- * 提交进现有队列。后台任务提交完就返回，否则等它跑完。失败一律抛，由轮翻译成用户看得懂的一句话。
+ * 提交进现有队列，提交完就返回（后台任务）：结果等任务结束后按产物交付落画布，要不要唤醒智能体
+ * 回来看由 `wake.ts` 判断。提交失败一律抛，由轮翻译成用户看得懂的一句话。
  */
 export async function runQueueTask(
   context: AgentToolContext,
   input: QueueTaskInput,
   signal: AbortSignal | undefined,
-  onUpdate: ((partial: AgentToolResult<AgentToolDetails>) => void) | undefined,
 ): Promise<AgentToolResult<AgentToolDetails>> {
   const words = WORDS[input.media]
+  const review = input.review === true
   const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
   if (!target) throw new AgentToolError('model_unavailable', noModelMessage(input.media))
 
@@ -173,7 +174,15 @@ export async function runQueueTask(
     },
     ...(input.video ? { video: input.video } : {}),
     userId: context.userId,
-    agent: { conversationId: context.conversationId, turnId: context.turnId },
+    agent: {
+      conversationId: context.conversationId,
+      turnId: context.turnId,
+      job: {
+        toolCallId: input.toolCallId ?? '',
+        wakeOnSuccess: review,
+        ...(context.maskedEditPlan ? { plan: context.maskedEditPlan.carryAfter(submission) } : {}),
+      },
+    },
   })
   if (submitted.kind !== 'created') {
     const code = queueRefusalCode(submitted.kind)
@@ -183,72 +192,13 @@ export async function runQueueTask(
 
   // 任务真的建出来了才登记：失败的提交不占批次名额，也不算这条内容提交过。
   context.maskedEditPlan?.submitted(submission)
-  if (input.background) {
-    // 停止只停这段回复：任务已经交给队列，不随这一轮中止，删除会话时才一并取消。
-    const count = input.media === 'image' ? agentImageCount(input) : 1
-    return {
-      content: [{ type: 'text', text: backgroundText(words, count, submitted.taskId) }],
-      details: {
-        executedPrompt: input.prompt,
-        job: { taskId: submitted.taskId, media: input.media },
-        ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
-      },
-    }
-  }
-  onUpdate?.({ content: [], details: { stage: 'submitted' } })
-  const outcome = await awaitQueueTask(submitted.taskId, {
-    signal,
-    onStatus: (status) => {
-      if (status === 'in_progress') onUpdate?.({ content: [], details: { stage: 'running' } })
-    },
-  }).catch(async (error) => {
-    if (signal?.aborted) {
-      await cancelTasks(
-        and(
-          eq(schema.tasks.id, submitted.taskId),
-          eq(schema.tasks.agent_turn_id, context.turnId),
-          eq(schema.tasks.agent_conversation_id, context.conversationId),
-        )!,
-      )
-    }
-    throw error
-  })
-  if (outcome.kind !== 'completed') {
-    if (outcome.stillRunning) {
-      // 等不到了但任务还在队列里：先撤掉它（撤销按原桶退回），才能说这是一次可重试的超时。
-      // 撤不掉说明它恰好在这一刻到了终态，结局不在我们手里，按结果未知处理。
-      const withdrawn = await cancelTasks(
-        and(
-          eq(schema.tasks.id, submitted.taskId),
-          eq(schema.tasks.agent_turn_id, context.turnId),
-          eq(schema.tasks.agent_conversation_id, context.conversationId),
-        )!,
-        // 云端项目里它预留的位置和本机画布一样留作超时的失败占位。
-        { failedAs: 'timeout' },
-      )
-      throw new AgentToolError(withdrawn.length > 0 ? 'timeout' : 'result_unknown', outcome.reason)
-    }
-    throw new AgentToolError(
-      outcome.cancelled ? 'cancelled' : taskFailureCode(outcome.errorType),
-      outcome.reason,
-    )
-  }
-
-  const artifacts = queueArtifacts(submitted.taskId, input.media, outcome.result)
-  context.images.note(artifacts)
-
+  // 停止只停这段回复：任务已经交给队列，不随这一轮中止，删除会话时才一并取消。
+  const count = input.media === 'image' ? agentImageCount(input) : 1
   return {
-    content: [
-      {
-        type: 'text',
-        text: `已生成 ${artifacts.length} ${words.unit}${input.mask ? '候选（仍需检查选区内效果与边缘）' : ''}并放到画布上，${
-          AGENT_ARTIFACT_NOUN[input.media]
-        } id：${artifacts.map((artifact) => artifact.artifactId).join(', ')}`,
-      },
-    ],
+    content: [{ type: 'text', text: backgroundText(words, count, submitted.taskId, review) }],
     details: {
       executedPrompt: input.prompt,
-      artifacts,
+      job: { taskId: submitted.taskId, media: input.media, ...(review ? { review: true } : {}) },
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     },
   }

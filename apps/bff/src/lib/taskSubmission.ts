@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import type { AgentJobPlan } from '@image-playground/db'
 import type {
   PersistedSubmitRequest,
   PersistedVideoRequest,
@@ -36,7 +37,20 @@ export interface CreateQueueTaskInput {
   readonly video?: PersistedVideoRequest
   readonly userId: string | null
   /** 智能体工具提交时带上会话与轮，任务由此可反查属于哪一轮。 */
-  readonly agent?: { readonly conversationId: string; readonly turnId: string }
+  readonly agent?: {
+    readonly conversationId: string
+    readonly turnId: string
+    /**
+     * 这是一个后台任务：与任务行同一个事务登记进 `agent_jobs`，结束时据此判断要不要唤醒智能体。
+     * 登记与任务同生同灭，worker 再快也不会在登记之前把它跑完。
+     */
+    readonly job?: {
+      readonly toolCallId: string
+      readonly wakeOnSuccess: boolean
+      /** 提交这一刻的改图计划；唤醒轮接着它走。 */
+      readonly plan?: AgentJobPlan
+    }
+  }
   /**
    * 云端项目里这个任务要接替的失败占位（项目元素 id）：单张重试时产物落回原来那个位置。
    * 它不在项目里、或不是失败占位时照常另找位置。
@@ -104,7 +118,11 @@ function commandHash(input: CreateQueueTaskInput) {
             : {}),
         },
         video: input.video,
-        agent: input.agent,
+        // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
+        agent: input.agent && {
+          conversationId: input.agent.conversationId,
+          turnId: input.agent.turnId,
+        },
       }),
     )
     .digest('hex')
@@ -331,6 +349,16 @@ export async function createQueueTask(
         turnId: input.agent!.turnId,
         count: input.request.n ?? 1,
         ...(input.projectSlot ? { replaceObjectId: input.projectSlot } : {}),
+      })
+    if (input.agent?.job)
+      await tx.insert(schema.agent_jobs).values({
+        task_id: id,
+        conversation_id: input.agent.conversationId,
+        turn_id: input.agent.turnId,
+        tool_call_id: input.agent.job.toolCallId,
+        wake_on_success: input.agent.job.wakeOnSuccess,
+        plan: input.agent.job.plan ?? null,
+        submitted_at: now,
       })
     await publishGenerations(tx, [id])
     return {

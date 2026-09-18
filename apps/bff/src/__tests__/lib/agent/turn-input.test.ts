@@ -196,8 +196,9 @@ describe('estimateTurnInputTokens', () => {
  * 生视频那一份声明的增量。原值 299；档位说明改成按解析到的模型写之后，兜底那一份也长了
  * （三个档位参数各多一句「填不了就照原话填，工具会告诉你做得到什么」）。
  * 改成后台任务后说明里多了「提交后立即返回、结果尚未就绪」，从 419 长到 446。
+ * 加上「成功后要不要唤醒复核」的参数后长到 497。
  */
-const VIDEO_DECLARATION_TOKENS = 446
+const VIDEO_DECLARATION_TOKENS = 497
 
 /** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
 describe('tool declarations in the estimate', () => {
@@ -321,5 +322,18 @@ describe('estimated and sent turn input', () => {
       /^视觉输入 2：图片 img-2 原图；3：蓝色定位图；4：原色选区裁片。选区 ID selection_[0-9a-f]{64}，位置 \{"left":\d+,"top":\d+,"width":\d+,"height":\d+\}。蓝色和裁片透明处均为定位信息，不是产品外观。$/
     expect(sentLines[4]).toMatch(masked)
     expect(estimatedLines[4]).toMatch(masked)
+  })
+
+  /** 唤醒轮要复核的产物跟在参考图后面发出去：预扣照同样的块数与清单算，不少算。 */
+  it('charges the artifacts a wake turn reviews like the evidence it sends', async () => {
+    const reviewed = { ...REAL_PLAIN, imageId: 'agent_task-1_0' }
+    const evidence = await turnVisualEvidence([reviewed])
+    const estimated = estimatedTurnInput([], '复核', [], 'image', [reviewed.imageId]).at(-1)!
+    expect(imageBlocks(estimated)).toBe(evidence.content.length)
+    expect(textOf(estimated)).toBe(turnPromptText('复核', []) + evidence.manifest)
+    expect(
+      estimateTurnInputTokens([], '复核', [], 'image', [reviewed.imageId]) -
+        estimateTurnInputTokens([], '复核', []),
+    ).toBeGreaterThanOrEqual(1200)
   })
 })

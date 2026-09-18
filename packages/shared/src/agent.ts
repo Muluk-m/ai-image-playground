@@ -209,6 +209,11 @@ export interface AgentBackgroundJob {
   readonly media: ChannelMedia
   /** 视频任务实际提交的档位；任务成功时记到产物上。 */
   readonly video?: VideoGenerationRecord
+  /**
+   * 智能体提交时要求成功后回来复核（局部改图总是要）。失败一律唤醒，与它无关；界面据此知道
+   * 任务结束后会不会有一轮唤醒要挂上。
+   */
+  readonly review?: true
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
@@ -419,6 +424,11 @@ export interface AgentTurnStartEvent {
   readonly userMessageId: string
   /** 本轮预扣的积分；不计费的部署里缺席。 */
   readonly reservedCredits?: number
+  /**
+   * 这一轮是唤醒：后台任务结束后智能体回来看结果，不是用户说了话。`userMessageId` 此时不指向
+   * 任何一条消息，界面不为它出用户气泡。
+   */
+  readonly wake?: true
 }
 
 /** 一轮里可以有多条助手消息：插话之后运行时会开新的一条。 */

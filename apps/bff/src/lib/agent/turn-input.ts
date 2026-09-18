@@ -120,7 +120,7 @@ function systemPrompt(mode: AgentMode): string {
     ...skillsBlock(agentSkills(mode)),
     '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     // 后台任务提交即返回：模型最常犯的错是结果还不存在就顺口说「画好了」。
-    '生图、生视频与无选区的普通改图是后台任务：工具返回「已提交」只说明任务开始了，结果尚未就绪。回复时告诉用户已经开始、完成后会自动出现在画布上；结果出来之前不得宣称已经完成，也不要描述成品的样子。已提交任务的结果会在用户下次说话时出现在对话记录里。',
+    '生图、生视频与改图都是后台任务：工具返回「已提交」只说明任务开始了，结果尚未就绪。回复时告诉用户已经开始、完成后会自动出现在画布上；结果出来之前不得宣称已经完成，也不要描述成品的样子。任务失败时系统会唤醒你开新的一轮，向用户说明并提议下一步；成功时只有你提交时要求复核（reviewAfterCompletion，局部改图总会复核）才会唤醒你，否则结果会在用户下次说话时出现在对话记录里。',
     '按用户原话及已确认补充执行编辑。区分修改对象、允许变化范围和参考来源；选区限定范围，不表示其中所有内容都要改变。只修改指定实例与属性，保留其余内容；用户明确委托的自由设计应在其授权范围内执行。',
     '参考仅提供用户指定或明确委托的属性。目标、范围、参考用途或必要动作存在实质冲突时，先提出一个具体澄清；信息明确则直接执行。保留要求不得覆盖本次修改目标。',
     '只有定位图中蓝色覆盖的像素属于选区；未覆盖的包围区域不属于选区。视觉标记不是原图外观。实际选区不足以包含要修改或参考的内容时，先请用户调整选区，不得擅自扩展。',
@@ -237,6 +237,8 @@ export function estimatedTurnInput(
   text: string,
   references: readonly AgentTurnReference[],
   mode: AgentMode = 'image',
+  /** 唤醒轮要复核的产物：跟在参考图后面作为视觉证据发出去，每张一块原图。 */
+  reviewImageIds: readonly string[] = [],
 ): AgentMessage[] {
   const now = Date.now()
   const active = activeAgentReferences(references, history)
@@ -252,7 +254,10 @@ export function estimatedTurnInput(
           type: 'text',
           text:
             turnPromptText(expandSkillInvocation(text, mode), active) +
-            evidenceManifest(estimatedListings(active)),
+            evidenceManifest([
+              ...estimatedListings(active),
+              ...reviewImageIds.map((imageId) => ({ imageId })),
+            ]),
         },
         ...active.flatMap((reference) =>
           evidenceBlocks(
@@ -262,6 +267,7 @@ export function estimatedTurnInput(
               : undefined,
           ),
         ),
+        ...reviewImageIds.map(() => PLACEHOLDER_IMAGE),
       ],
       timestamp: now,
     },
@@ -277,9 +283,10 @@ export function estimateTurnInputTokens(
   text: string,
   references: readonly AgentTurnReference[],
   mode: AgentMode = 'image',
+  reviewImageIds: readonly string[] = [],
 ): number {
   const estimated =
-    estimatedTurnInput(history, text, references, mode).reduce(
+    estimatedTurnInput(history, text, references, mode, reviewImageIds).reduce(
       (total, message) => total + estimateMessageTokens(message),
       0,
     ) + estimateToolDeclarationTokens(mode)
