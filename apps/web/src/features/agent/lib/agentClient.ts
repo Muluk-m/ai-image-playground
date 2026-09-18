@@ -11,8 +11,10 @@ import type {
   AgentQueuedMessageView,
   AgentQueueInterjectResult,
   AgentQueueWithdrawResult,
+  AgentRetryResponse,
   AgentReturnedQueuedMessage,
   AgentSkillSummary,
+  AgentToolErrorCode,
   AgentTurnAbortedBody,
   AgentTurnAlreadyRunningBody,
   AgentTurnEvent,
@@ -20,7 +22,12 @@ import type {
   AgentTurnReference,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
-import { AGENT_FRAME_SEPARATOR, DEVICE_ID_HEADER, parseAgentFrame } from '@image-playground/shared'
+import {
+  AGENT_FRAME_SEPARATOR,
+  DEVICE_ID_HEADER,
+  isAgentToolErrorCode,
+  parseAgentFrame,
+} from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { getDeviceId } from '../../../lib/deviceId'
@@ -34,6 +41,8 @@ export class AgentRequestError extends Error {
   constructor(
     readonly status: number,
     readonly code?: string,
+    /** 服务端拒绝时给的工具错误码（如重试没能提交）；界面只按它给出路（ADR 0006）。 */
+    readonly toolErrorCode?: AgentToolErrorCode,
   ) {
     super(`Agent request failed with ${status}`)
     this.name = 'AgentRequestError'
@@ -41,8 +50,15 @@ export class AgentRequestError extends Error {
 }
 
 async function requestError(response: Response): Promise<AgentRequestError> {
-  const body = (await response.json().catch(() => null)) as { error?: string } | null
-  return new AgentRequestError(response.status, body?.error)
+  const body = (await response.json().catch(() => null)) as {
+    error?: string
+    code?: unknown
+  } | null
+  return new AgentRequestError(
+    response.status,
+    body?.error,
+    isAgentToolErrorCode(body?.code) ? body.code : undefined,
+  )
 }
 
 function url(path: string): string {
@@ -434,6 +450,44 @@ export function followTurn(
       return outcome
     },
   }
+}
+
+/**
+ * 单张重试：按失败卡起跑时的参数重出一张，结果落回 `placeholderId` 那个失败占位。
+ * 返回追加在对话末尾的重试记录。
+ */
+export async function retryToolCall(
+  conversationId: string,
+  messageId: string,
+  placeholderId: string | undefined,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentMessageView> {
+  const response = await fetcher(url(`/conversations/${conversationId}/retries`), {
+    ...jsonInit({
+      deviceId: getDeviceId(),
+      messageId,
+      ...(placeholderId ? { placeholderId } : {}),
+    }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  return ((await response.json()) as AgentRetryResponse).message
+}
+
+/** 中止一条还在跑的重试，按原桶退回。 */
+export async function cancelRetry(
+  conversationId: string,
+  messageId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<void> {
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/retries/${messageId}/cancel`),
+    {
+      ...jsonInit({ deviceId: getDeviceId() }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
 }
 
 export async function abortTurn(

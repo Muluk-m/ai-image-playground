@@ -3,6 +3,7 @@ import type {
   AgentBackgroundJobView,
   AgentToolArtifact,
   AgentToolEndEvent,
+  AgentToolResultBlock,
   AgentToolStartEvent,
   AgentTurnEvent,
 } from '@image-playground/shared'
@@ -107,6 +108,15 @@ const reserved: { count: number; anchorObjectId?: string; ids: string[] }[] = []
 const discarded: string[] = []
 const failed: { id: string; message: string }[] = []
 const placedInto: (readonly string[] | undefined)[] = []
+/** 标错时带的错误码，与 `failed` 一一对应。 */
+const failedCodes: (string | undefined)[] = []
+/** 重试时重新转圈的失败占位。 */
+const revived: string[] = []
+/** 重试相关请求：路径与请求体。 */
+const retryRequests: { url: string; body: unknown }[] = []
+let retryResponse: (url: string) => Response
+/** 云端文档拉回来之前，重试的占位还没换成生成中；默认立刻拉回。 */
+let reviveGate: Promise<void> = Promise.resolve()
 let placeholderSeq = 0
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -118,6 +128,10 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   }
   if (url.includes('/turns')) return turnResponse()
   if (url.endsWith('/jobs')) return Response.json({ jobs: jobsResponse() })
+  if (url.includes('/retries')) {
+    retryRequests.push({ url, body: JSON.parse(String(init?.body ?? 'null')) })
+    return retryResponse(url)
+  }
   if (url.endsWith('/cancel') && init?.method === 'POST') return cancelResponse()
   if (url.includes('/v1/queue/requests/')) {
     return imageResponse()
@@ -145,6 +159,12 @@ beforeEach(() => {
   discarded.length = 0
   failed.length = 0
   placedInto.length = 0
+  failedCodes.length = 0
+  revived.length = 0
+  retryRequests.length = 0
+  retryResponse = () => Response.json({ error: 'not_retryable' }, { status: 422 })
+  reviveGate = Promise.resolve()
+  useAgentStore.setState({ retryRefusals: {} })
   placeholderSeq = 0
   imageResponse = () =>
     new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
@@ -161,8 +181,15 @@ beforeEach(() => {
     discard(ids) {
       discarded.push(...ids)
     },
-    markFailed(ids, message) {
-      for (const id of ids) failed.push({ id, message })
+    markFailed(ids, message, code) {
+      for (const id of ids) {
+        failed.push({ id, message })
+        failedCodes.push(code)
+      }
+    },
+    async revive(ids) {
+      revived.push(...ids)
+      await reviveGate
     },
     async place(items, options) {
       if (options?.isCurrent && !options.isCurrent()) return 'unavailable'
@@ -836,6 +863,275 @@ describe('后台任务', () => {
     done = true
     await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
+  })
+})
+
+describe('单张重试', () => {
+  const FAILED_CARD: AgentToolResultBlock = {
+    type: 'toolResult',
+    toolCallId: 'call-1',
+    toolName: 'generateImage',
+    status: 'failed',
+    title: '一只橘猫坐在窗台上',
+    message: '上游超时',
+    errorCode: 'timeout',
+    snapshot: {
+      mode: 'image',
+      args: { prompt: '一只橘猫坐在窗台上', n: 2 },
+      target: { provider: 'openai-compat', model: 'gpt-image-2' },
+    },
+    job: { taskId: 'task-1', media: 'image' },
+  }
+  const { message: _message, errorCode: _code, ...failedBase } = FAILED_CARD
+  const RETRY_RECORD: AgentToolResultBlock = {
+    ...failedBase,
+    toolCallId: 'retry-call',
+    status: 'submitted',
+    job: { taskId: 'task-retry', media: 'image' },
+    retryOf: { messageId: 'tool-1', toolCallId: 'call-1', placeholderId: 'placeholder-9' },
+  }
+  const recordView = (result: AgentToolResultBlock = RETRY_RECORD) => ({
+    id: 'retry-1',
+    turnId: 'retry-turn',
+    role: 'assistant' as const,
+    content: [result],
+    createdAt: 3,
+  })
+  const settledRecord = (
+    patch: Partial<AgentToolResultBlock>,
+  ): readonly AgentBackgroundJobView[] => [
+    { messageId: 'retry-1', turnId: 'retry-turn', result: { ...RETRY_RECORD, ...patch } },
+  ]
+
+  /** 读回一个只有那张失败卡的会话。 */
+  async function openFailedConversation(extra: unknown[] = []) {
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        turns: [],
+        messages: [
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [FAILED_CARD],
+            createdAt: 2,
+          },
+          ...extra,
+        ],
+      })
+    await state().selectConversation(CONVERSATION)
+  }
+
+  it('在失败占位上重试：对话末尾追加重试记录，结果落回原占位，原卡保持失败', async () => {
+    await openFailedConversation()
+    let done = false
+    jobsResponse = () =>
+      done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})
+    retryResponse = () => Response.json({ message: recordView() })
+
+    await state().retry('tool-1', 'placeholder-9')
+
+    expect(retryRequests).toEqual([
+      {
+        url: `http://bff.test/api/agent/conversations/${CONVERSATION}/retries`,
+        body: expect.objectContaining({ messageId: 'tool-1', placeholderId: 'placeholder-9' }),
+      },
+    ])
+    expect(state().messages.map((message) => message.id)).toEqual(['tool-1', 'retry-1'])
+    expect(toolMessages()[1]).toMatchObject({
+      status: 'submitted',
+      retryOf: { messageId: 'tool-1', placeholderId: 'placeholder-9' },
+    })
+    expect(revived).toEqual(['placeholder-9'])
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    expect(placedInto).toEqual([['placeholder-9']])
+    expect(reserved).toEqual([])
+    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
+  })
+
+  it('重试失败只在原占位上标错，不唤醒智能体', async () => {
+    await openFailedConversation()
+    jobsResponse = () =>
+      settledRecord({ status: 'failed', message: '上游出错', errorCode: 'upstream_error' })
+    retryResponse = () => Response.json({ message: recordView() })
+
+    await state().retry('tool-1', 'placeholder-9')
+
+    await vi.waitFor(() => expect(failed).toHaveLength(1))
+    expect(failed[0]!.id).toBe('placeholder-9')
+    expect(failedCodes).toEqual(['upstream_error'])
+    expect(toolMessages()[1]).toMatchObject({ status: 'failed', errorCode: 'upstream_error' })
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/turns'))).toBe(false)
+    expect(state().turn).toBe('idle')
+  })
+
+  it('中止重试：占位回到原来那次失败的码', async () => {
+    await openFailedConversation()
+    let cancelled = false
+    jobsResponse = () =>
+      cancelled
+        ? settledRecord({ status: 'failed', message: '任务被取消了', errorCode: 'cancelled' })
+        : settledRecord({})
+    retryResponse = (url) => {
+      if (url.endsWith('/cancel')) {
+        cancelled = true
+        return Response.json({ cancelled: true })
+      }
+      return Response.json({ message: recordView() })
+    }
+    await state().retry('tool-1', 'placeholder-9')
+
+    await state().cancelJob('retry-1')
+
+    expect(retryRequests[retryRequests.length - 1]?.url).toBe(
+      `http://bff.test/api/agent/conversations/${CONVERSATION}/retries/retry-1/cancel`,
+    )
+    await vi.waitFor(() => expect(failed).toHaveLength(1))
+    expect(failed[0]!.id).toBe('placeholder-9')
+    expect(failedCodes).toEqual(['timeout'])
+  })
+
+  it('重试被拒（积分不够）：不追加记录，占位按拒绝的码给出路', async () => {
+    await openFailedConversation()
+    retryResponse = () =>
+      Response.json({ error: 'retry_refused', code: 'insufficient_credits' }, { status: 409 })
+
+    await state().retry('tool-1', 'placeholder-9')
+
+    expect(state().messages.map((message) => message.id)).toEqual(['tool-1'])
+    expect(failed.map((one) => one.id)).toEqual(['placeholder-9'])
+    expect(failedCodes).toEqual(['insufficient_credits'])
+    expect(revived).toEqual([])
+    expect(state().error).toBeTruthy()
+    expect(state().retryRefusals).toEqual({ 'placeholder-9': { code: 'insufficient_credits' } })
+  })
+
+  it('云端占位的重试被拒：画布不改写云端文档，拒绝的码盖在占位上，下次重试提交成了就揭掉', async () => {
+    await openFailedConversation()
+    retryResponse = () =>
+      Response.json({ error: 'retry_refused', code: 'authentication_required' }, { status: 409 })
+
+    await state().retry('tool-1', 'placeholder-9', 'generation-1')
+
+    expect(state().retryRefusals).toEqual({
+      'placeholder-9': { code: 'authentication_required', generationId: 'generation-1' },
+    })
+
+    jobsResponse = () => settledRecord({})
+    retryResponse = () => Response.json({ message: recordView() })
+    await state().retry('tool-1', 'placeholder-9', 'generation-1')
+    expect(state().retryRefusals).toEqual({})
+  })
+
+  it('重试要等占位真正换成生成中才兑现：云端文档拉回来之前按钮一直按住', async () => {
+    await openFailedConversation()
+    jobsResponse = () => settledRecord({})
+    retryResponse = () => Response.json({ message: recordView() })
+    let pulled!: () => void
+    reviveGate = new Promise((resolve) => {
+      pulled = resolve
+    })
+    let done = false
+
+    const retrying = state()
+      .retry('tool-1', 'placeholder-9', 'generation-1')
+      .then(() => {
+        done = true
+      })
+
+    await vi.waitFor(() => expect(revived).toEqual(['placeholder-9']))
+    expect(done).toBe(false)
+    pulled()
+    await retrying
+    expect(done).toBe(true)
+  })
+
+  it('服务端给回同一个占位上已在跑的那条重试：面板不重复，也不再开第二个交付', async () => {
+    await openFailedConversation()
+    let done = false
+    jobsResponse = () =>
+      done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})
+    retryResponse = () => Response.json({ message: recordView() })
+
+    await state().retry('tool-1', 'placeholder-9')
+    await state().retry('tool-1', 'placeholder-9')
+
+    expect(state().messages.map((message) => message.id)).toEqual(['tool-1', 'retry-1'])
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    expect(placedInto).toEqual([['placeholder-9']])
+  })
+
+  it('给回的重试已经补上（别的设备点的）：补上记录，产物落回原占位', async () => {
+    await openFailedConversation()
+    retryResponse = () =>
+      Response.json({
+        message: recordView({ ...RETRY_RECORD, status: 'succeeded', artifacts: [IMAGE] }),
+      })
+
+    await state().retry('tool-1', 'placeholder-9')
+
+    expect(state().messages.map((message) => message.id)).toEqual(['tool-1', 'retry-1'])
+    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    expect(placedInto).toEqual([['placeholder-9']])
+  })
+
+  it('别的设备点的重试：守候时读到面板上没有的重试记录就补在末尾，结束时落回它指的占位', async () => {
+    let done = false
+    const otherJob: AgentBackgroundJobView = {
+      messageId: 'tool-2',
+      turnId: 'turn-1',
+      result: {
+        ...RETRY_RECORD,
+        retryOf: undefined,
+        toolCallId: 'call-2',
+        job: { taskId: 'task-2', media: 'image' },
+      },
+    }
+    jobsResponse = () => [
+      otherJob,
+      ...(done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})),
+    ]
+    await openFailedConversation([
+      {
+        id: 'tool-2',
+        turnId: 'turn-1',
+        role: 'assistant',
+        content: [otherJob.result],
+        createdAt: 3,
+      },
+    ])
+
+    await vi.waitFor(() =>
+      expect(state().messages.map((message) => message.id)).toEqual([
+        'tool-1',
+        'tool-2',
+        'retry-1',
+      ]),
+    )
+    expect(toolMessages()[2]).toMatchObject({
+      status: 'submitted',
+      retryOf: { messageId: 'tool-1', placeholderId: 'placeholder-9' },
+    })
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[2]!.delivery).toBe('placed'))
+    expect(placedInto).toEqual([['placeholder-9']])
+  })
+
+  it('刷新后读回还在跑的重试，结束时仍落回原占位', async () => {
+    let done = false
+    jobsResponse = () =>
+      done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})
+    await openFailedConversation([recordView()])
+    expect(toolMessages()[1]).toMatchObject({ status: 'submitted' })
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    expect(placedInto).toEqual([['placeholder-9']])
   })
 })
 

@@ -162,6 +162,9 @@ export default function AgentPanel({
   if (!open && !mobile) return <CollapsedButton onOpen={() => setOpen(true)} />
 
   const answerableId = answerableClarificationId(messages)
+  // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
+  // 消息中间，所以按「这一轮的最后一条」认，而不只看下一条换没换轮。
+  const lastOfTurn = new Map(messages.map((message, index) => [message.turnId, index]))
 
   return (
     <div aria-label={t('panel.aria')} style={{ width: panelWidth }} className="studio-sidebar">
@@ -236,9 +239,7 @@ export default function AgentPanel({
               </div>
             )}
             {messages.map((message, index) => {
-              // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
-              const footer =
-                messages[index + 1]?.turnId === message.turnId ? null : turns[message.turnId]
+              const footer = lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
               return (
                 <Fragment key={message.id}>
                   {renderMessage(message, answerableId, skills)}

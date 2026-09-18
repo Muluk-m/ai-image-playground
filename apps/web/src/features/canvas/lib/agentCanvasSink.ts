@@ -137,6 +137,8 @@ export function createAgentCanvasSink(
         if (created.length) editor.scrollToElements(created)
       }
       for (const id of placeholderIds) {
+        // 云端失败占位的失败状态归服务端写（本机改了它，保存会被拒）；拉回来的就是它的终局。
+        if (editor.getPlaceholder(id)?.meta.cloudGeneration) continue
         if (errorCode)
           editor.updatePlaceholder(id, {
             status: 'error',
@@ -145,6 +147,22 @@ export function createAgentCanvasSink(
           })
         else markPlaceholderStatus(editor, id, 'error', message)
       }
+    },
+
+    async revive(ids) {
+      let pull = false
+      for (const id of ids) {
+        const placeholder = editor.getPlaceholder(id)
+        if (!placeholder) continue
+        // 云端的失败占位不能由本机改回生成中（服务端会拒绝这次保存）：它已被服务端换掉，拉回来即可。
+        if (placeholder.meta.cloudGeneration) {
+          pull = true
+          continue
+        }
+        editor.updatePlaceholder(id, { status: 'loading', message: '' })
+      }
+      // 拉不下来也不卡住：下一次轮询会把它换过来，服务端对同一个占位的重复重试只给回原来那条。
+      if (pull) await cloud?.refresh().catch(() => {})
     },
 
     async place(artifacts, options) {
