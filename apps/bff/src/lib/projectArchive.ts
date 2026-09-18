@@ -1,5 +1,6 @@
 import {
   AGENT_IMAGE_MAX_N,
+  type AgentToolErrorCode,
   isProjectDocument,
   PROJECT_DOCUMENT_MAX_BYTES,
   type ProjectElement,
@@ -80,11 +81,17 @@ export async function reserveProjectOutputs(
     .where(eq(schema.canvas_projects.id, project.id))
 }
 
+/**
+ * 任务到了终态，把它在项目里预留的位置换成产物。`failure` 有值即任务失败：没出产物的位置
+ * 留作带错误码的失败占位（跨设备可见，用户自己删），不再悄悄收掉；缺席时（成功但少出了几张、
+ * 取消）照旧收掉没用上的位置。
+ */
 export async function publishProjectOutputs(
   tx: BffTransaction,
   userId: string,
   generationId: string,
   links: readonly { role: string; position: number; mediaId: string }[],
+  failure?: AgentToolErrorCode,
 ) {
   const outputs = await tx
     .select()
@@ -132,7 +139,7 @@ export async function publishProjectOutputs(
     touched = true
     const link = links.find((link) => link.role === 'output' && link.position === reserved.position)
     const asset = link && media.find((one) => one.id === link.mediaId && one.status === 'ready')
-    if (!asset) return []
+    if (!asset) return failure ? [{ ...element, errorCode: failure }] : []
     placed.push(asset.id)
     return [
       {

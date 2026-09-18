@@ -1,4 +1,4 @@
-import { AGENT_IMAGE_MAX_N } from './agent'
+import { AGENT_IMAGE_MAX_N, type AgentToolErrorCode, isAgentToolErrorCode } from './agent'
 import { isVideoGenerationRecord, type VideoGenerationRecord } from './video-generation'
 
 export const PROJECT_NAME_MAX_LENGTH = 120
@@ -61,6 +61,11 @@ export interface ProjectGeneration {
   y: number
   width: number
   height: number
+  /**
+   * 有值即这个预留位置的生成失败了：它作为失败占位留在画布上、跨设备可见，界面按码给出路
+   * （ADR 0006）。只由服务端在任务终态时写；缺席即仍在生成中。
+   */
+  errorCode?: AgentToolErrorCode
 }
 
 export function projectArtifactId(generationId: string, position: number): string {
@@ -186,7 +191,18 @@ function element(value: unknown): value is ProjectElement {
     return false
   if (value.type === 'generation') {
     return (
-      keys(value, ['id', 'type', 'generationId', 'position', 'x', 'y', 'width', 'height']) &&
+      keys(value, [
+        'id',
+        'type',
+        'generationId',
+        'position',
+        'x',
+        'y',
+        'width',
+        'height',
+        'errorCode',
+      ]) &&
+      (value.errorCode === undefined || isAgentToolErrorCode(value.errorCode)) &&
       typeof value.generationId === 'string' &&
       value.generationId.length <= 128 &&
       typeof value.position === 'number' &&

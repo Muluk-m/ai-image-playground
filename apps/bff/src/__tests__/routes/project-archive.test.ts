@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { sql } from 'drizzle-orm'
+import type { TaskErrorType } from '@image-playground/shared'
+import { eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
@@ -23,6 +24,7 @@ const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { createQueueTask } = await import('../../lib/taskSubmission')
 const { runTask } = await import('../../workers/task-runner')
+const { cancelTasks, finishTask } = await import('../../db/task-transitions')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -339,4 +341,146 @@ it('最新修订上的旧撤销内容也不能复活已经删除的生成占位'
   })
   expect(restore.status).toBe(409)
   expect(await restore.json()).toMatchObject({ error: 'project_output_not_owned' })
+})
+
+async function submitToProject(projectConversationId: string, n = 1) {
+  const submitted = await createQueueTask({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: '会失败的图', device_id: 'archive-device', n },
+    userId: 'archive-owner',
+    agent: { conversationId: projectConversationId, turnId: crypto.randomUUID() },
+  })
+  if (submitted.kind !== 'created') throw new Error(submitted.kind)
+  return submitted.taskId
+}
+
+/** 测试内的迷你 worker：领走任务，再把它推到失败终态。 */
+async function failTask(taskId: string, errorType: TaskErrorType) {
+  await db.update(schema.tasks).set({ status: 'in_progress' }).where(eq(schema.tasks.id, taskId))
+  return finishTask(taskId, { status: 'failed', errorType, completedAt: Date.now() })
+}
+
+it('生成失败时服务端占位转为带错误码的失败占位，另一个设备读得到', async () => {
+  const original = await project()
+  const taskId = await submitToProject(original.conversationId, 2)
+  expect(await failTask(taskId, 'upstream_timeout')).toBe(true)
+  const restored = await (await request(`/${original.id}`)).json()
+  expect(restored.revision).toBe(3)
+  expect(restored.document.elements).toEqual([
+    expect.objectContaining({
+      type: 'generation',
+      generationId: taskId,
+      position: 0,
+      errorCode: 'timeout',
+    }),
+    expect.objectContaining({
+      type: 'generation',
+      generationId: taskId,
+      position: 1,
+      errorCode: 'timeout',
+    }),
+  ])
+  const listed = await (await request('')).json()
+  expect(listed.projects.find((one: { id: string }) => one.id === original.id)).toMatchObject({
+    revision: 3,
+    elementCount: 2,
+  })
+})
+
+it.each([
+  ['upstream_no_image', 'no_output'],
+  ['upstream_error', 'upstream_error'],
+  ['interrupted', 'result_unknown'],
+] as const)('失败类型 %s 的失败占位记为 %s', async (errorType, code) => {
+  const original = await project()
+  const taskId = await submitToProject(original.conversationId)
+  await failTask(taskId, errorType)
+  const restored = await (await request(`/${original.id}`)).json()
+  expect(restored.document.elements).toMatchObject([{ type: 'generation', errorCode: code }])
+})
+
+it('删除失败占位同步给其他设备，旧内容也不能把它复活', async () => {
+  const original = await project()
+  const taskId = await submitToProject(original.conversationId)
+  await failTask(taskId, 'upstream_error')
+  const failed = await (await request(`/${original.id}`)).json()
+  expect(failed.document.elements).toHaveLength(1)
+  // 失败占位原样回写（例如只挪了位置）仍然是合法的保存。
+  const moved = {
+    version: 1,
+    elements: [{ ...failed.document.elements[0], x: 640 }],
+  }
+  expect(
+    (
+      await request(`/${original.id}`, {
+        requestId: crypto.randomUUID(),
+        baseRevision: failed.revision,
+        name: failed.name,
+        document: moved,
+      })
+    ).status,
+  ).toBe(200)
+  expect(
+    (
+      await request(`/${original.id}`, {
+        requestId: crypto.randomUUID(),
+        baseRevision: failed.revision + 1,
+        name: failed.name,
+        document: { version: 1, elements: [] },
+      })
+    ).status,
+  ).toBe(200)
+  const other = await (await request(`/${original.id}`)).json()
+  expect(other.document.elements).toEqual([])
+  const revived = await request(`/${original.id}`, {
+    requestId: crypto.randomUUID(),
+    baseRevision: other.revision,
+    name: other.name,
+    document: moved,
+  })
+  expect(revived.status).toBe(409)
+  expect(await revived.json()).toMatchObject({ error: 'project_output_not_owned' })
+})
+
+it('客户端不能改写服务端占位的失败状态', async () => {
+  const original = await project()
+  const taskId = await submitToProject(original.conversationId)
+  const reserved = await (await request(`/${original.id}`)).json()
+  // 仍在生成的占位不能被客户端标成失败。
+  const forged = await request(`/${original.id}`, {
+    requestId: crypto.randomUUID(),
+    baseRevision: reserved.revision,
+    name: reserved.name,
+    document: {
+      version: 1,
+      elements: [{ ...reserved.document.elements[0], errorCode: 'insufficient_credits' }],
+    },
+  })
+  expect(forged.status).toBe(409)
+  expect(await forged.json()).toMatchObject({ error: 'project_output_not_owned' })
+
+  await failTask(taskId, 'upstream_error')
+  const failed = await (await request(`/${original.id}`)).json()
+  const { errorCode: _code, ...loading } = failed.document.elements[0]
+  // 已失败的占位也不能被改回生成中。
+  const revived = await request(`/${original.id}`, {
+    requestId: crypto.randomUUID(),
+    baseRevision: failed.revision,
+    name: failed.name,
+    document: { version: 1, elements: [loading] },
+  })
+  expect(revived.status).toBe(409)
+  expect(await revived.json()).toMatchObject({ error: 'project_output_not_owned' })
+})
+
+it('等不到结果撤回的任务按超时留下失败占位（主动取消收掉占位见上文）', async () => {
+  const original = await project()
+  const timedOut = await submitToProject(original.conversationId)
+  const withdrawn = await cancelTasks(eq(schema.tasks.id, timedOut), { failedAs: 'timeout' })
+  expect(withdrawn).toHaveLength(1)
+  const restored = await (await request(`/${original.id}`)).json()
+  expect(restored.document.elements).toMatchObject([
+    { type: 'generation', generationId: timedOut, errorCode: 'timeout' },
+  ])
 })
