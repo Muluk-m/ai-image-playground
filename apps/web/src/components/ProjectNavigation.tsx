@@ -23,7 +23,9 @@ export default function ProjectNavigation() {
   const [busy, setBusy] = useState(false)
   const catalog = useMemo(() => projectCatalog(projects, cloudCatalog), [projects, cloudCatalog])
   const current = catalog.find((project) => project.id === activeId)
-  const name = projectDisplayName(current?.name ?? UNTITLED_PROJECT)
+  const name = projectDisplayName(
+    current?.name ?? projects.find((project) => project.id === activeId)?.name ?? UNTITLED_PROJECT,
+  )
   const query = search.trim().toLocaleLowerCase()
   const recent = current
     ? [current, ...catalog.filter((project) => project.id !== activeId)]

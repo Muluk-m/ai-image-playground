@@ -14,6 +14,7 @@ import {
   ensureCloudProjectConversation,
   getCloudProject,
   listCloudProjects,
+  restoreDeletedCloudProject,
 } from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
 import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './lib/projectRoute'
@@ -35,6 +36,8 @@ interface ProjectState {
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
+  restore(id: string): Promise<void>
+  markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
   importConversations(
     conversations: readonly AgentConversationView[],
@@ -76,6 +79,8 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     set({ cloudLoading: true, cloudError: null })
     try {
       const page = await listCloudProjects(more ? (get().cloudCursor ?? undefined) : undefined)
+      if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+      await get().markDeleted(page.deletedIds ?? [])
       if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
       set((state) => ({
         cloudCatalog: {
@@ -123,12 +128,13 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
             await restoreCloudProject(await getCloudProject(routeId, AbortSignal.timeout(10000))),
           )
         }
+        const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
         let active =
-          projects.find((one) => one.id === routeId) ??
-          projects.find((one) => one.id === remembered) ??
-          projects.find((one) => conversationId && one.conversationId === conversationId)
-        active ??= projects.find((one) => one.sceneKey === canvasSceneKey(conversationId))
-        active ??= projects[0]
+          available.find((one) => one.id === routeId) ??
+          available.find((one) => one.id === remembered) ??
+          available.find((one) => conversationId && one.conversationId === conversationId)
+        active ??= available.find((one) => one.sceneKey === canvasSceneKey(conversationId))
+        active ??= available[0]
         if (!active) {
           active =
             cloudProjectsEnabled() && !conversationId
@@ -197,6 +203,40 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
   },
+  async restore(id) {
+    const scope = scopedStorageName(CANVAS_PROJECT_KEY)
+    await restoreDeletedCloudProject(id)
+    if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+    const summary = await getCloudProject(id, AbortSignal.timeout(15000))
+    if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+    const project = await restoreCloudProject(summary)
+    if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+    set((state) => ({
+      projects: [...state.projects.filter((one) => one.id !== id), project],
+      cloudCatalog: { ...state.cloudCatalog, [id]: summary },
+    }))
+    const { reloadCloudProject } = await import('./lib/workspaces')
+    if (scopedStorageName(CANVAS_PROJECT_KEY) === scope) await reloadCloudProject(id)
+  },
+  async markDeleted(ids) {
+    const scope = scopedStorageName(CANVAS_PROJECT_KEY)
+    for (const id of ids) {
+      const project = get().projects.find((one) => one.id === id)
+      if (project?.cloud && !project.cloud.deleted) {
+        const updated = await projectRepository.update(id, {
+          cloud: { ...project.cloud, deleted: true },
+        })
+        if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+        set((state) => ({ projects: state.projects.map((one) => (one.id === id ? updated : one)) }))
+      }
+    }
+    if (scopedStorageName(CANVAS_PROJECT_KEY) === scope)
+      set((state) => ({
+        cloudCatalog: Object.fromEntries(
+          Object.entries(state.cloudCatalog).filter(([id]) => !ids.includes(id)),
+        ),
+      }))
+  },
   async remove(id) {
     if (get().projects.find((one) => one.id === id)?.cloud)
       throw new Error('cloud_project_delete_unavailable')
@@ -212,6 +252,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       if (!isCurrent()) return
       const existing = get().projects.find((one) => one.conversationId === conversation.id)
       if (existing) {
+        if (existing.cloud?.deleted) continue
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
           await get().update(existing.id, { name: conversation.title, hasContent: true })
         continue

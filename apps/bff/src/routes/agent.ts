@@ -4,7 +4,9 @@ import {
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
+import { db, schema } from '../db/client'
 import {
   type AgentOwner,
   adoptDeviceConversations,
@@ -15,6 +17,7 @@ import {
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
 import { readTurnEvents } from '../lib/agent/events'
+import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
@@ -135,37 +138,40 @@ export const agentRoutes = new Elysia()
       }
 
       const owner = ownerOf(authUser, body.deviceId)
-      const conversation = await findAgentConversation(params.id, owner)
-      if (!conversation) return status(404, NOT_FOUND)
-      // 409 带上在跑的那一轮：另一个标签页占着会话时，客户端据此转去续播而不是报错。
-      const active = runningTurn(conversation.id)
-      if (active) {
-        const body: AgentTurnAlreadyRunningBody = {
-          error: 'turn_already_running',
-          turnId: active.turnId,
+      return withAgentLifecycle(owner, async () => {
+        const conversation = await findAgentConversation(params.id, owner)
+        if (!conversation) return status(404, NOT_FOUND)
+        // 409 带上在跑的那一轮：另一个标签页占着会话时，客户端据此转去续播而不是报错。
+        const active = runningTurn(conversation.id)
+        if (active) {
+          const body: AgentTurnAlreadyRunningBody = {
+            error: 'turn_already_running',
+            turnId: active.turnId,
+          }
+          return status(409, body)
         }
-        return status(409, body)
-      }
 
-      try {
-        await validateSelections(body.references ?? [])
-      } catch (error) {
-        if (error instanceof InvalidSelectionError)
-          return status(422, { error: 'invalid_selection' })
-        throw error
-      }
-      const started = await startConversationTurn({
-        conversationId: conversation.id,
-        owner,
-        text: body.text,
-        references: body.references ?? [],
-        deviceId: body.deviceId,
-        ...(body.mode ? { mode: body.mode } : {}),
-        ...(body.params ? { params: body.params } : {}),
+        try {
+          await validateSelections(body.references ?? [])
+        } catch (error) {
+          if (error instanceof InvalidSelectionError)
+            return status(422, { error: 'invalid_selection' })
+          throw error
+        }
+        const started = await startConversationTurn({
+          conversationId: conversation.id,
+          owner,
+          text: body.text,
+          references: body.references ?? [],
+          deviceId: body.deviceId,
+          ...(body.mode ? { mode: body.mode } : {}),
+          ...(body.params ? { params: body.params } : {}),
+        })
+        if (started.kind === 'authentication_required')
+          return status(401, { error: 'unauthorized' })
+        if (started.kind !== 'started') return reservationFailureResponse(started)
+        return agentTurnStream(started.turn.read(0))
       })
-      if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
-      if (started.kind !== 'started') return reservationFailureResponse(started)
-      return agentTurnStream(started.turn.read(0))
     },
     {
       params: t.Object({ id: t.String() }),
@@ -206,8 +212,24 @@ export const agentRoutes = new Elysia()
       const owner = ownerOf(authUser, body.deviceId)
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
-      await softDeleteAgentConversation(conversation.id, owner)
-      return { ok: true }
+      return withAgentLifecycle(owner, async () => {
+        if (runningTurn(conversation.id)) return status(409, { error: 'conversation_busy' })
+        if (owner.kind === 'user') {
+          const [project] = await db
+            .select({ id: schema.canvas_projects.id })
+            .from(schema.canvas_projects)
+            .where(
+              and(
+                eq(schema.canvas_projects.user_id, owner.userId),
+                eq(schema.canvas_projects.conversation_id, conversation.id),
+              ),
+            )
+            .limit(1)
+          if (project) return status(409, { error: 'project_conversation_bound' })
+        }
+        await softDeleteAgentConversation(conversation.id, owner)
+        return { ok: true }
+      })
     },
     { params: t.Object({ id: t.String() }), body: t.Object({ deviceId: deviceIdSchema() }) },
   )

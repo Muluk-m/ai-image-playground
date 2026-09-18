@@ -61,7 +61,7 @@ export default function LibraryPanel() {
   if (!panelOpen) return null
 
   const counts: Record<LibraryTab, number> = {
-    projects: projects.length,
+    projects: projects.filter((project) => !project.cloud?.deleted).length,
     assets: assetCount,
     templates: templateCount,
   }

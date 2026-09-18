@@ -230,3 +230,46 @@ it.each([
   expect(bodies).toEqual([{ conversationId }])
   expect(Boolean(useCanvasProjectStore.getState().cloudError)).toBe(status === 409)
 })
+
+it('目录接收删除墓碑后隐藏云端项目，仍保留本机内容，恢复后重新显示', async () => {
+  const { projectRepository } = await import('../../../features/canvas/lib/projectRepository')
+  const { projectCatalog } = await import('../../../features/canvas/lib/projectCatalog')
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const summary = {
+    id: crypto.randomUUID(),
+    name: '保留本机编辑',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    elementCount: 0,
+  }
+  const local = await projectRepository.importCloud(summary)
+  let deleted = true
+  vi.stubGlobal('fetch', async (input: unknown) =>
+    String(input).endsWith('/capabilities')
+      ? Response.json({ 'accounts:sync': true })
+      : Response.json({
+          projects: deleted ? [] : [summary],
+          deletedIds: deleted ? [summary.id] : [],
+          nextCursor: null,
+        }),
+  )
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useCanvasProjectStore.setState({
+    projects: [local],
+    loaded: true,
+    cloudLoading: false,
+    cloudCatalog: { [summary.id]: summary },
+  })
+  await useCanvasProjectStore.getState().refreshCloud()
+  let state = useCanvasProjectStore.getState()
+  expect(projectCatalog(state.projects, state.cloudCatalog)).toHaveLength(0)
+  expect((await projectRepository.list()).find((one) => one.id === summary.id)).toMatchObject({
+    cloud: { deleted: true },
+  })
+  deleted = false
+  await useCanvasProjectStore.getState().refreshCloud()
+  state = useCanvasProjectStore.getState()
+  expect(projectCatalog(state.projects, state.cloudCatalog)).toMatchObject([{ id: summary.id }])
+})
