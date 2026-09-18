@@ -8,31 +8,43 @@ import {
 import { i18next } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
-import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
+import {
+  isVideoModeAvailable,
+  type VideoModelOption,
+  videoModelOptions,
+} from '../../../lib/channels/videoChannels'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import { DERIVE_RESOLUTION, deriveSourceRefusal } from '../../video/lib/derive'
 import { videoDeriveLabel, videoRejectionText } from '../../video/lib/labels'
-import { captureVideoFrame } from '../../video/lib/playback'
 import { useVideoStore } from '../../video/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasVideoRef } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
-import { canvasVideoRequest, guardAllows, launchCanvasVideo } from './submitVideoFromCanvas'
+import {
+  canvasVideoPromptRefusal,
+  canvasVideoRequest,
+  guardAllows,
+  launchCanvasVideo,
+} from './submitVideoFromCanvas'
 
-/** 画布上的一段视频：元素 id、播放来源，以及它落画布时记下的描述。 */
+/**
+ * 画布上的一段视频：元素 id、播放来源，以及用户当时在输入框里写的原话。
+ * 原话只有画布自己发起的视频才有；智能体落的视频 `meta.prompt` 是面板上的标题，
+ * 不是它生成时的提示词，拿它重发会出一段不相干的片子，所以这里是 null。
+ */
 export interface CanvasVideoNode {
   id: string
   video: CanvasVideoRef
-  prompt: string
+  userPrompt: string | null
 }
 
 export function canvasVideoNode(editor: CanvasEditor, id: string): CanvasVideoNode | null {
   const element = editor.getElement(id)
   if (element?.type !== 'image' || !element.video) return null
-  return { id, video: element.video, prompt: element.meta?.prompt ?? '' }
+  return { id, video: element.video, userPrompt: element.meta?.userPrompt ?? null }
 }
 
 /** 只选中了一段视频时才有节点工具条。 */
@@ -100,6 +112,11 @@ export async function submitCanvasDerive(
       toast(videoRejectionText(rejected))
       return false
     }
+    const tooLong = canvasVideoPromptRefusal(generation.model, prompt)
+    if (tooLong) {
+      toast(tooLong)
+      return false
+    }
   } catch (err) {
     toast(err instanceof Error ? err.message : String(err))
     return false
@@ -112,6 +129,7 @@ export async function submitCanvasDerive(
   )
   void launchCanvasVideo(editor, {
     prompt,
+    userPrompt: prompt,
     frames: [],
     channelId: check.option.channelId,
     generation,
@@ -120,32 +138,52 @@ export async function submitCanvasDerive(
   return true
 }
 
-/** 把这段视频当时的档位和描述载回生成栏（切到视频档），首尾帧还在画布上就重新选中它们。 */
+/** 这段视频能不能「重新生成」：部署得能出视频，生成栏才切得到视频档。 */
+export function canvasRegenerateRefusal(): string | null {
+  return isVideoModeAvailable()
+    ? null
+    : i18next.t('videoToolbar.videoUnavailable', { ns: 'canvas' })
+}
+
+/**
+ * 把这段视频当时的档位和原话载回生成栏（切到视频档），首尾帧都还在画布上就重新选中它们。
+ * 凡是还原不全的——没有原话、没有档位记录、原模型不可用、帧不齐——都不替用户猜，说明缺了什么。
+ */
 export function loadCanvasVideoIntoComposer(editor: CanvasEditor, node: CanvasVideoNode): void {
-  const composer = useCanvasComposer.getState()
-  composer.setMode('video')
-  composer.setPrompt(node.prompt)
-  const generation = node.video.generation
-  if (!generation) {
-    editor.setSelectedElements([])
-    toast(i18next.t('videoToolbar.noRecord', { ns: 'canvas' }), 'info')
+  const unavailable = canvasRegenerateRefusal()
+  if (unavailable) {
+    toast(unavailable)
     return
   }
-  const video = useVideoStore.getState()
-  if (videoModelOptions().some((one) => one.modelId === generation.model))
+  const composer = useCanvasComposer.getState()
+  composer.setMode('video')
+  composer.setPrompt(node.userPrompt ?? '')
+  const notes: string[] = []
+  if (node.userPrompt === null)
+    notes.push(i18next.t('videoToolbar.noPromptRecorded', { ns: 'canvas' }))
+  editor.setSelectedElements([])
+  const generation = node.video.generation
+  if (!generation) {
+    notes.push(i18next.t('videoToolbar.noRecord', { ns: 'canvas' }))
+  } else if (!videoModelOptions().some((one) => one.modelId === generation.model)) {
+    // 换个模型档位矩阵就不一样了，硬套只会被夹成另一套参数；原样不动，让用户自己挑。
+    notes.push(i18next.t('videoToolbar.modelUnavailable', { ns: 'canvas' }))
+  } else {
+    const video = useVideoStore.getState()
     video.setModel(generation.model)
-  // 顺序要紧：先清晰度后时长，某些清晰度只配部分时长，反过来会被夹回去。
-  video.setResolution(generation.resolution)
-  if ((VIDEO_DURATIONS as readonly number[]).includes(generation.duration))
-    video.setDuration(generation.duration as VideoDuration)
-  video.setAspectRatio(generation.aspectRatio)
-  const frames = [generation.firstFrameId, generation.lastFrameId].filter(
-    (id): id is string => typeof id === 'string',
-  )
-  const present = frames.filter((id) => editor.getElement(id)?.type === 'image')
-  editor.setSelectedElements(present)
-  if (present.length < frames.length)
-    toast(i18next.t('videoToolbar.framesMissing', { ns: 'canvas' }), 'info')
+    video.setResolution(generation.resolution)
+    if ((VIDEO_DURATIONS as readonly number[]).includes(generation.duration))
+      video.setDuration(generation.duration as VideoDuration)
+    video.setAspectRatio(generation.aspectRatio)
+    const frames = [generation.firstFrameId, generation.lastFrameId].filter(
+      (id): id is string => typeof id === 'string',
+    )
+    // 帧不齐就一张都不选：只剩尾帧时单选它，会被读成首帧。
+    if (frames.every((id) => editor.getElement(id)?.type === 'image'))
+      editor.setSelectedElements(frames)
+    else notes.push(i18next.t('videoToolbar.framesMissing', { ns: 'canvas' }))
+  }
+  if (notes.length) toast(notes.join(' '), 'info')
 }
 
 const FRAME_TIMEOUT_MS = 20_000
@@ -176,17 +214,40 @@ export function captureCanvasVideoFrame(
     element.addEventListener(
       'loadedmetadata',
       () => {
+        if (which === 'first') {
+          element.currentTime = 0.001
+          return
+        }
+        // 流式响应拿不到时长（Infinity / NaN），没法定位末尾，直接判失败而不是干等超时。
+        if (!Number.isFinite(element.duration)) return settle(null)
         // 尾帧取在末尾前一点：正好落在 duration 上时不少浏览器给的是黑帧或不触发 seeked。
-        element.currentTime =
-          which === 'first' ? 0.001 : Math.max(0, (element.duration || 0) - 0.05)
+        element.currentTime = Math.max(0, element.duration - 0.05)
       },
       { signal },
     )
-    element.addEventListener('seeked', () => settle(captureVideoFrame(element)), { signal })
+    element.addEventListener('seeked', () => settle(framePng(element)), { signal })
     element.addEventListener('error', () => settle(null), { signal })
     element.src = queueOutputUrl(video.taskId, video.outputIndex)
     element.load()
   })
+}
+
+/** 截帧用 PNG：它多半要当下一段的首帧再送上游，有损压一次就少一分画质。 */
+function framePng(video: HTMLVideoElement): string | null {
+  const { videoWidth: width, videoHeight: height } = video
+  if (!width || !height) return null
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) return null
+    context.drawImage(video, 0, 0, width, height)
+    // 跨域没配好会污染画布，toDataURL 直接抛。
+    return canvas.toDataURL('image/png')
+  } catch {
+    return null
+  }
 }
 
 /** 截下首帧 / 尾帧，作为新图片放在视频右侧，可以直接当下一段的首帧。 */
@@ -206,7 +267,7 @@ export async function placeCanvasVideoFrame(
     1,
   )
   await placeImagesIntoTargets(editor, [{ dataUrl: frame }], [target!], {
-    meta: { prompt: node.prompt, frameOf: node.id, frame: which },
+    meta: { frameOf: node.id, frame: which },
   })
   return true
 }

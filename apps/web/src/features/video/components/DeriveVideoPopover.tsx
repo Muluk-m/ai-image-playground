@@ -23,6 +23,8 @@ export default function DeriveVideoPopover({
   mode,
   modelId,
   tier = 'raised',
+  initialPrompt = '',
+  initialSeconds,
   onSubmit,
   onClose,
 }: {
@@ -31,13 +33,21 @@ export default function DeriveVideoPopover({
   mode: VideoDeriveMode
   modelId: string
   tier?: 'raised' | 'alert'
+  /** 「重新生成」一段派生片时，预填它当时的描述与续写秒数。 */
+  initialPrompt?: string
+  initialSeconds?: number
   /** 受理了返回 true，弹窗随即关闭并提示已提交。 */
   onSubmit: (input: { mode: VideoDeriveMode; prompt: string; seconds: number }) => Promise<boolean>
   onClose: () => void
 }) {
   const { t } = useTranslation('video')
-  const [prompt, setPrompt] = useState('')
-  const [extendSeconds, setExtendSeconds] = useState<number>(DEFAULT_EXTEND_SECONDS)
+  const [prompt, setPrompt] = useState(initialPrompt)
+  const [extendSeconds, setExtendSeconds] = useState<number>(
+    initialSeconds !== undefined &&
+      (VIDEO_EXTEND_SECONDS as readonly number[]).includes(initialSeconds)
+      ? initialSeconds
+      : DEFAULT_EXTEND_SECONDS,
+  )
   const seconds = mode === 'edit' ? sourceSeconds : extendSeconds
   const label = videoDeriveLabel(mode)
   const title = mode === 'extend' ? t('derive.titleExtend') : t('derive.titleEdit')

@@ -7,6 +7,7 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 
 vi.mock('../../../../lib/channels/videoChannels', () => ({
+  isVideoModeAvailable: () => true,
   videoModelOptions: () => [
     {
       channelId: 'grok',
@@ -102,10 +103,12 @@ describe('视频节点工具条', () => {
     render()
 
     act(() => editor.setSelectedElements(['recorded']))
-    expect(button('续写')?.disabled).toBe(false)
+    expect(button('续写')?.getAttribute('aria-disabled')).toBeNull()
 
     act(() => editor.setSelectedElements(['old']))
-    expect(button('续写')?.disabled).toBe(true)
-    expect(button('续写')?.parentElement?.getAttribute('title')).toContain('时长')
+    // 不可用的按钮仍可聚焦，原因挂在按钮自己身上，键盘和读屏都拿得到。
+    expect(button('续写')?.disabled).toBe(false)
+    expect(button('续写')?.getAttribute('aria-disabled')).toBe('true')
+    expect(button('续写')?.getAttribute('title')).toContain('时长')
   })
 })

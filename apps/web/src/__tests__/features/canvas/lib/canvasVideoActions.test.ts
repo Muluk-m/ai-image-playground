@@ -31,6 +31,7 @@ vi.mock('../../../../lib/channels/channelStore', () => ({
 }))
 vi.mock('../../../../lib/channels/videoChannels', () => ({
   videoModelOptions: () => mocks.options.current,
+  isVideoModeAvailable: () => mocks.options.current.length > 0,
 }))
 vi.mock('../../../../lib/privateOverlay', () => ({
   getPrivateSubmissionGuard: () => ({ blocked: false }),
@@ -62,7 +63,11 @@ const GENERATED = {
   resolution: '1080p',
 } as const
 
-function addVideo(id: string, generation?: VideoGenerationRecord, prompt = '海边奔跑') {
+function addVideo(
+  id: string,
+  generation?: VideoGenerationRecord,
+  meta: Record<string, string> = { prompt: '海边奔跑', userPrompt: '海边奔跑' },
+) {
   doc.addElements([
     {
       id,
@@ -73,7 +78,7 @@ function addVideo(id: string, generation?: VideoGenerationRecord, prompt = '海�
       height: 320,
       rotation: 0,
       fileId: `file-${id}`,
-      meta: { prompt },
+      meta,
       video: { taskId: `task-${id}`, outputIndex: 0, ...(generation ? { generation } : {}) },
     },
   ])
@@ -181,6 +186,7 @@ describe('视频节点的续写 / 改视频', () => {
       .getElements()
       .find((el) => el.type === 'image' && el.video?.taskId === 'req-derived')
     expect(derived).toMatchObject({
+      meta: { userPrompt: '继续跑向海里' },
       video: { generation: { derivedFrom: { id: 'clip', mode: 'extend' }, duration: 5 } },
     })
     expect(derived && 'x' in derived && derived.x).toBeGreaterThan(180)
@@ -203,8 +209,9 @@ describe('重新生成', () => {
     expect(editor.getSelectedIds()).toEqual(['first', 'last'])
   })
 
-  it('says so when the original frames are gone', () => {
-    addVideo('clip', { ...GENERATED, firstFrameId: 'deleted' })
+  it('selects no frame when only the last one survived, so it is not read as a first frame', () => {
+    addImage('last', 300)
+    addVideo('clip', { ...GENERATED, firstFrameId: 'deleted', lastFrameId: 'last' })
     actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
     expect(editor.getSelectedIds()).toEqual([])
     expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'info')
@@ -215,6 +222,32 @@ describe('重新生成', () => {
     actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'old')!)
     expect(useCanvasComposer.getState()).toMatchObject({ mode: 'video', prompt: '海边奔跑' })
     expect(mocks.draft.setModel).not.toHaveBeenCalled()
+  })
+
+  it('does not reuse an agent video title as the prompt', () => {
+    addVideo('agent', GENERATED, { prompt: '海边日落视频' })
+    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'agent')!)
+    expect(useCanvasComposer.getState().prompt).toBe('')
+    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'info')
+  })
+
+  it('leaves the settings alone when the original model is not available here', () => {
+    mocks.options.current = mocks.options.current.filter(
+      (one) => (one as { modelId: string }).modelId !== SEEDANCE,
+    )
+    addVideo('clip', GENERATED)
+    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
+    expect(mocks.draft.setModel).not.toHaveBeenCalled()
+    expect(mocks.draft.setResolution).not.toHaveBeenCalled()
+    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'info')
+  })
+
+  it('does nothing but explain when this deployment cannot make video', () => {
+    mocks.options.current = []
+    addVideo('clip', GENERATED)
+    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
+    expect(useCanvasComposer.getState()).toMatchObject({ mode: 'image', prompt: '' })
+    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'error')
   })
 })
 

@@ -94,6 +94,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   const { t } = useTranslation(['canvas', 'common'])
   const prompt = useCanvasComposer((state) => state.prompt)
   const { setPrompt, setMode } = useCanvasComposer.getState()
+  // 输入是这一块画布的：切到别的项目 / 会话（组件随之重建）不能把写了一半的描述带过去。
+  useEffect(() => () => useCanvasComposer.getState().setPrompt(''), [])
   const [previews, setPreviews] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const params = useStore((state) => state.params)

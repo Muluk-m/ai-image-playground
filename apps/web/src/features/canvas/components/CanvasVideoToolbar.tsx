@@ -16,6 +16,7 @@ import { videoDeriveLabel } from '../../video/lib/labels'
 import {
   type CanvasVideoNode,
   canvasDeriveCheck,
+  canvasRegenerateRefusal,
   canvasVideoNode,
   downloadCanvasVideo,
   loadCanvasVideoIntoComposer,
@@ -25,7 +26,7 @@ import {
 } from '../lib/canvasVideoActions'
 import type { CanvasEditor } from '../lib/editor'
 
-/** 工具条浮在视频上沿之上这么高；贴到视口顶时改放在视频内侧。 */
+/** 工具条浮在视频上沿之上这么高；贴到视口顶时改放在视频下沿之下，不压住视频本身。 */
 const TOOLBAR_OFFSET = 44
 
 /**
@@ -40,13 +41,20 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
     mode: VideoDeriveMode
     modelId: string
     sourceSeconds: number
+    initialPrompt?: string
+    initialSeconds?: number
   } | null>(null)
-  const [busy, setBusy] = useState<'first' | 'last' | 'download' | null>(null)
+  // 忙的是哪一段：截 A 的帧时选中 B，B 的按钮不该跟着灰。
+  const [busy, setBusy] = useState<{ id: string; kind: 'first' | 'last' | 'download' } | null>(null)
 
   const node = editor.doc.tool === 'select' ? selectedCanvasVideo(editor) : null
   const bounds = node ? editor.getElementPageBounds(node.id) : undefined
 
-  const openDerive = (source: CanvasVideoNode, mode: VideoDeriveMode) => {
+  const openDerive = (
+    source: CanvasVideoNode,
+    mode: VideoDeriveMode,
+    initial: { prompt?: string; seconds?: number } = {},
+  ) => {
     const check = canvasDeriveCheck(source, mode)
     if (!check.ok) {
       useStore.getState().showToast(check.reason, 'error')
@@ -57,6 +65,8 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
       mode,
       modelId: check.option.modelId,
       sourceSeconds: check.sourceSeconds,
+      ...(initial.prompt ? { initialPrompt: initial.prompt } : {}),
+      ...(initial.seconds !== undefined ? { initialSeconds: initial.seconds } : {}),
     })
   }
 
@@ -72,11 +82,15 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
       useStore.getState().showToast(t('videoToolbar.sourceGone'), 'error')
       return
     }
-    openDerive(source, derived.mode)
+    // 原样再来一次：弹窗带着上次的描述和续写秒数，用户改一处就能发。
+    openDerive(source, derived.mode, {
+      prompt: current.userPrompt ?? undefined,
+      seconds: current.video.generation?.duration,
+    })
   }
 
   const run = async (kind: 'first' | 'last' | 'download', current: CanvasVideoNode) => {
-    setBusy(kind)
+    setBusy({ id: current.id, kind })
     try {
       if (kind === 'download') await downloadCanvasVideo(current)
       else await placeCanvasVideoFrame(editor, current, kind)
@@ -90,6 +104,8 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
       sourceSeconds={derive.sourceSeconds}
       mode={derive.mode}
       modelId={derive.modelId}
+      initialPrompt={derive.initialPrompt}
+      initialSeconds={derive.initialSeconds}
       onSubmit={(input) => submitCanvasDerive(editor, derive.node, input)}
       onClose={() => setDerive(null)}
     />
@@ -100,10 +116,13 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   const { camera } = editor.doc
   const left = (bounds.x - camera.x) * camera.zoom
   const top = (bounds.y - camera.y) * camera.zoom
+  const bottom = (bounds.y + bounds.h - camera.y) * camera.zoom
   const checks = {
     extend: canvasDeriveCheck(node, 'extend'),
     edit: canvasDeriveCheck(node, 'edit'),
   }
+  const regenerateRefusal = canvasRegenerateRefusal()
+  const busyHere = busy?.id === node.id
 
   return (
     <>
@@ -113,19 +132,22 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
         className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
         style={{
           left: Math.max(8, left),
-          top: top - TOOLBAR_OFFSET >= 8 ? top - TOOLBAR_OFFSET : top + 8,
+          top: top - TOOLBAR_OFFSET >= 8 ? top - TOOLBAR_OFFSET : bottom + 8,
         }}
         onPointerDown={(event) => event.stopPropagation()}
+        // 空格、方向键在画布上是平移 / 移动的快捷键，按在工具条按钮上不该漏过去。
+        onKeyDown={(event) => event.stopPropagation()}
       >
         <ToolbarButton
           icon={<Download />}
           label={t('videoToolbar.download')}
-          disabled={busy !== null}
+          disabled={busyHere}
           onClick={() => void run('download', node)}
         />
         <ToolbarButton
           icon={<RotateCcw />}
           label={t('videoToolbar.regenerate')}
+          reason={regenerateRefusal ?? undefined}
           onClick={() => regenerate(node)}
         />
         {(['extend', 'edit'] as const).map((mode) => {
@@ -135,7 +157,6 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
               key={mode}
               icon={mode === 'extend' ? <FastForward /> : <WandSparkles />}
               label={videoDeriveLabel(mode)}
-              disabled={!check.ok}
               reason={check.ok ? undefined : check.reason}
               onClick={() => openDerive(node, mode)}
             />
@@ -144,13 +165,13 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
         <ToolbarButton
           icon={<ArrowLeftToLine />}
           label={t('videoToolbar.firstFrame')}
-          disabled={busy !== null}
+          disabled={busyHere}
           onClick={() => void run('first', node)}
         />
         <ToolbarButton
           icon={<ArrowRightToLine />}
           label={t('videoToolbar.lastFrame')}
-          disabled={busy !== null}
+          disabled={busyHere}
           onClick={() => void run('last', node)}
         />
       </div>
@@ -159,6 +180,10 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   )
 }
 
+/**
+ * 工具条按钮。做不了的动作不用原生 disabled：那样按钮拿不到焦点，键盘和读屏用户
+ * 永远看不到原因。改成 aria-disabled，按下去说明为什么不行。
+ */
 function ToolbarButton({
   icon,
   label,
@@ -168,25 +193,30 @@ function ToolbarButton({
 }: {
   icon: ReactNode
   label: string
+  /** 正在进行中，暂时不可点。 */
   disabled?: boolean
-  /** 禁用原因。按钮禁用时收不到悬停，所以原因挂在外层。 */
+  /** 做不了的原因；有它就是不可用。 */
   reason?: string
   onClick: () => void
 }) {
+  const unavailable = reason !== undefined
   return (
-    <span title={reason ?? label}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 gap-1 px-2 text-xs"
-        aria-label={label}
-        disabled={disabled}
-        onClick={onClick}
-      >
-        {icon}
-        <span className="hidden sm:inline">{label}</span>
-      </Button>
-    </span>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={`h-8 gap-1 px-2 text-xs ${unavailable ? 'opacity-50' : ''}`}
+      aria-label={label}
+      aria-disabled={unavailable || undefined}
+      title={reason ?? label}
+      disabled={disabled}
+      onClick={() => {
+        if (unavailable) useStore.getState().showToast(reason, 'error')
+        else onClick()
+      }}
+    >
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+    </Button>
   )
 }

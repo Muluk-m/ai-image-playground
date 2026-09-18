@@ -242,6 +242,9 @@
     "noRecord": "This video has no recorded settings; only its description was restored",
     "framesMissing": "The original frames are no longer on the canvas; select images again",
     "sourceGone": "The source video is no longer on the canvas",
-    "unknownSource": "This video has no recorded length, so it cannot be extended or edited"
+    "unknownSource": "This video has no recorded length, so it cannot be extended or edited",
+    "noPromptRecorded": "This video has no recorded description (agent videos only keep a title); write one again.",
+    "modelUnavailable": "The original model is not available here; settings were left unchanged, pick a model yourself.",
+    "videoUnavailable": "This deployment cannot generate video"
   }
 }

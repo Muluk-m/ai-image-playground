@@ -41,6 +41,8 @@ const frameHandles = new Map<string, string[]>()
 
 export interface CanvasVideoLaunch {
   prompt: string
+  /** 输入框原话（不含文字标注）。续写 / 改视频就是弹窗里写的那句。 */
+  userPrompt: string
   frames: string[]
   channelId: string
   generation: VideoGenerationRecord
@@ -180,6 +182,7 @@ export async function submitVideoFromCanvas(
   const [target] = computePlaceholderTargets(editor, anchor, 1)
   void launchCanvasVideo(editor, {
     prompt,
+    userPrompt: userPrompt.trim(),
     frames,
     channelId: option.channelId,
     generation,
@@ -211,6 +214,7 @@ export async function launchCanvasVideo(
     clientRequestId,
     source: 'builtin-edge',
     prompt: launch.prompt,
+    userPrompt: launch.userPrompt,
     inputCount: launch.frames.length,
     video: { channelId: launch.channelId, generation: launch.generation },
   })
@@ -261,7 +265,19 @@ export async function settleCanvasVideo(
     [{ dataUrl: poster, video: { ...source, generation } }],
     [placeholder ? targetFromShape(placeholder) : fallback],
     // 不改选区：选中新视频会让视频档立刻判「选中的是视频」，挡住接着生下一段。
-    { ...(placeholder ? { meta: { prompt: placeholder.meta.prompt } } : {}), select: false },
+    {
+      ...(placeholder
+        ? {
+            meta: {
+              prompt: placeholder.meta.prompt,
+              ...(placeholder.meta.userPrompt !== undefined
+                ? { userPrompt: placeholder.meta.userPrompt }
+                : {}),
+            },
+          }
+        : {}),
+      select: false,
+    },
   )
   // 落成功才收占位框：中途失败它得留着，错误态才有处可标。
   if (placeholder) editor.deleteElement(placeholderId)
@@ -304,12 +320,20 @@ export function retryCanvasVideo(editor: CanvasEditor, placeholder: PlaceholderV
     toast(i18next.t('submit.inputsLost', { ns: 'canvas' }))
     return
   }
+  // 派生片的源片可能已经删了：先判，别删掉占位框再告诉用户做不了。
+  try {
+    canvasVideoRequest(editor, meta.video.generation, frames.length)
+  } catch (err) {
+    toast(errorMessage(err))
+    return
+  }
   if (!guardAllows(meta.video.generation)) return
   editor.deleteElement(placeholder.id)
   // 帧交给新任务，旧 key 随之作废。
   frameHandles.delete(meta.taskId)
   void launchCanvasVideo(editor, {
     prompt: meta.prompt,
+    userPrompt: meta.userPrompt ?? meta.prompt,
     frames,
     channelId: meta.video.channelId,
     generation: meta.video.generation,
