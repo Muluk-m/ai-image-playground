@@ -1,4 +1,5 @@
 import type {
+  AgentBackgroundJob,
   AgentSkillOutcome,
   AgentStoredReference,
   AgentToolArtifact,
@@ -51,6 +52,8 @@ export interface AgentToolMessage {
   readonly skill?: AgentSkillOutcome
   /** 本机产物交付与工具生成分别完成，不改写工具状态或本轮消耗。 */
   readonly delivery?: AgentDeliveryStatus
+  /** 这次调用提交的后台任务；结束后仍在，标明这张卡的结局来自后台任务。 */
+  readonly job?: AgentBackgroundJob
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */

@@ -1,4 +1,6 @@
 import type {
+  AgentBackgroundJobProgress,
+  AgentBackgroundJobView,
   AgentContentBlock,
   AgentMessageView,
   AgentToolResultBlock,
@@ -6,6 +8,7 @@ import type {
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
+import { taskProgressPhase } from '../task-progress'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
 import { taskFailureCode } from './tools/errors'
 import { queueArtifacts } from './tools/queueTask'
@@ -119,4 +122,81 @@ export async function cancelAgentConversationJobs(conversationId: string): Promi
     and(eq(schema.tasks.agent_conversation_id, conversationId), ne(schema.tasks.kind, 'chat'))!,
   )
   return cancelled.length
+}
+
+/**
+ * 这些消息里提交过后台任务的调用，结果块是此刻的样子。还没结束的带上任务表里的进度：
+ * 排着队、在生成、在重连还是在确认，什么时候受理的。消息应当已经结算过（{@link settleAgentJobs}）。
+ */
+export async function agentJobViews(
+  conversationId: string,
+  messages: readonly AgentMessageView[],
+): Promise<AgentBackgroundJobView[]> {
+  const jobs = messages.flatMap((message) =>
+    message.content.flatMap((block) =>
+      block.type === 'toolResult' && block.job
+        ? [{ messageId: message.id, turnId: message.turnId, result: block }]
+        : [],
+    ),
+  )
+  const pending = jobs.flatMap((job) =>
+    job.result.status === 'submitted' && job.result.job ? [job.result.job.taskId] : [],
+  )
+  if (pending.length === 0) return jobs
+  const tasks = await db
+    .select({
+      id: schema.tasks.id,
+      status: schema.tasks.status,
+      submitted_at: schema.tasks.submitted_at,
+      archive_payload: schema.tasks.archive_payload,
+      upstream_task_ids: schema.tasks.upstream_task_ids,
+      lease_expires_at: schema.tasks.lease_expires_at,
+    })
+    .from(schema.tasks)
+    .where(
+      and(
+        inArray(schema.tasks.id, [...new Set(pending)]),
+        eq(schema.tasks.agent_conversation_id, conversationId),
+      ),
+    )
+  // 阶段按任务表的持久字段算（ADR 0009），不压扁成只看 status：重启或滚动发布后重新排队、
+  // 但已有上游任务号的是在重连，执行器租约过期的也是，不能说成「排队」或「生成中」。
+  const progress = new Map(
+    tasks.flatMap((task): [string, AgentBackgroundJobProgress][] =>
+      task.status === 'queued' || task.status === 'in_progress'
+        ? [
+            [
+              task.id,
+              {
+                stage: task.status === 'in_progress' ? 'running' : 'submitted',
+                submittedAt: task.submitted_at,
+                phase: taskProgressPhase(task),
+              },
+            ],
+          ]
+        : [],
+    ),
+  )
+  return jobs.map((job) => {
+    const current =
+      job.result.status === 'submitted' && job.result.job
+        ? progress.get(job.result.job.taskId)
+        : undefined
+    return current ? { ...job, progress: current } : job
+  })
+}
+
+/**
+ * 用户单独取消这个会话里的一个后台任务，按原桶退回。只认挂在这个会话下、由工具提交的任务；
+ * 已经结束的任务不动。返回是否真的取消了一个任务。
+ */
+export async function cancelAgentJob(conversationId: string, taskId: string): Promise<boolean> {
+  const cancelled = await cancelTasks(
+    and(
+      eq(schema.tasks.id, taskId),
+      eq(schema.tasks.agent_conversation_id, conversationId),
+      ne(schema.tasks.kind, 'chat'),
+    )!,
+  )
+  return cancelled.length > 0
 }

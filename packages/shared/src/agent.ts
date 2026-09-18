@@ -1,7 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { ChannelMedia } from './channel-discovery'
-import type { StoredImageRef } from './queue-protocol'
+import type { StoredImageRef, TaskProgressPhase } from './queue-protocol'
 import type { VideoGenerationRecord } from './video-generation'
 
 /**
@@ -242,10 +242,31 @@ export interface AgentBackgroundJobView {
   readonly messageId: string
   readonly turnId: string
   readonly result: AgentToolResultBlock
+  /** 任务还没结束时它此刻走到哪一步；结果块已是终局时缺席。 */
+  readonly progress?: AgentBackgroundJobProgress
+}
+
+/**
+ * 没结束的后台任务此刻的进度，取自任务表：`submitted` 是排着队，`running` 是在生成。
+ * 已用时间从 `submittedAt`（任务受理时刻，epoch 毫秒）算起，所以刷新、换设备后看到的是同一个数。
+ */
+export interface AgentBackgroundJobProgress {
+  readonly stage: AgentToolStage
+  readonly submittedAt: number
+  /**
+   * 任务表里的持久阶段（ADR 0009）：执行器在滚动发布或重启后重新接上上游时是 `reconnecting`，
+   * 结果已归档、正在确认时是 `confirming`。旧服务端缺席，这时按 `stage` 读。
+   */
+  readonly phase?: TaskProgressPhase
 }
 
 export interface AgentBackgroundJobsResponse {
   readonly jobs: readonly AgentBackgroundJobView[]
+}
+
+/** `POST .../jobs/:taskId/cancel` 的回应：取消之后这次调用此刻的样子（已结束的任务原样返回）。 */
+export interface AgentBackgroundJobCancelResponse {
+  readonly job: AgentBackgroundJobView
 }
 
 /**
@@ -352,6 +373,11 @@ export interface AgentToolStartEvent {
   readonly anchorObjectId?: string
   /** 起跑这一刻的参数快照，与结果块里的是同一份。 */
   readonly snapshot?: AgentToolCallSnapshot
+  /**
+   * 服务端看到工具起跑的时刻（epoch 毫秒）。它随事件落进轮的事件日志，续播、刷新、换设备
+   * 重放出来的是同一个数，已用时间因此不从零重来。旧记录缺席。
+   */
+  readonly startedAt?: number
 }
 
 /** 分钟级任务的中途进度。一轮里可以有多次工具调用，各自按 `toolCallId` 独立上报。 */

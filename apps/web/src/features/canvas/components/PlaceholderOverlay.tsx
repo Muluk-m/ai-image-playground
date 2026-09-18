@@ -1,14 +1,39 @@
 import { useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
 import {
+  useAgentJobProgressText,
+  useAgentToolProgress,
+} from '../../agent/components/AgentJobProgress'
+import { toolMessageForPlaceholder } from '../../agent/lib/jobProgress'
+import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
   agentToolFailureText,
   runAgentToolFailureAction,
 } from '../../agent/lib/toolFailure'
 import { useAgentStore } from '../../agent/store'
-import { type CanvasEditor, STATUS_ACCENT } from '../lib/editor'
+import { type CanvasEditor, type PlaceholderView, STATUS_ACCENT } from '../lib/editor'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
+
+/**
+ * 智能体占的位在转圈时说的那句：与对话里那张结果卡同一份进度（阶段与已用时间）。
+ * 找不到对应的卡（切走了会话、旧占位）就照旧只说「生成中」。
+ */
+function AgentPlaceholderLabel({ placeholder }: { placeholder: PlaceholderView }) {
+  const { t } = useTranslation('canvas')
+  const message = useAgentStore((state) =>
+    toolMessageForPlaceholder(state.messages, {
+      ...(placeholder.meta.agentMessageId ? { messageId: placeholder.meta.agentMessageId } : {}),
+      ...(placeholder.meta.cloudGeneration ? { taskId: placeholder.meta.cloudGeneration.id } : {}),
+    }),
+  )
+  const text = useAgentJobProgressText(useAgentToolProgress(message))
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+      {text ?? t('placeholder.generating')}
+    </span>
+  )
+}
 
 /**
  * 占位框内容浮层：虚线边框由画布上的占位框元素本体绘制（Konva Rect），
@@ -85,7 +110,11 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       animation: 'canvas-placeholder-spin 0.8s linear infinite',
                     }}
                   />
-                  <span>{t('placeholder.generating')}</span>
+                  {p.meta.agent ? (
+                    <AgentPlaceholderLabel placeholder={p} />
+                  ) : (
+                    <span>{t('placeholder.generating')}</span>
+                  )}
                 </>
               ) : (
                 <>

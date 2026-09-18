@@ -1,10 +1,11 @@
-import type { StatusResponse, TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+import type { StatusResponse, TaskErrorType } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
 import { readGeneration } from '../lib/generations'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
+import { taskProgressPhase } from '../lib/task-progress'
 import { requireUserOrService } from '../lib/user-auth'
 
 /**
@@ -94,14 +95,4 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
   { params: t.Object({ id: t.String() }) },
 )
 
-export function taskProgressPhase(task: {
-  status: StatusResponse['status']
-  archive_payload: unknown
-  upstream_task_ids: string[] | null
-  lease_expires_at: number | null
-}): TaskProgressPhase {
-  if (task.archive_payload) return 'confirming'
-  if (task.status === 'queued') return task.upstream_task_ids?.length ? 'reconnecting' : 'queued'
-  if (task.lease_expires_at != null && task.lease_expires_at <= Date.now()) return 'reconnecting'
-  return 'generating'
-}
+export { taskProgressPhase }

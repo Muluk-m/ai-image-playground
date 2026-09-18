@@ -1,6 +1,7 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { useTranslation } from '../../../i18n'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -20,19 +21,26 @@ import {
 } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
-function useStatusNote(message: AgentToolMessage, offCanvas: boolean): string | null {
+function useStatusNote(
+  message: AgentToolMessage,
+  offCanvas: boolean,
+  hasProgress: boolean,
+): string | null {
   const { t } = useTranslation(['agent', 'common'])
-  if (message.status === 'running') {
-    if (message.stage === 'submitted') return t('tool.stageSubmitted')
-    if (message.stage === 'running') return t('common:state.generating')
-    return t('tool.preparing')
-  }
+  // 生成的阶段与已用时间由进度条说，这里不再重复；不出图的调用只说在准备。
+  if (message.status === 'running') return hasProgress ? null : t('tool.preparing')
   // 后台任务：调用已经交还对话，结果要等任务自己跑完。
   if (message.status === 'submitted') return t('tool.background')
+  // 用户取消的后台任务：预扣的按原桶退回，卡上说清楚钱回来了。
+  if (message.status === 'failed' && message.errorCode === 'cancelled' && message.job)
+    return isClientCapabilityEnabled('billing:credits')
+      ? t('job.cancelledRefunded')
+      : t('job.cancelled')
   // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
   if (message.status === 'failed')
     return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')
@@ -130,7 +138,8 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
   const [promptOpen, setPromptOpen] = useState(false)
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
-  const note = useStatusNote(message, offCanvas)
+  const progress = useAgentToolProgress(message)
+  const note = useStatusNote(message, offCanvas, progress !== null)
   return (
     <div className={CARD}>
       {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
@@ -163,7 +172,9 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {promptOpen && message.prompt && (
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
       )}
+      {progress && <AgentJobProgress progress={progress} />}
       {note && <p className={CARD_NOTE}>{note}</p>}
+      <AgentJobCancel message={message} />
       {message.status === 'failed' && <FailureAction message={message} />}
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

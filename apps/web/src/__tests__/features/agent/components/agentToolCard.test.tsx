@@ -2,15 +2,24 @@
 import type { AgentToolErrorCode } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 
-const send = vi.hoisted(() => vi.fn())
+const store = vi.hoisted(() => ({
+  send: vi.fn(),
+  placeOnCanvas: vi.fn(),
+  cancelJob: vi.fn(async (_messageId: string) => {}),
+  jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
+  toolStartedAt: {} as Record<string, number>,
+}))
+const send = store.send
 
 vi.mock('../../../../features/agent/store', () => ({
-  useAgentStore: { getState: () => ({ send, placeOnCanvas: vi.fn() }) },
+  useAgentStore: Object.assign((select: (state: typeof store) => unknown) => select(store), {
+    getState: () => store,
+  }),
 }))
 
 const deployment = vi.hoisted(() => ({
@@ -31,6 +40,9 @@ vi.mock('../../../../lib/clientCapabilities', () => ({
 
 beforeEach(() => {
   send.mockClear()
+  store.cancelJob.mockClear()
+  store.jobProgress = {}
+  store.toolStartedAt = {}
   deployment.overlay = true
   deployment.capabilities = new Set(['billing:credits', 'accounts:login'])
   vi.mocked(notifyPrivateSubmissionError).mockClear()
@@ -61,6 +73,103 @@ it('says a submitted background job is still generating and will land on the can
     act(() => root.unmount())
   }
 })
+describe('后台任务的进度与取消', () => {
+  const NOW = Date.UTC(2026, 8, 18, 10, 0, 0)
+  const submitted = {
+    kind: 'tool' as const,
+    id: 'm',
+    turnId: 't',
+    toolCallId: 'c',
+    title: '一只橘猫',
+    status: 'submitted' as const,
+    job: { taskId: 'task-1', media: 'image' as const },
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the stage and the time since the server accepted the task, ticking every second', () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] })
+    store.jobProgress = { m: { stage: 'running', submittedAt: NOW - 42_000 } }
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      act(() => root.render(<AgentToolCard message={submitted} />))
+      const bar = host.querySelector('[role="progressbar"]')!
+      expect(bar.getAttribute('aria-valuenow')).toBe('3')
+      expect(host.textContent).toContain('生成中 · 已用 0:42')
+
+      act(() => vi.advanceTimersByTime(3_000))
+      expect(host.textContent).toContain('生成中 · 已用 0:45')
+    } finally {
+      act(() => root.unmount())
+    }
+  })
+
+  it('cancels the job from the card', async () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      act(() => root.render(<AgentToolCard message={submitted} />))
+      const button = [...host.querySelectorAll('button')].find(
+        (one) => one.textContent === '取消任务',
+      )!
+      await act(async () => button.click())
+      expect(store.cancelJob).toHaveBeenCalledWith('m')
+    } finally {
+      act(() => root.unmount())
+    }
+  })
+
+  it('says a cancel that did not go through, and keeps the card', async () => {
+    store.cancelJob.mockRejectedValueOnce(new Error('boom'))
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      act(() => root.render(<AgentToolCard message={submitted} />))
+      const button = [...host.querySelectorAll('button')].find(
+        (one) => one.textContent === '取消任务',
+      )!
+      await act(async () => button.click())
+      expect(host.textContent).toContain('没能取消，请稍后再试')
+    } finally {
+      act(() => root.unmount())
+    }
+  })
+
+  it('shows the refunded state of a cancelled job and no longer offers to cancel', () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      act(() =>
+        root.render(
+          <AgentToolCard
+            message={{ ...submitted, status: 'failed', message: '已中止', errorCode: 'cancelled' }}
+          />,
+        ),
+      )
+      expect(host.textContent).toContain('已取消，积分已退回')
+      expect(host.querySelector('[role="progressbar"]')).toBeNull()
+      expect(host.textContent).not.toContain('取消任务')
+
+      // 不计积分的部署不提积分。
+      deployment.capabilities = new Set(['accounts:login'])
+      act(() =>
+        root.render(
+          <AgentToolCard
+            message={{ ...submitted, status: 'failed', message: '已中止', errorCode: 'cancelled' }}
+          />,
+        ),
+      )
+      expect(host.textContent).toContain('已取消')
+      expect(host.textContent).not.toContain('积分')
+    } finally {
+      act(() => root.unmount())
+    }
+  })
+})
+
 it('keeps the complete multiline prompt available and copies it without the title truncation', async () => {
   const prompt = '完整提示词。'.repeat(30) + '\n第二段细节'
   const writeText = vi.fn().mockResolvedValue(undefined)
