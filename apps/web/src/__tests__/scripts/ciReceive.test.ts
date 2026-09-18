@@ -81,6 +81,15 @@ describe('ci-receive.sh', () => {
     expect(readFileSync(log, 'utf8')).toBe(`paid ${releases}/${id} actor=github-actions/run-7\n`)
   })
 
+  it('moves a failed release aside so the same commit can be retried', () => {
+    expect(receive(`deploy ${id} all 7`, releaseTar(), { TEST_DEPLOY_EXIT: '1' }).status).toBe(1)
+    const kept = readdirSync(releases)
+    expect(kept).toHaveLength(1)
+    expect(kept[0]).toMatch(new RegExp(`^${id}\\.failed-run-7$`))
+    expect(receive(`deploy ${id} all 8`).status).toBe(0)
+    expect(readdirSync(releases).sort()).toEqual([id, `${id}.failed-run-7`])
+  })
+
   it.each([
     undefined,
     '',

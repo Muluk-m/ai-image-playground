@@ -57,6 +57,9 @@ case "$1" in
   image)
     case "$5" in
       '{{.Id}}') echo '${imageId}' ;;
+      '{{range .RepoDigests}}{{println .}}{{end}}')
+        case "$3" in *:vps-main-*) d=1 ;; *:paid-*) d=2 ;; *) d=3 ;; esac
+        echo "${repoName}@sha256:$(printf '%064d' 0 | tr 0 "$d")" ;;
       '{{.Os}}/{{.Architecture}}') echo linux/amd64 ;;
       *) case "$3" in *:paid-*) echo "APP_VERSION=$TEST_PUB+$TEST_PRIV" ;; *) echo "APP_VERSION=$TEST_PUB" ;; esac ;;
     esac ;;

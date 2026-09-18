@@ -68,7 +68,14 @@ else
 fi
 # Check every image before changing any service or running a migration.
 while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha repo_digest; do
-  [ "$(docker image inspect "$image" --format '{{.Id}}')" = "$expected_id" ] || { echo "Image ID mismatch: $image" >&2; exit 1; }
+  if [ -f "$release/images.tar.gz" ]; then
+    [ "$(docker image inspect "$image" --format '{{.Id}}')" = "$expected_id" ] || { echo "Image ID mismatch: $image" >&2; exit 1; }
+  else
+    # A pull by digest is content-addressed; the image ID is not comparable across hosts (a
+    # containerd-backed build host reports the manifest digest, this host the config digest).
+    docker image inspect "$image" --format '{{range .RepoDigests}}{{println .}}{{end}}' |
+      grep -qxF "$repo_digest" || { echo "Image digest mismatch: $image" >&2; exit 1; }
+  fi
   [ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || { echo "Wrong image platform: $image" >&2; exit 1; }
   version=$public_sha
   if [ "$edition" = paid ]; then
