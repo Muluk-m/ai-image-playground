@@ -51,6 +51,45 @@ select_stale_images() {
   '
 }
 
+# release_was_deployed <release-directory>
+#
+# True when every application image the release carries is in the deploy log with result=ok, so
+# `docker load` has consumed its archive long ago. A release still being copied in, or one that
+# never went out, is not deployed and keeps its archive.
+release_was_deployed() {
+  [ -f "$1/images.tsv" ] && [ -f "$deployments_log" ] || return 1
+  images=$(awk -F '\t' '$1 != "backup" { print $2 }' "$1/images.tsv")
+  [ -n "$images" ] || return 1
+  for image in $images; do
+    grep -q " image=$image by=.* result=ok\$" "$deployments_log" || return 1
+  done
+}
+
+# prune_old_releases <current-release-directory>
+#
+# Every release directory carries a ~1 GB image archive, and nothing else ever deletes it: a
+# day of rollouts filled a fifth of the production disk. Once a release has gone out its images
+# live in Docker (kept for rollback by prune_old_images), so its archive and any transport tar it
+# arrived in are copies. The scripts stay: rollback runs from them. The current release keeps
+# its archive so it can be rerun, and releases that never went out are left alone.
+prune_old_releases() {
+  releases_root=$(dirname -- "$1")
+  for dir in "$releases_root"/*/; do
+    dir=${dir%/}
+    [ "$dir" != "$1" ] || continue
+    [ -f "$dir/images.tar.gz" ] || continue
+    release_was_deployed "$dir" || continue
+    rm -f "$dir/images.tar.gz" && echo "removed the loaded image archive of $(basename -- "$dir")"
+  done
+  for tar in "$releases_root"/*.transport.tar; do
+    [ -f "$tar" ] || continue
+    dir=${tar%.transport.tar}
+    [ "$dir" != "$1" ] || continue
+    [ -d "$dir" ] && release_was_deployed "$dir" || continue
+    rm -f "$tar" && echo "removed $(basename -- "$tar")"
+  done
+}
+
 # deploy_process_token <pid>
 #
 # Prints something about a running process that a later process with the same PID would not
