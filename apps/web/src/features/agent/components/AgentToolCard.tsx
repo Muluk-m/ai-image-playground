@@ -13,6 +13,7 @@ import {
 } from '../agentStyles'
 import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPreview'
 import { agentCanvasSink } from '../lib/canvasSink'
+import { agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -36,6 +37,16 @@ function useStatusNote(
   if (message.status === 'running') return hasProgress ? null : t('tool.preparing')
   // 后台任务：调用已经交还对话，结果要等任务自己跑完。
   if (message.status === 'submitted') return t('tool.background')
+  // 重试队列里排着：前一条重试结束后才提交，还没扣费。
+  if (message.status === 'queued') return t('retry.queued')
+  // 排着时就撤回的重试：从没提交过，也就没有要退的钱。
+  if (
+    message.status === 'failed' &&
+    message.errorCode === 'cancelled' &&
+    message.retryOf &&
+    !message.job
+  )
+    return t('retry.withdrawn')
   // 用户取消的后台任务：预扣的按原桶退回，卡上说清楚钱回来了。
   if (message.status === 'failed' && message.errorCode === 'cancelled' && message.job)
     return isClientCapabilityEnabled('billing:credits')
@@ -138,6 +149,77 @@ export function agentToolCardDomId(messageId: string): string {
   return `agent-tool-card-${messageId}`
 }
 
+/** 排着的重试就地撤回：失败占位保持原来那次失败。撤回失败就在原处说一声，卡保持原样。 */
+export function AgentRetryWithdraw({
+  message,
+  className = GHOST_LINK,
+}: {
+  message: AgentToolMessage
+  className?: string
+}) {
+  const { t } = useTranslation('agent')
+  const [state, setState] = useState<'idle' | 'withdrawing' | 'failed'>('idle')
+  if (message.status !== 'queued' || !message.retryOf) return null
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        disabled={state === 'withdrawing'}
+        className={`${className} disabled:opacity-50`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={() => {
+          setState('withdrawing')
+          useAgentStore
+            .getState()
+            .cancelJob(message.id)
+            .then(
+              () => setState('idle'),
+              () => setState('failed'),
+            )
+        }}
+      >
+        {state === 'withdrawing' ? t('retry.withdrawing') : t('retry.withdraw')}
+      </button>
+      {state === 'failed' && <span className={CARD_NOTE}>{t('retry.withdrawFailed')}</span>}
+    </span>
+  )
+}
+
+/**
+ * 一键补齐：这张失败卡在画布上剩下的失败占位逐个重试，第一条当场提交，其余在服务端排队。
+ * 只有原卡能原样重试、画布上还剩可重试的失败占位时才出现。
+ */
+function RetryRemaining({ message }: { message: AgentToolMessage }) {
+  const { t } = useTranslation('agent')
+  const messages = useAgentStore((state) => state.messages)
+  const refusals = useAgentStore((state) => state.retryRefusals)
+  const [pending, setPending] = useState(false)
+  if (message.status !== 'failed' || message.retryOf) return null
+  const placeholders =
+    agentCanvasSink()?.failedPlaceholders?.({
+      messageId: message.id,
+      taskIds: agentRetrySlotTasks(messages, message),
+    }) ?? []
+  const remaining = agentRetryRemaining(messages, message, placeholders, refusals)
+  if (remaining.length === 0) return null
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      className={`self-start ${GHOST_LINK} disabled:opacity-50`}
+      onClick={() => {
+        setPending(true)
+        void useAgentStore
+          .getState()
+          .retryRemaining(message.id)
+          .finally(() => setPending(false))
+      }}
+    >
+      {t('retry.retryRemaining', { count: remaining.length })}
+    </button>
+  )
+}
+
 /** 重试记录的那一行：指回原失败卡。还在跑时和别的后台任务一样由「取消任务」中止，按原桶退回。 */
 function RetryRecord({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation('agent')
@@ -145,6 +227,7 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   if (!origin) return null
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <AgentRetryWithdraw message={message} />
       <button
         type="button"
         className={GHOST_LINK}
@@ -208,6 +291,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {note && <p className={CARD_NOTE}>{note}</p>}
       <AgentJobCancel message={message} />
       {message.status === 'failed' && <FailureAction message={message} />}
+      <RetryRemaining message={message} />
       <RetryRecord message={message} />
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

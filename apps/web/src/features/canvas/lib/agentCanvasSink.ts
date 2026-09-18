@@ -220,6 +220,24 @@ export function createAgentCanvasSink(
       return outcome
     },
 
+    failedPlaceholders({ messageId, taskIds }) {
+      return editor
+        .getPlaceholders()
+        .filter(
+          (one) =>
+            one.status === 'error' &&
+            one.meta.agent === true &&
+            (one.meta.agentMessageId === messageId ||
+              (one.meta.cloudGeneration !== undefined &&
+                taskIds.includes(one.meta.cloudGeneration.id))),
+        )
+        .map((one) => ({
+          id: one.id,
+          ...(one.meta.agentErrorCode ? { errorCode: one.meta.agentErrorCode } : {}),
+          ...(one.meta.cloudGeneration ? { generationId: one.meta.cloudGeneration.id } : {}),
+        }))
+    },
+
     focus(objectIds) {
       const present = objectIds.filter((id) => editor.getElement(id))
       if (present.length === 0) return

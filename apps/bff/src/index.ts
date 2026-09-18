@@ -130,6 +130,11 @@ const stopInboxPickup = agentEnabled
   ? (await import('./lib/agent/inbox-pickup')).startInboxPickup()
   : () => {}
 
+// 重试队列的推进：前一条重试的任务结束时没有请求在场，由这里按先后提交下一条。开机先扫一遍。
+const stopRetryPickup = agentEnabled
+  ? (await import('./lib/agent/retry')).startRetryQueuePickup()
+  : () => {}
+
 // 接口统计：每分钟把已经结束的那几分钟写成行。写失败的那一分钟就丢了，不重试——
 // 它只是看板上的一个点，不值得为它把内存攒大。
 async function flushApiMinutes(all = false): Promise<void> {
@@ -161,6 +166,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   log.info({ event: 'shutdown.start', signal }, 'stopping bff')
   bffDrain.begin()
   stopInboxPickup()
+  stopRetryPickup()
   while (!bffDrain.status().safeToStop) await Bun.sleep(250)
   stopHeartbeat()
   clearInterval(apiMinutesTimer)

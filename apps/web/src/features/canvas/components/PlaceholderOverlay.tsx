@@ -6,8 +6,14 @@ import {
   useAgentJobProgressText,
   useAgentToolProgress,
 } from '../../agent/components/AgentJobProgress'
+import { AgentRetryWithdraw } from '../../agent/components/AgentToolCard'
 import { toolMessageForPlaceholder } from '../../agent/lib/jobProgress'
-import { agentRetryAvailable, agentRetryOrigin, agentRetryPricing } from '../../agent/lib/retry'
+import {
+  agentLiveRetry,
+  agentRetryAvailable,
+  agentRetryOrigin,
+  agentRetryPricing,
+} from '../../agent/lib/retry'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -148,7 +154,10 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
           p.meta.agent && ownConversation && p.status === 'error'
             ? agentRetryOrigin(messages, p.meta)
             : null
-        const retryOrigin = agentRetryAvailable(agentCode, origin) ? origin : null
+        // 这个占位上的重试还在重试队列里排着：它保持失败，标着排队中，可以撤回。
+        const live = origin ? agentLiveRetry(messages, p.id) : null
+        const queuedRetry = live?.status === 'queued' ? live : null
+        const retryOrigin = !queuedRetry && agentRetryAvailable(agentCode, origin) ? origin : null
         return (
           <div
             key={p.id}
@@ -204,6 +213,15 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   </span>
                   {note && (
                     <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{note}</span>
+                  )}
+                  {queuedRetry && (
+                    <>
+                      <span style={{ fontWeight: 600 }}>{t('agent:retry.queued')}</span>
+                      <AgentRetryWithdraw
+                        message={queuedRetry}
+                        className="pointer-events-auto rounded-lg border border-border bg-background px-3.5 py-1 text-[13px] font-medium"
+                      />
+                    </>
                   )}
                   {retryOrigin && (
                     <AgentRetryButton

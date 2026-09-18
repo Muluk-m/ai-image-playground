@@ -35,6 +35,14 @@ export interface AgentPlaceOptions {
   readonly placeholderIds?: readonly string[]
 }
 
+/** 画布上一个失败占位：一键补齐据此逐个重试。 */
+export interface AgentFailedPlaceholder {
+  readonly id: string
+  readonly errorCode?: AgentToolErrorCode
+  /** 云端占位此刻挂着的那次生成（任务 id）；本机占位缺席。 */
+  readonly generationId?: string
+}
+
 /** 工具起跑时要在画布上占的位。 */
 export interface AgentReservation {
   readonly media?: ChannelMedia
@@ -86,6 +94,14 @@ export interface AgentCanvasSink {
    * 还挂着重试，按钮要一直按住，不然同一个占位能再提交一次。缺席即这块画布不支持重试。
    */
   revive?(placeholderIds: readonly string[]): Promise<void>
+  /**
+   * 一次调用留在画布上的失败占位：本机占的位认结果卡的 messageId，云端项目的认任务 id（那次调用的，
+   * 以及接替过它的重试的）。缺席即这块画布不支持一键补齐。
+   */
+  failedPlaceholders?(ref: {
+    readonly messageId: string
+    readonly taskIds: readonly string[]
+  }): readonly AgentFailedPlaceholder[]
   /** 选中这些对象并把镜头带过去；不在画布上的跳过。 */
   focus(objectIds: readonly string[]): void
   /**
