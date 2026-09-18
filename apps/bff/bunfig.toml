@@ -1,0 +1,3 @@
+[test]
+# 每个测试进程先把私有 overlay 钉成空实现：公开测试只跑公开迁移，真 overlay 的计费钩子会去查不存在的表。
+preload = ["./src/__tests__/helpers/publicOverlayPreload.ts"]
