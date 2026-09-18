@@ -9,12 +9,12 @@ import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
-import { floatGenerateBar } from '../lib/generateBarPlacement'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
 import { projectDisplayName } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
+import { submitVideoFromCanvas } from '../lib/submitVideoFromCanvas'
 import {
   type CanvasWorkspace,
   currentCanvasWorkspace,
@@ -124,16 +124,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
     hasAgent && !hasContent && !project?.hasContent && !project?.workspaceOpened && !started
-  const chatLoaded = useAgentStore((state) => state.loaded)
-  const messageCount = useAgentStore((state) => state.messages.length)
-  const historyLoading = useAgentStore((state) => state.historyLoading)
-  const historyFailed = useAgentStore((state) => state.historyFailed)
-  const floatingBar = floatGenerateBar(hasAgent, {
-    loaded: chatLoaded,
-    messageCount,
-    historyLoading,
-    historyFailed,
-  })
   useEffect(() => {
     if (hasAgent) void useAgentStore.getState().load()
   }, [hasAgent])
@@ -175,6 +165,19 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       (error) => console.warn('[canvas] 工作台图片放置失败', error),
     )
   }, [editor, workspace, loading, loadFailed, pendingImages])
+
+  // 视频入口落地页交接过来的一句话：工作区就绪后才起轮，产物才有画布可落。
+  const handoffPrompt = useCanvasComposer((state) => state.handoffPrompt)
+  useEffect(() => {
+    if (loading || loadFailed || handoffPrompt === null) return
+    const prompt = useCanvasComposer.getState().consumeHandoffPrompt()
+    if (prompt === null) return
+    if (hasAgent) {
+      void useAgentStore.getState().send(prompt, [], undefined, 'video')
+      return
+    }
+    void submitVideoFromCanvas(editor, prompt)
+  }, [editor, hasAgent, loading, loadFailed, handoffPrompt])
 
   return (
     <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
@@ -259,11 +262,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
             <CanvasVideoToolbar editor={editor} />
-            {floatingBar && (
-              <div className="studio-floating-composer" data-generate-bar="floating">
-                <CanvasGenerateBar editor={editor} />
-              </div>
-            )}
             <TimelineEditorHost editor={editor} />
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />
