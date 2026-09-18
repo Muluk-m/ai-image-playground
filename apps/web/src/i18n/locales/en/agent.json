@@ -3,6 +3,11 @@
     "chat": "Chat",
     "layers": "Creations"
   },
+  "reference": {
+    "view": "View reference image {{label}}",
+    "loading": "Loading the original image…",
+    "unavailable": "The original image could not be loaded. Please try again later."
+  },
   "panel": {
     "resizeAria": "Drag to resize the panel",
     "resizeTitle": "Drag to resize",

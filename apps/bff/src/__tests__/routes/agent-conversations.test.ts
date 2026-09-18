@@ -159,11 +159,26 @@ describe('message reference thumbnails', () => {
     expect(response.headers.get('content-type')).toBe('image/webp')
     const metadata = await sharp(new Uint8Array(await response.arrayBuffer())).metadata()
     expect([metadata.width, metadata.height]).toEqual([48, 96])
+    const original = await app.handle(
+      new Request(`http://localhost${path}/0?variant=original`, {
+        headers: { [DEVICE_ID_HEADER]: DEVICE },
+      }),
+    )
+    expect(original.status).toBe(200)
+    expect(original.headers.get('content-type')).toBe('image/png')
+    const originalBytes = new Uint8Array(await original.arrayBuffer())
+    expect(originalBytes).toEqual(new Uint8Array(image))
+    const originalMetadata = await sharp(originalBytes).metadata()
+    expect([originalMetadata.width, originalMetadata.height]).toEqual([200, 100])
+    expect(original.headers.get('content-security-policy')).toContain('sandbox')
     expect((await request('GET', `${path}/2`, { deviceId: DEVICE })).status).toBe(404)
     expect((await request('GET', `${path}/-1`, { deviceId: DEVICE })).status).toBe(400)
   })
 
-  it('keeps snapshots private across devices, conversations, adoption and soft deletion', async () => {
+  it.each([
+    'thumbnail',
+    'original',
+  ] as const)('keeps %s snapshots private across devices, conversations, adoption and soft deletion', async (variant) => {
     const conversationId = await startConversation()
     const otherConversation = await startConversation()
     const image = await sharp({
@@ -180,13 +195,13 @@ describe('message reference thumbnails', () => {
       role: 'user',
       content: [{ type: 'text', text: '[image 1]', references }],
     })
-    const path = `/api/agent/conversations/${conversationId}/messages/${message.id}/references/0`
+    const path = `/api/agent/conversations/${conversationId}/messages/${message.id}/references/0?variant=${variant}`
     expect((await request('GET', path, { deviceId: OTHER_DEVICE })).status).toBe(404)
     expect(
       (
         await request(
           'GET',
-          `/api/agent/conversations/${otherConversation}/messages/${message.id}/references/0`,
+          `/api/agent/conversations/${otherConversation}/messages/${message.id}/references/0?variant=${variant}`,
           { deviceId: DEVICE },
         )
       ).status,

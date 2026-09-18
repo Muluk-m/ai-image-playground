@@ -1,7 +1,9 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
 import { ImageIcon } from 'lucide-react'
 import { memo, type ReactNode, useEffect, useState } from 'react'
+import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
+import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { getImageMentionLabel } from '../../../lib/promptImageMentions'
@@ -11,6 +13,62 @@ import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
 import { useAgentStore } from '../store'
 import type { AgentTextMessage } from '../types'
 import AgentSkillBadge from './AgentSkillBadge'
+
+function ReferencePreview({
+  local,
+  conversationId,
+  messageId,
+  index,
+  onClose,
+}: {
+  local?: string
+  conversationId: string | null
+  messageId: string
+  index: number
+  onClose: () => void
+}) {
+  const { t } = useTranslation(['agent', 'common'])
+  const [original, setOriginal] = useState<string>()
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (local !== undefined) return
+    if (!conversationId) {
+      setFailed(true)
+      return
+    }
+    const controller = new AbortController()
+    let source: string | undefined
+    void fetchMessageReference(conversationId, messageId, index, {
+      signal: controller.signal,
+      variant: 'original',
+    }).then(
+      (blob) => {
+        if (controller.signal.aborted) return
+        source = URL.createObjectURL(blob)
+        setOriginal(source)
+      },
+      () => {
+        if (!controller.signal.aborted) setFailed(true)
+      },
+    )
+    return () => {
+      controller.abort()
+      if (source) URL.revokeObjectURL(source)
+    }
+  }, [local, conversationId, messageId, index])
+  const source = local ?? original
+  if (source) return <ImagePreview src={source} onClose={onClose} />
+  return (
+    <Overlay onClose={onClose} tier="raised">
+      <div className="rounded-xl bg-card p-6 text-foreground" role="status">
+        {t(failed ? 'reference.unavailable' : 'reference.loading')}
+        <button type="button" className="ml-4 min-h-11 underline" onClick={onClose}>
+          {t('common:action.close')}
+        </button>
+      </div>
+    </Overlay>
+  )
+}
 
 function ReferenceThumbnail({
   reference,
@@ -28,11 +86,14 @@ function ReferenceThumbnail({
   const object = 'image' in reference ? reference.image.object : undefined
   const identity = `${scope}:${conversationId}:${messageId}:${index}:${object}`
   const [preview, setPreview] = useState<{ identity: string; source?: string }>()
+  const [openIdentity, setOpenIdentity] = useState<string>()
   useEffect(() => {
     if (local !== undefined || !conversationId || !object) return
     const controller = new AbortController()
     let source: string | undefined
-    void fetchMessageReference(conversationId, messageId, index, controller.signal).then(
+    void fetchMessageReference(conversationId, messageId, index, {
+      signal: controller.signal,
+    }).then(
       (blob) => {
         if (controller.signal.aborted) return
         source = URL.createObjectURL(blob)
@@ -51,23 +112,41 @@ function ReferenceThumbnail({
   const label = reference.name || getImageMentionLabel(index)
   const failed = !local && preview?.identity === identity && !preview.source
   return (
-    <span
-      className="mention-tag agent-image-mention"
-      title={failed ? `${label} · ${t('creations.previewUnavailable')}` : label}
-      aria-label={label}
-    >
-      {source ? (
-        <MediaImage
-          src={source}
-          alt={label}
-          draggable={false}
-          className="h-6 w-6 shrink-0 rounded object-cover"
+    <>
+      <button
+        type="button"
+        className="mention-tag agent-image-mention !cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        title={
+          failed
+            ? `${label} · ${t('creations.previewUnavailable')}`
+            : t('reference.view', { label })
+        }
+        aria-label={t('reference.view', { label })}
+        onClick={() => setOpenIdentity(identity)}
+      >
+        {source ? (
+          <MediaImage
+            src={source}
+            alt={label}
+            draggable={false}
+            className="h-6 w-6 shrink-0 rounded object-cover"
+          />
+        ) : (
+          <ImageIcon className="h-6 w-6 shrink-0 p-1" aria-hidden="true" />
+        )}
+        {reference.name && <span className="max-w-36 truncate">{reference.name}</span>}
+      </button>
+      {openIdentity === identity && (
+        <ReferencePreview
+          key={identity}
+          local={local}
+          conversationId={conversationId}
+          messageId={messageId}
+          index={index}
+          onClose={() => setOpenIdentity(undefined)}
         />
-      ) : (
-        <ImageIcon className="h-6 w-6 shrink-0 p-1" aria-hidden="true" />
       )}
-      {reference.name && <span className="max-w-36 truncate">{reference.name}</span>}
-    </span>
+    </>
   )
 }
 

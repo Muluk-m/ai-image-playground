@@ -201,6 +201,10 @@ export function createArtifactDelivery(
     record.pending = queue = queue.then(async () => {
       try {
         record.status = await place(origin, message, manual)
+        // 新结果不仅要落盘，还要进入当前视口；后台项目与重复事件不能抢走用户镜头。
+        if (record.status === 'placed' && belongs(origin) && origin.canvas === agentCanvasSink()) {
+          origin.canvas?.focus((message.artifacts ?? []).map((artifact) => artifact.artifactId))
+        }
       } catch (error) {
         console.warn('[agent] artifact delivery failed', error)
         record.status = 'failed'
