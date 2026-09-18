@@ -18,6 +18,7 @@ import { videoDeriveLabel } from '../../video/lib/labels'
 import {
   type CanvasVideoNode,
   canvasDeriveCheck,
+  canvasRegenerateOffered,
   canvasRegenerateRefusal,
   canvasVideoNode,
   downloadCanvasVideo,
@@ -231,12 +232,14 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           disabled={busyHere}
           onClick={() => void run('download', node)}
         />
-        <ToolbarButton
-          icon={<RotateCcw />}
-          label={t('videoToolbar.regenerate')}
-          reason={regenerateRefusal ?? undefined}
-          onClick={() => regenerate(node)}
-        />
+        {canvasRegenerateOffered(node) && (
+          <ToolbarButton
+            icon={<RotateCcw />}
+            label={t('videoToolbar.regenerate')}
+            reason={regenerateRefusal ?? undefined}
+            onClick={() => regenerate(node)}
+          />
+        )}
         {(['extend', 'edit'] as const).map((mode) => {
           const check = checks[mode]
           return (
