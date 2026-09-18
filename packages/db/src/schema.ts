@@ -2,9 +2,14 @@ import type {
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
+  AgentMode,
+  AgentQueuedMessageFailure,
+  AgentQueuedMessageState,
   AgentToolCallSnapshot,
   AgentTurnCost,
   AgentTurnEvent,
+  AgentTurnParams,
+  AgentTurnReference,
   AgentTurnStopReason,
   AgentTurnUsage,
   GenerationParameters,
@@ -325,6 +330,61 @@ export const agent_tool_calls = pgTable(
   (t) => [
     primaryKey({ columns: [t.conversation_id, t.message_id] }),
     index('idx_agent_tool_calls_turn').on(t.conversation_id, t.turn_id),
+  ],
+)
+
+/** 收件箱里一条用户消息的载荷：起轮要的全部输入，除了参考图的字节（见 `attachments`）。 */
+export interface AgentInboxUserMessagePayload {
+  readonly text: string
+  readonly deviceId: string
+  readonly mode?: AgentMode
+  readonly params?: AgentTurnParams
+  readonly referenceCount: number
+}
+
+/**
+ * 会话收件箱：智能体还没取走的东西。忙时用户发的话排在这里，按 `seq` 在当前回复可以结束时
+ * 取，每轮一条。`status` 从 `pending` 走向 `consumed` 或 `cancelled`，两条路由同一条记录上的
+ * 原子更新裁决，撤回与处理只有一个成立。轮到时开不了轮的那一条走向 `failed`，`failure` 记下
+ * 错误码，不再挡后面的；用户撤掉它时才变成 `cancelled`。`client_message_id` 让网络重发的同一条消息不排两次。
+ * `attachments` 是参考图原件，只在待处理时留着，取走或撤回就清掉。
+ */
+export const agent_inbox = pgTable(
+  'agent_inbox',
+  {
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    id: text('id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: text('kind')
+      .$type<'user_message' | 'clarification_answer' | 'task_result' | 'system_event'>()
+      .notNull(),
+    status: text('status').$type<AgentQueuedMessageState>().notNull(),
+    client_message_id: text('client_message_id'),
+    payload: bunJsonb('payload').$type<AgentInboxUserMessagePayload>().notNull(),
+    attachments: bunJsonb('attachments').$type<AgentTurnReference[]>(),
+    consumed_turn_id: text('consumed_turn_id'),
+    failure: text('failure').$type<AgentQueuedMessageFailure>(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversation_id, t.id] }),
+    uniqueIndex('idx_agent_inbox_conversation_seq').on(t.conversation_id, t.seq),
+    uniqueIndex('idx_agent_inbox_client_message')
+      .on(t.conversation_id, t.client_message_id)
+      .where(sql`${t.client_message_id} IS NOT NULL`),
+    index('idx_agent_inbox_pending')
+      .on(t.conversation_id, t.seq)
+      .where(sql`${t.status} = 'pending'`),
+    check(
+      'agent_inbox_kind_check',
+      sql`${t.kind} IN ('user_message', 'clarification_answer', 'task_result', 'system_event')`,
+    ),
+    check(
+      'agent_inbox_status_check',
+      sql`${t.status} IN ('pending', 'consumed', 'cancelled', 'failed')`,
+    ),
   ],
 )
 

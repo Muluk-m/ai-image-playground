@@ -8,12 +8,14 @@ vi.mock('../../../../lib/deviceId', () => ({ getDeviceId: () => DEVICE }))
 vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'https://bff.test' }))
 
 import {
+  AgentRequestError,
   type AgentTurnStream,
   fetchConversations,
   fetchMessages,
   followTurn,
   interjectTurn,
   startTurn,
+  withdrawQueuedMessage,
 } from '../../../../features/agent/lib/agentClient'
 
 interface Call {
@@ -454,5 +456,69 @@ describe('先取快照再接会话增量', () => {
 
     expect(await collect(turn)).toEqual([TURN_START, delta('这一轮的'), TURN_END])
     expect(turn.outcome).toBe('ended')
+  })
+})
+
+describe('排队消息请求', () => {
+  const queued = {
+    id: 'queue-1',
+    clientMessageId: 'client-1',
+    text: '再加一只狗',
+    referenceCount: 0,
+    createdAt: 1,
+  }
+
+  it('忙时发送收到 202 就是已排队，带着客户端消息 id', async () => {
+    const calls: Call[] = []
+    const fetcher = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      return new Response(JSON.stringify({ queued, state: 'pending', turnId: 'turn-1' }), {
+        status: 202,
+      })
+    }
+
+    const outcome = await startTurn(
+      'conv-1',
+      '再加一只狗',
+      [],
+      undefined,
+      'image',
+      fetcher,
+      'client-1',
+    )
+
+    expect(outcome).toEqual({
+      kind: 'queued',
+      body: { queued, state: 'pending', turnId: 'turn-1' },
+    })
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({
+      deviceId: DEVICE,
+      text: '再加一只狗',
+      clientMessageId: 'client-1',
+    })
+  })
+
+  it('排队已满的 409 带着错误码抛出，而不是当成别处在跑的轮', async () => {
+    const fetcher = async () =>
+      new Response(JSON.stringify({ error: 'queue_full', limit: 10 }), { status: 409 })
+
+    const failure = await startTurn('conv-1', '第十一句', [], undefined, 'image', fetcher).catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(failure).toBeInstanceOf(AgentRequestError)
+    expect(failure).toMatchObject({ status: 409, code: 'queue_full' })
+  })
+
+  it('撤回打到那一条的撤回端点，交回服务端裁决的结局', async () => {
+    const { calls, fetcher } = recordingFetcher({ result: 'already_consumed' })
+
+    const result = await withdrawQueuedMessage('conv-1', 'queue-1', fetcher)
+
+    expect(result).toBe('already_consumed')
+    expect(calls[0]!.url).toBe(
+      'https://bff.test/api/agent/conversations/conv-1/queue/queue-1/withdraw',
+    )
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ deviceId: DEVICE })
   })
 })
