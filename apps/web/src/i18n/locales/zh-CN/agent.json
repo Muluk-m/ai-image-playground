@@ -51,7 +51,13 @@
   },
   "retry": {
     "record": "重试",
-    "viewOriginal": "查看原失败卡"
+    "viewOriginal": "查看原失败卡",
+    "queued": "排队中",
+    "withdraw": "撤回",
+    "withdrawing": "撤回中…",
+    "withdrawFailed": "没能撤回，请稍后再试",
+    "withdrawn": "重试已撤回",
+    "retryRemaining_other": "重试剩余 {{count}} 个失败占位"
   },
   "cost": {
     "duration": "本轮耗时 {{duration}}",

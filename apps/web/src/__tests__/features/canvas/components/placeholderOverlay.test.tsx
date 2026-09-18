@@ -6,6 +6,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentRetryRefusal } from '../../../../features/agent/store'
 import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
 import PlaceholderOverlay from '../../../../features/canvas/components/PlaceholderOverlay'
@@ -23,6 +24,8 @@ import {
 const agent = vi.hoisted(() => ({
   send: vi.fn(),
   retry: vi.fn(),
+  cancelJob: vi.fn(async () => {}),
+  retryRemaining: vi.fn(async () => {}),
   conversationId: 'conv-1' as string | null,
   messages: [] as AgentPanelMessage[],
   retryRefusals: {} as Record<string, AgentRetryRefusal>,
@@ -69,6 +72,8 @@ beforeEach(() => {
   root = createRoot(host)
   send.mockClear()
   agent.retry.mockReset()
+  agent.cancelJob.mockClear()
+  agent.retryRemaining.mockClear()
   agent.retryRefusals = {}
   agent.conversationId = 'conv-1'
   agent.messages = []
@@ -79,6 +84,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount())
+  setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -548,5 +554,118 @@ describe('单张重试', () => {
 
     act(() => host.querySelector('button')!.click())
     expect(agent.retry).toHaveBeenCalledWith('tool-1', `agent_${generationId}_0`, generationId)
+  })
+})
+
+describe('重试排队', () => {
+  /** 排在别的重试后面的那条重试记录：还没提交，没有任务。 */
+  function queuedRecord(placeholderId: string, id = 'retry-1'): AgentToolMessage {
+    return failedCard({
+      id,
+      turnId: `${id}-turn`,
+      toolCallId: `${id}-call`,
+      status: 'queued',
+      errorCode: undefined,
+      job: undefined,
+      retryOf: { messageId: 'tool-1', toolCallId: 'call-1', placeholderId },
+    })
+  }
+
+  it('排着的重试：占位标着排队中，只给撤回，不再给重试', async () => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard()]
+    const [placeholderId] = await failedPlaceholder('服务端写的那句话', 'upstream_error')
+    agent.messages = [failedCard(), queuedRecord(placeholderId!)]
+
+    act(() => root.render(<PlaceholderOverlay editor={editor} key="queued" />))
+
+    expect(host.textContent).toContain('排队中')
+    const buttons = [...host.querySelectorAll('button')]
+    expect(buttons.map((button) => button.textContent)).toEqual(['撤回'])
+    act(() => buttons[0]!.click())
+    expect(agent.cancelJob).toHaveBeenCalledWith('retry-1')
+    expect(agent.retry).not.toHaveBeenCalled()
+  })
+
+  it('撤回之后占位回到原来那次失败，又能重试', async () => {
+    offerModels(RETRY_MODEL)
+    const [placeholderId] = await failedPlaceholder('服务端写的那句话', 'upstream_error')
+    agent.messages = [
+      failedCard(),
+      {
+        ...queuedRecord(placeholderId!),
+        status: 'failed',
+        errorCode: 'cancelled',
+      },
+    ]
+
+    act(() => root.render(<PlaceholderOverlay editor={editor} key="withdrawn" />))
+
+    expect(host.textContent).not.toContain('排队中')
+    expect(host.querySelector('button')?.textContent).toContain('重试')
+  })
+
+  it('结果卡上的重试记录：排着时说排队中、可以撤回；撤回之后说已撤回', () => {
+    act(() => root.render(<AgentToolCard message={queuedRecord('placeholder-1')} />))
+    expect(host.textContent).toContain('排队中')
+    const withdraw = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '撤回',
+    )!
+    act(() => withdraw.click())
+    expect(agent.cancelJob).toHaveBeenCalledWith('retry-1')
+
+    act(() =>
+      root.render(
+        <AgentToolCard
+          message={{ ...queuedRecord('placeholder-1'), status: 'failed', errorCode: 'cancelled' }}
+        />,
+      ),
+    )
+    expect(host.textContent).toContain('重试已撤回')
+    expect([...host.querySelectorAll('button')].map((button) => button.textContent)).not.toContain(
+      '撤回',
+    )
+  })
+
+  async function failedCall(count: number) {
+    const sink = createAgentCanvasSink(editor)
+    setAgentCanvasSink(sink)
+    const ids = await sink.reserve({ count, messageId: 'tool-1', conversationId: 'conv-1' })
+    sink.markFailed(ids, '', 'timeout')
+    return ids
+  }
+
+  function retryRemainingButton() {
+    return [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('重试剩余'),
+    )
+  }
+
+  it('失败卡一键补齐：数的是还没排着、没在跑的失败占位，点一下交给补齐', async () => {
+    offerModels(RETRY_MODEL)
+    const ids = await failedCall(3)
+    const origin = failedCard({ errorCode: 'timeout' })
+    agent.messages = [origin, queuedRecord(ids[2]!)]
+
+    act(() => root.render(<AgentToolCard message={origin} />))
+
+    const button = retryRemainingButton()!
+    expect(button.textContent).toBe('重试剩余 2 个失败占位')
+    act(() => button.click())
+    expect(agent.retryRemaining).toHaveBeenCalledWith('tool-1')
+  })
+
+  it('没有剩下可重试的失败占位、或原卡不能原样重试时不给补齐', async () => {
+    offerModels(RETRY_MODEL)
+    const ids = await failedCall(1)
+    const origin = failedCard({ errorCode: 'timeout' })
+    agent.messages = [origin, queuedRecord(ids[0]!)]
+    act(() => root.render(<AgentToolCard message={origin} />))
+    expect(retryRemainingButton()).toBeUndefined()
+
+    offerModels('another-model')
+    agent.messages = [origin]
+    act(() => root.render(<AgentToolCard message={origin} key="gone" />))
+    expect(retryRemainingButton()).toBeUndefined()
   })
 })

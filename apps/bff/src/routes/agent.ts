@@ -59,7 +59,7 @@ import {
   withdrawAgentMessage,
 } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
-import { cancelAgentRetry, retryAgentToolCall } from '../lib/agent/retry'
+import { advanceAgentRetryQueue, cancelAgentRetry, retryAgentToolCall } from '../lib/agent/retry'
 import {
   beginTurnStop,
   claimForTurn,
@@ -302,6 +302,8 @@ export const agentRoutes = new Elysia()
       const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
+      // 看着这个会话的客户端每次来问，顺手推一下重试队列：前一条刚结束，下一条不必等巡到。
+      await advanceAgentRetryQueue(conversation.id)
       const messages = await listAgentMessages(conversation.id, owner)
       const response: AgentBackgroundJobsResponse = {
         jobs: await agentJobViews(conversation.id, messages),

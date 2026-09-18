@@ -127,6 +127,7 @@ export async function cancelAgentConversationJobs(conversationId: string): Promi
 /**
  * 这些消息里提交过后台任务的调用，结果块是此刻的样子。还没结束的带上任务表里的进度：
  * 排着队、在生成、在重连还是在确认，什么时候受理的。消息应当已经结算过（{@link settleAgentJobs}）。
+ * 重试队列里还没提交的重试记录（`queued`）也在列：别的设备据此看到排队态，轮到时看到它换成在跑。
  */
 export async function agentJobViews(
   conversationId: string,
@@ -134,7 +135,7 @@ export async function agentJobViews(
 ): Promise<AgentBackgroundJobView[]> {
   const jobs = messages.flatMap((message) =>
     message.content.flatMap((block) =>
-      block.type === 'toolResult' && block.job
+      block.type === 'toolResult' && (block.job || (block.retryOf && block.status === 'queued'))
         ? [{ messageId: message.id, turnId: message.turnId, result: block }]
         : [],
     ),

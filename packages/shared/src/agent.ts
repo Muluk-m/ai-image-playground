@@ -117,8 +117,10 @@ export const AGENT_TURN_MAX_REFERENCES = 8
 /**
  * 一次工具调用的结局。`submitted` 是后台任务刚提交、结果尚未就绪：调用本身已经收尾，
  * 任务结束后服务端把它就地改写成 `succeeded` 或 `failed`（见 {@link AgentBackgroundJob}）。
+ * `queued` 只出现在重试记录上：它在会话的重试队列里等前一条重试结束，轮到时服务端提交任务、
+ * 就地改成 `submitted`；撤回的改成 `failed`（`cancelled`）。
  */
-export type AgentToolStatus = 'succeeded' | 'failed' | 'submitted'
+export type AgentToolStatus = 'succeeded' | 'failed' | 'submitted' | 'queued'
 
 /**
  * 一次工具调用为什么失败。界面只按它决定给什么出路（ADR 0006），不读 `message`：
@@ -742,6 +744,7 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
   if (block.status === 'failed') return `${title}：失败（${block.message ?? '未知原因'}）`
   if (block.status === 'submitted') return `${title}：已提交后台任务，结果尚未就绪`
+  if (block.status === 'queued') return `${title}：排队等待重试，尚未提交`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')

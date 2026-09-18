@@ -51,7 +51,14 @@
   },
   "retry": {
     "record": "Retry",
-    "viewOriginal": "View the failed card"
+    "viewOriginal": "View the failed card",
+    "queued": "Queued",
+    "withdraw": "Withdraw",
+    "withdrawing": "Withdrawing…",
+    "withdrawFailed": "Couldn't withdraw. Please try again shortly.",
+    "withdrawn": "Retry withdrawn",
+    "retryRemaining_one": "Retry the remaining failed placeholder",
+    "retryRemaining_other": "Retry the remaining {{count}} failed placeholders"
   },
   "cost": {
     "duration": "Took {{duration}}",
