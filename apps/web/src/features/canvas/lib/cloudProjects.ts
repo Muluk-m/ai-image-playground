@@ -9,6 +9,7 @@ import type { CanvasEditor } from './editor'
 import { type CloudSceneCheckpoint, readPersistedScene, saveScene } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
+  isLocalAgentFailure,
   type LoadedBindings,
   prepareProjectMedia,
   projectDocument,
@@ -198,6 +199,11 @@ export class CloudProjectSession {
     }
     if (status === 'error') this.retryLater()
   }
+  /** 换上云端版本；只在这台设备上的失败占位不在云端文档里，原样留下。 */
+  private restoreRemote(scene: ReturnType<typeof projectScene>) {
+    const local = this.editor.doc.elements.filter(isLocalAgentFailure)
+    this.editor.doc.restore([...scene.elements, ...local], scene.files, this.editor.doc.camera)
+  }
   private document(): ProjectDocument | null {
     return projectDocument(this.editor.doc, this.mediaBindings)
   }
@@ -351,7 +357,7 @@ export class CloudProjectSession {
       }
       if (retryingRead || !hasLocalScene || remote.revision !== this.baseline.revision) {
         const scene = projectScene(remote.document, this.mediaBindings, this.project.conversationId)
-        this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
+        this.restoreRemote(scene)
       }
       await this.metadata({
         name: remote.name,
@@ -590,7 +596,7 @@ export class CloudProjectSession {
       }
       if (!remote) return
       const scene = projectScene(remote.document, this.mediaBindings, this.project.conversationId)
-      this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
+      this.restoreRemote(scene)
       this.project = { ...this.project, name: remote.name }
       this.baseline = {
         revision: remote.revision,

@@ -7,6 +7,8 @@ import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanv
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { projectScene } from '../../../../features/canvas/lib/projectMedia'
+import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
+import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 
 const agent = vi.hoisted(() => ({ send: vi.fn(), conversationId: 'conv-1' as string | null }))
 const send = agent.send
@@ -15,6 +17,17 @@ vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: Object.assign((select: (state: typeof agent) => unknown) => select(agent), {
     getState: () => agent,
   }),
+}))
+
+// 收费形态、开了积分与登录：去充值 / 去登录都有真实入口。
+vi.mock('../../../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/privateOverlay')>()),
+  notifyPrivateSubmissionError: vi.fn(),
+  PrivateWebOverlayPresent: true,
+}))
+vi.mock('../../../../lib/clientCapabilities', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/clientCapabilities')>()),
+  isClientCapabilityEnabled: () => true,
 }))
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -103,7 +116,7 @@ it('结果未知的失败只说原因，不给出路', async () => {
   expect(host.querySelector('button')).toBeNull()
 })
 
-function cloudFailedPlaceholder(code: 'model_unavailable' | 'timeout') {
+function cloudFailedPlaceholder(code: 'timeout') {
   const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
   const scene = projectScene(
     {
@@ -129,14 +142,52 @@ function cloudFailedPlaceholder(code: 'model_unavailable' | 'timeout') {
   act(() => root.render(<PlaceholderOverlay editor={editor} />))
 }
 
-it('云端项目的失败占位同样按错误码出原因与出路', () => {
-  cloudFailedPlaceholder('model_unavailable')
+/** 云端项目上提交就被拒：服务端没留位置，失败占位由本机补上。 */
+async function cloudRefusedPlaceholder(
+  code: 'insufficient_credits' | 'authentication_required' | 'model_unavailable',
+) {
+  const sink = createAgentCanvasSink(editor, undefined, {
+    enabled: () => true,
+    refresh: () => Promise.resolve(),
+  })
+  const ids = await sink.reserve({
+    count: 1,
+    messageId: 'tool-cloud',
+    conversationId: 'conv-1',
+    title: '一只橘猫',
+  })
+  sink.markFailed(ids, '服务端写的那句话', code)
+  act(() => root.render(<PlaceholderOverlay editor={editor} />))
+}
 
-  expect(host.textContent).toContain('生成失败')
+it('云端项目积分不够被拒：失败占位给去充值', async () => {
+  await cloudRefusedPlaceholder('insufficient_credits')
+
+  const button = host.querySelector('button')!
+  expect(button.textContent).toBe('去充值')
+  act(() => button.click())
+  expect(notifyPrivateSubmissionError).toHaveBeenCalledWith({ insufficientCredits: true })
+})
+
+it('云端项目没登录被拒：失败占位给去登录', async () => {
+  await cloudRefusedPlaceholder('authentication_required')
+
+  const button = host.querySelector('button')!
+  expect(button.textContent).toBe('去登录')
+  const expired = vi.fn()
+  window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+  act(() => button.click())
+  window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+  expect(expired).toHaveBeenCalledTimes(1)
+})
+
+it('云端项目模型不可用被拒：失败占位给让助手重新处理，发回项目的会话', async () => {
+  await cloudRefusedPlaceholder('model_unavailable')
+
   const button = host.querySelector('button')!
   expect(button.textContent).toBe('让助手重新处理')
   act(() => button.click())
-  expect(send).toHaveBeenCalledWith(expect.stringMatching(/^「生成任务」没有完成：/))
+  expect(send).toHaveBeenCalledWith(expect.stringMatching(/^「一只橘猫」没有完成：/))
 })
 
 it('云端项目超时的失败占位只说原因', () => {

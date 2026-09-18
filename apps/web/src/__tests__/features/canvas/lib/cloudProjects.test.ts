@@ -1350,6 +1350,73 @@ it('另一台设备恢复服务端的失败占位并带着错误码；删除后�
   session.dispose()
 })
 
+it('提交就被拒的失败占位只留在本机：不写云端、不挡同步，换上云端新版本后仍在', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+  const id = `agent_${generationId}_0`
+  const running = {
+    id,
+    type: 'generation',
+    generationId,
+    position: 0,
+    x: 24,
+    y: 0,
+    width: 360,
+    height: 360,
+  }
+  let remote = {
+    id: crypto.randomUUID(),
+    name: '被拒的图片项目',
+    revision: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 1,
+    conversationId: 'conversation-1',
+    document: { version: 1, elements: [running] as Record<string, unknown>[] },
+  }
+  const writes: unknown[] = []
+  vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(init.body as string)
+      writes.push(body)
+      return Response.json(receipt(remote.id, body))
+    }
+    return Response.json(remote)
+  })
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+  const { createAgentCanvasSink } = await import('../../../../features/canvas/lib/agentCanvasSink')
+  const sink = createAgentCanvasSink(editor, undefined, {
+    enabled: () => true,
+    refresh: () => Promise.resolve(),
+  })
+  sink.markFailed(
+    await sink.reserve({ count: 1, messageId: 'tool-refused', conversationId: 'conversation-1' }),
+    '',
+    'insufficient_credits',
+  )
+  const refused = editor.getPlaceholders().find((one) => one.meta.agentMessageId === 'tool-refused')
+  expect(refused?.meta.agentErrorCode).toBe('insufficient_credits')
+
+  await session.sync()
+  expect(writes).toHaveLength(0)
+  expect(session.getSnapshot().status).toBe('saved')
+
+  remote = {
+    ...remote,
+    revision: 3,
+    updatedAt: 3,
+    document: { version: 1, elements: [{ ...running, errorCode: 'timeout' }] },
+  }
+  await session.refresh(true)
+  expect(editor.getPlaceholder(id)?.meta.agentErrorCode).toBe('timeout')
+  expect(editor.getPlaceholder(refused!.id)?.meta.agentErrorCode).toBe('insufficient_credits')
+  expect(writes).toHaveLength(0)
+  session.dispose()
+})
+
 it('其他设备删除项目后停止旧身份上传，保留本机编辑并允许显式存为新项目', async () => {
   vi.stubGlobal('crypto', webcrypto)
   setClientStorageScope(crypto.randomUUID())

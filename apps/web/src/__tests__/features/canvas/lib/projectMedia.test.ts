@@ -94,3 +94,31 @@ describe('云端项目的失败占位', () => {
     expect(projectDocument(doc)).toEqual(remote)
   })
 })
+
+describe('只在本机的失败占位', () => {
+  it('leaves a refused agent call out of the cloud document so the project keeps syncing', () => {
+    const doc = new CanvasDoc()
+    doc.addElements([
+      {
+        id: 'refused',
+        type: 'placeholder',
+        x: 0,
+        y: 0,
+        width: 360,
+        height: 360,
+        status: 'error',
+        message: '',
+        meta: {
+          taskId: '',
+          clientRequestId: 'group',
+          source: 'builtin-edge',
+          prompt: '一只橘猫',
+          agent: true,
+          agentErrorCode: 'insufficient_credits',
+        },
+      },
+    ])
+
+    expect(projectDocument(doc)).toEqual({ version: 1, elements: [] })
+  })
+})
