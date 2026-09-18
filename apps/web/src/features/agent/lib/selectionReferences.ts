@@ -36,14 +36,19 @@ interface Synced {
  *
  * 自动带进来的那张还选着、草稿里却没了，只能是用户点掉的：记成拒绝过，往后的选区
  * 变化不再把它塞回去，取消选中才算翻篇。
+ *
+ * 「自动带的」除了本模块记下的，还认草稿里标着 `origin: 'selection'` 的：输入框重挂、
+ * 发送失败放回来的草稿，本模块的记账已经归零，只有草稿自己还记得。
  */
 function syncSelected(
   draft: AgentDraft,
   selected: readonly SelectedImage[],
-  auto: ReadonlySet<string>,
+  remembered: ReadonlySet<string>,
   dismissed: ReadonlySet<string>,
 ): Synced {
   const ids = new Set(selected.map((one) => one.imageId))
+  const auto = new Set(remembered)
+  for (const one of draft.references) if (one.origin === 'selection') auto.add(one.id)
   const next = new Set(auto)
   // 取消选中就翻篇：下次再选中它算一次新的选择。
   const refused = new Set([...dismissed].filter((id) => ids.has(id)))
@@ -71,7 +76,10 @@ function syncSelected(
     next.add(image.imageId)
     result = {
       ...result,
-      references: [...result.references, { id: image.imageId, dataUrl: image.dataUrl }],
+      references: [
+        ...result.references,
+        { id: image.imageId, dataUrl: image.dataUrl, origin: 'selection' },
+      ],
     }
   }
   return { draft: result, auto: next, dismissed: refused }
@@ -107,14 +115,16 @@ export interface SelectionReferences {
   ): void
   /**
    * 草稿整份被发送收走了。引用区跟着空掉不是用户在拒绝，所以只作废 auto 记账，
-   * 仍选中的图下一次同步照常带回来；用户拒绝过的那几张仍然算数。
+   * 仍选中的图下一次同步照常带回来；用户拒绝过的那几张仍然算数。发送失败放回来的草稿
+   * 靠引用上的 `origin` 认回自动带的那几张。
    */
   sent(): void
 }
 
 /**
  * 「哪些引用是跟着选区自动带进来的」归这里管：auto 与 dismissed 两个集合是本模块的私有状态，
- * 调用方拿到的只是一个句柄。它跟着输入框的挂载周期活，不进草稿、不持久化。
+ * 调用方拿到的只是一个句柄。这两本账跟着输入框的挂载周期活；活得比它久的那一半——
+ * 哪张是自动带的——写在草稿里的引用上（`origin`），随草稿落盘。
  */
 export function createSelectionReferences(): SelectionReferences {
   let auto: ReadonlySet<string> = new Set()
