@@ -25,6 +25,7 @@ import {
 } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
 import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
+import { retryCanvasVideo } from './submitVideoFromCanvas'
 
 /**
  * 标注模式的指令前缀：把「带手绘标注的参考图」翻译成「按标注改、输出干净新图」。
@@ -191,6 +192,7 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
  */
 export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderView): void {
   const meta = placeholder.meta
+  if (meta.video) return retryCanvasVideo(editor, placeholder)
   const activeProfile = getActiveApiProfile(useStore.getState().settings)
   const retryQuantity = Math.max(1, meta.params?.n ?? 1)
   const submissionGuard = getPrivateSubmissionGuard({

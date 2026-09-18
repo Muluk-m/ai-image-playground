@@ -9,6 +9,7 @@ import {
   settleGeneration,
   targetFromShape,
 } from './placeholderShapeOps'
+import { resumeCanvasVideo } from './submitVideoFromCanvas'
 
 /** builtin-edge 且有 bffRequestId：用它续 poll（不重传输入图），完成替换占位框。 */
 async function resumeOne(
@@ -68,6 +69,8 @@ export function recoverCanvasTasks(editor: CanvasEditor): void {
       // 智能体的占位框只是那一轮的脚手架：这里没有 BFF 请求可续、画布上也没法重试，
       // 产物由智能体面板那条交付链路补送。留着它就是个永远转圈的空框。
       editor.deleteElement(placeholder.id, { history: false })
+    } else if (meta.video && meta.bffRequestId) {
+      void resumeCanvasVideo(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge' && meta.bffRequestId) {
       void resumeOne(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge') {
