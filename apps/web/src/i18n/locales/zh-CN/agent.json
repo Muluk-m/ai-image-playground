@@ -95,7 +95,9 @@
       "insufficient_credits": "余额不足，未处理",
       "model_price_unavailable": "模型暂不可用，未处理",
       "unauthorized": "需要登录，未处理"
-    }
+    },
+    "interject": "现在插话",
+    "interjectAria": "现在插话：{{text}}"
   },
   "params": {
     "title": "生成参数",
@@ -150,7 +152,10 @@
     "queueFull_other": "排队已满（最多 {{count}} 条），等前面的处理完再发。草稿已保留。",
     "queueFailed": "消息未能加入排队，草稿已保留，请重试。",
     "queueAlreadyConsumed": "这条消息已经在处理了，没能撤回。",
-    "queueWithdrawFailed": "撤回未成功，请重试。"
+    "queueWithdrawFailed": "撤回未成功，请重试。",
+    "queueInterjectTooLate": "当前回复已经结束，这条消息会在下一轮处理。",
+    "queueInterjectConsumed": "这条消息已经在处理了。",
+    "queueInterjectFailed": "插话未成功，请重试。"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",

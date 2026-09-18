@@ -1234,5 +1234,55 @@ describe('AgentPanel', () => {
       ])
       expect(texts('section[aria-label^="排队中"] li')).toEqual(['再加一只狗'])
     })
+
+    it('智能体忙时每条排队消息可以现在插话，点了就插进正在跑的那一轮', async () => {
+      const requests: string[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input)
+          if (init?.method === 'POST' && url.endsWith('/interject')) {
+            requests.push(url)
+            return Response.json({ result: 'interjected', turnId: 'turn-1' })
+          }
+          return Response.json({ skills: [] })
+        }),
+      )
+      useAgentStore.setState({
+        conversationId: 'conversation-1',
+        turn: 'running',
+        activeTurn: { turnId: 'turn-1' },
+        queue: [
+          queued('queue-1', '再加一只狗'),
+          { ...queued('queue-2', '换成蓝色背景'), failure: 'insufficient_credits' as const },
+        ],
+      })
+      render()
+
+      // 没能开轮的那一条不再排着，也就没有插话可言。
+      expect(host.querySelector('button[aria-label="现在插话：换成蓝色背景"]')).toBeNull()
+      const interject = host.querySelector<HTMLButtonElement>(
+        'button[aria-label="现在插话：再加一只狗"]',
+      )!
+      await act(async () => {
+        interject.click()
+      })
+      await settle()
+
+      expect(requests).toEqual([
+        'http://bff.test/api/agent/conversations/conversation-1/queue/queue-1/interject',
+      ])
+      expect(texts('section[aria-label^="排队中"] li')).toEqual(['换成蓝色背景余额不足，未处理'])
+    })
+
+    it('智能体空闲时没有现在插话', () => {
+      useAgentStore.setState({
+        conversationId: 'conversation-1',
+        queue: [queued('queue-1', '再加一只狗')],
+      })
+      render()
+
+      expect(host.querySelector('button[aria-label^="现在插话"]')).toBeNull()
+    })
   })
 })

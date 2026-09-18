@@ -98,7 +98,9 @@
       "insufficient_credits": "Not handled: insufficient credits",
       "model_price_unavailable": "Not handled: model unavailable",
       "unauthorized": "Not handled: sign in required"
-    }
+    },
+    "interject": "Interject now",
+    "interjectAria": "Interject now: {{text}}"
   },
   "params": {
     "title": "Generation settings",
@@ -154,7 +156,10 @@
     "queueFull_other": "The queue is full (up to {{count}} messages). Wait for earlier ones to be handled. Your draft is kept.",
     "queueFailed": "The message couldn't be queued. Your draft is kept, please retry.",
     "queueAlreadyConsumed": "That message is already being handled and could not be withdrawn.",
-    "queueWithdrawFailed": "Couldn't withdraw it. Please retry."
+    "queueWithdrawFailed": "Couldn't withdraw it. Please retry.",
+    "queueInterjectTooLate": "The current reply has already ended. This message will be handled next.",
+    "queueInterjectConsumed": "That message is already being handled.",
+    "queueInterjectFailed": "Couldn't interject it. Please retry."
   },
   "project": {
     "createFailed": "Could not create the project. Your current work is kept, please retry.",
