@@ -30,6 +30,7 @@ command=${1:-}
 shift
 
 if [ "$command" = build ] || [ "$command" = build-private ]; then
+  [ "$(uname -s)" = Darwin ] || { echo "Build on macmini2; VPS accepts prebuilt releases only." >&2; exit 1; }
   image=${1:-ai-image-playground:local}
   if [ "$command" = build-private ]; then
     # A public build caches these two stages with an empty overlay; reusing that

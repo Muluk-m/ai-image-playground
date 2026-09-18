@@ -2,16 +2,13 @@
 
 本文件给 Claude Code（claude.ai/code）当作工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
-## 当前生产部署状态：macmini2 备用后端（2026-09-18）
+## 当前生产部署状态：Pages + VPS（2026-09-18）
 
-**当前线上 API 已切到 macmini2，不是 VPS。** 在确认并更新本节之前，任何发布、排障和数据库操作都先读 [备用后端运行手册](docs/deploy/backup-backend.md)。本节覆盖下文默认 VPS 发布路径；不要直接运行 VPS 部署脚本、把 Pages 指回原 API，或假设备用 PostgreSQL 与 VPS 同步。
+**生产 API 已切回 VPS。构建必须在 macmini2，VPS 只接收预构建镜像。** 发布前读取 [镜像发布手册](docs/deploy/image-release.md)，不得在 VPS 运行旧的源码构建流程。
 
-- 备用 API：`https://backup-api.muvloom.online`。原网页域名不变，付费版与内部版 Pages 都已切到该地址。
-- SSH：`macmini2`；服务目录：`/Users/mac/services/aip-free-recovery-20260918`。Docker Compose 运行 BFF、worker、独立 PostgreSQL 和 MinIO；原生 cloudflared 通过 LaunchAgent 托管。
-- 当前模式：免登录进入、本地账号画布继续读取、关闭积分扣减和云同步。原站登录 Cookie 保留；这里不把浏览器账号标识当作服务端登录凭证。
-- **完整对话消息存在服务端 PG，本地只有画布/生成记录/草稿，不是完整对话备份。** 原 VPS 的历史对话暂不可读；备用期间新对话保存在 macmini2。两边对话关联已隔离，切回不会覆盖原关联，但数据库不会自动合并。
-- 已验证：schema 迁移、GPT/Gemini/Grok/Agnes 生图、Grok/Seedance 视频、原浏览器旧画布与创作记录、页面新生图及刷新持久化。Agnes 视频因上游免费额度限制暂隐藏；Veo 缺 key 未启用。
-- 切回：先验证 VPS 恢复、完成备用中任务并保留备用数据卷，再按运行手册仅切 Pages API 配置。原 API 域名 DNS 已恢复原 VPS 指向。
+- 页面域名不变，付费 API 为 `api.muvloom.online`，旧站映射 `api.nainma.online`；内部 API 为 `image-api.qiliangjia.one`。付费站恢复原登录、积分与云同步。
+- macmini2 备用后端 `backup-api.muvloom.online` 保留，数据库和 MinIO 不得删除。备用期间的新对话尚未合并到 VPS；完整旧对话存于原 PG，本地画布不是完整消息备份。
+- 备用部署与切换步骤见 [备用后端运行手册](docs/deploy/backup-backend.md)。
 
 ## 项目概况
 

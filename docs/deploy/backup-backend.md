@@ -1,6 +1,6 @@
 # macmini2 备用后端运行手册
 
-状态核验时间：2026-09-18（Asia/Shanghai）。这是当前事故恢复部署，不是 PostgreSQL 高可用副本。部署位置和流量切换完成后，必须同步更新本文件及根目录 `CLAUDE.md`，避免其他 session 按过期状态发布。
+状态核验时间：2026-09-18（Asia/Shanghai）。生产 Pages 已切回原 VPS API；本服务保留为备用，不是 PostgreSQL 高可用副本。部署位置和流量切换完成后，必须同步更新本文件及根目录 `CLAUDE.md`，避免其他 session 按过期状态发布。
 
 ## 当前入口与拓扑
 
@@ -21,15 +21,15 @@
 | 线上源码基线 | public `3be694f8`，private `79fc805` |
 | 已构建后端镜像 | `aip-free-recovery:c8d3db11`（同一修复的合并前代码；后端版本标识为 `3be694f8…-free-recovery`） |
 
-原 `api.muvloom.online`、`api.nainma.online` 已恢复指向 VPS tunnel。网页通过 `runtime-config.json` 访问备用域名，不是通过劫持原 API DNS 实现恢复。内部原 API `image-api.qiliangjia.one` 也没有改 DNS。
+原 `api.muvloom.online`、`api.nainma.online` 已恢复指向 VPS tunnel。事故期间网页通过 `runtime-config.json` 访问备用域名，不是通过劫持原 API DNS 实现恢复。内部原 API `image-api.qiliangjia.one` 也没有改 DNS。
 
-Colima/Docker 必须运行。BFF、worker、PG、MinIO 使用 `unless-stopped`；Tunnel LaunchAgent 使用 KeepAlive。空闲容器实测总内存约 403 MiB，不含 Docker VM 开销。用户积分暂不扣减，但上游 API 仍消耗相应 key 的额度。
+Colima/Docker 必须运行。BFF、worker、PG、MinIO 使用 `unless-stopped`；Tunnel LaunchAgent 使用 KeepAlive。空闲容器实测总内存约 403 MiB，不含 Docker VM 开销。仅备用模式不扣用户积分；生产付费站已恢复积分。上游 API 仍消耗相应 key 的额度。
 
 ## 运行配置与权限
 
-`app.env`、`operator-config.json`、`channels.json`、`tunnel-config.yml` 位于服务根目录。凭据仅在受保护的服务器配置中，不写入仓库或 Pages。工作站备份位于 `~/.config/ai-image-playground/recovery/20260918/`；原始发布配置为 `pages-primary.env`，备用配置为 `pages-backup.env`，当前工作站 `pages.env` 已选备用 API。
+`app.env`、`operator-config.json`、`channels.json`、`tunnel-config.yml` 位于服务根目录。凭据仅在受保护的服务器配置中，不写入仓库或 Pages。工作站备份位于 `~/.config/ai-image-playground/recovery/20260918/`；原始发布配置为 `pages-primary.env`，备用配置为 `pages-backup.env`，当前工作站 `pages.env` 已恢复原 API。
 
-当前 operator 能力：`accounts:local-recovery=true`、`accounts:login=false`、`accounts:self-register=false`、`accounts:sync=false`、`billing:credits=false`。图片、智能体和可用视频通道保持开启，保留每日生成限额。不要为了解决历史消息缺失临时打开登录/云同步：备用库没有原账号与数据。
+备用服务的 operator 能力：`accounts:local-recovery=true`、`accounts:login=false`、`accounts:self-register=false`、`accounts:sync=false`、`billing:credits=false`。图片、智能体和可用视频通道保持开启，保留每日生成限额。不要为了解决历史消息缺失临时打开登录/云同步：备用库没有原账号与数据。
 
 GPT、Grok、Gemini 使用用户提供的独立 key，经 `https://sub2api.qiliangjia.org`；Grok base URL 带 `/v1`。Agnes、Ark 沿用已有配置。不要在日志、截图、commit 或 PR 中输出 key。
 
@@ -82,7 +82,7 @@ launchctl kickstart -k gui/$(id -u)/com.muvloom.recovery-tunnel
 | --- | --- | --- |
 | 本机已保存的画布、图片/视频内容、生成记录 | 原网页域名的 IndexedDB | 已验证可读；未下载到本机的云端内容除外 |
 | 输入草稿 | `image-playground-agent-drafts` IndexedDB | 保留 |
-| 原账号的完整对话消息、轮次、上下文压缩记录 | 原 VPS PostgreSQL | 备用库没有，须等原库或有效备份可读取 |
+| 原账号的完整对话消息、轮次、上下文压缩记录 | 原 VPS PostgreSQL | 原 VPS 已恢复，生产站从原库读取 |
 | 备用期间的新对话 | macmini2 PostgreSQL | 可读，刷新页面后会从备用库恢复 |
 | 账号、积分、云同步目录 | 原 VPS PostgreSQL | 备用模式不启用 |
 
@@ -100,3 +100,7 @@ launchctl kickstart -k gui/$(id -u)/com.muvloom.recovery-tunnel
 - 页面实际生图 41 秒完成；新画布和备用对话刷新后仍可读取；免费模式头像及名称已修复。
 - 付费前端版本：`3be694f8+79fc805-20260917T173848Z`；内部前端版本：`3be694f-20260917T174005Z`。
 - 部署修复的 public/private PR 和 main CI 均通过。验收记录在服务目录与工作站备份目录的 `evidence/`。
+
+## 2026-09-18 切回
+
+原 VPS 重启后健康、登录会话与原 PG 数据核验通过；备用生成任务已结束。Pages 保留切换前各站源码版本，仅恢复原 API 配置；备用卷与隧道继续保留。后续后端发布使用 [镜像发布手册](image-release.md)，禁止在 VPS 编译。
