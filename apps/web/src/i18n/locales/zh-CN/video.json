@@ -1,4 +1,26 @@
 {
+  "landing": {
+    "title": "给想象，一段镜头。",
+    "subtitle": "描述画面、动作和运镜，作品会在画布里展开。",
+    "composerAria": "视频创作",
+    "kindAria": "创作类型",
+    "kindImage": "图片",
+    "kindVideo": "视频",
+    "promptAria": "视频描述",
+    "promptPlaceholder": "描述画面、动作和运镜…（⌘/Ctrl + Enter 生成）",
+    "submit": "开始创作 · 进入画布",
+    "noModel": "当前部署没有可用的视频模型",
+    "tools": "快捷工具",
+    "toolsHint": "从已有素材或灵感开始",
+    "tool": {
+      "fromImage": { "title": "图生视频", "hint": "从素材里挑一张当首帧" },
+      "references": { "title": "参考图生视频", "hint": "挑几张图定风格与主体" },
+      "inspiration": { "title": "灵感库", "hint": "翻现成的提示词" },
+      "works": { "title": "我的作品", "hint": "看已经生成的片子" }
+    },
+    "cases": "案例",
+    "casesHint": "点一下把提示词填进上面的输入框"
+  },
   "status": {
     "queued": "排队"
   },
