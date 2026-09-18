@@ -467,7 +467,8 @@ and Cloudflare account; the two share only PostgreSQL's process and the host. On
 configured, `/path/to/release/scripts/vps-deploy.sh all /path/to/release` rolls out the host in one command.
 
 The paid edition needs the reviewed `./private` overlay in both places: a clone beside the
-checkout on the VPS, and a clone in the workstation checkout that releases its Pages project.
+image-builder checkout on macmini2, and a clone in the macmini2 checkout that releases its Pages project.
+The VPS receives the overlay only inside the image; it does not need a source checkout.
 The internal edition needs the opposite — its Pages release must run from a checkout without
 that tree, because the overlay is compiled in by mere file presence.
 

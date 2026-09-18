@@ -398,8 +398,8 @@ BFF 600 MB 那两条只在同源与 nginx 形态下才是约束，那里前面�
 数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL 进程和这台机器。
 两套都配好之后，`/path/to/release/scripts/vps-deploy.sh all /path/to/release` 一条命令滚完整台机器。
 
-paid 形态两边都需要那份经过评审的 `./private` overlay：VPS 上检出旁边一份，发它 Pages
-项目的那台机器的检出里也要一份。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的
+paid 形态需要在 macmini2 的镜像构建检出和 Pages 发布检出里分别准备经过评审的 `./private` overlay。
+VPS 只接收已包含 overlay 的镜像，不需要私有源码检出。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的
 检出里跑，因为 overlay 只凭文件存在就会被编译进去。
 
 ## 🛠 开发
