@@ -1,20 +1,20 @@
-# macmini2 构建，VPS 接收镜像
+# 镜像发布
 
-生产 VPS 不运行编译、依赖安装或 `docker build`。前端仍由 Pages 发布；后端完整镜像在 macmini2 构建。
+macmini2 构建，VPS 仅运行预构建镜像；前端由 Pages 托管。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
 
-## 发布步骤
+## 构建与发布
 
-1. 使用已通过 PR/main CI 的公开提交及已验证私有提交，在 macmini2 独立检出目录准备源码。不要在另一个会话的工作目录切分支。paid/all 要有 `private/` Git 检出。
-2. 在 macmini2 执行（输出目录必须不存在）：
+1. 在 macmini2 独立检出已通过 PR/main CI 的公开提交；paid/all 还需已验证的 `private/` Git 检出。不得占用其他会话目录。
+2. 构建到尚不存在的目录：
 
 ```sh
 export PATH=/opt/homebrew/bin:$PATH
 ./scripts/build-vps-release.sh all /Users/mac/releases/aip-<release-id>
 ```
 
-脚本通过 `git archive HEAD` 固定公开和私有输入，忽略未提交文件与凭据。使用独立 `aip-release` BuildKit builder，最多 4 核、6 GiB 内存、无额外 Swap，Dockerfile 阶段并发数为 1；镜像明确构建为 `linux/amd64`。依赖安装和前端编译使用构建机原生 ARM CPU，同时安装目标 x64 的原生依赖；VPS 在迁移前实际执行 Bun + sharp 图片编解码检查。所有本项目检出共用 `~/.config/ai-image-playground/image-build.lock`，第二个构建立即拒绝。仍须按全局规则与其他项目的重型任务错峰。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。
 
-3. 从工作站中转产物，避免为 macmini2 新增 VPS SSH 凭据：
+3. 工作站中转完整发布包，再从产物内执行接收脚本：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
@@ -22,26 +22,24 @@ scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
 ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /home/ubuntu/releases/aip-<release-id>'
 ```
 
-产物含应用及 PG 备份 sidecar 的镜像归档、镜像 ID/提交清单、Compose 与必要部署脚本及 SHA-256 校验单。完整传输后才运行接收脚本；中断传输或缺少校验单不得继续。
+发布包须包含应用及备份镜像、提交/镜像清单、部署脚本和 SHA-256 校验单。接收脚本持有发布锁，校验文件、镜像 ID、架构、`APP_VERSION`、原生依赖，再执行兼容迁移与启动；保留 VPS 原有运行配置。
 
-Compose 不含任何 `build` 配置。VPS 接收过程共用原 `deploy.lock`，先校验文件，再 `docker load`，核对所有镜像 ID、CPU 架构及 `APP_VERSION`，全部通过后才依次执行 dependency-check、向后兼容的 schema 迁移与服务启动。原环境变量、数据库和对象存储保持各自归属，不从构建机覆盖。
+## 排空与验收
 
-后端切换由稳定的 `release-router` 和不可变的 BFF/worker 容器完成：新 worker 先以暂停接单启动；旧 worker 全部进入 drain 后，新 worker 才恢复接单；路由随后原子切到新 BFF。旧 BFF 和 worker 只有在 `/internal/deployment/drain` 返回 `safeToStop=true` 后才停止。默认最长等待 30 分钟；超时会让发布以非零状态结束并保留旧容器，绝不会取消任务或强停容器。排空未完成时先查任务/对话和容器日志，完成后重新运行同一发布入口清理保留实例。
+- 新 worker 暂停接单启动；旧 worker 全部进入 drain 后才启用新 worker，并将 `release-router` 原子切到新 BFF。
+- 旧实例仅在 drain 返回 `safeToStop=true` 后停止。默认等待 30 分钟；超时保留执行器并以非零状态退出。核对任务、会话与日志后重跑同一发布入口收尾。
+- 首次升级旧协议时，数据库先禁用旧式 claim，待旧任务完成再启用新 worker。旧 BFF 作为 `legacy-origin` 保留；确认旧对话结束后才能人工停止并删除该标记。任务表为空不能证明对话结束。
+- 验收内部/付费版 API、版本、容器、备份、登录和业务数据。涉及执行器切换时，验证旧生成任务与对话能完成、新任务进入新实例、刷新可续接、上游调用和结算不重复。
+- 仅发布后端不重发 Pages；不更新共享源码目录。
 
-第一次从旧 Compose 版本升级时，旧 worker 没有租约协议。脚本先在数据库关闭旧式 claim，等它手上的任务完成，再启用新 worker。旧 BFF 没有可证明的对话空闲信号，因此会作为 `legacy-origin` 保留，供升级前已开始的会话重连；确认旧会话全部结束后才能人工停止它并删除 `releases/legacy-origin`。不要用“任务表为空”推断内部版智能体会话已经结束。
+## 回滚与失败处理
 
-4. 检查内部/付费两套容器健康、真实 API、版本与浏览器行为。发布验收必须覆盖：切换前同时启动图片生成和智能体对话；切换后旧任务继续完成、新任务进入新实例；刷新后能续接；上游调用和结算各只发生一次。只需要后端发布时，不重发 Pages。新镜像只在自己的发布目录执行，不更新共享源码目录。
+```sh
+scripts/app-compose.sh rollback <project> <旧镜像>
+```
 
-## 回滚与数据
+回滚同样启动新实例并排空当前实例。禁止强停排空中的容器或执行 `compose up --force-recreate`、`compose down`。数据库不自动回滚；迁移须兼容新旧版本，破坏性 schema 另行设计恢复方案。
 
-保留最近 5 代镜像及当前仍在运行的镜像。回滚也是一次受控发布：`scripts/app-compose.sh rollback <project> <旧镜像>` 会启动旧镜像的新实例、排空当前实例再切路由。不要对正在排空的容器执行 `docker stop`、`compose up --force-recreate` 或 `compose down`。数据库迁移不自动倒退，发布迁移必须先保持新旧二进制同时兼容；破坏性 schema 另行设计恢复方案。
+切换前检查失败保留原入口；切换后排空超时，新请求可能已由新版本处理，不能仅凭命令失败判断版本。通过 drain/status 核对；不手工修改 `releases/current`、`route.json`、`retained`、`activated/`。镜像保留数量以脚本策略为准，运行中镜像不得删除。
 
-新实例健康检查、迁移、路由检查任一步失败，都保留原入口和执行器。若路由已经切换但旧执行器仍忙，用户新请求已由新版本处理，发布命令仍会以失败退出以提醒继续观察排空。`releases/current`、`route.json`、`retained` 和 `activated/` 是发布状态，不要手工改写；先用容器的 drain/status 端点核对事实。
-
-不要删除 macmini2 备用数据库及 MinIO。备用期间新增数据与 VPS 独立，切回不代表已合并；备用运行手册见 [backup-backend.md](backup-backend.md)。
-
-## 防止旧入口误用
-
-旧的 `vps-deploy.sh all [git-ref]` 用法已失效：现在必须提供预构建产物目录，并从产物内运行。`app-compose.sh build/build-private` 在 Linux 拒绝执行。首次迁移时须把 VPS 旧检出中的这两个脚本替换为同版接收入口，防止其他会话继续运行旧版本；不得只更新文档。
-
-2026-09-18 的事故：生产机上构建镜像时内存耗尽，内核日志里有全局 OOM 记录，被杀进程包括正在构建的 admin 前端。当时另一次完整部署在约 52 秒后进入同一目录；它是否也在构建、是否加重了内存压力，已无法确认，因为它的日志在重启后丢失了。单次构建的资源峰值发布锁挡不住，所以构建移出 VPS 是长期约束。
+旧的 `vps-deploy.sh all [git-ref]` 不再适用，必须传发布目录；VPS 旧检出中的入口脚本也须保持更新，防止绕回源码构建。备用数据保留规则见[备用服务手册](backup-backend.md)，灾备见[冷恢复手册](cold-recovery.md)。

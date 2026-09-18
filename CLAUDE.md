@@ -2,25 +2,13 @@
 
 本文件给 Claude Code（claude.ai/code）当作工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
-## 当前生产部署状态：Pages + VPS（2026-09-18）
+## 部署与灾备
 
-**生产 API 已切回 VPS。构建必须在 macmini2，VPS 只接收预构建镜像。** 发布前读取 [镜像发布手册](docs/deploy/image-release.md)，不得在 VPS 运行旧的源码构建流程。
-
-- 页面域名不变，付费 API 为 `api.muvloom.online`，旧站映射 `api.nainma.online`；内部 API 为 `image-api.qiliangjia.one`。付费站恢复原登录、积分与云同步。
-- macmini2 旧备用后端 `backup-api.muvloom.online` 保留；事故数据库和对象卷不得删除。已完成明确圈定的承接期 10 条任务及关联对话/产物回填，切回后的记录不重复导入。完整旧对话存于 PG，本地画布不是完整消息备份。
-- 备用部署与切换步骤见 [备用后端运行手册](docs/deploy/backup-backend.md)。
-- 后续灾备按 [R2 冷恢复方案](docs/deploy/cold-recovery.md)：不定时同步备用 PG；R2 恢复包配套加密配置、数据库和版本，macmini2 按需恢复。新备用存储只用 R2。固定 API 原域名在服务端切 Tunnel，不能再把 Pages 发布当作最终切换方案。短租约和路由自动化未上线前，不得宣称已实现自动安全切换。
-
-## 生产发布规则
-
-1. **构建与运行分离。** Pages 前端和后端镜像均在 macmini2 构建；生产 API、worker、Admin 和 PostgreSQL 运行在 VPS。专用构建检出为 `/Users/mac/services/aip-image-builder`，不在备用服务或其他会话的检出目录切分支。
-2. **固定输入再构建。** 公开代码走 PR → 当前提交完整 CI → 合并 → main CI；私有 overlay 固定到已验证提交。使用 `scripts/build-vps-release.sh` 生成包含应用、PG 备份镜像和校验清单的完整发布包。构建串行，使用既有互斥锁及 4 核 / 6 GiB 的专用 builder，并与其他项目重型任务错峰。
-3. **VPS 只接收镜像。** 从发布包内运行 `scripts/vps-deploy.sh <internal|paid|all> <发布目录>`。不得在 VPS 安装构建依赖、编译前端、执行 `docker build` 或恢复旧的源码部署入口；不得绕过构建锁、部署锁或镜像校验。
-4. **验收完整链路。** 校验镜像 ID、版本、目标架构和原生依赖；执行 schema 迁移，等待 BFF、worker、Admin 与备份容器健康。核对真实 API、登录和浏览器业务数据后才宣告上线；镜像加载完成不代表业务已恢复。
-5. **切换保留身份与数据。** 保持网页及 API 原域名、Cookie、账号与本地画布命名空间。目标方案在 Cloudflare 切 Tunnel，不重发 Pages；先完成单写者保护、恢复与迁移验证，后切入口。现有 Pages 切换仅是事故历史流程，已开页面可能继续访问旧后端，不能据此认定旧服务已无写入。短租约未实现前，旧主不可达时不得宣称已防止双写。
-6. **备用库独立核对。** 不定时同步备用 PG，使用 R2 包按需冷恢复。旧匿名备用库与生产独立；历史对象已迁至 R2，原 MinIO 卷只作回滚留存。切回前核对承接期增量以及原主快照之后的写入，保留两份源库，不能直接覆盖。匿名设备数不等于用户数，不凭 IP、设备 ID 或本地账号标识自动绑定生产账号。
-
-发布命令、回滚与校验细节统一维护在 [镜像发布手册](docs/deploy/image-release.md)，备用切换细节维护在 [备用后端运行手册](docs/deploy/backup-backend.md)。
+- **生产：Pages + VPS；构建：macmini2。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- 发布、排空、回滚与验收按[镜像发布手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
+- macmini2 旧备用已停止，Tunnel 禁用；配置、镜像及数据卷保留。启停与历史数据状态见[备用服务手册](docs/deploy/backup-backend.md)。
+- 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)，不定时同步备用 PG；新实例只用 R2。保持原域名、会话密钥和账号命名空间，切回前核对两端增量；不得直接覆盖原库或自动绑定匿名数据。
+- 固定 API 切换和跨机器单写者保护尚未上线；不得将恢复演练或同库发布排空视为完整灾备。
 
 ## 项目概况
 
