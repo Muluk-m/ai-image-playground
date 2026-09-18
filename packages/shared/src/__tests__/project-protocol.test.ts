@@ -89,3 +89,37 @@ describe('云端项目文档里的时间线', () => {
     ).toBe(false)
   })
 })
+
+function withGeneration(extra: Record<string, unknown>) {
+  const generationId = 'task-1'
+  return {
+    version: 1,
+    elements: [
+      {
+        id: `agent_${generationId}_0`,
+        type: 'generation',
+        generationId,
+        position: 0,
+        x: 0,
+        y: 0,
+        width: 360,
+        height: 360,
+        ...extra,
+      },
+    ],
+  }
+}
+
+describe('云端项目文档里的失败占位', () => {
+  it('keeps a failed generation reservation together with its error code', () => {
+    expect(isProjectDocument(withGeneration({}))).toBe(true)
+    expect(isProjectDocument(withGeneration({ errorCode: 'timeout' }))).toBe(true)
+    expect(isProjectDocument(withGeneration({ errorCode: 'insufficient_credits' }))).toBe(true)
+  })
+
+  it('rejects an error code the protocol does not know', () => {
+    expect(isProjectDocument(withGeneration({ errorCode: 'boom' }))).toBe(false)
+    expect(isProjectDocument(withGeneration({ errorCode: '' }))).toBe(false)
+    expect(isProjectDocument(withGeneration({ status: 'failed' }))).toBe(false)
+  })
+})

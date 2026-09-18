@@ -29,11 +29,26 @@ function boundedMeta(meta: Record<string, string>): Record<string, string> {
   )
 }
 
+/**
+ * 只在这台设备上的失败占位：智能体的调用提交就被拒（积分不够、没登录……），服务端没为它预留
+ * 云端位置。它不进云端文档（云端文档不收占位框，带上它整份项目会停在「媒体未上传」），
+ * 换回云端版本时原样留在本机画布上，由用户自己删。
+ */
+export function isLocalAgentFailure(element: CanvasEl): boolean {
+  return (
+    element.type === 'placeholder' &&
+    element.status === 'error' &&
+    Boolean(element.meta.agent) &&
+    !element.meta.cloudGeneration
+  )
+}
+
 export function projectDocument(
   doc: CanvasDoc,
   bindings: LoadedBindings = new Map(),
 ): ProjectDocument | null {
-  const elements = doc.elements.map((element) => {
+  const elements = doc.elements.filter((element) => !isLocalAgentFailure(element))
+  const mapped = elements.map((element) => {
     if (element.type === 'placeholder' && element.meta.cloudGeneration) {
       return {
         id: element.id,
@@ -44,6 +59,10 @@ export function projectDocument(
         y: element.y,
         width: element.width,
         height: element.height,
+        // 失败码是服务端写的，原样带回；它不能被本机改动（服务端会拒绝）。
+        ...(element.status === 'error' && element.meta.agentErrorCode
+          ? { errorCode: element.meta.agentErrorCode }
+          : {}),
       }
     }
     if (element.type !== 'image') return element
@@ -55,7 +74,7 @@ export function projectDocument(
     const { fileId: _fileId, ...image } = element
     return { ...image, mediaId, ...(image.meta ? { meta: boundedMeta(image.meta) } : {}) }
   })
-  const document = { version: 1, elements }
+  const document = { version: 1, elements: mapped }
   return isProjectDocument(document) ? document : null
 }
 
@@ -132,7 +151,15 @@ export async function prepareProjectMedia(
   }
 }
 
-export function projectScene(document: ProjectDocument, bindings: LoadedBindings = new Map()) {
+/**
+ * 云端文档转本机画布。`conversationId` 是项目绑定的会话：服务端预留的占位属于它，
+ * 失败占位的「让助手重新处理」只发回这个会话。
+ */
+export function projectScene(
+  document: ProjectDocument,
+  bindings: LoadedBindings = new Map(),
+  conversationId?: string | null,
+) {
   const originals = new Map(
     Array.from(bindings, ([fileId, binding]) => [binding.id, { fileId, source: binding.source }]),
   )
@@ -146,7 +173,8 @@ export function projectScene(document: ProjectDocument, bindings: LoadedBindings
         y: element.y,
         width: element.width,
         height: element.height,
-        status: 'loading',
+        // 服务端在任务失败时留下带码的失败占位；界面按码出文案与出路，不读文字（ADR 0006）。
+        status: element.errorCode ? 'error' : 'loading',
         message: '',
         meta: {
           taskId: '',
@@ -155,6 +183,8 @@ export function projectScene(document: ProjectDocument, bindings: LoadedBindings
           prompt: '',
           agent: true,
           cloudGeneration: { id: element.generationId, position: element.position },
+          ...(element.errorCode ? { agentErrorCode: element.errorCode } : {}),
+          ...(conversationId ? { agentConversationId: conversationId } : {}),
         },
       }
     if (element.type !== 'image') return element

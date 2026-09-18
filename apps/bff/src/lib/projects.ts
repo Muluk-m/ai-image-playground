@@ -106,7 +106,9 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
                 current.type === 'generation' &&
                 current.id === element.id &&
                 current.generationId === element.generationId &&
-                current.position === element.position,
+                current.position === element.position &&
+                // 失败与否只由服务端在任务终态时写，客户端只能原样带回或删掉。
+                current.errorCode === element.errorCode,
             ) ||
             !owned.some(
               (output) =>
