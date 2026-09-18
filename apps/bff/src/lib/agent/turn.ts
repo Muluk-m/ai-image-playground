@@ -568,7 +568,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       bffDrain.failed()
       log.error(
         { event: 'agent.finalization_failed', turnId, err },
-        'turn could not be durably finalized; retaining instance',
+        'turn could not be durably finalized; the recovery scan seals it once the lease expires',
       )
       if (ended) return
       events.emit({

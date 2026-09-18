@@ -60,11 +60,35 @@ ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /ho
 
 ## 排空与验收
 
-- 新 worker 暂停接单启动；旧 worker 全部进入 drain 后才启用新 worker，并将 `release-router` 原子切到新 BFF。
-- 旧实例仅在 drain 返回 `safeToStop=true` 后停止。默认等待 30 分钟；超时保留执行器并以非零状态退出。核对任务、会话与日志后重跑同一发布入口收尾。
-- 首次升级旧协议时，数据库先禁用旧式 claim，待旧任务完成再启用新 worker。旧 BFF 作为 `legacy-origin` 保留；确认旧对话结束后才能人工停止并删除该标记。任务表为空不能证明对话结束。
-- 验收内部/付费版 API、版本、容器、备份、登录和业务数据。涉及执行器切换时，验证旧生成任务与对话能完成、新任务进入新实例、刷新可续接、上游调用和结算不重复。
+每套最多两代执行器：在线一代与发布中的一代（[ADR 0009](../adr/0009-preserve-executors-during-rollout.md) 2026-09-18 补充）。`rollout-runtime.sh` 顺序：
+
+1. 预检：停止并删除 `releases/current` 以外的全部带标签执行器（不探测，死容器不阻塞发布），清理 `activated/` 残留与已废弃的 `retained`。
+2. 兼容迁移；启动新 BFF、暂停接单的新 worker，均需健康。
+3. `release-router` 不存在则创建；镜像与本次不同则同别名启动新路由、健康后停旧路由（旧路由在途请求有 30 秒收尾，更早镜像的旧路由会直接断开，客户端重连）。检查隧道指向路由。
+4. 旧 worker 全部进入 drain 后启用新 worker，再原子切换 `route.json` 与 `current`。
+5. 切换后旧一代最多排空 `DEPLOY_DRAIN_DEADLINE_SECONDS`（默认 300）。到期仍在执行的发 SIGTERM，宽限 `DEPLOY_STOP_GRACE_SECONDS`（默认 75）后删除。被打断的队列任务按租约回收并续轮询已提交的上游任务，不重提；被打断的对话轮由新一代补写终帧并续跑一次，原轮预扣退回、续跑轮计费一次。输出如实给出「N 个排空完成、M 个到期强停、K 个已停止」；强停不算失败，退出码仍为 0。
+6. 更新 admin、host-collector、pg-backup。
+
+- 旧 BFF 报告结算写入失败时只告警（`recorded a failed durable settlement`），不再阻止停止；到期后由恢复扫描补写。容器删除后日志随之删除，看到告警当场取日志。
+- 验收内部/付费版 API、版本、容器（每套只剩一代 `-bff`/`-worker`）、备份、登录和业务数据。涉及执行器切换时，验证新任务进入新实例、刷新可续接、上游调用和结算不重复。
 - 仅发布后端不重发 Pages；不更新共享源码目录。
+
+### 一次性退役旧 BFF（`legacy-origin`）
+
+首次升级旧协议时，数据库先禁用旧式 claim，待旧任务完成再启用新 worker；旧 Compose BFF（`<project>-bff-1`）记为 `legacy-origin`，第 0 代对话仍转发给它。它没有排空接口，按以下步骤单独退役一次，每套各执行一次：
+
+1. 确认它近期没有对话活动：`docker logs --since 15m <project>-bff-1`；选低峰期。
+2. 在下一次正常发布时带上退役开关（环境变量会传到每套的发布）；不等发布时，用发布目录内的脚本对当前镜像重跑一次：
+
+```sh
+ssh tx-vps 'DEPLOY_RETIRE_LEGACY=1 /home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /home/ubuntu/releases/aip-<release-id>'
+# 或单套，镜像取自 `docker inspect --format '{{.Config.Image}}' <当前 -bff>`
+DEPLOY_RETIRE_LEGACY=1 /home/ubuntu/releases/aip-<release-id>/scripts/app-compose.sh rollback <project> <当前镜像>
+```
+
+新一代不带 `LEGACY_EXECUTOR_ORIGIN` 启动，接管第 0 代对话；切换后上一代照常限时排空，随后旧 BFF/worker 以 SIGTERM 加宽限停止并删除，`legacy-origin` 删除。输出 `Legacy executor … retired` 即完成。切换前失败则旧 BFF 与标记原样保留。没有标记时提示 `nothing to retire` 并按普通发布执行。
+
+3. 核对 `docker ps -a` 中不再有 `<project>-bff-1`/`<project>-worker-1`，第 0 代旧对话可打开并续聊。此后 `app-compose.sh up` 仍按 `releases/current` 走发布流程。
 
 ## 回滚与失败处理
 
@@ -72,8 +96,8 @@ ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /ho
 scripts/app-compose.sh rollback <project> <旧镜像>
 ```
 
-回滚同样启动新实例并排空当前实例。禁止强停排空中的容器或执行 `compose up --force-recreate`、`compose down`。数据库不自动回滚；迁移须兼容新旧版本，破坏性 schema 另行设计恢复方案。
+回滚与发布同一流程：启动旧镜像的新一代，限时排空当前一代后停止。禁止执行 `compose up --force-recreate`、`compose down`。数据库不自动回滚；迁移须兼容新旧版本，破坏性 schema 另行设计恢复方案。
 
-切换前检查失败保留原入口；切换后排空超时，新请求可能已由新版本处理，不能仅凭命令失败判断版本。通过 drain/status 核对；不手工修改 `releases/current`、`route.json`、`retained`、`activated/`。镜像保留数量以脚本策略为准，运行中镜像不得删除。
+切换前任一步失败（新实例不健康、新路由不健康、隧道不指向路由、新 worker 启用失败、旧协议任务超过期限），脚本删除本次创建的实例，恢复旧 worker 接单与 `activated/` 标记，重开旧式 claim，换回旧路由，以非零状态退出；线上仍是原一代。切换后不再失败回退，旧一代按期限停止。不手工修改 `releases/current`、`route.json`、`activated/`、`legacy-origin`；中断的发布由下一次发布的预检清理。镜像保留数量以脚本策略为准，运行中镜像不得删除。
 
 旧的 `vps-deploy.sh all [git-ref]` 不再适用，必须传发布目录；VPS 旧检出中的入口脚本也须保持更新，防止绕回源码构建。备份、恢复及旧备用启停见[灾备手册](cold-recovery.md)。
