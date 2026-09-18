@@ -29,12 +29,16 @@ ghcr_login() {
 }
 
 # append_deploy_log <name> <image-or-version> <ok|failed>
+#
+# by= is DEPLOY_ACTOR when set (scripts/ci-receive.sh sets github-actions/run-<id>), else
+# user@host. It stays one word: the admin board parses the line on whitespace.
 # shellcheck disable=SC2154  # public_sha and private_sha belong to the sourcing script.
 append_deploy_log() {
   mkdir -p "$config_root"
-  printf '%s %s public=%s private=%s image=%s by=%s@%s result=%s\n' \
+  deploy_actor=$(printf '%s' "${DEPLOY_ACTOR:-$(whoami)@$(hostname)}" | tr -c 'A-Za-z0-9._:/@+-' '-')
+  printf '%s %s public=%s private=%s image=%s by=%s result=%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$public_sha" "$private_sha" "$2" \
-    "$(whoami)" "$(hostname)" "$3" >>"$deployments_log"
+    "$deploy_actor" "$3" >>"$deployments_log"
 }
 
 # edition_var <PREFIX> <KEY> reads $<PREFIX>_<KEY>, empty when unset.

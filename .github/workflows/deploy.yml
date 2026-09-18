@@ -1,0 +1,233 @@
+# Production deployment: every commit on main that passes "Web checks" goes out, backend first
+# (images through GHCR, received on the VPS), then both Pages sites once the APIs serve it.
+# Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
+name: Deploy production
+on:
+  workflow_run:
+    workflows: [Web checks]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+# One deployment at a time. A queued run waits; a newer queued run replaces it.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+# `shell: bash` runs steps with -eo pipefail; the implicit default has no pipefail, and the
+# tar | ssh pipeline must fail when either side does.
+defaults:
+  run:
+    shell: bash
+env:
+  PRIVATE_OVERLAY_REPO: git@github.com:Muluk-m/ai-image-playground-private.git
+jobs:
+  target:
+    name: Pick the commit
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      deploy: ${{ steps.decide.outputs.deploy }}
+    steps:
+      - name: Require secrets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+        run: |
+          [ -n "$PAGES_ENV" ] || { echo "::error::Secret PAGES_ENV is empty or missing."; exit 1; }
+      - id: sha
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          SHA: ${{ steps.sha.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
+          # shellcheck source=/dev/null
+          . "$RUNNER_TEMP/pages.env"
+          scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$INTERNAL_BFF_BASE_URL" "$PAID_BFF_BASE_URL"
+
+  backend:
+    name: Backend images and VPS rollout
+    needs: target
+    if: needs.target.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      private_sha: ${{ steps.overlay.outputs.sha }}
+    steps:
+      - name: Require secrets
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          missing=
+          for name in PRIVATE_OVERLAY_SSH_KEY VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_SSH_HOST VPS_SSH_USER; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          persist-credentials: false
+      - name: Check out the private overlay at its main HEAD
+        id: overlay
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
+          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
+            git clone --quiet "$PRIVATE_OVERLAY_REPO" private
+          rm -f "$RUNNER_TEMP/overlay-key"
+          echo "sha=$(git -C private rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the release images
+        id: build
+        env:
+          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
+          PRIVATE_SHA: ${{ steps.overlay.outputs.sha }}
+        run: |
+          release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
+          ./scripts/build-vps-release.sh all "$RUNNER_TEMP/$release_id"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+      - name: Ship the release to the VPS and roll it out
+        env:
+          RELEASE_ID: ${{ steps.build.outputs.release_id }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
+          # The key is bound to scripts/ci-receive.sh on the VPS; the command below is all it accepts.
+          tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
+            ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID all $GITHUB_RUN_ID"
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/vps-key"
+
+  pages:
+    name: Pages (internal, then paid)
+    needs: [target, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Require secrets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          INTERNAL_CLOUDFLARE_API_TOKEN: ${{ secrets.INTERNAL_CLOUDFLARE_API_TOKEN }}
+          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+        run: |
+          missing=
+          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY INTERNAL_CLOUDFLARE_API_TOKEN PAID_CLOUDFLARE_API_TOKEN; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.target.outputs.sha }}
+          persist-credentials: false
+      - name: Write pages.env with CI token files and assets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          INTERNAL_CLOUDFLARE_API_TOKEN: ${{ secrets.INTERNAL_CLOUDFLARE_API_TOKEN }}
+          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+        run: |
+          umask 077
+          for edition in INTERNAL PAID; do
+            token=$(printenv "${edition}_CLOUDFLARE_API_TOKEN")
+            # pages-release.sh sources the token file, so only inert token characters are allowed.
+            printf '%s\n' "$token" | grep -Eqx '[A-Za-z0-9_-]+' ||
+              { echo "::error::${edition}_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
+            printf 'CLOUDFLARE_API_TOKEN=%s\n' "$token" > "$RUNNER_TEMP/$edition-cloudflare.env"
+          done
+          # Later assignments win when the file is sourced: they replace workstation paths.
+          {
+            printf '%s\n' "$PAGES_ENV"
+            echo "INTERNAL_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/INTERNAL-cloudflare.env"
+            echo "PAID_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
+          } > "$RUNNER_TEMP/pages.env"
+          echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
+      - name: Wait for both APIs to serve the deployed commit
+        env:
+          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
+          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
+        run: |
+          # shellcheck source=/dev/null
+          . "$PAGES_ENV_FILE"
+          check() {
+            deadline=$(( $(date +%s) + 300 ))
+            while :; do
+              version=$(curl -fsS --max-time 10 "${1%/}/health" 2>/dev/null |
+                sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
+              [ "$version" = "$2" ] && { echo "$1 serves $version"; return 0; }
+              [ "$(date +%s)" -lt "$deadline" ] ||
+                { echo "::error::$1/health reports '${version}', expected $2"; return 1; }
+              sleep 10
+            done
+          }
+          check "$INTERNAL_BFF_BASE_URL" "$PUBLIC_SHA"
+          check "$PAID_BFF_BASE_URL" "$PUBLIC_SHA+$PRIVATE_SHA"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Release the internal site (no private overlay)
+        run: ./scripts/pages-release.sh internal
+      - name: Check out the private overlay at the backend's commit
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
+        run: |
+          umask 077
+          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
+          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
+            git clone --quiet "$PRIVATE_OVERLAY_REPO" private
+          rm -f "$RUNNER_TEMP/overlay-key"
+          git -C private checkout --quiet --detach "$PRIVATE_SHA"
+          [ -d private/pages-assets ] ||
+            { echo "::error::private/pages-assets is missing; the paid site publishes its QR codes from there."; exit 1; }
+      # The overlay packages are workspace members; install their dependencies too.
+      - run: pnpm install --frozen-lockfile
+      - name: Release the paid site (with private overlay)
+        run: ./scripts/pages-release.sh paid
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env" "$RUNNER_TEMP/overlay-key"

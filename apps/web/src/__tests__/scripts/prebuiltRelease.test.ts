@@ -186,6 +186,28 @@ describe('prebuilt VPS receiver', () => {
 })
 
 describe('registry release receiver', () => {
+  const deployLog = () =>
+    readFileSync(join(root, 'config/ai-image-playground/deployments.log'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => line.replace(/^\S+ /, ''))
+  it('records the CI run as the deployer when DEPLOY_ACTOR is set', () => {
+    registryRelease()
+    writeFileSync(join(root, 'logged-in'), '')
+    env.DEPLOY_ACTOR = 'github-actions/run-12345'
+    expect(run().status).toBe(0)
+    expect(deployLog()).toEqual([
+      `internal public=${sha} private=${sha} image=ai-image-playground:vps-main-${short} by=github-actions/run-12345 result=ok`,
+      `paid public=${sha} private=${sha} image=ai-image-playground:paid-${short}-${short} by=github-actions/run-12345 result=ok`,
+    ])
+  })
+  it('keeps the by= field a single word whatever DEPLOY_ACTOR holds', () => {
+    registryRelease()
+    writeFileSync(join(root, 'logged-in'), '')
+    env.DEPLOY_ACTOR = 'github actions run 1'
+    expect(run().status).toBe(0)
+    expect(deployLog()[0]).toContain(' by=github-actions-run-1 result=ok')
+  })
   const pulled = (d: string) => `pull ${digest(d)}`
   it('pulls every image by digest, tags it locally and verifies it before rolling services', () => {
     registryRelease()
