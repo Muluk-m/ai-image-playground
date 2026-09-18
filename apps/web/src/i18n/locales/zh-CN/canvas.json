@@ -228,5 +228,18 @@
       "firstFrameUnsupported": "{{model}} 不支持从图片开始生成，请取消选中图片",
       "lastFrameUnsupported": "{{model}} 不支持尾帧，只能选一张图作首帧"
     }
+  },
+  "videoToolbar": {
+    "aria": "视频操作",
+    "download": "下载",
+    "downloadFailed": "视频下载失败",
+    "regenerate": "重新生成",
+    "firstFrame": "取首帧",
+    "lastFrame": "取尾帧",
+    "frameFailed": "没能从这段视频截到画面，请稍后重试",
+    "noRecord": "这段视频没有记录生成参数，只带回了描述",
+    "framesMissing": "原来的首尾帧已不在画布上，请重新选图",
+    "sourceGone": "源视频已不在画布上",
+    "unknownSource": "这段视频没有记录时长，无法续写或改写"
   }
 }

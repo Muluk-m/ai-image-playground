@@ -39,7 +39,7 @@ import { analyzeSelection, rasterizeEntry } from './rasterizeSelection'
  */
 const frameHandles = new Map<string, string[]>()
 
-interface CanvasVideoLaunch {
+export interface CanvasVideoLaunch {
   prompt: string
   frames: string[]
   channelId: string
@@ -64,15 +64,34 @@ export function canvasVideoRefusalText(reason: CanvasVideoRefusal, model: string
   }
 }
 
-/** 首帧永远是 input_images[0]，尾帧跟在它后面——和导演台同一套下标约定。 */
+/**
+ * 送给队列的视频档位。首帧永远是 input_images[0]，尾帧跟在它后面——和导演台同一套下标约定。
+ * 续写 / 改视频不带帧，改带源片在队列里的 id；源片是画布上的对象，到提交这一刻才去取，
+ * 它已经不在画布上就明说，不当成普通生成发出去。
+ */
 export function canvasVideoRequest(
+  editor: CanvasEditor,
   generation: VideoGenerationRecord,
   frameCount: number,
 ): VideoRequest {
-  return {
+  const base: VideoRequest = {
     duration_seconds: generation.duration,
     aspect_ratio: generation.aspectRatio,
     resolution: generation.resolution,
+  }
+  if (generation.derivedFrom) {
+    const source = editor.getElement(generation.derivedFrom.id)
+    if (source?.type !== 'image' || !source.video)
+      throw new Error(i18next.t('videoToolbar.sourceGone', { ns: 'canvas' }))
+    return {
+      ...base,
+      mode: generation.derivedFrom.mode,
+      source_task_id: source.video.taskId,
+      source_output_index: source.video.outputIndex,
+    }
+  }
+  return {
+    ...base,
     ...(frameCount > 0 ? { first_frame_index: 0 } : {}),
     ...(frameCount > 1 ? { last_frame_index: 1 } : {}),
   }
@@ -140,7 +159,7 @@ export async function submitVideoFromCanvas(
   const frameCount = plan.frames.length
   const rejected = videoRequestRejection(
     option.modelId,
-    canvasVideoRequest(generation, frameCount),
+    canvasVideoRequest(editor, generation, frameCount),
     frameCount,
   )
   if (rejected) return refuse(videoRejectionText(rejected))
@@ -169,7 +188,7 @@ export async function submitVideoFromCanvas(
   return true
 }
 
-function guardAllows(generation: VideoGenerationRecord): boolean {
+export function guardAllows(generation: VideoGenerationRecord): boolean {
   const guard = getPrivateSubmissionGuard({
     model: generation.model,
     quantity: generation.duration,
@@ -181,7 +200,10 @@ function guardAllows(generation: VideoGenerationRecord): boolean {
   return false
 }
 
-async function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch): Promise<void> {
+export async function launchCanvasVideo(
+  editor: CanvasEditor,
+  launch: CanvasVideoLaunch,
+): Promise<void> {
   const taskId = crypto.randomUUID()
   const clientRequestId = crypto.randomUUID()
   const placeholderId = editor.createPlaceholder(launch.target, {
@@ -200,7 +222,7 @@ async function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch
       channel,
       model: launch.generation.model,
       prompt: launch.prompt,
-      video: canvasVideoRequest(launch.generation, launch.frames.length),
+      video: canvasVideoRequest(editor, launch.generation, launch.frames.length),
       inputImageDataUrls: launch.frames,
       clientRequestId,
     })
