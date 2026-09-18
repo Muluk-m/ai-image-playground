@@ -10,6 +10,17 @@
 - macmini2 备用后端 `backup-api.muvloom.online` 保留，数据库和 MinIO 不得删除。备用期间的新对话尚未合并到 VPS；完整旧对话存于原 PG，本地画布不是完整消息备份。
 - 备用部署与切换步骤见 [备用后端运行手册](docs/deploy/backup-backend.md)。
 
+## 生产发布规则
+
+1. **构建与运行分离。** Pages 前端和后端镜像均在 macmini2 构建；生产 API、worker、Admin 和 PostgreSQL 运行在 VPS。专用构建检出为 `/Users/mac/services/aip-image-builder`，不在备用服务或其他会话的检出目录切分支。
+2. **固定输入再构建。** 公开代码走 PR → 当前提交完整 CI → 合并 → main CI；私有 overlay 固定到已验证提交。使用 `scripts/build-vps-release.sh` 生成包含应用、PG 备份镜像和校验清单的完整发布包。构建串行，使用既有互斥锁及 4 核 / 6 GiB 的专用 builder，并与其他项目重型任务错峰。
+3. **VPS 只接收镜像。** 从发布包内运行 `scripts/vps-deploy.sh <internal|paid|all> <发布目录>`。不得在 VPS 安装构建依赖、编译前端、执行 `docker build` 或恢复旧的源码部署入口；不得绕过构建锁、部署锁或镜像校验。
+4. **验收完整链路。** 校验镜像 ID、版本、目标架构和原生依赖；执行 schema 迁移，等待 BFF、worker、Admin 与备份容器健康。核对真实 API、登录和浏览器业务数据后才宣告上线；镜像加载完成不代表业务已恢复。
+5. **切换保留身份与数据。** Pages 使用原网页域名，通过 runtime API 配置切换后端并保留各 origin 的 API 映射。保留登录 Cookie、本地画布和原项目对话关联。切换前检查在途任务，迁移前保留数据库备份。
+6. **备用库独立核对。** macmini2 备用 PG / MinIO 与 VPS 不同步。切回后保留备用卷，先按时间、设备和任务核对真实使用与验收记录，再制定新增数据的迁移方案；匿名设备数不等于用户数，不凭 IP、设备 ID 或本地账号标识自动绑定生产账号。
+
+发布命令、回滚与校验细节统一维护在 [镜像发布手册](docs/deploy/image-release.md)，备用切换细节维护在 [备用后端运行手册](docs/deploy/backup-backend.md)。
+
 ## 项目概况
 
 `ai-image-playground` — AI 生图工作台。fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，扩展了 Gemini 原生协议、异步队列模式、可选 BFF 后端、内置 channel discovery。
@@ -125,8 +136,8 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 
 **收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
 
-- 免费：`./scripts/app-compose.sh build <image>`
-- 收费：`./scripts/app-compose.sh build-private <image>`（`--build-arg PRIVATE_OVERLAY_PRESENT=true` + `--build-context private-overlay=private/`）
+- 内部版生产镜像：在 macmini2 执行 `./scripts/build-vps-release.sh internal <新的绝对路径产物目录>`。
+- 付费版生产镜像：在 macmini2 执行 `./scripts/build-vps-release.sh paid <新的绝对路径产物目录>`，由脚本带入固定提交的私有 overlay。
 
 **分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 

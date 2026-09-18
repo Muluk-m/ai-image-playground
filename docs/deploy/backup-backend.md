@@ -18,7 +18,7 @@
 | MinIO 数据卷 | `aip-free-recovery_objects` |
 | Tunnel | 独立 Cloudflare Tunnel，原生 cloudflared HTTP/2 |
 | Tunnel 守护 | `~/Library/LaunchAgents/com.muvloom.recovery-tunnel.plist` |
-| 线上源码基线 | public `3be694f8`，private `79fc805` |
+| 备用源码基线 | public `3be694f8`，private `79fc805` |
 | 已构建后端镜像 | `aip-free-recovery:c8d3db11`（同一修复的合并前代码；后端版本标识为 `3be694f8…-free-recovery`） |
 
 原 `api.muvloom.online`、`api.nainma.online` 已恢复指向 VPS tunnel。事故期间网页通过 `runtime-config.json` 访问备用域名，不是通过劫持原 API DNS 实现恢复。内部原 API `image-api.qiliangjia.one` 也没有改 DNS。
