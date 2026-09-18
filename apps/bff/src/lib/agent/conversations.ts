@@ -178,18 +178,32 @@ export async function saveAgentCompaction(
     .where(eq(schema.agent_conversations.id, id))
 }
 
+/**
+ * 消息写入在会话内排队：序号按 MAX(seq)+1 现算，两路写者（在跑的那一轮与轮外的单张重试）
+ * 同时算会撞上同一个序号。事务级咨询锁把它们串成一条，锁在事务提交时放开，
+ * 后到者的插入语句开始时已经看得见前者落下的那一行。
+ */
+async function lockAgentMessages(executor: Executor, conversationId: string): Promise<void> {
+  await executor.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['agent-messages', conversationId])}, 0))`,
+  )
+}
+
 export async function appendAgentMessage(
   executor: Executor,
   message: AppendAgentMessage,
   now = Date.now(),
 ): Promise<AgentMessageView> {
+  // 没有外层事务时自开一个：咨询锁只在事务里才管得到插入那一句。
+  if (executor === db) return db.transaction((tx) => appendAgentMessage(tx, message, now))
+  await lockAgentMessages(executor, message.conversationId)
   const [row] = await executor
     .insert(schema.agent_messages)
     .values({
       conversation_id: message.conversationId,
       id: message.id ?? crypto.randomUUID(),
       turn_id: message.turnId,
-      // 序号在插入语句里算，省掉一次往返；并发写靠会话内 seq 的唯一索引兜底。
+      // 序号在插入语句里算，省掉一次往返；同会话的写者已由上面的锁串行，唯一索引只是最后一道兜底。
       seq: sql`(SELECT COALESCE(MAX(${schema.agent_messages.seq}), 0) + 1 FROM ${schema.agent_messages} WHERE ${schema.agent_messages.conversation_id} = ${message.conversationId})`,
       role: message.role,
       content: [...message.content],

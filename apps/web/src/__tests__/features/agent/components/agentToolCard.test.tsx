@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import type { AgentToolMessage } from '../../../../features/agent/types'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 
@@ -335,6 +336,91 @@ describe('失败卡按错误码给出路', () => {
       expect(buttons(host)).toEqual([])
     } finally {
       unmount()
+    }
+  })
+})
+
+describe('重试记录', () => {
+  const original: AgentToolMessage = {
+    kind: 'tool',
+    id: 'tool-1',
+    turnId: 't',
+    toolCallId: 'call-1',
+    title: '一只橘猫',
+    status: 'failed',
+    errorCode: 'timeout',
+  }
+  const record: AgentToolMessage = {
+    kind: 'tool',
+    id: 'retry-1',
+    turnId: 'retry-turn',
+    toolCallId: 'retry-call',
+    title: '一只橘猫',
+    status: 'submitted',
+    job: { taskId: 'task-retry', media: 'image' },
+    retryOf: { messageId: 'tool-1', toolCallId: 'call-1', placeholderId: 'p-1' },
+  }
+
+  function renderCards(retry: AgentToolMessage) {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() =>
+      root.render(
+        <>
+          <AgentToolCard message={original} />
+          <AgentToolCard message={retry} />
+        </>,
+      ),
+    )
+    return {
+      host,
+      button: (label: string) =>
+        [...host.querySelectorAll('button')].find((one) => one.textContent === label),
+      unmount: () => {
+        act(() => root.unmount())
+        host.remove()
+      },
+    }
+  }
+
+  it('标明是重试，能跳回原失败卡，原卡照旧是失败', () => {
+    const view = renderCards(record)
+    try {
+      const cards = view.host.querySelectorAll('[id^="agent-tool-card-"]')
+      expect(cards[0]!.textContent).toContain('生成超时')
+      expect(cards[0]!.textContent).not.toContain('查看原失败卡')
+      expect(cards[1]!.textContent).toContain('重试')
+      const scrollIntoView = vi.fn()
+      ;(cards[0] as HTMLElement).scrollIntoView = scrollIntoView
+
+      act(() => view.button('查看原失败卡')!.click())
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(cards[0])
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('还在跑的重试和别的后台任务一样可以取消，只有一个取消入口', () => {
+    const view = renderCards(record)
+    try {
+      expect(view.host.textContent).not.toContain('中止重试')
+      act(() => view.button('取消任务')!.click())
+      expect(store.cancelJob).toHaveBeenCalledWith('retry-1')
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('结束了的重试不再给中止', () => {
+    const view = renderCards({ ...record, status: 'failed', errorCode: 'upstream_error' })
+    try {
+      expect(view.button('取消任务')).toBeUndefined()
+      expect(view.button('查看原失败卡')).toBeDefined()
+    } finally {
+      view.unmount()
     }
   })
 })

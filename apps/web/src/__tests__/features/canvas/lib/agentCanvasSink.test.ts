@@ -407,3 +407,59 @@ describe('focusPending', () => {
     expect(editor.getSelectedIds()).toEqual([])
   })
 })
+
+describe('单张重试', () => {
+  it('重试让本机的失败占位重新转圈，结果落进它', async () => {
+    const [id] = await sink.reserve({ count: 1, messageId: 'tool-1' })
+    sink.markFailed([id!], '上游超时', 'timeout')
+
+    sink.revive?.([id!])
+
+    expect(editor.getPlaceholder(id!)).toMatchObject({ status: 'loading', message: '' })
+    await sink.place(IMAGES, { placeholderIds: [id!] })
+    expect(editor.getPlaceholder(id!)).toBeUndefined()
+    expect(editor.getElement('agent_image_1')?.type).toBe('image')
+  })
+
+  it('云端失败占位不由本机改状态：重试只拉云端，拉回来之前不兑现，标错也不改写服务端的码', async () => {
+    let pulled!: () => void
+    const refresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          pulled = resolve
+        }),
+    )
+    const cloudSink = createAgentCanvasSink(editor, undefined, { enabled: () => true, refresh })
+    const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+    const id = editor.createPlaceholder(
+      { x: 0, y: 0, w: 360, h: 360 },
+      {
+        taskId: '',
+        clientRequestId: generationId,
+        source: 'builtin-edge',
+        prompt: '',
+        agent: true,
+        cloudGeneration: { id: generationId, position: 0 },
+        agentErrorCode: 'timeout',
+      },
+      { history: false },
+    )
+    editor.updatePlaceholder(id, { status: 'error' })
+
+    let revived = false
+    const reviving = cloudSink.revive?.([id]).then(() => {
+      revived = true
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(editor.getPlaceholder(id)?.status).toBe('error')
+    await Promise.resolve()
+    // 云端文档还没拉回来：占位还是旧的失败占位，调用方的重试按钮得继续按住。
+    expect(revived).toBe(false)
+    pulled()
+    await reviving
+    expect(revived).toBe(true)
+
+    cloudSink.markFailed([id], '', 'insufficient_credits')
+    expect(editor.getPlaceholder(id)?.meta.agentErrorCode).toBe('timeout')
+  })
+})

@@ -5,6 +5,8 @@ import type {
   AgentMessageQueuedBody,
   AgentQueueFullBody,
   AgentQueueInterjectResult,
+  AgentRetryRefusedBody,
+  AgentRetryResponse,
   AgentTurnAbortedBody,
   AuthUserView,
 } from '@image-playground/shared'
@@ -56,6 +58,7 @@ import {
   withdrawAgentMessage,
 } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
+import { cancelAgentRetry, retryAgentToolCall } from '../lib/agent/retry'
 import {
   beginTurnStop,
   claimForTurn,
@@ -325,6 +328,55 @@ export const agentRoutes = new Elysia()
     {
       params: t.Object({ id: t.String(), taskId: t.String() }),
       headers: deviceIdHeaderSchema(),
+    },
+  )
+  .post(
+    // 单张重试：按失败卡起跑时的参数快照重出一张，不经对话模型。它不跟轮，不必转发到跑着轮的实例；
+    // 重试记录的落库与在跑那一轮的写入由消息表的会话锁串行。同一个占位上已有重试在跑就原样给回它。
+    '/api/agent/conversations/:id/retries',
+    async ({ params, body, authUser, status }) => {
+      const owner = ownerOf(authUser, body.deviceId)
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const outcome = await retryAgentToolCall({
+        conversationId: conversation.id,
+        messageId: body.messageId,
+        ...(body.placeholderId ? { placeholderId: body.placeholderId } : {}),
+        deviceId: body.deviceId,
+        userId: authUser?.id ?? null,
+      })
+      if (outcome.kind === 'not_found') return status(404, { error: 'message_not_found' })
+      if (outcome.kind === 'not_retryable') return status(422, { error: 'not_retryable' })
+      if (outcome.kind === 'refused') {
+        const refused: AgentRetryRefusedBody = { error: 'retry_refused', code: outcome.code }
+        return status(409, refused)
+      }
+      const response: AgentRetryResponse = { message: outcome.message }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        messageId: t.String({ minLength: 1, maxLength: 128 }),
+        placeholderId: t.Optional(t.String({ minLength: 1, maxLength: 256 })),
+      }),
+    },
+  )
+  .post(
+    // 中止一条还在跑的重试，按原桶退回。
+    '/api/agent/conversations/:id/retries/:messageId/cancel',
+    async ({ params, body, authUser, status }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const outcome = await cancelAgentRetry(conversation.id, params.messageId)
+      if (outcome === 'not_found') return status(404, { error: 'retry_not_found' })
+      if (outcome === 'finished') return status(409, { error: 'retry_finished' })
+      return { cancelled: true }
+    },
+    {
+      params: t.Object({ id: t.String(), messageId: t.String() }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
     },
   )
   .post(

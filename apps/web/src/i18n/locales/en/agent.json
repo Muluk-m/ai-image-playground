@@ -46,7 +46,12 @@
     "recharge": "Top up",
     "login": "Sign in",
     "reprocess": "Ask the assistant to redo it",
-    "reprocessMessage": "\"{{title}}\" didn't finish: {{reason}}. Please take a different approach and redo it."
+    "reprocessMessage": "\"{{title}}\" didn't finish: {{reason}}. Please take a different approach and redo it.",
+    "retry": "Retry"
+  },
+  "retry": {
+    "record": "Retry",
+    "viewOriginal": "View the failed card"
   },
   "cost": {
     "duration": "Took {{duration}}",
@@ -159,7 +164,8 @@
     "queueWithdrawFailed": "Couldn't withdraw it. Please retry.",
     "queueInterjectTooLate": "The current reply has already ended. This message will be handled next.",
     "queueInterjectConsumed": "That message is already being handled.",
-    "queueInterjectFailed": "Couldn't interject it. Please retry."
+    "queueInterjectFailed": "Couldn't interject it. Please retry.",
+    "retryFailed": "The retry couldn't be submitted. Please try again shortly."
   },
   "project": {
     "createFailed": "Could not create the project. Your current work is kept, please retry.",

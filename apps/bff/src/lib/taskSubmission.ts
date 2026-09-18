@@ -37,6 +37,11 @@ export interface CreateQueueTaskInput {
   readonly userId: string | null
   /** 智能体工具提交时带上会话与轮，任务由此可反查属于哪一轮。 */
   readonly agent?: { readonly conversationId: string; readonly turnId: string }
+  /**
+   * 云端项目里这个任务要接替的失败占位（项目元素 id）：单张重试时产物落回原来那个位置。
+   * 它不在项目里、或不是失败占位时照常另找位置。
+   */
+  readonly projectSlot?: string
 }
 
 export type CreateQueueTaskOutcome =
@@ -325,6 +330,7 @@ export async function createQueueTask(
         conversationId: input.agent!.conversationId,
         turnId: input.agent!.turnId,
         count: input.request.n ?? 1,
+        ...(input.projectSlot ? { replaceObjectId: input.projectSlot } : {}),
       })
     await publishGenerations(tx, [id])
     return {

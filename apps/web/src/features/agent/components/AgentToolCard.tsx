@@ -133,6 +133,33 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
   )
 }
 
+/** 结果卡在面板里的 DOM id：重试记录凭它跳回原失败卡。 */
+export function agentToolCardDomId(messageId: string): string {
+  return `agent-tool-card-${messageId}`
+}
+
+/** 重试记录的那一行：指回原失败卡。还在跑时和别的后台任务一样由「取消任务」中止，按原桶退回。 */
+function RetryRecord({ message }: { message: AgentToolMessage }) {
+  const { t } = useTranslation('agent')
+  const origin = message.retryOf
+  if (!origin) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        className={GHOST_LINK}
+        onClick={() => {
+          const card = document.getElementById(agentToolCardDomId(origin.messageId))
+          card?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+          card?.focus({ preventScroll: true })
+        }}
+      >
+        {t('retry.viewOriginal')}
+      </button>
+    </div>
+  )
+}
+
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
@@ -141,7 +168,12 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, offCanvas, progress !== null)
   return (
-    <div className={CARD}>
+    <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
+      {message.retryOf && (
+        <span className="self-start rounded-md border border-border px-1.5 text-[10px] leading-4 text-muted-foreground">
+          {t('retry.record')}
+        </span>
+      )}
       {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
         <button
           type="button"
@@ -176,6 +208,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {note && <p className={CARD_NOTE}>{note}</p>}
       <AgentJobCancel message={message} />
       {message.status === 'failed' && <FailureAction message={message} />}
+      <RetryRecord message={message} />
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {previews.map((preview) => (
