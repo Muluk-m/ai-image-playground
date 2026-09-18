@@ -91,6 +91,8 @@ export interface AgentState {
   turns: Record<string, AgentTurnFooter>
   turn: AgentTurnStatus
   stopping: boolean
+  /** 跟着的那一轮断了流、正在续播：面板顶部据此出断线提示。 */
+  reconnecting: boolean
   /** 正在跟的那一轮；中止与插话都指向它。 */
   activeTurn: AgentActiveTurnView | null
   error: string | null
@@ -228,7 +230,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
       Boolean(startedCallback) ||
       (followers.get(conversationId) === turnDelivery && turnDelivery.canContinue())
     let turnId = 'turnId' in source ? source.turnId : ''
-    const stream = followTurn(conversationId, source, { shouldContinue: canContinue })
+    const stream = followTurn(conversationId, source, {
+      shouldContinue: canContinue,
+      onReconnectingChange: (reconnecting) => {
+        if (turnDelivery.isCurrent()) set({ reconnecting })
+      },
+    })
     try {
       for await (const event of stream.events) {
         if (event.type === 'turnStart') turnId = event.turnId
@@ -268,6 +275,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       error: null,
       turn: 'idle',
       stopping: false,
+      reconnecting: false,
       activeTurn: null,
       historyLoading: true,
       historyFailed: false,
@@ -445,6 +453,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     turns: {},
     turn: 'idle',
     stopping: false,
+    reconnecting: false,
     activeTurn: null,
     error: null,
     loaded: false,
@@ -538,6 +547,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         error: null,
         turn: 'idle',
         stopping: false,
+        reconnecting: false,
         activeTurn: null,
         historyLoading: false,
         historyFailed: false,

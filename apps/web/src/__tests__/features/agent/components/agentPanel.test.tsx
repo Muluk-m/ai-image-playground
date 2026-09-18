@@ -106,6 +106,7 @@ beforeEach(async () => {
     messages: [],
     turns: {},
     turn: 'idle',
+    reconnecting: false,
     error: null,
     loaded: true,
     historyLoading: false,
@@ -717,7 +718,7 @@ describe('AgentPanel', () => {
     expect(send).toHaveBeenCalledWith('水墨国风')
   })
 
-  it('作过答的澄清只剩状态标签，选项不再可点', () => {
+  function answeredClarification(answer: string) {
     useAgentStore.setState({
       messages: [
         {
@@ -730,24 +731,60 @@ describe('AgentPanel', () => {
         {
           kind: 'text',
           id: 'user-2',
-          turnId: 'turn-1',
+          turnId: 'turn-2',
           role: 'user',
-          text: '写实照片',
+          text: answer,
           streaming: false,
         },
       ],
     })
+  }
+
+  it('作过答的澄清折叠成「已选」，原问题与选项收起来', () => {
+    answeredClarification('写实照片')
     render()
 
-    expect(host.textContent).toContain('已回答')
+    expect(host.textContent).toContain('已选：写实照片')
+    expect(host.textContent).not.toContain('要哪种风格？')
+    expect(texts('button')).not.toContain('扁平插画')
+    expect(texts('button')).not.toContain('其他…')
+  })
+
+  it('自己写的回答也折叠成「已选」', () => {
+    answeredClarification('水墨国风')
+    render()
+
+    expect(host.textContent).toContain('已选：水墨国风')
+  })
+
+  it('展开作过答的澄清能看回原问题与选项，但选项不再可点', () => {
+    answeredClarification('写实照片')
+    render()
+
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('已选：写实照片'),
+    ) as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    act(() => toggle.click())
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(host.textContent).toContain('要哪种风格？')
     const option = [...host.querySelectorAll('button')].find(
       (button) => button.textContent === '扁平插画',
     ) as HTMLButtonElement
     expect(option.disabled).toBe(true)
-    const other = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '其他…',
-    ) as HTMLButtonElement
-    expect(other.disabled).toBe(true)
+    expect(texts('button')).not.toContain('其他…')
+  })
+
+  it('断线续播时顶部出一条细提示，接上后消失', () => {
+    useAgentStore.setState({ turn: 'running', reconnecting: true })
+    render()
+
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('连接中断，正在重新连接…')
+
+    act(() => useAgentStore.setState({ reconnecting: false }))
+
+    expect(host.textContent).not.toContain('正在重新连接')
   })
 
   it('每轮页脚写耗时与合计消耗，点开看明细', () => {

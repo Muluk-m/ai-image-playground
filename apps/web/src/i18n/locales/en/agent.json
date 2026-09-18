@@ -110,10 +110,14 @@
     "stopping": "Stopping"
   },
   "clarification": {
+    "chosen": "Chose: {{answer}}",
     "answered": "Answered",
     "other": "Other…",
     "otherAria": "Other answer",
     "otherPlaceholder": "Tell it what you want"
+  },
+  "connection": {
+    "reconnecting": "Connection lost, reconnecting…"
   },
   "delivery": {
     "generateFailed": "Generation failed",

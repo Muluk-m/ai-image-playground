@@ -88,6 +88,7 @@ beforeEach(() => {
     messages: [],
     turn: 'idle',
     stopping: false,
+    reconnecting: false,
     activeTurn: null,
     turns: {},
     error: null,
@@ -213,6 +214,37 @@ describe('一轮对话', () => {
 
     expect(state().messages).toEqual(live.messages)
     expect(state().turns).toEqual(live.turns)
+  })
+
+  it('断线续播期间标出正在重连，接上后撤掉', async () => {
+    // 起轮那条流读完 turnStart 就被掐断；续播请求由用例决定何时接上。
+    const dropped = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(frames(TURN_START)))
+      },
+      pull(controller) {
+        controller.error(new Error('network dropped'))
+      },
+    })
+    let reconnect!: (response: Response) => void
+    const resumed = new Promise<Response>((resolve) => {
+      reconnect = resolve
+    })
+    let calls = 0
+    turnResponse = () => {
+      calls += 1
+      return calls === 1 ? new Response(dropped) : resumed
+    }
+
+    const sending = state().send('把背景换成浅木色')
+    await vi.waitFor(() => expect(state().reconnecting).toBe(true))
+    expect(state().turn).toBe('running')
+
+    reconnect(turnStream(TURN_START, TURN_END))
+    await sending
+
+    expect(state().reconnecting).toBe(false)
+    expect(state().turn).toBe('idle')
   })
 
   it('空白消息不发', async () => {

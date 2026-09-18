@@ -218,6 +218,47 @@ describe('跟一轮到底', () => {
     expect(calls.map((call) => headerOf(call.init, 'last-event-id'))).toEqual([null, '1', '2', '3'])
   })
 
+  it('断流期间报「正在重连」，续播接上后撤掉', async () => {
+    const { fetcher } = scriptedFetcher([
+      () => sse([{ id: 1, event: TURN_START }], true),
+      () => new Response(null, { status: 502 }),
+      () => sse([{ id: 2, event: TURN_END }]),
+    ])
+    const log: string[] = []
+
+    const turn = followTurn(
+      CONVERSATION,
+      { turnId: TURN },
+      {
+        fetcher,
+        delaysMs: [0, 0],
+        onReconnectingChange: (value) => log.push(value ? 'reconnecting' : 'connected'),
+      },
+    )
+    for await (const event of turn.events) log.push(event.type)
+
+    // 两次重连只报一次「断了」：中间那次失败不让提示闪一下；接上就撤，不等下一帧。
+    expect(log).toEqual(['turnStart', 'reconnecting', 'connected', 'turnEnd'])
+  })
+
+  it('一直接不上时收场也撤掉「正在重连」', async () => {
+    const { fetcher } = scriptedFetcher([
+      () => sse([{ id: 1, event: TURN_START }], true),
+      () => new Response(null, { status: 500 }),
+    ])
+    const changes: boolean[] = []
+
+    const turn = followTurn(
+      CONVERSATION,
+      { turnId: TURN },
+      { fetcher, delaysMs: [0], onReconnectingChange: (value) => changes.push(value) },
+    )
+    await collect(turn)
+
+    expect(turn.outcome).toBe('unreachable')
+    expect(changes).toEqual([true, false])
+  })
+
   it('退避表用尽就报接不上', async () => {
     const { calls, fetcher } = scriptedFetcher([
       () => sse([{ id: 1, event: TURN_START }], true),
