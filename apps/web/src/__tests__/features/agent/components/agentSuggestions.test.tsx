@@ -14,6 +14,7 @@ import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces
 import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { useStore } from '../../../../store'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -169,5 +170,34 @@ describe('示例建议', () => {
     expect(textbox().textContent).toBe(suggestion.dataset.prompt)
     expect(document.activeElement).toBe(textbox())
     expect(send).not.toHaveBeenCalled()
+  })
+
+  it('输入框里有用户自己写的话（恢复的未发草稿）时，点建议不覆盖，只提示', async () => {
+    agentDraft(null).update({ ...EMPTY_DRAFT, prompt: '我自己写了一半的话' })
+    act(() => root.render(<AgentPanel doc={new CanvasDoc()} editor={EDITOR} />))
+    await settle()
+
+    act(() => suggestionButtons()[0]!.click())
+    await settle()
+
+    expect(agentDraft(null).getSnapshot().draft.prompt).toBe('我自己写了一半的话')
+    expect(textbox().textContent).toBe('我自己写了一半的话')
+    expect(useStore.getState().toast?.message).toBe('输入框里已有内容，清空后再选示例')
+  })
+
+  it('建议填进来后被用户改过，再点别的建议也不覆盖', async () => {
+    act(() => root.render(<AgentPanel doc={new CanvasDoc()} editor={EDITOR} />))
+    await settle()
+
+    const [first, second] = suggestionButtons()
+    act(() => first!.click())
+    await settle()
+    const edited = `${first!.dataset.prompt}，再加一只猫`
+    act(() => agentDraft(null).update((current) => ({ ...current, prompt: edited })))
+    await settle()
+    act(() => second!.click())
+    await settle()
+
+    expect(agentDraft(null).getSnapshot().draft.prompt).toBe(edited)
   })
 })

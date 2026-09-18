@@ -21,7 +21,8 @@
     "posterTitle": "Holiday poster",
     "posterPrompt": "Design a Mid-Autumn Festival poster: a full moon in the night sky over distant hills and osmanthus, warm gold tones, room for a title at the top.",
     "characterTitle": "Character art",
-    "characterPrompt": "Draw a half-length cyberpunk girl character: a rainy street at night, neon light reflecting off her raincoat, cinematic framing."
+    "characterPrompt": "Draw a half-length cyberpunk girl character: a rainy street at night, neon light reflecting off her raincoat, cinematic framing.",
+    "draftKeptToast": "The input already has text; clear it to use an example"
   },
   "tool": {
     "stageSubmitted": "Queued",

@@ -21,7 +21,8 @@
     "posterTitle": "节日海报",
     "posterPrompt": "设计一张中秋节海报：夜空中的满月、远山与桂花，暖金色调，顶部留出标题位置。",
     "characterTitle": "角色插画",
-    "characterPrompt": "画一个赛博朋克风格的少女角色半身像：雨夜街头，霓虹灯光映在雨衣上，电影感构图。"
+    "characterPrompt": "画一个赛博朋克风格的少女角色半身像：雨夜街头，霓虹灯光映在雨衣上，电影感构图。",
+    "draftKeptToast": "输入框里已有内容，清空后再选示例"
   },
   "tool": {
     "stageSubmitted": "已排队",

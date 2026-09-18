@@ -160,12 +160,21 @@ export default function AgentComposer({
     setAgentComposerAttach(attachFiles)
     return () => setAgentComposerAttach(null)
   })
-  // 示例建议点进来的整句话：换掉草稿里的话，光标放到句末，等用户自己发。
+  // 上一次由示例建议填进来的整句话；用户动过之后就不再算「建议」。
+  const suggestedRef = useRef<string | null>(null)
+  // 示例建议点进来的整句话：光标放到句末，等用户自己发。
+  // 只换掉空草稿或上一条原样未动的建议；用户自己写的话（包括恢复的未发草稿）一个字都不动。
   const fillText = (text: string) => {
     if (loading) {
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
     }
+    const current = session.getSnapshot().draft.prompt
+    if (current.trim() !== '' && current !== suggestedRef.current) {
+      useStore.getState().showToast(t('suggestions.draftKeptToast'), 'info')
+      return
+    }
+    suggestedRef.current = text
     typedRef.current = null
     setDraft((current) => ({ ...current, prompt: text }))
     setCursor(text.length)
