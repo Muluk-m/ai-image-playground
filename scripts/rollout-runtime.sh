@@ -72,13 +72,14 @@ wait_idle() {
   done
 }
 
+# $3 is the role's DATABASE_POOL_MAX; keep it equal to deploy/compose.app.yaml.
 runtime() {
   role=$1
   name=$release-$role
   docker create --name "$name" --init --restart unless-stopped \
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
     --network "$network" --env-file "$app_env" \
-    -e APP_ROLE="$role" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \
+    -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \
     -e WORKER_HEALTH_PORT=37379 -e WORKER_START_PAUSED=true \
     -e WORKER_ACTIVATION_FILE="/run/operator/releases/activated/$release-worker" \
     -e EXECUTOR_ORIGIN="http://$release-bff:37377" \
@@ -105,9 +106,9 @@ docker run --rm --network "$infra" --env-file "$app_env" \
   --env-file "$config_dir/migrate.env" -e APP_ROLE=migrate \
   --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
   "$image" bun run /app/apps/bff/src/db/migrate.ts
-runtime bff index.ts
+runtime bff index.ts 6
 healthy "$release-bff" 37377
-runtime worker worker-index.ts
+runtime worker worker-index.ts 4
 healthy "$release-worker" 37379
 
 if [ "$legacy" = true ]; then

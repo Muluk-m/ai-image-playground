@@ -58,6 +58,14 @@ services:
     environment:
       APP_ROLE: bff
       PORT: "37377"
+      # Per-process connection caps. Both deployments share one PostgreSQL (max_connections 100),
+      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 3) = 26
+      # steady, under 50 with both deployments mid-rollout plus migrate and pg-backup. Queries past
+      # the cap wait for a free connection instead of failing. The BFF's work is short
+      # transactions; its background sweeps (agent inbox pickup, retries, purge, heartbeat) each
+      # hold one at a time, leaving most for requests. scripts/rollout-runtime.sh repeats the bff
+      # and worker values.
+      DATABASE_POOL_MAX: "6"
       STATIC_DIR: ""
       EXECUTOR_ORIGIN: http://bff:37377
       # Override in app.env when something other than cloudflared terminates the ingress.
@@ -95,6 +103,10 @@ services:
     environment:
       APP_ROLE: worker
       WORKER_HEALTH_PORT: "37379"
+      # One per in-flight task at the default WORKER_OPENAI_CONCURRENCY + WORKER_GEMINI_CONCURRENCY
+      # (1 + 2), plus one so the queue poll and maintenance loop never wait behind settlements.
+      # Raise it with those concurrencies.
+      DATABASE_POOL_MAX: "4"
     command:
       - bun
       - run
@@ -130,6 +142,8 @@ services:
     environment:
       APP_ROLE: admin
       PORT: "37378"
+      # Operator traffic only; the operations board fans out a dozen short reads per load.
+      DATABASE_POOL_MAX: "3"
       ADMIN_DIST_DIR: /app/apps/admin/dist
       BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
       OPS_DEPLOYMENTS_LOG: /host/deployments.log
