@@ -22,6 +22,12 @@ function openDatabase(): Promise<IDBDatabase> {
   return database
 }
 
+/** 创作类型跟着输入框此刻的选择走：搁在一边的那份不该把用户刚切的类型改回去。 */
+function withMode(draft: AgentDraft, mode: AgentDraft['mode']): AgentDraft {
+  const { mode: _ignored, ...rest } = draft
+  return mode ? { ...rest, mode } : rest
+}
+
 export interface DraftSnapshot {
   readonly draft: AgentDraft
   readonly loading: boolean
@@ -129,7 +135,12 @@ export class DraftSession {
       (one) => one.origin === 'selection' && !unsent.references.some((old) => old.id === one.id),
     )
     this.publish({ unsent: null })
-    this.update({ ...unsent, references: [...unsent.references, ...kept] })
+    this.update(
+      withMode(
+        { ...unsent, references: [...unsent.references, ...kept] },
+        this.snapshot.draft.mode,
+      ),
+    )
   }
 
   /** 丢掉没发出去的那份：存储里换成输入框此刻的内容。 */
@@ -174,7 +185,7 @@ export class DraftSession {
     const revision = this.revision
     // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。
     const { draft: current, unsent } = this.snapshot
-    const draft = unsent && !hasDraftContent(current) ? unsent : current
+    const draft = unsent && !hasDraftContent(current) ? withMode(unsent, current.mode) : current
     const key = this.key
     const previousKey = this.previousKey
     this.writes = this.writes.then(async () => {

@@ -189,6 +189,31 @@ describe('未发送的草稿', () => {
     expect(restored.getSnapshot().unsent?.prompt).toBe('做个开箱短片')
   })
 
+  it('提示还在时切换创作类型，刷新后按新类型回来，恢复也不改回去', async () => {
+    const restored = await leftBehind('unsent-mode-switch', {
+      prompt: '做个开箱短片',
+      references: [],
+      mode: 'video',
+    })
+    restored.update((draft) => ({ ...draft, mode: 'image' }))
+    await restored.flush()
+
+    const again = new DraftSession('unsent-mode-switch')
+    await ready(again)
+    expect(again.getSnapshot().draft).toEqual({ ...EMPTY_DRAFT, mode: 'image' })
+    expect(again.getSnapshot().unsent?.prompt).toBe('做个开箱短片')
+
+    again.update((draft) => ({ ...draft, mode: 'video' }))
+    again.restoreUnsent()
+    expect(again.getSnapshot().draft).toEqual({
+      prompt: '做个开箱短片',
+      references: [],
+      mode: 'video',
+    })
+    restored.restoreUnsent()
+    expect(restored.getSnapshot().draft.mode).toBe('image')
+  })
+
   it('不理它、输入框空着时落盘也不会把它冲掉', async () => {
     const restored = await leftBehind('unsent-ignored', { prompt: '还没发的话', references: [] })
     restored.update({ prompt: '临时', references: [] })
