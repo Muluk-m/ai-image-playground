@@ -267,6 +267,46 @@ describe('改参数重新生成', () => {
     )
   })
 
+  it('can drop the original frames and generate from text on purpose', async () => {
+    addImage('first', 0)
+    addVideo('clip', { ...GENERATED, firstFrameId: 'first' })
+    await actions.regenerateCanvasVideo(editor, actions.canvasVideoNode(editor, 'clip')!, '海浪', {
+      keepFrames: false,
+    })
+    await settle()
+    expect(mocks.submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ inputImageDataUrls: [] }),
+    )
+  })
+
+  it('does not spend anything once the dialog was closed while frames were being prepared', async () => {
+    addImage('first', 0)
+    addVideo('clip', { ...GENERATED, firstFrameId: 'first' })
+    vi.spyOn(editor, 'toImage').mockResolvedValue('data:image/png;base64,Zg==')
+    const accepted = await actions.regenerateCanvasVideo(
+      editor,
+      actions.canvasVideoNode(editor, 'clip')!,
+      '海浪',
+      { isCurrent: () => false },
+    )
+    expect(accepted).toBe(false)
+    expect(mocks.submitVideoRequest).not.toHaveBeenCalled()
+    expect(editor.getPlaceholders()).toHaveLength(0)
+  })
+
+  it('explains in the dialog when the chosen model cannot take the kept frames', () => {
+    expect(actions.regenerateFrameRefusal(1, GROK)).toBeNull()
+    expect(actions.regenerateFrameRefusal(2, GROK)).toContain('Grok')
+    expect(actions.regenerateFrameRefusal(0, GROK)).toBeNull()
+  })
+
+  it('prefills the full prompt a canvas clip was generated with, annotation text included', () => {
+    addVideo('clip', GENERATED, { prompt: '让她转身\n慢镜头', userPrompt: '慢镜头' })
+    expect(actions.canvasVideoNode(editor, 'clip')!.userPrompt).toBe('让她转身\n慢镜头')
+    addVideo('agent', GENERATED, { prompt: '视频：海边', userPrompt: '黄昏的海边，慢跑' })
+    expect(actions.canvasVideoNode(editor, 'agent')!.userPrompt).toBe('黄昏的海边，慢跑')
+  })
+
   it('refuses an empty prompt before anything is submitted', async () => {
     addVideo('agent', GENERATED, { prompt: '海边日落视频' })
     const node = actions.canvasVideoNode(editor, 'agent')!

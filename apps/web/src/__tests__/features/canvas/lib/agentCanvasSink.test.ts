@@ -108,6 +108,19 @@ describe('落画布', () => {
     })
   })
 
+  it('超长提示词不记，免得云端项目整份同步失败', async () => {
+    await sink.place([
+      {
+        artifactId: 'agent_video_5',
+        dataUrl: 'data:image/png;base64,UE9T',
+        prompt: '长'.repeat(10001),
+        name: '视频 1',
+        video: { taskId: 'task-5', outputIndex: 0 },
+      },
+    ])
+    expect(editor.getElement('agent_video_5')).not.toHaveProperty('meta.userPrompt')
+  })
+
   it('视频产物带着生成参数落画布，「改参数重来」才有据可依', async () => {
     const generation = {
       model: 'grok-imagine-video',

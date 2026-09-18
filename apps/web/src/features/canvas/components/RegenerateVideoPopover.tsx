@@ -1,5 +1,5 @@
 import { videoRateMultiplier } from '@image-playground/shared'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
 import {
@@ -27,6 +27,7 @@ import {
   type CanvasVideoNode,
   loadGenerationIntoDraft,
   regenerateCanvasVideo,
+  regenerateFrameRefusal,
   regenerateFrames,
 } from '../lib/canvasVideoActions'
 import type { CanvasEditor } from '../lib/editor'
@@ -47,21 +48,34 @@ export default function RegenerateVideoPopover({
   const { t } = useTranslation(['canvas', 'video'])
   const [prompt, setPrompt] = useState(node.userPrompt ?? '')
   const [notes, setNotes] = useState<string[]>([])
+  const [keepFrames, setKeepFrames] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const draft = useVideoStore((state) => state.draft)
   const options = videoModelOptions()
   const option = options.find((one) => one.modelId === draft.model)
   const frames = regenerateFrames(editor, node)
+  const frameCount = keepFrames ? frames.present.length : 0
+  const frameRefusal = regenerateFrameRefusal(frameCount, draft.model)
+  // 关掉弹窗就作废还没发出的提交；草稿也还原成打开前的样子（它和导演台共用）。
+  const open = useRef(true)
+  const submitted = useRef(false)
 
+  // 只在打开时载入一次（按视频身份），之后草稿由用户改。
   useEffect(() => {
+    const before = useVideoStore.getState().draft
     useVideoStore.getState().syncModelOptions()
     const found: string[] = []
     const generation = node.video.generation
-    if (!generation) found.push(t('videoToolbar.noRecord'))
+    if (!generation && node.userPrompt === null) found.push(t('videoToolbar.nothingRecorded'))
+    else if (!generation) found.push(t('videoToolbar.noSettingsRecorded'))
     else if (!loadGenerationIntoDraft(generation)) found.push(t('videoToolbar.modelUnavailable'))
-    if (node.userPrompt === null) found.push(t('videoToolbar.noPromptRecorded'))
+    if (generation && node.userPrompt === null) found.push(t('videoToolbar.noPromptRecorded'))
     setNotes(found)
-    // 只在打开时载入一次，之后草稿由用户改。
-  }, [node, t])
+    return () => {
+      open.current = false
+      if (!submitted.current) useVideoStore.setState({ draft: before })
+    }
+  }, [node.id])
 
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
@@ -70,9 +84,20 @@ export default function RegenerateVideoPopover({
   })
 
   const submit = async () => {
-    if (!(await regenerateCanvasVideo(editor, node, prompt))) return
-    useStore.getState().showToast(t('videoToolbar.regenerateSubmitted'), 'success')
-    onClose()
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const accepted = await regenerateCanvasVideo(editor, node, prompt, {
+        keepFrames,
+        isCurrent: () => open.current,
+      })
+      if (!accepted) return
+      submitted.current = true
+      useStore.getState().showToast(t('videoToolbar.regenerateSubmitted'), 'success')
+      onClose()
+    } finally {
+      if (open.current) setSubmitting(false)
+    }
   }
 
   return (
@@ -88,9 +113,14 @@ export default function RegenerateVideoPopover({
           <p className="mb-2 text-xs text-warning">{t('videoToolbar.framesGoneTextOnly')}</p>
         )}
         {frames.present.length > 0 && (
-          <p className="mb-2 text-xs text-muted-foreground">
+          <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={keepFrames}
+              onChange={(event) => setKeepFrames(event.target.checked)}
+            />
             {t('videoToolbar.keepsFrames', { count: frames.present.length })}
-          </p>
+          </label>
         )}
 
         <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
@@ -126,13 +156,14 @@ export default function RegenerateVideoPopover({
               <VideoPresetRows
                 support={option.support}
                 draft={draft}
-                aspectFollowsFirstFrame={frames.present.length > 0}
+                aspectFollowsFirstFrame={frameCount > 0}
               />
             </>
           )}
         </div>
 
         <div className={`${PANEL_SECTION} mt-4`}>
+          {frameRefusal && <p className="mb-1.5 text-[11px] text-destructive">{frameRefusal}</p>}
           {guard.blocked && guard.disabledReason && (
             <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
           )}
@@ -142,7 +173,9 @@ export default function RegenerateVideoPopover({
           />
           <button
             type="button"
-            disabled={guard.blocked || !prompt.trim() || !option}
+            disabled={
+              guard.blocked || !prompt.trim() || !option || Boolean(frameRefusal) || submitting
+            }
             title={guard.disabledReason}
             onClick={() => void submit()}
             className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}

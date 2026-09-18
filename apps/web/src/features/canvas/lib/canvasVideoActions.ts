@@ -44,7 +44,15 @@ export interface CanvasVideoNode {
 export function canvasVideoNode(editor: CanvasEditor, id: string): CanvasVideoNode | null {
   const element = editor.getElement(id)
   if (element?.type !== 'image' || !element.video) return null
-  return { id, video: element.video, userPrompt: element.meta?.userPrompt ?? null }
+  const meta = element.meta
+  const typed = meta?.userPrompt
+  // 画布生成栏发出去的是「文字标注 + 输入框」，userPrompt 只存了输入框那段；重新生成不再
+  // 带选区标注，所以用完整的那段预填，片子的意思才对得上。智能体的 prompt 是标题，不以它结尾。
+  const full =
+    typed && meta?.prompt && meta.prompt !== typed && meta.prompt.endsWith(`\n${typed}`)
+      ? meta.prompt
+      : typed
+  return { id, video: element.video, userPrompt: full ?? null }
 }
 
 /** 只选中了一段视频时才有节点工具条。 */
@@ -179,10 +187,22 @@ export function regenerateFrames(editor: CanvasEditor, node: CanvasVideoNode) {
  * 原首尾帧都还在就沿用（干净栅格化，不带标注），不齐就只按文字生成——弹窗事先写明了。
  * 结果放在原视频右侧。返回是否受理。
  */
+/** 所选模型接不接得住要沿用的首尾帧；接不住给出弹窗里用的说明。 */
+export function regenerateFrameRefusal(frameCount: number, model: string): string | null {
+  const option = videoModelOptions().find((one) => one.modelId === model)
+  if (!option || frameCount === 0) return null
+  if (!option.support.firstFrame)
+    return i18next.t('videoToolbar.modelNoFrames', { ns: 'canvas', model: option.label })
+  if (frameCount > 1 && !option.support.lastFrame)
+    return i18next.t('videoToolbar.modelNoLastFrame', { ns: 'canvas', model: option.label })
+  return null
+}
+
 export async function regenerateCanvasVideo(
   editor: CanvasEditor,
   node: CanvasVideoNode,
   userPrompt: string,
+  options: { keepFrames?: boolean; isCurrent?: () => boolean } = {},
 ): Promise<boolean> {
   const refuse = (message: string) => {
     toast(message)
@@ -195,15 +215,9 @@ export async function regenerateCanvasVideo(
   if (!option) return refuse(i18next.t('error.noModel', { ns: 'video' }))
   const prompt = userPrompt.trim()
   if (!prompt) return refuse(i18next.t('store.emptyPrompt', { ns: 'video' }))
-  const { present } = regenerateFrames(editor, node)
-  if (present.length > 0 && !option.support.firstFrame)
-    return refuse(
-      i18next.t('video.refuse.firstFrameUnsupported', { ns: 'canvas', model: option.label }),
-    )
-  if (present.length > 1 && !option.support.lastFrame)
-    return refuse(
-      i18next.t('video.refuse.lastFrameUnsupported', { ns: 'canvas', model: option.label }),
-    )
+  const present = options.keepFrames === false ? [] : regenerateFrames(editor, node).present
+  const frameRefusal = regenerateFrameRefusal(present.length, option.modelId)
+  if (frameRefusal) return refuse(frameRefusal)
   const generation: VideoGenerationRecord = {
     model: option.modelId,
     duration: draft.duration,
@@ -229,7 +243,9 @@ export async function regenerateCanvasVideo(
   )
   const frames = rasterized.filter((one): one is string => one !== null)
   if (frames.length !== present.length)
-    return refuse(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }))
+    return refuse(i18next.t('videoToolbar.framesFailed', { ns: 'canvas' }))
+  // 弹窗在栅格化期间被关掉了：用户已经放弃这次，不能再替他花钱。
+  if (options.isCurrent && !options.isCurrent()) return false
   const [target] = computePlaceholderTargets(
     editor,
     editor.getElementPageBounds(node.id) ?? null,

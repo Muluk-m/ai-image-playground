@@ -1,3 +1,4 @@
+import { PROJECT_META_VALUE_MAX_CHARS } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import type { AgentCanvasSink, AgentPlaceOutcome } from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
@@ -112,7 +113,10 @@ export function createAgentCanvasSink(
               missing[0]?.name?.replace(/\s+\d+$/, '') ||
               i18next.t('creations.taskTitle', { ns: 'agent' }),
             // 同一次调用的产物共用一条提示词；视频重新生成拿它预填。
-            ...(missing[0]?.prompt ? { userPrompt: missing[0].prompt } : {}),
+            // 云端项目的 meta 值有长度上限，超长的记下来会让整个项目同步失败；宁可不记。
+            ...(missing[0]?.prompt && missing[0].prompt.length <= PROJECT_META_VALUE_MAX_CHARS
+              ? { userPrompt: missing[0].prompt }
+              : {}),
           },
         },
       )

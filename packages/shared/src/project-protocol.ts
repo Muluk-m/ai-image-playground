@@ -7,6 +7,8 @@ export const PROJECT_PAGE_MAX_SIZE = 100
 export const PROJECT_DOCUMENT_MAX_BYTES = 512 * 1024
 export const PROJECT_ELEMENT_MAX_COUNT = 1000
 export const PROJECT_RECEIPT_COUNT = 128
+/** 元素 meta 单个值的最长字符数。 */
+export const PROJECT_META_VALUE_MAX_CHARS = 10000
 
 export interface ProjectImage {
   id: string
@@ -239,7 +241,9 @@ function element(value: unknown): value is ProjectElement {
           Object.keys(value.meta).length <= 32 &&
           Object.entries(value.meta).every(
             ([key, content]) =>
-              key.length <= 128 && typeof content === 'string' && content.length <= 10000,
+              key.length <= 128 &&
+              typeof content === 'string' &&
+              content.length <= PROJECT_META_VALUE_MAX_CHARS,
           )))
     )
   }
