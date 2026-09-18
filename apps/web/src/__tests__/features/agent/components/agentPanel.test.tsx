@@ -335,6 +335,85 @@ describe('AgentPanel', () => {
     expect(texts('button')).not.toContain('有新消息')
   })
 
+  it('离开底部时只改旧卡片的交付状态或收尾一轮，不出「有新消息」', () => {
+    const reply = {
+      kind: 'text' as const,
+      id: 'reply',
+      turnId: 'turn-1',
+      role: 'assistant' as const,
+      text: '画好了',
+      streaming: true,
+    }
+    // 卡片不带产物：这个用例只看数组换引用，不去取缩略图。
+    const card = (delivery: AgentDeliveryStatus) => ({ ...toolMessage(delivery), artifacts: [] })
+    useAgentStore.setState({ messages: [card('pending'), reply], turns: {} })
+    render()
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { value: 200 },
+    })
+    log.scrollTop = 100
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+
+    // 画布接住了旧卡片的产物：数组换了引用，但末尾没有长出新内容。
+    act(() => useAgentStore.setState({ messages: [card('placed'), reply] }))
+    expect(texts('button')).not.toContain('有新消息')
+    // 一轮收尾只是把流式标记摘掉。
+    act(() =>
+      useAgentStore.setState({ messages: [card('placed'), { ...reply, streaming: false }] }),
+    )
+    expect(texts('button')).not.toContain('有新消息')
+    expect(log.scrollTop).toBe(100)
+  })
+
+  it('离开底部时自己发出消息，直接回到最新并继续跟随回复', () => {
+    const reply = {
+      kind: 'text' as const,
+      id: 'reply',
+      turnId: 'turn-1',
+      role: 'assistant' as const,
+      text: '上一轮',
+      streaming: false,
+    }
+    useAgentStore.setState({ messages: [reply], turns: {} })
+    render()
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { value: 200 },
+    })
+    log.scrollTop = 100
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+
+    const mine = {
+      kind: 'text' as const,
+      id: 'mine',
+      turnId: 'turn-2',
+      role: 'user' as const,
+      text: '再来一张',
+      streaming: false,
+      pending: true as const,
+    }
+    Object.defineProperty(log, 'scrollHeight', { value: 1200 })
+    act(() => useAgentStore.setState({ messages: [reply, mine] }))
+    expect(log.scrollTop).toBe(1200)
+    expect(texts('button')).not.toContain('有新消息')
+
+    Object.defineProperty(log, 'scrollHeight', { value: 1400 })
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          reply,
+          mine,
+          { ...reply, id: 'reply-2', turnId: 'turn-2', text: '好的', streaming: true },
+        ],
+      }),
+    )
+    expect(log.scrollTop).toBe(1400)
+    expect(texts('button')).not.toContain('有新消息')
+  })
+
   it('回复带复制按钮，复制的是原文并提示已复制；流式中不出', async () => {
     const writeText = vi.fn(async () => {})
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

@@ -132,11 +132,25 @@ export default function AgentPanel({
     void load()
   }, [load])
 
+  /** 上一次看到的末尾：只有末尾长出新东西才算「有新消息」，改旧卡片的交付状态、收尾一轮都不算。 */
+  const lastTail = useRef<string | null>(null)
+  const lastTailId = useRef<string | null>(null)
   useLayoutEffect(() => {
     const log = logRef.current
     if (!log) return
-    if (followLatest.current) log.scrollTop = log.scrollHeight
-    else setUnseen(true)
+    const last = messages[messages.length - 1] as AgentPanelMessage | undefined
+    const tail = last ? tailSignature(last) : null
+    const grew = tail !== null && tail !== lastTail.current
+    // 用户自己发出的消息不是「没看到的内容」：发送即回到最新，接着跟随回复。
+    if (grew && last?.kind === 'text' && last.role === 'user' && last.id !== lastTailId.current) {
+      followLatest.current = true
+    }
+    lastTail.current = tail
+    lastTailId.current = last?.id ?? null
+    if (followLatest.current) {
+      log.scrollTop = log.scrollHeight
+      setUnseen(false)
+    } else if (grew) setUnseen(true)
   }, [messages, open, tab, conversationId])
 
   const jumpToLatest = () => {
@@ -265,4 +279,13 @@ export default function AgentPanel({
       {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
     </div>
   )
+}
+
+/** 末尾那条消息长到哪了：换了一条、文字变长、工具卡跑出结果都会变；交付状态与流式收尾不计入。 */
+function tailSignature(message: AgentPanelMessage): string {
+  if (message.kind === 'text') return `${message.id}:${message.text.length}`
+  if (message.kind === 'tool') {
+    return `${message.id}:${message.status}:${message.stage ?? ''}:${message.artifacts?.length ?? 0}:${message.message ?? ''}`
+  }
+  return message.id
 }
