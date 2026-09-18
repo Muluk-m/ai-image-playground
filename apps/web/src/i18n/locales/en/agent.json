@@ -251,6 +251,10 @@
     "cancelFailed": "Could not cancel, please try again",
     "cancelled": "Cancelled",
     "cancelledRefunded": "Cancelled, credits refunded",
+    "wakeSkipped": {
+      "insufficient_credits": "Not enough credits, the assistant didn't review this result",
+      "wake_limit": "The assistant has checked back 3 times in a row and will wait for you before continuing"
+    },
     "inbox": {
       "aria": "Background jobs",
       "summary": "{{running}} running · {{completed}} done",

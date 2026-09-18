@@ -14,6 +14,8 @@ export interface RecordedTaskHooks {
   readonly settlements: RecordedSettlement[]
   /** 下一次预扣的答复；测余额不足与缺单价时改它。 */
   answer: TaskReservationResult
+  /** 按这一次预扣本身作答；返回 undefined 或缺席时用 {@link answer}。测「同一轮先拒后准」时改它。 */
+  decide: ((reservation: RecordedReservation) => TaskReservationResult | undefined) | null
   /** 单价表交给公开树的对话定价；默认 null，让公开树用它自己的兜底那档。 */
   pricing: ChatPricing | null
   /** 对话任务的实扣积分；退回的终态照真账本报 0。 */
@@ -32,6 +34,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     reservations: [],
     settlements: [],
     answer: { kind: 'reserved', credits: 0 },
+    decide: null,
     pricing: null,
     settledCredits: 0,
     creditsPerTask: 0,
@@ -39,6 +42,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
       recorded.answer = { kind: 'reserved', credits: 0 }
+      recorded.decide = null
       recorded.pricing = null
       recorded.settledCredits = 0
       recorded.creditsPerTask = 0
@@ -52,7 +56,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
         ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
         async reserveTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
           recorded.reservations.push(rest)
-          return recorded.answer
+          return recorded.decide?.(rest) ?? recorded.answer
         },
         async finalizeTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
           recorded.settlements.push(rest)

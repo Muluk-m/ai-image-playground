@@ -734,6 +734,54 @@ describe('后台任务', () => {
     expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
   })
 
+  it('服务端因积分不足跳过唤醒时，结果卡说明助手没有查看结果', async () => {
+    jobsResponse = () => finished({ status: 'failed', message: '上游超时', errorCode: 'timeout' })
+    // 服务端没起唤醒轮：快照里没有进行中的轮、也没有新消息，只是结果卡记下了原因。
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        turns: [],
+        queue: [],
+        messages: [
+          {
+            id: 'user-1',
+            turnId: 'turn-1',
+            role: 'user',
+            content: [{ type: 'text', text: '画一只橘猫' }],
+            createdAt: 1,
+          },
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [
+              {
+                ...pendingJob.result,
+                status: 'failed',
+                message: '上游超时',
+                errorCode: 'timeout',
+                wakeSkipped: 'insufficient_credits',
+              },
+            ],
+            createdAt: 2,
+          },
+        ],
+      })
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+
+    await state().send('画一只橘猫')
+
+    await vi.waitFor(() =>
+      expect(toolMessages()[0]).toMatchObject({
+        status: 'failed',
+        errorCode: 'timeout',
+        wakeSkipped: 'insufficient_credits',
+      }),
+    )
+    expect(state().turn).toBe('idle')
+  })
+
   it('成功且没要求复核的任务结束后不去找唤醒轮', async () => {
     jobsResponse = () => finished({ status: 'succeeded', artifacts: [IMAGE] })
     turnResponse = () =>
