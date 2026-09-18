@@ -76,4 +76,10 @@ set +e
 sh "$release/scripts/vps-deploy.sh" "$target" "$release"
 status=$?
 set -e
+if [ "$status" -ne 0 ]; then
+  # Keep the failed release for inspection, out of the way of a retry of the same commit.
+  failed=$release.failed-run-$run_id
+  rm -rf "$failed"
+  mv "$release" "$failed" && echo "Failed release kept at $failed" >&2
+fi
 exit "$status"
