@@ -145,7 +145,8 @@ case "$command" in
   up)
     require_migrator_env
     require_tunnel_credentials
-    if docker inspect "$project-bff-1" >/dev/null 2>&1; then
+    # Release-managed once `current` exists, even after the Compose BFF has been retired.
+    if [ -f "$APP_CONFIG_DIR/releases/current" ] || docker inspect "$project-bff-1" >/dev/null 2>&1; then
       rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
       "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollout_image"
     else
