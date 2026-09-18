@@ -1,4 +1,8 @@
-import type { AgentInboxUserMessagePayload } from '@image-playground/db'
+import type {
+  AgentInboxPayload,
+  AgentInboxTaskResultPayload,
+  AgentInboxUserMessagePayload,
+} from '@image-playground/db'
 import {
   AGENT_QUEUE_MAX_PENDING,
   type AgentMode,
@@ -16,8 +20,9 @@ import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 
 /**
- * 会话收件箱（`agent_inbox`）里的用户消息。忙时发的话排在这里，当前回复可以结束时由
- * `start-turn` 按序号取，每轮一条。撤回与取走都是同一条记录上 `pending` 之后的原子更新，
+ * 会话收件箱（`agent_inbox`）里的用户消息与唤醒。忙时发的话排在这里，当前回复可以结束时由
+ * `start-turn` 按序号取，每轮一条；后台任务结束要唤醒智能体时，worker 也往这里写一条
+ * `task_result`（见 `wake.ts`），与用户消息按同一个序号排队。撤回与取走都是同一条记录上 `pending` 之后的原子更新，
  * 两者只有一个成立。轮到时开不了轮的那一条记成 `failed` 并带上错误码：它不再挡后面的，
  * 留在列表里让用户知道为什么没处理，撤掉才算完。
  *
@@ -60,13 +65,19 @@ export type EnqueueResult =
   | { readonly kind: 'duplicate'; readonly entry: InboxEntry }
   | { readonly kind: 'full' }
 
+/** 用户消息那一类的载荷；唤醒记录不进排队列表，也不按客户端消息 id 查。 */
+function userPayload(payload: AgentInboxPayload): AgentInboxUserMessagePayload {
+  return 'text' in payload ? payload : { text: '', deviceId: '', referenceCount: 0 }
+}
+
 function entryOf(row: InboxRow): InboxEntry {
+  const payload = userPayload(row.payload)
   return {
     view: {
       id: row.id,
       clientMessageId: row.client_message_id ?? row.id,
-      text: row.payload.text,
-      referenceCount: row.payload.referenceCount,
+      text: payload.text,
+      referenceCount: payload.referenceCount,
       createdAt: row.created_at,
       ...(row.status === 'failed' && row.failure ? { failure: row.failure } : {}),
       ...(row.kind === 'clarification_answer' ? { clarificationAnswer: true as const } : {}),
@@ -256,30 +267,93 @@ export const heldByClarification = sql`(${inbox.kind} = 'user_message' AND EXIST
     )
 ))`
 
+/** 收件箱里有没有还没起轮的唤醒。 */
+export async function hasPendingAgentWake(conversationId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.kind, 'task_result'),
+        eq(inbox.status, 'pending'),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
+/** 一条待处理的唤醒：同一次提交里该让智能体回来看的那几个后台任务。 */
+export interface QueuedWake extends AgentInboxTaskResultPayload {
+  readonly id: string
+}
+
+/** 收件箱里下一件该起一轮去处理的事；澄清答复也算用户消息。 */
+export type NextInboxEntry =
+  | ({ readonly kind: 'user_message' } & QueuedUserMessage)
+  | ({ readonly kind: 'task_result' } & QueuedWake)
+
+/** 起一轮去处理的那几类：用户说的话与唤醒；系统事件另有取法，不在这里。 */
+const TURN_KINDS = [...USER_KINDS, 'task_result'] as const
+
 function queuedMessageOf(row: InboxRow): QueuedUserMessage {
+  const payload = userPayload(row.payload)
   return {
     id: row.id,
     clientMessageId: row.client_message_id ?? row.id,
-    text: row.payload.text,
-    deviceId: row.payload.deviceId,
+    text: payload.text,
+    deviceId: payload.deviceId,
     references: row.attachments ?? [],
-    ...(row.payload.mode ? { mode: row.payload.mode } : {}),
-    ...(row.payload.params ? { params: row.payload.params } : {}),
+    ...(payload.mode ? { mode: payload.mode } : {}),
+    ...(payload.params ? { params: payload.params } : {}),
   }
 }
 
 /**
- * 下一条该处理的用户消息；只看不取，取走由 {@link consumeAgentMessage} 在起轮事务里做。
- * 澄清答复先取；会话在等澄清答复时，问之前就排着的话不取。
+ * 下一件该处理的事：用户消息或唤醒；只看不取，取走由 {@link consumeAgentMessage} 在起轮事务里做。
+ * 澄清答复先取，其余按序号先来先处理；会话在等澄清答复时，问之前就排着的话不取。
  */
-export async function nextAgentMessage(conversationId: string): Promise<QueuedUserMessage | null> {
+export async function nextAgentInboxEntry(conversationId: string): Promise<NextInboxEntry | null> {
   const [row] = await db
     .select()
     .from(inbox)
-    .where(and(isPendingUserMessage(conversationId), not(heldByClarification)))
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        inArray(inbox.kind, [...TURN_KINDS]),
+        eq(inbox.status, 'pending'),
+        not(heldByClarification),
+      ),
+    )
     .orderBy(...processingOrder)
     .limit(1)
-  return row ? queuedMessageOf(row) : null
+  if (!row) return null
+  if (row.kind === 'task_result' && 'taskIds' in row.payload)
+    return { kind: 'task_result', id: row.id, ...row.payload }
+  return { kind: 'user_message', ...queuedMessageOf(row) }
+}
+
+/**
+ * 写一条唤醒进收件箱，排在已有的之后。调用方已经锁着会话行（见 `wake.ts`），序号不会与并发的
+ * 入队撞上。返回它的 id。
+ */
+export async function enqueueAgentWake(
+  tx: BffTransaction,
+  conversationId: string,
+  payload: AgentInboxTaskResultPayload,
+  now: number,
+): Promise<string> {
+  const id = crypto.randomUUID()
+  await tx.insert(inbox).values({
+    conversation_id: conversationId,
+    id,
+    seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
+    kind: 'task_result',
+    status: 'pending',
+    payload,
+    created_at: now,
+  })
+  return id
 }
 
 /**
@@ -430,7 +504,7 @@ const returnedBy = (conversationId: string, turnId: string) =>
 
 const returnedView = (row: InboxRow): AgentReturnedQueuedMessage => ({
   id: row.id,
-  text: row.payload.text,
+  text: userPayload(row.payload).text,
   references: row.attachments ?? [],
 })
 

@@ -31,9 +31,22 @@ import {
   withConversationExecution,
 } from './execution'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
-import { consumeAgentMessage, failAgentMessage, nextAgentMessage } from './inbox'
+import {
+  consumeAgentMessage,
+  failAgentMessage,
+  nextAgentInboxEntry,
+  type QueuedWake,
+} from './inbox'
 import { type RunningTurn, runningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
+import { deliverDueAgentWakes } from './wake'
+import {
+  wakeAuthorizationPrompt,
+  wakeJobs,
+  wakeReviewImageIds,
+  wakeTurnPrompt,
+  wakeTurnSetup,
+} from './wake-prompt'
 
 export interface StartConversationTurnInput {
   readonly conversationId: string
@@ -113,14 +126,14 @@ async function drainOnce(
 ): Promise<DrainConversationResult | 'again'> {
   const release = bffDrain.enter()
   if (!release) {
-    const next = await nextAgentMessage(conversationId)
+    const next = await nextAgentInboxEntry(conversationId)
     return next
       ? { kind: 'not_started', queueId: next.id, failure: { kind: 'draining' } }
       : { kind: 'idle' }
   }
   // 没有该取的就不领租约：空领一次也会让会话在那一瞬间显得还忙。在等澄清答复、只剩问之前
   // 排着的那几条时，巡查与快照读取都会来问，不能每次都占一下。
-  if (!(await nextAgentMessage(conversationId))) {
+  if (!(await nextAgentInboxEntry(conversationId))) {
     release()
     return { kind: 'idle' }
   }
@@ -138,35 +151,41 @@ async function drainOnce(
     }
     // 上一轮若被打断没有终帧，先在租约下补上，再给这一轮发序号：终帧排在新一轮之前。
     await sealAbandonedTurns(conversationId, true)
-    const next = await nextAgentMessage(conversationId)
+    const next = await nextAgentInboxEntry(conversationId)
     const owner = next ? await conversationOwner(conversationId) : null
     if (!next || !owner) {
       await releaseConversation(conversationId, turnId)
       release()
       // 放手之前入队、又因为租约在这里而没能自己开轮的那一条，只能由这里接着取。
-      return next === null && (await nextAgentMessage(conversationId)) ? 'again' : { kind: 'idle' }
+      return next === null && (await nextAgentInboxEntry(conversationId))
+        ? 'again'
+        : { kind: 'idle' }
     }
     stopHeartbeat = maintainConversation(conversationId, turnId, () => {
       ownershipLost = true
       turn?.abort()
     })
-    const result = await executeConversationTurn(
-      {
-        conversationId,
-        owner,
-        text: next.text,
-        references: next.references,
-        deviceId: next.deviceId,
-        ...(next.mode ? { mode: next.mode } : {}),
-        ...(next.params ? { params: next.params } : {}),
-      },
-      turnId,
-      async () => {
-        if (ownershipLost) throw new ConversationExecutionLost()
-        await assertConversationExecution(conversationId, turnId)
-      },
-      { id: next.id, announce: next.id !== options.quietFor },
-    )
+    const assertOwnership = async () => {
+      if (ownershipLost) throw new ConversationExecutionLost()
+      await assertConversationExecution(conversationId, turnId)
+    }
+    const result =
+      next.kind === 'task_result'
+        ? await executeWakeTurn(conversationId, owner, next, turnId, assertOwnership)
+        : await executeConversationTurn(
+            {
+              conversationId,
+              owner,
+              text: next.text,
+              references: next.references,
+              deviceId: next.deviceId,
+              ...(next.mode ? { mode: next.mode } : {}),
+              ...(next.params ? { params: next.params } : {}),
+            },
+            turnId,
+            assertOwnership,
+            { id: next.id, announce: next.id !== options.quietFor },
+          )
     if (result.kind === 'started') {
       turn = result.turn
       if (ownershipLost) turn.abort()
@@ -178,11 +197,12 @@ async function drainOnce(
     }
     if (result.kind === 'started' && result.turn.completed) {
       void result.turn.completed.then(finish).then(
-        // 这一轮放手了：排着的下一条接着开轮。队里没有待处理的就不再领租约——空领一次也会让
-        // 刚收尾的会话在那一瞬间显得还忙，删会话之类的操作会撞上 409。放手之后才进来的那条
-        // 由它自己的请求开轮。
+        // 这一轮放手了：它提交的后台任务若已全部结束，此刻才凑齐一批，先投递唤醒；然后排着的
+        // 下一条接着开轮。队里没有待处理的就不再领租约——空领一次也会让刚收尾的会话在那一瞬间
+        // 显得还忙，删会话之类的操作会撞上 409。放手之后才进来的那条由它自己的请求开轮。
         () =>
-          void nextAgentMessage(conversationId)
+          void deliverDueAgentWakes([conversationId])
+            .then(() => nextAgentInboxEntry(conversationId))
             .then((waiting) => (waiting ? drainConversationInbox(conversationId) : undefined))
             .catch((err) =>
               log.error(
@@ -208,6 +228,102 @@ async function drainOnce(
     if (claimed) await releaseConversation(conversationId, turnId)
     release()
     throw error
+  }
+}
+
+/**
+ * 唤醒轮：后台任务结束，智能体回来看结果。没有用户消息可落，模型收到的是一段系统说明，
+ * 点名这一批里的结果；计费、租约与普通的轮一样。
+ */
+async function executeWakeTurn(
+  conversationId: string,
+  owner: AgentOwner,
+  wake: QueuedWake,
+  turnId: string,
+  assertOwnership: () => Promise<void>,
+): Promise<StartConversationTurnResult> {
+  const userId = owner.kind === 'user' ? owner.userId : null
+  const billed = isCapabilityEnabled('billing:credits')
+  if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
+  const overlayPromise = loadPrivateBffOverlay()
+  const [{ estimateTurnInputTokens }, { startAgentTurn }, { resolveAgentMode }, overlay, history] =
+    await Promise.all([
+      import('./turn-input'),
+      import('./turn'),
+      import('./tools'),
+      overlayPromise,
+      // 读历史会把结束了的后台任务结算成终局：唤醒轮看到的就是它们的结果。
+      listAgentMessages(conversationId, owner),
+      import('./skills').then((it) => it.ensureAgentSkills()),
+    ])
+  const jobs = wakeJobs(history, wake.taskIds)
+  if (jobs.length === 0) {
+    // 点名的结果卡一张都不在（那一轮没能落下结果卡就没了）：没有可看的，取走它不起轮。
+    await withConversationExecution(conversationId, turnId, (tx) =>
+      consumeAgentMessage(tx, conversationId, wake.id, turnId),
+    )
+    return { kind: 'withdrawn' }
+  }
+  const setup = wakeTurnSetup(jobs)
+  const mode = resolveAgentMode(setup.mode)
+  const { params } = setup
+  const selectedModel = agentThinking(params?.thinkingDepth).model
+  const text = wakeTurnPrompt(jobs)
+  const deviceId = wake.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
+  const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
+  const chatTask =
+    pricing && userId
+      ? {
+          taskHooks: overlay.taskHooks,
+          conversationId,
+          turnId,
+          userId,
+          deviceId,
+          model: selectedModel,
+          estimatedInputTokens: estimateTurnInputTokens(history, text, [], mode),
+          pricing,
+        }
+      : null
+  const written = await withConversationExecution(conversationId, turnId, async (tx) => {
+    if (!(await consumeAgentMessage(tx, conversationId, wake.id, turnId)))
+      throw new TurnStartRollback({ kind: 'withdrawn' })
+    let reserved: ChatTaskReserved | undefined
+    if (chatTask) {
+      const reservation = await reserveChatTask({ tx, ...chatTask })
+      if (reservation.kind !== 'reserved') throw new TurnStartRollback(reservation)
+      reserved = reservation
+    }
+    return { kind: 'reserved' as const, reserved }
+  }).catch((error) => {
+    if (error instanceof TurnStartRollback) return error.result
+    throw error
+  })
+  if (written.kind !== 'reserved') return written
+
+  await assertOwnership()
+  return {
+    kind: 'started',
+    turn: await startAgentTurn({
+      assertExecution: assertOwnership,
+      withExecution: (callback) => withConversationExecution(conversationId, turnId, callback),
+      conversationId,
+      turnId,
+      // 唤醒没有用户消息；这个 id 不指向任何一条，只让轮头的形状与普通的轮一致。
+      userMessageId: `${turnId}:wake`,
+      history,
+      text,
+      references: [],
+      mode,
+      userId,
+      deviceId,
+      ...(params ? { params } : {}),
+      wake: {
+        authorizationPrompt: wakeAuthorizationPrompt(history, wake.turnId),
+        reviewImageIds: wakeReviewImageIds(jobs),
+      },
+      reservedCredits: written.reserved?.reservedCredits,
+      settle: written.reserved?.settle,
+    }),
   }
 }
 

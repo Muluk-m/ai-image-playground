@@ -225,6 +225,13 @@
       "when": 1789740000000,
       "tag": "0032_agent_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789760000000,
+      "tag": "0033_agent_jobs",
+      "breakpoints": true
     }
   ]
 }

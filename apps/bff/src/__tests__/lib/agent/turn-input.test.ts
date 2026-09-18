@@ -196,8 +196,9 @@ describe('estimateTurnInputTokens', () => {
  * 生视频那一份声明的增量。原值 299；档位说明改成按解析到的模型写之后，兜底那一份也长了
  * （三个档位参数各多一句「填不了就照原话填，工具会告诉你做得到什么」）。
  * 改成后台任务后说明里多了「提交后立即返回、结果尚未就绪」，从 419 长到 446。
+ * 加上「成功后要不要唤醒复核」的参数后长到 497。
  */
-const VIDEO_DECLARATION_TOKENS = 446
+const VIDEO_DECLARATION_TOKENS = 497
 
 /** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
 describe('tool declarations in the estimate', () => {

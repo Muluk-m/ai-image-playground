@@ -12,6 +12,14 @@ export const imageCountParameter = Type.Optional(
   }),
 )
 
+/** 提交生成任务的工具共用：成功后要不要被唤醒回来复核。失败一律唤醒，不归它管。 */
+export const reviewParameter = Type.Optional(
+  Type.Boolean({
+    description:
+      '成功后是否唤醒你回来复核结果；需要你检查效果再汇报时设为 true，普通出图不需要。失败总会唤醒你。',
+  }),
+)
+
 /**
  * 这次图片工具调用出几张。画布起跑时按它占位，队列请求按它填 `n`——
  * 两处同一个算式，占位框数量才不会和真正出的张数对不上。
