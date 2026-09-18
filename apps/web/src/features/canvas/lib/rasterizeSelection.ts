@@ -48,7 +48,8 @@ export function analyzeSelection(editor: CanvasEditor): CanvasSelectionPlan | nu
   const pending = new Map(
     editor
       .getElements()
-      .filter((el) => el.type !== 'image' && !editor.isPlaceholder(el))
+      // 时间线不是画在图上的标注，压在图上也不该被当成修改意图合成进参考图。
+      .filter((el) => el.type !== 'image' && el.type !== 'timeline' && !editor.isPlaceholder(el))
       .map((el) => [el.id, editor.getElementPageBounds(el.id)]),
   )
   const clusterBoxes = images.map((img) => img.box)

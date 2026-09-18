@@ -82,7 +82,28 @@ export interface PlaceholderEl {
   meta: CanvasTaskMeta
 }
 
-export type CanvasEl = ImageEl | FreedrawEl | ArrowEl | TextEl | PlaceholderEl
+/** 时间线上的一段：引用画布上的一个视频元素，按入 / 出点截取（秒）。`out` 缺省即播到结尾。 */
+export interface TimelineClip {
+  elementId: string
+  in: number
+  out?: number
+}
+
+/**
+ * 时间线：只存对画布上视频元素的有序引用，不存媒体。源元素被删时那一段显示「素材缺失」，
+ * 不自动移除——静默少一段，成片就和用户排的不一样了。宽高由片段推出，存下来供选区与导出用。
+ */
+export interface TimelineEl {
+  id: string
+  type: 'timeline'
+  x: number
+  y: number
+  width: number
+  height: number
+  clips: TimelineClip[]
+}
+
+export type CanvasEl = ImageEl | FreedrawEl | ArrowEl | TextEl | PlaceholderEl | TimelineEl
 
 export interface Camera {
   /** 视口左上角的页面坐标。 */

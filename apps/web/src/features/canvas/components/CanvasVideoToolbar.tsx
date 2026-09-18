@@ -4,6 +4,7 @@ import {
   ArrowRightToLine,
   Download,
   FastForward,
+  Film,
   RotateCcw,
   WandSparkles,
 } from 'lucide-react'
@@ -25,6 +26,8 @@ import {
   submitCanvasDerive,
 } from '../lib/canvasVideoActions'
 import type { CanvasEditor } from '../lib/editor'
+import { Box } from '../lib/geometry'
+import { addSelectionToTimeline, isTimelineSource } from '../lib/timeline'
 
 /** 工具条浮在视频上沿之上这么高；贴到视口顶时改放在视频下沿之下，不压住视频本身。 */
 const TOOLBAR_OFFSET = 44
@@ -111,7 +114,56 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
     />
   )
 
-  if (!node || !bounds) return popover || null
+  const addToTimeline = () => {
+    addSelectionToTimeline(editor)
+  }
+
+  // 多选几段视频（可以连同一条时间线）：只给「加入时间线」一个动作，其余动作都只对单段有意义。
+  if (!node) {
+    const selected = editor.getSelectedIds().map((id) => editor.getElement(id))
+    const videos = selected.filter(isTimelineSource)
+    const timelines = selected.filter((el) => el?.type === 'timeline')
+    const onlyVideos = selected.every((el) => isTimelineSource(el) || el?.type === 'timeline')
+    if (editor.doc.tool !== 'select' || videos.length === 0 || timelines.length > 1 || !onlyVideos)
+      return popover || null
+    const boxes = editor
+      .getSelectedIds()
+      .map((id) => editor.getElementPageBounds(id))
+      .filter((box) => box !== undefined)
+    const group = Box.Common(boxes)
+    const { camera } = editor.doc
+    const groupTop = (group.y - camera.y) * camera.zoom
+    return (
+      <>
+        <div
+          role="toolbar"
+          aria-label={t('videoToolbar.aria')}
+          className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
+          style={{
+            left: Math.max(8, (group.x - camera.x) * camera.zoom),
+            top:
+              groupTop - TOOLBAR_OFFSET >= 8
+                ? groupTop - TOOLBAR_OFFSET
+                : (group.maxY - camera.y) * camera.zoom + 8,
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <ToolbarButton
+            icon={<Film />}
+            label={
+              timelines.length
+                ? t('timeline.appendCount', { count: videos.length })
+                : t('timeline.addCount', { count: videos.length })
+            }
+            onClick={addToTimeline}
+          />
+        </div>
+        {popover}
+      </>
+    )
+  }
+  if (!bounds) return popover || null
 
   const { camera } = editor.doc
   const left = (bounds.x - camera.x) * camera.zoom
@@ -162,6 +214,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
             />
           )
         })}
+        <ToolbarButton icon={<Film />} label={t('timeline.add')} onClick={addToTimeline} />
         <ToolbarButton
           icon={<ArrowLeftToLine />}
           label={t('videoToolbar.firstFrame')}
