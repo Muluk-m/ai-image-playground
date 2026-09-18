@@ -15,11 +15,8 @@
     "generation:byok": false,
     "generation:storyboard": false,
     "generation:video": false,
-    "matte:server": true,
     "operator:console": false,
-    "quota:daily": false,
-    "remix:analyze": false,
-    "remix:listing": false
+    "quota:daily": false
   },
   "quotas": {
     "agent:compaction-buffer-tokens": 13000,

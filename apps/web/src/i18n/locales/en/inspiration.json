@@ -27,13 +27,6 @@
     "promptCopied": "Prompt copied",
     "copyFailed": "Could not copy. Select the text manually."
   },
-  "coach": {
-    "label": "Inspiration guide",
-    "title": "Need an idea?",
-    "body": "The inspiration library has hundreds of high-quality examples you can apply in one click. Picking one is the fastest start.",
-    "dismiss": "Got it",
-    "explore": "Browse"
-  },
   "hero": {
     "title": "Inspiration",
     "viewAll": "View all"

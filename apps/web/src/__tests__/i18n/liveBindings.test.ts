@@ -3,8 +3,6 @@ import { i18next, setLocale } from '../../i18n'
 import { NO_EDIT_SUPPORT_MESSAGE } from '../../lib/channels/profileSelectors'
 import { IMAGE_FETCH_CORS_HINT } from '../../lib/imageApiShared'
 import { EXPORT_FIT_LABELS } from '../../lib/imageExport'
-import { PRODUCT_ANGLE_LABELS } from '../../lib/productAngle'
-import { SHOT_TYPE_LABELS } from '../../lib/shotTypes'
 
 /**
  * `lib/` 里有几张标签表是 module-level 常量，被 store 与多个 feature 直接 import。
@@ -22,14 +20,10 @@ afterEach(async () => {
 
 describe('lib 的 module-level 标签表', () => {
   it('切到英文后 importer 读到的是新值', async () => {
-    expect(PRODUCT_ANGLE_LABELS.front).toBe('正面')
-    expect(SHOT_TYPE_LABELS.main).toBe('主图')
     expect(NO_EDIT_SUPPORT_MESSAGE).toContain('当前模型不支持参考图')
 
     await setLocale('en')
 
-    expect(PRODUCT_ANGLE_LABELS.front).toBe('Front')
-    expect(SHOT_TYPE_LABELS.main).toBe('Hero')
     expect(NO_EDIT_SUPPORT_MESSAGE).toContain('no reference image support')
   })
 
@@ -37,11 +31,11 @@ describe('lib 的 module-level 标签表', () => {
     await setLocale('en')
     await setLocale('zh-CN')
 
-    expect(PRODUCT_ANGLE_LABELS.front).toBe('正面')
-    expect(SHOT_TYPE_LABELS['spec-diagram']).toBe('尺寸参数图')
+    expect(NO_EDIT_SUPPORT_MESSAGE).toContain('当前模型不支持参考图')
+    expect(EXPORT_FIT_LABELS.crop).toBe('裁切')
   })
 
-  it('另外两张表同样跟着切，别只覆盖头三个', async () => {
+  it('另外两张表同样跟着切，别只覆盖头一个', async () => {
     expect(EXPORT_FIT_LABELS.crop).toBe('裁切')
     expect(IMAGE_FETCH_CORS_HINT).toContain('复制结果链接')
 
