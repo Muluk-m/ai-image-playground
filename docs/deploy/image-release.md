@@ -22,9 +22,9 @@ scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
 ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /home/ubuntu/releases/aip-<release-id>'
 ```
 
-产物含镜像归档、镜像 ID/提交清单、Compose 与必要部署脚本及 SHA-256 校验单。完整传输后才运行接收脚本；中断传输或缺少校验单不得继续。
+产物含应用及 PG 备份 sidecar 的镜像归档、镜像 ID/提交清单、Compose 与必要部署脚本及 SHA-256 校验单。完整传输后才运行接收脚本；中断传输或缺少校验单不得继续。
 
-VPS 接收过程共用原 `deploy.lock`，先校验文件，再 `docker load`，核对所有镜像 ID、CPU 架构及 `APP_VERSION`，全部通过后才依次执行 dependency-check、schema 迁移与服务启动。部署通过 `--wait` 等待健康，记录提交与实际镜像。原环境变量、数据库和对象存储保持各自归属，不从构建机覆盖。
+Compose 不含任何 `build` 配置。VPS 接收过程共用原 `deploy.lock`，先校验文件，再 `docker load`，核对所有镜像 ID、CPU 架构及 `APP_VERSION`，全部通过后才依次执行 dependency-check、schema 迁移与服务启动。部署通过 `--wait` 等待健康，记录提交与实际镜像。原环境变量、数据库和对象存储保持各自归属，不从构建机覆盖。
 
 4. 检查内部/付费两套容器健康、真实 API、版本与浏览器行为。只需要后端发布时，不重发 Pages。新镜像只在自己的发布目录执行，不更新共享源码目录。
 

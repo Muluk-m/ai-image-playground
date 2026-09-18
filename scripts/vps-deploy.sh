@@ -37,13 +37,13 @@ acquire_deploy_lock "$deploy_lock" "receive $target $release"
 (cd "$release" && sha256sum --strict -c SHA256SUMS)
 # Require exactly one record per requested edition and only inert, well-formed fields.
 awk -F '\t' '
-  NF != 5 || $1 !~ /^(internal|paid)$/ || seen[$1]++ { exit 1 }
-  $2 !~ /^ai-image-playground:(vps-main|paid)-[0-9a-f-]+$/ { exit 1 }
+  NF != 5 || $1 !~ /^(internal|paid|backup)$/ || seen[$1]++ { exit 1 }
+  $2 !~ /^ai-image-playground:(vps-main|paid|backup)-[0-9a-f-]+$/ { exit 1 }
   $3 !~ /^sha256:[0-9a-f]+$/ || length($3) != 71 { exit 1 }
   $4 !~ /^[0-9a-f]+$/ || length($4) != 40 { exit 1 }
   $5 != "-" && ($5 !~ /^[0-9a-f]+$/ || length($5) != 40) { exit 1 }
 ' "$release/images.tsv" || { echo "Invalid image manifest" >&2; exit 1; }
-for edition in $editions; do
+for edition in $editions backup; do
   [ "$(awk -F '\t' -v e="$edition" '$1==e { n++ } END { print n+0 }' "$release/images.tsv")" = 1 ] || { echo "Missing $edition image" >&2; exit 1; }
 done
 free_gb=$(docker_root_free_gb)
@@ -60,6 +60,10 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   fi
   actual=$(docker image inspect "$image" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_VERSION=//p')
   [ "$actual" = "$version" ] || { echo "APP_VERSION mismatch: $image" >&2; exit 1; }
+  if [ "$edition" = backup ]; then
+    docker run --rm --network none --memory 256m --entrypoint pg_dump "$image" --version
+    continue
+  fi
   # Execute the target native module before touching services or schema.
   docker run --rm --network none --memory 256m --entrypoint bun "$image" -e '
     import sharp from "./apps/bff/node_modules/sharp";
@@ -84,6 +88,7 @@ prune_old_images() {
   done
 }
 
+backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
 for edition in $editions; do
   record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
   IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha <<EOF
@@ -91,10 +96,12 @@ $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  APP_IMAGE=$image "$release/scripts/app-compose.sh" up "$project"
+  APP_IMAGE=$image BACKUP_IMAGE=$backup_image "$release/scripts/app-compose.sh" up "$project"
   docker tag "$image" "$(edition_var "$prefix" IMAGE)"
   append_deploy_log "$edition" "$image" ok
   current_edition=
   prune_old_images "$(edition_var "$prefix" IMAGE)" "$image"
 done
+docker tag "$backup_image" ai-image-playground-pg-backup:local
+prune_old_images ai-image-playground:backup "$backup_image"
 echo "Deployed prebuilt release: $release"

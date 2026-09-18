@@ -69,7 +69,7 @@ beforeEach(() => {
   writeFileSync(join(release, 'images.tar.gz'), 'fake image archive')
   writeFileSync(
     join(release, 'images.tsv'),
-    `internal\tai-image-playground:vps-main-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\npaid\tai-image-playground:paid-${sha.slice(0, 12)}-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\n`,
+    `internal\tai-image-playground:vps-main-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\npaid\tai-image-playground:paid-${sha.slice(0, 12)}-${sha.slice(0, 12)}\t${imageId}\t${sha}\t${sha}\nbackup\tai-image-playground:backup-${sha.slice(0, 12)}\t${imageId}\t${sha}\t-\n`,
   )
   const docker = `#!/bin/sh
 printf '%s\\n' "$*" >> "$CALL_LOG"
@@ -104,7 +104,7 @@ esac
 })
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 describe('prebuilt VPS receiver', () => {
-  it('loads and verifies both images before rolling services, without compiling or fetching source', () => {
+  it('loads and verifies all images before rolling services, without compiling or fetching source', () => {
     const result = run()
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
@@ -112,8 +112,18 @@ describe('prebuilt VPS receiver', () => {
     expect(calls.indexOf('paid-', calls.indexOf('image inspect'))).toBeLessThan(
       calls.indexOf('rollout'),
     )
+    expect(calls.indexOf('--entrypoint pg_dump')).toBeLessThan(calls.indexOf('rollout'))
     expect(calls).toContain('rollout image-playground-paid')
     expect(calls).not.toMatch(/build|pull/)
+  })
+  it('rejects a release without a prebuilt backup image', () => {
+    writeFileSync(
+      join(release, 'images.tsv'),
+      readFileSync(join(release, 'images.tsv'), 'utf8').replace(/^backup.*\n/m, ''),
+    )
+    checksums()
+    expect(run().status).not.toBe(0)
+    expect(() => readFileSync(log)).toThrow()
   })
   it('rejects a corrupted archive before loading or changing services', () => {
     writeFileSync(join(release, 'images.tar.gz'), 'corrupt')

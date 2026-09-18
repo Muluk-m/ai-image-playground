@@ -66,6 +66,13 @@ for edition in $editions; do
   printf '%s\t%s\t%s\t%s\t%s\n' "$edition" "$image" "$image_id" "$public_sha" "$private_sha" >> "$output/images.tsv"
   images="$images $image"
 done
+# The backup sidecar is also prebuilt; production Compose has no build context.
+backup_image=ai-image-playground:backup-$(printf %.12s "$public_sha")
+docker buildx build --builder "$builder" --platform linux/amd64 --load \
+  --build-arg "APP_VERSION=$public_sha" --tag "$backup_image" "$snapshot/public/deploy/backup"
+backup_id=$(docker image inspect "$backup_image" --format '{{.Id}}')
+printf 'backup\t%s\t%s\t%s\t-\n' "$backup_image" "$backup_id" "$public_sha" >> "$output/images.tsv"
+images="$images $backup_image"
 # Separate commands preserve save failures (a shell pipeline would only report gzip's status).
 # shellcheck disable=SC2086
 docker save -o "$output/images.tar" $images

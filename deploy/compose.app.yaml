@@ -246,7 +246,6 @@ services:
       - application
 
   pg-backup:
-    build: ./backup
     image: ${BACKUP_IMAGE:-ai-image-playground-pg-backup:local}
     init: true
     restart: unless-stopped
