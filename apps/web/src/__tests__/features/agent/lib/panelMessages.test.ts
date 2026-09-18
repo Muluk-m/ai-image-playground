@@ -607,3 +607,30 @@ describe('面板查询', () => {
     ).toBe('thinking')
   })
 })
+
+describe('排时间线的结果卡', () => {
+  const ARRANGED: AgentToolResultBlock = {
+    type: 'toolResult',
+    toolCallId: 'call-3',
+    toolName: 'arrangeTimeline',
+    status: 'succeeded',
+    title: '排进时间线',
+    timeline: { timelineId: 'timeline_1', clips: [{ videoId: 'agent_t_1', in: 0, out: 5 }] },
+  }
+
+  it('直播与历史都把时间线带到卡上，画布才能照它建', () => {
+    const live = replay([
+      { type: 'turnStart', turnId: TURN, userMessageId: 'user-1', reservedCredits: 0 },
+      toolEnd(ARRANGED, 'tool-3'),
+    ])
+    const history = panelStateFromHistory({
+      messages: [stored('tool-3', [ARRANGED])],
+      turns: [],
+    })
+    for (const state of [live, history])
+      expect(state.messages.find((message) => message.id === 'tool-3')).toMatchObject({
+        kind: 'tool',
+        timeline: ARRANGED.timeline,
+      })
+  })
+})

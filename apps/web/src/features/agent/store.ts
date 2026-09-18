@@ -48,7 +48,11 @@ import {
   startTurn,
   withdrawQueuedMessage,
 } from './lib/agentClient'
-import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
+import {
+  createArtifactDelivery,
+  deliverable,
+  type TurnArtifactDelivery,
+} from './lib/artifactDelivery'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { bindNewAgentDraft } from './lib/drafts'
 import {
@@ -430,7 +434,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     else if (card.status === 'failed') {
       handle.failed(card.id, card.message, failureCodeOf(card))
       coverRefusedSlot(card)
-    } else if (card.artifacts?.length) handle.enqueue(card)
+    } else if (deliverable(card)) handle.enqueue(card)
     else handle.discard(card.id)
     void handle.settled()
   }
@@ -530,7 +534,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         watchJobs(conversationId)
       } else if (event.status === 'failed' && card.kind === 'tool')
         turnDelivery.failed(event.messageId, event.message, card.errorCode)
-      else if (card.kind === 'tool' && card.artifacts?.length) turnDelivery.enqueue(card)
+      else if (card.kind === 'tool' && deliverable(card)) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }
   }
@@ -1463,7 +1467,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     async placeOnCanvas(messageId) {
       const message = get().messages.find((one) => one.id === messageId)
       if (message?.kind !== 'tool') return
-      if (message.status === 'succeeded' && message.artifacts?.length)
+      if (message.status === 'succeeded' && deliverable(message))
         await delivery.placeOnCanvas(message)
     },
 

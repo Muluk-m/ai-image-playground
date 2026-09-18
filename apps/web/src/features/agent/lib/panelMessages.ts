@@ -63,6 +63,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.snapshot ? { snapshot: block.snapshot } : {}),
     ...(block.job ? { job: block.job } : {}),
     ...(block.retryOf ? { retryOf: block.retryOf } : {}),
+    ...(block.timeline ? { timeline: block.timeline } : {}),
     // 认不出的原因（更新的服务端）不说：没有对应的文案。
     ...(block.wakeSkipped === 'insufficient_credits' || block.wakeSkipped === 'wake_limit'
       ? { wakeSkipped: block.wakeSkipped }

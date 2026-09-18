@@ -1,4 +1,4 @@
-import { PROJECT_TIMELINE_MAX_CLIPS } from '@image-playground/shared'
+import { type AgentTimelinePlan, PROJECT_TIMELINE_MAX_CLIPS } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { CanvasEl, TimelineClip, TimelineEl } from './canvasDoc'
@@ -131,4 +131,41 @@ export function addSelectionToTimeline(editor: CanvasEditor): string | null {
   editor.doc.addElements([timeline])
   editor.setSelectedElements([timeline.id])
   return timeline.id
+}
+
+/**
+ * 智能体排的时间线落画布：只收画布上还在的视频，按智能体给的顺序与入出点排，
+ * 放在这些视频下方。时间线 id 用智能体给的那个，同一次排布重放不会建出第二条，
+ * 也不动用户已有的时间线。一段都收不下时不建，返回 null。
+ */
+export function placeTimelinePlan(editor: CanvasEditor, plan: AgentTimelinePlan): string | null {
+  if (editor.getElement(plan.timelineId)) return plan.timelineId
+  const clips = plan.clips
+    .filter((clip) => isTimelineSource(editor.getElement(clip.videoId)))
+    .slice(0, PROJECT_TIMELINE_MAX_CLIPS)
+    .map(
+      (clip): TimelineClip =>
+        clip.out !== undefined && clip.out > clip.in
+          ? { elementId: clip.videoId, in: clip.in, out: clip.out }
+          : { elementId: clip.videoId, in: clip.in },
+    )
+  if (clips.length === 0) return null
+  const lookup: ElementLookup = (id) => editor.getElement(id)
+  const bounds = Box.Common(
+    [...new Set(clips.map((clip) => clip.elementId))]
+      .map((id) => editor.getElementPageBounds(id))
+      .filter((box) => box !== undefined),
+  )
+  editor.doc.addElements([
+    {
+      id: plan.timelineId,
+      type: 'timeline',
+      x: bounds.x,
+      y: bounds.maxY + PLACEMENT_GAP,
+      width: timelineWidth(clips, lookup),
+      height: TIMELINE_HEIGHT,
+      clips,
+    },
+  ])
+  return plan.timelineId
 }
