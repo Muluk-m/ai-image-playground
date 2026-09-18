@@ -85,10 +85,6 @@ async function save(result: {
   })
 }
 
-function capsules(): string[] {
-  return [...host.querySelectorAll('.mention-tag')].map((node) => node.textContent ?? '')
-}
-
 beforeEach(async () => {
   const session = agentDraft(null)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
@@ -195,8 +191,8 @@ describe('智能体输入框', () => {
     await save({ maskDataUrl: MASK, targetImageId: 'prepared', targetDataUrl: PREPARED })
     act(() => root.render(null))
     render()
-    expect(capsules()).toEqual(['@图1'])
     expect(host.querySelector('img')?.getAttribute('src')).toBe(PREPARED)
+    expect(editor().querySelector('img')?.getAttribute('src')).toBe(PREPARED)
     expect(host.textContent).toContain('MASK')
     click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1]', [
@@ -248,14 +244,15 @@ describe('智能体输入框', () => {
     expect(editor().textContent).toBe('下一句')
   })
 
-  it('`@` 从画布挑一张图，插成引用胶囊', () => {
+  it('`@` 从画布挑一张图，输入框里显示被引用的缩略图', () => {
     render()
     type('把@')
 
     expect(options().map((one) => one.textContent)).toContain('画布图1')
     pick('画布图1')
 
-    expect(capsules()).toEqual(['@图1'])
+    expect(editor().querySelector('img')?.getAttribute('src')).toBe(PIXEL)
+    expect(editor().textContent).not.toContain('@图1')
   })
 
   // 选区带进来的引用有自己的一套规则（撤走、手动移除、批注的竞态），归
@@ -312,8 +309,6 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type(' 和 @')
     pick('图1')
-
-    expect(capsules()).toEqual(['@图1', '@图1'])
 
     click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1] 和 [image 1]', [
@@ -376,7 +371,6 @@ describe('智能体输入框', () => {
 
     click('移除参考图 @图1')
 
-    expect(capsules()).toEqual([])
     click('发送并创作')
     expect(send).toHaveBeenCalledWith('把@已移除图片改成木色', [])
   })

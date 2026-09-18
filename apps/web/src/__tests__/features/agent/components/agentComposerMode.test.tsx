@@ -223,6 +223,34 @@ describe('`/` 技能候选', () => {
     expect(agentDraft(null).getSnapshot().draft.prompt).toBe('/storyboard-short ')
   })
 
+  it('技能标题与缩略图混排后仍按原命令和引用序号发送', async () => {
+    render()
+    await settle()
+    chooseOption('创作类型', '视频')
+    await settle()
+    type('/story')
+    const option = host.querySelector<HTMLElement>('[role="option"]')!
+    act(() => option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))
+    type('参考 @')
+    const session = agentDraft(null)
+    act(() => {
+      session.update((draft) => ({
+        ...draft,
+        prompt: '/storyboard-short 参考 \u2063@图1\u2064',
+        references: [{ id: 'ref', dataUrl: 'data:image/png;base64,aGk=' }],
+      }))
+    })
+    type(' 做成短片')
+    expect(editor().textContent).toContain('分镜短片')
+    expect(editor().textContent).not.toContain('/storyboard-short')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith(
+      '/storyboard-short 参考 [image 1] 做成短片',
+      [{ imageId: 'ref', dataUrl: 'data:image/png;base64,aGk=' }],
+      'video',
+    )
+  })
+
   it('技能没写简介时次行退回 description，并去掉开头的「何时用：」', async () => {
     render()
     await settle()

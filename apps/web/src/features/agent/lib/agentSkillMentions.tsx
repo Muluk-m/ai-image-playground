@@ -15,6 +15,14 @@ const SLASH_QUERY_RE = /^[A-Za-z0-9-]*$/
 /** 命令名允许的字符；引用胶囊以 `@` 开头，所以它永远不会落在命令名里面。 */
 const COMMAND_NAME_RE = /^[A-Za-z0-9-]*/
 
+/** Recognize a deployed skill without changing the stored command or its trailing whitespace. */
+export function getLeadingAgentSkill(text: string, skills: readonly AgentSkillSummary[]) {
+  const match = /^\/([a-z0-9-]+)(?=\s|$)/.exec(text)
+  if (!match) return null
+  const skill = skills.find((candidate) => candidate.name === match[1])
+  return skill ? { skill, command: match[0], rest: text.slice(match[0].length) } : null
+}
+
 export interface SlashSkillQuery {
   /** 斜杠本身的位置，永远是 0。选中候选时从这里开始替换。 */
   readonly start: number

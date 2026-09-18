@@ -1,4 +1,3 @@
-import type { AgentSkillSummary } from '@image-playground/shared'
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -40,9 +39,9 @@ import {
   getContentEditablePlainText,
   getContentEditableSelection,
   setContentEditableCursor,
+  setContentEditableSelection,
   syncMentionTagSelection,
 } from '../../../lib/promptEditorDom'
-import { buildPromptEditorHtml } from '../../../lib/promptEditorHtml'
 import {
   getAtImageQuery,
   getImageMentionLabel,
@@ -53,7 +52,6 @@ import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
-import { fetchAgentSkills } from '../lib/agentClient'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
@@ -84,7 +82,9 @@ import {
   setReferenceMask,
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
+import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
+import AgentEditorMentions from './AgentEditorMentions'
 import AgentParamsChip from './AgentParamsChip'
 
 const EDITOR_CLASS =
@@ -137,6 +137,7 @@ export default function AgentComposer({
     [session],
   )
   const [cursor, setCursor] = useState(0)
+  const [pasteVersion, setPasteVersion] = useState(0)
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -160,12 +161,32 @@ export default function AgentComposer({
   })
   const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const files = [...event.clipboardData.files]
-    if (files.length === 0) return
+    if (files.length > 0) {
+      event.preventDefault()
+      attachFiles(files)
+      return
+    }
     event.preventDefault()
-    attachFiles(files)
+    document.execCommand('insertText', false, event.clipboardData.getData('text/plain'))
+    // Pasted canonical tokens need previews even though the input event came from typing.
+    typedRef.current = null
+    setPasteVersion((version) => version + 1)
   }
   // 用户刚打进去的那个值不回写 DOM，否则每敲一个字光标都会跳到末尾。
   const typedRef = useRef<string | null>(null)
+  const composingRef = useRef(false)
+
+  const copySelection = (event: ClipboardEvent<HTMLDivElement>) => {
+    const selection = window.getSelection()
+    if (!selection?.rangeCount || selection.isCollapsed) return false
+    const el = event.currentTarget
+    setContentEditableSelection(el, getContentEditableSelection(el))
+    const fragment = document.createElement('div')
+    fragment.append(selection.getRangeAt(0).cloneContents())
+    event.clipboardData.setData('text/plain', getContentEditablePlainText(fragment))
+    event.preventDefault()
+    return true
+  }
 
   // 素材名要参与 `@` 候选与胶囊标签，不能等到用户打开素材库才读。
   useEffect(() => {
@@ -206,15 +227,6 @@ export default function AgentComposer({
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [])
 
-  useEffect(() => {
-    const typed = typedRef.current
-    typedRef.current = null
-    const el = editorRef.current
-    if (!el || draft.prompt === typed) return
-    const html = buildPromptEditorHtml(draft.prompt, labels, {})
-    if (el.innerHTML !== html) el.innerHTML = html
-  }, [draft.prompt, labels])
-
   // 做不了视频的部署里「视频」这个选项不该出现，存下来的旧草稿也按图片算——
   // 服务端在那种部署里本来就会把视频轮当图片轮装配，开关留着只会骗人。
   const videoAvailable = isVideoModeAvailable()
@@ -226,21 +238,7 @@ export default function AgentComposer({
     if (!loading) setSessionMode(mode)
   }, [mode, loading, setSessionMode])
 
-  // 技能是部署的东西，随 mode 现拉；拉不到就当这个部署没有技能，输入框照常能用。
-  const [skills, setSkills] = useState<readonly AgentSkillSummary[]>([])
-  useEffect(() => {
-    let live = true
-    void fetchAgentSkills(mode)
-      .then((loaded) => {
-        if (live) setSkills(loaded)
-      })
-      .catch(() => {
-        if (live) setSkills([])
-      })
-    return () => {
-      live = false
-    }
-  }, [mode])
+  const skills = useAgentSkills(mode)
 
   // 两个弹层共用可见文本这一套坐标：光标是按可见文本算的，拿存储形态去切会各说各的。
   const visible = getVisiblePrompt(draft.prompt, labels)
@@ -248,7 +246,10 @@ export default function AgentComposer({
     ? null
     : getAtImageQuery(visible, cursor)
   // `/` 只在整段话的开头算命令，所以它和 `@` 不会同时有候选。
-  const skillQuery = query ? null : getSlashSkillQuery(visible, cursor)
+  const skillQuery =
+    query || editorRef.current?.querySelector('[data-skill-command]')
+      ? null
+      : getSlashSkillQuery(visible, cursor)
   const groups: SuggestionMenuGroup<ComposerSuggestion>[] = query
     ? buildAgentMentionGroups({ query: query.query, references: draft.references, canvas, assets })
     : skillQuery
@@ -474,8 +475,8 @@ export default function AgentComposer({
             className={EDITOR_CLASS}
             onInput={(event) => {
               const el = event.currentTarget
-              // 删完最后一个字后浏览器常留 <br>，:empty 不再匹配 → placeholder 消失。
-              if (!el.textContent && el.innerHTML) el.innerHTML = ''
+              // Image-only tokens have no DOM text, but still contain a canonical prompt.
+              if (!getContentEditablePlainText(el) && el.innerHTML) el.innerHTML = ''
               const range = getContentEditableSelection(el)
               setCursor(range.start)
               syncMentionTagSelection(el)
@@ -486,6 +487,26 @@ export default function AgentComposer({
             }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
+            onCopy={copySelection}
+            onCut={(event) => {
+              if (copySelection(event)) document.execCommand('delete')
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false
+            }}
+          />
+          <AgentEditorMentions
+            key={pasteVersion}
+            editorRef={editorRef}
+            typedRef={typedRef}
+            composingRef={composingRef}
+            prompt={draft.prompt}
+            labels={labels}
+            references={draft.references}
+            skills={skills}
           />
         </div>
 

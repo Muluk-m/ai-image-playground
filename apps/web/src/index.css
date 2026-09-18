@@ -1353,6 +1353,35 @@ input[type="number"] {
   box-shadow: 0 0 0 2px hsl(var(--primary) / 0.35);
 }
 
+/* Rich agent tokens keep their serialized label separate from the visible preview. */
+.mention-tag.agent-image-mention {
+  gap: 5px;
+  padding: 2px;
+  max-width: 100%;
+  background: hsl(var(--muted) / 0.8);
+  border-color: hsl(var(--border) / 0.7);
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.mention-tag.agent-image-mention:has(span) {
+  padding-right: 6px;
+}
+
+.mention-tag.agent-skill-mention {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+.mention-tag.agent-image-mention.selected,
+.mention-tag.agent-skill-mention.selected .agent-skill-chip {
+  background: hsl(var(--primary) / 0.2);
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.25);
+}
+
 /* 槽位胶囊：×k 只能走 ::after，进 DOM 文本会让光标偏移换算错位 */
 .slot-tag {
   background: hsl(var(--accent));
