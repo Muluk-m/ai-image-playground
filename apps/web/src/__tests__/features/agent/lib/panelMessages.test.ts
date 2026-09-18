@@ -140,7 +140,6 @@ const HISTORY = {
         {
           type: 'text',
           text: USER_TEXT,
-          references: [{ imageId: 'canvas-1', image: { object: 'ref/1', mime: 'image/png' } }],
         },
       ],
       'user',

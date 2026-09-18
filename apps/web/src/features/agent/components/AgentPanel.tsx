@@ -14,16 +14,7 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
-import {
-  ACTIVE_TAB,
-  ICON_BUTTON,
-  IDLE_TAB,
-  INK_3,
-  JUMP_TO_LATEST,
-  TAB,
-  USER_BUBBLE,
-} from '../agentStyles'
-import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
+import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
 import { useAgentSkills } from '../lib/useAgentSkills'
@@ -36,11 +27,11 @@ import AgentComposer from './AgentComposer'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentReply from './AgentReply'
-import AgentSkillBadge from './AgentSkillBadge'
 import AgentSkillStep from './AgentSkillStep'
 import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
+import AgentUserMessage from './AgentUserMessage'
 
 const TABS = [
   { id: 'chat', labelKey: 'label.chat' },
@@ -72,21 +63,7 @@ function renderMessage(
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
-  if (message.role === 'user') {
-    const invocation = getLeadingAgentSkill(message.text, skills)
-    return (
-      <p className={USER_BUBBLE}>
-        {invocation ? (
-          <>
-            <AgentSkillBadge skill={invocation.skill} />
-            {invocation.rest}
-          </>
-        ) : (
-          message.text
-        )}
-      </p>
-    )
-  }
+  if (message.role === 'user') return <AgentUserMessage message={message} skills={skills} />
   return <AgentReply text={message.text} streaming={message.streaming} />
 }
 

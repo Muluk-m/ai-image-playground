@@ -4,7 +4,9 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import { type AgentConversationView, DEVICE_ID_HEADER } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_conversations_a297')
@@ -21,6 +23,11 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { conversationExecution } = await import('../../lib/agent/execution')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { archiveAgentReferences } = await import('../../lib/agent/images')
+const { appendAgentMessage, adoptDeviceConversations } = await import(
+  '../../lib/agent/conversations'
+)
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
@@ -108,17 +115,94 @@ async function signIn(userId: string): Promise<string> {
 }
 
 beforeEach(async () => {
+  setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.agent_conversations)
   await db.delete(schema.users)
   setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
 })
 
 afterEach(() => {
+  setObjectStoreForTesting()
   setAgentFetchForTesting()
 })
 
 afterAll(async () => {
   await closeDb()
+})
+
+describe('message reference thumbnails', () => {
+  it('reads the selected message snapshot in reference order and returns a bounded thumbnail', async () => {
+    const conversationId = await startConversation()
+    const image = await sharp({
+      create: { width: 200, height: 100, channels: 3, background: '#ff0000' },
+    })
+      .png()
+      .toBuffer()
+    const references = await archiveAgentReferences(conversationId, 'reference-turn', [
+      { imageId: 'first', dataUrl: `data:image/png;base64,${image.toString('base64')}` },
+      {
+        imageId: 'second',
+        dataUrl: `data:image/png;base64,${(await sharp(image).rotate(90).png().toBuffer()).toString('base64')}`,
+      },
+    ])
+    const message = await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'reference-turn',
+      role: 'user',
+      content: [{ type: 'text', text: '[image 2]换一身衣服', references }],
+    })
+    const path = `/api/agent/conversations/${conversationId}/messages/${message.id}/references`
+    const response = await app.handle(
+      new Request(`http://localhost${path}/1`, { headers: { [DEVICE_ID_HEADER]: DEVICE } }),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/webp')
+    const metadata = await sharp(new Uint8Array(await response.arrayBuffer())).metadata()
+    expect([metadata.width, metadata.height]).toEqual([48, 96])
+    expect((await request('GET', `${path}/2`, { deviceId: DEVICE })).status).toBe(404)
+    expect((await request('GET', `${path}/-1`, { deviceId: DEVICE })).status).toBe(400)
+  })
+
+  it('keeps snapshots private across devices, conversations, adoption and soft deletion', async () => {
+    const conversationId = await startConversation()
+    const otherConversation = await startConversation()
+    const image = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: '#0000ff' },
+    })
+      .png()
+      .toBuffer()
+    const references = await archiveAgentReferences(conversationId, 'private-reference-turn', [
+      { imageId: 'private', dataUrl: `data:image/png;base64,${image.toString('base64')}` },
+    ])
+    const message = await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'private-reference-turn',
+      role: 'user',
+      content: [{ type: 'text', text: '[image 1]', references }],
+    })
+    const path = `/api/agent/conversations/${conversationId}/messages/${message.id}/references/0`
+    expect((await request('GET', path, { deviceId: OTHER_DEVICE })).status).toBe(404)
+    expect(
+      (
+        await request(
+          'GET',
+          `/api/agent/conversations/${otherConversation}/messages/${message.id}/references/0`,
+          { deviceId: DEVICE },
+        )
+      ).status,
+    ).toBe(404)
+    const cookie = await signIn('reference-owner')
+    await adoptDeviceConversations(DEVICE, 'reference-owner')
+    expect((await request('GET', path, { deviceId: DEVICE })).status).toBe(404)
+    expect((await request('GET', path, { deviceId: DEVICE, cookie })).status).toBe(200)
+    const otherCookie = await signIn('reference-stranger')
+    expect((await request('GET', path, { deviceId: DEVICE, cookie: otherCookie })).status).toBe(404)
+    await db
+      .update(schema.agent_messages)
+      .set({ deleted_at: Date.now() })
+      .where(eq(schema.agent_messages.id, message.id))
+    expect((await request('GET', path, { deviceId: DEVICE, cookie })).status).toBe(404)
+  })
 })
 
 describe('GET /api/agent/conversations', () => {

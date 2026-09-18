@@ -75,8 +75,17 @@ function textCard(
   turnId: string,
   role: AgentMessageRole,
   text: string,
+  references?: AgentTextMessage['references'],
 ): AgentTextMessage {
-  return { kind: 'text', id, turnId, role, text, streaming: false }
+  return {
+    kind: 'text',
+    id,
+    turnId,
+    role,
+    text,
+    streaming: false,
+    ...(references?.length ? { references } : {}),
+  }
 }
 
 /**
@@ -95,7 +104,15 @@ export function panelMessage(
     (block): block is AgentClarificationBlock => block.type === 'clarification',
   )
   if (asked) return clarificationCard(asked, id, turnId)
-  return textCard(id, turnId, role, agentTextFromBlocks(content))
+  return textCard(
+    id,
+    turnId,
+    role,
+    agentTextFromBlocks(content),
+    role === 'user'
+      ? content.flatMap((block) => (block.type === 'text' ? (block.references ?? []) : []))
+      : undefined,
+  )
 }
 
 function historyMessage(message: AgentMessageView): AgentPanelMessage {
@@ -205,9 +222,15 @@ export function reduceAgentPanelEvent(
             : [
                 // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
                 ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-                panelMessage(event.userMessageId, turnId, 'user', [
-                  { type: 'text', text: pendingUserText },
-                ]),
+                textCard(
+                  event.userMessageId,
+                  turnId,
+                  'user',
+                  pendingUserText,
+                  state.messages.find(
+                    (one): one is AgentTextMessage => one.kind === 'text' && one.pending === true,
+                  )?.references,
+                ),
               ],
       }
     case 'assistantStart':
@@ -224,7 +247,15 @@ export function reduceAgentPanelEvent(
         ...state,
         messages: replaceOrAppend(
           state.messages,
-          panelMessage(event.messageId, turnId, 'user', [{ type: 'text', text: event.text }]),
+          textCard(
+            event.messageId,
+            turnId,
+            'user',
+            event.text,
+            state.messages.find(
+              (one): one is AgentTextMessage => one.kind === 'text' && one.id === event.messageId,
+            )?.references,
+          ),
         ),
       }
     case 'textDelta':
