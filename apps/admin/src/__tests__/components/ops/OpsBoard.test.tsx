@@ -96,7 +96,7 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
         latest: {
           key: 'pg/2026-09-17.dump',
           size_bytes: 42 * 1024 ** 2,
-          modified_at: NOW - 3 * hour,
+          modified_at: NOW - hour,
         },
         previous: {
           key: 'pg/2026-09-16.dump',
@@ -283,11 +283,11 @@ describe('运维看板', () => {
     const backup = block('备份')
     expect(within(backup).getByText('2026-09-17')).toBeTruthy()
     expect(within(backup).getByText('42.0 MB')).toBeTruthy()
-    expect(within(backup).getByText('3 小时前')).toBeTruthy()
+    expect(within(backup).getByText('1 小时前')).toBeTruthy()
     expect(within(backup).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
-  it('超过 26 小时没有新备份就报警', () => {
+  it('超过 2 小时没有新备份就报警', () => {
     render(
       <OpsBoard
         snapshot={snapshot({

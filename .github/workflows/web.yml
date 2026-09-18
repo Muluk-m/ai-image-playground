@@ -44,6 +44,8 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
+      # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
+      NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

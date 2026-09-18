@@ -258,7 +258,7 @@ function backupProblems(backup: OpsBackups, now: number): string[] {
   const problems: string[] = []
   const age = now - latest.modified_at
   if (age > OPS_THRESHOLDS.BACKUP_MAX_AGE_MS) {
-    problems.push(`最新的备份是 ${elapsed(age)}前的，备份每天一次`)
+    problems.push(`最新的备份是 ${elapsed(age)}前的，备份每小时一次`)
   }
   if (previous && latest.size_bytes < previous.size_bytes * OPS_THRESHOLDS.BACKUP_SHRINK_RATIO) {
     problems.push(`最新一份（${bytes(latest.size_bytes)}）比前一份小了一大半，dump 可能半途而废`)
