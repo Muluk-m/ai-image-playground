@@ -1,5 +1,5 @@
 import { i18next } from '../i18n'
-import { dbTransaction, STORE_BGSWAP_JOBS } from './db'
+import { dbTransaction, STORE_BGSWAP_JOBS, STORE_STORYBOARDS } from './db'
 
 /** Retired product workflows remain readable so history and image retention stay intact. */
 export interface LegacyProductJob {
@@ -25,6 +25,24 @@ export interface LegacyProductJob {
 
 export function readLegacyProductJobs(): Promise<LegacyProductJob[]> {
   return dbTransaction(STORE_BGSWAP_JOBS, 'readonly', (store) => store.getAll())
+}
+
+/**
+ * 旧导演台的分镜记录。导演台已下线，记录只读保留：作品页取标题给那一套图起名，
+ * 图片保留判断取它引用的图。这里只描述还在读的字段。
+ */
+export interface LegacyStoryboardRecord {
+  id: string
+  title: string
+  referenceImageIds: string[]
+  shots: Array<{ imageId: string | null }>
+}
+
+/** 作品页用分镜标题给分镜出的那一套图起名。 */
+export function readLegacyStoryboardTitles(): Promise<Map<string, string>> {
+  return dbTransaction<LegacyStoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (store) =>
+    store.getAll(),
+  ).then((records) => new Map(records.map((record) => [record.id, record.title])))
 }
 
 export function legacyActionLabels(job: LegacyProductJob | undefined): string[] {

@@ -1,9 +1,4 @@
 {
-  "source": {
-    "text": "Text to video",
-    "image": "Image to video",
-    "storyboard": "Storyboard"
-  },
   "status": {
     "queued": "Queued"
   },
@@ -25,89 +20,17 @@
     "resolution": "Resolution",
     "aspectRatio": "Aspect ratio"
   },
-  "action": {
-    "pickImage": "Pick",
-    "generateVideo": "Generate video",
-    "backToEdit": "Back to editing",
-    "regenerate": "Regenerate",
-    "useAsFirstFrame": "Use as first frame",
-    "newStoryboard": "＋ New storyboard"
-  },
   "shared": {
-    "typicalSeconds": "Usually {{seconds}}s",
-    "seconds": "{{seconds}}s",
-    "shotBadge": "Shot {{no}}",
-    "shotImagePending": "Rendering shot frame"
+    "seconds": "{{seconds}}s"
   },
   "error": {
     "noModel": "This deployment has no video model available"
-  },
-  "toast": {
-    "firstFrameAdopted": "Set as the first frame"
-  },
-  "overlay": {
-    "progressAria": "Video generation progress"
   },
   "aspect": {
     "followsFirstFrame": "Follows first frame"
   },
   "composer": {
-    "sourceLabel": "Video source",
-    "framesLabel": "First · last frame",
-    "framesHint": "Drop · paste · pick below",
-    "lastFrameOptional": "Optional",
-    "lastFrameUnsupported": "{{model}} does not support a last frame",
-    "promptHint": "Action · camera · light",
-    "promptPlaceholder": "What happens in frame, how the camera moves",
-    "durationLabel": "Duration",
-    "perSecond": "/ sec",
-    "summary": "{{model}} · {{seconds}}s · {{resolution}}"
-  },
-  "frameStrip": {
-    "caption": "Assets · recent images",
-    "all": "All…",
-    "fill": "Set as {{label}}"
-  },
-  "picker": {
-    "title": "Pick {{label}}",
-    "sourceLabel": "Image source",
-    "tabLibrary": "Assets",
-    "tabHistory": "Workspace history",
-    "emptyLibrary": "No assets yet",
-    "emptyHistory": "The workspace has no images yet"
-  },
-  "feed": {
-    "searchLabel": "Search descriptions",
-    "filterLabel": "Result filters",
-    "empty": "No videos yet",
-    "noMatch": "No matching results",
-    "filterAll": "All",
-    "filterText": "Text",
-    "filterImage": "Image"
-  },
-  "card": {
-    "noFirstFrame": "No first frame available yet",
-    "playAria": "Play {{prompt}}",
-    "refunded": "Refunded",
-    "more": "More",
-    "source": "From: {{title}} · v{{version}}",
-    "versionMeta": "{{name}} · {{savedAt}}",
-    "shotLine": "{{index}}. {{title}} · {{seconds}}s",
-    "download": "Download"
-  },
-  "lightbox": {
-    "copied": "Description copied",
-    "frameUnavailable": "Can't grab this frame — play it once and try again",
-    "noPlayback": "Nothing to play for this one yet",
-    "copyHint": "Click to copy",
-    "rowParams": "Params",
-    "rowCredits": "Credits",
-    "rowTime": "Time",
-    "viewOriginal": "View original",
-    "downloadMp4": "Download mp4",
-    "sameParams": "Run again, same settings",
-    "params": "{{duration}}s · {{aspect}} · {{resolution}}",
-    "timing": "{{at}} · took {{seconds}}s"
+    "durationLabel": "Duration"
   },
   "derive": {
     "titleExtend": "Extend · continue from the last frame",
@@ -125,185 +48,14 @@
     "edit": "Edit"
   },
   "download": {
-    "progressPercent": "Downloading {{percent}}%",
-    "progressBytes": "Downloading {{mb}} MB",
     "started": "Download started",
-    "unavailable": "Nothing to download for this one yet",
     "fetchFailed": "Could not fetch the video: {{status}}"
   },
   "store": {
-    "emptyPrompt": "Write a description first",
-    "noFirstFrame": "Add a first frame image first",
-    "frameMissing": "The frame images are gone",
-    "sourceGone": "The source video is gone",
-    "unsupportedDuration": "This model does not support {{seconds}}s",
-    "unsupportedPreset": "This model does not support {{seconds}}s or the chosen ratio and resolution — adjust the settings"
-  },
-  "mode": {
-    "navLabel": "Video workspace",
-    "tabDirector": "Director",
-    "tabLibrary": "Storyboards",
-    "tabResults": "Results",
-    "tabQuick": "Quick generate",
-    "reload": "Reload",
-    "emptyTitle": "Turn a story into a film",
-    "emptyDescription": "Create a storyboard, then polish frames, save versions and generate video in the director.",
-    "emptyAction": "Create your first storyboard",
-    "newTitle": "Your story starts here",
-    "newDescription": "Describe the idea, add reference images, then polish it shot by shot in the director.",
-    "noModel": "No video model available",
-    "viewRunningAria": "View videos being generated",
-    "runningCount_one": "{{count}} video generating",
-    "runningCount_other": "{{count}} videos generating",
-    "viewProgress": "View progress →"
+    "emptyPrompt": "Write a description first"
   },
   "library": {
-    "title": "My storyboards",
-    "subtitle": "Saved in this browser — load to edit, or generate video right away",
-    "empty": "No storyboards yet — create your first story.",
-    "new": "New storyboard",
-    "meta_one": "{{count}} shot · {{seconds}}s · {{aspect}}",
-    "meta_other": "{{count}} shots · {{seconds}}s · {{aspect}}",
-    "versions_one": "{{count}} saved version",
-    "versions_other": "{{count}} saved versions",
-    "load": "Load & edit",
-    "delete": "Delete storyboard",
-    "deleteMessage": "This deletes “{{title}}” and its saved versions. Generated videos and task snapshots stay."
-  },
-  "plan": {
-    "ideaLabel": "Idea",
-    "ideaPlaceholder": "One line, or a whole script",
-    "totalSecondsLabel": "Total length",
-    "shotsLabel": "Shots",
-    "styleLabel": "Style",
-    "shotImages": "Render shot frames first",
-    "submitWithImages": "Generate script & frames",
-    "submit": "Generate script"
-  },
-  "references": {
-    "label": "Reference images",
-    "caption": "Reference images · optional · up to {{max}}"
-  },
-  "board": {
-    "emptyTitle": "Start from a story",
-    "emptyDescription": "Create a storyboard, or load one from the library.",
-    "emptyAction": "Open storyboard library",
-    "kicker": "Video project / {{style}} style",
-    "saveError": "Save failed — the changes are not on this device yet",
-    "saving": "Saving…",
-    "saved": "Draft saved on this device",
-    "retrySave": "Retry save",
-    "versionsTab": "Versions",
-    "saveVersionTab": "Save version",
-    "railSummary_one": "{{count}} shot · {{seconds}}s",
-    "railSummary_other": "{{count}} shots · {{seconds}}s",
-    "selectShotAria": "Select shot {{index}}",
-    "addShot": "＋ Add shot",
-    "shotHeading": "Shot {{index}}",
-    "previewMode": "Storyboard preview · stills",
-    "referenceMode": "Storyboard reference frame",
-    "stageMeta": "{{mode}} · {{aspect}}",
-    "shotMeta": "{{camera}} · {{range}}s",
-    "pausePreview": "Pause preview",
-    "startPreview": "Preview storyboard",
-    "regenerateFrame": "Regenerate shot frame",
-    "generateFrame": "Generate shot frame",
-    "timelineTitle": "Story timeline",
-    "moveBack": "← Move back",
-    "moveForward": "Move forward →",
-    "noShots": "This storyboard has no shots yet — add one, or rewrite the script.",
-    "advancedSummary": "Overall style & advanced prompt",
-    "videoPromptLabel": "Whole-video prompt",
-    "advancedNote": "Editing shot content or order rebuilds the shot lines here.",
-    "replan": "Rewrite script",
-    "fillFrames": "Fill missing frames",
-    "export": "Export storyboard",
-    "saveVersionTitle": "Save storyboard version",
-    "boardNameLabel": "Storyboard name",
-    "versionNameLabel": "Version name",
-    "saveVersionNote": "Saves the script, shot order and reference frames — restorable from the library.",
-    "savingVersion": "Saving…",
-    "saveNewVersion": "Save new version",
-    "defaultVersionName": "Refined",
-    "noVersions": "No named versions yet. The draft saves itself on this device.",
-    "versionMeta": "{{savedAt}} · {{seconds}}s",
-    "restoreVersion": "Restore this version",
-    "shotDetail": "Shot details",
-    "shotNameLabel": "Shot name",
-    "shotDescriptionLabel": "Frame description",
-    "cameraLabel": "Camera",
-    "durationLabel": "Length / s",
-    "lineLabel": "Dialogue / sound",
-    "shotPromptsSummary": "Shot prompts",
-    "imagePromptLabel": "Image prompt",
-    "shotVideoPromptLabel": "Video prompt",
-    "generateThisShot": "Generate this shot only",
-    "duplicateShot": "Duplicate shot",
-    "removeShot": "Delete shot",
-    "noShotSelected": "Add a shot first"
-  },
-  "directorFrame": {
-    "failed": "Image failed — regenerate it",
-    "idle": "Shot frame pending"
-  },
-  "generation": {
-    "sourceNote": "From: the current storyboard · a version snapshot is saved on submit",
-    "changeBoard": "Change storyboard",
-    "scopeLabel": "Generation scope",
-    "wholeScope": "Whole video · {{seconds}}s",
-    "shotScope": "Current shot · {{seconds}}s",
-    "modelLabel": "Video model",
-    "modelAria": "Storyboard video model",
-    "resolutionAria": "Storyboard video resolution",
-    "durationLabel": "Duration",
-    "durationAria": "Storyboard video duration",
-    "durationAdjusted": "The storyboard runs {{source}}s; this render uses {{target}}s, so the shot pacing is adjusted to match.",
-    "selectModel": "Select a model",
-    "withFirstFrame": "Uses the first frame as the video's first frame; later shots come from the script",
-    "textOnly": "Text to video from the whole script",
-    "hint": "{{aspect}} · {{mode}}",
-    "needModel": "Pick an available video model",
-    "needShotImage": "Generate the frame for this shot first",
-    "saveError": "The storyboard is not saved yet; retry the save before generating.",
-    "estimatedCredits": "Estimated credits",
-    "submitting": "Submitting…",
-    "submit": "Generate {{seconds}}s video",
-    "submitFailed": "Video submission failed, try again"
-  },
-  "storyboardStore": {
-    "noImage": "This shot has no frame yet",
-    "tooManyReferences": "Up to {{max}} reference images",
-    "saveFailed": "Could not save the storyboard: {{reason}}",
-    "snapshotName": "Pre-generation snapshot",
-    "untitledBoard": "Untitled storyboard",
-    "untitledVersion": "Untitled version",
-    "restoreBackup": "Pre-restore draft",
-    "restoreConflict": "The draft changed during the restore; those changes were kept — pick the version to restore again",
-    "shotCopy": "{{title}} · copy",
-    "newShot": "New shot",
-    "defaultCamera": "Static shot",
-    "loadFailed": "Could not read the storyboards: {{reason}}",
-    "deleteFailed": "Delete failed: {{reason}}"
-  },
-  "export": {
-    "videoPromptHeading": "Whole-video prompt · {{seconds}}s",
-    "shotHeading": "Shot {{no}} · {{title}}",
-    "time": "Time: {{value}}s",
-    "frame": "Frame: {{value}}",
-    "camera": "Camera: {{value}}",
-    "line": "Line: {{value}}",
-    "imagePrompt": "Image prompt: {{value}}",
-    "videoPrompt": "Video prompt: {{value}}",
-    "noLine": "(none)",
-    "shotFile": "shot{{no}}",
-    "zipName": "{{title}}-storyboard"
-  },
-  "tagline": {
-    "grok": "HD",
-    "agnesFlash": "First & last frame",
-    "seedance": "Multi-shot",
-    "veoFast": "Native audio",
-    "veoLite": "Budget"
+    "load": "Load & edit"
   },
   "reject": {
     "promptTooLong": "{{label}} allows at most {{max}} characters",
@@ -320,12 +72,5 @@
     "deriveModeUnsupported": "{{label}} does not support {{mode}}",
     "deriveFramesRejected": "Extend and edit take no first or last frame",
     "deriveSourceMissing": "{{mode}} is missing its source video"
-  },
-  "cameraMove": {
-    "slowPush": "slow push-in",
-    "halfOrbit": "half orbit",
-    "handheldFollow": "handheld follow",
-    "flowingLight": "flowing light",
-    "subtleStill": "subtle motion, locked camera"
   }
 }

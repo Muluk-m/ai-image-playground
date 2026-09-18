@@ -25,14 +25,11 @@
     "clear": "Clear",
     "save": "Save",
     "download": "Download",
-    "upload": "Upload",
     "collapse": "Collapse",
-    "back": "Back",
     "generate": "Generate"
   },
   "state": {
     "generating": "Generating",
-    "done": "Done",
     "failed": "Failed",
     "unknown": "Unknown"
   },

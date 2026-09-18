@@ -4,7 +4,7 @@ import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
-import { startVideoFromImage } from '../../video/lib/entry'
+import { startVideoFromImage } from '../../canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import AssetThumb from './AssetThumb'
@@ -19,7 +19,6 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const deleteAsset = useLibraryStore((s) => s.deleteAsset)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
-  const videoMode = useStore((s) => s.appMode === 'video')
   const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
   const unsynced = useSyncStatus((s) => s.enabled && s.unsyncedImages.includes(asset.imageId))
   const [draftName, setDraftName] = useState<string | null>(null)
@@ -55,7 +54,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         )}
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
-          {videoMode ? t('asset.useAsFirstFrame') : t('asset.addAsReference')}
+          {t('asset.addAsReference')}
         </span>
       </div>
 
@@ -88,10 +87,10 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
           />
         )}
 
-        {videoAvailable && !videoMode && (
+        {videoAvailable && (
           <button
             type="button"
-            onClick={() => startVideoFromImage(asset.imageId)}
+            onClick={() => void startVideoFromImage(asset.imageId)}
             aria-label={t('asset.makeVideo')}
             title={t('asset.makeVideo')}
             className={ICON_BUTTON}

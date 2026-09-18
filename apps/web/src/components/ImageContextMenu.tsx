@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../features/library/store'
-import { startVideoFromImage } from '../features/video/lib/entry'
 import { describeError, useTranslation } from '../i18n'
 import { getActiveApiProfile } from '../lib/apiProfiles'
 import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'

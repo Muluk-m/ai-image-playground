@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { i18next, setLocale } from '../../i18n'
 import { NO_EDIT_SUPPORT_MESSAGE } from '../../lib/channels/profileSelectors'
 import { IMAGE_FETCH_CORS_HINT } from '../../lib/imageApiShared'
-import { EXPORT_FIT_LABELS } from '../../lib/imageExport'
+import { MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
 
 /**
  * `lib/` 里有几张标签表是 module-level 常量，被 store 与多个 feature 直接 import。
@@ -32,16 +32,16 @@ describe('lib 的 module-level 标签表', () => {
     await setLocale('zh-CN')
 
     expect(NO_EDIT_SUPPORT_MESSAGE).toContain('当前模型不支持参考图')
-    expect(EXPORT_FIT_LABELS.crop).toBe('裁切')
+    expect(MAX_INPUT_IMAGES_MESSAGE).toContain('参考图数量已达上限')
   })
 
   it('另外两张表同样跟着切，别只覆盖头一个', async () => {
-    expect(EXPORT_FIT_LABELS.crop).toBe('裁切')
+    expect(MAX_INPUT_IMAGES_MESSAGE).toContain('参考图数量已达上限')
     expect(IMAGE_FETCH_CORS_HINT).toContain('复制结果链接')
 
     await setLocale('en')
 
-    expect(EXPORT_FIT_LABELS.crop).toBe('Crop')
+    expect(MAX_INPUT_IMAGES_MESSAGE).toContain('Reference image limit reached')
     expect(IMAGE_FETCH_CORS_HINT).toContain('copy the result URL')
   })
 

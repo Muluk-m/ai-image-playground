@@ -148,6 +148,7 @@ describe('operator config', () => {
       JSON.stringify({
         capabilities: {
           'quota:daily': true,
+          'generation:storyboard': true,
           'matte:server': true,
           'remix:analyze': false,
           'remix:listing': true,
@@ -157,6 +158,7 @@ describe('operator config', () => {
     const resolved = loadOperatorConfig(retired)
     expect(resolved.capabilities['quota:daily']).toBe(true)
     expect(evaluateCapability(resolved, 'matte:server')).toBe(false)
+    expect(evaluateCapability(resolved, 'generation:storyboard')).toBe(false)
     expect(resolved.capabilities).not.toHaveProperty('matte:server')
     expect(await configModuleExitCode(retired)).toBe(0)
 
