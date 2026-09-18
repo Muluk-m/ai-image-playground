@@ -20,6 +20,7 @@ import {
 } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { isCapabilityEnabled } from '../../capabilities'
+import { getChannels } from '../../channels'
 import { requireAgentImages } from '../images'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
@@ -88,12 +89,27 @@ function referencePlan(
   hasFirstFrame: boolean,
 ): { preset: VideoPreset; rejection: VideoRejection | null } {
   if (referenceCount === 0) return { preset, rejection: null }
-  const cap = support.referenceImages?.maxResolution
-  const capped =
+  // 共享校验读全局矩阵，看不到渠道开关；渠道没声明就在这里先按「带不了」驳回。
+  if (!support.referenceImages)
+    return {
+      preset,
+      rejection: {
+        code: 'referenceUnsupported',
+        params: { label: support.label },
+        reason: `${support.label} 不支持参考图`,
+      },
+    }
+  const cap = support.referenceImages.maxResolution
+  const lowered =
     cap &&
     !askedResolution &&
     VIDEO_RESOLUTIONS.indexOf(preset.resolution) > VIDEO_RESOLUTIONS.indexOf(cap)
       ? clampVideoPreset(support, { ...preset, resolution: cap })
+      : preset
+  // 压清晰度只能动清晰度：若因此换掉了别的档位（分清晰度定时长的模型），宁可不压，交给驳回说清楚。
+  const capped =
+    lowered.duration === preset.duration && lowered.aspectRatio === preset.aspectRatio
+      ? lowered
       : preset
   const first = hasFirstFrame ? 1 : 0
   const rejection = videoRequestRejection(
@@ -128,8 +144,16 @@ function referenceRefusalText(
  */
 function videoModel(): { target: QueueTarget; support: VideoModelSupport } | null {
   const target = resolveAgentModel('video')
-  const support = target ? VIDEO_MODEL_SUPPORT[target.model] : undefined
-  return target && support ? { target, support } : null
+  const matrix = target ? VIDEO_MODEL_SUPPORT[target.model] : undefined
+  if (!target || !matrix) return null
+  // 参考图认运营在 channels.json 里的开关，和画布同一条：没声明就当这个模型带不了。
+  const declared = getChannels().some((channel) =>
+    channel.models.some(
+      (model) => model.id === target.model && model.capabilities.includes('reference_images'),
+    ),
+  )
+  const { referenceImages: _gated, ...base } = matrix
+  return { target, support: declared ? matrix : base }
 }
 
 /** 这个模型的时长档。分清晰度的模型逐档写清：不分档写，模型会以为 1080p 也能要 4 秒。 */
@@ -371,6 +395,8 @@ export const generateVideo = defineAgentTool({
       const references = await requireAgentImages(context.images, referenceIds)
       const inputImages = [...(source ? [source] : []), ...references].map((one) => one.dataUrl)
       const referenceStart = source ? 1 : 0
+      // 产出贴着起始帧放；没有起始帧就贴着第一张参考图。
+      const anchorImage = source ?? references[0]
       const outcome = await runQueueTask(
         context,
         {
@@ -388,9 +414,7 @@ export const generateVideo = defineAgentTool({
               ? { reference_image_indices: references.map((_, i) => referenceStart + i) }
               : {}),
           },
-          ...((source ?? references[0])
-            ? { anchorObjectId: (source ?? references[0])!.imageId }
-            : {}),
+          ...(anchorImage ? { anchorObjectId: anchorImage.imageId } : {}),
           review: params.reviewAfterCompletion === true,
         },
         signal,

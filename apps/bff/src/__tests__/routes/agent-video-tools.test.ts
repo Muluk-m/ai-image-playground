@@ -64,7 +64,14 @@ function videoChannel(modelId: string): InternalChannel {
     baseUrl: 'https://gateway.example/v1',
     auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
     allowedPaths: ['videos/generations'],
-    models: [{ id: modelId, label: modelId, media: 'video', capabilities: ['generate'] }],
+    models: [
+      {
+        id: modelId,
+        label: modelId,
+        media: 'video',
+        capabilities: ['generate', 'reference_images'],
+      },
+    ],
     defaults: { asyncTasks: true },
   }
 }
@@ -356,6 +363,26 @@ describe('智能体生视频工具', () => {
     await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
 
     // 这一轮只留下对话本身的任务，没有视频任务。
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
+    expect(modelReport(calls)).toContain('referenceUnsupported')
+  })
+
+  it('treats a channel that has not declared reference_images as unable to take them', async () => {
+    const channel = videoChannel(GROK)
+    _setChannelsForTesting([
+      TEST_IMAGE_CHANNEL,
+      {
+        ...channel,
+        models: channel.models.map((model) => ({ ...model, capabilities: ['generate'] })),
+      },
+    ])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '挥拍', referenceImageIds: ['canvas-1'] })
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
+
     const tasks = await db.select().from(schema.tasks)
     expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
     expect(modelReport(calls)).toContain('referenceUnsupported')
