@@ -209,11 +209,14 @@ export interface AgentToolArtifact {
  */
 export interface AgentTimelinePlan {
   readonly timelineId: string
-  readonly clips: readonly {
-    readonly videoId: string
-    readonly in: number
-    readonly out?: number
-  }[]
+  readonly clips: readonly AgentTimelineClip[]
+}
+
+/** 时间线上的一段：哪段视频、从第几秒播到第几秒。出点总在入点之后。 */
+export interface AgentTimelineClip {
+  readonly videoId: string
+  readonly in: number
+  readonly out: number
 }
 
 /**

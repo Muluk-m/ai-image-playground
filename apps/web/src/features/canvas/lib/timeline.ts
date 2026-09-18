@@ -143,12 +143,7 @@ export function placeTimelinePlan(editor: CanvasEditor, plan: AgentTimelinePlan)
   const clips = plan.clips
     .filter((clip) => isTimelineSource(editor.getElement(clip.videoId)))
     .slice(0, PROJECT_TIMELINE_MAX_CLIPS)
-    .map(
-      (clip): TimelineClip =>
-        clip.out !== undefined && clip.out > clip.in
-          ? { elementId: clip.videoId, in: clip.in, out: clip.out }
-          : { elementId: clip.videoId, in: clip.in },
-    )
+    .map((clip): TimelineClip => ({ elementId: clip.videoId, in: clip.in, out: clip.out }))
   if (clips.length === 0) return null
   const lookup: ElementLookup = (id) => editor.getElement(id)
   const bounds = Box.Common(

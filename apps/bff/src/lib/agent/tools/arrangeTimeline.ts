@@ -1,11 +1,14 @@
-import { type AgentTimelinePlan, PROJECT_TIMELINE_MAX_CLIPS } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import {
+  type AgentTimelineClip,
+  type AgentTimelinePlan,
+  PROJECT_TIMELINE_MAX_CLIPS,
+  parseProjectArtifactId,
+} from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 import { Type } from 'typebox'
 import { db, schema } from '../../../db/client'
 import { defineAgentTool } from './adapter'
 import type { AgentToolContext } from './types'
-
-const ARTIFACT_ID = /^agent_([A-Za-z0-9_-]+)_(\d+)$/
 
 const parameters = Type.Object({
   clips: Type.Array(
@@ -24,18 +27,17 @@ const parameters = Type.Object({
   ),
 })
 
-type Clip = { readonly videoId: string; readonly in: number; readonly out?: number }
-
 /**
- * 按产物 id 找回本人已完成的那段视频和它的时长。找不到、不是视频、没出完、不是本人的都不认——
- * 时间线只能排真实落在画布上的片子。
+ * 按产物 id 找回这个会话里智能体出完的那段视频和它的时长。找不到、不是视频、没出完、
+ * 不是这个会话提交的都不认——时间线只排这一路真实出完的片子。
  */
 async function finishedVideoSeconds(
   context: AgentToolContext,
   videoId: string,
 ): Promise<number | null> {
-  const match = ARTIFACT_ID.exec(videoId)
-  if (!match) return null
+  const artifact = parseProjectArtifactId(videoId)
+  // 视频任务只出一段。
+  if (!artifact || artifact.position !== 0) return null
   const [task] = await db
     .select({
       status: schema.tasks.status,
@@ -43,7 +45,13 @@ async function finishedVideoSeconds(
       request: schema.tasks.request_payload,
     })
     .from(schema.tasks)
-    .where(eq(schema.tasks.id, match[1]!))
+    .innerJoin(schema.agent_jobs, eq(schema.agent_jobs.task_id, schema.tasks.id))
+    .where(
+      and(
+        eq(schema.tasks.id, artifact.generationId),
+        eq(schema.agent_jobs.conversation_id, context.conversationId),
+      ),
+    )
   const video = task?.request.video
   if (!task || !video || task.status !== 'completed') return null
   const owned = context.userId
@@ -52,14 +60,15 @@ async function finishedVideoSeconds(
   return owned ? video.duration_seconds : null
 }
 
-/** 入出点收进这段片子的时长里；出点不在入点之后就当没给。 */
+/** 入出点收进这段片子的时长里；出点不在入点之后就播到结尾。入点已到结尾时这段排不出来。 */
 function clipOf(
   videoId: string,
   seconds: number,
   inSeconds: number | undefined,
   outSeconds: number | undefined,
-): Clip {
-  const start = Math.min(Math.max(0, inSeconds ?? 0), seconds)
+): AgentTimelineClip | null {
+  const start = Math.max(0, inSeconds ?? 0)
+  if (start >= seconds) return null
   const end = outSeconds === undefined ? seconds : Math.min(outSeconds, seconds)
   return { videoId, in: start, out: end > start ? end : seconds }
 }
@@ -80,23 +89,26 @@ export const arrangeTimeline = defineAgentTool({
     title: Array.isArray(clips) ? `时间线：${clips.length} 段` : '排进时间线',
   }),
   execute: (context) => async (_toolCallId, params) => {
-    const clips: Clip[] = []
+    const clips: AgentTimelineClip[] = []
     const skipped: string[] = []
+    const empty: string[] = []
     for (const one of params.clips) {
       const seconds = await finishedVideoSeconds(context, one.videoId)
-      if (seconds === null) skipped.push(one.videoId)
-      else clips.push(clipOf(one.videoId, seconds, one.inSeconds, one.outSeconds))
+      const clip =
+        seconds === null ? null : clipOf(one.videoId, seconds, one.inSeconds, one.outSeconds)
+      if (clip) clips.push(clip)
+      else (seconds === null ? skipped : empty).push(one.videoId)
     }
-    const skippedLine = skipped.length
-      ? `这些 id 不是本会话出完的视频，没有排进去：${skipped.join('、')}。`
-      : ''
+    const skippedLine =
+      (skipped.length ? `这些 id 不是本会话出完的视频，没有排进去：${skipped.join('、')}。` : '') +
+      (empty.length ? `这些片段的入点已经到了结尾，没有排进去：${empty.join('、')}。` : '')
     if (clips.length === 0)
       return {
         content: [{ type: 'text', text: `没有可以排的视频。${skippedLine}` }],
         details: {},
       }
     const timeline: AgentTimelinePlan = { timelineId: `timeline_${crypto.randomUUID()}`, clips }
-    const total = clips.reduce((sum, clip) => sum + ((clip.out ?? 0) - clip.in), 0)
+    const total = clips.reduce((sum, clip) => sum + clip.out - clip.in, 0)
     return {
       content: [
         {

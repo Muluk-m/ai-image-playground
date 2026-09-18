@@ -67,7 +67,6 @@ async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact
   return placedArtifact(artifact, await artifactBitmap(artifact))
 }
 
-/** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
 /** 这张卡有东西要落画布：产物，或者一条排好的时间线。 */
 export function deliverable(message: AgentToolMessage): boolean {
   return Boolean(message.artifacts?.length || message.timeline)
@@ -80,6 +79,7 @@ function deliveredIds(message: AgentToolMessage): string[] {
     : (message.artifacts ?? []).map((artifact) => artifact.artifactId)
 }
 
+/** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
 export function createArtifactDelivery(
   changed: (messageId: string, status: AgentDeliveryStatus) => void,
 ) {

@@ -513,7 +513,13 @@ describe('智能体排时间线工具', () => {
     await runTurn(conversationId, '先出第一镜')
     stop()
     await settledJobs(conversationId)
-    const [task] = (await db.select().from(schema.tasks)).filter((one) => one.request_payload.video)
+    const jobs = await db.select().from(schema.agent_jobs)
+    const mine = new Set(
+      jobs.filter((job) => job.conversation_id === conversationId).map((job) => job.task_id),
+    )
+    const [task] = (await db.select().from(schema.tasks)).filter(
+      (one) => one.request_payload.video && mine.has(one.id),
+    )
     return projectArtifactId(task!.id, 0)
   }
 
@@ -545,6 +551,33 @@ describe('智能体排时间线工具', () => {
     const after = await db.select().from(schema.tasks)
     expect(after.filter((one) => one.request_payload.video)).toHaveLength(1)
     expect(after.length - before).toBeLessThanOrEqual(1)
+  })
+
+  it('skips videos from another conversation and clips that start at the end', async () => {
+    const elsewhere = await generatedVideo(await startConversation())
+    const conversationId = await startConversation()
+    const videoId = await generatedVideo(conversationId)
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: {
+              clips: [{ videoId: elsewhere }, { videoId, inSeconds: 5 }, { videoId }],
+            },
+          }),
+        () => completionStream('排好了'),
+      ]),
+    )
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.timeline!.clips).toEqual([{ videoId, in: 0, out: 5 }])
+    expect(modelReport(calls)).toContain(elsewhere)
+    expect(modelReport(calls)).toContain('入点已经到了结尾')
   })
 
   it('reports and places nothing when no listed video can be used', async () => {
