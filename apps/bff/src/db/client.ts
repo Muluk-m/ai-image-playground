@@ -10,7 +10,7 @@ function handle(): DbHandle {
   const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
   let existing = handles.get(url)
   if (!existing) {
-    existing = createDb(url, { max: config.databasePoolMax })
+    existing = createDb(url, config.databasePool)
     handles.set(url, existing)
   }
   return existing

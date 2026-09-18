@@ -2,7 +2,7 @@ export {
   createDb,
   type DbHandle,
   type DbPoolOptions,
-  databasePoolMaxFromEnv,
+  databasePoolFromEnv,
   schema,
 } from './client'
 export { runMigrations } from './migrate'

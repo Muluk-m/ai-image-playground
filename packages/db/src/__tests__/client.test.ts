@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { SQL } from 'bun'
 import { eq } from 'drizzle-orm'
-import { createDb, databasePoolMaxFromEnv } from '../client'
+import { createDb, databasePoolFromEnv } from '../client'
 import { resetTestDatabase } from '../testing'
 
 let databaseUrl: string
@@ -23,10 +23,10 @@ function handle(pool?: Parameters<typeof createDb>[1]) {
 
 describe('createDb pool', () => {
   // Bun reports both timeouts in milliseconds even though it takes them in seconds.
-  it('releases idle connections after 30 s and keeps connections without a lifetime cap', () => {
+  it('keeps the driver defaults unless asked: max 10, no idle timeout, no lifetime cap', () => {
     const { client } = handle()
     expect(client.options.max).toBe(10)
-    expect(client.options.idleTimeout).toBe(30_000)
+    expect(client.options.idleTimeout ?? 0).toBe(0)
     expect(client.options.maxLifetime ?? 0).toBe(0)
   })
 
@@ -37,8 +37,8 @@ describe('createDb pool', () => {
     expect(client.options.maxLifetime).toBe(600_000)
   })
 
-  it('queues a burst beyond max, then closes the idle connections it opened', async () => {
-    const { client } = handle({ max: 3, idleTimeout: 1 })
+  it('queues a burst beyond max under its application name, then closes idle connections', async () => {
+    const { client } = handle({ max: 3, idleTimeout: 1, applicationName: 'aip-pool-test' })
     const burst = await Promise.all(
       Array.from(
         { length: 7 },
@@ -46,14 +46,13 @@ describe('createDb pool', () => {
           client`SELECT pg_backend_pid() AS pid, pg_sleep(0.1)` as Promise<Array<{ pid: number }>>,
       ),
     )
-    const pids = [...new Set(burst.map(([row]) => row!.pid))]
-    expect(pids).toHaveLength(3)
+    expect(new Set(burst.map(([row]) => row!.pid)).size).toBe(3)
 
     const observer = new SQL(databaseUrl, { max: 1 })
     closeCallbacks.push(() => observer.close())
     const open = async () => {
       const [row] = await observer`
-        SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid = ANY(${observer.array(pids, 'INT4')})`
+        SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'aip-pool-test'`
       return (row as { n: number }).n
     }
     expect(await open()).toBe(3)
@@ -67,21 +66,31 @@ describe('createDb pool', () => {
   })
 })
 
-describe('databasePoolMaxFromEnv', () => {
-  it('leaves the driver default in place when unset or blank', () => {
-    expect(databasePoolMaxFromEnv({})).toBeUndefined()
-    expect(databasePoolMaxFromEnv({ DATABASE_POOL_MAX: '  ' })).toBeUndefined()
+describe('databasePoolFromEnv', () => {
+  it('closes idle connections after 60 s and keeps the driver pool size when unset or blank', () => {
+    const expected = { applicationName: 'aip-bff', max: undefined, idleTimeout: 60 }
+    expect(databasePoolFromEnv('aip-bff', {})).toEqual(expected)
+    expect(
+      databasePoolFromEnv('aip-bff', { DATABASE_POOL_MAX: ' ', DATABASE_IDLE_TIMEOUT_SECONDS: '' }),
+    ).toEqual(expected)
   })
 
-  it('reads a positive integer', () => {
-    expect(databasePoolMaxFromEnv({ DATABASE_POOL_MAX: ' 4 ' })).toBe(4)
+  it('reads positive integers', () => {
+    expect(
+      databasePoolFromEnv('aip-worker', {
+        DATABASE_POOL_MAX: ' 4 ',
+        DATABASE_IDLE_TIMEOUT_SECONDS: '120',
+      }),
+    ).toEqual({ applicationName: 'aip-worker', max: 4, idleTimeout: 120 })
   })
 
-  it.each(['0', '-2', '2.5', 'five', '4x'])('rejects %p', (value) => {
-    expect(() => databasePoolMaxFromEnv({ DATABASE_POOL_MAX: value })).toThrow(
-      'DATABASE_POOL_MAX must be a positive integer',
-    )
-  })
+  for (const name of ['DATABASE_POOL_MAX', 'DATABASE_IDLE_TIMEOUT_SECONDS']) {
+    it.each(['0', '-2', '2.5', 'five', '4x'])(`rejects ${name}=%p`, (value) => {
+      expect(() => databasePoolFromEnv('aip-bff', { [name]: value })).toThrow(
+        `${name} must be a positive integer`,
+      )
+    })
+  }
 })
 
 describe('createDb', () => {

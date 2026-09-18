@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { databasePoolMaxFromEnv } from '@image-playground/db'
+import { databasePoolFromEnv } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
@@ -162,8 +162,8 @@ export const config = {
     },
   },
   databaseUrl: env('DATABASE_URL'),
-  /** 本进程最多开几个数据库连接；部署按角色设（deploy/compose.app.yaml），缺省沿用驱动的 10。 */
-  databasePoolMax: databasePoolMaxFromEnv(),
+  /** 连接池上限与空闲回收，部署按角色设（deploy/compose.app.yaml）；worker 与 BFF 用各自的 application_name。 */
+  databasePool: databasePoolFromEnv(process.env.APP_ROLE === 'worker' ? 'aip-worker' : 'aip-bff'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   /** Explicit origins from CORS_ALLOWED_ORIGINS; empty when the deployment allows any origin. */
   get corsOriginList(): string[] {
