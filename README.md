@@ -399,33 +399,10 @@ the host up:
 ```bash
 scripts/infra-compose.sh up
 scripts/infra-compose.sh provision                    # once per deployment database
-scripts/vps-deploy.sh internal                        # every deploy from here on
+/path/to/release/scripts/vps-deploy.sh internal /path/to/release
 ```
 
-`vps-deploy.sh <internal|paid|all> [git-ref]` is the single entry point for a rollout. It
-refuses a checkout with modified tracked files, fetches and detaches onto the ref (`origin/main`
-by default), fast-forwards `./private` for the paid edition, builds, rolls out through
-`app-compose.sh up`, and appends one line to `$config_root/deployments.log`. Put a GitHub token
-with read access to the private repository in `$config_root/secrets/private-repo-token` to
-fast-forward `./private` without a prompt.
-
-Only one rollout runs at a time. Before touching anything the script takes `$config_root/deploy.lock`
-(an atomic `mkdir`) and writes who holds it; a second rollout fails immediately, printing that
-owner, instead of queuing — queuing would move production onto the other rollout's commit as soon
-as the first one finished. A lock whose process is gone is taken over automatically; nothing is
-taken over on age alone, because a rollout legitimately runs for a quarter of an hour. If a host
-is left with a lock nobody holds (a kill -9, say), remove the directory.
-
-Each build is tagged with the commits it came from, which is what `app-compose.sh rollback`
-rolls back to. After a successful rollout the script keeps the newest `DEPLOY_KEEP_IMAGES`
-commit-qualified images per edition (default 5) plus whatever a container still runs, and removes
-the older ones; hand-named images are left alone. It then drops the build cache nothing references
-any more — the superseded layers, not the images, are what actually fills the disk — but only when
-free space is below `DEPLOY_PRUNE_CACHE_BELOW_GB` (default 15, room for one `all` build on top of
-the refusal threshold below); above that the cache is left for the next build to reuse. Before building it checks the free space where
-Docker keeps its data and refuses below `DEPLOY_MIN_FREE_GB` (default 8): PostgreSQL shares that
-filesystem, so a build that fills it is an outage. `app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
-for rollback, stopping a project, and ad-hoc Compose commands.
+Build on **macmini2** with `scripts/build-vps-release.sh all /absolute/release`, transfer the complete release directory to the VPS, then run its `scripts/vps-deploy.sh all /absolute/release`. The VPS never compiles or fetches source. See the [image release runbook](docs/deploy/image-release.md) for pinned inputs, resource limits, verification, locking and rollback.
 
 Point the hostnames at the tunnel, from the account that owns them:
 
@@ -484,13 +461,14 @@ Raising `net.core.rmem_max` and `wmem_max` silences quic-go's warning but does n
 `protocol: http2` first whenever large uploads hang through a tunnel.
 
 Repeat every step with `image-playground-paid` to run a second, fully separate deployment on
-the same host, then deploy it with `scripts/vps-deploy.sh paid` and
+the same host, then deploy it with `/path/to/release/scripts/vps-deploy.sh paid /path/to/release` and
 `scripts/pages-release.sh paid`. It gets its own database, R2 location, tunnel, Pages project,
 and Cloudflare account; the two share only PostgreSQL's process and the host. Once both are
-configured, `scripts/vps-deploy.sh all` rolls out the host in one command.
+configured, `/path/to/release/scripts/vps-deploy.sh all /path/to/release` rolls out the host in one command.
 
 The paid edition needs the reviewed `./private` overlay in both places: a clone beside the
-checkout on the VPS, and a clone in the workstation checkout that releases its Pages project.
+image-builder checkout on macmini2, and a clone in the macmini2 checkout that releases its Pages project.
+The VPS receives the overlay only inside the image; it does not need a source checkout.
 The internal edition needs the opposite — its Pages release must run from a checkout without
 that tree, because the overlay is compiled in by mere file presence.
 
