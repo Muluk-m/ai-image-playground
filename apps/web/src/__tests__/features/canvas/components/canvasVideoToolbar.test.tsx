@@ -134,4 +134,16 @@ describe('视频节点工具条', () => {
       'b',
     ])
   })
+
+  it('offers editing a lone selected timeline, which touch users cannot double-click', async () => {
+    const { useTimelineEditor } = await import('../../../../features/canvas/timelineEditorStore')
+    doc.addElements([
+      { id: 'tl', type: 'timeline', x: 0, y: 500, width: 300, height: 120, clips: [] },
+    ])
+    render()
+    act(() => editor.setSelectedElements(['tl']))
+    act(() => button('编辑时间线')?.click())
+    expect(useTimelineEditor.getState().openId).toBe('tl')
+    useTimelineEditor.getState().close()
+  })
 })

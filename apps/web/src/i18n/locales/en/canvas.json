@@ -255,6 +255,20 @@
     "addCount_other": "Add {{count}} clips to a timeline",
     "appendCount_one": "Append {{count}} clip to the timeline",
     "appendCount_other": "Append {{count}} clips to the timeline",
-    "full": "A timeline holds at most {{max}} clips; the rest were not added"
+    "full": "A timeline holds at most {{max}} clips; the rest were not added",
+    "edit": "Edit timeline",
+    "editorTitle": "Edit timeline",
+    "done": "Done",
+    "empty": "This timeline has no clips yet",
+    "play": "Play",
+    "pause": "Pause",
+    "playhead": "Playhead",
+    "track": "Clips",
+    "clipLabel": "Clip {{index}}, {{seconds}} s",
+    "removeClip": "Remove clip {{index}}",
+    "trimIn": "Clip {{index}} in point",
+    "trimOut": "Clip {{index}} out point",
+    "seconds": "{{seconds}} s",
+    "changedElsewhere": "This timeline was changed elsewhere while you were editing; your edits replaced it. Press ⌘Z to undo if needed."
   }
 }
