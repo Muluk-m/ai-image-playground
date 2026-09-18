@@ -10,14 +10,15 @@ import { useCanvasComposer } from '../composerStore'
  */
 export async function startVideoFromImage(imageId: string): Promise<void> {
   const main = useStore.getState()
-  main.setLightboxImageId(null)
-  main.setDetailTaskId(null)
-  useLibraryStore.getState().closePanel()
   const dataUrl = await ensureImageCached(imageId)
+  // 图不在了就留在原处提示，别先把用户正看着的浮层关掉。
   if (!dataUrl) {
     main.showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
     return
   }
+  main.setLightboxImageId(null)
+  main.setDetailTaskId(null)
+  useLibraryStore.getState().closePanel()
   main.queueCanvasImages([dataUrl])
   useCanvasComposer.getState().requestVideo()
   if (useStore.getState().appMode === 'browse') main.setAppMode('video')

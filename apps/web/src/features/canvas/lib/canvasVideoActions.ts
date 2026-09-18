@@ -154,7 +154,7 @@ export function canvasRegenerateRefusal(): string | null {
 }
 
 /**
- * 把一段视频的生成记录载进视频草稿（模型、档位），弹窗与导演台读的都是这份草稿。
+ * 把一段视频的生成记录载进视频草稿（模型、档位），弹窗与生成栏读的都是这份草稿。
  * 原模型在当前部署不可用就不动草稿：换个模型档位矩阵就不一样了，硬套只会被夹成另一套参数。
  */
 export function loadGenerationIntoDraft(generation: VideoGenerationRecord): boolean {

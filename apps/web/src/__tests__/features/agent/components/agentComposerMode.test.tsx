@@ -174,7 +174,7 @@ describe('创作类型切换', () => {
 
 describe('从视频入口或「生成视频」进来', () => {
   it('下一轮预置为视频，只接手一次，之后用户照常能切回图片', async () => {
-    useCanvasComposer.getState().requestVideo()
+    useCanvasComposer.setState({ agentVideoPending: true })
     render()
     await settle()
 
@@ -193,7 +193,7 @@ describe('从视频入口或「生成视频」进来', () => {
     await settle()
     expect(useAgentStore.getState().mode).toBe('image')
 
-    act(() => useCanvasComposer.getState().requestVideo())
+    act(() => useCanvasComposer.setState({ agentVideoPending: true }))
     await settle()
 
     type('做个开箱片')
@@ -203,7 +203,7 @@ describe('从视频入口或「生成视频」进来', () => {
 
   it('做不了视频的部署不接手，也不按视频发', async () => {
     videoAvailable.value = false
-    useCanvasComposer.getState().requestVideo()
+    useCanvasComposer.setState({ agentVideoPending: true })
     render()
     await settle()
 

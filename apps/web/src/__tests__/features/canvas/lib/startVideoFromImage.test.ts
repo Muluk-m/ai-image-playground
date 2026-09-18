@@ -2,6 +2,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const cached = vi.hoisted(() => ({ value: 'data:image/png;base64,AAAA' as string | null }))
+const capabilities = vi.hoisted(() => ({ agent: true }))
+
+vi.mock('../../../../features/agent/panelLayout', () => ({
+  agentPanelPresent: () => capabilities.agent,
+}))
 
 vi.mock('../../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../store')>()),
@@ -15,6 +20,7 @@ import { useStore } from '../../../../store'
 
 beforeEach(() => {
   cached.value = 'data:image/png;base64,AAAA'
+  capabilities.agent = true
   useCanvasComposer.setState({ mode: 'image', agentVideoPending: false })
   useLibraryStore.setState({ panelOpen: true })
   useStore.setState({
@@ -40,6 +46,17 @@ describe('从一张图发起生成视频', () => {
     expect(useCanvasComposer.getState().agentVideoPending).toBe(true)
   })
 
+  it('没有智能体的部署不留等人接手的标记，也不改记住的档位', async () => {
+    capabilities.agent = false
+    localStorage.removeItem('canvas.generateMode')
+
+    await startVideoFromImage('img-1')
+
+    expect(useCanvasComposer.getState().mode).toBe('video')
+    expect(useCanvasComposer.getState().agentVideoPending).toBe(false)
+    expect(localStorage.getItem('canvas.generateMode')).toBeNull()
+  })
+
   it('已经在创作画布上就留在原入口', async () => {
     useStore.setState({ appMode: 'create' })
 
@@ -56,6 +73,8 @@ describe('从一张图发起生成视频', () => {
     await startVideoFromImage('img-1')
 
     expect(useStore.getState().appMode).toBe('browse')
+    expect(useStore.getState().lightboxImageId).toBe('img-1')
+    expect(useLibraryStore.getState().panelOpen).toBe(true)
     expect(useStore.getState().pendingCanvasImages).toEqual([])
     expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.any(String), 'error')
     expect(useCanvasComposer.getState().mode).toBe('image')

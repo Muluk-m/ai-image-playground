@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { safeLocalStorage } from '../../lib/authScope'
+import { agentPanelPresent } from '../agent/panelLayout'
 
 export type CanvasGenerateMode = 'image' | 'video'
 
@@ -16,7 +17,7 @@ interface CanvasComposerState {
   agentVideoPending: boolean
   setMode(mode: CanvasGenerateMode): void
   setPrompt(prompt: string): void
-  /** 生成栏停到视频档，并让智能体输入框把下一轮预置为视频。 */
+  /** 生成栏停到视频档（本次打开内），并让智能体输入框把下一轮预置为视频。 */
   requestVideo(): void
   consumeAgentVideo(): boolean
 }
@@ -37,8 +38,8 @@ export const useCanvasComposer = create<CanvasComposerState>((set, get) => ({
     set({ prompt })
   },
   requestVideo() {
-    safeLocalStorage.setItem(MODE_STORAGE_KEY, 'video')
-    set({ mode: 'video', agentVideoPending: true })
+    // 预置不算用户的选择，不写进「上次停在哪档」；没有智能体的部署也不留一个没人接的标记。
+    set({ mode: 'video', agentVideoPending: agentPanelPresent() })
   },
   consumeAgentVideo() {
     if (!get().agentVideoPending) return false
