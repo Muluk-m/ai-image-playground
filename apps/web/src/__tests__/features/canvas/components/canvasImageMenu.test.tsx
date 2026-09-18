@@ -96,6 +96,18 @@ describe('画布图片右键菜单', () => {
     expect(document.querySelector('[data-save-image]')).not.toBeNull()
   })
 
+  it('用鼠标的设备只写「查看原图」，不提长按保存', () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    render({ id: 'img-1', x: 10, y: 10 })
+    const labels = [...document.querySelectorAll('button')].map((b) => b.textContent)
+    expect(labels.some((text) => text?.endsWith('查看原图'))).toBe(true)
+    expect(labels.some((text) => text?.includes('长按'))).toBe(false)
+  })
+
   it('指着的不是图片就没有菜单', () => {
     render({ id: 'nope', x: 0, y: 0 })
     expect(document.querySelector('button')).toBeNull()
