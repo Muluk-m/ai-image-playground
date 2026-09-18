@@ -273,5 +273,28 @@
     "trimOut": "第 {{index}} 段出点",
     "seconds": "{{seconds}} 秒",
     "changedElsewhere": "编辑期间这条时间线在别处被改动过，已用你刚才的编辑覆盖；需要的话按 ⌘Z 撤回。"
+  },
+  "film": {
+    "export": "导出成片",
+    "progress": "导出中 {{percent}}%",
+    "fetching": "下载素材 {{percent}}%",
+    "encoding": "合成成片 {{percent}}%",
+    "keepForeground": "导出期间请保持页面在前台",
+    "cancel": "取消",
+    "cancelled": "已取消导出",
+    "done": "成片已下载",
+    "failed": "成片合成失败，请重试",
+    "fetchFailed": "第 {{position}} 段素材下载失败，请重试",
+    "unreadable": "第 {{position}} 段视频无法解码，换一段再导出",
+    "tooLongActual": "成片实际时长超过上限，请裁短后再导出",
+    "missing": "第 {{position}} 段素材缺失，删除或替换后再导出",
+    "tooMany": "成片最多 {{max}} 段",
+    "tooLong": "成片最长 {{minutes}} 分钟",
+    "unsupported": "这个浏览器不能编码 H.264 视频，可以先下载全部片段",
+    "downloadClips": "下载全部片段",
+    "zipping": "正在打包片段",
+    "zipFailed": "片段打包失败，请重试",
+    "fileName": "成片",
+    "clipsFileName": "时间线片段"
   }
 }

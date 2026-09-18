@@ -27,6 +27,7 @@ import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
 import CanvasVideoToolbar from './CanvasVideoToolbar'
+import FilmExportStatus from './FilmExportStatus'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectSyncStatus from './ProjectSyncStatus'
@@ -240,6 +241,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <CanvasVideoOverlay editor={editor} />
             <CanvasVideoToolbar editor={editor} />
             <TimelineEditorHost editor={editor} />
+            <FilmExportStatus />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
             {saveFailed && (
