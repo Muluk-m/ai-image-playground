@@ -18,6 +18,11 @@ vi.mock('../../../../lib/channels/videoChannels', () => ({
   ],
 }))
 
+const film = vi.hoisted(() => ({ supported: true }))
+vi.mock('../../../../features/canvas/lib/exportFilm', () => ({
+  filmExportSupported: () => Promise.resolve(film.supported),
+}))
+
 const agent = vi.hoisted(() => ({ on: false }))
 vi.mock('../../../../features/agent/panelLayout', () => ({ agentPanelPresent: () => agent.on }))
 
@@ -52,6 +57,13 @@ function addVideo(id: string, x: number, generation?: VideoGenerationRecord) {
   ])
 }
 
+const record: VideoGenerationRecord = {
+  model: 'grok-imagine-video',
+  duration: 6,
+  aspectRatio: '16:9',
+  resolution: '720p',
+}
+
 function render() {
   act(() => root.render(<CanvasVideoToolbar editor={editor} />))
 }
@@ -63,6 +75,7 @@ function button(name: string): HTMLButtonElement | undefined {
 }
 
 beforeEach(() => {
+  film.supported = true
   doc = new CanvasDoc()
   doc.setViewport(800, 600)
   editor = new CanvasEditor(doc)
@@ -148,6 +161,63 @@ describe('视频节点工具条', () => {
     act(() => button('编辑时间线')?.click())
     expect(useTimelineEditor.getState().openId).toBe('tl')
     useTimelineEditor.getState().close()
+  })
+
+  it('exports a lone timeline, and names the missing clip when a source is gone', async () => {
+    const { useFilmExport } = await import('../../../../features/canvas/filmExportStore')
+    const start = vi.spyOn(useFilmExport.getState(), 'start').mockImplementation(() => {})
+    addVideo('a', 0, record)
+    doc.addElements([
+      {
+        id: 'tl',
+        type: 'timeline',
+        x: 0,
+        y: 500,
+        width: 300,
+        height: 120,
+        clips: [
+          { elementId: 'a', in: 0, out: 6 },
+          { elementId: 'gone', in: 0, out: 4 },
+        ],
+      },
+    ])
+    editor.setSelectedElements(['tl'])
+    render()
+    await act(async () => {})
+    const exportButton = button('导出成片')!
+    expect(exportButton.getAttribute('aria-disabled')).toBe('true')
+    expect(exportButton.title).toContain('第 2 段')
+
+    doc.updateElements([{ id: 'tl', patch: { clips: [{ elementId: 'a', in: 0, out: 6 }] } }])
+    render()
+    act(() => button('导出成片')!.click())
+    expect(start).toHaveBeenCalledWith(
+      'tl',
+      [{ taskId: 'task-a', outputIndex: 0, in: 0, out: 6 }],
+      'film',
+    )
+    start.mockRestore()
+  })
+
+  it('offers downloading all clips where the browser cannot encode H.264', async () => {
+    film.supported = false
+    addVideo('a', 0, record)
+    doc.addElements([
+      {
+        id: 'tl',
+        type: 'timeline',
+        x: 0,
+        y: 500,
+        width: 300,
+        height: 120,
+        clips: [{ elementId: 'a', in: 0, out: 6 }],
+      },
+    ])
+    editor.setSelectedElements(['tl'])
+    render()
+    await act(async () => {})
+    expect(button('导出成片')!.getAttribute('aria-disabled')).toBe('true')
+    expect(button('下载全部片段')).toBeDefined()
   })
 
   it('opens the regenerate dialog with the recorded prompt even where the agent panel replaces the generate bar', () => {
