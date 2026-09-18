@@ -4,6 +4,7 @@ import type { TaskParams } from '../../../types'
 import {
   type CanvasDoc,
   type CanvasEl,
+  type CanvasVideoRef,
   type ImageEl,
   newElementId,
   type PlaceholderEl,
@@ -155,7 +156,7 @@ export interface PlacedImage
   height: number
   id?: string
   /** 有值即这张位图是视频封面。 */
-  video?: { taskId: string; outputIndex: number }
+  video?: CanvasVideoRef
 }
 
 /** 相机平滑动画时长（scrollToElements）。 */

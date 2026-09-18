@@ -144,6 +144,27 @@ describe('落画布', () => {
     expect(editor.getElement('agent_image_1')).not.toHaveProperty('video')
   })
 
+  it('视频产物带着生成参数落画布，「改参数重来」才有据可依', async () => {
+    const generation = {
+      model: 'grok-imagine-video',
+      duration: 6,
+      aspectRatio: '9:16',
+      resolution: '720p',
+      firstFrameId: 'agent_image_1',
+    } as const
+    await sink.place([
+      {
+        artifactId: 'agent_video_2',
+        dataUrl: 'data:image/png;base64,UE9T',
+        video: { taskId: 'task-3', outputIndex: 0, generation },
+      },
+    ])
+
+    expect(editor.getElement('agent_video_2')).toMatchObject({
+      video: { taskId: 'task-3', outputIndex: 0, generation },
+    })
+  })
+
   it('尺寸加载期间原画布失效，不再写入离开的画布', async () => {
     holdSizing = true
     let current = true

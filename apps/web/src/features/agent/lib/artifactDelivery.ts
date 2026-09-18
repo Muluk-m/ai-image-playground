@@ -1,4 +1,4 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
+import { type AgentToolArtifact, isVideoGenerationRecord } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
@@ -37,13 +37,23 @@ export interface TurnArtifactDelivery {
   settled(): Promise<void>
 }
 
-/** 位图问 `artifactSource` 要；这里只管视频落画布的是封面加播放来源，mp4 不下载到本地。 */
-async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
+/**
+ * 产物到画布对象：视频落的是封面加播放来源（mp4 不下载到本地）和它实际的生成参数。
+ * 参数是服务端写的，但结果块会原样存进会话历史；形状不对就不带，片子照样能播。
+ */
+export function placedArtifact(artifact: AgentToolArtifact, dataUrl: string): AgentPlacedArtifact {
   const { artifactId, taskId, outputIndex } = artifact
-  const dataUrl = await artifactBitmap(artifact)
-  return artifact.media === 'video'
-    ? { artifactId, dataUrl, video: { taskId, outputIndex } }
-    : { artifactId, dataUrl }
+  if (artifact.media !== 'video') return { artifactId, dataUrl }
+  const generation = isVideoGenerationRecord(artifact.video) ? artifact.video : undefined
+  return {
+    artifactId,
+    dataUrl,
+    video: { taskId, outputIndex, ...(generation ? { generation } : {}) },
+  }
+}
+
+async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
+  return placedArtifact(artifact, await artifactBitmap(artifact))
 }
 
 /** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
