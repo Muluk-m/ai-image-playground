@@ -402,6 +402,19 @@ export interface AgentActiveTurnView {
 }
 
 /**
+ * `GET .../messages` 的响应：会话快照。`cursor` 是快照覆盖到的会话事件序号，客户端从它之后
+ * 接增量（`GET .../events` 带 `Last-Event-ID`），快照与增量之间不重不漏。有进行中的轮时，
+ * 游标停在那一轮的 `turnStart` 之前：还没落库的半截回复只在事件里，得从轮头重放出来。
+ * 老服务端不回 `cursor`，客户端据此退回按轮续播。
+ */
+export interface AgentConversationSnapshot {
+  readonly messages: readonly AgentMessageView[]
+  readonly turns: readonly AgentTurnSummaryView[]
+  readonly activeTurn: AgentActiveTurnView | null
+  readonly cursor?: number
+}
+
+/**
  * 起轮撞上同会话已经在跑的那一轮时的 409 响应体。带着轮标识，客户端据此转去续播——
  * 两个标签页开着同一个会话时，后发的那个看到的是那一轮接着流，而不是一个错误。
  */

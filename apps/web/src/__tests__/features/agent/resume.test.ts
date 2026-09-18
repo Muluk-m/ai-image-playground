@@ -173,6 +173,76 @@ describe('刷新后重新挂上', () => {
   })
 })
 
+describe('先取快照再接增量', () => {
+  const USER_MESSAGE = {
+    id: 'user-1',
+    turnId: TURN,
+    role: 'user',
+    content: [{ type: 'text', text: '把背景换成浅木色' }],
+    createdAt: 1,
+  }
+  const TURN_FRAMES = [
+    { id: 8, event: TURN_START },
+    { id: 9, event: ASSISTANT_START },
+    { id: 10, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的' } as const },
+    { id: 11, event: { ...TURN_END, cost: { chat: 1, image: 0, video: 0 } } },
+  ]
+
+  it('快照带游标时从游标之后接会话级增量，不再把这一轮从头按轮要一遍', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () =>
+      Response.json({
+        messages: [USER_MESSAGE],
+        activeTurn: { turnId: TURN },
+        turns: [],
+        cursor: 7,
+      })
+    turnResponses = [() => sse(TURN_FRAMES)]
+
+    await state().load()
+
+    expect(resumeRequests).toHaveLength(1)
+    expect(resumeRequests[0]!.url).toBe(
+      `http://bff.test/api/agent/conversations/${CONVERSATION}/events`,
+    )
+    expect(resumeRequests[0]!.lastEventId).toBe('7')
+    expect(state().turn).toBe('idle')
+    expect(state().messages.map((one) => one.id)).toEqual(['user-1', 'assistant-1'])
+  })
+
+  it('另一台设备打开同一会话，看到的面板与一直连着的那台一致', async () => {
+    // 这台一直连着：起轮那条流从头看到尾。
+    turnResponses = [() => sse(TURN_FRAMES)]
+    await state().send('把背景换成浅木色')
+    const watched = { messages: state().messages, turns: state().turns, turn: state().turn }
+
+    // 另一台中途打开：先取快照，再从游标接增量。
+    useAgentStore.setState({
+      conversationId: null,
+      messages: [],
+      turn: 'idle',
+      activeTurn: null,
+      turns: {},
+      error: null,
+      loaded: false,
+    })
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () =>
+      Response.json({
+        messages: [USER_MESSAGE],
+        activeTurn: { turnId: TURN },
+        turns: [],
+        cursor: 7,
+      })
+    turnResponses = [() => sse(TURN_FRAMES)]
+    await state().load()
+
+    expect({ messages: state().messages, turns: state().turns, turn: state().turn }).toEqual(
+      watched,
+    )
+  })
+})
+
 describe('另一个标签页占着这个会话', () => {
   const OTHER_TAB_HISTORY = () =>
     Response.json({

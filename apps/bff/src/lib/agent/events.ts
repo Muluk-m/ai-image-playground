@@ -1,10 +1,30 @@
-import { AGENT_TURN_EVENT_RETENTION_MS, type AgentTurnEvent } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, lt } from 'drizzle-orm'
+import {
+  AGENT_TURN_EVENT_RETENTION_MS,
+  type AgentTurnEndEvent,
+  type AgentTurnEvent,
+} from '@image-playground/shared'
+import { and, asc, desc, eq, gt, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
+import { claimConversation, releaseConversation } from './execution'
 
 /** 落库攒批的窗口。进程被强杀时最多丢这么久的事件，实时那条路走内存缓冲不受影响。 */
 const PERSIST_DEBOUNCE_MS = 50
+
+/**
+ * 补写终帧时跳过的序号。被打断的轮在内存里发过、还没落库的尾巴客户端可能已经收到了，
+ * 表里的最大序号并不是客户端见过的最大序号；紧挨着它发号，终帧就会和那段尾巴撞号，
+ * 带着 `Last-Event-ID` 续播的客户端会把它当成见过的跳过去，永远收不到结局。
+ * 攒批窗口里的事件远到不了这个数，跳过之后序号留一个空档，但不会重号。
+ */
+export const SEAL_SEQ_GAP = 10_000
+
+/** 补写终帧时领会话租约用的轮标识前缀。它不是一轮：起轮撞上它该等一等，而不是转去续播。 */
+const SEAL_LEASE_PREFIX = 'seal:'
+
+export function isSealLease(turnId: string): boolean {
+  return turnId.startsWith(SEAL_LEASE_PREFIX)
+}
 
 export interface StoredAgentEvent {
   readonly seq: number
@@ -15,6 +35,8 @@ export interface StoredAgentEvent {
  * 一轮的写入把手。序号由日志自己发，攒批落库也由它自己做；调用方只管 `emit`。
  */
 export interface TurnEventLog {
+  /** 开日志时会话已有的最大序号；本轮第一条事件是它加一。 */
+  readonly baseSeq: number
   emit(event: AgentTurnEvent): void
   /** 本轮跑着时的实时流；断开重开都从给定断点续。 */
   read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
@@ -45,7 +67,7 @@ function logKey(conversationId: string, turnId: string): string {
 }
 
 /** 新一轮的序号从这里往后发；序号是会话内的，也就是前端看到的 `Last-Event-ID`。 */
-async function lastConversationEventSeq(conversationId: string): Promise<number> {
+export async function lastConversationEventSeq(conversationId: string): Promise<number> {
   const [row] = await db
     .select({ seq: schema.agent_turn_events.seq })
     .from(schema.agent_turn_events)
@@ -146,6 +168,7 @@ export async function openTurnEventLog(
   }
 
   const entry: TurnEventLog = {
+    baseSeq,
     emit(event) {
       // 发了第一条才登记：建轮半路抛错的日志没人会 close，登记了续播就永远等不到头。
       if (buffered.length === 0 && !closed) openLogs.set(logKey(conversationId, turnId), entry)
@@ -209,4 +232,166 @@ export async function purgeOldAgentTurnEvents(
     .where(lt(schema.agent_turn_events.created_at, now - retentionMs))
     .returning({ seq: schema.agent_turn_events.seq })
   return removed.length
+}
+
+/**
+ * 本进程里开着的那一轮日志从哪个序号之后开始。快照据此把游标停在进行中那一轮的 `turnStart`
+ * 之前：半截回复还没落库，只能从轮头重放出来。
+ */
+export function openTurnEventBase(conversationId: string, turnId: string): number | undefined {
+  return openLogs.get(logKey(conversationId, turnId))?.baseSeq
+}
+
+/** 一个会话同时只有一轮在跑，所以按会话找到的开着的日志至多一份。 */
+function openConversationLog(conversationId: string): TurnEventLog | undefined {
+  const prefix = `${conversationId}/`
+  for (const [key, entry] of openLogs) if (key.startsWith(prefix)) return entry
+  return undefined
+}
+
+async function readStoredConversationEvents(
+  conversationId: string,
+  afterSeq: number,
+): Promise<StoredAgentEvent[]> {
+  return db
+    .select({ seq: schema.agent_turn_events.seq, event: schema.agent_turn_events.event })
+    .from(schema.agent_turn_events)
+    .where(
+      and(
+        eq(schema.agent_turn_events.conversation_id, conversationId),
+        gt(schema.agent_turn_events.seq, afterSeq),
+      ),
+    )
+    .orderBy(asc(schema.agent_turn_events.seq))
+}
+
+/**
+ * 会话级增量：`afterSeq` 之后的全部事件，不分属于哪一轮，按序号给出。先给表里的，
+ * 本进程有轮在跑就接着它的实时流，跑到它收尾为止；两段按序号去重，所以不重不漏。
+ * 接着读之前调用方应先 {@link sealAbandonedTurns}，否则被打断的轮永远等不到终帧。
+ */
+export async function readConversationEvents(
+  conversationId: string,
+  afterSeq: number,
+): Promise<AsyncGenerator<StoredAgentEvent>> {
+  // 先拿实时日志再读表：顺序反过来，读表之后才开的轮会整段漏掉，直到下一次重连。
+  const live = openConversationLog(conversationId)
+  const stored = await readStoredConversationEvents(conversationId, afterSeq)
+  return (async function* () {
+    let seen = afterSeq
+    for (const one of stored) {
+      seen = one.seq
+      yield one
+    }
+    if (!live) return
+    for await (const one of live.read(seen)) {
+      if (one.seq <= seen) continue
+      seen = one.seq
+      yield one
+    }
+  })()
+}
+
+interface UnterminatedTurn {
+  readonly turnId: string
+  readonly firstAt: number
+  readonly lastAt: number
+}
+
+/** 表里有事件、却没有终帧、本进程也没开着它的日志的轮。 */
+async function unterminatedTurns(conversationId: string): Promise<UnterminatedTurn[]> {
+  const events = schema.agent_turn_events
+  const rows = await db
+    .select({
+      turnId: events.turn_id,
+      firstAt: sql<string>`min(${events.created_at})`,
+      lastAt: sql<string>`max(${events.created_at})`,
+    })
+    .from(events)
+    .where(eq(events.conversation_id, conversationId))
+    .groupBy(events.turn_id)
+    .having(sql`bool_and(${events.event}->>'type' <> 'turnEnd')`)
+  return rows
+    .filter((row) => !openLogs.has(logKey(conversationId, row.turnId)))
+    .map((row) => ({
+      turnId: row.turnId,
+      firstAt: new Date(row.firstAt).getTime(),
+      lastAt: new Date(row.lastAt).getTime(),
+    }))
+}
+
+/**
+ * 给没收尾的轮补写终帧。页脚已经落了（进程死在发终帧之前）就照它补，
+ * 否则按失败补并把页脚一起落上：刷新后的面板与续播看到的是同一个结局。
+ */
+async function writeSeals(conversationId: string, turns: readonly UnterminatedTurn[]) {
+  for (const turn of turns) {
+    const [summary] = await db
+      .select()
+      .from(schema.agent_turns)
+      .where(
+        and(
+          eq(schema.agent_turns.conversation_id, conversationId),
+          eq(schema.agent_turns.turn_id, turn.turnId),
+        ),
+      )
+    const durationMs = summary?.duration_ms ?? Math.max(turn.lastAt - turn.firstAt, 0)
+    const event: AgentTurnEndEvent = summary
+      ? {
+          type: 'turnEnd',
+          turnId: turn.turnId,
+          durationMs,
+          stopReason: summary.stop_reason,
+          usage: null,
+          ...(summary.cost ? { cost: summary.cost } : {}),
+        }
+      : {
+          type: 'turnEnd',
+          turnId: turn.turnId,
+          durationMs,
+          stopReason: 'failed',
+          error: 'agent_run_failed',
+          usage: null,
+        }
+    if (!summary) {
+      await db
+        .insert(schema.agent_turns)
+        .values({
+          conversation_id: conversationId,
+          turn_id: turn.turnId,
+          duration_ms: durationMs,
+          stop_reason: 'failed',
+          created_at: Date.now(),
+        })
+        .onConflictDoNothing()
+    }
+    const seq = (await lastConversationEventSeq(conversationId)) + SEAL_SEQ_GAP
+    await appendAgentTurnEvents(conversationId, turn.turnId, [{ seq, event }])
+    log.warn(
+      { event: 'agent.turn_sealed', conversationId, turnId: turn.turnId },
+      'interrupted turn sealed with a terminal event',
+    )
+  }
+}
+
+/**
+ * 服务端补写终帧：进程被杀、租约过期、收尾本身失败的轮没有 `turnEnd`，续播会一直等下去。
+ * 写之前领会话租约，与起轮用同一把——在跑的轮（本机或别的实例）占着租约，领不到就什么都不写，
+ * 所以补写的序号不会与进行中那一轮的内存序号撞车。`owned` 表示调用方已经持有租约（起轮时）。
+ */
+export async function sealAbandonedTurns(conversationId: string, owned = false): Promise<void> {
+  const found = await unterminatedTurns(conversationId)
+  if (found.length === 0) return
+  if (owned) {
+    await writeSeals(conversationId, found)
+    return
+  }
+  const sealId = `${SEAL_LEASE_PREFIX}${crypto.randomUUID()}`
+  if (!(await claimConversation(conversationId, sealId))) return
+  try {
+    // 领到之后重查：领之前那一轮可能刚好自己收了尾。
+    await writeSeals(conversationId, await unterminatedTurns(conversationId))
+  } finally {
+    await releaseConversation(conversationId, sealId)
+  }
 }
