@@ -248,7 +248,7 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations/:id/messages/:messageId/references/:index',
-    async ({ params, headers, authUser, status }) => {
+    async ({ params, query, headers, authUser, status }) => {
       const conversation = await findAgentConversation(
         params.id,
         ownerOf(authUser, headers[DEVICE_ID_HEADER]),
@@ -273,15 +273,21 @@ export const agentRoutes = new Elysia()
       if (!reference) return status(404, { error: 'reference_not_found' })
       try {
         const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
-        const thumbnail = await sharp(await store.read(reference.image.object))
-          .rotate()
-          .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toBuffer()
-        return new Response(thumbnail, {
+        const original = query.variant === 'original'
+        const bytes = await store.read(reference.image.object)
+        const image = original
+          ? bytes
+          : await sharp(bytes)
+              .rotate()
+              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+              .webp({ quality: 80 })
+              .toBuffer()
+        return new Response(image, {
           headers: {
-            'content-type': 'image/webp',
+            'content-type': original ? reference.image.mime : 'image/webp',
             'cache-control': 'private, max-age=31536000, immutable',
+            'content-security-policy': "default-src 'none'; sandbox",
+            'x-content-type-options': 'nosniff',
             vary: `Cookie, ${DEVICE_ID_HEADER}`,
           },
         })
@@ -294,6 +300,9 @@ export const agentRoutes = new Elysia()
         id: t.String(),
         messageId: t.String(),
         index: t.Integer({ minimum: 0, maximum: AGENT_TURN_MAX_REFERENCES - 1 }),
+      }),
+      query: t.Object({
+        variant: t.Optional(t.Union([t.Literal('thumbnail'), t.Literal('original')])),
       }),
       headers: deviceIdHeaderSchema(),
     },
