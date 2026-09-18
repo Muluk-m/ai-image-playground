@@ -197,8 +197,9 @@ describe('estimateTurnInputTokens', () => {
  * （三个档位参数各多一句「填不了就照原话填，工具会告诉你做得到什么」）。
  * 改成后台任务后说明里多了「提交后立即返回、结果尚未就绪」，从 419 长到 446。
  * 加上「成功后要不要唤醒复核」的参数后长到 497。
+ * 加上参考图列表（referenceImageIds）后长到 576。
  */
-const VIDEO_DECLARATION_TOKENS = 497
+const VIDEO_DECLARATION_TOKENS = 576
 
 /** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
 describe('tool declarations in the estimate', () => {
