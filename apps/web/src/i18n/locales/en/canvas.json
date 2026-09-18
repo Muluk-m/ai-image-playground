@@ -151,7 +151,8 @@
     "copySuffix": "Local recovery copy",
     "conflictHelp": "This project was changed on two devices. Your local changes will be saved as a separate recovery copy before using the cloud version.",
     "useCloud": "Use cloud version",
-    "saveCopy": "Save local version as a project"
+    "saveCopy": "Save local version as a project",
+    "deleted": "Project deleted"
   },
   "welcome": {
     "aria": "Start a new project",
@@ -204,5 +205,15 @@
     "editText": "Edit text",
     "edit": "Edit",
     "imageActions": "Image actions"
+  },
+  "trash": {
+    "title": "Recycle bin",
+    "back": "Back to projects",
+    "help": "Restore canvases and conversations before expiry. Recycled content still counts toward cloud storage. Unsynced local edits are preserved.",
+    "empty": "The recycle bin is empty",
+    "until": "Restorable until {{date}}",
+    "localEdits": "Save local edits as new project",
+    "restore": "Restore",
+    "deleteMessage": "Move “{{name}}” to the cloud recycle bin? It will disappear on your other devices and can be restored before expiry."
   }
 }

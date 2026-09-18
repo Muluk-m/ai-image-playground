@@ -33,6 +33,7 @@ export async function reserveProjectOutputs(
       ),
     )
   if (!project) return
+  if (project.deleted_at != null) throw new Error('project_deleted')
   const right = Math.max(
     0,
     ...project.document.elements.map((element) =>
@@ -105,7 +106,7 @@ export async function publishProjectOutputs(
         eq(schema.canvas_projects.user_id, userId),
       ),
     )
-  if (!project) return
+  if (!project || project.deleted_at != null) return
   const mediaIds = links.filter((link) => link.role === 'output').map((link) => link.mediaId)
   const media = mediaIds.length
     ? await tx

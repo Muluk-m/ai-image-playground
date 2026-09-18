@@ -2,6 +2,7 @@ import { afterAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = await resetTestDatabase('bff_cloud_projects')
@@ -244,4 +245,74 @@ it('单击画笔产生的圆点可连同文字恢复，箭头仍需两个端点'
       })
     ).status,
   ).toBe(400)
+})
+
+it('另一设备删除后旧请求不复活项目，回收恢复保留内容并使旧修订失效', async () => {
+  const id = crypto.randomUUID()
+  const original = { requestId: crypto.randomUUID(), baseRevision: 0, name: '回收项目', document }
+  await request(`/${id}`, deviceA, original)
+  const lifecycle = (action: 'delete' | 'restore', cookie = deviceB) =>
+    app.handle(
+      new Request(`http://localhost/api/projects/${id}${action === 'restore' ? '/restore' : ''}`, {
+        method: action === 'restore' ? 'POST' : 'DELETE',
+        headers: { cookie },
+      }),
+    )
+  expect((await lifecycle('delete')).status).toBe(200)
+  expect((await request('', deviceA)).status).toBe(200)
+  expect((await (await request('', deviceA)).json()).projects).toHaveLength(0)
+  expect((await request(`/${id}`, deviceA)).status).toBe(410)
+  expect((await request(`/${id}`, deviceA, original)).status).toBe(410)
+  const trash = await (await request('/trash', deviceA)).json()
+  expect(trash.projects).toHaveLength(1)
+  expect(trash.projects[0]).toMatchObject({ id, name: '回收项目' })
+  expect(trash.projects[0].restoreUntil - trash.projects[0].deletedAt).toBe(30 * 86400000)
+  expect((await lifecycle('restore', '')).status).toBe(401)
+  expect((await lifecycle('restore')).status).toBe(200)
+  expect(await (await request(`/${id}`, deviceA)).json()).toMatchObject({
+    id,
+    document,
+    revision: 3,
+  })
+  expect((await request(`/${id}`, deviceA, original)).status).toBe(409)
+  expect((await (await request('/trash', deviceA)).json()).projects).toHaveLength(0)
+})
+
+it('回收项目仍占数量配额；过期项目不可恢复，旧目录游标仍返回墓碑', async () => {
+  const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()].sort()
+  const write = { requestId: crypto.randomUUID(), baseRevision: 0, name: '容量', document }
+  for (const id of ids)
+    await request(`/${id}`, deviceA, { ...write, requestId: crypto.randomUUID() })
+  const before = await (await request('?limit=1', deviceA)).json()
+  const id = ids[0]!
+  expect(
+    (
+      await app.handle(
+        new Request(`http://localhost/api/projects/${id}`, {
+          method: 'DELETE',
+          headers: { cookie: deviceB },
+        }),
+      )
+    ).status,
+  ).toBe(200)
+  expect((await request(`/${crypto.randomUUID()}`, deviceA, write)).status).toBe(413)
+  await db
+    .update(schema.canvas_projects)
+    .set({ restore_until: Date.now() - 1000 })
+    .where(eq(schema.canvas_projects.id, id))
+  expect(
+    (
+      await app.handle(
+        new Request(`http://localhost/api/projects/${id}/restore`, {
+          method: 'POST',
+          headers: { cookie: deviceB },
+        }),
+      )
+    ).status,
+  ).toBe(410)
+  expect((await request(`/${id}`, deviceA, write)).status).toBe(410)
+  expect((await (await request('/trash', deviceA)).json()).projects).toHaveLength(0)
+  const continued = await (await request(`?cursor=${before.nextCursor}`, deviceA)).json()
+  expect(continued.deletedIds).toContain(id)
+  expect(continued.projects.map((one: { id: string }) => one.id)).not.toContain(id)
 })

@@ -32,6 +32,7 @@ async function withSyncSlot(work: () => Promise<void>) {
   }
 }
 export type ProjectSyncStatus =
+  | 'deleted'
   | 'loading'
   | 'pending'
   | 'local'
@@ -49,6 +50,7 @@ export type ProjectSyncStatus =
   | 'format-error'
 
 type SyncMessage =
+  | 'errors:projectSync.project_deleted'
   | 'errors:projectSync.recovery_changed'
   | 'errors:projectSync.recovery_copy_failed'
   | 'errors:projectSync.local_save_failed'
@@ -68,6 +70,7 @@ function classifyFailure(error: unknown): { status: ProjectSyncStatus; message: 
       : undefined
   if (error instanceof Error && error.message === 'local_save_failed')
     return { status: 'local-error', message: 'errors:projectSync.local_save_failed' }
+  if (status === 410) return { status: 'deleted', message: 'errors:projectSync.project_deleted' }
   if (status === 401) return { status: 'auth-error', message: 'errors:projectSync.unauthorized' }
   if (status === 403 || status === 404)
     return { status: 'permission-error', message: 'errors:projectSync.project_not_found' }
@@ -90,6 +93,7 @@ function classifyFailure(error: unknown): { status: ProjectSyncStatus; message: 
   return { status: 'error', message: 'errors:projectSync.fallback' }
 }
 const STOPPED = new Set<ProjectSyncStatus>([
+  'deleted',
   'conflict',
   'local-error',
   'auth-error',
@@ -229,7 +233,7 @@ export class CloudProjectSession {
   refresh(force = false): Promise<void> {
     if (
       (!force && Date.now() - this.lastCheck < 5000) ||
-      STOPPED.has(this.state.status) ||
+      (STOPPED.has(this.state.status) && this.state.status !== 'deleted') ||
       this.state.status === 'error'
     )
       return Promise.resolve()
@@ -264,12 +268,37 @@ export class CloudProjectSession {
         false,
       )
     this.current()
+    if (navigator.onLine === false && this.baseline.deleted) {
+      await this.markDeleted()
+      return
+    }
     if (navigator.onLine === false && hasLocalScene && this.baseline.savedContent !== null) {
       this.writable = true
       this.readRequired = true
       await this.persist()
       this.update('offline')
       return
+    }
+    if (this.baseline.deleted) {
+      try {
+        await getCloudProject(this.project.id, this.controller.signal)
+        this.current()
+        this.baseline.deleted = false
+        const local = this.document()
+        this.baseline.conflict = Boolean(
+          this.baseline.pending ||
+            (hasLocalScene &&
+              (this.baseline.savedContent === null
+                ? this.editor.doc.elements.length > 0
+                : !local || content(this.project.name, local) !== this.baseline.savedContent)),
+        )
+      } catch (error) {
+        if (error instanceof ProjectRequestError && error.status === 410) {
+          await this.markDeleted()
+          return
+        }
+        throw error
+      }
     }
     const local = this.document()
     // Preserve local media while it is being confirmed; never replace it with a remote structure.
@@ -349,6 +378,10 @@ export class CloudProjectSession {
       )
     } catch (error) {
       this.current()
+      if (error instanceof ProjectRequestError && error.status === 410) {
+        await this.markDeleted()
+        return
+      }
       const failure = classifyFailure(error)
       if (hasLocalScene && this.baseline.savedContent !== null && failure.status === 'error') {
         this.writable = true
@@ -358,6 +391,16 @@ export class CloudProjectSession {
       this.update(failure.status === 'error' ? 'load-error' : failure.status, failure.message)
       throw error
     }
+  }
+  private async markDeleted() {
+    this.baseline.deleted = true
+    clearTimeout(this.timer)
+    this.timer = undefined
+    await this.persist()
+    await this.metadata({
+      cloud: { ...this.project.cloud, revision: this.baseline.revision, deleted: true },
+    })
+    this.update('deleted', 'errors:projectSync.project_deleted')
   }
   markChanged() {
     this.editVersion++
@@ -426,6 +469,10 @@ export class CloudProjectSession {
   }
   private async push(): Promise<void> {
     this.current()
+    if (this.baseline.deleted) {
+      this.update('deleted', 'errors:projectSync.project_deleted')
+      return
+    }
     if (!this.writable) throw new Error('project_not_loaded')
     if (this.baseline.conflict) {
       this.update('conflict', 'errors:projectSync.project_conflict')
@@ -471,7 +518,9 @@ export class CloudProjectSession {
       )
     } catch (error) {
       this.current()
-      if (error instanceof ProjectRequestError && error.status === 409) {
+      if (error instanceof ProjectRequestError && error.status === 410) {
+        await this.markDeleted()
+      } else if (error instanceof ProjectRequestError && error.status === 409) {
         this.baseline.conflict = true
         await this.persist()
         this.update('conflict', 'errors:projectSync.project_conflict')
@@ -495,7 +544,8 @@ export class CloudProjectSession {
     let copy: CanvasProject | undefined
     await this.serialize(async () => {
       this.current()
-      if (!this.baseline.conflict) return
+      if (!this.baseline.conflict && !this.baseline.deleted) return
+      if (this.baseline.deleted && choice === 'cloud') return
       const remote =
         choice === 'cloud'
           ? await getCloudProject(this.project.id, this.controller.signal).catch(

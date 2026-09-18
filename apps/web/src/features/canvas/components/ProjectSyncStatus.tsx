@@ -4,6 +4,7 @@ import { useTranslation } from '../../../i18n'
 import type { CloudProjectSession, ProjectSyncStatus } from '../lib/cloudProjects'
 
 const LABEL_KEY = {
+  deleted: 'sync.deleted',
   loading: 'sync.loading',
   'local-error': 'sync.localError',
   'auth-error': 'sync.authError',
@@ -59,19 +60,21 @@ export default function ProjectSyncStatus({ session }: { session: CloudProjectSe
           {t('sync.retry')}
         </Button>
       )}
-      {state.status === 'conflict' && (
+      {(state.status === 'conflict' || state.status === 'deleted') && (
         <div className="mt-2 space-y-2">
-          <p>{t('sync.conflictHelp')}</p>
+          {state.status === 'conflict' && <p>{t('sync.conflictHelp')}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              disabled={resolving}
-              variant="outline"
-              size="sm"
-              onClick={() => void resolve('cloud')}
-            >
-              {t('sync.useCloud')}
-            </Button>
+            {state.status === 'conflict' && (
+              <Button
+                type="button"
+                disabled={resolving}
+                variant="outline"
+                size="sm"
+                onClick={() => void resolve('cloud')}
+              >
+                {t('sync.useCloud')}
+              </Button>
+            )}
             <Button
               type="button"
               disabled={resolving}

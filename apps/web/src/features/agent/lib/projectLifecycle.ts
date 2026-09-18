@@ -1,7 +1,9 @@
 import { scopedStorageName } from '../../../lib/authScope'
 import {
   cloudProjectsEnabled,
+  deleteCloudProject,
   ensureCloudProjectConversation,
+  ProjectRequestError,
 } from '../../canvas/lib/projectClient'
 import {
   canvasSceneKey,
@@ -107,10 +109,8 @@ export async function deleteProject(
   const projects = useCanvasProjectStore.getState()
   const project = projects.projects.find((one) => one.id === projectId)
   if (!project) return { ok: false, reason: 'not_found' }
-  // 云端项目只能在云端删：本机这一套只销毁本机存档，删完服务端那份还在，
-  // 「已删除」就成了一句假话（ADR-0002「回收恢复尚未交付前不开放云端项目删除」、
-  // ADR-0005 决策「本阶段不允许走本地删除流程销毁云端项目」）。
-  if (project.cloud) return { ok: false, reason: 'cloud_project' }
+  if (project.cloud && !cloudProjectsEnabled()) return { ok: false, reason: 'cloud_project' }
+  const scope = scopedStorageName('canvas')
   // 正在跑的那一轮还在往这张画布上落东西，连它一起删等于半路抽走目标
   //（ADR-0005 决策「运行中禁止切换、新建或删除当前会话」）。
   if (project.id === projects.activeId && panel.running) return { ok: false, reason: 'busy' }
@@ -120,6 +120,18 @@ export async function deleteProject(
   try {
     // 画布那边只会抛，这里是把它翻成判别值的唯一一处；同样只停在 `prepareCanvasRemoval` 这一层。
     await prepareCanvasRemoval(project.sceneKey)
+    if (project.cloud) {
+      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      await deleteCloudProject(project.id)
+      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      await useCanvasProjectStore.getState().markDeleted([project.id])
+      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      if (project.id === useCanvasProjectStore.getState().activeId) await panel.replaceCurrent()
+      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      forgetCanvasWorkspace(project.sceneKey)
+      panel.forgetConversation(project.conversationId)
+      return { ok: true }
+    }
     if (project.conversationId && !(await removeIdleConversation(project.conversationId)))
       return { ok: false, reason: 'busy' }
     // 删的是当前项目就先让新项目顶上：界面一刻也不能没有当前项目。
@@ -150,6 +162,7 @@ async function removeIdleConversation(conversationId: string): Promise<boolean> 
 
 /** `prepareCanvasRemoval` 只用抛出报告失败，翻译它的字符串协议在这一处收口。 */
 function failureReason(error: unknown): 'busy' | 'save_failed' | 'failed' {
+  if (error instanceof ProjectRequestError && error.code === 'project_busy') return 'busy'
   const thrown = error instanceof Error ? error.message : ''
   if (thrown === 'busy') return 'busy'
   return thrown === 'save_failed' ? 'save_failed' : 'failed'
