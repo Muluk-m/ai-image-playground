@@ -50,7 +50,7 @@ class GatedObjectStore extends InMemoryObjectStore {
     })
   }
 
-  open(): void {
+  letThrough(): void {
     this.gate = null
     this.release()
   }
@@ -546,7 +546,7 @@ describe('升级为插话', () => {
       returned: [{ id: target.queued.id, text: '带图的一句', references: [reference] }],
     })
 
-    store.open()
+    store.letThrough()
     expect(await (await interjecting).json()).toEqual({ result: 'cancelled' })
     await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
     await Bun.sleep(100)
@@ -568,7 +568,7 @@ describe('升级为插话', () => {
     await waitFor(() => store.events.some((event) => event.startsWith('waiting:')), 3_000)
     first.finish()
     await waitFor(async () => (await snapshot(conversationId)).activeTurn?.turnId !== turnId, 3_000)
-    store.open()
+    store.letThrough()
 
     const { result } = (await (await interjecting).json()) as { result: string }
     expect(['not_running', 'already_consumed']).toContain(result)
