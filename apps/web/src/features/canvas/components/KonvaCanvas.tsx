@@ -29,6 +29,7 @@ import {
   selectionBounds,
 } from '../lib/snapping'
 import { bindCanvasTouch } from '../lib/touchGestures'
+import { useTimelineEditor } from '../timelineEditorStore'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import SelectionInfo from './SelectionInfo'
 import TimelineShape from './TimelineShape'
@@ -141,6 +142,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       const t = e.target as HTMLElement | null
       return (
         doc.editingTextId !== null ||
+        // 全屏编辑时间线时，画布整个让位：它的 Delete / ⌘Z 会删掉或撤掉正在编辑的那条。
+        useTimelineEditor.getState().openId !== null ||
         t?.tagName === 'INPUT' ||
         t?.tagName === 'TEXTAREA' ||
         t?.isContentEditable

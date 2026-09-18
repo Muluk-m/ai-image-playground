@@ -5,6 +5,7 @@ import {
   Download,
   FastForward,
   Film,
+  Pencil,
   RotateCcw,
   WandSparkles,
 } from 'lucide-react'
@@ -28,6 +29,7 @@ import {
 import type { CanvasEditor } from '../lib/editor'
 import { Box } from '../lib/geometry'
 import { addSelectionToTimeline, isTimelineSource } from '../lib/timeline'
+import { useTimelineEditor } from '../timelineEditorStore'
 
 /** 工具条浮在视频上沿之上这么高；贴到视口顶时改放在视频下沿之下，不压住视频本身。 */
 const TOOLBAR_OFFSET = 44
@@ -124,6 +126,39 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
     const videos = selected.filter(isTimelineSource)
     const timelines = selected.filter((el) => el?.type === 'timeline')
     const onlyVideos = selected.every((el) => isTimelineSource(el) || el?.type === 'timeline')
+    // 单选一条时间线：给一个「编辑」入口，双击在触屏上不好找。
+    const lone = selected.length === 1 && selected[0]?.type === 'timeline' ? selected[0] : null
+    if (lone && editor.doc.tool === 'select') {
+      const box = editor.getElementPageBounds(lone.id)
+      if (!box) return popover || null
+      const { camera } = editor.doc
+      const loneTop = (box.y - camera.y) * camera.zoom
+      return (
+        <>
+          <div
+            role="toolbar"
+            aria-label={t('timeline.title')}
+            className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
+            style={{
+              left: Math.max(8, (box.x - camera.x) * camera.zoom),
+              top:
+                loneTop - TOOLBAR_OFFSET >= 8
+                  ? loneTop - TOOLBAR_OFFSET
+                  : (box.maxY - camera.y) * camera.zoom + 8,
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <ToolbarButton
+              icon={<Pencil />}
+              label={t('timeline.edit')}
+              onClick={() => useTimelineEditor.getState().open(lone.id)}
+            />
+          </div>
+          {popover}
+        </>
+      )
+    }
     if (editor.doc.tool !== 'select' || videos.length === 0 || timelines.length > 1 || !onlyVideos)
       return popover || null
     const boxes = editor

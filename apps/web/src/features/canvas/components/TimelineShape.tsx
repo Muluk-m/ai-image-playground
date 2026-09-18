@@ -4,6 +4,7 @@ import { Group, Image as KImage, Rect, Text } from 'react-konva'
 import type { CanvasDoc, TimelineEl } from '../lib/canvasDoc'
 import { getLoadedImage } from '../lib/imageCache'
 import { TIMELINE_PADDING, timelineSeconds, timelineSegments } from '../lib/timeline'
+import { useTimelineEditor } from '../timelineEditorStore'
 
 /** 片段缩略图所在那一条的上下留白与高度（页面单位）。 */
 const STRIP_TOP = 28
@@ -40,7 +41,13 @@ export default function TimelineShape({
   const segments = timelineSegments(el.clips, lookup)
   const total = timelineSeconds(el.clips, lookup)
   return (
-    <Group {...common} x={el.x} y={el.y}>
+    <Group
+      {...common}
+      x={el.x}
+      y={el.y}
+      onDblClick={() => useTimelineEditor.getState().open(el.id)}
+      onDblTap={() => useTimelineEditor.getState().open(el.id)}
+    >
       <Rect
         width={el.width}
         height={el.height}
