@@ -302,8 +302,8 @@
     "title_other": "用 {{count}} 张图生成视频",
     "hint": "按画布从左到右排好了，可拖动调整。每张可标成首帧、尾帧或参考图；参考图在描述里按「图片1、图片2」提到。",
     "listAria": "输入图",
-    "roleAria": "图{{no}} 的用法",
-    "moveUp": "图{{no}} 前移",
+    "roleAria": "第 {{no}} 张的用法",
+    "moveUp": "第 {{no}} 张前移",
     "role": {
       "reference": "参考图",
       "first": "首帧",

@@ -309,8 +309,8 @@
     "title_other": "Make a video from {{count}} images",
     "hint": "Ordered left to right as on the canvas; drag to reorder. Mark each as the first frame, last frame or a reference, and mention references as Image 1, Image 2 in the description.",
     "listAria": "Input images",
-    "roleAria": "How image {{no}} is used",
-    "moveUp": "Move image {{no}} up",
+    "roleAria": "How input {{no}} is used",
+    "moveUp": "Move input {{no}} up",
     "role": {
       "reference": "Reference",
       "first": "First frame",

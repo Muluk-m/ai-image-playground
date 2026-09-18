@@ -923,6 +923,7 @@ function buildArkVideoBody(
       ...frame('first_frame', video.first_frame_index),
       ...frame('last_frame', video.last_frame_index),
       // 提示词里的「图片 n」按 content 里 image_url 的顺序数，所以参考图保持用户排好的顺序。
+      // 这依赖矩阵里 Seedance 的 withFrames:false：帧与参考图同时出现时，帧会占掉前面的编号。
       ...videoReferences(request, video).map((url) => ({
         type: 'image_url',
         image_url: { url },
