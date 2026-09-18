@@ -67,6 +67,7 @@
     "image": "Image",
     "video": "Video",
     "failed": "Turn failed",
+    "interrupted": "Interrupted, resumed automatically",
     "stopped": "Stopped",
     "noCredits": "No credits used"
   },

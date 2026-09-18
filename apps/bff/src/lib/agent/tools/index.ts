@@ -1,8 +1,11 @@
-import type { AgentTool } from '@earendil-works/pi-agent-core'
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import type {
+  AgentBackgroundJob,
   AgentMode,
+  AgentToolCallSnapshot,
   AgentToolErrorCode,
   AgentToolName,
+  AgentToolResultBlock,
   AgentTurnParams,
 } from '@image-playground/shared'
 import { clarificationTool } from '../clarification'
@@ -19,12 +22,25 @@ import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import { readLibrary } from './readLibrary'
-import type { AgentToolContext, AgentToolDeclaration, AgentToolSpec } from './types'
+import type {
+  AgentReplayedSubmission,
+  AgentSubmissionReplay,
+  AgentToolContext,
+  AgentToolDeclaration,
+  AgentToolDetails,
+  AgentToolSpec,
+} from './types'
 
 export type { AgentToolOutcome, AgentToolStart } from './adapter'
 export { agentToolStage } from './adapter'
 export { createToolFailureLog, type ToolFailureLog } from './errors'
-export type { AgentToolContext, AgentToolDeclaration, AgentToolDetails } from './types'
+export type {
+  AgentReplayedSubmission,
+  AgentSubmissionReplay,
+  AgentToolContext,
+  AgentToolDeclaration,
+  AgentToolDetails,
+} from './types'
 
 const TOOLS: readonly AgentToolSpec[] = [
   generateImage,
@@ -69,10 +85,12 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
       return {
         ...tool,
         execute: async (...args: Parameters<typeof execute>) => {
-          const [toolCallId, , signal] = args
+          const [toolCallId, params, signal] = args
           failures?.started(toolCallId)
           try {
             await context.assertExecution?.()
+            const replayed = context.replay && replayedJob(spec, context, params)
+            if (replayed) return replayed
             return await execute(...args)
           } catch (thrown) {
             // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
@@ -84,6 +102,78 @@ export function agentTurnTools(context: AgentToolContext, failures?: ToolFailure
     }),
     clarificationTool,
   ]
+}
+
+/**
+ * 一次提交调用的幂等键：工具名加上起跑快照里的参数，参数里引用的图换成真实 id——同一张图在两轮
+ * 里的编号可能不同，真实 id 不变。`args` 是快照形状的参数，`imageIds` 与它引用的图一一对应。
+ */
+export function agentSubmissionKey(
+  toolName: AgentToolName,
+  mode: AgentMode,
+  args: unknown,
+  imageIds: readonly string[] | undefined,
+): string {
+  const references = find(toolName)?.call(args, mode).references ?? []
+  const ids = new Map<string, string>()
+  references.forEach((reference, index) => {
+    const id = imageIds?.[index]
+    if (id) ids.set(reference, id)
+  })
+  return JSON.stringify([toolName, canonicalArgs(args, ids)])
+}
+
+function canonicalArgs(value: unknown, ids: ReadonlyMap<string, string>): unknown {
+  if (typeof value === 'string') return ids.get(value) ?? value
+  if (Array.isArray(value)) return value.map((one) => canonicalArgs(one, ids))
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, one]) => one !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, one]) => [key, canonicalArgs(one, ids)]),
+    )
+  return value
+}
+
+/** 续跑轮的提交去重：每个已提交的任务只抵掉一次同样的调用，之后同样的调用照常提交。 */
+export function createSubmissionReplay(
+  submissions: readonly AgentReplayedSubmission[],
+): AgentSubmissionReplay {
+  const left = [...submissions]
+  return {
+    take(key) {
+      const at = left.findIndex((one) => one.key === key)
+      if (at < 0) return undefined
+      return left.splice(at, 1)[0]!.job
+    },
+  }
+}
+
+/** 这次调用与被打断那一轮已经提交的一次相同：不再提交，交回那个任务。 */
+function replayedJob(
+  spec: AgentToolSpec,
+  context: AgentToolContext,
+  args: unknown,
+): AgentToolResult<AgentToolDetails> | undefined {
+  if (!spec.snapshot || !context.replay) return undefined
+  const snapshot = spec.snapshot(args, context.mode, context.params)
+  const imageIds = spec
+    .call(args, context.mode)
+    .references?.map((reference) => context.images.identify(reference))
+  const job = context.replay.take(
+    agentSubmissionKey(spec.name, snapshot.mode, snapshot.args, imageIds),
+  )
+  if (!job) return undefined
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `这次调用与被打断的那一轮已经提交的后台任务完全相同，没有重复提交。任务仍在后台进行，完成后自动放到用户的画布上；结果出来之前不要说已经生成好。任务 id：${job.taskId}`,
+      },
+    ],
+    details: { job },
+  }
 }
 
 /**
@@ -131,6 +221,34 @@ export function agentToolStart(
     ...(anchorObjectId ? { anchorObjectId } : {}),
     ...(snapshot ? { snapshot: { ...snapshot, ...(imageIds?.length ? { imageIds } : {}) } } : {}),
   }
+}
+
+/**
+ * 起跑时落库的参数快照还原出的自述：轮在工具半截被打断、结果卡没来得及写时，补写结果卡用它。
+ * 快照里的图片已经是真实 id，不必再过一遍本轮的图片表；锚点那时没记下，就近落。
+ */
+export function agentToolStartFromSnapshot(
+  toolName: AgentToolName,
+  toolCallId: string,
+  snapshot: AgentToolCallSnapshot,
+): AgentToolStart {
+  const call = find(toolName)?.call(snapshot.args, snapshot.mode)
+  return {
+    toolCallId,
+    toolName,
+    title: call?.title ?? toolName,
+    ...(call?.prompt ? { prompt: call.prompt } : {}),
+    ...(call?.outputCount ? { outputCount: call.outputCount } : {}),
+    snapshot,
+  }
+}
+
+/** 已经提交了后台任务的那次调用的结果卡，与工具正常收尾时写的是同一个形状。 */
+export function agentToolSubmittedBlock(
+  start: AgentToolStart,
+  job: AgentBackgroundJob,
+): AgentToolResultBlock {
+  return toolResultBlock(start, { content: [], details: { job } }, null)
 }
 
 /** 工具收尾这一刻：下发与落库的结果块，外加这次失败要不要把整轮停下。 */

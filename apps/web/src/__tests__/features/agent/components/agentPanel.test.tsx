@@ -1080,6 +1080,34 @@ describe('AgentPanel', () => {
     expect(host.textContent).not.toContain('本轮免费')
   })
 
+  it('被服务重启打断、已自动续上的轮标明已中断，不报失败', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 12_000,
+          stopReason: 'failed',
+          error: 'agent_turn_interrupted',
+          cost: { chat: 0, image: 0, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.textContent).toContain('已中断，已自动续上')
+    expect(host.textContent).not.toContain('本轮失败')
+  })
+
   it('停止的轮留下说了一半的回复，页脚标明已停止而不是失败', () => {
     useAgentStore.setState({
       messages: [

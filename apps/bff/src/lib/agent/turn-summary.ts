@@ -3,8 +3,11 @@ import type {
   AgentTurnStopReason,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { agentResumeKey } from './inbox'
+
+const inbox = schema.agent_inbox
 
 export interface AgentTurnSummaryRecord {
   readonly conversationId: string
@@ -53,6 +56,8 @@ export async function listAgentTurnSummaries(
       stopReason: schema.agent_turns.stop_reason,
       cost: schema.agent_turns.cost,
       createdAt: schema.agent_turns.created_at,
+      // 被打断的轮排过一次中断续跑：页脚标「已中断」而不是「失败」。
+      resumed: sql<boolean>`EXISTS (SELECT 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${schema.agent_turns.conversation_id} AND ${inbox.client_message_id} = ${agentResumeKey('')} || ${schema.agent_turns.turn_id})`,
     })
     .from(schema.agent_turns)
     .where(eq(schema.agent_turns.conversation_id, conversationId))
@@ -61,6 +66,9 @@ export async function listAgentTurnSummaries(
     turnId: row.turnId,
     durationMs: row.durationMs,
     stopReason: row.stopReason,
+    ...(row.stopReason === 'failed' && row.resumed
+      ? { error: 'agent_turn_interrupted' as const }
+      : {}),
     ...(row.cost ? { cost: row.cost } : {}),
   }))
 }

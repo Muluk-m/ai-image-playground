@@ -355,7 +355,26 @@ export interface AgentInboxTaskResultPayload {
   readonly deviceId: string
 }
 
-export type AgentInboxPayload = AgentInboxUserMessagePayload | AgentInboxTaskResultPayload
+/**
+ * 收件箱里一条中断续跑的载荷（`kind` 为 `system_event`）：`interruptedTurnId` 那一轮被服务重启或
+ * 执行者接管打断了，要再起一轮接着做。创作类型、参数与计日配额的设备沿用被打断的那一轮。
+ */
+export interface AgentInboxResumePayload {
+  readonly interruptedTurnId: string
+  readonly deviceId: string
+  readonly mode?: AgentMode
+  readonly params?: AgentTurnParams
+  /**
+   * 被打断的是一轮唤醒：它当时要处理的那一批（提交它们的轮与任务）。续跑照这一批接着处理，
+   * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
+   */
+  readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds'>
+}
+
+export type AgentInboxPayload =
+  | AgentInboxUserMessagePayload
+  | AgentInboxTaskResultPayload
+  | AgentInboxResumePayload
 
 /**
  * 会话收件箱：智能体还没取走的东西。忙时用户发的话排在这里，按 `seq` 在当前回复可以结束时

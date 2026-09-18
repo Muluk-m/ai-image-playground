@@ -7,6 +7,7 @@ import { and, asc, desc, eq, gt, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
 import { claimConversation, releaseConversation } from './execution'
+import { agentResumeQueued, enqueueAgentResume } from './inbox'
 
 /** 落库攒批的窗口。进程被强杀时最多丢这么久的事件，实时那条路走内存缓冲不受影响。 */
 const PERSIST_DEBOUNCE_MS = 50
@@ -356,12 +357,25 @@ async function writeSeals(conversationId: string, turns: readonly UnterminatedTu
         ),
       )
     const durationMs = summary?.duration_ms ?? Math.max(turn.lastAt - turn.firstAt, 0)
+    // 没有页脚：这一轮是被打断的（服务重启、执行者被接管），不是只丢了终帧。先把它提交过的
+    // 后台任务的结果卡补上，再算要不要续一次。动态引入：它静态依赖工具注册表与 pi。
+    const recovery = summary
+      ? null
+      : await import('./interrupted').then((it) =>
+          it.recoverInterruptedTurn(conversationId, turn.turnId),
+        )
+    // 排上了续跑的轮按「已中断」收尾：界面凭这个错误码不把它报成失败（ADR 0006）。页脚先落、
+    // 终帧后补的那种（进程死在两步之间）照收件箱里有没有它的续跑认。
+    const interrupted = summary
+      ? summary.stop_reason === 'failed' && (await agentResumeQueued(conversationId, turn.turnId))
+      : recovery?.resume != null
     const event: AgentTurnEndEvent = summary
       ? {
           type: 'turnEnd',
           turnId: turn.turnId,
           durationMs,
           stopReason: summary.stop_reason,
+          ...(interrupted ? { error: 'agent_turn_interrupted' as const } : {}),
           usage: null,
           ...(summary.cost ? { cost: summary.cost } : {}),
         }
@@ -370,23 +384,40 @@ async function writeSeals(conversationId: string, turns: readonly UnterminatedTu
           turnId: turn.turnId,
           durationMs,
           stopReason: 'failed',
-          error: 'agent_run_failed',
+          error: interrupted ? 'agent_turn_interrupted' : 'agent_run_failed',
           usage: null,
         }
     if (!summary) {
-      await db
-        .insert(schema.agent_turns)
-        .values({
-          conversation_id: conversationId,
-          turn_id: turn.turnId,
-          duration_ms: durationMs,
-          stop_reason: 'failed',
-          created_at: Date.now(),
-        })
-        .onConflictDoNothing()
+      // 续跑与页脚同一个事务写下：有了页脚，之后的补写就再也找不到这一轮，续跑要是没跟着
+      // 一起落下就永远丢了。任一步失败两者都不留，下一次补写从头再来（续跑按轮去重）。
+      const queued = await db.transaction(async (tx) => {
+        const queued = recovery?.resume
+          ? await enqueueAgentResume(conversationId, recovery.resume, Date.now(), tx)
+          : false
+        await tx
+          .insert(schema.agent_turns)
+          .values({
+            conversation_id: conversationId,
+            turn_id: turn.turnId,
+            duration_ms: durationMs,
+            stop_reason: 'failed',
+            created_at: Date.now(),
+          })
+          .onConflictDoNothing()
+        return queued
+      })
+      if (queued)
+        log.info(
+          { event: 'agent.turn_resume_queued', conversationId, turnId: turn.turnId },
+          'interrupted turn queued to resume once',
+        )
     }
     const seq = (await lastConversationEventSeq(conversationId)) + SEAL_SEQ_GAP
-    await appendAgentTurnEvents(conversationId, turn.turnId, [{ seq, event }])
+    const restored = recovery?.events ?? []
+    await appendAgentTurnEvents(conversationId, turn.turnId, [
+      ...restored.map((one, index) => ({ seq: seq + index, event: one })),
+      { seq: seq + restored.length, event },
+    ])
     log.warn(
       { event: 'agent.turn_sealed', conversationId, turnId: turn.turnId },
       'interrupted turn sealed with a terminal event',
@@ -410,6 +441,22 @@ export async function sealAbandonedTurns(conversationId: string, owned = false):
   if (!(await claimConversation(conversationId, sealId))) return
   try {
     // 领到之后重查：领之前那一轮可能刚好自己收了尾。
+    await writeSeals(conversationId, await unterminatedTurns(conversationId))
+  } finally {
+    await releaseConversation(conversationId, sealId)
+  }
+}
+
+/**
+ * 接手一个执行者已经没了的会话：它的执行租约还标着在跑、心跳却早已过期（进程被杀、滚动发布时
+ * 被接管）。领到租约就补写它没收尾的轮（连同排上中断续跑），再放手——即便一条事件都没落下，
+ * 过期的租约也就此清掉，巡查不会每次都回来看它。在跑的轮（本机或别的实例）占着租约，领不到
+ * 就什么都不做。
+ */
+export async function recoverAbandonedExecution(conversationId: string): Promise<void> {
+  const sealId = `${SEAL_LEASE_PREFIX}${crypto.randomUUID()}`
+  if (!(await claimConversation(conversationId, sealId))) return
+  try {
     await writeSeals(conversationId, await unterminatedTurns(conversationId))
   } finally {
     await releaseConversation(conversationId, sealId)

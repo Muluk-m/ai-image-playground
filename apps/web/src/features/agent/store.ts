@@ -499,7 +499,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
           }
         if (event.type === 'turnStart') return { ...panel, activeTurn: { turnId: event.turnId } }
         if (event.type !== 'turnEnd') return panel
-        if (event.stopReason === 'failed') return { ...failPatch(state), turns: panel.turns }
+        // 被打断、已经排上中断续跑的轮不是失败：不出失败横幅，续上的那一轮随后开始（ADR 0006）。
+        if (event.stopReason === 'failed' && event.error !== 'agent_turn_interrupted')
+          return { ...failPatch(state), turns: panel.turns }
         return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
       })
     // 扣费在轮与工具各自收尾时发生，顶栏余额属于用户而不属于某个项目：切了项目之后

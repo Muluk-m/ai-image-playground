@@ -32,6 +32,22 @@ export interface AgentToolContext {
   readonly maskedEditPlan?: MaskedEditPlan
   /** 这一轮用户在参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
+  /**
+   * 中断续跑那一轮才有：被打断那一轮已经提交成后台任务的调用。一模一样的调用再来一次时交回
+   * 那个任务，不再提交（见 `agentTurnTools`）。
+   */
+  readonly replay?: AgentSubmissionReplay
+}
+
+/** 被打断那一轮已经提交的一次调用：按调用内容算出的幂等键，与它提交出的后台任务。 */
+export interface AgentReplayedSubmission {
+  readonly key: string
+  readonly job: AgentBackgroundJob
+}
+
+/** 续跑轮里的提交去重：每个已提交的任务只抵掉一次同样的调用。 */
+export interface AgentSubmissionReplay {
+  take(key: string): AgentBackgroundJob | undefined
 }
 
 /**

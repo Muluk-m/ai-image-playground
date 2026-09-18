@@ -31,6 +31,7 @@ import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
 import {
+  type AgentSubmissionReplay,
   type AgentToolStart,
   agentToolEnd,
   agentToolStage,
@@ -84,6 +85,8 @@ export interface StartAgentTurnInput {
     readonly authorizationPrompt: string
     readonly plan?: MaskedPlanCarry
     readonly reviewImageIds: readonly string[]
+    /** 中断续跑才有：被打断那一轮已经提交的任务，同样的调用再来一次时交回它们（见 `interrupted.ts`）。 */
+    readonly replay?: AgentSubmissionReplay
   }
   /**
    * 并进这一轮的唤醒：用户说话时恰好有后台任务的结果等着智能体看。`text` 跟在用户原话后面
@@ -182,6 +185,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
           maskedEditPlan,
           assertExecution: input.assertExecution,
           ...(input.params ? { params: input.params } : {}),
+          ...(input.wake?.replay ? { replay: input.wake.replay } : {}),
         },
         toolFailures,
       ),

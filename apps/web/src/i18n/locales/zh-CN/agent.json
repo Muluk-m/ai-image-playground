@@ -66,6 +66,7 @@
     "image": "生图",
     "video": "生视频",
     "failed": "本轮失败",
+    "interrupted": "已中断，已自动续上",
     "stopped": "已停止",
     "noCredits": "未扣积分"
   },

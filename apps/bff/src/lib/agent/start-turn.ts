@@ -10,7 +10,7 @@ import {
   AGENT_QUEUE_MAX_PENDING,
   agentConversationTitle,
 } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { bffDrain } from '../drain'
@@ -43,6 +43,7 @@ import {
   failAgentMessage,
   nextAgentInboxEntry,
   pendingAgentWakes,
+  type QueuedResume,
   type QueuedWake,
   skipAgentWake,
 } from './inbox'
@@ -183,20 +184,22 @@ async function drainOnce(
     const result =
       next.kind === 'task_result'
         ? await executeWakeTurn(conversationId, owner, next, turnId, assertOwnership)
-        : await executeConversationTurn(
-            {
-              conversationId,
-              owner,
-              text: next.text,
-              references: next.references,
-              deviceId: next.deviceId,
-              ...(next.mode ? { mode: next.mode } : {}),
-              ...(next.params ? { params: next.params } : {}),
-            },
-            turnId,
-            assertOwnership,
-            { id: next.id, announce: next.id !== options.quietFor },
-          )
+        : next.kind === 'resume'
+          ? await executeResumeTurn(conversationId, owner, next, turnId, assertOwnership)
+          : await executeConversationTurn(
+              {
+                conversationId,
+                owner,
+                text: next.text,
+                references: next.references,
+                deviceId: next.deviceId,
+                ...(next.mode ? { mode: next.mode } : {}),
+                ...(next.params ? { params: next.params } : {}),
+              },
+              turnId,
+              assertOwnership,
+              { id: next.id, announce: next.id !== options.quietFor },
+            )
     if (result.kind === 'started') {
       turn = result.turn
       if (ownershipLost) turn.abort()
@@ -425,6 +428,136 @@ async function consumeMergedWakes(
   turnId: string,
 ): Promise<void> {
   for (const id of merged.ids) await consumeAgentMessage(tx, conversationId, id, turnId)
+}
+
+/**
+ * 中断续跑：被打断的那一轮没说完的已经丢了，再起一轮接着做，只续这一次。与唤醒一样没有用户
+ * 消息可落，模型收到的是一段系统说明；创作类型与参数沿用被打断的那一轮，已提交任务记下的改图
+ * 计划也接着走——已经提交过的编辑不会再提交一次；被打断那一轮提交过的任务按调用内容去重，模型
+ * 再发起同样的调用时交回原任务。被打断的是唤醒轮时，输入照那一批结果取（唤醒说明、授权原文、
+ * 改图计划与要复核的产物）。计费、租约与普通的轮一样。
+ */
+async function executeResumeTurn(
+  conversationId: string,
+  owner: AgentOwner,
+  resume: QueuedResume,
+  turnId: string,
+  assertOwnership: () => Promise<void>,
+): Promise<StartConversationTurnResult> {
+  const userId = owner.kind === 'user' ? owner.userId : null
+  const billed = isCapabilityEnabled('billing:credits')
+  if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
+  const overlayPromise = loadPrivateBffOverlay()
+  const { wake } = resume
+  const [
+    { estimateTurnInputTokens },
+    { startAgentTurn },
+    { resolveAgentMode, createSubmissionReplay },
+    { resumeTurnPrompt, interruptedSubmissions },
+    overlay,
+    history,
+    interruptedJobs,
+  ] = await Promise.all([
+    import('./turn-input'),
+    import('./turn'),
+    import('./tools'),
+    import('./interrupted'),
+    overlayPromise,
+    listAgentMessages(conversationId, owner),
+    turnJobs(conversationId, resume.interruptedTurnId),
+    import('./skills').then((it) => it.ensureAgentSkills()),
+  ])
+  const [plan, submissions] = await Promise.all([
+    // 改图计划接着最近的一次提交走：被打断的是唤醒轮时，先是提交那一批时的，再是它自己提交的。
+    wakePlan([...(wake?.taskIds ?? []), ...interruptedJobs]),
+    interruptedSubmissions(conversationId, resume.interruptedTurnId),
+  ])
+  // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
+  const jobs = wake ? wakeJobs(history, wake.taskIds) : []
+  const setup = wake ? wakeTurnSetup(jobs) : resume
+  const mode = resolveAgentMode(setup.mode ?? 'image')
+  const { params } = setup
+  const selectedModel = agentThinking(params?.thinkingDepth).model
+  const text = resumeTurnPrompt(wake ? wakeTurnPrompt(jobs) : undefined)
+  const reviewImageIds = wakeReviewImageIds(jobs)
+  const deviceId = resume.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
+  const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
+  const chatTask =
+    pricing && userId
+      ? {
+          taskHooks: overlay.taskHooks,
+          conversationId,
+          turnId,
+          userId,
+          deviceId,
+          model: selectedModel,
+          estimatedInputTokens: estimateTurnInputTokens(history, text, [], mode, reviewImageIds),
+          pricing,
+        }
+      : null
+  const written = await withConversationExecution(conversationId, turnId, async (tx) => {
+    if (!(await consumeAgentMessage(tx, conversationId, resume.id, turnId)))
+      throw new TurnStartRollback({ kind: 'withdrawn' })
+    let reserved: ChatTaskReserved | undefined
+    if (chatTask) {
+      const reservation = await reserveChatTask({ tx, ...chatTask })
+      if (reservation.kind !== 'reserved') throw new TurnStartRollback(reservation)
+      reserved = reservation
+    }
+    return { kind: 'reserved' as const, reserved }
+  }).catch((error) => {
+    if (error instanceof TurnStartRollback) return error.result
+    throw error
+  })
+  if (written.kind !== 'reserved') return written
+
+  await assertOwnership()
+  return {
+    kind: 'started',
+    turn: await startAgentTurn({
+      assertExecution: assertOwnership,
+      withExecution: (callback) => withConversationExecution(conversationId, turnId, callback),
+      conversationId,
+      turnId,
+      // 与唤醒一样没有用户消息；界面不为它出用户气泡。
+      userMessageId: `${turnId}:resume`,
+      history,
+      text,
+      references: [],
+      mode,
+      userId,
+      deviceId,
+      ...(params ? { params } : {}),
+      wake: {
+        // 授权原文仍是用户的原话：被打断那一轮的，唤醒轮则是提交那一批的那一轮的。
+        authorizationPrompt: wakeAuthorizationPrompt(
+          history,
+          wake?.turnId ?? resume.interruptedTurnId,
+        ),
+        ...(plan ? { plan } : {}),
+        reviewImageIds,
+        // 被打断那一轮已经提交的任务：同样的调用再来一次时交回它，不再提交。
+        ...(submissions.length > 0 ? { replay: createSubmissionReplay(submissions) } : {}),
+      },
+      reservedCredits: written.reserved?.reservedCredits,
+      settle: written.reserved?.settle,
+    }),
+  }
+}
+
+/** 某一轮提交过的后台任务，按提交先后。 */
+async function turnJobs(conversationId: string, turnId: string): Promise<string[]> {
+  const rows = await db
+    .select({ taskId: schema.agent_jobs.task_id })
+    .from(schema.agent_jobs)
+    .where(
+      and(
+        eq(schema.agent_jobs.conversation_id, conversationId),
+        eq(schema.agent_jobs.turn_id, turnId),
+      ),
+    )
+    .orderBy(asc(schema.agent_jobs.submitted_at))
+  return rows.map((row) => row.taskId)
 }
 
 /** 开不了轮的原因换成界面认得的错误码，与发送时同一情形的 HTTP 错误码一致。 */
