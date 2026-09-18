@@ -10,6 +10,7 @@ import {
   videoDurationsForResolution,
   videoPresetConflicts,
   videoRateMultiplier,
+  videoRequestRejection,
 } from '../video-presets'
 
 const GROK = 'grok-imagine-video'
@@ -291,7 +292,7 @@ describe('validateVideoRequest', () => {
         }),
         1,
       ),
-    ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧' })
+    ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧或参考图' })
   })
 
   it('rejects a mode outside the vocabulary', () => {
@@ -470,5 +471,100 @@ describe('videoPresetConflicts', () => {
             : preset.aspectRatio,
       )
     }
+  })
+})
+
+describe('reference images', () => {
+  const refs = (count: number, from = 0) => Array.from({ length: count }, (_, i) => i + from)
+
+  it('declares Grok as the only model taking reference images, up to 7 at 720p with frames', () => {
+    expect(VIDEO_MODEL_SUPPORT[GROK].referenceImages).toEqual({
+      max: 7,
+      maxResolution: '720p',
+      withFrames: true,
+    })
+    for (const model of [AGNES, SEEDANCE, VEO_FAST, VEO_LITE])
+      expect(VIDEO_MODEL_SUPPORT[model].referenceImages).toBeUndefined()
+  })
+
+  it('accepts reference images alone or next to a first frame on Grok', () => {
+    expect(videoRequestRejection(GROK, request({ reference_image_indices: refs(7) }), 7)).toBeNull()
+    expect(
+      videoRequestRejection(
+        GROK,
+        request({ first_frame_index: 0, reference_image_indices: refs(3, 1) }),
+        4,
+      ),
+    ).toBeNull()
+  })
+
+  it('rejects reference images on a model that does not take them', () => {
+    expect(videoRequestRejection(AGNES, request({ reference_image_indices: [0] }), 1)?.code).toBe(
+      'referenceUnsupported',
+    )
+  })
+
+  it('rejects more reference images than the model takes', () => {
+    const found = videoRequestRejection(GROK, request({ reference_image_indices: refs(8) }), 8)
+    expect(found).toMatchObject({ code: 'referenceTooMany', params: { label: 'Grok', max: 7 } })
+  })
+
+  it('rejects a resolution above the reference cap', () => {
+    const found = videoRequestRejection(
+      GROK,
+      request({ resolution: '1080p', reference_image_indices: [0] }),
+      1,
+    )
+    expect(found).toMatchObject({
+      code: 'referenceResolutionUnsupported',
+      params: { label: 'Grok', resolution: '720p' },
+    })
+  })
+
+  it('rejects frames next to references when the model cannot combine them', () => {
+    VIDEO_MODEL_SUPPORT[CONSTRAINED] = {
+      ...CONSTRAINED_SUPPORT,
+      referenceImages: { max: 3, maxResolution: '1080p', withFrames: false },
+    }
+    try {
+      expect(
+        videoRequestRejection(
+          CONSTRAINED,
+          request({ duration_seconds: 4, first_frame_index: 0, reference_image_indices: [1] }),
+          2,
+        )?.code,
+      ).toBe('referenceFramesRejected')
+    } finally {
+      delete VIDEO_MODEL_SUPPORT[CONSTRAINED]
+    }
+  })
+
+  it('rejects reference indices that miss, repeat or overlap a frame', () => {
+    for (const video of [
+      request({ reference_image_indices: [2] }),
+      request({ reference_image_indices: [0, 0] }),
+      request({ reference_image_indices: [1.5] }),
+      request({ first_frame_index: 0, reference_image_indices: [0] }),
+    ])
+      expect(videoRequestRejection(GROK, video, 2)?.code).toBe('referenceImageMissing')
+  })
+
+  it('treats an empty reference list as none', () => {
+    expect(videoRequestRejection(AGNES, request({ reference_image_indices: [] }), 0)).toBeNull()
+  })
+
+  it('refuses reference images on extend and edit', () => {
+    expect(
+      videoRequestRejection(
+        GROK,
+        request({
+          mode: 'extend',
+          source_task_id: 'task',
+          source_output_index: 0,
+          reference_image_indices: [0],
+        }),
+        1,
+      )?.code,
+    ).toBe('deriveFramesRejected')
   })
 })

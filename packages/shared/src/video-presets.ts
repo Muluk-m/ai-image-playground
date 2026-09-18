@@ -51,11 +51,22 @@ export interface VideoRequest {
   resolution: VideoResolution
   first_frame_index?: number
   last_frame_index?: number
+  /** 参考图在 `input_images` 里的下标，按用户排好的顺序；不与首尾帧重叠。只用于 generate。 */
+  reference_image_indices?: number[]
   /** 默认 generate；extend 从源片最后一帧续写，edit 按提示词改源片。 */
   mode?: VideoMode
   /** 源片：本人已完成的视频任务及其输出下标。extend / edit 必填。 */
   source_task_id?: string
   source_output_index?: number
+}
+
+/** 模型能带几张参考图（全能参考）：主体、道具、场景各一张，由提示词说明怎么用。 */
+export interface VideoReferenceSupport {
+  readonly max: number
+  /** 带参考图时的清晰度上限；上游在这个模式下不出更高的。 */
+  readonly maxResolution: VideoResolution
+  /** 能否同时带首尾帧。 */
+  readonly withFrames: boolean
 }
 
 export interface VideoModelSupport {
@@ -76,6 +87,8 @@ export interface VideoModelSupport {
   readonly extend: boolean
   /** 按提示词改写源片。 */
   readonly edit: boolean
+  /** 缺省即不支持参考图。 */
+  readonly referenceImages?: VideoReferenceSupport
   /** 上游按 token 限描述长度；这里按「一个汉字一个 token」的最坏情况折成字符数。缺省不限。 */
   readonly promptMaxChars?: number
   /** 实测典型耗时，用于生成中卡片的等待提示。 */
@@ -95,6 +108,8 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     lastFrame: false,
     extend: true,
     edit: true,
+    // 只有 1.5 接参考图，BFF 带参考图时切到它；它在这个模式下封顶 720p。
+    referenceImages: { max: 7, maxResolution: '720p', withFrames: true },
     typicalSeconds: 40,
     tagline: '高清',
   },
@@ -174,6 +189,11 @@ export type VideoRejectionCode =
   | 'deriveModeUnsupported'
   | 'deriveFramesRejected'
   | 'deriveSourceMissing'
+  | 'referenceUnsupported'
+  | 'referenceTooMany'
+  | 'referenceResolutionUnsupported'
+  | 'referenceFramesRejected'
+  | 'referenceImageMissing'
 
 /**
  * 渲染驳回文案要的原始数据。这里一律不放译好的词 —— 首帧/尾帧、续写/改视频只给枚举值，
@@ -423,6 +443,47 @@ export function videoRequestRejection(
       return rejection('frameImageMissing', { frame }, `${FRAME_NAMES[frame]}图片不存在`)
   }
 
+  return referenceRejection(support, video, inputImageCount)
+}
+
+function referenceRejection(
+  support: VideoModelSupport,
+  video: VideoRequest,
+  inputImageCount: number,
+): VideoRejection | null {
+  const indices = video.reference_image_indices ?? []
+  if (indices.length === 0) return null
+  const { label } = support
+  const references = support.referenceImages
+  if (!references) return rejection('referenceUnsupported', { label }, `${label} 不支持参考图`)
+  if (indices.length > references.max)
+    return rejection(
+      'referenceTooMany',
+      { label, max: references.max },
+      `${label} 最多 ${references.max} 张参考图`,
+    )
+  if (
+    VIDEO_RESOLUTIONS.indexOf(video.resolution) >
+    VIDEO_RESOLUTIONS.indexOf(references.maxResolution)
+  ) {
+    const resolution = VIDEO_RESOLUTION_LABELS[references.maxResolution]
+    return rejection(
+      'referenceResolutionUnsupported',
+      { label, resolution },
+      `${label} 带参考图时清晰度最高 ${resolution}`,
+    )
+  }
+  const frames = [video.first_frame_index, video.last_frame_index].filter(
+    (index) => index !== undefined,
+  )
+  if (frames.length > 0 && !references.withFrames)
+    return rejection('referenceFramesRejected', { label }, `${label} 参考图不能与首尾帧同时使用`)
+  const seen = new Set<number>(frames)
+  for (const index of indices) {
+    if (!Number.isInteger(index) || index < 0 || index >= inputImageCount || seen.has(index))
+      return rejection('referenceImageMissing', {}, '参考图不存在')
+    seen.add(index)
+  }
   return null
 }
 
@@ -436,8 +497,12 @@ function videoSourceRejection(
   const name = VIDEO_DERIVE_LABELS[mode]
   if (!(mode === 'extend' ? support.extend : support.edit))
     return rejection('deriveModeUnsupported', { label, mode }, `${label} 不支持${name}`)
-  if (video.first_frame_index !== undefined || video.last_frame_index !== undefined)
-    return rejection('deriveFramesRejected', {}, '续写和改视频不接受首尾帧')
+  if (
+    video.first_frame_index !== undefined ||
+    video.last_frame_index !== undefined ||
+    (video.reference_image_indices?.length ?? 0) > 0
+  )
+    return rejection('deriveFramesRejected', {}, '续写和改视频不接受首尾帧或参考图')
   const index = video.source_output_index
   if (!video.source_task_id || index === undefined || !Number.isInteger(index) || index < 0)
     return rejection('deriveSourceMissing', { mode }, `${name}缺少源视频`)

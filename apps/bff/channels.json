@@ -110,7 +110,7 @@
           "id": "grok-imagine-video",
           "label": "Grok Imagine Video",
           "media": "video",
-          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame"]
+          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame", "reference_images"]
         }
       ],
       "defaults": {
