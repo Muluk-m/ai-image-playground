@@ -124,7 +124,8 @@ app.listen(
 // 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
 const stopHeartbeat = startHeartbeat({ service: 'bff' })
 
-// 排队消息的兜底：收尾那个实例正在下线或半路没了时，由这里接着开轮。开机先巡一次。
+// 排队消息与唤醒的兜底：收尾那个实例正在下线或半路没了时由这里接着开轮；worker 写进收件箱的
+// 唤醒、等太久先唤醒的那一批也由这里起轮。开机先巡一次。
 const stopInboxPickup = agentEnabled
   ? (await import('./lib/agent/inbox-pickup')).startInboxPickup()
   : () => {}

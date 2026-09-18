@@ -345,6 +345,19 @@ export interface AgentInboxUserMessagePayload {
 }
 
 /**
+ * 收件箱里一条唤醒的载荷：同一次提交（`turnId` 那一轮）里该让智能体回来看的那几个后台任务。
+ * 失败的一律在列，成功的只有提交时选了复核的才在列。
+ */
+export interface AgentInboxTaskResultPayload {
+  readonly turnId: string
+  readonly taskIds: readonly string[]
+  /** 唤醒轮替谁计日配额：提交这些任务的那台设备。 */
+  readonly deviceId: string
+}
+
+export type AgentInboxPayload = AgentInboxUserMessagePayload | AgentInboxTaskResultPayload
+
+/**
  * 会话收件箱：智能体还没取走的东西。忙时用户发的话排在这里，按 `seq` 在当前回复可以结束时
  * 取，每轮一条。`status` 从 `pending` 走向 `consumed` 或 `cancelled`，两条路由同一条记录上的
  * 原子更新裁决，撤回与处理只有一个成立。轮到时开不了轮的那一条走向 `failed`，`failure` 记下
@@ -364,7 +377,7 @@ export const agent_inbox = pgTable(
       .notNull(),
     status: text('status').$type<AgentQueuedMessageState>().notNull(),
     client_message_id: text('client_message_id'),
-    payload: bunJsonb('payload').$type<AgentInboxUserMessagePayload>().notNull(),
+    payload: bunJsonb('payload').$type<AgentInboxPayload>().notNull(),
     attachments: bunJsonb('attachments').$type<AgentTurnReference[]>(),
     consumed_turn_id: text('consumed_turn_id'),
     failure: text('failure').$type<AgentQueuedMessageFailure>(),
@@ -387,6 +400,45 @@ export const agent_inbox = pgTable(
       'agent_inbox_status_check',
       sql`${t.status} IN ('pending', 'consumed', 'cancelled', 'failed')`,
     ),
+  ],
+)
+
+/**
+ * 提交那一刻智能体的改图计划：授权原文、是否遮罩轮、已提交的内容身份与还没执行的后续编辑。
+ * 唤醒轮接着这份计划走，不另起一份（见 bff 的 `masked-plan.ts`）。
+ */
+export interface AgentJobPlan {
+  readonly authorization: string
+  readonly protected: boolean
+  readonly contents: readonly string[]
+  readonly deferred: readonly string[]
+}
+
+/**
+ * 后台任务登记：智能体工具提交的每个生成任务一行，与任务行在同一个事务里写下，记着智能体提交时
+ * 「成功后要不要回来复核」的选择。执行归任务表，唤醒投递归这里：worker 写终态的同一个事务里
+ * 判断这一批（同一轮提交的那些）能不能唤醒，`delivered_at` 让一批只投递一次；`wake_id` 是它
+ * 随之进了哪一条收件箱记录，没有唤醒（成功且没选复核、被取消）时为空。
+ */
+export const agent_jobs = pgTable(
+  'agent_jobs',
+  {
+    task_id: text('task_id').primaryKey(),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    wake_on_success: boolean('wake_on_success').notNull().default(false),
+    plan: bunJsonb('plan').$type<AgentJobPlan>(),
+    submitted_at: epochMs('submitted_at').notNull(),
+    delivered_at: epochMs('delivered_at'),
+    wake_id: text('wake_id'),
+  },
+  (t) => [
+    index('idx_agent_jobs_undelivered')
+      .on(t.conversation_id, t.turn_id)
+      .where(sql`${t.delivered_at} IS NULL`),
   ],
 )
 

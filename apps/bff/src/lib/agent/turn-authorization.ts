@@ -57,15 +57,20 @@ export interface TurnAuthorization {
   amend(text: string, references: readonly AgentImageReference[]): void
 }
 
-/** 一轮授权原文的完整生命：起轮时定下来，之后只被插话追加。 */
+/**
+ * 一轮授权原文的完整生命：起轮时定下来，之后只被插话追加。唤醒轮没有用户原话，带着提交那一批时
+ * 记下的原文（`carried`）起，原样沿用，不再按历史重拼。
+ */
 export function createTurnAuthorization(input: {
   readonly history: readonly AgentMessageView[]
   readonly prompt: string
   readonly references: readonly AgentImageReference[]
+  readonly carried?: string
 }): TurnAuthorization {
   let authorized: TurnAuthorizationText = {
     revision: 0,
-    instructions: turnAuthorizationText(input.history, input.prompt, input.references),
+    instructions:
+      input.carried ?? turnAuthorizationText(input.history, input.prompt, input.references),
   }
   return {
     current: () => authorized,

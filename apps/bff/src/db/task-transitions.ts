@@ -1,6 +1,7 @@
 import type { AgentToolErrorCode, TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
 import { taskFailureCode } from '../lib/agent/tools/errors'
+import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
@@ -181,6 +182,8 @@ export async function finishTask(
       upstreamStatus: update.upstreamStatus ?? null,
       actualUsage: update.actualUsage,
     })
+    // 智能体的后台任务：同一个事务里判断要不要唤醒它，终态与唤醒要么一起落、要么都不落。
+    await agentJobsEnded(tx, [finished.id], update.completedAt)
     await publishGenerations(tx, [finished.id])
     return true
   })
@@ -212,6 +215,11 @@ export async function cancelTasks(access: SQL, options: { failedAs?: AgentToolEr
         upstreamInvocationCount: row.upstreamInvocationCount,
       })
     }
+    // 取消的后台任务不唤醒，但它结束了：同一批里其余的可能正等着它。
+    await agentJobsEnded(
+      tx,
+      rows.map((row) => row.id),
+    )
     await publishGenerations(
       tx,
       rows.map((row) => row.id),

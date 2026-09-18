@@ -4,7 +4,7 @@ import { requireAgentImages } from '../images'
 import { prepareMaskedEdit } from '../masked-edit'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
-import { agentImageCount, imageCountParameter } from './queueParams'
+import { agentImageCount, imageCountParameter, reviewParameter } from './queueParams'
 import { resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
@@ -64,6 +64,7 @@ const parameters = Type.Object({
     ),
   ),
   n: imageCountParameter,
+  reviewAfterCompletion: reviewParameter,
 })
 
 export const editImage = defineAgentTool({
@@ -72,7 +73,7 @@ export const editImage = defineAgentTool({
   modes: ['image', 'video'],
   label: '改图',
   description:
-    '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。没有选区的普通改图提交后立即返回「已提交」，结果在后台生成、尚未就绪；有选区的局部改图会等到候选生成。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',
+    '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。提交后立即返回「已提交」，结果在后台生成、尚未就绪。有选区的局部改图成功后系统一定会唤醒你复核候选。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',
   guidance:
     '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出落在源图旁边，源图不动。版本数按需求用 n 指定，未要求多张时只出一张；不同修改方案分别调用。有遮罩时以圈选位置指认对象，不能以其他同名实例替代指定目标。参考图圈选表示参考来源，不是修改对象。',
   parameters,
@@ -99,7 +100,7 @@ export const editImage = defineAgentTool({
   },
   execute(context) {
     const originalAuthorization = context.authorization?.().instructions
-    return async (toolCallId, params, signal, onUpdate) => {
+    return async (toolCallId, params, signal) => {
       const snapshot = context.authorization?.()
       // 只有明确的参数关卡（图片 id、选区绑定、授权原文）拦下的才算参数不成立；读库、读对象存储、
       // 解码出的错不是模型的参数问题，照旧落进未分类。
@@ -122,8 +123,8 @@ export const editImage = defineAgentTool({
       if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
       if (snapshot !== context.authorization?.())
         throw new AgentToolError('invalid_params', '用户原文已更新，请按最新原文核对后执行')
-      // 局部改图（有选区、遮罩、分方案摘录或连锁后续）要在同一轮里复核候选，只能等结果；
-      // 其余普通改图提交后立即交还对话。
+      // 局部改图（有选区、遮罩、分方案摘录或连锁后续）的候选必须复核：同样提交即返回，
+      // 成功后一定唤醒智能体回来检查，不由它选。
       const local =
         Boolean(prepared) ||
         Boolean(images[0]?.maskDataUrl) ||
@@ -165,10 +166,9 @@ export const editImage = defineAgentTool({
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
           ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
           anchorObjectId: images[0]!.imageId,
-          background: !local,
+          review: local || params.reviewAfterCompletion === true,
         },
         signal,
-        onUpdate,
       )
     }
   },

@@ -6,11 +6,14 @@ import { log } from '../logger'
 import { AGENT_EXECUTION_LEASE_MS } from './execution'
 import { heldByClarification } from './inbox'
 import { drainConversationInbox } from './start-turn'
+import { deliverDueAgentWakes } from './wake'
 
 /**
- * 接手没人处理的排队消息。排队消息平时由当前回复收尾的那个实例接着取；取不到的有两种：
+ * 接手没人处理的排队消息与唤醒。排队消息平时由当前回复收尾的那个实例接着取；取不到的有两种：
  * 那个实例正在下线（滚动发布时旧版本只收尾、不再开新轮，见 ADR 0009），或者它半路没了。
  * 这时会话没有活着的执行租约、收件箱里却还有待处理的消息——由仍在接新活的实例来取。
+ * 唤醒由 worker 在任务终态的事务里写进收件箱，没有谁收尾会顺手取它，全靠这里：会话空着就
+ * 领租约起轮，忙着就留给当前那一轮收尾时取。等太久先唤醒的那一批也由这里按时投递。
  */
 
 const inbox = schema.agent_inbox
@@ -22,7 +25,7 @@ const PICKUP_BATCH = 50
 /** 巡一次的间隔：旧实例收尾放手后，排着的下一条最迟隔这么久在新版本上开轮。 */
 export const AGENT_INBOX_PICKUP_INTERVAL_MS = 5_000
 
-/** 收件箱里有该处理的用户消息、却没有活着的执行租约的会话。 */
+/** 收件箱里有该处理的用户消息或唤醒、却没有活着的执行租约的会话。 */
 export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<string[]> {
   const leased = db
     .select({ one: executions.conversation_id })
@@ -40,7 +43,7 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
     .innerJoin(conversations, eq(conversations.id, inbox.conversation_id))
     .where(
       and(
-        inArray(inbox.kind, ['user_message', 'clarification_answer']),
+        inArray(inbox.kind, ['user_message', 'clarification_answer', 'task_result']),
         eq(inbox.status, 'pending'),
         // 在等澄清答复、只剩问之前就排着的那几条：不是没人处理，是在等用户。取不到就别占名额。
         not(heldByClarification),
@@ -54,9 +57,17 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
   return rows.map((row) => row.id)
 }
 
-/** 巡一次：每个没人处理的会话各取一条开轮。本实例正在下线就不接。返回开了轮的会话数。 */
-export async function pickUpStrandedInboxes(): Promise<number> {
+/**
+ * 巡一次：先把到了时候的唤醒投递进收件箱，再给每个没人处理的会话各取一条开轮。本实例正在
+ * 下线就不接。返回开了轮的会话数。
+ */
+export async function pickUpStrandedInboxes(now = Date.now()): Promise<number> {
   if (bffDrain.status().draining) return 0
+  try {
+    await deliverDueAgentWakes(undefined, now)
+  } catch (err) {
+    log.error({ event: 'agent.wake_delivery_failed', err }, 'background job wakes not delivered')
+  }
   let started = 0
   for (const conversationId of await strandedInboxConversations()) {
     try {

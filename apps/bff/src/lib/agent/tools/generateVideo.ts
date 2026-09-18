@@ -21,6 +21,7 @@ import { isCapabilityEnabled } from '../../capabilities'
 import { requireAgentImages } from '../images'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
+import { reviewParameter } from './queueParams'
 import { noModelMessage, type QueueTarget, resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 32
@@ -129,6 +130,7 @@ function videoParameters(support: VideoModelSupport | null) {
         { description: `画幅。${named} ${ratios}。${ASK_ANYWAY}说了竖屏就填 9:16。` },
       ),
     ),
+    reviewAfterCompletion: reviewParameter,
   })
 }
 
@@ -221,7 +223,7 @@ export const generateVideo = defineAgentTool({
     }
   },
   execute(context) {
-    return async (_toolCallId, params, signal, onUpdate) => {
+    return async (toolCallId, params, signal) => {
       const resolved = videoModel()
       if (!resolved) throw new AgentToolError('model_unavailable', noModelMessage('video'))
       const { support, target } = resolved
@@ -245,6 +247,7 @@ export const generateVideo = defineAgentTool({
         context,
         {
           media: 'video',
+          toolCallId,
           target,
           prompt: params.prompt,
           ...(source ? { inputImages: [source.dataUrl] } : {}),
@@ -255,10 +258,9 @@ export const generateVideo = defineAgentTool({
             ...(source ? { first_frame_index: 0 } : {}),
           },
           ...(source ? { anchorObjectId: source.imageId } : {}),
-          background: true,
+          review: params.reviewAfterCompletion === true,
         },
         signal,
-        onUpdate,
       )
       // 结果块只读 `details`，所以多这一段文字不动前端协议：它只进模型的上下文。
       const job = outcome.details?.job

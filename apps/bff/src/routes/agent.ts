@@ -48,6 +48,7 @@ import {
   agentInboxEntry,
   claimAgentMessageForInterjection,
   enqueueAgentUserMessage,
+  hasPendingAgentWake,
   type InboxEntry,
   pendingAgentMessage,
   queuedAgentMessages,
@@ -216,9 +217,13 @@ export const agentRoutes = new Elysia()
         listAgentTurnSummaries(conversation.id),
         queuedAgentMessages(conversation.id),
       ])
-      // 没有谁在跑、队里却还有待处理的：收尾的那个实例下线了或半路没了。这里接着开轮，
-      // 不必等定时巡查；客户端再看一次快照就挂得上。
-      if (!execution && queue.some((one) => !one.failure) && !bffDrain.status().draining)
+      // 没有谁在跑、队里却还有待处理的（排队消息或唤醒）：收尾的那个实例下线了或半路没了。
+      // 这里接着开轮，不必等定时巡查；客户端再看一次快照就挂得上。
+      if (
+        !execution &&
+        !bffDrain.status().draining &&
+        (queue.some((one) => !one.failure) || (await hasPendingAgentWake(conversation.id)))
+      )
         void drainConversationInbox(conversation.id).catch((err) =>
           log.error(
             { event: 'agent.inbox_drain_failed', conversationId: conversation.id, err },

@@ -220,6 +220,28 @@ const QUEUE_PICKUP_DELAY_MS = 250
 /** 停止请求没拿到响应时，连同第一次一共发这么多次。 */
 const STOP_ATTEMPTS = 3
 
+/**
+ * 后台任务结束、服务端会唤醒智能体再起一轮时，去找那一轮：最多看这么多次，每次隔这么久。
+ * 头一次读快照就会让服务端当场起轮，所以通常第二次就看得到。
+ */
+const WAKE_PICKUP_ATTEMPTS = 8
+const DEFAULT_WAKE_PICKUP_DELAY_MS = 500
+let wakePickupDelayMs = DEFAULT_WAKE_PICKUP_DELAY_MS
+
+/** 测试注入点；不传恢复真实节奏。 */
+export function setAgentWakePickupDelayForTesting(ms?: number): void {
+  wakePickupDelayMs = ms ?? DEFAULT_WAKE_PICKUP_DELAY_MS
+}
+
+/**
+ * 这个任务结束后服务端会不会唤醒智能体：失败一律唤醒（被取消的不算），成功只在提交时要求了
+ * 复核。只按错误码与复核标记判断，不读服务端文字。
+ */
+const wakesAgent = (result: AgentBackgroundJobView['result']) =>
+  result.status === 'failed'
+    ? result.errorCode !== 'cancelled'
+    : result.status === 'succeeded' && result.job?.review === true
+
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
   return Number.isFinite(raw) && raw > 0 ? clampPanelWidth(raw) : PANEL_WIDTH
@@ -298,7 +320,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
 
   /** 一个后台任务到了终局：结果卡换成终局，产物按产物交付落画布，失败就在占位上标错。 */
-  const settleJob = (job: AgentBackgroundJobView) => {
+  const settleJob = (job: AgentBackgroundJobView, conversationId: string) => {
     const shown = get().messages.find((message) => message.id === job.messageId)
     if (shown?.kind !== 'tool' || shown.status !== 'submitted') return
     const { progress } = job
@@ -311,6 +333,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       messages: state.messages.map((message) => (message.id === card.id ? card : message)),
     }))
     deliverJob(card)
+    if (wakesAgent(job.result)) void followWakeTurn(conversationId)
   }
 
   /** 后台任务的终局卡落画布：交出去的占位还在就落进占位，否则按锚点或视野落。 */
@@ -350,7 +373,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           }
           if (!watching()) return
           adoptRetryRecords(jobs)
-          for (const job of jobs) settleJob(job)
+          for (const job of jobs) settleJob(job, conversationId)
           if (!hasPendingJobs(get().messages)) return
           await new Promise((resolve) => setTimeout(resolve, jobPollMs))
         }
@@ -519,6 +542,56 @@ export const useAgentStore = create<AgentState>((set, get) => {
         return
       }
       await new Promise((resolve) => setTimeout(resolve, QUEUE_PICKUP_DELAY_MS))
+    }
+  }
+
+  /**
+   * 后台任务结束后服务端唤醒智能体起的那一轮：面板空着就挂上去。一直没看到进行中的轮、快照里
+   * 却多了面板没有的消息，说明那一轮在两次查看之间已经跑完，照快照摆出来。同一批里还有没结束的
+   * 任务时服务端先不唤醒，看不到就作罢：下一个结束的任务还会再来找一次。
+   */
+  let wakeWatch: { readonly conversationId: string } | null = null
+  const followWakeTurn = async (conversationId: string) => {
+    if (wakeWatch?.conversationId === conversationId) return
+    const token = { conversationId }
+    wakeWatch = token
+    const idle = () =>
+      get().conversationId === conversationId && get().turn !== 'running' && wakeWatch === token
+    try {
+      for (let attempt = 0; attempt < WAKE_PICKUP_ATTEMPTS; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 0 : wakePickupDelayMs))
+        if (!idle()) return
+        let snapshot: Awaited<ReturnType<typeof fetchMessages>>
+        try {
+          snapshot = await fetchMessages(conversationId)
+        } catch {
+          return
+        }
+        if (!idle()) return
+        const next = snapshot.activeTurn?.turnId
+        if (next) {
+          wakeWatch = null
+          await joinQueuedTurn(conversationId, snapshot, next)
+          return
+        }
+        const shown = new Set(get().messages.map((message) => message.id))
+        if (snapshot.messages.some((message) => !shown.has(message.id))) {
+          const history = panelStateFromHistory(snapshot)
+          const before = new Map(get().messages.map((message) => [message.id, message]))
+          set({
+            ...history,
+            messages: history.messages.map((message) => {
+              const was = before.get(message.id)
+              return message.kind === 'tool' && was?.kind === 'tool' && was.delivery
+                ? { ...message, delivery: was.delivery }
+                : message
+            }),
+          })
+          return
+        }
+      }
+    } finally {
+      if (wakeWatch === token) wakeWatch = null
     }
   }
 
@@ -1325,12 +1398,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
         const jobs = await fetchJobs(conversationId)
         if (get().conversationId !== conversationId) return
-        for (const one of jobs) settleJob(one)
+        for (const one of jobs) settleJob(one, conversationId)
         return
       }
       const job = await requestJobCancel(conversationId, message.job.taskId)
       if (get().conversationId !== conversationId) return
-      settleJob(job)
+      settleJob(job, conversationId)
     },
 
     async retry(messageId, placeholderId, generationId) {

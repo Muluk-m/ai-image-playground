@@ -140,6 +140,12 @@ async function failedCall(errorType = 'upstream_timeout', calls: AgentCall[] = [
   const frames = await runTurn(conversationId, '画两张橘猫')
   const [end] = eventsOfType(frames, 'toolEnd')
   const [task] = await db.select().from(schema.tasks)
+  // 这里只看重试：原来那次失败按规则会唤醒智能体（见 agent-wake），先记成已投递，免得唤醒轮
+  // 在测试中途抢着调用对话模型。
+  await db
+    .update(schema.agent_jobs)
+    .set({ delivered_at: Date.now() })
+    .where(eq(schema.agent_jobs.task_id, task!.id))
   await finishTask(task!.id, { errorType })
   const messages = await readMessages(conversationId)
   const failed = messages.find((message) => message.id === end!.messageId)

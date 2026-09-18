@@ -1,7 +1,7 @@
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { defineAgentTool } from './adapter'
-import { agentImageCount, imageCountParameter } from './queueParams'
+import { agentImageCount, imageCountParameter, reviewParameter } from './queueParams'
 import { resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
@@ -11,6 +11,7 @@ const parameters = Type.Object({
     description: '完整描述要画的画面，包含主体、场景与风格。用用户说话的语言写。',
   }),
   n: imageCountParameter,
+  reviewAfterCompletion: reviewParameter,
 })
 
 export const generateImage = defineAgentTool({
@@ -33,11 +34,16 @@ export const generateImage = defineAgentTool({
       ...(written ? { prompt: written } : {}),
     }
   },
-  execute: (context) => (toolCallId, params, signal, onUpdate) =>
+  execute: (context) => (toolCallId, params, signal) =>
     runQueueTask(
       context,
-      { media: 'image', toolCallId, prompt: params.prompt, n: params.n, background: true },
+      {
+        media: 'image',
+        toolCallId,
+        prompt: params.prompt,
+        n: params.n,
+        review: params.reviewAfterCompletion === true,
+      },
       signal,
-      onUpdate,
     ),
 })

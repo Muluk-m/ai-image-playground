@@ -26,7 +26,7 @@ import {
   removeAgentTurnReferences,
   requireAgentImages,
 } from './images'
-import { createMaskedEditPlan } from './masked-plan'
+import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
@@ -75,6 +75,16 @@ export interface StartAgentTurnInput {
   readonly deviceId: string
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
+  /**
+   * 唤醒轮：`text` 是给模型的系统说明，不是用户的话，也不落库。授权原文与改图计划接着提交那一批
+   * 的那一轮（`plan`，它记着当时的授权原文）；没有记下计划时退回 `authorizationPrompt`（提交那一轮
+   * 用户的原话）。要复核的产物作为视觉证据附上。
+   */
+  readonly wake?: {
+    readonly authorizationPrompt: string
+    readonly plan?: MaskedPlanCarry
+    readonly reviewImageIds: readonly string[]
+  }
   /** 起轮时预扣的积分；缺席即这个部署不计费。 */
   readonly reservedCredits?: number
   /** 收尾结算，回报本轮结算后的消耗；缺席即这个部署不计费。 */
@@ -134,14 +144,16 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   })
   const authorization = createTurnAuthorization({
     history: input.history,
-    prompt,
+    prompt: input.wake?.authorizationPrompt ?? prompt,
     references: images.references,
+    ...(input.wake?.plan ? { carried: input.wake.plan.authorization } : {}),
   })
   let clarified = false
   const maskedEditPlan = createMaskedEditPlan(
     () => authorization.current().instructions,
     images.identify,
     images.masked,
+    input.wake?.plan,
   )
   const toolFailures = createToolFailureLog()
   const agent = new Agent({
@@ -389,6 +401,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     turnId,
     userMessageId,
     reservedCredits: input.reservedCredits,
+    ...(input.wake ? { wake: true as const } : {}),
   })
   if (input.queueId) events.emit({ type: 'queuedMessageConsumed', queueId: input.queueId, turnId })
 
@@ -453,7 +466,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   )
     .then(async (references) => {
       if (aborted) return
-      const evidence = await turnVisualEvidence(references)
+      // 唤醒轮要复核的产物跟在参考图后面；取不到的那张（任务行已清掉）就不附，模型照结果文字说。
+      const reviewed = (
+        await Promise.all((input.wake?.reviewImageIds ?? []).map((id) => images.resolve(id)))
+      ).filter((image) => image !== null)
+      const evidence = await turnVisualEvidence([...references, ...reviewed])
       if (aborted) return
       // `/skill-name` 只改送给模型的这一份；落库与回显的用户消息仍是他打的原话。
       const sent = turnModelPrompt(

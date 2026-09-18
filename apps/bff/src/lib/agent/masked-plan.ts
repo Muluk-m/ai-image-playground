@@ -42,6 +42,20 @@ export interface PlanCall {
   readonly arguments: Record<string, unknown>
 }
 
+/**
+ * 计划交给唤醒轮的那一份：提交那一刻的授权原文与计划状态。唤醒轮不是用户开的，它的计划不另起，
+ * 而是接着提交那一轮的走——已经付过费的内容照样不能重提，遮罩轮只剩预先列明、还没执行的后续编辑。
+ */
+export interface MaskedPlanCarry {
+  /** 提交那一刻的授权原文；唤醒轮按它核对 requestQuote，连续几次唤醒也还是用户最初的原话。 */
+  readonly authorization: string
+  readonly protected: boolean
+  /** 已经提交过的真遮罩编辑的内容身份。 */
+  readonly contents: readonly string[]
+  /** 预先列明、还没执行的后续编辑。 */
+  readonly deferred: readonly string[]
+}
+
 export interface MaskedEditPlan {
   /** 本轮是不是已经进入遮罩作用域；进入后不因引用被换掉而解除。 */
   readonly protected: boolean
@@ -53,6 +67,22 @@ export interface MaskedEditPlan {
   /** 任务真的建出来了才登记；失败的提交不占批次名额，也不算内容提交过。 */
   submitted(submission: MaskedSubmission): void
   interjected(): void
+  /** 这次提交登记之后计划会是什么样：随任务一起记下，唤醒轮据此接着执行。 */
+  carryAfter(submission: MaskedSubmission): MaskedPlanCarry
+}
+
+/** 同一批里几个任务各自记下的计划合成一份：内容取并集，后续编辑以最后提交的那一次为准。 */
+export function mergeMaskedPlanCarries(
+  carries: readonly MaskedPlanCarry[],
+): MaskedPlanCarry | undefined {
+  const last = carries.at(-1)
+  if (!last) return undefined
+  return {
+    authorization: last.authorization,
+    protected: carries.some((carry) => carry.protected),
+    contents: [...new Set(carries.flatMap((carry) => carry.contents))],
+    deferred: last.deferred,
+  }
 }
 
 const key = (operation: MaskedOperation) =>
@@ -70,17 +100,21 @@ const contentKey = (content: MaskedEditContent) =>
     content.quote,
   ])
 
-/** 首次付费前固定操作与数量；依赖产物的后续操作也必须提前列明。 */
+/**
+ * 首次付费前固定操作与数量；依赖产物的后续操作也必须提前列明。唤醒轮带着 `carried` 起：
+ * 批次早已冻结，只能执行剩下的后续编辑，提交过的内容仍算提交过。
+ */
 export function createMaskedEditPlan(
   authorizationText: () => string,
   identify: (id: string) => string,
   initiallyProtected = false,
+  carried?: MaskedPlanCarry,
 ): MaskedEditPlan {
-  let locked = false
-  let protectedTurn = initiallyProtected
+  let locked = carried !== undefined
+  let protectedTurn = initiallyProtected || Boolean(carried?.protected)
   let calls = new Set<string>()
-  let deferred = new Set<string>()
-  const contents = new Set<string>()
+  let deferred = new Set<string>(carried?.deferred)
+  const contents = new Set<string>(carried?.contents)
   const inBatch = (toolCallId: string, operation?: MaskedOperation) =>
     calls.has(toolCallId) || Boolean(locked && operation && deferred.has(key(operation)))
   return {
@@ -146,6 +180,20 @@ export function createMaskedEditPlan(
       if (!locked) {
         calls.clear()
         deferred.clear()
+      }
+    },
+    carryAfter(submission: MaskedSubmission) {
+      const done = submission.call?.operation && key(submission.call.operation)
+      return {
+        authorization: authorizationText(),
+        protected: protectedTurn,
+        contents: [
+          ...new Set([
+            ...contents,
+            ...(submission.content ? [contentKey(submission.content)] : []),
+          ]),
+        ],
+        deferred: [...deferred].filter((operation) => operation !== done),
       }
     },
   }

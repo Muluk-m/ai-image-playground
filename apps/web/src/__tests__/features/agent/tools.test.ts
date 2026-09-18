@@ -16,7 +16,11 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
 }))
 
 import { agentCanvasSink, setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
-import { setAgentJobPollIntervalForTesting, useAgentStore } from '../../../features/agent/store'
+import {
+  setAgentJobPollIntervalForTesting,
+  setAgentWakePickupDelayForTesting,
+  useAgentStore,
+} from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -211,6 +215,7 @@ beforeEach(() => {
   jobsResponse = () => []
   cancelResponse = () => Response.json({ error: 'not_found' }, { status: 404 })
   setAgentJobPollIntervalForTesting(5)
+  setAgentWakePickupDelayForTesting(5)
   useAgentStore.setState({
     conversationId: null,
     messages: [],
@@ -226,6 +231,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setAgentJobPollIntervalForTesting()
+  setAgentWakePickupDelayForTesting()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()
@@ -658,6 +664,82 @@ describe('后台任务', () => {
     expect(failed[0]!.id).toBe('placeholder-1')
     expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
     expect(discarded).toEqual([])
+  })
+
+  it('任务失败后挂上服务端唤醒智能体起的那一轮，不出用户气泡', async () => {
+    jobsResponse = () => finished({ status: 'failed', message: '上游超时', errorCode: 'timeout' })
+    const wakeTurn = 'turn-wake'
+    const failedCard = {
+      id: 'tool-1',
+      turnId: 'turn-1',
+      role: 'assistant',
+      content: [
+        { ...pendingJob.result, status: 'failed', message: '上游超时', errorCode: 'timeout' },
+      ],
+      createdAt: 2,
+    }
+    let snapshots = 0
+    // 头一次看时服务端还没起轮（读快照这一下才让它起），第二次就看得到进行中的唤醒轮。
+    messagesResponse = () => {
+      snapshots += 1
+      return Response.json({
+        activeTurn: snapshots > 1 ? { turnId: wakeTurn } : null,
+        turns: [],
+        queue: [],
+        messages: [
+          {
+            id: 'user-1',
+            turnId: 'turn-1',
+            role: 'user',
+            content: [{ type: 'text', text: '画一只橘猫' }],
+            createdAt: 1,
+          },
+          failedCard,
+        ],
+      })
+    }
+    let streams = 0
+    turnResponse = () => {
+      streams += 1
+      return streams === 1
+        ? turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+        : turnStream(
+            { type: 'turnStart', turnId: wakeTurn, userMessageId: `${wakeTurn}:wake`, wake: true },
+            { type: 'assistantStart', messageId: 'wake-reply' },
+            { type: 'textDelta', messageId: 'wake-reply', delta: '这张没出来，要换个说法再试吗？' },
+            { ...TURN_END, turnId: wakeTurn },
+          )
+    }
+
+    await state().send('画一只橘猫')
+
+    await vi.waitFor(() => expect(streams).toBe(2))
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    const texts = state().messages.filter((message) => message.kind === 'text')
+    expect(texts[texts.length - 1]).toMatchObject({
+      role: 'assistant',
+      text: '这张没出来，要换个说法再试吗？',
+    })
+    // 唤醒不是用户说的话：面板上只有发起那一轮的那一条用户消息。
+    expect(texts.filter((message) => message.role === 'user').map((one) => one.text)).toEqual([
+      '画一只橘猫',
+    ])
+    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
+  })
+
+  it('成功且没要求复核的任务结束后不去找唤醒轮', async () => {
+    jobsResponse = () => finished({ status: 'succeeded', artifacts: [IMAGE] })
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+
+    await state().send('画一只橘猫')
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    const snapshotReads = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith(`/conversations/${CONVERSATION}/messages`),
+    )
+    expect(snapshotReads).toHaveLength(0)
   })
 
   it('刷新后读回还没结束的任务，接着等它，结束了照常落画布', async () => {
