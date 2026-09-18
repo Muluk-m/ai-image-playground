@@ -204,6 +204,13 @@
       "when": 1789680000000,
       "tag": "0029_task_execution_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0030_ops_more",
+      "breakpoints": true
     }
   ]
 }

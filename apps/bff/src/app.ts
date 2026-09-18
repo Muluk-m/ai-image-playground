@@ -1,10 +1,12 @@
+import { hostname } from 'node:os'
 import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
-import { Elysia } from 'elysia'
+import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
+import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { agentRoutes } from './routes/agent'
 import { userAuthRoutes } from './routes/auth'
 import { bgswapPlanRoutes } from './routes/bgswap-plan'
@@ -127,7 +129,41 @@ async function serveSpaFallback(): Promise<Response | null> {
   })
 }
 
+/** 运维看板的接口统计。按实例累计，由 `index.ts` 每分钟写库一次。 */
+export const apiMetrics = createApiMetrics(hostname())
+const requestStartedAt = new WeakMap<Request, number>()
+
+/**
+ * 路由直接返回 Response 时它自己带着状态码，`set.status` 仍是默认的 200；
+ * `status(4xx, …)` 返回的对象把状态码放在 `code` 上。三处都看，才不会把错误数成成功。
+ */
+function responseStatus(value: unknown, status: number | string | undefined): number {
+  if (value instanceof Response) return value.status
+  if (value && typeof value === 'object' && 'code' in value) {
+    const code = (value as { code: unknown }).code
+    if (typeof code === 'number' && code >= 100 && code < 600) return code
+  }
+  if (typeof status === 'number') return status
+  if (typeof status === 'string') return StatusMap[status as keyof typeof StatusMap] ?? 200
+  return 200
+}
+
 export const app = new Elysia()
+  .onRequest(({ request }) => {
+    requestStartedAt.set(request, performance.now())
+  })
+  .onAfterResponse({ as: 'global' }, ({ request, route, set, responseValue }) => {
+    const startedAt = requestStartedAt.get(request)
+    if (startedAt === undefined) return
+    const { pathname } = new URL(request.url)
+    if (!isApiPath(pathname) || !isCountedPath(pathname)) return
+    apiMetrics.record({
+      at: Date.now(),
+      route: `${request.method} ${route || '（未匹配的路径）'}`,
+      status: responseStatus(responseValue, set.status),
+      durationMs: performance.now() - startedAt,
+    })
+  })
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
   .use(userAuthRoutes)

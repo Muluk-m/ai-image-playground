@@ -1,6 +1,6 @@
 import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 import { config } from './config'
-import { close as closeDb } from './db/client'
+import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
@@ -68,7 +68,7 @@ if (agentEnabled) {
 
 // Importing the app loads optional private routes. Public migrations and
 // channel discovery must be ready before that overlay initializes.
-const { app } = await import('./app')
+const { app, apiMetrics } = await import('./app')
 
 await runPrivateMaintenance()
 const purgeStartup = await purgeOldTasks()
@@ -124,6 +124,22 @@ app.listen(
 // 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
 const stopHeartbeat = startHeartbeat({ service: 'bff' })
 
+// 接口统计：每分钟把已经结束的那几分钟写成行。写失败的那一分钟就丢了，不重试——
+// 它只是看板上的一个点，不值得为它把内存攒大。
+async function flushApiMinutes(all = false): Promise<void> {
+  const rows = apiMetrics.drain(Date.now(), all)
+  if (rows.length === 0) return
+  try {
+    await db.insert(schema.api_minutes).values(rows).onConflictDoNothing()
+  } catch (err) {
+    log.warn(
+      { event: 'ops.api_minutes_failed', err: err instanceof Error ? err.message : String(err) },
+      'could not store API statistics',
+    )
+  }
+}
+const apiMinutesTimer = setInterval(() => void flushApiMinutes(), 60_000)
+
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
@@ -140,6 +156,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   bffDrain.begin()
   while (!bffDrain.status().safeToStop) await Bun.sleep(250)
   stopHeartbeat()
+  clearInterval(apiMinutesTimer)
 
   try {
     await app.stop?.()
@@ -150,6 +167,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
     )
   }
 
+  await flushApiMinutes(true)
   log.info({ event: 'shutdown.done' }, 'bff stopped')
   await finalize()
 }
