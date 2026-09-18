@@ -9,8 +9,11 @@ import type {
   AgentMessageView,
   AgentMode,
   AgentQueuedMessageView,
+  AgentQueueInterjectResult,
   AgentQueueWithdrawResult,
+  AgentReturnedQueuedMessage,
   AgentSkillSummary,
+  AgentTurnAbortedBody,
   AgentTurnAlreadyRunningBody,
   AgentTurnEvent,
   AgentTurnParams,
@@ -231,12 +234,15 @@ export async function startTurn(
   fetcher: Fetcher = authenticatedBffFetch,
   /** 这条消息的客户端 id。网络断了重发同一个 id，服务端认得出是同一条，不会排两次。 */
   clientMessageId: string = crypto.randomUUID(),
+  /** 这是对澄清卡片的答复：服务端把它排在其他排队消息前面。 */
+  clarificationAnswer = false,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
   const init = jsonInit({
     deviceId: getDeviceId(),
     text,
     clientMessageId,
+    ...(clarificationAnswer ? { clarificationAnswer: true } : {}),
     ...(references.length ? { references } : {}),
     // 图片是服务端的默认；只有视频才值得占一个字段，老服务端也认得出这是新东西。
     ...(mode && mode !== 'image' ? { mode } : {}),
@@ -434,12 +440,32 @@ export async function abortTurn(
   conversationId: string,
   turnId: string,
   fetcher: Fetcher = authenticatedBffFetch,
-): Promise<void> {
+): Promise<readonly AgentReturnedQueuedMessage[]> {
   const response = await fetcher(url(`/conversations/${conversationId}/turns/${turnId}/abort`), {
     ...jsonInit({ deviceId: getDeviceId() }),
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
+  // 停止时服务端把还没处理的排队消息退回来；老服务端没有这一项。
+  const body = (await response.json().catch(() => null)) as AgentTurnAbortedBody | null
+  return body?.returned ?? []
+}
+
+/** 把一条排队消息升级为插话，插进正在跑的那一轮。结局见 `AgentQueueInterjectResult`。 */
+export async function interjectQueuedMessage(
+  conversationId: string,
+  queueId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentQueueInterjectResult> {
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/queue/${queueId}/interject`),
+    {
+      ...jsonInit({ deviceId: getDeviceId() }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return ((await response.json()) as { result: AgentQueueInterjectResult }).result
 }
 
 /** 撤回一条排队消息。三种结局只有一个成立，见 `AgentQueueWithdrawResult`。 */

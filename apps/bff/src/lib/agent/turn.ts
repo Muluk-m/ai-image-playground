@@ -402,12 +402,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     turnId,
     mode: input.mode,
     read: (afterSeq) => events.read(afterSeq),
-    async interject(text, references = []) {
+    async interject(text, references = [], id) {
       if (!acceptingInterjections || aborted) return null
       const evidence = await turnVisualEvidence(references)
       if (!acceptingInterjections || aborted) return null
       await input.assertExecution?.()
-      const messageId = crypto.randomUUID()
+      const messageId = id ?? crypto.randomUUID()
       const archiveId = `${turnId}/interjections/${messageId}`
       const stored = await archiveAgentReferences(conversationId, archiveId, references)
       // 上传期间本轮可能已结束；拒收并只清理本次上传，不能误删首轮或其它插话的引用。

@@ -12,8 +12,15 @@ export interface RunningTurn {
   readonly mode: AgentMode
   readonly completed?: Promise<void>
   read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
-  /** 返回插话那条用户消息的 id；它也随 `interjection` 事件发给所有连着的消费者。 */
-  interject(text: string, references?: readonly AgentTurnReference[]): Promise<string | null>
+  /**
+   * 返回插话那条用户消息的 id；它也随 `interjection` 事件发给所有连着的消费者。
+   * `messageId` 缺席即新起一个；排队消息升级来的插话沿用收件箱记录的 id。
+   */
+  interject(
+    text: string,
+    references?: readonly AgentTurnReference[],
+    messageId?: string,
+  ): Promise<string | null>
   abort(): void
 }
 

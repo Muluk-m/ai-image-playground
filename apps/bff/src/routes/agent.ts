@@ -4,6 +4,8 @@ import type {
   AgentConversationSnapshot,
   AgentMessageQueuedBody,
   AgentQueueFullBody,
+  AgentQueueInterjectResult,
+  AgentTurnAbortedBody,
   AuthUserView,
 } from '@image-playground/shared'
 import {
@@ -45,6 +47,10 @@ import {
   enqueueAgentUserMessage,
   type InboxEntry,
   queuedAgentMessages,
+  requeueAgentMessage,
+  returnAgentMessages,
+  settleAgentInterjection,
+  takeAgentMessageForInterjection,
   withdrawAgentMessage,
 } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
@@ -349,6 +355,7 @@ export const agentRoutes = new Elysia()
           deviceId: body.deviceId,
           ...(body.mode ? { mode: body.mode } : {}),
           ...(body.params ? { params: body.params } : {}),
+          ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
         })
         if (enqueued.kind === 'full') {
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
@@ -401,6 +408,8 @@ export const agentRoutes = new Elysia()
         params: paramsSchema,
         /** 客户端为这条消息生成的 id：网络重发时据此认出同一条，不排两次。 */
         clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        /** 这是对澄清卡片的答复：排在其他排队消息前面处理。 */
+        clarificationAnswer: t.Optional(t.Boolean()),
       }),
     },
   )
@@ -432,6 +441,66 @@ export const agentRoutes = new Elysia()
           queueId: params.queueId,
         })
       return { result }
+    },
+    {
+      params: t.Object({ id: t.String(), queueId: t.String({ maxLength: 128 }) }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
+    },
+  )
+  .post(
+    // 把一条排队消息升级为插话：进正在跑的那一轮，在它下一个动作边界生效，不再等这一轮结束。
+    '/api/agent/conversations/:id/queue/:queueId/interject',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      // 插话只能进本进程里跑着的那一轮。
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const reply = (result: AgentQueueInterjectResult, turnId?: string) =>
+        turnId ? { result, turnId } : { result }
+      const active = runningTurn(conversation.id)
+      if (!active) {
+        const entry = await agentInboxEntry(conversation.id, params.queueId)
+        if (!entry) return reply('not_found')
+        if (entry.state === 'pending') return reply('not_running')
+        return reply(entry.state === 'consumed' ? 'already_consumed' : 'cancelled')
+      }
+      const taken = await takeAgentMessageForInterjection(
+        conversation.id,
+        params.queueId,
+        active.turnId,
+      )
+      if (taken.kind === 'unavailable') return reply(taken.result)
+      const requeue = async () => {
+        await requeueAgentMessage(conversation.id, params.queueId, active.turnId)
+        // 放回去的时候那一轮可能已经放手了：没人会再来取，这里接着开轮。
+        if (!runningTurn(conversation.id))
+          void drainConversationInbox(conversation.id).catch((err) =>
+            log.error(
+              { event: 'agent.inbox_drain_failed', conversationId: conversation.id, err },
+              'queued agent message could not start a turn',
+            ),
+          )
+      }
+      const { message } = taken
+      let messageId: string | null
+      try {
+        messageId = await active.interject(message.text, message.references, message.id)
+      } catch (error) {
+        await requeue()
+        throw error
+      }
+      if (!messageId) {
+        await requeue()
+        return reply('not_running')
+      }
+      await settleAgentInterjection(conversation.id, message.id)
+      notifyConversation(conversation.id, {
+        type: 'queuedMessageInterjected',
+        queueId: message.id,
+        turnId: active.turnId,
+      })
+      return reply('interjected', active.turnId)
     },
     {
       params: t.Object({ id: t.String(), queueId: t.String({ maxLength: 128 }) }),
@@ -559,8 +628,14 @@ export const agentRoutes = new Elysia()
       if (forwarded) return forwarded
       const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
+      // 先退回排队消息再中止：这一轮收尾时队里已经空了，不会接着开下一轮。退回的交给客户端
+      // 放回输入框，由用户决定改了再发还是删掉。
+      const returned = await returnAgentMessages(conversation.id)
+      for (const one of returned)
+        notifyConversation(conversation.id, { type: 'queuedMessageWithdrawn', queueId: one.id })
       activeTurn.abort()
-      return { aborted: true }
+      const aborted: AgentTurnAbortedBody = { aborted: true, returned }
+      return aborted
     },
     { params: turnParams, body: turnBody },
   )

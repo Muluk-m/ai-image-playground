@@ -1,4 +1,4 @@
-import { and, eq, exists, gt, isNull, ne, not } from 'drizzle-orm'
+import { and, eq, exists, gt, inArray, isNull, ne, not } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { bffDrain } from '../drain'
@@ -39,7 +39,7 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
     .innerJoin(conversations, eq(conversations.id, inbox.conversation_id))
     .where(
       and(
-        eq(inbox.kind, 'user_message'),
+        inArray(inbox.kind, ['user_message', 'clarification_answer']),
         eq(inbox.status, 'pending'),
         isNull(conversations.deleted_at),
         not(exists(leased)),
