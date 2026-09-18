@@ -300,19 +300,19 @@
     "toolbarAria": "用选中的图生成视频",
     "open_other": "用 {{count}} 张图生成视频",
     "title_other": "用 {{count}} 张图生成视频",
-    "hint": "按画布从左到右排好了，可拖动调整。每张可标成首帧、尾帧或参考图；参考图在描述里按「参考1、参考2」提到。",
+    "hint": "按画布从左到右排好了，可拖动调整。每张可标成首帧、尾帧或参考图；参考图在描述里按「图片1、图片2」提到。",
     "listAria": "输入图",
-    "roleAria": "图{{no}} 的用法",
-    "moveUp": "图{{no}} 前移",
+    "roleAria": "第 {{no}} 张的用法",
+    "moveUp": "第 {{no}} 张前移",
     "role": {
       "reference": "参考图",
       "first": "首帧",
       "last": "尾帧"
     },
-    "placeholder": "例如：参考1 里的人拿着参考2 的球拍，在参考3 的球场上挥拍",
+    "placeholder": "例如：图片1 里的人拿着图片2 的球拍，在图片3 的球场上挥拍",
     "modelWithoutReferences": "{{label}}（不支持参考图）",
     "submit": "生成视频",
     "submitted": "已提交生成视频",
-    "referenceLabel": "参考{{no}}"
+    "referenceLabel": "图片{{no}}"
   }
 }

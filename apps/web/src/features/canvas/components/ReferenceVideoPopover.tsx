@@ -95,7 +95,7 @@ export default function ReferenceVideoPopover({
   }
 
   const roleLabel = (role: VideoInputRole) => t(`referenceVideo.role.${role}`)
-  // 参考图按送给模型的顺序编号（首尾帧不占号），描述里提「参考1」对得上模型收到的第一张参考图。
+  // 参考图按送给模型的顺序编号（首尾帧不占号），描述里提「图片1」对得上模型收到的第一张参考图。
   const inputLabel = (list: readonly VideoInputItem[], index: number) => {
     const item = list[index]!
     if (item.role !== 'reference') return roleLabel(item.role)
@@ -103,6 +103,8 @@ export default function ReferenceVideoPopover({
     return t('referenceVideo.referenceLabel', { no })
   }
   const hasFrames = items.some((item) => item.role !== 'reference')
+  // 参考图不能与首尾帧同用的模型（如 Seedance）在这个面板里只给参考图。
+  const framesAllowed = option?.support.referenceImages?.withFrames !== false
 
   return (
     <Overlay onClose={onClose} tier="raised">
@@ -164,10 +166,10 @@ export default function ReferenceVideoPopover({
                 <SelectContent>
                   <SelectItem value="reference">{roleLabel('reference')}</SelectItem>
                   {/* 模型接不住的帧不给选，免得选完只看到一句驳回。 */}
-                  {option?.support.firstFrame !== false && (
+                  {framesAllowed && option?.support.firstFrame !== false && (
                     <SelectItem value="first">{roleLabel('first')}</SelectItem>
                   )}
-                  {option?.support.lastFrame !== false && (
+                  {framesAllowed && option?.support.lastFrame !== false && (
                     <SelectItem value="last">{roleLabel('last')}</SelectItem>
                   )}
                 </SelectContent>

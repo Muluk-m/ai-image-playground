@@ -136,6 +136,8 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     lastFrame: true,
     extend: false,
     edit: false,
+    // 方舟全模态参考：图片 0~9 张；Mini 只出到 720p；首尾帧是另一种模式，不与参考图同用。
+    referenceImages: { max: 9, maxResolution: '720p', withFrames: false },
     typicalSeconds: 120,
     tagline: '多镜头',
   },

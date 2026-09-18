@@ -1,5 +1,5 @@
 import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 
@@ -338,6 +338,7 @@ describe('选中即参考', () => {
     ...support,
     referenceImages: { max: 3, maxResolution: '720p', withFrames: true },
   } as const
+  const { referenceImages: _dropped, ...withoutReferences } = support
   // 校验读的是共享矩阵本身，所以在这里临时给这个模型开参考图。
   const withMatrix = (run: () => Promise<void>) => async () => {
     VIDEO_MODEL_SUPPORT[MODEL] = withReferences
@@ -395,6 +396,11 @@ describe('选中即参考', () => {
   )
 
   it('refuses references the model cannot take before anything is placed', async () => {
+    mocks.support.current = withoutReferences
+    VIDEO_MODEL_SUPPORT[MODEL] = withoutReferences
+    onTestFinished(() => {
+      VIDEO_MODEL_SUPPORT[MODEL] = support
+    })
     addImage('a', 0)
     expect(await submitReferenceVideo(editor, items(['a']), '出场')).toBe(false)
     expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('参考图'), 'error')
@@ -405,7 +411,7 @@ describe('选中即参考', () => {
   it(
     'refuses references when the channel has not declared them, even if the matrix allows',
     withMatrix(async () => {
-      mocks.support.current = support
+      mocks.support.current = withoutReferences
       addImage('a', 0)
       addImage('b', 200)
       expect(await submitReferenceVideo(editor, items(['a', 'b']), '出场')).toBe(false)
