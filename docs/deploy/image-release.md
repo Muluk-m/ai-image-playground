@@ -1,10 +1,10 @@
 # 部署手册
 
-macmini2 构建，VPS 仅运行预构建镜像；前端由 Pages 托管。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
+前端由 Pages 托管，允许本机构建发布；后端镜像在 macmini2 构建，VPS 仅运行预构建镜像。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
 
 ## 前端：两套 Pages
 
-所有构建和上传命令在 **macmini2** 执行，两套串行发布。仅修改前端时发布两套 Pages，无需部署 VPS 后端。
+构建和上传可在本机执行，资源紧张时改用 macmini2；两套串行发布。仅修改前端时发布两套 Pages，无需部署 VPS 后端。
 
 | 形态 | Pages project | 网页 / API |
 | --- | --- | --- |
@@ -13,12 +13,13 @@ macmini2 构建，VPS 仅运行预构建镜像；前端由 Pages 托管。禁止
 | 付费旧域名 | 同一付费项目 | `image.nainma.online` / `api.nainma.online` |
 
 1. 准备两个独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交。付费检出包含已验证提交的 `private/`；内部检出不含 overlay。不要移动其他会话的 `private/` 或重写锁文件。
-2. 在 macmini2 准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写两套 `*_PAGES_PROJECT`、`*_BFF_BASE_URL`、`*_PUBLIC_ORIGIN`、`*_CLOUDFLARE_ACCOUNT_ID`；令牌通过 `*_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。两套账号分别验证权限。
+2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写两套 `*_PAGES_PROJECT`、`*_BFF_BASE_URL`、`*_PUBLIC_ORIGIN`、`*_CLOUDFLARE_ACCOUNT_ID`；令牌通过 `*_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。两套账号分别验证权限。
 3. 保留付费域名映射：`PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://image.nainma.online":"https://api.nainma.online"}'`，避免旧域名会话失效。保留现有 `*_EXTRA_ASSETS_DIR` 等配置；该目录内容会公开发布。
 4. 将下列路径替换为本次独立检出和已核验配置，再执行：
 
 ```sh
-ssh macmini2
+
+# 若选择远端发布，先 ssh macmini2；本机发布直接执行以下命令。
 export PATH=/opt/homebrew/bin:$PATH
 export PAGES_ENV_FILE=/absolute/protected/pages.env
 cd /absolute/internal-checkout
@@ -29,7 +30,7 @@ cd /absolute/paid-checkout
 
 `pages-release.sh` 自动构建、向生产分支 `main` 上传，并等待自定义域名 `version.json` 与产物一致（最长 300 秒）。不直接调用省略分支的 `pages-deploy.sh`，否则会发布到预览环境。
 
-已有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；其中内部令牌文件可能已清理，使用前必须核验并刷新认证。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。
+macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；其中内部令牌文件可能已清理，使用前必须核验并刷新认证。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。本机使用本机受保护配置与凭据路径，不直接引用 macmini2 的绝对路径。
 
 验收三个网页域名的 `version.json`、`runtime-config.json`：公开提交一致，付费含预期私有提交，API 映射正确；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
 
