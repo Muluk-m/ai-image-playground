@@ -295,6 +295,85 @@ describe('智能体生视频工具', () => {
     expect(task!.request_payload.video).toMatchObject({ first_frame_index: 0 })
   })
 
+  it('sends several referenced images as reference images and records them on the video', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '图片1 的人拿着图片2 的球拍挥拍',
+      referenceImageIds: ['canvas-1', 'canvas-2', 'canvas-1'],
+    })
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '用[image 1][image 2]做一段挥拍', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+      { imageId: 'canvas-2', dataUrl: PIXEL },
+    ])
+    stop()
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.status).toBe('submitted')
+    expect(end!.anchorObjectId).toBe('canvas-1')
+    expect(end!.job!.video).toMatchObject({ referenceIds: ['canvas-1', 'canvas-2'] })
+    expect(end!.job!.video).not.toHaveProperty('firstFrameId')
+
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload.input_images).toHaveLength(2)
+    expect(task!.request_payload.video).toMatchObject({ reference_image_indices: [0, 1] })
+    expect(task!.request_payload.video).not.toHaveProperty('first_frame_index')
+  })
+
+  it('puts the first frame before the references and drops a reference repeating it', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '从这张开始，带上那两样东西',
+      imageId: 'canvas-1',
+      referenceImageIds: ['canvas-1', 'canvas-2'],
+    })
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '让[image 1]动起来，带上[image 2]', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+      { imageId: 'canvas-2', dataUrl: PIXEL },
+    ])
+    stop()
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1', referenceIds: ['canvas-2'] })
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload.video).toMatchObject({
+      first_frame_index: 0,
+      reference_image_indices: [1],
+    })
+  })
+
+  it('does not submit references the model cannot take, and says why with a code', async () => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(AGNES)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '挥拍', referenceImageIds: ['canvas-1'] })
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
+
+    // 这一轮只留下对话本身的任务，没有视频任务。
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
+    expect(modelReport(calls)).toContain('referenceUnsupported')
+  })
+
+  it('describes the reference limit of the current model in the tool parameters', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好')]))
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '你好')
+
+    const tools = JSON.stringify(calls[0]!.tools)
+    expect(tools).toContain('referenceImageIds')
+    expect(tools).toContain('最多 7 张')
+    expect(tools).toContain('720p')
+  })
+
   it('takes the duration, resolution and aspect ratio the model inferred', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, {
