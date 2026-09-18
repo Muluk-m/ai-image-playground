@@ -28,6 +28,7 @@ import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentReply from './AgentReply'
 import AgentSkillBadge from './AgentSkillBadge'
 import AgentSkillStep from './AgentSkillStep'
+import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 
@@ -210,7 +211,7 @@ export default function AgentPanel({
               <span className="studio-spark">✧</span>
               <h3>{t('panel.emptyTitle')}</h3>
               <p>{t('panel.emptyBody')}</p>
-              <div className="studio-example">{t('panel.emptyExample')}</div>
+              <AgentSuggestions className="studio-suggestions mt-6" />
             </div>
           )}
           {messages.map((message, index) => {

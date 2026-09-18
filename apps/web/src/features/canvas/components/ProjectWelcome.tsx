@@ -1,6 +1,7 @@
 import { useTranslation } from '../../../i18n'
 import AgentComposer from '../../agent/components/AgentComposer'
 import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
+import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
 import type { CanvasWorkspace } from '../lib/workspaces'
@@ -37,6 +38,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
             </div>
           )}
           <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />
+          <AgentSuggestions className="mt-4 sm:grid-cols-3" />
           <AgentHistoryStatus />
           {error && !historyFailed && (
             <p role="alert" className="mt-3 text-sm text-muted-foreground">

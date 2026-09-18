@@ -12,8 +12,17 @@
     "newProjectAria": "New project",
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
-    "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing.",
-    "emptyExample": "Try describing the subject, the style and the mood."
+    "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing."
+  },
+  "suggestions": {
+    "aria": "Example prompts",
+    "productTitle": "Product shot",
+    "productPrompt": "Shoot an e-commerce hero image of a minimalist white ceramic coffee mug: plain background, soft side light, bring out the glaze texture.",
+    "posterTitle": "Holiday poster",
+    "posterPrompt": "Design a Mid-Autumn Festival poster: a full moon in the night sky over distant hills and osmanthus, warm gold tones, room for a title at the top.",
+    "characterTitle": "Character art",
+    "characterPrompt": "Draw a half-length cyberpunk girl character: a rainy street at night, neon light reflecting off her raincoat, cinematic framing.",
+    "draftKeptToast": "The input already has text; clear it to use an example"
   },
   "tool": {
     "stageSubmitted": "Queued",
