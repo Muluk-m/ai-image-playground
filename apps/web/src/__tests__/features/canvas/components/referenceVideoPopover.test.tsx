@@ -3,10 +3,11 @@ import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chooseOption, stubPointerApis } from '../../../helpers/radix'
+import { chooseOption, pointer, stubPointerApis } from '../../../helpers/radix'
 
 const GROK = 'grok-imagine-video'
 const AGNES = 'agnes-video-2.5-flash'
+const SEEDANCE = 'doubao-seedance-2-0-mini-260615'
 const mocks = vi.hoisted(() => ({
   submitVideoRequest: vi.fn(async () => 'req-1'),
   showToast: vi.fn(),
@@ -17,6 +18,12 @@ vi.mock('../../../../lib/channels/videoChannels', async (importOriginal) => ({
   videoModelOptions: () => [
     { channelId: 'agnes', modelId: AGNES, label: 'Agnes', support: VIDEO_MODEL_SUPPORT[AGNES]! },
     { channelId: 'grok', modelId: GROK, label: 'Grok', support: VIDEO_MODEL_SUPPORT[GROK]! },
+    {
+      channelId: 'ark',
+      modelId: SEEDANCE,
+      label: 'Seedance',
+      support: VIDEO_MODEL_SUPPORT[SEEDANCE]!,
+    },
   ],
   isVideoModeAvailable: () => true,
 }))
@@ -126,14 +133,14 @@ describe('选中即参考', () => {
     expect(order()).toEqual(['a', 'b', 'c'])
     expect(useVideoStore.getState().draft.model).toBe(GROK)
     for (const no of [1, 2, 3])
-      expect(document.querySelector(`[aria-label="图${no} 的用法"]`)?.textContent).toBe('参考图')
+      expect(document.querySelector(`[aria-label="第 ${no} 张的用法"]`)?.textContent).toBe('参考图')
   })
 
   it('submits the reordered, role-marked images and places a placeholder', async () => {
     act(() => button('用 3 张图生成视频').click())
-    act(() => button('图3 前移').click())
+    act(() => button('第 3 张前移').click())
     expect(order()).toEqual(['a', 'c', 'b'])
-    chooseOption('图1 的用法', '首帧')
+    chooseOption('第 1 张的用法', '首帧')
     type('图2 里的球拍飞进来')
     await act(async () => button('生成视频').click())
     await settle()
@@ -173,6 +180,19 @@ describe('选中即参考', () => {
     act(() => root.render(<CanvasVideoToolbar editor={editor} />))
 
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('720p')
+  })
+
+  it('offers only references on a model that cannot combine them with frames', () => {
+    act(() => button('用 3 张图生成视频').click())
+    chooseOption('模型', 'Seedance')
+    const trigger = document.querySelector<HTMLElement>('[aria-label="第 1 张的用法"]')!
+    act(() => {
+      trigger.dispatchEvent(pointer('pointerdown'))
+    })
+    const options = Array.from(document.querySelectorAll('[role="option"]')).map((one) =>
+      one.textContent?.trim(),
+    )
+    expect(options).toEqual(['参考图'])
   })
 
   it('offers the entry only for two or more images', () => {
