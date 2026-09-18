@@ -35,7 +35,7 @@ describe('lib 的 module-level 标签表', () => {
     expect(MAX_INPUT_IMAGES_MESSAGE).toContain('参考图数量已达上限')
   })
 
-  it('另外两张表同样跟着切，别只覆盖头一个', async () => {
+  it('另一张表同样跟着切，别只覆盖头一个', async () => {
     expect(MAX_INPUT_IMAGES_MESSAGE).toContain('参考图数量已达上限')
     expect(IMAGE_FETCH_CORS_HINT).toContain('复制结果链接')
 
