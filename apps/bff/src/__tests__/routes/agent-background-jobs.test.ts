@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
+  type AgentBackgroundJobCancelResponse,
   type AgentBackgroundJobsResponse,
   type AgentMessageView,
   type AgentTurnEvent,
@@ -43,18 +44,30 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
-_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+// 取消按原桶退回：退款发生在 overlay 的 finalizeTask 里，这里记下它被叫了几次、以什么结局。
+const finalized: { taskId: string; outcome: string }[] = []
+_setPrivateBffOverlayForTesting(
+  Object.freeze({
+    ...EMPTY_PRIVATE_BFF_OVERLAY,
+    taskHooks: {
+      ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+      async finalizeTask({ taskId, outcome }: { taskId: string; outcome: string }) {
+        finalized.push({ taskId, outcome })
+      },
+    },
+  }),
+)
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 
-function request(path: string, init: { method?: string; body?: unknown } = {}) {
+function request(path: string, init: { method?: string; body?: unknown; device?: string } = {}) {
   return app.handle(
     new Request(`http://localhost${path}`, {
       method: init.method ?? 'GET',
       headers: {
         'content-type': 'application/json',
-        [DEVICE_ID_HEADER]: DEVICE,
+        [DEVICE_ID_HEADER]: init.device ?? DEVICE,
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     }),
@@ -146,6 +159,7 @@ beforeEach(async () => {
   setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 200 })
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
+  finalized.length = 0
 })
 
 afterEach(() => {
@@ -372,5 +386,107 @@ describe('生成改为后台任务', () => {
 
     const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
     expect(after!.status).toBe('cancelled')
+  })
+})
+
+function cancelJob(conversationId: string, taskId: string, device?: string) {
+  return request(`/api/agent/conversations/${conversationId}/jobs/${taskId}/cancel`, {
+    method: 'POST',
+    ...(device ? { device } : {}),
+  })
+}
+
+describe('后台任务的进度与取消', () => {
+  it('reports the stage and submission time of an unfinished job from the task table', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const task = await onlyTask()
+
+    // 排着队：阶段是「已提交」，已用时间从任务受理那一刻算，谁来读都是同一个起点。
+    const [queued] = await readJobs(conversationId)
+    expect(queued!.progress).toEqual({ stage: 'submitted', submittedAt: task.submitted_at })
+
+    await finishTask(task.id, 'in_progress')
+    const [running] = await readJobs(conversationId)
+    expect(running!.progress).toEqual({ stage: 'running', submittedAt: task.submitted_at })
+
+    await finishTask(task.id, 'completed')
+    const [done] = await readJobs(conversationId)
+    expect(done!.result.status).toBe('succeeded')
+    expect(done!.progress).toBeUndefined()
+  })
+
+  it('cancels one job on request, refunds it and shows the cancelled outcome everywhere', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画一只橘猫')
+    const [end] = eventsOfType(frames, 'toolEnd')
+    const task = await onlyTask()
+    await finishTask(task.id, 'in_progress')
+
+    const response = await cancelJob(conversationId, task.id)
+    expect(response.status).toBe(200)
+    const { job } = (await response.json()) as AgentBackgroundJobCancelResponse
+    expect(job).toMatchObject({
+      messageId: end!.messageId,
+      result: { status: 'failed', errorCode: 'cancelled', job: { taskId: task.id } },
+    })
+    expect(job.progress).toBeUndefined()
+
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
+    expect(after!.status).toBe('cancelled')
+    expect(finalized).toEqual([{ taskId: task.id, outcome: 'cancelled' }])
+
+    // 换一台设备、刷新之后读到的是同一个结局。
+    const [listed] = await readJobs(conversationId)
+    expect(listed!.result).toEqual(job.result)
+    const snapshot = await readMessages(conversationId)
+    expect(snapshot.find((message) => message.id === end!.messageId)?.content).toEqual([job.result])
+
+    // 再点一次（或另一台设备同时点）不会再退一次。
+    const again = await cancelJob(conversationId, task.id)
+    expect(again.status).toBe(200)
+    expect(((await again.json()) as AgentBackgroundJobCancelResponse).job.result).toEqual(
+      job.result,
+    )
+    expect(finalized).toHaveLength(1)
+  })
+
+  it('leaves a finished job alone when cancelled late', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const task = await onlyTask()
+    await finishTask(task.id, 'completed')
+
+    const response = await cancelJob(conversationId, task.id)
+    expect(response.status).toBe(200)
+    const { job } = (await response.json()) as AgentBackgroundJobCancelResponse
+    expect(job.result.status).toBe('succeeded')
+    expect(finalized).toEqual([])
+  })
+
+  it('refuses to cancel tasks that are not a job of this conversation', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const task = await onlyTask()
+
+    expect((await cancelJob(conversationId, 'not-a-task')).status).toBe(404)
+    // 别人的会话：连会话都找不到。
+    expect((await cancelJob(conversationId, task.id, 'device-someoneelse')).status).toBe(404)
+
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
+    expect(after!.status).toBe('queued')
+    expect(finalized).toEqual([])
   })
 })

@@ -92,6 +92,8 @@ let turnResponse: () => Response
 let messagesResponse: () => Response
 /** 后台任务列表：每问一次按当时的服务端结算回。 */
 let jobsResponse: () => readonly AgentBackgroundJobView[]
+/** 单独取消一个后台任务时服务端的回应。 */
+let cancelResponse: () => Response
 let imageResponse: () => Response | Promise<Response>
 const onCanvas = new Set<string>()
 const placed: {
@@ -116,6 +118,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   }
   if (url.includes('/turns')) return turnResponse()
   if (url.endsWith('/jobs')) return Response.json({ jobs: jobsResponse() })
+  if (url.endsWith('/cancel') && init?.method === 'POST') return cancelResponse()
   if (url.includes('/v1/queue/requests/')) {
     return imageResponse()
   }
@@ -179,6 +182,7 @@ beforeEach(() => {
   turnResponse = () => turnStream(TURN_START, TURN_END)
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   jobsResponse = () => []
+  cancelResponse = () => Response.json({ error: 'not_found' }, { status: 404 })
   setAgentJobPollIntervalForTesting(5)
   useAgentStore.setState({
     conversationId: null,
@@ -188,6 +192,8 @@ beforeEach(() => {
     turns: {},
     error: null,
     loaded: false,
+    jobProgress: {},
+    toolStartedAt: {},
   })
 })
 
@@ -709,6 +715,77 @@ describe('后台任务', () => {
     await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placedInto).toEqual([['placeholder-1']])
     expect(discarded).toEqual([])
+  })
+
+
+  it('刷新后立刻从服务端读到任务的阶段与受理时刻，阶段随任务推进', async () => {
+    let stage: 'submitted' | 'running' = 'submitted'
+    jobsResponse = () => [{ ...pendingJob, progress: { stage, submittedAt: 1_000 } }]
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        turns: [],
+        messages: [
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [pendingJob.result],
+            createdAt: 2,
+          },
+        ],
+      })
+
+    await state().selectConversation(CONVERSATION)
+
+    await vi.waitFor(() =>
+      expect(state().jobProgress['tool-1']).toEqual({ stage: 'submitted', submittedAt: 1_000 }),
+    )
+    stage = 'running'
+    await vi.waitFor(() =>
+      expect(state().jobProgress['tool-1']).toEqual({ stage: 'running', submittedAt: 1_000 }),
+    )
+  })
+
+  it('单独取消后台任务：卡换成取消后的结局，占的位收掉而不是留成失败占位', async () => {
+    jobsResponse = () => [pendingJob]
+    const cancelCalls: string[] = []
+    cancelResponse = () => {
+      cancelCalls.push('cancel')
+      return Response.json({
+        job: finished({ status: 'failed', message: '已中止', errorCode: 'cancelled' })[0],
+      })
+    }
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+    await state().send('画一只橘猫')
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+
+    await state().cancelJob('tool-1')
+
+    expect(cancelCalls).toHaveLength(1)
+    const request = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/cancel'))!
+    expect(String(request[0])).toContain(`/conversations/${CONVERSATION}/jobs/task-1/cancel`)
+    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'cancelled' })
+    await vi.waitFor(() => expect(discarded).toEqual(['placeholder-1']))
+    expect(failed).toEqual([])
+    expect(placed).toEqual([])
+  })
+
+  it('取消请求失败时卡保持原样并把错误交给调用方', async () => {
+    jobsResponse = () => [pendingJob]
+    cancelResponse = () => Response.json({ error: 'internal' }, { status: 500 })
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+    await state().send('画一只橘猫')
+
+    await expect(state().cancelJob('tool-1')).rejects.toThrow()
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+    expect(discarded).toEqual([])
+
+    // 离开会话时移交出去的占位照常收掉，不漏到下一个用例。
+    state().startNewConversation()
+    await vi.waitFor(() => expect(discarded).toEqual(['placeholder-1']))
   })
 
   it('切走再切回时旧的占位收掉，任务结束后在当前画布上照常落图', async () => {

@@ -1,5 +1,6 @@
 import type {
   AgentActiveTurnView,
+  AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentBackgroundJobView,
   AgentConversationView,
@@ -144,6 +145,24 @@ export async function fetchJobs(
   })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as AgentBackgroundJobsResponse).jobs
+}
+
+/** 单独取消一个后台任务；回的是取消之后这次调用的样子（任务已经结束就原样返回）。 */
+export async function cancelJob(
+  conversationId: string,
+  taskId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentBackgroundJobView> {
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/jobs/${encodeURIComponent(taskId)}/cancel`),
+    {
+      method: 'POST',
+      headers: deviceHeaders(),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return ((await response.json()) as AgentBackgroundJobCancelResponse).job
 }
 
 async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {

@@ -242,10 +242,26 @@ export interface AgentBackgroundJobView {
   readonly messageId: string
   readonly turnId: string
   readonly result: AgentToolResultBlock
+  /** 任务还没结束时它此刻走到哪一步；结果块已是终局时缺席。 */
+  readonly progress?: AgentBackgroundJobProgress
+}
+
+/**
+ * 没结束的后台任务此刻的进度，取自任务表：`submitted` 是排着队，`running` 是在生成。
+ * 已用时间从 `submittedAt`（任务受理时刻，epoch 毫秒）算起，所以刷新、换设备后看到的是同一个数。
+ */
+export interface AgentBackgroundJobProgress {
+  readonly stage: AgentToolStage
+  readonly submittedAt: number
 }
 
 export interface AgentBackgroundJobsResponse {
   readonly jobs: readonly AgentBackgroundJobView[]
+}
+
+/** `POST .../jobs/:taskId/cancel` 的回应：取消之后这次调用此刻的样子（已结束的任务原样返回）。 */
+export interface AgentBackgroundJobCancelResponse {
+  readonly job: AgentBackgroundJobView
 }
 
 /**

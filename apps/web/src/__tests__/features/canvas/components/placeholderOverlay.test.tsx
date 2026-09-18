@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
+
+import { projectArtifactId } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import type { AgentToolMessage } from '../../../../features/agent/types'
 import PlaceholderOverlay from '../../../../features/canvas/components/PlaceholderOverlay'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -10,7 +14,13 @@ import { projectScene } from '../../../../features/canvas/lib/projectMedia'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 
-const agent = vi.hoisted(() => ({ send: vi.fn(), conversationId: 'conv-1' as string | null }))
+const agent = vi.hoisted(() => ({
+  send: vi.fn(),
+  conversationId: 'conv-1' as string | null,
+  messages: [] as import('../../../../features/agent/types').AgentPanelMessage[],
+  jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
+  toolStartedAt: {} as Record<string, number>,
+}))
 const send = agent.send
 
 vi.mock('../../../../features/agent/store', () => ({
@@ -46,11 +56,15 @@ beforeEach(() => {
   root = createRoot(host)
   send.mockClear()
   agent.conversationId = 'conv-1'
+  agent.messages = []
+  agent.jobProgress = {}
+  agent.toolStartedAt = {}
 })
 
 afterEach(() => {
   act(() => root.unmount())
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 async function failedPlaceholder(
@@ -195,4 +209,89 @@ it('云端项目超时的失败占位只说原因', () => {
 
   expect(host.querySelector('button')).toBeNull()
   expect(host.textContent).toContain('生成超时，这次没有出来')
+})
+
+describe('生成进度', () => {
+  const NOW = Date.UTC(2026, 8, 18, 10, 0, 0)
+  const card: AgentToolMessage = {
+    kind: 'tool',
+    id: 'tool-1',
+    turnId: 'turn-1',
+    toolCallId: 'call-1',
+    title: '一只橘猫',
+    status: 'submitted',
+    job: { taskId: '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb', media: 'image' },
+  }
+
+  function progressText(container: HTMLElement): string {
+    return container.querySelector('[role="progressbar"] p')?.textContent ?? ''
+  }
+
+  it('转圈的占位与对话里的结果卡说同一个阶段与已用时间', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] })
+    agent.messages = [card]
+    agent.jobProgress = { 'tool-1': { stage: 'submitted', submittedAt: NOW - 75_000 } }
+    const sink = createAgentCanvasSink(editor)
+    await sink.reserve({
+      count: 1,
+      messageId: 'tool-1',
+      conversationId: 'conv-1',
+      title: '一只橘猫',
+    })
+    act(() => root.render(<PlaceholderOverlay editor={editor} />))
+
+    const cardHost = document.createElement('div')
+    const cardRoot = createRoot(cardHost)
+    try {
+      act(() => cardRoot.render(<AgentToolCard message={card} />))
+      expect(progressText(cardHost)).toBe('排队中 · 已用 1:15')
+      expect(host.textContent).toContain('排队中 · 已用 1:15')
+
+      // 服务端报任务开始生成：两处一起换阶段，时间一起走。
+      agent.jobProgress = { 'tool-1': { stage: 'running', submittedAt: NOW - 75_000 } }
+      act(() => vi.advanceTimersByTime(2_000))
+      act(() => root.render(<PlaceholderOverlay editor={editor} key="again" />))
+      act(() => cardRoot.render(<AgentToolCard message={{ ...card }} />))
+      expect(progressText(cardHost)).toBe('生成中 · 已用 1:17')
+      expect(host.textContent).toContain('生成中 · 已用 1:17')
+    } finally {
+      act(() => cardRoot.unmount())
+    }
+  })
+
+  it('云端项目预留的占位按任务 id 认出结果卡', () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] })
+    agent.messages = [card]
+    agent.jobProgress = { 'tool-1': { stage: 'running', submittedAt: NOW - 3_000 } }
+    const scene = projectScene(
+      {
+        version: 1,
+        elements: [
+          {
+            id: projectArtifactId(card.job!.taskId, 0),
+            type: 'generation',
+            generationId: card.job!.taskId,
+            position: 0,
+            x: 0,
+            y: 0,
+            width: 360,
+            height: 360,
+          },
+        ],
+      },
+      new Map(),
+      'conv-1',
+    )
+    editor.doc.restore(scene.elements, scene.files)
+    act(() => root.render(<PlaceholderOverlay editor={editor} />))
+    expect(host.textContent).toContain('生成中 · 已用 0:03')
+  })
+
+  it('找不到对应的结果卡时照旧只说生成中', async () => {
+    const sink = createAgentCanvasSink(editor)
+    await sink.reserve({ count: 1, messageId: 'gone', conversationId: 'conv-1', title: '一只橘猫' })
+    act(() => root.render(<PlaceholderOverlay editor={editor} />))
+    expect(host.textContent).toContain('生成中')
+    expect(host.textContent).not.toContain('已用')
+  })
 })

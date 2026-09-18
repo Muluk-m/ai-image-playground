@@ -31,7 +31,6 @@
     "copyFailed": "Copy failed. Select the reply text and copy it manually."
   },
   "tool": {
-    "stageSubmitted": "Queued",
     "background": "Generating in the background; it will land on the canvas when ready",
     "preparing": "Preparing",
     "notFinished": "Did not finish",
@@ -217,5 +216,27 @@
     "results": "Search results",
     "newHint": "Start a separate chat and canvas",
     "all": "View all projects"
+  },
+  "job": {
+    "phase": {
+      "submitted": "Submitted",
+      "queued": "Queued",
+      "generating": "Generating",
+      "delivering": "Adding to canvas"
+    },
+    "progress": "{{phase}} · {{elapsed}} elapsed",
+    "progressAria": "Generation progress",
+    "cancel": "Cancel job",
+    "cancelling": "Cancelling…",
+    "cancelFailed": "Could not cancel, please try again",
+    "cancelled": "Cancelled",
+    "cancelledRefunded": "Cancelled, credits refunded",
+    "inbox": {
+      "aria": "Background jobs",
+      "summary": "{{running}} running · {{completed}} done",
+      "locate": "Locate on canvas",
+      "succeeded": "Done",
+      "failed": "Did not finish"
+    }
   }
 }

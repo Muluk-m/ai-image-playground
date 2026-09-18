@@ -82,6 +82,11 @@ export interface AgentCanvasSink {
   ): void
   /** 选中这些对象并把镜头带过去；不在画布上的跳过。 */
   focus(objectIds: readonly string[]): void
+  /**
+   * 定位一个还没出结果的生成：选中它占的位并把镜头带过去。本机占的位记着结果卡的 messageId，
+   * 云端项目预留的位记着任务 id。没有这样的占位就什么也不做。
+   */
+  focusPending?(ref: { readonly messageId: string; readonly taskId?: string }): void
   /** 画布是位图的单源，对象被删掉就没有缩略图了。 */
   thumbnail(objectId: string): Promise<string | null>
 }

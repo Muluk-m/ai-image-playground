@@ -209,6 +209,20 @@ export function createAgentCanvasSink(
       editor.scrollToElements(present)
     },
 
+    focusPending({ messageId, taskId }) {
+      const ids = editor
+        .getPlaceholders()
+        .filter(
+          (one) =>
+            one.meta.agentMessageId === messageId ||
+            (taskId !== undefined && one.meta.cloudGeneration?.id === taskId),
+        )
+        .map((one) => one.id)
+      if (ids.length === 0) return
+      editor.setSelectedElements(ids)
+      editor.scrollToElements(ids)
+    },
+
     async thumbnail(objectId) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       await recoverVideoPoster(editor, objectId)
