@@ -177,6 +177,8 @@ export async function runQueueTask(
           eq(schema.tasks.agent_turn_id, context.turnId),
           eq(schema.tasks.agent_conversation_id, context.conversationId),
         )!,
+        // 云端项目里它预留的位置和本机画布一样留作超时的失败占位。
+        { failedAs: 'timeout' },
       )
       throw new AgentToolError(withdrawn.length > 0 ? 'timeout' : 'result_unknown', outcome.reason)
     }

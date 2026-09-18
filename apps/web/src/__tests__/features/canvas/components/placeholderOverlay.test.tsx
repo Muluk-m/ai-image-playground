@@ -6,6 +6,7 @@ import PlaceholderOverlay from '../../../../features/canvas/components/Placehold
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { projectScene } from '../../../../features/canvas/lib/projectMedia'
 
 const agent = vi.hoisted(() => ({ send: vi.fn(), conversationId: 'conv-1' as string | null }))
 const send = agent.send
@@ -100,4 +101,47 @@ it('结果未知的失败只说原因，不给出路', async () => {
 
   expect(host.textContent).toContain('这次的结果没能确认')
   expect(host.querySelector('button')).toBeNull()
+})
+
+function cloudFailedPlaceholder(code: 'model_unavailable' | 'timeout') {
+  const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+  const scene = projectScene(
+    {
+      version: 1,
+      elements: [
+        {
+          id: `agent_${generationId}_0`,
+          type: 'generation',
+          generationId,
+          position: 0,
+          x: 0,
+          y: 0,
+          width: 360,
+          height: 360,
+          errorCode: code,
+        },
+      ],
+    },
+    new Map(),
+    'conv-1',
+  )
+  editor.doc.restore(scene.elements, scene.files)
+  act(() => root.render(<PlaceholderOverlay editor={editor} />))
+}
+
+it('云端项目的失败占位同样按错误码出原因与出路', () => {
+  cloudFailedPlaceholder('model_unavailable')
+
+  expect(host.textContent).toContain('生成失败')
+  const button = host.querySelector('button')!
+  expect(button.textContent).toBe('让助手重新处理')
+  act(() => button.click())
+  expect(send).toHaveBeenCalledWith(expect.stringMatching(/^「生成任务」没有完成：/))
+})
+
+it('云端项目超时的失败占位只说原因', () => {
+  cloudFailedPlaceholder('timeout')
+
+  expect(host.querySelector('button')).toBeNull()
+  expect(host.textContent).toContain('生成超时，这次没有出来')
 })

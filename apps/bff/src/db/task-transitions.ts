@@ -1,5 +1,6 @@
-import type { TaskErrorType } from '@image-playground/shared'
+import type { AgentToolErrorCode, TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
+import { taskFailureCode } from '../lib/agent/tools/errors'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
@@ -163,7 +164,14 @@ export async function finishTask(
     if (finished.userId && update.media) {
       await publishGenerationImages(tx, finished.userId, id, update.media)
     }
-    if (finished.userId) await publishProjectOutputs(tx, finished.userId, id, update.media ?? [])
+    if (finished.userId)
+      await publishProjectOutputs(
+        tx,
+        finished.userId,
+        id,
+        update.media ?? [],
+        update.status === 'failed' ? taskFailureCode(update.errorType) : undefined,
+      )
     await taskHooks.finalizeTask({
       tx,
       taskId: finished.id,
@@ -178,8 +186,12 @@ export async function finishTask(
   })
 }
 
-/** 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。 */
-export async function cancelTasks(access: SQL) {
+/**
+ * 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。
+ * `failedAs`：这次撤回在用户看来是一次失败（智能体等不到结果撤掉的任务算超时），项目里预留的
+ * 位置留作带这个码的失败占位；缺席即用户主动取消，预留位置直接收掉。
+ */
+export async function cancelTasks(access: SQL, options: { failedAs?: AgentToolErrorCode } = {}) {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
     const rows = await tx
@@ -192,7 +204,7 @@ export async function cancelTasks(access: SQL) {
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     for (const row of rows) {
-      if (row.userId) await publishProjectOutputs(tx, row.userId, row.id, [])
+      if (row.userId) await publishProjectOutputs(tx, row.userId, row.id, [], options.failedAs)
       await taskHooks.finalizeTask({
         tx,
         taskId: row.id,

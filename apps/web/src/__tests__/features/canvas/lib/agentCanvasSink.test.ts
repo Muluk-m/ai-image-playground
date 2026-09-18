@@ -287,6 +287,28 @@ describe('工具起跑占位', () => {
       'insufficient_credits',
     )
   })
+
+  it('云端项目的工具失败时立即拉取云端，服务端留下的失败占位马上出现', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const cloudSink = createAgentCanvasSink(editor, undefined, { enabled: () => true, refresh })
+    // 云端项目的图片占位由服务端预留，本机不占位。
+    const ids = await cloudSink.reserve({ count: 1, messageId: 'tool-cloud' })
+    expect(ids).toEqual([])
+
+    cloudSink.markFailed(ids, '上游超时', 'timeout')
+
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('本机项目的工具失败不去拉取云端', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const localSink = createAgentCanvasSink(editor, undefined, { enabled: () => false, refresh })
+    const [id] = await localSink.reserve({ count: 1 })
+
+    localSink.markFailed([id!], '上游超时', 'timeout')
+
+    expect(refresh).not.toHaveBeenCalled()
+  })
 })
 
 it('重放已失败工具时复用原占位，刷新恢复后仍然幂等', async () => {

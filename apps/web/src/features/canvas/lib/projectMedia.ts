@@ -44,6 +44,10 @@ export function projectDocument(
         y: element.y,
         width: element.width,
         height: element.height,
+        // 失败码是服务端写的，原样带回；它不能被本机改动（服务端会拒绝）。
+        ...(element.status === 'error' && element.meta.agentErrorCode
+          ? { errorCode: element.meta.agentErrorCode }
+          : {}),
       }
     }
     if (element.type !== 'image') return element
@@ -132,7 +136,15 @@ export async function prepareProjectMedia(
   }
 }
 
-export function projectScene(document: ProjectDocument, bindings: LoadedBindings = new Map()) {
+/**
+ * 云端文档转本机画布。`conversationId` 是项目绑定的会话：服务端预留的占位属于它，
+ * 失败占位的「让助手重新处理」只发回这个会话。
+ */
+export function projectScene(
+  document: ProjectDocument,
+  bindings: LoadedBindings = new Map(),
+  conversationId?: string | null,
+) {
   const originals = new Map(
     Array.from(bindings, ([fileId, binding]) => [binding.id, { fileId, source: binding.source }]),
   )
@@ -146,7 +158,8 @@ export function projectScene(document: ProjectDocument, bindings: LoadedBindings
         y: element.y,
         width: element.width,
         height: element.height,
-        status: 'loading',
+        // 服务端在任务失败时留下带码的失败占位；界面按码出文案与出路，不读文字（ADR 0006）。
+        status: element.errorCode ? 'error' : 'loading',
         message: '',
         meta: {
           taskId: '',
@@ -155,6 +168,8 @@ export function projectScene(document: ProjectDocument, bindings: LoadedBindings
           prompt: '',
           agent: true,
           cloudGeneration: { id: element.generationId, position: element.position },
+          ...(element.errorCode ? { agentErrorCode: element.errorCode } : {}),
+          ...(conversationId ? { agentConversationId: conversationId } : {}),
         },
       }
     if (element.type !== 'image') return element

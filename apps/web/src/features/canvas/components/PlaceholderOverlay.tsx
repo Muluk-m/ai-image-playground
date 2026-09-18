@@ -102,7 +102,8 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       onClick={() =>
                         runAgentToolFailureAction(agentAction, {
                           code: agentCode,
-                          title: p.meta.prompt,
+                          // 云端项目里服务端预留的占位不带提示词，用通用的任务名指认。
+                          title: p.meta.prompt || t('agent:creations.taskTitle'),
                           send: (text) => void useAgentStore.getState().send(text),
                         })
                       }

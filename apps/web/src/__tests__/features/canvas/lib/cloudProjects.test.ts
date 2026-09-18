@@ -1289,6 +1289,67 @@ it('新设备恢复服务端生成占位，刷新不删除；移动只同步几�
   session.dispose()
 })
 
+it('另一台设备恢复服务端的失败占位并带着错误码；删除后同步给云端', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+  const id = `agent_${generationId}_0`
+  const failed = {
+    id,
+    type: 'generation',
+    generationId,
+    position: 0,
+    x: 24,
+    y: 0,
+    width: 360,
+    height: 360,
+    errorCode: 'timeout',
+  }
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '失败的图片项目',
+    revision: 3,
+    createdAt: 1,
+    updatedAt: 3,
+    elementCount: 1,
+    conversationId: 'conversation-1',
+    document: { version: 1, elements: [failed] },
+  }
+  const writes: { baseRevision: number; document: { elements: unknown[] } }[] = []
+  vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(init.body as string)
+      writes.push(body)
+      return Response.json(receipt(remote.id, body))
+    }
+    return Response.json(remote)
+  })
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+  expect(editor.getPlaceholder(id)).toMatchObject({
+    status: 'error',
+    meta: {
+      agent: true,
+      agentErrorCode: 'timeout',
+      agentConversationId: 'conversation-1',
+      cloudGeneration: { id: generationId, position: 0 },
+    },
+  })
+  const { recoverCanvasTasks } = await import('../../../../features/canvas/lib/recoverCanvasTasks')
+  recoverCanvasTasks(editor)
+  // 打开、恢复都不改它，不产生写入。
+  await session.sync()
+  expect(writes).toHaveLength(0)
+  expect(session.getSnapshot().status).toBe('saved')
+
+  editor.deleteElement(id)
+  await session.sync()
+  expect(writes).toHaveLength(1)
+  expect(writes[0]).toMatchObject({ baseRevision: 3, document: { elements: [] } })
+  session.dispose()
+})
+
 it('其他设备删除项目后停止旧身份上传，保留本机编辑并允许显式存为新项目', async () => {
   vi.stubGlobal('crypto', webcrypto)
   setClientStorageScope(crypto.randomUUID())

@@ -350,7 +350,7 @@ export class CloudProjectSession {
         return
       }
       if (retryingRead || !hasLocalScene || remote.revision !== this.baseline.revision) {
-        const scene = projectScene(remote.document, this.mediaBindings)
+        const scene = projectScene(remote.document, this.mediaBindings, this.project.conversationId)
         this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
       }
       await this.metadata({
@@ -589,7 +589,7 @@ export class CloudProjectSession {
         return
       }
       if (!remote) return
-      const scene = projectScene(remote.document, this.mediaBindings)
+      const scene = projectScene(remote.document, this.mediaBindings, this.project.conversationId)
       this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
       this.project = { ...this.project, name: remote.name }
       this.baseline = {

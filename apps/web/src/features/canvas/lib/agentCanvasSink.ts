@@ -71,6 +71,9 @@ export function createAgentCanvasSink(
     },
 
     markFailed(placeholderIds, message, errorCode) {
+      // 云端项目的图片占位由服务端预留，失败时服务端把它留作失败占位；立即拉一次，
+      // 不等下一轮轮询才让它从「生成中」变过来。
+      if (cloud?.enabled()) void cloud.refresh().catch(() => {})
       for (const id of placeholderIds) {
         if (errorCode)
           editor.updatePlaceholder(id, {
