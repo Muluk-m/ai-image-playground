@@ -82,6 +82,7 @@ beforeEach(() => {
     turn: 'idle',
     activeTurn: null,
     turns: {},
+    queue: [],
     error: null,
     loaded: false,
   })
@@ -388,18 +389,17 @@ describe('中止', () => {
   })
 })
 
-describe('插话', () => {
-  it('轮进行中再发一句就是插话，不另起一轮', async () => {
+describe('忙时发送与插话', () => {
+  it('轮进行中再发一句进排队列表，不另起一轮也不插话', async () => {
+    const queued = {
+      id: 'queue-1',
+      clientMessageId: 'client-1',
+      text: '改成狗',
+      referenceCount: 0,
+      createdAt: 1,
+    }
     turnResponses = [
-      () =>
-        sse([
-          { id: 1, event: TURN_START },
-          { id: 2, event: ASSISTANT_START },
-          { id: 3, event: { type: 'interjection', messageId: 'user-2', text: '改成狗' } },
-          { id: 4, event: { type: 'assistantStart', messageId: 'assistant-2' } },
-          { id: 5, event: { type: 'textDelta', messageId: 'assistant-2', delta: '好，改成狗' } },
-          { id: 6, event: TURN_END },
-        ]),
+      () => Response.json({ queued, state: 'pending', turnId: TURN }, { status: 202 }),
     ]
     useAgentStore.setState({
       conversationId: CONVERSATION,
@@ -411,8 +411,10 @@ describe('插话', () => {
     await state().send('改成狗')
 
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.url).toContain(`/turns/${TURN}/interject`)
+    expect(posted[0]!.url).toMatch(new RegExp(`/conversations/${CONVERSATION}/turns$`))
     expect(posted[0]!.body).toMatchObject({ text: '改成狗' })
+    expect(state().queue).toEqual([queued])
+    expect(state().turn).toBe('running')
   })
 
   it('插话的消息与随后的回复都进对话流', async () => {

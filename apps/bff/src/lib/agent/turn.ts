@@ -62,6 +62,8 @@ export interface StartAgentTurnInput {
   readonly conversationId: string
   readonly turnId: string
   readonly userMessageId: string
+  /** 这一轮取走的排队消息；缺席即这一句是当场发来的，没排过队。 */
+  readonly queueId?: string
   readonly history: readonly AgentMessageView[]
   readonly text: string
   /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
@@ -388,6 +390,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     userMessageId,
     reservedCredits: input.reservedCredits,
   })
+  if (input.queueId) events.emit({ type: 'queuedMessageConsumed', queueId: input.queueId, turnId })
 
   let resolveCompleted!: () => void
   const completed = new Promise<void>((resolve) => {

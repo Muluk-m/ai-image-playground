@@ -38,6 +38,8 @@ export interface TurnEventLog {
   /** 开日志时会话已有的最大序号；本轮第一条事件是它加一。 */
   readonly baseSeq: number
   emit(event: AgentTurnEvent): void
+  /** 终帧发过没有。发过之后这份日志只剩落库与收流，不再收会话级的通知。 */
+  readonly ended: boolean
   /** 本轮跑着时的实时流；断开重开都从给定断点续。 */
   read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
   /** 把攒着的事件写完。 */
@@ -167,9 +169,14 @@ export async function openTurnEventLog(
     })
   }
 
+  let ended = false
   const entry: TurnEventLog = {
     baseSeq,
+    get ended() {
+      return ended
+    },
     emit(event) {
+      if (event.type === 'turnEnd') ended = true
       // 发了第一条才登记：建轮半路抛错的日志没人会 close，登记了续播就永远等不到头。
       if (buffered.length === 0 && !closed) openLogs.set(logKey(conversationId, turnId), entry)
       buffered.push({ seq: baseSeq + buffered.length + 1, event })
@@ -247,6 +254,19 @@ function openConversationLog(conversationId: string): TurnEventLog | undefined {
   const prefix = `${conversationId}/`
   for (const [key, entry] of openLogs) if (key.startsWith(prefix)) return entry
   return undefined
+}
+
+/**
+ * 把一条不属于哪段回复的会话级通知（排队、撤回）插进本进程正在跑的那一轮的事件流：序号
+ * 只能由开着的日志发，所以通知搭它的车，连着的设备与之后的续播都按序号收到。没有开着的轮、
+ * 或者那一轮已经发过终帧（下一轮的序号马上要从表里接着发），就不发——快照与排队列表端点
+ * 才是这份状态的依据，通知只是让连着的设备不必再问一次。
+ */
+export function notifyConversation(conversationId: string, event: AgentTurnEvent): boolean {
+  const live = openConversationLog(conversationId)
+  if (!live || live.ended) return false
+  live.emit(event)
+  return true
 }
 
 async function readStoredConversationEvents(

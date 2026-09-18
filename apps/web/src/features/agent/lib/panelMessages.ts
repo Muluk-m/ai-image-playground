@@ -302,6 +302,11 @@ export function reduceAgentPanelEvent(
         ),
       }
     }
+    // 排队列表不在对话流里，归 store（见 `lib/messageQueue`）。
+    case 'messageQueued':
+    case 'queuedMessageWithdrawn':
+    case 'queuedMessageConsumed':
+      return state
     case 'turnEnd': {
       const turns = mergeTurn(state.turns, event.turnId, {
         durationMs: event.durationMs,

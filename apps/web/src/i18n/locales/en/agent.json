@@ -82,7 +82,24 @@
     "aborting": "Stopping…",
     "modeAria": "Creation type",
     "modeImage": "Image",
-    "modeVideo": "Video"
+    "modeVideo": "Video",
+    "queue": "Queue"
+  },
+  "queue": {
+    "title_one": "{{count}} queued",
+    "title_other": "{{count}} queued",
+    "hint": "Handled in order once the current reply ends",
+    "references_one": "{{count}} image",
+    "references_other": "{{count}} images",
+    "withdraw": "Withdraw",
+    "withdrawAria": "Withdraw this queued message: {{text}}",
+    "dismiss": "Remove",
+    "dismissAria": "Remove this unhandled message: {{text}}",
+    "failure": {
+      "insufficient_credits": "Not handled: insufficient credits",
+      "model_price_unavailable": "Not handled: model unavailable",
+      "unauthorized": "Not handled: sign in required"
+    }
   },
   "params": {
     "title": "Generation settings",
@@ -133,7 +150,12 @@
     "interjectFailed": "The interjection was not sent. Your draft is kept, please retry.",
     "canvasBindFailed": "The canvas could not be saved into the new conversation. Please retry — the original canvas and draft are kept.",
     "turnAlreadyRunning": "A turn is already running in this conversation. The message was not sent and your draft is kept.",
-    "stopFailed": "Couldn't stop it. Click Stop to try again."
+    "stopFailed": "Couldn't stop it. Click Stop to try again.",
+    "queueFull_one": "The queue is full (up to {{count}} message). Wait for it to be handled. Your draft is kept.",
+    "queueFull_other": "The queue is full (up to {{count}} messages). Wait for earlier ones to be handled. Your draft is kept.",
+    "queueFailed": "The message couldn't be queued. Your draft is kept, please retry.",
+    "queueAlreadyConsumed": "That message is already being handled and could not be withdrawn.",
+    "queueWithdrawFailed": "Couldn't withdraw it. Please retry."
   },
   "project": {
     "createFailed": "Could not create the project. Your current work is kept, please retry.",

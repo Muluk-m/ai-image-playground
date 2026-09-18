@@ -124,6 +124,11 @@ app.listen(
 // 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
 const stopHeartbeat = startHeartbeat({ service: 'bff' })
 
+// 排队消息的兜底：收尾那个实例正在下线或半路没了时，由这里接着开轮。开机先巡一次。
+const stopInboxPickup = agentEnabled
+  ? (await import('./lib/agent/inbox-pickup')).startInboxPickup()
+  : () => {}
+
 // 接口统计：每分钟把已经结束的那几分钟写成行。写失败的那一分钟就丢了，不重试——
 // 它只是看板上的一个点，不值得为它把内存攒大。
 async function flushApiMinutes(all = false): Promise<void> {
@@ -154,6 +159,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   shuttingDown = true
   log.info({ event: 'shutdown.start', signal }, 'stopping bff')
   bffDrain.begin()
+  stopInboxPickup()
   while (!bffDrain.status().safeToStop) await Bun.sleep(250)
   stopHeartbeat()
   clearInterval(apiMinutesTimer)

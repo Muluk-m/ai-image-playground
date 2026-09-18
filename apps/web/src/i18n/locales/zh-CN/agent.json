@@ -81,7 +81,22 @@
     "aborting": "正在中止…",
     "modeAria": "创作类型",
     "modeImage": "图片",
-    "modeVideo": "视频"
+    "modeVideo": "视频",
+    "queue": "加入排队"
+  },
+  "queue": {
+    "title_other": "排队中 {{count}} 条",
+    "hint": "当前回复结束后按顺序处理",
+    "references_other": "{{count}} 张图",
+    "withdraw": "撤回",
+    "withdrawAria": "撤回这条排队消息：{{text}}",
+    "dismiss": "移除",
+    "dismissAria": "移除这条没能处理的消息：{{text}}",
+    "failure": {
+      "insufficient_credits": "余额不足，未处理",
+      "model_price_unavailable": "模型暂不可用，未处理",
+      "unauthorized": "需要登录，未处理"
+    }
   },
   "params": {
     "title": "生成参数",
@@ -132,7 +147,11 @@
     "interjectFailed": "插话未发送成功，草稿已保留，请重试。",
     "canvasBindFailed": "画布未能保存到新会话，请重试。原画布和草稿已保留。",
     "turnAlreadyRunning": "会话中已有任务运行，本次消息未发送，草稿已保留。",
-    "stopFailed": "中止未成功，请点击中止重试。"
+    "stopFailed": "中止未成功，请点击中止重试。",
+    "queueFull_other": "排队已满（最多 {{count}} 条），等前面的处理完再发。草稿已保留。",
+    "queueFailed": "消息未能加入排队，草稿已保留，请重试。",
+    "queueAlreadyConsumed": "这条消息已经在处理了，没能撤回。",
+    "queueWithdrawFailed": "撤回未成功，请重试。"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",

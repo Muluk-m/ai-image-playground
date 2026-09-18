@@ -91,6 +91,7 @@ beforeEach(() => {
     reconnecting: false,
     activeTurn: null,
     turns: {},
+    queue: [],
     error: null,
     loaded: false,
     historyLoading: false,
@@ -745,7 +746,7 @@ describe('澄清', () => {
 })
 
 describe('发送确认', () => {
-  it('插话携带引用，拒收时不清草稿也不结束正在运行的轮', async () => {
+  it('忙时发送携带引用，拒收时不清草稿也不结束正在运行的轮', async () => {
     useAgentStore.setState({
       conversationId: CONVERSATION,
       turn: 'running',
@@ -760,7 +761,21 @@ describe('发送确认', () => {
     expect(state().error).toContain('草稿已保留')
     const request = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!
     expect(JSON.parse(String(request[1]?.body)).references).toEqual(references)
-    turnResponse = () => Response.json({ messageId: 'user-2' })
+    turnResponse = () =>
+      Response.json(
+        {
+          queued: {
+            id: 'queue-1',
+            clientMessageId: 'client-1',
+            text: '修改这张',
+            referenceCount: 1,
+            createdAt: 1,
+          },
+          state: 'pending',
+          turnId: 'turn-1',
+        },
+        { status: 202 },
+      )
     await state().send('修改这张', references, accepted)
     expect(accepted).toHaveBeenCalledOnce()
   })

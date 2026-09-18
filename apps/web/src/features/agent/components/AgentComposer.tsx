@@ -640,10 +640,10 @@ export default function AgentComposer({
                 submitting
                   ? t('composer.sending')
                   : running
-                    ? t('composer.interject')
+                    ? t('composer.queue')
                     : t('composer.sendAndCreate')
               }
-              title={running ? t('composer.interject') : t('composer.sendAndCreate')}
+              title={running ? t('composer.queue') : t('composer.sendAndCreate')}
               disabled={historyBlocked || loading || submitting || !draft.prompt.trim()}
               onClick={submit}
             />

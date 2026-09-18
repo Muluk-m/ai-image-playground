@@ -654,6 +654,63 @@ describe('后台任务', () => {
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
   })
 
+  it('排队的下一条接着开轮时，上一轮交给后台任务的占位不被收掉', async () => {
+    let done = false
+    jobsResponse = () =>
+      done ? finished({ status: 'succeeded', artifacts: [IMAGE] }) : [pendingJob]
+    const queued = {
+      id: 'queue-1',
+      clientMessageId: 'client-queue-1',
+      text: '再加一只狗',
+      referenceCount: 0,
+      createdAt: 1,
+    }
+    let streams = 0
+    turnResponse = () => {
+      streams += 1
+      return streams === 1
+        ? turnStream(
+            TURN_START,
+            { ...TOOL_START, outputCount: 1 },
+            SUBMITTED,
+            { type: 'messageQueued', message: queued },
+            TURN_END,
+          )
+        : turnStream(
+            { type: 'turnStart', turnId: 'turn-2', userMessageId: 'queue-1' },
+            { type: 'queuedMessageConsumed', queueId: 'queue-1', turnId: 'turn-2' },
+            { ...TURN_END, turnId: 'turn-2' },
+          )
+    }
+    // 上一轮收尾后服务端已经用排队的那句开了下一轮，任务还没结束。
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: { turnId: 'turn-2' },
+        turns: [],
+        queue: [],
+        messages: [
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [pendingJob.result],
+            createdAt: 2,
+          },
+        ],
+      })
+
+    await state().send('画一只橘猫')
+    await vi.waitFor(() => expect(streams).toBe(2))
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    expect(state().queue).toEqual([])
+    expect(discarded).toEqual([])
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    expect(placedInto).toEqual([['placeholder-1']])
+    expect(discarded).toEqual([])
+  })
+
   it('切走再切回时旧的占位收掉，任务结束后在当前画布上照常落图', async () => {
     let done = false
     jobsResponse = () =>

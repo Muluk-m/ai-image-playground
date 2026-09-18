@@ -218,6 +218,13 @@
       "when": 1789720000000,
       "tag": "0031_agent_tool_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789740000000,
+      "tag": "0032_agent_inbox",
+      "breakpoints": true
     }
   ]
 }
