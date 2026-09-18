@@ -2,6 +2,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it, vi } from 'vitest'
 import { agentDraft, DraftSession, removeProjectDraft } from '../../../../features/agent/lib/drafts'
+import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { createSelectionReferences } from '../../../../features/agent/lib/selectionReferences'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 
@@ -16,14 +17,16 @@ function hidePage() {
   window.dispatchEvent(new Event('pagehide'))
 }
 
+/** 存储里那份草稿的文字：读回来的非空草稿先作为未发送草稿等用户决定。 */
 async function storedPrompt(key: string): Promise<string> {
   const restored = new DraftSession(key)
   await ready(restored)
-  return restored.getSnapshot().draft.prompt
+  const { unsent, draft } = restored.getSnapshot()
+  return (unsent ?? draft).prompt
 }
 
 describe('草稿恢复', () => {
-  it('刷新后恢复文字、图片和遮罩，会话之间互不串用', async () => {
+  it('刷新后文字、图片和遮罩作为未发送草稿读回，恢复后进输入框，会话之间互不串用', async () => {
     const draft = {
       prompt: '改背景',
       references: [
@@ -41,8 +44,14 @@ describe('草稿恢复', () => {
     const restored = new DraftSession('conversation-one')
     const other = new DraftSession('conversation-two')
     await Promise.all([ready(restored), ready(other)])
-    expect(restored.getSnapshot().draft).toEqual(draft)
+    expect(restored.getSnapshot().unsent).toEqual(draft)
+    expect(restored.getSnapshot().draft).toEqual(EMPTY_DRAFT)
+    expect(other.getSnapshot().unsent).toBeNull()
     expect(other.getSnapshot().draft.prompt).toBe('')
+
+    restored.restoreUnsent()
+    expect(restored.getSnapshot().draft).toEqual(draft)
+    expect(restored.getSnapshot().unsent).toBeNull()
   })
   it('跟着选区自动带进来的参考图，读回来仍跟着选区走', async () => {
     const doc = new CanvasDoc()
@@ -106,9 +115,7 @@ it('已保存的旧页面再次失焦时不会覆盖其它页面的新草稿', a
   other.update({ prompt: '另一页的新内容', references: [] })
   await other.flush()
   await old.flush()
-  const restored = new DraftSession('two-tabs')
-  await ready(restored)
-  expect(restored.getSnapshot().draft.prompt).toBe('另一页的新内容')
+  expect(await storedPrompt('two-tabs')).toBe('另一页的新内容')
 })
 
 it('上一轮完成不能解除仍在上传的插话锁', async () => {
@@ -158,5 +165,97 @@ describe('输入框不在场', () => {
     hidePage()
     await settled()
     expect(await storedPrompt(session.key)).toBe('')
+  })
+})
+
+describe('未发送的草稿', () => {
+  async function leftBehind(key: string, draft: Parameters<DraftSession['update']>[0]) {
+    const session = new DraftSession(key)
+    await ready(session)
+    session.update(draft)
+    await session.flush()
+    const restored = new DraftSession(key)
+    await ready(restored)
+    return restored
+  }
+
+  it('视频模式跟着会话走，不等恢复', async () => {
+    const restored = await leftBehind('unsent-mode', {
+      prompt: '做个开箱短片',
+      references: [],
+      mode: 'video',
+    })
+    expect(restored.getSnapshot().draft).toEqual({ ...EMPTY_DRAFT, mode: 'video' })
+    expect(restored.getSnapshot().unsent?.prompt).toBe('做个开箱短片')
+  })
+
+  it('提示还在时切换创作类型，刷新后按新类型回来，恢复也不改回去', async () => {
+    const restored = await leftBehind('unsent-mode-switch', {
+      prompt: '做个开箱短片',
+      references: [],
+      mode: 'video',
+    })
+    restored.update((draft) => ({ ...draft, mode: 'image' }))
+    await restored.flush()
+
+    const again = new DraftSession('unsent-mode-switch')
+    await ready(again)
+    expect(again.getSnapshot().draft).toEqual({ ...EMPTY_DRAFT, mode: 'image' })
+    expect(again.getSnapshot().unsent?.prompt).toBe('做个开箱短片')
+
+    again.update((draft) => ({ ...draft, mode: 'video' }))
+    again.restoreUnsent()
+    expect(again.getSnapshot().draft).toEqual({
+      prompt: '做个开箱短片',
+      references: [],
+      mode: 'video',
+    })
+    restored.restoreUnsent()
+    expect(restored.getSnapshot().draft.mode).toBe('image')
+  })
+
+  it('不理它、输入框空着时落盘也不会把它冲掉', async () => {
+    const restored = await leftBehind('unsent-ignored', { prompt: '还没发的话', references: [] })
+    restored.update({ prompt: '临时', references: [] })
+    restored.update({ prompt: '', references: [] })
+    await restored.flush()
+    expect(await storedPrompt('unsent-ignored')).toBe('还没发的话')
+  })
+
+  it('丢弃后刷新不再出现', async () => {
+    const restored = await leftBehind('unsent-discarded', { prompt: '不要了', references: [] })
+    restored.discardUnsent()
+    expect(restored.getSnapshot().unsent).toBeNull()
+    await restored.flush()
+    const again = new DraftSession('unsent-discarded')
+    await ready(again)
+    expect(again.getSnapshot().unsent).toBeNull()
+    expect(again.getSnapshot().draft.prompt).toBe('')
+  })
+
+  it('恢复后落盘的就是恢复出来的那份，跟着选区带进来的图一起留着', async () => {
+    const restored = await leftBehind('unsent-restored', { prompt: '接着改', references: [] })
+    const selected = {
+      id: 'canvas-1',
+      dataUrl: 'data:image/png;base64,aGk=',
+      origin: 'selection' as const,
+    }
+    restored.update((draft) => ({ ...draft, references: [selected] }))
+    restored.restoreUnsent()
+    expect(restored.getSnapshot().draft).toEqual({ prompt: '接着改', references: [selected] })
+    await restored.flush()
+    expect(await storedPrompt('unsent-restored')).toBe('接着改')
+  })
+
+  it('只剩跟着选区带进来的图不算没发出去的话，照旧直接放回', async () => {
+    const draft = {
+      prompt: '',
+      references: [
+        { id: 'canvas-1', dataUrl: 'data:image/png;base64,aGk=', origin: 'selection' as const },
+      ],
+    }
+    const restored = await leftBehind('unsent-selection-only', draft)
+    expect(restored.getSnapshot().unsent).toBeNull()
+    expect(restored.getSnapshot().draft).toEqual(draft)
   })
 })

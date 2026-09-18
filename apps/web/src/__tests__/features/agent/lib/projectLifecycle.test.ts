@@ -33,10 +33,12 @@ const projectDraftKey = (projectId: string) => scopedStorageName(`agent-project-
 const legacyDraftKey = (conversationId: string | null) =>
   scopedStorageName(`agent-draft:${conversationId ?? 'new'}`)
 
-async function restoredDraft(key: string): Promise<DraftSession> {
+/** 存储里那份草稿的文字。读回来的非空草稿先作为「未发送的草稿」等用户决定，不直接进输入框。 */
+async function storedPrompt(key: string): Promise<string> {
   const session = new DraftSession(key)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
-  return session
+  const { unsent, draft } = session.getSnapshot()
+  return (unsent ?? draft).prompt
 }
 
 async function persistedCamera(sceneKey: string): Promise<number> {
@@ -87,9 +89,7 @@ it('草稿与画布都有未保存改动时，保存后两者都已落盘', asyn
 
   expect(await saveCurrentProject(null)).toEqual({ ok: true })
 
-  expect((await restoredDraft(projectDraftKey(project.id))).getSnapshot().draft.prompt).toBe(
-    '产品海报草稿',
-  )
+  expect(await storedPrompt(projectDraftKey(project.id))).toBe('产品海报草稿')
   expect(await persistedCamera(project.sceneKey)).toBe(42)
 })
 
@@ -126,9 +126,7 @@ it('没有当前项目也没有会话时，草稿落回会话键，画布照样�
 
   expect(await saveCurrentProject(null)).toEqual({ ok: true })
 
-  expect((await restoredDraft(legacyDraftKey(null))).getSnapshot().draft.prompt).toBe(
-    '没有项目时的输入',
-  )
+  expect(await storedPrompt(legacyDraftKey(null))).toBe('没有项目时的输入')
   expect(await persistedCamera(sceneKey)).toBe(5)
 })
 
@@ -170,7 +168,7 @@ it('展示项目：绑了会话就读回那个会话，没绑就不读', async (
   expect(seen.some((one) => one.startsWith('open:'))).toBe(false)
 })
 
-it('首次发送前的新项目沿用未绑定会话留下的草稿', async () => {
+it('首次发送前的新项目把未绑定会话留下的草稿作为未发送草稿提供', async () => {
   const project = currentCanvasProject()!
   expect(project.sceneKey).toBe(canvasSceneKey(null))
   const legacy = new DraftSession(legacyDraftKey(null))
@@ -181,10 +179,10 @@ it('首次发送前的新项目沿用未绑定会话留下的草稿', async () =
   const draft = currentProjectDraft(null)
   await vi.waitFor(() => expect(draft.getSnapshot().loading).toBe(false))
   expect(draft.key).toBe(projectDraftKey(project.id))
-  expect(draft.getSnapshot().draft.prompt).toBe('项目化之前写的')
+  expect(draft.getSnapshot().unsent?.prompt).toBe('项目化之前写的')
 })
 
-it('已有会话的项目沿用那个会话留下的草稿', async () => {
+it('已有会话的项目把那个会话留下的草稿作为未发送草稿提供', async () => {
   const created = await useCanvasProjectStore.getState().create()
   await useCanvasProjectStore.getState().update(created.id, { conversationId: 'conversation-7' })
   const legacy = new DraftSession(legacyDraftKey('conversation-7'))
@@ -195,7 +193,7 @@ it('已有会话的项目沿用那个会话留下的草稿', async () => {
   const draft = currentProjectDraft('conversation-7')
   await vi.waitFor(() => expect(draft.getSnapshot().loading).toBe(false))
   expect(draft.key).toBe(projectDraftKey(created.id))
-  expect(draft.getSnapshot().draft.prompt).toBe('项目化之前的会话草稿')
+  expect(draft.getSnapshot().unsent?.prompt).toBe('项目化之前的会话草稿')
 })
 
 /**
@@ -239,7 +237,7 @@ it('删除项目：草稿、项目记录与画布存档一起消失', async () =
   expect(await deleteProject(target.id, panel)).toEqual({ ok: true })
 
   expect((await projectRepository.list()).map((one) => one.id)).not.toContain(target.id)
-  expect((await restoredDraft(projectDraftKey(target.id))).getSnapshot().draft.prompt).toBe('')
+  expect(await storedPrompt(projectDraftKey(target.id))).toBe('')
   expect(await persistedCamera(target.sceneKey)).toBe(0)
   expect(seen).toEqual(['forgetConversation:null'])
   expect(currentCanvasProject()?.id).toBe(current.id)
@@ -255,9 +253,7 @@ it('删除云端项目：本机拒绝，草稿、项目与画布原样留着', a
   expect(await deleteProject(target.id, panel)).toEqual({ ok: false, reason: 'cloud_project' })
 
   expect((await projectRepository.list()).map((one) => one.id)).toContain(target.id)
-  expect((await restoredDraft(projectDraftKey(target.id))).getSnapshot().draft.prompt).toBe(
-    '云端项目的草稿',
-  )
+  expect(await storedPrompt(projectDraftKey(target.id))).toBe('云端项目的草稿')
   expect(await persistedCamera(target.sceneKey)).toBe(33)
   expect(seen).toEqual([])
 })
@@ -282,9 +278,7 @@ it('删除项目：画布上还有 loading 占位框时不删', async () => {
   expect(await deleteProject(target.id, panel)).toEqual({ ok: false, reason: 'busy' })
 
   expect((await projectRepository.list()).map((one) => one.id)).toContain(target.id)
-  expect((await restoredDraft(projectDraftKey(target.id))).getSnapshot().draft.prompt).toBe(
-    '占位框还在跑',
-  )
+  expect(await storedPrompt(projectDraftKey(target.id))).toBe('占位框还在跑')
   expect(await persistedCamera(target.sceneKey)).toBe(24)
   expect(seen).toEqual([])
 })
@@ -312,9 +306,7 @@ it('删除项目：当前项目保存不下来时不删', async () => {
   expect(await deleteProject(target.id, panel)).toEqual({ ok: false, reason: 'save_failed' })
 
   expect((await projectRepository.list()).map((one) => one.id)).toContain(target.id)
-  expect((await restoredDraft(projectDraftKey(target.id))).getSnapshot().draft.prompt).toBe(
-    '保存失败前的草稿',
-  )
+  expect(await storedPrompt(projectDraftKey(target.id))).toBe('保存失败前的草稿')
   expect(await persistedCamera(target.sceneKey)).toBe(18)
   expect(seen).toEqual([])
 })
@@ -348,9 +340,7 @@ it('删除别的项目：当前项目与它的画布不受影响', async () => {
   expect(seen).toEqual(['forgetConversation:null'])
   expect(currentCanvasProject()?.id).toBe(current.id)
   expect(currentCanvasWorkspace().doc.camera.x).toBe(39)
-  expect((await restoredDraft(projectDraftKey(current.id))).getSnapshot().draft.prompt).toBe(
-    '当前项目的草稿',
-  )
+  expect(await storedPrompt(projectDraftKey(current.id))).toBe('当前项目的草稿')
 })
 
 /** 会话删除请求打出去没有：URL 与方法来自 agentClient 的协议，不复述被测实现。 */

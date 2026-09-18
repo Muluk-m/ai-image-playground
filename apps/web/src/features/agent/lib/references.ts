@@ -29,6 +29,11 @@ export interface AgentDraft {
 
 export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }
 
+/** 草稿里有没有用户自己写下或附上的东西；跟着画布选区自动带进来的图不算。 */
+export function hasDraftContent(draft: AgentDraft): boolean {
+  return draft.prompt.trim() !== '' || draft.references.some((one) => one.origin !== 'selection')
+}
+
 export function draftMode(draft: AgentDraft): AgentMode {
   return draft.mode === 'video' ? 'video' : 'image'
 }

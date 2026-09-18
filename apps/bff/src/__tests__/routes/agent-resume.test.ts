@@ -4,6 +4,7 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import {
   type AgentActiveTurnView,
   type AgentMessageView,
+  type AgentTurnSummaryView,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
 import { Elysia } from 'elysia'
@@ -78,6 +79,7 @@ function resume(conversationId: string, turnId: string, lastEventId?: number): P
 async function readState(conversationId: string): Promise<{
   messages: AgentMessageView[]
   activeTurn: AgentActiveTurnView | null
+  turns: AgentTurnSummaryView[]
 }> {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
@@ -87,6 +89,7 @@ async function readState(conversationId: string): Promise<{
   return (await response.json()) as {
     messages: AgentMessageView[]
     activeTurn: AgentActiveTurnView | null
+    turns: AgentTurnSummaryView[]
   }
 }
 
@@ -190,7 +193,7 @@ describe('断线续播', () => {
 })
 
 describe('中止', () => {
-  it('中止进行中的轮，已经流出去的文字留在历史里', async () => {
+  it('中止进行中的轮，已经流出去的文字留在历史里，刷新读回仍标着已停止', async () => {
     const conversationId = await startConversation()
     const live = await startTurn(conversationId, '画一只猫')
     upstream.push('好的，我先')
@@ -208,10 +211,11 @@ describe('中止', () => {
     const end = rest.at(-1)!.event
     expect(end).toMatchObject({ type: 'turnEnd', turnId, stopReason: 'aborted' })
 
-    const { messages, activeTurn } = await readState(conversationId)
+    const { messages, activeTurn, turns } = await readState(conversationId)
     expect(activeTurn).toBeNull()
     expect(messages.map((message) => message.role)).toEqual(['user', 'assistant'])
     expect(messages[1]!.content).toEqual([{ type: 'text', text: '好的，我先' }])
+    expect(turns).toEqual([expect.objectContaining({ turnId, stopReason: 'aborted' })])
   })
 
   it('轮已经结束时中止回 404', async () => {

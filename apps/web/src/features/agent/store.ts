@@ -398,7 +398,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const saved = await saveCurrentProject(get().conversationId)
     if (!saved.ok) throw new Error(saved.reason)
     const current = currentCanvasProject()
-    const draft = currentProjectDraft(get().conversationId).getSnapshot().draft
+    const { draft, unsent } = currentProjectDraft(get().conversationId).getSnapshot()
     // 重复点击不制造空壳；有引用、草稿、画布或正在提交的内容都必须新建。
     if (
       reuseEmpty &&
@@ -410,7 +410,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       !get().messages.length &&
       !currentCanvasWorkspace().doc.elements.length &&
       !draft.prompt.trim() &&
-      !draft.references.length
+      !draft.references.length &&
+      !unsent
     ) {
       await useCanvasProjectStore.getState().update(current.id, { workspaceOpened: true })
       showProject(current, showPanel)

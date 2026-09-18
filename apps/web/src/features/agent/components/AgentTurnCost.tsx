@@ -23,6 +23,8 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   const parts: ReactNode[] = []
   const failed = footer.stopReason === 'failed'
   if (failed) parts.push(<span>{t('cost.failed')}</span>)
+  // 停止后说了一半的回复照样留着，页脚标明它是被停下的，不是说完了。
+  if (footer.stopReason === 'aborted') parts.push(<span>{t('cost.stopped')}</span>)
   if (footer.durationMs !== undefined) {
     parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
   }
