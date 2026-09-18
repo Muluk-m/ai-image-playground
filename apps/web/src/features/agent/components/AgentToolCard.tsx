@@ -31,6 +31,8 @@ function useStatusNote(message: AgentToolMessage, offCanvas: boolean): string | 
     if (message.stage === 'running') return t('common:state.generating')
     return t('tool.preparing')
   }
+  // 后台任务：调用已经交还对话，结果要等任务自己跑完。
+  if (message.status === 'submitted') return t('tool.background')
   // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
   if (message.status === 'failed')
     return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')

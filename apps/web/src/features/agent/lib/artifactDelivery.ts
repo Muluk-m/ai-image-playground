@@ -38,6 +38,11 @@ export interface TurnArtifactDelivery {
   failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode): void
   /** 工具跑完了但没有产物：占的位直接收掉。 */
   discard(messageId: string): void
+  /**
+   * 后台任务：这次调用占的位不随本轮收掉，移交给返回的把手。任务结束时由它落图或标错；
+   * 它与本轮同属一个画布与会话，切走之后同样按「画布已离开」处理。
+   */
+  handOff(messageId: string): TurnArtifactDelivery
   settled(): Promise<void>
 }
 
@@ -204,6 +209,44 @@ export function createArtifactDelivery(
     return record.pending
   }
 
+  /** 一轮（或一个后台任务）的交付把手：占位、落图、标错都记在它自己的来源上。 */
+  const handle = (origin: DeliveryOrigin): TurnArtifactDelivery => ({
+    isCurrent: () => belongs(origin),
+    canContinue: () => belongs(origin) || current(origin),
+    reserve(messageId: string, request: AgentReservation) {
+      reserve(origin, messageId, request)
+    },
+    enqueue(message: AgentToolMessage) {
+      if (message.artifacts?.length) void enqueue(origin, message)
+    },
+    failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode) {
+      const note = message ?? i18next.t('delivery.generateFailed', { ns: 'agent' })
+      void claim(origin, messageId)?.then((ids) => origin.canvas?.markFailed(ids, note, errorCode))
+    },
+    discard(messageId: string) {
+      void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))
+    },
+    handOff(messageId: string) {
+      // 同一块画布、同一代会话：切走之后它与本轮一样落不下去，由结果卡手动放入兜底。
+      const job: DeliveryOrigin = {
+        generation: origin.generation,
+        scope: origin.scope,
+        canvas: origin.canvas,
+        pending: Promise.resolve(),
+        reserved: new Map(),
+      }
+      const reserved = claim(origin, messageId)
+      if (reserved) job.reserved.set(messageId, reserved)
+      origins.add(job)
+      return handle(job)
+    },
+    async settled() {
+      await origin.pending
+      await releaseAll(origin)
+      origins.delete(origin)
+    },
+  })
+
   return {
     /** 只恢复交付展示，不下载历史产物；文字与进行中的轮不等场景恢复。 */
     async restore(messages: readonly AgentPanelMessage[]) {
@@ -235,31 +278,7 @@ export function createArtifactDelivery(
       }
     },
     beginTurn(): TurnArtifactDelivery {
-      const origin = capture()
-      return {
-        isCurrent: () => belongs(origin),
-        canContinue: () => belongs(origin) || current(origin),
-        reserve(messageId: string, request: AgentReservation) {
-          reserve(origin, messageId, request)
-        },
-        enqueue(message: AgentToolMessage) {
-          if (message.artifacts?.length) void enqueue(origin, message)
-        },
-        failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode) {
-          const note = message ?? i18next.t('delivery.generateFailed', { ns: 'agent' })
-          void claim(origin, messageId)?.then((ids) =>
-            origin.canvas?.markFailed(ids, note, errorCode),
-          )
-        },
-        discard(messageId: string) {
-          void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))
-        },
-        async settled() {
-          await origin.pending
-          await releaseAll(origin)
-          origins.delete(origin)
-        },
-      }
+      return handle(capture())
     },
     async placeOnCanvas(message: AgentToolMessage) {
       const origin = capture()

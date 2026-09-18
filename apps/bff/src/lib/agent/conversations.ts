@@ -9,6 +9,7 @@ import type {
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
+import { settleAgentJobs } from './background-jobs'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
 export type AgentOwner =
@@ -270,7 +271,11 @@ export async function listAgentMessages(
       ),
     )
     .orderBy(asc(schema.agent_messages.seq))
-  const messages = rows.map((row) => messageView(row.agent_messages))
+  // 已经结束的后台任务先结算成终局：快照、续轮的历史与任务列表读到的都是这一份。
+  const messages = await settleAgentJobs(
+    conversationId,
+    rows.map((row) => messageView(row.agent_messages)),
+  )
   const taskIds = [
     ...new Set(
       messages.flatMap((message) =>

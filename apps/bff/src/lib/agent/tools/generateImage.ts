@@ -19,7 +19,7 @@ export const generateImage = defineAgentTool({
   modes: ['image', 'video'],
   label: '生图',
   description:
-    '按提示词生成全新的图片，产出直接落到用户的画布上。可用 n 指定同一画面的版本数；改已有的图用 editImage。',
+    '按提示词生成全新的图片。提交后立即返回「已提交」，图在后台生成，完成后自动落到用户的画布上；返回时结果尚未就绪。可用 n 指定同一画面的版本数；改已有的图用 editImage。',
   guidance:
     '用户要新图时调生图工具，把意图补成完整提示词；细节自行补全，不要用开放式问题反问。方向本身拿不准时用澄清工具给出具体方案让他选。张数按用户需求选，未要求多张时只出一张；同一画面的多个版本用 n，不同画面分别调用。',
   parameters,
@@ -36,7 +36,7 @@ export const generateImage = defineAgentTool({
   execute: (context) => (toolCallId, params, signal, onUpdate) =>
     runQueueTask(
       context,
-      { media: 'image', toolCallId, prompt: params.prompt, n: params.n },
+      { media: 'image', toolCallId, prompt: params.prompt, n: params.n, background: true },
       signal,
       onUpdate,
     ),

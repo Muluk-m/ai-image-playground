@@ -37,6 +37,30 @@ beforeEach(() => {
 })
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+it('says a submitted background job is still generating and will land on the canvas', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    act(() =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'm',
+            turnId: 't',
+            toolCallId: 'c',
+            title: '一只橘猫',
+            status: 'submitted',
+          }}
+        />,
+      ),
+    )
+    expect(host.textContent).toContain('已在后台生成，完成后自动放入画布')
+  } finally {
+    act(() => root.unmount())
+  }
+})
 it('keeps the complete multiline prompt available and copies it without the title truncation', async () => {
   const prompt = '完整提示词。'.repeat(30) + '\n第二段细节'
   const writeText = vi.fn().mockResolvedValue(undefined)

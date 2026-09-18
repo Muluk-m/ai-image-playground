@@ -114,7 +114,11 @@ export const AGENT_IMAGE_MAX_N = 10
 
 export const AGENT_TURN_MAX_REFERENCES = 8
 
-export type AgentToolStatus = 'succeeded' | 'failed'
+/**
+ * 一次工具调用的结局。`submitted` 是后台任务刚提交、结果尚未就绪：调用本身已经收尾，
+ * 任务结束后服务端把它就地改写成 `succeeded` 或 `failed`（见 {@link AgentBackgroundJob}）。
+ */
+export type AgentToolStatus = 'succeeded' | 'failed' | 'submitted'
 
 /**
  * 一次工具调用为什么失败。界面只按它决定给什么出路（ADR 0006），不读 `message`：
@@ -196,6 +200,17 @@ export interface AgentToolArtifact {
   readonly video?: VideoGenerationRecord
 }
 
+/**
+ * 工具提交的后台任务：提交后立即交还对话，任务结束后产物按产物交付落画布。
+ * 结果块带着它，任务结束时服务端据此把块改写成终局；旧记录与不提交后台任务的调用缺席。
+ */
+export interface AgentBackgroundJob {
+  readonly taskId: string
+  readonly media: ChannelMedia
+  /** 视频任务实际提交的档位；任务成功时记到产物上。 */
+  readonly video?: VideoGenerationRecord
+}
+
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
 export interface AgentToolResultBlock {
   readonly type: 'toolResult'
@@ -217,6 +232,20 @@ export interface AgentToolResultBlock {
   readonly errorCode?: AgentToolErrorCode
   /** 起跑时的参数快照；只有提交生成任务的工具有。旧记录缺席。 */
   readonly snapshot?: AgentToolCallSnapshot
+  /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
+  readonly job?: AgentBackgroundJob
+}
+
+/** `GET .../jobs` 里的一项：一次提交了后台任务的工具调用，结果块是它此刻的样子。 */
+export interface AgentBackgroundJobView {
+  /** 那张结果卡的消息 id。 */
+  readonly messageId: string
+  readonly turnId: string
+  readonly result: AgentToolResultBlock
+}
+
+export interface AgentBackgroundJobsResponse {
+  readonly jobs: readonly AgentBackgroundJobView[]
 }
 
 /**
@@ -480,6 +509,7 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 /** 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。 */
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
+  if (block.status === 'submitted') return `${block.title}：已提交后台任务，结果尚未就绪`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')
