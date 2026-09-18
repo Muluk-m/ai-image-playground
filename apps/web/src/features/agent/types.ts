@@ -1,11 +1,13 @@
 import type {
   AgentSkillOutcome,
+  AgentStoredReference,
   AgentToolArtifact,
   AgentToolErrorCode,
   AgentToolName,
   AgentToolStage,
   AgentToolStatus,
   AgentTurnCost,
+  AgentTurnReference,
   AgentTurnStopReason,
 } from '@image-playground/shared'
 
@@ -18,6 +20,8 @@ export interface AgentTextMessage {
   readonly turnId: string
   readonly role: 'user' | 'assistant'
   readonly text: string
+  /** This message's ordered image snapshot, never the current composer's references. */
+  readonly references?: readonly (AgentTurnReference | AgentStoredReference)[]
   /** 本轮还在流的那条助手消息。 */
   readonly streaming: boolean
   /** 刚发出、服务端还没回 turnStart 的用户消息：先上屏，等到真 id 再换掉。 */

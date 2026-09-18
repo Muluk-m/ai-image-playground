@@ -1,3 +1,4 @@
+import { ImageIcon, VideoIcon } from 'lucide-react'
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -587,14 +588,31 @@ export default function AgentComposer({
                 }
               >
                 <SelectTrigger
-                  aria-label={t('composer.modeAria')}
-                  className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-[11px] text-muted-foreground"
+                  aria-label={`${t('composer.modeAria')}：${t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}`}
+                  title={t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}
+                  className="h-8 w-8 justify-center rounded-full border-0 bg-muted p-0 text-muted-foreground [&>svg]:hidden"
                 >
-                  <SelectValue />
+                  <SelectValue>
+                    {mode === 'video' ? (
+                      <VideoIcon className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="image">{t('composer.modeImage')}</SelectItem>
-                  <SelectItem value="video">{t('composer.modeVideo')}</SelectItem>
+                  <SelectItem value="image">
+                    <span className="flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                      {t('composer.modeImage')}
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="video">
+                    <span className="flex items-center gap-2">
+                      <VideoIcon className="h-4 w-4" aria-hidden="true" />
+                      {t('composer.modeVideo')}
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             )}

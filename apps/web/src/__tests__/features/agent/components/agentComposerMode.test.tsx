@@ -55,7 +55,7 @@ import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
-import { chooseOption, stubPointerApis, triggerText } from '../../../helpers/radix'
+import { chooseOption, stubPointerApis } from '../../../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -138,7 +138,6 @@ describe('创作类型切换', () => {
   it('默认是图片，起轮就按图片发', async () => {
     render()
     await settle()
-    expect(triggerText('创作类型')).toBe('图片')
 
     type('画一只猫')
     click('发送并创作')
@@ -148,13 +147,15 @@ describe('创作类型切换', () => {
   it('切到视频之后这一轮按视频发，且发完不弹回图片', async () => {
     render()
     await settle()
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('做个开箱片')
     click('发送并创作')
     expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
-    expect(triggerText('创作类型')).toBe('视频')
+    type('再来一段')
+    click('发送并创作')
+    expect(send).toHaveBeenLastCalledWith('再来一段', [], 'video')
   })
 
   it('切换同时写进会话状态，代用户发一轮的入口据此跟上', async () => {
@@ -162,7 +163,7 @@ describe('创作类型切换', () => {
     await settle()
     expect(useAgentStore.getState().mode).toBe('image')
 
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
 
     expect(useAgentStore.getState().mode).toBe('video')
@@ -175,7 +176,7 @@ describe('部署做不了视频时', () => {
     render()
     await settle()
 
-    const trigger = document.querySelector<HTMLElement>('[aria-label="创作类型"]')
+    const trigger = document.querySelector<HTMLElement>('[aria-label^="创作类型"]')
     // 只有一个选项时开关本身也没有意义了。
     expect(trigger).toBeNull()
     expect(host.textContent).not.toContain('视频')
@@ -199,7 +200,7 @@ describe('`/` 技能候选', () => {
   it('视频轮打 `/` 弹出图标、中文标题与用户向简介，选中后补成 `/name`', async () => {
     render()
     await settle()
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/story')
@@ -226,7 +227,7 @@ describe('`/` 技能候选', () => {
   it('技能标题与缩略图混排后仍按原命令和引用序号发送', async () => {
     render()
     await settle()
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
     type('/story')
     const option = host.querySelector<HTMLElement>('[role="option"]')!
@@ -254,7 +255,7 @@ describe('`/` 技能候选', () => {
   it('技能没写简介时次行退回 description，并去掉开头的「何时用：」', async () => {
     render()
     await settle()
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/image')
@@ -268,7 +269,7 @@ describe('`/` 技能候选', () => {
   it('只打一个 `/` 就列出这个 mode 的全部技能', async () => {
     render()
     await settle()
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/')
@@ -285,7 +286,7 @@ describe('`/` 技能候选', () => {
     }))
     render()
     await settle()
-    chooseOption('创作类型', '视频')
+    chooseOption('创作类型：图片', '视频')
     await settle()
 
     // 光标停在命令名末尾（可见文本的第 6 位）。

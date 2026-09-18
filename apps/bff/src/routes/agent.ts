@@ -8,8 +8,9 @@ import {
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
+import sharp from 'sharp'
 import { db, schema } from '../db/client'
 import {
   type AgentOwner,
@@ -37,6 +38,7 @@ import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { listAgentTurnSummaries } from '../lib/agent/turn-summary'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { durableMediaStore } from '../lib/durableMediaStore'
 import {
   badRequestOnValidation,
   clientAddress,
@@ -44,6 +46,7 @@ import {
   deviceIdSchema,
   imageDataUrlSchema,
 } from '../lib/http'
+import { objectStore } from '../lib/objectStore'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { resolveAuthUser } from '../lib/user-auth'
 
@@ -159,6 +162,58 @@ export const agentRoutes = new Elysia()
       return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  .get(
+    '/api/agent/conversations/:id/messages/:messageId/references/:index',
+    async ({ params, headers, authUser, status }) => {
+      const conversation = await findAgentConversation(
+        params.id,
+        ownerOf(authUser, headers[DEVICE_ID_HEADER]),
+      )
+      if (!conversation) return status(404, NOT_FOUND)
+      const [message] = await db
+        .select({ content: schema.agent_messages.content })
+        .from(schema.agent_messages)
+        .where(
+          and(
+            eq(schema.agent_messages.id, params.messageId),
+            eq(schema.agent_messages.conversation_id, conversation.id),
+            eq(schema.agent_messages.role, 'user'),
+            isNull(schema.agent_messages.deleted_at),
+          ),
+        )
+        .limit(1)
+      const references = message?.content.flatMap((block) =>
+        block.type === 'text' ? (block.references ?? []) : [],
+      )
+      const reference = references?.[params.index]
+      if (!reference) return status(404, { error: 'reference_not_found' })
+      try {
+        const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
+        const thumbnail = await sharp(await store.read(reference.image.object))
+          .rotate()
+          .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer()
+        return new Response(thumbnail, {
+          headers: {
+            'content-type': 'image/webp',
+            'cache-control': 'private, max-age=31536000, immutable',
+            vary: `Cookie, ${DEVICE_ID_HEADER}`,
+          },
+        })
+      } catch {
+        return status(502, { error: 'object_storage_error' })
+      }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        messageId: t.String(),
+        index: t.Integer({ minimum: 0, maximum: AGENT_TURN_MAX_REFERENCES - 1 }),
+      }),
+      headers: deviceIdHeaderSchema(),
+    },
   )
   .post(
     '/api/agent/conversations/:id/turns',

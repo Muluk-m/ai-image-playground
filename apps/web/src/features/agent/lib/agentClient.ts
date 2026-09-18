@@ -110,6 +110,21 @@ export async function fetchMessages(
   if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentConversationState
 }
+export async function fetchMessageReference(
+  conversationId: string,
+  messageId: string,
+  index: number,
+  signal: AbortSignal,
+): Promise<Blob> {
+  const response = await authenticatedBffFetch(
+    url(
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/references/${index}`,
+    ),
+    { headers: deviceHeaders(), signal },
+  )
+  if (!response.ok) throw await requestError(response)
+  return response.blob()
+}
 
 async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
   if (!response.ok || !response.body) throw await requestError(response)
@@ -363,13 +378,14 @@ export async function interjectTurn(
   text: string,
   references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
-): Promise<void> {
+): Promise<string> {
   references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
     jsonInit({ deviceId: getDeviceId(), text, references }),
   )
   if (!response.ok) throw await requestError(response)
+  return ((await response.json()) as { messageId: string }).messageId
 }
 
 async function resolveReferences(

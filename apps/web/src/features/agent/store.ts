@@ -630,9 +630,26 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const conversationId = get().conversationId
       if (get().turn === 'running' && active && conversationId) {
         try {
-          await interjectTurn(conversationId, active.turnId, trimmed, references)
+          const messageId = await interjectTurn(conversationId, active.turnId, trimmed, references)
           onAccepted?.()
-          if (get().conversationId === conversationId) set({ error: null })
+          if (get().conversationId === conversationId)
+            set((state) => {
+              const message: AgentPanelMessage = {
+                kind: 'text',
+                id: messageId,
+                turnId: active.turnId,
+                role: 'user',
+                text: trimmed,
+                streaming: false,
+                ...(references.length ? { references } : {}),
+              }
+              return {
+                error: null,
+                messages: state.messages.some((one) => one.id === messageId)
+                  ? state.messages.map((one) => (one.id === messageId ? message : one))
+                  : [...state.messages, message],
+              }
+            })
         } catch (thrown) {
           if (get().conversationId === conversationId)
             set({
@@ -664,6 +681,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             turnId: `${PENDING_PREFIX}${pendingSeq}`,
             role: 'user',
             text: trimmed,
+            ...(references.length ? { references } : {}),
             streaming: false,
             pending: true,
           },
