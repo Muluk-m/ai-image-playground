@@ -240,12 +240,16 @@
     "lastFrame": "Last frame",
     "frameFailed": "Could not capture a frame from this video; try again later",
     "noRecord": "This video has no recorded settings; only its description was restored",
-    "framesMissing": "The original frames are no longer on the canvas; select images again",
     "sourceGone": "The source video is no longer on the canvas",
     "unknownSource": "This video has no recorded length, so it cannot be extended or edited",
     "noPromptRecorded": "This video has no recorded description (agent videos only keep a title); write one again.",
     "modelUnavailable": "The original model is not available here; settings were left unchanged, pick a model yourself.",
-    "videoUnavailable": "This deployment cannot generate video"
+    "videoUnavailable": "This deployment cannot generate video",
+    "regenerateTitle": "Regenerate with changes",
+    "regenerateSubmitted": "Regeneration submitted",
+    "framesGoneTextOnly": "The original frames are no longer on the canvas; this run uses text only.",
+    "keepsFrames_one": "Keeps the original frame",
+    "keepsFrames_other": "Keeps the original {{count}} frames"
   },
   "timeline": {
     "title": "Timeline",

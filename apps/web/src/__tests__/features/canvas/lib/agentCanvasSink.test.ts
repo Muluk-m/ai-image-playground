@@ -93,6 +93,21 @@ describe('落画布', () => {
     expect(editor.getElement('agent_image_1')).not.toHaveProperty('video')
   })
 
+  it('产物记下这次调用的完整提示词，视频重新生成据此预填', async () => {
+    await sink.place([
+      {
+        artifactId: 'agent_video_3',
+        dataUrl: 'data:image/png;base64,UE9T',
+        prompt: '黄昏的海边，一个人慢跑，镜头缓慢推近',
+        name: '视频：海边慢跑 1',
+        video: { taskId: 'task-4', outputIndex: 0 },
+      },
+    ])
+    expect(editor.getElement('agent_video_3')).toMatchObject({
+      meta: { prompt: '视频：海边慢跑', userPrompt: '黄昏的海边，一个人慢跑，镜头缓慢推近' },
+    })
+  })
+
   it('视频产物带着生成参数落画布，「改参数重来」才有据可依', async () => {
     const generation = {
       model: 'grok-imagine-video',

@@ -20,12 +20,18 @@ vi.mock('../../../../lib/channels/videoChannels', async (importOriginal) => ({
   isVideoModeAvailable: () => true,
 }))
 
-const { loadCanvasVideoIntoComposer, canvasVideoNode } = await import(
+const { loadGenerationIntoDraft } = await import(
   '../../../../features/canvas/lib/canvasVideoActions'
 )
 const { useVideoStore } = await import('../../../../features/video/store')
 
 let editor: CanvasEditor
+
+function generationOf() {
+  const el = editor.getElement('clip')
+  if (el?.type !== 'image' || !el.video?.generation) throw new Error('no clip')
+  return el.video.generation
+}
 
 function addVideo(generation: object) {
   editor.doc.addElements([
@@ -62,7 +68,7 @@ describe('重新生成落进导演台的真实草稿', () => {
   it('restores a Veo 1080p clip without the resolution clamping its duration away', () => {
     addVideo({ model: VEO_LITE, duration: 8, aspectRatio: '9:16', resolution: '1080p' })
 
-    loadCanvasVideoIntoComposer(editor, canvasVideoNode(editor, 'clip')!)
+    loadGenerationIntoDraft(generationOf())
 
     expect(useVideoStore.getState().draft).toMatchObject({
       model: VEO_LITE,
@@ -75,7 +81,7 @@ describe('重新生成落进导演台的真实草稿', () => {
   it('restores a Grok clip with its own duration', () => {
     addVideo({ model: GROK, duration: 10, aspectRatio: '1:1', resolution: '720p' })
 
-    loadCanvasVideoIntoComposer(editor, canvasVideoNode(editor, 'clip')!)
+    loadGenerationIntoDraft(generationOf())
 
     expect(useVideoStore.getState().draft).toMatchObject({
       model: GROK,

@@ -238,12 +238,15 @@
     "lastFrame": "取尾帧",
     "frameFailed": "没能从这段视频截到画面，请稍后重试",
     "noRecord": "这段视频没有记录生成参数，只带回了描述",
-    "framesMissing": "原来的首尾帧已不在画布上，请重新选图",
     "sourceGone": "源视频已不在画布上",
     "unknownSource": "这段视频没有记录时长，无法续写或改写",
     "noPromptRecorded": "这段视频没有记录原始描述（智能体生成的视频只有标题），请重新写描述。",
     "modelUnavailable": "原来的模型在当前部署不可用，档位没有改动，请自己选模型。",
-    "videoUnavailable": "当前部署不能生成视频"
+    "videoUnavailable": "当前部署不能生成视频",
+    "regenerateTitle": "改参数重新生成",
+    "regenerateSubmitted": "已提交重新生成",
+    "framesGoneTextOnly": "原来的首尾帧已不在画布上，这次只按文字生成。",
+    "keepsFrames_other": "沿用原来的 {{count}} 张首尾帧"
   },
   "timeline": {
     "title": "时间线",

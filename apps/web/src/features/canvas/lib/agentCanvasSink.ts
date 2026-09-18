@@ -111,6 +111,8 @@ export function createAgentCanvasSink(
             prompt:
               missing[0]?.name?.replace(/\s+\d+$/, '') ||
               i18next.t('creations.taskTitle', { ns: 'agent' }),
+            // 同一次调用的产物共用一条提示词；视频重新生成拿它预填。
+            ...(missing[0]?.prompt ? { userPrompt: missing[0].prompt } : {}),
           },
         },
       )

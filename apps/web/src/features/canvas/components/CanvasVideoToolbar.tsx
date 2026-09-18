@@ -18,11 +18,9 @@ import { videoDeriveLabel } from '../../video/lib/labels'
 import {
   type CanvasVideoNode,
   canvasDeriveCheck,
-  canvasRegenerateOffered,
   canvasRegenerateRefusal,
   canvasVideoNode,
   downloadCanvasVideo,
-  loadCanvasVideoIntoComposer,
   placeCanvasVideoFrame,
   selectedCanvasVideo,
   submitCanvasDerive,
@@ -31,6 +29,7 @@ import type { CanvasEditor } from '../lib/editor'
 import { Box } from '../lib/geometry'
 import { addSelectionToTimeline, isTimelineSource } from '../lib/timeline'
 import { useTimelineEditor } from '../timelineEditorStore'
+import RegenerateVideoPopover from './RegenerateVideoPopover'
 
 /** 工具条浮在视频上沿之上这么高；贴到视口顶时改放在视频下沿之下，不压住视频本身。 */
 const TOOLBAR_OFFSET = 44
@@ -51,6 +50,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
     initialSeconds?: number
   } | null>(null)
   // 忙的是哪一段：截 A 的帧时选中 B，B 的按钮不该跟着灰。
+  const [regenerating, setRegenerating] = useState<CanvasVideoNode | null>(null)
   const [busy, setBusy] = useState<{ id: string; kind: 'first' | 'last' | 'download' } | null>(null)
 
   const node = editor.doc.tool === 'select' ? selectedCanvasVideo(editor) : null
@@ -80,7 +80,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   const regenerate = (current: CanvasVideoNode) => {
     const derived = current.video.generation?.derivedFrom
     if (!derived) {
-      loadCanvasVideoIntoComposer(editor, current)
+      setRegenerating(current)
       return
     }
     const source = canvasVideoNode(editor, derived.id)
@@ -105,16 +105,27 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
     }
   }
 
-  const popover = derive && (
-    <DeriveVideoPopover
-      sourceSeconds={derive.sourceSeconds}
-      mode={derive.mode}
-      modelId={derive.modelId}
-      initialPrompt={derive.initialPrompt}
-      initialSeconds={derive.initialSeconds}
-      onSubmit={(input) => submitCanvasDerive(editor, derive.node, input)}
-      onClose={() => setDerive(null)}
-    />
+  const popover = (derive || regenerating) && (
+    <>
+      {regenerating && (
+        <RegenerateVideoPopover
+          editor={editor}
+          node={regenerating}
+          onClose={() => setRegenerating(null)}
+        />
+      )}
+      {derive && (
+        <DeriveVideoPopover
+          sourceSeconds={derive.sourceSeconds}
+          mode={derive.mode}
+          modelId={derive.modelId}
+          initialPrompt={derive.initialPrompt}
+          initialSeconds={derive.initialSeconds}
+          onSubmit={(input) => submitCanvasDerive(editor, derive.node, input)}
+          onClose={() => setDerive(null)}
+        />
+      )}
+    </>
   )
 
   const addToTimeline = () => {
@@ -232,14 +243,12 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           disabled={busyHere}
           onClick={() => void run('download', node)}
         />
-        {canvasRegenerateOffered(node) && (
-          <ToolbarButton
-            icon={<RotateCcw />}
-            label={t('videoToolbar.regenerate')}
-            reason={regenerateRefusal ?? undefined}
-            onClick={() => regenerate(node)}
-          />
-        )}
+        <ToolbarButton
+          icon={<RotateCcw />}
+          label={t('videoToolbar.regenerate')}
+          reason={regenerateRefusal ?? undefined}
+          onClick={() => regenerate(node)}
+        />
         {(['extend', 'edit'] as const).map((mode) => {
           const check = checks[mode]
           return (

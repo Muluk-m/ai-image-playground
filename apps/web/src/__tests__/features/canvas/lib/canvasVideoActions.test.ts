@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
   options: { current: [] as unknown[] },
   draft: {
+    draft: {} as Record<string, unknown>,
     setModel: vi.fn(),
     setDuration: vi.fn(),
     setAspectRatio: vi.fn(),
@@ -104,7 +105,14 @@ beforeEach(() => {
       support: VIDEO_MODEL_SUPPORT[SEEDANCE],
     },
   ]
-  for (const fn of [mocks.submitVideoRequest, mocks.showToast, ...Object.values(mocks.draft)])
+  for (const fn of [
+    mocks.submitVideoRequest,
+    mocks.showToast,
+    mocks.draft.setModel,
+    mocks.draft.setDuration,
+    mocks.draft.setAspectRatio,
+    mocks.draft.setResolution,
+  ])
     fn.mockClear()
   doc = new CanvasDoc()
   doc.setViewport(800, 600)
@@ -193,61 +201,78 @@ describe('视频节点的续写 / 改视频', () => {
   })
 })
 
-describe('重新生成', () => {
-  it('loads the recorded settings, prompt and frames back into the generate bar', () => {
-    addImage('first', 0)
-    addImage('last', 300)
-    addVideo('clip', { ...GENERATED, firstFrameId: 'first', lastFrameId: 'last' })
+describe('改参数重新生成', () => {
+  const DRAFT = { model: SEEDANCE, duration: 8, aspectRatio: '9:16', resolution: '1080p' }
 
-    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
+  beforeEach(() => {
+    mocks.draft.draft = { ...DRAFT }
+  })
 
-    expect(useCanvasComposer.getState()).toMatchObject({ mode: 'video', prompt: '海边奔跑' })
+  it('loads the recorded model and presets into the video draft', () => {
+    expect(actions.loadGenerationIntoDraft(GENERATED)).toBe(true)
     expect(mocks.draft.setModel).toHaveBeenCalledWith(SEEDANCE)
     expect(mocks.draft.setResolution).toHaveBeenCalledWith('1080p')
     expect(mocks.draft.setDuration).toHaveBeenCalledWith(8)
     expect(mocks.draft.setAspectRatio).toHaveBeenCalledWith('9:16')
-    expect(editor.getSelectedIds()).toEqual(['first', 'last'])
   })
 
-  it('selects no frame when only the last one survived, so it is not read as a first frame', () => {
-    addImage('last', 300)
-    addVideo('clip', { ...GENERATED, firstFrameId: 'deleted', lastFrameId: 'last' })
-    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
-    expect(editor.getSelectedIds()).toEqual([])
-    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'info')
-  })
-
-  it('brings back only the prompt for a video without a record', () => {
-    addVideo('old')
-    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'old')!)
-    expect(useCanvasComposer.getState()).toMatchObject({ mode: 'video', prompt: '海边奔跑' })
-    expect(mocks.draft.setModel).not.toHaveBeenCalled()
-  })
-
-  it('does not reuse an agent video title as the prompt', () => {
-    addVideo('agent', GENERATED, { prompt: '海边日落视频' })
-    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'agent')!)
-    expect(useCanvasComposer.getState().prompt).toBe('')
-    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'info')
-  })
-
-  it('leaves the settings alone when the original model is not available here', () => {
+  it('leaves the draft alone when the recorded model is not available here', () => {
     mocks.options.current = mocks.options.current.filter(
       (one) => (one as { modelId: string }).modelId !== SEEDANCE,
     )
-    addVideo('clip', GENERATED)
-    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
+    expect(actions.loadGenerationIntoDraft(GENERATED)).toBe(false)
     expect(mocks.draft.setModel).not.toHaveBeenCalled()
-    expect(mocks.draft.setResolution).not.toHaveBeenCalled()
-    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'info')
   })
 
-  it('does nothing but explain when this deployment cannot make video', () => {
-    mocks.options.current = []
-    addVideo('clip', GENERATED)
-    actions.loadCanvasVideoIntoComposer(editor, actions.canvasVideoNode(editor, 'clip')!)
-    expect(useCanvasComposer.getState()).toMatchObject({ mode: 'image', prompt: '' })
-    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'error')
+  it('resubmits with the edited prompt, keeps the original frames and lands beside the clip', async () => {
+    addImage('first', 0)
+    addImage('last', 300)
+    addVideo('clip', { ...GENERATED, firstFrameId: 'first', lastFrameId: 'last' })
+    vi.spyOn(editor, 'toImage').mockImplementation(async (ids) => `data:image/png;base64,${ids[0]}`)
+
+    const accepted = await actions.regenerateCanvasVideo(
+      editor,
+      actions.canvasVideoNode(editor, 'clip')!,
+      ' 慢一点 ',
+    )
+    await settle()
+
+    expect(accepted).toBe(true)
+    expect(mocks.submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: SEEDANCE,
+        prompt: '慢一点',
+        inputImageDataUrls: ['data:image/png;base64,first', 'data:image/png;base64,last'],
+        video: expect.objectContaining({ first_frame_index: 0, last_frame_index: 1 }),
+      }),
+    )
+    const result = editor
+      .getElements()
+      .find((el) => el.type === 'image' && el.video?.taskId === 'req-derived')
+    expect(result).toMatchObject({
+      meta: { userPrompt: '慢一点' },
+      video: { generation: { firstFrameId: 'first', lastFrameId: 'last', duration: 8 } },
+    })
+  })
+
+  it('generates from text only when the recorded frames are gone', async () => {
+    addImage('last', 300)
+    addVideo('clip', { ...GENERATED, firstFrameId: 'deleted', lastFrameId: 'last' })
+
+    await actions.regenerateCanvasVideo(editor, actions.canvasVideoNode(editor, 'clip')!, '海浪')
+    await settle()
+
+    expect(mocks.submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ inputImageDataUrls: [] }),
+    )
+  })
+
+  it('refuses an empty prompt before anything is submitted', async () => {
+    addVideo('agent', GENERATED, { prompt: '海边日落视频' })
+    const node = actions.canvasVideoNode(editor, 'agent')!
+    expect(node.userPrompt).toBeNull()
+    expect(await actions.regenerateCanvasVideo(editor, node, '  ')).toBe(false)
+    expect(mocks.submitVideoRequest).not.toHaveBeenCalled()
   })
 })
 
