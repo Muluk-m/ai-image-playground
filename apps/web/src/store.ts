@@ -10,6 +10,7 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
+import { pathAppMode } from './lib/appPaths'
 import {
   getModelCapabilities,
   getProfileModels,
@@ -803,7 +804,8 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      appMode: 'create',
+      // 刷新作品 / 视频地址时直接落在对应入口，不先闪一下画布。
+      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'create',
       setAppMode: (appMode) => set({ appMode }),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
