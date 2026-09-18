@@ -32,6 +32,7 @@ import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectSyncStatus from './ProjectSyncStatus'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
+import TimelineEditorHost from './TimelineEditor'
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
@@ -238,6 +239,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
             <CanvasVideoToolbar editor={editor} />
+            <TimelineEditorHost editor={editor} />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
             {saveFailed && (

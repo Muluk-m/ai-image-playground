@@ -251,6 +251,18 @@
     "add": "加入时间线",
     "addCount_other": "{{count}} 段加入时间线",
     "appendCount_other": "{{count}} 段追加到时间线",
-    "full": "一条时间线最多 {{max}} 段，超出的没有加入"
+    "full": "一条时间线最多 {{max}} 段，超出的没有加入",
+    "edit": "编辑时间线",
+    "editorTitle": "编辑时间线",
+    "done": "完成",
+    "empty": "时间线里还没有片段",
+    "play": "播放",
+    "pause": "暂停",
+    "playhead": "播放位置",
+    "track": "片段",
+    "clipLabel": "第 {{index}} 段，{{seconds}} 秒",
+    "removeClip": "删除第 {{index}} 段",
+    "trimIn": "第 {{index}} 段入点",
+    "trimOut": "第 {{index}} 段出点"
   }
 }
