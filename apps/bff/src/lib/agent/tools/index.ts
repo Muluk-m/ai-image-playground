@@ -16,6 +16,7 @@ import {
   toolDeclaration,
   toolResultBlock,
 } from './adapter'
+import { arrangeTimeline } from './arrangeTimeline'
 import { editImage } from './editImage'
 import type { ToolFailureLog } from './errors'
 import { generateImage } from './generateImage'
@@ -47,6 +48,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   editImage,
   readLibrary,
   generateVideo,
+  arrangeTimeline,
   loadSkill,
 ]
 

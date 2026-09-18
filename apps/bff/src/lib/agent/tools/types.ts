@@ -3,6 +3,7 @@ import type {
   AgentBackgroundJob,
   AgentMode,
   AgentSkillOutcome,
+  AgentTimelinePlan,
   AgentToolArtifact,
   AgentToolCallSnapshot,
   AgentToolName,
@@ -62,6 +63,8 @@ export interface AgentToolDetails {
   readonly anchorObjectId?: string
   /** 读取技能这一步读到了什么；只有那个工具会填。 */
   readonly skill?: AgentSkillOutcome
+  /** 排时间线的结果；只有那个工具会填。 */
+  readonly timeline?: AgentTimelinePlan
 }
 
 /**

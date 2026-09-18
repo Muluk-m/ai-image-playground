@@ -2,6 +2,7 @@ import type {
   AgentBackgroundJob,
   AgentSkillOutcome,
   AgentStoredReference,
+  AgentTimelinePlan,
   AgentToolArtifact,
   AgentToolCallSnapshot,
   AgentToolErrorCode,
@@ -64,6 +65,8 @@ export interface AgentToolMessage {
   readonly retryOf?: AgentToolRetryOrigin
   /** 这个后台任务结束后没有唤醒智能体的原因；卡上据此说明智能体没有查看结果。 */
   readonly wakeSkipped?: AgentWakeSkipReason
+  /** 排时间线这一步排出的时间线；画布照它建一条。 */
+  readonly timeline?: AgentTimelinePlan
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */

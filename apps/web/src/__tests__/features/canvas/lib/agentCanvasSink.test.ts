@@ -572,3 +572,98 @@ describe('单张重试', () => {
     expect(editor.getPlaceholder(id)?.meta.agentErrorCode).toBe('timeout')
   })
 })
+
+describe('智能体排的时间线', () => {
+  const video = (id: string, x: number, duration: number) =>
+    doc.addElements([
+      {
+        id,
+        type: 'image',
+        fileId: `file-${id}`,
+        x,
+        y: 100,
+        width: 200,
+        height: 120,
+        rotation: 0,
+        video: {
+          taskId: `task-${id}`,
+          outputIndex: 0,
+          generation: {
+            model: 'grok-imagine-video',
+            duration,
+            aspectRatio: '16:9',
+            resolution: '720p',
+          },
+        },
+      },
+    ])
+
+  const timelineCard = (timelineId: string, videoIds: readonly string[]) => ({
+    kind: 'tool' as const,
+    id: `tool-${timelineId}`,
+    turnId: 'turn',
+    toolCallId: `call-${timelineId}`,
+    toolName: 'arrangeTimeline' as const,
+    title: '排进时间线',
+    status: 'succeeded' as const,
+    timeline: {
+      timelineId,
+      clips: videoIds.map((videoId) => ({ videoId, in: 0, out: 5 })),
+    },
+  })
+
+  it('按智能体给的顺序排进一条新时间线，落在这些视频下方并选中它', async () => {
+    video('agent_a_1', 0, 5)
+    video('agent_b_1', 300, 5)
+    setAgentCanvasSink(sink)
+    const turn = createArtifactDelivery(() => {}).beginTurn()
+
+    turn.enqueue(timelineCard('timeline_1', ['agent_b_1', 'agent_gone_1', 'agent_a_1']))
+    await turn.settled()
+
+    const timeline = editor.getElementPageBounds('timeline_1')
+    expect(editor.getElement('timeline_1')).toMatchObject({
+      type: 'timeline',
+      clips: [
+        { elementId: 'agent_b_1', in: 0, out: 5 },
+        { elementId: 'agent_a_1', in: 0, out: 5 },
+      ],
+    })
+    expect(timeline?.x).toBe(0)
+    expect(timeline!.y).toBeGreaterThan(220)
+    expect(editor.getSelectedIds()).toEqual(['timeline_1'])
+  })
+
+  it('同一次排布重放不建第二条，也不动用户自己的时间线', async () => {
+    video('agent_a_1', 0, 5)
+    doc.addElements([
+      {
+        id: 'mine',
+        type: 'timeline',
+        x: 0,
+        y: 600,
+        width: 240,
+        height: 120,
+        clips: [{ elementId: 'agent_a_1', in: 1 }],
+      },
+    ])
+
+    expect(await sink.placeTimeline!(timelineCard('timeline_1', ['agent_a_1']).timeline)).toBe(
+      'placed',
+    )
+    expect(await sink.placeTimeline!(timelineCard('timeline_1', ['agent_a_1']).timeline)).toBe(
+      'placed',
+    )
+
+    const timelines = editor.getElements().filter((element) => element.type === 'timeline')
+    expect(timelines.map((one) => one.id)).toEqual(['mine', 'timeline_1'])
+    expect(editor.getElement('mine')).toMatchObject({ clips: [{ elementId: 'agent_a_1', in: 1 }] })
+  })
+
+  it('计划里的视频都不在画布上时不建空时间线', async () => {
+    expect(await sink.placeTimeline!(timelineCard('timeline_1', ['agent_gone_1']).timeline)).toBe(
+      'unavailable',
+    )
+    expect(editor.getElement('timeline_1')).toBeUndefined()
+  })
+})

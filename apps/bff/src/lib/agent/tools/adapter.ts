@@ -163,5 +163,6 @@ export function toolResultBlock(
     ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
     ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
     ...(details?.skill ? { skill: details.skill } : {}),
+    ...(details?.timeline ? { timeline: details.timeline } : {}),
   }
 }

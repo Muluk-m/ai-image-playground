@@ -67,6 +67,18 @@ async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact
   return placedArtifact(artifact, await artifactBitmap(artifact))
 }
 
+/** 这张卡有东西要落画布：产物，或者一条排好的时间线。 */
+export function deliverable(message: AgentToolMessage): boolean {
+  return Boolean(message.artifacts?.length || message.timeline)
+}
+
+/** 落完之后镜头要带去的画布对象。 */
+function deliveredIds(message: AgentToolMessage): string[] {
+  return message.timeline
+    ? [message.timeline.timelineId]
+    : (message.artifacts ?? []).map((artifact) => artifact.artifactId)
+}
+
 /** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
 export function createArtifactDelivery(
   changed: (messageId: string, status: AgentDeliveryStatus) => void,
@@ -115,6 +127,12 @@ export function createArtifactDelivery(
   ): Promise<AgentDeliveryStatus> => {
     const canvas = origin.canvas
     if (!canvas || !current(origin)) return 'unavailable'
+    // 排时间线不产新媒体，只在画布上把已有的视频排成一条。
+    if (message.timeline) {
+      if (!canvas.placeTimeline) return 'unavailable'
+      const outcome = await canvas.placeTimeline(message.timeline)
+      return current(origin) ? outcome : 'unavailable'
+    }
     // 起跑时占的位先认领回来：它决定产物落在哪，也决定这一轮结束时谁该被收掉。
     const placeholderIds = (await claim(origin, message.id)) ?? []
     if (!manual && canvas.syncArtifacts) {
@@ -203,7 +221,7 @@ export function createArtifactDelivery(
         record.status = await place(origin, message, manual)
         // 新结果不仅要落盘，还要进入当前视口；后台项目与重复事件不能抢走用户镜头。
         if (record.status === 'placed' && belongs(origin) && origin.canvas === agentCanvasSink()) {
-          origin.canvas?.focus((message.artifacts ?? []).map((artifact) => artifact.artifactId))
+          origin.canvas?.focus(deliveredIds(message))
         }
       } catch (error) {
         console.warn('[agent] artifact delivery failed', error)
@@ -223,7 +241,7 @@ export function createArtifactDelivery(
       reserve(origin, messageId, request)
     },
     enqueue(message: AgentToolMessage) {
-      if (message.artifacts?.length) void enqueue(origin, message)
+      if (deliverable(message)) void enqueue(origin, message)
     },
     failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode) {
       const note = message ?? i18next.t('delivery.generateFailed', { ns: 'agent' })
@@ -304,7 +322,7 @@ export function createArtifactDelivery(
      */
     async redeliverUnavailable(messages: readonly AgentPanelMessage[]) {
       for (const message of messages) {
-        if (message.kind !== 'tool' || !message.artifacts?.length) continue
+        if (message.kind !== 'tool' || !deliverable(message)) continue
         if (records.get(message.id)?.status !== 'unavailable') continue
         const origin = capture()
         try {

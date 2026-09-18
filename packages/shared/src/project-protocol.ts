@@ -72,6 +72,14 @@ export function projectArtifactId(generationId: string, position: number): strin
   return `agent_${generationId}_${position}`
 }
 
+/** {@link projectArtifactId} 的反面：认不出的 id 给 null。 */
+export function parseProjectArtifactId(
+  id: string,
+): { readonly generationId: string; readonly position: number } | null {
+  const match = /^agent_([A-Za-z0-9_-]+)_(\d+)$/.exec(id)
+  return match ? { generationId: match[1]!, position: Number(match[2]) } : null
+}
+
 export type ProjectElement =
   | ProjectGeneration
   | ProjectImage

@@ -62,6 +62,9 @@ description: 何时用：挂电商主图位的短视频，几秒内把商品展�
 - `durationSeconds` 照上面定的
 - `aspectRatio` 填定下来的那个
 - `resolution` 只在用户说过时才填
+- 除了首帧还有商品细节图（背面、logo 特写）要保持一致时，放进 `referenceImageIds`，在 `prompt` 里点名「图片 1」是什么；当前模型不支持参考图时工具会拒绝并说明，照实告诉用户
+
+几种走法各出一条是给用户挑的备选，**不要排进一条时间线**。
 
 prompt 例子：
 

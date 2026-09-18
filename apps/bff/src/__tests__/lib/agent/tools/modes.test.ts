@@ -113,6 +113,7 @@ describe('tools filtered by creation mode', () => {
 
   it('gives a video turn the image tools too, so it can produce and fix a first frame', () => {
     expect(toolNames('video')).toEqual([
+      'arrangeTimeline',
       'editImage',
       'generateImage',
       'generateVideo',
