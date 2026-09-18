@@ -12,6 +12,7 @@ import {
   type AgentPanelState,
   agentActivityPhase,
   answerableClarificationId,
+  clarificationAnswer,
   conversationStarted,
   dropUnsettledMessages,
   panelStateFromHistory,
@@ -281,6 +282,29 @@ describe('历史与直播同源', () => {
       options: ASKED.options,
     })
     expect(answerableClarificationId(history.messages)).toBe('clarify-1')
+  })
+
+  it('刷新后读回的澄清仍知道选了什么：答案就是它之后那条用户消息', () => {
+    const history = panelStateFromHistory({
+      messages: [
+        stored('user-1', [{ type: 'text', text: '给我画个杯子' }], 'user'),
+        stored('clarify-1', [ASKED]),
+        stored('user-2', [{ type: 'text', text: '先算了' }], 'user'),
+        stored('assistant-2', [{ type: 'text', text: '好的，那就不重试了。' }]),
+      ],
+      turns: [],
+    })
+
+    expect(clarificationAnswer(history.messages, 'clarify-1')).toBe('先算了')
+  })
+
+  it('还没作答的澄清没有答案', () => {
+    const history = panelStateFromHistory({
+      messages: [stored('clarify-1', [ASKED])],
+      turns: [],
+    })
+
+    expect(clarificationAnswer(history.messages, 'clarify-1')).toBeNull()
   })
 })
 

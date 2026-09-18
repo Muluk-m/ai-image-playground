@@ -215,12 +215,15 @@ async function* resumeTurn(
   turnId: string,
   lastEventId: number,
   fetcher: Fetcher = authenticatedBffFetch,
+  onOpen?: () => void,
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
   const response = await fetcher(url(`/conversations/${conversationId}/turns/${turnId}/events`), {
     headers,
   })
+  // 续播端点应了就算接上：长任务期间可能半天没有新帧，不能等下一帧才撤掉断线提示。
+  if (response.ok && response.body) onOpen?.()
   yield* readFrames(response)
 }
 
@@ -229,10 +232,12 @@ async function* resumeConversation(
   conversationId: string,
   lastEventId: number,
   fetcher: Fetcher = authenticatedBffFetch,
+  onOpen?: () => void,
 ): AsyncGenerator<AgentFrame> {
   const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
   const response = await fetcher(url(`/conversations/${conversationId}/events`), { headers })
+  if (response.ok && response.body) onOpen?.()
   yield* readFrames(response)
 }
 
@@ -261,6 +266,8 @@ export interface FollowTurnOptions {
   /** 重连退避表，测试用来跳过等待。 */
   readonly delaysMs?: readonly number[]
   readonly fetcher?: Fetcher
+  /** 流断了、正在续播时报 `true`，接上或就此收场时报 `false`；同一个值不重复报。 */
+  readonly onReconnectingChange?: (reconnecting: boolean) => void
 }
 
 export interface AgentTurnStream {
@@ -281,9 +288,17 @@ export function followTurn(
     shouldContinue = () => true,
     delaysMs = RECONNECT_DELAYS_MS,
     fetcher = authenticatedBffFetch,
+    onReconnectingChange,
   }: FollowTurnOptions = {},
 ): AgentTurnStream {
   let outcome: AgentTurnOutcome | null = null
+  let reconnecting = false
+  const setReconnecting = (value: boolean) => {
+    if (reconnecting === value) return
+    reconnecting = value
+    onReconnectingChange?.(value)
+  }
+  const connected = () => setReconnecting(false)
   async function* follow(): AsyncGenerator<AgentTurnEvent> {
     // 续播要有轮标识：起轮那条流得先从 `turnStart` 里学到它。
     let turnId = 'turnId' in source ? source.turnId : ''
@@ -291,8 +306,8 @@ export function followTurn(
     // 帧标识是会话内序号，按会话接和按轮接用的是同一个断点。
     const resume = (after: number) =>
       cursor === undefined
-        ? resumeTurn(conversationId, turnId, after, fetcher)
-        : resumeConversation(conversationId, after, fetcher)
+        ? resumeTurn(conversationId, turnId, after, fetcher, connected)
+        : resumeConversation(conversationId, after, fetcher, connected)
     // 见过的最大帧标识，就是续播的断点；快照已经覆盖到游标为止。
     let seen = cursor ?? 0
     let frames = 'frames' in source ? source.frames : resume(seen)
@@ -343,6 +358,7 @@ export function followTurn(
           outcome = 'unreachable'
           return
         }
+        setReconnecting(true)
         await sleep(delay)
         if (!shouldContinue()) return
         frames = resume(seen)
@@ -350,6 +366,7 @@ export function followTurn(
     } finally {
       // 叫停与调用方自己走掉（break / return）都收在这里。
       outcome ??= 'stopped'
+      setReconnecting(false)
     }
   }
   return {

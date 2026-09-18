@@ -24,6 +24,7 @@ import type { AgentPanelMessage } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
+import AgentConnectionHint from './AgentConnectionHint'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentReply from './AgentReply'
@@ -201,6 +202,8 @@ export default function AgentPanel({
           </svg>
         </button>
       </div>
+
+      <AgentConnectionHint />
 
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">

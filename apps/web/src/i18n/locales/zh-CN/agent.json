@@ -109,10 +109,14 @@
     "stopping": "正在中止"
   },
   "clarification": {
+    "chosen": "已选：{{answer}}",
     "answered": "已回答",
     "other": "其他…",
     "otherAria": "其他回答",
     "otherPlaceholder": "说说你想要的"
+  },
+  "connection": {
+    "reconnecting": "连接中断，正在重新连接…"
   },
   "delivery": {
     "generateFailed": "生成失败",
