@@ -12,7 +12,8 @@
     "newProjectAria": "新建项目",
     "logAria": "对话记录",
     "emptyTitle": "今天，想创作什么？",
-    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。"
+    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。",
+    "jumpToLatest": "有新消息"
   },
   "suggestions": {
     "aria": "示例提示词",
@@ -23,6 +24,11 @@
     "characterTitle": "角色插画",
     "characterPrompt": "画一个赛博朋克风格的少女角色半身像：雨夜街头，霓虹灯光映在雨衣上，电影感构图。",
     "draftKeptToast": "输入框里已有内容，清空后再选示例"
+  },
+  "reply": {
+    "copyAria": "复制回复",
+    "copied": "已复制",
+    "copyFailed": "复制失败，请选择回复文字手动复制"
   },
   "tool": {
     "stageSubmitted": "已排队",

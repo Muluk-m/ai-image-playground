@@ -1,4 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
+import { ArrowDown } from 'lucide-react'
 import {
   Fragment,
   type PointerEvent as ReactPointerEvent,
@@ -6,13 +7,22 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
-import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, TAB, USER_BUBBLE } from '../agentStyles'
+import {
+  ACTIVE_TAB,
+  ICON_BUTTON,
+  IDLE_TAB,
+  INK_3,
+  JUMP_TO_LATEST,
+  TAB,
+  USER_BUBBLE,
+} from '../agentStyles'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -106,9 +116,12 @@ export default function AgentPanel({
   const historyFailed = useAgentStore((state) => state.historyFailed)
   const logRef = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
+  /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
+  const [unseen, setUnseen] = useState(false)
   const conversationId = useAgentStore((state) => state.conversationId)
   useLayoutEffect(() => {
     followLatest.current = true
+    setUnseen(false)
   }, [conversationId, open, tab])
   // 文件拖到对话记录上也算数：草稿归输入框管，这里只把文件递过去。
   const { dragging, dropZoneProps } = useImageDropZone((files) => {
@@ -119,10 +132,33 @@ export default function AgentPanel({
     void load()
   }, [load])
 
+  /** 上一次看到的末尾：只有末尾长出新东西才算「有新消息」，改旧卡片的交付状态、收尾一轮都不算。 */
+  const lastTail = useRef<string | null>(null)
+  const lastTailId = useRef<string | null>(null)
   useLayoutEffect(() => {
     const log = logRef.current
-    if (log && followLatest.current) log.scrollTop = log.scrollHeight
+    if (!log) return
+    const last = messages[messages.length - 1] as AgentPanelMessage | undefined
+    const tail = last ? tailSignature(last) : null
+    const grew = tail !== null && tail !== lastTail.current
+    // 用户自己发出的消息不是「没看到的内容」：发送即回到最新，接着跟随回复。
+    if (grew && last?.kind === 'text' && last.role === 'user' && last.id !== lastTailId.current) {
+      followLatest.current = true
+    }
+    lastTail.current = tail
+    lastTailId.current = last?.id ?? null
+    if (followLatest.current) {
+      log.scrollTop = log.scrollHeight
+      setUnseen(false)
+    } else if (grew) setUnseen(true)
   }, [messages, open, tab, conversationId])
+
+  const jumpToLatest = () => {
+    const log = logRef.current
+    if (log) log.scrollTop = log.scrollHeight
+    followLatest.current = true
+    setUnseen(false)
+  }
 
   /** 右缘拖宽：按下即捕获指针，宽度跟手，松开时的值已经在 store 里记住了。 */
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -194,44 +230,62 @@ export default function AgentPanel({
           <AgentCreations doc={doc} onSelect={mobile ? onViewCanvas : undefined} />
         </div>
       ) : (
-        <div
-          ref={logRef}
-          // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
-          data-selectable-text
-          aria-label={t('panel.logAria')}
-          onScroll={(event) => {
-            const log = event.currentTarget
-            followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
-          }}
-          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
-          {...dropZoneProps}
-        >
-          {messages.length === 0 && !historyLoading && !historyFailed && (
-            <div className="studio-chat-empty">
-              <span className="studio-spark">✧</span>
-              <h3>{t('panel.emptyTitle')}</h3>
-              <p>{t('panel.emptyBody')}</p>
-              <AgentSuggestions className="studio-suggestions mt-6" />
-            </div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={logRef}
+            // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
+            data-selectable-text
+            aria-label={t('panel.logAria')}
+            onScroll={(event) => {
+              const log = event.currentTarget
+              followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
+              if (followLatest.current) setUnseen(false)
+            }}
+            className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
+            {...dropZoneProps}
+          >
+            {messages.length === 0 && !historyLoading && !historyFailed && (
+              <div className="studio-chat-empty">
+                <span className="studio-spark">✧</span>
+                <h3>{t('panel.emptyTitle')}</h3>
+                <p>{t('panel.emptyBody')}</p>
+                <AgentSuggestions className="studio-suggestions mt-6" />
+              </div>
+            )}
+            {messages.map((message, index) => {
+              // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
+              const footer =
+                messages[index + 1]?.turnId === message.turnId ? null : turns[message.turnId]
+              return (
+                <Fragment key={message.id}>
+                  {renderMessage(message, answerableId, skills)}
+                  {footer && <AgentTurnCost footer={footer} />}
+                </Fragment>
+              )
+            })}
+            <AgentActivity />
+            <AgentHistoryStatus />
+            {error && !historyFailed && <p className={`text-xs ${INK_3}`}>{error}</p>}
+          </div>
+          {unseen && (
+            <button type="button" onClick={jumpToLatest} className={JUMP_TO_LATEST}>
+              <ArrowDown className="h-3 w-3" aria-hidden="true" />
+              {t('panel.jumpToLatest')}
+            </button>
           )}
-          {messages.map((message, index) => {
-            // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
-            const footer =
-              messages[index + 1]?.turnId === message.turnId ? null : turns[message.turnId]
-            return (
-              <Fragment key={message.id}>
-                {renderMessage(message, answerableId, skills)}
-                {footer && <AgentTurnCost footer={footer} />}
-              </Fragment>
-            )
-          })}
-          <AgentActivity />
-          <AgentHistoryStatus />
-          {error && !historyFailed && <p className={`text-xs ${INK_3}`}>{error}</p>}
         </div>
       )}
 
       {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
     </div>
   )
+}
+
+/** 末尾那条消息长到哪了：换了一条、文字变长、工具卡跑出结果都会变；交付状态与流式收尾不计入。 */
+function tailSignature(message: AgentPanelMessage): string {
+  if (message.kind === 'text') return `${message.id}:${message.text.length}`
+  if (message.kind === 'tool') {
+    return `${message.id}:${message.status}:${message.stage ?? ''}:${message.artifacts?.length ?? 0}:${message.message ?? ''}`
+  }
+  return message.id
 }
