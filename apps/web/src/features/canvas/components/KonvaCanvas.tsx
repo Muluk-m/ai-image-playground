@@ -59,6 +59,22 @@ type Gesture =
  * - 外部图片：文件拖入落在指针处；系统剪贴板图片 ⌘V 落视口中心
  * 文档状态全部在 CanvasDoc；本组件是无状态渲染 + 手势翻译层。
  */
+/**
+ * 命中节点所属的画布元素 id。多数元素就是一个带 id 的节点；时间线是一组节点，点中的是
+ * 里面没有 id 的背景，所以往上找第一个带 id 的祖先（到 Layer 为止）。
+ */
+function elementIdAt(node: Konva.Node | null | undefined): string | undefined {
+  for (
+    let current = node;
+    current && current.getType() !== 'Layer';
+    current = current.getParent()
+  ) {
+    const id = current.id()
+    if (id) return id
+  }
+  return undefined
+}
+
 export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation('canvas')
   const mobile = useMobileWorkspace()
@@ -90,7 +106,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       native: (point) =>
         doc.tool === 'select' &&
         Boolean(stageRef.current?.getIntersection(point)?.findAncestor('Transformer')),
-      hit: (point) => stageRef.current?.getIntersection(point)?.id() || undefined,
+      hit: (point) => elementIdAt(stageRef.current?.getIntersection(point)),
       menu: (id, point) => setImageMenu({ id, ...point }),
       active: setPanning,
       interrupt: () => {
@@ -348,9 +364,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     const stage = stageRef.current
     const pos = stage?.getPointerPosition()
     if (!stage || !pos) return
-    const node = stage.getIntersection(pos)
-    if (!node) return
-    const el = node.id() ? doc.getElement(node.id()) : undefined
+    const id = elementIdAt(stage.getIntersection(pos))
+    const el = id ? doc.getElement(id) : undefined
     if (!el || el.type === 'placeholder') return
     if (!g.captured) {
       doc.captureHistory()
@@ -635,7 +650,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         const rect = containerRef.current?.getBoundingClientRect()
         if (!stage || !rect) return
         const node = stage.getIntersection({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-        const el = node?.id() ? doc.getElement(node.id()) : undefined
+        const id = elementIdAt(node)
+        const el = id ? doc.getElement(id) : undefined
         if (el?.type !== 'image') return
         setImageMenu({ id: el.id, x: e.clientX, y: e.clientY })
       }}

@@ -254,6 +254,7 @@
     "addCount_one": "Add {{count}} clip to a timeline",
     "addCount_other": "Add {{count}} clips to a timeline",
     "appendCount_one": "Append {{count}} clip to the timeline",
-    "appendCount_other": "Append {{count}} clips to the timeline"
+    "appendCount_other": "Append {{count}} clips to the timeline",
+    "full": "A timeline holds at most {{max}} clips; the rest were not added"
   }
 }

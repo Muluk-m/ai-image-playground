@@ -1,5 +1,6 @@
 import type { VideoGenerationRecord } from '@image-playground/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { duplicateSelection } from '../../../../features/canvas/lib/canvasClipboard'
 import { CanvasDoc, type TimelineEl } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import {
@@ -9,6 +10,9 @@ import {
   TIMELINE_UNKNOWN_SECONDS,
   timelineSegments,
 } from '../../../../features/canvas/lib/timeline'
+
+const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }))
+vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast }) } }))
 
 let doc: CanvasDoc
 let editor: CanvasEditor
@@ -49,6 +53,7 @@ beforeEach(() => {
   doc.setViewport(800, 600)
   editor = new CanvasEditor(doc)
   vi.stubGlobal('requestAnimationFrame', () => 0)
+  showToast.mockClear()
 })
 
 describe('加入时间线', () => {
@@ -101,7 +106,73 @@ describe('加入时间线', () => {
   })
 })
 
+describe('追加与上限', () => {
+  it('undoes an append on its own, leaving the timeline as it was', () => {
+    addVideo('a', 0, 5)
+    editor.setSelectedElements(['a'])
+    const id = addSelectionToTimeline(editor)!
+    addVideo('b', 600, 8)
+    editor.setSelectedElements([id, 'b'])
+    addSelectionToTimeline(editor)
+
+    doc.undo()
+
+    expect(timelines()).toHaveLength(1)
+    expect(timelines()[0]!.clips.map((clip) => clip.elementId)).toEqual(['a'])
+  })
+
+  it('appends to the only timeline on the canvas even when it is not selected', () => {
+    addVideo('a', 0, 5)
+    editor.setSelectedElements(['a'])
+    const id = addSelectionToTimeline(editor)
+    addVideo('b', 600, 8)
+    editor.setSelectedElements(['b'])
+
+    expect(addSelectionToTimeline(editor)).toBe(id)
+    expect(timelines()).toHaveLength(1)
+  })
+
+  it('stops at the cloud limit and says so instead of breaking project sync', () => {
+    const ids = Array.from({ length: 70 }, (_, index) => `v${index}`)
+    ids.forEach((id, index) => addVideo(id, index * 200, 5))
+    editor.setSelectedElements(ids)
+
+    addSelectionToTimeline(editor)
+
+    expect(timelines()[0]!.clips).toHaveLength(64)
+    expect(showToast).toHaveBeenCalledWith(expect.any(String), 'error')
+  })
+
+  it('points a duplicated timeline at the duplicated clips copied with it', () => {
+    addVideo('a', 0, 5)
+    editor.setSelectedElements(['a'])
+    const id = addSelectionToTimeline(editor)!
+    editor.setSelectedElements(['a', id])
+
+    duplicateSelection(doc)
+
+    const copy = timelines().find((one) => one.id !== id)!
+    const copiedVideo = doc.elements.find((el) => el.type === 'image' && el.id !== 'a' && el.video)!
+    expect(copy.clips[0]!.elementId).toBe(copiedVideo.id)
+    expect(timelines().find((one) => one.id === id)!.clips[0]!.elementId).toBe('a')
+  })
+})
+
 describe('片段', () => {
+  it('keeps a known clip length after its source is deleted, so the film does not change', () => {
+    addVideo('a', 0, 4)
+    addVideo('b', 300, 8)
+    editor.setSelectedElements(['a', 'b'])
+    addSelectionToTimeline(editor)
+    const lookup = (id: string) => doc.getElement(id)
+    const before = timelineSegments(timelines()[0]!.clips, lookup)
+    doc.deleteElements(['a'])
+    const after = timelineSegments(timelines()[0]!.clips, lookup)
+    expect(after.map((one) => [one.x, one.width, one.seconds])).toEqual(
+      before.map((one) => [one.x, one.width, one.seconds]),
+    )
+  })
+
   it('keeps a deleted source as a missing segment instead of dropping it', () => {
     addVideo('a', 0, 5)
     addVideo('b', 300, 8)

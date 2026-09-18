@@ -235,8 +235,10 @@ export default function AgentCreations({
     [groups],
   )
   const thumbnails = useCanvasThumbnails(doc, works)
+  // 时间线是编排工具，不是画在画布上的标注。
   const marks = doc.elements.filter(
-    (element) => element.type !== 'image' && element.type !== 'placeholder',
+    (element) =>
+      element.type !== 'image' && element.type !== 'placeholder' && element.type !== 'timeline',
   )
   const locate = useLocateOnCanvas()
   const onSelect = useCallback(

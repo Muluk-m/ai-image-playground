@@ -1,3 +1,6 @@
+import { PROJECT_TIMELINE_MAX_CLIPS } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
+import { useStore } from '../../../store'
 import type { CanvasEl, TimelineClip, TimelineEl } from './canvasDoc'
 import { newElementId } from './canvasDoc'
 import type { CanvasEditor } from './editor'
@@ -71,8 +74,9 @@ export function timelineSeconds(clips: readonly TimelineClip[], lookup: ElementL
 }
 
 /**
- * 「加入时间线」：选中的视频按画布上从左到右追加。选区里本来就有一条时间线就追加到它后面，
- * 否则在这些视频下方新建一条。返回时间线 id；选区里没有视频返回 null。
+ * 「加入时间线」：选中的视频按画布上从左到右追加。追加到哪一条：选区里带着一条就是它；
+ * 选区里没有、画布上正好只有一条，也追加到它；否则在这些视频下方新建一条。
+ * 返回时间线 id；选区里没有视频返回 null。
  */
 export function addSelectionToTimeline(editor: CanvasEditor): string | null {
   const selected = editor.getSelectedIds().map((id) => editor.getElement(id))
@@ -81,13 +85,34 @@ export function addSelectionToTimeline(editor: CanvasEditor): string | null {
     .sort((a, b) => a.x - b.x)
   if (videos.length === 0) return null
   const lookup: ElementLookup = (id) => editor.getElement(id)
-  const clips = videos.map((video): TimelineClip => ({ elementId: video.id, in: 0 }))
-  const existing = selected.find((el): el is TimelineEl => el?.type === 'timeline')
+  // 能知道时长就把出点定下来：源视频之后被删，这一段的长度和成片总长都不跟着变。
+  const clips = videos.map((video): TimelineClip => {
+    const seconds = sourceSeconds(video)
+    return seconds === undefined
+      ? { elementId: video.id, in: 0 }
+      : { elementId: video.id, in: 0, out: seconds }
+  })
+  const onCanvas = editor.getElements().filter((el): el is TimelineEl => el.type === 'timeline')
+  const existing =
+    selected.find((el): el is TimelineEl => el?.type === 'timeline') ??
+    (onCanvas.length === 1 ? onCanvas[0] : undefined)
+  const room = PROJECT_TIMELINE_MAX_CLIPS - (existing?.clips.length ?? 0)
+  // 超出上限的片段云端项目收不下，整份项目会同步失败；宁可少加并说明。
+  if (clips.length > room)
+    useStore
+      .getState()
+      .showToast(
+        i18next.t('timeline.full', { ns: 'canvas', max: PROJECT_TIMELINE_MAX_CLIPS }),
+        'error',
+      )
+  const accepted = clips.slice(0, Math.max(0, room))
   if (existing) {
-    const next = [...existing.clips, ...clips]
-    editor.doc.updateElements([
-      { id: existing.id, patch: { clips: next, width: timelineWidth(next, lookup) } },
-    ])
+    if (accepted.length === 0) return existing.id
+    const next = [...existing.clips, ...accepted]
+    editor.doc.updateElements(
+      [{ id: existing.id, patch: { clips: next, width: timelineWidth(next, lookup) } }],
+      { history: true },
+    )
     editor.setSelectedElements([existing.id])
     return existing.id
   }
@@ -99,9 +124,9 @@ export function addSelectionToTimeline(editor: CanvasEditor): string | null {
     type: 'timeline',
     x: bounds.x,
     y: bounds.maxY + PLACEMENT_GAP,
-    width: timelineWidth(clips, lookup),
+    width: timelineWidth(accepted, lookup),
     height: TIMELINE_HEIGHT,
-    clips,
+    clips: accepted,
   }
   editor.doc.addElements([timeline])
   editor.setSelectedElements([timeline.id])
