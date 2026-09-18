@@ -20,6 +20,8 @@ export interface AgentToolContext {
   readonly turnId: string
   readonly userId: string | null
   readonly deviceId: string
+  /** External side effects must verify that this BFF still owns the turn before they start. */
+  readonly assertExecution?: () => Promise<void>
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
   /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */

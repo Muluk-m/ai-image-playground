@@ -1,4 +1,4 @@
-import type { StatusResponse, TaskErrorType } from '@image-playground/shared'
+import type { StatusResponse, TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
@@ -28,6 +28,9 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
         error_type: schema.tasks.error_type,
         provider: schema.tasks.provider,
         result_payload: schema.tasks.result_payload,
+        archive_payload: schema.tasks.archive_payload,
+        upstream_task_ids: schema.tasks.upstream_task_ids,
+        lease_expires_at: schema.tasks.lease_expires_at,
       })
       .from(schema.tasks)
       .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
@@ -59,6 +62,9 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
     const base: StatusResponse = {
       request_id: task.id,
       status: task.status,
+      ...(task.status === 'queued' || task.status === 'in_progress'
+        ? { phase: taskProgressPhase(task) }
+        : {}),
       submitted_at: task.submitted_at,
       ...(task.started_at != null ? { started_at: task.started_at } : {}),
       ...(task.completed_at != null ? { completed_at: task.completed_at } : {}),
@@ -87,3 +93,15 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
   },
   { params: t.Object({ id: t.String() }) },
 )
+
+export function taskProgressPhase(task: {
+  status: StatusResponse['status']
+  archive_payload: unknown
+  upstream_task_ids: string[] | null
+  lease_expires_at: number | null
+}): TaskProgressPhase {
+  if (task.archive_payload) return 'confirming'
+  if (task.status === 'queued') return task.upstream_task_ids?.length ? 'reconnecting' : 'queued'
+  if (task.lease_expires_at != null && task.lease_expires_at <= Date.now()) return 'reconnecting'
+  return 'generating'
+}

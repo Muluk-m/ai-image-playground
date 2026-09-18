@@ -97,15 +97,18 @@ export async function appendAgentTurnEvents(
   now = Date.now(),
 ): Promise<void> {
   if (events.length === 0) return
-  await db.insert(schema.agent_turn_events).values(
-    events.map((stored) => ({
-      conversation_id: conversationId,
-      seq: stored.seq,
-      turn_id: turnId,
-      event: stored.event,
-      created_at: now,
-    })),
-  )
+  await db
+    .insert(schema.agent_turn_events)
+    .values(
+      events.map((stored) => ({
+        conversation_id: conversationId,
+        seq: stored.seq,
+        turn_id: turnId,
+        event: stored.event,
+        created_at: now,
+      })),
+    )
+    .onConflictDoNothing()
 }
 
 /**
@@ -126,15 +129,19 @@ export async function openTurnEventLog(
 
   const persist = () => {
     timer = undefined
-    writes = writes.then(async () => {
-      const batch = buffered.slice(persisted)
-      if (batch.length === 0) return
-      persisted = buffered.length
-      try {
+    writes = writes
+      .catch(() => {})
+      .then(async () => {
+        const batch = buffered.slice(persisted)
+        if (batch.length === 0) return
         await appendAgentTurnEvents(conversationId, turnId, batch)
-      } catch (err) {
-        log.warn({ event: 'agent.event_persist_failed', turnId, err }, 'turn events not stored')
-      }
+        persisted += batch.length
+      })
+    void writes.catch((err) => {
+      log.warn(
+        { event: 'agent.event_persist_failed', turnId, err },
+        'turn events awaiting persistence',
+      )
     })
   }
 

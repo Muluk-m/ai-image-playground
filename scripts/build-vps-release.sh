@@ -46,7 +46,8 @@ docker buildx inspect "$builder" --bootstrap >/dev/null
 limits=$(docker inspect buildx_buildkit_aip-release0 --format '{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}} {{.HostConfig.CpuQuota}}')
 [ "$limits" = '6442450944 6442450944 400000' ] || { echo "Unexpected release builder resource limits: $limits" >&2; exit 1; }
 mkdir -p "$output/scripts/lib" "$output/deploy"
-cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" "$output/scripts/"
+cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" \
+  "$snapshot/public/scripts/rollout-runtime.sh" "$output/scripts/"
 cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
 cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
 : > "$output/images.tsv"
@@ -77,5 +78,7 @@ images="$images $backup_image"
 # shellcheck disable=SC2086
 docker save -o "$output/images.tar" $images
 gzip "$output/images.tar"
-(cd "$output" && shasum -a 256 images.tar.gz images.tsv scripts/vps-deploy.sh scripts/app-compose.sh scripts/lib/deploy-common.sh deploy/compose.app.yaml > SHA256SUMS)
+(cd "$output" && shasum -a 256 images.tar.gz images.tsv scripts/vps-deploy.sh \
+  scripts/app-compose.sh scripts/rollout-runtime.sh scripts/lib/deploy-common.sh \
+  deploy/compose.app.yaml > SHA256SUMS)
 echo "Release ready: $output (copy to VPS, then run scripts/vps-deploy.sh $target $output)"

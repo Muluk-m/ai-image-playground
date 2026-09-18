@@ -2,6 +2,9 @@ export interface WorkerHealthOptions {
   staleAfterMs: number
   lastSuccessfulPollAt: () => number | null
   now?: () => number
+  drain?: () => void
+  resume?: () => void
+  drainStatus?: () => { draining: boolean; active: number; safeToStop: boolean }
 }
 
 export interface WorkerHealthServerOptions extends WorkerHealthOptions {
@@ -20,6 +23,19 @@ export function createWorkerHealthHandler(options: WorkerHealthOptions) {
 
   return (request: Request): Response => {
     const url = new URL(request.url)
+    if (
+      url.pathname === '/internal/deployment/resume' &&
+      request.method === 'POST' &&
+      options.resume
+    ) {
+      options.resume()
+      return json({ ok: true }, 200)
+    }
+    if (url.pathname === '/internal/deployment/drain' && options.drainStatus) {
+      if (request.method === 'POST') options.drain?.()
+      else if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405)
+      return json(options.drainStatus(), 200)
+    }
     if (request.method !== 'GET' || url.pathname !== '/health') {
       return json({ error: 'not_found' }, 404)
     }

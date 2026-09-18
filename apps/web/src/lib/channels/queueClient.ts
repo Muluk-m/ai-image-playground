@@ -69,14 +69,14 @@ export async function callQueueChannelApi(
 
   const requestId = await submit(base, provider, model, opts, codexCli, opts.clientRequestId)
   opts.onQueueSubmitted?.(requestId)
-  return await pollAndFetch(channel, base, requestId)
+  return await pollAndFetch(channel, base, requestId, opts.onQueueStatus)
 }
 
 /**
  * 刷新页面恢复路径：跳过 submit，用持久化的 requestId 直接 poll+fetch。
  */
 export async function resumeQueueChannelApi(
-  _opts: CallApiOptions,
+  opts: CallApiOptions,
   _profile: BuiltinEdgeProfile,
   channel: PublicChannel,
   requestId: string,
@@ -86,17 +86,18 @@ export async function resumeQueueChannelApi(
   if (!toQueueProvider(channel.kind)) {
     throw new Error(i18next.t('queue.unsupportedKindResume', { ns: 'lib', kind: channel.kind }))
   }
-  return await pollAndFetch(channel, bffBaseUrl(), requestId)
+  return await pollAndFetch(channel, bffBaseUrl(), requestId, opts.onQueueStatus)
 }
 
 async function pollAndFetch(
   channel: PublicChannel,
   base: string,
   requestId: string,
+  onStatus?: CallApiOptions['onQueueStatus'],
 ): Promise<CallApiResult> {
   // poll 拿到 completed 时 status response 已经内联了 meta（BFF 新协议）；缺失时
   // 才回退到 GET /result。少一次 RTT 是常态路径，fallback 走旧 BFF 版本。
-  const inlined = await poll(base, requestId)
+  const inlined = await poll(base, requestId, onStatus)
   const meta = inlined ?? (await fetchResultMeta(base, requestId))
   if (!meta.images?.length) {
     throw new Error(i18next.t('queue.completedWithoutImages', { ns: 'lib' }))
@@ -297,7 +298,7 @@ type PollOutcome =
   | { kind: 'done'; result: StatusResultMeta | undefined }
   | { kind: 'failed'; message: string }
   | { kind: 'cancelled' }
-  | { kind: 'pending' }
+  | { kind: 'pending'; phase?: StatusResponse['phase'] }
   /** 短暂错误（5xx / 网络抖动），按 consecutiveFailures 计数 */
   | { kind: 'transient'; error: unknown }
   /** 确定性错误（4xx），立即放弃 */
@@ -323,14 +324,18 @@ async function classifyPollResponse(url: string): Promise<PollOutcome> {
       message: json.error?.message ?? i18next.t('queue.taskFailed', { ns: 'lib' }),
     }
   if (json.status === 'cancelled') return { kind: 'cancelled' }
-  return { kind: 'pending' }
+  return { kind: 'pending', phase: json.phase }
 }
 
 /**
  * 返回 completed 时附带的 result meta（新 BFF 内联），缺失则回 undefined 让调用方
  * 回退 GET /result。
  */
-async function poll(base: string, requestId: string): Promise<StatusResultMeta | undefined> {
+async function poll(
+  base: string,
+  requestId: string,
+  onStatus?: CallApiOptions['onQueueStatus'],
+): Promise<StatusResultMeta | undefined> {
   const url = `${base}/v1/queue/requests/${requestId}/status`
   const deadline = Date.now() + POLL_MAX_MS
   let consecutiveFailures = 0
@@ -365,6 +370,7 @@ async function poll(base: string, requestId: string): Promise<StatusResultMeta |
         break
       }
       case 'pending':
+        if (outcome.phase) onStatus?.(outcome.phase)
         consecutiveFailures = 0
         lastTransientError = null
         break

@@ -24,10 +24,20 @@ if (isCapabilityEnabled('billing:credits')) {
 }
 
 // 启动扫一次只覆盖「重启之后」那一瞬间，SIGKILL 随时可能再留下无主行，所以要持续扫。
-await recoverAbandonedTasks()
+if (!config.worker.startPaused) await recoverAbandonedTasks()
 
 const scheduler = new TaskScheduler()
+if (config.worker.startPaused) scheduler.drain()
 scheduler.start()
+const activationTimer =
+  config.worker.startPaused && config.worker.activationFile
+    ? setInterval(() => {
+        if (!config.worker.startPaused) {
+          scheduler.resume()
+          clearInterval(activationTimer!)
+        }
+      }, 1000)
+    : undefined
 // 活着不等于在干活：把最后一次成功轮询的时间一并写进心跳，看板才分得清两者。
 const stopHeartbeat = startHeartbeat({
   service: 'worker',
@@ -49,15 +59,22 @@ const staleScanTimer = setInterval(() => {
       'operations board table purge failed',
     )
   })
-  recoverAbandonedTasks(runningTaskIds()).catch((err) => {
-    log.error(
-      { event: 'worker.stale_scan_failed', err: err instanceof Error ? err.message : String(err) },
-      'abandoned in-progress scan failed',
-    )
-  })
-}, QUEUE_TIMEOUTS.STALE_SCAN_INTERVAL_MS)
+  if (!scheduler.drainStatus().draining)
+    recoverAbandonedTasks(runningTaskIds()).catch((err) => {
+      log.error(
+        {
+          event: 'worker.stale_scan_failed',
+          err: err instanceof Error ? err.message : String(err),
+        },
+        'abandoned in-progress scan failed',
+      )
+    })
+}, 15_000)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
+  drain: () => scheduler.drain(),
+  resume: () => scheduler.resume(),
+  drainStatus: () => scheduler.drainStatus(),
   staleAfterMs: config.worker.healthStaleAfterMs,
   lastSuccessfulPollAt: () => scheduler.lastSuccessfulPollAt(),
 })
@@ -85,6 +102,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  if (activationTimer) clearInterval(activationTimer)
   stopHeartbeat()
   clearInterval(staleScanTimer)
   await workerHealthServer.stop()

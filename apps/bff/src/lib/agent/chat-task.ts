@@ -1,6 +1,7 @@
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { executionContext } from '../../db/execution-context'
 import { finishTask } from '../../db/task-transitions'
 import type {
   BffTransaction,
@@ -10,6 +11,7 @@ import type {
   TaskUsage,
 } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
+import { AGENT_EXECUTION_LEASE_MS, agentExecutionToken } from './execution'
 import type { AgentTurnSettlement } from './turn'
 
 /** 单价表没登记这个对话模型时的兜底：预扣照样算得出，reserveTask 会以缺单价拒掉这一轮。 */
@@ -129,6 +131,8 @@ async function insertChatTask(
     user_id: input.userId,
     agent_conversation_id: input.conversationId,
     agent_turn_id: input.taskId,
+    execution_token: agentExecutionToken(input.taskId),
+    lease_expires_at: now + AGENT_EXECUTION_LEASE_MS,
   })
 }
 
@@ -166,13 +170,27 @@ function chatTaskSettle(
   pricing: ChatTaskPricing,
 ): ChatTaskSettle {
   return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
-    await finishTask(turnId, {
-      status: settlement.outcome,
-      completedAt: Date.now(),
-      upstreamInvocationCount: settlement.upstreamInvocationCount,
-      // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
-      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
-    })
+    const finished = await executionContext.run(agentExecutionToken(turnId), () =>
+      finishTask(turnId, {
+        status: settlement.outcome,
+        completedAt: Date.now(),
+        upstreamInvocationCount: settlement.upstreamInvocationCount,
+        // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
+        ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
+      }),
+    )
+    if (!finished) {
+      const [task] = await db
+        .select({ status: schema.tasks.status })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, turnId))
+        .limit(1)
+      // finishTask and the private ledger commit atomically. A retry after the commit may observe
+      // the terminal row even when the following cost read was interrupted.
+      if (!task || !['completed', 'failed', 'cancelled'].includes(task.status)) {
+        throw new Error('Chat task settlement lost its execution lease')
+      }
+    }
     return collectTurnCost(conversationId, turnId)
   }
 }

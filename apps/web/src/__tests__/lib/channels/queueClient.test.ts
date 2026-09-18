@@ -210,6 +210,34 @@ describe('callQueueChannelApi submit body', () => {
     expect(result.actualParams).toEqual({ output_format: 'webp' })
   })
 
+  it('reports the durable queue phase while polling', async () => {
+    const call = await loadCallQueueChannelApi()
+    mockFetchJson(
+      { request_id: 'rid-1', status: 'queued' },
+      {
+        request_id: 'rid-1',
+        status: 'in_progress',
+        phase: 'reconnecting',
+        submitted_at: Date.now(),
+      },
+      {
+        request_id: 'rid-1',
+        status: 'failed',
+        submitted_at: Date.now(),
+        error: { message: 'test-stop', type: 'unknown' },
+      },
+    )
+    const phases: string[] = []
+    await expect(
+      call(
+        { ...mockOpts(), onQueueStatus: (phase) => phases.push(phase) },
+        mockProfile(),
+        mockChannel(),
+      ),
+    ).rejects.toThrow('test-stop')
+    expect(phases).toEqual(['reconnecting'])
+  })
+
   it('429 daily_quota_exceeded 抛中文错误且 quotaExceeded=true', async () => {
     const call = await loadCallQueueChannelApi()
     vi.spyOn(globalThis, 'fetch').mockImplementation(

@@ -73,6 +73,7 @@ export async function createAgentConversation(
       user_id: owner.kind === 'user' ? owner.userId : null,
       device_id: owner.kind === 'device' ? owner.deviceId : null,
       title,
+      runtime_generation: 1,
       created_at: now,
       updated_at: now,
     })

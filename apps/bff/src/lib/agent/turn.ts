@@ -11,12 +11,14 @@ import type {
   AgentTurnUsage,
 } from '@image-playground/shared'
 import { db } from '../../db/client'
+import { bffDrain } from '../drain'
 import { log } from '../logger'
-import type { TaskOutcome } from '../private-overlay'
+import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { openTurnEventLog } from './events'
+import { ConversationExecutionLost } from './execution'
 import {
   type AgentImageReference,
   archiveAgentReferences,
@@ -54,6 +56,8 @@ export interface AgentTurnSettlement {
 }
 
 export interface StartAgentTurnInput {
+  readonly assertExecution?: () => Promise<void>
+  readonly withExecution?: <T>(callback: (tx: BffTransaction) => Promise<T>) => Promise<T>
   readonly conversationId: string
   readonly turnId: string
   readonly userMessageId: string
@@ -83,6 +87,28 @@ interface OpenToolCall {
   readonly messageId: string
   /** 起跑那一刻工具的自述；结果卡照它出，中途不再重算。 */
   readonly start: AgentToolStart
+}
+
+const settlementDelay = (attempt: number) => Math.min(1_000 * 2 ** Math.min(attempt, 5), 30_000)
+
+async function settleDurably(
+  settle: NonNullable<StartAgentTurnInput['settle']>,
+  settlement: AgentTurnSettlement,
+  assertExecution?: () => Promise<void>,
+): Promise<AgentTurnCost> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await assertExecution?.()
+      return await settle(settlement)
+    } catch (thrown) {
+      if (thrown instanceof ConversationExecutionLost) throw thrown
+      log.error(
+        { event: 'agent.turn_settle_retry', attempt: attempt + 1, err: thrown },
+        'agent turn settlement will retry',
+      )
+      await new Promise((resolve) => setTimeout(resolve, settlementDelay(attempt)))
+    }
+  }
 }
 
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
@@ -129,10 +155,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         images,
         authorization: () => authorization.current(),
         maskedEditPlan,
+        assertExecution: input.assertExecution,
         ...(input.params ? { params: input.params } : {}),
       }),
     },
     streamFn: async (model, context, options) => {
+      await input.assertExecution?.()
       modelCallId = await ledger.begin('conversation', model.id, context)
       return stream(model, context, options)
     },
@@ -171,8 +199,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   // 消息表的读回顺序是插入顺序，所以落库排成一条链，不让插话抢在半截回复前面。
   let writes: Promise<void> = Promise.resolve()
 
-  const write = (append: () => Promise<void>) => {
-    writes = writes.then(append)
+  const write = (append: (executor: typeof db | BffTransaction) => Promise<void>) => {
+    writes = writes.then(() => (input.withExecution ? input.withExecution(append) : append(db)))
     return writes
   }
 
@@ -186,8 +214,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     const pending = queued
     queued = []
     for (const message of pending) {
-      write(async () => {
-        await appendAgentMessage(db, {
+      write(async (executor) => {
+        await appendAgentMessage(executor, {
           id: message.id,
           conversationId,
           turnId,
@@ -208,8 +236,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const openTools = new Map<string, OpenToolCall>()
 
   const storeBlock = (block: AgentContentBlock, messageId: string) =>
-    write(async () => {
-      await appendAgentMessage(db, {
+    write(async (executor) => {
+      await appendAgentMessage(executor, {
         id: messageId,
         conversationId,
         turnId,
@@ -220,9 +248,9 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     })
 
   const store = (message: OpenAssistantMessage) =>
-    write(async () => {
+    write(async (executor) => {
       if (!message.text) return
-      await appendAgentMessage(db, {
+      await appendAgentMessage(executor, {
         id: message.id,
         conversationId,
         turnId,
@@ -333,7 +361,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     reservedCredits: input.reservedCredits,
   })
 
+  let resolveCompleted!: () => void
+  const completed = new Promise<void>((resolve) => {
+    resolveCompleted = resolve
+  })
   const turn: RunningTurn = {
+    completed,
     conversationId,
     turnId,
     mode: input.mode,
@@ -342,6 +375,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (!acceptingInterjections || aborted) return null
       const evidence = await turnVisualEvidence(references)
       if (!acceptingInterjections || aborted) return null
+      await input.assertExecution?.()
       const messageId = crypto.randomUUID()
       const archiveId = `${turnId}/interjections/${messageId}`
       const stored = await archiveAgentReferences(conversationId, archiveId, references)
@@ -362,6 +396,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       queued.push({ id: messageId, text, references: stored })
       if (!open) flushQueued()
       events.emit({ type: 'interjection', messageId, text })
+      await input.assertExecution?.()
       agent.steer({
         role: 'user',
         content: [{ type: 'text', text: steered.text }, ...steered.content],
@@ -389,6 +424,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         turnPromptText(expandSkillInvocation(prompt, input.mode), images.references),
         evidence,
       )
+      await input.assertExecution?.()
       return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {
@@ -414,17 +450,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
       let cost: AgentTurnCost | undefined
-      try {
-        cost = await settle?.({
-          outcome,
-          usage,
-          upstreamInvocationCount,
-        })
-      } catch (thrown) {
-        // 结算失败不该把已经流给用户的这一轮拖成报错；占用留给运维扫，不在这里重试。
-        log.error(
-          { event: 'agent.turn_settle_failed', err: thrown },
-          'agent turn settlement failed',
+      if (settle) {
+        cost = await settleDurably(
+          settle,
+          { outcome, usage, upstreamInvocationCount },
+          input.assertExecution,
         )
       }
       log.info(
@@ -460,8 +490,19 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       })
       await touchAgentConversation(conversationId)
       await events.flush()
+    })
+    .catch((err) => {
+      if (err instanceof ConversationExecutionLost) return
+      bffDrain.failed()
+      log.error(
+        { event: 'agent.finalization_failed', turnId, err },
+        'turn could not be durably finalized; retaining instance',
+      )
+    })
+    .finally(() => {
       unregister()
       events.close()
+      resolveCompleted()
     })
 
   return turn

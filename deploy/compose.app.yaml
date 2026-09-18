@@ -59,6 +59,7 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       STATIC_DIR: ""
+      EXECUTOR_ORIGIN: http://bff:37377
       # Override in app.env when something other than cloudflared terminates the ingress.
       CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-cf-connecting-ip}
     command:
@@ -130,7 +131,7 @@ services:
       APP_ROLE: admin
       PORT: "37378"
       ADMIN_DIST_DIR: /app/apps/admin/dist
-      BFF_INTERNAL_URL: http://bff:37377
+      BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
     command:
       - bun
       - run
@@ -220,7 +221,7 @@ services:
     restart: unless-stopped
     environment:
       APP_ROLE: host-collector
-      BFF_INTERNAL_URL: http://bff:37377
+      BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       # Disk and memory alerts go out from here, not through the BFF: a full disk is exactly when
       # the BFF and the database stop answering.

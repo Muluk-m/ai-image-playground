@@ -1619,6 +1619,7 @@ async function executeTask(taskId: string) {
           prompt: task.prompt,
           params: task.params,
           inputImageDataUrls: [],
+          onQueueStatus: (queuePhase) => updateTaskInStore(taskId, { queuePhase }),
         },
         task.bffRequestId!,
       )
@@ -1656,6 +1657,7 @@ async function executeTask(taskId: string) {
           updateTaskInStore(taskId, { bffRequestId: requestId })
           notifyPrivateSubmissionAccepted()
         },
+        onQueueStatus: (queuePhase) => updateTaskInStore(taskId, { queuePhase }),
       })
     }
 

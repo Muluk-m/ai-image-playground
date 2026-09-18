@@ -156,7 +156,7 @@ describe('async submit phase', () => {
     })
   })
 
-  it('submits only the missing share after a partial fan-out failure', async () => {
+  it('does not resubmit after a partial fan-out leaves one request outcome unknown', async () => {
     let submits = 0
     upstream.handler = (url) => {
       if (!url.endsWith('/async')) return json({ status: 'processing' })
@@ -184,14 +184,15 @@ describe('async submit phase', () => {
 
     await runTask('async-partial')
 
-    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
-    expect(upstream.calls).toContain('http://localhost:9999/v1/images/tasks/imgtask_1')
-    expect(upstream.calls).toContain('http://localhost:9999/v1/images/tasks/imgtask_2')
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(0)
     const done = await readTask('async-partial')
-    expect(done).toMatchObject({ status: 'completed', taskIds: ['imgtask_1', 'imgtask_2'] })
-    // 3 次派发换到 2 个 id：多出来的那次是回 500、没建出任务的提交。记账在派发前，
-    // 所以差值意味着「结果未知的派发」，不等于重复提交。
-    expect(done?.invocations).toBe(3)
+    expect(done).toMatchObject({
+      status: 'failed',
+      errorType: 'upstream_result_unknown',
+      taskIds: ['imgtask_1'],
+    })
+    // 两次派发只换到一个 id，缺失的那次可能已被上游接受；不能自动补交。
+    expect(done?.invocations).toBe(2)
     expect(done?.submittedAt).toBe(requeued!.submittedAt)
   })
 })
@@ -227,7 +228,7 @@ describe('restart recovery', () => {
     expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_7'])
   })
 
-  it('fails a resumed task whose original submit is already past the polling deadline', async () => {
+  it('performs one final lookup for an expired resumed task and accepts a completed result', async () => {
     await insertTask('async-expired', {
       status: 'in_progress',
       started_at: 1,
@@ -239,11 +240,8 @@ describe('restart recovery', () => {
     await recoverTasksByIds(['async-expired'])
     await runTask('async-expired')
 
-    expect(await readTask('async-expired')).toMatchObject({
-      status: 'failed',
-      errorType: 'upstream_result_unknown',
-    })
-    expect(upstream.calls).toEqual([])
+    expect(await readTask('async-expired')).toMatchObject({ status: 'completed', errorType: null })
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_8'])
   })
 
   it('writes a terminal timeout when the budget expires during a polling sleep', async () => {

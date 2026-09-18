@@ -10,6 +10,7 @@ export interface RunningTurn {
   readonly turnId: string
   /** 这一轮按什么装配的。插话要照同一份技能清单展开 `/skill-name`，所以它得挂在轮上。 */
   readonly mode: AgentMode
+  readonly completed?: Promise<void>
   read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
   /** 返回插话那条用户消息的 id；它也随 `interjection` 事件发给所有连着的消费者。 */
   interject(text: string, references?: readonly AgentTurnReference[]): Promise<string | null>

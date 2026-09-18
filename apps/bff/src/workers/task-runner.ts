@@ -3,6 +3,12 @@ import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
 import {
+  executionContext,
+  executionFence,
+  TASK_HEARTBEAT_MS,
+  TASK_LEASE_MS,
+} from '../db/execution-context'
+import {
   finishTask,
   requeueTask,
   requeueTaskArchive,
@@ -31,6 +37,8 @@ import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../li
 import {
   callUpstream,
   extractUpstreamFailure,
+  type UpstreamCallParams,
+  UpstreamPartialResultError,
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
@@ -109,7 +117,7 @@ async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean>
     .set({
       upstream_invocation_count: sql`${schema.tasks.upstream_invocation_count} + ${count}`,
     })
-    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'), executionFence()))
     .returning({ id: schema.tasks.id })
   return updated.length > 0
 }
@@ -126,10 +134,26 @@ async function recordUpstreamTaskIds(
       // 补提交缺口时不能把锚点往后推，否则重试等于领了一份新的超时预算。
       ...(anchorAlreadySet ? {} : { upstream_submitted_at: Date.now() }),
     })
-    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'), executionFence()))
 }
 
 export async function runTask(id: string): Promise<void> {
+  return executionContext.run(executionContext.getStore() ?? crypto.randomUUID(), async () => {
+    try {
+      await executeTask(id)
+    } catch (error) {
+      await finishTask(id, {
+        status: 'failed',
+        errorType: 'interrupted',
+        errorMessage: '任务执行异常',
+        completedAt: Date.now(),
+      })
+      throw error
+    }
+  })
+}
+
+async function executeTask(id: string): Promise<void> {
   const now = () => Date.now()
   const claimAt = now()
 
@@ -147,6 +171,7 @@ export async function runTask(id: string): Promise<void> {
       attempt_count: schema.tasks.attempt_count,
       upstream_task_ids: schema.tasks.upstream_task_ids,
       upstream_submitted_at: schema.tasks.upstream_submitted_at,
+      upstream_invocation_count: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
     .where(eq(schema.tasks.id, id))
@@ -155,6 +180,29 @@ export async function runTask(id: string): Promise<void> {
 
   const ctrl = new AbortController()
   runningTasks.set(id, ctrl)
+  let renewing = false
+  const heartbeat = setInterval(async () => {
+    if (renewing) return
+    renewing = true
+    try {
+      const rows = await db
+        .update(schema.tasks)
+        .set({ lease_expires_at: Date.now() + TASK_LEASE_MS })
+        .where(
+          and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'), executionFence()),
+        )
+        .returning({ id: schema.tasks.id })
+      if (rows.length === 0) ctrl.abort()
+    } catch (error) {
+      log.warn(
+        { event: 'task.lease_renew_failed', taskId: id, err: String(error) },
+        'task lease renewal failed',
+      )
+      ctrl.abort()
+    } finally {
+      renewing = false
+    }
+  }, TASK_HEARTBEAT_MS)
   log.info(
     { event: 'task.started', taskId: id, provider: task.provider, model: task.model },
     'task started',
@@ -163,7 +211,11 @@ export async function runTask(id: string): Promise<void> {
   // 已提交过的上游异步任务：接着轮，只补提交缺口，已有 id 永不重提。
   const resume =
     task.upstream_task_ids?.length && task.upstream_submitted_at !== null
-      ? { taskIds: task.upstream_task_ids, submittedAt: task.upstream_submitted_at }
+      ? {
+          taskIds: task.upstream_task_ids,
+          submittedAt: task.upstream_submitted_at,
+          pollOnly: task.upstream_invocation_count > task.upstream_task_ids.length,
+        }
       : undefined
 
   const cloudArchive = Boolean(
@@ -171,6 +223,7 @@ export async function runTask(id: string): Promise<void> {
   )
   let archivePayload = task.archive_payload
   let receivedImages = false
+  let protectOutput: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
   try {
     if (cloudArchive && !archivePayload) {
       const preserved = await preserveGenerationInputs(id, task.request_payload)
@@ -179,7 +232,7 @@ export async function runTask(id: string): Promise<void> {
     }
     const hydratedRequest = await hydrateInputImages(task.request_payload)
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
-    const protectOutput = task.request_payload.preserve_outside_mask
+    protectOutput = task.request_payload.preserve_outside_mask
       ? await protectMaskedOutput(
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
@@ -217,7 +270,7 @@ export async function runTask(id: string): Promise<void> {
       })
       return
     }
-    const { payload } = await callUpstream({
+    const upstreamCall: UpstreamCallParams = {
       provider: task.provider,
       model: task.model,
       request: hydratedRequest,
@@ -225,10 +278,33 @@ export async function runTask(id: string): Promise<void> {
       resume,
       onUpstreamTaskIds: (taskIds) => recordUpstreamTaskIds(id, taskIds, resume !== undefined),
       beforeRequest: async () => {
+        if (resume && task.upstream_invocation_count > resume.taskIds.length) {
+          throw new UpstreamResultUnknownError('上次提交的部分结果未知，未重复生成')
+        }
         if (await recordUpstreamInvocation(id)) return
         ctrl.abort()
         throw new DOMException('Task is no longer running', 'AbortError')
       },
+    }
+    const { payload } = await callUpstream(upstreamCall).catch(async (error) => {
+      if (
+        !(error instanceof UpstreamTimeoutError) ||
+        (resume && resume.submittedAt <= claimAt - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)
+      )
+        throw error
+      const [persisted] = await db
+        .select({
+          ids: schema.tasks.upstream_task_ids,
+          submittedAt: schema.tasks.upstream_submitted_at,
+        })
+        .from(schema.tasks)
+        .where(and(eq(schema.tasks.id, id), executionFence()))
+        .limit(1)
+      if (!persisted?.ids?.length || persisted.submittedAt === null) throw error
+      return callUpstream({
+        ...upstreamCall,
+        resume: { taskIds: persisted.ids, submittedAt: persisted.submittedAt, pollOnly: true },
+      })
     })
     const meta = extractMeta(task.provider, payload)
     if (meta.images.length === 0) {
@@ -312,6 +388,9 @@ export async function runTask(id: string): Promise<void> {
       log.info({ event: 'task.aborted', taskId: id }, 'task aborted')
       return
     }
+    if (err instanceof UpstreamPartialResultError && cloudArchive && !archivePayload) {
+      archivePayload = generationSourceCheckpoint(id, task.provider, err.payload)
+    }
     const rejectedMaskedOutput =
       err instanceof MaskedOutputArchiveError && err.cause instanceof MaskedOutputError
     if (archivePayload && !rejectedMaskedOutput) {
@@ -354,6 +433,11 @@ export async function runTask(id: string): Promise<void> {
       status: 'failed',
       errorMessage: message,
       errorType,
+      ...(err instanceof UpstreamPartialResultError
+        ? {
+            resultPayload: await archiveOutputImages(id, task.provider, err.payload, protectOutput),
+          }
+        : {}),
       ...(err instanceof MaskedOutputArchiveError
         ? {
             resultPayload: {
@@ -381,6 +465,7 @@ export async function runTask(id: string): Promise<void> {
       )
     }
   } finally {
+    clearInterval(heartbeat)
     runningTasks.delete(id)
   }
 }

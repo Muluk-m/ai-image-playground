@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
@@ -46,6 +47,29 @@ const workerHealthStaleAfterMs = positiveIntEnv(
   'WORKER_HEALTH_STALE_AFTER_MS',
   Math.max(10_000, workerPollIntervalMs * 5),
 )
+const executionOrigin = (key: string): string => {
+  const origin = env(key, '')
+  if (!origin) return ''
+  try {
+    const url = new URL(origin)
+    if (
+      (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+      url.pathname !== '/' ||
+      url.search ||
+      url.hash ||
+      url.username ||
+      url.password
+    ) {
+      throw new Error()
+    }
+    return url.origin
+  } catch {
+    throw new Error(`${key} must be a bare http(s) origin`)
+  }
+}
+const executorOrigin = executionOrigin('EXECUTOR_ORIGIN')
+const legacyExecutorOrigin = executionOrigin('LEGACY_EXECUTOR_ORIGIN')
+const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
 
 export const config = {
   port: Number(env('PORT', '37377')),
@@ -170,7 +194,15 @@ export const config = {
       return normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
     },
   },
+  execution: {
+    legacyOrigin: legacyExecutorOrigin,
+    origin: executorOrigin,
+  },
   worker: {
+    activationFile: process.env.WORKER_ACTIVATION_FILE?.trim() ?? '',
+    get startPaused() {
+      return workerStartsPaused && !(this.activationFile && existsSync(this.activationFile))
+    },
     pollIntervalMs: workerPollIntervalMs,
     /** 调大要连带调大进程管理器的停机宽限（deploy/compose.app.yaml），否则先挨 SIGKILL。 */
     drainTimeoutMs: positiveIntEnv(
