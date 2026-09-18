@@ -14,6 +14,7 @@ import { cancelTasks } from '../../../db/task-transitions'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
+import { AgentToolError, queueRefusalCode, taskFailureCode } from './errors'
 import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
@@ -28,6 +29,7 @@ const WORDS: Record<ChannelMedia, MediaWords> = {
 }
 
 function refusal(kind: CreateQueueTaskOutcome['kind'], words: MediaWords): string {
+  if (kind === 'price_unavailable') return `这个${words.verb}模型暂时不可用`
   if (kind === 'insufficient_credits') return `积分不够，这${words.unit}没有提交`
   if (kind === 'quota_exceeded') return '今天的生成次数已经用完'
   if (kind === 'authentication_required') return `${words.verb}需要先登录`
@@ -88,13 +90,16 @@ export async function runQueueTask(
 ): Promise<AgentToolResult<AgentToolDetails>> {
   const words = WORDS[input.media]
   const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
-  if (!target) throw new Error(noModelMessage(input.media))
+  if (!target) throw new AgentToolError('model_unavailable', noModelMessage(input.media))
 
   const hasSelection = context.images.masked
   if (hasSelection) context.maskedEditPlan?.protect()
   const maskedTurn = input.media === 'image' && (hasSelection || context.maskedEditPlan?.protected)
   if (maskedTurn && !input.inputImages?.length)
-    throw new Error('本轮存在用户选区，请使用改图工具核对目标与参考，不能改为无参考生图')
+    throw new AgentToolError(
+      'invalid_params',
+      '本轮存在用户选区，请使用改图工具核对目标与参考，不能改为无参考生图',
+    )
   // 批次身份只在遮罩轮上问；内容身份跟着这次编辑走，与本轮是不是遮罩轮无关。
   const submission: MaskedSubmission = {
     ...(maskedTurn
@@ -109,11 +114,17 @@ export async function runQueueTask(
   }
   const approval = context.maskedEditPlan?.approve(submission) ?? 'approved'
   if (approval === 'already-submitted')
-    throw new Error('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
+    throw new AgentToolError(
+      'invalid_params',
+      '这个编辑操作已经提交，请先检查候选；不要自行付费重试',
+    )
   if (approval === 'outside-batch')
-    throw new Error('本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示')
+    throw new AgentToolError(
+      'invalid_params',
+      '本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示',
+    )
 
-  if (signal?.aborted) throw new Error('这一轮被中止了')
+  if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
   const submitted = await createQueueTask({
     provider: target.provider,
     model: target.model,
@@ -131,8 +142,9 @@ export async function runQueueTask(
     agent: { conversationId: context.conversationId, turnId: context.turnId },
   })
   if (submitted.kind !== 'created') {
-    if (submitted.kind === 'invalid_input_image') throw new Error(submitted.message)
-    throw new Error(refusal(submitted.kind, words))
+    const code = queueRefusalCode(submitted.kind)
+    if (submitted.kind === 'invalid_input_image') throw new AgentToolError(code, submitted.message)
+    throw new AgentToolError(code, refusal(submitted.kind, words))
   }
 
   // 任务真的建出来了才登记：失败的提交不占批次名额，也不算这条内容提交过。
@@ -155,7 +167,11 @@ export async function runQueueTask(
     }
     throw error
   })
-  if (outcome.kind !== 'completed') throw new Error(outcome.reason)
+  if (outcome.kind !== 'completed')
+    throw new AgentToolError(
+      outcome.cancelled ? 'cancelled' : taskFailureCode(outcome.errorType),
+      outcome.reason,
+    )
 
   const artifacts: AgentToolArtifact[] = outcome.result.images.map((output) => ({
     // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。

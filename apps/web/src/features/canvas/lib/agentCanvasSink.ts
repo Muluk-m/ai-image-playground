@@ -69,8 +69,16 @@ export function createAgentCanvasSink(
       for (const id of placeholderIds) editor.deleteElement(id, { history: false })
     },
 
-    markFailed(placeholderIds, message) {
-      for (const id of placeholderIds) markPlaceholderStatus(editor, id, 'error', message)
+    markFailed(placeholderIds, message, errorCode) {
+      for (const id of placeholderIds) {
+        if (errorCode)
+          editor.updatePlaceholder(id, {
+            status: 'error',
+            message,
+            meta: { agentErrorCode: errorCode },
+          })
+        else markPlaceholderStatus(editor, id, 'error', message)
+      }
     },
 
     async place(artifacts, options) {

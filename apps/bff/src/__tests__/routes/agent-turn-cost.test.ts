@@ -277,3 +277,33 @@ describe('本轮消耗', () => {
     })
   })
 })
+
+describe('工具提交被计费拒绝', () => {
+  it('把积分不够的生图失败归为 insufficient_credits', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () => {
+            // 这一轮的对话预扣已经过了；轮到工具提交时积分不够。
+            billing.answer = { kind: 'insufficient_credits', required: 85, available: 3 }
+            return toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '一只橘猫' },
+            })
+          },
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画一只橘猫')
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'insufficient_credits',
+    })
+  })
+})

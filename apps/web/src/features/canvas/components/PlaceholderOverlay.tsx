@@ -1,5 +1,12 @@
 import { useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
+import {
+  agentToolFailureAction,
+  agentToolFailureActionLabel,
+  agentToolFailureText,
+  runAgentToolFailureAction,
+} from '../../agent/lib/toolFailure'
+import { useAgentStore } from '../../agent/store'
 import { type CanvasEditor, STATUS_ACCENT } from '../lib/editor'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
 
@@ -10,7 +17,8 @@ import { retryCanvasTask } from '../lib/submitFromCanvas'
  * 位置随相机 scroll / zoom 实时换算，内容用 scale(zoom) 与页面坐标系同步缩放。
  */
 export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor }) {
-  const { t } = useTranslation(['canvas', 'common'])
+  // 失败占位的文案与出路按错误码取 errors / agent 的译文，切语言时要跟着重渲染。
+  const { t } = useTranslation(['canvas', 'common', 'errors', 'agent'])
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const { camera } = editor.doc
   const placeholders = editor.getPlaceholders()
@@ -22,6 +30,10 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
       {placeholders.map((p) => {
         const accent = STATUS_ACCENT[p.status]
         const isLoading = p.status === 'loading'
+        // 智能体的失败占位带错误码时只认码（ADR 0006）；旧占位框没有码，照旧显示存下的那句话。
+        const agentCode = p.meta.agent ? p.meta.agentErrorCode : undefined
+        const note = agentToolFailureText(agentCode) ?? p.message
+        const agentAction = agentToolFailureAction(agentCode)
         return (
           <div
             key={p.id}
@@ -71,10 +83,37 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   <span style={{ color: accent, fontWeight: 600 }}>
                     {p.status === 'error' ? t('placeholder.failed') : t('placeholder.stale')}
                   </span>
-                  {p.message && (
-                    <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{p.message}</span>
+                  {note && (
+                    <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{note}</span>
                   )}
-                  {/* 智能体占的位没有可重发的画布任务：重试在对话里说一句，不在这个框上。 */}
+                  {agentCode && agentAction && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() =>
+                        runAgentToolFailureAction(agentAction, {
+                          code: agentCode,
+                          title: p.meta.prompt,
+                          send: (text) => void useAgentStore.getState().send(text),
+                        })
+                      }
+                      style={{
+                        marginTop: 4,
+                        padding: '4px 14px',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: 'var(--studio-neutral-0)',
+                        background: accent,
+                        border: 'none',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        pointerEvents: 'all',
+                      }}
+                    >
+                      {agentToolFailureActionLabel(agentAction)}
+                    </button>
+                  )}
+                  {/* 智能体占的位没有可重发的画布任务：它的出路按错误码给，不在这里原样重发。 */}
                   {!p.meta.agent && (
                     <button
                       type="button"

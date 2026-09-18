@@ -195,7 +195,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const card = panelMessage(event.messageId, turnId, 'assistant', [
         { ...event, type: 'toolResult' },
       ])
-      if (event.status === 'failed') turnDelivery.failed(event.messageId, event.message)
+      if (event.status === 'failed' && card.kind === 'tool')
+        turnDelivery.failed(event.messageId, event.message, card.errorCode)
       else if (card.kind === 'tool' && card.artifacts?.length) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }

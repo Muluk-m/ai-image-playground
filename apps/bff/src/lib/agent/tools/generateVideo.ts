@@ -19,6 +19,7 @@ import { Type } from 'typebox'
 import { isCapabilityEnabled } from '../../capabilities'
 import { requireAgentImages } from '../images'
 import { defineAgentTool } from './adapter'
+import { AgentToolError } from './errors'
 import { noModelMessage, type QueueTarget, resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 32
@@ -199,6 +200,7 @@ export const generateVideo = defineAgentTool({
   // 视频是这里最贵的一件事，失败让模型接着重试等于再扣一次费；停下来交给用户定夺。
   onError: 'abort',
   available: () => isCapabilityEnabled('generation:video') && videoModel() !== null,
+  target: () => videoModel()?.target,
   call({ prompt, imageId, durationSeconds, resolution, aspectRatio }) {
     const written = typeof prompt === 'string' ? prompt : undefined
     // 档位做不到就不提交，也就不会有产物。画布跟着不占位——`outputCount` 必须与真正提交的
@@ -209,14 +211,14 @@ export const generateVideo = defineAgentTool({
       // 视频任务一次只出一段，图片参数里的 n 对它没有意义。
       ...(refused ? {} : { outputCount: 1 }),
       // 给了起始帧就贴着它放——与执行时的 `anchorObjectId` 取同一项。
-      ...(typeof imageId === 'string' && imageId ? { anchor: imageId } : {}),
+      ...(typeof imageId === 'string' && imageId ? { anchor: imageId, references: [imageId] } : {}),
       ...(written ? { prompt: written } : {}),
     }
   },
   execute(context) {
     return async (_toolCallId, params, signal, onUpdate) => {
       const resolved = videoModel()
-      if (!resolved) throw new Error(noModelMessage('video'))
+      if (!resolved) throw new AgentToolError('model_unavailable', noModelMessage('video'))
       const { support, target } = resolved
       const asked = {
         duration: params.durationSeconds,

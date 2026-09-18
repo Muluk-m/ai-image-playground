@@ -1,5 +1,6 @@
 import type {
   AgentToolArtifact,
+  AgentToolErrorCode,
   ChannelMedia,
   VideoGenerationRecord,
 } from '@image-playground/shared'
@@ -68,8 +69,15 @@ export interface AgentCanvasSink {
   reserve(request: AgentReservation): Promise<readonly string[]>
   /** 收掉没用上的占位框（轮中止、画布已离开、产物比预占少）。 */
   discard(placeholderIds: readonly string[]): void
-  /** 工具失败：占位框转错误态留在原地，告诉用户这里本来要出一张图。 */
-  markFailed(placeholderIds: readonly string[], message: string): void
+  /**
+   * 工具失败：占位框转错误态留在原地，告诉用户这里本来要出一张图。带着错误码，
+   * 失败占位就按码出文案与出路；没有码（旧服务端）时照旧显示 `message`。
+   */
+  markFailed(
+    placeholderIds: readonly string[],
+    message: string,
+    errorCode?: AgentToolErrorCode,
+  ): void
   /** 选中这些对象并把镜头带过去；不在画布上的跳过。 */
   focus(objectIds: readonly string[]): void
   /** 画布是位图的单源，对象被删掉就没有缩略图了。 */

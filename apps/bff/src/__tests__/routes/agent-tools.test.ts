@@ -5,6 +5,7 @@ import {
   type AgentMessageView,
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
+  type TaskErrorType,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -84,7 +85,10 @@ function types(frames: { event: AgentTurnEvent }[]): string[] {
 }
 
 /** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
-function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
+function settleSubmittedTasks(
+  outcome: 'completed' | 'failed' | 'empty',
+  errorType: TaskErrorType = 'upstream_error',
+): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
@@ -104,11 +108,13 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
                   },
                   completed_at: Date.now(),
                 }
-              : {
-                  status: 'failed',
-                  error_message: '上游拒绝了这张图',
-                  error_type: 'upstream_error',
-                },
+              : outcome === 'empty'
+                ? { status: 'completed', result_payload: { data: [] }, completed_at: Date.now() }
+                : {
+                    status: 'failed',
+                    error_message: '上游拒绝了这张图',
+                    error_type: errorType,
+                  },
           )
           .where(eq(schema.tasks.id, task.id))
       }
@@ -248,6 +254,7 @@ describe('智能体生图工具', () => {
         title: '一只橘猫坐在窗台上',
         prompt: '一只橘猫坐在窗台上',
         artifacts: [artifact],
+        snapshot: start!.snapshot!,
       },
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
@@ -445,5 +452,162 @@ describe('智能体生图工具', () => {
       'user',
     ])
     expect(JSON.stringify(replayed[2])).toContain('橘猫')
+  })
+})
+
+describe('工具调用的参数快照与失败分类', () => {
+  it('stores the arguments the model chose, with the turn params and the resolved model', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '一只橘猫', n: '2' },
+            }),
+          () => completionStream('画好了'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画两张橘猫', {
+      size: '1024x1536',
+      quality: 'high',
+    })
+    stop()
+
+    const snapshot = {
+      mode: 'image' as const,
+      args: { prompt: '一只橘猫', n: 2 },
+      params: { size: '1024x1536', quality: 'high' },
+      target: { provider: 'openai-compat', model: 'gpt-image-2.5-flare' },
+    }
+    // 起跑那一刻就在事件里，结果块里是同一份。
+    expect(eventsOfType(frames, 'toolStart')[0]!.snapshot).toEqual(snapshot)
+    expect(eventsOfType(frames, 'toolEnd')[0]!.snapshot).toEqual(snapshot)
+    const messages = await readMessages(conversationId)
+    expect(messages[1]!.content[0]).toMatchObject({ type: 'toolResult', snapshot })
+  })
+
+  it.each([
+    ['upstream_error', 'upstream_error'],
+    ['upstream_timeout', 'timeout'],
+    ['upstream_no_image', 'no_output'],
+    ['interrupted', 'upstream_error'],
+  ] as const)('classifies a task that failed with %s as %s', async (errorType, code) => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('failed', errorType)
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画一只橘猫')
+    stop()
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({ status: 'failed', errorCode: code })
+    const messages = await readMessages(conversationId)
+    expect(messages.at(-1)!.content[0]).toMatchObject({ status: 'failed', errorCode: code })
+  })
+
+  it('classifies a finished task without any image as no output', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('empty')
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画一只橘猫')
+    stop()
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'no_output',
+    })
+  })
+
+  it('classifies arguments rejected before the tool runs as invalid params', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '橘猫', n: 11 },
+            }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画十一张橘猫')
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'invalid_params',
+    })
+  })
+
+  it('classifies an image the model named but cannot be found as invalid params', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'editImage',
+              args: { prompt: '换成狗', imageIds: ['image 9'] },
+            }),
+          () => completionStream('那张图找不到'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '把猫换成狗')
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'invalid_params',
+    })
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+  })
+
+  it('classifies a deployment without any image model as model unavailable', async () => {
+    _setChannelsForTesting([])
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画一只橘猫')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end).toMatchObject({ status: 'failed', errorCode: 'model_unavailable' })
+    // 快照照记，只是没有模型可记。
+    expect(end!.snapshot).toMatchObject({ mode: 'image', args: { prompt: '橘猫' } })
+    expect(end!.snapshot!.target).toBeUndefined()
   })
 })

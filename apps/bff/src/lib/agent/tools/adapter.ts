@@ -1,8 +1,11 @@
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import type {
+  AgentMode,
+  AgentToolErrorCode,
   AgentToolResultBlock,
   AgentToolStage,
   AgentToolStartEvent,
+  AgentTurnParams,
 } from '@image-playground/shared'
 import { agentTextFromBlocks } from '@image-playground/shared'
 import type { TSchema } from 'typebox'
@@ -79,6 +82,19 @@ export function defineAgentTool<P extends TSchema>(
     ...(definition.available ? { available: definition.available } : {}),
     // 起跑这一刻按静态 schema 宽松换算就够：`currentParameters()` 只改说明，不改形状。
     call: (args, mode) => definition.call(leniently(definition.parameters, args), mode),
+    ...(definition.target
+      ? {
+          snapshot: (args: unknown, mode: AgentMode, params: AgentTurnParams | undefined) => {
+            const target = definition.target?.(params)
+            return {
+              mode,
+              args: { ...leniently(definition.parameters, args) } as Record<string, unknown>,
+              ...(params ? { params } : {}),
+              ...(target ? { target: { provider: target.provider, model: target.model } } : {}),
+            }
+          },
+        }
+      : {}),
     create: (context) =>
       asPiTool<P, AgentToolDetails>({
         ...declaration(),
@@ -109,16 +125,23 @@ function toolErrorText(result: unknown): string {
 export function toolResultBlock(
   start: AgentToolStart,
   result: unknown,
-  isError: boolean,
+  failure: AgentToolErrorCode | null,
 ): AgentToolResultBlock {
   const head = {
     type: 'toolResult',
     toolCallId: start.toolCallId,
     toolName: start.toolName,
     ...(start.prompt ? { prompt: start.prompt } : {}),
+    ...(start.snapshot ? { snapshot: start.snapshot } : {}),
   } as const
-  if (isError) {
-    return { ...head, status: 'failed', title: start.title, message: toolErrorText(result) }
+  if (failure) {
+    return {
+      ...head,
+      status: 'failed',
+      title: start.title,
+      message: toolErrorText(result),
+      errorCode: failure,
+    }
   }
   const details = piToolResult<AgentToolDetails>(result).details
   return {

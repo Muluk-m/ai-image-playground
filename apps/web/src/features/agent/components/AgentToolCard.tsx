@@ -12,6 +12,12 @@ import {
 } from '../agentStyles'
 import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPreview'
 import { agentCanvasSink } from '../lib/canvasSink'
+import {
+  agentToolFailureAction,
+  agentToolFailureActionLabel,
+  agentToolFailureText,
+  runAgentToolFailureAction,
+} from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentPromptDialog from './AgentPromptDialog'
@@ -25,7 +31,9 @@ function useStatusNote(message: AgentToolMessage, offCanvas: boolean): string | 
     if (message.stage === 'running') return t('common:state.generating')
     return t('tool.preparing')
   }
-  if (message.status === 'failed') return message.message ?? t('tool.notFinished')
+  // 有错误码就只认码（ADR 0006）；旧记录没有码，照旧显示当时存下的那句话。
+  if (message.status === 'failed')
+    return agentToolFailureText(message.errorCode) ?? message.message ?? t('tool.notFinished')
   if (message.delivery === 'pending') return t('tool.delivering')
   // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
   if (message.delivery === 'failed') return t('tool.deliveryFailed')
@@ -92,6 +100,29 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
   )
 }
 
+/** 失败卡按错误码给的那一个出路；没有码或这类失败没有出路时不渲染。 */
+function FailureAction({ message }: { message: AgentToolMessage }) {
+  useTranslation('agent')
+  const code = message.errorCode
+  const action = agentToolFailureAction(code)
+  if (!code || !action) return null
+  return (
+    <button
+      type="button"
+      className={`self-start ${GHOST_LINK}`}
+      onClick={() =>
+        runAgentToolFailureAction(action, {
+          code,
+          title: message.title,
+          send: (text) => void useAgentStore.getState().send(text),
+        })
+      }
+    >
+      {agentToolFailureActionLabel(action)}
+    </button>
+  )
+}
+
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
@@ -131,6 +162,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
       )}
       {note && <p className={CARD_NOTE}>{note}</p>}
+      {message.status === 'failed' && <FailureAction message={message} />}
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {previews.map((preview) => (

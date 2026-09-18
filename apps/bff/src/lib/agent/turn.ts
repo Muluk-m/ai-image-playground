@@ -36,6 +36,7 @@ import {
   agentToolStage,
   agentToolStart,
   agentTurnTools,
+  createToolFailureLog,
   isAgentToolName,
 } from './tools'
 import { createTurnAuthorization } from './turn-authorization'
@@ -140,24 +141,28 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     images.identify,
     images.masked,
   )
+  const toolFailures = createToolFailureLog()
   const agent = new Agent({
     initialState: {
       ...turnInitialState(input.history, input.mode),
       model: agentModel(input.params?.thinkingDepth),
       thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
       // 清单与预扣估算读的是同一份声明：`agentToolDeclarations(mode)` 与这里同源。
-      tools: agentTurnTools({
-        mode: input.mode,
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-        userId: input.userId,
-        deviceId: input.deviceId,
-        images,
-        authorization: () => authorization.current(),
-        maskedEditPlan,
-        assertExecution: input.assertExecution,
-        ...(input.params ? { params: input.params } : {}),
-      }),
+      tools: agentTurnTools(
+        {
+          mode: input.mode,
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          userId: input.userId,
+          deviceId: input.deviceId,
+          images,
+          authorization: () => authorization.current(),
+          maskedEditPlan,
+          assertExecution: input.assertExecution,
+          ...(input.params ? { params: input.params } : {}),
+        },
+        toolFailures,
+      ),
     },
     streamFn: async (model, context, options) => {
       await input.assertExecution?.()
@@ -313,7 +318,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     }
     if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
-      const start = agentToolStart(input.mode, event.toolName, event.toolCallId, event.args, images)
+      const start = agentToolStart(
+        input.mode,
+        event.toolName,
+        event.toolCallId,
+        event.args,
+        images,
+        input.params,
+      )
       openTools.set(event.toolCallId, { messageId, start })
       events.emit({ type: 'toolStart', messageId, ...start })
     }
@@ -343,7 +355,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const pending = openTools.get(event.toolCallId)
       if (!pending) return
       openTools.delete(event.toolCallId)
-      const { block, abortsTurn } = agentToolEnd(pending.start, event.result, event.isError)
+      const failure = event.isError ? toolFailures.take(event.toolCallId, aborted) : null
+      const { block, abortsTurn } = agentToolEnd(pending.start, event.result, failure)
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
