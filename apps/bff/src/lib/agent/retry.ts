@@ -377,44 +377,9 @@ export async function advanceAgentRetryQueue(conversationId: string): Promise<nu
     if (queued.length === 0 || open.some((record) => record.block.status === 'submitted'))
       return queued.length
     for (const [index, record] of queued.entries()) {
-      const origin = record.block.retryOf!
-      const plan = await planRetry(conversationId, origin.messageId)
-      const submitted: SubmitOutcome = isPlan(plan)
-        ? await submitRetryTask(plan, {
-            conversationId,
-            turnId: record.turnId,
-            placeholderId: origin.placeholderId,
-            deviceId: undefined,
-            userId: conversation.userId,
-          })
-        : plan.kind === 'refused'
-          ? plan
-          : { kind: 'refused', code: 'unknown' }
-      if (submitted.kind === 'created') {
-        const written = await rewriteRecord(conversationId, record, {
-          ...record.block,
-          status: 'submitted',
-          job: submitted.job,
-        })
-        if (!written) {
-          // 记录在锁外被改过（不该发生）：任务不能留着花钱。
-          await cancelTasks(
-            eq(schema.tasks.id, submitted.job.taskId),
-            isPlan(plan) && plan.failed.block.errorCode
-              ? { failedAs: plan.failed.block.errorCode }
-              : {},
-          )
-          continue
-        }
-        return queued.length - index - 1
-      }
-      const code = submitted.kind === 'refused' ? submitted.code : 'unknown'
-      await rewriteRecord(conversationId, record, {
-        ...record.block,
-        status: 'failed',
-        errorCode: code,
-        message: `重试没能提交（${code}）`,
-      })
+      const code = await submitQueuedRecord(conversationId, record, conversation.userId)
+      if (code === null) return queued.length - index - 1
+      if (code === 'written_elsewhere') continue
       if (QUEUE_STOPPING_CODES.has(code)) {
         for (const rest of queued.slice(index + 1))
           await rewriteRecord(
@@ -427,6 +392,79 @@ export async function advanceAgentRetryQueue(conversationId: string): Promise<nu
     }
     return 0
   })
+}
+
+/**
+ * 提交排着的这一条重试。提交上了返回 null；记录在锁外被改过（不该发生）返回
+ * `written_elsewhere`；否则把记录收成失败并返回拒绝的码。任何一步抛错都收成 `unknown` 的失败：
+ * 队头不能卡住，后面的重试也不能跟着永远排着。
+ */
+async function submitQueuedRecord(
+  conversationId: string,
+  record: ToolMessage,
+  userId: string | null,
+): Promise<AgentToolErrorCode | 'written_elsewhere' | null> {
+  const origin = record.block.retryOf!
+  let code: AgentToolErrorCode
+  try {
+    const plan = await planRetry(conversationId, origin.messageId)
+    const submitted: SubmitOutcome = isPlan(plan)
+      ? await submitRetryTask(plan, {
+          conversationId,
+          turnId: record.turnId,
+          placeholderId: origin.placeholderId,
+          deviceId: undefined,
+          userId,
+        })
+      : plan.kind === 'refused'
+        ? plan
+        : { kind: 'refused', code: 'unknown' }
+    if (submitted.kind === 'created') {
+      const failedAs = isPlan(plan) ? plan.failed.block.errorCode : undefined
+      let written: boolean
+      try {
+        written = await rewriteRecord(conversationId, record, {
+          ...record.block,
+          status: 'submitted',
+          job: submitted.job,
+        })
+      } catch (error) {
+        // 记录没改上，任务就不能留着花钱，否则下一次巡到还会再提交一遍、再扣一次。
+        await cancelTasks(eq(schema.tasks.id, submitted.job.taskId), failedAs ? { failedAs } : {})
+        throw error
+      }
+      if (written) return null
+      // 记录在锁外被改过（不该发生）：任务不能留着花钱。
+      await cancelTasks(eq(schema.tasks.id, submitted.job.taskId), failedAs ? { failedAs } : {})
+      return 'written_elsewhere'
+    }
+    code = submitted.kind === 'refused' ? submitted.code : 'unknown'
+  } catch (err) {
+    log.error(
+      { event: 'agent.retry_submit_failed', conversationId, messageId: record.id, err },
+      'queued retry could not be submitted',
+    )
+    code = 'unknown'
+  }
+  await rewriteRecord(conversationId, record, {
+    ...record.block,
+    status: 'failed',
+    errorCode: code,
+    message: `重试没能提交（${code}）`,
+  })
+  return code
+}
+
+/** 推进重试队列，但不让它的失败连累调用方：列后台任务、撤回之后的补位都不该因此报错。 */
+export async function advanceAgentRetryQueueSafely(conversationId: string): Promise<void> {
+  try {
+    await advanceAgentRetryQueue(conversationId)
+  } catch (err) {
+    log.error(
+      { event: 'agent.retry_advance_failed', conversationId, err },
+      'retry queue could not be advanced',
+    )
+  }
 }
 
 export type AgentRetryCancelOutcome = 'cancelled' | 'not_found' | 'finished'
@@ -463,7 +501,7 @@ export async function cancelAgentRetry(
     )
     return cancelled.length > 0 ? 'cancelled' : 'finished'
   })
-  if (outcome === 'cancelled') await advanceAgentRetryQueue(conversationId)
+  if (outcome === 'cancelled') await advanceAgentRetryQueueSafely(conversationId)
   return outcome
 }
 

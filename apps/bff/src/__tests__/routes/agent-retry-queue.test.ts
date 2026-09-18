@@ -158,6 +158,12 @@ async function failedCall() {
   const frames = parseFrames(await response.text())
   const [end] = eventsOfType(frames, 'toolEnd')
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
+  // 这里只看重试：原来那次失败按规则会唤醒智能体（见 agent-wake），先记成已投递，免得唤醒轮
+  // 在测试中途抢着调用对话模型。
+  await db
+    .update(schema.agent_jobs)
+    .set({ delivered_at: Date.now() })
+    .where(eq(schema.agent_jobs.task_id, task!.id))
   await db
     .update(schema.tasks)
     .set({
@@ -305,6 +311,17 @@ describe('重试排队', () => {
       errorCode: 'cancelled',
       retryOf: { messageId: failed.id, placeholderId: 'placeholder-2' },
     })
+    // 客户端只从后台任务列表得知终局：撤回的那条留在列表里，带着撤回的码，没有任务。
+    const listed = (await readJobs(conversationId, DEVICE)).find(
+      (job) => job.messageId === second.id,
+    )
+    expect(listed?.result).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+      message: '重试已撤回',
+      retryOf: { messageId: failed.id, placeholderId: 'placeholder-2' },
+    })
+    expect(listed?.result.job).toBeUndefined()
     // 撤回的那条不会在前一条结束后被提交，也不扣费。
     await finishTask(toolBlock(first).job!.taskId, 'completed')
     await readJobs(conversationId)
@@ -352,10 +369,63 @@ describe('重试排队', () => {
       errorCode: 'cancelled',
     })
     expect(await taskCount()).toBe(tasksBefore)
+    // 这两条的终局也在后台任务列表里：别的设备据此引导充值、把占位收回原来那次失败。
+    const listed = await readJobs(conversationId, OTHER_DEVICE)
+    const resultOf = (id: string) => listed.find((job) => job.messageId === id)?.result
+    expect(resultOf(second.id)).toMatchObject({
+      status: 'failed',
+      errorCode: 'insufficient_credits',
+      message: '重试没能提交（insufficient_credits）',
+      retryOf: { messageId: failed.id, placeholderId: 'placeholder-2' },
+    })
+    expect(resultOf(second.id)?.job).toBeUndefined()
+    expect(resultOf(third.id)).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+      message: '前一条重试没能提交（insufficient_credits），排队的重试已撤回',
+      retryOf: { messageId: failed.id, placeholderId: 'placeholder-3' },
+    })
+    expect(resultOf(third.id)?.job).toBeUndefined()
     // 不再有排着的重试，巡检也不会再提交什么。
     billing.answer = { kind: 'reserved', credits: 0 }
     await pickUpRetryQueues(true)
     expect(await taskCount()).toBe(tasksBefore)
+  })
+
+  it('fails the queue head that throws on submit and moves on to the next one', async () => {
+    const { conversationId, failed } = await failedCall()
+    const first = await retry(conversationId, failed.id, 'placeholder-1')
+    const second = await retry(conversationId, failed.id, 'placeholder-2')
+    const third = await retry(conversationId, failed.id, 'placeholder-3')
+    const tasksBefore = await taskCount()
+
+    // 轮到的那条提交时抛错（比如归档的输入图取不回、库出错）：只抛这一次。
+    let throws = 1
+    const answer = billing.answer
+    Object.defineProperty(billing, 'answer', {
+      configurable: true,
+      get() {
+        if (throws-- > 0) throw new Error('archive object missing')
+        return answer
+      },
+    })
+    try {
+      await finishTask(toolBlock(first).job!.taskId, 'completed')
+      // 列后台任务不受它连累；队头收成失败，下一条照常提交。
+      const jobs = await readJobs(conversationId)
+      const resultOf = (id: string) => jobs.find((job) => job.messageId === id)?.result
+      expect(resultOf(second.id)).toMatchObject({ status: 'failed', errorCode: 'unknown' })
+      expect(resultOf(second.id)?.job).toBeUndefined()
+      expect(resultOf(third.id)).toMatchObject({ status: 'submitted', job: { media: 'image' } })
+      expect(await taskCount()).toBe(tasksBefore + 1)
+    } finally {
+      Object.defineProperty(billing, 'answer', {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: answer,
+      })
+    }
   })
 
   it('does not queue a retry of a deleted conversation', async () => {

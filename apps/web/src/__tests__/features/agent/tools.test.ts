@@ -1347,14 +1347,14 @@ describe('单张重试', () => {
           record('retry-2', 'placeholder-8', {
             status: 'failed',
             errorCode: 'insufficient_credits',
-            message: '重试没能提交',
+            message: '重试没能提交（insufficient_credits）',
           }),
         ),
         jobOf(
           record('retry-3', 'placeholder-9', {
             status: 'failed',
             errorCode: 'cancelled',
-            message: '排队的重试已撤回',
+            message: '前一条重试没能提交（insufficient_credits），排队的重试已撤回',
           }),
         ),
       ]
