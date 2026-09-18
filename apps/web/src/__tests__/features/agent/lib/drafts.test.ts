@@ -2,6 +2,8 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it, vi } from 'vitest'
 import { agentDraft, DraftSession, removeProjectDraft } from '../../../../features/agent/lib/drafts'
+import { createSelectionReferences } from '../../../../features/agent/lib/selectionReferences'
+import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 
 async function ready(session: DraftSession) {
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
@@ -41,6 +43,46 @@ describe('草稿恢复', () => {
     await Promise.all([ready(restored), ready(other)])
     expect(restored.getSnapshot().draft).toEqual(draft)
     expect(other.getSnapshot().draft.prompt).toBe('')
+  })
+  it('跟着选区自动带进来的参考图，读回来仍跟着选区走', async () => {
+    const doc = new CanvasDoc()
+    doc.restore(
+      [
+        {
+          id: 'canvas-1',
+          type: 'image',
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          rotation: 0,
+          fileId: 'file-1',
+        },
+        {
+          id: 'canvas-2',
+          type: 'image',
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          rotation: 0,
+          fileId: 'file-2',
+        },
+      ],
+      { 'file-1': 'data:image/png;base64,aGk=', 'file-2': 'data:image/png;base64,b3RoZXI=' },
+    )
+    const session = new DraftSession('auto-reference')
+    await ready(session)
+    doc.setSelection(['canvas-1'])
+    createSelectionReferences().follow(doc, session.update, undefined, session.key)
+    await session.flush()
+
+    const restored = new DraftSession('auto-reference')
+    await ready(restored)
+    doc.setSelection(['canvas-2'])
+    createSelectionReferences().follow(doc, restored.update, undefined, restored.key)
+
+    expect(restored.getSnapshot().draft.references.map((one) => one.id)).toEqual(['canvas-2'])
   })
   it('发送确认不能抹掉等待期间新输入的内容', async () => {
     const session = new DraftSession('pending-edit')

@@ -112,7 +112,7 @@ export const editImage = defineAgentTool({
         params.requestQuote,
       )
       if (signal?.aborted || snapshot !== context.authorization?.())
-        throw new Error('修改要求已更新，请按最新要求核对后执行')
+        throw new Error('用户原文已更新，请按最新原文核对后执行')
       return runQueueTask(
         context,
         {

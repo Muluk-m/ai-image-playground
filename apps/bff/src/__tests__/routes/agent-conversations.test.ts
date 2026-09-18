@@ -5,6 +5,7 @@ import { type AgentConversationView, DEVICE_ID_HEADER } from '@image-playground/
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
+import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_conversations_a297')
 process.env.PORT = '0'
@@ -17,6 +18,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { conversationExecution } = await import('../../lib/agent/execution')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 
@@ -52,6 +54,10 @@ async function startConversation(deviceId = DEVICE, cookie?: string): Promise<st
   return (json as { conversation: AgentConversationView }).conversation.id
 }
 
+/**
+ * 跑完一轮：流读完之后执行租约还要一次写库才释放，删除按租约判「会话还忙」。
+ * `activeTurn` 只报别的实例的租约，本实例这一轮收完就是 null，等它不够。
+ */
 async function runTurn(conversationId: string, text: string, deviceId = DEVICE, cookie?: string) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (cookie) headers.cookie = cookie
@@ -63,6 +69,7 @@ async function runTurn(conversationId: string, text: string, deviceId = DEVICE, 
     }),
   )
   await response.text()
+  await waitFor(async () => !(await conversationExecution(conversationId)))
   return response.status
 }
 

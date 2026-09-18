@@ -36,6 +36,12 @@ it('binds the selection to actual image bytes and rejects stale or omitted bindi
   ).rejects.toThrow('过期')
 })
 
+it('refuses a masked edit when there is no authorization text to check it against', async () => {
+  await expect(
+    prepareMaskedEdit([image], [{ imageId: 'target', selectionId: selection.id }], '  '),
+  ).rejects.toThrow('缺少用户原文，请重新说明要改哪里')
+})
+
 it('compiles user words and real reference ROI instead of planner embellishments', async () => {
   const reference = { ...image, imageId: 'reference' }
   const request = await prepareMaskedEdit(

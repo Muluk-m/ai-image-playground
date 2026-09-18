@@ -13,6 +13,11 @@ export interface AgentReference extends InputImage {
   /** 素材名；有名字时胶囊显示名字而不是序号。 */
   readonly name?: string
   readonly maskDataUrl?: string
+  /**
+   * `'selection'` 即跟着画布选区自动带进来的，缺席即用户手动附上的。随草稿落盘：输入框重挂、
+   * 发送失败放回来都还认得出。老草稿里没有这一项，读回来按手动算。
+   */
+  readonly origin?: 'selection'
 }
 
 export interface AgentDraft {

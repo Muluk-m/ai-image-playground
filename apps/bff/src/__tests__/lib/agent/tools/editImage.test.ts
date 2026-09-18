@@ -76,7 +76,7 @@ it('abandons the execution when the request text changed while it fetched the im
   const turn = fixture()
   turn.interjectWhileFetching('不，改扶手')
 
-  await expect(run(turn.context)).rejects.toThrow('修改要求已更新')
+  await expect(run(turn.context)).rejects.toThrow('用户原文已更新，请按最新原文核对后执行')
   expect(turn.revision()).toBe(1)
 })
 

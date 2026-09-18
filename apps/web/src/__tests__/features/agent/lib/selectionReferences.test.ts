@@ -284,6 +284,55 @@ describe('跟着画布选区走的引用', () => {
     expect(draft.ids).toEqual([])
   })
 
+  it('输入框重挂后，草稿里自动带进来的那张照旧跟着选区走', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    createSelectionReferences().follow(doc, draft.update, undefined, 'draft:a')
+    // 切走再切回来：输入框是新挂的，记账跟着归零，草稿还是原来那份。
+    const remounted = createSelectionReferences()
+    doc.setSelection(['canvas-2'])
+    remounted.follow(doc, draft.update, undefined, 'draft:a')
+
+    expect(draft.ids).toEqual(['canvas-2'])
+  })
+
+  it('发送失败放回来的草稿，自动带进来的那张照旧跟着选区走', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, draft.update)
+    const snapshot = draft.current
+    draft.update(() => EMPTY_DRAFT)
+    selection.sent()
+    // 服务端没收下，整份草稿原样放回。
+    draft.update(() => snapshot)
+
+    doc.setSelection(['canvas-2'])
+    selection.follow(doc, draft.update)
+
+    expect(draft.ids).toEqual(['canvas-2'])
+  })
+
+  it('输入框重挂后，用户手动 `@` 的那张仍不归选区管', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const draft = drafts()
+
+    doc.setSelection(['canvas-2'])
+    createSelectionReferences().follow(doc, draft.update, undefined, 'draft:a')
+    draft.update(
+      (current) => attachReference(current, { id: 'canvas-1', dataUrl: PIXEL }, 0, 0).draft,
+    )
+    const remounted = createSelectionReferences()
+    doc.setSelection([])
+    remounted.follow(doc, draft.update, undefined, 'draft:a')
+
+    expect(draft.ids).toEqual(['canvas-1'])
+  })
+
   it('选区的钥匙认批注：图没换、圈的地方换了也算变了', () => {
     const doc = canvas([image('canvas-1', 'file-1'), CIRCLE])
     const selection = createSelectionReferences()
