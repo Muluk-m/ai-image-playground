@@ -1,3 +1,4 @@
+import type { TaskProgressPhase } from '@image-playground/shared'
 import { i18next } from '../i18n'
 import type { ApiMode, AppSettings, TaskParams } from '../types'
 
@@ -50,6 +51,8 @@ export interface CallApiOptions {
   onCustomTaskEnqueued?: (task: { taskId: string }) => void
   /** BFF queue 模式 submit 成功后立刻回调，把 request_id 持久化以便刷新后恢复 */
   onQueueSubmitted?: (requestId: string) => void
+  /** Durable queue phase reported by the BFF. */
+  onQueueStatus?: (phase: TaskProgressPhase) => void
   /**
    * BFF queue 幂等键。callImageApi → queueClient.submit 透传给 BFF；BFF 用它
    * 去重，使「页面提交期间刷新→重提交」不会消耗双份上游配额。

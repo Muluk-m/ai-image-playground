@@ -192,6 +192,7 @@ export default function TaskCard({
   const showSwipeAction = isSwipeReady || swipeActionActive
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const showRunningTimer = task.status === 'running' || isCustomReconnecting
+  const runningLabel = task.queuePhase ? t(`card.phase.${task.queuePhase}`) : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -307,7 +308,7 @@ export default function TaskCard({
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                   />
                 </svg>
-                <span className="text-xs text-muted-foreground">{t('card.generating')}</span>
+                <span className="text-xs text-muted-foreground">{runningLabel}</span>
               </div>
             )}
             {task.status === 'error' && (

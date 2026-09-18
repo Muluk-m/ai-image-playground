@@ -24,13 +24,19 @@ ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /ho
 
 产物含应用及 PG 备份 sidecar 的镜像归档、镜像 ID/提交清单、Compose 与必要部署脚本及 SHA-256 校验单。完整传输后才运行接收脚本；中断传输或缺少校验单不得继续。
 
-Compose 不含任何 `build` 配置。VPS 接收过程共用原 `deploy.lock`，先校验文件，再 `docker load`，核对所有镜像 ID、CPU 架构及 `APP_VERSION`，全部通过后才依次执行 dependency-check、schema 迁移与服务启动。部署通过 `--wait` 等待健康，记录提交与实际镜像。原环境变量、数据库和对象存储保持各自归属，不从构建机覆盖。
+Compose 不含任何 `build` 配置。VPS 接收过程共用原 `deploy.lock`，先校验文件，再 `docker load`，核对所有镜像 ID、CPU 架构及 `APP_VERSION`，全部通过后才依次执行 dependency-check、向后兼容的 schema 迁移与服务启动。原环境变量、数据库和对象存储保持各自归属，不从构建机覆盖。
 
-4. 检查内部/付费两套容器健康、真实 API、版本与浏览器行为。只需要后端发布时，不重发 Pages。新镜像只在自己的发布目录执行，不更新共享源码目录。
+后端切换由稳定的 `release-router` 和不可变的 BFF/worker 容器完成：新 worker 先以暂停接单启动；旧 worker 全部进入 drain 后，新 worker 才恢复接单；路由随后原子切到新 BFF。旧 BFF 和 worker 只有在 `/internal/deployment/drain` 返回 `safeToStop=true` 后才停止。默认最长等待 30 分钟；超时会让发布以非零状态结束并保留旧容器，绝不会取消任务或强停容器。排空未完成时先查任务/对话和容器日志，完成后重新运行同一发布入口清理保留实例。
+
+第一次从旧 Compose 版本升级时，旧 worker 没有租约协议。脚本先在数据库关闭旧式 claim，等它手上的任务完成，再启用新 worker。旧 BFF 没有可证明的对话空闲信号，因此会作为 `legacy-origin` 保留，供升级前已开始的会话重连；确认旧会话全部结束后才能人工停止它并删除 `releases/legacy-origin`。不要用“任务表为空”推断内部版智能体会话已经结束。
+
+4. 检查内部/付费两套容器健康、真实 API、版本与浏览器行为。发布验收必须覆盖：切换前同时启动图片生成和智能体对话；切换后旧任务继续完成、新任务进入新实例；刷新后能续接；上游调用和结算各只发生一次。只需要后端发布时，不重发 Pages。新镜像只在自己的发布目录执行，不更新共享源码目录。
 
 ## 回滚与数据
 
-保留最近 5 代镜像及当前仍在运行的镜像。通过发布目录的 `APP_IMAGE=<旧镜像> scripts/app-compose.sh up <project>` 回退应用。数据库迁移不自动倒退，涉及破坏性 schema 的发布必须单独设计兼容与恢复策略。
+保留最近 5 代镜像及当前仍在运行的镜像。回滚也是一次受控发布：`scripts/app-compose.sh rollback <project> <旧镜像>` 会启动旧镜像的新实例、排空当前实例再切路由。不要对正在排空的容器执行 `docker stop`、`compose up --force-recreate` 或 `compose down`。数据库迁移不自动倒退，发布迁移必须先保持新旧二进制同时兼容；破坏性 schema 另行设计恢复方案。
+
+新实例健康检查、迁移、路由检查任一步失败，都保留原入口和执行器。若路由已经切换但旧执行器仍忙，用户新请求已由新版本处理，发布命令仍会以失败退出以提醒继续观察排空。`releases/current`、`route.json`、`retained` 和 `activated/` 是发布状态，不要手工改写；先用容器的 drain/status 端点核对事实。
 
 不要删除 macmini2 备用数据库及 MinIO。备用期间新增数据与 VPS 独立，切回不代表已合并；备用运行手册见 [backup-backend.md](backup-backend.md)。
 

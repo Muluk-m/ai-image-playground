@@ -197,6 +197,13 @@
       "when": 1789650500000,
       "tag": "0028_project_recycle",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789680000000,
+      "tag": "0029_task_execution_leases",
+      "breakpoints": true
     }
   ]
 }

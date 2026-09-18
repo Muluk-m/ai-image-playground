@@ -25,6 +25,7 @@ const files = [
   'images.tsv',
   'scripts/vps-deploy.sh',
   'scripts/app-compose.sh',
+  'scripts/rollout-runtime.sh',
   'scripts/lib/deploy-common.sh',
   'deploy/compose.app.yaml',
 ]
@@ -65,6 +66,7 @@ beforeEach(() => {
     '#!/bin/sh\nprintf "rollout %s %s\\n" "$2" "$APP_IMAGE" >> "$CALL_LOG"\n',
   )
   chmodSync(join(release, 'scripts/app-compose.sh'), 0o755)
+  cpSync(join(source, 'scripts/rollout-runtime.sh'), join(release, 'scripts/rollout-runtime.sh'))
   writeFileSync(join(release, 'deploy/compose.app.yaml'), 'services: {}\n')
   writeFileSync(join(release, 'images.tar.gz'), 'fake image archive')
   writeFileSync(
