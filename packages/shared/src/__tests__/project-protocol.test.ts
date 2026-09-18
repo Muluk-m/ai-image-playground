@@ -55,3 +55,37 @@ describe('云端项目文档里的视频', () => {
     ).toBe(false)
   })
 })
+
+function withTimeline(clips: unknown) {
+  return {
+    version: 1,
+    elements: [{ id: 'tl', type: 'timeline', x: 0, y: 0, width: 400, height: 120, clips }],
+  }
+}
+
+describe('云端项目文档里的时间线', () => {
+  it('accepts ordered clip references with in and optional out points', () => {
+    expect(
+      isProjectDocument(
+        withTimeline([
+          { elementId: 'clip-a', in: 0 },
+          { elementId: 'clip-b', in: 0.5, out: 6 },
+        ]),
+      ),
+    ).toBe(true)
+    expect(isProjectDocument(withTimeline([]))).toBe(true)
+  })
+
+  it('rejects clips that could not be played back', () => {
+    expect(isProjectDocument(withTimeline([{ elementId: '', in: 0 }]))).toBe(false)
+    expect(isProjectDocument(withTimeline([{ elementId: 'a', in: -1 }]))).toBe(false)
+    expect(isProjectDocument(withTimeline([{ elementId: 'a', in: 3, out: 3 }]))).toBe(false)
+    expect(isProjectDocument(withTimeline([{ elementId: 'a', in: 0, url: 'x' }]))).toBe(false)
+    expect(isProjectDocument(withTimeline('a'))).toBe(false)
+    expect(
+      isProjectDocument(
+        withTimeline(Array.from({ length: 65 }, () => ({ elementId: 'a', in: 0 }))),
+      ),
+    ).toBe(false)
+  })
+})

@@ -1483,3 +1483,64 @@ it('新设备打开含视频的云端项目，视频的播放来源与生成参�
   )
   session.dispose()
 })
+
+it('时间线随云端项目往返：引用、入出点都在，保存时不带媒体', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const mediaId = crypto.randomUUID()
+  const clip = {
+    id: 'clip',
+    type: 'image',
+    mediaId,
+    x: 0,
+    y: 0,
+    width: 180,
+    height: 320,
+    rotation: 0,
+    video: { taskId: 'task-1', outputIndex: 0, generation: VIDEO_GENERATION },
+  }
+  const timeline = {
+    id: 'tl',
+    type: 'timeline',
+    x: 0,
+    y: 400,
+    width: 300,
+    height: 120,
+    clips: [
+      { elementId: 'clip', in: 0.5, out: 6 },
+      { elementId: 'gone', in: 0 },
+    ],
+  }
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '时间线画布',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 2,
+    document: { version: 1, elements: [clip, timeline] },
+  }
+  const saved: { document: { elements: unknown[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        saved.push(body)
+        return Response.json(receipt(remote.id, body))
+      }
+      return Response.json(remote)
+    }),
+  )
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(editor.doc.getElement('tl')).toMatchObject(timeline)
+  editor.doc.updateElements([{ id: 'tl', patch: { x: 50 } }])
+  await session.sync()
+  expect(saved[saved.length - 1]?.document.elements[1]).toMatchObject({ ...timeline, x: 50 })
+  expect(JSON.stringify(saved[saved.length - 1])).not.toContain('data:')
+  session.dispose()
+})

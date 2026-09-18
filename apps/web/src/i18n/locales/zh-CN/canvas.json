@@ -244,5 +244,13 @@
     "noPromptRecorded": "这段视频没有记录原始描述（智能体生成的视频只有标题），请重新写描述。",
     "modelUnavailable": "原来的模型在当前部署不可用，档位没有改动，请自己选模型。",
     "videoUnavailable": "当前部署不能生成视频"
+  },
+  "timeline": {
+    "title": "时间线",
+    "missing": "素材缺失",
+    "add": "加入时间线",
+    "addCount_other": "{{count}} 段加入时间线",
+    "appendCount_other": "{{count}} 段追加到时间线",
+    "full": "一条时间线最多 {{max}} 段，超出的没有加入"
   }
 }

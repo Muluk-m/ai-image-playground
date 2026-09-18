@@ -36,6 +36,8 @@ function rectStyle(el: CanvasEl): { style: 'fill' | 'dash'; color: string } {
       return { style: 'fill', color: el.stroke }
     case 'placeholder':
       return { style: 'dash', color: STATUS_ACCENT[el.status] }
+    case 'timeline':
+      return { style: 'fill', color: 'rgba(167,139,250,0.8)' }
   }
 }
 

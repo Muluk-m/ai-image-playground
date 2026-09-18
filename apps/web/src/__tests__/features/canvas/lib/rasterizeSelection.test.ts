@@ -89,6 +89,23 @@ describe('rasterizeSelection', () => {
     expect(toImage.mock.calls[0][1]).toMatchObject({ bounds: expect.anything() })
   })
 
+  it('压在图上的时间线不是标注：不合成进参考图，也不算标注模式', async () => {
+    const toImage = mockToImage()
+    const editor = makeEditor({
+      selected: ['img1'],
+      elements: {
+        img1: { type: 'image', box: box(0, 0, 100, 100) },
+        tl: { type: 'timeline', box: box(20, 60, 300, 120) },
+      },
+      toImage,
+    })
+
+    const result = await rasterizeSelection(editor)
+
+    expect(result?.annotated).toBe(false)
+    expect(toImage.mock.calls[0][0]).toEqual(['img1'])
+  })
+
   it('传递重叠成簇：圈压图上、箭头接圈、文字接箭头——文字进 prompt', async () => {
     const toImage = mockToImage()
     const editor = makeEditor({
