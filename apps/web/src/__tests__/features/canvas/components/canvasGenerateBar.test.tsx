@@ -129,6 +129,21 @@ describe('生成栏的视频档', () => {
     expect(sent.video).not.toHaveProperty('first_frame_index')
   })
 
+  it('keeps a single selected image as the first frame, like before', async () => {
+    useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, model: GROK } })
+    act(() => editor.setSelectedElements(['left']))
+    act(() => root.render(<CanvasGenerateBar editor={editor} />))
+    expect(document.body.textContent).toContain('选中的图片作为首帧')
+
+    type('动起来')
+    await act(async () => generate().click())
+    await settle()
+
+    expect(mocks.submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ video: expect.objectContaining({ first_frame_index: 0 }) }),
+    )
+  })
+
   it('keeps reading two images as first and last frame on a model without references', async () => {
     useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, model: AGNES } })
     act(() => root.render(<CanvasGenerateBar editor={editor} />))

@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { generateBarPlacement } from '../../../../features/canvas/lib/generateBarPlacement'
+import { floatGenerateBar } from '../../../../features/canvas/lib/generateBarPlacement'
 
-describe('画布生成栏的位置', () => {
-  it('没有智能体时一直在侧栏', () => {
-    expect(generateBarPlacement(false, { messageCount: 3, historyLoading: true })).toBe('sidebar')
-  })
+const EMPTY = { loaded: true, messageCount: 0, historyLoading: false, historyFailed: false }
 
+describe('画布底部的生成栏', () => {
   it('智能体的对话为空时浮在画布底部', () => {
-    expect(generateBarPlacement(true, { messageCount: 0, historyLoading: false })).toBe('floating')
+    expect(floatGenerateBar(true, EMPTY)).toBe(true)
   })
 
-  it('有消息或正在加载历史时收起', () => {
-    expect(generateBarPlacement(true, { messageCount: 1, historyLoading: false })).toBe('hidden')
-    expect(generateBarPlacement(true, { messageCount: 0, historyLoading: true })).toBe('hidden')
+  it('没有智能体时不浮出（用侧栏里的生成栏）', () => {
+    expect(floatGenerateBar(false, EMPTY)).toBe(false)
+  })
+
+  it('有消息、正在加载、读失败或还没开始读时收起', () => {
+    expect(floatGenerateBar(true, { ...EMPTY, messageCount: 1 })).toBe(false)
+    expect(floatGenerateBar(true, { ...EMPTY, historyLoading: true })).toBe(false)
+    expect(floatGenerateBar(true, { ...EMPTY, historyFailed: true })).toBe(false)
+    expect(floatGenerateBar(true, { ...EMPTY, loaded: false })).toBe(false)
   })
 })

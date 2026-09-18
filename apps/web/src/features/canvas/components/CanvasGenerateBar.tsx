@@ -144,11 +144,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         quantity: Math.max(1, params.n),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  // 模型带得了参考图时，选中的图都当参考图（与「选中即参考」同一套规则与上限）；
-  // 带不了就按老规则读成首帧 / 首尾帧。
+  // 选了两张以上、模型又带得了参考图时，选中的图都当参考图（与「选中即参考」同一个门槛、
+  // 规则与上限）；一张图或模型带不了时按老规则读成首帧 / 首尾帧。
   const referenceItems =
     video &&
-    imageCount > 0 &&
+    imageCount >= 2 &&
     videoModelOptions().find((one) => one.modelId === videoDraft.model)?.support.referenceImages
       ? defaultInputItems(imageSelection(editor) ?? [])
       : null
