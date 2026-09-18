@@ -1,4 +1,8 @@
-import type { AgentTurnAlreadyRunningBody, AuthUserView } from '@image-playground/shared'
+import type {
+  AgentConversationSnapshot,
+  AgentTurnAlreadyRunningBody,
+  AuthUserView,
+} from '@image-playground/shared'
 import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
@@ -16,7 +20,14 @@ import {
   listAgentMessages,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
-import { readTurnEvents } from '../lib/agent/events'
+import {
+  isSealLease,
+  lastConversationEventSeq,
+  openTurnEventBase,
+  readConversationEvents,
+  readTurnEvents,
+  sealAbandonedTurns,
+} from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
@@ -119,22 +130,33 @@ export const agentRoutes = new Elysia()
       const forwarded = await forwardActiveTurn(conversation.id, request)
       if (forwarded) return forwarded
       const local = runningTurn(conversation.id)
+      // 被打断的轮先补上终帧，快照里的页脚与之后的增量才对得上。
+      if (!local) await sealAbandonedTurns(conversation.id)
       const execution = await conversationExecution(conversation.id)
-      const active =
-        local ??
-        (execution && execution.instance !== agentInstance
+      const remote =
+        execution && execution.instance !== agentInstance && !isSealLease(execution.turn_id)
           ? { turnId: execution.turn_id }
-          : undefined)
+          : undefined
+      const active = local ?? remote
+      // 游标先于消息读：两次读取之间新落的东西会在增量里再来一遍（按 id 幂等），而不是漏掉。
+      // 别的实例刚起的轮不给游标：它的开头可能已经落库、序号已经算进最大序号，
+      // 从那之后接会把这一轮的开头整段漏掉；没有游标，客户端就按轮从头重放。
+      const liveBase = local ? openTurnEventBase(conversation.id, local.turnId) : undefined
+      const cursor = remote
+        ? undefined
+        : (liveBase ?? (await lastConversationEventSeq(conversation.id)))
       const [messages, turns] = await Promise.all([
         listAgentMessages(conversation.id, owner),
         listAgentTurnSummaries(conversation.id),
       ])
-      return {
+      const snapshot: AgentConversationSnapshot = {
         messages,
         turns,
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
+        ...(cursor === undefined ? {} : { cursor }),
       }
+      return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
   )
@@ -273,6 +295,7 @@ export const agentRoutes = new Elysia()
 
       const forwarded = await forwardActiveTurn(conversation.id, request)
       if (forwarded) return forwarded
+      await sealAbandonedTurns(conversation.id)
       const feed = await readTurnEvents(
         conversation.id,
         params.turnId,
@@ -284,6 +307,29 @@ export const agentRoutes = new Elysia()
     {
       params: turnParams,
       // 断点头得进 schema：没声明的头会被 Elysia 归一化掉，续播就从头重放。
+      headers: t.Object({
+        [DEVICE_ID_HEADER]: deviceIdSchema(),
+        'last-event-id': t.Optional(t.String()),
+      }),
+    },
+  )
+  .get(
+    // 会话级增量：快照之后的全部事件，跨轮按序号续播；有轮在跑就跟到它收尾。
+    '/api/agent/conversations/:id/events',
+    async ({ params, headers, authUser, status, request }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      await sealAbandonedTurns(conversation.id)
+      return agentTurnStream(
+        await readConversationEvents(conversation.id, lastEventId(headers['last-event-id'])),
+      )
+    },
+    {
+      params: t.Object({ id: t.String() }),
       headers: t.Object({
         [DEVICE_ID_HEADER]: deviceIdSchema(),
         'last-event-id': t.Optional(t.String()),
