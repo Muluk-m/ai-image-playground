@@ -61,6 +61,26 @@ describe('内存要持续吃紧才报', () => {
     ).toEqual([[], [], ['firing:memory']])
   })
 
+  it('快见底时不等 5 分钟，当场就报：9 月 18 日那次一分钟内从 56% 掉到 1%，随后整机卡死', () => {
+    expect(
+      run([
+        [T0, { host: host(30, 0.56) }],
+        [T0 + minute, { host: host(30, 0.1) }],
+        [T0 + 2 * minute, { host: host(30, 0.01) }],
+      ]),
+    ).toEqual([[], [], ['firing:memory']])
+  })
+
+  it('当场报过之后回到 3% 以上但仍偏低，不重复报，也不算恢复', () => {
+    expect(
+      run([
+        [T0, { host: host(30, 0.01) }],
+        [T0 + minute, { host: host(30, 0.06) }],
+        [T0 + 6 * minute, { host: host(30, 0.06) }],
+      ]),
+    ).toEqual([['firing:memory'], [], []])
+  })
+
   it('中间缓过来一次就重新计时', () => {
     const low = { host: host(30, 0.05) }
     const fine = { host: host(30, 0.5) }

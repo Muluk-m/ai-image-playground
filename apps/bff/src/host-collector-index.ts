@@ -1,10 +1,6 @@
 import { createAlertSender } from './ops/alert-sender'
-import {
-  createHostAlerting,
-  createReporter,
-  readHostSample,
-  runCollector,
-} from './ops/host-collector'
+import { createHostAlerting, createReporter, runCollector } from './ops/host-collector'
+import { createHostReader } from './ops/host-readings'
 
 function say(level: 'info' | 'warn', event: string, extra: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ level, service: 'host-collector', event, ...extra }))
@@ -13,6 +9,10 @@ function say(level: 'info' | 'warn', event: string, extra: Record<string, unknow
 const paths = {
   diskProbe: process.env.HOST_DISK_PROBE?.trim() || '/host/disk-probe',
   meminfo: process.env.HOST_MEMINFO?.trim() || '/host/meminfo',
+  procStat: process.env.HOST_PROC_STAT?.trim() || '/host/stat',
+  loadavg: process.env.HOST_LOADAVG?.trim() || '/host/loadavg',
+  cgroupRoot: process.env.HOST_CGROUP?.trim() || '/host/cgroup',
+  containerNames: process.env.HOST_CONTAINER_NAMES?.trim() || '/host/container-names.tsv',
 }
 const intervalMs = Number(process.env.HOST_SAMPLE_INTERVAL_MS) || 60_000
 const bffUrl = process.env.BFF_INTERNAL_URL?.trim()
@@ -35,7 +35,7 @@ const deployment = process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment'
 const stop = runCollector({
   intervalMs,
   onSample: createHostAlerting(createAlertSender({ webhookUrl, deployment })),
-  read: () => readHostSample(paths),
+  read: createHostReader(paths),
   report: bffUrl && token ? createReporter(bffUrl, token) : async () => {},
 })
 

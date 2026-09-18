@@ -1,10 +1,15 @@
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { readFile } from 'node:fs/promises'
+import { OPS_THRESHOLDS, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import type {
   HostSample,
+  OpsApi,
   OpsBackups,
   OpsBlock,
+  OpsContainers,
   OpsDatabase,
+  OpsDeployment,
+  OpsDeployments,
   OpsHost,
   OpsQueue,
   OpsServices,
@@ -68,14 +73,29 @@ export async function buildOpsSnapshot(
   sources: OpsSources = defaultSources,
   timeoutMs: number = BLOCK_TIMEOUT_MS,
 ): Promise<OpsSnapshot> {
-  const [queue, database, backup, services, host] = await Promise.all([
-    settle('queue', sources.queue, timeoutMs),
-    settle('database', sources.database, timeoutMs),
-    settle('backup', sources.backup, timeoutMs),
-    settle('services', sources.services, timeoutMs),
-    settle('host', sources.host, timeoutMs),
-  ])
-  return { generated_at: Date.now(), host, services, queue, database, backup }
+  const [queue, database, backup, services, host, containers, api, deployments] = await Promise.all(
+    [
+      settle('queue', sources.queue, timeoutMs),
+      settle('database', sources.database, timeoutMs),
+      settle('backup', sources.backup, timeoutMs),
+      settle('services', sources.services, timeoutMs),
+      settle('host', sources.host, timeoutMs),
+      settle('containers', sources.containers, timeoutMs),
+      settle('api', sources.api, timeoutMs),
+      settle('deployments', sources.deployments, timeoutMs),
+    ],
+  )
+  return {
+    generated_at: Date.now(),
+    host,
+    services,
+    queue,
+    database,
+    backup,
+    containers,
+    api,
+    deployments,
+  }
 }
 
 /**
@@ -122,6 +142,12 @@ async function readQueue(): Promise<OpsQueue> {
   }
 }
 
+function optionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 /** 每分钟一条、留 7 天，原样给前端是一万个点；按半小时取平均后三百多个，趋势一点不少。 */
 async function readHost(): Promise<OpsHost> {
   const { db } = getDbHandle()
@@ -129,7 +155,9 @@ async function readHost(): Promise<OpsHost> {
     db.execute(sql`
       SELECT
         EXTRACT(EPOCH FROM sampled_at) * 1000 AS sampled_ms,
-        disk_total_bytes, disk_available_bytes, mem_total_bytes, mem_available_bytes
+        disk_total_bytes, disk_available_bytes, mem_total_bytes, mem_available_bytes,
+        cpu_count, cpu_busy_ratio, load_1, load_5, load_15, swap_total_bytes, swap_free_bytes,
+        EXTRACT(EPOCH FROM booted_at) * 1000 AS booted_ms
       FROM host_samples
       ORDER BY sampled_at DESC
       LIMIT 1
@@ -138,7 +166,8 @@ async function readHost(): Promise<OpsHost> {
       SELECT
         EXTRACT(EPOCH FROM date_bin('30 minutes', sampled_at, TIMESTAMPTZ '2000-01-01')) * 1000 AS at,
         AVG(1 - disk_available_bytes::double precision / disk_total_bytes) AS disk_used_ratio,
-        AVG(mem_available_bytes::double precision / mem_total_bytes) AS mem_available_ratio
+        AVG(mem_available_bytes::double precision / mem_total_bytes) AS mem_available_ratio,
+        AVG(cpu_busy_ratio) AS cpu_busy_ratio
       FROM host_samples
       WHERE sampled_at >= NOW() - INTERVAL '7 days'
       GROUP BY 1
@@ -153,6 +182,14 @@ async function readHost(): Promise<OpsHost> {
         disk_available_bytes: Number(row.disk_available_bytes),
         mem_total_bytes: Number(row.mem_total_bytes),
         mem_available_bytes: Number(row.mem_available_bytes),
+        cpu_count: optionalNumber(row.cpu_count),
+        cpu_busy_ratio: optionalNumber(row.cpu_busy_ratio),
+        load_1: optionalNumber(row.load_1),
+        load_5: optionalNumber(row.load_5),
+        load_15: optionalNumber(row.load_15),
+        swap_total_bytes: optionalNumber(row.swap_total_bytes),
+        swap_free_bytes: optionalNumber(row.swap_free_bytes),
+        booted_at: row.booted_ms == null ? null : Math.round(Number(row.booted_ms)),
       }
     : null
   return {
@@ -161,8 +198,138 @@ async function readHost(): Promise<OpsHost> {
       at: Math.round(Number(point.at)),
       disk_used_ratio: Number(point.disk_used_ratio),
       mem_available_ratio: Number(point.mem_available_ratio),
+      cpu_busy_ratio: optionalNumber(point.cpu_busy_ratio),
     })),
   }
+}
+
+/**
+ * 最近一批读数里的每个容器，配上它近 7 天的内存峰值和近 24 小时新增的 OOM 次数。
+ * 看的是整台宿主机：同机的另一套部署、数据库容器也在里面，谁吃了内存一眼看得出。
+ */
+async function readContainers(): Promise<OpsContainers> {
+  const { db } = getDbHandle()
+  const rows = (await db.execute(sql`
+    WITH newest AS (SELECT MAX(sampled_at) AS at FROM container_samples),
+    week AS (
+      SELECT container_id, MAX(mem_bytes) AS peak, MIN(oom_kills) FILTER (
+        WHERE sampled_at >= NOW() - INTERVAL '24 hours'
+      ) AS oom_day_ago
+      FROM container_samples
+      WHERE sampled_at >= NOW() - INTERVAL '7 days'
+      GROUP BY container_id
+    )
+    SELECT
+      c.container_id, c.name, c.mem_bytes, c.mem_limit_bytes, c.cpu_cores, c.oom_kills,
+      EXTRACT(EPOCH FROM c.sampled_at) * 1000 AS sampled_ms,
+      COALESCE(w.peak, c.mem_bytes) AS peak_mem_bytes,
+      c.oom_kills - COALESCE(w.oom_day_ago, c.oom_kills) AS recent_oom_kills
+    FROM container_samples c
+    JOIN newest ON c.sampled_at = newest.at
+    LEFT JOIN week w ON w.container_id = c.container_id
+    ORDER BY c.mem_bytes DESC, c.container_id ASC
+  `)) as unknown as Array<Record<string, unknown>>
+  return {
+    sampled_at: rows[0] ? Math.round(Number(rows[0].sampled_ms)) : null,
+    containers: rows.map((row) => ({
+      container_id: String(row.container_id),
+      name: row.name == null ? null : String(row.name),
+      mem_bytes: Number(row.mem_bytes),
+      mem_limit_bytes: optionalNumber(row.mem_limit_bytes),
+      cpu_cores: optionalNumber(row.cpu_cores),
+      oom_kills: Number(row.oom_kills),
+      peak_mem_bytes: Number(row.peak_mem_bytes),
+      recent_oom_kills: Math.max(0, Number(row.recent_oom_kills)),
+    })),
+  }
+}
+
+/** 近 24 小时的接口统计：最近 15 分钟的合计、每 15 分钟一格的曲线、近 1 小时出错最多的路由。 */
+async function readApi(): Promise<OpsApi> {
+  const { db } = getDbHandle()
+  const windowSeconds = OPS_THRESHOLDS.API_RECENT_WINDOW_MS / 1000
+  const [recentRaw, seriesRaw, routesRaw] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COALESCE(SUM(requests), 0) AS requests,
+        COALESCE(SUM(client_errors), 0) AS client_errors,
+        COALESCE(SUM(server_errors), 0) AS server_errors,
+        MAX(p95_ms) AS p95_ms
+      FROM api_minutes
+      WHERE minute >= NOW() - make_interval(secs => ${windowSeconds})
+    `),
+    db.execute(sql`
+      SELECT
+        EXTRACT(EPOCH FROM date_bin('15 minutes', minute, TIMESTAMPTZ '2000-01-01')) * 1000 AS at,
+        SUM(requests) AS requests,
+        SUM(server_errors) AS server_errors,
+        MAX(p95_ms) AS p95_ms
+      FROM api_minutes
+      WHERE minute >= NOW() - INTERVAL '24 hours'
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `),
+    db.execute(sql`
+      SELECT route.key AS route, SUM(route.value::int) AS count
+      FROM api_minutes, jsonb_each_text(server_error_routes) AS route
+      WHERE minute >= NOW() - INTERVAL '1 hour' AND server_error_routes IS NOT NULL
+      GROUP BY route.key
+      ORDER BY count DESC, route.key ASC
+      LIMIT 5
+    `),
+  ])
+  const recent = (recentRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  return {
+    recent: {
+      requests: Number(recent.requests ?? 0),
+      client_errors: Number(recent.client_errors ?? 0),
+      server_errors: Number(recent.server_errors ?? 0),
+      p95_ms: optionalNumber(recent.p95_ms),
+    },
+    window_ms: OPS_THRESHOLDS.API_RECENT_WINDOW_MS,
+    series: (seriesRaw as unknown as Array<Record<string, unknown>>).map((point) => ({
+      at: Math.round(Number(point.at)),
+      requests: Number(point.requests),
+      server_errors: Number(point.server_errors),
+      p95_ms: optionalNumber(point.p95_ms),
+    })),
+    error_routes: (routesRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
+      route: String(row.route),
+      count: Number(row.count),
+    })),
+  }
+}
+
+/** 部署日志每行：`<UTC 时间> <名字> public=<sha> private=<sha|-> image=<tag> by=<账号> result=<ok|failed>`。 */
+export function parseDeploymentLog(text: string, limit = 15): OpsDeployment[] {
+  const entries: OpsDeployment[] = []
+  for (const line of text.split('\n').reverse()) {
+    const match = /^(\S+) (\S+) public=(\S+) private=(\S+) image=(\S+) by=(\S+) result=(\S+)$/.exec(
+      line.trim(),
+    )
+    if (!match) continue
+    const at = Date.parse(match[1])
+    if (!Number.isFinite(at)) continue
+    entries.push({
+      at,
+      target: match[2],
+      public_sha: match[3],
+      private_sha: match[4] === '-' ? null : match[4],
+      image: match[5],
+      by: match[6],
+      ok: match[7] === 'ok',
+    })
+    if (entries.length >= limit) break
+  }
+  return entries
+}
+
+async function readDeployments(): Promise<OpsDeployments> {
+  const own = config.opsDeploymentName || null
+  const path = config.opsDeploymentsLog
+  const text = path ? await readFile(path, 'utf8').catch(() => '') : ''
+  const entries = parseDeploymentLog(text)
+  return { own, available: entries.length > 0, entries }
 }
 
 /** 重新部署会换实例；每个服务只报最新的那个，旧实例的行由 worker 清。 */
@@ -234,4 +401,7 @@ const defaultSources: OpsSources = {
   backup: () => readFromBff<OpsBackups>('/backups'),
   services: readServices,
   host: readHost,
+  containers: readContainers,
+  api: readApi,
+  deployments: readDeployments,
 }

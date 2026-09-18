@@ -24,6 +24,7 @@ import {
   check,
   customType,
   date,
+  doublePrecision,
   index,
   integer,
   pgTable,
@@ -680,7 +681,55 @@ export const host_samples = pgTable('host_samples', {
   disk_available_bytes: bigint('disk_available_bytes', { mode: 'number' }).notNull(),
   mem_total_bytes: bigint('mem_total_bytes', { mode: 'number' }).notNull(),
   mem_available_bytes: bigint('mem_available_bytes', { mode: 'number' }).notNull(),
+  // 后加的几列：旧采集容器报上来的读数没有它们，所以都可空。
+  cpu_count: integer('cpu_count'),
+  cpu_busy_ratio: doublePrecision('cpu_busy_ratio'),
+  load_1: doublePrecision('load_1'),
+  load_5: doublePrecision('load_5'),
+  load_15: doublePrecision('load_15'),
+  swap_total_bytes: bigint('swap_total_bytes', { mode: 'number' }),
+  swap_free_bytes: bigint('swap_free_bytes', { mode: 'number' }),
+  booted_at: epochMs('booted_at'),
 })
+
+/**
+ * 同一次宿主机采样里各容器的资源读数，来自宿主机的 cgroup。和 `host_samples` 一样只留近几天。
+ * 同一台宿主机上的每套部署各存各的一份，看到的都是整台机器上的全部容器。
+ */
+export const container_samples = pgTable(
+  'container_samples',
+  {
+    sampled_at: epochMs('sampled_at').notNull(),
+    container_id: text('container_id').notNull(),
+    name: text('name'),
+    mem_bytes: bigint('mem_bytes', { mode: 'number' }).notNull(),
+    mem_limit_bytes: bigint('mem_limit_bytes', { mode: 'number' }),
+    cpu_cores: doublePrecision('cpu_cores'),
+    oom_kills: integer('oom_kills').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sampled_at, t.container_id] })],
+)
+
+/**
+ * 后端每个实例每分钟一行的接口统计。只统计 API 请求，不含静态资源与健康检查。
+ * 延迟量的是处理到响应发出为止，流式响应的传输时长不算在内。
+ */
+export const api_minutes = pgTable(
+  'api_minutes',
+  {
+    minute: epochMs('minute').notNull(),
+    instance: text('instance').notNull(),
+    requests: integer('requests').notNull(),
+    client_errors: integer('client_errors').notNull(),
+    server_errors: integer('server_errors').notNull(),
+    p50_ms: integer('p50_ms'),
+    p95_ms: integer('p95_ms'),
+    max_ms: integer('max_ms'),
+    /** 这一分钟里返回 5xx 的路由与次数，形如 `{"POST /v1/queue/:provider/:model/submit": 3}`。 */
+    server_error_routes: bunJsonb('server_error_routes').$type<Record<string, number>>(),
+  },
+  (t) => [primaryKey({ columns: [t.minute, t.instance] })],
+)
 
 export const media_objects = pgTable(
   'media_objects',

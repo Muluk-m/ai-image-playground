@@ -10,6 +10,7 @@ interface OpsBlockCardProps<T> {
   /** 这一块此刻要运营者处理的事；没有就是健康。 */
   problems: (data: T) => string[]
   children: (data: T) => ReactNode
+  className?: string
 }
 
 /**
@@ -18,13 +19,23 @@ interface OpsBlockCardProps<T> {
  * 问题列表刻意不是 live region：句子里带着会走的数字，看板每 30 秒刷新一次，读屏会把同一件事
  * 从头到尾念一整场事故。
  */
-export function OpsBlockCard<T>({ title, block, problems, children }: OpsBlockCardProps<T>) {
+export function OpsBlockCard<T>({
+  title,
+  block,
+  problems,
+  children,
+  className,
+}: OpsBlockCardProps<T>) {
   const issues = block.ok ? problems(block.data) : []
   return (
     <Card
       role="region"
       aria-label={title}
-      className={cn(issues.length > 0 && 'border-danger/60', !block.ok && 'border-dashed')}
+      className={cn(
+        issues.length > 0 && 'border-danger/60',
+        !block.ok && 'border-dashed',
+        className,
+      )}
     >
       <CardHeader className="p-4 pb-2">
         <CardTitle className="text-sm">{title}</CardTitle>

@@ -80,6 +80,22 @@ MIGRATOR_ENV_FILE=${MIGRATOR_ENV_FILE:-$APP_CONFIG_DIR/migrate.env}
 export MIGRATOR_ENV_FILE
 export APP_ENV_FILE APP_CONFIG_DIR
 
+# Read-only inputs of the operations board. The collector learns container names from this table
+# (cgroups only know IDs, and it never gets the Docker socket); admin lists recent deployments
+# from the deploy log. Both are rewritten in place, never replaced, so the bind mounts follow.
+ops_root=${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground
+CONTAINER_NAMES_SOURCE=$ops_root/container-names.tsv
+DEPLOYMENTS_LOG_SOURCE=$ops_root/deployments.log
+[ -f "$DEPLOYMENTS_LOG_SOURCE" ] || DEPLOYMENTS_LOG_SOURCE=/dev/null
+export CONTAINER_NAMES_SOURCE DEPLOYMENTS_LOG_SOURCE
+
+write_container_names() {
+  mkdir -p "$ops_root"
+  # Truncate and rewrite: a rename would leave the collector's bind mount on the old file.
+  docker ps --all --no-trunc --format '{{.ID}}	{{.Names}}' >"$CONTAINER_NAMES_SOURCE" ||
+    echo "Could not refresh $CONTAINER_NAMES_SOURCE; the board will show container IDs." >&2
+}
+
 compose() {
   docker compose \
     --project-name "$project" \
@@ -105,11 +121,16 @@ require_tunnel_credentials() {
 }
 
 activate_backend_then_ingress() {
+  mkdir -p "$ops_root"
+  [ -f "$CONTAINER_NAMES_SOURCE" ] || : >"$CONTAINER_NAMES_SOURCE"
   compose up --detach --wait "$@" dependency-check bff worker admin
   compose up --detach --wait "$@" cloudflared pg-backup
+  write_container_names
   # Started last and not waited on: the collector watches the deployment, it is not part of it,
   # so a collector that cannot start must not fail a rollout. The board shows it as missing.
   compose up --detach "$@" host-collector
+  # Once more, so a collector recreated just now is named too.
+  write_container_names
 }
 
 case "$command" in

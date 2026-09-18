@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test'
-import { createHostAlerting, parseMeminfo, runCollector } from '../../ops/host-collector'
+import { createHostAlerting, runCollector } from '../../ops/host-collector'
+import { parseMeminfo } from '../../ops/host-readings'
 
 const MEMINFO = `MemTotal:        3753084 kB
 MemFree:          148880 kB
 MemAvailable:    1204536 kB
 Buffers:          123456 kB
-SwapTotal:             0 kB
+SwapTotal:       2035708 kB
+SwapFree:        2035440 kB
 `
 
 describe('parseMeminfo', () => {
@@ -13,6 +15,8 @@ describe('parseMeminfo', () => {
     expect(parseMeminfo(MEMINFO)).toEqual({
       totalBytes: 3753084 * 1024,
       availableBytes: 1204536 * 1024,
+      swapTotalBytes: 2035708 * 1024,
+      swapFreeBytes: 2035440 * 1024,
     })
   })
 

@@ -2,9 +2,12 @@ import { OPS_THRESHOLDS } from '@image-playground/shared'
 import { Link } from '@tanstack/react-router'
 
 import { Kpi } from '@/components/Kpi'
+import { ApiBody, apiProblems } from '@/components/ops/ApiBlock'
+import { ContainersBody, containersProblems } from '@/components/ops/ContainersBlock'
+import { DeploymentsBody, deploymentsProblems, shortSha } from '@/components/ops/DeploymentsBlock'
 import { LazyHostTrendChart } from '@/components/ops/LazyHostTrendChart'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
-import { bytes, elapsed, fuzzyTime, shortId } from '@/lib/format'
+import { bytes, elapsed, fuzzyTime, isoTime, shortId } from '@/lib/format'
 import type {
   OpsBackups,
   OpsDatabase,
@@ -31,11 +34,30 @@ function hostProblems({ latest }: OpsHost, now: number): string[] {
   if (used >= OPS_THRESHOLDS.DISK_USED_RATIO) {
     problems.push(`磁盘已用 ${percent(used)}，只剩 ${bytes(latest.disk_available_bytes)}`)
   }
+  const memory = latest.mem_available_bytes / latest.mem_total_bytes
+  if (memory < OPS_THRESHOLDS.MEMORY_CRITICAL_RATIO) {
+    problems.push(`可用内存只剩 ${percent(memory)}，快要耗尽，机器随时可能卡死`)
+  } else if (memory < OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO) {
+    problems.push(`可用内存只剩 ${percent(memory)}`)
+  }
+  if (latest.cpu_busy_ratio != null && latest.cpu_busy_ratio >= OPS_THRESHOLDS.CPU_BUSY_RATIO) {
+    problems.push(`CPU 使用率 ${percent(latest.cpu_busy_ratio)}`)
+  }
+  if (latest.booted_at != null && now - latest.booted_at < OPS_THRESHOLDS.RECENT_BOOT_MS) {
+    problems.push(`机器 ${elapsed(now - latest.booted_at)}前重启过`)
+  }
   const silence = now - latest.sampled_at
   if (silence > OPS_THRESHOLDS.HOST_SAMPLE_MAX_AGE_MS) {
     problems.push(`已经 ${elapsed(silence)}没有新的采样，下面的数字是旧的`)
   }
   return problems
+}
+
+function loadNote(latest: NonNullable<OpsHost['latest']>): string | undefined {
+  const loads = [latest.load_1, latest.load_5, latest.load_15]
+  if (loads.some((value) => value == null)) return undefined
+  const cores = latest.cpu_count ? `${latest.cpu_count} 核 · ` : ''
+  return `${cores}负载 ${loads.map((value) => (value as number).toFixed(2)).join(' / ')}`
 }
 
 function HostBody({ host, now }: { host: OpsHost; now: number }) {
@@ -52,7 +74,7 @@ function HostBody({ host, now }: { host: OpsHost; now: number }) {
   }
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <Kpi
           variant="inline"
           label="磁盘已用"
@@ -65,13 +87,37 @@ function HostBody({ host, now }: { host: OpsHost; now: number }) {
           value={bytes(latest.mem_available_bytes)}
           note={`共 ${bytes(latest.mem_total_bytes)}`}
         />
+        <Kpi
+          variant="inline"
+          label="CPU"
+          value={latest.cpu_busy_ratio == null ? '—' : percent(latest.cpu_busy_ratio)}
+          note={loadNote(latest)}
+        />
+        <Kpi
+          variant="inline"
+          label="Swap 已用"
+          value={
+            latest.swap_total_bytes == null || latest.swap_free_bytes == null
+              ? '—'
+              : latest.swap_total_bytes === 0
+                ? '未启用'
+                : bytes(latest.swap_total_bytes - latest.swap_free_bytes)
+          }
+          note={latest.swap_total_bytes ? `共 ${bytes(latest.swap_total_bytes)}` : undefined}
+        />
+        <Kpi
+          variant="inline"
+          label="开机于"
+          value={latest.booted_at == null ? '—' : fuzzyTime(latest.booted_at, now)}
+          note={latest.booted_at == null ? undefined : `${isoTime(latest.booted_at)} UTC`}
+        />
         <Kpi variant="inline" label="最近采样" value={fuzzyTime(latest.sampled_at, now)} />
       </div>
       {series.length > 1 ? (
         <LazyHostTrendChart
           series={series}
           diskAlertRatio={OPS_THRESHOLDS.DISK_USED_RATIO}
-          label="近 7 天的磁盘用量与内存用量"
+          label="近 7 天的磁盘、内存与 CPU 用量"
         />
       ) : (
         <p className="border-t pt-3 text-xs text-muted-foreground">采样还不够画出趋势。</p>
@@ -110,8 +156,11 @@ function ServicesBody({ services, now }: { services: OpsServices; now: number })
       {services.services.map((service) => (
         <li key={service.service} className="flex flex-wrap items-baseline justify-between gap-x-4">
           <span className="font-medium">{SERVICE_LABEL[service.service]}</span>
-          <span className="font-mono text-xs text-muted-foreground" title={service.instance}>
-            {service.version}
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            title={`${service.version}（实例 ${service.instance}）`}
+          >
+            {service.version.split('+').map(shortSha).join('+')}
           </span>
           <span className="tabular-nums text-muted-foreground">
             {fuzzyTime(service.last_seen_at, now)}
@@ -254,12 +303,18 @@ export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
       >
         {(host) => <HostBody host={host} now={snapshot.generated_at} />}
       </OpsBlockCard>
+      <OpsBlockCard title="容器" block={snapshot.containers} problems={containersProblems}>
+        {(containers) => <ContainersBody containers={containers} now={snapshot.generated_at} />}
+      </OpsBlockCard>
       <OpsBlockCard
         title="服务"
         block={snapshot.services}
         problems={(services) => servicesProblems(services, snapshot.generated_at)}
       >
         {(services) => <ServicesBody services={services} now={snapshot.generated_at} />}
+      </OpsBlockCard>
+      <OpsBlockCard title="接口" block={snapshot.api} problems={apiProblems}>
+        {(api) => <ApiBody api={api} />}
       </OpsBlockCard>
       <OpsBlockCard title="队列" block={snapshot.queue} problems={queueProblems}>
         {(queue) => <QueueBody queue={queue} now={snapshot.generated_at} />}
@@ -270,6 +325,9 @@ export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
         problems={(backup) => backupProblems(backup, snapshot.generated_at)}
       >
         {(backup) => <BackupBody backup={backup} now={snapshot.generated_at} />}
+      </OpsBlockCard>
+      <OpsBlockCard title="部署记录" block={snapshot.deployments} problems={deploymentsProblems}>
+        {(deployments) => <DeploymentsBody deployments={deployments} now={snapshot.generated_at} />}
       </OpsBlockCard>
       <OpsBlockCard title="数据库" block={snapshot.database} problems={() => []}>
         {(database) => <DatabaseBody database={database} />}
