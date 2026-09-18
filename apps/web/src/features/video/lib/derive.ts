@@ -29,6 +29,15 @@ export interface VideoDeriveOption {
   disabledReason?: string
 }
 
+/** 源片时长是否在上游能续写 / 改写的范围内。画布与导演台共用这一条硬限。 */
+export function deriveSourceRefusal(mode: VideoDeriveMode, seconds: number): string | null {
+  if (seconds < MIN_SOURCE_SECONDS)
+    return i18next.t('derive.tooShort', { ns: 'video', seconds: MIN_SOURCE_SECONDS })
+  if (seconds > MAX_SOURCE_SECONDS[mode])
+    return i18next.t('derive.tooLong', { ns: 'video', seconds: MAX_SOURCE_SECONDS[mode] })
+  return null
+}
+
 export function checkDerive(task: VideoTask, mode: VideoDeriveMode): VideoDeriveCheck {
   const option = videoModelOptions().find((item) => item.support[mode])
   if (!option)
@@ -38,16 +47,8 @@ export function checkDerive(task: VideoTask, mode: VideoDeriveMode): VideoDerive
     }
   if (task.status !== 'done' || !task.bffRequestId || task.outputIndex === undefined)
     return { ok: false, reason: i18next.t('derive.notDone', { ns: 'video' }) }
-  if (task.duration < MIN_SOURCE_SECONDS)
-    return {
-      ok: false,
-      reason: i18next.t('derive.tooShort', { ns: 'video', seconds: MIN_SOURCE_SECONDS }),
-    }
-  if (task.duration > MAX_SOURCE_SECONDS[mode])
-    return {
-      ok: false,
-      reason: i18next.t('derive.tooLong', { ns: 'video', seconds: MAX_SOURCE_SECONDS[mode] }),
-    }
+  const tooShortOrLong = deriveSourceRefusal(mode, task.duration)
+  if (tooShortOrLong) return { ok: false, reason: tooShortOrLong }
   return { ok: true, option }
 }
 

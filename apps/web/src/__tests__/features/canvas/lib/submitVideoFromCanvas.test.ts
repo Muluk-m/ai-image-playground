@@ -89,6 +89,7 @@ beforeEach(() => {
   mocks.awaitQueueOutputs.mockClear()
   mocks.showToast.mockClear()
   mocks.settled.mockClear()
+  mocks.guard.mockClear()
   mocks.guard.mockImplementation(() => ({ blocked: false }))
   doc = new CanvasDoc()
   doc.setViewport(800, 600)
@@ -153,6 +154,32 @@ describe('画布生成栏的视频档', () => {
       },
     })
     expect(editor.getPlaceholders()).toHaveLength(0)
+  })
+
+  it('keeps what the user typed apart from the annotation text it was merged with', async () => {
+    addImage('photo', 0)
+    doc.addElements([
+      {
+        id: 'note',
+        type: 'text',
+        x: 20,
+        y: 20,
+        text: '让她转身',
+        fontSize: 24,
+        fill: '#ef4444',
+        width: 60,
+        height: 30,
+      },
+    ])
+    editor.setSelectedElements(['photo'])
+
+    await submitVideoFromCanvas(editor, '慢镜头')
+    await settle()
+
+    // 重新生成只载回原话：标注还在首帧上，会随选区再拼一次。
+    expect(placedVideo()).toMatchObject({
+      meta: { prompt: '让她转身\n慢镜头', userPrompt: '慢镜头' },
+    })
   })
 
   it('generates from text when nothing is selected', async () => {
@@ -327,6 +354,29 @@ describe('刷新之后', () => {
     expect(placedVideo()).toMatchObject({ video: { taskId: 'req-1', generation } })
     // 续跑出片同样通知计费面板，余额才会刷新。
     expect(mocks.settled).toHaveBeenCalled()
+  })
+
+  it("keeps a derived clip's failed placeholder when its source is gone, instead of deleting it first", () => {
+    const id = editor.createPlaceholder(
+      { x: 0, y: 0, w: 360, h: 360 },
+      {
+        taskId: 'task-3',
+        clientRequestId: 'client-3',
+        source: 'builtin-edge',
+        prompt: '接着跑',
+        video: {
+          channelId: 'video-channel',
+          generation: { ...generation, derivedFrom: { id: 'deleted-source', mode: 'extend' } },
+        },
+      },
+    )
+    editor.updatePlaceholder(id, { status: 'error', message: '上游超时' })
+
+    retryCanvasVideo(editor, editor.getPlaceholder(id)!)
+
+    expect(mocks.showToast).toHaveBeenCalledWith(expect.any(String), 'error')
+    expect(mocks.guard).not.toHaveBeenCalled()
+    expect(editor.getPlaceholder(id)).toBeDefined()
   })
 
   it('will not retry as text-to-video once the frames are gone', () => {

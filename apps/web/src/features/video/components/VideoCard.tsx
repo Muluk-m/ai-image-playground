@@ -243,7 +243,10 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
       {derive?.modelId && (
         <DeriveVideoPopover
-          task={task}
+          sourceSeconds={task.duration}
+          onSubmit={async (input) =>
+            Boolean(await useVideoStore.getState().deriveVideo(task, input))
+          }
           mode={derive.mode}
           modelId={derive.modelId}
           onClose={() => setDerive(null)}

@@ -40,6 +40,11 @@ export interface CanvasTaskMeta {
   source: 'builtin-edge' | 'user-byok'
   /** 人话需求（不含指令样板），供失效 / 错误态「重试」与落历史复用。 */
   prompt: string
+  /**
+   * 用户在输入框里写的原话，不含拼进来的文字标注。视频「重新生成」只载回它：
+   * 首尾帧上的标注会随选区自动再拼一次，载回合并后的 `prompt` 会重复。
+   */
+  userPrompt?: string
   /** 是否标注模式：重试时据此重新注入指令前缀。 */
   annotated?: boolean
   /** 发起时的输入图数量：重试时判定「输入图已丢失」，拒绝静默退化成文生图。 */

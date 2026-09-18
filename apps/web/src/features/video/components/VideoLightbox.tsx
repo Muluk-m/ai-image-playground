@@ -209,7 +209,10 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
 
       {derive?.modelId && (
         <DeriveVideoPopover
-          task={task}
+          sourceSeconds={task.duration}
+          onSubmit={async (input) =>
+            Boolean(await useVideoStore.getState().deriveVideo(task, input))
+          }
           mode={derive.mode}
           modelId={derive.modelId}
           tier="alert"

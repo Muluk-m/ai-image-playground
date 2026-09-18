@@ -230,5 +230,21 @@
       "firstFrameUnsupported": "{{model}} cannot start from an image; deselect the images",
       "lastFrameUnsupported": "{{model}} has no last frame; select one image as the first frame"
     }
+  },
+  "videoToolbar": {
+    "aria": "Video actions",
+    "download": "Download",
+    "downloadFailed": "Could not download the video",
+    "regenerate": "Regenerate",
+    "firstFrame": "First frame",
+    "lastFrame": "Last frame",
+    "frameFailed": "Could not capture a frame from this video; try again later",
+    "noRecord": "This video has no recorded settings; only its description was restored",
+    "framesMissing": "The original frames are no longer on the canvas; select images again",
+    "sourceGone": "The source video is no longer on the canvas",
+    "unknownSource": "This video has no recorded length, so it cannot be extended or edited",
+    "noPromptRecorded": "This video has no recorded description (agent videos only keep a title); write one again.",
+    "modelUnavailable": "The original model is not available here; settings were left unchanged, pick a model yourself.",
+    "videoUnavailable": "This deployment cannot generate video"
   }
 }
