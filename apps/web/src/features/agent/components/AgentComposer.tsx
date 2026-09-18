@@ -69,6 +69,7 @@ import {
   filesToReferences,
   setAgentComposerAttach,
 } from '../lib/attachments'
+import { setAgentComposerFill } from '../lib/composerFill'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import {
@@ -159,6 +160,23 @@ export default function AgentComposer({
     setAgentComposerAttach(attachFiles)
     return () => setAgentComposerAttach(null)
   })
+  // 示例建议点进来的整句话：换掉草稿里的话，光标放到句末，等用户自己发。
+  const fillText = (text: string) => {
+    if (loading) {
+      useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+      return
+    }
+    typedRef.current = null
+    setDraft((current) => ({ ...current, prompt: text }))
+    setCursor(text.length)
+    window.setTimeout(() => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      setContentEditableCursor(el, text.length)
+    }, 0)
+  }
+  useEffect(() => setAgentComposerFill(fillText))
   const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const files = [...event.clipboardData.files]
     if (files.length > 0) {
