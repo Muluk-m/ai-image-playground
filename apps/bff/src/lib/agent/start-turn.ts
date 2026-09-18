@@ -172,14 +172,18 @@ async function drainOnce(
     }
     if (result.kind === 'started' && result.turn.completed) {
       void result.turn.completed.then(finish).then(
-        // 这一轮放手了：排着的下一条接着开轮。
+        // 这一轮放手了：排着的下一条接着开轮。队里没有待处理的就不再领租约——空领一次也会让
+        // 刚收尾的会话在那一瞬间显得还忙，删会话之类的操作会撞上 409。放手之后才进来的那条
+        // 由它自己的请求开轮。
         () =>
-          void drainConversationInbox(conversationId).catch((err) =>
-            log.error(
-              { event: 'agent.inbox_drain_failed', conversationId, err },
-              'queued agent message could not start a turn',
+          void nextAgentMessage(conversationId)
+            .then((waiting) => (waiting ? drainConversationInbox(conversationId) : undefined))
+            .catch((err) =>
+              log.error(
+                { event: 'agent.inbox_drain_failed', conversationId, err },
+                'queued agent message could not start a turn',
+              ),
             ),
-          ),
         () => bffDrain.failed(),
       )
     } else {

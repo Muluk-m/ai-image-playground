@@ -66,7 +66,13 @@ import {
   showProject,
 } from './lib/projectLifecycle'
 import { toAgentTurnParams } from './lib/turnParams'
-import type { AgentPanelMessage, AgentPanelTab, AgentTurnFooter, AgentTurnStatus } from './types'
+import type {
+  AgentPanelMessage,
+  AgentPanelTab,
+  AgentToolMessage,
+  AgentTurnFooter,
+  AgentTurnStatus,
+} from './types'
 
 // 文案按调用时取，不在模块加载时定死：切语言之后新出的报错要跟着换语言。
 const TURN_FAILED = () => i18next.t('error.turnFailed', { ns: 'agent' })
@@ -224,6 +230,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
     set((state) => ({
       messages: state.messages.map((message) => (message.id === card.id ? card : message)),
     }))
+    deliverJob(card)
+  }
+
+  /** 后台任务的终局卡落画布：交出去的占位还在就落进占位，否则按锚点或视野落。 */
+  const deliverJob = (card: AgentToolMessage) => {
     // 任务的结算（成功扣费、失败退回）此刻已经发生，顶栏余额跟着刷新。
     notifyPrivateSubmissionSettled()
     const handle = jobDeliveries.get(card.id) ?? delivery.beginTurn()
@@ -401,7 +412,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (!idle()) return
       const next = snapshot.activeTurn?.turnId
       if (next && next !== endedTurnId) {
-        await openConversation(conversationId)
+        await joinQueuedTurn(conversationId, snapshot, next)
         return
       }
       // 队里只剩没能开轮的那几条（带错误码）时不再等：它们不会被处理，照快照摆出来。
@@ -411,6 +422,51 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       await new Promise((resolve) => setTimeout(resolve, QUEUE_PICKUP_DELAY_MS))
     }
+  }
+
+  /**
+   * 挂上服务端从队里接着开的那一轮。同一个会话不走 `openConversation`：它会重置交付，把上一轮
+   * 交给后台任务的占位一起收掉。历史照快照换上，已经落过的产物保留交付状态；快照里已经结算的
+   * 后台任务当场交付，还没结束的继续轮询。
+   */
+  const joinQueuedTurn = async (
+    conversationId: string,
+    snapshot: Awaited<ReturnType<typeof fetchMessages>>,
+    turnId: string,
+  ) => {
+    const shown = new Map(get().messages.map((message) => [message.id, message]))
+    const history = panelStateFromHistory(snapshot)
+    const messages = history.messages.map((message) => {
+      const before = shown.get(message.id)
+      return message.kind === 'tool' && before?.kind === 'tool' && before.delivery
+        ? { ...message, delivery: before.delivery }
+        : message
+    })
+    set({
+      ...history,
+      messages,
+      queue: [...(snapshot.queue ?? [])],
+      turn: 'running',
+      stopping: false,
+      reconnecting: false,
+      error: null,
+      activeTurn: { turnId },
+    })
+    for (const message of messages)
+      if (
+        message.kind === 'tool' &&
+        message.status !== 'submitted' &&
+        jobDeliveries.has(message.id)
+      )
+        deliverJob(message)
+    if (hasPendingJobs(messages)) watchJobs(conversationId)
+    const cursor = snapshot.activeTurn?.turnId === turnId ? snapshot.cursor : undefined
+    await follow(
+      conversationId,
+      cursor === undefined ? { turnId } : { turnId, cursor },
+      null,
+      delivery.beginTurn(),
+    )
   }
 
   /**
