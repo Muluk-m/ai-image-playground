@@ -1,8 +1,10 @@
+import type { AgentSkillSummary } from '@image-playground/shared'
 import {
   Fragment,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
 } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
@@ -11,8 +13,10 @@ import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, TAB, USER_BUBBLE } from '../agentStyles'
+import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
+import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import type { AgentPanelMessage } from '../types'
@@ -22,6 +26,7 @@ import AgentComposer from './AgentComposer'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentReply from './AgentReply'
+import AgentSkillBadge from './AgentSkillBadge'
 import AgentSkillStep from './AgentSkillStep'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
@@ -40,7 +45,11 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-function renderMessage(message: AgentPanelMessage, answerableId: string | null) {
+function renderMessage(
+  message: AgentPanelMessage,
+  answerableId: string | null,
+  skills: readonly AgentSkillSummary[],
+) {
   if (message.kind === 'tool') {
     // 读取技能只是一步，不是一件产出；它走不到结果卡那条路。
     return message.toolName === 'loadSkill' ? (
@@ -52,7 +61,21 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
-  if (message.role === 'user') return <p className={USER_BUBBLE}>{message.text}</p>
+  if (message.role === 'user') {
+    const invocation = getLeadingAgentSkill(message.text, skills)
+    return (
+      <p className={USER_BUBBLE}>
+        {invocation ? (
+          <>
+            <AgentSkillBadge skill={invocation.skill} />
+            {invocation.rest}
+          </>
+        ) : (
+          message.text
+        )}
+      </p>
+    )
+  }
   return <AgentReply text={message.text} streaming={message.streaming} />
 }
 
@@ -72,6 +95,9 @@ export default function AgentPanel({
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
   const turns = useAgentStore((state) => state.turns)
+  const imageSkills = useAgentSkills('image')
+  const videoSkills = useAgentSkills('video')
+  const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const { setOpen, setTab, load, setPanelWidth } = useAgentStore.getState()
@@ -193,7 +219,7 @@ export default function AgentPanel({
               messages[index + 1]?.turnId === message.turnId ? null : turns[message.turnId]
             return (
               <Fragment key={message.id}>
-                {renderMessage(message, answerableId)}
+                {renderMessage(message, answerableId, skills)}
                 {footer && <AgentTurnCost footer={footer} />}
               </Fragment>
             )

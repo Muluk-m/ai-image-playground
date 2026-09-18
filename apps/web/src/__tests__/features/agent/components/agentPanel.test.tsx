@@ -138,6 +138,44 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('历史消息中的已知行首技能显示标题，普通斜杠文字保持原样', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          skills: [
+            {
+              name: 'character-sheet',
+              title: '角色设定',
+              icon: 'person-standing',
+              summary: '',
+              description: '',
+            },
+          ],
+        }),
+      ),
+    )
+    useAgentStore.setState({
+      messages: ['/character-sheet 一只小猪', '解释 /character-sheet', '/unknown 一只小猪'].map(
+        (text, index) => ({
+          kind: 'text',
+          id: `user-${index}`,
+          turnId: `turn-${index}`,
+          role: 'user',
+          text,
+          streaming: false,
+        }),
+      ),
+    })
+    render()
+    await settle()
+    const log = host.querySelector('[aria-label="对话记录"]')!
+    expect(log.textContent).toContain('角色设定 一只小猪')
+    expect(log.textContent).toContain('解释 /character-sheet')
+    expect(log.textContent).toContain('/unknown 一只小猪')
+    expect(log.querySelectorAll('[data-skill-name]')).toHaveLength(1)
+  })
+
   it('读取技能只出一行脚注，不出结果卡', () => {
     render()
     act(() =>
