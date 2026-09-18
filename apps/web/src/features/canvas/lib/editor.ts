@@ -190,10 +190,6 @@ export class CanvasEditor {
     return this.doc.getElement(id)
   }
 
-  editRevision(): number {
-    return this.doc.editRevision
-  }
-
   getSelectedIds(): string[] {
     return [...this.doc.selection]
   }
@@ -237,8 +233,7 @@ export class CanvasEditor {
 
   /**
    * 创建 loading 占位框（虚线矩形），返回元素 id。
-   * `history: false` 给智能体用：它的占位框是机器搭的脚手架，既不该进 undo 栈，
-   * 也不该抬 editRevision——那条线记的是「用户动过画布」。
+   * `history: false` 给智能体用：它的占位框是机器搭的脚手架，不该进 undo 栈。
    */
   createPlaceholder(
     target: { x: number; y: number; w: number; h: number },

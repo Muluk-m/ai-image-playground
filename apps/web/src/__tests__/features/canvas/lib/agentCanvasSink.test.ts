@@ -55,57 +55,6 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-/** 修订号不再是交付的判据，仍是 undo 历史「一次用户操作」的边界，直接对 editor 断言。 */
-describe('画布编辑修订号', () => {
-  it('平移、缩放、选区与工具不算编辑', () => {
-    addText('text-1')
-    const before = editor.editRevision()
-
-    doc.setCamera({ x: 120, y: 40 })
-    doc.zoomAt(10, 10, 2)
-    doc.setSelection(['text-1'])
-    doc.setTool('pen')
-    doc.notifyAssetLoaded()
-
-    expect(editor.editRevision()).toBe(before)
-  })
-
-  it('增删元素与撤销重做各抬一次', () => {
-    const start = editor.editRevision()
-
-    addText('text-1')
-    doc.deleteElements(['text-1'])
-    doc.undo()
-    doc.redo()
-
-    expect(editor.editRevision()).toBe(start + 4)
-  })
-
-  it('一次拖拽只算一次，过程中的高频更新不重复计', () => {
-    addText('text-1')
-    const before = editor.editRevision()
-
-    doc.captureHistory()
-    doc.updateElements([{ id: 'text-1', patch: { x: 10 } }])
-    doc.updateElements([{ id: 'text-1', patch: { x: 20 } }])
-
-    expect(editor.editRevision()).toBe(before + 1)
-  })
-
-  it('占位框状态流转与场景恢复不算用户编辑', () => {
-    const placeholderId = editor.createPlaceholder(
-      { x: 0, y: 0, w: 10, h: 10 },
-      { taskId: 't', clientRequestId: 'c', source: 'builtin-edge', prompt: '' },
-    )
-    const before = editor.editRevision()
-
-    editor.updatePlaceholder(placeholderId, { status: 'error', message: '上游拒绝' })
-    doc.restore([], {})
-
-    expect(editor.editRevision()).toBe(before)
-  })
-})
-
 describe('落画布', () => {
   it('用户中途改过画布也照样写入', async () => {
     addText('text-1')
@@ -229,13 +178,11 @@ describe('工具起跑占位', () => {
     expect(scrolled).toEqual([[...ids]])
   })
 
-  it('占位不算用户编辑：修订号不动，占位框也不进 undo 栈', async () => {
-    const before = editor.editRevision()
-
+  it('占位不算用户编辑：占位框不进 undo 栈', async () => {
     const ids = await sink.reserve({ count: 2 })
     sink.discard(ids)
 
-    expect(editor.editRevision()).toBe(before)
+    expect(doc.canUndo).toBe(false)
   })
 
   it('占位框让开画布上已有的元素', async () => {
