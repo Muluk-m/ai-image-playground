@@ -15,15 +15,14 @@ import {
 } from '../../../lib/channels/videoChannels'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
-import { agentPanelPresent } from '../../agent/panelLayout'
 import { DERIVE_RESOLUTION, deriveSourceRefusal } from '../../video/lib/derive'
 import { videoDeriveLabel, videoRejectionText } from '../../video/lib/labels'
 import { useVideoStore } from '../../video/store'
-import { useCanvasComposer } from '../composerStore'
 import type { CanvasVideoRef } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
+import { rasterizeEntry } from './rasterizeSelection'
 import {
   canvasVideoPromptRefusal,
   canvasVideoRequest,
@@ -45,7 +44,15 @@ export interface CanvasVideoNode {
 export function canvasVideoNode(editor: CanvasEditor, id: string): CanvasVideoNode | null {
   const element = editor.getElement(id)
   if (element?.type !== 'image' || !element.video) return null
-  return { id, video: element.video, userPrompt: element.meta?.userPrompt ?? null }
+  const meta = element.meta
+  const typed = meta?.userPrompt
+  // 画布生成栏发出去的是「文字标注 + 输入框」，userPrompt 只存了输入框那段；重新生成不再
+  // 带选区标注，所以用完整的那段预填，片子的意思才对得上。智能体的 prompt 是标题，不以它结尾。
+  const full =
+    typed && meta?.prompt && meta.prompt !== typed && meta.prompt.endsWith(`\n${typed}`)
+      ? meta.prompt
+      : typed
+  return { id, video: element.video, userPrompt: full ?? null }
 }
 
 /** 只选中了一段视频时才有节点工具条。 */
@@ -139,16 +146,7 @@ export async function submitCanvasDerive(
   return true
 }
 
-/**
- * 这里有没有「重新生成」可载回的地方。普通生成的视频载回的是画布生成栏，而开了智能体的部署
- * 不渲染生成栏（输入在智能体面板里）——那里按了等于没按，所以不给这个按钮。派生片的重新生成
- * 是再开一次续写弹窗，不依赖生成栏，照常可用。
- */
-export function canvasRegenerateOffered(node: CanvasVideoNode): boolean {
-  return Boolean(node.video.generation?.derivedFrom) || !agentPanelPresent()
-}
-
-/** 这段视频能不能「重新生成」：部署得能出视频，生成栏才切得到视频档。 */
+/** 这段视频能不能「重新生成」：部署得能出视频。 */
 export function canvasRegenerateRefusal(): string | null {
   return isVideoModeAvailable()
     ? null
@@ -156,44 +154,112 @@ export function canvasRegenerateRefusal(): string | null {
 }
 
 /**
- * 把这段视频当时的档位和原话载回生成栏（切到视频档），首尾帧都还在画布上就重新选中它们。
- * 凡是还原不全的——没有原话、没有档位记录、原模型不可用、帧不齐——都不替用户猜，说明缺了什么。
+ * 把一段视频的生成记录载进视频草稿（模型、档位），弹窗与导演台读的都是这份草稿。
+ * 原模型在当前部署不可用就不动草稿：换个模型档位矩阵就不一样了，硬套只会被夹成另一套参数。
  */
-export function loadCanvasVideoIntoComposer(editor: CanvasEditor, node: CanvasVideoNode): void {
-  const unavailable = canvasRegenerateRefusal()
-  if (unavailable) {
-    toast(unavailable)
-    return
-  }
-  const composer = useCanvasComposer.getState()
-  composer.setMode('video')
-  composer.setPrompt(node.userPrompt ?? '')
-  const notes: string[] = []
-  if (node.userPrompt === null)
-    notes.push(i18next.t('videoToolbar.noPromptRecorded', { ns: 'canvas' }))
-  editor.setSelectedElements([])
+export function loadGenerationIntoDraft(generation: VideoGenerationRecord): boolean {
+  if (!videoModelOptions().some((one) => one.modelId === generation.model)) return false
+  const video = useVideoStore.getState()
+  video.setModel(generation.model)
+  video.setResolution(generation.resolution)
+  if ((VIDEO_DURATIONS as readonly number[]).includes(generation.duration))
+    video.setDuration(generation.duration as VideoDuration)
+  video.setAspectRatio(generation.aspectRatio)
+  return true
+}
+
+/** 原首尾帧里还在画布上的那些（按首、尾顺序）；不齐时 `complete` 为假。 */
+export function regenerateFrames(editor: CanvasEditor, node: CanvasVideoNode) {
   const generation = node.video.generation
-  if (!generation) {
-    notes.push(i18next.t('videoToolbar.noRecord', { ns: 'canvas' }))
-  } else if (!videoModelOptions().some((one) => one.modelId === generation.model)) {
-    // 换个模型档位矩阵就不一样了，硬套只会被夹成另一套参数；原样不动，让用户自己挑。
-    notes.push(i18next.t('videoToolbar.modelUnavailable', { ns: 'canvas' }))
-  } else {
-    const video = useVideoStore.getState()
-    video.setModel(generation.model)
-    video.setResolution(generation.resolution)
-    if ((VIDEO_DURATIONS as readonly number[]).includes(generation.duration))
-      video.setDuration(generation.duration as VideoDuration)
-    video.setAspectRatio(generation.aspectRatio)
-    const frames = [generation.firstFrameId, generation.lastFrameId].filter(
-      (id): id is string => typeof id === 'string',
-    )
-    // 帧不齐就一张都不选：只剩尾帧时单选它，会被读成首帧。
-    if (frames.every((id) => editor.getElement(id)?.type === 'image'))
-      editor.setSelectedElements(frames)
-    else notes.push(i18next.t('videoToolbar.framesMissing', { ns: 'canvas' }))
+  const recorded = [generation?.firstFrameId, generation?.lastFrameId].filter(
+    (id): id is string => typeof id === 'string',
+  )
+  const present = recorded.filter((id) => editor.getElement(id)?.type === 'image')
+  return {
+    recorded,
+    present: present.length === recorded.length ? present : [],
+    complete: present.length === recorded.length,
   }
-  if (notes.length) toast(notes.join(' '), 'info')
+}
+
+/**
+ * 改参数重新生成一段普通生成的视频：按视频草稿里此刻的模型与档位、弹窗里的描述，
+ * 原首尾帧都还在就沿用（干净栅格化，不带标注），不齐就只按文字生成——弹窗事先写明了。
+ * 结果放在原视频右侧。返回是否受理。
+ */
+/** 所选模型接不接得住要沿用的首尾帧；接不住给出弹窗里用的说明。 */
+export function regenerateFrameRefusal(frameCount: number, model: string): string | null {
+  const option = videoModelOptions().find((one) => one.modelId === model)
+  if (!option || frameCount === 0) return null
+  if (!option.support.firstFrame)
+    return i18next.t('videoToolbar.modelNoFrames', { ns: 'canvas', model: option.label })
+  if (frameCount > 1 && !option.support.lastFrame)
+    return i18next.t('videoToolbar.modelNoLastFrame', { ns: 'canvas', model: option.label })
+  return null
+}
+
+export async function regenerateCanvasVideo(
+  editor: CanvasEditor,
+  node: CanvasVideoNode,
+  userPrompt: string,
+  options: { keepFrames?: boolean; isCurrent?: () => boolean } = {},
+): Promise<boolean> {
+  const refuse = (message: string) => {
+    toast(message)
+    return false
+  }
+  const unavailable = canvasRegenerateRefusal()
+  if (unavailable) return refuse(unavailable)
+  const draft = useVideoStore.getState().draft
+  const option = videoModelOptions().find((one) => one.modelId === draft.model)
+  if (!option) return refuse(i18next.t('error.noModel', { ns: 'video' }))
+  const prompt = userPrompt.trim()
+  if (!prompt) return refuse(i18next.t('store.emptyPrompt', { ns: 'video' }))
+  const present = options.keepFrames === false ? [] : regenerateFrames(editor, node).present
+  const frameRefusal = regenerateFrameRefusal(present.length, option.modelId)
+  if (frameRefusal) return refuse(frameRefusal)
+  const generation: VideoGenerationRecord = {
+    model: option.modelId,
+    duration: draft.duration,
+    aspectRatio: draft.aspectRatio,
+    resolution: draft.resolution,
+    ...(present[0] ? { firstFrameId: present[0] } : {}),
+    ...(present[1] ? { lastFrameId: present[1] } : {}),
+  }
+  const rejected = videoRequestRejection(
+    generation.model,
+    canvasVideoRequest(editor, generation, present.length),
+    present.length,
+  )
+  if (rejected) return refuse(videoRejectionText(rejected))
+  const tooLong = canvasVideoPromptRefusal(generation.model, prompt)
+  if (tooLong) return refuse(tooLong)
+  if (!guardAllows(generation)) return false
+  const rasterized = await Promise.all(
+    present.map((id) => {
+      const box = editor.getElementPageBounds(id)
+      return box ? rasterizeEntry(editor, { imageId: id, box, graphicIds: [] }) : null
+    }),
+  )
+  const frames = rasterized.filter((one): one is string => one !== null)
+  if (frames.length !== present.length)
+    return refuse(i18next.t('videoToolbar.framesFailed', { ns: 'canvas' }))
+  // 弹窗在栅格化期间被关掉了：用户已经放弃这次，不能再替他花钱。
+  if (options.isCurrent && !options.isCurrent()) return false
+  const [target] = computePlaceholderTargets(
+    editor,
+    editor.getElementPageBounds(node.id) ?? null,
+    1,
+  )
+  void launchCanvasVideo(editor, {
+    prompt,
+    userPrompt: prompt,
+    frames,
+    channelId: option.channelId,
+    generation,
+    target: target!,
+  })
+  return true
 }
 
 const FRAME_TIMEOUT_MS = 20_000

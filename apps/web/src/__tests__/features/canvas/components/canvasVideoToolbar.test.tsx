@@ -150,26 +150,36 @@ describe('视频节点工具条', () => {
     useTimelineEditor.getState().close()
   })
 
-  it('hides regenerate where the generate bar is not shown, but keeps it for derived clips', () => {
+  it('opens the regenerate dialog with the recorded prompt even where the agent panel replaces the generate bar', () => {
     agent.on = true
-    addVideo('plain', 0, {
-      model: 'grok-imagine-video',
-      duration: 8,
-      aspectRatio: '16:9',
-      resolution: '720p',
-    })
-    addVideo('derived', 400, {
-      model: 'grok-imagine-video',
-      duration: 5,
-      aspectRatio: '16:9',
-      resolution: '720p',
-      derivedFrom: { id: 'plain', mode: 'extend' },
-    })
+    doc.addElements([
+      {
+        id: 'plain',
+        type: 'image',
+        x: 0,
+        y: 100,
+        width: 180,
+        height: 320,
+        rotation: 0,
+        fileId: 'file-plain',
+        meta: { prompt: '标题', userPrompt: '海边奔跑的人' },
+        video: {
+          taskId: 'task-plain',
+          outputIndex: 0,
+          generation: {
+            model: 'grok-imagine-video',
+            duration: 8,
+            aspectRatio: '16:9',
+            resolution: '720p',
+          },
+        },
+      },
+    ])
     render()
     act(() => editor.setSelectedElements(['plain']))
-    expect(button('重新生成')).toBeUndefined()
-    act(() => editor.setSelectedElements(['derived']))
-    expect(button('重新生成')).toBeDefined()
+    act(() => button('重新生成')?.click())
+    const dialogPrompt = document.querySelector('textarea') as HTMLTextAreaElement | null
+    expect(dialogPrompt?.value).toBe('海边奔跑的人')
     agent.on = false
   })
 })
