@@ -18,6 +18,9 @@ vi.mock('../../../../lib/channels/videoChannels', () => ({
   ],
 }))
 
+const agent = vi.hoisted(() => ({ on: false }))
+vi.mock('../../../../features/agent/panelLayout', () => ({ agentPanelPresent: () => agent.on }))
+
 const { default: CanvasVideoToolbar } = await import(
   '../../../../features/canvas/components/CanvasVideoToolbar'
 )
@@ -145,5 +148,28 @@ describe('视频节点工具条', () => {
     act(() => button('编辑时间线')?.click())
     expect(useTimelineEditor.getState().openId).toBe('tl')
     useTimelineEditor.getState().close()
+  })
+
+  it('hides regenerate where the generate bar is not shown, but keeps it for derived clips', () => {
+    agent.on = true
+    addVideo('plain', 0, {
+      model: 'grok-imagine-video',
+      duration: 8,
+      aspectRatio: '16:9',
+      resolution: '720p',
+    })
+    addVideo('derived', 400, {
+      model: 'grok-imagine-video',
+      duration: 5,
+      aspectRatio: '16:9',
+      resolution: '720p',
+      derivedFrom: { id: 'plain', mode: 'extend' },
+    })
+    render()
+    act(() => editor.setSelectedElements(['plain']))
+    expect(button('重新生成')).toBeUndefined()
+    act(() => editor.setSelectedElements(['derived']))
+    expect(button('重新生成')).toBeDefined()
+    agent.on = false
   })
 })

@@ -15,6 +15,7 @@ import {
 } from '../../../lib/channels/videoChannels'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
+import { agentPanelPresent } from '../../agent/panelLayout'
 import { DERIVE_RESOLUTION, deriveSourceRefusal } from '../../video/lib/derive'
 import { videoDeriveLabel, videoRejectionText } from '../../video/lib/labels'
 import { useVideoStore } from '../../video/store'
@@ -136,6 +137,15 @@ export async function submitCanvasDerive(
     target: target!,
   })
   return true
+}
+
+/**
+ * 这里有没有「重新生成」可载回的地方。普通生成的视频载回的是画布生成栏，而开了智能体的部署
+ * 不渲染生成栏（输入在智能体面板里）——那里按了等于没按，所以不给这个按钮。派生片的重新生成
+ * 是再开一次续写弹窗，不依赖生成栏，照常可用。
+ */
+export function canvasRegenerateOffered(node: CanvasVideoNode): boolean {
+  return Boolean(node.video.generation?.derivedFrom) || !agentPanelPresent()
 }
 
 /** 这段视频能不能「重新生成」：部署得能出视频，生成栏才切得到视频档。 */
