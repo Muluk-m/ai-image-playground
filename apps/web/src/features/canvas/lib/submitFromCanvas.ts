@@ -25,6 +25,7 @@ import {
 } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
 import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
+import { retryCanvasVideo } from './submitVideoFromCanvas'
 
 /**
  * 标注模式的指令前缀：把「带手绘标注的参考图」翻译成「按标注改、输出干净新图」。
@@ -95,6 +96,8 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
       },
     })
     const placed = await settleGeneration(editor, placeholderId, spec.target, result)
+    // 输入图只在落图成功后释放：失败态的占位框在同一次打开里还要能原样重试。
+    if (placed) removeCanvasTask(taskId)
     // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
     if (placed) {
       void addCompletedCanvasTask({
@@ -110,7 +113,6 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
     markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
   } finally {
     notifyPrivateSubmissionSettled()
-    removeCanvasTask(taskId)
   }
 }
 
@@ -191,6 +193,7 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
  */
 export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderView): void {
   const meta = placeholder.meta
+  if (meta.video) return retryCanvasVideo(editor, placeholder)
   const activeProfile = getActiveApiProfile(useStore.getState().settings)
   const retryQuantity = Math.max(1, meta.params?.n ?? 1)
   const submissionGuard = getPrivateSubmissionGuard({

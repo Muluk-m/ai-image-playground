@@ -67,7 +67,12 @@ export async function placeImagesIntoTargets(
   editor: CanvasEditor,
   placing: readonly PlaceItem[],
   targets: readonly PlacementTarget[],
-  opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
+  opts: {
+    meta?: Record<string, string>
+    canPlace?: () => boolean
+    /** 落完选中新元素（默认）。不选时用户手上的选区不被打断。 */
+    select?: boolean
+  } = {},
 ): Promise<void> {
   const sizes = await Promise.all(placing.map((one) => getImageDimensions(one.dataUrl)))
   if (opts.canPlace && !opts.canPlace()) return
@@ -97,7 +102,7 @@ export async function placeImagesIntoTargets(
   }
   const ids = editor.placeImages(items, opts.meta)
   if (ids.length === 0) return
-  editor.setSelectedElements(ids)
+  if (opts.select !== false) editor.setSelectedElements(ids)
 
   // 镜头反馈：结果完全在视口外（用户平移去了别处 / 恢复场景）时把镜头带过去，
   // 否则生成完了用户根本不知道图落在哪。视口内可见则不动。
