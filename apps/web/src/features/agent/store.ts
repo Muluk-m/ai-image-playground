@@ -3,11 +3,12 @@ import type {
   AgentBackgroundJobView,
   AgentConversationView,
   AgentMode,
+  AgentQueuedMessageView,
   AgentThinkingDepth,
   AgentTurnEvent,
   AgentTurnReference,
 } from '@image-playground/shared'
-import { AGENT_IMAGE_MAX_N } from '@image-playground/shared'
+import { AGENT_IMAGE_MAX_N, AGENT_QUEUE_MAX_PENDING } from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -38,10 +39,12 @@ import {
   removeConversation,
   type StartTurnOutcome,
   startTurn,
+  withdrawQueuedMessage,
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
 import { bindNewAgentDraft } from './lib/drafts'
+import { addQueuedMessage, reduceMessageQueue, removeQueuedMessage } from './lib/messageQueue'
 import {
   dropUnsettledMessages,
   panelMessage,
@@ -97,6 +100,8 @@ export interface AgentState {
   reconnecting: boolean
   /** 正在跟的那一轮；中止与插话都指向它。 */
   activeTurn: AgentActiveTurnView | null
+  /** 智能体忙时发出、服务端还排着的消息，按处理顺序。 */
+  queue: AgentQueuedMessageView[]
   error: string | null
   loaded: boolean
   historyLoading: boolean
@@ -126,6 +131,8 @@ export interface AgentState {
     mode?: AgentMode,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
+  /** 撤回一条排队消息；它已经被处理了就照实说。 */
+  withdrawQueued(queueId: string): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
 }
@@ -154,6 +161,10 @@ export function setAgentJobPollIntervalForTesting(ms?: number): void {
 
 const hasPendingJobs = (messages: readonly AgentPanelMessage[]) =>
   messages.some((message) => message.kind === 'tool' && message.status === 'submitted')
+
+/** 上一轮收尾后找服务端接着开的那一轮：最多看这么多次，每次隔这么久。 */
+const QUEUE_PICKUP_ATTEMPTS = 8
+const QUEUE_PICKUP_DELAY_MS = 250
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
@@ -259,6 +270,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     turnDelivery: TurnArtifactDelivery,
     conversationId: string,
   ) => {
+    if (turnDelivery.isCurrent()) {
+      const queue = reduceMessageQueue(get().queue, event)
+      if (queue !== get().queue) set({ queue: [...queue] })
+    }
     if (turnDelivery.isCurrent())
       set((state) => {
         const panel = reduceAgentPanelEvent(state, event, { turnId, pendingUserText })
@@ -328,6 +343,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         if (turnDelivery.isCurrent()) set({ reconnecting })
       },
     })
+    let pickUp = false
     try {
       for await (const event of stream.events) {
         if (event.type === 'turnStart') turnId = event.turnId
@@ -337,6 +353,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
           startedCallback = undefined
         }
       }
+      // 这一轮收了尾，排着的下一条由服务端当场开轮：挂到那一轮上去。
+      const expected = successorExpected.delete(conversationId)
+      pickUp =
+        stream.outcome === 'ended' &&
+        turnDelivery.isCurrent() &&
+        (get().queue.length > 0 || expected)
       if (stream.outcome === 'rateLimited') {
         if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
       } else if (stream.outcome === 'gone' || stream.outcome === 'unreachable') {
@@ -351,6 +373,38 @@ export const useAgentStore = create<AgentState>((set, get) => {
       await turnDelivery.settled()
       if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
     }
+    if (pickUp) void followQueuedTurn(conversationId, turnId)
+  }
+
+  /** 忙时发出的消息刚好赶上上一轮收尾、当场开了轮：那一轮收尾后要去挂下一轮。 */
+  const successorExpected = new Set<string>()
+
+  /**
+   * 上一轮收尾后去挂服务端接着开的那一轮。它可能还差几十毫秒才登记上，所以快照里还没有新的
+   * 一轮、队里又还有消息时隔一会儿再看；队里没了、或者等不到就照快照收场。
+   */
+  const followQueuedTurn = async (conversationId: string, endedTurnId: string) => {
+    const idle = () => get().conversationId === conversationId && get().turn !== 'running'
+    for (let attempt = 0; attempt < QUEUE_PICKUP_ATTEMPTS; attempt += 1) {
+      if (!idle()) return
+      let snapshot: Awaited<ReturnType<typeof fetchMessages>>
+      try {
+        snapshot = await fetchMessages(conversationId)
+      } catch {
+        return
+      }
+      if (!idle()) return
+      const next = snapshot.activeTurn?.turnId
+      if (next && next !== endedTurnId) {
+        await openConversation(conversationId)
+        return
+      }
+      if (!snapshot.queue?.length || attempt === QUEUE_PICKUP_ATTEMPTS - 1) {
+        set({ queue: [...(snapshot.queue ?? [])] })
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, QUEUE_PICKUP_DELAY_MS))
+    }
   }
 
   /**
@@ -363,7 +417,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const same = get().conversationId === conversationId
     set({
       conversationId,
-      ...(!same ? { messages: [], turns: {} } : {}),
+      ...(!same ? { messages: [], turns: {}, queue: [] } : {}),
       error: null,
       turn: 'idle',
       stopping: false,
@@ -396,6 +450,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             conversationId: null,
             messages: [],
             turns: {},
+            queue: [],
             turn: 'idle',
             stopping: false,
             activeTurn: null,
@@ -411,7 +466,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
       else fail(CONVERSATION_UNREADABLE())
       return
     }
-    set({ historyLoading: false, historyFailed: false, ...panelStateFromHistory(state) })
+    set({
+      historyLoading: false,
+      historyFailed: false,
+      ...panelStateFromHistory(state),
+      queue: [...(state.queue ?? [])],
+    })
     void delivery.restore(get().messages)
     if (hasPendingJobs(get().messages)) watchJobs(conversationId)
     const active = state.activeTurn?.turnId ?? turnId
@@ -466,6 +526,55 @@ export const useAgentStore = create<AgentState>((set, get) => {
     }
   }
 
+  /** 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。 */
+  const currentTurnParams = () => {
+    const { params, settings } = useStore.getState()
+    const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+    return { ...toAgentTurnParams(params, model), thinkingDepth: get().thinkingDepth }
+  }
+
+  /** 智能体忙时发的话进服务端的排队列表，当前回复结束后按顺序处理。 */
+  const queueMessage = async (
+    conversationId: string,
+    active: AgentActiveTurnView | null,
+    text: string,
+    references: readonly AgentTurnReference[],
+    onAccepted: (() => void) | undefined,
+    mode: AgentMode,
+  ) => {
+    const current = () => get().conversationId === conversationId
+    try {
+      const outcome = await startTurn(conversationId, text, references, currentTurnParams(), mode)
+      if (outcome.kind === 'alreadyRunning') {
+        // 老服务端没有排队：忙时照旧是插话。
+        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, references)
+      } else if (outcome.kind === 'frames') {
+        // 上一轮刚好收尾，这句话当场开了新的一轮；这条流不在这里读，上一轮收尾后去挂它。
+        successorExpected.add(conversationId)
+        void outcome.frames.return(undefined)
+      }
+      onAccepted?.()
+      if (!current()) return
+      set((state) => ({
+        error: null,
+        ...(outcome.kind === 'queued' && outcome.body.state === 'pending'
+          ? { queue: addQueuedMessage(state.queue, outcome.body.queued) }
+          : {}),
+      }))
+    } catch (thrown) {
+      if (!current()) return
+      const code = thrown instanceof AgentRequestError ? thrown.code : undefined
+      set({
+        error:
+          code === 'queue_full'
+            ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
+            : code === 'invalid_selection'
+              ? i18next.t('error.invalidSelection', { ns: 'agent' })
+              : i18next.t('error.queueFailed', { ns: 'agent' }),
+      })
+    }
+  }
+
   let conversationListRevision = 0
   let changingProject = false
   const changeProject = async (action: () => Promise<boolean>) => {
@@ -485,6 +594,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         conversationId: project.conversationId,
         messages: [],
         turns: {},
+        queue: [],
         turn: 'idle',
         stopping: false,
         reconnecting: false,
@@ -547,6 +657,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     conversations: [],
     messages: [],
     turns: {},
+    queue: [],
     turn: 'idle',
     stopping: false,
     reconnecting: false,
@@ -640,6 +751,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         conversationId: null,
         messages: [],
         turns: {},
+        queue: [],
         error: null,
         turn: 'idle',
         stopping: false,
@@ -734,37 +846,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
       const active = get().activeTurn
       const conversationId = get().conversationId
-      if (get().turn === 'running' && active && conversationId) {
-        try {
-          const messageId = await interjectTurn(conversationId, active.turnId, trimmed, references)
-          onAccepted?.()
-          if (get().conversationId === conversationId)
-            set((state) => {
-              const message: AgentPanelMessage = {
-                kind: 'text',
-                id: messageId,
-                turnId: active.turnId,
-                role: 'user',
-                text: trimmed,
-                streaming: false,
-                ...(references.length ? { references } : {}),
-              }
-              return {
-                error: null,
-                messages: state.messages.some((one) => one.id === messageId)
-                  ? state.messages.map((one) => (one.id === messageId ? message : one))
-                  : [...state.messages, message],
-              }
-            })
-        } catch (thrown) {
-          if (get().conversationId === conversationId)
-            set({
-              error:
-                thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
-                  : i18next.t('error.interjectFailed', { ns: 'agent' }),
-            })
-        }
+      if (get().turn === 'running' && conversationId) {
+        await queueMessage(conversationId, active, trimmed, references, onAccepted, mode)
         return
       }
       if (get().turn === 'running') return
@@ -862,13 +945,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return
         }
         if (submission.cancelled) return await cancelUnsent()
-        // 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。
-        const { params, settings } = useStore.getState()
-        const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
-        const turnParams = {
-          ...toAgentTurnParams(params, model),
-          thinkingDepth: get().thinkingDepth,
-        }
+        const turnParams = currentTurnParams()
         // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
         let outcome: StartTurnOutcome
         try {
@@ -885,13 +962,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
           await turnDelivery.settled()
           return
         }
-        if (outcome.kind !== 'alreadyRunning' && sourceProject)
+        if (outcome.kind === 'frames' && sourceProject)
           void useCanvasProjectStore
             .getState()
             .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
             .catch(() => {})
         if (!turnDelivery.isCurrent()) {
-          if (outcome.kind !== 'alreadyRunning') {
+          if (outcome.kind === 'queued') onAccepted?.()
+          if (outcome.kind === 'frames') {
             onAccepted?.()
             await follow(
               target,
@@ -903,6 +981,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
               },
             )
           } else await turnDelivery.settled()
+          return
+        }
+        if (outcome.kind === 'queued') {
+          // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。
+          onAccepted?.()
+          await turnDelivery.settled()
+          set({ stopping: false })
+          await openConversation(target, outcome.body.turnId)
           return
         }
         if (outcome.kind === 'alreadyRunning') {
@@ -937,6 +1023,26 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       set({ stopping: true, error: null })
       await requestAbort(conversationId, active.turnId)
+    },
+
+    async withdrawQueued(queueId) {
+      const conversationId = get().conversationId
+      if (!conversationId) return
+      const current = () => get().conversationId === conversationId
+      try {
+        const result = await withdrawQueuedMessage(conversationId, queueId)
+        if (!current()) return
+        // 三种结局都意味着它不再排着：撤回了、被处理了、或者本来就没有。
+        set((state) => ({
+          queue: removeQueuedMessage(state.queue, queueId),
+          error:
+            result === 'already_consumed'
+              ? i18next.t('error.queueAlreadyConsumed', { ns: 'agent' })
+              : null,
+        }))
+      } catch {
+        if (current()) set({ error: i18next.t('error.queueWithdrawFailed', { ns: 'agent' }) })
+      }
     },
 
     async placeOnCanvas(messageId) {

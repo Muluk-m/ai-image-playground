@@ -381,6 +381,68 @@ export interface AgentInterjectionEvent {
   readonly text: string
 }
 
+/**
+ * 排队消息：智能体忙时用户发出、存在服务端会话收件箱里、还没被处理的那条话。
+ * 当前回复可以结束时按顺序取，每轮取一条。只给界面看的那几项，参考图字节不下发。
+ */
+export interface AgentQueuedMessageView {
+  /** 收件箱记录 id；被处理后它就是那条用户消息的 id。 */
+  readonly id: string
+  /** 客户端生成的消息 id，同一条消息网络重发时据此认出来，不排第二次。 */
+  readonly clientMessageId: string
+  readonly text: string
+  /** 附带了几张参考图。 */
+  readonly referenceCount: number
+  readonly createdAt: number
+}
+
+/** 每个会话最多同时排着这么多条用户消息；再发就拒收并提示。 */
+export const AGENT_QUEUE_MAX_PENDING = 10
+
+/** 收件箱记录此刻的状态：待处理、已被某一轮消费、已撤回。 */
+export type AgentQueuedMessageState = 'pending' | 'consumed' | 'cancelled'
+
+/**
+ * 撤回排队消息的结局，三者只有一个成立：撤回成功（再撤一次也还是它）、已经被一轮处理了、
+ * 没有这条。撤回与处理由同一条记录上的原子更新裁决，跨设备并发也不会两边都算数。
+ */
+export type AgentQueueWithdrawResult = 'cancelled' | 'already_consumed' | 'not_found'
+
+/**
+ * 发消息被收进收件箱时的 202 响应体。会话空闲、这条消息当场开了一轮时不走它，直接回事件流。
+ * `turnId`：`pending` 时是正在跑的那一轮，`consumed` 时是处理了它的那一轮。
+ */
+export interface AgentMessageQueuedBody {
+  readonly queued: AgentQueuedMessageView
+  readonly state: AgentQueuedMessageState
+  readonly turnId?: string
+}
+
+/** 满额时的 409 响应体。 */
+export interface AgentQueueFullBody {
+  readonly error: 'queue_full'
+  readonly limit: number
+}
+
+/** 有一条消息排进了队。 */
+export interface AgentMessageQueuedEvent {
+  readonly type: 'messageQueued'
+  readonly message: AgentQueuedMessageView
+}
+
+/** 一条排队消息被撤回了。 */
+export interface AgentQueuedMessageWithdrawnEvent {
+  readonly type: 'queuedMessageWithdrawn'
+  readonly queueId: string
+}
+
+/** 一条排队消息被这一轮取走处理；它紧跟在那一轮的 `turnStart` 之后。 */
+export interface AgentQueuedMessageConsumedEvent {
+  readonly type: 'queuedMessageConsumed'
+  readonly queueId: string
+  readonly turnId: string
+}
+
 /** 上游按 `stream_options.include_usage` 在末帧回的用量。中转网关不透传时是 null。 */
 export interface AgentTurnUsage {
   /** Total input, including the separately reported cached portion. */
@@ -415,6 +477,9 @@ export type AgentTurnEvent =
   | AgentToolEndEvent
   | AgentClarificationEvent
   | AgentInterjectionEvent
+  | AgentMessageQueuedEvent
+  | AgentQueuedMessageWithdrawnEvent
+  | AgentQueuedMessageConsumedEvent
   | AgentTurnEndEvent
 
 /** 翻历史时每轮页脚要的那几项。 */
@@ -441,6 +506,8 @@ export interface AgentConversationSnapshot {
   readonly turns: readonly AgentTurnSummaryView[]
   readonly activeTurn: AgentActiveTurnView | null
   readonly cursor?: number
+  /** 按处理顺序排着的消息；老服务端没有这一项。 */
+  readonly queue?: readonly AgentQueuedMessageView[]
 }
 
 /**

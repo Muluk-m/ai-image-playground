@@ -370,7 +370,7 @@ describe('插话', () => {
 })
 
 describe('并发', () => {
-  it('同一个会话已经有轮在跑时不再起第二轮，409 带上在跑的那一轮', async () => {
+  it('同一个会话已经有轮在跑时不再起第二轮，这句话排进队、带上在跑的那一轮', async () => {
     const conversationId = await startConversation()
     const live = await startTurn(conversationId, '你好')
     upstream.push('好的')
@@ -380,9 +380,14 @@ describe('并发', () => {
 
     const second = await startTurn(conversationId, '再来一句')
 
-    expect(second.status).toBe(409)
-    // 另一个标签页据此转去续播这一轮，而不是把 409 当失败报错。
-    expect(await second.json()).toEqual({ error: 'turn_already_running', turnId })
+    expect(second.status).toBe(202)
+    // 另一个标签页据此挂回这一轮，而不是把它当失败报错；它那句话排在这一轮之后。
+    expect(await second.json()).toMatchObject({
+      state: 'pending',
+      turnId,
+      queued: { text: '再来一句' },
+    })
+    await db.delete(schema.agent_inbox)
     upstream.finish()
   })
 })

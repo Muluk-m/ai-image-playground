@@ -4,8 +4,11 @@ import type {
   AgentBackgroundJobView,
   AgentConversationView,
   AgentFrame,
+  AgentMessageQueuedBody,
   AgentMessageView,
   AgentMode,
+  AgentQueuedMessageView,
+  AgentQueueWithdrawResult,
   AgentSkillSummary,
   AgentTurnAlreadyRunningBody,
   AgentTurnEvent,
@@ -99,6 +102,8 @@ export interface AgentConversationState {
   readonly turns: AgentTurnSummaryView[]
   readonly activeTurn: AgentActiveTurnView | null
   readonly cursor?: number
+  /** 还排着的消息；老服务端没有这一项。 */
+  readonly queue?: readonly AgentQueuedMessageView[]
 }
 
 export async function fetchMessages(
@@ -171,6 +176,8 @@ async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
 export type StartTurnOutcome =
   | { readonly kind: 'frames'; readonly frames: AsyncGenerator<AgentFrame> }
   | { readonly kind: 'alreadyRunning'; readonly turnId: string }
+  /** 会话忙，这句话进了服务端的排队列表；当前回复结束后按顺序处理。 */
+  | { readonly kind: 'queued'; readonly body: AgentMessageQueuedBody }
 
 /** 409 没带轮标识时按普通失败处理：帧生成器会在第一次读取时抛 `AgentRequestError`。 */
 async function alreadyRunningTurnId(response: Response): Promise<string | null> {
@@ -203,21 +210,33 @@ export async function startTurn(
   params?: AgentTurnParams,
   mode?: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
+  /** 这条消息的客户端 id。网络断了重发同一个 id，服务端认得出是同一条，不会排两次。 */
+  clientMessageId: string = crypto.randomUUID(),
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
-  const response = await fetcher(
-    url(`/conversations/${conversationId}/turns`),
-    jsonInit({
-      deviceId: getDeviceId(),
-      text,
-      ...(references.length ? { references } : {}),
-      // 图片是服务端的默认；只有视频才值得占一个字段，老服务端也认得出这是新东西。
-      ...(mode && mode !== 'image' ? { mode } : {}),
-      ...(params ? { params } : {}),
-    }),
-  )
+  const init = jsonInit({
+    deviceId: getDeviceId(),
+    text,
+    clientMessageId,
+    ...(references.length ? { references } : {}),
+    // 图片是服务端的默认；只有视频才值得占一个字段，老服务端也认得出这是新东西。
+    ...(mode && mode !== 'image' ? { mode } : {}),
+    ...(params ? { params } : {}),
+  })
+  const path = url(`/conversations/${conversationId}/turns`)
+  let response: Response
+  try {
+    response = await fetcher(path, init)
+  } catch {
+    // 请求可能已经到了服务端、只是回程断了：同一个 id 再发一次，服务端按它去重。
+    response = await fetcher(path, init)
+  }
+  if (response.status === 202) {
+    return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+  }
   if (response.status === 409) {
-    const turnId = await alreadyRunningTurnId(response)
+    // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
+    const turnId = await alreadyRunningTurnId(response.clone())
     if (turnId) return { kind: 'alreadyRunning', turnId }
   }
   if (!response.ok || !response.body) throw await requestError(response)
@@ -402,6 +421,23 @@ export async function abortTurn(
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
+}
+
+/** 撤回一条排队消息。三种结局只有一个成立，见 `AgentQueueWithdrawResult`。 */
+export async function withdrawQueuedMessage(
+  conversationId: string,
+  queueId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentQueueWithdrawResult> {
+  const response = await fetcher(
+    url(`/conversations/${conversationId}/queue/${queueId}/withdraw`),
+    {
+      ...jsonInit({ deviceId: getDeviceId() }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return ((await response.json()) as { result: AgentQueueWithdrawResult }).result
 }
 
 export async function interjectTurn(

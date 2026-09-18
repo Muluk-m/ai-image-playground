@@ -109,6 +109,7 @@ beforeEach(async () => {
     conversationId: null,
     messages: [],
     turns: {},
+    queue: [],
     turn: 'idle',
     reconnecting: false,
     error: null,
@@ -1138,5 +1139,76 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.innerHTML).toBe('')
+  })
+
+  describe('排队列表', () => {
+    const queued = (id: string, text: string, referenceCount = 0) => ({
+      id,
+      clientMessageId: `client-${id}`,
+      text,
+      referenceCount,
+      createdAt: 1,
+    })
+
+    it('没有排队消息时不占位置', () => {
+      render()
+      expect(host.querySelector('section[aria-label^="排队中"]')).toBeNull()
+    })
+
+    it('在输入框上方按顺序列出排队消息，忙时发送按钮写着加入排队', () => {
+      useAgentStore.setState({
+        conversationId: 'conversation-1',
+        turn: 'running',
+        activeTurn: { turnId: 'turn-1' },
+        queue: [queued('queue-1', '再加一只狗', 2), queued('queue-2', '换成蓝色背景')],
+      })
+      render()
+
+      const list = host.querySelector('section[aria-label="排队中 2 条"]')!
+      expect(list).not.toBeNull()
+      expect(texts('section[aria-label="排队中 2 条"] li')).toEqual([
+        '再加一只狗2 张图',
+        '换成蓝色背景',
+      ])
+      // 列表在输入框之前：读的顺序就是处理的顺序，也就在输入框正上方。
+      const composer = host.querySelector('.studio-agent-composer')!
+      expect(list.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(host.querySelector('button[aria-label="加入排队"]')).not.toBeNull()
+    })
+
+    it('点撤回向服务端撤回那一条，成功后从列表拿掉', async () => {
+      const requests: string[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input)
+          if (init?.method === 'POST' && url.includes('/withdraw')) {
+            requests.push(url)
+            return Response.json({ result: 'cancelled' })
+          }
+          return Response.json({ skills: [] })
+        }),
+      )
+      useAgentStore.setState({
+        conversationId: 'conversation-1',
+        turn: 'running',
+        activeTurn: { turnId: 'turn-1' },
+        queue: [queued('queue-1', '再加一只狗'), queued('queue-2', '换成蓝色背景')],
+      })
+      render()
+
+      const withdraw = host.querySelector<HTMLButtonElement>(
+        'button[aria-label="撤回这条排队消息：换成蓝色背景"]',
+      )!
+      await act(async () => {
+        withdraw.click()
+      })
+      await settle()
+
+      expect(requests).toEqual([
+        'http://bff.test/api/agent/conversations/conversation-1/queue/queue-2/withdraw',
+      ])
+      expect(texts('section[aria-label^="排队中"] li')).toEqual(['再加一只狗'])
+    })
   })
 })
