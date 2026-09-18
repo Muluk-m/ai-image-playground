@@ -211,6 +211,13 @@
       "when": 1789700000000,
       "tag": "0030_ops_more",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789720000000,
+      "tag": "0031_agent_tool_calls",
+      "breakpoints": true
     }
   ]
 }

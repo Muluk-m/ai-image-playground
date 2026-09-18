@@ -3,6 +3,7 @@ import type {
   AgentMode,
   AgentSkillOutcome,
   AgentToolArtifact,
+  AgentToolCallSnapshot,
   AgentToolName,
   AgentToolStage,
   AgentTurnParams,
@@ -65,6 +66,8 @@ export interface AgentToolCall {
   readonly anchor?: string
   /** 送进上游的完整提示词，结果卡展开给用户看；缺席即这个工具没有提示词可给。 */
   readonly prompt?: string
+  /** 参数里引用的图，按模型词汇写（可能是 `image 2`），参数快照里翻成真 id。 */
+  readonly references?: readonly string[]
 }
 
 export interface AgentToolDefinition<P extends TSchema = TSchema> {
@@ -98,6 +101,12 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
   /** 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。 */
   available?(mode: AgentMode): boolean
   /**
+   * 提交生成任务的工具才有：这一轮的参数下要用哪个模型。有它，这次调用起跑时就记一份
+   * 参数快照（{@link AgentToolCallSnapshot}），失败记录与重试都从那里取参数。
+   * 解析不出来就返回 undefined，快照照记，只是没有模型。
+   */
+  target?(params: AgentTurnParams | undefined): AgentToolCallSnapshot['target']
+  /**
    * 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。
    * 带上这一轮的创作类型：同一个名字在两个 mode 下未必指同一件事，起跑这一行标签要按
    * 这一轮看得见的那份清单写。
@@ -127,5 +136,11 @@ export interface AgentToolSpec {
   declaration(): AgentToolDeclaration
   available?(mode: AgentMode): boolean
   call(args: unknown, mode: AgentMode): AgentToolCall
+  /** 起跑时的参数快照，图片 id 由调用方翻译；缺席即这个工具不提交生成任务，不记快照。 */
+  snapshot?(
+    args: unknown,
+    mode: AgentMode,
+    params: AgentTurnParams | undefined,
+  ): Omit<AgentToolCallSnapshot, 'imageIds'>
   create(context: AgentToolContext): AgentTool
 }

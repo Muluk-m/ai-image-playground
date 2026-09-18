@@ -36,6 +36,12 @@
     "place": "Add to canvas",
     "viewPrompt": "View prompt"
   },
+  "toolFailure": {
+    "recharge": "Top up",
+    "login": "Sign in",
+    "reprocess": "Ask the assistant to redo it",
+    "reprocessMessage": "\"{{title}}\" didn't finish: {{reason}}. Please take a different approach and redo it."
+  },
   "cost": {
     "duration": "Took {{duration}}",
     "free": "Free turn, no credits used",

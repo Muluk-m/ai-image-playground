@@ -2,6 +2,7 @@ import type {
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
+  AgentToolCallSnapshot,
   AgentTurnCost,
   AgentTurnEvent,
   AgentTurnStopReason,
@@ -300,6 +301,30 @@ export const agent_messages = pgTable(
     uniqueIndex('idx_agent_messages_conversation_seq').on(t.conversation_id, t.seq),
     index('idx_agent_messages_turn').on(t.conversation_id, t.turn_id),
     check('agent_messages_role_check', sql`${t.role} IN ('user', 'assistant')`),
+  ],
+)
+
+/**
+ * 工具调用起跑那一刻模型选定的参数，一次调用一行，起跑就落库。结果卡要等工具跑完才写进
+ * `agent_messages`，事件日志又有保留窗口；轮在工具半截丢了（实例崩溃），续跑与重试只能从这里
+ * 找回当时的参数。`message_id` 就是这次调用那张结果卡的消息 id。
+ */
+export const agent_tool_calls = pgTable(
+  'agent_tool_calls',
+  {
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    message_id: text('message_id').notNull(),
+    turn_id: text('turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    tool_name: text('tool_name').notNull(),
+    snapshot: bunJsonb('snapshot').$type<AgentToolCallSnapshot>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversation_id, t.message_id] }),
+    index('idx_agent_tool_calls_turn').on(t.conversation_id, t.turn_id),
   ],
 )
 

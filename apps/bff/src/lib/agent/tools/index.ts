@@ -1,5 +1,10 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { AgentMode, AgentToolName } from '@image-playground/shared'
+import type {
+  AgentMode,
+  AgentToolErrorCode,
+  AgentToolName,
+  AgentTurnParams,
+} from '@image-playground/shared'
 import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
 import {
@@ -9,6 +14,7 @@ import {
   toolResultBlock,
 } from './adapter'
 import { editImage } from './editImage'
+import type { ToolFailureLog } from './errors'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
@@ -17,6 +23,7 @@ import type { AgentToolContext, AgentToolDeclaration, AgentToolSpec } from './ty
 
 export type { AgentToolOutcome, AgentToolStart } from './adapter'
 export { agentToolStage } from './adapter'
+export { createToolFailureLog, type ToolFailureLog } from './errors'
 export type { AgentToolContext, AgentToolDeclaration, AgentToolDetails } from './types'
 
 const TOOLS: readonly AgentToolSpec[] = [
@@ -54,17 +61,24 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  * 这一轮注册给模型的整份工具清单：注册表里此刻可用的那些，加上澄清工具——它不出工具卡，
  * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
  */
-export function agentTurnTools(context: AgentToolContext): AgentTool[] {
+export function agentTurnTools(context: AgentToolContext, failures?: ToolFailureLog): AgentTool[] {
   return [
     ...present(context.mode).map((spec) => {
       const tool = spec.create(context)
-      if (!context.assertExecution) return tool
       const execute = tool.execute
       return {
         ...tool,
         execute: async (...args: Parameters<typeof execute>) => {
-          await context.assertExecution?.()
-          return execute(...args)
+          const [toolCallId, , signal] = args
+          failures?.started(toolCallId)
+          try {
+            await context.assertExecution?.()
+            return await execute(...args)
+          } catch (thrown) {
+            // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
+            failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
+            throw thrown
+          }
         },
       }
     }),
@@ -101,9 +115,13 @@ export function agentToolStart(
   toolCallId: string,
   args: unknown,
   images: AgentImageSource,
+  params?: AgentTurnParams,
 ): AgentToolStart {
-  const call = find(toolName)?.call(args, mode)
+  const spec = find(toolName)
+  const call = spec?.call(args, mode)
   const anchorObjectId = call?.anchor ? images.identify(call.anchor) : undefined
+  const snapshot = spec?.snapshot?.(args, mode, params)
+  const imageIds = call?.references?.map((reference) => images.identify(reference))
   return {
     toolCallId,
     toolName,
@@ -111,6 +129,7 @@ export function agentToolStart(
     ...(call?.prompt ? { prompt: call.prompt } : {}),
     ...(call?.outputCount ? { outputCount: call.outputCount } : {}),
     ...(anchorObjectId ? { anchorObjectId } : {}),
+    ...(snapshot ? { snapshot: { ...snapshot, ...(imageIds?.length ? { imageIds } : {}) } } : {}),
   }
 }
 
@@ -118,10 +137,10 @@ export function agentToolStart(
 export function agentToolEnd(
   start: AgentToolStart,
   result: unknown,
-  isError: boolean,
+  failure: AgentToolErrorCode | null,
 ): AgentToolOutcome {
   return {
-    block: toolResultBlock(start, result, isError),
-    abortsTurn: isError && find(start.toolName)?.onError === 'abort',
+    block: toolResultBlock(start, result, failure),
+    abortsTurn: failure !== null && find(start.toolName)?.onError === 'abort',
   }
 }

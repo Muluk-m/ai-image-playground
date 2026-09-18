@@ -1,6 +1,7 @@
 import type {
   AgentSkillOutcome,
   AgentToolArtifact,
+  AgentToolErrorCode,
   AgentToolName,
   AgentToolStage,
   AgentToolStatus,
@@ -36,7 +37,10 @@ export interface AgentToolMessage {
   readonly status: AgentToolStatus | 'running'
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
+  /** 服务端的失败说明；界面有错误码时不显示它（ADR 0006），旧记录没有码才退回它。 */
   readonly message?: string
+  /** 失败的分类，界面按它出文案与出路。旧记录与认不出的码都缺席。 */
+  readonly errorCode?: AgentToolErrorCode
   /** 产出贴着这个画布对象放；手动放入时也照这个位置。 */
   readonly anchorObjectId?: string
   /** 读取技能这一步读到了什么；缺席即还没跑完，或者这条不是读技能。 */

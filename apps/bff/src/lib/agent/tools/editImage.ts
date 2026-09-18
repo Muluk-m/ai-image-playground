@@ -3,8 +3,9 @@ import { Type } from 'typebox'
 import { requireAgentImages } from '../images'
 import { prepareMaskedEdit } from '../masked-edit'
 import { defineAgentTool } from './adapter'
+import { AgentToolError } from './errors'
 import { agentImageCount, imageCountParameter } from './queueParams'
-import { runQueueTask } from './queueTask'
+import { resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
 const MAX_REFERENCES = 4
@@ -77,6 +78,7 @@ export const editImage = defineAgentTool({
   parameters,
   // 模型可以换一个图片 id 重试，所以拿不到图不该把整轮拖垮。
   onError: 'continue',
+  target: (params) => resolveAgentModel('image', params?.model),
   call({ prompt, imageIds, selectionBindings, n }) {
     const written = typeof prompt === 'string' ? prompt : undefined
     // 第一张参考图就是被改的那张，产出贴着它放——与执行时的 `anchorObjectId` 取同一项。
@@ -90,18 +92,24 @@ export const editImage = defineAgentTool({
       outputCount: agentImageCount({ n }),
       ...(typeof first === 'string' && first ? { anchor: first } : {}),
       ...(written ? { prompt: written } : {}),
+      ...(Array.isArray(imageIds)
+        ? { references: imageIds.filter((id): id is string => typeof id === 'string') }
+        : {}),
     }
   },
   execute(context) {
     const originalAuthorization = context.authorization?.().instructions
     return async (toolCallId, params, signal, onUpdate) => {
       const snapshot = context.authorization?.()
+      // 只有明确的参数关卡（图片 id、选区绑定、授权原文）拦下的才算参数不成立；读库、读对象存储、
+      // 解码出的错不是模型的参数问题，照旧落进未分类。
       const images = await requireAgentImages(context.images, params.imageIds)
       if (
         (context.maskedEditPlan?.protected || context.images.masked) &&
         !images.some((image) => image.maskDataUrl)
       ) {
-        throw new Error(
+        throw new AgentToolError(
+          'invalid_params',
           '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
         )
       }
@@ -111,8 +119,9 @@ export const editImage = defineAgentTool({
         snapshot?.instructions ?? '',
         params.requestQuote,
       )
-      if (signal?.aborted || snapshot !== context.authorization?.())
-        throw new Error('用户原文已更新，请按最新原文核对后执行')
+      if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
+      if (snapshot !== context.authorization?.())
+        throw new AgentToolError('invalid_params', '用户原文已更新，请按最新原文核对后执行')
       return runQueueTask(
         context,
         {

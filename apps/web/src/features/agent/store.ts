@@ -168,6 +168,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     pendingUserText: string | null,
     turnId: string,
     turnDelivery: TurnArtifactDelivery,
+    conversationId: string,
   ) => {
     if (turnDelivery.isCurrent())
       set((state) => {
@@ -187,6 +188,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         count: Math.min(AGENT_IMAGE_MAX_N, event.outputCount),
         media: event.toolName === 'generateVideo' ? 'video' : 'image',
         title: event.title,
+        conversationId,
         ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
       })
     }
@@ -195,7 +197,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const card = panelMessage(event.messageId, turnId, 'assistant', [
         { ...event, type: 'toolResult' },
       ])
-      if (event.status === 'failed') turnDelivery.failed(event.messageId, event.message)
+      if (event.status === 'failed' && card.kind === 'tool')
+        turnDelivery.failed(event.messageId, event.message, card.errorCode)
       else if (card.kind === 'tool' && card.artifacts?.length) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }
@@ -229,7 +232,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     try {
       for await (const event of stream.events) {
         if (event.type === 'turnStart') turnId = event.turnId
-        apply(event, pendingUserText, turnId, turnDelivery)
+        apply(event, pendingUserText, turnId, turnDelivery, conversationId)
         if (event.type === 'turnStart') {
           await startedCallback?.(turnId)
           startedCallback = undefined

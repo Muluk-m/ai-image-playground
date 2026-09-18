@@ -17,6 +17,7 @@ export const EXPECTED_TABLES = [
   'agent_model_calls',
   'agent_turn_events',
   'agent_turns',
+  'agent_tool_calls',
   'canvas_projects',
   'project_generation_outputs',
   'daily_quota',
@@ -57,6 +58,8 @@ export const EXPECTED_INDEXES = [
   'agent_messages_conversation_id_id_pk',
   'agent_turn_events_conversation_id_seq_pk',
   'agent_turns_conversation_id_turn_id_pk',
+  'agent_tool_calls_conversation_id_message_id_pk',
+  'idx_agent_tool_calls_turn',
   'canvas_projects_pkey',
   'project_generation_outputs_pkey',
   'idx_project_generation_objects',
@@ -104,7 +107,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 30
+const EXPECTED_MIGRATION_COUNT = 31
 
 export interface SchemaVerificationResult {
   tables: number

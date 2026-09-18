@@ -15,6 +15,7 @@ import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
 import { toModelImageDataUrl } from './modelImage'
+import { AgentToolError } from './tools/errors'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
 
@@ -50,7 +51,8 @@ export async function requireAgentImages(
   return resolved.map((image, at) => {
     if (!image) {
       const available = source.references.map((reference) => reference.imageId).join('、')
-      throw new Error(
+      throw new AgentToolError(
+        'invalid_params',
         `图片 ${imageIds[at]} 不可用。${available ? `可用参考图 id：${available}；请核对后重试。` : '当前会话没有可用参考图。'}`,
       )
     }

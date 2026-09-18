@@ -36,6 +36,12 @@
     "place": "放入画布",
     "viewPrompt": "查看提示词"
   },
+  "toolFailure": {
+    "recharge": "去充值",
+    "login": "去登录",
+    "reprocess": "让助手重新处理",
+    "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。"
+  },
   "cost": {
     "duration": "本轮耗时 {{duration}}",
     "free": "本轮免费，未扣积分",

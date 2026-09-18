@@ -9,7 +9,7 @@ import type {
   AgentTurnEvent,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
-import { agentTextFromBlocks } from '@image-playground/shared'
+import { agentTextFromBlocks, isAgentToolErrorCode } from '@image-playground/shared'
 import type {
   AgentClarificationMessage,
   AgentPanelMessage,
@@ -57,6 +57,8 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
     ...(block.skill ? { skill: block.skill } : {}),
     ...(block.message ? { message: block.message } : {}),
+    // 认不出的码（更新的服务端）当没有码：界面退回旧样子，而不是给一个不存在的出路。
+    ...(isAgentToolErrorCode(block.errorCode) ? { errorCode: block.errorCode } : {}),
   }
 }
 

@@ -1,5 +1,6 @@
 import type { ResolvedAgentImage } from './images'
 import { type ImageSelection, imageSelection } from './selection-preview'
+import { AgentToolError } from './tools/errors'
 
 export interface SelectionBinding {
   readonly imageId: string
@@ -17,7 +18,8 @@ export async function prepareMaskedEdit(
   const selections: (ImageSelection | undefined)[] = []
   for (const image of images) selections.push(await imageSelection(image))
   if (!selections.some(Boolean)) return undefined
-  if (!authorizationText.trim()) throw new Error('缺少用户原文，请重新说明要改哪里')
+  if (!authorizationText.trim())
+    throw new AgentToolError('invalid_params', '缺少用户原文，请重新说明要改哪里')
   const expected = images.flatMap((image, index) =>
     selections[index] ? [{ imageId: image.imageId, selectionId: selections[index]!.id }] : [],
   )
@@ -31,12 +33,13 @@ export async function prepareMaskedEdit(
         ).length !== 1,
     )
   ) {
-    throw new Error(
+    throw new AgentToolError(
+      'invalid_params',
       `选区绑定缺失或已过期。请核对目标与参考角色，使用当前选区绑定：${JSON.stringify(expected)}。看不清目标或意图时先澄清，不要移除遮罩重试。`,
     )
   }
   if (requestQuote && !authorizationText.includes(requestQuote))
-    throw new Error('当前操作需对应用户原始要求，不能新增未授权的修改')
+    throw new AgentToolError('invalid_params', '当前操作需对应用户原始要求，不能新增未授权的修改')
   const mapping = images.map((image, index) => {
     const selection = selections[index]
     const objects = bindings.find((binding) => binding.imageId === image.imageId)?.objects

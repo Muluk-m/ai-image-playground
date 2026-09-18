@@ -34,7 +34,7 @@ export function createAgentCanvasSink(
         : 'unavailable'
     },
 
-    async reserve({ count, anchorObjectId, title, messageId, media }) {
+    async reserve({ count, anchorObjectId, title, messageId, conversationId, media }) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0 || (cloud?.enabled() && media !== 'video')) return []
       if (messageId) {
@@ -56,6 +56,7 @@ export function createAgentCanvasSink(
               prompt: title ?? '',
               agent: true,
               agentMessageId: messageId,
+              ...(conversationId ? { agentConversationId: conversationId } : {}),
             },
             { history: false },
           ),
@@ -69,8 +70,16 @@ export function createAgentCanvasSink(
       for (const id of placeholderIds) editor.deleteElement(id, { history: false })
     },
 
-    markFailed(placeholderIds, message) {
-      for (const id of placeholderIds) markPlaceholderStatus(editor, id, 'error', message)
+    markFailed(placeholderIds, message, errorCode) {
+      for (const id of placeholderIds) {
+        if (errorCode)
+          editor.updatePlaceholder(id, {
+            status: 'error',
+            message,
+            meta: { agentErrorCode: errorCode },
+          })
+        else markPlaceholderStatus(editor, id, 'error', message)
+      }
     },
 
     async place(artifacts, options) {

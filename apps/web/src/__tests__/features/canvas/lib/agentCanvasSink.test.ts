@@ -271,6 +271,22 @@ describe('工具起跑占位', () => {
       message: '上游拒绝了这张图',
     })
   })
+
+  it('带错误码的失败占位把码记在占位框上，刷新恢复后仍在', async () => {
+    const [id] = await sink.reserve({ count: 1, messageId: 'tool-credits' })
+
+    sink.markFailed([id!], '积分不够', 'insufficient_credits')
+
+    expect(editor.getPlaceholder(id!)).toMatchObject({
+      status: 'error',
+      meta: { agent: true, agentErrorCode: 'insufficient_credits' },
+    })
+    const restored = new CanvasDoc()
+    restored.restore([...doc.elements], doc.files)
+    expect(new CanvasEditor(restored).getPlaceholder(id!)?.meta.agentErrorCode).toBe(
+      'insufficient_credits',
+    )
+  })
 })
 
 it('重放已失败工具时复用原占位，刷新恢复后仍然幂等', async () => {

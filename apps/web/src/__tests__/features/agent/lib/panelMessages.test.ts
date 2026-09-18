@@ -238,6 +238,26 @@ describe('历史与直播同源', () => {
     })
   })
 
+  it('失败卡带上错误码，历史与直播同一份；认不出的码当没有码', () => {
+    const coded: AgentToolResultBlock = { ...FAILED, errorCode: 'insufficient_credits' }
+    const fromHistory = panelStateFromHistory({
+      messages: [stored('tool-9', [coded])],
+      turns: [],
+    }).messages[0]
+    const fromLive = reduceAgentPanelEvent(EMPTY, toolEnd(coded, 'tool-9'), {
+      turnId: TURN,
+      pendingUserText: null,
+    }).messages[0]
+    expect(fromHistory).toMatchObject({ status: 'failed', errorCode: 'insufficient_credits' })
+    expect(fromLive).toEqual(fromHistory)
+
+    const future = { ...FAILED, errorCode: 'brand_new_code' } as unknown as AgentToolResultBlock
+    const unknown = panelStateFromHistory({ messages: [stored('tool-9', [future])], turns: [] })
+      .messages[0]
+    expect(unknown).not.toHaveProperty('errorCode')
+    expect(unknown).toMatchObject({ status: 'failed', message: FAILED.message })
+  })
+
   it('失败的一轮也同源：撤掉半截之后，与后端落库的那几条归约出同一份面板', () => {
     const live = replay(FAILED_LIVE, USER_TEXT)
 
