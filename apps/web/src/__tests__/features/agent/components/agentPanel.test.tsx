@@ -776,6 +776,39 @@ describe('AgentPanel', () => {
     expect(texts('button')).not.toContain('其他…')
   })
 
+  it('被后一张澄清顶掉、却没有回答可折叠的澄清，仍标「已回答」并锁住选项', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: 'turn-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画'],
+        },
+        {
+          kind: 'clarification',
+          id: 'clarify-2',
+          turnId: 'turn-1',
+          question: '要什么比例？',
+          options: ['方形', '竖版'],
+        },
+      ],
+    })
+    render()
+
+    expect(host.textContent).toContain('要哪种风格？')
+    expect(host.textContent).toContain('已回答')
+    const option = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '扁平插画',
+    ) as HTMLButtonElement
+    expect(option.disabled).toBe(true)
+    const next = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '竖版',
+    ) as HTMLButtonElement
+    expect(next.disabled).toBe(false)
+  })
+
   it('断线续播时顶部出一条细提示，接上后消失', () => {
     useAgentStore.setState({ turn: 'running', reconnecting: true })
     render()

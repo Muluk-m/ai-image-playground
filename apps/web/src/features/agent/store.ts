@@ -356,6 +356,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             set({
               turn: 'idle',
               stopping: false,
+              reconnecting: false,
               activeTurn: null,
               error: null,
               ...panelStateFromHistory(history),
@@ -392,6 +393,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         turns: {},
         turn: 'idle',
         stopping: false,
+        reconnecting: false,
         activeTurn: null,
         error: null,
         historyFailed: false,
@@ -661,9 +663,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const firstTurn = get().messages.length === 0
       // 敲下回车这一刻消息就上屏，不等服务端：起轮要过网络，空着几秒像没反应。
       pendingSeq += 1
+      // 旧跟随者被重置后发不出它收尾的「已接上」，这里不清，新轮一开场就挂着重连提示。
       set((state) => ({
         turn: 'running',
         stopping: false,
+        reconnecting: false,
         error: null,
         activeTurn: null,
         messages: [

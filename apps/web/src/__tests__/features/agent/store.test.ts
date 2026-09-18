@@ -247,6 +247,25 @@ describe('一轮对话', () => {
     expect(state().turn).toBe('idle')
   })
 
+  it('断线中途被重置的旧轮留下的重连标记，不会挂到下一轮上', async () => {
+    // 旧跟随者被重置后它的收尾不再写回，面板上残留着 reconnecting=true。
+    useAgentStore.setState({ reconnecting: true })
+    let finish!: (response: Response) => void
+    turnResponse = () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+
+    const sending = state().send('把背景换成浅木色')
+    expect(state().turn).toBe('running')
+    expect(state().reconnecting).toBe(false)
+
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    finish(turnStream(TURN_START, TURN_END))
+    await sending
+    expect(state().reconnecting).toBe(false)
+  })
+
   it('空白消息不发', async () => {
     await state().send('   ')
 
@@ -402,6 +421,18 @@ describe('发送反馈', () => {
     expect(state().turn).toBe('idle')
     expect(state().stopping).toBe(false)
     expect(state().error).toBeNull()
+  })
+
+  it('中止遇到已结束的轮时一并撤掉重连提示', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      reconnecting: true,
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => Response.json({ error: 'turn_not_found' }, { status: 404 })
+    await state().abort()
+    expect(state().reconnecting).toBe(false)
   })
 
   it('发送响应尚未到达时记住中止，收到轮标识后立即中止该轮', async () => {
