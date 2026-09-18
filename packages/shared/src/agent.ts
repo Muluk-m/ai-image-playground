@@ -243,7 +243,21 @@ export interface AgentToolResultBlock {
   readonly job?: AgentBackgroundJob
   /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */
   readonly retryOf?: AgentToolRetryOrigin
+  /**
+   * 这个后台任务结束后本该唤醒智能体，但没有唤醒：面板按原因说明智能体没有查看这个结果。
+   * 结果照常落画布，用户下次说话时智能体在对话记录里看得到它。缺席即唤醒过或本就不唤醒。
+   */
+  readonly wakeSkipped?: AgentWakeSkipReason
 }
+
+/**
+ * 没有唤醒智能体的原因：积分不足以再起一轮；用户没说话时已经连续自动唤醒了
+ * {@link AGENT_MAX_CONSECUTIVE_WAKES} 次。
+ */
+export type AgentWakeSkipReason = 'insufficient_credits' | 'wake_limit'
+
+/** 用户没说话时最多连续自动唤醒这么多次，之后停下等用户；用户一说话就重新计数。 */
+export const AGENT_MAX_CONSECUTIVE_WAKES = 3
 
 /**
  * 重试记录指回的那次失败调用。重试不改写原卡：原卡保持失败，重试另起一条记录挂在对话末尾，

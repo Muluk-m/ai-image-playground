@@ -171,6 +171,47 @@ describe('后台任务的进度与取消', () => {
   })
 })
 
+describe('没有唤醒智能体', () => {
+  const ended: AgentToolMessage = {
+    kind: 'tool',
+    id: 'm',
+    turnId: 't',
+    toolCallId: 'c',
+    title: '一只橘猫',
+    status: 'failed',
+    errorCode: 'timeout',
+  }
+
+  function render(message: AgentToolMessage): string {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    try {
+      act(() => root.render(<AgentToolCard message={message} />))
+      return host.textContent ?? ''
+    } finally {
+      act(() => root.unmount())
+    }
+  }
+
+  it('says the assistant did not review the result because credits ran out', () => {
+    expect(render({ ...ended, wakeSkipped: 'insufficient_credits' })).toContain(
+      '积分不足，助手未查看结果',
+    )
+  })
+
+  it('says the assistant stopped checking back after too many wakes in a row', () => {
+    expect(render({ ...ended, wakeSkipped: 'wake_limit' })).toContain(
+      '助手已连续自动查看 3 次，等你发话后再继续',
+    )
+  })
+
+  it('says nothing about waking when the wake was not skipped', () => {
+    const text = render(ended)
+    expect(text).not.toContain('助手未查看结果')
+    expect(text).not.toContain('连续自动查看')
+  })
+})
+
 it('keeps the complete multiline prompt available and copies it without the title truncation', async () => {
   const prompt = '完整提示词。'.repeat(30) + '\n第二段细节'
   const writeText = vi.fn().mockResolvedValue(undefined)

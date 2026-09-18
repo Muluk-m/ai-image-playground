@@ -310,8 +310,18 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
 }
 
 /**
+ * 起轮的取件顺序：澄清答复最先，其次是用户消息，唤醒最后；同类按序号。有用户消息排着时唤醒
+ * 不单独起轮，而是并进那条消息的轮（见 `start-turn.ts`）：用户的话优先，也省一轮费用。
+ */
+const turnOrder = [
+  desc(sql`${inbox.kind} = 'clarification_answer'`),
+  asc(sql`${inbox.kind} = 'task_result'`),
+  asc(inbox.seq),
+]
+
+/**
  * 下一件该处理的事：用户消息或唤醒；只看不取，取走由 {@link consumeAgentMessage} 在起轮事务里做。
- * 澄清答复先取，其余按序号先来先处理；会话在等澄清答复时，问之前就排着的话不取。
+ * 澄清答复先取，用户消息先于唤醒，同类按序号先来先处理；会话在等澄清答复时，问之前就排着的话不取。
  */
 export async function nextAgentInboxEntry(conversationId: string): Promise<NextInboxEntry | null> {
   const [row] = await db
@@ -325,12 +335,96 @@ export async function nextAgentInboxEntry(conversationId: string): Promise<NextI
         not(heldByClarification),
       ),
     )
-    .orderBy(...processingOrder)
+    .orderBy(...turnOrder)
     .limit(1)
   if (!row) return null
   if (row.kind === 'task_result' && 'taskIds' in row.payload)
     return { kind: 'task_result', id: row.id, ...row.payload }
   return { kind: 'user_message', ...queuedMessageOf(row) }
+}
+
+/** 还没起轮的全部唤醒，按序号；用户消息的轮据此把它们一并带上。 */
+export async function pendingAgentWakes(conversationId: string): Promise<QueuedWake[]> {
+  const rows = await db
+    .select()
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.kind, 'task_result'),
+        eq(inbox.status, 'pending'),
+      ),
+    )
+    .orderBy(asc(inbox.seq))
+  return rows.flatMap((row) => ('taskIds' in row.payload ? [{ id: row.id, ...row.payload }] : []))
+}
+
+/**
+ * 没有起轮就了结一条唤醒（积分不足、连续唤醒到了上限）：记成已撤回，不算作一次唤醒。
+ * 只有它仍待处理时才成立。
+ */
+export async function skipAgentWake(
+  tx: BffTransaction,
+  conversationId: string,
+  id: string,
+): Promise<boolean> {
+  const rows = await tx
+    .update(inbox)
+    .set({ status: 'cancelled' })
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.id, id),
+        eq(inbox.kind, 'task_result'),
+        eq(inbox.status, 'pending'),
+      ),
+    )
+    .returning({ id: inbox.id })
+  return rows.length > 0
+}
+
+/**
+ * 用户上次说话之后，连续自动唤醒起过几轮。唤醒轮是取走了唤醒、自己没有用户消息、并且真的跑过
+ * （留下了页脚）的那一轮；并进用户消息那一轮的唤醒不算，被跳过的唤醒也不算。用户一说话就从零算起。
+ */
+export async function consecutiveAgentWakes(
+  conversationId: string,
+  executor: typeof db | BffTransaction = db,
+): Promise<number> {
+  const messages = schema.agent_messages
+  const lastUserAt = executor
+    .select({ at: sql`COALESCE(MAX(${messages.created_at}), '-infinity'::timestamptz)` })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversation_id, conversationId),
+        eq(messages.role, 'user'),
+        isNull(messages.deleted_at),
+      ),
+    )
+  const [row] = await executor
+    .select({ count: sql<number>`count(DISTINCT ${inbox.consumed_turn_id})::int` })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.kind, 'task_result'),
+        eq(inbox.status, 'consumed'),
+        gt(inbox.created_at, sql`(${lastUserAt})`),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${messages} spoken
+          WHERE spoken.conversation_id = ${inbox.conversation_id}
+            AND spoken.turn_id = ${inbox.consumed_turn_id}
+            AND spoken.role = 'user'
+        )`,
+        sql`EXISTS (
+          SELECT 1 FROM ${schema.agent_turns} ran
+          WHERE ran.conversation_id = ${inbox.conversation_id}
+            AND ran.turn_id = ${inbox.consumed_turn_id}
+        )`,
+      ),
+    )
+  return row?.count ?? 0
 }
 
 /**

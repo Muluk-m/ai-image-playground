@@ -144,6 +144,19 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
   )
 }
 
+/** 任务结束后本该唤醒智能体却没有唤醒：说明它没有查看这个结果，以及为什么。 */
+function WakeSkippedNote({ message }: { message: AgentToolMessage }) {
+  const { t } = useTranslation('agent')
+  if (!message.wakeSkipped) return null
+  return (
+    <p className={CARD_NOTE}>
+      {message.wakeSkipped === 'insufficient_credits'
+        ? t('job.wakeSkipped.insufficient_credits')
+        : t('job.wakeSkipped.wake_limit')}
+    </p>
+  )
+}
+
 /** 结果卡在面板里的 DOM id：重试记录凭它跳回原失败卡。 */
 export function agentToolCardDomId(messageId: string): string {
   return `agent-tool-card-${messageId}`
@@ -290,6 +303,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {progress && <AgentJobProgress progress={progress} />}
       {note && <p className={CARD_NOTE}>{note}</p>}
       <AgentJobCancel message={message} />
+      <WakeSkippedNote message={message} />
       {message.status === 'failed' && <FailureAction message={message} />}
       <RetryRemaining message={message} />
       <RetryRecord message={message} />

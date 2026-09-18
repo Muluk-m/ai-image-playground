@@ -70,7 +70,23 @@ export function wakeAuthorizationPrompt(
   return asked ? agentTextFromBlocks(asked.content) : ''
 }
 
+const REVIEW_LINE =
+  '需要复核的任务：产物已作为视觉证据附在下面。对照用户的原话检查效果（局部改图看选区内的修改与边缘），如实说明是否达到要求；不满意就说明问题并提议怎么改，不要自行付费重新提交。'
+
+/**
+ * 首次改图预先列明的后续编辑只有单独的唤醒轮能接着做：那一轮带着原来的计划与提交时的授权原文。
+ * 并进用户消息的那一轮没有这份计划，授权换成了用户的新话，门禁会拒掉这些后续编辑。
+ */
+const DEFERRED_LINE = '首次改图时预先列明的后续编辑（deferredEdits）可以用这些产物继续执行。'
+
 export function wakeTurnPrompt(jobs: readonly WakeJob[]): string {
+  return wakeResultLines(jobs, { continuePlan: true }).join('\n')
+}
+
+function wakeResultLines(
+  jobs: readonly WakeJob[],
+  { continuePlan }: { readonly continuePlan: boolean },
+): string[] {
   const failed = jobs.filter((job) => job.block.status === 'failed')
   const reviewed = jobs.filter((job) => job.block.status === 'succeeded')
   const lines = [
@@ -81,10 +97,25 @@ export function wakeTurnPrompt(jobs: readonly WakeJob[]): string {
     lines.push(
       '失败的任务：用一两句话告诉用户哪一项没做成、原因是什么，并提议下一步（例如换个说法、稍后再试）。不要自行付费重新提交，等用户决定。',
     )
-  if (reviewed.length > 0)
-    lines.push(
-      '需要复核的任务：产物已作为视觉证据附在下面。对照用户的原话检查效果（局部改图看选区内的修改与边缘），如实说明是否达到要求；不满意就说明问题并提议怎么改，不要自行付费重新提交。首次改图时预先列明的后续编辑（deferredEdits）可以用这些产物继续执行。',
-    )
+  if (reviewed.length > 0) lines.push(continuePlan ? `${REVIEW_LINE}${DEFERRED_LINE}` : REVIEW_LINE)
   lines.push('产物已经自动放在用户的画布上，不要让用户自己去保存。')
-  return lines.join('\n')
+  return lines
+}
+
+/**
+ * 唤醒并进用户消息的那一轮时，跟在用户原话后面的那段说明：用户的话优先，结果顺带交代。
+ * 它同样不落库，只进这一轮的模型输入。这一轮不带提交时的改图计划，所以不提议接着做预先列明的
+ * 后续编辑，而是明说按用户的新话来。
+ */
+export function mergedWakePrompt(jobs: readonly WakeJob[]): string {
+  const reviewed = jobs.some((job) => job.block.status === 'succeeded')
+  return [
+    ...wakeResultLines(jobs, { continuePlan: false }),
+    '用户刚好也说了话（就是上面那条）：先回应用户这条消息，再顺带交代这些结果。',
+    ...(reviewed
+      ? [
+          '之前改图时预先列明的后续编辑（deferredEdits）这一轮不要接着做：按用户这条新消息行事，用户想继续的话会自己说。',
+        ]
+      : []),
+  ].join('\n')
 }

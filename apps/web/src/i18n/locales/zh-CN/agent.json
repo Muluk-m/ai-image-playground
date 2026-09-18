@@ -244,6 +244,10 @@
     "cancelFailed": "没能取消，请稍后再试",
     "cancelled": "已取消",
     "cancelledRefunded": "已取消，积分已退回",
+    "wakeSkipped": {
+      "insufficient_credits": "积分不足，助手未查看结果",
+      "wake_limit": "助手已连续自动查看 3 次，等你发话后再继续"
+    },
     "inbox": {
       "aria": "后台任务",
       "summary": "{{running}} 个进行中 · {{completed}} 个已完成",

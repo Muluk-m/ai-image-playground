@@ -85,6 +85,14 @@ export interface StartAgentTurnInput {
     readonly plan?: MaskedPlanCarry
     readonly reviewImageIds: readonly string[]
   }
+  /**
+   * 并进这一轮的唤醒：用户说话时恰好有后台任务的结果等着智能体看。`text` 跟在用户原话后面
+   * 送给模型，不落库、不算授权原文；要复核的产物与唤醒轮一样作为视觉证据附上。
+   */
+  readonly wakeNote?: {
+    readonly text: string
+    readonly reviewImageIds: readonly string[]
+  }
   /** 起轮时预扣的积分；缺席即这个部署不计费。 */
   readonly reservedCredits?: number
   /** 收尾结算，回报本轮结算后的消耗；缺席即这个部署不计费。 */
@@ -467,14 +475,19 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     .then(async (references) => {
       if (aborted) return
       // 唤醒轮要复核的产物跟在参考图后面；取不到的那张（任务行已清掉）就不附，模型照结果文字说。
-      const reviewed = (
-        await Promise.all((input.wake?.reviewImageIds ?? []).map((id) => images.resolve(id)))
-      ).filter((image) => image !== null)
+      const reviewIds = [
+        ...(input.wake?.reviewImageIds ?? []),
+        ...(input.wakeNote?.reviewImageIds ?? []),
+      ]
+      const reviewed = (await Promise.all(reviewIds.map((id) => images.resolve(id)))).filter(
+        (image) => image !== null,
+      )
       const evidence = await turnVisualEvidence([...references, ...reviewed])
       if (aborted) return
       // `/skill-name` 只改送给模型的这一份；落库与回显的用户消息仍是他打的原话。
+      const asked = turnPromptText(expandSkillInvocation(prompt, input.mode), images.references)
       const sent = turnModelPrompt(
-        turnPromptText(expandSkillInvocation(prompt, input.mode), images.references),
+        input.wakeNote ? `${asked}\n\n${input.wakeNote.text}` : asked,
         evidence,
       )
       await input.assertExecution?.()
