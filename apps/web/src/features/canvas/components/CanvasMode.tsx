@@ -9,6 +9,7 @@ import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
+import { generateBarPlacement } from '../lib/generateBarPlacement'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
@@ -123,6 +124,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
     hasAgent && !hasContent && !project?.hasContent && !project?.workspaceOpened && !started
+  const barPlacement = generateBarPlacement(hasAgent, {
+    messageCount: useAgentStore((state) => state.messages.length),
+    historyLoading: useAgentStore((state) => state.historyLoading),
+  })
   useEffect(() => {
     if (hasAgent) void useAgentStore.getState().load()
   }, [hasAgent])
@@ -248,6 +253,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
             <CanvasVideoToolbar editor={editor} />
+            {barPlacement === 'floating' && (
+              <div className="studio-floating-composer" data-generate-bar="floating">
+                <CanvasGenerateBar editor={editor} />
+              </div>
+            )}
             <TimelineEditorHost editor={editor} />
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />

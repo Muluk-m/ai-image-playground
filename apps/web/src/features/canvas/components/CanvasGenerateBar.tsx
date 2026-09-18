@@ -11,7 +11,7 @@ import {
 } from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
+import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
@@ -22,8 +22,12 @@ import { submitFromCanvas } from '../lib/submitFromCanvas'
 import {
   canvasVideoPromptRefusal,
   canvasVideoSelectionRefusal,
+  imageSelection,
+  referenceVideoRefusal,
+  submitReferenceVideo,
   submitVideoFromCanvas,
 } from '../lib/submitVideoFromCanvas'
+import { defaultInputItems } from '../lib/videoInputs'
 import CanvasVideoParams from './CanvasVideoParams'
 
 /** 部署关了视频（或没有视频 channel）就只剩图片档，记住的选择不作数。 */
@@ -140,9 +144,19 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         quantity: Math.max(1, params.n),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  // 视频档的选区规则（几张图、模型接不接得住首尾帧）在这里先判，按钮与提示同一个结论。
+  // 模型带得了参考图时，选中的图都当参考图（与「选中即参考」同一套规则与上限）；
+  // 带不了就按老规则读成首帧 / 首尾帧。
+  const referenceItems =
+    video &&
+    imageCount > 0 &&
+    videoModelOptions().find((one) => one.modelId === videoDraft.model)?.support.referenceImages
+      ? defaultInputItems(imageSelection(editor) ?? [])
+      : null
+  // 视频档的选区规则（几张图、模型接不接得住）在这里先判，按钮与提示同一个结论。
   const videoRefusal = video
-    ? (canvasVideoSelectionRefusal(editor, videoDraft.model) ??
+    ? ((referenceItems
+        ? referenceVideoRefusal(referenceItems, videoDraft)
+        : canvasVideoSelectionRefusal(editor, videoDraft.model)) ??
       canvasVideoPromptRefusal(
         videoDraft.model,
         [annotationText, prompt.trim()].filter(Boolean).join('\n'),
@@ -156,11 +170,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   const hint = video
     ? (videoRefusal ??
-      (imageCount === 0
-        ? t('video.hintText')
-        : imageCount === 1
-          ? t('video.hintFirst')
-          : t('video.hintFirstLast')))
+      (referenceItems
+        ? t('video.hintReferences', { count: referenceItems.length })
+        : imageCount === 0
+          ? t('video.hintText')
+          : imageCount === 1
+            ? t('video.hintFirst')
+            : t('video.hintFirstLast')))
     : annotated
       ? t('generate.hintAnnotated', { count: imageCount })
       : imageCount > 0
@@ -172,7 +188,10 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
     if (video) {
       // 视频要先过校验与门禁才受理；被拒时保留输入，用户改一下就能再发。
       const submitted = prompt
-      if (!(await submitVideoFromCanvas(editor, submitted))) return
+      const accepted = referenceItems
+        ? await submitReferenceVideo(editor, referenceItems, submitted)
+        : await submitVideoFromCanvas(editor, submitted)
+      if (!accepted) return
       if (useCanvasComposer.getState().prompt === submitted) setPrompt('')
     } else {
       // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
@@ -211,7 +230,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         </div>
         {video && (
           <CanvasVideoParams
-            hasFirstFrame={imageCount > 0 && !canvasVideoSelectionRefusal(editor, videoDraft.model)}
+            hasFirstFrame={
+              !referenceItems &&
+              imageCount > 0 &&
+              !canvasVideoSelectionRefusal(editor, videoDraft.model)
+            }
           />
         )}
         {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}

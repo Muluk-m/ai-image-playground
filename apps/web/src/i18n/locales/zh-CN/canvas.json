@@ -228,7 +228,8 @@
       "tooManyImages": "视频最多用两张图：一张首帧、一张尾帧",
       "firstFrameUnsupported": "{{model}} 不支持从图片开始生成，请取消选中图片",
       "lastFrameUnsupported": "{{model}} 不支持尾帧，只能选一张图作首帧"
-    }
+    },
+    "hintReferences_other": "选中的 {{count}} 张图作参考图，描述里按「图片1、图片2」提到"
   },
   "videoToolbar": {
     "aria": "视频操作",
