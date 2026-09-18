@@ -263,6 +263,8 @@
     "clipLabel": "第 {{index}} 段，{{seconds}} 秒",
     "removeClip": "删除第 {{index}} 段",
     "trimIn": "第 {{index}} 段入点",
-    "trimOut": "第 {{index}} 段出点"
+    "trimOut": "第 {{index}} 段出点",
+    "seconds": "{{seconds}} 秒",
+    "changedElsewhere": "编辑期间这条时间线在别处被改动过，已用你刚才的编辑覆盖；需要的话按 ⌘Z 撤回。"
   }
 }

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   clipRange,
+  followSelection,
   locateTime,
   MIN_CLIP_SECONDS,
   moveClip,
   removeClip,
+  sameClips,
   startOfClip,
   totalDuration,
   trimClip,
@@ -56,5 +58,36 @@ describe('时间线编辑', () => {
     expect(locateTime(clips, sourceOf, 5)).toEqual({ index: 1, sourceTime: 2 })
     expect(locateTime(clips, sourceOf, 11)).toEqual({ index: 2, sourceTime: 2 })
     expect(locateTime(clips, sourceOf, 99)).toEqual({ index: 2, sourceTime: 3 })
+  })
+})
+
+describe('审查补充', () => {
+  it('keeps an unset out point unset when trimming the in point of a clip of unknown length', () => {
+    expect(trimClip({ elementId: 'x', in: 0 }, 'in', 1, undefined)).toEqual({
+      elementId: 'x',
+      in: 1,
+    })
+    expect(trimClip({ elementId: 'x', in: 0 }, 'out', 3, undefined)).toEqual({
+      elementId: 'x',
+      in: 0,
+    })
+  })
+
+  it('treats an explicit out point at the source end as unchanged', () => {
+    expect(
+      sameClips([{ elementId: 'c', in: 0 }], [{ elementId: 'c', in: 0, out: 3 }], sourceOf),
+    ).toBe(true)
+    expect(
+      sameClips([{ elementId: 'c', in: 0 }], [{ elementId: 'c', in: 0, out: 2 }], sourceOf),
+    ).toBe(false)
+  })
+
+  it('keeps the selection on the same clip when clips move or are removed', () => {
+    expect(followSelection(2, { kind: 'move', from: 2, to: 0 })).toBe(0)
+    expect(followSelection(1, { kind: 'move', from: 0, to: 2 })).toBe(0)
+    expect(followSelection(1, { kind: 'move', from: 2, to: 0 })).toBe(2)
+    expect(followSelection(2, { kind: 'remove', index: 0 })).toBe(1)
+    expect(followSelection(1, { kind: 'remove', index: 1 })).toBeNull()
+    expect(followSelection(null, { kind: 'remove', index: 0 })).toBeNull()
   })
 })

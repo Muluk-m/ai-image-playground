@@ -88,6 +88,7 @@ beforeEach(() => {
   ])
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve())
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -123,11 +124,15 @@ describe('全屏时间线编辑', () => {
 
   it('reorders by dragging a clip onto another', () => {
     const cards = () => Array.from(document.querySelectorAll('ol li'))
+    const drag = (type: string) =>
+      Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+        dataTransfer: { setData: vi.fn(), effectAllowed: 'all' },
+      })
     act(() => {
-      cards()[2]!.dispatchEvent(new Event('dragstart', { bubbles: true }))
+      cards()[2]!.dispatchEvent(drag('dragstart'))
     })
     act(() => {
-      cards()[0]!.dispatchEvent(new Event('drop', { bubbles: true }))
+      cards()[0]!.dispatchEvent(drag('drop'))
     })
     act(() => button('完成').click())
     expect(order()).toEqual(['c', 'a', 'b'])
@@ -147,5 +152,52 @@ describe('全屏时间线编辑', () => {
     const before = doc.elements
     act(() => button('完成').click())
     expect(doc.elements).toBe(before)
+  })
+
+  it('keeps focus on a trim handle across repeated key presses', () => {
+    const outPoint = document.querySelector('[aria-label="第 1 段出点"]') as HTMLElement
+    act(() => outPoint.focus())
+    for (let i = 0; i < 2; i += 1)
+      act(() => {
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
+        )
+      })
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('第 1 段出点')
+    act(() => button('完成').click())
+    expect(timeline().clips[0]).toMatchObject({ out: 3.8 })
+  })
+
+  it('keeps keys away from the canvas behind it', () => {
+    const canvasKeys = vi.fn()
+    window.addEventListener('keydown', canvasKeys)
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    for (const key of ['Delete', 'z', ' '])
+      act(() => {
+        dialog.dispatchEvent(
+          new KeyboardEvent('keydown', { key, metaKey: key === 'z', bubbles: true }),
+        )
+      })
+    window.removeEventListener('keydown', canvasKeys)
+    expect(canvasKeys).not.toHaveBeenCalled()
+    expect(doc.getElement('tl')).toBeDefined()
+  })
+
+  it('loads the first clip on open so play shows something', () => {
+    expect(document.querySelector('video')?.getAttribute('src')).toContain('task-a')
+  })
+
+  it('skips a first clip whose source is gone when playing', () => {
+    act(() => useTimelineEditor.getState().close())
+    doc.deleteElements(['a'])
+    act(() => useTimelineEditor.getState().open('tl'))
+    act(() => button('播放').click())
+    expect(document.querySelector('video')?.getAttribute('src')).toContain('task-b')
+  })
+
+  it('closes itself when the timeline is deleted, instead of reopening later', () => {
+    act(() => doc.deleteElements(['tl']))
+    expect(useTimelineEditor.getState().openId).toBeNull()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 })

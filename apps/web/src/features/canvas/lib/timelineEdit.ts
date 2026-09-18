@@ -39,9 +39,14 @@ export function trimClip(
   const range = clipRange(clip, source)
   const end = source ?? range.out
   if (edge === 'in') {
-    const value = Math.min(Math.max(0, seconds), range.out - MIN_CLIP_SECONDS)
-    return { ...clip, in: round(Math.max(0, value)), out: round(range.out) }
+    const value = round(Math.max(0, Math.min(Math.max(0, seconds), range.out - MIN_CLIP_SECONDS)))
+    // 出点本来缺省（播到结尾）就保持缺省：源时长未知时写死一个占位值，会把片子永久截短。
+    return clip.out === undefined
+      ? { elementId: clip.elementId, in: value }
+      : { ...clip, in: value }
   }
+  // 源时长未知就不知道结尾在哪，出点无从裁起。
+  if (source === undefined && clip.out === undefined) return clip
   const value = Math.max(Math.min(end, seconds), range.in + MIN_CLIP_SECONDS)
   return { ...clip, out: round(Math.min(end, value)) }
 }
@@ -85,4 +90,39 @@ export function locateTime(
     start += duration
   }
   return { index: 0, sourceTime: 0 }
+}
+
+/** 两份片段表播起来是否一样：出点缺省与显式写成结尾视为同一个。 */
+export function sameClips(
+  a: readonly TimelineClip[],
+  b: readonly TimelineClip[],
+  sourceOf: SourceSeconds,
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((clip, index) => {
+      const other = b[index]!
+      if (clip.elementId !== other.elementId) return false
+      const x = clipRange(clip, sourceOf(clip.elementId))
+      const y = clipRange(other, sourceOf(other.elementId))
+      return x.in === y.in && x.out === y.out
+    })
+  )
+}
+
+/** 片段移动后，原来选中的那一段现在在哪。 */
+export function followSelection(
+  selected: number | null,
+  change: { kind: 'move'; from: number; to: number } | { kind: 'remove'; index: number },
+): number | null {
+  if (selected === null) return null
+  if (change.kind === 'remove') {
+    if (change.index === selected) return null
+    return change.index < selected ? selected - 1 : selected
+  }
+  const { from, to } = change
+  if (selected === from) return to
+  if (from < selected && to >= selected) return selected - 1
+  if (from > selected && to <= selected) return selected + 1
+  return selected
 }

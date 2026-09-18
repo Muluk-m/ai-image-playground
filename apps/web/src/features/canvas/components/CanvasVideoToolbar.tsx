@@ -134,26 +134,29 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
       const { camera } = editor.doc
       const loneTop = (box.y - camera.y) * camera.zoom
       return (
-        <div
-          role="toolbar"
-          aria-label={t('timeline.title')}
-          className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
-          style={{
-            left: Math.max(8, (box.x - camera.x) * camera.zoom),
-            top:
-              loneTop - TOOLBAR_OFFSET >= 8
-                ? loneTop - TOOLBAR_OFFSET
-                : (box.maxY - camera.y) * camera.zoom + 8,
-          }}
-          onPointerDown={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <ToolbarButton
-            icon={<Pencil />}
-            label={t('timeline.edit')}
-            onClick={() => useTimelineEditor.getState().open(lone.id)}
-          />
-        </div>
+        <>
+          <div
+            role="toolbar"
+            aria-label={t('timeline.title')}
+            className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
+            style={{
+              left: Math.max(8, (box.x - camera.x) * camera.zoom),
+              top:
+                loneTop - TOOLBAR_OFFSET >= 8
+                  ? loneTop - TOOLBAR_OFFSET
+                  : (box.maxY - camera.y) * camera.zoom + 8,
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <ToolbarButton
+              icon={<Pencil />}
+              label={t('timeline.edit')}
+              onClick={() => useTimelineEditor.getState().open(lone.id)}
+            />
+          </div>
+          {popover}
+        </>
       )
     }
     if (editor.doc.tool !== 'select' || videos.length === 0 || timelines.length > 1 || !onlyVideos)
