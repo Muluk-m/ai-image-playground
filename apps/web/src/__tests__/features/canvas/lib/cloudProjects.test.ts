@@ -1379,3 +1379,107 @@ it('其他设备恢复项目后，已打开的删除状态会自动恢复同步'
   ).toBeFalsy()
   session.dispose()
 })
+
+const VIDEO_GENERATION = {
+  model: 'doubao-seedance-2-0-mini-260615',
+  duration: 8,
+  aspectRatio: '9:16',
+  resolution: '720p',
+} as const
+
+it('画布上有视频照常同步：封面上传，播放来源与生成参数写进云端结构', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const mediaId = crypto.randomUUID()
+  const poster = 'data:image/png;base64,UE9TVEVS'
+  editor.doc.addElements(
+    [
+      {
+        id: 'clip',
+        type: 'image',
+        fileId: 'poster',
+        x: 10,
+        y: 20,
+        width: 180,
+        height: 320,
+        rotation: 0,
+        video: { taskId: 'task-1', outputIndex: 0, generation: VIDEO_GENERATION },
+      },
+    ],
+    { files: { poster } },
+  )
+  const saved: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === poster)
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+      if (url.endsWith('/uploads')) return Response.json({ id: mediaId, status: 'ready' })
+      const body = JSON.parse(init!.body as string)
+      saved.push(body)
+      return Response.json(receipt(project.id, body))
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(saved[saved.length - 1]).toMatchObject({
+    document: {
+      elements: [
+        { id: 'note' },
+        {
+          id: 'clip',
+          type: 'image',
+          mediaId,
+          video: { taskId: 'task-1', outputIndex: 0, generation: VIDEO_GENERATION },
+        },
+      ],
+    },
+  })
+  session.dispose()
+})
+
+it('新设备打开含视频的云端项目，视频的播放来源与生成参数都在', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const mediaId = crypto.randomUUID()
+  const clip = {
+    id: 'clip',
+    type: 'image',
+    mediaId,
+    x: 0,
+    y: 0,
+    width: 180,
+    height: 320,
+    rotation: 0,
+    video: { taskId: 'task-1', outputIndex: 0, generation: VIDEO_GENERATION },
+  }
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '视频画布',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 1,
+    document: { version: 1, elements: [clip] },
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json(remote)),
+  )
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+
+  expect(session.getSnapshot().status).toBe('saved')
+  const restored = editor.doc.elements[0]
+  expect(restored).toMatchObject({
+    id: 'clip',
+    video: { taskId: 'task-1', outputIndex: 0, generation: VIDEO_GENERATION },
+  })
+  expect(restored?.type === 'image' && editor.doc.files[restored.fileId]).toBe(
+    `aip-media:${mediaId}`,
+  )
+  session.dispose()
+})

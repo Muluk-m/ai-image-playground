@@ -31,7 +31,8 @@ export function projectDocument(
     const source = doc.files[element.fileId]
     const bound = bindings.get(element.fileId)
     const mediaId = mediaIdentity(source) ?? (bound?.source === source ? bound?.id : undefined)
-    if (!mediaId || element.video) return null
+    // 视频也走这条：上传的是封面，片子本身留在队列，按 `video` 现拼播放地址。
+    if (!mediaId) return null
     const { fileId: _fileId, ...image } = element
     return { ...image, mediaId }
   })
@@ -59,7 +60,7 @@ export async function prepareProjectMedia(
   }
   const files = doc.files
   for (const element of doc.elements) {
-    if (element.type !== 'image' || element.video) continue
+    if (element.type !== 'image') continue
     if (!uploadMissing && !persisted[element.fileId]) continue
     const source = files[element.fileId]
     if (!source || mediaIdentity(source) || loaded.get(element.fileId)?.source === source) continue
