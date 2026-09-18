@@ -20,6 +20,7 @@ import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import VideoMode from './features/video/components/VideoMode'
 import { i18next } from './i18n'
+import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
 import {
@@ -34,6 +35,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
 
+  useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
 
   // 匿名设备没有同步；能力关不关由引擎自己判断。
