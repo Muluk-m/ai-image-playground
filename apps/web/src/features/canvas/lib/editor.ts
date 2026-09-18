@@ -1,4 +1,4 @@
-import type { VideoGenerationRecord } from '@image-playground/shared'
+import type { AgentToolErrorCode, VideoGenerationRecord } from '@image-playground/shared'
 import Konva from 'konva'
 import type { CanvasProfileSnapshot } from '../../../store'
 import type { TaskParams } from '../../../types'
@@ -58,7 +58,11 @@ export interface CanvasTaskMeta {
    * 产物由智能体面板那条交付链路送达。刷新后残留的这种占位框直接清掉。
    */
   agentMessageId?: string
+  /** 智能体占位所属的会话；失败占位只在这个会话打开时才给「让助手重新处理」。旧占位框没有。 */
+  agentConversationId?: string
   agent?: true
+  /** 智能体占位失败的分类；失败占位按它出文案与出路，不读 `message`。旧占位框没有。 */
+  agentErrorCode?: AgentToolErrorCode
   /** 有值即这是一条视频任务：提交到哪条 channel、按什么档位生成。恢复与重试都认它。 */
   video?: { channelId: string; generation: VideoGenerationRecord }
 }

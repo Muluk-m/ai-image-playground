@@ -4,6 +4,7 @@ import type {
   AgentConversationView,
   AgentMessageRole,
   AgentMessageView,
+  AgentToolCallSnapshot,
 } from '@image-playground/shared'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -195,6 +196,58 @@ export async function appendAgentMessage(
     })
     .returning()
   return messageView(row!)
+}
+
+export interface AgentToolCallRecord {
+  readonly conversationId: string
+  readonly turnId: string
+  /** 这次调用那张结果卡的消息 id。 */
+  readonly messageId: string
+  readonly toolCallId: string
+  readonly toolName: string
+  readonly snapshot: AgentToolCallSnapshot
+}
+
+/** 工具起跑就记下模型选定的参数；结果卡要到工具跑完才写进消息表。 */
+export async function recordAgentToolCall(
+  executor: Executor,
+  call: AgentToolCallRecord,
+  now = Date.now(),
+): Promise<void> {
+  await executor.insert(schema.agent_tool_calls).values({
+    conversation_id: call.conversationId,
+    message_id: call.messageId,
+    turn_id: call.turnId,
+    tool_call_id: call.toolCallId,
+    tool_name: call.toolName,
+    snapshot: call.snapshot,
+    created_at: now,
+  })
+}
+
+/** 一轮里起跑过的工具调用，按起跑先后。 */
+export async function listAgentToolCalls(
+  conversationId: string,
+  turnId: string,
+): Promise<AgentToolCallRecord[]> {
+  const rows = await db
+    .select()
+    .from(schema.agent_tool_calls)
+    .where(
+      and(
+        eq(schema.agent_tool_calls.conversation_id, conversationId),
+        eq(schema.agent_tool_calls.turn_id, turnId),
+      ),
+    )
+    .orderBy(asc(schema.agent_tool_calls.created_at))
+  return rows.map((row) => ({
+    conversationId: row.conversation_id,
+    turnId: row.turn_id,
+    messageId: row.message_id,
+    toolCallId: row.tool_call_id,
+    toolName: row.tool_name,
+    snapshot: row.snapshot,
+  }))
 }
 
 export async function listAgentMessages(

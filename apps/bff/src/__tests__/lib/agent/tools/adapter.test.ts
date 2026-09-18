@@ -163,7 +163,7 @@ it('turns a finished tool call into the block the panel and the history share', 
         content: [{ type: 'text', text: '已生成 1 张图' }],
         details: { executedPrompt: '画一只橘猫', artifacts, anchorObjectId: 'canvas-first' },
       },
-      false,
+      null,
     ),
   ).toEqual({
     block: {
@@ -171,6 +171,7 @@ it('turns a finished tool call into the block the panel and the history share', 
       toolCallId: 'call-1',
       toolName: 'generateImage',
       prompt: '画一只橘猫',
+      snapshot: call.snapshot!,
       status: 'succeeded',
       title: '画一只猫',
       artifacts,
@@ -179,11 +180,12 @@ it('turns a finished tool call into the block the panel and the history share', 
     abortsTurn: false,
   })
   // 没有产物的工具只留标题与起跑时的提示词。
-  expect(agentToolEnd(call, { content: [], details: {} }, false).block).toEqual({
+  expect(agentToolEnd(call, { content: [], details: {} }, null).block).toEqual({
     type: 'toolResult',
     toolCallId: 'call-1',
     toolName: 'generateImage',
     prompt: '画一只猫',
+    snapshot: call.snapshot!,
     status: 'succeeded',
     title: '画一只猫',
   })
@@ -191,7 +193,8 @@ it('turns a finished tool call into the block the panel and the history share', 
 
 it('turns a failed tool call into a message, and knows whose failure stops the turn', () => {
   const failed = { content: [{ type: 'text', text: '图片 image 9 不可用' }], details: {} }
-  expect(agentToolEnd(start('editImage', { imageIds: ['image 9'] }), failed, true)).toEqual({
+  const edit = start('editImage', { imageIds: ['image 9'] })
+  expect(agentToolEnd(edit, failed, 'invalid_params')).toEqual({
     block: {
       type: 'toolResult',
       toolCallId: 'call-1',
@@ -199,25 +202,63 @@ it('turns a failed tool call into a message, and knows whose failure stops the t
       status: 'failed',
       title: '改图',
       message: '图片 image 9 不可用',
+      errorCode: 'invalid_params',
+      snapshot: edit.snapshot!,
     },
     abortsTurn: false,
   })
   // pi 也可能把结果整个丢掉（工具没跑就被判错），那时至少要有一句话。
-  expect(agentToolEnd(start('generateImage', {}), undefined, true).block).toEqual({
+  const blank = start('generateImage', {})
+  expect(agentToolEnd(blank, undefined, 'unknown').block).toEqual({
     type: 'toolResult',
     toolCallId: 'call-1',
     toolName: 'generateImage',
     status: 'failed',
     title: '生图',
     message: '工具执行失败',
+    errorCode: 'unknown',
+    snapshot: blank.snapshot!,
   })
-  expect(agentToolEnd(start('generateImage', {}), failed, true).abortsTurn).toBe(true)
-  expect(agentToolEnd(start('generateVideo', {}), failed, true).abortsTurn).toBe(true)
-  expect(agentToolEnd(start('readLibrary', {}), failed, true).abortsTurn).toBe(false)
+  expect(agentToolEnd(start('generateImage', {}), failed, 'upstream_error').abortsTurn).toBe(true)
+  expect(agentToolEnd(start('generateVideo', {}), failed, 'upstream_error').abortsTurn).toBe(true)
+  expect(agentToolEnd(start('readLibrary', {}), failed, 'upstream_error').abortsTurn).toBe(false)
   // 成功就不是中止的理由，哪怕这个工具失败会停轮。
   expect(
-    agentToolEnd(start('generateImage', {}), { content: [], details: {} }, false).abortsTurn,
+    agentToolEnd(start('generateImage', {}), { content: [], details: {} }, null).abortsTurn,
   ).toBe(false)
+})
+
+it('snapshots the arguments of a generation call as the model chose them', () => {
+  const params = { size: '1024x1536', quality: 'high' }
+  const edit = agentToolStart(
+    'image',
+    'editImage',
+    'call-1',
+    {
+      prompt: '把猫换成狗',
+      imageIds: ['image 1', 'asset-2'],
+      selectionBindings: [{ imageId: 'image 1', selectionId: 'sel-1' }],
+      n: '2',
+    },
+    images,
+    params,
+  )
+  expect(edit.snapshot).toMatchObject({
+    mode: 'image',
+    // 模型写的字面量按 schema 换算过：`"2"` 在快照里就是它执行时会用的 2。
+    args: {
+      prompt: '把猫换成狗',
+      imageIds: ['image 1', 'asset-2'],
+      selectionBindings: [{ imageId: 'image 1', selectionId: 'sel-1' }],
+      n: 2,
+    },
+    // `image 1` 这类编号只在这一轮有意义，快照里是真 id。
+    imageIds: ['canvas-first', 'asset-2'],
+    params,
+  })
+  // 不提交生成任务的工具没有参数可复原。
+  expect(start('readLibrary', { query: 'logo' }).snapshot).toBeUndefined()
+  expect(start('loadSkill', { name: 'poster' }).snapshot).toBeUndefined()
 })
 
 it('reads the mid-flight stage, and nothing else', () => {

@@ -1,4 +1,8 @@
-import { type AgentToolArtifact, isVideoGenerationRecord } from '@image-playground/shared'
+import {
+  type AgentToolArtifact,
+  type AgentToolErrorCode,
+  isVideoGenerationRecord,
+} from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
@@ -31,7 +35,7 @@ export interface TurnArtifactDelivery {
   reserve(messageId: string, request: AgentReservation): void
   enqueue(message: AgentToolMessage): void
   /** 工具失败：占的位转错误态，不再转圈。 */
-  failed(messageId: string, message: string | undefined): void
+  failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode): void
   /** 工具跑完了但没有产物：占的位直接收掉。 */
   discard(messageId: string): void
   settled(): Promise<void>
@@ -241,9 +245,11 @@ export function createArtifactDelivery(
         enqueue(message: AgentToolMessage) {
           if (message.artifacts?.length) void enqueue(origin, message)
         },
-        failed(messageId: string, message: string | undefined) {
+        failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode) {
           const note = message ?? i18next.t('delivery.generateFailed', { ns: 'agent' })
-          void claim(origin, messageId)?.then((ids) => origin.canvas?.markFailed(ids, note))
+          void claim(origin, messageId)?.then((ids) =>
+            origin.canvas?.markFailed(ids, note, errorCode),
+          )
         },
         discard(messageId: string) {
           void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))

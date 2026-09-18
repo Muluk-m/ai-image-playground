@@ -117,6 +117,70 @@ export const AGENT_TURN_MAX_REFERENCES = 8
 export type AgentToolStatus = 'succeeded' | 'failed'
 
 /**
+ * 一次工具调用为什么失败。界面只按它决定给什么出路（ADR 0006），不读 `message`：
+ *
+ * - `upstream_error` / `timeout` / `no_output`：上游那一侧没出来，原样再跑一次有望成功。
+ * - `result_unknown`：执行者中途丢了，或上游的结局查不到；上游可能已经出图、已经计费，
+ *   不能原样重试（ADR 0009），不给出路。
+ * - `insufficient_credits` / `quota_exceeded`：钱或额度不够，出路是充值。
+ * - `authentication_required`：没登录，出路是登录。
+ * - `invalid_params`：模型给的参数本身不成立（图片 id 不存在、违反选区约束、张数越界），
+ *   出路是让智能体换个做法重新处理。
+ * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
+ * - `cancelled`：用户中止了这一轮，不需要出路。
+ * - `unknown`：归不进上面任何一类。
+ *
+ * 旧记录没有这一位；前端认不出的码也按没有处理。
+ */
+export type AgentToolErrorCode =
+  | 'upstream_error'
+  | 'timeout'
+  | 'no_output'
+  | 'result_unknown'
+  | 'insufficient_credits'
+  | 'quota_exceeded'
+  | 'authentication_required'
+  | 'invalid_params'
+  | 'model_unavailable'
+  | 'cancelled'
+  | 'unknown'
+
+export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
+  'upstream_error',
+  'timeout',
+  'no_output',
+  'result_unknown',
+  'insufficient_credits',
+  'quota_exceeded',
+  'authentication_required',
+  'invalid_params',
+  'model_unavailable',
+  'cancelled',
+  'unknown',
+]
+
+export function isAgentToolErrorCode(value: unknown): value is AgentToolErrorCode {
+  return AGENT_TOOL_ERROR_CODES.includes(value as AgentToolErrorCode)
+}
+
+/**
+ * 工具起跑那一刻模型选定的全部参数，失败记录与重试都从这里取，不再回头问模型。
+ * 旧记录没有它：那些失败没有可复原的参数。
+ */
+export interface AgentToolCallSnapshot {
+  /** 这一轮的创作类型；同一个工具在两种类型下装配的清单不同。 */
+  readonly mode: AgentMode
+  /** 模型给的参数，按工具 schema 换算后的原样：提示词、张数、选区绑定、档位都在这里。 */
+  readonly args: Readonly<Record<string, unknown>>
+  /** 参数里引用的图（可能写成 `image 2` 这类编号）翻成的真实图片 id，顺序与参数一致。 */
+  readonly imageIds?: readonly string[]
+  /** 这一轮用户在参数浮层里选的生成参数（尺寸、质量等）。 */
+  readonly params?: AgentTurnParams
+  /** 起跑时解析到的生成模型；缺席即当时没有可用模型。 */
+  readonly target?: { readonly provider: string; readonly model: string }
+}
+
+/**
  * 工具产出的一件产物。`artifactId` 同时是画布对象的 id，结果卡凭它定位到画布上同一个对象。
  * `media` 是取字节的判据：图片下载成位图，视频只拿播放地址。
  */
@@ -147,8 +211,12 @@ export interface AgentToolResultBlock {
   readonly anchorObjectId?: string
   /** 读取技能这一步的结果。缺席即这条不是读技能，或者它还没跑完。 */
   readonly skill?: AgentSkillOutcome
-  /** 失败原因，一句话。 */
+  /** 失败原因，一句话。给日志与模型看，界面按 `errorCode` 出文案。 */
   readonly message?: string
+  /** 失败的分类；只在 `status: 'failed'` 时有。旧记录缺席。 */
+  readonly errorCode?: AgentToolErrorCode
+  /** 起跑时的参数快照；只有提交生成任务的工具有。旧记录缺席。 */
+  readonly snapshot?: AgentToolCallSnapshot
 }
 
 /**
@@ -253,6 +321,8 @@ export interface AgentToolStartEvent {
   readonly outputCount?: number
   /** 占位框贴着这个画布对象放；缺席就落在视口中央。与结果里的 `anchorObjectId` 同源。 */
   readonly anchorObjectId?: string
+  /** 起跑这一刻的参数快照，与结果块里的是同一份。 */
+  readonly snapshot?: AgentToolCallSnapshot
 }
 
 /** 分钟级任务的中途进度。一轮里可以有多次工具调用，各自按 `toolCallId` 独立上报。 */
