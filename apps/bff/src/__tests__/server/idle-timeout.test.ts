@@ -99,7 +99,7 @@ async function openKeepAlive() {
       }
       const deadline = Date.now() + SOCKET_WAIT_MS
       while (Date.now() < deadline) {
-        if (buffer.includes('{"ok":true}')) return buffer
+        if (buffer.includes('"ok":true')) return buffer
         if (isClosed) {
           throw new Error(`connection closed by origin mid-response (got ${buffer.length} bytes)`)
         }

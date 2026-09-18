@@ -1,8 +1,39 @@
 # 部署手册
 
-前端由 Pages 托管，允许本机构建发布；后端镜像在 macmini2 构建，VPS 仅运行预构建镜像。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
+前端由 Pages 托管，后端镜像经私有 GHCR 送到 VPS，VPS 仅运行预构建镜像。禁止在 VPS 安装构建依赖、编译或执行 `docker build`。
 
-## 前端：两套 Pages
+## 默认：合并 main 即部署
+
+负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
+
+1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
+2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则跳过；两套 API 都已是该提交时自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
+3. `backend`：检出该提交，用 deploy key 克隆私有仓库 main HEAD 到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
+4. `pages`：先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒），再无 `private/` 发布内部版、克隆同一私有提交后发布付费版（`pages-release.sh`，含域名 `version.json` 校验）。
+5. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
+
+### Secrets（仓库 `Muluk-m/ai-image-playground`）
+
+| Secret | 用途 |
+| --- | --- |
+| `PRIVATE_OVERLAY_SSH_KEY` | 私有仓库只读 deploy key |
+| `VPS_SSH_KEY` / `VPS_SSH_KNOWN_HOSTS` / `VPS_SSH_HOST` / `VPS_SSH_USER` | 连接 VPS 的受限 key、主机公钥、地址、用户（`ubuntu`） |
+| `PAGES_ENV` | 完整 `pages.env`；API 地址也从中读取 |
+| `INTERNAL_CLOUDFLARE_API_TOKEN` / `PAID_CLOUDFLARE_API_TOKEN` | Pages 上传令牌，CI 写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `*_CLOUDFLARE_TOKEN_FILE` |
+
+`PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
+
+### VPS 受限入口
+
+[`scripts/ci-receive.sh`](../../scripts/ci-receive.sh) 安装为 `/home/ubuntu/bin/aip-ci-receive`（0755），`~/.ssh/authorized_keys` 一行：
+
+```text
+command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-actions-deploy
+```
+
+只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`，其余一律拒绝（退出码 2）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；目录已存在即拒绝，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码。发布失败后目录保留：排查后删除该目录再重跑 workflow，或按手动步骤在 VPS 上直接重跑。脚本更新后须重新安装。
+
+## 前端：两套 Pages（手动应急）
 
 构建和上传可在本机执行，资源紧张时改用 macmini2；两套串行发布。仅修改前端时发布两套 Pages，无需部署 VPS 后端。
 
@@ -36,19 +67,21 @@ macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260
 
 前端回滚：在独立检出恢复上一已验证公开/私有提交，使用相同生产配置重跑对应 `pages-release.sh`，按上述步骤验收。
 
-## 后端：镜像构建与发布
+## 后端：镜像构建与发布（手动应急）
 
-1. 在 macmini2 独立检出已通过 PR/main CI 的公开提交；paid/all 还需已验证的 `private/` Git 检出。不得占用其他会话目录。
+镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含脚本、Compose、`images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
+
+1. 构建机：GitHub Actions `ubuntu-latest`（`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交；paid/all 还需已验证的 `private/` Git 检出。不得占用其他会话目录。
 2. 构建到尚不存在的目录：
 
 ```sh
-export PATH=/opt/homebrew/bin:$PATH
+export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
 ./scripts/build-vps-release.sh all /Users/mac/releases/aip-<release-id>
 ```
 
-构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。
+构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。每个镜像构建后立即推送，远端标签 `internal-<公开12位>`、`paid-<公开12位>-<私有12位>`、`backup-<公开12位>`，本地标签不变。首次推送上传全部层，之后只传变更层。
 
-3. 工作站中转完整发布包，再从产物内执行接收脚本：
+3. 工作站中转发布目录，再从产物内执行接收脚本：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
@@ -56,7 +89,26 @@ scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
 ssh tx-vps '/home/ubuntu/releases/aip-<release-id>/scripts/vps-deploy.sh all /home/ubuntu/releases/aip-<release-id>'
 ```
 
-发布包须包含应用及备份镜像、提交/镜像清单、部署脚本和 SHA-256 校验单。接收脚本持有发布锁，校验文件、镜像 ID、架构、`APP_VERSION`、原生依赖，再执行兼容迁移与启动；保留 VPS 原有运行配置。
+接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部文件，多出未列文件即拒绝），按 digest `docker pull` 并打回本地标签，再校验镜像 ID、架构、`APP_VERSION`、原生依赖，最后执行兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。
+
+### `images.tsv`
+
+每行一个镜像，制表符分隔：`形态 本地标签 镜像ID 公开提交 私有提交 仓库digest`。形态为 `internal`/`paid`/`backup`；私有提交无则为 `-`；第 6 列形如 `ghcr.io/muluk-m/ai-image-playground@sha256:<64位>`，archive 发布为 `-`。只有 5 列的旧发布包仍可接收。
+
+### 凭据
+
+| 文件（0600） | 机器 | 权限 | 用途 |
+| --- | --- | --- | --- |
+| `~/.config/ai-image-playground/ghcr-push-token` | macmini2 | `write:packages`（用户 `Muluk-m`） | 手动构建推送 |
+| `~/.config/ai-image-playground/ghcr-pull-token` | tx-vps | `read:packages` | 接收拉取 |
+
+脚本先用 Docker 已存凭据（`docker login ghcr.io`），失败才读令牌文件经 stdin 登录（`-u Muluk-m --password-stdin`），不回显令牌；`GHCR_PUSH_TOKEN_FILE`/`GHCR_PULL_TOKEN_FILE` 可改路径。GitHub Actions 由 workflow 先登录（`GITHUB_TOKEN`，`packages: write`），脚本不读令牌文件。
+
+轮换：在 GitHub 新建同权限 classic token → 写入对应文件（`umask 077`，覆盖原文件）→ 该机 `docker logout ghcr.io && docker login ghcr.io -u Muluk-m --password-stdin < <文件>` 验证 → 吊销旧 token。
+
+### archive 兜底
+
+GHCR 不可用时构建加 `RELEASE_TRANSPORT=archive`：不登录、不推送，照旧生成 `images.tar.gz`（约 800 MB）并列入 `SHA256SUMS`，`images.tsv` 第 6 列为 `-`。接收端见到 `images.tar.gz` 即走 `docker load`；既无归档又无 digest 的发布包直接拒绝。
 
 ## 排空与验收
 
@@ -98,6 +150,6 @@ scripts/app-compose.sh rollback <project> <旧镜像>
 
 回滚与发布同一流程：启动旧镜像的新一代，限时排空当前一代后停止。禁止执行 `compose up --force-recreate`、`compose down`。数据库不自动回滚；迁移须兼容新旧版本，破坏性 schema 另行设计恢复方案。
 
-切换前任一步失败（新实例不健康、新路由不健康、隧道不指向路由、新 worker 启用失败、旧协议任务超过期限），脚本删除本次创建的实例，恢复旧 worker 接单与 `activated/` 标记，重开旧式 claim，换回旧路由，以非零状态退出；线上仍是原一代。切换后不再失败回退，旧一代按期限停止。不手工修改 `releases/current`、`route.json`、`activated/`、`legacy-origin`；中断的发布由下一次发布的预检清理。镜像保留数量以脚本策略为准，运行中镜像不得删除。
+切换前任一步失败（新实例不健康、新路由不健康、隧道不指向路由、新 worker 启用失败、旧协议任务超过期限），脚本删除本次创建的实例，恢复旧 worker 接单与 `activated/` 标记，重开旧式 claim，换回旧路由，以非零状态退出；线上仍是原一代。切换后不再失败回退，旧一代按期限停止。不手工修改 `releases/current`、`route.json`、`activated/`、`legacy-origin`；中断的发布由下一次发布的预检清理。镜像保留数量以脚本策略为准，运行中镜像不得删除。回滚只用 VPS 本地保留的镜像标签，不依赖 GHCR；本地镜像已被清理时，重跑对应发布目录的 `vps-deploy.sh` 会按 digest 重新拉取。GHCR 上的镜像本次不做清理。
 
 旧的 `vps-deploy.sh all [git-ref]` 不再适用，必须传发布目录；VPS 旧检出中的入口脚本也须保持更新，防止绕回源码构建。备份、恢复及旧备用启停见[灾备手册](cold-recovery.md)。

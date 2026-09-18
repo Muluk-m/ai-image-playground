@@ -35,9 +35,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_deploy_lock "$deploy_lock" "receive $target $release"
 (cd "$release" && sha256sum --strict -c SHA256SUMS)
-# Require exactly one record per requested edition and only inert, well-formed fields.
-awk -F '\t' '
-  NF != 5 || $1 !~ /^(internal|paid|backup)$/ || seen[$1]++ { exit 1 }
+# The archive's mere presence selects `docker load`, so nothing unlisted may sit in the release.
+listed=$(sed 's/^[0-9a-f]*  //' "$release/SHA256SUMS" | LC_ALL=C sort)
+present=$(cd "$release" && find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)
+[ "$listed" = "$present" ] || { echo "Release files not covered by SHA256SUMS" >&2; exit 1; }
+# Require exactly one record per requested edition and only inert, well-formed fields. The sixth
+# column, the registry digest, is `-` or absent in archive releases.
+awk -F '\t' -v repo="$ghcr_repository@sha256:" '
+  (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|backup)$/ || seen[$1]++ { exit 1 }
+  NF == 6 && $6 != "-" && (index($6, repo) != 1 || substr($6, length(repo) + 1) !~ /^[0-9a-f]+$/ || length($6) != length(repo) + 64) { exit 1 }
   $2 !~ /^ai-image-playground:(vps-main|paid|backup)-[0-9a-f-]+$/ { exit 1 }
   $3 !~ /^sha256:[0-9a-f]+$/ || length($3) != 71 { exit 1 }
   $4 !~ /^[0-9a-f]+$/ || length($4) != 40 { exit 1 }
@@ -48,9 +54,20 @@ for edition in $editions backup; do
 done
 free_gb=$(docker_root_free_gb)
 [ "$free_gb" -ge "$DEPLOY_MIN_FREE_GB" ] || { echo "Insufficient Docker disk space: ${free_gb}G" >&2; exit 1; }
-docker load -i "$release/images.tar.gz"
+if [ -f "$release/images.tar.gz" ]; then
+  docker load -i "$release/images.tar.gz"
+else
+  awk -F '\t' 'NF != 6 || $6 == "-" { exit 1 }' "$release/images.tsv" ||
+    { echo "Release has neither an image archive nor registry digests" >&2; exit 1; }
+  ghcr_login "${GHCR_PULL_TOKEN_FILE:-$config_root/ghcr-pull-token}"
+  # Pull by digest, then give each image the local tag that rollout, rollback and pruning use.
+  while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha repo_digest; do
+    docker pull "$repo_digest" </dev/null
+    docker tag "$repo_digest" "$image"
+  done < "$release/images.tsv"
+fi
 # Check every image before changing any service or running a migration.
-while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha; do
+while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha repo_digest; do
   [ "$(docker image inspect "$image" --format '{{.Id}}')" = "$expected_id" ] || { echo "Image ID mismatch: $image" >&2; exit 1; }
   [ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || { echo "Wrong image platform: $image" >&2; exit 1; }
   version=$public_sha
@@ -91,7 +108,7 @@ prune_old_images() {
 backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
 for edition in $editions; do
   record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
-  IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha <<EOF
+  IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha repo_digest <<EOF
 $record
 EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
