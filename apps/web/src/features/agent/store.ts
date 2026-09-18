@@ -1398,7 +1398,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
         const jobs = await fetchJobs(conversationId)
         if (get().conversationId !== conversationId) return
-        for (const one of jobs) settleJob(one)
+        for (const one of jobs) settleJob(one, conversationId)
         return
       }
       const job = await requestJobCancel(conversationId, message.job.taskId)
