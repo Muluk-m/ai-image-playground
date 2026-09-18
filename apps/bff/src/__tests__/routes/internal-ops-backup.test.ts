@@ -76,4 +76,19 @@ describe('GET /internal/admin/ops/backups', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ latest: null, previous: null })
   })
+
+  it('ignores an interrupted hourly upload until its checksum completion marker exists', async () => {
+    const now = Date.now()
+    const key = 'pg/2026-09-18T04-00-00Z-example.dump'
+    const dump = { key, size: 1234, lastModified: now }
+    setObjectStoreForTesting(new BackupStore([dump]))
+    expect(await (await backups()).json()).toEqual({ latest: null, previous: null })
+    setObjectStoreForTesting(
+      new BackupStore([dump, { key: `${key}.sha256`, size: 65, lastModified: now + 1 }]),
+    )
+    expect(await (await backups()).json()).toEqual({
+      latest: { key, size_bytes: 1234, modified_at: now },
+      previous: null,
+    })
+  })
 })

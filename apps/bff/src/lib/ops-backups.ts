@@ -1,7 +1,7 @@
 import type { OpsBackupObject, OpsBackups, OpsRestoreDrill } from '@image-playground/shared'
 import { type ObjectEntry, objectStore } from './objectStore'
 
-/** pg-backup 容器把每天的 dump 传到这个前缀下，key 形如 `pg/2026-09-17.dump`。 */
+/** Hourly immutable dumps and their completion checksums; legacy daily dumps remain readable. */
 const BACKUP_PREFIX = 'pg/'
 /** 同一个容器每周把最新一份 dump 恢复一遍，结果覆盖写在这里。 */
 const DRILL_KEY = `${BACKUP_PREFIX}drill/latest.json`
@@ -12,13 +12,20 @@ function toBackup(entry: ObjectEntry | undefined): OpsBackupObject | null {
 }
 
 /**
- * 看的是真正落在桶里的文件，不是备份脚本自称的成功：脚本的成功痕迹是容器里一个文件的 mtime，
- * 容器一启动就会被刷成健康。带上前一份是为了让调用方看出「今天这份突然小了一个量级」。
+ * Use actual R2 objects. New snapshots count only after their completion checksum was uploaded.
+ * Retain the preceding snapshot so operators can spot an unexpected size drop.
  */
 export async function readBackups(): Promise<OpsBackups> {
-  const dumps = (await objectStore().listEntries(BACKUP_PREFIX))
+  const entries = await objectStore().listEntries(BACKUP_PREFIX)
+  const completed = new Set(
+    entries
+      .filter((entry) => entry.key.endsWith('.dump.sha256'))
+      .map((entry) => entry.key.slice(0, -7)),
+  )
+  const dumps = entries
     // 没有修改时间的对象排不了先后，也算不出距今多久；当它不存在，好过报一份「56 年前」的备份。
     .filter((entry) => entry.key.endsWith('.dump') && entry.lastModified > 0)
+    .filter((entry) => /^pg\/\d{4}-\d{2}-\d{2}\.dump$/.test(entry.key) || completed.has(entry.key))
     .sort((a, b) => b.lastModified - a.lastModified || b.key.localeCompare(a.key))
   return { latest: toBackup(dumps[0]), previous: toBackup(dumps[1]) }
 }
