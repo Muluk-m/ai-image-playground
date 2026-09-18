@@ -1403,7 +1403,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       const job = await requestJobCancel(conversationId, message.job.taskId)
       if (get().conversationId !== conversationId) return
-      settleJob(job)
+      settleJob(job, conversationId)
     },
 
     async retry(messageId, placeholderId, generationId) {

@@ -237,6 +237,8 @@ export function estimatedTurnInput(
   text: string,
   references: readonly AgentTurnReference[],
   mode: AgentMode = 'image',
+  /** 唤醒轮要复核的产物：跟在参考图后面作为视觉证据发出去，每张一块原图。 */
+  reviewImageIds: readonly string[] = [],
 ): AgentMessage[] {
   const now = Date.now()
   const active = activeAgentReferences(references, history)
@@ -252,7 +254,10 @@ export function estimatedTurnInput(
           type: 'text',
           text:
             turnPromptText(expandSkillInvocation(text, mode), active) +
-            evidenceManifest(estimatedListings(active)),
+            evidenceManifest([
+              ...estimatedListings(active),
+              ...reviewImageIds.map((imageId) => ({ imageId })),
+            ]),
         },
         ...active.flatMap((reference) =>
           evidenceBlocks(
@@ -262,6 +267,7 @@ export function estimatedTurnInput(
               : undefined,
           ),
         ),
+        ...reviewImageIds.map(() => PLACEHOLDER_IMAGE),
       ],
       timestamp: now,
     },
@@ -277,9 +283,10 @@ export function estimateTurnInputTokens(
   text: string,
   references: readonly AgentTurnReference[],
   mode: AgentMode = 'image',
+  reviewImageIds: readonly string[] = [],
 ): number {
   const estimated =
-    estimatedTurnInput(history, text, references, mode).reduce(
+    estimatedTurnInput(history, text, references, mode, reviewImageIds).reduce(
       (total, message) => total + estimateMessageTokens(message),
       0,
     ) + estimateToolDeclarationTokens(mode)

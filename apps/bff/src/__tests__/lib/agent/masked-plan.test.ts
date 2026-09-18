@@ -1,5 +1,9 @@
 import { expect, it } from 'bun:test'
-import { createMaskedEditPlan, type MaskedEditContent } from '../../../lib/agent/masked-plan'
+import {
+  createMaskedEditPlan,
+  type MaskedEditContent,
+  mergeMaskedPlanCarries,
+} from '../../../lib/agent/masked-plan'
 
 const CONTENT: MaskedEditContent = {
   imageIds: ['target', 'reference'],
@@ -142,4 +146,56 @@ it('remembers submitted content without locking a batch that never spent anythin
   expect(plan.approve({ content: CONTENT })).toBe('already-submitted')
   plan.capture([{ id: 'second', name: 'editImage', arguments: {} }])
   expect(plan.approve({ call: { toolCallId: 'second' } })).toBe('approved')
+})
+
+it('hands the wake turn the plan it left off with: submitted content and remaining deferred edits', () => {
+  const authorization = '先修改 A，再修改 B，最后修改 C'
+  const plan = createMaskedEditPlan(
+    () => authorization,
+    (id) => id,
+    true,
+  )
+  const b = { targetImageId: 'b', requestQuote: '再修改 B' }
+  const c = { targetImageId: 'c', requestQuote: '最后修改 C' }
+  plan.capture([{ id: 'first', name: 'editImage', arguments: { deferredEdits: [b, c] } }])
+  const first = { call: { toolCallId: 'first' }, content: CONTENT }
+  const carried = plan.carryAfter(first)
+  expect(carried).toMatchObject({ authorization, protected: true })
+
+  // 唤醒轮：批次早已冻结，只剩列明的后续编辑；提交过的内容不能再付一次费。
+  const wake = createMaskedEditPlan(
+    () => carried.authorization,
+    (id) => id,
+    false,
+    carried,
+  )
+  expect(wake.protected).toBe(true)
+  wake.capture([{ id: 'wake-call', name: 'editImage', arguments: {} }])
+  expect(wake.approve({ call: { toolCallId: 'wake-call' }, content: CONTENT })).toBe(
+    'already-submitted',
+  )
+  expect(wake.approve({ call: { toolCallId: 'wake-call' } })).toBe('outside-batch')
+  const second = { call: { toolCallId: 'wake-call', operation: b } }
+  expect(wake.approve(second)).toBe('approved')
+
+  // 再下一次唤醒只剩 C。
+  const next = createMaskedEditPlan(
+    () => '',
+    (id) => id,
+    false,
+    wake.carryAfter(second),
+  )
+  expect(next.approve({ call: { toolCallId: 'x', operation: b } })).toBe('outside-batch')
+  expect(next.approve({ call: { toolCallId: 'x', operation: c } })).toBe('approved')
+})
+
+it('merges the plans of one batch: every submitted content, the deferred edits of the last', () => {
+  const base = { authorization: '原话', protected: false }
+  expect(mergeMaskedPlanCarries([])).toBeUndefined()
+  expect(
+    mergeMaskedPlanCarries([
+      { ...base, contents: ['a'], deferred: ['x', 'y'] },
+      { ...base, protected: true, contents: ['a', 'b'], deferred: ['y'] },
+    ]),
+  ).toEqual({ ...base, protected: true, contents: ['a', 'b'], deferred: ['y'] })
 })

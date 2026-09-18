@@ -177,7 +177,11 @@ export async function runQueueTask(
     agent: {
       conversationId: context.conversationId,
       turnId: context.turnId,
-      job: { toolCallId: input.toolCallId ?? '', wakeOnSuccess: review },
+      job: {
+        toolCallId: input.toolCallId ?? '',
+        wakeOnSuccess: review,
+        ...(context.maskedEditPlan ? { plan: context.maskedEditPlan.carryAfter(submission) } : {}),
+      },
     },
   })
   if (submitted.kind !== 'created') {

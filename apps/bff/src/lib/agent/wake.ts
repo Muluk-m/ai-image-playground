@@ -4,6 +4,7 @@ import type { BffTransaction } from '../private-overlay'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
 import { AGENT_EXECUTION_LEASE_MS } from './execution'
 import { enqueueAgentWake } from './inbox'
+import { type MaskedPlanCarry, mergeMaskedPlanCarries } from './masked-plan'
 
 /**
  * 唤醒：后台任务结束后让智能体再起一轮去看结果。规则只在这里：
@@ -215,4 +216,21 @@ export async function deliverDueAgentWakes(
     woken += await db.transaction((tx) => deliverAgentWakes(tx, conversationId, now))
   }
   return woken
+}
+
+/**
+ * 唤醒点名的那几个任务提交时记下的改图计划，合成一份交给唤醒轮：它接着提交那一轮的计划走，
+ * 已经付过费的内容不能重提，授权原文仍是用户最初的原话。一个都没记下时返回 undefined。
+ */
+export async function wakePlan(
+  taskIds: readonly string[],
+  executor: Executor = db,
+): Promise<MaskedPlanCarry | undefined> {
+  if (taskIds.length === 0) return undefined
+  const rows = await executor
+    .select({ plan: jobs.plan })
+    .from(jobs)
+    .where(inArray(jobs.task_id, [...taskIds]))
+    .orderBy(asc(jobs.submitted_at), asc(jobs.task_id))
+  return mergeMaskedPlanCarries(rows.flatMap((row) => (row.plan ? [row.plan] : [])))
 }

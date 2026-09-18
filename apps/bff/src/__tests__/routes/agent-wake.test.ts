@@ -44,6 +44,7 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const { finishTask, cancelTasks } = await import('../../db/task-transitions')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { AGENT_WAKE_BATCH_WAIT_MS } = await import('../../lib/agent/wake')
+const { createQueueTask } = await import('../../lib/taskSubmission')
 const { bffDrain } = await import('../../lib/drain')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
@@ -385,6 +386,37 @@ describe('唤醒', () => {
     expect(calls).toHaveLength(2)
   })
 
+  it('does not wake the agent when a task the user submitted in the conversation fails', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => toolCallCompletion(generate('call-1')),
+        () => completionStream('已开始出图'),
+        () => completionStream('不该有这一轮'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const [agentTask] = await tasksOf(conversationId)
+    const [turnId] = await turnIds(conversationId)
+    await work(agentTask!.id, 'completed')
+
+    // 用户自己点的重试：同一个会话、同一轮，但不是智能体的工具提交的，没有后台任务登记。
+    const retried = await createQueueTask({
+      provider: agentTask!.provider,
+      model: agentTask!.model,
+      request: { prompt: '一只橘猫', device_id: DEVICE },
+      userId: null,
+      agent: { conversationId, turnId: turnId! },
+    })
+    expect(retried.kind).toBe('created')
+    if (retried.kind !== 'created') return
+    await work(retried.taskId, 'failed')
+
+    expect(await pickUpStrandedInboxes()).toBe(0)
+    expect(await wakes(conversationId)).toHaveLength(0)
+    expect(calls).toHaveLength(2)
+  })
+
   it('keeps a single executor per conversation while an old instance still holds it', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -482,6 +514,127 @@ describe('局部改图', () => {
       .flatMap((message) => message.content)
       .find((block): block is AgentToolResultBlock => block.type === 'toolResult')
     expect(card).toMatchObject({ status: 'succeeded', toolName: 'editImage' })
+  })
+})
+
+describe('唤醒轮接着提交那一轮的改图计划', () => {
+  const masked = (imageId: string) => ({ imageId, dataUrl: PIXEL, maskDataUrl: MASK })
+  const bindings = (imageId: string) => [{ imageId, selectionId: SELECTION_ID }]
+
+  it('refuses to resubmit a failed masked edit or add a new one in the wake turn', async () => {
+    const edit = {
+      prompt: '把圈里的杯子换成蓝色',
+      imageIds: ['target'],
+      selectionBindings: bindings('target'),
+    }
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => toolCallCompletion({ id: 'edit-1', name: 'editImage', args: edit }),
+        () => completionStream('已开始改'),
+        // 唤醒轮：候选失败了，模型想原样再付一次费，又想顺手追加一个不在计划里的改法。
+        () =>
+          toolCallCompletion(
+            { id: 'same-again', name: 'editImage', args: { ...edit, prompt: '再试一次' } },
+            {
+              id: 'something-else',
+              name: 'editImage',
+              args: { ...edit, requestQuote: '杯子换成蓝色' },
+            },
+          ),
+        () => completionStream('这次没改成，要不要换个说法再试？'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '把圈里的杯子换成蓝色', [masked('target')])
+    const [task] = await tasksOf(conversationId)
+
+    await work(task!.id, 'failed')
+    expect(await pickUpStrandedInboxes()).toBe(1)
+    await waitForTurns(conversationId, 2)
+
+    expect(await tasksOf(conversationId)).toHaveLength(1)
+    expect(calls).toHaveLength(4)
+    const refusals = JSON.stringify(calls[3]!.messages)
+    expect(refusals).toContain('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
+    expect(refusals).toContain(
+      '本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示',
+    )
+  })
+
+  it('runs a two-step chain of predeclared dependent edits across two wake turns', async () => {
+    const userText = '先修改 A，再以 A 的产物为参考修改 B，最后以 B 的产物为参考修改 C'
+    const second = {
+      targetImageId: 'b',
+      selectionId: SELECTION_ID,
+      requestQuote: '再以 A 的产物为参考修改 B',
+    }
+    const third = {
+      targetImageId: 'c',
+      selectionId: SELECTION_ID,
+      requestQuote: '最后以 B 的产物为参考修改 C',
+    }
+    const produced: string[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'first',
+            name: 'editImage',
+            args: {
+              prompt: '第一步',
+              imageIds: ['a'],
+              selectionBindings: bindings('a'),
+              requestQuote: '先修改 A',
+              deferredEdits: [second, third],
+            },
+          }),
+        () => completionStream('已开始改 A'),
+        // 第一次唤醒：A 的产物出来了，接着改 B。
+        () =>
+          toolCallCompletion({
+            id: 'second',
+            name: 'editImage',
+            args: {
+              prompt: '第二步',
+              imageIds: ['b', produced[0]!],
+              selectionBindings: bindings('b'),
+              requestQuote: second.requestQuote,
+            },
+          }),
+        () => completionStream('A 改好了，B 已开始改'),
+        // 第二次唤醒：提交 B 的是唤醒轮，授权原文仍是用户最初那句。
+        () =>
+          toolCallCompletion({
+            id: 'third',
+            name: 'editImage',
+            args: {
+              prompt: '第三步',
+              imageIds: ['c', produced[1]!],
+              selectionBindings: bindings('c'),
+              requestQuote: third.requestQuote,
+            },
+          }),
+        () => completionStream('B 改好了，C 已开始改'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, userText, ['a', 'b', 'c'].map(masked))
+
+    const [a] = await tasksOf(conversationId)
+    produced.push(projectArtifactId(a!.id, 0))
+    await work(a!.id, 'completed')
+    expect(await pickUpStrandedInboxes()).toBe(1)
+    await waitForTurns(conversationId, 2)
+    const [, b] = await tasksOf(conversationId)
+    expect(b!.request_payload.prompt).toContain(second.requestQuote)
+
+    produced.push(projectArtifactId(b!.id, 0))
+    await work(b!.id, 'completed')
+    expect(await pickUpStrandedInboxes()).toBe(1)
+    await waitForTurns(conversationId, 3)
+    const tasks = await tasksOf(conversationId)
+    expect(tasks).toHaveLength(3)
+    expect(tasks[2]!.request_payload.prompt).toContain(third.requestQuote)
   })
 })
 

@@ -26,7 +26,7 @@ import {
   removeAgentTurnReferences,
   requireAgentImages,
 } from './images'
-import { createMaskedEditPlan } from './masked-plan'
+import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
@@ -76,11 +76,13 @@ export interface StartAgentTurnInput {
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
   /**
-   * 唤醒轮：`text` 是给模型的系统说明，不是用户的话，也不落库。授权原文改按
-   * `authorizationPrompt`（提交那一批时用户的原话）核对，要复核的产物作为视觉证据附上。
+   * 唤醒轮：`text` 是给模型的系统说明，不是用户的话，也不落库。授权原文与改图计划接着提交那一批
+   * 的那一轮（`plan`，它记着当时的授权原文）；没有记下计划时退回 `authorizationPrompt`（提交那一轮
+   * 用户的原话）。要复核的产物作为视觉证据附上。
    */
   readonly wake?: {
     readonly authorizationPrompt: string
+    readonly plan?: MaskedPlanCarry
     readonly reviewImageIds: readonly string[]
   }
   /** 起轮时预扣的积分；缺席即这个部署不计费。 */
@@ -144,12 +146,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history,
     prompt: input.wake?.authorizationPrompt ?? prompt,
     references: images.references,
+    ...(input.wake?.plan ? { carried: input.wake.plan.authorization } : {}),
   })
   let clarified = false
   const maskedEditPlan = createMaskedEditPlan(
     () => authorization.current().instructions,
     images.identify,
     images.masked,
+    input.wake?.plan,
   )
   const toolFailures = createToolFailureLog()
   const agent = new Agent({

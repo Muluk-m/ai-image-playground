@@ -404,6 +404,17 @@ export const agent_inbox = pgTable(
 )
 
 /**
+ * 提交那一刻智能体的改图计划：授权原文、是否遮罩轮、已提交的内容身份与还没执行的后续编辑。
+ * 唤醒轮接着这份计划走，不另起一份（见 bff 的 `masked-plan.ts`）。
+ */
+export interface AgentJobPlan {
+  readonly authorization: string
+  readonly protected: boolean
+  readonly contents: readonly string[]
+  readonly deferred: readonly string[]
+}
+
+/**
  * 后台任务登记：智能体工具提交的每个生成任务一行，与任务行在同一个事务里写下，记着智能体提交时
  * 「成功后要不要回来复核」的选择。执行归任务表，唤醒投递归这里：worker 写终态的同一个事务里
  * 判断这一批（同一轮提交的那些）能不能唤醒，`delivered_at` 让一批只投递一次；`wake_id` 是它
@@ -419,6 +430,7 @@ export const agent_jobs = pgTable(
     turn_id: text('turn_id').notNull(),
     tool_call_id: text('tool_call_id').notNull(),
     wake_on_success: boolean('wake_on_success').notNull().default(false),
+    plan: bunJsonb('plan').$type<AgentJobPlan>(),
     submitted_at: epochMs('submitted_at').notNull(),
     delivered_at: epochMs('delivered_at'),
     wake_id: text('wake_id'),

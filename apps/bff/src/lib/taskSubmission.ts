@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import type { AgentJobPlan } from '@image-playground/db'
 import type {
   PersistedSubmitRequest,
   PersistedVideoRequest,
@@ -43,7 +44,12 @@ export interface CreateQueueTaskInput {
      * 这是一个后台任务：与任务行同一个事务登记进 `agent_jobs`，结束时据此判断要不要唤醒智能体。
      * 登记与任务同生同灭，worker 再快也不会在登记之前把它跑完。
      */
-    readonly job?: { readonly toolCallId: string; readonly wakeOnSuccess: boolean }
+    readonly job?: {
+      readonly toolCallId: string
+      readonly wakeOnSuccess: boolean
+      /** 提交这一刻的改图计划；唤醒轮接着它走。 */
+      readonly plan?: AgentJobPlan
+    }
   }
   /**
    * 云端项目里这个任务要接替的失败占位（项目元素 id）：单张重试时产物落回原来那个位置。
@@ -351,6 +357,7 @@ export async function createQueueTask(
         turn_id: input.agent.turnId,
         tool_call_id: input.agent.job.toolCallId,
         wake_on_success: input.agent.job.wakeOnSuccess,
+        plan: input.agent.job.plan ?? null,
         submitted_at: now,
       })
     await publishGenerations(tx, [id])

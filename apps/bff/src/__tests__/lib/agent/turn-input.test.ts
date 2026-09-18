@@ -323,4 +323,17 @@ describe('estimated and sent turn input', () => {
     expect(sentLines[4]).toMatch(masked)
     expect(estimatedLines[4]).toMatch(masked)
   })
+
+  /** 唤醒轮要复核的产物跟在参考图后面发出去：预扣照同样的块数与清单算，不少算。 */
+  it('charges the artifacts a wake turn reviews like the evidence it sends', async () => {
+    const reviewed = { ...REAL_PLAIN, imageId: 'agent_task-1_0' }
+    const evidence = await turnVisualEvidence([reviewed])
+    const estimated = estimatedTurnInput([], '复核', [], 'image', [reviewed.imageId]).at(-1)!
+    expect(imageBlocks(estimated)).toBe(evidence.content.length)
+    expect(textOf(estimated)).toBe(turnPromptText('复核', []) + evidence.manifest)
+    expect(
+      estimateTurnInputTokens([], '复核', [], 'image', [reviewed.imageId]) -
+        estimateTurnInputTokens([], '复核', []),
+    ).toBeGreaterThanOrEqual(1200)
+  })
 })

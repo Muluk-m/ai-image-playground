@@ -39,7 +39,7 @@ import {
 } from './inbox'
 import { type RunningTurn, runningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
-import { deliverDueAgentWakes } from './wake'
+import { deliverDueAgentWakes, wakePlan } from './wake'
 import {
   wakeAuthorizationPrompt,
   wakeJobs,
@@ -246,16 +246,24 @@ async function executeWakeTurn(
   const billed = isCapabilityEnabled('billing:credits')
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
   const overlayPromise = loadPrivateBffOverlay()
-  const [{ estimateTurnInputTokens }, { startAgentTurn }, { resolveAgentMode }, overlay, history] =
-    await Promise.all([
-      import('./turn-input'),
-      import('./turn'),
-      import('./tools'),
-      overlayPromise,
-      // 读历史会把结束了的后台任务结算成终局：唤醒轮看到的就是它们的结果。
-      listAgentMessages(conversationId, owner),
-      import('./skills').then((it) => it.ensureAgentSkills()),
-    ])
+  const [
+    { estimateTurnInputTokens },
+    { startAgentTurn },
+    { resolveAgentMode },
+    overlay,
+    history,
+    plan,
+  ] = await Promise.all([
+    import('./turn-input'),
+    import('./turn'),
+    import('./tools'),
+    overlayPromise,
+    // 读历史会把结束了的后台任务结算成终局：唤醒轮看到的就是它们的结果。
+    listAgentMessages(conversationId, owner),
+    // 提交这一批时的改图计划：唤醒轮接着它走，不另起一份。
+    wakePlan(wake.taskIds),
+    import('./skills').then((it) => it.ensureAgentSkills()),
+  ])
   const jobs = wakeJobs(history, wake.taskIds)
   if (jobs.length === 0) {
     // 点名的结果卡一张都不在（那一轮没能落下结果卡就没了）：没有可看的，取走它不起轮。
@@ -269,6 +277,7 @@ async function executeWakeTurn(
   const { params } = setup
   const selectedModel = agentThinking(params?.thinkingDepth).model
   const text = wakeTurnPrompt(jobs)
+  const reviewImageIds = wakeReviewImageIds(jobs)
   const deviceId = wake.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
   const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
   const chatTask =
@@ -280,7 +289,8 @@ async function executeWakeTurn(
           userId,
           deviceId,
           model: selectedModel,
-          estimatedInputTokens: estimateTurnInputTokens(history, text, [], mode),
+          // 要复核的产物作为视觉证据随这一轮发出去，预扣时一并算上。
+          estimatedInputTokens: estimateTurnInputTokens(history, text, [], mode, reviewImageIds),
           pricing,
         }
       : null
@@ -319,7 +329,8 @@ async function executeWakeTurn(
       ...(params ? { params } : {}),
       wake: {
         authorizationPrompt: wakeAuthorizationPrompt(history, wake.turnId),
-        reviewImageIds: wakeReviewImageIds(jobs),
+        ...(plan ? { plan } : {}),
+        reviewImageIds,
       },
       reservedCredits: written.reserved?.reservedCredits,
       settle: written.reserved?.settle,
