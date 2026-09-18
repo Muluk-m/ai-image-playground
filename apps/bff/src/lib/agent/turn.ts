@@ -184,6 +184,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
 
   let error: AgentTurnErrorCode | undefined
   let aborted = false
+  /** 终帧发过没有。收尾半路抛错时据此补一个，续播的消费者不能一直等下去。 */
+  let ended = false
   let storedAny = false
   let open: OpenAssistantMessage | null = null
   let acceptingInterjections = true
@@ -514,16 +516,29 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         usage,
         cost,
       })
+      ended = true
       await touchAgentConversation(conversationId)
       await events.flush()
     })
-    .catch((err) => {
+    .catch(async (err) => {
+      // 租约已经归了别人：这里不能再写，终帧由接手的一方补（见 `sealAbandonedTurns`）。
       if (err instanceof ConversationExecutionLost) return
       bffDrain.failed()
       log.error(
         { event: 'agent.finalization_failed', turnId, err },
         'turn could not be durably finalized; retaining instance',
       )
+      if (ended) return
+      events.emit({
+        type: 'turnEnd',
+        turnId,
+        durationMs: Date.now() - startedAt,
+        stopReason: 'failed',
+        error: 'agent_run_failed',
+        usage: null,
+      })
+      // 落不了库也无妨：连着的消费者已经收到终帧，之后的读取由补写兜底。
+      await events.flush().catch(() => {})
     })
     .finally(() => {
       unregister()

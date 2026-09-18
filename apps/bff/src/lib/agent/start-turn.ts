@@ -11,6 +11,7 @@ import {
   listAgentMessages,
   setAgentConversationTitle,
 } from './conversations'
+import { sealAbandonedTurns } from './events'
 import {
   assertConversationExecution,
   ConversationExecutionLost,
@@ -63,6 +64,8 @@ export async function startConversationTurn(
       release()
       return { kind: 'already_running', turnId: active?.turn_id ?? turnId }
     }
+    // 上一轮若被打断没有终帧，先在租约下补上，再给这一轮发序号：终帧排在新一轮之前。
+    await sealAbandonedTurns(input.conversationId, true)
     stopHeartbeat = maintainConversation(input.conversationId, turnId, () => {
       ownershipLost = true
       turn?.abort()

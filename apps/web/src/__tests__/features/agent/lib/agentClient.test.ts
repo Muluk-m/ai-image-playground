@@ -335,3 +335,55 @@ describe('跟一轮到底', () => {
     expect(calls).toHaveLength(1)
   })
 })
+
+describe('先取快照再接会话增量', () => {
+  const CONVERSATION_EVENTS_URL = `https://bff.test/api/agent/conversations/${CONVERSATION}/events`
+
+  it('从快照游标之后接会话级增量，断了带最后序号重连，读到这一轮的终帧收工', async () => {
+    const { calls, fetcher } = scriptedFetcher([
+      () =>
+        sse(
+          [
+            { id: 8, event: TURN_START },
+            { id: 9, event: delta('好的，') },
+          ],
+          true,
+        ),
+      () =>
+        sse([
+          { id: 9, event: delta('好的，') },
+          { id: 10, event: delta('这就来') },
+          { id: 11, event: TURN_END },
+        ]),
+    ])
+
+    const turn = followTurn(CONVERSATION, { turnId: TURN, cursor: 7 }, { fetcher, delaysMs: [0] })
+    const events = await collect(turn)
+
+    expect(events).toEqual([TURN_START, delta('好的，'), delta('这就来'), TURN_END])
+    expect(turn.outcome).toBe('ended')
+    expect(calls.map((call) => call.url)).toEqual([
+      CONVERSATION_EVENTS_URL,
+      CONVERSATION_EVENTS_URL,
+    ])
+    expect(calls.map((call) => headerOf(call.init, 'last-event-id'))).toEqual(['7', '9'])
+    expect(headerOf(calls[0]!.init, DEVICE_ID_HEADER)).toBe(DEVICE)
+  })
+
+  it('游标之后别的轮的终帧不算这一轮的结局', async () => {
+    const earlier: AgentTurnEvent = { ...TURN_END, turnId: 'turn-0', stopReason: 'failed' }
+    const { fetcher } = scriptedFetcher([
+      () =>
+        sse([
+          { id: 4, event: earlier },
+          { id: 5, event: TURN_START },
+          { id: 6, event: TURN_END },
+        ]),
+    ])
+
+    const turn = followTurn(CONVERSATION, { turnId: TURN, cursor: 3 }, { fetcher, delaysMs: [0] })
+
+    expect(await collect(turn)).toEqual([TURN_START, TURN_END])
+    expect(turn.outcome).toBe('ended')
+  })
+})

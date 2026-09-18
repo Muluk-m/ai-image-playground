@@ -317,7 +317,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (!active) return
     set({ turn: 'running', error: null, activeTurn: { turnId: active } })
     const turnDelivery = delivery.beginTurn()
-    await follow(conversationId, { turnId: active }, null, turnDelivery)
+    // 快照先行、增量接在它的游标之后。游标只对快照里那一轮成立：409 兜底给的轮可能已经跑完，
+    // 它在游标之前，只能按轮从头重放。
+    const cursor = state.activeTurn?.turnId === active ? state.cursor : undefined
+    await follow(
+      conversationId,
+      cursor === undefined ? { turnId: active } : { turnId: active, cursor },
+      null,
+      turnDelivery,
+    )
   }
 
   // 发送请求尚未返回轮标识时，也必须记住用户的中止意图。
