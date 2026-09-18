@@ -421,6 +421,53 @@ describe('停止时退回', () => {
     expect(prompt).toBe('还没发的草稿\n\n再加一只狗\n\n换成蓝色')
     expect(references).toEqual([{ id: 'image-1', dataUrl: reference.dataUrl, name: '猫' }])
   })
+  it('停止的响应丢了就重发同一个请求，拿回的消息照样回到输入框', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    draft.update((current) => ({ ...current, prompt: '' }))
+    let attempts = 0
+    abortResponse = () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('network down')
+      return Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    }
+
+    await state().abort()
+
+    expect(attempts).toBe(2)
+    expect(state().error).toBeNull()
+    expect(state().queue).toEqual([])
+    expect(draft.getSnapshot().draft.prompt).toBe('再加一只狗')
+  })
+
+  it('停止期间切到别的会话，退回的消息仍回到按停止时那个会话的输入框', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    draft.update((current) => ({ ...current, prompt: '' }))
+    const other = currentProjectDraft('conversation-2')
+    await other.ready
+    other.update((current) => ({ ...current, prompt: '另一个会话的草稿' }))
+    abortResponse = () => {
+      // 响应回来之前用户已经切走了。
+      useAgentStore.setState({ conversationId: 'conversation-2', activeTurn: null, turn: 'idle' })
+      return Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    }
+
+    await state().abort()
+
+    expect(draft.getSnapshot().draft.prompt).toBe('再加一只狗')
+    expect(other.getSnapshot().draft.prompt).toBe('另一个会话的草稿')
+  })
 })
 
 describe('回答澄清', () => {

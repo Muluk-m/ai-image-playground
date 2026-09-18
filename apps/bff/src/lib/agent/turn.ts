@@ -402,19 +402,24 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     turnId,
     mode: input.mode,
     read: (afterSeq) => events.read(afterSeq),
-    async interject(text, references = [], id) {
+    async interject(text, references = [], options = {}) {
       if (!acceptingInterjections || aborted) return null
       const evidence = await turnVisualEvidence(references)
       if (!acceptingInterjections || aborted) return null
       await input.assertExecution?.()
-      const messageId = id ?? crypto.randomUUID()
+      const messageId = options.messageId ?? crypto.randomUUID()
       const archiveId = `${turnId}/interjections/${messageId}`
       const stored = await archiveAgentReferences(conversationId, archiveId, references)
       // 上传期间本轮可能已结束；拒收并只清理本次上传，不能误删首轮或其它插话的引用。
-      if (!acceptingInterjections || aborted) {
+      const reject = async () => {
         if (stored.length) await removeAgentTurnReferences(conversationId, archiveId)
         return null
       }
+      if (!acceptingInterjections || aborted) return reject()
+      // 排队消息升级来的插话到这一刻才从收件箱取走：之前的几秒里它仍然排着，停止与撤回拿得到它。
+      if (options.claim && !(await options.claim())) return reject()
+      // 取走之后到这里之间本轮可能刚好收尾：交由调用方放回收件箱。
+      if (!acceptingInterjections || aborted) return reject()
       const active = references.length ? references : images.references
       const steered = turnModelPrompt(
         turnPromptText(expandSkillInvocation(text, input.mode), active),

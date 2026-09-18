@@ -4,6 +4,7 @@ import { db, schema } from '../../db/client'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import { AGENT_EXECUTION_LEASE_MS } from './execution'
+import { heldByClarification } from './inbox'
 import { drainConversationInbox } from './start-turn'
 
 /**
@@ -21,7 +22,7 @@ const PICKUP_BATCH = 50
 /** 巡一次的间隔：旧实例收尾放手后，排着的下一条最迟隔这么久在新版本上开轮。 */
 export const AGENT_INBOX_PICKUP_INTERVAL_MS = 5_000
 
-/** 收件箱里有待处理的用户消息、却没有活着的执行租约的会话。 */
+/** 收件箱里有该处理的用户消息、却没有活着的执行租约的会话。 */
 export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<string[]> {
   const leased = db
     .select({ one: executions.conversation_id })
@@ -41,6 +42,8 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
       and(
         inArray(inbox.kind, ['user_message', 'clarification_answer']),
         eq(inbox.status, 'pending'),
+        // 在等澄清答复、只剩问之前就排着的那几条：不是没人处理，是在等用户。取不到就别占名额。
+        not(heldByClarification),
         isNull(conversations.deleted_at),
         not(exists(leased)),
         // 还归旧二进制管的会话由它自己收尾；新版本不去抢（见 `forwardActiveTurn`）。

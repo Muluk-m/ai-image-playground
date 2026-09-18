@@ -11,7 +11,7 @@ import {
   type AgentTurnParams,
   type AgentTurnReference,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, not, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 
@@ -116,7 +116,12 @@ export async function enqueueAgentUserMessage(
         ),
       )
     if (existing) return { kind: 'duplicate', entry: entryOf(existing) }
-    const kind = message.clarificationAnswer ? 'clarification_answer' : 'user_message'
+    // 只有会话真在等澄清答复时才让它插到队首：标记由客户端报，可能来自另一台设备上过时的
+    // 画面，也可能是有意插队。没在等就当普通消息，照常排队、照常占名额。
+    const answering =
+      message.clarificationAnswer === true &&
+      (await awaitingClarificationSince(conversationId, tx)) !== null
+    const kind = answering ? 'clarification_answer' : 'user_message'
     // 名额按种类各算各的：排满了普通消息，也得答得了澄清。
     const [pending] = await tx
       .select({ count: sql<number>`count(*)::int` })
@@ -129,7 +134,7 @@ export async function enqueueAgentUserMessage(
       referenceCount: message.references.length,
       ...(message.mode ? { mode: message.mode } : {}),
       ...(message.params ? { params: message.params } : {}),
-      ...(message.clarificationAnswer ? { clarificationAnswer: true as const } : {}),
+      ...(answering ? { clarificationAnswer: true as const } : {}),
     }
     const [row] = await tx
       .insert(inbox)
@@ -205,14 +210,17 @@ export async function failAgentMessage(
  * 会话在等澄清答复时，那条澄清落下的时刻：它之后还没有用户消息。不在等就是 null。
  * 澄清之后才发的话本来就是在回答它（界面也这么认），只有问之前就排着的那些要等。
  */
-async function awaitingClarificationSince(conversationId: string): Promise<number | null> {
+async function awaitingClarificationSince(
+  conversationId: string,
+  executor: typeof db | BffTransaction = db,
+): Promise<number | null> {
   const messages = schema.agent_messages
   const live = and(eq(messages.conversation_id, conversationId), isNull(messages.deleted_at))
-  const lastUser = db
+  const lastUser = executor
     .select({ seq: sql`COALESCE(MAX(${messages.seq}), 0)` })
     .from(messages)
     .where(and(live, eq(messages.role, 'user')))
-  const [row] = await db
+  const [row] = await executor
     .select({ createdAt: messages.created_at })
     .from(messages)
     .where(
@@ -227,6 +235,26 @@ async function awaitingClarificationSince(conversationId: string): Promise<numbe
     .limit(1)
   return row?.createdAt ?? null
 }
+
+/**
+ * 收件箱这一行是问澄清之前就排着的普通消息、而那条澄清还没人答：它得等答复先处理。与
+ * {@link awaitingClarificationSince} 同一个口径，写成相关子查询，好让巡查在 SQL 里就把它
+ * 排除掉——不然一直没人答的澄清会占满巡查的一批，真没人处理的会话反倒轮不上。
+ */
+export const heldByClarification = sql`(${inbox.kind} = 'user_message' AND EXISTS (
+  SELECT 1 FROM ${schema.agent_messages} clarifying
+  WHERE clarifying.conversation_id = ${inbox.conversation_id}
+    AND clarifying.deleted_at IS NULL
+    AND clarifying.role = 'assistant'
+    AND clarifying.content @> '[{"type":"clarification"}]'::jsonb
+    AND clarifying.created_at >= ${inbox.created_at}
+    AND clarifying.seq > (
+      SELECT COALESCE(MAX(answered.seq), 0) FROM ${schema.agent_messages} answered
+      WHERE answered.conversation_id = ${inbox.conversation_id}
+        AND answered.deleted_at IS NULL
+        AND answered.role = 'user'
+    )
+))`
 
 function queuedMessageOf(row: InboxRow): QueuedUserMessage {
   return {
@@ -245,18 +273,10 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
  * 澄清答复先取；会话在等澄清答复时，问之前就排着的话不取。
  */
 export async function nextAgentMessage(conversationId: string): Promise<QueuedUserMessage | null> {
-  const since = await awaitingClarificationSince(conversationId)
   const [row] = await db
     .select()
     .from(inbox)
-    .where(
-      and(
-        isPendingUserMessage(conversationId),
-        since === null
-          ? undefined
-          : or(eq(inbox.kind, 'clarification_answer'), gt(inbox.created_at, since)),
-      ),
-    )
+    .where(and(isPendingUserMessage(conversationId), not(heldByClarification)))
     .orderBy(...processingOrder)
     .limit(1)
   return row ? queuedMessageOf(row) : null
@@ -279,7 +299,20 @@ export async function consumeAgentMessage(
       and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id), eq(inbox.status, 'pending')),
     )
     .returning({ id: inbox.id })
-  return rows.length > 0
+  if (rows.length === 0) return false
+  // 之前停止时退回的那几条留着参考图，只为让丢了响应的客户端重试时还拿得回；开了新的一轮，
+  // 那次停止早已尘埃落定，原件不再留。
+  await tx
+    .update(inbox)
+    .set({ attachments: null })
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.status, 'cancelled'),
+        isNotNull(inbox.attachments),
+      ),
+    )
+  return true
 }
 
 /**
@@ -311,35 +344,47 @@ export async function withdrawAgentMessage(
 }
 
 /**
- * 把一条排队消息升级为插话：先在记录上原子地记成被这一轮取走，与撤回、起轮争同一行，只有一个
- * 成立。取到了就交回它的正文与参考图，由调用方插进那一轮；插不进去（那一轮刚好收尾）就用
- * {@link requeueAgentMessage} 放回去。
+ * 要升级为插话的那一条此刻的正文与参考图：只看不取。取走由 {@link claimAgentMessageForInterjection}
+ * 在插话真正进那一轮的前一刻做——参考图校验与归档要花几秒，这期间它仍然排着，停止、撤回、
+ * 起轮都照常拿得到它；进程半路没了，它也还在队里。
  */
-export async function takeAgentMessageForInterjection(
+export async function pendingAgentMessage(
   conversationId: string,
   id: string,
-  turnId: string,
 ): Promise<
-  | { readonly kind: 'taken'; readonly message: QueuedUserMessage }
+  | { readonly kind: 'pending'; readonly message: QueuedUserMessage }
   | { readonly kind: 'unavailable'; readonly result: AgentQueueInterjectResult }
 > {
   const [row] = await db
+    .select()
+    .from(inbox)
+    .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id)))
+  if (!row || !USER_KINDS.includes(row.kind as (typeof USER_KINDS)[number]))
+    return { kind: 'unavailable', result: 'not_found' }
+  if (row.status === 'pending') return { kind: 'pending', message: queuedMessageOf(row) }
+  return {
+    kind: 'unavailable',
+    result: row.status === 'consumed' ? 'already_consumed' : 'cancelled',
+  }
+}
+
+/**
+ * 把一条排队消息记成被这一轮以插话取走：与撤回、停止、起轮争同一行，只有一个成立。插不进去
+ * （那一轮刚好收尾）就用 {@link requeueAgentMessage} 放回去。
+ */
+export async function claimAgentMessageForInterjection(
+  conversationId: string,
+  id: string,
+  turnId: string,
+): Promise<boolean> {
+  const rows = await db
     .update(inbox)
     .set({ status: 'consumed', consumed_turn_id: turnId })
     .where(
       and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id), eq(inbox.status, 'pending')),
     )
-    .returning()
-  if (row) return { kind: 'taken', message: queuedMessageOf(row) }
-  const [current] = await db
-    .select({ status: inbox.status })
-    .from(inbox)
-    .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id)))
-  if (!current) return { kind: 'unavailable', result: 'not_found' }
-  return {
-    kind: 'unavailable',
-    result: current.status === 'consumed' ? 'already_consumed' : 'cancelled',
-  }
+    .returning({ id: inbox.id })
+  return rows.length > 0
 }
 
 /** 插话已经进了那一轮：参考图原件归那一轮归档，收件箱里不再留。 */
@@ -369,17 +414,41 @@ export async function requeueAgentMessage(
     )
 }
 
+/** 停止退回的结果：`returned` 是这次停止退回的全部，`fresh` 是这一次调用才撤下的那几条。 */
+export interface ReturnedAgentMessages {
+  readonly returned: AgentReturnedQueuedMessage[]
+  readonly fresh: readonly string[]
+}
+
+const returnedBy = (conversationId: string, turnId: string) =>
+  and(
+    eq(inbox.conversation_id, conversationId),
+    inArray(inbox.kind, [...USER_KINDS]),
+    eq(inbox.status, 'cancelled'),
+    eq(inbox.consumed_turn_id, turnId),
+  )
+
+const returnedView = (row: InboxRow): AgentReturnedQueuedMessage => ({
+  id: row.id,
+  text: row.payload.text,
+  references: row.attachments ?? [],
+})
+
 /**
  * 停止当前回复时把还没处理的排队消息全部退回：一次原子更新撤掉它们（连同轮到时没能开轮的
  * 那几条），按原先的处理顺序交还正文与参考图，由客户端放回输入框。
+ *
+ * 退回的记录记下是哪一轮的停止退回的，参考图也先留着：停止的响应丢了（超时、断网），客户端
+ * 重发同一个停止请求时拿得回同一批，不会因为服务端已经撤掉而两头落空。
  */
 export async function returnAgentMessages(
   conversationId: string,
-): Promise<AgentReturnedQueuedMessage[]> {
+  turnId: string,
+): Promise<ReturnedAgentMessages> {
   return db.transaction(async (tx) => {
     // 锁住这几行再撤：与之并发的起轮、撤回、升级都得等这一笔落定，结局只有一个。
     const rows = await tx
-      .select()
+      .select({ id: inbox.id })
       .from(inbox)
       .where(
         and(
@@ -388,25 +457,31 @@ export async function returnAgentMessages(
           inArray(inbox.status, ['pending', 'failed']),
         ),
       )
-      .orderBy(...processingOrder)
       .for('update')
-    if (rows.length === 0) return []
-    await tx
-      .update(inbox)
-      .set({ status: 'cancelled', attachments: null })
-      .where(
-        and(
-          eq(inbox.conversation_id, conversationId),
-          inArray(
-            inbox.id,
-            rows.map((row) => row.id),
-          ),
-        ),
-      )
-    return rows.map((row) => ({
-      id: row.id,
-      text: row.payload.text,
-      references: row.attachments ?? [],
-    }))
+    const fresh = rows.map((row) => row.id)
+    if (fresh.length)
+      await tx
+        .update(inbox)
+        .set({ status: 'cancelled', consumed_turn_id: turnId })
+        .where(and(eq(inbox.conversation_id, conversationId), inArray(inbox.id, fresh)))
+    const returned = await tx
+      .select()
+      .from(inbox)
+      .where(returnedBy(conversationId, turnId))
+      .orderBy(...processingOrder)
+    return { returned: returned.map(returnedView), fresh }
   })
+}
+
+/** 某一轮的停止已经退回的排队消息；那一轮已经收尾、客户端重发停止请求时据此交还。 */
+export async function returnedAgentMessages(
+  conversationId: string,
+  turnId: string,
+): Promise<AgentReturnedQueuedMessage[]> {
+  const rows = await db
+    .select()
+    .from(inbox)
+    .where(returnedBy(conversationId, turnId))
+    .orderBy(...processingOrder)
+  return rows.map(returnedView)
 }

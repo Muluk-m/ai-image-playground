@@ -402,12 +402,15 @@ describe('发送反馈', () => {
     const stopping = state().abort()
     await state().abort()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    // 没拿到响应的停止会重发同一个请求；一直断网，重发也失败，才报停止失败。
+    turnResponse = () => Promise.reject(new TypeError('offline'))
     reject(new TypeError('offline'))
     await stopping
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(state().stopping).toBe(false)
     turnResponse = () => Response.json({ aborted: true })
     await state().abort()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(state().error).toBeNull()
   })
 

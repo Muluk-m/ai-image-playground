@@ -195,6 +195,8 @@ const hasPendingJobs = (messages: readonly AgentPanelMessage[]) =>
 /** 上一轮收尾后找服务端接着开的那一轮：最多看这么多次，每次隔这么久。 */
 const QUEUE_PICKUP_ATTEMPTS = 8
 const QUEUE_PICKUP_DELAY_MS = 250
+/** 停止请求没拿到响应时，连同第一次一共发这么多次。 */
+const STOP_ATTEMPTS = 3
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
@@ -588,20 +590,38 @@ export const useAgentStore = create<AgentState>((set, get) => {
     )
   }
 
+  /**
+   * 停止请求没拿到响应（超时、断网）时重发同一个请求：服务端那一刻可能已经撤下了排队消息，
+   * 只在响应里交还，重发拿得回同一批。服务端明确答复的错误（例如 404）不重发。
+   */
+  const abortWithRetry = async (conversationId: string, turnId: string) => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await abortTurn(conversationId, turnId)
+      } catch (error) {
+        if (error instanceof AgentRequestError || attempt >= STOP_ATTEMPTS) throw error
+      }
+    }
+  }
+
   // 发送请求尚未返回轮标识时，也必须记住用户的中止意图。
   let pendingStart: { cancelled: boolean; delivery: TurnArtifactDelivery } | null = null
   const requestAbort = async (conversationId: string, turnId: string) => {
     const current = () =>
       get().conversationId === conversationId && get().activeTurn?.turnId === turnId
+    // 退回的排队消息属于按停止时的这个项目：请求期间切走了，也得落回它自己的输入框，不能落进
+    // 切过去的那个项目。
+    const draft = currentProjectDraft(conversationId)
     try {
       if (current()) set({ stopping: true, error: null })
-      const returned = await abortTurn(conversationId, turnId)
+      const returned = await abortWithRetry(conversationId, turnId)
       // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
-      if (returned.length && get().conversationId === conversationId) {
-        currentProjectDraft(conversationId).update((draft) => returnQueuedToDraft(draft, returned))
-        set((state) => ({
-          queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
-        }))
+      if (returned.length) {
+        draft.update((before) => returnQueuedToDraft(before, returned))
+        if (get().conversationId === conversationId)
+          set((state) => ({
+            queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
+          }))
       }
     } catch (error) {
       if (!current()) return
