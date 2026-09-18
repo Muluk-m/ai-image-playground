@@ -81,6 +81,7 @@ case "$1 $2" in
       '{{.Os}}/{{.Architecture}}') echo "\${TEST_PLATFORM:-linux/amd64}" ;;
       *) case "$3" in *:paid-*) echo 'APP_VERSION=${sha}+${sha}' ;; *) echo 'APP_VERSION=${sha}' ;; esac ;;
     esac ;;
+  'run --rm') exit "\${TEST_NATIVE_EXIT:-0}" ;;
   'load -i') exit "\${TEST_LOAD_EXIT:-0}" ;;
   'ps --format'|'images --format'|'tag '*) ;;
   *) exit 91 ;;
@@ -126,6 +127,11 @@ describe('prebuilt VPS receiver', () => {
   })
   it('does not roll services after docker load fails', () => {
     env.TEST_LOAD_EXIT = '1'
+    expect(run().status).not.toBe(0)
+    expect(readFileSync(log, 'utf8')).not.toContain('rollout')
+  })
+  it('does not roll services when target native dependencies fail', () => {
+    env.TEST_NATIVE_EXIT = '1'
     expect(run().status).not.toBe(0)
     expect(readFileSync(log, 'utf8')).not.toContain('rollout')
   })

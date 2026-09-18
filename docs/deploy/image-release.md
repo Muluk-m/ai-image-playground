@@ -12,7 +12,7 @@ export PATH=/opt/homebrew/bin:$PATH
 ./scripts/build-vps-release.sh all /Users/mac/releases/aip-<release-id>
 ```
 
-脚本通过 `git archive HEAD` 固定公开和私有输入，忽略未提交文件与凭据。使用独立 `aip-release` BuildKit builder，最多 4 核、6 GiB 内存、无额外 Swap，Dockerfile 阶段并发数为 1；镜像明确构建为 `linux/amd64`。所有本项目检出共用 `~/.config/ai-image-playground/image-build.lock`，第二个构建立即拒绝。仍须按全局规则与其他项目的重型任务错峰。
+脚本通过 `git archive HEAD` 固定公开和私有输入，忽略未提交文件与凭据。使用独立 `aip-release` BuildKit builder，最多 4 核、6 GiB 内存、无额外 Swap，Dockerfile 阶段并发数为 1；镜像明确构建为 `linux/amd64`。依赖安装和前端编译使用构建机原生 ARM CPU，同时安装目标 x64 的原生依赖；VPS 在迁移前实际执行 Bun + sharp 图片编解码检查。所有本项目检出共用 `~/.config/ai-image-playground/image-build.lock`，第二个构建立即拒绝。仍须按全局规则与其他项目的重型任务错峰。
 
 3. 从工作站中转产物，避免为 macmini2 新增 VPS SSH 凭据：
 

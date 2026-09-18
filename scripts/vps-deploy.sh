@@ -60,6 +60,12 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   fi
   actual=$(docker image inspect "$image" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_VERSION=//p')
   [ "$actual" = "$version" ] || { echo "APP_VERSION mismatch: $image" >&2; exit 1; }
+  # Execute the target native module before touching services or schema.
+  docker run --rm --network none --memory 256m --entrypoint bun "$image" -e '
+    import sharp from "./apps/bff/node_modules/sharp";
+    const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).png().toBuffer();
+    if ((await sharp(png).metadata()).width !== 2) process.exit(1);
+  '
 done < "$release/images.tsv"
 prune_old_images() {
   running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
