@@ -1,5 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ImageIcon } from 'lucide-react'
+import { ImageIcon, LoaderCircle } from 'lucide-react'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
@@ -58,13 +58,22 @@ function ReferencePreview({
   }, [local, conversationId, messageId, index])
   const source = local ?? original
   if (source) return <ImagePreview src={source} onClose={onClose} />
+  if (failed)
+    return (
+      <Overlay onClose={onClose} tier="raised">
+        <div className="rounded-xl bg-card p-6 text-foreground" role="alert">
+          {t('reference.unavailable')}
+          <button type="button" className="ml-4 min-h-11 underline" onClick={onClose}>
+            {t('common:action.close')}
+          </button>
+        </div>
+      </Overlay>
+    )
+  // 取原图通常一两百毫秒：加载态只留一个转圈，不再弹出随即被原图顶掉的文字卡片。
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="rounded-xl bg-card p-6 text-foreground" role="status">
-        {t(failed ? 'reference.unavailable' : 'reference.loading')}
-        <button type="button" className="ml-4 min-h-11 underline" onClick={onClose}>
-          {t('common:action.close')}
-        </button>
+      <div role="status" aria-label={t('reference.loading')}>
+        <LoaderCircle className="h-8 w-8 animate-spin text-primary" aria-hidden />
       </div>
     </Overlay>
   )
