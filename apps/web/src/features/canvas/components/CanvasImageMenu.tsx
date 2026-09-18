@@ -35,6 +35,8 @@ export default function CanvasImageMenu({
   const [preview, setPreview] = useState(false)
   const [previewSrc, setPreviewSrc] = useState('')
   const [previewFailed, setPreviewFailed] = useState(false)
+  // 「长按保存」只对触屏成立；用鼠标的设备在预览里右键另存，不必提。
+  const [coarsePointer] = useState(() => window.matchMedia?.('(pointer: coarse)').matches ?? false)
   useEffect(() => {
     setPreview(false)
     setPreviewSrc('')
@@ -98,7 +100,7 @@ export default function CanvasImageMenu({
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
       <ContextMenuItem
         icon={<span aria-hidden="true">↗</span>}
-        label={t('imageMenu.preview')}
+        label={t(coarsePointer ? 'imageMenu.previewTouch' : 'imageMenu.preview')}
         onClick={() => setPreview(true)}
       />
       <ContextMenuItem
