@@ -20,6 +20,7 @@ import type {
 import { eq, getTableColumns, sql } from 'drizzle-orm'
 import {
   bigint,
+  boolean,
   check,
   customType,
   date,
@@ -235,6 +236,8 @@ export const canvas_projects = pgTable(
     receipts: bunJsonb('receipts').$type<ProjectReceipt[]>().notNull(),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
+    deleted_at: epochMs('deleted_at'),
+    restore_until: epochMs('restore_until'),
   },
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
@@ -252,6 +255,7 @@ export const agent_conversations = pgTable(
     id: text('id').primaryKey(),
     user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     device_id: text('device_id'),
+    runtime_generation: integer('runtime_generation').notNull().default(0),
     title: text('title').notNull(),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
@@ -315,6 +319,28 @@ export const agent_turn_events = pgTable(
     primaryKey({ columns: [t.conversation_id, t.seq] }),
     index('idx_agent_turn_events_turn').on(t.conversation_id, t.turn_id, t.seq),
     index('idx_agent_turn_events_created').on(t.created_at),
+  ],
+)
+
+export const deployment_controls = pgTable('deployment_controls', {
+  key: text('key').primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+})
+
+export const agent_executions = pgTable(
+  'agent_executions',
+  {
+    conversation_id: text('conversation_id')
+      .primaryKey()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    instance: text('instance').notNull(),
+    origin: text('origin').notNull(),
+    state: text('state').$type<'running' | 'completed' | 'failed'>().notNull(),
+    heartbeat_at: epochMs('heartbeat_at').notNull(),
+  },
+  (t) => [
+    check('agent_executions_state_check', sql`${t.state} IN ('running', 'completed', 'failed')`),
   ],
 )
 
@@ -410,6 +436,8 @@ export const tasks = pgTable(
     upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
     /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
     upstream_submitted_at: epochMs('upstream_submitted_at'),
+    execution_token: text('execution_token'),
+    lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),
     started_at: epochMs('started_at'),
     completed_at: epochMs('completed_at'),
@@ -427,6 +455,7 @@ export const tasks = pgTable(
   (t) => [
     check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat')`),
     index('idx_tasks_status').on(t.status),
+    index('idx_tasks_lease_expires').on(t.lease_expires_at).where(sql`${t.status} = 'in_progress'`),
     index('idx_tasks_submitted_at').on(t.submitted_at),
     index('idx_tasks_next_retry_at').on(t.next_retry_at).where(sql`${t.next_retry_at} IS NOT NULL`),
     uniqueIndex('idx_tasks_anonymous_client_request_id')
@@ -469,8 +498,15 @@ export const daily_quota = pgTable(
  * 后台与队列端点读这张视图，不读 `tasks`：对话轮的可见性靠这一层挡，不靠每条查询自觉。
  * 真要看对话轮，显式写 `tasks`。
  */
-// Archive recovery sources are worker-private and are not part of the operational view.
-const { archive_payload: _archivePayload, ...queueTaskColumns } = getTableColumns(tasks)
+// Archive recovery sources and executor fencing are worker-private and are not part of the
+// operational view. Keeping them out also preserves the committed view shape across additive
+// task migrations, so existing read-only grants do not need the view to be dropped and recreated.
+const {
+  archive_payload: _archivePayload,
+  execution_token: _executionToken,
+  lease_expires_at: _leaseExpiresAt,
+  ...queueTaskColumns
+} = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
   qb.select(queueTaskColumns).from(tasks).where(eq(tasks.kind, 'queue')),
 )

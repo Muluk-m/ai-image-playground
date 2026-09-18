@@ -36,6 +36,11 @@ export const OPS_THRESHOLDS = {
   HOST_RECOVERY_MARGIN_RATIO: 0.02,
   /** 备份每天一次；超过这个时长没有新文件就是断了。与备份容器自己的健康探针同一个数。 */
   BACKUP_MAX_AGE_MS: 26 * 60 * 60 * 1000,
+  /**
+   * 备份恢复演练每周一次；超过这个时长没有新结果就是断了。比一周多留一天，
+   * 给周日那一轮失手后容器重启时的补跑留出余地。
+   */
+  RESTORE_DRILL_MAX_AGE_MS: 8 * 24 * 60 * 60 * 1000,
   /** 最新一份备份比前一份小到这个比例以下，多半是 dump 半途而废，而不是数据真的少了。 */
   BACKUP_SHRINK_RATIO: 0.5,
 } as const
@@ -45,6 +50,16 @@ export interface OpsBackupObject {
   key: string
   size_bytes: number
   modified_at: number
+}
+
+/**
+ * 最近一次备份恢复演练的结果：pg-backup 容器把最新一份 dump 恢复进一个临时库、核对之后，
+ * 写到桶里的 `pg/drill/latest.json`。`error` 只在没通过时有值。
+ */
+export interface OpsRestoreDrill {
+  ok: boolean
+  finished_at: number
+  error: string | null
 }
 
 /** 后端内部接口 `/internal/admin/ops/backups` 的返回：最新一份与它的前一份，没有就是 null。 */

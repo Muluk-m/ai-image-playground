@@ -10,8 +10,10 @@ import {
 } from '../../lib/private-overlay'
 import {
   completionStream,
+  controlledCompletion,
   eventsOfType,
   parseFrames,
+  recordingAgentFetch,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
   toolCallCompletion,
@@ -243,5 +245,87 @@ it('独立会话的工具产物不绑定另一个项目，也不混入其对话�
   const history = await (await request('/api/generations', deviceB)).json()
   expect(history.items).toHaveLength(1)
   expect(history.items[0].source).toEqual(accepted.source)
+  expect(upstreamCalls).toBe(1)
+})
+
+it('运行中的项目不能被另一设备删除，回收与恢复同时隐藏和恢复原会话', async () => {
+  const original = await project()
+  const upstream = controlledCompletion()
+  setAgentFetchForTesting(recordingAgentFetch([], (signal) => upstream.responseFor(signal)))
+  const response = await request(
+    `/api/agent/conversations/${original.conversationId}/turns`,
+    deviceA,
+    {
+      deviceId: 'tool-history-device',
+      text: '讨论草图',
+    },
+  )
+  expect(response.status).toBe(200)
+  try {
+    const busy = await request(`/api/projects/${original.id}`, deviceB, undefined, 'DELETE')
+    expect(busy.status).toBe(409)
+    expect(await busy.json()).toMatchObject({ error: 'project_busy' })
+  } finally {
+    upstream.push('草图建议')
+    upstream.finish()
+    await response.text()
+  }
+  expect((await request(`/api/projects/${original.id}`, deviceB, undefined, 'DELETE')).status).toBe(
+    200,
+  )
+  expect(
+    (await request(`/api/agent/conversations/${original.conversationId}/messages`, deviceA)).status,
+  ).toBe(404)
+  expect(
+    (await request(`/api/projects/${original.id}/conversation`, deviceA, {}, 'PUT')).status,
+  ).toBe(410)
+  expect(
+    (await request(`/api/projects/${original.id}/restore`, stranger, undefined, 'POST')).status,
+  ).toBe(404)
+  expect((await request('/api/projects/trash', stranger)).status).toBe(200)
+  expect((await (await request('/api/projects/trash', stranger)).json()).projects).toHaveLength(0)
+  expect(
+    (await request(`/api/projects/${original.id}/restore`, deviceB, undefined, 'POST')).status,
+  ).toBe(200)
+  const restored = await (await request(`/api/projects/${original.id}`, deviceA)).json()
+  expect(restored.conversationId).toBe(original.conversationId)
+  const messages = await request(
+    `/api/agent/conversations/${original.conversationId}/messages`,
+    deviceA,
+  )
+  expect(messages.status).toBe(200)
+  expect(await messages.text()).toContain('草图建议')
+})
+
+it('无活动浏览器轮的排队任务仍阻止回收，结束后恢复同一图片和会话', async () => {
+  const original = await project()
+  const { accepted } = await runTool(original.conversationId)
+  const before = await (await request(`/api/projects/${original.id}`, deviceA)).json()
+  // Fixture models a worker-owned task left after its original BFF process exited.
+  await db.update(schema.tasks).set({ status: 'queued' }).where(eq(schema.tasks.id, accepted.id))
+  expect((await request(`/api/projects/${original.id}`, deviceB, undefined, 'DELETE')).status).toBe(
+    409,
+  )
+  await db.update(schema.tasks).set({ status: 'completed' }).where(eq(schema.tasks.id, accepted.id))
+  expect((await request(`/api/projects/${original.id}`, deviceB, undefined, 'DELETE')).status).toBe(
+    200,
+  )
+  expect(
+    (
+      await request(
+        `/api/agent/conversations/${original.conversationId}`,
+        deviceA,
+        { deviceId: 'tool-history-device' },
+        'DELETE',
+      )
+    ).status,
+  ).toBe(404)
+  expect(
+    (await request(`/api/projects/${original.id}/restore`, deviceB, undefined, 'POST')).status,
+  ).toBe(200)
+  const after = await (await request(`/api/projects/${original.id}`, deviceA)).json()
+  expect(after.document).toEqual(before.document)
+  expect(after.conversationId).toBe(before.conversationId)
+  expect((await request(`/v1/queue/requests/${accepted.id}/image/0`, deviceB)).status).toBe(200)
   expect(upstreamCalls).toBe(1)
 })

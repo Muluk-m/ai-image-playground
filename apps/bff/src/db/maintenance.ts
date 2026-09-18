@@ -3,15 +3,18 @@ import {
   and,
   eq,
   exists,
+  gt,
   inArray,
   isNotNull,
   isNull,
   lt,
+  ne,
+  notExists,
   notInArray,
   or,
   type SQL,
 } from 'drizzle-orm'
-import { isCapabilityEnabled } from '../lib/capabilities'
+import { config } from '../config'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -52,7 +55,13 @@ export function recoverAbandonedTasks(
   ownedIds: readonly string[] = [],
   now = Date.now(),
 ): Promise<RecoveredTasks> {
-  const stale = lt(schema.tasks.started_at, now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS)
+  const stale = or(
+    lt(schema.tasks.lease_expires_at, now),
+    and(
+      isNull(schema.tasks.execution_token),
+      lt(schema.tasks.started_at, now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS),
+    ),
+  )!
   const scope =
     ownedIds.length === 0 ? stale : and(stale, notInArray(schema.tasks.id, [...ownedIds]))
   return recoverTasks(scope as SQL, now)
@@ -63,6 +72,41 @@ export function recoverAbandonedTasks(
  * 首次提交时刻判超时，不会无限回队）；没有的只能按重试预算重跑，预算用尽才落 failed。
  */
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
+  const recoverable = and(
+    scope,
+    config.execution.legacyOrigin
+      ? or(
+          ne(schema.tasks.kind, 'chat'),
+          notExists(
+            db
+              .select({ id: schema.agent_conversations.id })
+              .from(schema.agent_conversations)
+              .where(
+                and(
+                  eq(schema.agent_conversations.id, schema.tasks.agent_conversation_id),
+                  eq(schema.agent_conversations.runtime_generation, 0),
+                ),
+              ),
+          ),
+        )
+      : undefined,
+    or(
+      ne(schema.tasks.kind, 'chat'),
+      notExists(
+        db
+          .select({ id: schema.agent_executions.turn_id })
+          .from(schema.agent_executions)
+          .where(
+            and(
+              eq(schema.agent_executions.turn_id, schema.tasks.agent_turn_id),
+              eq(schema.agent_executions.conversation_id, schema.tasks.agent_conversation_id),
+              eq(schema.agent_executions.state, 'running'),
+              gt(schema.agent_executions.heartbeat_at, now - 60_000),
+            ),
+          ),
+      ),
+    ),
+  )
   const candidates = await db
     .select({
       id: schema.tasks.id,
@@ -70,55 +114,52 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
       archivePayload: schema.tasks.archive_payload,
-      userId: schema.tasks.user_id,
-      invocations: schema.tasks.upstream_invocation_count,
+      executionToken: schema.tasks.execution_token,
+      invocationCount: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
-    .where(and(eq(schema.tasks.status, 'in_progress'), scope))
+    .where(and(eq(schema.tasks.status, 'in_progress'), recoverable))
 
-  // 轮询恢复没有 per-row 计算，一条 UPDATE 收掉；启动与 SIGTERM drain 都在等这个结果。
-  const resumedPolling = await requeueTasksForPolling(
-    candidates.filter((c) => !c.archivePayload && c.upstreamTaskIds?.length).map((c) => c.id),
-  )
-
+  let resumedPolling = 0
   let requeued = 0
   let failed = 0
   for (const candidate of candidates) {
+    const guard = and(
+      recoverable,
+      candidate.executionToken
+        ? eq(schema.tasks.execution_token, candidate.executionToken)
+        : isNull(schema.tasks.execution_token),
+    )
     if (candidate.archivePayload) {
-      if (await requeueTaskArchive(candidate.id, now)) requeued++
+      if (await requeueTaskArchive(candidate.id, now, candidate.archivePayload, guard)) requeued++
       continue
     }
-    if (candidate.upstreamTaskIds?.length) continue
-    if (
-      candidate.userId &&
-      candidate.invocations > 0 &&
-      candidate.kind === 'queue' &&
-      isCapabilityEnabled('accounts:sync')
-    ) {
-      if (
-        await finishTask(candidate.id, {
-          status: 'failed',
-          errorType: 'upstream_result_unknown',
-          errorMessage: '生成请求已发出，但结果尚未确认，请勿重复提交',
-          completedAt: now,
-        })
-      )
-        failed++
+    if (candidate.upstreamTaskIds?.length) {
+      resumedPolling += await requeueTasksForPolling([candidate.id], guard)
       continue
     }
     const attemptJustFailed = candidate.attemptCount + 1
     // 对话轮不能回队：worker 会把它当生图任务重跑一遍。断了就是断了，退款收场。
     const plan: RetryPlan =
-      candidate.kind === 'chat' ? { shouldRetry: false } : planNextAttempt(attemptJustFailed, now)
+      candidate.kind === 'chat' || candidate.invocationCount > 0
+        ? { shouldRetry: false }
+        : planNextAttempt(attemptJustFailed, now)
     const written = plan.shouldRetry
-      ? await requeueTask(candidate.id, attemptJustFailed, plan.nextRetryAt)
-      : await finishTask(candidate.id, {
-          status: 'failed',
-          attemptCount: attemptJustFailed,
-          errorMessage: '任务 worker 中断，重试次数已用尽',
-          errorType: 'interrupted',
-          completedAt: now,
-        })
+      ? await requeueTask(candidate.id, attemptJustFailed, plan.nextRetryAt, guard)
+      : await finishTask(
+          candidate.id,
+          {
+            status: 'failed',
+            attemptCount: attemptJustFailed,
+            errorMessage:
+              candidate.invocationCount > 0
+                ? '执行连接中断，上游结果尚未确认；未重新提交'
+                : '任务执行中断',
+            errorType: candidate.invocationCount > 0 ? 'upstream_result_unknown' : 'interrupted',
+            completedAt: now,
+          },
+          guard,
+        )
     if (!written) continue
     if (plan.shouldRetry) requeued += 1
     else failed += 1

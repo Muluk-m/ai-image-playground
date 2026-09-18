@@ -3,15 +3,19 @@ import {
   type AlertState,
   evaluateAlerts,
   type OpsBackups,
+  type OpsRestoreDrill,
 } from '@image-playground/shared'
 import { and, desc, eq, min } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
-import { readBackups as readBackupsFromStore } from '../lib/ops-backups'
+import {
+  readBackups as readBackupsFromStore,
+  readRestoreDrill as readRestoreDrillFromStore,
+} from '../lib/ops-backups'
 import type { AlertSender } from './alert-sender'
 
 /**
- * 应用层的三条告警：队列积压、备份断了、后端心跳断了。由 worker 的维护循环每 5 分钟看一次。
+ * 应用层的四条告警：队列积压、备份断了、备份恢复演练没过或断了、后端心跳断了。由 worker 的维护循环每 5 分钟看一次。
  * 宿主机那两条不在这里，由采集容器自己发（ADR 0007）。
  *
  * worker 不判断自己的心跳：发告警的就是它，它挂了这条本来也发不出来。
@@ -20,6 +24,7 @@ import type { AlertSender } from './alert-sender'
 interface ObserveOptions {
   now: number
   readBackups?: () => Promise<OpsBackups>
+  readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
 }
 
 async function attempt<T>(block: string, read: () => Promise<T>): Promise<T | undefined> {
@@ -41,7 +46,8 @@ async function attempt<T>(block: string, read: () => Promise<T>): Promise<T | un
 /** 每一块独立取：取不到的那一块留空，对应的规则这一轮既不触发也不被当成已恢复。 */
 export async function observeApp(options: ObserveOptions): Promise<AlertObservation> {
   const readBackups = options.readBackups ?? readBackupsFromStore
-  const [queue, backup, heartbeats] = await Promise.all([
+  const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
+  const [queue, backup, restoreDrill, heartbeats] = await Promise.all([
     attempt('queue', async () => {
       const [row] = await db
         .select({ oldest: min(schema.queue_tasks.submitted_at) })
@@ -54,6 +60,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       const { latest } = await readBackups()
       return { latest_modified_at: latest?.modified_at ?? null }
     }),
+    attempt('restoreDrill', readRestoreDrill),
     attempt('heartbeats', async () => {
       const [row] = await db
         .select({ last_seen_at: schema.service_heartbeats.last_seen_at })
@@ -64,12 +71,13 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       return { bff: row?.last_seen_at ?? null }
     }),
   ])
-  return { queue, backup, heartbeats }
+  return { queue, backup, restoreDrill, heartbeats }
 }
 
 interface AppAlertingOptions {
   send: AlertSender
   readBackups?: () => Promise<OpsBackups>
+  readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
 }
 
 /**
@@ -80,7 +88,11 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
   let state: AlertState = {}
   return async (now = Date.now()) => {
     try {
-      const observation = await observeApp({ now, readBackups: options.readBackups })
+      const observation = await observeApp({
+        now,
+        readBackups: options.readBackups,
+        readRestoreDrill: options.readRestoreDrill,
+      })
       const result = evaluateAlerts(observation, state, now)
       if (result.messages.length > 0) await options.send(result.messages)
       state = result.state

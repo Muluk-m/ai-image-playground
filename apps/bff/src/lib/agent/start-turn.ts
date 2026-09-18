@@ -1,7 +1,7 @@
 import type { AgentMode, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
-import { db } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
+import { bffDrain } from '../drain'
 import type { TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { type ChatTaskReserved, chatTaskPricing, reserveChatTask } from './chat-task'
@@ -11,6 +11,15 @@ import {
   listAgentMessages,
   setAgentConversationTitle,
 } from './conversations'
+import {
+  assertConversationExecution,
+  ConversationExecutionLost,
+  claimConversation,
+  conversationExecution,
+  maintainConversation,
+  releaseConversation,
+  withConversationExecution,
+} from './execution'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import type { RunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
@@ -32,11 +41,63 @@ export interface StartConversationTurnInput {
 export type StartConversationTurnResult =
   | { readonly kind: 'started'; readonly turn: RunningTurn }
   | { readonly kind: 'authentication_required' }
+  | { readonly kind: 'draining' }
+  | { readonly kind: 'already_running'; readonly turnId: string }
   | TaskReservationFailure
 
 /** 改标题、落用户消息、预扣积分在同一个事务里，任一步失败整笔不落地。 */
 export async function startConversationTurn(
   input: StartConversationTurnInput,
+): Promise<StartConversationTurnResult> {
+  const release = bffDrain.enter()
+  if (!release) return { kind: 'draining' }
+  const turnId = crypto.randomUUID()
+  let claimed = false
+  let stopHeartbeat = () => {}
+  let turn: RunningTurn | undefined
+  let ownershipLost = false
+  try {
+    claimed = await claimConversation(input.conversationId, turnId)
+    if (!claimed) {
+      const active = await conversationExecution(input.conversationId)
+      release()
+      return { kind: 'already_running', turnId: active?.turn_id ?? turnId }
+    }
+    stopHeartbeat = maintainConversation(input.conversationId, turnId, () => {
+      ownershipLost = true
+      turn?.abort()
+    })
+    const result = await executeConversationTurn(input, turnId, async () => {
+      if (ownershipLost) throw new ConversationExecutionLost()
+      await assertConversationExecution(input.conversationId, turnId)
+    })
+    if (result.kind === 'started') {
+      turn = result.turn
+      if (ownershipLost) turn.abort()
+    }
+    const finish = async () => {
+      stopHeartbeat()
+      await releaseConversation(input.conversationId, turnId)
+      release()
+    }
+    if (result.kind === 'started' && result.turn.completed) {
+      void result.turn.completed.then(finish).catch(() => bffDrain.failed())
+    } else {
+      await finish()
+    }
+    return result
+  } catch (error) {
+    stopHeartbeat()
+    if (claimed) await releaseConversation(input.conversationId, turnId)
+    release()
+    throw error
+  }
+}
+
+async function executeConversationTurn(
+  input: StartConversationTurnInput,
+  turnId: string,
+  assertOwnership: () => Promise<void>,
 ): Promise<StartConversationTurnResult> {
   const { conversationId, owner, text, references, deviceId, params } = input
   const selectedModel = agentThinking(params?.thinkingDepth).model
@@ -66,7 +127,6 @@ export async function startConversationTurn(
     import('./skills').then((it) => it.ensureAgentSkills()),
   ])
   const mode: AgentMode = resolveAgentMode(input.mode ?? 'image')
-  const turnId = crypto.randomUUID()
   const chatTask =
     pricing && userId
       ? {
@@ -82,43 +142,44 @@ export async function startConversationTurn(
       : null
   const storedReferences = await archiveAgentReferences(conversationId, turnId, references)
 
-  const written = await db
-    .transaction(async (tx) => {
-      let reserved: ChatTaskReserved | undefined
-      if (chatTask) {
-        const reservation = await reserveChatTask({ tx, ...chatTask })
-        if (reservation.kind !== 'reserved') return reservation
-        reserved = reservation
-      }
-      if (history.length === 0) {
-        await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
-      }
-      const userMessage = await appendAgentMessage(tx, {
-        conversationId,
-        turnId,
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text,
-            ...(storedReferences.length ? { references: storedReferences } : {}),
-          },
-        ],
-      })
-      return { kind: 'reserved' as const, userMessageId: userMessage.id, reserved }
+  const written = await withConversationExecution(conversationId, turnId, async (tx) => {
+    let reserved: ChatTaskReserved | undefined
+    if (chatTask) {
+      const reservation = await reserveChatTask({ tx, ...chatTask })
+      if (reservation.kind !== 'reserved') return reservation
+      reserved = reservation
+    }
+    if (history.length === 0) {
+      await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
+    }
+    const userMessage = await appendAgentMessage(tx, {
+      conversationId,
+      turnId,
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text,
+          ...(storedReferences.length ? { references: storedReferences } : {}),
+        },
+      ],
     })
-    .catch(async (error) => {
-      if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
-      throw error
-    })
+    return { kind: 'reserved' as const, userMessageId: userMessage.id, reserved }
+  }).catch(async (error) => {
+    if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
+    throw error
+  })
   if (written.kind !== 'reserved') {
     if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
     return written
   }
 
+  await assertOwnership()
   return {
     kind: 'started',
     turn: await startAgentTurn({
+      assertExecution: assertOwnership,
+      withExecution: (callback) => withConversationExecution(conversationId, turnId, callback),
       conversationId,
       turnId,
       userMessageId: written.userMessageId,

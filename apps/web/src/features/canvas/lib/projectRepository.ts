@@ -26,7 +26,7 @@ export interface CanvasProject {
   /** 主动打开的空项目保持画布布局，初次进入仍可展示欢迎页。 */
   readonly workspaceOpened?: boolean
   readonly cover?: string
-  readonly cloud?: { revision: number; nameDirty?: boolean }
+  readonly cloud?: { revision: number; nameDirty?: boolean; deleted?: boolean }
 }
 
 type StoredProject = CanvasProject & { recoveryConversations?: Record<string, string | null> }
@@ -202,6 +202,7 @@ export const projectRepository = {
             const saved = previous.result as PersistedScene | undefined
             if (
               saved &&
+              !(existing.result as CanvasProject).cloud?.deleted &&
               JSON.stringify([saved.elements, saved.files]) ===
                 JSON.stringify([elements, scene.files])
             )
@@ -239,6 +240,8 @@ export const projectRepository = {
           cover: summary.coverMediaId ? `aip-media:${summary.coverMediaId}` : undefined,
           cloud: { revision: summary.revision },
         }
+        if (result.cloud?.deleted)
+          result = { ...result, cloud: { ...result.cloud, deleted: false } }
         if (summary.conversationId !== undefined)
           result = { ...result, conversationId: summary.conversationId }
         store.put(result, storageKey)

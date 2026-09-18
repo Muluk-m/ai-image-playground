@@ -1,4 +1,5 @@
 import { AGENT_IMAGE_MAX_N } from './agent'
+import { isVideoGenerationRecord, type VideoGenerationRecord } from './video-generation'
 
 export const PROJECT_NAME_MAX_LENGTH = 120
 export const PROJECT_PAGE_SIZE = 30
@@ -22,6 +23,31 @@ export interface ProjectImage {
   createdAt?: number
   groupId?: string
   meta?: Record<string, string>
+  /** 有值即 `mediaId` 只是封面，片子在队列里；播放地址由客户端现拼，不存整条 URL。 */
+  video?: ProjectVideoRef
+}
+
+export interface ProjectVideoRef {
+  taskId: string
+  outputIndex: number
+  generation?: VideoGenerationRecord
+}
+
+/** 视频输出的上限与队列一致；超出的下标只可能是坏数据。 */
+const PROJECT_VIDEO_OUTPUT_MAX = 16
+
+function videoRef(value: unknown): boolean {
+  if (!object(value) || !keys(value, ['taskId', 'outputIndex', 'generation'])) return false
+  return (
+    typeof value.taskId === 'string' &&
+    // 它会被拼进播放地址的路径段，只放行 id 字符。
+    /^[A-Za-z0-9_-]{1,128}$/.test(value.taskId) &&
+    typeof value.outputIndex === 'number' &&
+    Number.isSafeInteger(value.outputIndex) &&
+    value.outputIndex >= 0 &&
+    value.outputIndex < PROJECT_VIDEO_OUTPUT_MAX &&
+    (value.generation === undefined || isVideoGenerationRecord(value.generation))
+  )
 }
 
 export interface ProjectGeneration {
@@ -78,6 +104,14 @@ export interface CloudProjectSummary {
   coverMediaId?: string | null
   conversationId?: string | null
 }
+export interface RecycledProject extends CloudProjectSummary {
+  deletedAt: number
+  restoreUntil: number
+}
+export interface ProjectTrashPage {
+  projects: RecycledProject[]
+  nextCursor: string | null
+}
 export interface CloudProject extends CloudProjectSummary {
   document: ProjectDocument
 }
@@ -88,6 +122,7 @@ export interface ProjectWrite {
   document: ProjectDocument
 }
 export interface ProjectPage {
+  deletedIds?: string[]
   projects: CloudProjectSummary[]
   nextCursor: string | null
 }
@@ -148,7 +183,9 @@ function element(value: unknown): value is ProjectElement {
         'createdAt',
         'groupId',
         'meta',
+        'video',
       ]) &&
+      (value.video === undefined || videoRef(value.video)) &&
       typeof value.mediaId === 'string' &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.mediaId) &&
       coordinate(value.x) &&

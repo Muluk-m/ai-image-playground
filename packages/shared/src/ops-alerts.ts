@@ -1,17 +1,17 @@
-import { type HostSample, OPS_THRESHOLDS } from './ops'
+import { type HostSample, OPS_THRESHOLDS, type OpsRestoreDrill } from './ops'
 
 /**
  * 告警判断。纯函数：不碰网络、不碰数据库、不读时钟。去重与恢复是最容易写错的两块，
- * 写成这样才能被完整地测到。采集容器（宿主机两条）与 worker（应用三条）共用这一份。
+ * 写成这样才能被完整地测到。采集容器（宿主机两条）与 worker（应用四条）共用这一份。
  *
  * 只有少数几条「不处理就会出事故」的固定规则，阈值与运维看板变红的线是同一组常量。
  */
 
-export type AlertRule = 'disk' | 'memory' | 'queue' | 'backup' | 'heartbeat:bff'
+export type AlertRule = 'disk' | 'memory' | 'queue' | 'backup' | 'restore' | 'heartbeat:bff'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
- * 里面的 `null` 表示「取到了，但还从来没有过」（没有任何备份、没见过心跳），同样不告警——
+ * 里面的 `null` 表示「取到了，但还从来没有过」（没有任何备份、没演练过、没见过心跳），同样不告警——
  * 新部署的头一天本来就是这样，看板会照实显示。已经在报的规则例外：报过「备份过期」之后桶被清空、
  * 报过「心跳中断」之后那一行被清理掉，读数同样变成 `null`，那是还没好，不是从来没有过。
  *
@@ -21,6 +21,7 @@ export interface AlertObservation {
   host?: HostSample
   queue?: { oldest_queued_wait_ms: number | null }
   backup?: { latest_modified_at: number | null }
+  restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
 }
 
@@ -85,7 +86,7 @@ function readings(
   now: number,
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
-  const { host, queue, backup, heartbeats } = observation
+  const { host, queue, backup, restoreDrill, heartbeats } = observation
 
   if (host) {
     const used = 1 - host.disk_available_bytes / host.disk_total_bytes
@@ -136,6 +137,25 @@ function readings(
       sustainMs: 0,
       firingText: '备份前缀下已经找不到任何数据库备份',
       resolvedText: '已恢复：有了新的数据库备份',
+    }
+  }
+
+  if (restoreDrill) {
+    const age = now - restoreDrill.finished_at
+    out.restore = {
+      breached: !restoreDrill.ok || age > OPS_THRESHOLDS.RESTORE_DRILL_MAX_AGE_MS,
+      sustainMs: 0,
+      firingText: restoreDrill.ok
+        ? `数据库备份恢复演练已经 ${span(age)}没有跑了（告警线 ${span(OPS_THRESHOLDS.RESTORE_DRILL_MAX_AGE_MS)}）`
+        : `数据库备份恢复演练失败：${restoreDrill.error ?? '没有写明原因'}`,
+      resolvedText: '已恢复：数据库备份恢复演练通过',
+    }
+  } else if (restoreDrill === null && state.restore?.firing) {
+    out.restore = {
+      breached: true,
+      sustainMs: 0,
+      firingText: '备份前缀下已经找不到备份恢复演练的结果',
+      resolvedText: '已恢复：数据库备份恢复演练通过',
     }
   }
 

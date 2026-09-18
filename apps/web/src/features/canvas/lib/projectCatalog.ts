@@ -7,6 +7,7 @@ export function projectCatalog(
   cloud: Record<string, CloudProjectSummary>,
 ): CanvasProject[] {
   return projects
+    .filter((project) => !project.cloud?.deleted)
     .map((project) => {
       const remote = cloud[project.id]
       return remote && !project.cloud?.nameDirty

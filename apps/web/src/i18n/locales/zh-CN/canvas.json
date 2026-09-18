@@ -49,7 +49,10 @@
     "previewPending": "预览生成中…",
     "annotationHint": "文字标注 → 修改要求：{{text}}",
     "promptPlaceholder": "描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）",
-    "promptAria": "创作描述"
+    "promptAria": "创作描述",
+    "modeAria": "生成类型",
+    "modeImage": "图片",
+    "modeVideo": "视频"
   },
   "submit": {
     "blocked": "当前无法生成",
@@ -149,7 +152,8 @@
     "copySuffix": "本机恢复副本",
     "conflictHelp": "两台设备都修改了这个项目。选择云端版前，会把本机修改保留为独立恢复副本。",
     "useCloud": "使用云端版",
-    "saveCopy": "本机版另存为项目"
+    "saveCopy": "本机版另存为项目",
+    "deleted": "项目已删除"
   },
   "welcome": {
     "aria": "开始新项目",
@@ -202,5 +206,27 @@
     "editText": "编辑文字",
     "edit": "编辑",
     "imageActions": "图片操作"
+  },
+  "trash": {
+    "title": "回收站",
+    "back": "返回项目",
+    "help": "回收期内可恢复画布和会话，回收站内容仍占用云端容量。本机未同步的编辑会继续保留。",
+    "empty": "回收站为空",
+    "until": "可恢复至 {{date}}",
+    "localEdits": "本机编辑另存为新项目",
+    "restore": "恢复",
+    "deleteMessage": "将“{{name}}”移到云端回收站？其他设备也会同步移除，可在回收期内恢复。"
+  },
+  "video": {
+    "hintText": "未选中图片：文生视频",
+    "hintFirst": "选中的图片作为首帧",
+    "hintFirstLast": "左边的图作首帧、右边的图作尾帧",
+    "promptPlaceholder": "描述画面、动作和运镜…（⌘/Ctrl + Enter 生成）",
+    "refuse": {
+      "videoSelected": "选中的是视频：续写和改视频请用视频上的工具条",
+      "tooManyImages": "视频最多用两张图：一张首帧、一张尾帧",
+      "firstFrameUnsupported": "{{model}} 不支持从图片开始生成，请取消选中图片",
+      "lastFrameUnsupported": "{{model}} 不支持尾帧，只能选一张图作首帧"
+    }
   }
 }

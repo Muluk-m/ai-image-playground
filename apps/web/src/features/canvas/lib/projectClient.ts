@@ -3,6 +3,7 @@ import type {
   CloudProject,
   CloudProjectSummary,
   ProjectPage,
+  ProjectTrashPage,
   ProjectWrite,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -67,4 +68,14 @@ export function ensureCloudProjectConversation(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(conversationId ? { conversationId } : {}),
   })
+}
+
+export function deleteCloudProject(id: string): Promise<{ ok: true }> {
+  return json(`/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+export function restoreDeletedCloudProject(id: string): Promise<{ ok: true }> {
+  return json(`/${encodeURIComponent(id)}/restore`, { method: 'POST' })
+}
+export function listRecycledCloudProjects(cursor?: string): Promise<ProjectTrashPage> {
+  return json(`/trash${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 }

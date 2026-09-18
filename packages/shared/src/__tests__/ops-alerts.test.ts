@@ -194,6 +194,66 @@ describe('报过之后读数消失', () => {
   })
 })
 
+describe('备份恢复演练', () => {
+  const day = 24 * hour
+  const drill = (ok: boolean, finishedAt: number, error: string | null = null) => ({
+    restoreDrill: { ok, finished_at: finishedAt, error },
+  })
+
+  it('演练失败就报，并写明失败原因', () => {
+    const { messages } = evaluateAlerts(drill(false, T0 - hour, 'pg_restore: bad input'), {}, T0)
+    expect(messages).toEqual([
+      { rule: 'restore', kind: 'firing', text: '数据库备份恢复演练失败：pg_restore: bad input' },
+    ])
+  })
+
+  it('演练通过但 8 天整没再跑不报，超过 8 天报', () => {
+    expect(run([[T0, drill(true, T0 - 8 * day)]])).toEqual([[]])
+    const { messages } = evaluateAlerts(drill(true, T0 - 9 * day), {}, T0)
+    expect(messages).toEqual([
+      {
+        rule: 'restore',
+        kind: 'firing',
+        text: '数据库备份恢复演练已经 9 天没有跑了（告警线 8 天）',
+      },
+    ])
+  })
+
+  it('最近一次演练通过就不报；报过之后再通过，发一条已恢复', () => {
+    expect(run([[T0, drill(true, T0 - day)]])).toEqual([[]])
+    const fired = evaluateAlerts(drill(false, T0 - hour, 'x'), {}, T0)
+    const { messages } = evaluateAlerts(drill(true, T0 + hour), fired.state, T0 + hour)
+    expect(messages).toEqual([
+      { rule: 'restore', kind: 'resolved', text: '已恢复：数据库备份恢复演练通过' },
+    ])
+  })
+
+  it('还从来没演练过不报：新部署第一次演练跑完之前本来就是这样', () => {
+    expect(run([[T0, { restoreDrill: null }]])).toEqual([[]])
+  })
+
+  it('这一轮没读到演练结果：不触发，也不被当成已恢复，到点照常再提醒', () => {
+    expect(
+      run([
+        [T0, drill(false, T0 - hour, 'x')],
+        [T0 + 30 * minute, {}],
+        [T0 + hour, drill(false, T0 - hour, 'x')],
+        [T0 + 2 * hour, drill(true, T0 + 2 * hour)],
+      ]),
+    ).toEqual([['firing:restore'], [], ['firing:restore'], ['resolved:restore']])
+  })
+
+  it('报过之后结果文件没了：不当成从来没演练过', () => {
+    expect(
+      run([
+        [T0, drill(false, T0 - hour, 'x')],
+        [T0 + hour, { restoreDrill: null }],
+        [T0 + 2 * hour, drill(true, T0 + 2 * hour)],
+      ]),
+    ).toEqual([['firing:restore'], ['firing:restore'], ['resolved:restore']])
+  })
+})
+
 describe('观测缺失不打断计时', () => {
   it('内存吃紧的持续期跨过一轮缺失，照样到点触发', () => {
     const tight = { host: host(30, 0.05) }

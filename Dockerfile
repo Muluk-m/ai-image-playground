@@ -100,8 +100,10 @@ COPY --from=web-build /app/private ./private
 COPY deploy/nginx.conf deploy/nginx.api-only.conf deploy/nginx.proxy.conf ./deploy/
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY scripts/check-dependencies.ts ./scripts/check-dependencies.ts
+COPY scripts/release-router.ts ./scripts/release-router.ts
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+LABEL app.execution-protocol="1"
 ENV APP_ROLE=bff
 ENV PORT=37377
 ENV STATIC_DIR=

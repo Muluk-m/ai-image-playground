@@ -14,6 +14,7 @@ import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { generationRoutes } from './routes/generations'
+import { internalDrainRoutes } from './routes/internal-drain'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalUserRoutes } from './routes/internal-users'
 import { matteRoutes } from './routes/matte'
@@ -185,6 +186,7 @@ export const app = new Elysia()
   .use(generationRoutes)
   .use(internalUserRoutes)
   .use(internalOpsRoutes)
+  .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)
   .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {
