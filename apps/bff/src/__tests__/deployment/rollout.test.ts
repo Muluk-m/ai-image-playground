@@ -28,7 +28,10 @@ set -eu
 case "$1" in
   image) echo 1 ;;
   inspect) [ -f "$MOCK_ROOT/router" ] ;;
-  create) echo "$3" >> "$MOCK_ROOT/created" ;;
+  create)
+    echo "$3" >> "$MOCK_ROOT/created"
+    printf 'create %s\\n' "$*" >> "$MOCK_ROOT/log"
+    ;;
   run)
     case "$*" in *release-router*) touch "$MOCK_ROOT/router" ;; esac
     ;;
@@ -121,5 +124,19 @@ describe('executor-preserving rollout', () => {
       )
     }
     expect(result.log).toContain('stop stop fixture-worker-1 fixture-bff-1')
+  })
+
+  it('gives release executors the pool sizes Compose gives the same roles', async () => {
+    const compose = Bun.YAML.parse(
+      await readFile(resolve(import.meta.dir, '../../../../../deploy/compose.app.yaml'), 'utf8'),
+    ) as { services: Record<string, { environment: Record<string, string> }> }
+    const result = await fixture('idle')
+    expect(result.code).toBe(0)
+    for (const role of ['bff', 'worker']) {
+      const size = compose.services[role]?.environment.DATABASE_POOL_MAX
+      expect(size).toMatch(/^[1-9][0-9]*$/)
+      const created = result.log.split('\n').find((line) => line.includes(`role=${role} `))
+      expect(created).toContain(`-e DATABASE_POOL_MAX=${size} `)
+    }
   })
 })

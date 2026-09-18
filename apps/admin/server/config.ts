@@ -1,3 +1,4 @@
+import { databasePoolFromEnv } from '@image-playground/db'
 import type { ClientCapabilityManifest } from '@image-playground/shared'
 
 const env = (key: string, fallback?: string): string => {
@@ -50,6 +51,8 @@ export const config = {
     }
   },
   databaseUrl: env('DATABASE_URL'),
+  /** Pool size and idle release from env, shown as aip-admin in pg_stat_activity. */
+  databasePool: databasePoolFromEnv('aip-admin'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   // admin 前端 dist 目录；为空时 server 不挂静态托管（dev 模式由 vite 跑前端）
   staticDir: env('ADMIN_DIST_DIR', ''),

@@ -139,6 +139,8 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 |---|---|---|
 | `PORT` | `37377` | BFF 监听端口 |
 | `DATABASE_URL` | — | PostgreSQL connection URL；BFF/worker 使用可写角色 |
+| `DATABASE_POOL_MAX` | `10` | 本进程最多同时持有的数据库连接数（BFF、worker、Admin 通用），须为正整数，否则拒绝启动；超出的查询排队等待。Compose 部署按角色写在 `deploy/compose.app.yaml`（发布脚本 `scripts/rollout-runtime.sh` 同步），`app.env` 里设了也会被覆盖 |
+| `DATABASE_IDLE_TIMEOUT_SECONDS` | `60` | 连接空闲这么久就关闭，须为正整数。Bun 同样会切断静默这么久的单条语句或事务，调小前先确认没有更长的等待 |
 | `S3_ENDPOINT` | — | S3-compatible object storage endpoint, such as the Cloudflare R2 account URL |
 | `S3_BUCKET` | — | Deployment-specific image bucket |
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |
