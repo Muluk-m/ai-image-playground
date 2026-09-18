@@ -956,6 +956,45 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
+  it('重试记录夹在一轮中间时，页脚仍只跟在这一轮最后一条后面', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+        {
+          kind: 'tool',
+          id: 'retry-1',
+          turnId: 'retry-turn',
+          toolCallId: 'retry-call',
+          title: '一只橘猫',
+          status: 'submitted',
+          retryOf: { messageId: 'tool-0', toolCallId: 'call-0' },
+        },
+        {
+          kind: 'text',
+          id: 'reply-1',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '好的',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': { turnId: 'turn-1', durationMs: 12_000, stopReason: 'completed' },
+      },
+    })
+    render()
+
+    expect(host.textContent?.match(/本轮耗时 12s/g)).toHaveLength(1)
+    expect(host.textContent?.indexOf('本轮耗时')).toBeGreaterThan(host.textContent!.indexOf('好的'))
+  })
+
   it('进行中的轮不写预扣，末尾亮状态行', () => {
     useAgentStore.setState({
       messages: [

@@ -80,6 +80,12 @@ export interface AgentCanvasSink {
     message: string,
     errorCode?: AgentToolErrorCode,
   ): void
+  /**
+   * 单张重试：这些失败占位重新转圈，等重试的产物落进来。云端项目的失败占位由服务端在受理重试时
+   * 就地换成新的预留位置，这里只需拉一次云端文档。等到占位确实换过来才兑现：在那之前旧的失败占位
+   * 还挂着重试，按钮要一直按住，不然同一个占位能再提交一次。缺席即这块画布不支持重试。
+   */
+  revive?(placeholderIds: readonly string[]): Promise<void>
   /** 选中这些对象并把镜头带过去；不在画布上的跳过。 */
   focus(objectIds: readonly string[]): void
   /**

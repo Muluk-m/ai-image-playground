@@ -46,7 +46,12 @@
     "recharge": "去充值",
     "login": "去登录",
     "reprocess": "让助手重新处理",
-    "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。"
+    "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。",
+    "retry": "重试"
+  },
+  "retry": {
+    "record": "重试",
+    "viewOriginal": "查看原失败卡"
   },
   "cost": {
     "duration": "本轮耗时 {{duration}}",
@@ -155,7 +160,8 @@
     "queueWithdrawFailed": "撤回未成功，请重试。",
     "queueInterjectTooLate": "当前回复已经结束，这条消息会在下一轮处理。",
     "queueInterjectConsumed": "这条消息已经在处理了。",
-    "queueInterjectFailed": "插话未成功，请重试。"
+    "queueInterjectFailed": "插话未成功，请重试。",
+    "retryFailed": "重试没能提交，请稍后再试。"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",

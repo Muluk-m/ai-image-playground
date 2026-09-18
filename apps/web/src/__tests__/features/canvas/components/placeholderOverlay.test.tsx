@@ -1,23 +1,31 @@
 // @vitest-environment jsdom
 
+import type { AgentToolErrorCode } from '@image-playground/shared'
 import { projectArtifactId } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
-import type { AgentToolMessage } from '../../../../features/agent/types'
+import type { AgentRetryRefusal } from '../../../../features/agent/store'
+import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
 import PlaceholderOverlay from '../../../../features/canvas/components/PlaceholderOverlay'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { projectScene } from '../../../../features/canvas/lib/projectMedia'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
-import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
+import { setChannels } from '../../../../lib/channels/channelStore'
+import {
+  notifyPrivateSubmissionError,
+  type PrivateSubmissionInput,
+} from '../../../../lib/privateOverlay'
 
 const agent = vi.hoisted(() => ({
   send: vi.fn(),
+  retry: vi.fn(),
   conversationId: 'conv-1' as string | null,
-  messages: [] as import('../../../../features/agent/types').AgentPanelMessage[],
+  messages: [] as AgentPanelMessage[],
+  retryRefusals: {} as Record<string, AgentRetryRefusal>,
   jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
   toolStartedAt: {} as Record<string, number>,
 }))
@@ -34,6 +42,11 @@ vi.mock('../../../../lib/privateOverlay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/privateOverlay')>()),
   notifyPrivateSubmissionError: vi.fn(),
   PrivateWebOverlayPresent: true,
+  // 计价目录：一张图 4 积分，视频按秒乘倍率。
+  usePrivateSubmissionGuard: (input: PrivateSubmissionInput) => ({
+    blocked: false,
+    estimatedCredits: input.quantity * (input.unitMultiplier ?? 1) * 4,
+  }),
 }))
 vi.mock('../../../../lib/clientCapabilities', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/clientCapabilities')>()),
@@ -55,10 +68,13 @@ beforeEach(() => {
   host = document.createElement('div')
   root = createRoot(host)
   send.mockClear()
+  agent.retry.mockReset()
+  agent.retryRefusals = {}
   agent.conversationId = 'conv-1'
   agent.messages = []
   agent.jobProgress = {}
   agent.toolStartedAt = {}
+  setChannels([])
 })
 
 afterEach(() => {
@@ -67,10 +83,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-async function failedPlaceholder(
-  message: string,
-  code?: 'invalid_params' | 'upstream_error' | 'result_unknown',
-) {
+async function failedPlaceholder(message: string, code?: AgentToolErrorCode) {
   const sink = createAgentCanvasSink(editor)
   const ids = await sink.reserve({
     count: 1,
@@ -80,6 +93,7 @@ async function failedPlaceholder(
   })
   sink.markFailed(ids, message, code)
   act(() => root.render(<PlaceholderOverlay editor={editor} />))
+  return ids
 }
 
 it('失败占位按错误码显示原因与出路，不显示服务端的文字', async () => {
@@ -293,5 +307,246 @@ describe('生成进度', () => {
     act(() => root.render(<PlaceholderOverlay editor={editor} />))
     expect(host.textContent).toContain('生成中')
     expect(host.textContent).not.toContain('已用')
+  })
+})
+
+const RETRY_MODEL = 'gpt-image-2'
+
+/** 原失败卡：生图、上游出错，起跑时记了快照、提交过后台任务。 */
+function failedCard(overrides: Partial<AgentToolMessage> = {}): AgentToolMessage {
+  return {
+    kind: 'tool',
+    id: 'tool-1',
+    turnId: 'turn-1',
+    toolCallId: 'call-1',
+    toolName: 'generateImage',
+    title: '一只橘猫',
+    status: 'failed',
+    errorCode: 'upstream_error',
+    snapshot: {
+      mode: 'image',
+      args: { prompt: '一只橘猫', n: 2 },
+      target: { provider: 'openai-compat', model: RETRY_MODEL },
+    },
+    job: { taskId: 'task-1', media: 'image' },
+    ...overrides,
+  }
+}
+
+function offerModels(...ids: string[]) {
+  setChannels([
+    {
+      id: 'builtin',
+      kind: 'openai-queue',
+      label: 'Builtin',
+      models: ids.map((id) => ({ id, label: id, capabilities: ['generate'] })),
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+}
+
+describe('单张重试', () => {
+  it('上游出错的失败占位出现重试，写明预估积分，点击按原卡重试这一张', async () => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard()]
+
+    const [placeholderId] = await failedPlaceholder('服务端写的那句话', 'upstream_error')
+
+    const button = host.querySelector('button')!
+    expect(button.textContent).toContain('重试')
+    expect(button.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('4')
+    act(() => button.click())
+    expect(agent.retry).toHaveBeenCalledWith('tool-1', placeholderId, undefined)
+  })
+
+  it('按钮一直按住到重试兑现（云端占位换成生成中之后），期间点不出第二次', async () => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard()]
+    let settle!: () => void
+    agent.retry.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve
+        }),
+    )
+    await failedPlaceholder('服务端写的那句话', 'upstream_error')
+
+    const button = host.querySelector('button')!
+    act(() => button.click())
+    expect(button.disabled).toBe(true)
+    act(() => button.click())
+    expect(agent.retry).toHaveBeenCalledTimes(1)
+
+    await act(async () => settle())
+    expect(host.querySelector('button')?.disabled).toBe(false)
+  })
+
+  it.each(['timeout', 'no_output'] as const)('%s 同样可以重试', async (code) => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard({ errorCode: code })]
+
+    await failedPlaceholder('服务端写的那句话', code)
+
+    expect(host.querySelector('button')?.textContent).toContain('重试')
+  })
+
+  it('视频按快照的时长与清晰度估积分', async () => {
+    setChannels([
+      {
+        id: 'video',
+        kind: 'openai-queue',
+        label: 'Video',
+        models: [{ id: 'veo-3', label: 'Veo', capabilities: ['generate'], media: 'video' }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
+    agent.messages = [
+      failedCard({
+        toolName: 'generateVideo',
+        snapshot: {
+          mode: 'video',
+          args: { prompt: '猫跳起来' },
+          target: { provider: 'openai-compat', model: 'veo-3' },
+        },
+        job: {
+          taskId: 'task-1',
+          media: 'video',
+          video: { model: 'veo-3', duration: 8, aspectRatio: '16:9', resolution: '720p' },
+        },
+      }),
+    ]
+
+    await failedPlaceholder('服务端写的那句话', 'upstream_error')
+
+    const credits = host.querySelector('button [role="img"]')!
+    expect(credits.getAttribute('aria-label')).toContain('32')
+  })
+
+  it('模型已下线时不出现重试', async () => {
+    offerModels('another-model')
+    agent.messages = [failedCard()]
+
+    await failedPlaceholder('服务端写的那句话', 'upstream_error')
+
+    expect(host.querySelector('button')).toBeNull()
+  })
+
+  it.each([
+    ['局部改图', { selectionBindings: [{ imageId: 'img-1', selectionId: 'sel-1' }] }],
+    ['分方案改图', { requestQuote: '把猫改成蓝色' }],
+    ['连锁改图', { deferredEdits: [{ targetImageId: 'x', requestQuote: 'y' }] }],
+  ])('%s不出现重试', async (_label, extra) => {
+    offerModels(RETRY_MODEL)
+    const card = failedCard({ toolName: 'editImage' })
+    agent.messages = [
+      { ...card, snapshot: { ...card.snapshot!, args: { ...card.snapshot!.args, ...extra } } },
+    ]
+
+    await failedPlaceholder('服务端写的那句话', 'upstream_error')
+
+    expect(host.querySelector('button')).toBeNull()
+  })
+
+  it('没有快照（旧失败）或没提交过后台任务时不出现重试', async () => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard({ snapshot: undefined })]
+    await failedPlaceholder('服务端写的那句话', 'upstream_error')
+    expect(host.querySelector('button')).toBeNull()
+
+    agent.messages = [failedCard({ job: undefined })]
+    act(() => root.render(<PlaceholderOverlay editor={editor} key="again" />))
+    expect(host.querySelector('button')).toBeNull()
+  })
+
+  it('一次重试因积分不够被拒后，占位按新的码给去充值而不是重试', async () => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard()]
+
+    await failedPlaceholder('', 'insufficient_credits')
+
+    expect(host.querySelector('button')?.textContent).toBe('去充值')
+  })
+
+  it('占位所属的会话没打开时不出现重试', async () => {
+    offerModels(RETRY_MODEL)
+    agent.messages = [failedCard()]
+    agent.conversationId = 'conv-2'
+
+    await failedPlaceholder('服务端写的那句话', 'upstream_error')
+
+    expect(host.querySelector('button')).toBeNull()
+  })
+
+  it('云端项目的失败占位凭任务 id 找到原卡，重试时交出它的元素 id', () => {
+    offerModels(RETRY_MODEL)
+    const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+    agent.messages = [
+      failedCard({ errorCode: 'timeout', job: { taskId: generationId, media: 'image' } }),
+    ]
+
+    cloudFailedPlaceholder('timeout')
+
+    const button = host.querySelector('button')!
+    expect(button.textContent).toContain('重试')
+    act(() => button.click())
+    expect(agent.retry).toHaveBeenCalledWith('tool-1', `agent_${generationId}_0`, generationId)
+  })
+
+  it('云端项目的重试被拒（积分不够、没登录）：占位按拒绝的码给出路，不再出重试', () => {
+    offerModels(RETRY_MODEL)
+    const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+    agent.messages = [
+      failedCard({ errorCode: 'timeout', job: { taskId: generationId, media: 'image' } }),
+    ]
+    agent.retryRefusals = {
+      [`agent_${generationId}_0`]: { code: 'insufficient_credits', generationId },
+    }
+
+    cloudFailedPlaceholder('timeout')
+
+    expect(host.querySelector('button')?.textContent).toBe('去充值')
+    expect(host.textContent).not.toContain('重试')
+
+    agent.retryRefusals = {
+      [`agent_${generationId}_0`]: { code: 'authentication_required', generationId },
+    }
+    act(() => root.render(<PlaceholderOverlay editor={editor} key="again" />))
+    expect(host.querySelector('button')?.textContent).toBe('去登录')
+  })
+
+  it('被拒那一层只对当时那次生成作数：占位被别处的重试换过之后照占位自己的码', () => {
+    offerModels(RETRY_MODEL)
+    const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+    agent.messages = [
+      failedCard({ errorCode: 'timeout', job: { taskId: generationId, media: 'image' } }),
+    ]
+    agent.retryRefusals = {
+      [`agent_${generationId}_0`]: { code: 'insufficient_credits', generationId: 'older-task' },
+    }
+
+    cloudFailedPlaceholder('timeout')
+
+    expect(host.querySelector('button')?.textContent).toContain('重试')
+  })
+
+  it('云端项目里重试又失败：凭重试任务找到重试记录，再顺着它回到原卡', () => {
+    offerModels(RETRY_MODEL)
+    const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+    agent.messages = [
+      failedCard({ errorCode: 'timeout' }),
+      failedCard({
+        id: 'retry-1',
+        turnId: 'retry-turn',
+        toolCallId: 'retry-call',
+        errorCode: 'timeout',
+        job: { taskId: generationId, media: 'image' },
+        retryOf: { messageId: 'tool-1', toolCallId: 'call-1' },
+      }),
+    ]
+
+    cloudFailedPlaceholder('timeout')
+
+    act(() => host.querySelector('button')!.click())
+    expect(agent.retry).toHaveBeenCalledWith('tool-1', `agent_${generationId}_0`, generationId)
   })
 })

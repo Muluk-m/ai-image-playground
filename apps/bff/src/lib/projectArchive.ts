@@ -20,6 +20,8 @@ export async function reserveProjectOutputs(
     conversationId: string
     turnId: string
     count: number
+    /** 接替这个失败占位：第一件产物落在它的位置上，它本身从项目里撤掉（单张重试）。 */
+    replaceObjectId?: string
   },
 ) {
   if (!Number.isSafeInteger(input.count) || input.count < 1 || input.count > AGENT_IMAGE_MAX_N)
@@ -43,17 +45,34 @@ export async function reserveProjectOutputs(
         : Math.max(0, ...element.points.filter((_, index) => index % 2 === 0)),
     ),
   )
+  // 只接替失败占位：还在生成的位置与已经落下的产物都不是重试能动的东西。
+  const replaced = project.document.elements.find(
+    (element): element is ProjectGeneration =>
+      element.id === input.replaceObjectId &&
+      element.type === 'generation' &&
+      element.errorCode !== undefined,
+  )
   const outputs: ProjectGeneration[] = Array.from({ length: input.count }, (_, position) => ({
     id: projectArtifactId(input.generationId, position),
     type: 'generation',
     generationId: input.generationId,
     position,
-    x: right + 24 + position * 384,
-    y: 0,
-    width: 360,
-    height: 360,
+    ...(replaced && position === 0
+      ? { x: replaced.x, y: replaced.y, width: replaced.width, height: replaced.height }
+      : { x: right + 24 + position * 384, y: 0, width: 360, height: 360 }),
   }))
-  const document = { version: 1, elements: [...project.document.elements, ...outputs] }
+  // 接替的那一件就地换进原来的层级，其余照常叠在最上面。
+  const document = replaced
+    ? {
+        version: 1,
+        elements: [
+          ...project.document.elements.map((element) =>
+            element === replaced ? outputs[0]! : element,
+          ),
+          ...outputs.slice(1),
+        ],
+      }
+    : { version: 1, elements: [...project.document.elements, ...outputs] }
   if (
     !isProjectDocument(document) ||
     Buffer.byteLength(JSON.stringify(document)) > PROJECT_DOCUMENT_MAX_BYTES

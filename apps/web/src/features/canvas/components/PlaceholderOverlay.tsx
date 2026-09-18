@@ -1,10 +1,13 @@
-import { useSyncExternalStore } from 'react'
+import { type CSSProperties, useState, useSyncExternalStore } from 'react'
+import Credits from '../../../components/Credits'
 import { useTranslation } from '../../../i18n'
+import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import {
   useAgentJobProgressText,
   useAgentToolProgress,
 } from '../../agent/components/AgentJobProgress'
 import { toolMessageForPlaceholder } from '../../agent/lib/jobProgress'
+import { agentRetryAvailable, agentRetryOrigin, agentRetryPricing } from '../../agent/lib/retry'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -12,8 +15,75 @@ import {
   runAgentToolFailureAction,
 } from '../../agent/lib/toolFailure'
 import { useAgentStore } from '../../agent/store'
+import type { AgentToolMessage } from '../../agent/types'
 import { type CanvasEditor, type PlaceholderView, STATUS_ACCENT } from '../lib/editor'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
+
+function actionStyle(accent: string): CSSProperties {
+  return {
+    marginTop: 4,
+    padding: '4px 14px',
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--studio-neutral-0)',
+    background: accent,
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    pointerEvents: 'all',
+  }
+}
+
+/**
+ * 智能体失败占位上的单张重试：按原失败卡起跑时的参数重出这一张，按钮写明预估积分。
+ * 积分只在收费形态有计价目录时才写；没有就只写「重试」。
+ */
+function AgentRetryButton({
+  origin,
+  placeholderId,
+  generationId,
+  accent,
+}: {
+  origin: AgentToolMessage
+  placeholderId: string
+  generationId?: string
+  accent: string
+}) {
+  const { t } = useTranslation('agent')
+  const guard = usePrivateSubmissionGuard(agentRetryPricing(origin))
+  const [pending, setPending] = useState(false)
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={async () => {
+        setPending(true)
+        try {
+          // 一直按住到占位真正换成生成中（云端要等文档拉回来），免得同一个占位再提交一次。
+          await useAgentStore.getState().retry(origin.id, placeholderId, generationId)
+        } finally {
+          setPending(false)
+        }
+      }}
+      style={{
+        ...actionStyle(accent),
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        ...(pending ? { opacity: 0.6, cursor: 'default' } : {}),
+      }}
+    >
+      {t('toolFailure.retry')}
+      {guard.estimatedCredits !== undefined && (
+        <>
+          <span aria-hidden="true">·</span>
+          <Credits credits={guard.estimatedCredits} />
+        </>
+      )}
+    </button>
+  )
+}
 
 /**
  * 智能体占的位在转圈时说的那句：与对话里那张结果卡同一份进度（阶段与已用时间）。
@@ -47,6 +117,9 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   // 「让助手重新处理」替用户往会话里说一句话，只能说回占位所属的那个会话。
   const openConversationId = useAgentStore((state) => state.conversationId)
+  // 重试按原失败卡的快照重出，所以只认当前打开的那个会话里的卡。
+  const messages = useAgentStore((state) => state.messages)
+  const retryRefusals = useAgentStore((state) => state.retryRefusals)
   const { camera } = editor.doc
   const placeholders = editor.getPlaceholders()
 
@@ -58,16 +131,24 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
         const accent = STATUS_ACCENT[p.status]
         const isLoading = p.status === 'loading'
         // 智能体的失败占位带错误码时只认码（ADR 0006）；旧占位框没有码，照旧显示存下的那句话。
-        const agentCode = p.meta.agent ? p.meta.agentErrorCode : undefined
+        // 重试被拒后盖在云端失败占位上的那一层（本机不能改写云端文档），只对被拒时那次生成作数。
+        const refusal = retryRefusals[p.id]
+        const refused =
+          refusal && refusal.generationId === p.meta.cloudGeneration?.id ? refusal.code : undefined
+        const agentCode = p.meta.agent ? (refused ?? p.meta.agentErrorCode) : undefined
         const note = agentToolFailureText(agentCode) ?? p.message
         const action = agentToolFailureAction(agentCode)
         // 失败占位留得比会话久（切会话、刷新后还在）：不是当前打开的那个会话就不给这个出路，
         // 否则这句话会落进一个毫不相干的会话。
-        const agentAction =
-          action === 'reprocess' &&
-          (!p.meta.agentConversationId || p.meta.agentConversationId !== openConversationId)
-            ? null
-            : action
+        const ownConversation =
+          Boolean(p.meta.agentConversationId) && p.meta.agentConversationId === openConversationId
+        const agentAction = action === 'reprocess' && !ownConversation ? null : action
+        // 上游出错、超时、没出图才有重试；原卡没有快照、是局部或连锁改图、模型已下线时都没有。
+        const origin =
+          p.meta.agent && ownConversation && p.status === 'error'
+            ? agentRetryOrigin(messages, p.meta)
+            : null
+        const retryOrigin = agentRetryAvailable(agentCode, origin) ? origin : null
         return (
           <div
             key={p.id}
@@ -124,6 +205,16 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   {note && (
                     <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{note}</span>
                   )}
+                  {retryOrigin && (
+                    <AgentRetryButton
+                      origin={retryOrigin}
+                      placeholderId={p.id}
+                      {...(p.meta.cloudGeneration
+                        ? { generationId: p.meta.cloudGeneration.id }
+                        : {})}
+                      accent={accent}
+                    />
+                  )}
                   {agentCode && agentAction && (
                     <button
                       type="button"
@@ -136,18 +227,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                           send: (text) => void useAgentStore.getState().send(text),
                         })
                       }
-                      style={{
-                        marginTop: 4,
-                        padding: '4px 14px',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: 'var(--studio-neutral-0)',
-                        background: accent,
-                        border: 'none',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        pointerEvents: 'all',
-                      }}
+                      style={actionStyle(accent)}
                     >
                       {agentToolFailureActionLabel(agentAction)}
                     </button>
@@ -158,18 +238,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       type="button"
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => retryCanvasTask(editor, p)}
-                      style={{
-                        marginTop: 4,
-                        padding: '4px 14px',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: 'var(--studio-neutral-0)',
-                        background: accent,
-                        border: 'none',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        pointerEvents: 'all',
-                      }}
+                      style={actionStyle(accent)}
                     >
                       {t('common:action.retry')}
                     </button>

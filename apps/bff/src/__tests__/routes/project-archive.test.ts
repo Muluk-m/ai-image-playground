@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { TaskErrorType } from '@image-playground/shared'
+import { projectArtifactId, type TaskErrorType } from '@image-playground/shared'
 import { eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
@@ -482,5 +482,67 @@ it('等不到结果撤回的任务按超时留下失败占位（主动取消收�
   const restored = await (await request(`/${original.id}`)).json()
   expect(restored.document.elements).toMatchObject([
     { type: 'generation', generationId: timedOut, errorCode: 'timeout' },
+  ])
+})
+
+it('单张重试接替原来的失败占位：同一位置、同一层级，其余失败占位不动', async () => {
+  const original = await project()
+  const failedTask = await submitToProject(original.conversationId, 2)
+  await failTask(failedTask, 'upstream_timeout')
+  const failed = await (await request(`/${original.id}`)).json()
+  const [first, second] = failed.document.elements
+  // 用户挪过第二个失败占位，重试的产物要落在它此刻的位置上。
+  const moved = { ...second, x: 900, y: 240, width: 420, height: 280 }
+  const saved = await request(`/${original.id}`, {
+    requestId: crypto.randomUUID(),
+    baseRevision: failed.revision,
+    name: failed.name,
+    document: { version: 1, elements: [first, moved] },
+  })
+  expect(saved.status).toBe(200)
+
+  const retried = await createQueueTask({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: '会失败的图', device_id: 'archive-device', n: 1 },
+    userId: 'archive-owner',
+    agent: { conversationId: original.conversationId, turnId: crypto.randomUUID() },
+    projectSlot: moved.id,
+  })
+  if (retried.kind !== 'created') throw new Error(retried.kind)
+
+  const restored = await (await request(`/${original.id}`)).json()
+  expect(restored.document.elements).toEqual([
+    first,
+    {
+      id: projectArtifactId(retried.taskId, 0),
+      type: 'generation',
+      generationId: retried.taskId,
+      position: 0,
+      x: 900,
+      y: 240,
+      width: 420,
+      height: 280,
+    },
+  ])
+})
+
+it('要接替的位置不是失败占位时照常另找位置', async () => {
+  const original = await project()
+  const running = await submitToProject(original.conversationId)
+  const reserved = await (await request(`/${original.id}`)).json()
+  const retried = await createQueueTask({
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    request: { prompt: '会失败的图', device_id: 'archive-device', n: 1 },
+    userId: 'archive-owner',
+    agent: { conversationId: original.conversationId, turnId: crypto.randomUUID() },
+    projectSlot: reserved.document.elements[0].id,
+  })
+  if (retried.kind !== 'created') throw new Error(retried.kind)
+  const restored = await (await request(`/${original.id}`)).json()
+  expect(restored.document.elements).toMatchObject([
+    { generationId: running },
+    { generationId: retried.taskId },
   ])
 })

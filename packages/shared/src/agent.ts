@@ -234,6 +234,84 @@ export interface AgentToolResultBlock {
   readonly snapshot?: AgentToolCallSnapshot
   /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
   readonly job?: AgentBackgroundJob
+  /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */
+  readonly retryOf?: AgentToolRetryOrigin
+}
+
+/**
+ * 重试记录指回的那次失败调用。重试不改写原卡：原卡保持失败，重试另起一条记录挂在对话末尾，
+ * 凭它跳回原卡、把结果落回原来的失败占位。
+ */
+export interface AgentToolRetryOrigin {
+  /** 原失败卡的消息 id。 */
+  readonly messageId: string
+  readonly toolCallId: string
+  /** 结果要落回的那个失败占位（画布对象 id）；缺席即就近落。 */
+  readonly placeholderId?: string
+}
+
+/** 原样再跑一次有望成功的那几类失败（上游出错、超时、没出图）。 */
+export const AGENT_RETRYABLE_ERROR_CODES: readonly AgentToolErrorCode[] = [
+  'upstream_error',
+  'timeout',
+  'no_output',
+]
+
+/** 能按快照原样重出的工具。查素材库、读技能不提交生成任务，没有可重出的东西。 */
+const RETRYABLE_TOOLS: readonly AgentToolName[] = ['generateImage', 'editImage', 'generateVideo']
+
+/**
+ * 局部改图（选区绑定、分方案摘录）与连锁改图（列了后续步骤、或是后续步骤本身）的参数离不开
+ * 那一轮的上下文：原样重出可能改错地方，只能交给智能体重新处理。
+ */
+function localEdit(snapshot: AgentToolCallSnapshot): boolean {
+  const { selectionBindings, requestQuote, deferredEdits } = snapshot.args
+  return (
+    (Array.isArray(selectionBindings) && selectionBindings.length > 0) ||
+    (typeof requestQuote === 'string' && requestQuote.length > 0) ||
+    (Array.isArray(deferredEdits) && deferredEdits.length > 0)
+  )
+}
+
+/** 判定重试资格要看的那几位：服务端的结果块与前端的结果卡都有。 */
+export interface AgentRetryCandidate {
+  readonly status: string
+  readonly toolName?: AgentToolName
+  readonly errorCode?: AgentToolErrorCode
+  readonly snapshot?: AgentToolCallSnapshot
+  readonly job?: AgentBackgroundJob
+  readonly retryOf?: AgentToolRetryOrigin
+}
+
+/**
+ * 这张失败卡能不能原样重试。只看结构化的几位，不读文字（ADR 0006）：错误码可重试、
+ * 起跑时记了参数快照与模型、是提交过后台任务的生成调用、不是局部或连锁改图。
+ * 局部与连锁改图留在轮里同步等结果，从来不带 `job`，这里也因此把它们挡在门外。
+ * 模型是否已下线要问此刻的模型清单，由调用方另判。重试记录本身不再重试：重试一律从原卡出发。
+ */
+export function agentToolRetryable(block: AgentRetryCandidate): boolean {
+  return (
+    block.status === 'failed' &&
+    block.errorCode !== undefined &&
+    AGENT_RETRYABLE_ERROR_CODES.includes(block.errorCode) &&
+    block.toolName !== undefined &&
+    RETRYABLE_TOOLS.includes(block.toolName) &&
+    block.snapshot?.target !== undefined &&
+    block.job !== undefined &&
+    block.retryOf === undefined &&
+    !localEdit(block.snapshot)
+  )
+}
+
+/** `POST .../retries` 成功时的响应：追加在对话末尾的那条重试记录。 */
+export interface AgentRetryResponse {
+  readonly message: AgentMessageView
+}
+
+/** 重试没能提交（模型已下线、积分不够、没登录……）时的响应体；界面只按 `code` 给出路。 */
+export interface AgentRetryRefusedBody {
+  readonly error: 'retry_refused'
+  readonly code: AgentToolErrorCode
 }
 
 /** `GET .../jobs` 里的一项：一次提交了后台任务的工具调用，结果块是它此刻的样子。 */
@@ -650,12 +728,14 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 
 /** 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。 */
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
-  if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
-  if (block.status === 'submitted') return `${block.title}：已提交后台任务，结果尚未就绪`
+  // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
+  const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
+  if (block.status === 'failed') return `${title}：失败（${block.message ?? '未知原因'}）`
+  if (block.status === 'submitted') return `${title}：已提交后台任务，结果尚未就绪`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')
-  return listed ? `${block.title}：完成，${listed}` : `${block.title}：完成`
+  return listed ? `${title}：完成，${listed}` : `${title}：完成`
 }
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */

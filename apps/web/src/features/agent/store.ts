@@ -6,6 +6,7 @@ import type {
   AgentMode,
   AgentQueuedMessageView,
   AgentThinkingDepth,
+  AgentToolErrorCode,
   AgentTurnEvent,
   AgentTurnReference,
 } from '@image-playground/shared'
@@ -32,6 +33,7 @@ import {
   AgentRequestError,
   type AgentTurnSource,
   abortTurn,
+  cancelRetry as cancelRetryRequest,
   fetchConversations,
   fetchJobs,
   fetchMessages,
@@ -40,12 +42,13 @@ import {
   interjectTurn,
   removeConversation,
   cancelJob as requestJobCancel,
+  retryToolCall,
   type StartTurnOutcome,
   startTurn,
   withdrawQueuedMessage,
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
-import { onAgentCanvasSinkChange } from './lib/canvasSink'
+import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { bindNewAgentDraft } from './lib/drafts'
 import {
   addQueuedMessage,
@@ -70,6 +73,7 @@ import {
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
+import { agentToolFailureText } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
 import type {
   AgentPanelMessage,
@@ -92,6 +96,12 @@ const THINKING_DEPTH_KEY = 'image-playground-agent-thinking-depth'
 function readThinkingDepth(): AgentThinkingDepth {
   const value = safeLocalStorage.getItem(THINKING_DEPTH_KEY)
   return value === 'fast' || value === 'deep' ? value : 'medium'
+}
+
+/** 重试被拒时盖在失败占位上的那一层：新的码，以及它盖的是哪一次云端生成。 */
+export interface AgentRetryRefusal {
+  readonly code: AgentToolErrorCode
+  readonly generationId?: string
 }
 
 export interface AgentState {
@@ -134,6 +144,12 @@ export interface AgentState {
    * 看到的时刻。服务端还没报后台任务进度时拿它算已用时间。
    */
   toolStartedAt: Readonly<Record<string, number>>
+  /**
+   * 一次重试被拒（积分不够、没登录……）后，那个失败占位该给的出路，按占位 id 索引。本机占位
+   * 直接把码写进占位；云端占位的失败状态归服务端，本机不能改写云端文档，只能在这里盖一层。
+   * 带着被拒时占位所属的云端任务：占位被别处的重试换过之后，这一层不再作数。
+   */
+  retryRefusals: Readonly<Record<string, AgentRetryRefusal>>
 
   setOpen(open: boolean): void
   setTab(tab: AgentPanelTab): void
@@ -165,6 +181,12 @@ export interface AgentState {
   placeOnCanvas(messageId: string): Promise<void>
   /** 单独取消这张结果卡提交的后台任务；服务端按原桶退回，卡随即换成取消后的结局。 */
   cancelJob(messageId: string): Promise<void>
+  /**
+   * 单张重试：按那张失败卡起跑时的参数重出一张，不经对话模型。结果落回 `placeholderId`
+   * 那个失败占位；对话末尾追加一条重试记录。`generationId` 是云端占位此刻挂着的那次生成。
+   * 占位真正换成生成中（云端项目要等文档拉回来）之后才兑现，调用方据此一直按住按钮。
+   */
+  retry(messageId: string, placeholderId?: string, generationId?: string): Promise<void>
 }
 
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
@@ -241,6 +263,40 @@ export const useAgentStore = create<AgentState>((set, get) => {
     return delivery.reset()
   }
 
+  /**
+   * 重试记录的交付把手：它不占新位，结果落回用户点重试的那个失败占位。刷新之后读回来的重试
+   * 没有把手，凭记录上的占位 id 现开一个。
+   */
+  const retryDelivery = (card: AgentToolMessage): TurnArtifactDelivery | undefined => {
+    const placeholderId = card.retryOf?.placeholderId
+    if (!placeholderId) return undefined
+    const handle = delivery.beginTurn()
+    handle.adopt(card.id, [placeholderId])
+    return handle
+  }
+
+  /** 重试被中止：失败占位回到原来那次失败，用户还能再点。 */
+  const failureCodeOf = (card: AgentToolMessage) => {
+    if (!card.retryOf || card.errorCode !== 'cancelled') return card.errorCode
+    const origin = get().messages.find((message) => message.id === card.retryOf?.messageId)
+    return origin?.kind === 'tool' ? origin.errorCode : card.errorCode
+  }
+
+  /**
+   * 别的设备（或别的标签页）在这个会话里点的重试：面板上还没有它的记录，照服务端给的样子补在
+   * 末尾。还在跑的接着等，结束时照常落回它指着的那个占位；已经结束的只补记录，产物由点重试的
+   * 那台设备落过了。
+   */
+  const adoptRetryRecords = (jobs: readonly AgentBackgroundJobView[]) => {
+    const shown = new Set(get().messages.map((message) => message.id))
+    const records = jobs.flatMap((job) => {
+      if (!job.result.retryOf || shown.has(job.messageId)) return []
+      const card = panelMessage(job.messageId, job.turnId, 'assistant', [job.result])
+      return card.kind === 'tool' ? [card] : []
+    })
+    if (records.length) set((state) => ({ messages: [...state.messages, ...records] }))
+  }
+
   /** 一个后台任务到了终局：结果卡换成终局，产物按产物交付落画布，失败就在占位上标错。 */
   const settleJob = (job: AgentBackgroundJobView) => {
     const shown = get().messages.find((message) => message.id === job.messageId)
@@ -261,11 +317,13 @@ export const useAgentStore = create<AgentState>((set, get) => {
   const deliverJob = (card: AgentToolMessage) => {
     // 任务的结算（成功扣费、失败退回）此刻已经发生，顶栏余额跟着刷新。
     notifyPrivateSubmissionSettled()
-    const handle = jobDeliveries.get(card.id) ?? delivery.beginTurn()
+    const handle = jobDeliveries.get(card.id) ?? retryDelivery(card) ?? delivery.beginTurn()
     jobDeliveries.delete(card.id)
-    // 取消是用户自己的决定，不留失败占位：云端项目在取消时同样收掉预留的位置。
-    if (card.status === 'failed' && card.errorCode === 'cancelled') handle.discard(card.id)
-    else if (card.status === 'failed') handle.failed(card.id, card.message, card.errorCode)
+    // 取消是用户自己的决定，不留失败占位：云端项目在取消时同样收掉预留的位置。重试记录例外：
+    // 中止一次重试，失败占位回到原来那次失败，用户还能再点。
+    if (card.status === 'failed' && card.errorCode === 'cancelled' && !card.retryOf)
+      handle.discard(card.id)
+    else if (card.status === 'failed') handle.failed(card.id, card.message, failureCodeOf(card))
     else if (card.artifacts?.length) handle.enqueue(card)
     else handle.discard(card.id)
     void handle.settled()
@@ -291,6 +349,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             // 一次没问到不要紧，下一次接着问。
           }
           if (!watching()) return
+          adoptRetryRecords(jobs)
           for (const job of jobs) settleJob(job)
           if (!hasPendingJobs(get().messages)) return
           await new Promise((resolve) => setTimeout(resolve, jobPollMs))
@@ -814,6 +873,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     panelWidth: readPanelWidth(),
     jobProgress: {},
     toolStartedAt: {},
+    retryRefusals: {},
     mode: 'image',
     setMode: (mode) => {
       if (get().mode !== mode) set({ mode })
@@ -1255,9 +1315,76 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const message = messages.find((one) => one.id === messageId)
       if (!conversationId || message?.kind !== 'tool' || message.status !== 'submitted') return
       if (!message.job) return
+      if (message.retryOf) {
+        // 重试记录走重试自己的中止：按原桶退回，云端占位回到原来那次失败，用户还能再点。
+        try {
+          await cancelRetryRequest(conversationId, message.id)
+        } catch (thrown) {
+          // 409：它恰好已经结束，下面照常读回终局。
+          if (!(thrown instanceof AgentRequestError && thrown.status === 409)) throw thrown
+        }
+        const jobs = await fetchJobs(conversationId)
+        if (get().conversationId !== conversationId) return
+        for (const one of jobs) settleJob(one)
+        return
+      }
       const job = await requestJobCancel(conversationId, message.job.taskId)
       if (get().conversationId !== conversationId) return
       settleJob(job)
+    },
+
+    async retry(messageId, placeholderId, generationId) {
+      const conversationId = get().conversationId
+      if (!conversationId) return
+      let view: Awaited<ReturnType<typeof retryToolCall>>
+      try {
+        view = await retryToolCall(conversationId, messageId, placeholderId)
+      } catch (thrown) {
+        if (get().conversationId !== conversationId) return
+        // 没提交成：按拒绝的码给出路（去充值、去登录、让助手重新处理），不读服务端文字。
+        const code = thrown instanceof AgentRequestError ? thrown.toolErrorCode : undefined
+        if (code && placeholderId) {
+          // 本机占位写进占位本身；云端占位由画布跳过，出路靠盖在上面的这一层。
+          agentCanvasSink()?.markFailed([placeholderId], '', code)
+          const refusal: AgentRetryRefusal = generationId ? { code, generationId } : { code }
+          set((state) => ({ retryRefusals: { ...state.retryRefusals, [placeholderId]: refusal } }))
+        }
+        set({
+          error: agentToolFailureText(code) ?? i18next.t('error.retryFailed', { ns: 'agent' }),
+        })
+        return
+      }
+      if (get().conversationId !== conversationId) return
+      const card = panelMessage(view.id, view.turnId, view.role, view.content)
+      if (card.kind !== 'tool') return
+      // 同一个占位上已有一次重试时，服务端原样给回那一条：这台设备已经在等它就不再开第二个把手。
+      const shown = get().messages.some((message) => message.id === card.id)
+      set((state) => {
+        const { [placeholderId ?? '']: _cleared, ...retryRefusals } = state.retryRefusals
+        return {
+          error: null,
+          retryRefusals,
+          messages: shown ? state.messages : [...state.messages, card],
+        }
+      })
+      if (shown) {
+        if (card.status === 'submitted' && placeholderId)
+          await agentCanvasSink()?.revive?.([placeholderId])
+        return
+      }
+      // 重试有自己的消耗：预扣已经发生，顶栏余额跟着刷新。
+      notifyPrivateSubmissionSettled()
+      if (placeholderId) await agentCanvasSink()?.revive?.([placeholderId])
+      if (get().conversationId !== conversationId) return
+      if (card.status !== 'submitted') {
+        // 给回的那一条已经结束（别的设备点的重试已经补上）：照后台任务的终局落一次。
+        deliverJob(card)
+        return
+      }
+      const handle = delivery.beginTurn()
+      if (placeholderId) handle.adopt(card.id, [placeholderId])
+      jobDeliveries.set(card.id, handle)
+      watchJobs(conversationId)
     },
   }
 })

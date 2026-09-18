@@ -43,6 +43,8 @@ export interface TurnArtifactDelivery {
    * 它与本轮同属一个画布与会话，切走之后同样按「画布已离开」处理。
    */
   handOff(messageId: string): TurnArtifactDelivery
+  /** 单张重试：结果落回这些已经在画布上的失败占位，而不是另占新位。 */
+  adopt(messageId: string, placeholderIds: readonly string[]): void
   settled(): Promise<void>
 }
 
@@ -239,6 +241,10 @@ export function createArtifactDelivery(
       if (reserved) job.reserved.set(messageId, reserved)
       origins.add(job)
       return handle(job)
+    },
+    adopt(messageId: string, placeholderIds: readonly string[]) {
+      if (!origin.reserved.has(messageId))
+        origin.reserved.set(messageId, Promise.resolve(placeholderIds))
     },
     async settled() {
       await origin.pending

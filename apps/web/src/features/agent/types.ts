@@ -3,8 +3,10 @@ import type {
   AgentSkillOutcome,
   AgentStoredReference,
   AgentToolArtifact,
+  AgentToolCallSnapshot,
   AgentToolErrorCode,
   AgentToolName,
+  AgentToolRetryOrigin,
   AgentToolStage,
   AgentToolStatus,
   AgentTurnCost,
@@ -52,8 +54,12 @@ export interface AgentToolMessage {
   readonly skill?: AgentSkillOutcome
   /** 本机产物交付与工具生成分别完成，不改写工具状态或本轮消耗。 */
   readonly delivery?: AgentDeliveryStatus
-  /** 这次调用提交的后台任务；结束后仍在，标明这张卡的结局来自后台任务。 */
+  /** 起跑时的参数快照：重试资格与预估积分都按它判。旧记录缺席。 */
+  readonly snapshot?: AgentToolCallSnapshot
+  /** 这次调用提交的后台任务；云端项目的失败占位凭它的任务 id 找回这张卡。 */
   readonly job?: AgentBackgroundJob
+  /** 这张卡是一条重试记录：指回原失败卡与要落回的失败占位。 */
+  readonly retryOf?: AgentToolRetryOrigin
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */
