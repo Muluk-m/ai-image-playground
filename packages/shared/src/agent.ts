@@ -42,6 +42,7 @@ export type AgentToolName =
   | 'readLibrary'
   | 'generateVideo'
   | 'loadSkill'
+  | 'arrangeTimeline'
 
 /**
  * 技能没写 `meta.json`、或写坏了时用的图标。技能不会因此被丢掉，只是长得一样。
@@ -203,6 +204,22 @@ export interface AgentToolArtifact {
 }
 
 /**
+ * 智能体排好的一条时间线：按顺序引用本会话落画布的视频产物（产物 id 即画布对象 id），带每段入出点（秒）。
+ * 画布按它建一条时间线元素，id 用 `timelineId`，所以重放不会建出第二条。
+ */
+export interface AgentTimelinePlan {
+  readonly timelineId: string
+  readonly clips: readonly AgentTimelineClip[]
+}
+
+/** 时间线上的一段：哪段视频、从第几秒播到第几秒。出点总在入点之后。 */
+export interface AgentTimelineClip {
+  readonly videoId: string
+  readonly in: number
+  readonly out: number
+}
+
+/**
  * 工具提交的后台任务：提交后立即交还对话，任务结束后产物按产物交付落画布。
  * 结果块带着它，任务结束时服务端据此把块改写成终局；旧记录与不提交后台任务的调用缺席。
  */
@@ -248,6 +265,8 @@ export interface AgentToolResultBlock {
    * 结果照常落画布，用户下次说话时智能体在对话记录里看得到它。缺席即唤醒过或本就不唤醒。
    */
   readonly wakeSkipped?: AgentWakeSkipReason
+  /** 排时间线这一步的结果：画布照它建时间线。缺席即这条不是排时间线，或者没有可排的视频。 */
+  readonly timeline?: AgentTimelinePlan
 }
 
 /**

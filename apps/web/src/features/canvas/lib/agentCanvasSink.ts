@@ -9,6 +9,7 @@ import type { CanvasEditor } from './editor'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
 import { recoverVideoPoster } from './recoverVideoPoster'
+import { placeTimelinePlan } from './timeline'
 
 /** 结果卡缩略图的缩放比。画布对象通常 360 页面单位宽，缩到面板里够看。 */
 const THUMBNAIL_SCALE = 0.25
@@ -218,6 +219,11 @@ export function createAgentCanvasSink(
         for (const id of reserved) editor.deleteElement(id, { history: false })
       }
       return outcome
+    },
+
+    async placeTimeline(plan) {
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
+      return placeTimelinePlan(editor, plan) ? 'placed' : 'unavailable'
     },
 
     failedPlaceholders({ messageId, taskIds }) {

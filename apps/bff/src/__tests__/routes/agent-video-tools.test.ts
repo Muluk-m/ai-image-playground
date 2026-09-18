@@ -6,6 +6,7 @@ import {
   type AgentToolResultBlock,
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
+  projectArtifactId,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -219,6 +220,7 @@ describe('智能体生视频工具', () => {
     // 视频轮照样带着生图与改图：首帧要先画出来、改到位，再让它动起来。
     // `loadSkill` 在场是因为 `apps/bff/skills/video` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'arrangeTimeline',
       'askClarification',
       'editImage',
       'generateImage',
@@ -499,5 +501,104 @@ describe('智能体生视频工具', () => {
     expect(billing.reservations).toHaveLength(2)
     const video = billing.reservations.find((one) => one.model === GROK)
     expect(video).toMatchObject({ userId: USER_ID, quantity: 10, unitMultiplier: 1.6 })
+  })
+})
+
+describe('智能体排时间线工具', () => {
+  /** 先出一段视频，返回它落画布的产物 id。 */
+  async function generatedVideo(conversationId: string): Promise<string> {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '第一镜' })
+    const stop = settleSubmittedTasks()
+    await runTurn(conversationId, '先出第一镜')
+    stop()
+    await settledJobs(conversationId)
+    const jobs = await db.select().from(schema.agent_jobs)
+    const mine = new Set(
+      jobs.filter((job) => job.conversation_id === conversationId).map((job) => job.task_id),
+    )
+    const [task] = (await db.select().from(schema.tasks)).filter(
+      (one) => one.request_payload.video && mine.has(one.id),
+    )
+    return projectArtifactId(task!.id, 0)
+  }
+
+  it('arranges finished videos in order without submitting or charging anything', async () => {
+    const conversationId = await startConversation()
+    const videoId = await generatedVideo(conversationId)
+    const before = (await db.select().from(schema.tasks)).length
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: { clips: [{ videoId, inSeconds: 1 }, { videoId: 'agent_missing_0' }] },
+          }),
+        () => completionStream('排好了'),
+      ]),
+    )
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.status).toBe('succeeded')
+    expect(end!.timeline!.timelineId).toMatch(/^timeline_/)
+    expect(end!.timeline!.clips).toEqual([{ videoId, in: 1, out: 5 }])
+    expect(modelReport(calls)).toContain('agent_missing_0')
+    // 只多了这一轮对话本身的任务，没有生成任务，也没有额外预扣。
+    const after = await db.select().from(schema.tasks)
+    expect(after.filter((one) => one.request_payload.video)).toHaveLength(1)
+    expect(after.length - before).toBeLessThanOrEqual(1)
+  })
+
+  it('skips videos from another conversation and clips that start at the end', async () => {
+    const elsewhere = await generatedVideo(await startConversation())
+    const conversationId = await startConversation()
+    const videoId = await generatedVideo(conversationId)
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: {
+              clips: [{ videoId: elsewhere }, { videoId, inSeconds: 5 }, { videoId }],
+            },
+          }),
+        () => completionStream('排好了'),
+      ]),
+    )
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.timeline!.clips).toEqual([{ videoId, in: 0, out: 5 }])
+    expect(modelReport(calls)).toContain(elsewhere)
+    expect(modelReport(calls)).toContain('入点已经到了结尾')
+  })
+
+  it('reports and places nothing when no listed video can be used', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: { clips: [{ videoId: 'agent_missing_0' }] },
+          }),
+        () => completionStream('没排成'),
+      ]),
+    )
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.timeline).toBeUndefined()
+    expect(modelReport(calls)).toContain('没有可以排的视频')
   })
 })
