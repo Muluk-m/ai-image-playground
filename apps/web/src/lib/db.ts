@@ -1,11 +1,10 @@
 import { storyboardShotLabel } from '@image-playground/shared'
 import type { AssetRecord, Tombstone } from '../features/library/types'
-import type { StoryboardRecord } from '../features/video/storyboard/types'
 import type { VideoTask } from '../features/video/types'
 import { i18next } from '../i18n'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
-import type { LegacyProductJob } from './legacyProductHistory'
+import type { LegacyProductJob, LegacyStoryboardRecord } from './legacyProductHistory'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
@@ -267,7 +266,7 @@ export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promi
     dbTransaction<Array<AssetRecord | Tombstone>>(STORE_ASSETS, 'readonly', (s) => s.getAll()),
     dbTransaction<LegacyProductJob[]>(STORE_BGSWAP_JOBS, 'readonly', (s) => s.getAll()),
     dbTransaction<VideoTask[]>(STORE_VIDEO_TASKS, 'readonly', (s) => s.getAll()),
-    dbTransaction<StoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (s) => s.getAll()),
+    dbTransaction<LegacyStoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (s) => s.getAll()),
   ])
   const ids = new Set<string>()
   const add = (id: string | null | undefined) => {

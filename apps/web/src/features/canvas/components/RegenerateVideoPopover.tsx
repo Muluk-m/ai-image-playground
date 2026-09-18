@@ -56,7 +56,7 @@ export default function RegenerateVideoPopover({
   const frames = regenerateFrames(editor, node)
   const frameCount = keepFrames ? frames.present.length : 0
   const frameRefusal = regenerateFrameRefusal(frameCount, draft.model)
-  // 关掉弹窗就作废还没发出的提交；草稿也还原成打开前的样子（它和导演台共用）。
+  // 关掉弹窗就作废还没发出的提交；草稿也还原成打开前的样子（它和生成栏共用）。
   const open = useRef(true)
   const submitted = useRef(false)
 

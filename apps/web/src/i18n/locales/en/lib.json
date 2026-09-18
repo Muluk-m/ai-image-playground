@@ -7,13 +7,11 @@
   },
   "canvas": {
     "unsupported": "This browser does not support Canvas",
-    "unsupportedTransparent": "This browser does not support Canvas, so transparent-background post-processing cannot run",
-    "unavailable": "Canvas is unavailable"
+    "unsupportedTransparent": "This browser does not support Canvas, so transparent-background post-processing cannot run"
   },
   "image": {
     "loadFailed": "Could not load the image",
     "exportFailed": "Could not export the image",
-    "decodeFailed": "Could not decode the image",
     "transcodeFailed": "Could not transcode the image",
     "invalidSize": "Invalid image size",
     "onlyImages": "Only image files are supported",
@@ -115,13 +113,6 @@
     "baseImageMissing": "The mask base image is gone, pick the mask area again",
     "emptySelection": "Select or paint the area you want to edit first"
   },
-  "export": {
-    "fitCrop": "Crop",
-    "fitLetterbox": "Letterbox",
-    "untitled": "Untitled",
-    "failed": "Export failed",
-    "imageNotFound": "This image is gone"
-  },
   "transparent": {
     "pixelSizeMismatch": "Transparent-background pixel data size mismatch",
     "unsupportedKeyColor": "Unsupported transparent-background key color: {{keyColor}}"
@@ -131,10 +122,6 @@
   },
   "storage": {
     "adoptTxAborted": "The {{store}} transaction for adopting history was aborted"
-  },
-  "bffClient": {
-    "storyboardUnavailable": "The storyboard script was not generated",
-    "storyboardTimedOut": "The storyboard script timed out, try again"
   },
   "mention": {
     "imageLabel": "@Image {{n}}",

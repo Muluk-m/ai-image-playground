@@ -50,6 +50,7 @@ import {
   isCursorInSelectedImageMention,
 } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
+import { useCanvasComposer } from '../../canvas/composerStore'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
@@ -267,6 +268,14 @@ export default function AgentComposer({
   useEffect(() => {
     if (!loading) setSessionMode(mode)
   }, [mode, loading, setSessionMode])
+
+  // 进视频入口、从图片发起「生成视频」时，下一轮预置为视频；草稿读完才接手，免得被读盘覆盖。
+  const agentVideoPending = useCanvasComposer((state) => state.agentVideoPending)
+  useEffect(() => {
+    if (loading || !videoAvailable || !agentVideoPending) return
+    if (!useCanvasComposer.getState().consumeAgentVideo()) return
+    setDraft((current) => (current.mode === 'video' ? current : { ...current, mode: 'video' }))
+  }, [loading, videoAvailable, agentVideoPending, setDraft])
 
   const skills = useAgentSkills(mode)
 

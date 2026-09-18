@@ -11,7 +11,7 @@ import type { VideoDraft } from '../types'
 import ChipRow from './ChipRow'
 
 /**
- * 时长、画幅、清晰度三行档位。导演台与画布生成栏共用：两处写的是同一份草稿，
+ * 时长、画幅、清晰度三行档位。画布生成栏与重新生成弹窗共用：两处写的是同一份草稿，
  * 联动（某清晰度只配部分时长）也只在这里写一次。
  */
 export default function VideoPresetRows({

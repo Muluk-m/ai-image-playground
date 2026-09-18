@@ -32,7 +32,6 @@ const MANIFEST = {
   'agent:chat': true,
   'billing:credits': false,
   'generation:byok': true,
-  'generation:storyboard': false,
   'generation:video': false,
   'quota:daily': false,
 }

@@ -13,7 +13,6 @@
     "agent:chat": false,
     "billing:credits": false,
     "generation:byok": false,
-    "generation:storyboard": false,
     "generation:video": false,
     "operator:console": false,
     "quota:daily": false

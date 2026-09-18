@@ -18,7 +18,6 @@
   "asset": {
     "new": "新建素材",
     "unsynced": "未同步",
-    "useAsFirstFrame": "填入首帧",
     "addAsReference": "加入参考图",
     "zoom": "放大预览",
     "makeVideo": "做成视频",
@@ -75,7 +74,6 @@
     "assetSaved": "已存为素材",
     "templateSaved": "已存为模板",
     "promptTemplateSaved": "已存为模板，可在我的资产中查看",
-    "firstFrameFilled": "已填入首帧",
     "assetImageMissing": "素材图片已丢失",
     "alreadyInReferences": "已在参考图中",
     "addedToReferences": "已加入参考图",

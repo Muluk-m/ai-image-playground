@@ -67,7 +67,7 @@ export function canvasVideoRefusalText(reason: CanvasVideoRefusal, model: string
 }
 
 /**
- * 送给队列的视频档位。首帧永远是 input_images[0]，尾帧跟在它后面——和导演台同一套下标约定。
+ * 送给队列的视频档位。首帧永远是 input_images[0]，尾帧跟在它后面。
  * 续写 / 改视频不带帧，改带源片在队列里的 id；源片是画布上的对象，到提交这一刻才去取，
  * 它已经不在画布上就明说，不当成普通生成发出去。
  */
@@ -128,7 +128,7 @@ export function canvasVideoSelectionRefusal(editor: CanvasEditor, model: string)
 }
 
 /**
- * 生成栏视频档的提交：按导演台当前的模型与档位，把选区读成文生 / 首帧 / 首尾帧。
+ * 生成栏视频档的提交：按视频参数草稿当前的模型与档位，把选区读成文生 / 首帧 / 首尾帧。
  * 校验、门禁都在占位框出现之前做完；过不了就 toast 说明，不留空框。
  * 返回是否受理：没受理时生成栏保留输入，写好的长描述不能因为一次拒绝就没了。
  */
@@ -303,7 +303,7 @@ export async function resumeCanvasVideo(
     notifyPrivateSubmissionError(err)
     markPlaceholderStatus(editor, placeholder.id, 'error', errorMessage(err))
   } finally {
-    // 续跑出片同样要让余额与充值入口刷新，和导演台续跑一致。
+    // 续跑出片同样要让余额与充值入口刷新。
     notifyPrivateSubmissionSettled()
   }
 }

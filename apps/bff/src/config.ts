@@ -112,14 +112,6 @@ export const config = {
     /** GPT Image 2 的 Responses 主模型；留空保留网关原生 Images 协议。 */
     imageResponsesModel: env('UPSTREAM_IMAGE_RESPONSES_MODEL', ''),
   },
-  remix: {
-    /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
-    visionModel: env('REMIX_VISION_MODEL', 'gpt-6-astra'),
-  },
-  storyboard: {
-    /** 分镜脚本模型。默认跟视觉模型同一个，写脚本吃力时单独换。 */
-    model: env('STORYBOARD_MODEL', '') || env('REMIX_VISION_MODEL', 'gpt-6-astra'),
-  },
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
     model: env('AGENT_CHAT_MODEL', ''),

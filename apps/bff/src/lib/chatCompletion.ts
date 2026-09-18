@@ -33,46 +33,6 @@ export class ChatTimeoutError extends Error {
   }
 }
 
-export interface ChatFailure {
-  readonly status: 502 | 504
-  readonly body: Record<string, unknown>
-}
-
-/**
- * 上游挂了与答非所问都是 502：对调用方是一回事。超时单独给 504——请求本身没毛病，
- * 慢而已，裸 AbortError 冒到路由外会变成一个什么都没说的 500。
- * 返回 null 表示不是 chat 失败。
- */
-export function chatFailure(error: unknown, feature: string): ChatFailure | null {
-  if (error instanceof ChatTimeoutError) {
-    return { status: 504, body: { error: `${feature}_timeout`, timeout_ms: error.timeoutMs } }
-  }
-  if (error instanceof ChatUpstreamError) {
-    return {
-      status: 502,
-      body: { error: `${feature}_upstream_error`, upstream_status: error.status },
-    }
-  }
-  if (error instanceof ChatInvalidResponseError) {
-    return { status: 502, body: { error: `${feature}_invalid_response` } }
-  }
-  return null
-}
-
-/**
- * 每条 chat 路由的 catch 都长一个样。收在这里，下次再添一种失败状态就只改一处，
- * 不用把四个 catch 块挨个翻一遍。不是 chat 失败的原样抛出，交给上层。
- */
-export function respondChatFailure<R>(
-  error: unknown,
-  feature: string,
-  status: (code: ChatFailure['status'], body: Record<string, unknown>) => R,
-): R {
-  const failure = chatFailure(error, feature)
-  if (!failure) throw error
-  return status(failure.status, failure.body)
-}
-
 interface ChatResponse {
   readonly ok: boolean
   readonly status: number

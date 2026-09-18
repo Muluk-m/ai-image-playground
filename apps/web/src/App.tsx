@@ -18,7 +18,6 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import VideoMode from './features/video/components/VideoMode'
 import { i18next } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -97,10 +96,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   return (
     <>
       <Header />
-      {appMode === 'create' ? (
+      {/* 视频入口也是画布，只是生成方式预置到视频；两者共用一个挂载，切换不重建画布。 */}
+      {appMode !== 'browse' ? (
         <CanvasMode />
-      ) : appMode === 'video' ? (
-        <VideoMode />
       ) : (
         <>
           <main data-home-main data-drag-select-surface className="pb-48">
