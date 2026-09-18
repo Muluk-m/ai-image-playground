@@ -3,7 +3,7 @@ import { Type } from 'typebox'
 import { requireAgentImages } from '../images'
 import { prepareMaskedEdit } from '../masked-edit'
 import { defineAgentTool } from './adapter'
-import { AgentToolError, invalidParams } from './errors'
+import { AgentToolError } from './errors'
 import { agentImageCount, imageCountParameter } from './queueParams'
 import { resolveAgentModel, runQueueTask } from './queueTask'
 
@@ -101,25 +101,24 @@ export const editImage = defineAgentTool({
     const originalAuthorization = context.authorization?.().instructions
     return async (toolCallId, params, signal, onUpdate) => {
       const snapshot = context.authorization?.()
-      // 提交之前的每一道关（图片 id、选区绑定、授权原文）拦下的都是参数本身不成立。
-      const { images, prepared } = await invalidParams(async () => {
-        const images = await requireAgentImages(context.images, params.imageIds)
-        if (
-          (context.maskedEditPlan?.protected || context.images.masked) &&
-          !images.some((image) => image.maskDataUrl)
-        ) {
-          throw new Error(
-            '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
-          )
-        }
-        const prepared = await prepareMaskedEdit(
-          images,
-          params.selectionBindings,
-          snapshot?.instructions ?? '',
-          params.requestQuote,
+      // 只有明确的参数关卡（图片 id、选区绑定、授权原文）拦下的才算参数不成立；读库、读对象存储、
+      // 解码出的错不是模型的参数问题，照旧落进未分类。
+      const images = await requireAgentImages(context.images, params.imageIds)
+      if (
+        (context.maskedEditPlan?.protected || context.images.masked) &&
+        !images.some((image) => image.maskDataUrl)
+      ) {
+        throw new AgentToolError(
+          'invalid_params',
+          '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
         )
-        return { images, prepared }
-      })
+      }
+      const prepared = await prepareMaskedEdit(
+        images,
+        params.selectionBindings,
+        snapshot?.instructions ?? '',
+        params.requestQuote,
+      )
       if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
       if (snapshot !== context.authorization?.())
         throw new AgentToolError('invalid_params', '用户原文已更新，请按最新原文核对后执行')

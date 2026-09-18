@@ -120,6 +120,8 @@ export type AgentToolStatus = 'succeeded' | 'failed'
  * 一次工具调用为什么失败。界面只按它决定给什么出路（ADR 0006），不读 `message`：
  *
  * - `upstream_error` / `timeout` / `no_output`：上游那一侧没出来，原样再跑一次有望成功。
+ * - `result_unknown`：执行者中途丢了，或上游的结局查不到；上游可能已经出图、已经计费，
+ *   不能原样重试（ADR 0009），不给出路。
  * - `insufficient_credits` / `quota_exceeded`：钱或额度不够，出路是充值。
  * - `authentication_required`：没登录，出路是登录。
  * - `invalid_params`：模型给的参数本身不成立（图片 id 不存在、违反选区约束、张数越界），
@@ -134,6 +136,7 @@ export type AgentToolErrorCode =
   | 'upstream_error'
   | 'timeout'
   | 'no_output'
+  | 'result_unknown'
   | 'insufficient_credits'
   | 'quota_exceeded'
   | 'authentication_required'
@@ -146,6 +149,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'upstream_error',
   'timeout',
   'no_output',
+  'result_unknown',
   'insufficient_credits',
   'quota_exceeded',
   'authentication_required',

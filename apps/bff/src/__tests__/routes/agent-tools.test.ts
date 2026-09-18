@@ -35,6 +35,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { config } = await import('../../config')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -177,6 +178,10 @@ describe('智能体生图工具', () => {
     expect(response.status).toBe(200)
     const frames = await finished
     expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'aborted' })
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
     const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
     expect(stored!.status).toBe('cancelled')
     expect(calls).toHaveLength(1)
@@ -496,7 +501,9 @@ describe('工具调用的参数快照与失败分类', () => {
     ['upstream_error', 'upstream_error'],
     ['upstream_timeout', 'timeout'],
     ['upstream_no_image', 'no_output'],
-    ['interrupted', 'upstream_error'],
+    // 执行者丢了、上游结局查不到：可能已经出图计费，不归进可重试的类。
+    ['interrupted', 'result_unknown'],
+    ['upstream_result_unknown', 'result_unknown'],
   ] as const)('classifies a task that failed with %s as %s', async (errorType, code) => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
@@ -609,5 +616,119 @@ describe('工具调用的参数快照与失败分类', () => {
     // 快照照记，只是没有模型可记。
     expect(end!.snapshot).toMatchObject({ mode: 'image', args: { prompt: '橘猫' } })
     expect(end!.snapshot!.target).toBeUndefined()
+  })
+
+  it('records the arguments durably the moment the tool starts, before it finishes', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
+          () => completionStream('画好了'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const finished = runTurn(conversationId, '画一只橘猫')
+    let task: typeof schema.tasks.$inferSelect | undefined
+    for (let i = 0; i < 200 && !task; i++) {
+      ;[task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.agent_conversation_id, conversationId))
+      if (!task) await Bun.sleep(5)
+    }
+    expect(task).toBeDefined()
+
+    // 工具还在等任务：结果卡还没写，参数已经在库里。
+    let midway: (typeof schema.agent_tool_calls.$inferSelect)[] = []
+    for (let i = 0; i < 200 && midway.length === 0; i++) {
+      midway = await db
+        .select()
+        .from(schema.agent_tool_calls)
+        .where(eq(schema.agent_tool_calls.conversation_id, conversationId))
+      if (midway.length === 0) await Bun.sleep(5)
+    }
+    expect(midway).toHaveLength(1)
+    expect(midway[0]).toMatchObject({
+      turn_id: task!.agent_turn_id,
+      tool_call_id: 'call-1',
+      tool_name: 'generateImage',
+      snapshot: { mode: 'image', args: { prompt: '橘猫' } },
+    })
+    expect(
+      (await readMessages(conversationId)).some((message) =>
+        message.content.some((block) => block.type === 'toolResult'),
+      ),
+    ).toBe(false)
+
+    const stop = settleSubmittedTasks('completed')
+    const frames = await finished
+    stop()
+    // 起跑记下的那一行对得上结果卡。
+    expect(eventsOfType(frames, 'toolStart')[0]!.messageId).toBe(midway[0]!.message_id)
+  })
+
+  it('withdraws a task it gave up waiting for, so the timeout is safe to retry', async () => {
+    setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 20 })
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '画一只橘猫')
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'timeout',
+    })
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.agent_conversation_id, conversationId))
+    // 撤掉了，不会在没人等的时候出图计费。
+    expect(task!.status).toBe('cancelled')
+  })
+
+  it('classifies a used-up daily quota as quota exceeded', async () => {
+    const original = config.operator
+    config.operator = {
+      ...original,
+      capabilities: { ...original.capabilities, 'quota:daily': true },
+      quotas: { ...original.quotas, 'generation:daily-images': 1 },
+    }
+    try {
+      setAgentFetchForTesting(
+        scriptedAgentFetch(
+          [],
+          [
+            () =>
+              toolCallCompletion({
+                id: 'call-1',
+                name: 'generateImage',
+                args: { prompt: '橘猫', n: 2 },
+              }),
+            () => completionStream('不该走到这里'),
+          ],
+        ),
+      )
+      const conversationId = await startConversation()
+      const frames = await runTurn(conversationId, '画两只橘猫')
+
+      expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+        status: 'failed',
+        errorCode: 'quota_exceeded',
+      })
+      expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+    } finally {
+      config.operator = original
+    }
   })
 })

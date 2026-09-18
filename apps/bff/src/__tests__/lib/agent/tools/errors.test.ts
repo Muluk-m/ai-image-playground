@@ -2,7 +2,6 @@ import { expect, it } from 'bun:test'
 import {
   AgentToolError,
   createToolFailureLog,
-  invalidParams,
   queueRefusalCode,
   taskFailureCode,
 } from '../../../../lib/agent/tools/errors'
@@ -21,18 +20,11 @@ it('classifies the failure a worker recorded on the task', () => {
   expect(taskFailureCode('upstream_timeout')).toBe('timeout')
   expect(taskFailureCode('upstream_no_image')).toBe('no_output')
   expect(taskFailureCode('upstream_error')).toBe('upstream_error')
-  expect(taskFailureCode('interrupted')).toBe('upstream_error')
+  // 执行者丢了或上游结局查不到：可能已经出图计费，不能归进可重试的类。
+  expect(taskFailureCode('interrupted')).toBe('result_unknown')
+  expect(taskFailureCode('upstream_result_unknown')).toBe('result_unknown')
+  expect(taskFailureCode('object_storage_error')).toBe('upstream_error')
   expect(taskFailureCode(null)).toBe('upstream_error')
-})
-
-it('keeps a classified error and marks everything else in a parameter check as invalid', async () => {
-  const kept = new AgentToolError('model_unavailable', '没有模型')
-  await expect(invalidParams(() => Promise.reject(kept))).rejects.toBe(kept)
-  const wrapped = await invalidParams(() => Promise.reject(new Error('选区对不上'))).catch(
-    (thrown: unknown) => thrown,
-  )
-  expect(wrapped).toBeInstanceOf(AgentToolError)
-  expect(wrapped).toMatchObject({ code: 'invalid_params', message: '选区对不上' })
 })
 
 it('remembers why each tool call failed, apart from the text pi keeps', () => {

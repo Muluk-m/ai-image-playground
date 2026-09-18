@@ -167,11 +167,24 @@ export async function runQueueTask(
     }
     throw error
   })
-  if (outcome.kind !== 'completed')
+  if (outcome.kind !== 'completed') {
+    if (outcome.stillRunning) {
+      // 等不到了但任务还在队列里：先撤掉它（撤销按原桶退回），才能说这是一次可重试的超时。
+      // 撤不掉说明它恰好在这一刻到了终态，结局不在我们手里，按结果未知处理。
+      const withdrawn = await cancelTasks(
+        and(
+          eq(schema.tasks.id, submitted.taskId),
+          eq(schema.tasks.agent_turn_id, context.turnId),
+          eq(schema.tasks.agent_conversation_id, context.conversationId),
+        )!,
+      )
+      throw new AgentToolError(withdrawn.length > 0 ? 'timeout' : 'result_unknown', outcome.reason)
+    }
     throw new AgentToolError(
       outcome.cancelled ? 'cancelled' : taskFailureCode(outcome.errorType),
       outcome.reason,
     )
+  }
 
   const artifacts: AgentToolArtifact[] = outcome.result.images.map((output) => ({
     // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。

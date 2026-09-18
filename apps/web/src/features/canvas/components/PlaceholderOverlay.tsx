@@ -20,6 +20,8 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
   // 失败占位的文案与出路按错误码取 errors / agent 的译文，切语言时要跟着重渲染。
   const { t } = useTranslation(['canvas', 'common', 'errors', 'agent'])
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
+  // 「让助手重新处理」替用户往会话里说一句话，只能说回占位所属的那个会话。
+  const openConversationId = useAgentStore((state) => state.conversationId)
   const { camera } = editor.doc
   const placeholders = editor.getPlaceholders()
 
@@ -33,7 +35,14 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
         // 智能体的失败占位带错误码时只认码（ADR 0006）；旧占位框没有码，照旧显示存下的那句话。
         const agentCode = p.meta.agent ? p.meta.agentErrorCode : undefined
         const note = agentToolFailureText(agentCode) ?? p.message
-        const agentAction = agentToolFailureAction(agentCode)
+        const action = agentToolFailureAction(agentCode)
+        // 失败占位留得比会话久（切会话、刷新后还在）：不是当前打开的那个会话就不给这个出路，
+        // 否则这句话会落进一个毫不相干的会话。
+        const agentAction =
+          action === 'reprocess' &&
+          (!p.meta.agentConversationId || p.meta.agentConversationId !== openConversationId)
+            ? null
+            : action
         return (
           <div
             key={p.id}

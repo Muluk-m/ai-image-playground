@@ -34,7 +34,7 @@ export function createAgentCanvasSink(
         : 'unavailable'
     },
 
-    async reserve({ count, anchorObjectId, title, messageId, media }) {
+    async reserve({ count, anchorObjectId, title, messageId, conversationId, media }) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0 || (cloud?.enabled() && media !== 'video')) return []
       if (messageId) {
@@ -56,6 +56,7 @@ export function createAgentCanvasSink(
               prompt: title ?? '',
               agent: true,
               agentMessageId: messageId,
+              ...(conversationId ? { agentConversationId: conversationId } : {}),
             },
             { history: false },
           ),

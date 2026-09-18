@@ -16,19 +16,6 @@ export class AgentToolError extends Error {
   }
 }
 
-/** 这一段里抛出的、还没有分类的错误都算参数不成立。 */
-export async function invalidParams<T>(step: () => Promise<T>): Promise<T> {
-  try {
-    return await step()
-  } catch (thrown) {
-    if (thrown instanceof AgentToolError) throw thrown
-    throw new AgentToolError(
-      'invalid_params',
-      thrown instanceof Error ? thrown.message : String(thrown),
-    )
-  }
-}
-
 /** 提交被拒的那几种结局各归哪一类。 */
 export function queueRefusalCode(kind: CreateQueueTaskOutcome['kind']): AgentToolErrorCode {
   switch (kind) {
@@ -50,9 +37,19 @@ export function queueRefusalCode(kind: CreateQueueTaskOutcome['kind']): AgentToo
 
 /** 队列任务失败时 worker 记下的 `error_type` 各归哪一类。 */
 export function taskFailureCode(errorType: TaskErrorType | null | undefined): AgentToolErrorCode {
-  if (errorType === 'upstream_timeout') return 'timeout'
-  if (errorType === 'upstream_no_image') return 'no_output'
-  return 'upstream_error'
+  switch (errorType) {
+    case 'upstream_timeout':
+      return 'timeout'
+    case 'upstream_no_image':
+      return 'no_output'
+    // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次
+    // 就可能付两次钱，所以不归进可重试的那几类。
+    case 'upstream_result_unknown':
+    case 'interrupted':
+      return 'result_unknown'
+    default:
+      return 'upstream_error'
+  }
 }
 
 /**

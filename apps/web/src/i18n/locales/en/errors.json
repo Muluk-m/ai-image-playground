@@ -68,6 +68,7 @@
     "upstream_error": "The generation service failed, so nothing came out",
     "timeout": "Generation timed out, so nothing came out",
     "no_output": "Generation finished but returned no result",
+    "result_unknown": "We lost track of this one, so it may still have come out; check the canvas and history",
     "insufficient_credits": "Not enough credits, so this wasn't submitted",
     "quota_exceeded": "Today's generation quota is used up",
     "authentication_required": "Sign in to generate",

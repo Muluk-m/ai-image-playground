@@ -360,6 +360,8 @@ export type QueueTaskOutcome =
       readonly errorType: TaskErrorType | null
       /** 任务被取消（轮中止、会话删除），不是上游失败。 */
       readonly cancelled?: true
+      /** 等待预算用完时任务还没到终态：它可能仍在跑、仍会出图计费，由调用方决定怎么收场。 */
+      readonly stillRunning?: true
     }
 
 interface Polling {
@@ -441,7 +443,12 @@ export async function awaitQueueTask(
 
     const waited = Date.now() - startedAt
     if (waited > polling.budgetMs)
-      return { kind: 'failed', reason: '超时未返回', errorType: 'upstream_timeout' }
+      return {
+        kind: 'failed',
+        reason: '超时未返回',
+        errorType: 'upstream_timeout',
+        stillRunning: true,
+      }
     await delay(nextInterval(waited), undefined, { signal: options.signal })
   }
 }

@@ -39,6 +39,8 @@ export interface AgentPlaceOptions {
 export interface AgentReservation {
   readonly media?: ChannelMedia
   readonly messageId?: string
+  /** 这次调用属于哪个会话；失败占位的「让助手重新处理」只能发回这个会话。 */
+  readonly conversationId?: string
   readonly title?: string
   /** 这次调用会出几件产物，就占几个框。 */
   readonly count: number

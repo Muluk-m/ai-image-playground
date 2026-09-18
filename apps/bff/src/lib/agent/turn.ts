@@ -16,7 +16,7 @@ import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { createCompactionTransform } from './compaction-transform'
-import { appendAgentMessage, touchAgentConversation } from './conversations'
+import { appendAgentMessage, recordAgentToolCall, touchAgentConversation } from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost } from './execution'
 import {
@@ -328,6 +328,19 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       )
       openTools.set(event.toolCallId, { messageId, start })
       events.emit({ type: 'toolStart', messageId, ...start })
+      // 起跑就落库：结果卡要等工具跑完，轮在半截丢了也还找得回当时的参数。
+      const { snapshot } = start
+      if (snapshot)
+        await write((executor) =>
+          recordAgentToolCall(executor, {
+            conversationId,
+            turnId,
+            messageId,
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            snapshot,
+          }),
+        )
     }
     if (event.type === 'tool_execution_update') {
       const pending = openTools.get(event.toolCallId)

@@ -263,6 +263,7 @@ describe('工具事件', () => {
         title: TOOL_START.title,
         media: 'image',
         messageId: TOOL_START.messageId,
+        conversationId: CONVERSATION,
         ids: ['placeholder-1', 'placeholder-2'],
       },
     ])
@@ -289,6 +290,7 @@ describe('工具事件', () => {
         title: TOOL_START.title,
         media: 'image',
         messageId: TOOL_START.messageId,
+        conversationId: CONVERSATION,
         anchorObjectId: 'canvas-1',
         ids: ['placeholder-1'],
       },

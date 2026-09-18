@@ -13,12 +13,26 @@ vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: { getState: () => ({ send, placeOnCanvas: vi.fn() }) },
 }))
 
+const deployment = vi.hoisted(() => ({
+  overlay: true,
+  capabilities: new Set<string>(['billing:credits', 'accounts:login']),
+}))
+
 vi.mock('../../../../lib/privateOverlay', () => ({
   notifyPrivateSubmissionError: vi.fn(),
+  get PrivateWebOverlayPresent() {
+    return deployment.overlay
+  },
+}))
+
+vi.mock('../../../../lib/clientCapabilities', () => ({
+  isClientCapabilityEnabled: (key: string) => deployment.capabilities.has(key),
 }))
 
 beforeEach(() => {
   send.mockClear()
+  deployment.overlay = true
+  deployment.capabilities = new Set(['billing:credits', 'accounts:login'])
   vi.mocked(notifyPrivateSubmissionError).mockClear()
 })
 
@@ -110,6 +124,7 @@ describe('失败卡按错误码给出路', () => {
     ['upstream_error', '生成服务出错了，这次没有出来'],
     ['timeout', '生成超时，这次没有出来'],
     ['no_output', '生成完成了，但没有拿到结果'],
+    ['result_unknown', '这次的结果没能确认，可能已经生成；请先看看画布与历史'],
     ['cancelled', '已中止'],
     ['unknown', '没有完成'],
   ] as const)('%s 只说原因，这张票不给按钮', (code, text) => {
@@ -160,6 +175,33 @@ describe('失败卡按错误码给出路', () => {
       recharge.unmount()
       login.unmount()
       window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+    }
+  })
+
+  it.each([
+    ['免费构建没有收费 overlay', false, ['billing:credits', 'accounts:login']],
+    ['部署没开积分计费', true, ['accounts:login']],
+  ] as const)('%s：没有充值入口就只说原因，不给「去充值」', (_case, overlay, capabilities) => {
+    deployment.overlay = overlay
+    deployment.capabilities = new Set(capabilities)
+    for (const code of ['insufficient_credits', 'quota_exceeded'] as const) {
+      const { host, unmount } = render(failed(code))
+      try {
+        expect(buttons(host)).toEqual([])
+      } finally {
+        unmount()
+      }
+    }
+  })
+
+  it('部署没开账号登录：只说原因，不给「去登录」', () => {
+    deployment.capabilities = new Set(['billing:credits'])
+    const { host, unmount } = render(failed('authentication_required'))
+    try {
+      expect(host.textContent).toContain('需要先登录才能生成')
+      expect(buttons(host)).toEqual([])
+    } finally {
+      unmount()
     }
   })
 })

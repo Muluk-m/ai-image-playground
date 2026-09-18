@@ -1,23 +1,31 @@
 import type { AgentToolErrorCode } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../lib/authClient'
-import { notifyPrivateSubmissionError } from '../../../lib/privateOverlay'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { notifyPrivateSubmissionError, PrivateWebOverlayPresent } from '../../../lib/privateOverlay'
 
 /**
  * 一次失败的工具调用给用户的出路。界面只按错误码决定（ADR 0006），不读服务端的 `message`。
  * 上游出错、超时、没出图的出路是重试，那是另一张票的事；这里对它们不给按钮。
+ * 按钮必须真能解决问题：这个部署没有充值入口、没有登录时，只留原因不给按钮。
  */
 export type AgentToolFailureAction = 'recharge' | 'login' | 'reprocess'
+
+/** 充值入口在收费 overlay 里，且只在开了积分计费的部署上存在。 */
+function canRecharge(): boolean {
+  return PrivateWebOverlayPresent && isClientCapabilityEnabled('billing:credits')
+}
 
 export function agentToolFailureAction(
   code: AgentToolErrorCode | undefined,
 ): AgentToolFailureAction | null {
   switch (code) {
     case 'insufficient_credits':
+    // 额度只在不计积分的部署上用（每日设备额度），那里通常没有充值入口，交给 `canRecharge` 判。
     case 'quota_exceeded':
-      return 'recharge'
+      return canRecharge() ? 'recharge' : null
     case 'authentication_required':
-      return 'login'
+      return isClientCapabilityEnabled('accounts:login') ? 'login' : null
     case 'invalid_params':
     case 'model_unavailable':
       return 'reprocess'
@@ -38,6 +46,8 @@ export function agentToolFailureText(code: AgentToolErrorCode | undefined): stri
       return t('agentTool.timeout')
     case 'no_output':
       return t('agentTool.no_output')
+    case 'result_unknown':
+      return t('agentTool.result_unknown')
     case 'insufficient_credits':
       return t('agentTool.insufficient_credits')
     case 'quota_exceeded':
