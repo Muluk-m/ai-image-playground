@@ -51,7 +51,7 @@ import {
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
-import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
+import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
@@ -78,6 +78,7 @@ import {
   clearReferenceMask,
   draftForSubmit,
   draftMode,
+  hasDraftContent,
   referenceLabels,
   removeReference,
   setReferenceMask,
@@ -128,6 +129,7 @@ export default function AgentComposer({
     loading,
     submitting,
     error: draftError,
+    unsent,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const setDraft = session.update
   // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
@@ -429,6 +431,21 @@ export default function AgentComposer({
         <p role="alert" className="text-xs text-warning">
           {draftError}
         </p>
+      )}
+      {unsent && !hasDraftContent(draft) && (
+        <div role="status" className={`flex items-center gap-2 px-1 ${CARD_NOTE}`}>
+          <span className="min-w-0 flex-1">{t('draft.unsent')}</span>
+          <button type="button" className={GHOST_LINK} onClick={session.restoreUnsent}>
+            {t('draft.restore')}
+          </button>
+          <button
+            type="button"
+            className={`${CARD_NOTE} transition-colors hover:text-foreground`}
+            onClick={session.discardUnsent}
+          >
+            {t('draft.discard')}
+          </button>
+        </div>
       )}
       <ComposerBar dragActive={dragging}>
         {draft.references.length > 0 && (

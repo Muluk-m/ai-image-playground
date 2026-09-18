@@ -868,6 +868,35 @@ describe('AgentPanel', () => {
     expect(host.textContent).not.toContain('本轮免费')
   })
 
+  it('停止的轮留下说了一半的回复，页脚标明已停止而不是失败', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画一只猫',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'assistant-1',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '好的，我先',
+          streaming: false,
+        },
+      ],
+      turns: { 'turn-1': { turnId: 'turn-1', durationMs: 3_000, stopReason: 'aborted' } },
+    })
+    render()
+
+    expect(host.textContent).toContain('好的，我先')
+    expect(host.textContent).toContain('已停止')
+    expect(host.textContent).not.toContain('本轮失败')
+  })
+
   it('项目标题保持单行，消耗只出现在每轮页脚', () => {
     useAgentStore.setState({
       messages: [
