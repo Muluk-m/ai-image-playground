@@ -265,9 +265,11 @@ services:
         target: /host/cgroup
         read_only: true
       - type: bind
-        source: ${CONTAINER_NAMES_SOURCE:-/dev/null}
-        target: /host/container-names.tsv
+        source: ${OPS_BOARD_DIR:?Set OPS_BOARD_DIR, or drive this file through scripts/app-compose.sh}
+        target: /host/ops-board
         read_only: true
+        bind:
+          create_host_path: false
     # Deliberately no depends_on: a BFF that never turns healthy is one of the moments the disk
     # and memory alerts are for. Reports to it simply fail and are retried on the next sample.
     networks:
