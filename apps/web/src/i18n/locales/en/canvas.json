@@ -169,7 +169,8 @@
     "downloadFailed": "Download failed",
     "copy": "Copy image",
     "download": "Download image",
-    "preview": "View original / hold to save",
+    "preview": "View original",
+    "previewTouch": "View original / hold to save",
     "previewFailed": "Could not load the original. Close and try again.",
     "loading": "Loading original…"
   },

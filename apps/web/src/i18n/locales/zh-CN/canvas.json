@@ -167,7 +167,8 @@
     "downloadFailed": "下载失败",
     "copy": "复制图片",
     "download": "下载图片",
-    "preview": "查看原图 / 长按保存",
+    "preview": "查看原图",
+    "previewTouch": "查看原图 / 长按保存",
     "previewFailed": "原图加载失败，请关闭后重试",
     "loading": "正在加载原图…"
   },
