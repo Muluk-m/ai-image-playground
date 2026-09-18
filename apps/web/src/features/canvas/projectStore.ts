@@ -1,6 +1,7 @@
 import type { AgentConversationView, CloudProjectSummary } from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
+import { pathAppMode } from '../../lib/appPaths'
 import {
   AGENT_CONVERSATION_KEY,
   CANVAS_PROJECT_KEY,
@@ -182,7 +183,8 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
-    writeProjectRoute(id, replaceRoute)
+    // 正在作品 / 视频入口时（例如刷新 /works 后项目目录才加载完）不把地址改成项目地址。
+    if (!pathAppMode(globalThis.location?.pathname ?? '/')) writeProjectRoute(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)
