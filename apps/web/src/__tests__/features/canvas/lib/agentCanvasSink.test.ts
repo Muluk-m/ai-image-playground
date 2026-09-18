@@ -391,3 +391,19 @@ it('重放已失败工具时复用原占位，刷新恢复后仍然幂等', asyn
     restored.elements.every((one) => one.type === 'placeholder' && one.status === 'error'),
   ).toBe(true)
 })
+
+describe('focusPending', () => {
+  it('selects the placeholders a still-running call reserved and leaves others alone', async () => {
+    const mine = await sink.reserve({ count: 2, messageId: 'tool-1', title: '橘猫' })
+    await sink.reserve({ count: 1, messageId: 'tool-2', title: '别的' })
+    editor.setSelectedElements([])
+
+    expect(sink.focusPending!({ messageId: 'tool-1', taskId: 'task-1' })).toBe(true)
+    expect(editor.getSelectedIds().sort()).toEqual([...mine].sort())
+
+    // 没有对应的占位（已经落图、或切过画布）就什么也不动。
+    editor.setSelectedElements([])
+    expect(sink.focusPending!({ messageId: 'gone' })).toBe(false)
+    expect(editor.getSelectedIds()).toEqual([])
+  })
+})

@@ -331,7 +331,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         input.params,
       )
       openTools.set(event.toolCallId, { messageId, start })
-      events.emit({ type: 'toolStart', messageId, ...start })
+      events.emit({ type: 'toolStart', messageId, ...start, startedAt: Date.now() })
       // 起跑就落库：结果卡要等工具跑完，轮在半截丢了也还找得回当时的参数。
       const { snapshot } = start
       if (snapshot)

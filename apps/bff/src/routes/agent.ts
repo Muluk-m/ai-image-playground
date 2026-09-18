@@ -1,4 +1,5 @@
 import type {
+  AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentConversationSnapshot,
   AgentMessageQueuedBody,
@@ -15,7 +16,11 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import sharp from 'sharp'
 import { db, schema } from '../db/client'
-import { cancelAgentConversationJobs } from '../lib/agent/background-jobs'
+import {
+  agentJobViews,
+  cancelAgentConversationJobs,
+  cancelAgentJob,
+} from '../lib/agent/background-jobs'
 import {
   type AgentOwner,
   adoptDeviceConversations,
@@ -277,17 +282,36 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       const messages = await listAgentMessages(conversation.id, owner)
       const response: AgentBackgroundJobsResponse = {
-        jobs: messages.flatMap((message) =>
-          message.content.flatMap((block) =>
-            block.type === 'toolResult' && block.job
-              ? [{ messageId: message.id, turnId: message.turnId, result: block }]
-              : [],
-          ),
-        ),
+        jobs: await agentJobViews(conversation.id, messages),
       }
       return response
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  .post(
+    // 单独取消一个后台任务，按原桶退回；回的是取消之后这次调用的样子。已经结束的任务原样返回，
+    // 两台设备同时点取消只有一次真正生效。只动任务表，不跟轮，所以同样不用转发。
+    '/api/agent/conversations/:id/jobs/:taskId/cancel',
+    async ({ params, headers, authUser, status }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const find = async () =>
+        (
+          await agentJobViews(conversation.id, await listAgentMessages(conversation.id, owner))
+        ).find((job) => job.result.job?.taskId === params.taskId)
+      // 先确认它是这个会话里某次调用提交的后台任务：会话里别的任务（对话轮自己）不归这里取消。
+      if (!(await find())) return status(404, NOT_FOUND)
+      await cancelAgentJob(conversation.id, params.taskId)
+      const job = await find()
+      if (!job) return status(404, NOT_FOUND)
+      const response: AgentBackgroundJobCancelResponse = { job }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String(), taskId: t.String() }),
+      headers: deviceIdHeaderSchema(),
+    },
   )
   .post(
     '/api/agent/conversations/:id/turns',

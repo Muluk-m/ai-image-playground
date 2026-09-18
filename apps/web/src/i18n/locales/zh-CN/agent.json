@@ -31,7 +31,6 @@
     "copyFailed": "复制失败，请选择回复文字手动复制"
   },
   "tool": {
-    "stageSubmitted": "已排队",
     "background": "已在后台生成，完成后自动放入画布",
     "preparing": "准备中",
     "notFinished": "没有完成",
@@ -211,5 +210,29 @@
     "results": "搜索结果",
     "newHint": "开启独立的对话与画布",
     "all": "查看全部项目"
+  },
+  "job": {
+    "phase": {
+      "submitted": "已提交",
+      "queued": "排队中",
+      "generating": "生成中",
+      "reconnecting": "重新连接中",
+      "confirming": "确认结果",
+      "delivering": "放入画布"
+    },
+    "progress": "{{phase}} · 已用 {{elapsed}}",
+    "progressAria": "生成进度",
+    "cancel": "取消任务",
+    "cancelling": "正在取消…",
+    "cancelFailed": "没能取消，请稍后再试",
+    "cancelled": "已取消",
+    "cancelledRefunded": "已取消，积分已退回",
+    "inbox": {
+      "aria": "后台任务",
+      "summary": "{{running}} 个进行中 · {{completed}} 个已完成",
+      "locate": "在画布上定位",
+      "succeeded": "已完成",
+      "failed": "没有完成"
+    }
   }
 }

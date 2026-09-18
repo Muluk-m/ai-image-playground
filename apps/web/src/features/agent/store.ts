@@ -1,5 +1,6 @@
 import type {
   AgentActiveTurnView,
+  AgentBackgroundJobProgress,
   AgentBackgroundJobView,
   AgentConversationView,
   AgentMode,
@@ -37,6 +38,7 @@ import {
   followTurn,
   interjectTurn,
   removeConversation,
+  cancelJob as requestJobCancel,
   type StartTurnOutcome,
   startTurn,
   withdrawQueuedMessage,
@@ -119,6 +121,16 @@ export interface AgentState {
   historyFailed: boolean
   /** 对话面板宽度（CSS 像素），用户拖过就记住。 */
   panelWidth: number
+  /**
+   * 后台任务此刻的进度（排队还是在生成、何时受理），按结果卡的 messageId 索引。
+   * 来自服务端的任务表，所以刷新、换设备后看到的阶段与已用时间不变。
+   */
+  jobProgress: Readonly<Record<string, AgentBackgroundJobProgress>>
+  /**
+   * 工具起跑的时刻，按结果卡的 messageId 索引：服务端盖在 `toolStart` 上的那个，旧记录才是本机
+   * 看到的时刻。服务端还没报后台任务进度时拿它算已用时间。
+   */
+  toolStartedAt: Readonly<Record<string, number>>
 
   setOpen(open: boolean): void
   setTab(tab: AgentPanelTab): void
@@ -146,6 +158,8 @@ export interface AgentState {
   withdrawQueued(queueId: string): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
+  /** 单独取消这张结果卡提交的后台任务；服务端按原桶退回，卡随即换成取消后的结局。 */
+  cancelJob(messageId: string): Promise<void>
 }
 
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
@@ -224,6 +238,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
   const settleJob = (job: AgentBackgroundJobView) => {
     const shown = get().messages.find((message) => message.id === job.messageId)
     if (shown?.kind !== 'tool' || shown.status !== 'submitted') return
+    const { progress } = job
+    if (progress)
+      set((state) => ({ jobProgress: { ...state.jobProgress, [job.messageId]: progress } }))
     if (job.result.status === 'submitted') return
     const card = panelMessage(job.messageId, job.turnId, 'assistant', [job.result])
     if (card.kind !== 'tool') return
@@ -239,7 +256,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
     notifyPrivateSubmissionSettled()
     const handle = jobDeliveries.get(card.id) ?? delivery.beginTurn()
     jobDeliveries.delete(card.id)
-    if (card.status === 'failed') handle.failed(card.id, card.message, card.errorCode)
+    // 取消是用户自己的决定，不留失败占位：云端项目在取消时同样收掉预留的位置。
+    if (card.status === 'failed' && card.errorCode === 'cancelled') handle.discard(card.id)
+    else if (card.status === 'failed') handle.failed(card.id, card.message, card.errorCode)
     else if (card.artifacts?.length) handle.enqueue(card)
     else handle.discard(card.id)
     void handle.settled()
@@ -256,18 +275,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const watching = () => get().conversationId === conversationId && jobWatch === token
     void (async () => {
       try {
+        // 先问一次再等：刷新后读回的卡立刻就有阶段与已用时间，不必空等一个间隔。
         while (watching() && hasPendingJobs(get().messages)) {
-          await new Promise((resolve) => setTimeout(resolve, jobPollMs))
-          if (!watching()) return
-          let jobs: readonly AgentBackgroundJobView[]
+          let jobs: readonly AgentBackgroundJobView[] = []
           try {
             jobs = await fetchJobs(conversationId)
           } catch {
             // 一次没问到不要紧，下一次接着问。
-            continue
           }
           if (!watching()) return
           for (const job of jobs) settleJob(job)
+          if (!hasPendingJobs(get().messages)) return
+          await new Promise((resolve) => setTimeout(resolve, jobPollMs))
         }
       } finally {
         if (jobWatch === token) jobWatch = null
@@ -293,6 +312,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (turnDelivery.isCurrent())
       set((state) => {
         const panel = reduceAgentPanelEvent(state, event, { turnId, pendingUserText })
+        // 已用时间的起点取服务端盖在 toolStart 上的时刻：刷新、换设备重放出来的是同一个数。
+        // 旧记录没有它才退回本机看到的时刻，续播重放同一条时不重新计时。
+        if (
+          event.type === 'toolStart' &&
+          (event.startedAt !== undefined || state.toolStartedAt[event.messageId] === undefined)
+        )
+          return {
+            ...panel,
+            toolStartedAt: {
+              ...state.toolStartedAt,
+              [event.messageId]: event.startedAt ?? Date.now(),
+            },
+          }
         if (event.type === 'turnStart') return { ...panel, activeTurn: { turnId: event.turnId } }
         if (event.type !== 'turnEnd') return panel
         if (event.stopReason === 'failed') return { ...failPatch(state), turns: panel.turns }
@@ -738,6 +770,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     historyLoading: false,
     historyFailed: false,
     panelWidth: readPanelWidth(),
+    jobProgress: {},
+    toolStartedAt: {},
     mode: 'image',
     setMode: (mode) => {
       if (get().mode !== mode) set({ mode })
@@ -1128,6 +1162,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (message?.kind !== 'tool') return
       if (message.status === 'succeeded' && message.artifacts?.length)
         await delivery.placeOnCanvas(message)
+    },
+
+    async cancelJob(messageId) {
+      const { conversationId, messages } = get()
+      const message = messages.find((one) => one.id === messageId)
+      if (!conversationId || message?.kind !== 'tool' || message.status !== 'submitted') return
+      if (!message.job) return
+      const job = await requestJobCancel(conversationId, message.job.taskId)
+      if (get().conversationId !== conversationId) return
+      settleJob(job)
     },
   }
 })
