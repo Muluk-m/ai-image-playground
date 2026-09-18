@@ -8,13 +8,37 @@ deployments_log=$config_root/deployments.log
 # shellcheck disable=SC2034  # the sourcing script passes it to acquire/release_deploy_lock.
 deploy_lock=$config_root/deploy.lock
 
+# Private GHCR package the release images move through; GHCR requires the owner in lowercase.
+ghcr_repository=ghcr.io/muluk-m/ai-image-playground
+ghcr_user=Muluk-m
+
+# ghcr_login <token-file>
+#
+# Reuses the credentials Docker already holds for ghcr.io (a CI login action, or an earlier
+# login on this host) and only otherwise logs in with the token file. The token goes in through
+# stdin, so it never appears in argv, the process list or the output.
+ghcr_login() {
+  if docker login "${ghcr_repository%%/*}" </dev/null >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ ! -r "$1" ]; then
+    echo "Not logged in to ${ghcr_repository%%/*} and no readable token file at $1" >&2
+    return 1
+  fi
+  docker login "${ghcr_repository%%/*}" -u "$ghcr_user" --password-stdin <"$1" >/dev/null
+}
+
 # append_deploy_log <name> <image-or-version> <ok|failed>
+#
+# by= is DEPLOY_ACTOR when set (scripts/ci-receive.sh sets github-actions/run-<id>), else
+# user@host. It stays one word: the admin board parses the line on whitespace.
 # shellcheck disable=SC2154  # public_sha and private_sha belong to the sourcing script.
 append_deploy_log() {
   mkdir -p "$config_root"
-  printf '%s %s public=%s private=%s image=%s by=%s@%s result=%s\n' \
+  deploy_actor=$(printf '%s' "${DEPLOY_ACTOR:-$(whoami)@$(hostname)}" | tr -c 'A-Za-z0-9._:/@+-' '-')
+  printf '%s %s public=%s private=%s image=%s by=%s result=%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$public_sha" "$private_sha" "$2" \
-    "$(whoami)" "$(hostname)" "$3" >>"$deployments_log"
+    "$deploy_actor" "$3" >>"$deployments_log"
 }
 
 # edition_var <PREFIX> <KEY> reads $<PREFIX>_<KEY>, empty when unset.

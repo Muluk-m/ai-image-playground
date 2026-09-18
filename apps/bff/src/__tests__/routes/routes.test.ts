@@ -103,6 +103,19 @@ describe('BFF queue routes', () => {
     expect(json).toMatchObject({ ok: true })
   })
 
+  it('GET /health reports the commit the running image was built from', async () => {
+    const previous = process.env.APP_VERSION
+    process.env.APP_VERSION = `${'a'.repeat(40)}+${'b'.repeat(40)}`
+    try {
+      const { status, json } = await jsonReq('GET', '/health')
+      expect(status).toBe(200)
+      expect(json).toEqual({ ok: true, version: `${'a'.repeat(40)}+${'b'.repeat(40)}` })
+    } finally {
+      if (previous === undefined) delete process.env.APP_VERSION
+      else process.env.APP_VERSION = previous
+    }
+  })
+
   it('POST submit only creates a queued task; worker execution stays outside the API process', async () => {
     let upstreamCalls = 0
     setUpstreamFetchForTesting(

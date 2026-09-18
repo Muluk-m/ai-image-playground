@@ -1,6 +1,7 @@
 import { hostname } from 'node:os'
 import { lt } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { appVersion } from './app-version'
 import { log } from './logger'
 
 /** 心跳间隔。看板与告警把「超过 2 分钟没心跳」当作服务断了，也就是容忍连续丢 3 次。 */
@@ -18,10 +19,7 @@ export interface Heartbeat {
   now: number
 }
 
-/** 镜像构建时打进来的来源提交；直接构建、没传参数时是 unknown。 */
-export function appVersion(): string {
-  return process.env.APP_VERSION?.trim() || 'unknown'
-}
+export { appVersion }
 
 /** 每个实例一行，原地更新：心跳表回答的是「现在」，历史不归它管。 */
 export async function writeHeartbeat(beat: Heartbeat): Promise<void> {
