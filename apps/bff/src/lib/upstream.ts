@@ -842,8 +842,15 @@ function videoFrame(request: HydratedSubmitRequest, index: number | undefined): 
   return request.input_images?.[index]
 }
 
-/** 有首帧时上游要求换到图生视频模型，文生的那个不吃 image 字段。 */
-const GROK_VIDEO_FIRST_FRAME_MODEL = 'grok-imagine-video-1.5'
+/** 参考图按用户排好的顺序取；下标由提交校验保证落在输入图里。 */
+function videoReferences(request: HydratedSubmitRequest, video: HydratedVideoRequest): string[] {
+  return (video.reference_image_indices ?? [])
+    .map((index) => request.input_images?.[index])
+    .filter((url): url is string => typeof url === 'string')
+}
+
+/** 有首帧或参考图时上游要求换到 1.5：文生的那个既不吃 image，也不吃 reference_images。 */
+const GROK_VIDEO_IMAGE_MODEL = 'grok-imagine-video-1.5'
 
 function buildGrokVideoBody(
   model: string,
@@ -862,13 +869,15 @@ function buildGrokVideoBody(
     }
   }
   const firstFrame = videoFrame(request, video.first_frame_index)
+  const references = videoReferences(request, video)
   return {
-    model: firstFrame ? GROK_VIDEO_FIRST_FRAME_MODEL : model,
+    model: firstFrame || references.length ? GROK_VIDEO_IMAGE_MODEL : model,
     prompt: request.prompt,
     duration: video.duration_seconds,
     aspect_ratio: video.aspect_ratio,
     resolution: video.resolution,
     ...(firstFrame ? { image: { url: firstFrame } } : {}),
+    ...(references.length ? { reference_images: references.map((url) => ({ url })) } : {}),
   }
 }
 

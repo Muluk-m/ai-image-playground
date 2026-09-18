@@ -70,7 +70,12 @@
     "frameUnsupported": "{{label}} 不支持{{frame}}",
     "frameImageMissing": "{{frame}}图片不存在",
     "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
-    "deriveFramesRejected": "续写和改视频不接受首尾帧",
-    "deriveSourceMissing": "{{mode}}缺少源视频"
+    "deriveFramesRejected": "续写和改视频不接受首尾帧或参考图",
+    "deriveSourceMissing": "{{mode}}缺少源视频",
+    "referenceUnsupported": "{{label}} 不支持参考图",
+    "referenceTooMany": "{{label}} 最多 {{max}} 张参考图",
+    "referenceResolutionUnsupported": "{{label}} 带参考图时清晰度最高 {{resolution}}",
+    "referenceFramesRejected": "{{label}} 的参考图不能与首尾帧同时使用",
+    "referenceImageMissing": "参考图不存在"
   }
 }

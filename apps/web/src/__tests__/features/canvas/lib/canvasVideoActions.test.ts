@@ -294,10 +294,29 @@ describe('改参数重新生成', () => {
     expect(editor.getPlaceholders()).toHaveLength(0)
   })
 
-  it('explains in the dialog when the chosen model cannot take the kept frames', () => {
-    expect(actions.regenerateFrameRefusal(1, GROK)).toBeNull()
-    expect(actions.regenerateFrameRefusal(2, GROK)).toContain('Grok')
-    expect(actions.regenerateFrameRefusal(0, GROK)).toBeNull()
+  it('explains in the dialog when the chosen model cannot take the kept inputs', () => {
+    const draft = { model: GROK, duration: 5, aspectRatio: '16:9', resolution: '720p' } as const
+    expect(actions.regenerateInputRefusal({ firstFrameId: 'a' }, draft)).toBeNull()
+    expect(
+      actions.regenerateInputRefusal({ firstFrameId: 'a', lastFrameId: 'b' }, draft),
+    ).toContain('Grok')
+    expect(actions.regenerateInputRefusal({}, draft)).toBeNull()
+    expect(actions.regenerateInputRefusal({ referenceIds: ['a', 'b'] }, draft)).toBeNull()
+    expect(
+      actions.regenerateInputRefusal({ referenceIds: ['a'] }, { ...draft, resolution: '1080p' }),
+    ).toContain('720p')
+  })
+
+  it('keeps reference images when every recorded input is still on the canvas', () => {
+    addVideo('clip', { ...GENERATED, referenceIds: ['ref-a', 'ref-b'] })
+    const node = actions.canvasVideoNode(editor, 'clip')!
+    expect(actions.regenerateInputs(editor, node).complete).toBe(false)
+    addImage('ref-a', 0)
+    addImage('ref-b', 200)
+    expect(actions.regenerateInputs(editor, node)).toMatchObject({
+      complete: true,
+      inputs: { referenceIds: ['ref-a', 'ref-b'] },
+    })
   })
 
   it('prefills the full prompt a canvas clip was generated with, annotation text included', () => {

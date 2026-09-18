@@ -25,6 +25,31 @@ describe('视频生成记录', () => {
     expect(isVideoGenerationRecord({ ...BASE, duration: 2 })).toBe(true)
   })
 
+  it('keeps the reference images a video was generated from, in order', () => {
+    const record = { ...BASE, referenceIds: ['el_a', 'el_b'] }
+    expect(isVideoGenerationRecord(record)).toBe(true)
+    expect(videoGenerationSource(record as never)).toBe('image')
+    expect(isVideoGenerationRecord({ ...BASE, firstFrameId: 'el_a', referenceIds: ['el_b'] })).toBe(
+      true,
+    )
+  })
+
+  it('rejects a malformed reference list', () => {
+    expect(isVideoGenerationRecord({ ...BASE, referenceIds: 'el_a' })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, referenceIds: [''] })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, referenceIds: [1] })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, referenceIds: ['el_a', 'el_a'] })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, firstFrameId: 'el_a', referenceIds: ['el_a'] })).toBe(
+      false,
+    )
+    expect(
+      isVideoGenerationRecord({
+        ...BASE,
+        referenceIds: Array.from({ length: 17 }, (_, i) => `el_${i}`),
+      }),
+    ).toBe(false)
+  })
+
   it('rejects records a newer or broken client could have written', () => {
     expect(isVideoGenerationRecord(null)).toBe(false)
     expect(isVideoGenerationRecord({ ...BASE, model: '' })).toBe(false)

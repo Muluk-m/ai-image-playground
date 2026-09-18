@@ -55,10 +55,13 @@ vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   videoOutputFrame: async () => 'data:image/png;base64,UE9TVEVS',
 }))
 
-const { retryCanvasVideo, submitVideoFromCanvas } = await import(
+const { retryCanvasVideo, submitReferenceVideo, submitVideoFromCanvas } = await import(
   '../../../../features/canvas/lib/submitVideoFromCanvas'
 )
 const { recoverCanvasTasks } = await import('../../../../features/canvas/lib/recoverCanvasTasks')
+const { defaultInputItems, moveInputItem, setInputRole } = await import(
+  '../../../../features/canvas/lib/videoInputs'
+)
 
 let doc: CanvasDoc
 let editor: CanvasEditor
@@ -328,6 +331,98 @@ describe('画布生成栏的视频档', () => {
 
     expect(editor.getPlaceholders()[0]).toMatchObject({ status: 'error', message: '上游超时' })
   })
+})
+
+describe('选中即参考', () => {
+  const withReferences = {
+    ...support,
+    referenceImages: { max: 3, maxResolution: '720p', withFrames: true },
+  } as const
+  // 校验读的是共享矩阵本身，所以在这里临时给这个模型开参考图。
+  const withMatrix = (run: () => Promise<void>) => async () => {
+    VIDEO_MODEL_SUPPORT[MODEL] = withReferences
+    try {
+      await run()
+    } finally {
+      VIDEO_MODEL_SUPPORT[MODEL] = support
+    }
+  }
+
+  function items(ids: string[]) {
+    const byX = ids.map((id) => {
+      const box = editor.getElementPageBounds(id)!
+      return { imageId: id, box, graphicIds: [] }
+    })
+    return defaultInputItems(byX)
+  }
+
+  it(
+    'sends the first frame, then the references in panel order, and records them',
+    withMatrix(async () => {
+      mocks.support.current = withReferences
+      addImage('a', 0)
+      addImage('b', 200)
+      addImage('c', 400)
+      // 面板：c 拖到最前，a 标成首帧 → 首帧 a，参考 c、b。
+      const panel = setInputRole(moveInputItem(items(['a', 'b', 'c']), 2, 0), 1, 'first')
+
+      expect(await submitReferenceVideo(editor, panel, '一起出场')).toBe(true)
+      await settle()
+
+      expect(mocks.submitVideoRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: '一起出场',
+          inputImageDataUrls: [
+            'data:image/png;base64,a',
+            'data:image/png;base64,c',
+            'data:image/png;base64,b',
+          ],
+          video: {
+            duration_seconds: 8,
+            aspect_ratio: '9:16',
+            resolution: '720p',
+            first_frame_index: 0,
+            reference_image_indices: [1, 2],
+          },
+        }),
+      )
+      expect(placedVideo()).toMatchObject({
+        video: { generation: { firstFrameId: 'a', referenceIds: ['c', 'b'] } },
+      })
+      // 占位与成片落在这几张图右侧。
+      expect(editor.getElementPageBounds(placedVideo()!.id)!.x).toBeGreaterThanOrEqual(500)
+    }),
+  )
+
+  it('refuses references the model cannot take before anything is placed', async () => {
+    addImage('a', 0)
+    expect(await submitReferenceVideo(editor, items(['a']), '出场')).toBe(false)
+    expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('参考图'), 'error')
+    expect(mocks.submitVideoRequest).not.toHaveBeenCalled()
+    expect(editor.getPlaceholders()).toHaveLength(0)
+  })
+
+  it(
+    'refuses references when the channel has not declared them, even if the matrix allows',
+    withMatrix(async () => {
+      mocks.support.current = support
+      addImage('a', 0)
+      addImage('b', 200)
+      expect(await submitReferenceVideo(editor, items(['a', 'b']), '出场')).toBe(false)
+      expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('不支持参考图'), 'error')
+      expect(mocks.submitVideoRequest).not.toHaveBeenCalled()
+    }),
+  )
+
+  it(
+    'refuses more references than the model takes',
+    withMatrix(async () => {
+      mocks.support.current = withReferences
+      for (const [index, id] of ['a', 'b', 'c', 'd'].entries()) addImage(id, index * 200)
+      expect(await submitReferenceVideo(editor, items(['a', 'b', 'c', 'd']), '出场')).toBe(false)
+      expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('3'), 'error')
+    }),
+  )
 })
 
 describe('刷新之后', () => {
