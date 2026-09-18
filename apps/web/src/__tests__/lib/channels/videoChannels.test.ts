@@ -52,6 +52,29 @@ describe('videoModelOptions', () => {
   })
 })
 
+describe('参考图能力', () => {
+  it('渠道没声明 reference_images 时不开放参考图，免得旧后端静默丢掉它们', () => {
+    const grok = videoModelOptions().find((option) => option.modelId === 'grok-imagine-video')!
+    expect(grok.support.referenceImages).toBeUndefined()
+    expect(grok.support.firstFrame).toBe(true)
+  })
+
+  it('渠道声明了才按矩阵开放', () => {
+    const model = GROK_CHANNEL.models[0]!
+    setChannels([
+      {
+        ...GROK_CHANNEL,
+        models: [{ ...model, capabilities: [...model.capabilities, 'reference_images'] }],
+      },
+    ])
+    expect(videoModelOptions()[0]!.support.referenceImages).toEqual({
+      max: 7,
+      maxResolution: '720p',
+      withFrames: true,
+    })
+  })
+})
+
 describe('视频模式入口', () => {
   it('能力开启且有视频频道时可见', () => {
     expect(isVideoModeAvailable()).toBe(true)

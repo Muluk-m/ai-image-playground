@@ -6,6 +6,7 @@ import {
   FastForward,
   Film,
   FolderDown,
+  Images,
   Pencil,
   RotateCcw,
   WandSparkles,
@@ -13,6 +14,7 @@ import {
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import DeriveVideoPopover from '../../video/components/DeriveVideoPopover'
 import { videoDeriveLabel } from '../../video/lib/labels'
@@ -31,8 +33,11 @@ import type { CanvasEditor } from '../lib/editor'
 import { filmExportSupported } from '../lib/exportFilm'
 import { type FilmRefusal, planFilm } from '../lib/filmPlan'
 import { Box } from '../lib/geometry'
+import type { CanvasInputEntry } from '../lib/rasterizeSelection'
+import { referenceSelection } from '../lib/submitVideoFromCanvas'
 import { addSelectionToTimeline, isTimelineSource } from '../lib/timeline'
 import { useTimelineEditor } from '../timelineEditorStore'
+import ReferenceVideoPopover from './ReferenceVideoPopover'
 import RegenerateVideoPopover from './RegenerateVideoPopover'
 
 /** 工具条浮在视频上沿之上这么高；贴到视口顶时改放在视频下沿之下，不压住视频本身。 */
@@ -55,6 +60,8 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   } | null>(null)
   // 忙的是哪一段：截 A 的帧时选中 B，B 的按钮不该跟着灰。
   const [regenerating, setRegenerating] = useState<CanvasVideoNode | null>(null)
+  // 选中即参考：打开那一刻的选区，之后改选区不影响面板。
+  const [referencing, setReferencing] = useState<CanvasInputEntry[] | null>(null)
   const [busy, setBusy] = useState<{ id: string; kind: 'first' | 'last' | 'download' } | null>(null)
 
   const node = editor.doc.tool === 'select' ? selectedCanvasVideo(editor) : null
@@ -109,8 +116,15 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
     }
   }
 
-  const popover = (derive || regenerating) && (
+  const popover = (derive || regenerating || referencing) && (
     <>
+      {referencing && (
+        <ReferenceVideoPopover
+          editor={editor}
+          entries={referencing}
+          onClose={() => setReferencing(null)}
+        />
+      )}
       {regenerating && (
         <RegenerateVideoPopover
           editor={editor}
@@ -174,6 +188,37 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           </div>
           {popover}
         </>
+      )
+    }
+    // 只选了图：给「用 N 张图生成视频」，打开选中即参考的面板。
+    const images =
+      editor.doc.tool === 'select' && isVideoModeAvailable() ? referenceSelection(editor) : null
+    if (images && !popover) {
+      const boxes = images.map((entry) => entry.box)
+      const group = Box.Common(boxes)
+      const { camera } = editor.doc
+      const groupTop = (group.y - camera.y) * camera.zoom
+      return (
+        <div
+          role="toolbar"
+          aria-label={t('referenceVideo.toolbarAria')}
+          className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
+          style={{
+            left: Math.max(8, (group.x - camera.x) * camera.zoom),
+            top:
+              groupTop - TOOLBAR_OFFSET >= 8
+                ? groupTop - TOOLBAR_OFFSET
+                : (group.maxY - camera.y) * camera.zoom + 8,
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <ToolbarButton
+            icon={<Images />}
+            label={t('referenceVideo.open', { count: images.length })}
+            onClick={() => setReferencing(images)}
+          />
+        </div>
       )
     }
     if (editor.doc.tool !== 'select' || videos.length === 0 || timelines.length > 1 || !onlyVideos)

@@ -1,5 +1,6 @@
 import {
   VIDEO_DURATIONS,
+  VIDEO_MODEL_SUPPORT,
   type VideoDeriveMode,
   type VideoDuration,
   type VideoGenerationRecord,
@@ -29,6 +30,7 @@ import {
   guardAllows,
   launchCanvasVideo,
 } from './submitVideoFromCanvas'
+import { generationInputIds, inputIndices } from './videoInputs'
 
 /**
  * 画布上的一段视频：元素 id、播放来源，以及用户当时在输入框里写的原话。
@@ -113,7 +115,7 @@ export async function submitCanvasDerive(
   try {
     const rejected = videoRequestRejection(
       generation.model,
-      canvasVideoRequest(editor, generation, 0),
+      canvasVideoRequest(editor, generation),
       0,
     )
     if (rejected) {
@@ -168,36 +170,57 @@ export function loadGenerationIntoDraft(generation: VideoGenerationRecord): bool
   return true
 }
 
-/** 原首尾帧里还在画布上的那些（按首、尾顺序）；不齐时 `complete` 为假。 */
-export function regenerateFrames(editor: CanvasEditor, node: CanvasVideoNode) {
+/**
+ * 原来的输入图（首尾帧与参考图）是否都还在画布上。齐了就原样沿用；缺一张就整组不带，
+ * 只按文字生成——少了哪张都不是原来那段片子，弹窗事先写明。
+ */
+export function regenerateInputs(editor: CanvasEditor, node: CanvasVideoNode) {
   const generation = node.video.generation
-  const recorded = [generation?.firstFrameId, generation?.lastFrameId].filter(
-    (id): id is string => typeof id === 'string',
+  const recorded = generation ? generationInputIds(generation) : []
+  const complete = recorded.every((id) => editor.getElement(id)?.type === 'image')
+  const inputs: RegenerateInputs =
+    generation && complete
+      ? {
+          ...(generation.firstFrameId ? { firstFrameId: generation.firstFrameId } : {}),
+          ...(generation.lastFrameId ? { lastFrameId: generation.lastFrameId } : {}),
+          ...(generation.referenceIds?.length
+            ? { referenceIds: [...generation.referenceIds] }
+            : {}),
+        }
+      : {}
+  return { recorded, present: complete ? recorded : [], complete, inputs }
+}
+
+export type RegenerateInputs = Pick<
+  VideoGenerationRecord,
+  'firstFrameId' | 'lastFrameId' | 'referenceIds'
+>
+
+/** 所选模型与档位接不接得住要沿用的输入图；接不住给出弹窗里用的说明。 */
+export function regenerateInputRefusal(
+  inputs: RegenerateInputs,
+  draft: Pick<VideoGenerationRecord, 'model' | 'duration' | 'aspectRatio' | 'resolution'>,
+): string | null {
+  const count = generationInputIds(inputs).length
+  if (count === 0 || !VIDEO_MODEL_SUPPORT[draft.model]) return null
+  const rejected = videoRequestRejection(
+    draft.model,
+    {
+      duration_seconds: draft.duration,
+      aspect_ratio: draft.aspectRatio,
+      resolution: draft.resolution,
+      ...inputIndices(inputs),
+    },
+    count,
   )
-  const present = recorded.filter((id) => editor.getElement(id)?.type === 'image')
-  return {
-    recorded,
-    present: present.length === recorded.length ? present : [],
-    complete: present.length === recorded.length,
-  }
+  return rejected ? videoRejectionText(rejected) : null
 }
 
 /**
  * 改参数重新生成一段普通生成的视频：按视频草稿里此刻的模型与档位、弹窗里的描述，
- * 原首尾帧都还在就沿用（干净栅格化，不带标注），不齐就只按文字生成——弹窗事先写明了。
+ * 原输入图都还在就沿用（干净栅格化，不带标注），不齐就只按文字生成——弹窗事先写明了。
  * 结果放在原视频右侧。返回是否受理。
  */
-/** 所选模型接不接得住要沿用的首尾帧；接不住给出弹窗里用的说明。 */
-export function regenerateFrameRefusal(frameCount: number, model: string): string | null {
-  const option = videoModelOptions().find((one) => one.modelId === model)
-  if (!option || frameCount === 0) return null
-  if (!option.support.firstFrame)
-    return i18next.t('videoToolbar.modelNoFrames', { ns: 'canvas', model: option.label })
-  if (frameCount > 1 && !option.support.lastFrame)
-    return i18next.t('videoToolbar.modelNoLastFrame', { ns: 'canvas', model: option.label })
-  return null
-}
-
 export async function regenerateCanvasVideo(
   editor: CanvasEditor,
   node: CanvasVideoNode,
@@ -215,20 +238,18 @@ export async function regenerateCanvasVideo(
   if (!option) return refuse(i18next.t('error.noModel', { ns: 'video' }))
   const prompt = userPrompt.trim()
   if (!prompt) return refuse(i18next.t('store.emptyPrompt', { ns: 'video' }))
-  const present = options.keepFrames === false ? [] : regenerateFrames(editor, node).present
-  const frameRefusal = regenerateFrameRefusal(present.length, option.modelId)
-  if (frameRefusal) return refuse(frameRefusal)
+  const inputs = options.keepFrames === false ? {} : regenerateInputs(editor, node).inputs
+  const present = generationInputIds(inputs)
   const generation: VideoGenerationRecord = {
     model: option.modelId,
     duration: draft.duration,
     aspectRatio: draft.aspectRatio,
     resolution: draft.resolution,
-    ...(present[0] ? { firstFrameId: present[0] } : {}),
-    ...(present[1] ? { lastFrameId: present[1] } : {}),
+    ...inputs,
   }
   const rejected = videoRequestRejection(
     generation.model,
-    canvasVideoRequest(editor, generation, present.length),
+    canvasVideoRequest(editor, generation),
     present.length,
   )
   if (rejected) return refuse(videoRejectionText(rejected))

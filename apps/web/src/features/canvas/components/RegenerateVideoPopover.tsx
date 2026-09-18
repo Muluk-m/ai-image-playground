@@ -27,8 +27,8 @@ import {
   type CanvasVideoNode,
   loadGenerationIntoDraft,
   regenerateCanvasVideo,
-  regenerateFrameRefusal,
-  regenerateFrames,
+  regenerateInputRefusal,
+  regenerateInputs,
 } from '../lib/canvasVideoActions'
 import type { CanvasEditor } from '../lib/editor'
 
@@ -53,9 +53,9 @@ export default function RegenerateVideoPopover({
   const draft = useVideoStore((state) => state.draft)
   const options = videoModelOptions()
   const option = options.find((one) => one.modelId === draft.model)
-  const frames = regenerateFrames(editor, node)
+  const frames = regenerateInputs(editor, node)
   const frameCount = keepFrames ? frames.present.length : 0
-  const frameRefusal = regenerateFrameRefusal(frameCount, draft.model)
+  const frameRefusal = regenerateInputRefusal(keepFrames ? frames.inputs : {}, draft)
   // 关掉弹窗就作废还没发出的提交；草稿也还原成打开前的样子（它和生成栏共用）。
   const open = useRef(true)
   const submitted = useRef(false)

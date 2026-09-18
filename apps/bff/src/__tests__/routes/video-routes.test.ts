@@ -355,6 +355,68 @@ describe('video submit validation', () => {
   })
 })
 
+describe('video reference images', () => {
+  const refs = (count: number) => Array.from({ length: count }, () => TINY_PNG)
+  const video = (overrides: Record<string, unknown>) => ({
+    duration_seconds: 5,
+    aspect_ratio: '16:9',
+    resolution: '720p',
+    ...overrides,
+  })
+
+  it('queues Grok with a first frame and reference images, and keeps their indices', async () => {
+    const { status, json } = await submit('grok-imagine-video', {
+      input_images: refs(4),
+      video: video({ first_frame_index: 0, reference_image_indices: [1, 2, 3] }),
+    })
+
+    expect(status).toBe(200)
+    expect(await storedVideo(json.request_id)).toMatchObject({
+      first_frame_index: 0,
+      reference_image_indices: [1, 2, 3],
+    })
+  })
+
+  it('rejects each combination the matrix forbids with its code', async () => {
+    const cases = [
+      {
+        model: 'grok-imagine-video',
+        body: {
+          input_images: refs(8),
+          video: video({ reference_image_indices: [0, 1, 2, 3, 4, 5, 6, 7] }),
+        },
+        code: 'referenceTooMany',
+      },
+      {
+        model: 'grok-imagine-video',
+        body: {
+          input_images: refs(1),
+          video: video({ resolution: '1080p', reference_image_indices: [0] }),
+        },
+        code: 'referenceResolutionUnsupported',
+      },
+      {
+        model: VEO,
+        body: {
+          input_images: refs(1),
+          video: video({ duration_seconds: 8, reference_image_indices: [0] }),
+        },
+        code: 'referenceUnsupported',
+      },
+      {
+        model: 'grok-imagine-video',
+        body: { input_images: refs(1), video: video({ reference_image_indices: [1] }) },
+        code: 'referenceImageMissing',
+      },
+    ]
+    for (const one of cases) {
+      const { status, json } = await submit(one.model, one.body)
+      expect(status).toBe(400)
+      expect(json).toMatchObject({ error: 'invalid_video_request', code: one.code })
+    }
+  })
+})
+
 describe('video source validation', () => {
   it('queues an extension and stores only the source reference', async () => {
     await insertCompletedVideo('src-video')

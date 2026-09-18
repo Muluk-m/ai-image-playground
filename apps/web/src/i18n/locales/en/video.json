@@ -70,7 +70,12 @@
     "frameUnsupported": "{{frame}} is not supported by {{label}}",
     "frameImageMissing": "{{frame}} image is gone",
     "deriveModeUnsupported": "{{label}} does not support {{mode}}",
-    "deriveFramesRejected": "Extend and edit take no first or last frame",
-    "deriveSourceMissing": "{{mode}} is missing its source video"
+    "deriveFramesRejected": "Extend and edit take no frames or reference images",
+    "deriveSourceMissing": "{{mode}} is missing its source video",
+    "referenceUnsupported": "{{label}} does not take reference images",
+    "referenceTooMany": "{{label}} takes at most {{max}} reference images",
+    "referenceResolutionUnsupported": "{{label}} goes up to {{resolution}} with reference images",
+    "referenceFramesRejected": "{{label}} cannot combine reference images with first or last frames",
+    "referenceImageMissing": "A reference image is gone"
   }
 }

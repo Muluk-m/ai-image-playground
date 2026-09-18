@@ -247,9 +247,9 @@
     "videoUnavailable": "This deployment cannot generate video",
     "regenerateTitle": "Regenerate with changes",
     "regenerateSubmitted": "Regeneration submitted",
-    "framesGoneTextOnly": "The original frames are no longer on the canvas; this run uses text only.",
-    "keepsFrames_one": "Keep the original {{count}} frame",
-    "keepsFrames_other": "Keep the original {{count}} frames",
+    "framesGoneTextOnly": "Some of the original frames or reference images are no longer on the canvas, so this run uses text only.",
+    "keepsFrames_one": "Keep the {{count}} original input image",
+    "keepsFrames_other": "Keep the {{count}} original input images (frames and references)",
     "nothingRecorded": "This video has no recorded settings or description; choose settings and write one.",
     "noSettingsRecorded": "This video has no recorded settings; the current ones are used.",
     "framesFailed": "The original frames could not be prepared; try again, or turn off \"Keep the original frames\" to use text only.",
@@ -302,5 +302,26 @@
     "zipFailed": "Couldn't pack the clips. Please try again.",
     "fileName": "film",
     "clipsFileName": "timeline-clips"
+  },
+  "referenceVideo": {
+    "toolbarAria": "Make a video from the selected images",
+    "open_one": "Make a video from {{count}} image",
+    "open_other": "Make a video from {{count}} images",
+    "title_one": "Make a video from {{count}} image",
+    "title_other": "Make a video from {{count}} images",
+    "hint": "Ordered left to right as on the canvas; drag to reorder. Mark each as the first frame, last frame or a reference, and mention references as Image 1, Image 2 in the description.",
+    "listAria": "Input images",
+    "imageLabel": "Image {{no}}",
+    "roleAria": "How image {{no}} is used",
+    "moveUp": "Move image {{no}} up",
+    "role": {
+      "reference": "Reference",
+      "first": "First frame",
+      "last": "Last frame"
+    },
+    "placeholder": "e.g. the person in Image 1 swings the racket from Image 2 on the court in Image 3",
+    "modelWithoutReferences": "{{label}} (no reference images)",
+    "submit": "Generate video",
+    "submitted": "Video generation submitted"
   }
 }

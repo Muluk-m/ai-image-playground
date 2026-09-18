@@ -245,8 +245,8 @@
     "videoUnavailable": "当前部署不能生成视频",
     "regenerateTitle": "改参数重新生成",
     "regenerateSubmitted": "已提交重新生成",
-    "framesGoneTextOnly": "原来的首尾帧已不在画布上，这次只按文字生成。",
-    "keepsFrames_other": "沿用原来的 {{count}} 张首尾帧",
+    "framesGoneTextOnly": "原来的首尾帧或参考图有的已不在画布上，这次只按文字生成。",
+    "keepsFrames_other": "沿用原来的 {{count}} 张输入图（首尾帧与参考图）",
     "nothingRecorded": "这段视频没有记录生成参数和描述，请重新选择参数并写描述。",
     "noSettingsRecorded": "这段视频没有记录生成参数，档位沿用当前设置。",
     "framesFailed": "原首尾帧处理失败，请重试，或取消「沿用原首尾帧」只按文字生成。",
@@ -297,5 +297,24 @@
     "zipFailed": "片段打包失败，请重试",
     "fileName": "成片",
     "clipsFileName": "时间线片段"
+  },
+  "referenceVideo": {
+    "toolbarAria": "用选中的图生成视频",
+    "open_other": "用 {{count}} 张图生成视频",
+    "title_other": "用 {{count}} 张图生成视频",
+    "hint": "按画布从左到右排好了，可拖动调整。每张可标成首帧、尾帧或参考图，参考图在描述里按「图1、图2」提到。",
+    "listAria": "输入图",
+    "imageLabel": "图{{no}}",
+    "roleAria": "图{{no}} 的用法",
+    "moveUp": "图{{no}} 前移",
+    "role": {
+      "reference": "参考图",
+      "first": "首帧",
+      "last": "尾帧"
+    },
+    "placeholder": "例如：图1 里的人拿着图2 的球拍在图3 的球场上挥拍",
+    "modelWithoutReferences": "{{label}}（不支持参考图）",
+    "submit": "生成视频",
+    "submitted": "已提交生成视频"
   }
 }

@@ -19,6 +19,8 @@ export interface VideoGenerationRecord {
   readonly resolution: VideoResolution
   readonly firstFrameId?: string
   readonly lastFrameId?: string
+  /** 参考图（全能参考），按提交时的顺序。 */
+  readonly referenceIds?: readonly string[]
   readonly derivedFrom?: { readonly id: string; readonly mode: VideoDeriveMode }
 }
 
@@ -26,7 +28,7 @@ export type VideoGenerationSource = 'text' | 'image' | 'derived'
 
 export function videoGenerationSource(record: VideoGenerationRecord): VideoGenerationSource {
   if (record.derivedFrom) return 'derived'
-  return record.firstFrameId || record.lastFrameId ? 'image' : 'text'
+  return record.firstFrameId || record.lastFrameId || record.referenceIds?.length ? 'image' : 'text'
 }
 
 const KEYS = new Set([
@@ -36,8 +38,12 @@ const KEYS = new Set([
   'resolution',
   'firstFrameId',
   'lastFrameId',
+  'referenceIds',
   'derivedFrom',
 ])
+
+/** 与队列一次请求的输入图上限一致。 */
+const REFERENCE_IDS_MAX = 16
 
 function objectId(value: unknown): boolean {
   return typeof value === 'string' && value.length > 0 && value.length <= 128
@@ -54,6 +60,10 @@ export function isVideoGenerationRecord(value: unknown): value is VideoGeneratio
   if (!(VIDEO_RESOLUTIONS as readonly unknown[]).includes(record.resolution)) return false
   if (record.firstFrameId !== undefined && !objectId(record.firstFrameId)) return false
   if (record.lastFrameId !== undefined && !objectId(record.lastFrameId)) return false
+  if (record.referenceIds !== undefined) {
+    const ids = record.referenceIds
+    if (!Array.isArray(ids) || ids.length > REFERENCE_IDS_MAX || !ids.every(objectId)) return false
+  }
   if (record.derivedFrom !== undefined) {
     const derived = record.derivedFrom
     if (typeof derived !== 'object' || derived === null) return false

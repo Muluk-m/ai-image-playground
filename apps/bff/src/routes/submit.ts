@@ -1,5 +1,5 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
-import { validateVideoPrompt, validateVideoRequest } from '@image-playground/shared'
+import { videoPromptRejection, videoRequestRejection } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { resolveModelMedia } from '../lib/channels'
@@ -24,7 +24,7 @@ const submitBodySchema = t.Object({
   n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
   input_images: t.Optional(t.Array(t.String())),
   mask: t.Optional(t.String()),
-  /** 档位合法性由 shared 的 validateVideoRequest 兜底，这里只做形状白名单。 */
+  /** 档位合法性由 shared 的 videoRequestRejection 兜底，这里只做形状白名单。 */
   video: t.Optional(
     t.Object({
       duration_seconds: t.Number(),
@@ -32,6 +32,7 @@ const submitBodySchema = t.Object({
       resolution: t.String(),
       first_frame_index: t.Optional(t.Number({ minimum: 0 })),
       last_frame_index: t.Optional(t.Number({ minimum: 0 })),
+      reference_image_indices: t.Optional(t.Array(t.Number({ minimum: 0 }), { maxItems: 16 })),
       mode: t.Optional(t.String()),
       source_task_id: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
       source_output_index: t.Optional(t.Number({ minimum: 0 })),
@@ -105,13 +106,16 @@ export const submitRoutes = new Elysia()
       }
       let persistedVideo: PersistedVideoRequest | undefined
       if (video) {
-        for (const check of [
-          validateVideoRequest(model, video, body.input_images?.length ?? 0),
-          validateVideoPrompt(model, body.prompt),
-        ]) {
-          if (!check.ok)
-            return status(400, { error: 'invalid_video_request', message: check.reason })
-        }
+        // 带上驳回 code：界面按它查译文，message 只是中文回执。
+        const rejected =
+          videoRequestRejection(model, video, body.input_images?.length ?? 0) ??
+          videoPromptRejection(model, body.prompt)
+        if (rejected)
+          return status(400, {
+            error: 'invalid_video_request',
+            code: rejected.code,
+            message: rejected.reason,
+          })
         // 客户端塞进来的 source_video 不能变成任意对象读取，只认下面校验出来的那个。
         const { source_video: _clientSupplied, ...wireVideo } = video as PersistedVideoRequest
         persistedVideo = wireVideo
