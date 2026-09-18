@@ -34,12 +34,18 @@ psql_drill() {
 }
 
 drill() {
-  found=$(newest_object "${prefix}pg/" .dump) || { error='could not list dumps'; return 1; }
-  [ -n "$found" ] || { error='no dump under pg/'; return 1; }
-  key=${found%% *}
+  found=$(newest_object "${prefix}pg/" .dump.sha256) || { error='could not list completed dumps'; return 1; }
+  [ -n "$found" ] || { error='no completed dump under pg/'; return 1; }
+  checksum_key=${found%% *}
+  key=${checksum_key%.sha256}
   dump_key=${key#"$prefix"}
   aws --endpoint-url "$S3_ENDPOINT" s3 cp --only-show-errors "s3://$S3_BUCKET/$key" "$dump" ||
     { error="could not download $dump_key"; return 1; }
+  aws --endpoint-url "$S3_ENDPOINT" s3 cp --only-show-errors "s3://$S3_BUCKET/$checksum_key" "$work/checksum" ||
+    { error='could not download completion checksum'; return 1; }
+  expected=$(cat "$work/checksum")
+  actual=$(sha256sum "$dump" | awk '{ print $1 }')
+  [ "$expected" = "$actual" ] || { error='dump checksum mismatch'; return 1; }
 
   pg_restore --list "$dump" >"$work/toc" 2>"$work/err" ||
     { error="unreadable dump: $(tail -n 1 "$work/err")"; return 1; }

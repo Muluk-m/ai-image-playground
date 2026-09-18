@@ -2,6 +2,8 @@
 
 状态核验时间：2026-09-18（Asia/Shanghai）。生产 Pages 已切回原 VPS API；本服务保留为备用，不是 PostgreSQL 高可用副本。部署位置和流量切换完成后，必须同步更新本文件及根目录 `CLAUDE.md`，避免其他 session 按过期状态发布。
 
+**后续灾备采用 [R2 冷恢复方案](cold-recovery.md)**。下面的 Pages 切换是本次事故的历史应急流程，不作为固定 API 入口方案。旧备用已迁至 R2，原 MinIO 停止并保留卷。
+
 ## 当前入口与拓扑
 
 | 项目 | 当前值 |
@@ -13,17 +15,17 @@
 | Compose 文件 / project | `compose.json` / `aip-free-recovery` |
 | BFF 本机入口 | `127.0.0.1:38377` → 容器 `37377` |
 | 数据库 | 独立 PostgreSQL 17；库名 `aip_recovery` |
-| 对象存储 | 本机 MinIO，bucket `aip-recovery`；不依赖原 VPS 对象存储 |
+| 对象存储 | R2，bucket `ai-images`，前缀 `recovery-legacy-20260918/`；14 个历史文件均回读验 SHA-256 |
 | PostgreSQL 数据卷 | `aip-free-recovery_postgres` |
-| MinIO 数据卷 | `aip-free-recovery_objects` |
+| 旧 MinIO 数据卷 | `aip-free-recovery_objects`，仅保留回滚，容器已停止 |
 | Tunnel | 独立 Cloudflare Tunnel，原生 cloudflared HTTP/2 |
 | Tunnel 守护 | `~/Library/LaunchAgents/com.muvloom.recovery-tunnel.plist` |
 | 备用源码基线 | public `3be694f8`，private `79fc805` |
-| 已构建后端镜像 | `aip-free-recovery:c8d3db11`（同一修复的合并前代码；后端版本标识为 `3be694f8…-free-recovery`） |
+| 已构建后端镜像 | `aip-free-recovery:15f67181`（历史应急镜像，不是新的标准冷恢复发布包） |
 
 原 `api.muvloom.online`、`api.nainma.online` 已恢复指向 VPS tunnel。事故期间网页通过 `runtime-config.json` 访问备用域名，不是通过劫持原 API DNS 实现恢复。内部原 API `image-api.qiliangjia.one` 也没有改 DNS。
 
-Colima/Docker 必须运行。BFF、worker、PG、MinIO 使用 `unless-stopped`；Tunnel LaunchAgent 使用 KeepAlive。空闲容器实测总内存约 403 MiB，不含 Docker VM 开销。仅备用模式不扣用户积分；生产付费站已恢复积分。上游 API 仍消耗相应 key 的额度。
+Colima/Docker 必须运行。BFF、worker、PG 使用 `unless-stopped`；Tunnel LaunchAgent 使用 KeepAlive。仅备用模式不扣用户积分；生产付费站已恢复积分。上游 API 仍消耗相应 key 的额度。新冷恢复实例必须恢复账号与会话，不能沿用这个空库免费应急配置作为完整灾备。
 
 ## 运行配置与权限
 
@@ -48,7 +50,7 @@ curl -fsS https://backup-api.muvloom.online/api/capabilities
 启动或更新后端的顺序：
 
 ```sh
-/opt/homebrew/bin/docker compose -f compose.json up -d postgres minio
+/opt/homebrew/bin/docker compose -f compose.json up -d postgres
 /opt/homebrew/bin/docker compose -f compose.json --profile tools run --rm migrate
 /opt/homebrew/bin/docker compose -f compose.json up -d bff worker
 launchctl kickstart -k gui/$(id -u)/com.muvloom.recovery-tunnel
@@ -106,3 +108,7 @@ launchctl kickstart -k gui/$(id -u)/com.muvloom.recovery-tunnel
 ## 2026-09-18 切回
 
 原 VPS 重启后健康、登录会话与原 PG 数据核验通过；备用生成任务已结束。Pages 保留切换前各站源码版本，仅恢复原 API 配置；备用卷与隧道继续保留。后续后端发布使用 [镜像发布手册](image-release.md)，禁止在 VPS 编译。
+
+已完成明确圈定的承接期 10 条任务、2 对话、5 消息、2 轮次和 8 个产物回填；切回后记录不重复导入。受保护审计及回滚材料在工作站 `~/.config/ai-image-playground/recovery/20260918/import-to-vps/` 与 VPS `/home/ubuntu/backups/recovery-import-20260918/`。历史源库未删除。
+
+旧备用存储迁移：`app.env.before-r2-20260918`、`compose.json.before-r2-20260918` 保留原配置，`~/.config/ai-image-playground/recovery/cold-20260918/legacy-objects-final-report.json` 保存逐文件校验结果。已在停止写入后做最终复制，再启动读取 R2 的 BFF/worker。此处使用独立历史前缀；以后从生产冷恢复的新实例使用生产对应前缀，不把旧匿名备用库接到生产对象清理流程。

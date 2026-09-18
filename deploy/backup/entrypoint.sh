@@ -5,19 +5,17 @@ set -eu
 export -p > /etc/backup-env.sh
 chmod 600 /etc/backup-env.sh
 
-# Seed the healthcheck marker so a fresh container is healthy until the first run is overdue.
+# Never invent backup success when a container restarts. catch_up hydrates this from R2.
 mkdir -p /var/lib/pg-backup
-touch /var/lib/pg-backup/last-success
 
-# 18:00 UTC = 02:00 Asia/Shanghai. The drill restores that night's dump an hour later, Sunday
-# 19:00 UTC = Monday 03:00 Asia/Shanghai.
+# Back up hourly. Sunday 19:00 UTC = Monday 03:00 Asia/Shanghai for the isolated drill.
 cat > /etc/crontabs/root <<'EOF'
-0 18 * * * . /etc/backup-env.sh; /usr/local/bin/backup.sh >>/proc/1/fd/1 2>&1
+0 * * * * . /etc/backup-env.sh; /usr/local/bin/backup.sh >>/proc/1/fd/1 2>&1
 0 19 * * 0 . /etc/backup-env.sh; /usr/local/bin/restore-drill.sh >>/proc/1/fd/1 2>&1
 EOF
 
 # crond does not run what it missed while the host was down; catch up in the background so the
-# container is up (and healthy) meanwhile.
+# container can start meanwhile, without claiming a successful backup.
 (
   # shellcheck source=lib.sh
   . /usr/local/lib/pg-backup/lib.sh

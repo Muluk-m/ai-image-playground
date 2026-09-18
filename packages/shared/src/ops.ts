@@ -34,8 +34,8 @@ export const OPS_THRESHOLDS = {
    * 没有这道余量就会每分钟交替发「告警」与「已恢复」。
    */
   HOST_RECOVERY_MARGIN_RATIO: 0.02,
-  /** 备份每天一次；超过这个时长没有新文件就是断了。与备份容器自己的健康探针同一个数。 */
-  BACKUP_MAX_AGE_MS: 26 * 60 * 60 * 1000,
+  /** Hourly cloud backup; tolerate one delayed run, matching the sidecar health probe. */
+  BACKUP_MAX_AGE_MS: 2 * 60 * 60 * 1000,
   /**
    * 备份恢复演练每周一次；超过这个时长没有新结果就是断了。比一周多留一天，
    * 给周日那一轮失手后容器重启时的补跑留出余地。

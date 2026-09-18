@@ -32,12 +32,8 @@ describe('阈值两侧', () => {
     ['磁盘 85% 报', { host: host(7.5) }, ['firing:disk']],
     ['排队 10 分钟整不报', { queue: { oldest_queued_wait_ms: 10 * minute } }, []],
     ['排队超过 10 分钟报', { queue: { oldest_queued_wait_ms: 10 * minute + 1 } }, ['firing:queue']],
-    ['备份 26 小时整不报', { backup: { latest_modified_at: T0 - 26 * hour } }, []],
-    [
-      '备份超过 26 小时报',
-      { backup: { latest_modified_at: T0 - 26 * hour - 1 } },
-      ['firing:backup'],
-    ],
+    ['备份 2 小时整不报', { backup: { latest_modified_at: T0 - 2 * hour } }, []],
+    ['备份超过 2 小时报', { backup: { latest_modified_at: T0 - 2 * hour - 1 } }, ['firing:backup']],
     ['心跳 2 分钟整不报', { heartbeats: { bff: T0 - 2 * minute } }, []],
     [
       '心跳断了超过 2 分钟报',

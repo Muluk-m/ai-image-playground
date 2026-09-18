@@ -33,7 +33,10 @@ newest_object() {
   [ -n "$listed" ] && [ "$listed" != None ] || return 0
   # shellcheck disable=SC2086 # key and timestamp are tab separated and contain no blanks
   set -- $listed
-  printf '%s %s\n' "$1" "$(s3_time_to_epoch "$2")"
+  # aws --output text may render [null, null] as two None columns, not one.
+  [ "$#" -eq 2 ] && [ "$1" != None ] && [ "$2" != None ] || return 0
+  epoch=$(s3_time_to_epoch "$2") || return 1
+  printf '%s %s\n' "$1" "$epoch"
 }
 
 # Runs $5 when the newest object under $2 ending in $3 is missing or older than $4 seconds.
@@ -44,7 +47,7 @@ run_if_stale() {
   fi
   if [ -n "$found" ]; then
     age=$(($(date -u +%s) - ${found#* }))
-    if [ "$age" -le "$4" ]; then
+    if [ "$age" -ge 0 ] && [ "$age" -le "$4" ]; then
       echo "pg-backup: catch-up: latest $1 is ${age}s old, nothing to do"
       return 0
     fi
@@ -57,8 +60,14 @@ run_if_stale() {
 # this container often, so only an overdue job is run. Backup first: the drill restores the newest dump.
 catch_up() {
   pg_backup_env
-  # A dump is due daily.
-  run_if_stale backup "${prefix}pg/" .dump 86400 backup.sh
+  # Rehydrate the real upload time. A failed listing leaves health unknown, never "just succeeded".
+  marker=${BACKUP_HEALTH_FILE:-/var/lib/pg-backup/last-success}
+  if latest=$(newest_object "${prefix}pg/" .dump.sha256) && [ -n "$latest" ]; then
+    mkdir -p "$(dirname "$marker")"
+    printf '%s\n' "${latest#* }" >"$marker"
+  fi
+  # Hourly cloud backups; no periodic replication or restore to the standby database.
+  run_if_stale backup "${prefix}pg/" .dump.sha256 3600 backup.sh
   # The drill is due weekly; eight days leaves room for a Sunday run that is still in flight.
   run_if_stale drill "${prefix}pg/drill/" latest.json 691200 restore-drill.sh
 }

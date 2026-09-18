@@ -62,6 +62,7 @@ function catchUp(listing: { dump: string; drill: string; listFails?: boolean }) 
       S3_KEY_PREFIX: '/app/',
       S3_ACCESS_KEY_ID: 'id',
       S3_SECRET_ACCESS_KEY: 'secret',
+      BACKUP_HEALTH_FILE: join(root, 'last-success'),
       FAKE_DUMP: listing.dump,
       FAKE_DRILL: listing.drill,
       FAKE_LIST_FAILS: listing.listFails ? '1' : '',
@@ -76,7 +77,7 @@ function catchUp(listing: { dump: string; drill: string; listFails?: boolean }) 
 }
 
 const freshDrill = `app/pg/drill/latest.json\t${modifiedAgo(day)}`
-const freshDump = `app/pg/2026-09-18.dump\t${modifiedAgo(2 * hour)}`
+const freshDump = `app/pg/2026-09-18.dump.sha256\t${modifiedAgo(hour / 3)}`
 
 describe('容器启动时补跑备份', () => {
   it('最新一份 dump 已经 30 小时了：补跑一次备份', () => {
@@ -94,10 +95,19 @@ describe('容器启动时补跑备份', () => {
     expect(run.scripts).toEqual(['backup.sh'])
   })
 
-  it('最新一份 dump 才 2 小时：重新部署不再多备一份', () => {
+  it('handles the AWS CLI two-null-column representation of an empty bucket', () => {
+    const run = catchUp({ dump: 'None\tNone', drill: freshDrill })
+    expect(run.status).toBe(0)
+    expect(run.scripts).toEqual(['backup.sh'])
+    expect(existsSync(join(root, 'last-success'))).toBe(false)
+  })
+
+  it('最新一份 dump 才 20 分钟：重新部署不再多备一份，健康时间沿用上传时间', () => {
     const run = catchUp({ dump: freshDump, drill: freshDrill })
     expect(run.status).toBe(0)
     expect(run.scripts).toEqual([])
+    const saved = Number(readFileSync(join(root, 'last-success'), 'utf8'))
+    expect(saved).toBeLessThan(Date.now() / 1000 - 1000)
   })
 
   it('列举失败（网络不通）：什么都不跑，留一行日志，交给 cron', () => {
@@ -105,6 +115,7 @@ describe('容器启动时补跑备份', () => {
     expect(run.status).toBe(0)
     expect(run.scripts).toEqual([])
     expect(run.output).toContain('could not list')
+    expect(existsSync(join(root, 'last-success'))).toBe(false)
   })
 })
 
@@ -130,5 +141,26 @@ describe('容器启动时补跑恢复演练', () => {
   it('备份与演练都欠着：先备份，再拿这份新备份演练', () => {
     const run = catchUp({ dump: 'None', drill: 'None' })
     expect(run.scripts).toEqual(['backup.sh', 'restore-drill.sh'])
+  })
+})
+
+describe('backup health never comes from container start time', () => {
+  const health = resolve(__dirname, '../../../../../deploy/backup/healthcheck.sh')
+  const check = () =>
+    spawnSync('sh', [health], {
+      env: { ...process.env, BACKUP_HEALTH_FILE: join(root, 'last-success') },
+    }).status
+  it('rejects missing, invalid, stale and future upload times', () => {
+    expect(check()).toBe(1)
+    for (const value of [
+      'garbage',
+      `${Math.floor(Date.now() / 1000) - 7300}`,
+      `${Math.floor(Date.now() / 1000) + 60}`,
+    ]) {
+      writeFileSync(join(root, 'last-success'), value)
+      expect(check()).toBe(1)
+    }
+    writeFileSync(join(root, 'last-success'), `${Math.floor(Date.now() / 1000) - 1200}`)
+    expect(check()).toBe(0)
   })
 })
