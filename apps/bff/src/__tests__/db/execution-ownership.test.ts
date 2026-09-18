@@ -6,6 +6,8 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_execution_ownership')
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.PORT = '0'
+const { runPrivateMigrations } = await import('../../lib/private-overlay')
+await runPrivateMigrations(process.env.DATABASE_URL)
 const { db, schema, close } = await import('../../db/client')
 const { recoverAbandonedTasks } = await import('../../db/maintenance')
 const { executionContext } = await import('../../db/execution-context')
