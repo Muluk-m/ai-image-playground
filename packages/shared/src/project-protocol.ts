@@ -87,6 +87,38 @@ export type ProjectElement =
       strokeWidth: number
     }
   | { id: string; type: 'freedraw'; points: number[]; stroke: string; strokeWidth: number }
+  | ProjectTimeline
+
+/** 时间线只存对同一项目里视频元素的有序引用与入出点（秒），不存媒体。 */
+export interface ProjectTimeline {
+  id: string
+  type: 'timeline'
+  x: number
+  y: number
+  width: number
+  height: number
+  clips: { elementId: string; in: number; out?: number }[]
+}
+
+export const PROJECT_TIMELINE_MAX_CLIPS = 64
+/** 单段入出点的上限（秒）。上游最长的片子也远不到它，超出只可能是坏数据。 */
+const PROJECT_CLIP_MAX_SECONDS = 3600
+
+function timelineClip(value: unknown): boolean {
+  if (!object(value) || !keys(value, ['elementId', 'in', 'out'])) return false
+  const within = (seconds: unknown) =>
+    typeof seconds === 'number' &&
+    Number.isFinite(seconds) &&
+    seconds >= 0 &&
+    seconds <= PROJECT_CLIP_MAX_SECONDS
+  return (
+    typeof value.elementId === 'string' &&
+    value.elementId.length > 0 &&
+    value.elementId.length <= 128 &&
+    within(value.in) &&
+    (value.out === undefined || (within(value.out) && (value.out as number) > (value.in as number)))
+  )
+}
 
 /** 云端结构不包含位图、相机、选区或撤销历史。 */
 export interface ProjectDocument {
@@ -224,6 +256,18 @@ function element(value: unknown): value is ProjectElement {
       color(value.fill) &&
       typeof value.text === 'string' &&
       value.text.length <= 10000
+    )
+  }
+  if (value.type === 'timeline') {
+    return (
+      keys(value, ['id', 'type', 'x', 'y', 'width', 'height', 'clips']) &&
+      coordinate(value.x) &&
+      coordinate(value.y) &&
+      size(value.width) &&
+      size(value.height) &&
+      Array.isArray(value.clips) &&
+      value.clips.length <= PROJECT_TIMELINE_MAX_CLIPS &&
+      value.clips.every(timelineClip)
     )
   }
   if (value.type === 'arrow' || value.type === 'freedraw') {

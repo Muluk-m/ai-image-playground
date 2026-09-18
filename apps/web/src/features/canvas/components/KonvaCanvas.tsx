@@ -31,6 +31,7 @@ import {
 import { bindCanvasTouch } from '../lib/touchGestures'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import SelectionInfo from './SelectionInfo'
+import TimelineShape from './TimelineShape'
 
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
@@ -746,6 +747,16 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
                     {...common}
                     {...placeholderProps(el)}
                     onTransformEnd={(e) => onTransformEnd(e, el.id)}
+                  />
+                )
+              case 'timeline':
+                return (
+                  <TimelineShape
+                    key={el.id}
+                    el={el}
+                    doc={doc}
+                    labels={{ title: t('timeline.title'), missing: t('timeline.missing') }}
+                    common={common}
                   />
                 )
             }

@@ -74,7 +74,7 @@ afterEach(() => {
 })
 
 describe('视频节点工具条', () => {
-  it('appears only while exactly one video is selected', () => {
+  it('shows the full toolbar for one clip and only add-to-timeline for several', () => {
     addVideo('a', 0, {
       model: 'grok-imagine-video',
       duration: 8,
@@ -88,8 +88,9 @@ describe('视频节点工具条', () => {
     act(() => editor.setSelectedElements(['a']))
     expect(host.querySelector('[role="toolbar"]')).not.toBeNull()
 
+    // 多选时只剩「加入时间线」：下载、续写这些动作只对单段有意义。
     act(() => editor.setSelectedElements(['a', 'b']))
-    expect(host.querySelector('[role="toolbar"]')).toBeNull()
+    expect(host.querySelectorAll('[role="toolbar"] button')).toHaveLength(1)
   })
 
   it('offers extend for a recorded clip and explains why an unrecorded one cannot', () => {
@@ -110,5 +111,27 @@ describe('视频节点工具条', () => {
     expect(button('续写')?.disabled).toBe(false)
     expect(button('续写')?.getAttribute('aria-disabled')).toBe('true')
     expect(button('续写')?.getAttribute('title')).toContain('时长')
+  })
+
+  it('offers adding several selected clips to a timeline', () => {
+    addVideo('a', 0, {
+      model: 'grok-imagine-video',
+      duration: 8,
+      aspectRatio: '16:9',
+      resolution: '720p',
+    })
+    addVideo('b', 400)
+    render()
+
+    act(() => editor.setSelectedElements(['a', 'b']))
+    const add = host.querySelector('[role="toolbar"] button') as HTMLButtonElement
+    expect(add.getAttribute('aria-label')).toContain('2')
+    act(() => add.click())
+
+    const timeline = doc.elements.find((el) => el.type === 'timeline')
+    expect(timeline?.type === 'timeline' && timeline.clips.map((clip) => clip.elementId)).toEqual([
+      'a',
+      'b',
+    ])
   })
 })

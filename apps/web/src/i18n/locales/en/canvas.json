@@ -246,5 +246,14 @@
     "noPromptRecorded": "This video has no recorded description (agent videos only keep a title); write one again.",
     "modelUnavailable": "The original model is not available here; settings were left unchanged, pick a model yourself.",
     "videoUnavailable": "This deployment cannot generate video"
+  },
+  "timeline": {
+    "title": "Timeline",
+    "missing": "Missing",
+    "add": "Add to timeline",
+    "addCount_one": "Add {{count}} clip to a timeline",
+    "addCount_other": "Add {{count}} clips to a timeline",
+    "appendCount_one": "Append {{count}} clip to the timeline",
+    "appendCount_other": "Append {{count}} clips to the timeline"
   }
 }
