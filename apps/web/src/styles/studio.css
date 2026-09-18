@@ -34,6 +34,10 @@
 .studio-tools::-webkit-scrollbar { display: none; }
 .studio-tools button { flex-shrink: 0; }
 .studio-direct-composer { margin-top: auto; padding: var(--studio-space-4); }
+.studio-floating-composer { position: absolute; left: 50%; bottom: var(--studio-space-4); transform: translateX(-50%); width: min(720px, calc(100% - 144px)); z-index: 30; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 16px; box-shadow: var(--studio-shadow); }
+.studio-floating-composer .studio-direct-composer { margin-top: 0; padding: 12px 14px; }
+/* 成片导出的进度条本来也在底部正中：生成栏浮着时让到顶部，别叠在一起。 */
+.studio-canvas:has(.studio-floating-composer) [data-film-export-status] { top: 56px; bottom: auto; }
 .studio-direct-card { display: flex; flex-direction: column; gap: 14px; }
 .studio-direct-card textarea { background: hsl(var(--background)); border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); border-radius: var(--studio-radius); padding: 12px; margin-top: 12px; }
 .studio-direct-card textarea::placeholder { color: hsl(var(--muted-foreground)); }

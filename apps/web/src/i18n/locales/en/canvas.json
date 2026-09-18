@@ -230,7 +230,9 @@
       "tooManyImages": "A video takes at most two images: a first frame and a last frame",
       "firstFrameUnsupported": "{{model}} cannot start from an image; deselect the images",
       "lastFrameUnsupported": "{{model}} has no last frame; select one image as the first frame"
-    }
+    },
+    "hintReferences_one": "The {{count}} selected image is a reference; mention it as Image 1",
+    "hintReferences_other": "The {{count}} selected images are references; mention them as Image 1, Image 2"
   },
   "videoToolbar": {
     "aria": "Video actions",

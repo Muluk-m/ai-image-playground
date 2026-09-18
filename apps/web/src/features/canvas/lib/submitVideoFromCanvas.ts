@@ -121,11 +121,17 @@ function candidatesOf(editor: CanvasEditor) {
   })
 }
 
+/** 选区里的图（至少一张、不含视频）；有视频或没选图时返回 null。 */
+export function imageSelection(editor: CanvasEditor): CanvasInputEntry[] | null {
+  const candidates = candidatesOf(editor)
+  if (candidates.length === 0 || candidates.some((one) => one.video)) return null
+  return candidates.map((one) => one.entry)
+}
+
 /** 「选中即参考」的入口：选区里有两张以上的图且没有视频时返回这些图，否则 null。 */
 export function referenceSelection(editor: CanvasEditor): CanvasInputEntry[] | null {
-  const candidates = candidatesOf(editor)
-  if (candidates.length < 2 || candidates.some((one) => one.video)) return null
-  return candidates.map((one) => one.entry)
+  const images = imageSelection(editor)
+  return images && images.length >= 2 ? images : null
 }
 
 /** 选区此刻在视频档下能不能提交，不能就给出原因。生成栏据此禁用按钮。 */
