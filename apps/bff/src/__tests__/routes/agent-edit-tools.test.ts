@@ -231,9 +231,8 @@ beforeEach(async () => {
   await db.delete(schema.users)
 })
 
-afterEach(async () => {
-  // 局部改图的候选结束后会唤醒智能体再起一轮：等它投递、起轮、收尾都完了，别让它跑进
-  // 下一条用例清库的时候。
+/** 局部改图的候选结束后会唤醒智能体再起一轮：等它投递、起轮、收尾都完了。 */
+async function waitForWakeTurns(): Promise<void> {
   await waitFor(async () => {
     const [running] = await db
       .select({ id: schema.agent_executions.conversation_id })
@@ -246,6 +245,11 @@ afterEach(async () => {
     const due = await conversationsWithEndedJobs()
     return !running && !pending && due.length === 0
   }, 5_000)
+}
+
+afterEach(async () => {
+  // 别让唤醒轮跑进下一条用例清库的时候。
+  await waitForWakeTurns()
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
   setObjectStoreForTesting()
@@ -468,6 +472,14 @@ describe('智能体改图工具', () => {
         .where(eq(schema.tasks.id, oldResult.job!.taskId))
       expect((await hydrateInputImages(oldTask!.request_payload)).mask).toBe(MASK)
 
+      // 局部改图结束会唤醒这个会话再起一轮；等它跑完，免得它抢走下面脚本里的那次调用。
+      await waitFor(
+        async () =>
+          (await db.select().from(schema.tasks).where(eq(schema.tasks.id, oldTask!.id)))[0]
+            ?.status === 'completed',
+        3_000,
+      )
+      await waitForWakeTurns()
       const otherConversation = await startConversation()
       const inaccessible = await edit(otherConversation, 'original-a')
       expect(eventsOfType(inaccessible, 'toolEnd')[0]!.status).toBe('failed')
