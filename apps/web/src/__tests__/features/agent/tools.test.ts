@@ -22,6 +22,7 @@ import {
   useAgentStore,
 } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
+import { setChannels } from '../../../lib/channels/channelStore'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -122,6 +123,8 @@ let retryResponse: (url: string) => Response
 /** 云端文档拉回来之前，重试的占位还没换成生成中；默认立刻拉回。 */
 let reviveGate: Promise<void> = Promise.resolve()
 let placeholderSeq = 0
+/** 画布上这次调用剩下的失败占位（一键补齐从这里取）。 */
+let canvasFailed: { id: string; errorCode?: 'timeout' | 'insufficient_credits' }[] = []
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -170,6 +173,7 @@ beforeEach(() => {
   reviveGate = Promise.resolve()
   useAgentStore.setState({ retryRefusals: {} })
   placeholderSeq = 0
+  canvasFailed = []
   imageResponse = () =>
     new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
   setAgentCanvasSink({
@@ -204,6 +208,9 @@ beforeEach(() => {
         onCanvas.add(item.artifactId)
       }
       return 'placed'
+    },
+    failedPlaceholders() {
+      return canvasFailed
     },
     focus() {},
     async thumbnail() {
@@ -1214,6 +1221,210 @@ describe('单张重试', () => {
     done = true
     await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
     expect(placedInto).toEqual([['placeholder-9']])
+  })
+
+  describe('重试排队', () => {
+    const { job: _job, ...queuedBase } = RETRY_RECORD
+    const QUEUED: AgentToolResultBlock = { ...queuedBase, status: 'queued' }
+    /** 同一张失败卡上的一条重试记录，挂在某个占位上。 */
+    const record = (id: string, placeholderId: string, result: Partial<AgentToolResultBlock>) => ({
+      id,
+      turnId: `${id}-turn`,
+      role: 'assistant' as const,
+      content: [
+        {
+          ...QUEUED,
+          toolCallId: `${id}-call`,
+          retryOf: { messageId: 'tool-1', toolCallId: 'call-1', placeholderId },
+          ...result,
+        } as AgentToolResultBlock,
+      ],
+      createdAt: 3,
+    })
+    const jobOf = (view: ReturnType<typeof record>): AgentBackgroundJobView => ({
+      messageId: view.id,
+      turnId: view.turnId,
+      result: view.content[0]!,
+    })
+
+    it('排在别的重试后面：卡标着排队中、占位不转圈；轮到时转圈，结果落回原占位', async () => {
+      await openFailedConversation()
+      let phase: 'queued' | 'running' | 'done' = 'queued'
+      jobsResponse = () => [
+        jobOf(
+          record(
+            'retry-1',
+            'placeholder-9',
+            {
+              queued: {},
+              running: { status: 'submitted', job: { taskId: 'task-retry', media: 'image' } },
+              done: {
+                status: 'succeeded',
+                job: { taskId: 'task-retry', media: 'image' },
+                artifacts: [IMAGE],
+              },
+            }[phase] as Partial<AgentToolResultBlock>,
+          ),
+        ),
+      ]
+      retryResponse = () => Response.json({ message: record('retry-1', 'placeholder-9', {}) })
+
+      expect(await state().retry('tool-1', 'placeholder-9')).toBe(true)
+
+      expect(toolMessages()[1]).toMatchObject({ id: 'retry-1', status: 'queued' })
+      expect(revived).toEqual([])
+
+      phase = 'running'
+      await vi.waitFor(() => expect(toolMessages()[1]!.status).toBe('submitted'))
+      expect(revived).toEqual(['placeholder-9'])
+
+      phase = 'done'
+      await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+      expect(placedInto).toEqual([['placeholder-9']])
+    })
+
+    it('刷新或换设备后读回排着的重试，照样等它轮到', async () => {
+      let running = false
+      jobsResponse = () => [
+        jobOf(
+          record(
+            'retry-1',
+            'placeholder-9',
+            running ? { status: 'submitted', job: { taskId: 'task-retry', media: 'image' } } : {},
+          ),
+        ),
+      ]
+      await openFailedConversation([record('retry-1', 'placeholder-9', {})])
+      expect(toolMessages()[1]).toMatchObject({ status: 'queued' })
+
+      running = true
+      await vi.waitFor(() => expect(revived).toEqual(['placeholder-9']))
+    })
+
+    it('撤回排着的重试：占位保持原来那次失败', async () => {
+      await openFailedConversation([record('retry-1', 'placeholder-9', {})])
+      let withdrawn = false
+      jobsResponse = () => [
+        jobOf(
+          record(
+            'retry-1',
+            'placeholder-9',
+            withdrawn ? { status: 'failed', errorCode: 'cancelled', message: '重试已撤回' } : {},
+          ),
+        ),
+      ]
+      retryResponse = (url) => {
+        withdrawn = true
+        return url.endsWith('/retry-1/cancel')
+          ? Response.json({ cancelled: true })
+          : Response.json({ error: 'not_found' }, { status: 404 })
+      }
+
+      await state().cancelJob('retry-1')
+
+      expect(retryRequests.map((request) => request.url)).toEqual([
+        `http://bff.test/api/agent/conversations/${CONVERSATION}/retries/retry-1/cancel`,
+      ])
+      expect(toolMessages()[1]).toMatchObject({ status: 'failed', errorCode: 'cancelled' })
+      expect(failed.map((one) => one.id)).toEqual(['placeholder-9'])
+      expect(failedCodes).toEqual(['timeout'])
+      expect(revived).toEqual([])
+    })
+
+    it('轮到的重试积分不够：它引导充值，剩下的撤回成原来那次失败', async () => {
+      const running = record('retry-1', 'placeholder-7', {
+        status: 'submitted',
+        job: { taskId: 'task-retry', media: 'image' },
+      })
+      await openFailedConversation([
+        running,
+        record('retry-2', 'placeholder-8', {}),
+        record('retry-3', 'placeholder-9', {}),
+      ])
+      jobsResponse = () => [
+        jobOf(record('retry-1', 'placeholder-7', { ...running.content[0], status: 'succeeded' })),
+        jobOf(
+          record('retry-2', 'placeholder-8', {
+            status: 'failed',
+            errorCode: 'insufficient_credits',
+            message: '重试没能提交（insufficient_credits）',
+          }),
+        ),
+        jobOf(
+          record('retry-3', 'placeholder-9', {
+            status: 'failed',
+            errorCode: 'cancelled',
+            message: '前一条重试没能提交（insufficient_credits），排队的重试已撤回',
+          }),
+        ),
+      ]
+
+      await vi.waitFor(() => expect(failed).toHaveLength(2))
+      expect(Object.fromEntries(failed.map((one, index) => [one.id, failedCodes[index]]))).toEqual({
+        'placeholder-8': 'insufficient_credits',
+        'placeholder-9': 'timeout',
+      })
+      // 云端占位本机改不了：拒绝的码盖在它此刻挂着的那次生成（原失败卡的任务）上。
+      expect(state().retryRefusals).toEqual({
+        'placeholder-8': { code: 'insufficient_credits', generationId: 'task-1' },
+      })
+    })
+
+    it('一键补齐：剩下的失败占位逐个重试，已经排着的与码不可重试的跳过', async () => {
+      setChannels([
+        {
+          id: 'builtin',
+          kind: 'openai-queue',
+          label: 'Builtin',
+          models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+          defaults: { apiMode: 'images', timeout: 600 },
+        },
+      ])
+      await openFailedConversation([record('retry-1', 'placeholder-4', {})])
+      canvasFailed = [
+        { id: 'placeholder-1', errorCode: 'timeout' },
+        { id: 'placeholder-2', errorCode: 'timeout' },
+        { id: 'placeholder-3', errorCode: 'insufficient_credits' },
+        { id: 'placeholder-4', errorCode: 'timeout' },
+      ]
+      let seq = 1
+      retryResponse = () => {
+        seq += 1
+        return Response.json({ message: record(`retry-${seq}`, `placeholder-${seq - 1}`, {}) })
+      }
+
+      await state().retryRemaining('tool-1')
+
+      expect(retryRequests.map((request) => request.body)).toEqual([
+        expect.objectContaining({ messageId: 'tool-1', placeholderId: 'placeholder-1' }),
+        expect.objectContaining({ messageId: 'tool-1', placeholderId: 'placeholder-2' }),
+      ])
+      setChannels([])
+    })
+
+    it('一键补齐途中被拒（积分不够）就停下，不刷出一串同样的错', async () => {
+      setChannels([
+        {
+          id: 'builtin',
+          kind: 'openai-queue',
+          label: 'Builtin',
+          models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+          defaults: { apiMode: 'images', timeout: 600 },
+        },
+      ])
+      await openFailedConversation()
+      canvasFailed = [
+        { id: 'placeholder-1', errorCode: 'timeout' },
+        { id: 'placeholder-2', errorCode: 'timeout' },
+      ]
+      retryResponse = () =>
+        Response.json({ error: 'retry_refused', code: 'insufficient_credits' }, { status: 409 })
+
+      await state().retryRemaining('tool-1')
+
+      expect(retryRequests).toHaveLength(1)
+      setChannels([])
+    })
   })
 })
 
