@@ -281,6 +281,9 @@ export function followTurn(
     // 见过的最大帧标识，就是续播的断点；快照已经覆盖到游标为止。
     let seen = cursor ?? 0
     let frames = 'frames' in source ? source.frames : resume(seen)
+    // 流里最近一个 `turnStart` 属于哪一轮；它之后、下一个 `turnStart` 之前的事件都归它。
+    // 续播从一轮中间接上时还没见过 `turnStart`，那段就是这一轮自己的。
+    let owner = turnId
     try {
       for (let attempt = 0; ; attempt += 1) {
         if (!shouldContinue()) return
@@ -293,8 +296,13 @@ export function followTurn(
               // 有进展就说明这次连接是好的，退避从头算。
               attempt = -1
             }
-            if (frame.event.type === 'turnStart' && !turnId) turnId = frame.event.turnId
-            // 会话级增量里别的轮的终帧不是这一轮的结局，交出去只会把面板提前收成空闲。
+            if (frame.event.type === 'turnStart') {
+              if (!turnId) turnId = frame.event.turnId
+              owner = frame.event.turnId
+            }
+            // 会话级增量里夹着别的轮：它的事件不是这一轮的内容，终帧也不是这一轮的结局，
+            // 交出去只会把别处的回复画进这个面板、或者把面板提前收成空闲。
+            if (owner !== turnId) continue
             if (frame.event.type === 'turnEnd' && frame.event.turnId !== turnId) continue
             yield frame.event
             if (frame.event.type === 'turnEnd') {

@@ -21,6 +21,7 @@ import {
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
 import {
+  isSealLease,
   lastConversationEventSeq,
   openTurnEventBase,
   readConversationEvents,
@@ -132,14 +133,18 @@ export const agentRoutes = new Elysia()
       // 被打断的轮先补上终帧，快照里的页脚与之后的增量才对得上。
       if (!local) await sealAbandonedTurns(conversation.id)
       const execution = await conversationExecution(conversation.id)
-      const active =
-        local ??
-        (execution && execution.instance !== agentInstance
+      const remote =
+        execution && execution.instance !== agentInstance && !isSealLease(execution.turn_id)
           ? { turnId: execution.turn_id }
-          : undefined)
+          : undefined
+      const active = local ?? remote
       // 游标先于消息读：两次读取之间新落的东西会在增量里再来一遍（按 id 幂等），而不是漏掉。
+      // 别的实例刚起的轮不给游标：它的开头可能已经落库、序号已经算进最大序号，
+      // 从那之后接会把这一轮的开头整段漏掉；没有游标，客户端就按轮从头重放。
       const liveBase = local ? openTurnEventBase(conversation.id, local.turnId) : undefined
-      const cursor = liveBase ?? (await lastConversationEventSeq(conversation.id))
+      const cursor = remote
+        ? undefined
+        : (liveBase ?? (await lastConversationEventSeq(conversation.id)))
       const [messages, turns] = await Promise.all([
         listAgentMessages(conversation.id, owner),
         listAgentTurnSummaries(conversation.id),
@@ -149,7 +154,7 @@ export const agentRoutes = new Elysia()
         turns,
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
-        cursor,
+        ...(cursor === undefined ? {} : { cursor }),
       }
       return snapshot
     },

@@ -6,6 +6,7 @@ import {
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
@@ -30,8 +31,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { appendAgentTurnEvents } = await import('../../lib/agent/events')
-const { AGENT_EXECUTION_LEASE_MS } = await import('../../lib/agent/execution')
+const { appendAgentTurnEvents, SEAL_SEQ_GAP } = await import('../../lib/agent/events')
+const { AGENT_EXECUTION_LEASE_MS, agentInstance } = await import('../../lib/agent/execution')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 const app = new Elysia().use(agentRoutes)
@@ -113,6 +114,11 @@ async function completeTurn(conversationId: string, text: string, reply: string)
 
 const types = (frames: readonly ReceivedFrame[]) => frames.map((frame) => frame.event.type)
 const ids = (frames: readonly ReceivedFrame[]) => frames.map((frame) => frame.id)
+const increasing = (values: readonly (number | null)[]) =>
+  values.every((value, index) => index === 0 || (value ?? 0) > (values[index - 1] ?? 0))
+
+/** 被打断的轮只落了三条，终帧跳过进程死前可能已经流出去、却没落库的那段序号。 */
+const SEALED_SEQ = 3 + SEAL_SEQ_GAP
 
 /** 进程被杀的那一刻：事件落了一半、没有终帧，租约过了期没人续。 */
 async function seedInterruptedTurn(conversationId: string, turnId: string, afterSeq = 0) {
@@ -222,13 +228,13 @@ describe('服务端补写终帧', () => {
 
     const state = await snapshot(conversationId)
     expect(state.activeTurn).toBeNull()
-    expect(state.cursor).toBe(4)
+    expect(state.cursor).toBe(SEALED_SEQ)
     expect(state.turns).toEqual([
       expect.objectContaining({ turnId: 'turn-crashed', stopReason: 'failed' }),
     ])
 
     const frames = await conversationEvents(conversationId)
-    expect(ids(frames)).toEqual([1, 2, 3, 4])
+    expect(ids(frames)).toEqual([1, 2, 3, SEALED_SEQ])
     expect(frames.at(-1)!.event).toMatchObject({
       type: 'turnEnd',
       turnId: 'turn-crashed',
@@ -248,7 +254,59 @@ describe('服务端补写终帧', () => {
     const frames = await turnEvents(conversationId, 'turn-crashed')
 
     expect(types(frames)).toEqual(['turnStart', 'assistantStart', 'textDelta', 'turnEnd'])
-    expect(frames.at(-1)!.id).toBe(4)
+    expect(frames.at(-1)!.id).toBe(SEALED_SEQ)
+  })
+
+  it('进程死前流出去却没落库的尾巴不会让终帧撞号：带着更大的断点续播仍能收到终帧', async () => {
+    const conversationId = await startConversation()
+    // 表里只有 1..3，客户端却已经从内存实时流里收到了 4..7。
+    await seedInterruptedTurn(conversationId, 'turn-crashed')
+
+    const frames = await conversationEvents(conversationId, 7)
+
+    expect(frames).toEqual([
+      {
+        id: SEALED_SEQ,
+        event: expect.objectContaining({
+          type: 'turnEnd',
+          turnId: 'turn-crashed',
+          stopReason: 'failed',
+        }),
+      },
+    ])
+    const next = await completeTurn(conversationId, '再来', '好的')
+    expect(next[0]).toMatchObject({ id: SEALED_SEQ + 1, event: { type: 'turnStart' } })
+  })
+
+  it('页脚已经落了、终帧没发出去的轮，补写照页脚的结局与消耗', async () => {
+    const conversationId = await startConversation()
+    await seedInterruptedTurn(conversationId, 'turn-crashed')
+    const cost = { chat: 3, image: 12, video: 0 }
+    await db.insert(schema.agent_turns).values({
+      conversation_id: conversationId,
+      turn_id: 'turn-crashed',
+      duration_ms: 4321,
+      stop_reason: 'completed',
+      cost,
+      created_at: Date.now(),
+    })
+
+    const frames = await conversationEvents(conversationId)
+
+    expect(frames.at(-1)).toEqual({
+      id: SEALED_SEQ,
+      event: {
+        type: 'turnEnd',
+        turnId: 'turn-crashed',
+        durationMs: 4321,
+        stopReason: 'completed',
+        usage: null,
+        cost,
+      },
+    })
+    expect((await snapshot(conversationId)).turns).toEqual([
+      expect.objectContaining({ turnId: 'turn-crashed', stopReason: 'completed', cost }),
+    ])
   })
 
   it('下一轮开始前先补上一轮的终帧，终帧排在新一轮之前', async () => {
@@ -257,11 +315,67 @@ describe('服务端补写终帧', () => {
 
     const next = await completeTurn(conversationId, '再来', '好的')
 
-    expect(next[0]).toMatchObject({ id: 5, event: { type: 'turnStart' } })
+    expect(next[0]).toMatchObject({ id: SEALED_SEQ + 1, event: { type: 'turnStart' } })
     const frames = await conversationEvents(conversationId)
-    expect(ids(frames)).toEqual(frames.map((_, index) => index + 1))
+    expect(increasing(ids(frames))).toBe(true)
     expect(frames[3]!.event).toMatchObject({ type: 'turnEnd', turnId: 'turn-crashed' })
     expect(frames.slice(4)).toEqual(next)
+  })
+
+  it('收尾本身抛错的轮当场发一个失败的终帧，连着的流与续播都收得到', async () => {
+    const conversationId = await startConversation()
+    await db.execute(
+      sql`CREATE FUNCTION agent_message_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture message store unavailable'; END $$`,
+    )
+    await db.execute(
+      sql`CREATE TRIGGER agent_message_fault BEFORE INSERT ON agent_messages FOR EACH ROW WHEN (NEW.role = 'assistant') EXECUTE FUNCTION agent_message_fault()`,
+    )
+    try {
+      const frames = await completeTurn(conversationId, '你好', '好的')
+
+      const ends = frames.filter((frame) => frame.event.type === 'turnEnd')
+      expect(ends).toHaveLength(1)
+      expect(frames.at(-1)!.event).toMatchObject({
+        type: 'turnEnd',
+        stopReason: 'failed',
+        error: 'agent_run_failed',
+      })
+      await waitFor(async () => (await snapshot(conversationId)).activeTurn === null)
+      expect(await conversationEvents(conversationId)).toEqual(frames)
+    } finally {
+      await db.execute(sql`DROP TRIGGER agent_message_fault ON agent_messages`)
+      await db.execute(sql`DROP FUNCTION agent_message_fault()`)
+    }
+  })
+
+  it('补写正占着租约时发消息，等它放手再起轮，而不是把补写当成一轮', async () => {
+    const conversationId = await startConversation()
+    await db.insert(schema.agent_executions).values({
+      conversation_id: conversationId,
+      turn_id: 'seal:fixture',
+      instance: agentInstance,
+      origin: 'http://self.test',
+      state: 'running',
+      heartbeat_at: Date.now(),
+    })
+    // 补写几次往返之后放手。
+    const released = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await db
+        .update(schema.agent_executions)
+        .set({ state: 'completed' })
+        .where(sql`${schema.agent_executions.conversation_id} = ${conversationId}`)
+    })()
+
+    const live = await startTurn(conversationId, '你好')
+    await released
+    expect(live.status).toBe(200)
+    upstream.push('好的')
+    upstream.finish()
+    const frames = parseFrames(await live.text())
+
+    expect(frames[0]!.event.type).toBe('turnStart')
+    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
   })
 
   it('还在跑的轮不补写', async () => {

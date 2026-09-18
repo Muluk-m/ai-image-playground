@@ -11,6 +11,21 @@ import { claimConversation, releaseConversation } from './execution'
 /** 落库攒批的窗口。进程被强杀时最多丢这么久的事件，实时那条路走内存缓冲不受影响。 */
 const PERSIST_DEBOUNCE_MS = 50
 
+/**
+ * 补写终帧时跳过的序号。被打断的轮在内存里发过、还没落库的尾巴客户端可能已经收到了，
+ * 表里的最大序号并不是客户端见过的最大序号；紧挨着它发号，终帧就会和那段尾巴撞号，
+ * 带着 `Last-Event-ID` 续播的客户端会把它当成见过的跳过去，永远收不到结局。
+ * 攒批窗口里的事件远到不了这个数，跳过之后序号留一个空档，但不会重号。
+ */
+export const SEAL_SEQ_GAP = 10_000
+
+/** 补写终帧时领会话租约用的轮标识前缀。它不是一轮：起轮撞上它该等一等，而不是转去续播。 */
+const SEAL_LEASE_PREFIX = 'seal:'
+
+export function isSealLease(turnId: string): boolean {
+  return turnId.startsWith(SEAL_LEASE_PREFIX)
+}
+
 export interface StoredAgentEvent {
   readonly seq: number
   readonly event: AgentTurnEvent
@@ -350,7 +365,7 @@ async function writeSeals(conversationId: string, turns: readonly UnterminatedTu
         })
         .onConflictDoNothing()
     }
-    const seq = (await lastConversationEventSeq(conversationId)) + 1
+    const seq = (await lastConversationEventSeq(conversationId)) + SEAL_SEQ_GAP
     await appendAgentTurnEvents(conversationId, turn.turnId, [{ seq, event }])
     log.warn(
       { event: 'agent.turn_sealed', conversationId, turnId: turn.turnId },
@@ -371,7 +386,7 @@ export async function sealAbandonedTurns(conversationId: string, owned = false):
     await writeSeals(conversationId, found)
     return
   }
-  const sealId = `seal:${crypto.randomUUID()}`
+  const sealId = `${SEAL_LEASE_PREFIX}${crypto.randomUUID()}`
   if (!(await claimConversation(conversationId, sealId))) return
   try {
     // 领到之后重查：领之前那一轮可能刚好自己收了尾。

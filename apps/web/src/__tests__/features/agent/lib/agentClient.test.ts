@@ -386,4 +386,32 @@ describe('先取快照再接会话增量', () => {
     expect(await collect(turn)).toEqual([TURN_START, TURN_END])
     expect(turn.outcome).toBe('ended')
   })
+
+  it('断点之后插进来的别的轮，它的内容与终帧都不交给这一轮', async () => {
+    const OTHER = 'turn-other'
+    const otherStart: AgentTurnEvent = { ...TURN_START, turnId: OTHER }
+    const otherEnd: AgentTurnEvent = { ...TURN_END, turnId: OTHER }
+    const { fetcher } = scriptedFetcher([
+      () =>
+        sse(
+          [
+            { id: 12, event: otherStart },
+            { id: 13, event: delta('别处的回复') },
+          ],
+          true,
+        ),
+      () =>
+        sse([
+          { id: 14, event: otherEnd },
+          { id: 20, event: TURN_START },
+          { id: 21, event: delta('这一轮的') },
+          { id: 22, event: TURN_END },
+        ]),
+    ])
+
+    const turn = followTurn(CONVERSATION, { turnId: TURN, cursor: 11 }, { fetcher, delaysMs: [0] })
+
+    expect(await collect(turn)).toEqual([TURN_START, delta('这一轮的'), TURN_END])
+    expect(turn.outcome).toBe('ended')
+  })
 })

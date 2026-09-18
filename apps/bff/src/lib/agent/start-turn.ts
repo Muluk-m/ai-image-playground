@@ -11,7 +11,7 @@ import {
   listAgentMessages,
   setAgentConversationTitle,
 } from './conversations'
-import { sealAbandonedTurns } from './events'
+import { isSealLease, sealAbandonedTurns } from './events'
 import {
   assertConversationExecution,
   ConversationExecutionLost,
@@ -58,7 +58,7 @@ export async function startConversationTurn(
   let turn: RunningTurn | undefined
   let ownershipLost = false
   try {
-    claimed = await claimConversation(input.conversationId, turnId)
+    claimed = await claimWaitingOutSeal(input.conversationId, turnId)
     if (!claimed) {
       const active = await conversationExecution(input.conversationId)
       release()
@@ -94,6 +94,25 @@ export async function startConversationTurn(
     if (claimed) await releaseConversation(input.conversationId, turnId)
     release()
     throw error
+  }
+}
+
+/** 补写终帧只占几次数据库往返；撞上它就等它放手，最多等这么久。 */
+const SEAL_WAIT_MS = 2_000
+const SEAL_POLL_MS = 50
+
+/**
+ * 领会话租约；占着租约的若是补写终帧而不是一轮，等它写完再领。
+ * 补写不是用户能看到的轮，撞上它回 409 会让客户端去续播一个不存在的轮。
+ */
+async function claimWaitingOutSeal(conversationId: string, turnId: string): Promise<boolean> {
+  const deadline = Date.now() + SEAL_WAIT_MS
+  while (true) {
+    if (await claimConversation(conversationId, turnId)) return true
+    const holder = await conversationExecution(conversationId)
+    if (holder && !isSealLease(holder.turn_id)) return false
+    if (Date.now() >= deadline) return false
+    if (holder) await new Promise((resolve) => setTimeout(resolve, SEAL_POLL_MS))
   }
 }
 
