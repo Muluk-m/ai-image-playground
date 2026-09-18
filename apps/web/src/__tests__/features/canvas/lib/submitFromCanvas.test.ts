@@ -101,3 +101,28 @@ describe('retryCanvasTask billing guard', () => {
     expect(callImageApiMock).not.toHaveBeenCalled()
   })
 })
+
+describe('failed canvas image task', () => {
+  it('keeps its input images in memory so the error placeholder can retry them', async () => {
+    const { getCanvasTask } = await import('../../../../features/canvas/lib/canvasTaskRuntime')
+    guardMock.mockReturnValueOnce({ blocked: false })
+    callImageApiMock.mockRejectedValueOnce(new Error('upstream timeout'))
+    let meta: { taskId: string } | undefined
+    const editor = {
+      createPlaceholder: vi.fn((_target: unknown, created: { taskId: string }) => {
+        meta = created
+        return 'placeholder-2'
+      }),
+      updatePlaceholder: vi.fn(),
+      getSelectedIds: () => [],
+      getViewportPageBounds: () => ({ midX: 500, midY: 400, w: 4000 }),
+      getOccupiedBounds: () => [],
+    } as unknown as CanvasEditor
+
+    await submitFromCanvas(editor, 'draw')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(meta).toBeDefined()
+    expect(getCanvasTask(meta!.taskId)).toBeDefined()
+  })
+})

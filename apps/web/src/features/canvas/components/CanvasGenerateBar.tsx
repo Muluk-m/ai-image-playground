@@ -1,13 +1,47 @@
+import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { safeLocalStorage } from '../../../lib/authScope'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import { useVideoStore } from '../../video/store'
 import type { CanvasEditor } from '../lib/editor'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
+import {
+  canvasVideoPromptRefusal,
+  canvasVideoSelectionRefusal,
+  submitVideoFromCanvas,
+} from '../lib/submitVideoFromCanvas'
+import CanvasVideoParams from './CanvasVideoParams'
+
+type GenerateMode = 'image' | 'video'
+/** 生成栏上次停在图片档还是视频档，本机记住。 */
+const MODE_STORAGE_KEY = 'canvas.generateMode'
+
+function useGenerateMode(): [GenerateMode, (mode: GenerateMode) => void] {
+  const available = isVideoModeAvailable()
+  const [mode, setMode] = useState<GenerateMode>(() =>
+    safeLocalStorage.getItem(MODE_STORAGE_KEY) === 'video' ? 'video' : 'image',
+  )
+  const choose = (next: GenerateMode) => {
+    setMode(next)
+    safeLocalStorage.setItem(MODE_STORAGE_KEY, next)
+  }
+  // 部署关了视频（或没有视频 channel）就只剩图片档，记住的选择不作数。
+  return [available ? mode : 'image', choose]
+}
 
 /** 预览缩略图的栅格化比例：低成本、48px 展示足够清晰。 */
 const PREVIEW_SCALE = 0.25
@@ -74,6 +108,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
+  const [mode, setMode] = useGenerateMode()
+  const videoDraft = useVideoStore((state) => state.draft)
 
   // 与提交同一套选区分析：标注自动跟随被标注的图，提示与实际提交一致。
   const { imageCount, annotated, annotationText, signature } = useSelectionInfo(editor)
@@ -100,24 +136,57 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   }, [signature, editor])
 
   const activeProfile = getActiveApiProfile(settings)
-  const submissionInput = {
-    model: clientProfileToApiProfile(activeProfile).model,
-    quantity: Math.max(1, params.n),
-  }
+  const video = mode === 'video'
+  const submissionInput = video
+    ? {
+        model: videoDraft.model,
+        quantity: videoDraft.duration,
+        unitMultiplier: videoRateMultiplier(videoDraft.model, videoDraft.resolution),
+      }
+    : {
+        model: clientProfileToApiProfile(activeProfile).model,
+        quantity: Math.max(1, params.n),
+      }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  const canSubmit = (prompt.trim().length > 0 || imageCount > 0) && !submissionGuard.blocked
+  // 视频档的选区规则（几张图、模型接不接得住首尾帧）在这里先判，按钮与提示同一个结论。
+  const videoRefusal = video
+    ? (canvasVideoSelectionRefusal(editor, videoDraft.model) ??
+      canvasVideoPromptRefusal(
+        videoDraft.model,
+        [annotationText, prompt.trim()].filter(Boolean).join('\n'),
+      ))
+    : null
+  const canSubmit = video
+    ? (prompt.trim().length > 0 || annotationText.length > 0) &&
+      !videoRefusal &&
+      !submissionGuard.blocked
+    : (prompt.trim().length > 0 || imageCount > 0) && !submissionGuard.blocked
 
-  const hint = annotated
-    ? t('generate.hintAnnotated', { count: imageCount })
-    : imageCount > 0
-      ? t('generate.hintSelected', { count: imageCount })
-      : t('generate.hintEmpty')
+  const hint = video
+    ? (videoRefusal ??
+      (imageCount === 0
+        ? t('video.hintText')
+        : imageCount === 1
+          ? t('video.hintFirst')
+          : t('video.hintFirstLast')))
+    : annotated
+      ? t('generate.hintAnnotated', { count: imageCount })
+      : imageCount > 0
+        ? t('generate.hintSelected', { count: imageCount })
+        : t('generate.hintEmpty')
 
-  const run = () => {
+  const run = async () => {
     if (!canSubmit) return
-    // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
-    void submitFromCanvas(editor, prompt)
-    setPrompt('')
+    if (video) {
+      // 视频要先过校验与门禁才受理；被拒时保留输入，用户改一下就能再发。
+      const submitted = prompt
+      if (!(await submitVideoFromCanvas(editor, submitted))) return
+      setPrompt((current) => (current === submitted ? '' : current))
+    } else {
+      // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
+      void submitFromCanvas(editor, prompt)
+      setPrompt('')
+    }
     // 焦点还给画布：输入框聚焦时画布快捷键被 isTyping 守卫禁用，
     // 生成发出后用户的下一步通常是画布操作（选图 / 删除 / 复制粘贴）。
     textareaRef.current?.blur()
@@ -129,8 +198,30 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         {/* 参数控制条：与工作台共用同一份全局 params/settings。数量 n>1 时 fan-out
             成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
         <div className="flex flex-wrap items-center gap-2">
-          <ParamControls showCount />
+          {isVideoModeAvailable() && (
+            <Select
+              value={mode}
+              onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
+            >
+              <SelectTrigger
+                aria-label={t('generate.modeAria')}
+                className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
+                <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {!video && <ParamControls showCount />}
         </div>
+        {video && (
+          <CanvasVideoParams
+            hasFirstFrame={imageCount > 0 && !canvasVideoSelectionRefusal(editor, videoDraft.model)}
+          />
+        )}
         {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}
         {imageCount > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-2">
@@ -173,14 +264,14 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                   e.preventDefault()
-                  run()
+                  void run()
                 } else if (e.key === 'Escape') {
                   // Esc 退出输入框、焦点还给画布（恢复画布快捷键）。
                   e.preventDefault()
                   e.currentTarget.blur()
                 }
               }}
-              placeholder={t('generate.promptPlaceholder')}
+              placeholder={video ? t('video.promptPlaceholder') : t('generate.promptPlaceholder')}
               aria-label={t('generate.promptAria')}
               rows={5}
               className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
@@ -188,7 +279,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           </div>
           <button
             type="button"
-            onClick={run}
+            onClick={() => void run()}
             disabled={!canSubmit}
             title={submissionGuard.disabledReason}
             className="studio-primary w-full"

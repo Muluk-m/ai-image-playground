@@ -51,7 +51,10 @@
     "previewPending": "Building preview…",
     "annotationHint": "Text markup → change request: {{text}}",
     "promptPlaceholder": "Describe what to create or change… (⌘/Ctrl + Enter)",
-    "promptAria": "Creation prompt"
+    "promptAria": "Creation prompt",
+    "modeAria": "Generation type",
+    "modeImage": "Image",
+    "modeVideo": "Video"
   },
   "submit": {
     "blocked": "Can't generate right now",
@@ -215,5 +218,17 @@
     "localEdits": "Save local edits as new project",
     "restore": "Restore",
     "deleteMessage": "Move “{{name}}” to the cloud recycle bin? It will disappear on your other devices and can be restored before expiry."
+  },
+  "video": {
+    "hintText": "No image selected: text to video",
+    "hintFirst": "The selected image is the first frame",
+    "hintFirstLast": "Left image is the first frame, right image the last frame",
+    "promptPlaceholder": "Describe the scene, motion and camera… (⌘/Ctrl + Enter to generate)",
+    "refuse": {
+      "videoSelected": "A video is selected: extend or edit it from the toolbar on the video",
+      "tooManyImages": "A video takes at most two images: a first frame and a last frame",
+      "firstFrameUnsupported": "{{model}} cannot start from an image; deselect the images",
+      "lastFrameUnsupported": "{{model}} has no last frame; select one image as the first frame"
+    }
   }
 }

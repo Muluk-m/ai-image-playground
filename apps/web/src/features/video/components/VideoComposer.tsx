@@ -28,11 +28,11 @@ import {
   videoComposerSourceLabels,
   videoFrameSlotLabel,
 } from '../types'
-import ChipRow from './ChipRow'
 import { SUGGESTION_CHIP } from './chipStyles'
 import FramePicker from './FramePicker'
 import FrameSlot from './FrameSlot'
 import FrameSourceStrip from './FrameSourceStrip'
+import VideoPresetRows from './VideoPresetRows'
 
 /** 每秒单价：向门禁问 1 秒 × 倍率 1 的价，没有计费时它不给数，卡片就只写模型名。 */
 function ModelCard({
@@ -105,7 +105,6 @@ function VideoSubmitPanel({
     ? undefined
     : t('composer.lastFrameUnsupported', { model: support.label })
   const promptRejection = videoPromptRejection(draft.model, draft.prompt)
-  const durations = videoDurationsForResolution(support, draft.resolution)
   const summary = t('composer.summary', {
     model: support.label,
     seconds: draft.duration,
@@ -192,36 +191,10 @@ function VideoSubmitPanel({
       </div>
 
       <div className="flex flex-col gap-2.5">
-        <ChipRow
-          label={t('composer.durationLabel')}
-          options={support.durations}
-          value={draft.duration}
-          render={(duration) => t('shared.seconds', { seconds: duration })}
-          optionDisabled={(duration) => !durations.includes(duration)}
-          onChange={(duration) => useVideoStore.getState().setDuration(duration)}
-        />
-        <ChipRow
-          label={t('field.aspectRatio')}
-          options={VIDEO_ASPECT_RATIOS.filter((ratio) => support.aspectRatios.includes(ratio))}
-          value={draft.aspectRatio}
-          render={(ratio) => ratio}
-          onChange={(ratio) => useVideoStore.getState().setAspectRatio(ratio)}
-          disabled={draft.source === 'image'}
-          note={draft.source === 'image' ? t('aspect.followsFirstFrame') : undefined}
-        />
-        <ChipRow
-          label={t('field.resolution')}
-          options={support.resolutions}
-          value={draft.resolution}
-          render={(resolution) => {
-            const multiplier = videoRateMultiplier(draft.model, resolution)
-            const label = VIDEO_RESOLUTION_LABELS[resolution]
-            return multiplier === 1 ? label : `${label} ×${multiplier}`
-          }}
-          optionDisabled={(resolution) =>
-            !videoDurationsForResolution(support, resolution).includes(draft.duration)
-          }
-          onChange={(resolution) => useVideoStore.getState().setResolution(resolution)}
+        <VideoPresetRows
+          support={support}
+          draft={draft}
+          aspectFollowsFirstFrame={draft.source === 'image'}
         />
       </div>
 

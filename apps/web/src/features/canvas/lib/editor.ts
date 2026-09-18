@@ -1,3 +1,4 @@
+import type { VideoGenerationRecord } from '@image-playground/shared'
 import Konva from 'konva'
 import type { CanvasProfileSnapshot } from '../../../store'
 import type { TaskParams } from '../../../types'
@@ -53,6 +54,8 @@ export interface CanvasTaskMeta {
    */
   agentMessageId?: string
   agent?: true
+  /** 有值即这是一条视频任务：提交到哪条 channel、按什么档位生成。恢复与重试都认它。 */
+  video?: { channelId: string; generation: VideoGenerationRecord }
 }
 
 /** 占位框的业务视图：几何 + 状态 + 恢复元数据（屏蔽底层元素结构）。 */
