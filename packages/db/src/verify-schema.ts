@@ -2,6 +2,8 @@ import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
   'generation_images',
+  'agent_executions',
+  'deployment_controls',
   'media_objects',
   'media_references',
   'generation_commands',
@@ -34,6 +36,9 @@ export const EXPECTED_TABLES = [
 
 export const EXPECTED_INDEXES = [
   'generation_images_generation_id_role_position_pk',
+  'agent_executions_pkey',
+  'deployment_controls_pkey',
+  'idx_tasks_lease_expires',
   'media_objects_pkey',
   'media_references_user_id_owner_kind_owner_id_media_id_pk',
   'idx_media_objects_owner_hash',

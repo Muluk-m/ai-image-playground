@@ -37,6 +37,12 @@
   },
   "card": {
     "generating": "Generating...",
+    "phase": {
+      "queued": "Queued...",
+      "generating": "Generating...",
+      "reconnecting": "Reconnecting...",
+      "confirming": "Confirming result..."
+    },
     "inpaint": "Inpaint",
     "transparentBackground": "Transparent"
   },

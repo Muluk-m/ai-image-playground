@@ -116,9 +116,18 @@ case "$command" in
   up)
     require_migrator_env
     require_tunnel_credentials
-    activate_backend_then_ingress
+    if docker inspect "$project-bff-1" >/dev/null 2>&1; then
+      rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
+      "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollout_image"
+    else
+      activate_backend_then_ingress
+    fi
     ;;
   stop|down)
+    if [ -f "$APP_CONFIG_DIR/releases/current" ]; then
+      echo "Release-managed executors are active. Refusing legacy compose-down; drain each runtime before stopping ingress." >&2
+      exit 1
+    fi
     compose down --remove-orphans
     ;;
   status)
@@ -133,7 +142,7 @@ case "$command" in
     require_tunnel_credentials
     APP_IMAGE=$rollback_image
     export APP_IMAGE
-    activate_backend_then_ingress --force-recreate
+    "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollback_image"
     ;;
   *)
     usage

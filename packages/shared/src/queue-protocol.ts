@@ -15,6 +15,8 @@ export const DEFAULT_IMAGE_MODERATION = 'low' as const
 
 export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
+export const TASK_PROGRESS_PHASES = ['queued', 'generating', 'reconnecting', 'confirming'] as const
+export type TaskProgressPhase = (typeof TASK_PROGRESS_PHASES)[number]
 
 /**
  * `queue` 是 worker 跑的生图 / 生视频任务；`chat` 是一轮对话的占用记录，worker 不碰它，
@@ -135,6 +137,8 @@ export interface StatusResultMeta {
 export interface StatusResponse {
   request_id: string
   status: TaskStatus
+  /** Human-facing progress within queued/in_progress. Older BFFs omit it. */
+  phase?: TaskProgressPhase
   submitted_at: number
   started_at?: number
   completed_at?: number

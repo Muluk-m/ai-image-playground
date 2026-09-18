@@ -91,6 +91,36 @@ afterAll(async () => {
 })
 
 describe('startAgentTurn usage', () => {
+  it('keeps the turn active until a transient settlement failure succeeds', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const conversation = await createAgentConversation(
+      { kind: 'device', deviceId: 'device-abcdefgh' },
+      '第一句',
+    )
+    let attempts = 0
+    const turn = await startAgentTurn({
+      conversationId: conversation.id,
+      turnId: 'turn-settlement-retry',
+      userMessageId: 'retry-message',
+      history: [],
+      references: [],
+      text: '继续',
+      mode: 'image',
+      userId: null,
+      deviceId: 'device-abcdefgh',
+      settle: async () => {
+        attempts++
+        if (attempts === 1) throw new Error('temporary ledger outage')
+        return { chat: 0, image: 0, video: 0 }
+      },
+    })
+
+    for await (const _stored of turn.read(0)) {
+      // Drain the turn through its durable terminal event.
+    }
+    expect(attempts).toBe(2)
+  })
+
   it('leaves the compaction summary out of the turn usage', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
     const summaryCalls: ChatCall[] = []

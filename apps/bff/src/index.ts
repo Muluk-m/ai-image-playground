@@ -5,6 +5,7 @@ import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from 
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
+import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 
@@ -136,6 +137,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   log.info({ event: 'shutdown.start', signal }, 'stopping bff')
+  bffDrain.begin()
+  while (!bffDrain.status().safeToStop) await Bun.sleep(250)
   stopHeartbeat()
 
   try {

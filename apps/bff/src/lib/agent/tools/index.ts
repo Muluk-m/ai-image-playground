@@ -55,7 +55,21 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
  */
 export function agentTurnTools(context: AgentToolContext): AgentTool[] {
-  return [...present(context.mode).map((tool) => tool.create(context)), clarificationTool]
+  return [
+    ...present(context.mode).map((spec) => {
+      const tool = spec.create(context)
+      if (!context.assertExecution) return tool
+      const execute = tool.execute
+      return {
+        ...tool,
+        execute: async (...args: Parameters<typeof execute>) => {
+          await context.assertExecution?.()
+          return execute(...args)
+        },
+      }
+    }),
+    clarificationTool,
+  ]
 }
 
 /**
