@@ -12,7 +12,8 @@
     "newProjectAria": "New project",
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
-    "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing."
+    "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing.",
+    "jumpToLatest": "New messages"
   },
   "suggestions": {
     "aria": "Example prompts",
@@ -23,6 +24,11 @@
     "characterTitle": "Character art",
     "characterPrompt": "Draw a half-length cyberpunk girl character: a rainy street at night, neon light reflecting off her raincoat, cinematic framing.",
     "draftKeptToast": "The input already has text; clear it to use an example"
+  },
+  "reply": {
+    "copyAria": "Copy reply",
+    "copied": "Copied",
+    "copyFailed": "Copy failed. Select the reply text and copy it manually."
   },
   "tool": {
     "stageSubmitted": "Queued",

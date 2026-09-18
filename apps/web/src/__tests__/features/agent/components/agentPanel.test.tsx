@@ -274,6 +274,98 @@ describe('AgentPanel', () => {
     expect(log.scrollTop).toBe(1200)
   })
 
+  it('离开底部时来了新内容出「有新消息」，点一下回到最新并恢复跟随', () => {
+    render()
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { value: 200 },
+    })
+    const reply = (text: string) =>
+      act(() =>
+        useAgentStore.setState({
+          messages: [
+            { kind: 'text', id: 'reply', turnId: 't', role: 'assistant', text, streaming: true },
+          ],
+        }),
+      )
+    const jump = () =>
+      [...host.querySelectorAll('button')].find((one) => one.textContent === '有新消息')
+
+    expect(jump()).toBeUndefined()
+    log.scrollTop = 100
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    // 只是往上翻、还没有新内容，不打扰。
+    expect(jump()).toBeUndefined()
+    reply('新回复')
+    expect(log.scrollTop).toBe(100)
+    expect(jump()).toBeDefined()
+
+    Object.defineProperty(log, 'scrollHeight', { value: 1200 })
+    act(() => jump()!.click())
+    expect(log.scrollTop).toBe(1200)
+    expect(jump()).toBeUndefined()
+
+    // 回到最新后继续跟随流式输出。
+    Object.defineProperty(log, 'scrollHeight', { value: 1400 })
+    reply('新回复继续')
+    expect(log.scrollTop).toBe(1400)
+    expect(jump()).toBeUndefined()
+  })
+
+  it('自己滚回底部时「有新消息」随之消失', () => {
+    render()
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { value: 200 },
+    })
+    log.scrollTop = 100
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          { kind: 'text', id: 'r', turnId: 't', role: 'assistant', text: '新', streaming: true },
+        ],
+      }),
+    )
+    expect(texts('button')).toContain('有新消息')
+    log.scrollTop = 800
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    expect(texts('button')).not.toContain('有新消息')
+  })
+
+  it('回复带复制按钮，复制的是原文并提示已复制；流式中不出', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const raw = '可以整理。\n\n- **横向一排**：5 个并列'
+    useAgentStore.setState({
+      messages: [
+        { kind: 'text', id: 'a-1', turnId: 't-1', role: 'assistant', text: raw, streaming: false },
+        {
+          kind: 'text',
+          id: 'a-2',
+          turnId: 't-2',
+          role: 'assistant',
+          text: '还在说',
+          streaming: true,
+        },
+      ],
+      turns: {},
+    })
+    render()
+
+    const copies = host.querySelectorAll<HTMLButtonElement>('button[aria-label="复制回复"]')
+    expect(copies).toHaveLength(1)
+    await act(async () => {
+      copies[0].click()
+    })
+    expect(writeText).toHaveBeenCalledWith(raw)
+    expect(copies[0].getAttribute('aria-label')).toBe('已复制')
+    expect(copies[0].textContent).toContain('已复制')
+    Reflect.deleteProperty(navigator, 'clipboard')
+  })
+
   it('渲染对话与创作记录两个页签', () => {
     render()
 
