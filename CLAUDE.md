@@ -4,7 +4,7 @@
 
 ## 部署与灾备
 
-- **生产：Pages + VPS。Pages 允许本机构建发布，资源紧张时用 macmini2；后端镜像仅在 macmini2 构建。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
 - 前端两套 Pages、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
 - macmini2 旧备用已停止，Tunnel 禁用；配置、镜像及数据卷保留。启停与历史数据状态见[灾备附录](docs/deploy/cold-recovery.md#附录旧备用服务)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)，不定时同步备用 PG；新实例只用 R2。保持原域名、会话密钥和账号命名空间，切回前核对两端增量；不得直接覆盖原库或自动绑定匿名数据。
@@ -58,7 +58,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 包含 BFF、Admin 和数据库迁移回滚测试。**私有包不在公开 CI 中**；涉及私有接缝时仍需在
 带 `private/` 的环境中完成对应测试，不能只凭 PR 变绿判断。
 
-**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`，通过现有发布脚本部署受影响的内部版与付费版服务，并核验线上版本和行为。除非用户明确要求仅本地修改或暂不部署，否则直接完成整条链路，无需再次询问是否部署。
+**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。除非用户明确要求仅本地修改或暂不合并，否则直接完成整条链路，无需再次询问是否部署。
 
 ## 测试约定
 
@@ -125,8 +125,7 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 
 **收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
 
-- 内部版生产镜像：在 macmini2 执行 `./scripts/build-vps-release.sh internal <新的绝对路径产物目录>`。
-- 付费版生产镜像：在 macmini2 执行 `./scripts/build-vps-release.sh paid <新的绝对路径产物目录>`，由脚本带入固定提交的私有 overlay。
+- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh all <目录>` 构建（付费版带入私有 overlay 的 main HEAD）；应急时在 macmini2 手动执行同一脚本（`internal`/`paid`/`all`）。
 
 **分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 
