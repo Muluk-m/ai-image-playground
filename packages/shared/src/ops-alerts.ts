@@ -97,13 +97,17 @@ function readings(
       resolvedText: `已恢复：磁盘已用 ${percent(used)}`,
     }
     const available = host.mem_available_bytes / host.mem_total_bytes
+    const critical = available < OPS_THRESHOLDS.MEMORY_CRITICAL_RATIO
     out.memory = {
       breached: available < OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO,
       recovered:
         available >=
         OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO + OPS_THRESHOLDS.HOST_RECOVERY_MARGIN_RATIO,
-      sustainMs: OPS_THRESHOLDS.MEMORY_SUSTAIN_MS,
-      firingText: `可用内存只剩 ${percent(available)}（${gb(host.mem_available_bytes)}），已持续 ${span(OPS_THRESHOLDS.MEMORY_SUSTAIN_MS)}以上（告警线 ${percent(OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO)}）`,
+      // 快见底时不等持续期：机器可能一分钟后就卡死，那时谁也发不出消息了。
+      sustainMs: critical ? 0 : OPS_THRESHOLDS.MEMORY_SUSTAIN_MS,
+      firingText: critical
+        ? `可用内存只剩 ${percent(available)}（${gb(host.mem_available_bytes)}），快要耗尽，机器随时可能卡死（立即告警线 ${percent(OPS_THRESHOLDS.MEMORY_CRITICAL_RATIO)}）`
+        : `可用内存只剩 ${percent(available)}（${gb(host.mem_available_bytes)}），已持续 ${span(OPS_THRESHOLDS.MEMORY_SUSTAIN_MS)}以上（告警线 ${percent(OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO)}）`,
       resolvedText: `已恢复：可用内存 ${percent(available)}`,
     }
   }

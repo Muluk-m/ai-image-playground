@@ -131,10 +131,19 @@ services:
       PORT: "37378"
       ADMIN_DIST_DIR: /app/apps/admin/dist
       BFF_INTERNAL_URL: http://bff:37377
+      OPS_DEPLOYMENTS_LOG: /host/deployments.log
     command:
       - bun
       - run
       - /app/apps/admin/server/index.ts
+    # The deploy log, read-only, for the operations board's deployment list. It holds commit ids,
+    # image tags and the deploying account, no secrets. Absent on hosts that never ran the deploy
+    # script, where /dev/null stands in and the board says so.
+    volumes:
+      - type: bind
+        source: ${DEPLOYMENTS_LOG_SOURCE:-/dev/null}
+        target: /host/deployments.log
+        read_only: true
     depends_on:
       bff:
         condition: service_healthy
@@ -239,6 +248,24 @@ services:
       - type: bind
         source: /proc/meminfo
         target: /host/meminfo
+        read_only: true
+      - type: bind
+        source: /proc/stat
+        target: /host/stat
+        read_only: true
+      - type: bind
+        source: /proc/loadavg
+        target: /host/loadavg
+        read_only: true
+      # Per-container memory, CPU and OOM kills, read from cgroup files. Read-only and without the
+      # Docker socket: it can see how much each container uses, not what is inside it (ADR 0007).
+      - type: bind
+        source: /sys/fs/cgroup
+        target: /host/cgroup
+        read_only: true
+      - type: bind
+        source: ${CONTAINER_NAMES_SOURCE:-/dev/null}
+        target: /host/container-names.tsv
         read_only: true
     # Deliberately no depends_on: a BFF that never turns healthy is one of the moments the disk
     # and memory alerts are for. Reports to it simply fail and are retried on the next sample.

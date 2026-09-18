@@ -19,6 +19,8 @@ export const EXPECTED_TABLES = [
   'project_generation_outputs',
   'daily_quota',
   'operator_audits',
+  'api_minutes',
+  'container_samples',
   'host_samples',
   'service_heartbeats',
   'tasks',
@@ -64,6 +66,8 @@ export const EXPECTED_INDEXES = [
   'idx_agent_turn_events_turn',
   'idx_operator_audits_created_at',
   'idx_operator_audits_target',
+  'api_minutes_minute_instance_pk',
+  'container_samples_sampled_at_container_id_pk',
   'host_samples_pkey',
   'idx_service_heartbeats_seen',
   'idx_tasks_admin_device_time',
@@ -95,7 +99,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 24
+const EXPECTED_MIGRATION_COUNT = 28
 
 export interface SchemaVerificationResult {
   tables: number

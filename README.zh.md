@@ -171,10 +171,12 @@ provision 结束前会检查并列出这类 schema。没有任何 Compose 文件
 sidecar，每天把本组数据库的 `pg_dump` 传到同 bucket 的 `<S3_KEY_PREFIX>pg/<UTC 日期>.dump`。
 保留期由 bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
 
-每个 project 还跑一个 `host-collector` sidecar，每分钟读一次宿主机的磁盘与内存，交给后台的
-「运维看板」画近 7 天的趋势。它从宿主机只拿到两个只读文件，不挂 Docker socket：`/proc/meminfo`，
-以及待测文件系统上的任意一个文件（默认 `/etc/hostname`）——对挂进来的文件做 statfs，得到的就是它
-背后那块盘的用量。Docker 的数据若在单独的分区，把 `HOST_DISK_PROBE_SOURCE` 指到那个分区上的一个
+每个 project 还跑一个 `host-collector` sidecar，每分钟读一次宿主机的磁盘、内存、CPU、负载、Swap、
+开机时间，以及每个容器的内存、CPU 和 OOM 次数，交给后台的「运维看板」画近 7 天的趋势。它只拿到宿主机的
+只读视图，不挂 Docker socket：`/proc/meminfo`、`/proc/stat`、`/proc/loadavg`、`/sys/fs/cgroup`、
+`scripts/app-compose.sh up` 每次发布后重写的容器名对照表，以及待测文件系统上的任意一个文件（默认
+`/etc/hostname`）——对挂进来的文件做 statfs，得到的就是它背后那块盘的用量。后台容器另外只读挂载宿主机
+上的部署日志，列出最近几次发布。Docker 的数据若在单独的分区，把 `HOST_DISK_PROBE_SOURCE` 指到那个分区上的一个
 文件。没配 `INTERNAL_API_TOKEN` 的部署里它照样能起，只是读数进不了看板。取舍见
 [`docs/adr/0007`](./docs/adr/0007-host-sampling-without-the-docker-socket.md)。
 

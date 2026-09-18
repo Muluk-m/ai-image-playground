@@ -1,4 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
@@ -10,6 +13,20 @@ process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = databaseUrl
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
+
+// 部署记录来自宿主机上的部署日志；compose 把它只读挂进后台容器。
+const deployDir = await mkdtemp(join(tmpdir(), 'admin-ops-deploys-'))
+process.env.OPS_DEPLOYMENTS_LOG = join(deployDir, 'deployments.log')
+process.env.OPS_DEPLOYMENT_NAME = 'paid'
+await writeFile(
+  process.env.OPS_DEPLOYMENTS_LOG,
+  [
+    '2026-09-18T00:04:32Z internal public=39d2cf1c private=e5ea2ae image=ai-image-playground:vps-main-39d2cf1c by=ubuntu@vps result=failed',
+    'garbage that is not a deployment line',
+    '2026-09-18T02:46:44Z paid public=58630254 private=79fc8056 image=ai-image-playground:paid-58630254-79fc8056 by=ubuntu@vps result=ok',
+    '',
+  ].join('\n'),
+)
 
 // 备份一栏经后端内部接口取：只有后端够得着对象存储。mock 要赶在 config 读 BFF_INTERNAL_URL 之前起。
 const bffCalls: Array<{ path: string; authorization: string | null }> = []
@@ -95,20 +112,82 @@ const hostSample = (at: number, diskAvailable: number) => ({
   mem_total_bytes: 4 * GB,
   mem_available_bytes: 1 * GB,
 })
+await writer.db.insert(writer.schema.host_samples).values([
+  hostSample(oldHostBucket + 60_000, 30 * GB),
+  hostSample(oldHostBucket + 120_000, 30 * GB),
+  hostSample(now - 3600_000, 10 * GB),
+  {
+    ...hostSample(now - 30_000, 5 * GB),
+    cpu_count: 2,
+    cpu_busy_ratio: 0.25,
+    load_1: 0.5,
+    load_5: 0.4,
+    load_15: 0.3,
+    swap_total_bytes: 2 * GB,
+    swap_free_bytes: 2 * GB,
+    booted_at: now - 2 * 3600_000,
+  },
+])
+
+// 容器读数：两轮，数据库那个容器上一轮被 OOM 杀过一次进程。
+const PG = 'a'.repeat(64)
+const BFF = 'b'.repeat(64)
+const containerSample = (
+  at: number,
+  id: string,
+  mem: number,
+  oom: number,
+  name: string | null,
+) => ({
+  sampled_at: at,
+  container_id: id,
+  name,
+  mem_bytes: mem,
+  oom_kills: oom,
+  cpu_cores: 0.1,
+})
 await writer.db
-  .insert(writer.schema.host_samples)
+  .insert(writer.schema.container_samples)
   .values([
-    hostSample(oldHostBucket + 60_000, 30 * GB),
-    hostSample(oldHostBucket + 120_000, 30 * GB),
-    hostSample(now - 3600_000, 10 * GB),
-    hostSample(now - 30_000, 5 * GB),
+    containerSample(now - 3600_000, PG, 900 * 1024 ** 2, 0, 'image-playground-infra-postgres-1'),
+    containerSample(now - 3600_000, BFF, 200 * 1024 ** 2, 0, 'image-playground-paid-bff-1'),
+    containerSample(now - 30_000, PG, 400 * 1024 ** 2, 1, 'image-playground-infra-postgres-1'),
+    containerSample(now - 30_000, BFF, 500 * 1024 ** 2, 0, null),
   ])
+
+// 接口统计：最近一分钟有两个 5xx，两小时前那一分钟不算进「最近 15 分钟」。
+const minuteStart = Math.floor(now / minute) * minute
+await writer.db.insert(writer.schema.api_minutes).values([
+  {
+    minute: minuteStart - minute,
+    instance: 'bff-new',
+    requests: 40,
+    client_errors: 3,
+    server_errors: 2,
+    p50_ms: 30,
+    p95_ms: 400,
+    max_ms: 900,
+    server_error_routes: { 'POST /v1/queue/:provider/:model/submit': 2 },
+  },
+  {
+    minute: minuteStart - 120 * minute,
+    instance: 'bff-new',
+    requests: 10,
+    client_errors: 0,
+    server_errors: 0,
+    p50_ms: 20,
+    p95_ms: 50,
+    max_ms: 60,
+    server_error_routes: null,
+  },
+])
 
 const { app } = await import('../../../../server/app')
 
 afterAll(async () => {
   mockBff.stop()
   await writer.close()
+  await rm(deployDir, { recursive: true, force: true })
 })
 
 async function login(): Promise<string> {
@@ -217,7 +296,17 @@ describe('GET /api/ops', () => {
 
     if (!body.host.ok) throw new Error(body.host.error)
     const { latest, series } = body.host.data
-    expect(latest).toEqual(hostSample(now - 30_000, 5 * GB))
+    expect(latest).toEqual({
+      ...hostSample(now - 30_000, 5 * GB),
+      cpu_count: 2,
+      cpu_busy_ratio: 0.25,
+      load_1: 0.5,
+      load_5: 0.4,
+      load_15: 0.3,
+      swap_total_bytes: 2 * GB,
+      swap_free_bytes: 2 * GB,
+      booted_at: now - 2 * 3600_000,
+    })
     // 同一个半小时桶里的两条读数并成一个点。
     expect(series.length).toBe(3)
     expect(series.map((point) => point.at)).toEqual(
@@ -226,5 +315,64 @@ describe('GET /api/ops', () => {
     expect(series[0]?.disk_used_ratio).toBeCloseTo(0.4, 5)
     expect(series.at(-1)?.disk_used_ratio).toBeGreaterThan(0.8)
     expect(series[0]?.mem_available_ratio).toBeCloseTo(0.25, 5)
+  })
+
+  it('lists every container of the newest reading with its week peak and fresh OOM kills', async () => {
+    const cookie = await login()
+    const body = (await (
+      await app.handle(new Request('http://localhost/api/ops', { headers: { cookie } }))
+    ).json()) as OpsSnapshot
+
+    if (!body.containers.ok) throw new Error(body.containers.error)
+    const { sampled_at, containers } = body.containers.data
+    expect(sampled_at).toBe(now - 30_000)
+    // 按当前内存从大到小；对照表里没有的容器名为 null。
+    expect(containers.map((one) => [one.name, one.mem_bytes])).toEqual([
+      [null, 500 * 1024 ** 2],
+      ['image-playground-infra-postgres-1', 400 * 1024 ** 2],
+    ])
+    expect(containers[1]).toMatchObject({ peak_mem_bytes: 900 * 1024 ** 2, recent_oom_kills: 1 })
+  })
+
+  it('sums the last 15 minutes of API traffic and names the routes that returned 5xx', async () => {
+    const cookie = await login()
+    const body = (await (
+      await app.handle(new Request('http://localhost/api/ops', { headers: { cookie } }))
+    ).json()) as OpsSnapshot
+
+    if (!body.api.ok) throw new Error(body.api.error)
+    expect(body.api.data.recent).toEqual({
+      requests: 40,
+      client_errors: 3,
+      server_errors: 2,
+      p95_ms: 400,
+    })
+    expect(body.api.data.series.length).toBe(2)
+    expect(body.api.data.error_routes).toEqual([
+      { route: 'POST /v1/queue/:provider/:model/submit', count: 2 },
+    ])
+  })
+
+  it('reads recent deployments from the deploy log, newest first, skipping lines it cannot read', async () => {
+    const cookie = await login()
+    const body = (await (
+      await app.handle(new Request('http://localhost/api/ops', { headers: { cookie } }))
+    ).json()) as OpsSnapshot
+
+    if (!body.deployments.ok) throw new Error(body.deployments.error)
+    expect(body.deployments.data.own).toBe('paid')
+    expect(body.deployments.data.available).toBe(true)
+    expect(body.deployments.data.entries).toEqual([
+      {
+        at: Date.parse('2026-09-18T02:46:44Z'),
+        target: 'paid',
+        public_sha: '58630254',
+        private_sha: '79fc8056',
+        image: 'ai-image-playground:paid-58630254-79fc8056',
+        by: 'ubuntu@vps',
+        ok: true,
+      },
+      expect.objectContaining({ target: 'internal', private_sha: 'e5ea2ae', ok: false }),
+    ])
   })
 })

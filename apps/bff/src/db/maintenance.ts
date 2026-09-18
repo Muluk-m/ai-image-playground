@@ -229,9 +229,13 @@ export async function purgeOldTasks(
 const HOST_SAMPLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 export async function purgeOldHostSamples(now: number = Date.now()): Promise<number> {
+  const before = now - HOST_SAMPLE_RETENTION_MS
+  // 容器读数与接口统计和宿主机采样同一个保留期：看板上三者画在同一段时间上。
+  await db.delete(schema.container_samples).where(lt(schema.container_samples.sampled_at, before))
+  await db.delete(schema.api_minutes).where(lt(schema.api_minutes.minute, before))
   const deleted = await db
     .delete(schema.host_samples)
-    .where(lt(schema.host_samples.sampled_at, now - HOST_SAMPLE_RETENTION_MS))
+    .where(lt(schema.host_samples.sampled_at, before))
     .returning({ sampled_at: schema.host_samples.sampled_at })
   return deleted.length
 }

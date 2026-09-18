@@ -24,6 +24,14 @@ const healthy = {
   backup: async () => ({ latest: null, previous: null }),
   services: async () => ({ services: [] }),
   host: async () => ({ latest: null, series: [] }),
+  containers: async () => ({ sampled_at: null, containers: [] }),
+  api: async () => ({
+    recent: { requests: 0, client_errors: 0, server_errors: 0, p95_ms: null },
+    window_ms: 1,
+    series: [],
+    error_routes: [],
+  }),
+  deployments: async () => ({ own: null, available: false, entries: [] }),
 }
 
 describe('buildOpsSnapshot', () => {
@@ -74,7 +82,7 @@ describe('buildOpsSnapshot', () => {
       async () => {
         startedBeforeQueueFinished.push(name)
         // 最后一块也起跑了才放行最慢的那块：串行实现会永远卡在 queue 上，用例超时失败。
-        if (name === 'host') releaseQueue()
+        if (name === 'deployments') releaseQueue()
         return value
       }
 
@@ -87,10 +95,21 @@ describe('buildOpsSnapshot', () => {
       backup: track('backup', { latest: null, previous: null }),
       services: track('services', { services: [] }),
       host: track('host', { latest: null, series: [] }),
+      containers: track('containers', { sampled_at: null, containers: [] }),
+      api: track('api', await healthy.api()),
+      deployments: track('deployments', { own: null, available: false, entries: [] }),
     })
 
     expect(snapshot.queue.ok).toBe(true)
-    expect(startedBeforeQueueFinished).toEqual(['database', 'backup', 'services', 'host'])
+    expect(startedBeforeQueueFinished).toEqual([
+      'database',
+      'backup',
+      'services',
+      'host',
+      'containers',
+      'api',
+      'deployments',
+    ])
   })
 
   it('gives up on a block that hangs and still answers with the rest', async () => {

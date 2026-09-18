@@ -229,6 +229,75 @@ export interface OpsHostPoint {
   /** 0 到 1。 */
   disk_used_ratio: number
   mem_available_ratio: number
+  /** 旧采集容器没报 CPU 的时段为 null。 */
+  cpu_busy_ratio: number | null
+}
+
+export interface OpsContainer {
+  container_id: string
+  /** 部署脚本的对照表里没有时为 null，看板显示 ID 前 12 位。 */
+  name: string | null
+  mem_bytes: number
+  mem_limit_bytes: number | null
+  cpu_cores: number | null
+  oom_kills: number
+  /** 近 7 天里这个容器用过的最多内存。 */
+  peak_mem_bytes: number
+  /** 近 24 小时新增的 OOM 次数。 */
+  recent_oom_kills: number
+}
+
+export interface OpsContainers {
+  /** 这批读数的时刻；一条都没有时为 null。 */
+  sampled_at: number | null
+  /** 按当前内存从大到小。 */
+  containers: OpsContainer[]
+}
+
+export interface OpsApiPoint {
+  at: number
+  requests: number
+  server_errors: number
+  /** 这一格里最慢那一分钟的 P95。 */
+  p95_ms: number | null
+}
+
+export interface OpsApiWindow {
+  requests: number
+  client_errors: number
+  server_errors: number
+  /** 窗口里最慢那一分钟的 P95。 */
+  p95_ms: number | null
+}
+
+export interface OpsApi {
+  /** 最近 15 分钟。 */
+  recent: OpsApiWindow
+  window_ms: number
+  /** 近 24 小时，每 15 分钟一格，从旧到新。 */
+  series: OpsApiPoint[]
+  /** 近 1 小时返回 5xx 最多的路由。 */
+  error_routes: Array<{ route: string; count: number }>
+}
+
+export interface OpsDeployment {
+  at: number
+  /** 部署的是哪一套：paid、internal，或 Pages 的发布名。 */
+  target: string
+  public_sha: string
+  private_sha: string | null
+  image: string
+  by: string
+  ok: boolean
+}
+
+export interface OpsDeployments {
+  /** 这台后台所在的那套部署；用来标出「本套」。 */
+  own: string | null
+  /** 读不到部署记录（不是用部署脚本发的）时为 false。 */
+  available: boolean
+  /** 从新到旧。 */
+  entries: OpsDeployment[]
 }
 
 export interface OpsHost {
@@ -246,4 +315,7 @@ export interface OpsSnapshot {
   database: OpsBlock<OpsDatabase>
   /** 真正落在对象存储里的备份文件；只有后端够得着，所以经它的内部接口取。 */
   backup: OpsBlock<OpsBackups>
+  containers: OpsBlock<OpsContainers>
+  api: OpsBlock<OpsApi>
+  deployments: OpsBlock<OpsDeployments>
 }
