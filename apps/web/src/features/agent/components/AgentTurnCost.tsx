@@ -22,7 +22,12 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
   const failed = footer.stopReason === 'failed'
-  if (failed) parts.push(<span>{t('cost.failed')}</span>)
+  if (failed)
+    parts.push(
+      <span>
+        {footer.error === 'agent_turn_interrupted' ? t('cost.interrupted') : t('cost.failed')}
+      </span>,
+    )
   // 停止后说了一半的回复照样留着，页脚标明它是被停下的，不是说完了。
   if (footer.stopReason === 'aborted') parts.push(<span>{t('cost.stopped')}</span>)
   if (footer.durationMs !== undefined) {

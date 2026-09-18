@@ -1,5 +1,6 @@
 import type {
   AgentInboxPayload,
+  AgentInboxResumePayload,
   AgentInboxTaskResultPayload,
   AgentInboxUserMessagePayload,
 } from '@image-playground/db'
@@ -99,8 +100,14 @@ const isPendingUserMessage = (conversationId: string) =>
     eq(inbox.status, 'pending'),
   )
 
-/** 处理顺序：澄清答复在前，其余按序号。 */
-const processingOrder = [desc(sql`${inbox.kind} = 'clarification_answer'`), asc(inbox.seq)]
+/**
+ * 处理顺序：中断续跑最先（它接着的是更早那一轮没做完的事），然后是澄清答复，其余按序号。
+ */
+const processingOrder = [
+  desc(sql`${inbox.kind} = 'system_event'`),
+  desc(sql`${inbox.kind} = 'clarification_answer'`),
+  asc(inbox.seq),
+]
 
 /**
  * 收一条用户消息进收件箱。会话行上的锁把同一会话的入队排成一列：满额判断与序号都不会被
@@ -267,7 +274,7 @@ export const heldByClarification = sql`(${inbox.kind} = 'user_message' AND EXIST
     )
 ))`
 
-/** 收件箱里有没有还没起轮的唤醒。 */
+/** 收件箱里有没有还没起轮的唤醒或中断续跑：它们不是用户的话，没人发送时要有人来开轮。 */
 export async function hasPendingAgentWake(conversationId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: inbox.id })
@@ -275,7 +282,7 @@ export async function hasPendingAgentWake(conversationId: string): Promise<boole
     .where(
       and(
         eq(inbox.conversation_id, conversationId),
-        eq(inbox.kind, 'task_result'),
+        inArray(inbox.kind, ['task_result', 'system_event']),
         eq(inbox.status, 'pending'),
       ),
     )
@@ -288,13 +295,19 @@ export interface QueuedWake extends AgentInboxTaskResultPayload {
   readonly id: string
 }
 
+/** 一条待处理的中断续跑：被打断的是哪一轮，续跑沿用它的创作类型与参数。 */
+export interface QueuedResume extends AgentInboxResumePayload {
+  readonly id: string
+}
+
 /** 收件箱里下一件该起一轮去处理的事；澄清答复也算用户消息。 */
 export type NextInboxEntry =
   | ({ readonly kind: 'user_message' } & QueuedUserMessage)
   | ({ readonly kind: 'task_result' } & QueuedWake)
+  | ({ readonly kind: 'resume' } & QueuedResume)
 
-/** 起一轮去处理的那几类：用户说的话与唤醒；系统事件另有取法，不在这里。 */
-const TURN_KINDS = [...USER_KINDS, 'task_result'] as const
+/** 起一轮去处理的那几类：用户说的话、唤醒与中断续跑（系统事件）。 */
+export const TURN_KINDS = [...USER_KINDS, 'task_result', 'system_event'] as const
 
 function queuedMessageOf(row: InboxRow): QueuedUserMessage {
   const payload = userPayload(row.payload)
@@ -340,6 +353,8 @@ export async function nextAgentInboxEntry(conversationId: string): Promise<NextI
   if (!row) return null
   if (row.kind === 'task_result' && 'taskIds' in row.payload)
     return { kind: 'task_result', id: row.id, ...row.payload }
+  if (row.kind === 'system_event' && 'interruptedTurnId' in row.payload)
+    return { kind: 'resume', id: row.id, ...row.payload }
   return { kind: 'user_message', ...queuedMessageOf(row) }
 }
 
@@ -448,6 +463,61 @@ export async function enqueueAgentWake(
     created_at: now,
   })
   return id
+}
+
+/** 中断续跑记录的客户端消息 id：同一轮只能排进一次，重复的补写不会排出第二条。 */
+export const agentResumeKey = (turnId: string) => `resume:${turnId}`
+
+/**
+ * 为被打断的那一轮排一次中断续跑。同一轮只排一次（按客户端消息 id 去重），所以反复补写、
+ * 多个实例同时接手都只续一次。返回这一次是不是真排进去了。传入事务时在那个事务里排：
+ * 补写页脚的一方用它把「排上续跑」与「落下页脚」写成同一件事。
+ */
+export async function enqueueAgentResume(
+  conversationId: string,
+  payload: AgentInboxResumePayload,
+  now = Date.now(),
+  executor?: BffTransaction,
+): Promise<boolean> {
+  const write = async (tx: BffTransaction) => {
+    // 锁住会话行：序号与并发的入队、唤醒排成一列，不会撞号。
+    await tx
+      .select({ id: schema.agent_conversations.id })
+      .from(schema.agent_conversations)
+      .where(eq(schema.agent_conversations.id, conversationId))
+      .for('update')
+    const rows = await tx
+      .insert(inbox)
+      .values({
+        conversation_id: conversationId,
+        id: crypto.randomUUID(),
+        seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
+        kind: 'system_event',
+        status: 'pending',
+        client_message_id: agentResumeKey(payload.interruptedTurnId),
+        payload,
+        created_at: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: inbox.id })
+    return rows.length > 0
+  }
+  return executor ? write(executor) : db.transaction(write)
+}
+
+/** 这一轮被打断后是否排上过中断续跑（不论后来有没有跑完）。 */
+export async function agentResumeQueued(conversationId: string, turnId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.client_message_id, agentResumeKey(turnId)),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
 }
 
 /**

@@ -529,7 +529,12 @@ describe('直播专属', () => {
     )
 
     expect(state.messages.map((one) => one.id)).toEqual(['user-1'])
-    expect(state.turns[TURN]).toEqual({ turnId: TURN, durationMs: 8, stopReason: 'failed' })
+    expect(state.turns[TURN]).toEqual({
+      turnId: TURN,
+      durationMs: 8,
+      stopReason: 'failed',
+      error: 'agent_upstream_error',
+    })
   })
 })
 
