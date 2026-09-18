@@ -3,6 +3,7 @@ import type {
   AgentContentBlock,
   AgentMessageRole,
   AgentMode,
+  AgentQueuedMessageFailure,
   AgentQueuedMessageState,
   AgentToolCallSnapshot,
   AgentTurnCost,
@@ -343,8 +344,9 @@ export interface AgentInboxUserMessagePayload {
 
 /**
  * 会话收件箱：智能体还没取走的东西。忙时用户发的话排在这里，按 `seq` 在当前回复可以结束时
- * 取，每轮一条。`status` 只从 `pending` 走向 `consumed` 或 `cancelled`，两条路由同一条记录上的
- * 原子更新裁决，撤回与处理只有一个成立。`client_message_id` 让网络重发的同一条消息不排两次。
+ * 取，每轮一条。`status` 从 `pending` 走向 `consumed` 或 `cancelled`，两条路由同一条记录上的
+ * 原子更新裁决，撤回与处理只有一个成立。轮到时开不了轮的那一条走向 `failed`，`failure` 记下
+ * 错误码，不再挡后面的；用户撤掉它时才变成 `cancelled`。`client_message_id` 让网络重发的同一条消息不排两次。
  * `attachments` 是参考图原件，只在待处理时留着，取走或撤回就清掉。
  */
 export const agent_inbox = pgTable(
@@ -363,6 +365,7 @@ export const agent_inbox = pgTable(
     payload: bunJsonb('payload').$type<AgentInboxUserMessagePayload>().notNull(),
     attachments: bunJsonb('attachments').$type<AgentTurnReference[]>(),
     consumed_turn_id: text('consumed_turn_id'),
+    failure: text('failure').$type<AgentQueuedMessageFailure>(),
     created_at: epochMs('created_at').notNull(),
   },
   (t) => [
@@ -378,7 +381,10 @@ export const agent_inbox = pgTable(
       'agent_inbox_kind_check',
       sql`${t.kind} IN ('user_message', 'clarification_answer', 'task_result', 'system_event')`,
     ),
-    check('agent_inbox_status_check', sql`${t.status} IN ('pending', 'consumed', 'cancelled')`),
+    check(
+      'agent_inbox_status_check',
+      sql`${t.status} IN ('pending', 'consumed', 'cancelled', 'failed')`,
+    ),
   ],
 )
 

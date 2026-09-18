@@ -394,13 +394,24 @@ export interface AgentQueuedMessageView {
   /** 附带了几张参考图。 */
   readonly referenceCount: number
   readonly createdAt: number
+  /**
+   * 轮到它时没能开轮的原因（错误码，界面据此选文案）。带着它的这一条不再排着、也不挡后面的，
+   * 留在列表里等用户看过后撤掉。缺席即仍在排队。
+   */
+  readonly failure?: AgentQueuedMessageFailure
 }
+
+/** 排队消息轮到时开不了轮的原因：余额不足、模型没有定价、需要登录。 */
+export type AgentQueuedMessageFailure =
+  | 'insufficient_credits'
+  | 'model_price_unavailable'
+  | 'unauthorized'
 
 /** 每个会话最多同时排着这么多条用户消息；再发就拒收并提示。 */
 export const AGENT_QUEUE_MAX_PENDING = 10
 
-/** 收件箱记录此刻的状态：待处理、已被某一轮消费、已撤回。 */
-export type AgentQueuedMessageState = 'pending' | 'consumed' | 'cancelled'
+/** 收件箱记录此刻的状态：待处理、已被某一轮消费、已撤回、轮到时没能开轮。 */
+export type AgentQueuedMessageState = 'pending' | 'consumed' | 'cancelled' | 'failed'
 
 /**
  * 撤回排队消息的结局，三者只有一个成立：撤回成功（再撤一次也还是它）、已经被一轮处理了、
@@ -506,7 +517,7 @@ export interface AgentConversationSnapshot {
   readonly turns: readonly AgentTurnSummaryView[]
   readonly activeTurn: AgentActiveTurnView | null
   readonly cursor?: number
-  /** 按处理顺序排着的消息；老服务端没有这一项。 */
+  /** 按处理顺序排着的消息，连同轮到时没能开轮、还没撤掉的那几条（带 `failure`）；老服务端没有这一项。 */
   readonly queue?: readonly AgentQueuedMessageView[]
 }
 

@@ -92,7 +92,14 @@
     "references_one": "{{count}} image",
     "references_other": "{{count}} images",
     "withdraw": "Withdraw",
-    "withdrawAria": "Withdraw this queued message: {{text}}"
+    "withdrawAria": "Withdraw this queued message: {{text}}",
+    "dismiss": "Remove",
+    "dismissAria": "Remove this unhandled message: {{text}}",
+    "failure": {
+      "insufficient_credits": "Not handled: insufficient credits",
+      "model_price_unavailable": "Not handled: model unavailable",
+      "unauthorized": "Not handled: sign in required"
+    }
   },
   "params": {
     "title": "Generation settings",

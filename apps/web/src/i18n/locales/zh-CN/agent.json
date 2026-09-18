@@ -89,7 +89,14 @@
     "hint": "当前回复结束后按顺序处理",
     "references_other": "{{count}} 张图",
     "withdraw": "撤回",
-    "withdrawAria": "撤回这条排队消息：{{text}}"
+    "withdrawAria": "撤回这条排队消息：{{text}}",
+    "dismiss": "移除",
+    "dismissAria": "移除这条没能处理的消息：{{text}}",
+    "failure": {
+      "insufficient_credits": "余额不足，未处理",
+      "model_price_unavailable": "模型暂不可用，未处理",
+      "unauthorized": "需要登录，未处理"
+    }
   },
   "params": {
     "title": "生成参数",

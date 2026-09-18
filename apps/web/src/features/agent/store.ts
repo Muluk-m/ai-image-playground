@@ -44,7 +44,12 @@ import {
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
 import { bindNewAgentDraft } from './lib/drafts'
-import { addQueuedMessage, reduceMessageQueue, removeQueuedMessage } from './lib/messageQueue'
+import {
+  addQueuedMessage,
+  hasWaitingMessages,
+  reduceMessageQueue,
+  removeQueuedMessage,
+} from './lib/messageQueue'
 import {
   dropUnsettledMessages,
   panelMessage,
@@ -358,7 +363,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       pickUp =
         stream.outcome === 'ended' &&
         turnDelivery.isCurrent() &&
-        (get().queue.length > 0 || expected)
+        (hasWaitingMessages(get().queue) || expected)
       if (stream.outcome === 'rateLimited') {
         if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
       } else if (stream.outcome === 'gone' || stream.outcome === 'unreachable') {
@@ -399,7 +404,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
         await openConversation(conversationId)
         return
       }
-      if (!snapshot.queue?.length || attempt === QUEUE_PICKUP_ATTEMPTS - 1) {
+      // 队里只剩没能开轮的那几条（带错误码）时不再等：它们不会被处理，照快照摆出来。
+      if (!hasWaitingMessages(snapshot.queue ?? []) || attempt === QUEUE_PICKUP_ATTEMPTS - 1) {
         set({ queue: [...(snapshot.queue ?? [])] })
         return
       }
@@ -545,19 +551,28 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const current = () => get().conversationId === conversationId
     try {
       const outcome = await startTurn(conversationId, text, references, currentTurnParams(), mode)
+      if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
+        // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
+        if (current()) set({ error: i18next.t('error.queueFailed', { ns: 'agent' }) })
+        return
+      }
       if (outcome.kind === 'alreadyRunning') {
         // 老服务端没有排队：忙时照旧是插话。
         await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, references)
-      } else if (outcome.kind === 'frames') {
-        // 上一轮刚好收尾，这句话当场开了新的一轮；这条流不在这里读，上一轮收尾后去挂它。
+      } else if (
+        outcome.kind === 'frames' ||
+        (outcome.kind === 'queued' && outcome.body.state === 'consumed')
+      ) {
+        // 上一轮刚好收尾，这句话已经开了新的一轮；那条流不在这里读，上一轮收尾后去挂它。
         successorExpected.add(conversationId)
-        void outcome.frames.return(undefined)
+        if (outcome.kind === 'frames') void outcome.frames.return(undefined)
       }
       onAccepted?.()
       if (!current()) return
       set((state) => ({
         error: null,
-        ...(outcome.kind === 'queued' && outcome.body.state === 'pending'
+        ...(outcome.kind === 'queued' &&
+        (outcome.body.state === 'pending' || outcome.body.state === 'failed')
           ? { queue: addQueuedMessage(state.queue, outcome.body.queued) }
           : {}),
       }))
@@ -967,8 +982,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
             .getState()
             .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
             .catch(() => {})
+        const refused = outcome.kind === 'queued' && outcome.body.state === 'cancelled'
         if (!turnDelivery.isCurrent()) {
-          if (outcome.kind === 'queued') onAccepted?.()
+          if (outcome.kind === 'queued' && !refused) onAccepted?.()
           if (outcome.kind === 'frames') {
             onAccepted?.()
             await follow(
@@ -981,6 +997,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
               },
             )
           } else await turnDelivery.settled()
+          return
+        }
+        if (refused) {
+          // 服务端说这句话已不在队里：没被收下，草稿留着，与起轮请求失败同样收场。
+          fail(i18next.t('error.queueFailed', { ns: 'agent' }))
+          await turnDelivery.settled()
           return
         }
         if (outcome.kind === 'queued') {

@@ -10,10 +10,11 @@ CREATE TABLE "agent_inbox" (
   "payload" jsonb NOT NULL,
   "attachments" jsonb,
   "consumed_turn_id" text,
+  "failure" text,
   "created_at" timestamp with time zone NOT NULL,
   CONSTRAINT "agent_inbox_conversation_id_id_pk" PRIMARY KEY ("conversation_id", "id"),
   CONSTRAINT "agent_inbox_kind_check" CHECK ("kind" IN ('user_message', 'clarification_answer', 'task_result', 'system_event')),
-  CONSTRAINT "agent_inbox_status_check" CHECK ("status" IN ('pending', 'consumed', 'cancelled'))
+  CONSTRAINT "agent_inbox_status_check" CHECK ("status" IN ('pending', 'consumed', 'cancelled', 'failed'))
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "idx_agent_inbox_conversation_seq" ON "agent_inbox" ("conversation_id", "seq");

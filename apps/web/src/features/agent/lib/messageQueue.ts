@@ -20,6 +20,14 @@ export function removeQueuedMessage(
   return queue.filter((one) => one.id !== queueId)
 }
 
+/**
+ * 队里还有等着被处理的消息吗。轮到时没能开轮的那几条（带 `failure`）不算：它们不会再被处理，
+ * 只是留着让用户看见原因。
+ */
+export function hasWaitingMessages(queue: readonly AgentQueuedMessageView[]): boolean {
+  return queue.some((one) => one.failure === undefined)
+}
+
 /** 与排队无关的事件原样还回同一份列表，调用方据此判断要不要更新。 */
 export function reduceMessageQueue(
   queue: readonly AgentQueuedMessageView[],

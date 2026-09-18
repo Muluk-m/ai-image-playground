@@ -36,9 +36,10 @@ import {
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
 import {
+  agentInboxEntry,
   enqueueAgentUserMessage,
   type InboxEntry,
-  pendingAgentMessages,
+  queuedAgentMessages,
   withdrawAgentMessage,
 } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
@@ -58,6 +59,7 @@ import {
   deviceIdSchema,
   imageDataUrlSchema,
 } from '../lib/http'
+import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -118,8 +120,31 @@ async function activeTurnOf(
   return active?.turnId === params.turnId ? active : null
 }
 
-function queuedBody(entry: InboxEntry, turnId?: string): AgentMessageQueuedBody {
+/**
+ * 202 响应体按记录此刻的状态写：`consumed` 带处理它的那一轮，`pending` 带正在跑的那一轮。
+ * 入队之后它可能已经被并发的收尾取走、被别的设备撤回，拿入队那一刻的状态会报错情况。
+ */
+function queuedBody(entry: InboxEntry, runningTurnId?: string): AgentMessageQueuedBody {
+  const turnId =
+    entry.state === 'consumed'
+      ? (entry.consumedTurnId ?? undefined)
+      : entry.state === 'pending'
+        ? runningTurnId
+        : undefined
   return { queued: entry.view, state: entry.state, ...(turnId ? { turnId } : {}) }
+}
+
+/** 重读这一条再回 202；记录没了（会话刚被删）就按已撤回报。 */
+async function settledQueuedBody(
+  conversationId: string,
+  entry: InboxEntry,
+  runningTurnId?: string,
+): Promise<AgentMessageQueuedBody> {
+  const now = (await agentInboxEntry(conversationId, entry.view.id)) ?? {
+    ...entry,
+    state: 'cancelled' as const,
+  }
+  return queuedBody(now, runningTurnId)
 }
 
 function lastEventId(raw: string | undefined): number {
@@ -167,8 +192,17 @@ export const agentRoutes = new Elysia()
       const [messages, turns, queue] = await Promise.all([
         listAgentMessages(conversation.id, owner),
         listAgentTurnSummaries(conversation.id),
-        pendingAgentMessages(conversation.id),
+        queuedAgentMessages(conversation.id),
       ])
+      // 没有谁在跑、队里却还有待处理的：收尾的那个实例下线了或半路没了。这里接着开轮，
+      // 不必等定时巡查；客户端再看一次快照就挂得上。
+      if (!execution && queue.some((one) => !one.failure) && !bffDrain.status().draining)
+        void drainConversationInbox(conversation.id).catch((err) =>
+          log.error(
+            { event: 'agent.inbox_drain_failed', conversationId: conversation.id, err },
+            'queued agent message could not start a turn',
+          ),
+        )
       const snapshot: AgentConversationSnapshot = {
         messages,
         turns,
@@ -299,8 +333,7 @@ export const agentRoutes = new Elysia()
         const { entry } = enqueued
         if (enqueued.kind === 'duplicate') {
           // 网络重发的同一条：交回它此刻的状态，不排第二次、不开第二轮。
-          const active = runningTurn(conversation.id)
-          return status(202, queuedBody(entry, entry.consumedTurnId ?? active?.turnId))
+          return status(202, queuedBody(entry, runningTurn(conversation.id)?.turnId))
         }
 
         const local = runningTurn(conversation.id)
@@ -311,14 +344,19 @@ export const agentRoutes = new Elysia()
         const drained = await drainConversationInbox(conversation.id, { quietFor: entry.view.id })
         if (drained.kind === 'started' && drained.queueId === entry.view.id)
           return agentTurnStream(drained.turn.read(0))
-        if (drained.kind === 'started' || drained.kind === 'already_running') {
-          const turnId = drained.kind === 'started' ? drained.turn.turnId : drained.turnId
-          notifyConversation(conversation.id, { type: 'messageQueued', message: entry.view })
-          return status(202, queuedBody(entry, turnId))
-        }
-        if (drained.kind === 'idle') {
-          // 起轮之前它被另一台设备撤回了。
-          return status(202, queuedBody({ ...entry, state: 'cancelled' }))
+        if (drained.kind !== 'not_started' || drained.queueId !== entry.view.id) {
+          // 这一条没有当场开轮：前面还排着别的、会话被别处占着、被别的设备撤回了，或者被并发的
+          // 收尾取走了。重读它此刻的状态再回报。
+          const running =
+            drained.kind === 'started'
+              ? drained.turn.turnId
+              : drained.kind === 'already_running'
+                ? drained.turnId
+                : undefined
+          const body = await settledQueuedBody(conversation.id, entry, running)
+          if (body.state === 'pending')
+            notifyConversation(conversation.id, { type: 'messageQueued', message: body.queued })
+          return status(202, body)
         }
         // 开不了轮（余额不足等）：这一条不留在队里，照旧把原因交回去，草稿留在输入框。
         await withdrawAgentMessage(conversation.id, entry.view.id)
@@ -351,7 +389,7 @@ export const agentRoutes = new Elysia()
         ownerOf(authUser, headers[DEVICE_ID_HEADER]),
       )
       if (!conversation) return status(404, NOT_FOUND)
-      return { queue: await pendingAgentMessages(conversation.id) }
+      return { queue: await queuedAgentMessages(conversation.id) }
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
   )

@@ -134,6 +134,32 @@ describe('忙时发送', () => {
     expect(state().turn).toBe('running')
   })
 
+  it('服务端回报这条已不在队里时不确认发送，草稿留着', async () => {
+    busy()
+    // 例如上一次发送开不了轮被退回、这次是同一个客户端 id 的重发。
+    turnResponse = () => queuedResponse({ queued: QUEUED, state: 'cancelled' })
+    const accepted = vi.fn()
+
+    await state().send('再加一只狗', [], accepted)
+
+    expect(accepted).not.toHaveBeenCalled()
+    expect(state().queue).toEqual([])
+    expect(state().error).toBe('消息未能加入排队，草稿已保留，请重试。')
+    expect(state().turn).toBe('running')
+  })
+
+  it('已被并发的收尾取走时确认发送，但不进排队列表', async () => {
+    busy()
+    turnResponse = () => queuedResponse({ queued: QUEUED, state: 'consumed', turnId: NEXT_TURN })
+    const accepted = vi.fn()
+
+    await state().send('再加一只狗', [], accepted)
+
+    expect(accepted).toHaveBeenCalledOnce()
+    expect(state().queue).toEqual([])
+    expect(state().error).toBeNull()
+  })
+
   it('网络断在回程时用同一个客户端 id 重发一次', async () => {
     busy()
     let attempts = 0
@@ -257,6 +283,28 @@ describe('当前回复结束后', () => {
       }),
     )
     expect(state().queue).toEqual([])
+    expect(state().turn).toBe('idle')
+  })
+})
+
+describe('轮到时没能开轮', () => {
+  it('队里只剩没能开轮的那几条时不再等下一轮，照快照摆出原因', async () => {
+    const failed: AgentQueuedMessageView = { ...QUEUED, failure: 'insufficient_credits' }
+    useAgentStore.setState({ queue: [QUEUED] })
+    turnResponse = () =>
+      sse([
+        { id: 1, event: { type: 'turnStart', turnId: TURN, userMessageId: 'user-1' } },
+        { id: 2, event: turnEnd(TURN) },
+      ])
+    snapshots = [
+      () => Response.json({ messages: [], activeTurn: null, turns: [], queue: [failed] }),
+    ]
+
+    await state().send('先画一只猫')
+
+    await vi.waitFor(() => expect(state().queue).toEqual([failed]))
+    const snapshotReads = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/messages'))
+    expect(snapshotReads).toHaveLength(1)
     expect(state().turn).toBe('idle')
   })
 })

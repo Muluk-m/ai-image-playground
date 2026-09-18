@@ -1,5 +1,10 @@
-import type { AgentMode, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
-import { agentConversationTitle } from '@image-playground/shared'
+import type {
+  AgentMode,
+  AgentQueuedMessageFailure,
+  AgentTurnParams,
+  AgentTurnReference,
+} from '@image-playground/shared'
+import { AGENT_QUEUE_MAX_PENDING, agentConversationTitle } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
@@ -26,7 +31,7 @@ import {
   withConversationExecution,
 } from './execution'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
-import { consumeAgentMessage, nextAgentMessage } from './inbox'
+import { consumeAgentMessage, failAgentMessage, nextAgentMessage } from './inbox'
 import { type RunningTurn, runningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
 
@@ -44,7 +49,10 @@ export interface StartConversationTurnInput {
   readonly params?: AgentTurnParams
 }
 
-/** 没能开轮的原因；收件箱里那一条原样留着，待处理。 */
+/**
+ * 没能开轮的原因。调用方刚收进来的那一条（`quietFor`）原样留着待处理，由调用方决定去留；
+ * 排着的别的那一条则记成没能开轮，见 {@link drainConversationInbox}。
+ */
 export type TurnNotStarted =
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'draining' }
@@ -81,13 +89,18 @@ export interface DrainConversationOptions {
  * 处理会话收件箱里的下一条用户消息：领会话租约、取走一条、开一轮，每轮只取一条。
  * 那一轮收尾放手之后再接着取下一条，直到收件箱空了。会话正被别的轮占着就什么都不做——
  * 占着的那一轮收尾时会来取。
+ *
+ * 排着的一条轮到时开不了轮（余额不足、需要登录……）就记成没能开轮、带上错误码，接着取
+ * 下一条：它不能一直挡在队首，用户也得知道它为什么没被处理。本实例正在下线时则什么都不动，
+ * 留给新版本接手（见 `inbox-pickup`）。
  */
 export async function drainConversationInbox(
   conversationId: string,
   options: DrainConversationOptions = {},
 ): Promise<DrainConversationResult> {
-  // 撤回与起轮抢同一条、放手后又来了新的：这两种都换下一条重来，次数有上限，不会空转。
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  // 撤回与起轮抢同一条、放手后又来了新的、排着的开不了轮：都换下一条重来。
+  // 次数有上限（满队每条各一次再留些余量），不会空转。
+  for (let attempt = 0; attempt < AGENT_QUEUE_MAX_PENDING + 4; attempt += 1) {
     const result = await drainOnce(conversationId, options)
     if (result !== 'again') return result
   }
@@ -174,12 +187,30 @@ async function drainOnce(
     }
     if (result.kind === 'started') return { kind: 'started', turn: result.turn, queueId: next.id }
     if (result.kind === 'withdrawn') return 'again'
+    if (next.id !== options.quietFor) {
+      // 排着的这一条开不了轮：记下原因，换下一条。
+      await failAgentMessage(conversationId, next.id, queuedFailureOf(result))
+      return 'again'
+    }
     return { kind: 'not_started', queueId: next.id, failure: result }
   } catch (error) {
     stopHeartbeat()
     if (claimed) await releaseConversation(conversationId, turnId)
     release()
     throw error
+  }
+}
+
+/** 开不了轮的原因换成界面认得的错误码，与发送时同一情形的 HTTP 错误码一致。 */
+function queuedFailureOf(failure: TurnNotStarted): AgentQueuedMessageFailure {
+  switch (failure.kind) {
+    case 'insufficient_credits':
+      return 'insufficient_credits'
+    case 'price_unavailable':
+      return 'model_price_unavailable'
+    default:
+      // 需要登录。下线中（`draining`）不会走到这里：那时什么都不动。
+      return 'unauthorized'
   }
 }
 

@@ -1176,6 +1176,30 @@ describe('AgentPanel', () => {
       expect(host.querySelector('button[aria-label="加入排队"]')).not.toBeNull()
     })
 
+    it('轮到时没能开轮的那一条写明原因，按钮是移除', () => {
+      useAgentStore.setState({
+        conversationId: 'conversation-1',
+        queue: [
+          { ...queued('queue-1', '再加一只狗'), failure: 'insufficient_credits' as const },
+          queued('queue-2', '换成蓝色背景'),
+        ],
+      })
+      render()
+
+      expect(texts('section[aria-label^="排队中"] li')).toEqual([
+        '再加一只狗余额不足，未处理',
+        '换成蓝色背景',
+      ])
+      // 还等着处理的只有一条。
+      expect(host.textContent).toContain('排队中 1 条')
+      expect(
+        host.querySelector('button[aria-label="移除这条没能处理的消息：再加一只狗"]'),
+      ).not.toBeNull()
+      expect(
+        host.querySelector('button[aria-label="撤回这条排队消息：换成蓝色背景"]'),
+      ).not.toBeNull()
+    })
+
     it('点撤回向服务端撤回那一条，成功后从列表拿掉', async () => {
       const requests: string[] = []
       vi.stubGlobal(
