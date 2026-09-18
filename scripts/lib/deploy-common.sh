@@ -8,6 +8,26 @@ deployments_log=$config_root/deployments.log
 # shellcheck disable=SC2034  # the sourcing script passes it to acquire/release_deploy_lock.
 deploy_lock=$config_root/deploy.lock
 
+# Private GHCR package the release images move through; GHCR requires the owner in lowercase.
+ghcr_repository=ghcr.io/muluk-m/ai-image-playground
+ghcr_user=Muluk-m
+
+# ghcr_login <token-file>
+#
+# Reuses the credentials Docker already holds for ghcr.io (a CI login action, or an earlier
+# login on this host) and only otherwise logs in with the token file. The token goes in through
+# stdin, so it never appears in argv, the process list or the output.
+ghcr_login() {
+  if docker login "${ghcr_repository%%/*}" </dev/null >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ ! -r "$1" ]; then
+    echo "Not logged in to ${ghcr_repository%%/*} and no readable token file at $1" >&2
+    return 1
+  fi
+  docker login "${ghcr_repository%%/*}" -u "$ghcr_user" --password-stdin <"$1" >/dev/null
+}
+
 # append_deploy_log <name> <image-or-version> <ok|failed>
 # shellcheck disable=SC2154  # public_sha and private_sha belong to the sourcing script.
 append_deploy_log() {
