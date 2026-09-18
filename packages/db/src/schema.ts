@@ -340,6 +340,8 @@ export interface AgentInboxUserMessagePayload {
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
   readonly referenceCount: number
+  /** 对澄清卡片的答复；`kind` 为 `clarification_answer` 的记录才有。 */
+  readonly clarificationAnswer?: true
 }
 
 /**

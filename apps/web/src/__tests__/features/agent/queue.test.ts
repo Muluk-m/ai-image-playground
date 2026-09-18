@@ -6,6 +6,7 @@ import type {
 } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { currentProjectDraft } from '../../../features/agent/lib/projectLifecycle'
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -40,6 +41,8 @@ function queuedResponse(body: AgentMessageQueuedBody): Response {
 let turnPosts: { body: Record<string, unknown> }[]
 let turnResponse: () => Response
 let withdrawResponse: () => Response
+let interjectResponse: () => Response
+let abortResponse: () => Response
 let snapshots: (() => Response)[]
 let eventResponses: (() => Response)[]
 
@@ -56,6 +59,9 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
     return turnResponse()
   }
   if (method === 'POST' && url.includes('/withdraw')) return withdrawResponse()
+  if (method === 'POST' && url.includes('/queue/') && url.endsWith('/interject'))
+    return interjectResponse()
+  if (method === 'POST' && url.endsWith('/abort')) return abortResponse()
   if (url.includes('/events')) return eventResponses.shift()!()
   return (snapshots.length > 1 ? snapshots.shift()! : snapshots[0]!)()
 })
@@ -83,6 +89,8 @@ beforeEach(() => {
   eventResponses = []
   snapshots = [() => Response.json({ messages: [], activeTurn: null, turns: [], queue: [] })]
   withdrawResponse = () => Response.json({ result: 'cancelled' })
+  interjectResponse = () => Response.json({ result: 'interjected', turnId: TURN })
+  abortResponse = () => Response.json({ aborted: true, returned: [] })
   turnResponse = () => queuedResponse({ queued: QUEUED, state: 'pending', turnId: TURN })
   useAgentStore.setState({
     conversationId: null,
@@ -337,5 +345,161 @@ describe('撤回', () => {
 
     expect(state().queue).toEqual([QUEUED])
     expect(state().error).toBe('撤回未成功，请重试。')
+  })
+})
+
+describe('升级为插话', () => {
+  it('插进正在跑的那一轮后从排队列表里拿掉', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+
+    await state().interjectQueued(QUEUED.id)
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith(`/conversations/${CONVERSATION}/queue/${QUEUED.id}/interject`),
+      ),
+    ).toBe(true)
+    expect(state().queue).toEqual([])
+    expect(state().error).toBeNull()
+  })
+
+  it('那一轮刚好收尾时照旧排着，并说明会在下一轮处理', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    interjectResponse = () => Response.json({ result: 'not_running' })
+
+    await state().interjectQueued(QUEUED.id)
+
+    expect(state().queue).toEqual([QUEUED])
+    expect(state().error).toBe('当前回复已经结束，这条消息会在下一轮处理。')
+  })
+
+  it('另一台设备收到升级事件时同样从列表里拿掉', async () => {
+    turnResponse = () =>
+      sse([
+        { id: 1, event: { type: 'turnStart', turnId: TURN, userMessageId: 'user-1' } },
+        { id: 2, event: { type: 'messageQueued', message: QUEUED } },
+        {
+          id: 3,
+          event: { type: 'queuedMessageInterjected', queueId: QUEUED.id, turnId: TURN },
+        },
+        { id: 4, event: { type: 'interjection', messageId: QUEUED.id, text: QUEUED.text } },
+        { id: 5, event: turnEnd(TURN) },
+      ])
+
+    await state().send('先画一只猫')
+
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    expect(state().queue).toEqual([])
+    expect(state().messages.some((one) => one.id === QUEUED.id)).toBe(true)
+  })
+})
+
+describe('停止时退回', () => {
+  it('停止后未处理的排队消息回到输入框，排队列表清空', async () => {
+    busy()
+    const other = queuedView('queue-2', '换成蓝色')
+    useAgentStore.setState({ queue: [QUEUED, other] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    draft.update((current) => ({ ...current, prompt: '还没发的草稿' }))
+    const reference = { imageId: 'image-1', dataUrl: 'data:image/png;base64,aGk=', name: '猫' }
+    abortResponse = () =>
+      Response.json({
+        aborted: true,
+        returned: [
+          { id: QUEUED.id, text: QUEUED.text, references: [reference] },
+          { id: other.id, text: other.text, references: [] },
+        ],
+      })
+
+    await state().abort()
+
+    expect(state().queue).toEqual([])
+    const { prompt, references } = draft.getSnapshot().draft
+    expect(prompt).toBe('还没发的草稿\n\n再加一只狗\n\n换成蓝色')
+    expect(references).toEqual([{ id: 'image-1', dataUrl: reference.dataUrl, name: '猫' }])
+  })
+  it('停止的响应丢了就重发同一个请求，拿回的消息照样回到输入框', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    draft.update((current) => ({ ...current, prompt: '' }))
+    let attempts = 0
+    abortResponse = () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('network down')
+      return Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    }
+
+    await state().abort()
+
+    expect(attempts).toBe(2)
+    expect(state().error).toBeNull()
+    expect(state().queue).toEqual([])
+    expect(draft.getSnapshot().draft.prompt).toBe('再加一只狗')
+  })
+
+  it('停止期间切到别的会话，退回的消息仍回到按停止时那个会话的输入框', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    draft.update((current) => ({ ...current, prompt: '' }))
+    const other = currentProjectDraft('conversation-2')
+    await other.ready
+    other.update((current) => ({ ...current, prompt: '另一个会话的草稿' }))
+    abortResponse = () => {
+      // 响应回来之前用户已经切走了。
+      useAgentStore.setState({ conversationId: 'conversation-2', activeTurn: null, turn: 'idle' })
+      return Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    }
+
+    await state().abort()
+
+    expect(draft.getSnapshot().draft.prompt).toBe('再加一只狗')
+    expect(other.getSnapshot().draft.prompt).toBe('另一个会话的草稿')
+  })
+})
+
+describe('回答澄清', () => {
+  it('末尾有待作答的澄清时，发出的话标成澄清答复', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: TURN,
+          question: '猫要什么颜色？',
+          options: ['黑色', '白色'],
+        },
+      ],
+    })
+    turnResponse = () =>
+      sse([
+        { id: 1, event: { type: 'turnStart', turnId: NEXT_TURN, userMessageId: 'user-2' } },
+        { id: 2, event: turnEnd(NEXT_TURN) },
+      ])
+
+    await state().send('黑色')
+
+    expect(turnPosts[0]!.body).toMatchObject({ text: '黑色', clarificationAnswer: true })
+  })
+
+  it('普通消息不带澄清答复的标记', async () => {
+    busy()
+
+    await state().send('再加一只狗')
+
+    expect(turnPosts[0]!.body.clarificationAnswer).toBeUndefined()
   })
 })

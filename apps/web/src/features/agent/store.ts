@@ -36,6 +36,7 @@ import {
   fetchJobs,
   fetchMessages,
   followTurn,
+  interjectQueuedMessage,
   interjectTurn,
   removeConversation,
   cancelJob as requestJobCancel,
@@ -51,8 +52,10 @@ import {
   hasWaitingMessages,
   reduceMessageQueue,
   removeQueuedMessage,
+  returnQueuedToDraft,
 } from './lib/messageQueue'
 import {
+  answerableClarificationId,
   dropUnsettledMessages,
   panelMessage,
   panelStateFromHistory,
@@ -156,6 +159,8 @@ export interface AgentState {
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
   withdrawQueued(queueId: string): Promise<void>
+  /** 把一条排队消息升级为插话：插进正在跑的那一轮，在它下一个动作边界生效。 */
+  interjectQueued(queueId: string): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
   /** 单独取消这张结果卡提交的后台任务；服务端按原桶退回，卡随即换成取消后的结局。 */
@@ -190,6 +195,8 @@ const hasPendingJobs = (messages: readonly AgentPanelMessage[]) =>
 /** 上一轮收尾后找服务端接着开的那一轮：最多看这么多次，每次隔这么久。 */
 const QUEUE_PICKUP_ATTEMPTS = 8
 const QUEUE_PICKUP_DELAY_MS = 250
+/** 停止请求没拿到响应时，连同第一次一共发这么多次。 */
+const STOP_ATTEMPTS = 3
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
@@ -583,14 +590,39 @@ export const useAgentStore = create<AgentState>((set, get) => {
     )
   }
 
+  /**
+   * 停止请求没拿到响应（超时、断网）时重发同一个请求：服务端那一刻可能已经撤下了排队消息，
+   * 只在响应里交还，重发拿得回同一批。服务端明确答复的错误（例如 404）不重发。
+   */
+  const abortWithRetry = async (conversationId: string, turnId: string) => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await abortTurn(conversationId, turnId)
+      } catch (error) {
+        if (error instanceof AgentRequestError || attempt >= STOP_ATTEMPTS) throw error
+      }
+    }
+  }
+
   // 发送请求尚未返回轮标识时，也必须记住用户的中止意图。
   let pendingStart: { cancelled: boolean; delivery: TurnArtifactDelivery } | null = null
   const requestAbort = async (conversationId: string, turnId: string) => {
     const current = () =>
       get().conversationId === conversationId && get().activeTurn?.turnId === turnId
+    // 退回的排队消息属于按停止时的这个项目：请求期间切走了，也得落回它自己的输入框，不能落进
+    // 切过去的那个项目。
+    const draft = currentProjectDraft(conversationId)
     try {
       if (current()) set({ stopping: true, error: null })
-      await abortTurn(conversationId, turnId)
+      const returned = await abortWithRetry(conversationId, turnId)
+      // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
+      if (returned.length) {
+        draft.update((before) => returnQueuedToDraft(before, returned))
+        if (get().conversationId === conversationId)
+          set((state) => ({
+            queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
+          }))
+      }
     } catch (error) {
       if (!current()) return
       // 轮可能恰好结束；读回事实后再决定是否报错，不能把 404 当成中止成功。
@@ -635,10 +667,20 @@ export const useAgentStore = create<AgentState>((set, get) => {
     references: readonly AgentTurnReference[],
     onAccepted: (() => void) | undefined,
     mode: AgentMode,
+    clarificationAnswer: boolean,
   ) => {
     const current = () => get().conversationId === conversationId
     try {
-      const outcome = await startTurn(conversationId, text, references, currentTurnParams(), mode)
+      const outcome = await startTurn(
+        conversationId,
+        text,
+        references,
+        currentTurnParams(),
+        mode,
+        undefined,
+        undefined,
+        clarificationAnswer,
+      )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
         if (current()) set({ error: i18next.t('error.queueFailed', { ns: 'agent' }) })
@@ -951,8 +993,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
       const active = get().activeTurn
       const conversationId = get().conversationId
+      // 末尾还有没作答的澄清：这句话就是在回答它（卡片与输入框同一个口径），服务端把它排在队首。
+      const clarificationAnswer = answerableClarificationId(get().messages) !== null
       if (get().turn === 'running' && conversationId) {
-        await queueMessage(conversationId, active, trimmed, references, onAccepted, mode)
+        await queueMessage(
+          conversationId,
+          active,
+          trimmed,
+          references,
+          onAccepted,
+          mode,
+          clarificationAnswer,
+        )
         return
       }
       if (get().turn === 'running') return
@@ -1054,7 +1106,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
         // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
         let outcome: StartTurnOutcome
         try {
-          outcome = await startTurn(target, trimmed, references, turnParams, mode)
+          outcome = await startTurn(
+            target,
+            trimmed,
+            references,
+            turnParams,
+            mode,
+            undefined,
+            undefined,
+            clarificationAnswer,
+          )
         } catch (thrown) {
           if (turnDelivery.isCurrent())
             fail(
@@ -1154,6 +1215,31 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }))
       } catch {
         if (current()) set({ error: i18next.t('error.queueWithdrawFailed', { ns: 'agent' }) })
+      }
+    },
+
+    async interjectQueued(queueId) {
+      const conversationId = get().conversationId
+      if (!conversationId) return
+      const current = () => get().conversationId === conversationId
+      try {
+        const result = await interjectQueuedMessage(conversationId, queueId)
+        if (!current()) return
+        // 那一轮刚好收尾：它照旧排着，下一轮处理。
+        if (result === 'not_running') {
+          set({ error: i18next.t('error.queueInterjectTooLate', { ns: 'agent' }) })
+          return
+        }
+        // 其余结局都意味着它不再排着：插进去了、被处理了、撤回了或者本来就没有。
+        set((state) => ({
+          queue: removeQueuedMessage(state.queue, queueId),
+          error:
+            result === 'already_consumed'
+              ? i18next.t('error.queueInterjectConsumed', { ns: 'agent' })
+              : null,
+        }))
+      } catch {
+        if (current()) set({ error: i18next.t('error.queueInterjectFailed', { ns: 'agent' }) })
       }
     },
 

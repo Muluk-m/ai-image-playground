@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { CornerDownRight, X } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { ICON_BUTTON, INK, INK_3 } from '../agentStyles'
@@ -8,19 +8,22 @@ import { useAgentStore } from '../store'
 /**
  * 输入框上方的排队列表：智能体忙时发出、服务端还排着的消息，按处理顺序。每条可撤回；
  * 列表来自服务端，刷新与换设备看到的是同一份。轮到时没能开轮的那一条带着原因留在列表里，
- * 由用户移除。
+ * 由用户移除。智能体忙时每条还排着的消息可以「现在插话」：插进正在跑的那一轮，在它下一个
+ * 动作边界生效，不再等这一轮结束。
  */
 export default function AgentMessageQueue() {
   const { t } = useTranslation('agent')
   const queue = useAgentStore((state) => state.queue)
+  const running = useAgentStore((state) => state.turn === 'running' && state.activeTurn !== null)
   const [withdrawing, setWithdrawing] = useState<ReadonlySet<string>>(new Set())
   if (queue.length === 0) return null
   const waiting = queue.filter((message) => message.failure === undefined).length
 
-  const withdraw = async (queueId: string) => {
+  // 撤回与插话共用这一份「正在处理」：同一条不能一边撤一边插。
+  const settle = async (queueId: string, action: (queueId: string) => Promise<void>) => {
     setWithdrawing((current) => new Set(current).add(queueId))
     try {
-      await useAgentStore.getState().withdrawQueued(queueId)
+      await action(queueId)
     } finally {
       setWithdrawing((current) => {
         const next = new Set(current)
@@ -57,6 +60,18 @@ export default function AgentMessageQueue() {
                 {t('queue.references', { count: message.referenceCount })}
               </span>
             )}
+            {running && message.failure === undefined && (
+              <button
+                type="button"
+                className={`${ICON_BUTTON} shrink-0`}
+                aria-label={t('queue.interjectAria', { text: message.text })}
+                title={t('queue.interject')}
+                disabled={withdrawing.has(message.id)}
+                onClick={() => void settle(message.id, useAgentStore.getState().interjectQueued)}
+              >
+                <CornerDownRight className="size-3.5" aria-hidden />
+              </button>
+            )}
             <button
               type="button"
               className={`${ICON_BUTTON} shrink-0`}
@@ -65,7 +80,7 @@ export default function AgentMessageQueue() {
               })}
               title={t(message.failure ? 'queue.dismiss' : 'queue.withdraw')}
               disabled={withdrawing.has(message.id)}
-              onClick={() => void withdraw(message.id)}
+              onClick={() => void settle(message.id, useAgentStore.getState().withdrawQueued)}
             >
               <X className="size-3.5" aria-hidden />
             </button>

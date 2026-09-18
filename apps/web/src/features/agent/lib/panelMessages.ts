@@ -307,6 +307,7 @@ export function reduceAgentPanelEvent(
     case 'messageQueued':
     case 'queuedMessageWithdrawn':
     case 'queuedMessageConsumed':
+    case 'queuedMessageInterjected':
       return state
     case 'turnEnd': {
       const turns = mergeTurn(state.turns, event.turnId, {

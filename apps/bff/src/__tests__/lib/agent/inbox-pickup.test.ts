@@ -31,6 +31,7 @@ const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 const { enqueueAgentUserMessage } = await import('../../../lib/agent/inbox')
+const { appendAgentMessage } = await import('../../../lib/agent/conversations')
 const { pickUpStrandedInboxes, strandedInboxConversations } = await import(
   '../../../lib/agent/inbox-pickup'
 )
@@ -203,6 +204,24 @@ describe('接手没人处理的排队消息', () => {
     const users = (await snapshot(conversationId)).messages.filter((one) => one.role === 'user')
     expect(users.at(-1)!.id).toBe(stranded)
     expect((await queueList(conversationId)).map((one) => one.id)).toEqual([body.queued.id])
+  })
+
+  it('在等澄清答复的会话不占巡查的名额，真没人处理的会话照样被接手', async () => {
+    // 比一批的上限多：它们要是被选进来，就会把没人处理的那一个挤出这一批。
+    for (let index = 0; index < 51; index += 1) {
+      const held = await startConversation()
+      await strand(held, `问澄清之前排着的第 ${index} 句`)
+      await appendAgentMessage(db, {
+        conversationId: held,
+        turnId: `turn-${index}`,
+        role: 'assistant',
+        content: [{ type: 'clarification', question: '猫要什么颜色？', options: ['黑色', '白色'] }],
+      })
+    }
+    const stranded = await startConversation()
+    await strand(stranded, '真没人处理的一句')
+
+    expect(await strandedInboxConversations()).toEqual([stranded])
   })
 
   // 放在最后：下线开始后本进程不再接新活。

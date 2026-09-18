@@ -425,6 +425,11 @@ export interface AgentQueuedMessageView {
    * 留在列表里等用户看过后撤掉。缺席即仍在排队。
    */
   readonly failure?: AgentQueuedMessageFailure
+  /**
+   * 这是对澄清卡片的答复：它排在其他排队消息前面，智能体停下来等的问题最先得到回答。
+   * 缺席即普通的排队消息。
+   */
+  readonly clarificationAnswer?: true
 }
 
 /** 排队消息轮到时开不了轮的原因：余额不足、模型没有定价、需要登录。 */
@@ -455,6 +460,31 @@ export interface AgentMessageQueuedBody {
   readonly turnId?: string
 }
 
+/**
+ * 把排队消息升级为插话的结局：插进了正在跑的那一轮（在它下一个动作边界生效）；已经被处理了；
+ * 已撤回；没有这条；会话此刻没有在跑的轮（它照旧排着，下一轮处理）。
+ */
+export type AgentQueueInterjectResult =
+  | 'interjected'
+  | 'already_consumed'
+  | 'cancelled'
+  | 'not_found'
+  | 'not_running'
+
+/** 停止当前回复时退回给客户端的一条排队消息：放回输入框，由用户改了再发或删掉。 */
+export interface AgentReturnedQueuedMessage {
+  readonly id: string
+  readonly text: string
+  /** 它当初附带的参考图，原样还回去。 */
+  readonly references: readonly AgentTurnReference[]
+}
+
+/** 停止当前回复的响应体。`returned` 是被退回的排队消息，按原先的处理顺序；老服务端没有这一项。 */
+export interface AgentTurnAbortedBody {
+  readonly aborted: true
+  readonly returned?: readonly AgentReturnedQueuedMessage[]
+}
+
 /** 满额时的 409 响应体。 */
 export interface AgentQueueFullBody {
   readonly error: 'queue_full'
@@ -471,6 +501,13 @@ export interface AgentMessageQueuedEvent {
 export interface AgentQueuedMessageWithdrawnEvent {
   readonly type: 'queuedMessageWithdrawn'
   readonly queueId: string
+}
+
+/** 一条排队消息升级成了插话，进了正在跑的这一轮；随后的 `interjection` 事件带着它的正文。 */
+export interface AgentQueuedMessageInterjectedEvent {
+  readonly type: 'queuedMessageInterjected'
+  readonly queueId: string
+  readonly turnId: string
 }
 
 /** 一条排队消息被这一轮取走处理；它紧跟在那一轮的 `turnStart` 之后。 */
@@ -517,6 +554,7 @@ export type AgentTurnEvent =
   | AgentMessageQueuedEvent
   | AgentQueuedMessageWithdrawnEvent
   | AgentQueuedMessageConsumedEvent
+  | AgentQueuedMessageInterjectedEvent
   | AgentTurnEndEvent
 
 /** 翻历史时每轮页脚要的那几项。 */

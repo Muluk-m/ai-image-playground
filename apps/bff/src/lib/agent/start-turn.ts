@@ -118,6 +118,12 @@ async function drainOnce(
       ? { kind: 'not_started', queueId: next.id, failure: { kind: 'draining' } }
       : { kind: 'idle' }
   }
+  // 没有该取的就不领租约：空领一次也会让会话在那一瞬间显得还忙。在等澄清答复、只剩问之前
+  // 排着的那几条时，巡查与快照读取都会来问，不能每次都占一下。
+  if (!(await nextAgentMessage(conversationId))) {
+    release()
+    return { kind: 'idle' }
+  }
   const turnId = crypto.randomUUID()
   let claimed = false
   let stopHeartbeat = () => {}

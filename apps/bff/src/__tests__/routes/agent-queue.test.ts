@@ -10,6 +10,7 @@ import {
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import {
   type AgentCall,
   type ControlledCompletion,
@@ -34,8 +35,77 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { appendAgentMessage } = await import('../../lib/agent/conversations')
 
 const app = new Elysia().use(agentRoutes)
+
+/** 写对象存储时停在门口，直到测试放行：插话归档参考图的那几秒由测试掌控。 */
+class GatedObjectStore extends InMemoryObjectStore {
+  private gate: Promise<void> | null = null
+  private release: () => void = () => {}
+
+  hold(): void {
+    this.gate = new Promise((resolve) => {
+      this.release = resolve
+    })
+  }
+
+  letThrough(): void {
+    this.gate = null
+    this.release()
+  }
+
+  override async write(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    this.events.push(`waiting:${key}`)
+    if (this.gate) await this.gate
+    return super.write(key, bytes, contentType)
+  }
+}
+
+async function referenceImage(imageId: string) {
+  const png = await sharp({
+    create: { width: 2, height: 2, channels: 4, background: '#ffffff' },
+  })
+    .png()
+    .toBuffer()
+  return { imageId, dataUrl: `data:image/png;base64,${png.toString('base64')}` }
+}
+
+type Reference = Awaited<ReturnType<typeof referenceImage>>
+
+function sendWithReference(
+  conversationId: string,
+  text: string,
+  reference: Reference,
+): Promise<Response> {
+  return post(`/api/agent/conversations/${conversationId}/turns`, {
+    deviceId: DEVICE,
+    text,
+    references: [reference],
+  })
+}
+
+function abortTurn(conversationId: string, turnId: string): Promise<Response> {
+  return post(`/api/agent/conversations/${conversationId}/turns/${turnId}/abort`, {
+    deviceId: DEVICE,
+  })
+}
+
+function interjectQueued(conversationId: string, queueId: string): Promise<Response> {
+  return post(`/api/agent/conversations/${conversationId}/queue/${queueId}/interject`, {
+    deviceId: DEVICE,
+  })
+}
+
+/** 智能体在这一轮里问了一个澄清：直接落一条澄清消息，与它在轮中落库的形状一致。 */
+async function askClarification(conversationId: string, turnId: string): Promise<void> {
+  await appendAgentMessage(db, {
+    conversationId,
+    turnId,
+    role: 'assistant',
+    content: [{ type: 'clarification', question: '猫要什么颜色？', options: ['黑色', '白色'] }],
+  })
+}
 const DEVICE = 'device-abcdefgh'
 
 async function post(path: string, body: unknown): Promise<Response> {
@@ -389,5 +459,272 @@ describe('排队消息', () => {
     )
     expect(response.status).toBe(404)
     expect(await queueList(conversationId)).toHaveLength(1)
+  })
+})
+
+describe('升级为插话', () => {
+  it('排队消息升级为插话，在当前回复的下一个动作边界生效', async () => {
+    const { conversationId, turnId, first } = await busyConversation()
+    const kept = await queued(await send(conversationId, '先排着'))
+    const target = await queued(await send(conversationId, '改成黑猫'))
+
+    const response = await post(
+      `/api/agent/conversations/${conversationId}/queue/${target.queued.id}/interject`,
+      { deviceId: DEVICE },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ result: 'interjected', turnId })
+    // 它离开排队列表；另一条仍排着，等这一轮结束。
+    expect((await queueList(conversationId)).map((one) => one.id)).toEqual([kept.queued.id])
+
+    first.push('好')
+    first.finish()
+    // 插话进的是同一轮：模型在当前回复结束的那个边界看见它，再回一次上游。
+    const steered = await upstreamCall(1)
+    expect(lastUserText(calls[1]!)).toContain('改成黑猫')
+    expect((await snapshot(conversationId)).activeTurn?.turnId).toBe(turnId)
+    const events = (await conversationEvents(conversationId)).map((frame) => frame.event)
+    expect(events).toContainEqual({
+      type: 'queuedMessageInterjected',
+      queueId: target.queued.id,
+      turnId,
+    })
+    expect(events).toContainEqual({
+      type: 'interjection',
+      messageId: target.queued.id,
+      text: '改成黑猫',
+    })
+
+    steered.push('改好了')
+    steered.finish()
+    // 没升级的那条照旧在下一轮处理。
+    const next = await upstreamCall(2)
+    expect(lastUserText(calls[2]!)).toContain('先排着')
+    next.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    expect(calls).toHaveLength(3)
+    const users = (await snapshot(conversationId)).messages.filter((one) => one.role === 'user')
+    expect(users.map((one) => one.id)).toContain(target.queued.id)
+  })
+
+  it('已撤回、不存在或没有在跑的轮时不能升级', async () => {
+    const { conversationId, first } = await busyConversation()
+    const dropped = await queued(await send(conversationId, '撤回这句'))
+    await withdraw(conversationId, dropped.queued.id)
+
+    const interject = async (queueId: string) =>
+      (await (
+        await post(`/api/agent/conversations/${conversationId}/queue/${queueId}/interject`, {
+          deviceId: DEVICE,
+        })
+      ).json()) as { result: string }
+
+    expect(await interject(dropped.queued.id)).toEqual({ result: 'cancelled' })
+    expect(await interject('no-such-message')).toEqual({ result: 'not_found' })
+
+    first.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('插话归档参考图期间按了停止：那条仍由停止退回，不再开新轮', async () => {
+    const store = new GatedObjectStore()
+    setObjectStoreForTesting(store)
+    const { conversationId, turnId } = await busyConversation()
+    const reference = await referenceImage('ref-stop')
+    const target = await queued(await sendWithReference(conversationId, '带图的一句', reference))
+
+    store.hold()
+    const interjecting = interjectQueued(conversationId, target.queued.id)
+    await waitFor(() => store.events.some((event) => event.startsWith('waiting:')), 3_000)
+
+    const stopped = await abortTurn(conversationId, turnId)
+    expect(stopped.status).toBe(200)
+    expect(await stopped.json()).toEqual({
+      aborted: true,
+      returned: [{ id: target.queued.id, text: '带图的一句', references: [reference] }],
+    })
+
+    store.letThrough()
+    expect(await (await interjecting).json()).toEqual({ result: 'cancelled' })
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    await Bun.sleep(100)
+    expect(calls).toHaveLength(1)
+    expect(await queueList(conversationId)).toEqual([])
+    const users = (await snapshot(conversationId)).messages.filter((one) => one.role === 'user')
+    expect(users.map((one) => one.id)).not.toContain(target.queued.id)
+  })
+
+  it('插话归档参考图期间这一轮刚好收尾：那条照旧排着，由下一轮处理且只处理一次', async () => {
+    const store = new GatedObjectStore()
+    setObjectStoreForTesting(store)
+    const { conversationId, turnId, first } = await busyConversation()
+    const reference = await referenceImage('ref-late')
+    const target = await queued(await sendWithReference(conversationId, '来晚的一句', reference))
+
+    store.hold()
+    const interjecting = interjectQueued(conversationId, target.queued.id)
+    await waitFor(() => store.events.some((event) => event.startsWith('waiting:')), 3_000)
+    first.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn?.turnId !== turnId, 3_000)
+    store.letThrough()
+
+    const { result } = (await (await interjecting).json()) as { result: string }
+    expect(['not_running', 'already_consumed']).toContain(result)
+    const next = await upstreamCall(1)
+    expect(lastUserText(calls[1]!)).toContain('来晚的一句')
+    next.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    await Bun.sleep(100)
+    expect(calls).toHaveLength(2)
+    const users = (await snapshot(conversationId)).messages.filter((one) => one.role === 'user')
+    expect(users.filter((one) => one.id === target.queued.id)).toHaveLength(1)
+  })
+})
+
+describe('停止时退回排队消息', () => {
+  it('停止当前回复后，未处理的排队消息交还客户端，排队列表清空，不再开轮', async () => {
+    const { conversationId, turnId } = await busyConversation()
+    const one = await queued(await send(conversationId, '第一句'))
+    const two = await queued(await send(conversationId, '第二句'))
+
+    const response = await post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/abort`,
+      {
+        deviceId: DEVICE,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      aborted: true,
+      returned: [
+        { id: one.queued.id, text: '第一句', references: [] },
+        { id: two.queued.id, text: '第二句', references: [] },
+      ],
+    })
+    expect(await queueList(conversationId)).toEqual([])
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    await Bun.sleep(100)
+    expect(calls).toHaveLength(1)
+    expect((await snapshot(conversationId)).queue).toEqual([])
+    // 连着的别的设备据此把它们从排队列表里拿掉。
+    const events = (await conversationEvents(conversationId)).map((frame) => frame.event)
+    expect(events).toContainEqual({ type: 'queuedMessageWithdrawn', queueId: one.queued.id })
+    expect(events).toContainEqual({ type: 'queuedMessageWithdrawn', queueId: two.queued.id })
+  })
+
+  it('停止的响应丢了：重发同一个停止请求，拿回同一批消息与参考图', async () => {
+    const { conversationId, turnId } = await busyConversation()
+    const reference = await referenceImage('ref-returned')
+    const one = await queued(await sendWithReference(conversationId, '带图的一句', reference))
+    const two = await queued(await send(conversationId, '第二句'))
+    const expected = {
+      aborted: true,
+      returned: [
+        { id: one.queued.id, text: '带图的一句', references: [reference] },
+        { id: two.queued.id, text: '第二句', references: [] },
+      ],
+    }
+
+    expect(await (await abortTurn(conversationId, turnId)).json()).toEqual(expected)
+    // 这一轮还没收尾时重发，与收尾之后重发，都交还同一批。
+    const again = await abortTurn(conversationId, turnId)
+    expect(again.status).toBe(200)
+    expect(await again.json()).toEqual(expected)
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    const late = await abortTurn(conversationId, turnId)
+    expect(late.status).toBe(200)
+    expect(await late.json()).toEqual(expected)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('没有退回过消息的轮已经收尾时，停止照旧报找不到', async () => {
+    const { conversationId, turnId, first } = await busyConversation()
+    first.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+
+    expect((await abortTurn(conversationId, turnId)).status).toBe(404)
+  })
+})
+
+describe('澄清答复插队', () => {
+  function answer(conversationId: string, text: string): Promise<Response> {
+    return post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text,
+      clarificationAnswer: true,
+    })
+  }
+
+  it('忙时收到的澄清答复排在已有排队消息前面处理', async () => {
+    const { conversationId, turnId, first } = await busyConversation()
+    const earlier = await queued(await send(conversationId, '之前排的'))
+    await askClarification(conversationId, turnId)
+    const reply = await queued(await answer(conversationId, '选黑色'))
+
+    expect(reply.queued.clarificationAnswer).toBe(true)
+    expect((await queueList(conversationId)).map((one) => one.id)).toEqual([
+      reply.queued.id,
+      earlier.queued.id,
+    ])
+
+    first.finish()
+    const second = await upstreamCall(1)
+    expect(lastUserText(calls[1]!)).toContain('选黑色')
+    second.finish()
+    const third = await upstreamCall(2)
+    expect(lastUserText(calls[2]!)).toContain('之前排的')
+    third.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+  })
+
+  it('会话没在等澄清答复时，带着答复标记的消息照普通消息排队、占名额', async () => {
+    const { conversationId, first } = await busyConversation()
+    const earlier = await queued(await send(conversationId, '之前排的'))
+    const claimed = await queued(await answer(conversationId, '想插队'))
+
+    expect(claimed.queued.clarificationAnswer).toBeUndefined()
+    expect((await queueList(conversationId)).map((one) => one.id)).toEqual([
+      earlier.queued.id,
+      claimed.queued.id,
+    ])
+    for (let index = 2; index < AGENT_QUEUE_MAX_PENDING; index += 1)
+      await queued(await send(conversationId, `第 ${index} 句`))
+    expect((await answer(conversationId, '再插一次')).status).toBe(409)
+
+    first.finish()
+    await upstreamCall(1)
+    expect(lastUserText(calls[1]!)).toContain('之前排的')
+  })
+
+  it('智能体停下来问澄清时，之前排着的消息等答复先处理', async () => {
+    const { conversationId, first } = await busyConversation()
+    const earlier = await queued(await send(conversationId, '之前排的'))
+
+    first.pushToolCall(0, {
+      id: 'call-clarify',
+      name: 'askClarification',
+      args: { question: '猫要什么颜色？', options: ['黑色', '白色'] },
+    })
+    first.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    await Bun.sleep(100)
+    // 排着的那条没有抢在答复前面开轮。
+    expect(calls).toHaveLength(1)
+    expect((await queueList(conversationId)).map((one) => one.id)).toEqual([earlier.queued.id])
+
+    const live = await answer(conversationId, '黑色')
+    expect(live.status).toBe(200)
+    const second = await upstreamCall(1)
+    expect(lastUserText(calls[1]!)).toContain('黑色')
+    second.push('黑猫来了')
+    second.finish()
+    await live.text()
+    const third = await upstreamCall(2)
+    expect(lastUserText(calls[2]!)).toContain('之前排的')
+    third.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
   })
 })
