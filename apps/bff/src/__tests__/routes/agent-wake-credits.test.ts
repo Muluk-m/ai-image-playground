@@ -198,4 +198,89 @@ describe('积分不足时不唤醒', () => {
     expect(await pickUpStrandedInboxes()).toBe(0)
     expect(calls).toHaveLength(2)
   })
+
+  it('lets the user message start without the merged wake when only the merged turn does not fit', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-1',
+            name: 'generateImage',
+            args: { prompt: '一只橘猫' },
+          }),
+        () => completionStream('已开始出图'),
+        () => completionStream('好的，背景换成蓝色'),
+        () => completionStream('不该有单独的唤醒轮'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.agent_conversation_id, conversationId))
+    const now = Date.now()
+    await db
+      .update(schema.tasks)
+      .set({ status: 'in_progress', started_at: now })
+      .where(eq(schema.tasks.id, task!.id))
+    expect(
+      await finishTask(task!.id, {
+        status: 'failed',
+        completedAt: now,
+        errorMessage: '上游超时',
+        errorType: 'upstream_timeout',
+      }),
+    ).toBe(true)
+
+    // 余额只够用户这条消息自己：带上唤醒说明的那次预扣被拒，只为这条消息的那次准，唤醒自己那轮也被拒。
+    const before = billing.reservations.length
+    const answers = [
+      { kind: 'insufficient_credits', required: 50, available: 30 },
+      { kind: 'reserved', credits: 30 },
+      { kind: 'insufficient_credits', required: 30, available: 0 },
+    ] as const
+    billing.decide = () => answers[billing.reservations.length - before - 1]
+    await runTurn(conversationId, '顺便把背景换成蓝色')
+
+    // 用户的话照常起轮，模型收到的只有他的原话，没有并进唤醒说明。
+    await waitFor(async () => (await wakeRow(conversationId))?.status === 'cancelled', 3_000)
+    expect(calls).toHaveLength(3)
+    const asked = JSON.stringify(
+      calls[2]!.messages.filter((message) => message.role === 'user').at(-1),
+    )
+    expect(asked).toContain('顺便把背景换成蓝色')
+    expect(asked).not.toContain('先回应用户这条消息')
+    expect(await turnCount(conversationId)).toBe(2)
+
+    // 先带说明预扣，被拒后按用户这条消息自己的量再来一次；两次记在同一轮上。
+    const [mergedTry, plainTry, wakeTry] = billing.reservations.slice(before)
+    expect(mergedTry!.taskId).toBe(plainTry!.taskId)
+    expect(mergedTry!.unitMultiplier).toBeGreaterThan(plainTry!.unitMultiplier)
+    expect(wakeTry!.taskId).not.toBe(plainTry!.taskId)
+
+    // 唤醒没有被那一轮取走，而是走自己的路，因积分不足被跳过，结果卡记着原因。
+    const block = (await snapshot(conversationId)).messages
+      .flatMap((message) => message.content)
+      .find(
+        (one): one is AgentToolResultBlock =>
+          one.type === 'toolResult' && one.job?.taskId === task!.id,
+      )
+    expect(block?.wakeSkipped).toBe('insufficient_credits')
+    expect(await pickUpStrandedInboxes()).toBe(0)
+    expect(calls).toHaveLength(3)
+  })
 })
+
+async function wakeRow(conversationId: string) {
+  const [row] = await db
+    .select()
+    .from(schema.agent_inbox)
+    .where(
+      and(
+        eq(schema.agent_inbox.conversation_id, conversationId),
+        eq(schema.agent_inbox.kind, 'task_result'),
+      ),
+    )
+  return row
+}

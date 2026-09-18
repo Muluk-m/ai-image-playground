@@ -537,17 +537,20 @@ async function executeConversationTurn(
           userId,
           deviceId,
           model: selectedModel,
-          estimatedInputTokens: merged.note
-            ? estimateTurnInputTokens(
-                history,
-                `${text}\n\n${merged.note.text}`,
-                references,
-                mode,
-                merged.note.reviewImageIds,
-              )
-            : estimateTurnInputTokens(history, text, references, mode),
+          estimatedInputTokens: estimateTurnInputTokens(history, text, references, mode),
           pricing,
         }
+      : null
+  // 并进唤醒后这一轮的输入更长，预扣按带上说明的估算。
+  const mergedEstimate =
+    chatTask && merged.note
+      ? estimateTurnInputTokens(
+          history,
+          `${text}\n\n${merged.note.text}`,
+          references,
+          mode,
+          merged.note.reviewImageIds,
+        )
       : null
   const storedReferences = await archiveAgentReferences(conversationId, turnId, references)
 
@@ -555,13 +558,24 @@ async function executeConversationTurn(
     // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
     if (!(await consumeAgentMessage(tx, conversationId, queued.id, turnId)))
       throw new TurnStartRollback({ kind: 'withdrawn' })
-    await consumeMergedWakes(tx, conversationId, merged, turnId)
     let reserved: ChatTaskReserved | undefined
+    let merging = true
     if (chatTask) {
-      const reservation = await reserveChatTask({ tx, ...chatTask })
+      let reservation = await reserveChatTask({
+        tx,
+        ...chatTask,
+        ...(mergedEstimate === null ? {} : { estimatedInputTokens: mergedEstimate }),
+      })
+      // 带上唤醒的说明预扣不下，就只为用户这条消息预扣：唤醒的费用不能挡住用户的话。唤醒留在
+      // 收件箱里，之后走它自己的路（积分不足时不唤醒）。被拒的预扣不留痕迹，同一事务里可以再来一次。
+      if (reservation.kind === 'insufficient_credits' && mergedEstimate !== null) {
+        merging = false
+        reservation = await reserveChatTask({ tx, ...chatTask })
+      }
       if (reservation.kind !== 'reserved') throw new TurnStartRollback(reservation)
       reserved = reservation
     }
+    if (merging) await consumeMergedWakes(tx, conversationId, merged, turnId)
     if (history.length === 0) {
       await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
     }
@@ -578,7 +592,12 @@ async function executeConversationTurn(
         },
       ],
     })
-    return { kind: 'reserved' as const, userMessageId: userMessage.id, reserved }
+    return {
+      kind: 'reserved' as const,
+      userMessageId: userMessage.id,
+      reserved,
+      wakeNote: merging ? merged.note : undefined,
+    }
   }).catch(async (error) => {
     if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
     if (error instanceof TurnStartRollback) return error.result
@@ -603,7 +622,7 @@ async function executeConversationTurn(
       userId,
       deviceId,
       ...(params ? { params } : {}),
-      ...(merged.note ? { wakeNote: merged.note } : {}),
+      ...(written.wakeNote ? { wakeNote: written.wakeNote } : {}),
       reservedCredits: written.reserved?.reservedCredits,
       settle: written.reserved?.settle,
     }),
