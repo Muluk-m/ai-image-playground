@@ -197,12 +197,20 @@ async function drainOnce(
     }
     if (result.kind === 'started' && result.turn.completed) {
       void result.turn.completed.then(finish).then(
-        // 这一轮放手了：它提交的后台任务若已全部结束，此刻才凑齐一批，先投递唤醒；然后排着的
-        // 下一条接着开轮。队里没有待处理的就不再领租约——空领一次也会让刚收尾的会话在那一瞬间
-        // 显得还忙，删会话之类的操作会撞上 409。放手之后才进来的那条由它自己的请求开轮。
+        // 这一轮放手了：排着的下一条接着开轮。队里没有待处理的，再看它提交的后台任务是不是已经
+        // 全部结束、此刻才凑齐一批，是就投递唤醒接着开轮。先看队列再投递：投递要开一个事务，
+        // 放手之后才进来的那条若在这期间入队，会被这里抢去开轮，它自己的请求反倒拿不到流。
+        // 都没有就不再领租约——空领一次也会让刚收尾的会话在那一瞬间显得还忙，删会话之类的操作
+        // 会撞上 409。
         () =>
-          void deliverDueAgentWakes([conversationId])
-            .then(() => nextAgentInboxEntry(conversationId))
+          void nextAgentInboxEntry(conversationId)
+            .then(
+              async (waiting) =>
+                waiting ??
+                ((await deliverDueAgentWakes([conversationId])) > 0
+                  ? nextAgentInboxEntry(conversationId)
+                  : null),
+            )
             .then((waiting) => (waiting ? drainConversationInbox(conversationId) : undefined))
             .catch((err) =>
               log.error(
