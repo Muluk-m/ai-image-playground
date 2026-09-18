@@ -4,6 +4,7 @@ import type {
   VideoModelSupport,
   VideoPreset,
   VideoPresetConflict,
+  VideoRejection,
 } from '@image-playground/shared'
 import {
   agentTitleLine,
@@ -15,9 +16,11 @@ import {
   VIDEO_RESOLUTIONS,
   videoDurationsForResolution,
   videoPresetConflicts,
+  videoRequestRejection,
 } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { isCapabilityEnabled } from '../../capabilities'
+import { getChannels } from '../../channels'
 import { requireAgentImages } from '../images'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
@@ -35,8 +38,9 @@ export function withVideoRecord(
   model: string,
   preset: VideoPreset,
   firstFrameId: string | null,
+  referenceIds: readonly string[] = [],
 ): AgentToolArtifact[] {
-  const video = videoRecord(model, preset, firstFrameId)
+  const video = videoRecord(model, preset, firstFrameId, referenceIds)
   return artifacts.map((artifact) =>
     artifact.media === 'video' ? { ...artifact, video } : artifact,
   )
@@ -46,6 +50,7 @@ function videoRecord(
   model: string,
   preset: VideoPreset,
   firstFrameId: string | null,
+  referenceIds: readonly string[] = [],
 ): VideoGenerationRecord {
   return {
     model,
@@ -53,7 +58,84 @@ function videoRecord(
     aspectRatio: preset.aspectRatio,
     resolution: preset.resolution,
     ...(firstFrameId ? { firstFrameId } : {}),
+    ...(referenceIds.length ? { referenceIds: [...referenceIds] } : {}),
   }
+}
+
+/** 参考图 id：去重，并去掉与起始帧相同的那张——一张图在一段视频里只有一种用法。 */
+function referenceIdsOf(imageId: unknown, referenceImageIds: unknown): string[] {
+  if (!Array.isArray(referenceImageIds)) return []
+  const ids = referenceImageIds.filter((id): id is string => typeof id === 'string' && id !== '')
+  return [...new Set(ids)].filter((id) => id !== imageId)
+}
+
+/** 参数说明与系统提示里的参考图一句话，按矩阵写这个模型带不带得了、最多几张、清晰度封顶。 */
+function referenceText(support: VideoModelSupport): string {
+  const references = support.referenceImages
+  if (!references) return `${support.label} 不支持参考图，别填。`
+  return `${support.label} 最多 ${references.max} 张，带参考图时清晰度最高 ${VIDEO_RESOLUTION_LABELS[references.maxResolution]}，${references.withFrames ? '可以同时给 imageId 作起始帧' : '不能同时给 imageId'}。`
+}
+
+/**
+ * 带参考图时的档位与驳回。用户没说清晰度就压到参考图的上限；说了且超限、张数超限、模型带不了、
+ * 不能与起始帧同用——都由共享矩阵给出驳回 code，不提交。
+ */
+function referencePlan(
+  modelId: string,
+  support: VideoModelSupport,
+  preset: VideoPreset,
+  askedResolution: VideoPreset['resolution'] | undefined,
+  referenceCount: number,
+  hasFirstFrame: boolean,
+): { preset: VideoPreset; rejection: VideoRejection | null } {
+  if (referenceCount === 0) return { preset, rejection: null }
+  // 共享校验读全局矩阵，看不到渠道开关；渠道没声明就在这里先按「带不了」驳回。
+  if (!support.referenceImages)
+    return {
+      preset,
+      rejection: {
+        code: 'referenceUnsupported',
+        params: { label: support.label },
+        reason: `${support.label} 不支持参考图`,
+      },
+    }
+  const cap = support.referenceImages.maxResolution
+  const lowered =
+    cap &&
+    !askedResolution &&
+    VIDEO_RESOLUTIONS.indexOf(preset.resolution) > VIDEO_RESOLUTIONS.indexOf(cap)
+      ? clampVideoPreset(support, { ...preset, resolution: cap })
+      : preset
+  // 压清晰度只能动清晰度：若因此换掉了别的档位（分清晰度定时长的模型），宁可不压，交给驳回说清楚。
+  const capped =
+    lowered.duration === preset.duration && lowered.aspectRatio === preset.aspectRatio
+      ? lowered
+      : preset
+  const first = hasFirstFrame ? 1 : 0
+  const rejection = videoRequestRejection(
+    modelId,
+    {
+      duration_seconds: capped.duration,
+      aspect_ratio: capped.aspectRatio,
+      resolution: capped.resolution,
+      ...(hasFirstFrame ? { first_frame_index: 0 } : {}),
+      reference_image_indices: Array.from({ length: referenceCount }, (_, i) => i + first),
+    },
+    referenceCount + first,
+  )
+  return { preset: capped, rejection }
+}
+
+function referenceRefusalText(
+  modelId: string,
+  support: VideoModelSupport,
+  found: VideoRejection,
+): string {
+  return [
+    `没有提交这次生视频：${found.reason}。${referenceText(support)}`,
+    '把这个限制如实告诉用户：可以少用几张参考图、降低清晰度，或者换成起始帧；定了再重试。不要假装已经出片。',
+    `unsupported_video_references ${JSON.stringify({ model: modelId, code: found.code })}`,
+  ].join('\n')
 }
 
 /**
@@ -62,8 +144,16 @@ function videoRecord(
  */
 function videoModel(): { target: QueueTarget; support: VideoModelSupport } | null {
   const target = resolveAgentModel('video')
-  const support = target ? VIDEO_MODEL_SUPPORT[target.model] : undefined
-  return target && support ? { target, support } : null
+  const matrix = target ? VIDEO_MODEL_SUPPORT[target.model] : undefined
+  if (!target || !matrix) return null
+  // 参考图认运营在 channels.json 里的开关，和画布同一条：没声明就当这个模型带不了。
+  const declared = getChannels().some((channel) =>
+    channel.models.some(
+      (model) => model.id === target.model && model.capabilities.includes('reference_images'),
+    ),
+  )
+  const { referenceImages: _gated, ...base } = matrix
+  return { target, support: declared ? matrix : base }
 }
 
 /** 这个模型的时长档。分清晰度的模型逐档写清：不分档写，模型会以为 1080p 也能要 4 秒。 */
@@ -115,6 +205,12 @@ function videoParameters(support: VideoModelSupport | null) {
           '要动起来的那张图的图片 id，视频从它开始，产出也放在它旁边。不填就是纯文生视频。',
       }),
     ),
+    referenceImageIds: Type.Optional(
+      Type.Array(Type.String(), {
+        maxItems: 16,
+        description: `参考图的图片 id（全能参考）：人物、道具、场景各一张，按提示词里「图片1、图片2」的顺序排。${support ? referenceText(support) : ''}用户没给参考图就别填；只想让一张图动起来用 imageId。`,
+      }),
+    ),
     durationSeconds: Type.Optional(
       Type.Number({ description: `视频时长（秒）。${named} ${durations}。${ASK_ANYWAY}` }),
     ),
@@ -139,7 +235,7 @@ const GUIDANCE_BASE = '用户要让画面动起来时调生视频工具；视频
 function videoGuidance(): string {
   const support = videoModel()?.support
   if (!support) return GUIDANCE_BASE
-  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。用户明说的档位它做不到时，工具不会提交、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
+  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会提交、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
 }
 
 const FIELD_PARAMS: Record<VideoPresetConflict['field'], string> = {
@@ -193,6 +289,32 @@ function conflictsFor(args: {
   })
 }
 
+/** `call()` 用：这次的参考图会不会被驳回。与 `execute()` 同一个算式。 */
+function referenceRejectionFor(args: {
+  readonly imageId: string | null
+  readonly references: readonly string[]
+  readonly durationSeconds?: number | undefined
+  readonly resolution?: VideoPreset['resolution'] | undefined
+  readonly aspectRatio?: VideoPreset['aspectRatio'] | undefined
+}): boolean {
+  const resolved = videoModel()
+  if (!resolved || args.references.length === 0) return false
+  const asked = {
+    duration: args.durationSeconds,
+    aspectRatio: args.aspectRatio,
+    resolution: args.resolution,
+  }
+  const plan = referencePlan(
+    resolved.target.model,
+    resolved.support,
+    clampVideoPreset(resolved.support, asked),
+    args.resolution,
+    args.references.length,
+    args.imageId !== null,
+  )
+  return plan.rejection !== null
+}
+
 export const generateVideo = defineAgentTool({
   name: 'generateVideo',
   // 只在视频轮：图片轮里出现它，模型就会把「让它动起来」当成随时可选的下一步。
@@ -208,17 +330,28 @@ export const generateVideo = defineAgentTool({
   onError: 'abort',
   available: () => isCapabilityEnabled('generation:video') && videoModel() !== null,
   target: () => videoModel()?.target,
-  call({ prompt, imageId, durationSeconds, resolution, aspectRatio }) {
+  call({ prompt, imageId, referenceImageIds, durationSeconds, resolution, aspectRatio }) {
     const written = typeof prompt === 'string' ? prompt : undefined
-    // 档位做不到就不提交，也就不会有产物。画布跟着不占位——`outputCount` 必须与真正提交的
+    const references = referenceIdsOf(imageId, referenceImageIds)
+    const first = typeof imageId === 'string' && imageId ? imageId : null
+    // 档位或参考图做不到就不提交，也就不会有产物。画布跟着不占位——`outputCount` 必须与真正提交的
     // 张数同一个算式，否则那里会空出一个永远填不上的框。
-    const refused = conflictsFor({ durationSeconds, resolution, aspectRatio }).length > 0
+    const refused =
+      conflictsFor({ durationSeconds, resolution, aspectRatio }).length > 0 ||
+      referenceRejectionFor({
+        imageId: first,
+        references,
+        durationSeconds,
+        resolution,
+        aspectRatio,
+      })
+    const anchor = first ?? references[0]
     return {
       title: written?.trim() ? `视频：${agentTitleLine(written, TITLE_MAX_CHARS)}` : '生视频',
       // 视频任务一次只出一段，图片参数里的 n 对它没有意义。
       ...(refused ? {} : { outputCount: 1 }),
       // 给了起始帧就贴着它放——与执行时的 `anchorObjectId` 取同一项。
-      ...(typeof imageId === 'string' && imageId ? { anchor: imageId, references: [imageId] } : {}),
+      ...(anchor ? { anchor, references: [...(first ? [first] : []), ...references] } : {}),
       ...(written ? { prompt: written } : {}),
     }
   },
@@ -239,10 +372,31 @@ export const generateVideo = defineAgentTool({
           content: [{ type: 'text', text: refusalText(target.model, support, conflicts) }],
           details: {},
         }
-      const preset = clampVideoPreset(support, asked)
+      const referenceIds = referenceIdsOf(params.imageId, params.referenceImageIds)
+      const plan = referencePlan(
+        target.model,
+        support,
+        clampVideoPreset(support, asked),
+        params.resolution,
+        referenceIds.length,
+        Boolean(params.imageId),
+      )
+      if (plan.rejection)
+        return {
+          content: [
+            { type: 'text', text: referenceRefusalText(target.model, support, plan.rejection) },
+          ],
+          details: {},
+        }
+      const preset = plan.preset
       const source = params.imageId
         ? (await requireAgentImages(context.images, [params.imageId]))[0]!
         : null
+      const references = await requireAgentImages(context.images, referenceIds)
+      const inputImages = [...(source ? [source] : []), ...references].map((one) => one.dataUrl)
+      const referenceStart = source ? 1 : 0
+      // 产出贴着起始帧放；没有起始帧就贴着第一张参考图。
+      const anchorImage = source ?? references[0]
       const outcome = await runQueueTask(
         context,
         {
@@ -250,14 +404,17 @@ export const generateVideo = defineAgentTool({
           toolCallId,
           target,
           prompt: params.prompt,
-          ...(source ? { inputImages: [source.dataUrl] } : {}),
+          ...(inputImages.length ? { inputImages } : {}),
           video: {
             duration_seconds: preset.duration,
             aspect_ratio: preset.aspectRatio,
             resolution: preset.resolution,
             ...(source ? { first_frame_index: 0 } : {}),
+            ...(references.length
+              ? { reference_image_indices: references.map((_, i) => referenceStart + i) }
+              : {}),
           },
-          ...(source ? { anchorObjectId: source.imageId } : {}),
+          ...(anchorImage ? { anchorObjectId: anchorImage.imageId } : {}),
           review: params.reviewAfterCompletion === true,
         },
         signal,
@@ -273,7 +430,12 @@ export const generateVideo = defineAgentTool({
                 ...outcome.details,
                 job: {
                   ...job,
-                  video: videoRecord(target.model, preset, source?.imageId ?? null),
+                  video: videoRecord(
+                    target.model,
+                    preset,
+                    source?.imageId ?? null,
+                    references.map((one) => one.imageId),
+                  ),
                 },
               },
             }
@@ -287,6 +449,7 @@ export const generateVideo = defineAgentTool({
                   target.model,
                   preset,
                   source?.imageId ?? null,
+                  references.map((one) => one.imageId),
                 ),
               },
             }
