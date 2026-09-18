@@ -1288,3 +1288,94 @@ it('新设备恢复服务端生成占位，刷新不删除；移动只同步几�
   expect(writes[0].document.elements).toEqual([{ ...remote.document.elements[0], x: 900 }])
   session.dispose()
 })
+
+it('其他设备删除项目后停止旧身份上传，保留本机编辑并允许显式存为新项目', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(crypto.randomUUID())
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '被删除的海报',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 0,
+    document: { version: 1, elements: [] },
+  }
+  let deleted = false
+  const fetcher = vi.fn(async () =>
+    deleted ? Response.json({ error: 'project_deleted' }, { status: 410 }) : Response.json(remote),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+  editor.doc.addElements([
+    {
+      id: 'offline-text',
+      type: 'text',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 60,
+      text: '尚未上传的编辑',
+      fontSize: 24,
+      fill: '#000000',
+    },
+  ])
+  session.markChanged()
+  deleted = true
+  await session.sync()
+  expect(session.getSnapshot().status).toBe('deleted')
+  const requests = fetcher.mock.calls.length
+  await session.sync()
+  expect(fetcher.mock.calls.length).toBe(requests)
+  const copy = await session.resolveConflict('copy')
+  expect(copy?.id).not.toBe(project.id)
+  expect(copy?.cloud?.revision).toBe(0)
+  const recovered = new CanvasEditor(new CanvasDoc())
+  await loadScene(recovered, copy!.sceneKey)
+  expect(recovered.doc.elements).toMatchObject([{ id: 'offline-text', text: '尚未上传的编辑' }])
+  await projectRepository.update(copy!.id, { cloud: { revision: 1, deleted: true } })
+  const nextCopy = await session.resolveConflict('copy')
+  expect(nextCopy!.id).not.toBe(copy!.id)
+  deleted = false
+  remote.revision = 3
+  await session.refresh(true)
+  expect(session.getSnapshot().status).toBe('conflict')
+  expect(editor.doc.elements).toMatchObject([{ id: 'offline-text', text: '尚未上传的编辑' }])
+  session.dispose()
+})
+
+it('其他设备恢复项目后，已打开的删除状态会自动恢复同步', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(crypto.randomUUID())
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '恢复的海报',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 0,
+    document: { version: 1, elements: [] },
+  }
+  let deleted = false
+  const fetcher = vi.fn(async () =>
+    deleted ? Response.json({ error: 'project_deleted' }, { status: 410 }) : Response.json(remote),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const project = await projectRepository.importCloud(remote)
+  const session = new CloudProjectSession(project, new CanvasEditor(new CanvasDoc()))
+  await session.load()
+  deleted = true
+  await session.refresh(true)
+  expect(session.getSnapshot().status).toBe('deleted')
+  deleted = false
+  remote.revision = 3
+  await session.refresh(true)
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(
+    (await projectRepository.list()).find((item) => item.id === project.id)?.cloud?.deleted,
+  ).toBeFalsy()
+  session.dispose()
+})

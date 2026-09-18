@@ -52,6 +52,7 @@ export const QUOTAS = {
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
   'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },
   'sync:project-elements': { defaultValue: PROJECT_ELEMENT_MAX_COUNT },
+  'sync:project-recycle-days': { defaultValue: 30 },
   'sync:user-projects': { defaultValue: 100 },
 } as const satisfies Record<`${string}:${string}`, QuotaDefinition>
 

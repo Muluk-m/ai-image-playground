@@ -14,6 +14,7 @@ import { projectCatalog } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
+import ProjectTrash from './ProjectTrash'
 
 export default function ProjectGrid({
   search = '',
@@ -29,6 +30,7 @@ export default function ProjectGrid({
   const cloudLoading = useCanvasProjectStore((state) => state.cloudLoading)
   const cloudCursor = useCanvasProjectStore((state) => state.cloudCursor)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
+  const [trash, setTrash] = useState(false)
   const [renaming, setRenaming] = useState<CanvasProject | null>(null)
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -54,10 +56,17 @@ export default function ProjectGrid({
       setBusy(false)
     }
   }
+  if (trash) return <ProjectTrash onBack={() => setTrash(false)} onOpen={enter} />
   return (
     <>
       {cloudProjectsEnabled() && (
         <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          {!recent && (
+            <Button variant="ghost" size="sm" onClick={() => setTrash(true)}>
+              <TrashIcon className="h-4 w-4" />
+              {t('trash.title')}
+            </Button>
+          )}
           {cloudError && <span role="alert">{cloudError}</span>}
           <button
             type="button"
@@ -177,7 +186,7 @@ export default function ProjectGrid({
                 >
                   <Pencil /> {t('grid.rename')}
                 </Button>
-                {!recent && !project.cloud && (
+                {!recent && (!project.cloud || project.cloud.revision > 0) && (
                   <Button
                     variant="ghost"
                     className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -185,7 +194,7 @@ export default function ProjectGrid({
                       setMenuProjectId(null)
                       useStore.getState().setConfirmDialog({
                         title: t('grid.deleteTitle'),
-                        message: t('grid.deleteMessage', {
+                        message: t(project.cloud ? 'trash.deleteMessage' : 'grid.deleteMessage', {
                           name: projectDisplayName(project.name),
                         }),
                         action: () => {

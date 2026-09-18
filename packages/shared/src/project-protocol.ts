@@ -78,6 +78,14 @@ export interface CloudProjectSummary {
   coverMediaId?: string | null
   conversationId?: string | null
 }
+export interface RecycledProject extends CloudProjectSummary {
+  deletedAt: number
+  restoreUntil: number
+}
+export interface ProjectTrashPage {
+  projects: RecycledProject[]
+  nextCursor: string | null
+}
 export interface CloudProject extends CloudProjectSummary {
   document: ProjectDocument
 }
@@ -88,6 +96,7 @@ export interface ProjectWrite {
   document: ProjectDocument
 }
 export interface ProjectPage {
+  deletedIds?: string[]
   projects: CloudProjectSummary[]
   nextCursor: string | null
 }

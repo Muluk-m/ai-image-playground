@@ -234,6 +234,8 @@ export const canvas_projects = pgTable(
     receipts: bunJsonb('receipts').$type<ProjectReceipt[]>().notNull(),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
+    deleted_at: epochMs('deleted_at'),
+    restore_until: epochMs('restore_until'),
   },
   (t) => [
     index('idx_canvas_projects_owner_id').on(t.user_id, t.id),

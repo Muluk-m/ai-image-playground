@@ -8,7 +8,13 @@ import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { ensureProjectConversation } from '../lib/projectConversations'
-import { listProjects, readProject, writeProject } from '../lib/projects'
+import {
+  listProjects,
+  listRecycledProjects,
+  readProject,
+  recycleProject,
+  writeProject,
+} from '../lib/projects'
 import { resolveAuthUser } from '../lib/user-auth'
 
 const id = t.String({ format: 'uuid' })
@@ -67,11 +73,45 @@ export const projectRoutes = new Elysia()
     },
   )
   .get(
+    '/api/projects/trash',
+    async ({ authUser, query, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      return listRecycledProjects(authUser.id, query.limit ?? PROJECT_PAGE_SIZE, query.cursor)
+    },
+    {
+      query: t.Object({
+        limit: t.Optional(t.Numeric({ minimum: 1, maximum: PROJECT_PAGE_MAX_SIZE, multipleOf: 1 })),
+        cursor: t.Optional(id),
+      }),
+    },
+  )
+  .delete(
+    '/api/projects/:id',
+    async ({ authUser, params, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const result = await recycleProject(authUser.id, params.id)
+      return result.ok ? result : status(result.status, { error: result.error })
+    },
+    { params: t.Object({ id }) },
+  )
+  .post(
+    '/api/projects/:id/restore',
+    async ({ authUser, params, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const result = await recycleProject(authUser.id, params.id, true)
+      return result.ok ? result : status(result.status, { error: result.error })
+    },
+    { params: t.Object({ id }) },
+  )
+  .get(
     '/api/projects/:id',
     async ({ authUser, params, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
       const project = await readProject(authUser.id, params.id)
-      return project ?? status(404, { error: 'project_not_found' })
+      if (!project) return status(404, { error: 'project_not_found' })
+      if (project.deletedAt != null) return status(410, { error: 'project_deleted' })
+      const { deletedAt: _, ...active } = project
+      return active
     },
     { params: t.Object({ id }) },
   )
