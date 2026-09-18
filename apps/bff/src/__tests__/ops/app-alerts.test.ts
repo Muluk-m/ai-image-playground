@@ -44,12 +44,17 @@ await writer.db.insert(writer.schema.service_heartbeats).values([
 ])
 
 describe('observeApp', () => {
-  it('reads the three application blocks the worker can see', async () => {
+  it('reads the four application blocks the worker can see', async () => {
     const observation = await observeApp({
       now,
       readBackups: async () => ({
         latest: { key: 'pg/x.dump', size_bytes: 1, modified_at: now - 30 * hour },
         previous: null,
+      }),
+      readRestoreDrill: async () => ({
+        ok: false,
+        finished_at: now - 2 * hour,
+        error: 'pg_restore: bad input',
       }),
     })
 
@@ -57,6 +62,11 @@ describe('observeApp', () => {
     expect(observation.queue?.oldest_queued_wait_ms).toBeGreaterThanOrEqual(12 * minute)
     expect(observation.queue?.oldest_queued_wait_ms).toBeLessThan(13 * minute)
     expect(observation.backup).toEqual({ latest_modified_at: now - 30 * hour })
+    expect(observation.restoreDrill).toEqual({
+      ok: false,
+      finished_at: now - 2 * hour,
+      error: 'pg_restore: bad input',
+    })
     // 只看后端最新的那个实例；worker 不判断自己的心跳，发告警的就是它。
     expect(observation.heartbeats).toEqual({ bff: now - 5 * minute })
     expect(observation.host).toBeUndefined()
@@ -68,17 +78,31 @@ describe('observeApp', () => {
       readBackups: async () => {
         throw new Error('object store unreachable')
       },
+      readRestoreDrill: async () => {
+        throw new Error('object store unreachable')
+      },
     })
     expect(observation.backup).toBeUndefined()
+    expect(observation.restoreDrill).toBeUndefined()
     expect(observation.queue).toBeDefined()
     expect(observation.heartbeats).toBeDefined()
+  })
+
+  it('passes on a drill that never ran as null, so the rule stays quiet', async () => {
+    const observation = await observeApp({
+      now,
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+    })
+    expect(observation.restoreDrill).toBeNull()
   })
 })
 
 describe('createAppAlerting', () => {
-  it('fires the three rules once, then stays quiet, then reports the recovery', async () => {
+  it('fires the four rules once, then stays quiet, then reports the recovery', async () => {
     const sent: AlertMessage[] = []
     let backupAt = now - 30 * hour
+    let drillOk = false
     const check = createAppAlerting({
       send: async (messages) => {
         sent.push(...messages)
@@ -87,6 +111,11 @@ describe('createAppAlerting', () => {
         latest: { key: 'pg/x.dump', size_bytes: 1, modified_at: backupAt },
         previous: null,
       }),
+      readRestoreDrill: async () => ({
+        ok: drillOk,
+        finished_at: now - hour,
+        error: drillOk ? null : 'x',
+      }),
     })
 
     await check(now)
@@ -94,6 +123,7 @@ describe('createAppAlerting', () => {
       'firing:backup',
       'firing:heartbeat:bff',
       'firing:queue',
+      'firing:restore',
     ])
 
     sent.length = 0
@@ -101,8 +131,12 @@ describe('createAppAlerting', () => {
     expect(sent).toEqual([])
 
     backupAt = now + 5 * minute
+    drillOk = true
     await check(now + 10 * minute)
-    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual(['resolved:backup'])
+    expect(sent.map((message) => `${message.kind}:${message.rule}`).sort()).toEqual([
+      'resolved:backup',
+      'resolved:restore',
+    ])
   })
 
   it('never lets a failed send escape into the maintenance loop, and retries next round', async () => {
@@ -113,6 +147,7 @@ describe('createAppAlerting', () => {
         throw new Error('webhook down')
       },
       readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
     })
     await check(now)
     await check(now + 5 * minute)

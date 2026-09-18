@@ -169,7 +169,10 @@ provision 结束前会检查并列出这类 schema。没有任何 Compose 文件
 对象存储用任意 S3 兼容服务，两份部署样例都指向 Cloudflare R2。bucket 与其他业务共用时，
 `S3_KEY_PREFIX` 把该部署的对象限制在一个前缀下。每个 project 另跑一个 `pg-backup`
 sidecar，每天把本组数据库的 `pg_dump` 传到同 bucket 的 `<S3_KEY_PREFIX>pg/<UTC 日期>.dump`。
-保留期由 bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
+保留期由 bucket 的 lifecycle 规则负责，sidecar 不删任何对象。容器启动时若最新一份已超过 24 小时
+（例如 cron 那一刻宿主机正宕着）会立刻补备一次。每周一凌晨 3 点（北京时间）它还会把最新一份 dump
+恢复进容器内的临时 PostgreSQL 并核对表与行数，结论写到 `<S3_KEY_PREFIX>pg/drill/latest.json`；
+演练失败或超过 8 天没跑，worker 会发告警。
 
 每个 project 还跑一个 `host-collector` sidecar，每分钟读一次宿主机的磁盘与内存，交给后台的
 「运维看板」画近 7 天的趋势。它从宿主机只拿到两个只读文件，不挂 Docker socket：`/proc/meminfo`，
