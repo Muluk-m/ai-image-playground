@@ -35,6 +35,7 @@ import { analyzeSelection, rasterizeEntry } from './rasterizeSelection'
 /**
  * 画布视频任务的内存运行态：首尾帧位图。它不进占位框 meta（几 MB 的 data URL 不该随画布
  * 持久化），所以只够同一次打开里的重试用；刷新后续跑只认 `bffRequestId`，不必重传。
+ * 出片落地才释放：失败态的占位框还要拿它原样重试。
  */
 const frameHandles = new Map<string, string[]>()
 
@@ -77,12 +78,16 @@ export function canvasVideoRequest(
   }
 }
 
-/** 选区此刻在视频档下能不能提交，不能就给出原因。生成栏据此禁用按钮。 */
-export function canvasVideoSelectionRefusal(editor: CanvasEditor, model: string): string | null {
-  const option = videoModelOptions().find((one) => one.modelId === model)
-  if (!option) return i18next.t('error.noModel', { ns: 'video' })
-  const plan = planVideoFrames(candidatesOf(editor), option.support)
-  return plan.ok ? null : canvasVideoRefusalText(plan.reason, option.label)
+/** 视频档实际送出的描述：文字标注在前、输入框在后。 */
+export function canvasVideoPrompt(editor: CanvasEditor, userPrompt: string): string {
+  const selection = analyzeSelection(editor)
+  return [selection?.annotationText ?? '', userPrompt.trim()].filter(Boolean).join('\n')
+}
+
+/** 描述对这个模型是否过长。生成栏据此禁用按钮，提交时再判一次。 */
+export function canvasVideoPromptRefusal(model: string, prompt: string): string | null {
+  const found = videoPromptRejection(model, prompt)
+  return found ? videoRejectionText(found) : null
 }
 
 function candidatesOf(editor: CanvasEditor) {
@@ -93,24 +98,36 @@ function candidatesOf(editor: CanvasEditor) {
   })
 }
 
+/** 选区此刻在视频档下能不能提交，不能就给出原因。生成栏据此禁用按钮。 */
+export function canvasVideoSelectionRefusal(editor: CanvasEditor, model: string): string | null {
+  const option = videoModelOptions().find((one) => one.modelId === model)
+  if (!option) return i18next.t('error.noModel', { ns: 'video' })
+  const plan = planVideoFrames(candidatesOf(editor), option.support)
+  return plan.ok ? null : canvasVideoRefusalText(plan.reason, option.label)
+}
+
 /**
  * 生成栏视频档的提交：按导演台当前的模型与档位，把选区读成文生 / 首帧 / 首尾帧。
- * 校验、门禁都在占位框出现之前做完；过不了就 toast 说明，不留空框。发起即返回。
+ * 校验、门禁都在占位框出现之前做完；过不了就 toast 说明，不留空框。
+ * 返回是否受理：没受理时生成栏保留输入，写好的长描述不能因为一次拒绝就没了。
  */
 export async function submitVideoFromCanvas(
   editor: CanvasEditor,
   userPrompt: string,
-): Promise<void> {
+): Promise<boolean> {
+  const refuse = (message: string) => {
+    toast(message)
+    return false
+  }
   const draft = useVideoStore.getState().draft
   const option = videoModelOptions().find((one) => one.modelId === draft.model)
-  if (!option) return toast(i18next.t('error.noModel', { ns: 'video' }))
+  if (!option) return refuse(i18next.t('error.noModel', { ns: 'video' }))
 
   const plan = planVideoFrames(candidatesOf(editor), option.support)
-  if (!plan.ok) return toast(canvasVideoRefusalText(plan.reason, option.label))
+  if (!plan.ok) return refuse(canvasVideoRefusalText(plan.reason, option.label))
 
-  const selection = analyzeSelection(editor)
-  const prompt = [selection?.annotationText ?? '', userPrompt.trim()].filter(Boolean).join('\n')
-  if (!prompt) return toast(i18next.t('store.emptyPrompt', { ns: 'video' }))
+  const prompt = canvasVideoPrompt(editor, userPrompt)
+  if (!prompt) return refuse(i18next.t('store.emptyPrompt', { ns: 'video' }))
 
   const generation: VideoGenerationRecord = {
     model: option.modelId,
@@ -121,21 +138,26 @@ export async function submitVideoFromCanvas(
     ...(plan.frames[1] ? { lastFrameId: plan.frames[1].imageId } : {}),
   }
   const frameCount = plan.frames.length
-  for (const found of [
-    videoRequestRejection(option.modelId, canvasVideoRequest(generation, frameCount), frameCount),
-    videoPromptRejection(option.modelId, prompt),
-  ]) {
-    if (found) return toast(videoRejectionText(found))
-  }
-  if (!guardAllows(generation)) return
+  const rejected = videoRequestRejection(
+    option.modelId,
+    canvasVideoRequest(generation, frameCount),
+    frameCount,
+  )
+  if (rejected) return refuse(videoRejectionText(rejected))
+  const tooLong = canvasVideoPromptRefusal(option.modelId, prompt)
+  if (tooLong) return refuse(tooLong)
+  if (!guardAllows(generation)) return false
 
-  const rasterized = await Promise.all(plan.frames.map((entry) => rasterizeEntry(editor, entry)))
+  // 首尾帧会原样出现在成片里：图上的圈和箭头不画进去，标注只以文字进描述。
+  const rasterized = await Promise.all(
+    plan.frames.map((entry) => rasterizeEntry(editor, { ...entry, graphicIds: [] })),
+  )
   const frames = rasterized.filter((one): one is string => one !== null)
   // 少一帧就不是用户要的那段片子：宁可不发，也不静默退化成文生。
   if (frames.length !== frameCount)
-    return toast(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }))
+    return refuse(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }))
 
-  const anchor = plan.frames.length ? Box.Common(plan.frames.map((entry) => entry.box)) : null
+  const anchor = frameCount ? Box.Common(plan.frames.map((entry) => entry.box)) : null
   const [target] = computePlaceholderTargets(editor, anchor, 1)
   void launchCanvasVideo(editor, {
     prompt,
@@ -144,6 +166,7 @@ export async function submitVideoFromCanvas(
     generation,
     target: target!,
   })
+  return true
 }
 
 function guardAllows(generation: VideoGenerationRecord): boolean {
@@ -184,22 +207,26 @@ async function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch
     // 回填即持久化：刷新后恢复只认它，不必也不能重传首尾帧。
     editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
     notifyPrivateSubmissionAccepted()
-    await settleCanvasVideo(editor, placeholderId, requestId, launch.generation)
+    await settleCanvasVideo(editor, placeholderId, requestId, launch.generation, launch.target)
+    frameHandles.delete(taskId)
   } catch (err) {
     notifyPrivateSubmissionError(err)
     markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
   } finally {
     notifyPrivateSubmissionSettled()
-    frameHandles.delete(taskId)
   }
 }
 
-/** 等队列出片并换下占位框。提交与刷新后的续跑共用这一段。 */
+/**
+ * 等队列出片并换下占位框。提交与刷新后的续跑共用这一段。占位框在生成中被删了也照样落：
+ * 片子已经出了、也计了费，它得落在原位置，不能悄悄丢掉。
+ */
 export async function settleCanvasVideo(
   editor: CanvasEditor,
   placeholderId: string,
   requestId: string,
   generation: VideoGenerationRecord,
+  fallback: PlacementTarget,
 ): Promise<void> {
   const [output] = await awaitQueueOutputs(requestId)
   const source = { taskId: requestId, outputIndex: output!.index }
@@ -207,15 +234,15 @@ export async function settleCanvasVideo(
     (await videoOutputFrame(source)) ??
     blankVideoPoster({ width: output!.width, height: output!.height })
   const placeholder = editor.getPlaceholder(placeholderId)
-  if (!placeholder) return
   await placeImagesIntoTargets(
     editor,
     [{ dataUrl: poster, video: { ...source, generation } }],
-    [targetFromShape(placeholder)],
-    { meta: { prompt: placeholder.meta.prompt } },
+    [placeholder ? targetFromShape(placeholder) : fallback],
+    // 不改选区：选中新视频会让视频档立刻判「选中的是视频」，挡住接着生下一段。
+    { ...(placeholder ? { meta: { prompt: placeholder.meta.prompt } } : {}), select: false },
   )
   // 落成功才收占位框：中途失败它得留着，错误态才有处可标。
-  editor.deleteElement(placeholderId)
+  if (placeholder) editor.deleteElement(placeholderId)
 }
 
 /** 刷新后续跑一条已提交的画布视频任务。 */
@@ -227,9 +254,19 @@ export async function resumeCanvasVideo(
   const video = placeholder.meta.video
   if (!video) return
   try {
-    await settleCanvasVideo(editor, placeholder.id, requestId, video.generation)
+    await settleCanvasVideo(
+      editor,
+      placeholder.id,
+      requestId,
+      video.generation,
+      targetFromShape(placeholder),
+    )
   } catch (err) {
+    notifyPrivateSubmissionError(err)
     markPlaceholderStatus(editor, placeholder.id, 'error', errorMessage(err))
+  } finally {
+    // 续跑出片同样要让余额与充值入口刷新，和导演台续跑一致。
+    notifyPrivateSubmissionSettled()
   }
 }
 
@@ -247,6 +284,7 @@ export function retryCanvasVideo(editor: CanvasEditor, placeholder: PlaceholderV
   }
   if (!guardAllows(meta.video.generation)) return
   editor.deleteElement(placeholder.id)
+  // 帧交给新任务，旧 key 随之作废。
   frameHandles.delete(meta.taskId)
   void launchCanvasVideo(editor, {
     prompt: meta.prompt,

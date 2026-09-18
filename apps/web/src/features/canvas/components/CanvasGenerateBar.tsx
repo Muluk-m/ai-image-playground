@@ -19,7 +19,11 @@ import { useVideoStore } from '../../video/store'
 import type { CanvasEditor } from '../lib/editor'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
-import { canvasVideoSelectionRefusal, submitVideoFromCanvas } from '../lib/submitVideoFromCanvas'
+import {
+  canvasVideoPromptRefusal,
+  canvasVideoSelectionRefusal,
+  submitVideoFromCanvas,
+} from '../lib/submitVideoFromCanvas'
 import CanvasVideoParams from './CanvasVideoParams'
 
 type GenerateMode = 'image' | 'video'
@@ -145,7 +149,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   // 视频档的选区规则（几张图、模型接不接得住首尾帧）在这里先判，按钮与提示同一个结论。
-  const videoRefusal = video ? canvasVideoSelectionRefusal(editor, videoDraft.model) : null
+  const videoRefusal = video
+    ? (canvasVideoSelectionRefusal(editor, videoDraft.model) ??
+      canvasVideoPromptRefusal(
+        videoDraft.model,
+        [annotationText, prompt.trim()].filter(Boolean).join('\n'),
+      ))
+    : null
   const canSubmit = video
     ? (prompt.trim().length > 0 || annotationText.length > 0) &&
       !videoRefusal &&
@@ -165,11 +175,18 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         ? t('generate.hintSelected', { count: imageCount })
         : t('generate.hintEmpty')
 
-  const run = () => {
+  const run = async () => {
     if (!canSubmit) return
-    // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
-    void (video ? submitVideoFromCanvas(editor, prompt) : submitFromCanvas(editor, prompt))
-    setPrompt('')
+    if (video) {
+      // 视频要先过校验与门禁才受理；被拒时保留输入，用户改一下就能再发。
+      const submitted = prompt
+      if (!(await submitVideoFromCanvas(editor, submitted))) return
+      setPrompt((current) => (current === submitted ? '' : current))
+    } else {
+      // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
+      void submitFromCanvas(editor, prompt)
+      setPrompt('')
+    }
     // 焦点还给画布：输入框聚焦时画布快捷键被 isTyping 守卫禁用，
     // 生成发出后用户的下一步通常是画布操作（选图 / 删除 / 复制粘贴）。
     textareaRef.current?.blur()
@@ -200,7 +217,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           )}
           {!video && <ParamControls showCount />}
         </div>
-        {video && <CanvasVideoParams hasFirstFrame={imageCount > 0 && !videoRefusal} />}
+        {video && (
+          <CanvasVideoParams
+            hasFirstFrame={imageCount > 0 && !canvasVideoSelectionRefusal(editor, videoDraft.model)}
+          />
+        )}
         {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}
         {imageCount > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-2">
@@ -243,7 +264,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                   e.preventDefault()
-                  run()
+                  void run()
                 } else if (e.key === 'Escape') {
                   // Esc 退出输入框、焦点还给画布（恢复画布快捷键）。
                   e.preventDefault()
@@ -258,7 +279,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           </div>
           <button
             type="button"
-            onClick={run}
+            onClick={() => void run()}
             disabled={!canSubmit}
             title={submissionGuard.disabledReason}
             className="studio-primary w-full"

@@ -96,6 +96,8 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
       },
     })
     const placed = await settleGeneration(editor, placeholderId, spec.target, result)
+    // 输入图只在落图成功后释放：失败态的占位框在同一次打开里还要能原样重试。
+    if (placed) removeCanvasTask(taskId)
     // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
     if (placed) {
       void addCompletedCanvasTask({
@@ -111,7 +113,6 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
     markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
   } finally {
     notifyPrivateSubmissionSettled()
-    removeCanvasTask(taskId)
   }
 }
 
