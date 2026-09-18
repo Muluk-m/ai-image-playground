@@ -1,10 +1,10 @@
 /**
- * contentEditable 里按可见文本数光标的那套坐标换算。胶囊按 `data-mention-text` 之外的显示
- * 文本计长，与 `promptImageMentions` 的 `labelFor` 必须同长，否则光标整体错位。
+ * contentEditable selection coordinates count mention labels, not their visual children.
+ * A thumbnail or skill badge can supply data-mention-label without changing prompt offsets.
  */
 
 function getMentionTagTextLength(el: Element) {
-  return el.textContent?.length ?? 0
+  return (el.getAttribute('data-mention-label') ?? el.textContent ?? '').length
 }
 
 function getNodeVisibleTextLength(node: Node): number {
@@ -55,7 +55,8 @@ function getBoundaryOffsetInMention(tag: Element, container: Node, offset: numbe
     const range = document.createRange()
     range.selectNodeContents(tag)
     range.setEnd(container, offset)
-    return range.toString().length
+    const length = tag.textContent?.length ?? 0
+    return length ? (range.toString().length / length) * getMentionTagTextLength(tag) : 0
   } catch {
     return getMentionTagTextLength(tag)
   }
@@ -80,15 +81,15 @@ function getContentEditableBoundaryOffset(
     // 处理选区边界在输入框外部的情况（如 Ctrl+A）
     const position = root.compareDocumentPosition(container)
     if (position & Node.DOCUMENT_POSITION_PRECEDING) return 0
-    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return root.textContent?.length ?? 0
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return getNodeVisibleTextLength(root)
 
     // 如果是父容器，根据偏移量判断是在输入框前还是后
     if (container.contains(root)) {
       const children = Array.from(container.childNodes)
       const rootIndex = children.indexOf(root as any)
-      return offset <= rootIndex ? 0 : (root.textContent?.length ?? 0)
+      return offset <= rootIndex ? 0 : getNodeVisibleTextLength(root)
     }
-    return edge === 'start' ? 0 : (root.textContent?.length ?? 0)
+    return edge === 'start' ? 0 : getNodeVisibleTextLength(root)
   }
 
   const mentionTag = getMentionTagForBoundary(root, container)
@@ -113,16 +114,16 @@ function getContentEditableBoundaryOffset(
     return visibleOffset
   }
 
-  return root.textContent?.length ?? 0
+  return getNodeVisibleTextLength(root)
 }
 
 /** 获取 contentEditable 中光标的纯文本偏移量 */
 export function getContentEditableCursor(el: HTMLElement): number {
   const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) return el.textContent?.length ?? 0
+  if (!sel || sel.rangeCount === 0) return getNodeVisibleTextLength(el)
   try {
     const range = sel.getRangeAt(0)
-    if (!el.contains(range.startContainer)) return el.textContent?.length ?? 0
+    if (!el.contains(range.startContainer)) return getNodeVisibleTextLength(el)
     return getContentEditableBoundaryOffset(
       el,
       range.startContainer,
@@ -131,14 +132,14 @@ export function getContentEditableCursor(el: HTMLElement): number {
       range.collapsed,
     )
   } catch {
-    return el.textContent?.length ?? 0
+    return getNodeVisibleTextLength(el)
   }
 }
 
 export function getContentEditableSelection(el: HTMLElement): { start: number; end: number } {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) {
-    const end = el.textContent?.length ?? 0
+    const end = getNodeVisibleTextLength(el)
     return { start: end, end }
   }
   try {
@@ -155,7 +156,7 @@ export function getContentEditableSelection(el: HTMLElement): { start: number; e
       : getContentEditableBoundaryOffset(el, range.endContainer, range.endOffset, 'end', false)
     return { start, end }
   } catch {
-    const end = el.textContent?.length ?? 0
+    const end = getNodeVisibleTextLength(el)
     return { start: end, end }
   }
 }
@@ -202,48 +203,48 @@ export function syncMentionTagSelection(el: HTMLElement) {
   })
 }
 
-/** 在 contentEditable 中设置光标到指定纯文本偏移量 */
-export function setContentEditableCursor(el: HTMLElement, offset: number) {
+/** Resolve a label offset while treating each mention as one indivisible node. */
+function contentEditablePosition(el: HTMLElement, offset: number): { node: Node; offset: number } {
+  let remaining = Math.max(0, offset)
+  const walk = (parent: Node): { node: Node; offset: number } | undefined => {
+    for (let index = 0; index < parent.childNodes.length; index++) {
+      const child = parent.childNodes[index]!
+      if (child instanceof HTMLElement && child.classList.contains('mention-tag')) {
+        const length = getMentionTagTextLength(child)
+        if (remaining <= length) {
+          return { node: parent, offset: index + (remaining < length / 2 ? 0 : 1) }
+        }
+        remaining -= length
+      } else if (child.nodeType === Node.TEXT_NODE) {
+        const length = child.textContent?.length ?? 0
+        if (remaining <= length) return { node: child, offset: remaining }
+        remaining -= length
+      } else {
+        const position = walk(child)
+        if (position) return position
+      }
+    }
+    return undefined
+  }
+  return walk(el) ?? { node: el, offset: el.childNodes.length }
+}
+
+export function setContentEditableSelection(
+  el: HTMLElement,
+  selection: { start: number; end: number },
+) {
   const sel = window.getSelection()
   if (!sel) return
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-  let remaining = offset
-  let node: Text | null = null
-  while (walker.nextNode()) {
-    node = walker.currentNode as Text
-    const mentionTag = node.parentElement?.closest('.mention-tag')
-    if (mentionTag) {
-      if (remaining <= node.length) {
-        const range = document.createRange()
-        if (remaining < node.length / 2) {
-          range.setStartBefore(mentionTag)
-        } else {
-          range.setStartAfter(mentionTag)
-        }
-        range.collapse(true)
-        sel.removeAllRanges()
-        sel.addRange(range)
-        return
-      }
-      remaining -= node.length
-      continue
-    }
-    if (remaining <= node.length) {
-      const range = document.createRange()
-      range.setStart(node, remaining)
-      range.collapse(true)
-      sel.removeAllRanges()
-      sel.addRange(range)
-      return
-    }
-    remaining -= node.length
-  }
-  // 如果偏移超出，放到末尾
-  if (node) {
-    const range = document.createRange()
-    range.setStart(node, node.length)
-    range.collapse(true)
-    sel.removeAllRanges()
-    sel.addRange(range)
-  }
+  const start = contentEditablePosition(el, selection.start)
+  const end = contentEditablePosition(el, selection.end)
+  const range = document.createRange()
+  range.setStart(start.node, start.offset)
+  range.setEnd(end.node, end.offset)
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+/** Set the caret using the same mention-label coordinates as the query parsers. */
+export function setContentEditableCursor(el: HTMLElement, offset: number) {
+  setContentEditableSelection(el, { start: offset, end: offset })
 }
