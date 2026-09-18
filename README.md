@@ -409,7 +409,7 @@ scripts/infra-compose.sh provision                    # once per deployment data
 /path/to/release/scripts/vps-deploy.sh internal /path/to/release
 ```
 
-Build on **macmini2** with `scripts/build-vps-release.sh all /absolute/release`, transfer the complete release directory to the VPS, then run its `scripts/vps-deploy.sh all /absolute/release`. The VPS never compiles or fetches source. See the [image release runbook](docs/deploy/image-release.md) for pinned inputs, resource limits, verification, locking and rollback.
+Build on **macmini2** with `scripts/build-vps-release.sh all /absolute/release`, transfer the complete release directory to the VPS, then run its `scripts/vps-deploy.sh all /absolute/release`. The VPS never compiles or fetches source. See the [deployment runbook](docs/deploy/image-release.md) for pinned inputs, resource limits, verification, locking and rollback.
 
 Point the hostnames at the tunnel, from the account that owns them:
 

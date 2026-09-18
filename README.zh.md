@@ -347,7 +347,7 @@ scripts/infra-compose.sh provision                    # 每个部署数据库跑
 /path/to/release/scripts/vps-deploy.sh internal /path/to/release
 ```
 
-发布流程：在 **macmini2** 运行 `scripts/build-vps-release.sh all /绝对路径/release`，将整个产物目录传到 VPS，再运行产物内的 `scripts/vps-deploy.sh all /绝对路径/release`。VPS 不再构建或拉取源码。固定提交、资源预算、完整性校验、互斥锁及回滚见 [镜像发布手册](docs/deploy/image-release.md)。
+发布流程：在 **macmini2** 运行 `scripts/build-vps-release.sh all /绝对路径/release`，将整个产物目录传到 VPS，再运行产物内的 `scripts/vps-deploy.sh all /绝对路径/release`。VPS 不再构建或拉取源码。固定提交、资源预算、完整性校验、互斥锁及回滚见 [部署手册](docs/deploy/image-release.md)。
 
 在持有域名的那个账号下把 hostname 指到隧道：
 
