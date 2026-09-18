@@ -477,13 +477,19 @@ describe('videoPresetConflicts', () => {
 describe('reference images', () => {
   const refs = (count: number, from = 0) => Array.from({ length: count }, (_, i) => i + from)
 
-  it('declares Grok as the only model taking reference images, up to 7 at 720p with frames', () => {
+  it('declares Grok up to 7 at 720p with frames, Seedance up to 9 at 720p without frames', () => {
     expect(VIDEO_MODEL_SUPPORT[GROK].referenceImages).toEqual({
       max: 7,
       maxResolution: '720p',
       withFrames: true,
     })
-    for (const model of [AGNES, SEEDANCE, VEO_FAST, VEO_LITE])
+    // 方舟文档：图片参考 0~9 张；Mini 只出 480p / 720p；首尾帧是另一种模式，全模态参考里只能用提示词间接指定。
+    expect(VIDEO_MODEL_SUPPORT[SEEDANCE].referenceImages).toEqual({
+      max: 9,
+      maxResolution: '720p',
+      withFrames: false,
+    })
+    for (const model of [AGNES, VEO_FAST, VEO_LITE])
       expect(VIDEO_MODEL_SUPPORT[model].referenceImages).toBeUndefined()
   })
 
@@ -495,6 +501,19 @@ describe('reference images', () => {
         request({ first_frame_index: 0, reference_image_indices: refs(3, 1) }),
         4,
       ),
+    ).toBeNull()
+  })
+
+  it('rejects frames next to references on Seedance', () => {
+    expect(
+      videoRequestRejection(
+        SEEDANCE,
+        request({ first_frame_index: 0, reference_image_indices: [1] }),
+        2,
+      )?.code,
+    ).toBe('referenceFramesRejected')
+    expect(
+      videoRequestRejection(SEEDANCE, request({ reference_image_indices: [0, 1] }), 2),
     ).toBeNull()
   })
 

@@ -922,6 +922,12 @@ function buildArkVideoBody(
       { type: 'text', text: request.prompt },
       ...frame('first_frame', video.first_frame_index),
       ...frame('last_frame', video.last_frame_index),
+      // 提示词里的「图片 n」按 content 里 image_url 的顺序数，所以参考图保持用户排好的顺序。
+      ...videoReferences(request, video).map((url) => ({
+        type: 'image_url',
+        image_url: { url },
+        role: 'reference_image',
+      })),
     ],
     ratio: video.aspect_ratio,
     duration: video.duration_seconds,

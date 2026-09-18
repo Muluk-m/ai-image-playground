@@ -513,6 +513,25 @@ describe('Seedance video upstream', () => {
     ])
   })
 
+  it('sends reference images as reference_image items in the order given', async () => {
+    handler = (url) =>
+      url === ARK_TASKS
+        ? json({ id: 'task_ark_2' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+    const second = TINY_PNG_DATA_URL.replace('AAAA', 'AAAB')
+
+    await run(ARK_MODEL, {
+      input_images: [TINY_PNG_DATA_URL, second],
+      video: video({ reference_image_indices: [1, 0] }),
+    })
+
+    expect(bodyOf(ARK_TASKS).content).toEqual([
+      { type: 'text', text: 'a cat surfing' },
+      { type: 'image_url', image_url: { url: second }, role: 'reference_image' },
+      { type: 'image_url', image_url: { url: TINY_PNG_DATA_URL }, role: 'reference_image' },
+    ])
+  })
+
   it('submits with the channel credential', async () => {
     handler = (url) =>
       url === ARK_TASKS
