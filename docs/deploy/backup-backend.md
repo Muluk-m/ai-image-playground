@@ -74,6 +74,8 @@ launchctl kickstart -k gui/$(id -u)/com.muvloom.recovery-tunnel
 
 切回还必须检查原 API 的登录/同步能力、原账号可读及版本，不能仅凭 `/health` 就断言原业务恢复。发布后核对三个网页域名的 `runtime-config.json` 和 `version.json`，并同步工作站 `pages.env`。不要换网页域名，否则浏览器本地存储会隔离。
 
+`runtime-config.json` 只在页面启动时加载；切回后，尚未刷新的页面仍可能向备用服务提交任务。停用备用服务前必须再次核对在途任务与新增记录；不能把 Pages 切换成功视为备用已无流量。
+
 **不要 `docker compose down -v`，不要删除备用 PG/MinIO 卷。** 备用期间新增的对话和服务端产物不会自动写回 VPS；切回后仍应保留、按需迁移。原登录 Cookie 不被本次切换清除，但原服务端会话自身的到期时间不由备用服务延长。
 
 ## 本地数据和对话历史的边界
@@ -83,7 +85,7 @@ launchctl kickstart -k gui/$(id -u)/com.muvloom.recovery-tunnel
 | 本机已保存的画布、图片/视频内容、生成记录 | 原网页域名的 IndexedDB | 已验证可读；未下载到本机的云端内容除外 |
 | 输入草稿 | `image-playground-agent-drafts` IndexedDB | 保留 |
 | 原账号的完整对话消息、轮次、上下文压缩记录 | 原 VPS PostgreSQL | 原 VPS 已恢复，生产站从原库读取 |
-| 备用期间的新对话 | macmini2 PostgreSQL | 可读，刷新页面后会从备用库恢复 |
+| 备用期间的新对话 | macmini2 PostgreSQL | 连接备用后端时可读；切回 VPS 后不会自动出现 |
 | 账号、积分、云同步目录 | 原 VPS PostgreSQL | 备用模式不启用 |
 
 代码依据：`packages/db/src/schema.ts` 的 `agent_conversations`、`agent_messages`；`apps/bff/src/lib/agent/conversations.ts` 读写这些表；`apps/web/src/features/agent/store.ts` 从 `fetchMessages` 读历史，消息数组本身没有完整的本地持久化；`features/agent/lib/drafts.ts` 仅保存草稿。
