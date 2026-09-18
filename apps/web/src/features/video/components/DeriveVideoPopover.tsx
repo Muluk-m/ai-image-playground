@@ -17,7 +17,7 @@ import { DEFAULT_EXTEND_SECONDS, DERIVE_RESOLUTION, VIDEO_EXTEND_SECONDS } from 
 import { videoDeriveLabel } from '../lib/labels'
 import ChipRow from './ChipRow'
 
-/** 续写 / 改视频弹窗。导演台与画布共用：谁的源片、提交到哪由调用方给。 */
+/** 续写 / 改视频弹窗：谁的源片、提交到哪由调用方给。 */
 export default function DeriveVideoPopover({
   sourceSeconds,
   mode,

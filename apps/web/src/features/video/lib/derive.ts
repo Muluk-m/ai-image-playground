@@ -1,12 +1,5 @@
-import {
-  VIDEO_DERIVE_MODES,
-  type VideoDeriveMode,
-  type VideoResolution,
-} from '@image-playground/shared'
+import type { VideoDeriveMode, VideoResolution } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
-import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
-import type { VideoTask } from '../types'
-import { videoDeriveLabel } from './labels'
 
 export const VIDEO_EXTEND_SECONDS = [2, 5, 8, 10] as const
 export const DEFAULT_EXTEND_SECONDS = 5
@@ -18,45 +11,11 @@ export const DERIVE_RESOLUTION: VideoResolution = '720p'
 const MAX_SOURCE_SECONDS: Record<VideoDeriveMode, number> = { extend: 15, edit: 8 }
 const MIN_SOURCE_SECONDS = 2
 
-export type VideoDeriveCheck =
-  | { ok: true; option: VideoModelOption }
-  | { ok: false; reason: string }
-
-export interface VideoDeriveOption {
-  mode: VideoDeriveMode
-  /** 有 modelId 就可提交，否则 disabledReason 说明为什么不能。 */
-  modelId?: string
-  disabledReason?: string
-}
-
-/** 源片时长是否在上游能续写 / 改写的范围内。画布与导演台共用这一条硬限。 */
+/** 源片时长是否在上游能续写 / 改写的范围内。报价与提交共用这一条硬限。 */
 export function deriveSourceRefusal(mode: VideoDeriveMode, seconds: number): string | null {
   if (seconds < MIN_SOURCE_SECONDS)
     return i18next.t('derive.tooShort', { ns: 'video', seconds: MIN_SOURCE_SECONDS })
   if (seconds > MAX_SOURCE_SECONDS[mode])
     return i18next.t('derive.tooLong', { ns: 'video', seconds: MAX_SOURCE_SECONDS[mode] })
   return null
-}
-
-export function checkDerive(task: VideoTask, mode: VideoDeriveMode): VideoDeriveCheck {
-  const option = videoModelOptions().find((item) => item.support[mode])
-  if (!option)
-    return {
-      ok: false,
-      reason: i18next.t('derive.noModel', { ns: 'video', label: videoDeriveLabel(mode) }),
-    }
-  if (task.status !== 'done' || !task.bffRequestId || task.outputIndex === undefined)
-    return { ok: false, reason: i18next.t('derive.notDone', { ns: 'video' }) }
-  const tooShortOrLong = deriveSourceRefusal(mode, task.duration)
-  if (tooShortOrLong) return { ok: false, reason: tooShortOrLong }
-  return { ok: true, option }
-}
-
-export function deriveOptions(task: VideoTask): VideoDeriveOption[] {
-  return VIDEO_DERIVE_MODES.map((mode) => {
-    const check = checkDerive(task, mode)
-    return check.ok
-      ? { mode, modelId: check.option.modelId }
-      : { mode, disabledReason: check.reason }
-  })
 }

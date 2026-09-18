@@ -49,7 +49,8 @@ export default function ProjectGrid({
         ? await useAgentStore.getState().selectProject(project.id)
         : await useAgentStore.getState().createProject()
       if (opened) {
-        useStore.getState().setAppMode('create')
+        // 视频入口也是这张画布：在那里换项目就留在视频入口，只有从作品页进来才切到创作。
+        if (useStore.getState().appMode === 'browse') useStore.getState().setAppMode('create')
         useLibraryStore.getState().closePanel()
       }
     } finally {

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
-import { useStoryboardStore } from '../features/video/storyboard/store'
 import { i18next, useTranslation } from '../i18n'
 import {
   type LegacyProductJob,
   legacyActionLabels,
   readLegacyProductJobs,
+  readLegacyStoryboardTitles,
 } from '../lib/legacyProductHistory'
 import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
@@ -71,7 +71,7 @@ export default function TaskGrid() {
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
   const [productShotJobs, setProductShotJobs] = useState<LegacyProductJob[]>([])
-  const storyboards = useStoryboardStore((s) => s.storyboards)
+  const [storyboardTitles, setStoryboardTitles] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     let active = true
@@ -80,7 +80,11 @@ export default function TaskGrid() {
         if (active) setProductShotJobs(jobs)
       })
       .catch((error) => console.warn('[history] Legacy records unavailable', error))
-    void useStoryboardStore.getState().load()
+    void readLegacyStoryboardTitles()
+      .then((titles) => {
+        if (active) setStoryboardTitles(titles)
+      })
+      .catch((error) => console.warn('[history] Legacy storyboards unavailable', error))
     return () => {
       active = false
     }
@@ -360,12 +364,12 @@ export default function TaskGrid() {
         {historyItems.flatMap((item) => {
           if (item.kind === 'task') return [renderTask(item.task)]
           const expanded = expandedSetIds.includes(item.setId)
-          const storyboard = storyboards.find((entry) => entry.id === item.setId)
-          const job = storyboard ? undefined : productShotJobs.find((e) => e.id === item.setId)
+          const title = storyboardTitles.get(item.setId)
+          const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
           return [
             <SetHistoryCard
               key={`set-${item.setId}`}
-              name={storyboard?.title ?? job?.name ?? setFallbackName(item.tasks[0])}
+              name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
               actions={legacyActionLabels(job)}
               tasks={item.tasks}
               expanded={expanded}

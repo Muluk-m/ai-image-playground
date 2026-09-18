@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { startVideoFromImage } from '../features/video/lib/entry'
+import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
 import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
@@ -615,7 +615,7 @@ function LightboxInner({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  startVideoFromImage(imageId)
+                  void startVideoFromImage(imageId)
                 }}
                 className={actionBtnClass}
               >

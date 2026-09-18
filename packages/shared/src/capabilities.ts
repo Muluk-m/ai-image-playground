@@ -8,7 +8,6 @@ export const CAPABILITIES = {
   'agent:chat': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   'generation:byok': { defaultValue: false, clientExposed: true },
-  'generation:storyboard': { defaultValue: false, clientExposed: true },
   'generation:video': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
@@ -19,6 +18,7 @@ export const CAPABILITIES = {
  * 不要复用这些名字表示新能力。
  */
 export const RETIRED_CAPABILITIES: readonly string[] = [
+  'generation:storyboard',
   'matte:server',
   'remix:analyze',
   'remix:listing',

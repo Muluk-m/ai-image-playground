@@ -7,6 +7,7 @@ import AgentPanel from '../../agent/components/AgentPanel'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
+import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
@@ -63,6 +64,11 @@ export default function CanvasMode() {
     showCanvasWorkspace(true)
     return () => showCanvasWorkspace(false)
   }, [])
+  // 视频入口就是这张画布，只是生成方式预置到视频：每次进入都预置一次，之后由用户自己切。
+  const videoEntry = useStore((state) => state.appMode === 'video')
+  useEffect(() => {
+    if (videoEntry) useCanvasComposer.getState().requestVideo()
+  }, [videoEntry])
   if (routeError)
     return (
       <div className="studio-canvas-status" role="alert">
@@ -143,8 +149,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     return unsubscribe
   }, [doc, editor, workspace, loading])
 
+  // 画布已经开着时也可能有图送进来（素材库、灯箱里的「生成视频」），所以跟着队列长度重跑。
+  const pendingImages = useStore((state) => state.pendingCanvasImages.length)
   useEffect(() => {
-    if (loading || loadFailed) return
+    if (loading || loadFailed || pendingImages === 0) return
     const pending = useStore.getState().consumeCanvasImages()
     if (!pending.length) return
     void placeImagesIntoTargets(
@@ -155,7 +163,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       () => workspace.flush(),
       (error) => console.warn('[canvas] 工作台图片放置失败', error),
     )
-  }, [editor, workspace, loading, loadFailed])
+  }, [editor, workspace, loading, loadFailed, pendingImages])
 
   return (
     <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>

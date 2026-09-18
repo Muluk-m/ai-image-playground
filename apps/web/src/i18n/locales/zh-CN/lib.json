@@ -7,13 +7,11 @@
   },
   "canvas": {
     "unsupported": "当前浏览器不支持 Canvas",
-    "unsupportedTransparent": "当前浏览器不支持 Canvas，无法执行透明背景后处理",
-    "unavailable": "画布不可用"
+    "unsupportedTransparent": "当前浏览器不支持 Canvas，无法执行透明背景后处理"
   },
   "image": {
     "loadFailed": "图片加载失败",
     "exportFailed": "图片导出失败",
-    "decodeFailed": "图片解码失败",
     "transcodeFailed": "图片转码失败",
     "invalidSize": "图片尺寸无效",
     "onlyImages": "只支持图片文件",
@@ -115,13 +113,6 @@
     "baseImageMissing": "遮罩主图已不存在，请重新选择遮罩区域",
     "emptySelection": "请先圈选或涂抹需要编辑的区域"
   },
-  "export": {
-    "fitCrop": "裁切",
-    "fitLetterbox": "留白",
-    "untitled": "未命名",
-    "failed": "导出失败",
-    "imageNotFound": "找不到这张图"
-  },
   "transparent": {
     "pixelSizeMismatch": "透明背景像素数据尺寸不匹配",
     "unsupportedKeyColor": "不支持的透明背景 key color：{{keyColor}}"
@@ -131,10 +122,6 @@
   },
   "storage": {
     "adoptTxAborted": "认领历史的 {{store}} 事务被中止"
-  },
-  "bffClient": {
-    "storyboardUnavailable": "分镜脚本没有生成成功",
-    "storyboardTimedOut": "分镜脚本生成超时，请重试"
   },
   "mention": {
     "imageLabel": "@图{{n}}",

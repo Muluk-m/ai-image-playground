@@ -21,7 +21,6 @@ import { oauthRoutes } from './routes/oauth'
 import { projectRoutes } from './routes/projects'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
-import { storyboardPlanRoutes } from './routes/storyboard-plan'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
 
@@ -170,7 +169,6 @@ export const app = new Elysia()
   .use(statusRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
-  .use(storyboardPlanRoutes)
   .use(agentRoutes)
   .use(syncRoutes)
   .use(projectRoutes)

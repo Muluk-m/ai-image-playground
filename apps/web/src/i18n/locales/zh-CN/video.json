@@ -1,9 +1,4 @@
 {
-  "source": {
-    "text": "文生视频",
-    "image": "图生视频",
-    "storyboard": "分镜"
-  },
   "status": {
     "queued": "排队"
   },
@@ -25,89 +20,17 @@
     "resolution": "清晰度",
     "aspectRatio": "比例"
   },
-  "action": {
-    "pickImage": "选图",
-    "generateVideo": "生成视频",
-    "backToEdit": "返回编辑",
-    "regenerate": "重生成",
-    "useAsFirstFrame": "用作首帧",
-    "newStoryboard": "＋ 新建分镜"
-  },
   "shared": {
-    "typicalSeconds": "通常 {{seconds}} 秒",
-    "seconds": "{{seconds}} 秒",
-    "shotBadge": "镜 {{no}}",
-    "shotImagePending": "分镜图生成中"
+    "seconds": "{{seconds}} 秒"
   },
   "error": {
     "noModel": "当前部署没有可用的视频模型"
-  },
-  "toast": {
-    "firstFrameAdopted": "已填入首帧"
-  },
-  "overlay": {
-    "progressAria": "视频生成进度"
   },
   "aspect": {
     "followsFirstFrame": "随首帧"
   },
   "composer": {
-    "sourceLabel": "视频来源",
-    "framesLabel": "首帧 · 尾帧",
-    "framesHint": "拖入 · 粘贴 · 下方直接点",
-    "lastFrameOptional": "可选",
-    "lastFrameUnsupported": "{{model}} 不支持尾帧",
-    "promptHint": "动作 · 镜头 · 光线",
-    "promptPlaceholder": "画面里发生什么，镜头怎么动",
-    "durationLabel": "时长",
-    "perSecond": "/ 秒",
-    "summary": "{{model}} · {{seconds}} 秒 · {{resolution}}"
-  },
-  "frameStrip": {
-    "caption": "素材库 · 最近出图",
-    "all": "全部…",
-    "fill": "填入{{label}}"
-  },
-  "picker": {
-    "title": "选{{label}}",
-    "sourceLabel": "图片来源",
-    "tabLibrary": "素材库",
-    "tabHistory": "工作台历史",
-    "emptyLibrary": "素材库还是空的",
-    "emptyHistory": "工作台还没有出过图"
-  },
-  "feed": {
-    "searchLabel": "搜索描述",
-    "filterLabel": "结果筛选",
-    "empty": "还没有生成过视频",
-    "noMatch": "没有匹配的结果",
-    "filterAll": "全部",
-    "filterText": "文生",
-    "filterImage": "图生"
-  },
-  "card": {
-    "noFirstFrame": "这条还没有可用的首帧",
-    "playAria": "播放 {{prompt}}",
-    "refunded": "已退",
-    "more": "更多",
-    "source": "来源：{{title}} · v{{version}}",
-    "versionMeta": "{{name}} · {{savedAt}}",
-    "shotLine": "{{index}}. {{title}} · {{seconds}} 秒",
-    "download": "下载"
-  },
-  "lightbox": {
-    "copied": "已复制描述",
-    "frameUnavailable": "这一帧取不到，先播放一下再试",
-    "noPlayback": "这条还没有可播放的视频",
-    "copyHint": "点击复制",
-    "rowParams": "参数",
-    "rowCredits": "积分",
-    "rowTime": "时间",
-    "viewOriginal": "查看原图",
-    "downloadMp4": "下载 mp4",
-    "sameParams": "相同参数再来一条",
-    "params": "{{duration}} 秒 · {{aspect}} · {{resolution}}",
-    "timing": "{{at}} · 用时 {{seconds}} 秒"
+    "durationLabel": "时长"
   },
   "derive": {
     "titleExtend": "续写 · 从最后一帧往后",
@@ -125,181 +48,14 @@
     "edit": "改视频"
   },
   "download": {
-    "progressPercent": "下载中 {{percent}}%",
-    "progressBytes": "下载中 {{mb}} MB",
     "started": "开始下载",
-    "unavailable": "这条还没有可下载的视频",
     "fetchFailed": "视频拉取失败：{{status}}"
   },
   "store": {
-    "emptyPrompt": "请先写一句描述",
-    "noFirstFrame": "请先放一张首帧图",
-    "frameMissing": "首尾帧图片已丢失",
-    "sourceGone": "源视频已不在",
-    "unsupportedDuration": "当前模型不支持 {{seconds}} 秒",
-    "unsupportedPreset": "当前模型不支持 {{seconds}} 秒或所选比例、清晰度，请调整生成设置"
-  },
-  "mode": {
-    "navLabel": "视频工作区",
-    "tabDirector": "导演台",
-    "tabLibrary": "分镜库",
-    "tabResults": "生成与成片",
-    "tabQuick": "快速生成",
-    "reload": "重新读取",
-    "emptyTitle": "把故事变成一条影片",
-    "emptyDescription": "创建分镜后，在导演台里打磨画面、保存版本并生成视频。",
-    "emptyAction": "创建第一个分镜",
-    "newTitle": "你的故事，从这里开始",
-    "newDescription": "描述创意、添加参考图，再到导演台逐镜打磨。",
-    "noModel": "当前没有可用的视频模型",
-    "viewRunningAria": "查看生成中的视频",
-    "runningCount_other": "{{count}} 个视频生成中",
-    "viewProgress": "查看进度 →"
+    "emptyPrompt": "请先写一句描述"
   },
   "library": {
-    "title": "我的分镜",
-    "subtitle": "保存在当前浏览器，可载入编辑或直接生成视频",
-    "empty": "还没有分镜，先创建你的第一个故事。",
-    "new": "新建分镜",
-    "meta_other": "{{count}} 镜头 · {{seconds}} 秒 · {{aspect}}",
-    "versions_other": "{{count}} 个保存版本",
-    "load": "载入编辑",
-    "delete": "删除分镜",
-    "deleteMessage": "将删除「{{title}}」及其保存版本。已生成视频和任务来源快照会保留。"
-  },
-  "plan": {
-    "ideaLabel": "创意",
-    "ideaPlaceholder": "一句话或一段脚本",
-    "totalSecondsLabel": "总时长",
-    "shotsLabel": "镜数",
-    "styleLabel": "风格",
-    "shotImages": "先出分镜图",
-    "submitWithImages": "生成脚本与分镜图",
-    "submit": "生成脚本"
-  },
-  "references": {
-    "label": "参考图",
-    "caption": "参考图 · 可选 · 最多 {{max}} 张"
-  },
-  "board": {
-    "emptyTitle": "从一个故事开始",
-    "emptyDescription": "新建分镜，或从分镜库载入已有作品。",
-    "emptyAction": "打开分镜库",
-    "kicker": "视频项目 / {{style}}风格",
-    "saveError": "保存失败，更改尚未写入本机",
-    "saving": "正在保存…",
-    "saved": "草稿已保存到本机",
-    "retrySave": "重试保存",
-    "versionsTab": "版本记录",
-    "saveVersionTab": "保存版本",
-    "railSummary_other": "{{count}} 个镜头 · {{seconds}} 秒",
-    "selectShotAria": "选择镜头 {{index}}",
-    "addShot": "＋ 添加镜头",
-    "shotHeading": "镜头 {{index}}",
-    "previewMode": "分镜序列预览 · 静帧",
-    "referenceMode": "分镜参考画面",
-    "stageMeta": "{{mode}} · {{aspect}}",
-    "shotMeta": "{{camera}} · {{range}} 秒",
-    "pausePreview": "暂停预览",
-    "startPreview": "预览分镜",
-    "regenerateFrame": "重新生成分镜图",
-    "generateFrame": "生成分镜图",
-    "timelineTitle": "故事时间线",
-    "moveBack": "← 前移",
-    "moveForward": "后移 →",
-    "noShots": "这份分镜还没有镜头，可以添加镜头或重写脚本。",
-    "advancedSummary": "全片风格与高级提示词",
-    "videoPromptLabel": "整条视频提示词",
-    "advancedNote": "编辑镜头内容或顺序后，会重新组织这里的镜头段落。",
-    "replan": "重写脚本",
-    "fillFrames": "补齐分镜图",
-    "export": "导出分镜",
-    "saveVersionTitle": "保存分镜版本",
-    "boardNameLabel": "分镜名称",
-    "versionNameLabel": "版本名称",
-    "saveVersionNote": "保存脚本、镜头顺序与参考画面，可在分镜库恢复。",
-    "savingVersion": "保存中…",
-    "saveNewVersion": "保存新版本",
-    "defaultVersionName": "精修版",
-    "noVersions": "还没有命名版本。草稿已自动保存在本机。",
-    "versionMeta": "{{savedAt}} · {{seconds}} 秒",
-    "restoreVersion": "恢复此版本",
-    "shotDetail": "镜头详情",
-    "shotNameLabel": "镜头名称",
-    "shotDescriptionLabel": "画面描述",
-    "cameraLabel": "运镜",
-    "durationLabel": "时长 / 秒",
-    "lineLabel": "对白 / 声音",
-    "shotPromptsSummary": "单镜头提示词",
-    "imagePromptLabel": "图片提示词",
-    "shotVideoPromptLabel": "视频提示词",
-    "generateThisShot": "仅生成当前镜头",
-    "duplicateShot": "复制镜头",
-    "removeShot": "删除镜头",
-    "noShotSelected": "先添加一个镜头"
-  },
-  "directorFrame": {
-    "failed": "出图失败，可重新生成",
-    "idle": "待生成分镜图"
-  },
-  "generation": {
-    "sourceNote": "来源：当前分镜 · 提交时保存版本快照",
-    "changeBoard": "更换分镜",
-    "scopeLabel": "生成范围",
-    "wholeScope": "整条视频 · {{seconds}} 秒",
-    "shotScope": "当前镜头 · {{seconds}} 秒",
-    "modelLabel": "视频模型",
-    "modelAria": "分镜视频模型",
-    "resolutionAria": "分镜视频清晰度",
-    "durationLabel": "视频时长",
-    "durationAria": "分镜视频时长",
-    "durationAdjusted": "原分镜 {{source}} 秒，本次按 {{target}} 秒生成，镜头节奏将相应调整。",
-    "selectModel": "选择模型",
-    "withFirstFrame": "使用首张画面作为视频首帧，其余镜头通过脚本描述",
-    "textOnly": "根据完整脚本文生视频",
-    "hint": "{{aspect}} · {{mode}}",
-    "needModel": "请选择可用的视频模型",
-    "needShotImage": "请先生成当前镜头的分镜图",
-    "saveError": "分镜尚未保存成功；重试保存后才能生成。",
-    "estimatedCredits": "预计积分",
-    "submitting": "提交中…",
-    "submit": "生成 {{seconds}} 秒视频",
-    "submitFailed": "视频提交失败，请重试"
-  },
-  "storyboardStore": {
-    "noImage": "这一镜还没有分镜图",
-    "tooManyReferences": "最多 {{max}} 张参考图",
-    "saveFailed": "分镜保存失败：{{reason}}",
-    "snapshotName": "生成前快照",
-    "untitledBoard": "未命名分镜",
-    "untitledVersion": "未命名版本",
-    "restoreBackup": "恢复前草稿",
-    "restoreConflict": "草稿在恢复期间有新修改，已保留新修改，请重新选择恢复版本",
-    "shotCopy": "{{title}} · 副本",
-    "newShot": "新镜头",
-    "defaultCamera": "固定镜头",
-    "loadFailed": "分镜读取失败：{{reason}}",
-    "deleteFailed": "删除失败：{{reason}}"
-  },
-  "export": {
-    "videoPromptHeading": "整条视频提示词 · {{seconds}} 秒",
-    "shotHeading": "镜 {{no}} · {{title}}",
-    "time": "时间：{{value}} 秒",
-    "frame": "画面：{{value}}",
-    "camera": "运镜：{{value}}",
-    "line": "台词：{{value}}",
-    "imagePrompt": "图片提示词：{{value}}",
-    "videoPrompt": "视频提示词：{{value}}",
-    "noLine": "（无）",
-    "shotFile": "镜{{no}}",
-    "zipName": "{{title}}-分镜"
-  },
-  "tagline": {
-    "grok": "高清",
-    "agnesFlash": "首尾帧",
-    "seedance": "多镜头",
-    "veoFast": "原生音频",
-    "veoLite": "经济档"
+    "load": "载入编辑"
   },
   "reject": {
     "promptTooLong": "{{label}} 描述最多 {{max}} 字",
@@ -316,12 +72,5 @@
     "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
     "deriveFramesRejected": "续写和改视频不接受首尾帧",
     "deriveSourceMissing": "{{mode}}缺少源视频"
-  },
-  "cameraMove": {
-    "slowPush": "缓慢推进",
-    "halfOrbit": "环绕半圈",
-    "handheldFollow": "手持跟拍",
-    "flowingLight": "光线流动",
-    "subtleStill": "静态微动"
   }
 }

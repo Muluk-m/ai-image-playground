@@ -52,7 +52,7 @@ function addVideo(generation: object) {
 
 beforeEach(() => {
   editor = new CanvasEditor(new CanvasDoc())
-  // 草稿先停在另一个模型、另一套档位上，才看得出载回是不是真的落进了导演台的草稿。
+  // 草稿先停在另一个模型、另一套档位上，才看得出载回是不是真的落进了视频参数草稿。
   useVideoStore.setState({
     draft: {
       ...useVideoStore.getState().draft,
@@ -64,7 +64,7 @@ beforeEach(() => {
   })
 })
 
-describe('重新生成落进导演台的真实草稿', () => {
+describe('重新生成落进真实的视频参数草稿', () => {
   it('restores a Veo 1080p clip without the resolution clamping its duration away', () => {
     addVideo({ model: VEO_LITE, duration: 8, aspectRatio: '9:16', resolution: '1080p' })
 

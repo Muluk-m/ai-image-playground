@@ -12,8 +12,8 @@ import VideoPresetRows from '../../video/components/VideoPresetRows'
 import { useVideoStore } from '../../video/store'
 
 /**
- * 生成栏视频档的参数：模型，加导演台同一套时长 / 画幅 / 清晰度行。
- * 读写的是导演台那份草稿，两处不另养一份。
+ * 生成栏视频档的参数：模型，加时长 / 画幅 / 清晰度行。
+ * 读写的是画布共用的视频参数草稿，不另养一份。
  */
 export default function CanvasVideoParams({ hasFirstFrame }: { hasFirstFrame: boolean }) {
   const { t } = useTranslation('video')

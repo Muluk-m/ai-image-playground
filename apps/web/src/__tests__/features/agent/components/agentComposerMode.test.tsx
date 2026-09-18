@@ -53,6 +53,7 @@ import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
+import { useCanvasComposer } from '../../../../features/canvas/composerStore'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
 import { chooseOption, stubPointerApis } from '../../../helpers/radix'
@@ -122,6 +123,7 @@ beforeEach(async () => {
     },
   })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  useCanvasComposer.setState({ agentVideoPending: false })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -167,6 +169,45 @@ describe('创作类型切换', () => {
     await settle()
 
     expect(useAgentStore.getState().mode).toBe('video')
+  })
+})
+
+describe('从视频入口或「生成视频」进来', () => {
+  it('下一轮预置为视频，只接手一次，之后用户照常能切回图片', async () => {
+    useCanvasComposer.setState({ agentVideoPending: true })
+    render()
+    await settle()
+
+    expect(useAgentStore.getState().mode).toBe('video')
+    expect(useCanvasComposer.getState().agentVideoPending).toBe(false)
+
+    chooseOption('创作类型：视频', '图片')
+    await settle()
+    type('画一只猫')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
+  })
+
+  it('输入框已经开着时也跟着切', async () => {
+    render()
+    await settle()
+    expect(useAgentStore.getState().mode).toBe('image')
+
+    act(() => useCanvasComposer.setState({ agentVideoPending: true }))
+    await settle()
+
+    type('做个开箱片')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
+  })
+
+  it('做不了视频的部署不接手，也不按视频发', async () => {
+    videoAvailable.value = false
+    useCanvasComposer.setState({ agentVideoPending: true })
+    render()
+    await settle()
+
+    expect(useAgentStore.getState().mode).toBe('image')
   })
 })
 

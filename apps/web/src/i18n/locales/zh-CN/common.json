@@ -25,14 +25,11 @@
     "clear": "清空",
     "save": "保存",
     "download": "下载",
-    "upload": "上传",
     "collapse": "收起",
-    "back": "返回",
     "generate": "生成"
   },
   "state": {
     "generating": "生成中",
-    "done": "完成",
     "failed": "失败",
     "unknown": "未知"
   },

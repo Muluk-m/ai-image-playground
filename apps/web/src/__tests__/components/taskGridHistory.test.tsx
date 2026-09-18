@@ -3,15 +3,14 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
-import { readLegacyProductJobs } from '../../lib/legacyProductHistory'
+import { readLegacyProductJobs, readLegacyStoryboardTitles } from '../../lib/legacyProductHistory'
 
 vi.mock('../../lib/legacyProductHistory', async (original) => ({
   ...(await original<object>()),
   readLegacyProductJobs: vi.fn(),
+  readLegacyStoryboardTitles: vi.fn(),
 }))
 
-import { useStoryboardStore } from '../../features/video/storyboard/store'
-import type { StoryboardRecord } from '../../features/video/storyboard/types'
 import { useStore } from '../../store'
 import type { TaskRecord } from '../../types'
 
@@ -42,25 +41,6 @@ function storyboardTask(id: string): TaskRecord {
   return { ...record, origin: { setId: 'board-1', shotId: id, kind: 'storyboard' } }
 }
 
-function storyboard(): StoryboardRecord {
-  return {
-    id: 'board-1',
-    createdAt: 1,
-    updatedAt: 1,
-    title: '夏日冰饮',
-    summary: '两镜',
-    idea: '冰饮',
-    aspectRatio: '16:9',
-    totalSeconds: 10,
-    videoPrompt: '冰饮，吧台，晨光',
-    style: '不限',
-    referenceImageIds: [],
-    shotImagesRequested: true,
-    videoTaskId: null,
-    shots: [],
-  }
-}
-
 let host: HTMLDivElement
 let root: Root
 
@@ -81,7 +61,7 @@ beforeEach(() => {
       ],
     },
   ])
-  useStoryboardStore.setState({ storyboards: [], load: vi.fn().mockResolvedValue(undefined) })
+  vi.mocked(readLegacyStoryboardTitles).mockResolvedValue(new Map())
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -124,7 +104,7 @@ describe('folding a product shot job in the history', () => {
 
   it('names a storyboard set after the storyboard', async () => {
     useStore.setState({ tasks: [storyboardTask('task-3'), storyboardTask('task-4')] })
-    useStoryboardStore.setState({ storyboards: [storyboard()] })
+    vi.mocked(readLegacyStoryboardTitles).mockResolvedValue(new Map([['board-1', '夏日冰饮']]))
     await act(async () => root.render(<TaskGrid />))
 
     const card = document.querySelector('[data-set-history-card]')
