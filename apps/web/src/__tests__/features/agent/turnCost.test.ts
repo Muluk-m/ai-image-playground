@@ -149,6 +149,50 @@ describe('本轮消耗', () => {
     })
   })
 
+  it('被打断、已排上中断续跑的轮不报失败，页脚记下错误码', async () => {
+    turnResponses = [
+      () =>
+        sseResponse(
+          frames(
+            1,
+            TURN_START,
+            turnEnd({
+              stopReason: 'failed',
+              error: 'agent_turn_interrupted',
+              cost: { chat: 0, image: 0, video: 0 },
+            } as Partial<AgentTurnEvent>),
+          ),
+        ),
+    ]
+
+    await state().send('画一只猫')
+
+    expect(state().turn).toBe('idle')
+    expect(state().error).toBeNull()
+    expect(state().turns['turn-1']).toMatchObject({
+      stopReason: 'failed',
+      error: 'agent_turn_interrupted',
+    })
+  })
+
+  it('真的失败了照旧报失败', async () => {
+    turnResponses = [
+      () =>
+        sseResponse(
+          frames(
+            1,
+            TURN_START,
+            turnEnd({ stopReason: 'failed', error: 'agent_run_failed' } as Partial<AgentTurnEvent>),
+          ),
+        ),
+    ]
+
+    await state().send('画一只猫')
+
+    expect(state().turn).toBe('failed')
+    expect(state().error).not.toBeNull()
+  })
+
   it('计费关着的部署里轮上没有任何金额', async () => {
     turnResponses = [
       () =>

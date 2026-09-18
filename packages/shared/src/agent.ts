@@ -441,8 +441,8 @@ export interface AgentTurnStartEvent {
   /** 本轮预扣的积分；不计费的部署里缺席。 */
   readonly reservedCredits?: number
   /**
-   * 这一轮是唤醒：后台任务结束后智能体回来看结果，不是用户说了话。`userMessageId` 此时不指向
-   * 任何一条消息，界面不为它出用户气泡。
+   * 这一轮是唤醒：后台任务结束后智能体回来看结果，或者中断续跑（上一轮被服务重启打断后接着做），
+   * 不是用户说了话。`userMessageId` 此时不指向任何一条消息，界面不为它出用户气泡。
    */
   readonly wake?: true
 }
@@ -631,7 +631,15 @@ export interface AgentTurnUsage {
 
 export type AgentTurnStopReason = 'completed' | 'aborted' | 'failed'
 
-export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed' | 'agent_tool_failed'
+/**
+ * `agent_turn_interrupted`：这一轮被服务重启或执行者接管打断，已经排上了一次中断续跑——界面不把它
+ * 当失败报，只标明「已中断，自动续上」。其余几个是真的失败。
+ */
+export type AgentTurnErrorCode =
+  | 'agent_upstream_error'
+  | 'agent_run_failed'
+  | 'agent_tool_failed'
+  | 'agent_turn_interrupted'
 
 /** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
@@ -666,6 +674,8 @@ export interface AgentTurnSummaryView {
   readonly turnId: string
   readonly durationMs: number
   readonly stopReason: AgentTurnStopReason
+  /** 只在失败的轮上：被打断并排上了中断续跑时是 `agent_turn_interrupted`，其余缺席。 */
+  readonly error?: AgentTurnErrorCode
   readonly cost?: AgentTurnCost
 }
 

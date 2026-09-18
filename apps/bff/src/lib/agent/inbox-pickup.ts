@@ -1,10 +1,11 @@
-import { and, eq, exists, gt, inArray, isNull, ne, not } from 'drizzle-orm'
+import { and, eq, exists, gt, inArray, isNull, lte, ne, not } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
+import { recoverAbandonedExecution } from './events'
 import { AGENT_EXECUTION_LEASE_MS } from './execution'
-import { heldByClarification } from './inbox'
+import { heldByClarification, TURN_KINDS } from './inbox'
 import { drainConversationInbox } from './start-turn'
 import { deliverDueAgentWakes } from './wake'
 
@@ -14,6 +15,9 @@ import { deliverDueAgentWakes } from './wake'
  * 这时会话没有活着的执行租约、收件箱里却还有待处理的消息——由仍在接新活的实例来取。
  * 唤醒由 worker 在任务终态的事务里写进收件箱，没有谁收尾会顺手取它，全靠这里：会话空着就
  * 领租约起轮，忙着就留给当前那一轮收尾时取。等太久先唤醒的那一批也由这里按时投递。
+ *
+ * 执行者没了的会话（租约还标着在跑、心跳早已过期）也由这里接手：补写它被打断的那一轮，
+ * 排上一次中断续跑，再和别的收件箱记录一样开轮（见 `interrupted.ts`）。
  */
 
 const inbox = schema.agent_inbox
@@ -43,7 +47,7 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
     .innerJoin(conversations, eq(conversations.id, inbox.conversation_id))
     .where(
       and(
-        inArray(inbox.kind, ['user_message', 'clarification_answer', 'task_result']),
+        inArray(inbox.kind, [...TURN_KINDS]),
         eq(inbox.status, 'pending'),
         // 在等澄清答复、只剩问之前就排着的那几条：不是没人处理，是在等用户。取不到就别占名额。
         not(heldByClarification),
@@ -57,12 +61,43 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
   return rows.map((row) => row.id)
 }
 
+/** 执行租约还标着在跑、心跳却已过期的会话：它的执行者没了（进程被杀、被接管）。 */
+export async function abandonedExecutions(
+  limit = PICKUP_BATCH,
+  now = Date.now(),
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: executions.conversation_id })
+    .from(executions)
+    .innerJoin(conversations, eq(conversations.id, executions.conversation_id))
+    .where(
+      and(
+        eq(executions.state, 'running'),
+        lte(executions.heartbeat_at, now - AGENT_EXECUTION_LEASE_MS),
+        isNull(conversations.deleted_at),
+        config.execution.legacyOrigin ? ne(conversations.runtime_generation, 0) : undefined,
+      ),
+    )
+    .limit(limit)
+  return rows.map((row) => row.id)
+}
+
 /**
- * 巡一次：先把到了时候的唤醒投递进收件箱，再给每个没人处理的会话各取一条开轮。本实例正在
- * 下线就不接。返回开了轮的会话数。
+ * 巡一次：先接手执行者没了的会话（补写被打断的轮、排上中断续跑），再把到了时候的唤醒投递进
+ * 收件箱，最后给每个没人处理的会话各取一条开轮。本实例正在下线就不接。返回开了轮的会话数。
  */
 export async function pickUpStrandedInboxes(now = Date.now()): Promise<number> {
   if (bffDrain.status().draining) return 0
+  for (const conversationId of await abandonedExecutions()) {
+    try {
+      await recoverAbandonedExecution(conversationId)
+    } catch (err) {
+      log.error(
+        { event: 'agent.execution_recovery_failed', conversationId, err },
+        'abandoned agent execution could not be recovered',
+      )
+    }
+  }
   try {
     await deliverDueAgentWakes(undefined, now)
   } catch (err) {
