@@ -1,4 +1,8 @@
-import type { AgentToolArtifact, ChannelMedia } from '@image-playground/shared'
+import type {
+  AgentToolArtifact,
+  ChannelMedia,
+  VideoGenerationRecord,
+} from '@image-playground/shared'
 /** 智能体产出落画布的出口。创作模式挂载时把实现塞进来。 */
 export interface AgentPlacedArtifact {
   readonly artifactId: string
@@ -7,7 +11,11 @@ export interface AgentPlacedArtifact {
   /** 落到画布上的位图；视频产物给的是封面。 */
   readonly dataUrl: string
   /** 视频产物的播放来源。mp4 不进画布存档，播放时现拼地址。 */
-  readonly video?: { readonly taskId: string; readonly outputIndex: number }
+  readonly video?: {
+    readonly taskId: string
+    readonly outputIndex: number
+    readonly generation?: VideoGenerationRecord
+  }
 }
 
 export type AgentPlaceOutcome = 'placed' | 'unavailable'
