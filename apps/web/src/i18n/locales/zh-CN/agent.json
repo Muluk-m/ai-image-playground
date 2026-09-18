@@ -3,6 +3,11 @@
     "chat": "对话",
     "layers": "创作记录"
   },
+  "reference": {
+    "view": "查看参考图 {{label}}",
+    "loading": "正在加载原图…",
+    "unavailable": "无法加载原图，请稍后再试。"
+  },
   "panel": {
     "resizeAria": "拖动调整面板宽度",
     "resizeTitle": "拖动调整宽度",

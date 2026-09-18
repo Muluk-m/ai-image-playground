@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { createArtifactDelivery } from '../../../../features/agent/lib/artifactDelivery'
+import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -53,7 +55,114 @@ beforeEach(() => {
   )
 })
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  setAgentCanvasSink(null)
+  vi.unstubAllGlobals()
+})
+
+it('云端新结果自动进入可见画布，重复交付不再抢走用户镜头', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    queueMicrotask(() => callback(performance.now() + 1_000))
+    return 1
+  })
+  const cloudSink = createAgentCanvasSink(editor, undefined, {
+    enabled: () => true,
+    refresh: async () => {
+      doc.addElements([
+        {
+          id: 'result',
+          type: 'image',
+          fileId: 'file',
+          x: 4_000,
+          y: 3_000,
+          width: 200,
+          height: 100,
+          rotation: 0,
+        },
+      ])
+    },
+  })
+  setAgentCanvasSink(cloudSink)
+  const delivery = createArtifactDelivery(() => {})
+  const turn = delivery.beginTurn()
+  const message = {
+    kind: 'tool' as const,
+    id: 'tool',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage' as const,
+    title: '生成结果',
+    status: 'succeeded' as const,
+    artifacts: [
+      {
+        artifactId: 'result',
+        taskId: 'task',
+        media: 'image' as const,
+        outputIndex: 0,
+        mime: 'image/png',
+      },
+    ],
+  }
+  turn.enqueue(message)
+  await turn.settled()
+  expect(editor.getSelectedIds()).toEqual(['result'])
+  const result = editor.getElementPageBounds('result')!
+  expect((result.midX - doc.camera.x) * doc.camera.zoom).toBe(400)
+  expect((result.midY - doc.camera.y) * doc.camera.zoom).toBe(300)
+  doc.setCamera({ x: 100, y: 200 })
+  turn.enqueue(message)
+  await turn.settled()
+  expect(doc.camera).toMatchObject({ x: 100, y: 200 })
+})
+
+it('后台完成交付不会移动已离开项目或新项目的镜头', async () => {
+  const cloudSink = createAgentCanvasSink(editor, undefined, {
+    enabled: () => true,
+    refresh: async () => {
+      doc.addElements([
+        {
+          id: 'background-result',
+          type: 'image',
+          fileId: 'file',
+          x: 4_000,
+          y: 3_000,
+          width: 200,
+          height: 100,
+          rotation: 0,
+        },
+      ])
+    },
+  })
+  cloudSink.background = true
+  setAgentCanvasSink(cloudSink)
+  const turn = createArtifactDelivery(() => {}).beginTurn()
+  const next = new CanvasDoc()
+  setAgentCanvasSink(createAgentCanvasSink(new CanvasEditor(next)))
+  turn.enqueue({
+    kind: 'tool',
+    id: 'tool',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '后台生成结果',
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId: 'background-result',
+        taskId: 'task',
+        media: 'image',
+        outputIndex: 0,
+        mime: 'image/png',
+      },
+    ],
+  })
+  await turn.settled()
+  expect(editor.getElement('background-result')?.type).toBe('image')
+  expect(editor.getSelectedIds()).toEqual([])
+  expect(doc.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+  expect(next.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+  expect(next.elements).toEqual([])
+})
 
 describe('落画布', () => {
   it('用户中途改过画布也照样写入', async () => {

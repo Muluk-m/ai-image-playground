@@ -170,6 +170,19 @@ describe('AgentPanel', () => {
     expect(log.textContent).not.toContain('[image 1]')
     expect(log.textContent).not.toContain('[image 2]')
     expect(log.textContent).toContain('[image 3]')
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    act(() => log.querySelector<HTMLButtonElement>('img')!.closest('button')!.click())
+    expect(document.querySelector('[data-lightbox-root] img')?.getAttribute('src')).toBe(
+      SERVER_IMAGE,
+    )
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    )
+    expect(document.querySelector('[data-lightbox-root]')).toBeNull()
     act(() => {
       agentDraft(null).update({
         prompt: '',
@@ -189,22 +202,24 @@ describe('AgentPanel', () => {
     ])
   })
 
-  it('重新打开历史后按消息快照加载缩略图，不依赖当前画布或草稿', async () => {
+  it('历史引用按消息快照显示缩略图，点击才加载原图并随消息卸载释放预览', async () => {
     const revoke = vi.fn()
     vi.stubGlobal(
       'URL',
       class extends URL {
-        static createObjectURL() {
-          return 'blob:archived-reference'
+        static createObjectURL(blob: Blob) {
+          return blob.type === 'image/png' ? 'blob:archived-original' : 'blob:archived-reference'
         }
         static revokeObjectURL = revoke
       },
     )
-    const fetcher = vi.fn(async (input: string | URL | Request) =>
-      String(input).endsWith('/messages/history-user/references/0')
-        ? new Response(new Blob(['archived pixels'], { type: 'image/webp' }))
-        : Response.json({ skills: [] }),
-    )
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith('/messages/history-user/references/0?variant=original'))
+        return new Response('original pixels', { headers: { 'content-type': 'image/png' } })
+      if (String(input).endsWith('/messages/history-user/references/0'))
+        return new Response('archived pixels', { headers: { 'content-type': 'image/webp' } })
+      return Response.json({ skills: [] })
+    })
     vi.stubGlobal('fetch', fetcher)
     useAgentStore.setState({
       conversationId: 'history-conversation',
@@ -234,8 +249,23 @@ describe('AgentPanel', () => {
     const log = host.querySelector('[aria-label="对话记录"]')!
     expect(log.querySelector('img')?.getAttribute('src')).toBe('blob:archived-reference')
     expect(log.textContent).toBe('换一身衣服')
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes('variant=original'))).toBe(
+      false,
+    )
+    act(() => log.querySelector<HTMLImageElement>('img')!.closest('button')!.click())
+    await settle()
+    expect(document.querySelector('[data-lightbox-root] img')?.getAttribute('src')).toBe(
+      'blob:archived-original',
+    )
     act(() => useAgentStore.setState({ messages: [] }))
     expect(revoke).toHaveBeenCalledWith('blob:archived-reference')
+    expect(document.querySelector('[data-lightbox-root]')).toBeNull()
+    expect(revoke).toHaveBeenCalledWith('blob:archived-original')
   })
 
   it('历史消息中的已知行首技能显示标题，普通斜杠文字保持原样', async () => {
