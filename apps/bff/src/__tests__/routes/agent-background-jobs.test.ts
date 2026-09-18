@@ -23,6 +23,7 @@ import {
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_background_jobs_a612')
 process.env.PORT = '0'
@@ -37,6 +38,7 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -139,6 +141,7 @@ function generateCall(n = 1) {
 
 beforeEach(async () => {
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  setObjectStoreForTesting(new InMemoryObjectStore())
   // 等结果的路径若被误走，预算一过就会以超时失败收场，断言立刻看得出来。
   setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 200 })
   await db.delete(schema.tasks)
@@ -148,6 +151,7 @@ beforeEach(async () => {
 afterEach(() => {
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
+  setObjectStoreForTesting()
 })
 
 afterAll(async () => {
@@ -251,6 +255,51 @@ describe('生成改为后台任务', () => {
     const replay = JSON.stringify(calls[2]!.messages.slice(1))
     expect(replay).toContain(`完成，图片 ${projectArtifactId(task.id, 0)}`)
     expect(replay).not.toContain('结果尚未就绪')
+  })
+
+  it('settles a finished task before the retention purge even if nobody read the conversation', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => generateCall(),
+        () => completionStream('已开始'),
+        () => completionStream('看到了'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const task = await onlyTask()
+
+    // 用户关掉页面，任务跑完，过了保留期才被清：清之前没有任何人读过这个会话。
+    await finishTask(task.id, 'completed')
+    const { purgeOldTasks } = await import('../../db/maintenance')
+    expect(await purgeOldTasks(-1)).toBe(1)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+
+    const [job] = await readJobs(conversationId)
+    expect(job!.result).toMatchObject({ status: 'succeeded', job: { taskId: task.id } })
+    expect(job!.result.artifacts?.map((artifact) => artifact.artifactId)).toEqual([
+      projectArtifactId(task.id, 0),
+    ])
+
+    await runTurn(conversationId, '效果怎么样')
+    const replay = JSON.stringify(calls[2]!.messages.slice(1))
+    expect(replay).toContain(`完成，图片 ${projectArtifactId(task.id, 0)}`)
+    expect(replay).not.toContain('任务丢失了')
+  })
+
+  it('does not purge a task that is still running for the conversation', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const task = await onlyTask()
+    await finishTask(task.id, 'in_progress')
+
+    const { purgeOldTasks } = await import('../../db/maintenance')
+    expect(await purgeOldTasks(-1)).toBe(0)
+    expect((await readJobs(conversationId))[0]!.result.status).toBe('submitted')
   })
 
   it('settles a failed task with its error code and keeps a running one pending', async () => {

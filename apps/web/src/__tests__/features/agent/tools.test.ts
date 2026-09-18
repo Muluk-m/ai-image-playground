@@ -653,6 +653,43 @@ describe('后台任务', () => {
     await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
   })
+
+  it('切走再切回时旧的占位收掉，任务结束后在当前画布上照常落图', async () => {
+    let done = false
+    jobsResponse = () =>
+      done ? finished({ status: 'succeeded', artifacts: [IMAGE] }) : [pendingJob]
+    turnResponse = () =>
+      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
+    await state().send('画一只橘猫')
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+
+    // 切到另一个会话：移交出去的占位就地收掉，不会在原画布上一直转圈。
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    await state().selectConversation('conversation-2')
+    expect(discarded).toEqual(['placeholder-1'])
+
+    // 任务还没结束就切回来：读回的仍是已提交的卡，接着等。
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        turns: [],
+        messages: [
+          {
+            id: 'tool-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [pendingJob.result],
+            createdAt: 2,
+          },
+        ],
+      })
+    await state().selectConversation(CONVERSATION)
+    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
+
+    done = true
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
+  })
 })
 
 describe('历史', () => {

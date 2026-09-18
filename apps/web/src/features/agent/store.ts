@@ -180,7 +180,23 @@ export const useAgentStore = create<AgentState>((set, get) => {
    * 任务结束时由它落图；刷新后读回的任务没有把手，结束时现开一个（占位已随刷新收掉，产物就近落）。
    */
   const jobDeliveries = new Map<string, TurnArtifactDelivery>()
-  let watchingJobs: string | null = null
+  /** 正在等结果的那一次守候；换一次就是一个新对象，旧的循环看见不是自己就退出。 */
+  let jobWatch: { readonly conversationId: string } | null = null
+
+  /**
+   * 交付换代（切会话、新建会话、停止撞上 404 后按历史重来）时，移交出去的把手全部作废：它们
+   * 占的位就地收掉，守候也停下。之后再结算的任务按当时的画布现开把手，不会拿着旧一代的来源
+   * 落成「画布已离开」。
+   */
+  const resetDelivery = () => {
+    for (const [messageId, handle] of jobDeliveries) {
+      handle.discard(messageId)
+      void handle.settled()
+    }
+    jobDeliveries.clear()
+    jobWatch = null
+    return delivery.reset()
+  }
 
   /** 一个后台任务到了终局：结果卡换成终局，产物按产物交付落画布，失败就在占位上标错。 */
   const settleJob = (job: AgentBackgroundJobView) => {
@@ -207,10 +223,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
    * 结果要等任务自己跑完；刷新、换设备、服务重启之后读回来的也走这一条。
    */
   const watchJobs = (conversationId: string) => {
-    if (watchingJobs === conversationId) return
-    watchingJobs = conversationId
-    const watching = () =>
-      get().conversationId === conversationId && watchingJobs === conversationId
+    if (jobWatch?.conversationId === conversationId) return
+    const token = { conversationId }
+    jobWatch = token
+    const watching = () => get().conversationId === conversationId && jobWatch === token
     void (async () => {
       try {
         while (watching() && hasPendingJobs(get().messages)) {
@@ -227,7 +243,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           for (const job of jobs) settleJob(job)
         }
       } finally {
-        if (watchingJobs === conversationId) watchingJobs = null
+        if (jobWatch === token) jobWatch = null
       }
     })()
   }
@@ -343,7 +359,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
    * 刚好跑完——续播端点对已经结束的轮同样重放，用户照样看得到它的内容。
    */
   const openConversation = async (conversationId: string, turnId?: string) => {
-    const isCurrent = delivery.reset()
+    const isCurrent = resetDelivery()
     const same = get().conversationId === conversationId
     set({
       conversationId,
@@ -429,7 +445,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           const history = await fetchMessages(conversationId)
           if (!current()) return
           if (!history.activeTurn) {
-            delivery.reset()
+            resetDelivery()
             set({
               turn: 'idle',
               stopping: false,
@@ -439,6 +455,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
               ...panelStateFromHistory(history),
             })
             void delivery.restore(get().messages)
+            if (hasPendingJobs(get().messages)) watchJobs(conversationId)
             return
           }
         } catch {
@@ -462,7 +479,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
   /** 展示项目时属于面板自己的那几步；次序归 `projectLifecycle`。 */
   const showPanel: ShowProjectPanel = {
-    resetDelivery: () => void delivery.reset(),
+    resetDelivery: () => void resetDelivery(),
     reset: (project) =>
       set({
         conversationId: project.conversationId,
@@ -616,7 +633,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         void get().createProject()
         return
       }
-      delivery.reset()
+      resetDelivery()
       selectCanvasWorkspace(null)
       safeLocalStorage.removeItem(conversationKey())
       set({

@@ -591,6 +591,58 @@ describe('智能体改图工具', () => {
     expect(task!.status).toBe('cancelled')
   })
 
+  it.each([
+    'queued',
+    'in_progress',
+  ] as const)('stopping the turn cancels a %s local edit and does not call the model again', async (status) => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-stop',
+            name: 'editImage',
+            args: {
+              prompt: '只改这一块',
+              imageIds: ['canvas-1'],
+              selectionBindings: bindings('canvas-1'),
+            },
+          }),
+      ]),
+    )
+    const conversationId = await startConversation()
+    // 没有 worker：局部改图停在这一轮里等结果，直到用户停止这一轮。
+    const finished = runTurn(conversationId, '把 [image 1] 圈出来的部分改掉', {
+      references: [{ imageId: 'canvas-1', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    let task: typeof schema.tasks.$inferSelect | undefined
+    for (let i = 0; i < 400 && !task; i++) {
+      ;[task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.agent_conversation_id, conversationId))
+      if (!task) await Bun.sleep(5)
+    }
+    expect(task).toBeDefined()
+    await db.update(schema.tasks).set({ status }).where(eq(schema.tasks.id, task!.id))
+
+    const stopped = await post(
+      `/api/agent/conversations/${conversationId}/turns/${task!.agent_turn_id}/abort`,
+      { deviceId: DEVICE },
+    )
+    expect(stopped.status).toBe(200)
+    const frames = await finished
+    expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'aborted' })
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'cancelled',
+    })
+    // 取消即按原桶退回：任务行停在 cancelled，不会在没人等的时候出图计费。
+    const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
+    expect(stored!.status).toBe('cancelled')
+    expect(calls).toHaveLength(1)
+  })
+
   it('keeps the turn alive when the model names an image it cannot reach', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
