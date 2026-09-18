@@ -126,7 +126,10 @@ export interface AgentState {
    * 来自服务端的任务表，所以刷新、换设备后看到的阶段与已用时间不变。
    */
   jobProgress: Readonly<Record<string, AgentBackgroundJobProgress>>
-  /** 本机看到工具起跑的时刻，按结果卡的 messageId 索引；服务端还没报进度时拿它算已用时间。 */
+  /**
+   * 工具起跑的时刻，按结果卡的 messageId 索引：服务端盖在 `toolStart` 上的那个，旧记录才是本机
+   * 看到的时刻。服务端还没报后台任务进度时拿它算已用时间。
+   */
   toolStartedAt: Readonly<Record<string, number>>
 
   setOpen(open: boolean): void
@@ -309,11 +312,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (turnDelivery.isCurrent())
       set((state) => {
         const panel = reduceAgentPanelEvent(state, event, { turnId, pendingUserText })
-        // 已用时间的本机起点：续播重放同一条 toolStart 时不重新计时。
-        if (event.type === 'toolStart' && state.toolStartedAt[event.messageId] === undefined)
+        // 已用时间的起点取服务端盖在 toolStart 上的时刻：刷新、换设备重放出来的是同一个数。
+        // 旧记录没有它才退回本机看到的时刻，续播重放同一条时不重新计时。
+        if (
+          event.type === 'toolStart' &&
+          (event.startedAt !== undefined || state.toolStartedAt[event.messageId] === undefined)
+        )
           return {
             ...panel,
-            toolStartedAt: { ...state.toolStartedAt, [event.messageId]: Date.now() },
+            toolStartedAt: {
+              ...state.toolStartedAt,
+              [event.messageId]: event.startedAt ?? Date.now(),
+            },
           }
         if (event.type === 'turnStart') return { ...panel, activeTurn: { turnId: event.turnId } }
         if (event.type !== 'turnEnd') return panel

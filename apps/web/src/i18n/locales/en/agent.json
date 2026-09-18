@@ -222,6 +222,8 @@
       "submitted": "Submitted",
       "queued": "Queued",
       "generating": "Generating",
+      "reconnecting": "Reconnecting",
+      "confirming": "Confirming results",
       "delivering": "Adding to canvas"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",

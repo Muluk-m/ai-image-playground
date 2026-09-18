@@ -407,16 +407,81 @@ describe('后台任务的进度与取消', () => {
 
     // 排着队：阶段是「已提交」，已用时间从任务受理那一刻算，谁来读都是同一个起点。
     const [queued] = await readJobs(conversationId)
-    expect(queued!.progress).toEqual({ stage: 'submitted', submittedAt: task.submitted_at })
+    expect(queued!.progress).toEqual({
+      stage: 'submitted',
+      submittedAt: task.submitted_at,
+      phase: 'queued',
+    })
 
     await finishTask(task.id, 'in_progress')
     const [running] = await readJobs(conversationId)
-    expect(running!.progress).toEqual({ stage: 'running', submittedAt: task.submitted_at })
+    expect(running!.progress).toEqual({
+      stage: 'running',
+      submittedAt: task.submitted_at,
+      phase: 'generating',
+    })
 
     await finishTask(task.id, 'completed')
     const [done] = await readJobs(conversationId)
     expect(done!.result.status).toBe('succeeded')
     expect(done!.progress).toBeUndefined()
+  })
+
+  it('reports the durable reconnecting and confirming phases instead of flattening them', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    const task = await onlyTask()
+    const setTask = (patch: Partial<typeof schema.tasks.$inferInsert>) =>
+      db.update(schema.tasks).set(patch).where(eq(schema.tasks.id, task.id))
+
+    // 重启或滚动发布后任务被放回队列，但它已经在上游跑着：是在重连，不是排队。
+    await setTask({ status: 'queued', upstream_task_ids: ['upstream-1'] })
+    expect((await readJobs(conversationId))[0]!.progress).toMatchObject({
+      stage: 'submitted',
+      phase: 'reconnecting',
+    })
+
+    // 执行器的租约过期了：在等恢复接手，不再说「生成中」。
+    await setTask({
+      status: 'in_progress',
+      started_at: Date.now(),
+      lease_expires_at: Date.now() - 1_000,
+    })
+    expect((await readJobs(conversationId))[0]!.progress).toMatchObject({
+      stage: 'running',
+      phase: 'reconnecting',
+    })
+
+    // 结果已归档、正在确认。
+    await setTask({ lease_expires_at: Date.now() + 60_000, archive_payload: { outputs: [] } })
+    expect((await readJobs(conversationId))[0]!.progress).toMatchObject({
+      stage: 'running',
+      phase: 'confirming',
+    })
+  })
+
+  it('stamps the tool start with the server time so a replay keeps the same start', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch([], [() => generateCall(), () => completionStream('已开始')]),
+    )
+    const conversationId = await startConversation()
+    const before = Date.now()
+    const frames = await runTurn(conversationId, '画一只橘猫')
+    const [start] = eventsOfType(frames, 'toolStart')
+    expect(start!.startedAt).toBeGreaterThanOrEqual(before)
+    expect(start!.startedAt).toBeLessThanOrEqual(Date.now())
+
+    // 刷新或换设备后重放同一轮，起跑时刻不变。
+    const turnId = eventsOfType(frames, 'turnStart')[0]!.turnId
+    const replay = parseFrames(
+      await (
+        await request(`/api/agent/conversations/${conversationId}/turns/${turnId}/events`)
+      ).text(),
+    )
+    expect(eventsOfType(replay, 'toolStart')[0]!.startedAt).toBe(start!.startedAt)
   })
 
   it('cancels one job on request, refunds it and shows the cancelled outcome everywhere', async () => {

@@ -5,8 +5,20 @@ import type { AgentPanelMessage, AgentToolMessage } from '../types'
  * 一次生成走到哪一步。结果卡与画布占位共用这一份：两处读同一张卡、同一个起点，
  * 所以说的阶段与已用时间永远一致。
  */
-export const AGENT_JOB_PHASES = ['submitted', 'queued', 'generating', 'delivering'] as const
-export type AgentJobPhase = (typeof AGENT_JOB_PHASES)[number]
+export const AGENT_JOB_STEPS = ['submitted', 'queued', 'generating', 'delivering'] as const
+export type AgentJobStep = (typeof AGENT_JOB_STEPS)[number]
+
+/**
+ * 阶段比刻度多两个服务端持久阶段（ADR 0009），各有自己的说法，不压扁成排队或生成：
+ * `reconnecting` 是重启或滚动发布后执行器重新接上上游，`confirming` 是结果已归档、正在确认。
+ * 两者在刻度上都落在「生成」那一格。
+ */
+export type AgentJobPhase = AgentJobStep | 'reconnecting' | 'confirming'
+
+/** 这个阶段在四格刻度上落在哪一格。 */
+export function agentJobStep(phase: AgentJobPhase): AgentJobStep {
+  return phase === 'reconnecting' || phase === 'confirming' ? 'generating' : phase
+}
 
 /** 会走「提交、排队、生成、交付」这几步的工具。 */
 const GENERATION_TOOLS: ReadonlySet<AgentToolName> = new Set([
@@ -25,11 +37,11 @@ export interface AgentToolProgress {
  * 这张卡此刻的进度；已经结束（或根本不是生成）就是 null。
  *
  * - 轮里还在跑：工具刚起跑是「已提交」，任务进了队列是「排队」，上游在出图是「生成」。
- * - 后台任务：按服务端的任务表说排队还是生成；还没问到就停在「已提交」。
+ * - 后台任务：按服务端任务表的持久阶段说排队、生成、重连还是确认；还没问到就停在「已提交」。
  * - 结果已到、正在落画布：「交付」。
  *
- * `job` 是服务端报的进度，`startedAt` 是本机看到工具起跑的时刻；有服务端的就用服务端的，
- * 刷新、换设备后起点不变。
+ * `job` 是服务端报的进度，`startedAt` 是工具起跑的时刻（服务端盖在 `toolStart` 上的那个，
+ * 旧记录才退回本机看到的时刻）；两者都是服务端的数，刷新、换设备后起点不变。
  */
 export function agentToolProgress(
   message: AgentToolMessage,
@@ -47,6 +59,7 @@ export function agentToolProgress(
   }
   if (message.status === 'submitted') {
     if (!job) return at('submitted')
+    if (job.phase) return at(job.phase)
     return at(job.stage === 'running' ? 'generating' : 'queued')
   }
   if (message.status === 'succeeded' && message.delivery === 'pending') return at('delivering')

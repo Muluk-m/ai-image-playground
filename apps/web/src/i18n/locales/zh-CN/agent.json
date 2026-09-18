@@ -216,6 +216,8 @@
       "submitted": "已提交",
       "queued": "排队中",
       "generating": "生成中",
+      "reconnecting": "重新连接中",
+      "confirming": "确认结果",
       "delivering": "放入画布"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",

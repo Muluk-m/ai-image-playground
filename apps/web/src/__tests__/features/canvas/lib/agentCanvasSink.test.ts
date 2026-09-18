@@ -398,12 +398,12 @@ describe('focusPending', () => {
     await sink.reserve({ count: 1, messageId: 'tool-2', title: '别的' })
     editor.setSelectedElements([])
 
-    sink.focusPending!({ messageId: 'tool-1', taskId: 'task-1' })
+    expect(sink.focusPending!({ messageId: 'tool-1', taskId: 'task-1' })).toBe(true)
     expect(editor.getSelectedIds().sort()).toEqual([...mine].sort())
 
     // 没有对应的占位（已经落图、或切过画布）就什么也不动。
     editor.setSelectedElements([])
-    sink.focusPending!({ messageId: 'gone' })
+    expect(sink.focusPending!({ messageId: 'gone' })).toBe(false)
     expect(editor.getSelectedIds()).toEqual([])
   })
 })

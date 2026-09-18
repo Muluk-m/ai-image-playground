@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { AgentToolArtifact } from '@image-playground/shared'
+import type { AgentBackgroundJobProgress, AgentToolArtifact } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -10,7 +10,7 @@ import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/a
 const store = vi.hoisted(() => ({
   messages: [] as AgentPanelMessage[],
   cancelJob: vi.fn(async (_messageId: string) => {}),
-  jobProgress: {} as Record<string, { stage: 'submitted' | 'running'; submittedAt: number }>,
+  jobProgress: {} as Record<string, AgentBackgroundJobProgress>,
   toolStartedAt: {} as Record<string, number>,
 }))
 
@@ -44,7 +44,7 @@ function job(id: string, patch: Partial<AgentToolMessage>): AgentToolMessage {
 }
 
 const focus = vi.fn()
-const focusPending = vi.fn()
+const focusPending = vi.fn(() => true)
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
 
@@ -55,6 +55,7 @@ beforeEach(() => {
   store.cancelJob.mockClear()
   focus.mockClear()
   focusPending.mockClear()
+  focusPending.mockImplementation(() => true)
   setAgentCanvasSink({ focus, focusPending } as unknown as AgentCanvasSink)
   host = document.createElement('div')
   root = createRoot(host)
@@ -126,9 +127,32 @@ it('locates a running job by its placeholder and a finished one by its artifacts
 
   act(() => rowButton('任务 1').click())
   expect(focusPending).toHaveBeenCalledWith({ messageId: '1', taskId: 'task-1' })
+  expect(focus).not.toHaveBeenCalled()
 
   act(() => rowButton('任务 2').click())
   expect(focus).toHaveBeenCalledWith(['agent_image_1'])
+})
+
+it('falls back to the anchor object when a running job has no placeholder after a refresh', () => {
+  // 本地项目刷新或换设备后，在跑的任务要等交付才重新占位。
+  focusPending.mockImplementation(() => false)
+  store.messages = [job('1', { anchorObjectId: 'source-image' }), job('2', {})]
+  // 服务端刚重启，执行器在重新接上上游：行里说的是重连，不是排队。
+  store.jobProgress = {
+    '1': { stage: 'submitted', submittedAt: Date.now(), phase: 'reconnecting' },
+  }
+  render()
+  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+  expect(rowButton('任务 1').textContent).toContain('重新连接中')
+
+  act(() => rowButton('任务 1').click())
+  expect(focusPending).toHaveBeenCalledWith({ messageId: '1', taskId: 'task-1' })
+  expect(focus).toHaveBeenCalledWith(['source-image'])
+
+  // 没有占位也没有锚点：没有可去的地方，镜头不动。
+  focus.mockClear()
+  act(() => rowButton('任务 2').click())
+  expect(focus).not.toHaveBeenCalled()
 })
 
 it('cancels a single running job from its row', async () => {

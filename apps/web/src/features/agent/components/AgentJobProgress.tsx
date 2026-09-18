@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { i18next, useTranslation } from '../../../i18n'
 import { CARD_NOTE, GHOST_LINK, INK_3 } from '../agentStyles'
 import {
-  AGENT_JOB_PHASES,
+  AGENT_JOB_STEPS,
   type AgentJobPhase,
   type AgentToolProgress,
+  agentJobStep,
   agentToolProgress,
   formatElapsed,
 } from '../lib/jobProgress'
@@ -50,21 +51,21 @@ export function useAgentJobProgressText(progress: AgentToolProgress | null): str
 export default function AgentJobProgress({ progress }: { progress: AgentToolProgress }) {
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
-  const reached = AGENT_JOB_PHASES.indexOf(progress.phase)
+  const reached = AGENT_JOB_STEPS.indexOf(agentJobStep(progress.phase))
   return (
     <div
       role="progressbar"
       aria-label={t('job.progressAria')}
       aria-valuemin={1}
-      aria-valuemax={AGENT_JOB_PHASES.length}
+      aria-valuemax={AGENT_JOB_STEPS.length}
       aria-valuenow={reached + 1}
       aria-valuetext={text ?? undefined}
       className="flex flex-col gap-1"
     >
       <div className="flex gap-1" aria-hidden="true">
-        {AGENT_JOB_PHASES.map((phase, index) => (
+        {AGENT_JOB_STEPS.map((step, index) => (
           <span
-            key={phase}
+            key={step}
             className={`h-1 flex-1 rounded-full ${
               index < reached
                 ? 'bg-primary'

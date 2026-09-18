@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentJobInbox,
+  agentJobStep,
   agentToolProgress,
   formatElapsed,
   toolMessageForPlaceholder,
@@ -49,6 +50,23 @@ describe('agentToolProgress', () => {
         submittedAt: 10,
       }),
     ).toEqual({ phase: 'delivering', since: 10 })
+  })
+
+  it('keeps the durable reconnecting and confirming phases from the server', () => {
+    expect(
+      agentToolProgress(tool(), { stage: 'submitted', submittedAt: 10, phase: 'reconnecting' }),
+    ).toEqual({ phase: 'reconnecting', since: 10 })
+    expect(
+      agentToolProgress(tool(), { stage: 'running', submittedAt: 10, phase: 'reconnecting' })
+        ?.phase,
+    ).toBe('reconnecting')
+    expect(
+      agentToolProgress(tool(), { stage: 'running', submittedAt: 10, phase: 'confirming' })?.phase,
+    ).toBe('confirming')
+    // 刻度上两者都落在「生成」那一格。
+    expect(agentJobStep('reconnecting')).toBe('generating')
+    expect(agentJobStep('confirming')).toBe('generating')
+    expect(agentJobStep('queued')).toBe('queued')
   })
 
   it('prefers the server submission time over the local start so every device agrees', () => {

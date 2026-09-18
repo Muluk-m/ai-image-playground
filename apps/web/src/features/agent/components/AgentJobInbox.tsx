@@ -9,15 +9,19 @@ import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import { AgentJobCancel, useAgentJobProgressText, useAgentToolProgress } from './AgentJobProgress'
 
-/** 点一行就把镜头带到它在画布上的那一处：结束了的是产物，还在跑的是它占的位。 */
+/**
+ * 点一行就把镜头带到它在画布上的那一处：结束了的是产物，还在跑的是它占的位。
+ * 本地项目刷新或换设备后，在跑的任务要等交付才重新占位；这时退到它贴着的那个画布对象。
+ */
 function locate(message: AgentToolMessage): void {
   const sink = agentCanvasSink()
   if (!sink) return
   if (message.status === 'submitted') {
-    sink.focusPending?.({
+    const found = sink.focusPending?.({
       messageId: message.id,
       ...(message.job ? { taskId: message.job.taskId } : {}),
     })
+    if (!found && message.anchorObjectId) sink.focus([message.anchorObjectId])
     return
   }
   sink.focus((message.artifacts ?? []).map((artifact) => artifact.artifactId))

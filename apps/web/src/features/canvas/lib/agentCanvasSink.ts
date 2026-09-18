@@ -218,9 +218,10 @@ export function createAgentCanvasSink(
             (taskId !== undefined && one.meta.cloudGeneration?.id === taskId),
         )
         .map((one) => one.id)
-      if (ids.length === 0) return
+      if (ids.length === 0) return false
       editor.setSelectedElements(ids)
       editor.scrollToElements(ids)
+      return true
     },
 
     async thumbnail(objectId) {

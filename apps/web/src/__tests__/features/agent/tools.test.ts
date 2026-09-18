@@ -717,6 +717,19 @@ describe('后台任务', () => {
     expect(discarded).toEqual([])
   })
 
+  it('已用时间从服务端盖在 toolStart 上的时刻算起，刷新或换设备重放后不从零重来', async () => {
+    jobsResponse = () => [pendingJob]
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        { ...TOOL_START, outputCount: 1, startedAt: 1_234 },
+        SUBMITTED,
+        TURN_END,
+      )
+    await state().send('画一只橘猫')
+
+    expect(state().toolStartedAt['tool-1']).toBe(1_234)
+  })
 
   it('刷新后立刻从服务端读到任务的阶段与受理时刻，阶段随任务推进', async () => {
     let stage: 'submitted' | 'running' = 'submitted'
