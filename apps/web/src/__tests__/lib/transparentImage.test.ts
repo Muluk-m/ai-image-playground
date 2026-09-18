@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PARAMS } from '../types'
 import {
   buildTransparentPrompt,
   detectKeyColorFromPixels,
@@ -7,7 +6,8 @@ import {
   getTransparentRequestParams,
   MAGENTA_KEY_COLOR,
   removeKeyedBackgroundFromPixels,
-} from './transparentImage'
+} from '../../lib/transparentImage'
+import { DEFAULT_PARAMS } from '../../types'
 
 describe('transparent image prompt and params', () => {
   it('adds chroma-key background instructions to the original prompt', () => {

@@ -31,10 +31,7 @@ const MANIFEST = {
   'generation:byok': true,
   'generation:storyboard': false,
   'generation:video': false,
-  'matte:server': false,
   'quota:daily': false,
-  'remix:analyze': false,
-  'remix:listing': false,
 }
 
 const EDITOR = { scrollToElements: () => {} } as unknown as CanvasEditor

@@ -9,7 +9,6 @@ import { gzipBlob } from './lib/staticCompression'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { agentRoutes } from './routes/agent'
 import { userAuthRoutes } from './routes/auth'
-import { bgswapPlanRoutes } from './routes/bgswap-plan'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
@@ -17,12 +16,9 @@ import { generationRoutes } from './routes/generations'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalUserRoutes } from './routes/internal-users'
-import { matteRoutes } from './routes/matte'
 import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
 import { projectRoutes } from './routes/projects'
-import { remixAnalyzeRoutes } from './routes/remix-analyze'
-import { remixListingRoutes } from './routes/remix-listing'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { storyboardPlanRoutes } from './routes/storyboard-plan'
@@ -174,10 +170,6 @@ export const app = new Elysia()
   .use(statusRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
-  .use(bgswapPlanRoutes)
-  .use(matteRoutes)
-  .use(remixAnalyzeRoutes)
-  .use(remixListingRoutes)
   .use(storyboardPlanRoutes)
   .use(agentRoutes)
   .use(syncRoutes)

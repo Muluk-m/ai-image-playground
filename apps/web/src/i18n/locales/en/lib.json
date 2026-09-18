@@ -110,22 +110,6 @@
   "model": {
     "noEditSupport": "This model has no reference image support (image-to-image); switch models to use it"
   },
-  "angle": {
-    "front": "Front",
-    "threeQuarter": "3/4",
-    "highAngle": "High angle",
-    "topDown": "Top down",
-    "side": "Side"
-  },
-  "shotType": {
-    "main": "Hero",
-    "scene": "Scene",
-    "topdown": "Top down",
-    "detail": "Detail",
-    "sellingPoint": "Selling point",
-    "specDiagram": "Spec diagram",
-    "other": "Other"
-  },
   "mask": {
     "sizeMismatch": "The mask size does not match the base image, draw the mask again",
     "baseImageMissing": "The mask base image is gone, pick the mask area again",
@@ -138,14 +122,6 @@
     "failed": "Export failed",
     "imageNotFound": "This image is gone"
   },
-  "matte": {
-    "timeout": "{{backend}} cutout timed out",
-    "unsupported": "This browser cannot run a local cutout",
-    "localFailed": "Local cutout failed",
-    "workerStartFailed": "The cutout worker failed to start",
-    "backendServer": "Server",
-    "localFailedWithReason": "Local cutout failed: {{reason}}"
-  },
   "transparent": {
     "pixelSizeMismatch": "Transparent-background pixel data size mismatch",
     "unsupportedKeyColor": "Unsupported transparent-background key color: {{keyColor}}"
@@ -157,9 +133,6 @@
     "adoptTxAborted": "The {{store}} transaction for adopting history was aborted"
   },
   "bffClient": {
-    "analyzeUnavailable": "Competitor image analysis returned no usable brief",
-    "matteUnavailable": "The server cutout returned no usable mask",
-    "listingUnavailable": "Could not fetch the image set for this link",
     "storyboardUnavailable": "The storyboard script was not generated",
     "storyboardTimedOut": "The storyboard script timed out, try again"
   },

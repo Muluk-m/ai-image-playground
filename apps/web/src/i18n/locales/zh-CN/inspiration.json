@@ -26,13 +26,6 @@
     "promptCopied": "提示词已复制",
     "copyFailed": "复制失败，请手动选择文本"
   },
-  "coach": {
-    "label": "灵感库引导",
-    "title": "不知道画什么？",
-    "body": "灵感库里有几百个可一键套用的高质量示例，挑一张开始最快。",
-    "dismiss": "知道了",
-    "explore": "看看"
-  },
   "hero": {
     "title": "灵感探索",
     "viewAll": "查看全部"

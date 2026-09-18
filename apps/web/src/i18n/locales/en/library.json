@@ -59,28 +59,10 @@
     "description": "Saves the current prompt, referenced assets and size / quality / count",
     "placeholder": "Template name"
   },
-  "picker": {
-    "selectedCount_one": "{{count}} selected",
-    "selectedCount_other": "{{count}} selected",
-    "empty": "The asset library is empty",
-    "angleLabel": "{{name}} angle"
-  },
   "empty": {
     "assetsTitle": "Drop or paste an image, or right-click a reference thumbnail to save it as an asset",
     "assetsMobile": "On mobile, long-press the thumbnail",
     "templates": "Write a prompt, save it as a template, then type / to use it"
-  },
-  "coach": {
-    "ariaLabel": "Assets and templates tour",
-    "title": "Same images, same prompt",
-    "tokenRightClick": "Right-click",
-    "tokenSlot": "{slot}",
-    "stepSave": "save a reference as an asset",
-    "stepMention": "mention an asset",
-    "stepSlot": "generate several at once",
-    "stepTemplate": "use a template",
-    "gotIt": "Got it",
-    "view": "Take a look"
   },
   "hint": {
     "rightClickToSave": "Right-click to save as an asset",
