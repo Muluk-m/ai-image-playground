@@ -10,6 +10,8 @@ export interface AgentPlacedArtifact {
   readonly name?: string
   /** 落到画布上的位图；视频产物给的是封面。 */
   readonly dataUrl: string
+  /** 这次工具调用实际用的完整提示词。视频「改参数重新生成」拿它预填，标题只是摘要。 */
+  readonly prompt?: string
   /** 视频产物的播放来源。mp4 不进画布存档，播放时现拼地址。 */
   readonly video?: {
     readonly taskId: string

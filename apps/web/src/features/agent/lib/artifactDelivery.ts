@@ -122,6 +122,7 @@ export function createArtifactDelivery(
       missing.map(async (artifact) => ({
         ...(await prepare(artifact)),
         taskId: artifact.taskId,
+        ...(message.prompt ? { prompt: message.prompt } : {}),
         name: `${message.title || i18next.t('delivery.artifactName', { ns: 'agent' })} ${artifact.outputIndex + 1}`,
       })),
     )

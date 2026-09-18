@@ -1,4 +1,8 @@
-import { isProjectDocument, type ProjectDocument } from '@image-playground/shared'
+import {
+  isProjectDocument,
+  PROJECT_META_VALUE_MAX_CHARS,
+  type ProjectDocument,
+} from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
@@ -9,6 +13,21 @@ export interface MediaBinding {
 }
 export type MediaBindings = Record<string, MediaBinding>
 export type LoadedBindings = Map<string, MediaBinding & { source: string }>
+
+/**
+ * 云端 meta 值有长度上限；超长的一条（例如很长的提示词）会让整份文档校验失败、项目整个停止
+ * 同步。本机画布保留原文，上云时截到上限。
+ */
+function boundedMeta(meta: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(meta).map(([key, value]) => [
+      key,
+      value.length > PROJECT_META_VALUE_MAX_CHARS
+        ? value.slice(0, PROJECT_META_VALUE_MAX_CHARS)
+        : value,
+    ]),
+  )
+}
 
 export function projectDocument(
   doc: CanvasDoc,
@@ -34,7 +53,7 @@ export function projectDocument(
     // 视频也走这条：上传的是封面，片子本身留在队列，按 `video` 现拼播放地址。
     if (!mediaId) return null
     const { fileId: _fileId, ...image } = element
-    return { ...image, mediaId }
+    return { ...image, mediaId, ...(image.meta ? { meta: boundedMeta(image.meta) } : {}) }
   })
   const document = { version: 1, elements }
   return isProjectDocument(document) ? document : null
