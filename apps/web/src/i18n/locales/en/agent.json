@@ -32,6 +32,7 @@
   },
   "tool": {
     "stageSubmitted": "Queued",
+    "background": "Generating in the background; it will land on the canvas when ready",
     "preparing": "Preparing",
     "notFinished": "Did not finish",
     "delivering": "Generated, adding to the canvas…",

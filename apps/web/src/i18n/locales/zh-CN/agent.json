@@ -32,6 +32,7 @@
   },
   "tool": {
     "stageSubmitted": "已排队",
+    "background": "已在后台生成，完成后自动放入画布",
     "preparing": "准备中",
     "notFinished": "没有完成",
     "delivering": "产物已生成，正在放入画布…",

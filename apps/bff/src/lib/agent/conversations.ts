@@ -9,6 +9,7 @@ import type {
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
+import { settleAgentJobs } from './background-jobs'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
 export type AgentOwner =
@@ -250,6 +251,24 @@ export async function listAgentToolCalls(
   }))
 }
 
+/**
+ * 维护任务清任务行之前调用：把这个会话里已经结束的后台任务先结算成终局写回消息，否则没人读过的
+ * 会话在任务行清掉之后只剩「任务丢失了」。内部路径，不按归属查，调用方不得把结果交给用户。
+ */
+export async function settleAgentConversationJobs(conversationId: string): Promise<void> {
+  const rows = await db
+    .select()
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+    .orderBy(asc(schema.agent_messages.seq))
+  await settleAgentJobs(conversationId, rows.map(messageView))
+}
+
 export async function listAgentMessages(
   conversationId: string,
   owner: AgentOwner,
@@ -270,7 +289,11 @@ export async function listAgentMessages(
       ),
     )
     .orderBy(asc(schema.agent_messages.seq))
-  const messages = rows.map((row) => messageView(row.agent_messages))
+  // 已经结束的后台任务先结算成终局：快照、续轮的历史与任务列表读到的都是这一份。
+  const messages = await settleAgentJobs(
+    conversationId,
+    rows.map((row) => messageView(row.agent_messages)),
+  )
   const taskIds = [
     ...new Set(
       messages.flatMap((message) =>

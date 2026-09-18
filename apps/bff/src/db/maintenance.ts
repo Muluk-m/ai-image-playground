@@ -15,6 +15,7 @@ import {
   type SQL,
 } from 'drizzle-orm'
 import { config } from '../config'
+import { settleAgentConversationJobs } from '../lib/agent/conversations'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -217,6 +218,30 @@ export async function purgeOrphanedAssetObjects(): Promise<number> {
   return removed
 }
 
+/** 返回结算失败的会话：它们的任务行这一轮不能清。 */
+async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
+  const conversations = await db
+    .selectDistinct({ id: schema.tasks.agent_conversation_id })
+    .from(schema.tasks)
+    .where(
+      and(expired, isNotNull(schema.tasks.agent_conversation_id), ne(schema.tasks.kind, 'chat')),
+    )
+  const failed: string[] = []
+  for (const { id } of conversations) {
+    if (!id) continue
+    try {
+      await settleAgentConversationJobs(id)
+    } catch (error) {
+      failed.push(id)
+      log.warn(
+        { event: 'agent.jobs.settle_before_purge_failed', conversationId: id, err: String(error) },
+        'agent jobs left unsettled; their task rows are kept for the next purge',
+      )
+    }
+  }
+  return failed
+}
+
 /**
  * 删除 30 天前完成的任务（成功 / 失败 / 取消）。不删 queued/in_progress，避免
  * 误清正在跑的；worker 的 recoverAbandonedTasks 会收拾无主 in_progress。
@@ -225,13 +250,25 @@ export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,
 ): Promise<number> {
   const threshold = Date.now() - retentionMs
+  const expired = and(
+    inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
+    isNotNull(schema.tasks.completed_at),
+    lt(schema.tasks.completed_at, threshold),
+  )!
+  // 智能体的后台任务只在有人读会话时结算；没人读过的会话若直接清行，结果就只剩「任务丢失了」。
+  // 清之前先把它们所在的会话结算一遍，结算失败的会话这一轮不清，留给下次。
+  const unsettled = await settleAgentJobsBeforePurge(expired)
   const deleted = await db
     .delete(schema.tasks)
     .where(
       and(
-        inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
-        isNotNull(schema.tasks.completed_at),
-        lt(schema.tasks.completed_at, threshold),
+        expired,
+        unsettled.length === 0
+          ? undefined
+          : or(
+              isNull(schema.tasks.agent_conversation_id),
+              notInArray(schema.tasks.agent_conversation_id, unsettled),
+            ),
         // Old owned commands must remain replayable until their durable receipt is adopted.
         or(
           isNull(schema.tasks.user_id),

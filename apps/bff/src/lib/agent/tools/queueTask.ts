@@ -12,6 +12,7 @@ import { config } from '../../../config'
 import { schema } from '../../../db/client'
 import { cancelTasks } from '../../../db/task-transitions'
 import { resolveQueueModel } from '../../channels'
+import type { ExtractedResult } from '../../extractImages'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { AgentToolError, queueRefusalCode, taskFailureCode } from './errors'
@@ -58,6 +59,19 @@ export interface QueueTaskInput {
   readonly video?: PersistedVideoRequest
   /** 产出落画布时贴着这个画布对象放。 */
   readonly anchorObjectId?: string
+  /**
+   * 提交后立即交还对话，产物等任务结束后按产物交付落画布（后台任务）。缺席即留在这一轮里
+   * 等结果：局部改图要在同一轮里复核候选，只能同步。
+   */
+  readonly background?: boolean
+}
+
+/**
+ * 后台任务提交成功时给模型的那句话。结果此刻还不存在，模型最容易犯的错是顺口说「画好了」，
+ * 所以这里把「没好」和「什么时候能看到」一起说清。
+ */
+function backgroundText(words: MediaWords, count: number, taskId: string): string {
+  return `已提交后台${words.verb}任务（${count} ${words.unit}），结果尚未就绪。任务在后台生成，完成后自动放到用户的画布上；用户下次说话时你会在对话记录里看到结果。结果出来之前不要说已经生成好，也不要描述成品的样子。任务 id：${taskId}`
 }
 
 /**
@@ -76,12 +90,32 @@ export function resolveAgentModel(
   return resolveQueueModel(media, configured || undefined)
 }
 
+/** 一条跑完的队列任务落成的产物。同步等结果与后台任务结算走同一个算式。 */
+export function queueArtifacts(
+  taskId: string,
+  media: ChannelMedia,
+  result: ExtractedResult,
+): AgentToolArtifact[] {
+  return result.images.map((output) => ({
+    // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。
+    artifactId: projectArtifactId(taskId, output.index),
+    media,
+    taskId,
+    outputIndex: output.index,
+    mime: output.mime,
+    ...(output.width !== undefined ? { width: output.width } : {}),
+    ...(output.height !== undefined ? { height: output.height } : {}),
+  }))
+}
+
 /** 没有可用模型时的那一句；工具的可用性判定与执行都从这里拿，两处不会各说各的。 */
 export function noModelMessage(media: ChannelMedia): string {
   return `暂时没有可用的${WORDS[media].verb}模型`
 }
 
-/** 提交进现有队列，然后等它跑完。失败一律抛，由轮翻译成用户看得懂的一句话。 */
+/**
+ * 提交进现有队列。后台任务提交完就返回，否则等它跑完。失败一律抛，由轮翻译成用户看得懂的一句话。
+ */
 export async function runQueueTask(
   context: AgentToolContext,
   input: QueueTaskInput,
@@ -149,6 +183,18 @@ export async function runQueueTask(
 
   // 任务真的建出来了才登记：失败的提交不占批次名额，也不算这条内容提交过。
   context.maskedEditPlan?.submitted(submission)
+  if (input.background) {
+    // 停止只停这段回复：任务已经交给队列，不随这一轮中止，删除会话时才一并取消。
+    const count = input.media === 'image' ? agentImageCount(input) : 1
+    return {
+      content: [{ type: 'text', text: backgroundText(words, count, submitted.taskId) }],
+      details: {
+        executedPrompt: input.prompt,
+        job: { taskId: submitted.taskId, media: input.media },
+        ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
+      },
+    }
+  }
   onUpdate?.({ content: [], details: { stage: 'submitted' } })
   const outcome = await awaitQueueTask(submitted.taskId, {
     signal,
@@ -188,16 +234,7 @@ export async function runQueueTask(
     )
   }
 
-  const artifacts: AgentToolArtifact[] = outcome.result.images.map((output) => ({
-    // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。
-    artifactId: projectArtifactId(submitted.taskId, output.index),
-    media: input.media,
-    taskId: submitted.taskId,
-    outputIndex: output.index,
-    mime: output.mime,
-    ...(output.width !== undefined ? { width: output.width } : {}),
-    ...(output.height !== undefined ? { height: output.height } : {}),
-  }))
+  const artifacts = queueArtifacts(submitted.taskId, input.media, outcome.result)
   context.images.note(artifacts)
 
   return {

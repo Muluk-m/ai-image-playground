@@ -1,4 +1,5 @@
 import type {
+  AgentBackgroundJobsResponse,
   AgentConversationSnapshot,
   AgentTurnAlreadyRunningBody,
   AuthUserView,
@@ -12,6 +13,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import sharp from 'sharp'
 import { db, schema } from '../db/client'
+import { cancelAgentConversationJobs } from '../lib/agent/background-jobs'
 import {
   type AgentOwner,
   adoptDeviceConversations,
@@ -215,6 +217,28 @@ export const agentRoutes = new Elysia()
       headers: deviceIdHeaderSchema(),
     },
   )
+  .get(
+    // 这个会话提交过的后台任务，结果块是此刻的样子（读取即结算）。面板有没结束的任务时靠它
+    // 等结果：它只读任务表与消息表，不跟轮，所以不用转发到跑着轮的实例。
+    '/api/agent/conversations/:id/jobs',
+    async ({ params, headers, authUser, status }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const messages = await listAgentMessages(conversation.id, owner)
+      const response: AgentBackgroundJobsResponse = {
+        jobs: messages.flatMap((message) =>
+          message.content.flatMap((block) =>
+            block.type === 'toolResult' && block.job
+              ? [{ messageId: message.id, turnId: message.turnId, result: block }]
+              : [],
+          ),
+        ),
+      }
+      return response
+    },
+    { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
   .post(
     '/api/agent/conversations/:id/turns',
     async ({ params, body, authUser, request, server, status }) => {
@@ -328,6 +352,8 @@ export const agentRoutes = new Elysia()
           if (project) return status(409, { error: 'project_conversation_bound' })
         }
         await softDeleteAgentConversation(conversation.id, owner)
+        // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
+        await cancelAgentConversationJobs(conversation.id)
         return { ok: true }
       })
     },

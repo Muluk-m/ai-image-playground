@@ -1,5 +1,6 @@
 import type {
   AgentToolArtifact,
+  VideoGenerationRecord,
   VideoModelSupport,
   VideoPreset,
   VideoPresetConflict,
@@ -34,20 +35,24 @@ export function withVideoRecord(
   preset: VideoPreset,
   firstFrameId: string | null,
 ): AgentToolArtifact[] {
+  const video = videoRecord(model, preset, firstFrameId)
   return artifacts.map((artifact) =>
-    artifact.media === 'video'
-      ? {
-          ...artifact,
-          video: {
-            model,
-            duration: preset.duration,
-            aspectRatio: preset.aspectRatio,
-            resolution: preset.resolution,
-            ...(firstFrameId ? { firstFrameId } : {}),
-          },
-        }
-      : artifact,
+    artifact.media === 'video' ? { ...artifact, video } : artifact,
   )
+}
+
+function videoRecord(
+  model: string,
+  preset: VideoPreset,
+  firstFrameId: string | null,
+): VideoGenerationRecord {
+  return {
+    model,
+    duration: preset.duration,
+    aspectRatio: preset.aspectRatio,
+    resolution: preset.resolution,
+    ...(firstFrameId ? { firstFrameId } : {}),
+  }
 }
 
 /**
@@ -192,7 +197,7 @@ export const generateVideo = defineAgentTool({
   modes: ['video'],
   label: '生视频',
   description:
-    '生成一段视频，产出直接落到用户的画布上，带封面可播放。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',
+    '生成一段视频。提交后立即返回「已提交」，视频在后台生成，完成后自动落到用户的画布上，带封面可播放；返回时结果尚未就绪。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',
   guidance: videoGuidance,
   // 静态的那份只在解析不出模型时用得上（那时工具本来就不在清单里），形状由它定型。
   parameters: videoParameters(null),
@@ -250,13 +255,27 @@ export const generateVideo = defineAgentTool({
             ...(source ? { first_frame_index: 0 } : {}),
           },
           ...(source ? { anchorObjectId: source.imageId } : {}),
+          background: true,
         },
         signal,
         onUpdate,
       )
       // 结果块只读 `details`，所以多这一段文字不动前端协议：它只进模型的上下文。
+      const job = outcome.details?.job
       return {
         ...outcome,
+        // 档位记在任务上：产物要等任务结束才有，那时再照它记到产物上。
+        ...(job
+          ? {
+              details: {
+                ...outcome.details,
+                job: {
+                  ...job,
+                  video: videoRecord(target.model, preset, source?.imageId ?? null),
+                },
+              },
+            }
+          : {}),
         ...(outcome.details?.artifacts
           ? {
               details: {

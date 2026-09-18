@@ -230,14 +230,8 @@ describe('智能体澄清', () => {
     const frames = await runTurn(conversationId, '画只猫')
     stop()
 
-    expect(types(frames)).toEqual([
-      'turnStart',
-      'toolStart',
-      'toolProgress',
-      'toolEnd',
-      'clarification',
-      'turnEnd',
-    ])
+    // 生图提交即收尾（后台任务），没有等结果那段进度。
+    expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'clarification', 'turnEnd'])
     const end = frames.at(-1)!.event
     expect(end).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
     expect(calls).toHaveLength(1)

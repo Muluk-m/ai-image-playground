@@ -72,7 +72,7 @@ export const editImage = defineAgentTool({
   modes: ['image', 'video'],
   label: '改图',
   description:
-    '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',
+    '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。没有选区的普通改图提交后立即返回「已提交」，结果在后台生成、尚未就绪；有选区的局部改图会等到候选生成。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',
   guidance:
     '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出落在源图旁边，源图不动。版本数按需求用 n 指定，未要求多张时只出一张；不同修改方案分别调用。有遮罩时以圈选位置指认对象，不能以其他同名实例替代指定目标。参考图圈选表示参考来源，不是修改对象。',
   parameters,
@@ -122,6 +122,15 @@ export const editImage = defineAgentTool({
       if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
       if (snapshot !== context.authorization?.())
         throw new AgentToolError('invalid_params', '用户原文已更新，请按最新原文核对后执行')
+      // 局部改图（有选区、遮罩、分方案摘录或连锁后续）要在同一轮里复核候选，只能等结果；
+      // 其余普通改图提交后立即交还对话。
+      const local =
+        Boolean(prepared) ||
+        Boolean(images[0]?.maskDataUrl) ||
+        context.images.masked ||
+        Boolean(context.maskedEditPlan?.protected) ||
+        Boolean(params.requestQuote) ||
+        Boolean(params.deferredEdits?.length)
       return runQueueTask(
         context,
         {
@@ -156,6 +165,7 @@ export const editImage = defineAgentTool({
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
           ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
           anchorObjectId: images[0]!.imageId,
+          background: !local,
         },
         signal,
         onUpdate,

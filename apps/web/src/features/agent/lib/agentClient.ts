@@ -1,5 +1,7 @@
 import type {
   AgentActiveTurnView,
+  AgentBackgroundJobsResponse,
+  AgentBackgroundJobView,
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
@@ -124,6 +126,19 @@ export async function fetchMessageReference(
   )
   if (!response.ok) throw await requestError(response)
   return response.blob()
+}
+
+/** 这个会话提交过的后台任务，结果块是服务端此刻结算出的样子。 */
+export async function fetchJobs(
+  conversationId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<readonly AgentBackgroundJobView[]> {
+  const response = await fetcher(url(`/conversations/${conversationId}/jobs`), {
+    headers: deviceHeaders(),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  return ((await response.json()) as AgentBackgroundJobsResponse).jobs
 }
 
 async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {

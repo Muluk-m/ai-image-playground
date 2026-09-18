@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { GenerationDetail } from '@image-playground/shared'
+import type { AgentMessageView, GenerationDetail } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
@@ -151,8 +151,9 @@ async function runTool(conversationId: string) {
       payload += decoder.decode(value, { stream: true })
       if (
         !accepted &&
+        // 生图是后台任务：工具收尾时任务已经提交、还排着。
         parseFrames(payload).some(
-          (frame) => frame.event.type === 'toolProgress' && frame.event.stage === 'submitted',
+          (frame) => frame.event.type === 'toolEnd' && frame.event.status === 'submitted',
         )
       ) {
         const page = await (await request('/api/generations', deviceB)).json()
@@ -173,7 +174,7 @@ it('真正工具任务冻结项目会话来源，会话轮本身不成为图片�
   const original = await project()
   const { frames, accepted } = await runTool(original.conversationId)
   const turn = eventsOfType(frames, 'turnStart')[0]!
-  expect(eventsOfType(frames, 'toolEnd')).toMatchObject([{ status: 'succeeded' }])
+  expect(eventsOfType(frames, 'toolEnd')).toMatchObject([{ status: 'submitted' }])
   const source = {
     kind: 'agent',
     conversationId: original.conversationId,
@@ -193,8 +194,14 @@ it('真正工具任务冻结项目会话来源，会话轮本身不成为图片�
 
 it('历史卡、会话卡与原项目共享产物身份，执行任务过期后仍能读原图', async () => {
   const original = await project()
-  const { frames, accepted } = await runTool(original.conversationId)
-  const artifact = eventsOfType(frames, 'toolEnd')[0]!.artifacts![0]!
+  const { accepted } = await runTool(original.conversationId)
+  // 任务跑完后读回会话，结果卡结算出产物。
+  const settled = (await (
+    await request(`/api/agent/conversations/${original.conversationId}/messages`, deviceB)
+  ).json()) as { messages: AgentMessageView[] }
+  const artifact = settled.messages
+    .flatMap((message) => message.content)
+    .flatMap((block) => (block.type === 'toolResult' ? (block.artifacts ?? []) : []))[0]!
   const retained = await (await request(`/api/generations/${accepted.id}`, deviceB)).json()
   const canvas = await (await request(`/api/projects/${original.id}`, deviceB)).json()
   expect(retained.outputs[0]).toMatchObject({
