@@ -15,27 +15,40 @@ import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { DEFAULT_EXTEND_SECONDS, DERIVE_RESOLUTION, VIDEO_EXTEND_SECONDS } from '../lib/derive'
 import { videoDeriveLabel } from '../lib/labels'
-import { useVideoStore } from '../store'
-import type { VideoTask } from '../types'
 import ChipRow from './ChipRow'
 
+/** 续写 / 改视频弹窗。导演台与画布共用：谁的源片、提交到哪由调用方给。 */
 export default function DeriveVideoPopover({
-  task,
+  sourceSeconds,
   mode,
   modelId,
   tier = 'raised',
+  initialPrompt = '',
+  initialSeconds,
+  onSubmit,
   onClose,
 }: {
-  task: VideoTask
+  /** 源片时长。改视频保持它；续写另选秒数。 */
+  sourceSeconds: number
   mode: VideoDeriveMode
   modelId: string
   tier?: 'raised' | 'alert'
+  /** 「重新生成」一段派生片时，预填它当时的描述与续写秒数。 */
+  initialPrompt?: string
+  initialSeconds?: number
+  /** 受理了返回 true，弹窗随即关闭并提示已提交。 */
+  onSubmit: (input: { mode: VideoDeriveMode; prompt: string; seconds: number }) => Promise<boolean>
   onClose: () => void
 }) {
   const { t } = useTranslation('video')
-  const [prompt, setPrompt] = useState('')
-  const [extendSeconds, setExtendSeconds] = useState<number>(DEFAULT_EXTEND_SECONDS)
-  const seconds = mode === 'edit' ? task.duration : extendSeconds
+  const [prompt, setPrompt] = useState(initialPrompt)
+  const [extendSeconds, setExtendSeconds] = useState<number>(
+    initialSeconds !== undefined &&
+      (VIDEO_EXTEND_SECONDS as readonly number[]).includes(initialSeconds)
+      ? initialSeconds
+      : DEFAULT_EXTEND_SECONDS,
+  )
+  const seconds = mode === 'edit' ? sourceSeconds : extendSeconds
   const label = videoDeriveLabel(mode)
   const title = mode === 'extend' ? t('derive.titleExtend') : t('derive.titleEdit')
   const placeholder =
@@ -48,8 +61,7 @@ export default function DeriveVideoPopover({
   })
 
   const submit = async () => {
-    const id = await useVideoStore.getState().deriveVideo(task, { mode, prompt, seconds })
-    if (!id) return
+    if (!(await onSubmit({ mode, prompt, seconds }))) return
     useStore.getState().showToast(t('derive.submitted', { label }), 'success')
     onClose()
   }
@@ -81,7 +93,7 @@ export default function DeriveVideoPopover({
           ) : (
             <p className="text-xs text-muted-foreground">
               {t('derive.keepDuration', {
-                seconds: task.duration,
+                seconds: sourceSeconds,
                 resolution: DERIVE_RESOLUTION,
               })}
             </p>

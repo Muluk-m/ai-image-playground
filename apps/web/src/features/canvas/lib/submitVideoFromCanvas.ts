@@ -39,8 +39,10 @@ import { analyzeSelection, rasterizeEntry } from './rasterizeSelection'
  */
 const frameHandles = new Map<string, string[]>()
 
-interface CanvasVideoLaunch {
+export interface CanvasVideoLaunch {
   prompt: string
+  /** 输入框原话（不含文字标注）。续写 / 改视频就是弹窗里写的那句。 */
+  userPrompt: string
   frames: string[]
   channelId: string
   generation: VideoGenerationRecord
@@ -64,15 +66,34 @@ export function canvasVideoRefusalText(reason: CanvasVideoRefusal, model: string
   }
 }
 
-/** 首帧永远是 input_images[0]，尾帧跟在它后面——和导演台同一套下标约定。 */
+/**
+ * 送给队列的视频档位。首帧永远是 input_images[0]，尾帧跟在它后面——和导演台同一套下标约定。
+ * 续写 / 改视频不带帧，改带源片在队列里的 id；源片是画布上的对象，到提交这一刻才去取，
+ * 它已经不在画布上就明说，不当成普通生成发出去。
+ */
 export function canvasVideoRequest(
+  editor: CanvasEditor,
   generation: VideoGenerationRecord,
   frameCount: number,
 ): VideoRequest {
-  return {
+  const base: VideoRequest = {
     duration_seconds: generation.duration,
     aspect_ratio: generation.aspectRatio,
     resolution: generation.resolution,
+  }
+  if (generation.derivedFrom) {
+    const source = editor.getElement(generation.derivedFrom.id)
+    if (source?.type !== 'image' || !source.video)
+      throw new Error(i18next.t('videoToolbar.sourceGone', { ns: 'canvas' }))
+    return {
+      ...base,
+      mode: generation.derivedFrom.mode,
+      source_task_id: source.video.taskId,
+      source_output_index: source.video.outputIndex,
+    }
+  }
+  return {
+    ...base,
     ...(frameCount > 0 ? { first_frame_index: 0 } : {}),
     ...(frameCount > 1 ? { last_frame_index: 1 } : {}),
   }
@@ -140,7 +161,7 @@ export async function submitVideoFromCanvas(
   const frameCount = plan.frames.length
   const rejected = videoRequestRejection(
     option.modelId,
-    canvasVideoRequest(generation, frameCount),
+    canvasVideoRequest(editor, generation, frameCount),
     frameCount,
   )
   if (rejected) return refuse(videoRejectionText(rejected))
@@ -161,6 +182,7 @@ export async function submitVideoFromCanvas(
   const [target] = computePlaceholderTargets(editor, anchor, 1)
   void launchCanvasVideo(editor, {
     prompt,
+    userPrompt: userPrompt.trim(),
     frames,
     channelId: option.channelId,
     generation,
@@ -169,7 +191,7 @@ export async function submitVideoFromCanvas(
   return true
 }
 
-function guardAllows(generation: VideoGenerationRecord): boolean {
+export function guardAllows(generation: VideoGenerationRecord): boolean {
   const guard = getPrivateSubmissionGuard({
     model: generation.model,
     quantity: generation.duration,
@@ -181,7 +203,10 @@ function guardAllows(generation: VideoGenerationRecord): boolean {
   return false
 }
 
-async function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch): Promise<void> {
+export async function launchCanvasVideo(
+  editor: CanvasEditor,
+  launch: CanvasVideoLaunch,
+): Promise<void> {
   const taskId = crypto.randomUUID()
   const clientRequestId = crypto.randomUUID()
   const placeholderId = editor.createPlaceholder(launch.target, {
@@ -189,6 +214,7 @@ async function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch
     clientRequestId,
     source: 'builtin-edge',
     prompt: launch.prompt,
+    userPrompt: launch.userPrompt,
     inputCount: launch.frames.length,
     video: { channelId: launch.channelId, generation: launch.generation },
   })
@@ -200,7 +226,7 @@ async function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch
       channel,
       model: launch.generation.model,
       prompt: launch.prompt,
-      video: canvasVideoRequest(launch.generation, launch.frames.length),
+      video: canvasVideoRequest(editor, launch.generation, launch.frames.length),
       inputImageDataUrls: launch.frames,
       clientRequestId,
     })
@@ -239,7 +265,19 @@ export async function settleCanvasVideo(
     [{ dataUrl: poster, video: { ...source, generation } }],
     [placeholder ? targetFromShape(placeholder) : fallback],
     // 不改选区：选中新视频会让视频档立刻判「选中的是视频」，挡住接着生下一段。
-    { ...(placeholder ? { meta: { prompt: placeholder.meta.prompt } } : {}), select: false },
+    {
+      ...(placeholder
+        ? {
+            meta: {
+              prompt: placeholder.meta.prompt,
+              ...(placeholder.meta.userPrompt !== undefined
+                ? { userPrompt: placeholder.meta.userPrompt }
+                : {}),
+            },
+          }
+        : {}),
+      select: false,
+    },
   )
   // 落成功才收占位框：中途失败它得留着，错误态才有处可标。
   if (placeholder) editor.deleteElement(placeholderId)
@@ -282,12 +320,20 @@ export function retryCanvasVideo(editor: CanvasEditor, placeholder: PlaceholderV
     toast(i18next.t('submit.inputsLost', { ns: 'canvas' }))
     return
   }
+  // 派生片的源片可能已经删了：先判，别删掉占位框再告诉用户做不了。
+  try {
+    canvasVideoRequest(editor, meta.video.generation, frames.length)
+  } catch (err) {
+    toast(errorMessage(err))
+    return
+  }
   if (!guardAllows(meta.video.generation)) return
   editor.deleteElement(placeholder.id)
   // 帧交给新任务，旧 key 随之作废。
   frameHandles.delete(meta.taskId)
   void launchCanvasVideo(editor, {
     prompt: meta.prompt,
+    userPrompt: meta.userPrompt ?? meta.prompt,
     frames,
     channelId: meta.video.channelId,
     generation: meta.video.generation,

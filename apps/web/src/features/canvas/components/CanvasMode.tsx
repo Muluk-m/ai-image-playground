@@ -26,6 +26,7 @@ import CanvasMinimap from './CanvasMinimap'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
+import CanvasVideoToolbar from './CanvasVideoToolbar'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectSyncStatus from './ProjectSyncStatus'
@@ -236,6 +237,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
+            <CanvasVideoToolbar editor={editor} />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
             {saveFailed && (
