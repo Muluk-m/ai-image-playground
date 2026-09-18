@@ -1,4 +1,9 @@
-import type { VideoModelSupport, VideoPreset, VideoPresetConflict } from '@image-playground/shared'
+import type {
+  AgentToolArtifact,
+  VideoModelSupport,
+  VideoPreset,
+  VideoPresetConflict,
+} from '@image-playground/shared'
 import {
   agentTitleLine,
   clampVideoPreset,
@@ -17,6 +22,32 @@ import { defineAgentTool } from './adapter'
 import { noModelMessage, type QueueTarget, resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 32
+
+/**
+ * 给视频产物记下实际提交的档位与模型：画布据此「改一个参数重来」和续写。
+ * 记的是补齐后的档位，不是模型请求的原值——用户看到的应当是真正生成它的那一套。
+ */
+export function withVideoRecord(
+  artifacts: readonly AgentToolArtifact[],
+  model: string,
+  preset: VideoPreset,
+  firstFrameId: string | null,
+): AgentToolArtifact[] {
+  return artifacts.map((artifact) =>
+    artifact.media === 'video'
+      ? {
+          ...artifact,
+          video: {
+            model,
+            duration: preset.duration,
+            aspectRatio: preset.aspectRatio,
+            resolution: preset.resolution,
+            ...(firstFrameId ? { firstFrameId } : {}),
+          },
+        }
+      : artifact,
+  )
+}
 
 /**
  * 能跑的视频模型：既要在这个部署的 channel 里，也要在支持矩阵里。
@@ -224,6 +255,19 @@ export const generateVideo = defineAgentTool({
       // 结果块只读 `details`，所以多这一段文字不动前端协议：它只进模型的上下文。
       return {
         ...outcome,
+        ...(outcome.details?.artifacts
+          ? {
+              details: {
+                ...outcome.details,
+                artifacts: withVideoRecord(
+                  outcome.details.artifacts,
+                  target.model,
+                  preset,
+                  source?.imageId ?? null,
+                ),
+              },
+            }
+          : {}),
         content: [...outcome.content, { type: 'text', text: submittedText(support, preset) }],
       }
     }

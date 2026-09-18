@@ -2,6 +2,7 @@
 
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef } from './queue-protocol'
+import type { VideoGenerationRecord } from './video-generation'
 
 /**
  * 匿名设备标识的传输位置。它是纯 bearer——知道就等于持有，所以只走请求头或请求体：
@@ -127,6 +128,8 @@ export interface AgentToolArtifact {
   readonly mime: string
   readonly width?: number
   readonly height?: number
+  /** 视频产物实际提交的参数。早于它的记录没有；图片产物永远没有。 */
+  readonly video?: VideoGenerationRecord
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
