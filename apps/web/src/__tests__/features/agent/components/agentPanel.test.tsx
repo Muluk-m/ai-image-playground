@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
+import {
+  panelStateFromHistory,
+  reduceAgentPanelEvent,
+} from '../../../../features/agent/lib/panelMessages'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
@@ -138,6 +142,104 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('发送中的引用显示本条消息的缩略图，确认起轮后不丢失或串成下一轮的图', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ skills: [] })),
+    )
+    const pending = {
+      kind: 'text' as const,
+      id: 'pending-1',
+      turnId: 'pending-1',
+      role: 'user' as const,
+      text: '[image 2]这个换一身衣服，再参考[image 1]，不识别[image 3]',
+      references: [
+        { imageId: 'one', dataUrl: CANVAS_THUMBNAIL },
+        { imageId: 'two', dataUrl: SERVER_IMAGE },
+      ],
+      streaming: false,
+      pending: true as const,
+    }
+    useAgentStore.setState({ messages: [pending] })
+    render()
+    await settle()
+    const log = host.querySelector('[aria-label="对话记录"]')!
+    expect([...log.querySelectorAll('img')].map((image) => image.getAttribute('src'))).toEqual([
+      SERVER_IMAGE,
+      CANVAS_THUMBNAIL,
+    ])
+    expect(log.textContent).toContain('这个换一身衣服，再参考')
+    expect(log.textContent).not.toContain('[image 1]')
+    expect(log.textContent).not.toContain('[image 2]')
+    expect(log.textContent).toContain('[image 3]')
+    act(() => {
+      agentDraft(null).update({
+        prompt: '',
+        references: [{ id: 'next', dataUrl: 'data:image/png;base64,TkVYVA==' }],
+      })
+      useAgentStore.setState(
+        reduceAgentPanelEvent(
+          { messages: [pending], turns: {} },
+          { type: 'turnStart', turnId: 'turn-1', userMessageId: 'user-1' },
+          { turnId: 'turn-1', pendingUserText: pending.text },
+        ),
+      )
+    })
+    expect([...log.querySelectorAll('img')].map((image) => image.getAttribute('src'))).toEqual([
+      SERVER_IMAGE,
+      CANVAS_THUMBNAIL,
+    ])
+  })
+
+  it('重新打开历史后按消息快照加载缩略图，不依赖当前画布或草稿', async () => {
+    const revoke = vi.fn()
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL() {
+          return 'blob:archived-reference'
+        }
+        static revokeObjectURL = revoke
+      },
+    )
+    const fetcher = vi.fn(async (input: string | URL | Request) =>
+      String(input).endsWith('/messages/history-user/references/0')
+        ? new Response(new Blob(['archived pixels'], { type: 'image/webp' }))
+        : Response.json({ skills: [] }),
+    )
+    vi.stubGlobal('fetch', fetcher)
+    useAgentStore.setState({
+      conversationId: 'history-conversation',
+      ...panelStateFromHistory({
+        turns: [],
+        messages: [
+          {
+            id: 'history-user',
+            turnId: 'history-turn',
+            role: 'user',
+            createdAt: 1,
+            content: [
+              {
+                type: 'text',
+                text: '[image 1]换一身衣服',
+                references: [
+                  { imageId: 'old-image', image: { object: 'archived/input', mime: 'image/png' } },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    })
+    render()
+    await settle()
+    const log = host.querySelector('[aria-label="对话记录"]')!
+    expect(log.querySelector('img')?.getAttribute('src')).toBe('blob:archived-reference')
+    expect(log.textContent).toBe('换一身衣服')
+    act(() => useAgentStore.setState({ messages: [] }))
+    expect(revoke).toHaveBeenCalledWith('blob:archived-reference')
+  })
+
   it('历史消息中的已知行首技能显示标题，普通斜杠文字保持原样', async () => {
     vi.stubGlobal(
       'fetch',

@@ -389,19 +389,25 @@ describe('发送反馈', () => {
       return turnStream(TURN_START, TURN_END)
     }
 
-    const sending = state().send('把背景换成浅木色')
+    const references = [{ imageId: 'outfit', dataUrl: 'data:image/png;base64,AQID' }]
+    const sending = state().send('[image 1]把背景换成浅木色', references)
     await Promise.resolve()
     expect(state().turn).toBe('running')
     expect(state().activeTurn).toBeNull()
     expect(agentActivityPhase(state())).toBe('sending')
     const pending = state().messages.filter((one) => one.kind === 'text' && one.pending)
     expect(pending).toHaveLength(1)
-    expect(pending[0]).toMatchObject({ role: 'user', text: '把背景换成浅木色' })
+    expect(pending[0]).toMatchObject({
+      role: 'user',
+      text: '[image 1]把背景换成浅木色',
+      references,
+    })
 
     release()
     await sending
     expect(state().messages.map((one) => one.id)).toEqual(['user-1'])
     expect(state().messages.some((one) => one.kind === 'text' && one.pending)).toBe(false)
+    expect(state().messages[0]).toMatchObject({ references })
   })
 })
 

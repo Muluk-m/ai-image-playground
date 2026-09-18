@@ -832,9 +832,9 @@ it('同时恢复多个项目时最多两条同步链占用网络', async () => {
   try {
     await vi.waitFor(() => expect(finish.length).toBeGreaterThanOrEqual(2))
     expect(peak).toBe(2)
-    while (finish.length) {
+    for (let completed = 0; completed < projects.length; completed++) {
+      await vi.waitFor(() => expect(finish.length).toBeGreaterThan(0))
       finish.shift()!()
-      await new Promise((resolve) => setTimeout(resolve, 10))
     }
     await Promise.all(loading)
     expect(peak).toBe(2)
