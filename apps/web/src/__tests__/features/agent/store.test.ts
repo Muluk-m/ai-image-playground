@@ -168,6 +168,53 @@ describe('一轮对话', () => {
     ])
   })
 
+  it('停止的轮留下说了一半的回复并记为已停止，刷新读回来还是同一个样子', async () => {
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        ASSISTANT_START,
+        { type: 'textDelta', messageId: 'assistant-1', delta: '好的，我先' },
+        { type: 'turnEnd', turnId: 'turn-1', durationMs: 900, stopReason: 'aborted', usage: null },
+      )
+
+    await state().send('画一只猫')
+
+    const live = { messages: state().messages, turns: state().turns }
+    expect(state().turn).toBe('idle')
+    expect(state().error).toBeNull()
+    expect(live.messages.map((message) => message.kind === 'text' && message.text)).toEqual([
+      '画一只猫',
+      '好的，我先',
+    ])
+    expect(live.turns['turn-1']).toMatchObject({ stopReason: 'aborted' })
+
+    messagesResponse = () =>
+      Response.json({
+        messages: [
+          {
+            id: 'user-1',
+            turnId: 'turn-1',
+            role: 'user',
+            content: [{ type: 'text', text: '画一只猫' }],
+            createdAt: 1,
+          },
+          {
+            id: 'assistant-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [{ type: 'text', text: '好的，我先' }],
+            createdAt: 2,
+          },
+        ],
+        activeTurn: null,
+        turns: [{ turnId: 'turn-1', durationMs: 900, stopReason: 'aborted' }],
+      })
+    await state().selectConversation(CONVERSATION)
+
+    expect(state().messages).toEqual(live.messages)
+    expect(state().turns).toEqual(live.turns)
+  })
+
   it('空白消息不发', async () => {
     await state().send('   ')
 

@@ -55,6 +55,7 @@
     "image": "Image",
     "video": "Video",
     "failed": "Turn failed",
+    "stopped": "Stopped",
     "noCredits": "No credits used"
   },
   "composer": {
@@ -138,7 +139,10 @@
   },
   "draft": {
     "unreadable": "The draft can't be read or saved right now. Copy your text before refreshing.",
-    "saveFailed": "Could not save the draft. It's still on this page — copy it before refreshing."
+    "saveFailed": "Could not save the draft. It's still on this page — copy it before refreshing.",
+    "unsent": "You have an unsent draft",
+    "restore": "Restore",
+    "discard": "Discard"
   },
   "promptDialog": {
     "title": "Prompt",

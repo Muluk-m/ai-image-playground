@@ -55,6 +55,7 @@
     "image": "生图",
     "video": "生视频",
     "failed": "本轮失败",
+    "stopped": "已停止",
     "noCredits": "未扣积分"
   },
   "composer": {
@@ -137,7 +138,10 @@
   },
   "draft": {
     "unreadable": "草稿暂时无法读取或保存，刷新前请复制输入内容。",
-    "saveFailed": "草稿保存失败，内容仍在当前页面，刷新前请复制。"
+    "saveFailed": "草稿保存失败，内容仍在当前页面，刷新前请复制。",
+    "unsent": "你有一条未发送的草稿",
+    "restore": "恢复",
+    "discard": "丢弃"
   },
   "promptDialog": {
     "title": "提示词",

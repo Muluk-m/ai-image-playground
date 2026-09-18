@@ -6,11 +6,12 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
-import { agentDraft } from '../../../../features/agent/lib/drafts'
+import { agentDraft, DraftSession } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
+import { scopedStorageName } from '../../../../lib/authScope'
 import { useStore } from '../../../../store'
 
 declare global {
@@ -373,5 +374,60 @@ describe('智能体输入框', () => {
 
     click('发送并创作')
     expect(send).toHaveBeenCalledWith('把@已移除图片改成木色', [])
+  })
+})
+
+describe('未发送的草稿', () => {
+  /** 上次在这个会话里没发出去的一句话；回到它时输入框由一个新会话读回。 */
+  async function leftBehind(conversationId: string, prompt: string): Promise<void> {
+    const previous = new DraftSession(scopedStorageName(`agent-draft:${conversationId}`))
+    await previous.ready
+    previous.update({ prompt, references: [] })
+    await previous.flush()
+    useAgentStore.setState({ conversationId })
+  }
+
+  async function renderLoaded(): Promise<void> {
+    render()
+    await vi.waitFor(() => expect(editor().getAttribute('aria-busy')).toBe('false'))
+  }
+
+  it('回到项目时提示有未发送的草稿，恢复后放回输入框并能发出', async () => {
+    await leftBehind('draft-restore', '上次没发出去的那句')
+    await renderLoaded()
+    expect(host.textContent).toContain('你有一条未发送的草稿')
+    expect(editor().textContent).toBe('')
+
+    click('恢复')
+    expect(host.textContent).not.toContain('你有一条未发送的草稿')
+    expect(editor().textContent).toBe('上次没发出去的那句')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('上次没发出去的那句', [])
+  })
+
+  it('丢弃后提示消失，再回来也不再出现', async () => {
+    await leftBehind('draft-discard', '不想要了')
+    await renderLoaded()
+    click('丢弃')
+    expect(host.textContent).not.toContain('你有一条未发送的草稿')
+    expect(editor().textContent).toBe('')
+    await agentDraft('draft-discard').flush()
+
+    const again = new DraftSession(scopedStorageName('agent-draft:draft-discard'))
+    await again.ready
+    expect(again.getSnapshot().unsent).toBeNull()
+    expect(again.getSnapshot().draft.prompt).toBe('')
+  })
+
+  it('开始打新内容时提示让位，清空后又回来', async () => {
+    await leftBehind('draft-typing', '旧的那句')
+    await renderLoaded()
+    type('新的')
+    expect(host.textContent).not.toContain('你有一条未发送的草稿')
+    editor().textContent = ''
+    act(() => {
+      editor().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(host.textContent).toContain('你有一条未发送的草稿')
   })
 })
