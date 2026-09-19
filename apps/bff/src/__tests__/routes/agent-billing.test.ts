@@ -114,7 +114,12 @@ afterAll(async () => {
 
 describe('对话轮的预扣', () => {
   it('起轮前按估算的输入与预留的输出预扣一次', async () => {
-    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    setAgentFetchForTesting(
+      recordingAgentFetch([], () => {
+        expect(reservations).toHaveLength(1)
+        return completionStream('好')
+      }),
+    )
     const conversationId = await startConversation()
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
@@ -126,35 +131,23 @@ describe('对话轮的预扣', () => {
       model: 'fixture-agent-model',
       quantity: 1,
     })
-    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的是这条短提示词的输入估算，现在约 3.36。
-    // 原区间 (11, 11.5)：那时输入按 pi 的「字符数 / 4」算，中文被系统性低估约 4 倍——同一轮
-    // 在 pi 口径下只有约 1.28。改按 CJK 校正后（见 `token-estimate.ts`）整体上移了约 1.46：
-    // 系统提示词、整份工具声明与技能清单几乎全是中文，校正落在的正是这三块。
-    // 技能从 4 条加到 13 条后 `<available_skills>` 又长了约 0.62，区间再上抬一档到 (13, 13.5)：
-    // 技能的 description 每一轮都常驻，条数就是这块的成本。
-    // 生成改为后台任务后，系统提示词多了「结果未就绪不得宣称完成」一句，生图与改图的说明也各多
-    // 半句「提交后立即返回」，约 0.03；区间上沿随之放到 13.6。
-    // 唤醒上线后，系统提示词写明了何时会被唤醒，三个生成工具各多一个「完成后复核」参数，
-    // 约 0.08；上沿放到 13.8。
-    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(13)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(13.8)
   })
 
   it('运营改了对话单价，下一轮就按新的输出倍数与预留预扣', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const baseline = await startConversation()
+    await runTurn(baseline, '把背景换成浅木色')
+    await waitFor(async () => settlements.length === 1)
     billing.pricing = { outputPriceRatio: 4, outputReserveTokens: 500 }
     const conversationId = await startConversation()
 
     await runTurn(conversationId, '把背景换成浅木色')
     // 等这一轮结算落定再收尾，否则 afterAll 关库时还有在途写入。
-    await waitFor(async () => settlements.length === 1)
+    await waitFor(async () => settlements.length === 2)
 
-    // 预留 500 输出 token × 4 倍 = 固定 2；剩下的是同一条提示词的输入估算，现在约 3.36。
-    // 原区间 (3, 3.5)，随上面那条同样的 CJK 校正上移；变的只是输入这一半，输出预留没动。
-    // 上沿放到 5.6 的原因同上一条：后台任务那几句规矩进了每一轮的输入；唤醒的说明与复核参数
-    // 再把它推到 5.8。
-    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(5)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(5.8)
+    // 相同输入不受文案长度影响；输出预留从 2000×5 改为 500×4，每千 token 少预扣 8 单位。
+    expect(reservations).toHaveLength(2)
+    expect(reservations[0]!.unitMultiplier - reservations[1]!.unitMultiplier).toBeCloseTo(8, 6)
   })
 
   it('预扣之前先落一条对话任务，占用才挂得住，且不带用户原话', async () => {
