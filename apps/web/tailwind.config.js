@@ -5,8 +5,14 @@ import { fileURLToPath } from 'node:url';
 import colors from 'tailwindcss/colors';
 import animate from 'tailwindcss-animate';
 
-const defaultOverlayEntry = resolve(dirname(fileURLToPath(import.meta.url)), '../../private/apps/web/index.tsx');
-const privateWebOverlayEntry = process.env.PRIVATE_WEB_OVERLAY_ENTRY || (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
+// Match the file-presence detection used by the Web overlay, including plain Vite builds.
+const defaultOverlayEntry = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../private/apps/web/index.tsx',
+);
+const privateWebOverlayEntry =
+  process.env.PRIVATE_WEB_OVERLAY_ENTRY ||
+  (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
 const privateWebOverlayRoot = privateWebOverlayEntry
   ? dirname(privateWebOverlayEntry)
   : undefined;

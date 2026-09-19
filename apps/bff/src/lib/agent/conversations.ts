@@ -132,11 +132,19 @@ export async function setAgentConversationTitle(
   id: string,
   owner: AgentOwner,
   title: string,
+  /** 给出时就是一次比较写入：标题已经不是这一句，说明有人写过，这次不改。 */
+  expect?: string,
 ): Promise<void> {
   await executor
     .update(schema.agent_conversations)
     .set({ title })
-    .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
+    .where(
+      and(
+        eq(schema.agent_conversations.id, id),
+        ownerWhere(owner),
+        ...(expect === undefined ? [] : [eq(schema.agent_conversations.title, expect)]),
+      ),
+    )
 }
 
 /**

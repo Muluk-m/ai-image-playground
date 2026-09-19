@@ -202,6 +202,43 @@ describe('AgentPanel', () => {
     ])
   })
 
+  it('选区带进来的参考图正文里没有 [image N]，气泡外照样回显，换成服务端 id 后还在', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ skills: [] })),
+    )
+    const pending = {
+      kind: 'text' as const,
+      id: 'pending-2',
+      turnId: 'pending-2',
+      role: 'user' as const,
+      text: '把它改成夜景',
+      references: [{ imageId: 'selected', dataUrl: CANVAS_THUMBNAIL }],
+      streaming: false,
+      pending: true as const,
+    }
+    useAgentStore.setState({ messages: [pending] })
+    render()
+    await settle()
+    const log = host.querySelector('[aria-label="对话记录"]')!
+    expect([...log.querySelectorAll('img')].map((image) => image.getAttribute('src'))).toEqual([
+      CANVAS_THUMBNAIL,
+    ])
+    expect(log.textContent).toContain('把它改成夜景')
+    act(() =>
+      useAgentStore.setState(
+        reduceAgentPanelEvent(
+          { messages: [pending], turns: {} },
+          { type: 'turnStart', turnId: 'turn-2', userMessageId: 'user-2' },
+          { turnId: 'turn-2', pendingUserText: pending.text },
+        ),
+      ),
+    )
+    expect([...log.querySelectorAll('img')].map((image) => image.getAttribute('src'))).toEqual([
+      CANVAS_THUMBNAIL,
+    ])
+  })
+
   it('历史引用按消息快照显示缩略图，点击才加载原图并随消息卸载释放预览', async () => {
     const revoke = vi.fn()
     vi.stubGlobal(

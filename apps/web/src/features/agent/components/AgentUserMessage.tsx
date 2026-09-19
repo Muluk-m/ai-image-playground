@@ -169,11 +169,13 @@ export default memo(function AgentUserMessage({
   const invocation = getLeadingAgentSkill(message.text, skills)
   const text = invocation ? invocation.rest : message.text
   const content: ReactNode[] = []
+  const inlined = new Set<number>()
   let from = 0
   for (const match of text.matchAll(/\[image ([1-9]\d*)\]/g)) {
     const index = Number(match[1]) - 1
     const reference = message.references?.[index]
     if (!reference) continue
+    inlined.add(index)
     content.push(text.slice(from, match.index))
     content.push(
       <ReferenceThumbnail
@@ -186,10 +188,30 @@ export default memo(function AgentUserMessage({
     from = match.index + match[0].length
   }
   content.push(text.slice(from))
+  // 画布选区自动带上的参考图在提示词里没有胶囊，正文因此没有 `[image N]` 可挂。它们照样是
+  // 这条消息发出去的东西：排在气泡上方，发出的那一刻、换成服务端 id 之后、以及重新读回
+  // 历史时都是同一份列表，看到的就一样。
+  const attached = (message.references ?? []).flatMap((reference, index) =>
+    inlined.has(index) ? [] : [{ reference, index }],
+  )
   return (
-    <p className={USER_BUBBLE}>
-      {invocation && <AgentSkillBadge skill={invocation.skill} />}
-      {content}
-    </p>
+    <div className="flex flex-col items-end gap-1.5">
+      {attached.length > 0 && (
+        <div className="flex max-w-[86%] flex-wrap justify-end gap-1.5">
+          {attached.map(({ reference, index }) => (
+            <ReferenceThumbnail
+              key={index}
+              reference={reference}
+              messageId={message.id}
+              index={index}
+            />
+          ))}
+        </div>
+      )}
+      <p className={USER_BUBBLE}>
+        {invocation && <AgentSkillBadge skill={invocation.skill} />}
+        {content}
+      </p>
+    </div>
   )
 })

@@ -7,6 +7,7 @@ import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { formatDateMinute } from '../i18n/format'
+import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -119,11 +120,18 @@ export default function ProjectNavigation() {
                   aria-current={project.id === activeId ? 'true' : undefined}
                   className={`h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left ${project.id === activeId ? 'bg-accent' : ''}`}
                 >
-                  <span className="flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
-                    {project.cover ? (
-                      <img src={project.cover} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <FolderOpen />
+                  {/* 云端项目的封面是 `aip-media:` 这种要换签名 URL 的引用，交给 MediaImage；
+                      本机项目的封面是 data URL，同一条路直出。取不到封面就露出底下的文件夹图标，
+                      不把认不出的地址塞进 <img>——那只会得到一个碎图。 */}
+                  <span className="relative flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                    <FolderOpen aria-hidden="true" />
+                    {project.cover && (
+                      <MediaImage
+                        src={project.cover}
+                        alt=""
+                        loading="lazy"
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
