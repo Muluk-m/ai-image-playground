@@ -213,6 +213,7 @@ async function executeTask(id: string): Promise<void> {
     task.upstream_task_ids?.length && task.upstream_submitted_at !== null
       ? {
           taskIds: task.upstream_task_ids,
+          invocationCount: task.upstream_invocation_count,
           submittedAt: task.upstream_submitted_at,
           pollOnly: task.upstream_invocation_count > task.upstream_task_ids.length,
         }
@@ -296,6 +297,7 @@ async function executeTask(id: string): Promise<void> {
         .select({
           ids: schema.tasks.upstream_task_ids,
           submittedAt: schema.tasks.upstream_submitted_at,
+          invocationCount: schema.tasks.upstream_invocation_count,
         })
         .from(schema.tasks)
         .where(and(eq(schema.tasks.id, id), executionFence()))
@@ -303,7 +305,12 @@ async function executeTask(id: string): Promise<void> {
       if (!persisted?.ids?.length || persisted.submittedAt === null) throw error
       return callUpstream({
         ...upstreamCall,
-        resume: { taskIds: persisted.ids, submittedAt: persisted.submittedAt, pollOnly: true },
+        resume: {
+          taskIds: persisted.ids,
+          invocationCount: persisted.invocationCount,
+          submittedAt: persisted.submittedAt,
+          pollOnly: true,
+        },
       })
     })
     const meta = extractMeta(task.provider, payload)
