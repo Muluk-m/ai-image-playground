@@ -121,6 +121,30 @@ describe('Astra 图片 Responses 调用', () => {
     )
     expect(charged).toBe(1)
   })
+  it('多张文生图绕过不接受 n 的 Responses 工具，单次走 Images 原生 n', async () => {
+    config.upstream.asyncImageTasks = false
+    let charged = 0
+    let receivedUrl = ''
+    let receivedBody: Record<string, unknown> | undefined
+    setUpstreamFetchForTesting(async (url, init) => {
+      receivedUrl = String(url)
+      receivedBody = JSON.parse(String(init?.body))
+      return jsonResponse({
+        data: [{ b64_json: PNG }, { b64_json: PNG }],
+      })
+    })
+    const result = await callUpstream({
+      ...request,
+      request: { prompt: '蓝色方块', n: 2 },
+      beforeRequest: async () => {
+        charged += 1
+      },
+    })
+    expect(receivedUrl).toMatch(/\/v1\/images\/generations$/)
+    expect(receivedBody?.n).toBe(2)
+    expect(extractMeta('openai-compat', result.payload).images).toHaveLength(2)
+    expect(charged).toBe(1)
+  })
 
   it.each([
     'gpt-image-2.5-flare',
