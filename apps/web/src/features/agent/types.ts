@@ -9,12 +9,20 @@ import type {
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
 export type AgentDeliveryStatus = 'pending' | 'placed' | 'unavailable' | 'failed'
 
+export interface AgentTextReference {
+  readonly imageId: string
+  readonly dataUrl: string
+  readonly name?: string
+}
+
 export interface AgentTextMessage {
   readonly kind: 'text'
   readonly id: string
   readonly turnId: string
   readonly role: 'user' | 'assistant'
   readonly text: string
+  /** 用户发送时附上的参考图；保留在本地消息里供气泡回显。 */
+  readonly references?: readonly AgentTextReference[]
   /** 本轮还在流的那条助手消息。 */
   readonly streaming: boolean
   /** 刚发出、服务端还没回 turnStart 的用户消息：先上屏，等到真 id 再换掉。 */

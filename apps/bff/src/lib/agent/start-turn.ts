@@ -1,12 +1,14 @@
 import type { AgentTurnCost, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
-import { agentConversationTitle } from '@image-playground/shared'
+import { agentConversationTitle, agentTitleLine } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { finishTask } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
+import { askChatModel } from '../chatCompletion'
 import type { BffTransaction, ChatPricing, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
+import { isObject } from '../type-guards'
 import { actualChatUsage, FALLBACK_CHAT_PRICING, reservedChatUsage } from './billing'
 import {
   type AgentOwner,
@@ -18,6 +20,32 @@ import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import type { RunningTurn } from './runningTurns'
 import type { AgentTurnSettlement } from './turn'
 import { collectTurnCost } from './turn-cost'
+
+const TITLE_TIMEOUT_MS = 2_000
+
+async function generateConversationTitle(
+  conversationId: string,
+  owner: AgentOwner,
+  text: string,
+): Promise<void> {
+  try {
+    const title = await askChatModel(
+      {
+        model: config.agent.summaryModel,
+        prompt:
+          '请把下面这条用户请求概括成一个简短中文项目标题。只输出 JSON：{"title":"标题"}，标题不要标点，最多12个字。\n\n用户请求：' +
+          text,
+        maxTokens: 20,
+        timeoutMs: TITLE_TIMEOUT_MS,
+      },
+      (value) =>
+        isObject(value) && typeof value.title === 'string' ? agentTitleLine(value.title, 60) : null,
+    )
+    if (title) await setAgentConversationTitle(db, conversationId, owner, title)
+  } catch {
+    // 标题生成不是对话主链路；首句标题已在事务里落库，失败时保留它。
+  }
+}
 
 export interface StartConversationTurnInput {
   readonly conversationId: string
@@ -151,6 +179,7 @@ export async function startConversationTurn(
     return written
   }
 
+  if (history.length === 0) void generateConversationTitle(conversationId, owner, text)
   return {
     kind: 'started',
     turn: await startAgentTurn({

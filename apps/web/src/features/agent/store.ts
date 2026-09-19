@@ -204,7 +204,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
   ) => {
     set((state) => {
       switch (event.type) {
-        case 'turnStart':
+        case 'turnStart': {
+          const pending = state.messages.find(
+            (one): one is Extract<AgentPanelMessage, { kind: 'text' }> =>
+              one.kind === 'text' && one.pending === true,
+          )
           return {
             activeTurn: { turnId: event.turnId },
             turns: mergeTurn(
@@ -215,7 +219,6 @@ export const useAgentStore = create<AgentState>((set, get) => {
             messages: state.messages.some((one) => one.id === event.userMessageId)
               ? state.messages
               : [
-                  // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
                   ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
                   {
                     kind: 'text' as const,
@@ -223,10 +226,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
                     turnId,
                     role: 'user' as const,
                     text: pendingUserText ?? '',
+                    ...(pending?.references ? { references: pending.references } : {}),
                     streaming: false,
                   },
                 ],
           }
+        }
         case 'assistantStart':
           return {
             messages: replaceOrAppend(state.messages, {
@@ -505,6 +510,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
             turnId: `${PENDING_PREFIX}${pendingSeq}`,
             role: 'user',
             text: trimmed,
+            ...(references.length
+              ? {
+                  references: references.map((reference) => ({
+                    imageId: reference.imageId,
+                    dataUrl: reference.dataUrl,
+                    ...(reference.name ? { name: reference.name } : {}),
+                  })),
+                }
+              : {}),
             streaming: false,
             pending: true,
           },

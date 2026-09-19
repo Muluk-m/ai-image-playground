@@ -110,7 +110,26 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
-  if (message.role === 'user') return <p className={USER_BUBBLE}>{message.text}</p>
+  if (message.role === 'user') {
+    return (
+      <div className="flex flex-col items-end gap-1.5">
+        {message.references && message.references.length > 0 && (
+          <div className="flex max-w-full flex-wrap justify-end gap-1.5">
+            {message.references.map((reference) => (
+              <img
+                key={reference.imageId}
+                src={reference.dataUrl}
+                alt={reference.name ?? '参考图'}
+                title={reference.name ?? '参考图'}
+                className="h-16 w-16 rounded-lg border border-white/[0.09] object-cover"
+              />
+            ))}
+          </div>
+        )}
+        <p className={USER_BUBBLE}>{message.text}</p>
+      </div>
+    )
+  }
   return <AgentReply text={message.text} streaming={message.streaming} />
 }
 
