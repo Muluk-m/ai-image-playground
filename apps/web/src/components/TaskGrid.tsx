@@ -1,4 +1,3 @@
-import type { GenerationSummary } from '@image-playground/shared'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { i18next, useTranslation } from '../i18n'
@@ -11,7 +10,6 @@ import {
 import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
-import CloudTaskTile from './CloudTaskTile'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
 
@@ -23,15 +21,10 @@ function setFallbackName(task: TaskRecord | undefined): string {
 }
 
 /**
- * 作品列表。本机任务与只在平台留有记录的生成穿插在同一个网格里，按时间倒序——作品页不分
- * 「此设备 / 云端」两张列表。`bffRequestId` 是两边同一条生成的连接点，本机有记录时只渲染
- * 本机那张卡（它才有复用、放入画布、删除这些动作）。
+ * 作品列表。只有一种卡：只在平台留有记录的生成先被镜像成本机任务记录（见 `lib/cloudMirror`），
+ * 再和本机生成一起按时间倒序排进同一个网格。像素存在哪儿不该从卡片上看出来。
  */
-export default function TaskGrid({
-  cloudItems = [],
-}: {
-  cloudItems?: readonly GenerationSummary[]
-}) {
+export default function TaskGrid() {
   const { t } = useTranslation('task')
   const tasks = useStore((s) => s.tasks)
   const searchQuery = useStore((s) => s.searchQuery)
@@ -81,15 +74,7 @@ export default function TaskGrid({
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
-  // 收藏与状态筛选是本机概念，筛选生效时不混入平台记录，免得筛完还剩一堆筛不动的卡。
-  const cloudOnly = useMemo(() => {
-    if (filterFavorite || filterStatus !== 'all') return []
-    const known = new Set(tasks.map((task) => task.bffRequestId).filter(Boolean))
-    const keyword = searchQuery.trim().toLowerCase()
-    return cloudItems.filter(
-      (item) => !known.has(item.id) && (!keyword || item.model.toLowerCase().includes(keyword)),
-    )
-  }, [cloudItems, tasks, searchQuery, filterFavorite, filterStatus])
+
   const [productShotJobs, setProductShotJobs] = useState<LegacyProductJob[]>([])
   const [storyboardTitles, setStoryboardTitles] = useState<Map<string, string>>(new Map())
 
@@ -367,7 +352,7 @@ export default function TaskGrid({
     </div>
   )
 
-  if (!filteredTasks.length && !cloudOnly.length) {
+  if (!filteredTasks.length) {
     if (searchQuery || filterFavorite || filterStatus !== 'all') {
       return (
         <div className="text-center py-20 text-muted-foreground">
@@ -405,11 +390,7 @@ export default function TaskGrid({
       ],
     }
   })
-  for (const item of cloudOnly)
-    rows.push({
-      at: item.createdAt,
-      nodes: [<CloudTaskTile key={`cloud-${item.id}`} item={item} />],
-    })
+
   rows.sort((a, b) => b.at - a.at)
 
   return (
