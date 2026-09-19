@@ -20,6 +20,7 @@ export const EXPECTED_TABLES = [
   'agent_tool_calls',
   'agent_inbox',
   'agent_jobs',
+  'agent_generation_drafts',
   'canvas_projects',
   'project_generation_outputs',
   'daily_quota',
@@ -68,6 +69,8 @@ export const EXPECTED_INDEXES = [
   'idx_agent_inbox_pending',
   'agent_jobs_pkey',
   'idx_agent_jobs_undelivered',
+  'agent_generation_drafts_pkey',
+  'idx_agent_generation_drafts_call',
   'canvas_projects_pkey',
   'project_generation_outputs_pkey',
   'idx_project_generation_objects',
@@ -115,7 +118,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 33
+const EXPECTED_MIGRATION_COUNT = 34
 
 export interface SchemaVerificationResult {
   tables: number

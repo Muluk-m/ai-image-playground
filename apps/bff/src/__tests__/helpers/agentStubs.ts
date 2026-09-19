@@ -1,7 +1,10 @@
 import { mock } from 'bun:test'
 import {
   AGENT_FRAME_SEPARATOR,
+  type AgentMessageView,
+  type AgentToolResultBlock,
   type AgentTurnEvent,
+  DEVICE_ID_HEADER,
   parseAgentFrame,
 } from '@image-playground/shared'
 
@@ -117,6 +120,58 @@ export function recordingAgentFetch(
     })
     return answer(request.signal)
   }) as unknown as typeof globalThis.fetch
+}
+
+export interface ConfirmDraftsOptions {
+  readonly deviceId: string
+  readonly cookie?: string
+  /** 用户在卡上改成的提示词；缺席即照拟稿原样确认。 */
+  readonly prompt?: (block: AgentToolResultBlock) => string
+}
+
+/**
+ * 用户确认这个会话里所有待确认的生成卡。生成工具只拟稿，任务要到这一步才建出来，
+ * 所以凡是要断言「提交了什么」的用例都在起轮之后走一遍它。返回确认之后的那几张卡。
+ */
+export async function confirmPendingDrafts(
+  app: { handle(request: Request): Promise<Response> },
+  conversationId: string,
+  options: ConfirmDraftsOptions,
+): Promise<AgentToolResultBlock[]> {
+  const headers = {
+    [DEVICE_ID_HEADER]: options.deviceId,
+    ...(options.cookie ? { cookie: options.cookie } : {}),
+  }
+  const snapshot = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, { headers }),
+  )
+  const { messages } = (await snapshot.json()) as { messages: AgentMessageView[] }
+  const pending = messages.flatMap((message) =>
+    message.content.flatMap((block) =>
+      block.type === 'toolResult' && block.status === 'awaiting_confirmation'
+        ? [{ messageId: message.id, block }]
+        : [],
+    ),
+  )
+  const confirmed: AgentToolResultBlock[] = []
+  for (const card of pending) {
+    const response = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${conversationId}/confirmations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({
+          deviceId: options.deviceId,
+          messageId: card.messageId,
+          prompt: options.prompt?.(card.block) ?? card.block.prompt ?? '',
+        }),
+      }),
+    )
+    if (!response.ok) throw new Error(`confirmation returned ${response.status}`)
+    const body = (await response.json()) as { message?: AgentMessageView }
+    const block = body.message?.content.find((one) => one.type === 'toolResult')
+    if (block?.type === 'toolResult') confirmed.push(block)
+  }
+  return confirmed
 }
 
 export interface ReceivedFrame {

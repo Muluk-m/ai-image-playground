@@ -78,6 +78,7 @@ export function defineAgentTool<P extends TSchema>(
     guidance: () =>
       typeof definition.guidance === 'string' ? definition.guidance : definition.guidance(),
     onError: definition.onError,
+    ...(definition.confirms ? { confirms: definition.confirms } : {}),
     declaration,
     ...(definition.available ? { available: definition.available } : {}),
     // 起跑这一刻按静态 schema 宽松换算就够：`currentParameters()` 只改说明，不改形状。
@@ -144,6 +145,16 @@ export function toolResultBlock(
     }
   }
   const details = piToolResult<AgentToolDetails>(result).details
+  if (details?.awaitingConfirmation) {
+    // 只拟了稿：卡片停在这里等用户确认，锚点先记下，确认提交后产出照它落位。
+    return {
+      ...head,
+      status: 'awaiting_confirmation',
+      ...(details.executedPrompt ? { prompt: details.executedPrompt } : {}),
+      title: start.title,
+      ...(details.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
+    }
+  }
   if (details?.job) {
     // 后台任务：调用已经收尾，结局要等任务结束再由服务端改写（见 `background-jobs.ts`）。
     return {

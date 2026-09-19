@@ -116,12 +116,16 @@ export const AGENT_IMAGE_MAX_N = 10
 export const AGENT_TURN_MAX_REFERENCES = 8
 
 /**
- * 一次工具调用的结局。`submitted` 是后台任务刚提交、结果尚未就绪：调用本身已经收尾，
- * 任务结束后服务端把它就地改写成 `succeeded` 或 `failed`（见 {@link AgentBackgroundJob}）。
- * `queued` 只出现在重试记录上：它在会话的重试队列里等前一条重试结束，轮到时服务端提交任务、
- * 就地改成 `submitted`；撤回的改成 `failed`（`cancelled`）。
+ * 一次工具调用的结局。生成工具先停在 `awaiting_confirmation`，提示词经用户确认后才会提交后台任务。
+ * `submitted` 是后台任务刚提交、结果尚未就绪：任务结束后服务端把它就地改写成 `succeeded` 或
+ * `failed`（见 {@link AgentBackgroundJob}）。`queued` 只出现在重试记录上。
  */
-export type AgentToolStatus = 'succeeded' | 'failed' | 'submitted' | 'queued'
+export type AgentToolStatus =
+  | 'succeeded'
+  | 'failed'
+  | 'submitted'
+  | 'queued'
+  | 'awaiting_confirmation'
 
 /**
  * 一次工具调用为什么失败。界面只按它决定给什么出路（ADR 0006），不读 `message`：
@@ -351,6 +355,33 @@ export interface AgentRetryResponse {
 /** 重试没能提交（模型已下线、积分不够、没登录……）时的响应体；界面只按 `code` 给出路。 */
 export interface AgentRetryRefusedBody {
   readonly error: 'retry_refused'
+  readonly code: AgentToolErrorCode
+}
+
+/**
+ * 用户确认一张待确认的生成卡：提示词按他最后看到、最后改过的那一份原样提交，服务端不再经过
+ * 模型重写。会话与卡的归属由端点确权，`messageId` 就是那张卡的消息 id。
+ */
+export interface AgentConfirmationRequest {
+  readonly deviceId: string
+  readonly messageId: string
+  readonly prompt: string
+}
+
+/** 确认能提交多长的提示词。超过即拒收：上游会截断，用户看到的和真正生成的就对不上了。 */
+export const AGENT_CONFIRMATION_PROMPT_MAX_CHARS = 8_000
+
+/**
+ * `POST .../confirmations` 成功时的响应：那张卡此刻的样子（就地改写，消息 id 不变）。
+ * 重复确认（双击、另一个标签页、网络重发）拿到的是同一张已提交的卡，不会提交第二次。
+ */
+export interface AgentConfirmationResponse {
+  readonly message: AgentMessageView
+}
+
+/** 确认没能提交（积分不够、模型下线、提示词为空或过长……）；界面只按 `code` 给出路。 */
+export interface AgentConfirmationRefusedBody {
+  readonly error: 'confirmation_refused'
   readonly code: AgentToolErrorCode
 }
 
@@ -781,17 +812,28 @@ export function agentMessageText(message: AgentMessageView): string {
 /** 说给模型听的产物名词。工具的结果文字与回放共用，两处不一致模型就指不准同一件东西。 */
 export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图片', video: '视频' }
 
-/** 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。 */
+/**
+ * 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。
+ *
+ * 已提交与已完成的生成卡带上真正执行的那句提示词：它是用户在确认卡上最后定下的指令，可能与他
+ * 更早的原话不一致（他改掉了模型自作主张的颜色、补了一句约束）。复核与后续几轮都要按这一句判断，
+ * 所以它必须出现在回放里，而不只是留在卡面上。
+ */
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
   const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
-  if (block.status === 'failed') return `${title}：失败（${block.message ?? '未知原因'}）`
-  if (block.status === 'submitted') return `${title}：已提交后台任务，结果尚未就绪`
+  if (block.status === 'awaiting_confirmation')
+    return `${title}：提示词待用户确认，尚未提交生成任务`
+  const executed =
+    block.job && block.prompt ? `；执行提示词（用户确认的那一份）：${block.prompt}` : ''
+  if (block.status === 'failed')
+    return `${title}：失败（${block.message ?? '未知原因'}）${executed}`
+  if (block.status === 'submitted') return `${title}：已提交后台任务，结果尚未就绪${executed}`
   if (block.status === 'queued') return `${title}：排队等待重试，尚未提交`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')
-  return listed ? `${title}：完成，${listed}` : `${title}：完成`
+  return `${title}：${listed ? `完成，${listed}` : '完成'}${executed}`
 }
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */

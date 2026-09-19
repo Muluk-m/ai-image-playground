@@ -35,6 +35,7 @@ import {
   type AgentTurnSource,
   abortTurn,
   cancelRetry as cancelRetryRequest,
+  confirmToolPrompt,
   fetchConversations,
   fetchJobs,
   fetchMessages,
@@ -67,6 +68,7 @@ import {
   dropUnsettledMessages,
   panelMessage,
   panelStateFromHistory,
+  reconcileToolCard,
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
 import {
@@ -78,6 +80,7 @@ import {
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
+import { agentDraftReservation } from './lib/promptDraft'
 import { agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
 import { agentToolFailureText } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
@@ -109,6 +112,22 @@ export interface AgentRetryRefusal {
   readonly code: AgentToolErrorCode
   readonly generationId?: string
 }
+
+/**
+ * 确认一张草稿卡的结局。界面只按它在卡上说一句话、给一个出路（ADR 0006），不读服务端文字：
+ *
+ * - `refused`：服务端拒了这次提交（积分不够、没登录、参数不成立……），码即出路。
+ * - `gone`：这条消息不在了（换了账号、会话已删）。
+ * - `notConfirmable`：它已经不是待确认的草稿（别处确认过、草稿过期）。
+ * - `failed`：请求本身没成（断网、超时、服务端出错），原样再点一次即可。
+ */
+export type AgentPromptConfirmResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false
+      readonly reason: 'refused' | 'gone' | 'notConfirmable' | 'failed'
+      readonly code?: AgentToolErrorCode
+    }
 
 export interface AgentState {
   thinkingDepth: AgentThinkingDepth
@@ -156,6 +175,12 @@ export interface AgentState {
    * 带着被拒时占位所属的云端任务：占位被别处的重试换过之后，这一层不再作数。
    */
   retryRefusals: Readonly<Record<string, AgentRetryRefusal>>
+  /**
+   * 待确认的草稿卡上，用户此刻改到的提示词，按那张卡的 messageId 索引。卡会随着切页签、
+   * 收起面板卸载，改过的字放在这里才不会没了；确认成交或换会话时清掉。
+   * 缺席即还没动过，界面显示模型拟的那份。
+   */
+  promptDrafts: Readonly<Record<string, string>>
 
   setOpen(open: boolean): void
   setTab(tab: AgentPanelTab): void
@@ -202,6 +227,13 @@ export interface AgentState {
    * 第一条当场提交，其余进服务端的重试队列依次执行。
    */
   retryRemaining(messageId: string): Promise<void>
+  /** 草稿卡上改提示词：只留在本机，确认时才提交。 */
+  setPromptDraft(messageId: string, prompt: string): void
+  /**
+   * 确认一张草稿卡：把这份提示词原样交给服务端提交生成任务，面板换上提交之后的那张卡，
+   * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
+   */
+  confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
 }
 
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
@@ -672,12 +704,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
           const before = new Map(get().messages.map((message) => [message.id, message]))
           set({
             ...history,
-            messages: history.messages.map((message) => {
-              const was = before.get(message.id)
-              return message.kind === 'tool' && was?.kind === 'tool' && was.delivery
-                ? { ...message, delivery: was.delivery }
-                : message
-            }),
+            messages: history.messages.map((message) =>
+              reconcileToolCard(before.get(message.id), message),
+            ),
           })
           return
         }
@@ -699,12 +728,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
   ) => {
     const shown = new Map(get().messages.map((message) => [message.id, message]))
     const history = panelStateFromHistory(snapshot)
-    const messages = history.messages.map((message) => {
-      const before = shown.get(message.id)
-      return message.kind === 'tool' && before?.kind === 'tool' && before.delivery
-        ? { ...message, delivery: before.delivery }
-        : message
-    })
+    const messages = history.messages.map((message) =>
+      reconcileToolCard(shown.get(message.id), message),
+    )
     set({
       ...history,
       messages,
@@ -738,7 +764,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const same = get().conversationId === conversationId
     set({
       conversationId,
-      ...(!same ? { messages: [], turns: {}, queue: [] } : {}),
+      // 换会话：草稿卡上改过的字跟着那个会话走，不带进新的。
+      ...(!same ? { messages: [], turns: {}, queue: [], promptDrafts: {} } : {}),
       error: null,
       turn: 'idle',
       stopping: false,
@@ -787,10 +814,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
       else fail(CONVERSATION_UNREADABLE())
       return
     }
+    const shown = new Map(get().messages.map((message) => [message.id, message]))
+    const history = panelStateFromHistory(state)
     set({
       historyLoading: false,
       historyFailed: false,
-      ...panelStateFromHistory(state),
+      ...history,
+      // 重读同一个会话（重试读取、409 兜底）时慢一步的历史里草稿还没改写：确认过的那张不回退。
+      messages: history.messages.map((message) =>
+        reconcileToolCard(shown.get(message.id), message),
+      ),
       queue: [...(state.queue ?? [])],
     })
     void delivery.restore(get().messages)
@@ -960,6 +993,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         messages: [],
         turns: {},
         queue: [],
+        promptDrafts: {},
         turn: 'idle',
         stopping: false,
         reconnecting: false,
@@ -1035,6 +1069,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     jobProgress: {},
     toolStartedAt: {},
     retryRefusals: {},
+    promptDrafts: {},
     mode: 'image',
     setMode: (mode) => {
       if (get().mode !== mode) set({ mode })
@@ -1120,6 +1155,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         messages: [],
         turns: {},
         queue: [],
+        promptDrafts: {},
         error: null,
         turn: 'idle',
         stopping: false,
@@ -1577,6 +1613,69 @@ export const useAgentStore = create<AgentState>((set, get) => {
         )
         if (!accepted) return
       }
+    },
+
+    setPromptDraft(messageId, prompt) {
+      set((state) => ({ promptDrafts: { ...state.promptDrafts, [messageId]: prompt } }))
+    },
+
+    async confirmPrompt(messageId, prompt) {
+      const conversationId = get().conversationId
+      const draft = get().messages.find((one) => one.id === messageId)
+      const text = prompt.trim()
+      // 空提示词提交不了；界面按住了按钮，这里守住第二道。
+      if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
+      let view: AgentMessageView
+      try {
+        view = await confirmToolPrompt(conversationId, messageId, text)
+      } catch (thrown) {
+        if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
+        if (thrown.status === 404) return { ok: false, reason: 'gone' }
+        if (thrown.status === 422) return { ok: false, reason: 'notConfirmable' }
+        // 服务端拒了这次提交：按码给出路（去充值、去登录、让助手换个做法），不读服务端文字。
+        return thrown.toolErrorCode
+          ? { ok: false, reason: 'refused', code: thrown.toolErrorCode }
+          : { ok: false, reason: 'failed' }
+      }
+      // 生成任务的预扣在服务端已经发生（拟稿不扣），顶栏余额属于用户而不属于某个项目：
+      // 即使这会儿已经切走，也要刷新，否则余额与提交门禁一直停在确认之前那一份。
+      notifyPrivateSubmissionSettled()
+      // 卡与画布归那个会话：切走之后不再动它们，回到这个项目时由读回的历史接手。
+      if (get().conversationId !== conversationId) return { ok: true }
+      const card = panelMessage(view.id, view.turnId, view.role, view.content)
+      if (card.kind !== 'tool') return { ok: true }
+      const shown = get().messages.find((one) => one.id === card.id)
+      // 两次确认的响应乱序回来：终局那一份已经落过画布，慢一步的「已提交」不能把它拉回去，
+      // 更不能再占一次位——那些位没有人会来认领，只会在画布上一直转圈。
+      if (
+        shown?.kind === 'tool' &&
+        unsettled(card) &&
+        (shown.status === 'succeeded' || shown.status === 'failed')
+      )
+        return { ok: true }
+      // 服务端就地改写同一条消息：草稿卡原地换成提交之后的样子，不会多出一张。
+      set((state) => {
+        const { [messageId]: _confirmed, ...promptDrafts } = state.promptDrafts
+        return {
+          error: null,
+          promptDrafts,
+          messages: state.messages.map((one) => (one.id === card.id ? card : one)),
+        }
+      })
+      if (unsettled(card)) {
+        // 双击、多标签页重复确认：这台设备已经在等它，不再占第二次位。
+        if (jobDeliveries.has(card.id)) return { ok: true }
+        // 拟稿那一步没有占位（`toolStart` 不带张数），位要在这里占：画布随即转圈，产物落进这些位。
+        const handle = delivery.beginTurn()
+        handle.reserve(card.id, agentDraftReservation(card, conversationId))
+        jobDeliveries.set(card.id, handle)
+        watchJobs(conversationId)
+        return { ok: true }
+      }
+      // 回来的已经是终局（重复确认时那个任务已经跑完）：交给交付收场，它认领这次调用占的位。
+      // 轮询只认没结束的卡，这一步不做就没有第二次机会，占的位会一直转圈。
+      deliverJob(card)
+      return { ok: true }
     },
   }
 })

@@ -3,7 +3,7 @@ import { and, eq, inArray, type SQL } from 'drizzle-orm'
 import { taskFailureCode } from '../lib/agent/tools/errors'
 import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
-import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
+import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
 import { db, schema } from './client'
 import { executionFence } from './execution-context'
@@ -188,15 +188,18 @@ export async function finishTask(
     return true
   })
 }
-
 /**
  * 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。
  * `failedAs`：这次撤回在用户看来是一次失败（智能体等不到结果撤掉的任务算超时），项目里预留的
  * 位置留作带这个码的失败占位；缺席即用户主动取消，预留位置直接收掉。
+ * `tx`：调用方已经开了事务（删会话时取消要与墓碑同一次提交），给出时就在它上面做。
  */
-export async function cancelTasks(access: SQL, options: { failedAs?: AgentToolErrorCode } = {}) {
+export async function cancelTasks(
+  access: SQL,
+  options: { failedAs?: AgentToolErrorCode; tx?: BffTransaction } = {},
+) {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  return db.transaction(async (tx) => {
+  const cancel = async (tx: BffTransaction) => {
     const rows = await tx
       .update(schema.tasks)
       .set({ status: 'cancelled', completed_at: Date.now() })
@@ -225,5 +228,6 @@ export async function cancelTasks(access: SQL, options: { failedAs?: AgentToolEr
       rows.map((row) => row.id),
     )
     return rows
-  })
+  }
+  return options.tx ? cancel(options.tx) : db.transaction(cancel)
 }

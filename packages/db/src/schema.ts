@@ -12,6 +12,7 @@ import type {
   AgentTurnReference,
   AgentTurnStopReason,
   AgentTurnUsage,
+  ChannelMedia,
   GenerationParameters,
   GenerationSource,
   GenerationSummary,
@@ -22,6 +23,7 @@ import type {
   TaskErrorType,
   TaskKind,
   TaskStatus,
+  VideoGenerationRecord,
 } from '@image-playground/shared'
 import { eq, getTableColumns, sql } from 'drizzle-orm'
 import {
@@ -461,6 +463,61 @@ export const agent_jobs = pgTable(
   ],
 )
 
+/**
+ * 一张待确认的生成卡背后、服务端替它记着的那一份提交材料：确认时照它原样提交，不再回头问模型。
+ * `anchor_object_id` 是产出要贴着放的画布对象，`review` 是提交那一刻定下的复核选择，
+ * `plan` 是提交那一刻的改图计划（唤醒轮接着它走）。视频档位记在 `video_record` 里，
+ * 结果卡与产物照它标注。
+ */
+export interface AgentDraftSubmission {
+  readonly anchorObjectId?: string
+  readonly review: boolean
+  readonly plan?: AgentJobPlan
+  readonly videoRecord?: VideoGenerationRecord
+}
+
+/**
+ * 待用户确认的生成草稿：工具把整份请求准备好（提示词、输入图、遮罩、模型、档位）却不提交，
+ * 材料落在这里，用户在卡上改完提示词点「确认生成」才真正建任务。付费只发生在确认那一步，
+ * 所以这张表里的一行不花一分钱。
+ *
+ * `id` 一物三用：输入图在对象存储里的前缀、提交时的幂等命令 id、以及行本身的标识。进程在
+ * 建完任务、还没写回 `task_id` 时死掉，下一次确认按这个命令 id 找得到那条任务并认领它，
+ * 不会再提交、再扣一次费。`(conversation_id, turn_id, tool_call_id)` 唯一：一次工具调用只
+ * 拟一份稿，确认端点从结果卡上的这三位找回它。
+ */
+export const agent_generation_drafts = pgTable(
+  'agent_generation_drafts',
+  {
+    id: text('id').primaryKey(),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    tool_name: text('tool_name').notNull(),
+    media: text('media').$type<ChannelMedia>().notNull(),
+    provider: text('provider').$type<QueueProvider>().notNull(),
+    model: text('model').notNull(),
+    /** 拟好的提示词；确认时由用户改过的那一份覆盖，两份都要能看见提交的是哪一句。 */
+    prompt: text('prompt').notNull(),
+    /** 除提示词以外的整份请求，输入图与遮罩已归档成对象引用，绝不在库里留 base64。 */
+    request: bunJsonb('request').$type<PersistedSubmitRequest>().notNull(),
+    submission: bunJsonb('submission').$type<AgentDraftSubmission>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    /** 确认提交出的任务；非空即这份草稿已经用掉，再确认只交回同一张卡。 */
+    task_id: text('task_id'),
+    confirmed_at: epochMs('confirmed_at'),
+  },
+  (t) => [
+    uniqueIndex('idx_agent_generation_drafts_call').on(
+      t.conversation_id,
+      t.turn_id,
+      t.tool_call_id,
+    ),
+  ],
+)
+
 /** `seq` 是会话内单调递增的事件序号，也就是 SSE 的 `id`。行有保留窗口，过期会被清掉。 */
 export const agent_turn_events = pgTable(
   'agent_turn_events',
@@ -684,6 +741,7 @@ export type UserPreferencesRow = typeof user_preferences.$inferSelect
 export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
 export type AgentConversationRow = typeof agent_conversations.$inferSelect
 export type AgentMessageRow = typeof agent_messages.$inferSelect
+export type AgentGenerationDraftRow = typeof agent_generation_drafts.$inferSelect
 export type AgentTurnEventRow = typeof agent_turn_events.$inferSelect
 export type AgentTurnRow = typeof agent_turns.$inferSelect
 

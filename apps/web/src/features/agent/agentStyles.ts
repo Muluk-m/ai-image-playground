@@ -59,6 +59,13 @@ export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
 
 export const CARD_NOTE = `text-[11px] ${INK_3}`
 
+/**
+ * 草稿卡里那块提示词：卡本身是 `bg-muted`，输入框用底色分出来，一眼看得出这段字可以改。
+ * 高度由内容给，长到放不下再滚动。
+ */
+export const DRAFT_FIELD =
+  'w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs leading-relaxed text-foreground focus:border-primary focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-45'
+
 export const CHOICE =
   'w-full rounded-lg border border-border px-2.5 py-1.5 text-left text-xs text-foreground transition enabled:hover:border-primary enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45'
 

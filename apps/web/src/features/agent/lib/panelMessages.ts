@@ -152,13 +152,38 @@ function mergeTurn(
   return { ...turns, [turnId]: { ...turns[turnId], turnId, ...patch } }
 }
 
+/** 已经确认提交过的那次生成：它有后台任务，或者已经走到终局。 */
+const confirmedGeneration = (card: AgentToolMessage) =>
+  card.job !== undefined || card.status === 'succeeded' || card.status === 'failed'
+
+/** 确认之前那张卡的样子：工具还在跑，或者提示词还等着用户确认。 */
+const beforeConfirmation = (card: AgentToolMessage) =>
+  card.status === 'running' || card.status === 'awaiting_confirmation'
+
+/**
+ * 同一条消息，面板上这张与新来的这张留哪一张。已经确认提交的那次生成只往前走：活跃轮的
+ * 续播会连着游标把 `toolStart` 与那张待确认的草稿一起重放，慢一步的历史里它也还是草稿。
+ * 盖回去就再没人等这个后台任务，卡上还会谎称什么都没生成、没扣过钱。
+ *
+ * 交付状态是本机的，历史与事件里都没有这一位，所以跟着面板上那张走。
+ */
+export function reconcileToolCard(
+  shown: AgentPanelMessage | undefined,
+  next: AgentPanelMessage,
+): AgentPanelMessage {
+  if (next.kind !== 'tool' || shown?.kind !== 'tool') return next
+  if (confirmedGeneration(shown) && beforeConfirmation(next)) return shown
+  return shown.delivery === undefined ? next : { ...next, delivery: shown.delivery }
+}
+
 function replaceOrAppend(
   messages: readonly AgentPanelMessage[],
   message: AgentPanelMessage,
 ): AgentPanelMessage[] {
   const index = messages.findIndex((one) => one.id === message.id)
   if (index < 0) return [...messages, message]
-  return messages.map((one, at) => (at === index ? message : one))
+  const settled = reconcileToolCard(messages[index], message)
+  return messages.map((one, at) => (at === index ? settled : one))
 }
 
 /** 工具起跑那一刻的卡：还没有结果块，所以它是直播独有的形状，定稿时被 `toolEnd` 整条换掉。 */

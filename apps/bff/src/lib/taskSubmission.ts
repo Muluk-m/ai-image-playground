@@ -23,7 +23,7 @@ import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { objectStore } from './objectStore'
-import { loadPrivateBffOverlay } from './private-overlay'
+import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 import { reserveProjectOutputs } from './projectArchive'
 import { lockMediaOwner } from './projectMedia'
 import { asQueueProvider } from './queueProvider'
@@ -56,6 +56,12 @@ export interface CreateQueueTaskInput {
    * 它不在项目里、或不是失败占位时照常另找位置。
    */
   readonly projectSlot?: string
+  /**
+   * 调用方自己的事务。给出时任务行、预扣、后台任务登记与调用方随后的写入同一次提交，
+   * 也不会在已经握着一条连接时再去连接池要第二条（确认生成走这条路，见 `confirmations.ts`）。
+   * 缺席即自开事务，与从前一样。
+   */
+  readonly tx?: BffTransaction
 }
 
 export type CreateQueueTaskOutcome =
@@ -238,11 +244,15 @@ export async function createQueueTask(
 ): Promise<CreateQueueTaskOutcome> {
   const commandId = input.request.client_request_id
   const hash = commandHash(input)
+  // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
+  // 确认生成用的是新建的命令 id，没有历史任务可认领。
   if (input.userId && commandId) {
-    const replay = await replayCommand(db, input.userId, commandId, hash)
+    const replay = await replayCommand(input.tx ?? db, input.userId, commandId, hash)
     if (replay) return replay
-    const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
-    if (legacy) return legacy
+    if (!input.tx) {
+      const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
+      if (legacy) return legacy
+    }
   }
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
@@ -273,7 +283,7 @@ export async function createQueueTask(
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
   const dailyImageQuota = config.operator.quotas['generation:daily-images']
-  const outcome = await db.transaction(async (tx) => {
+  const submit = async (tx: BffTransaction): Promise<CreateQueueTaskOutcome> => {
     const projectOutput =
       input.userId && input.agent && !input.video && isCapabilityEnabled('accounts:sync')
     if (projectOutput) await lockMediaOwner(tx, input.userId!)
@@ -366,10 +376,11 @@ export async function createQueueTask(
       taskId: inserted[0]!.id,
       submittedAt: inserted[0]!.submitted_at,
     }
-  })
+  }
+  const outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
 
   if (outcome.kind !== 'created' || outcome.taskId !== id) await discardArchivedInputs(id)
-  if (outcome.kind === 'idempotency_conflict' && input.userId && commandId) {
+  if (outcome.kind === 'idempotency_conflict' && input.userId && commandId && !input.tx) {
     return (await adoptLegacyCommand(input.userId, commandId, hash)) ?? outcome
   }
   return outcome
