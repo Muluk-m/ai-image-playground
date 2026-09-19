@@ -16,7 +16,7 @@ INTERNAL_PROJECT=${INTERNAL_PROJECT:-image-playground-internal}
 INTERNAL_IMAGE=${INTERNAL_IMAGE:-ai-image-playground:vps-main}
 PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
-DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
+DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-2}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
 public_sha=-
 private_sha=-
@@ -95,6 +95,8 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
     if ((await sharp(png).metadata()).width !== 2) process.exit(1);
   '
 done < "$release/images.tsv"
+# Untagging alone leaves the release's registry digest reference holding the layers, so each
+# pruned tag hands its image id to release_untagged_image.
 prune_old_images() {
   running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
   stale=$(docker images --format '{{.Repository}}:{{.Tag}}' "${1%%:*}" |
@@ -104,8 +106,10 @@ prune_old_images() {
     return 0
   fi
   for image in $stale; do
+    image_id=$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null)
     if docker rmi "$image" >/dev/null 2>&1; then
       echo "pruned $image"
+      [ -z "$image_id" ] || release_untagged_image "$image_id"
     else
       echo "could not prune $image; leaving it" >&2
     fi
