@@ -21,7 +21,7 @@
     "hintFirst": "This one is the first frame; the aspect follows it",
     "hintReferences": "{{count}} images used as references",
     "submit": "Start creating · open the canvas",
-    "noModel": "This deployment has no video model available",
+    "noModel": "No video model is available right now",
     "tools": "Shortcuts",
     "toolsHint": "Start from a local image, an idea or your assets",
     "tool": {
@@ -30,8 +30,7 @@
       "inspiration": { "title": "Inspiration", "hint": "Browse ready-made prompts" },
       "assets": { "title": "Assets", "hint": "Manage the images you saved" }
     },
-    "cases": "Examples",
-    "casesHint": "Tap one to fill the prompt above"
+    "cases": "Examples"
   },
   "status": {
     "queued": "Queued"
@@ -58,7 +57,7 @@
     "seconds": "{{seconds}}s"
   },
   "error": {
-    "noModel": "This deployment has no video model available"
+    "noModel": "No video model is available right now"
   },
   "aspect": {
     "followsFirstFrame": "Follows first frame"
@@ -74,7 +73,7 @@
     "extendLabel": "Length",
     "keepDuration": "Keeps {{seconds}}s · up to {{resolution}}",
     "submitted": "Submitted: {{label}}",
-    "noModel": "No model in this deployment supports {{label}}",
+    "noModel": "No model supports {{label}} right now",
     "notDone": "This one hasn't finished yet",
     "tooShort": "Source is under {{seconds}}s",
     "tooLong": "Source is over {{seconds}}s",

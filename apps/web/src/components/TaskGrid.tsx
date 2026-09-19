@@ -400,8 +400,12 @@ export default function TaskGrid({ limit }: { limit?: number } = {}) {
   const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
 
   return (
-    <div ref={rootRef} data-task-grid-root className="relative min-h-[50vh]">
-      <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
+    <div
+      ref={rootRef}
+      data-task-grid-root
+      className={`relative ${unfiltered ? '' : 'min-h-[50vh]'}`}
+    >
+      <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
         {visibleRows.flatMap((row) => row.nodes)}
       </div>
       {selectionBox && (

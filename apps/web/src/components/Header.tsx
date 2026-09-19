@@ -35,7 +35,6 @@ export default function Header() {
   const auth = useAuth()
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
-  const openLibrary = useLibraryStore((s) => s.openPanel)
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
@@ -138,25 +137,6 @@ export default function Header() {
               </button>
               <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
                 {t('header.inspiration')}
-              </ViewportTooltip>
-            </div>
-            <div className="relative" {...libraryTooltip.handlers}>
-              <button
-                type="button"
-                onClick={() => {
-                  dismissAllTooltips()
-                  openLibrary('assets')
-                }}
-                className="flex h-9 items-center gap-2 px-2.5 rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={t('header.library')}
-              >
-                <LibraryIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
-                <span className="hidden text-xs text-muted-foreground sm:inline">
-                  {t('header.library')}
-                </span>
-              </button>
-              <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
-                {t('header.library')}
               </ViewportTooltip>
             </div>
             <div className="ml-2 flex items-center gap-2 border-l border-border pl-3">

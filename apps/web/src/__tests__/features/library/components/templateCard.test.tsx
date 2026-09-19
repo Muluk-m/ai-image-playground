@@ -50,7 +50,12 @@ let root: Root
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ showToast: vi.fn(), setConfirmDialog: vi.fn() })
-  useLibraryStore.setState({ assets: [], templates: [], detailTemplateId: null, panelOpen: true })
+  useLibraryStore.setState({
+    assets: [],
+    templates: [],
+    detailTemplateId: null,
+    onLibraryPage: true,
+  })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)

@@ -103,7 +103,7 @@ export default function InputBar() {
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
-  const openLibrary = useLibraryStore((s) => s.openPanel)
+  const setAppMode = useStore((s) => s.setAppMode)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
   const startNamingTemplate = useLibraryStore((s) => s.startNamingTemplate)
   const assets = useLibraryStore((s) => s.assets)
@@ -1518,7 +1518,7 @@ export default function InputBar() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => openLibrary('assets')}
+                    onClick={() => setAppMode('assets')}
                     className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150 hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]"
                     title={t('bar.library')}
                   >
@@ -1622,7 +1622,7 @@ export default function InputBar() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => openLibrary('assets')}
+                      onClick={() => setAppMode('assets')}
                       className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150"
                       title={t('bar.library')}
                     >

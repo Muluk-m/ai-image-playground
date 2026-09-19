@@ -87,7 +87,6 @@ export default function ProjectSyncStatus({ session }: { session: CloudProjectSe
           </div>
         </div>
       )}
-      {state.status === 'saved' && <small>{t('sync.localOnly')}</small>}
     </div>
   )
 }

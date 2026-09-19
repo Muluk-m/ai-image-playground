@@ -279,8 +279,6 @@ export default function SizePickerModal({
                   </h4>
                   <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
                     {t('size.autoLine1')}
-                    <br />
-                    {t('size.autoLine2')}
                   </p>
                 </div>
               </div>

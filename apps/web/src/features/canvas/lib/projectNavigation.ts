@@ -31,7 +31,7 @@ export function installProjectNavigation(): () => void {
         if (!isCurrent()) return
         const opened = await useAgentStore.getState().selectProject(project.id, isCurrent)
         if (!isCurrent()) return
-        if (opened) useLibraryStore.getState().closePanel()
+        if (opened) useLibraryStore.getState().leaveLibraryPage()
         else {
           const active = useCanvasProjectStore.getState().activeId
           if (active) writeProjectRoute(active, true)

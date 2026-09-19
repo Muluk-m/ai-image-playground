@@ -22,7 +22,7 @@ beforeEach(() => {
   cached.value = 'data:image/png;base64,AAAA'
   capabilities.agent = true
   useCanvasComposer.setState({ mode: 'image', agentVideoPending: false })
-  useLibraryStore.setState({ panelOpen: true })
+  useLibraryStore.setState({ onLibraryPage: true })
   useStore.setState({
     appMode: 'image',
     pendingCanvasImages: [],
@@ -41,7 +41,7 @@ describe('从一张图发起生成视频', () => {
     expect(main.pendingCanvasImages).toEqual(['data:image/png;base64,AAAA'])
     expect(main.lightboxImageId).toBeNull()
     expect(main.detailTaskId).toBeNull()
-    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useLibraryStore.getState().onLibraryPage).toBe(false)
     expect(useCanvasComposer.getState().mode).toBe('video')
     expect(useCanvasComposer.getState().agentVideoPending).toBe(true)
   })
@@ -74,7 +74,7 @@ describe('从一张图发起生成视频', () => {
 
     expect(useStore.getState().appMode).toBe('image')
     expect(useStore.getState().lightboxImageId).toBe('img-1')
-    expect(useLibraryStore.getState().panelOpen).toBe(true)
+    expect(useLibraryStore.getState().onLibraryPage).toBe(true)
     expect(useStore.getState().pendingCanvasImages).toEqual([])
     expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.any(String), 'error')
     expect(useCanvasComposer.getState().mode).toBe('image')

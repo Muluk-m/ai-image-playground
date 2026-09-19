@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   vi.stubGlobal('Image', NeverDecodingImage)
   useStore.setState({ inputImages: [], showToast: vi.fn() })
-  useLibraryStore.setState({ assets: [], pendingAssetNames: [], panelOpen: true })
+  useLibraryStore.setState({ assets: [], pendingAssetNames: [], onLibraryPage: true })
 })
 
 afterEach(() => {

@@ -1,8 +1,4 @@
-import {
-  isProjectDocument,
-  PROJECT_NAME_MAX_LENGTH,
-  type ProjectDocument,
-} from '@image-playground/shared'
+import { isProjectDocument, type ProjectDocument } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
@@ -361,7 +357,6 @@ export class CloudProjectSession {
       }
       await this.metadata({
         name: remote.name,
-        customName: true,
         cloud: { revision: remote.revision },
         updatedAt: remote.updatedAt,
         hasContent: remote.elementCount > 0 || this.project.hasContent,
@@ -412,16 +407,12 @@ export class CloudProjectSession {
     this.editVersion++
     if (!STOPPED.has(this.state.status) && this.state.status !== 'error') this.update('pending')
   }
+  /** 名字是否算用户自己起的由调用方定；这里只负责把它写进本机并推上云端。 */
   rename(name: string): Promise<void> {
     return this.serialize(async () => {
-      if (!name.trim() || name.length > PROJECT_NAME_MAX_LENGTH)
-        throw new Error('invalid_project_name')
+      // 先把欠着的那次恢复元数据补写掉，否则它会把新名字盖回去。
       await this.saveRecoveryMetadata()
-      await this.metadata({
-        name,
-        customName: true,
-        cloud: { revision: this.baseline.revision, nameDirty: true },
-      })
+      await this.metadata({ name, cloud: { revision: this.baseline.revision, nameDirty: true } })
       this.markChanged()
       await this.push()
     })
@@ -606,7 +597,6 @@ export class CloudProjectSession {
       }
       this.recoveryMetadata = {
         name: remote.name,
-        customName: true,
         cloud: { revision: remote.revision },
         updatedAt: remote.updatedAt,
         hasContent: remote.elementCount > 0,

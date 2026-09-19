@@ -1,5 +1,6 @@
 import ParamControls from '../../../components/ParamControls'
 import { useTranslation } from '../../../i18n'
+import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
 import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
@@ -73,12 +74,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
         </div>
 
         <div className="w-full">
-          <h2 className="mb-3 text-sm font-semibold">
-            {t('video:landing.cases')}
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {t('video:landing.casesHint')}
-            </span>
-          </h2>
+          <h2 className="mb-3 text-sm font-semibold">{t('video:landing.cases')}</h2>
           <ul aria-label={t('agent:suggestions.aria')} className="grid gap-2 sm:grid-cols-2">
             {video
               ? examples.map((example) => (
@@ -151,7 +147,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <button
             type="button"
             className="text-sm text-muted-foreground hover:text-foreground"
-            onClick={() => useLibraryStore.getState().openPanel('projects')}
+            onClick={() => useStore.getState().setAppMode('projects')}
           >
             {t('welcome.allProjects')}
           </button>

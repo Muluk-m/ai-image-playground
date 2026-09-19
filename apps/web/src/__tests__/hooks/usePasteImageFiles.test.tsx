@@ -49,7 +49,7 @@ let root: Root
 
 beforeEach(() => {
   useStore.setState({ appMode: 'image', showToast: vi.fn() })
-  useLibraryStore.setState({ panelOpen: false, tab: 'assets' })
+  useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -91,7 +91,7 @@ describe('routing a pasted image to one place at a time', () => {
   it('lets the asset panel take over from whatever mode is behind it', () => {
     act(() => {
       useStore.setState({ appMode: 'video' })
-      useLibraryStore.setState({ panelOpen: true, tab: 'assets' })
+      useLibraryStore.setState({ onLibraryPage: true, tab: 'assets' })
     })
 
     paste([image()])
@@ -103,7 +103,7 @@ describe('routing a pasted image to one place at a time', () => {
 
   it('leaves the mode behind in charge while the panel shows templates', () => {
     act(() => {
-      useLibraryStore.setState({ panelOpen: true, tab: 'templates' })
+      useLibraryStore.setState({ onLibraryPage: true, tab: 'templates' })
     })
 
     paste([image()])

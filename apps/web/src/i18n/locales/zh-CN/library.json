@@ -23,7 +23,7 @@
     "makeVideo": "做成视频",
     "deleted": "素材已删除",
     "deleteTitle": "删除素材",
-    "deleteMessage": "确定删除素材「{{name}}」吗？图片本身保留。"
+    "deleteMessage": "确定删除素材「{{name}}」吗？"
   },
   "template": {
     "apply": "套用",
