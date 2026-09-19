@@ -24,7 +24,7 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  useStore.setState({ appMode: 'browse' })
+  useStore.setState({ appMode: 'image' })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -68,7 +68,7 @@ function modeButton(label: string): HTMLButtonElement {
   return button
 }
 
-describe('the mode switch', () => {
+describe('the header', () => {
   it('does not auto-open onboarding prompts for a fresh empty account', () => {
     useStore.setState({ inspirationCoachDismissed: false, tasks: [] })
     act(() => root.render(<Header />))
@@ -76,34 +76,27 @@ describe('the mode switch', () => {
     expect(document.querySelector('.animate-coach-pulse')).toBeNull()
     expect(document.querySelector('button[aria-label="灵感库"]')).not.toBeNull()
   })
-  it('starts in creation and the brand returns there', () => {
-    expect(useStore.getInitialState().appMode).toBe('create')
+
+  it('starts on the canvas and the brand returns there', () => {
+    expect(useStore.getInitialState().appMode).toBe('canvas')
     act(() => root.render(<Header />))
     act(() =>
       (
-        document.querySelector('[aria-label="幕芽 Muvloom，返回创作"]') as HTMLButtonElement
+        document.querySelector('[aria-label="幕芽 Muvloom，回到画布"]') as HTMLButtonElement
       ).click(),
     )
-    expect(useStore.getState().appMode).toBe('create')
-  })
-  it('offers creation first and keeps history without product shots', () => {
-    act(() => root.render(<Header />))
-
-    expect(modeButton('作品').getAttribute('aria-pressed')).toBe('true')
-    expect(modeButton('创作')).toBeTruthy()
-    expect(document.querySelector('nav')?.textContent).not.toContain('商品图')
-    expect([...document.querySelectorAll('button[aria-pressed]')]).toHaveLength(2)
+    expect(useStore.getState().appMode).toBe('canvas')
   })
 
-  it('switches to creation when it is picked', () => {
+  it('switches entries from the narrow-screen nav', () => {
     act(() => root.render(<Header />))
 
     act(() => {
-      modeButton('创作').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modeButton('画布').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(useStore.getState().appMode).toBe('create')
-    expect(modeButton('创作').getAttribute('aria-pressed')).toBe('true')
+    expect(useStore.getState().appMode).toBe('canvas')
+    expect(modeButton('画布').getAttribute('aria-pressed')).toBe('true')
   })
 })
 

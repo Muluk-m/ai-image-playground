@@ -175,7 +175,7 @@ describe('dropping and pasting images into the asset tab', () => {
 
   beforeEach(() => {
     importAssetFiles = vi.fn().mockResolvedValue(undefined)
-    useStore.setState({ appMode: 'browse' })
+    useStore.setState({ appMode: 'image' })
     useLibraryStore.setState({ importAssetFiles })
   })
 

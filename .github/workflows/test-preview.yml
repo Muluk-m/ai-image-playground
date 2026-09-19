@@ -1,0 +1,99 @@
+# 测试环境：push 到 test 分支就把内部版前端构建一次，发到内部版 Pages 项目的 test 预览别名
+# （https://test.<internal pages project>.pages.dev）。只发前端，不动后端：预览站点调用的是生产
+# 内部版 API（PAGES_ENV 里的 INTERNAL_BFF_BASE_URL），数据与内部版生产是同一份。
+#
+# 生产发布仍由 .github/workflows/deploy.yml 负责，它只接 main 上的 Web checks（workflow_run 的
+# branches: [main]）和 main 上的手动触发，test 分支不会触发它。
+#
+# 预览域名要真能用还需要一次人工配置（BFF 的 CORS、R2 的 CORS、登录限制）：
+# docs/deploy/image-release.md 的「测试环境（test 分支预览）」。
+name: Test preview
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+permissions:
+  contents: read
+# 预览只有一个别名，后一次发布覆盖前一次：排队中的旧 run 直接取消。
+concurrency:
+  group: test-preview
+  cancel-in-progress: true
+# `shell: bash` 让每步带 -eo pipefail；下面的 `… | tee` 需要 pipefail 才会在上游失败时失败。
+defaults:
+  run:
+    shell: bash
+jobs:
+  preview:
+    name: Internal bundle to the test alias
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require secrets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          INTERNAL_CLOUDFLARE_API_TOKEN: ${{ secrets.INTERNAL_CLOUDFLARE_API_TOKEN }}
+        run: |
+          missing=
+          for name in PAGES_ENV INTERNAL_CLOUDFLARE_API_TOKEN; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      # 手动触发时检出的是 Run workflow 选中的分支，push 时是 test 本身。
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read the internal edition's settings from PAGES_ENV
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+        run: |
+          umask 077
+          printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
+          # shellcheck source=/dev/null
+          . "$RUNNER_TEMP/pages.env"
+          # 只取内部版这三个键。付费版的键不参与，INTERNAL_EXTRA_ASSETS_DIR 这类工作站路径也不取：
+          # 它在 runner 上不存在，scripts/pages-deploy.sh 会因此拒绝构建。
+          take() {
+            value=${!1:-}
+            printf '%s\n' "$value" | grep -Eqx "$2" ||
+              { echo "::error::PAGES_ENV 里的 $1 缺失或不是预期格式。"; exit 1; }
+            echo "$1=$value" >> "$GITHUB_ENV"
+          }
+          take INTERNAL_PAGES_PROJECT '[a-z0-9][a-z0-9-]*'
+          take INTERNAL_BFF_BASE_URL 'https://[A-Za-z0-9.-]+'
+          take INTERNAL_CLOUDFLARE_ACCOUNT_ID '[A-Za-z0-9]+'
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      # `public` 断言工作副本里没有 private/ overlay，`test` 选预览别名——只有显式的 `main`
+      # 才是生产分支（scripts/pages-deploy.sh 的分支参数）。
+      - name: Build and upload the internal bundle to the test alias
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.INTERNAL_CLOUDFLARE_API_TOKEN }}
+        run: |
+          export BFF_ENABLED=true
+          export BFF_BASE_URL=$INTERNAL_BFF_BASE_URL
+          export CLOUDFLARE_ACCOUNT_ID=$INTERNAL_CLOUDFLARE_ACCOUNT_ID
+          ./scripts/pages-deploy.sh public "$INTERNAL_PAGES_PROJECT" test | tee "$RUNNER_TEMP/deploy.log"
+      - name: Report the preview address
+        run: |
+          alias_url="https://test.$INTERNAL_PAGES_PROJECT.pages.dev"
+          # 别名地址是算出来的（分支名固定为 test）；wrangler 另外打印本次部署的一次性地址。
+          deployment_url=$(grep -Eo "https://[a-z0-9-]+\.$INTERNAL_PAGES_PROJECT\.pages\.dev" \
+            "$RUNNER_TEMP/deploy.log" | grep -vFx "$alias_url" | tail -n 1 || true)
+          {
+            echo "## 测试环境预览"
+            echo
+            echo "- 分支：\`$GITHUB_REF_NAME\` @ \`$(printf %.12s "$GITHUB_SHA")\`"
+            echo "- 固定地址：<$alias_url>"
+            if [ -n "$deployment_url" ]; then echo "- 本次部署：<$deployment_url>"; fi
+            echo "- API：\`$INTERNAL_BFF_BASE_URL\`（生产内部版；数据是真的，不要做破坏性操作）"
+            echo
+            echo "预览域名首次使用前需人工放行 CORS，见 docs/deploy/image-release.md 的「测试环境（test 分支预览）」。"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/pages.env"

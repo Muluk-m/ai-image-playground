@@ -38,7 +38,7 @@ const video = vi.fn()
 const library = vi.fn()
 
 function Consumers() {
-  usePasteImageFiles('browse', browse)
+  usePasteImageFiles('image', browse)
   usePasteImageFiles('video', video)
   usePasteImageFiles('library', library)
   return null
@@ -48,7 +48,7 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  useStore.setState({ appMode: 'browse', showToast: vi.fn() })
+  useStore.setState({ appMode: 'image', showToast: vi.fn() })
   useLibraryStore.setState({ panelOpen: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.appendChild(host)

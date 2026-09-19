@@ -25,7 +25,7 @@ export function installProjectNavigation(): () => void {
     pending = pending.then(async () => {
       if (!isCurrent()) return
       useCanvasProjectStore.setState({ routeError: null })
-      useStore.getState().setAppMode('create')
+      useStore.getState().setAppMode('canvas')
       try {
         const project = await useCanvasProjectStore.getState().resolve(id)
         if (!isCurrent()) return

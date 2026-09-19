@@ -1,4 +1,9 @@
 {
+  "entry": {
+    "title": "Give your imagination a shot.",
+    "newCanvas": "New video canvas",
+    "continue": "Back to the last canvas"
+  },
   "landing": {
     "title": "Give your imagination a shot.",
     "subtitle": "Describe the frame, the motion and the camera. The result opens on the canvas.",

@@ -94,6 +94,7 @@
   },
   "grid": {
     "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",
+    "recent": "最近生成",
     "noMatches": "没有找到匹配的记录"
   },
   "set": {
