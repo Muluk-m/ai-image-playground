@@ -109,7 +109,7 @@ prune_old_images() {
     image_id=$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null)
     if docker rmi "$image" >/dev/null 2>&1; then
       echo "pruned $image"
-      [ -z "$image_id" ] || release_untagged_image "$image_id"
+      [ -z "$image_id" ] || release_untagged_image "$image_id" "${1%%:*}"
     else
       echo "could not prune $image; leaving it" >&2
     fi
