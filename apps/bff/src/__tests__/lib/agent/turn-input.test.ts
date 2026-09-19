@@ -213,9 +213,10 @@ describe('tool declarations in the estimate', () => {
       generateVideo.declaration(),
     ])
     const videoTokens = declarationTokens([generateVideo.declaration()])
+    // 分开估算会各自向上取整两次（字符与 CJK），再加 JSON 数组边界，最多相差两个 token。
     expect(
       Math.abs(withVideo - estimateToolDeclarationTokens('image') - videoTokens),
-    ).toBeLessThanOrEqual(1)
+    ).toBeLessThanOrEqual(2)
   })
 })
 

@@ -269,7 +269,7 @@ describe('智能体生视频工具', () => {
     })
 
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     expect(task!.id).toBe(end!.job!.taskId)
     expect(task!.model).toBe(GROK)
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
@@ -299,7 +299,7 @@ describe('智能体生视频工具', () => {
     expect(end!.anchorObjectId).toBe('canvas-1')
     expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1' })
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     expect(task!.request_payload.input_images).toHaveLength(1)
     expect(task!.request_payload.video).toMatchObject({ first_frame_index: 0 })
   })
@@ -325,7 +325,7 @@ describe('智能体生视频工具', () => {
     expect(end!.job!.video).toMatchObject({ referenceIds: ['canvas-1', 'canvas-2'] })
     expect(end!.job!.video).not.toHaveProperty('firstFrameId')
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     expect(task!.request_payload.input_images).toHaveLength(2)
     expect(task!.request_payload.video).toMatchObject({ reference_image_indices: [0, 1] })
     expect(task!.request_payload.video).not.toHaveProperty('first_frame_index')
@@ -349,7 +349,7 @@ describe('智能体生视频工具', () => {
 
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1', referenceIds: ['canvas-2'] })
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     expect(task!.request_payload.video).toMatchObject({
       first_frame_index: 0,
       reference_image_indices: [1],
@@ -417,7 +417,7 @@ describe('智能体生视频工具', () => {
     await runTurn(conversationId, '来一段 10 秒竖屏的城市夜景，要 1080p')
     stop()
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     expect(task!.request_payload.video).toMatchObject({
       duration_seconds: 10,
       resolution: '1080p',
@@ -436,7 +436,7 @@ describe('智能体生视频工具', () => {
     const frames = await runTurn(conversationId, '来一段咖啡视频')
     stop()
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     expect(task!.model).toBe(VEO)
     expect(task!.request_payload.video).toMatchObject({
       duration_seconds: 4,
