@@ -260,6 +260,193 @@ afterAll(async () => {
 })
 
 describe('智能体改图工具', () => {
+  it('keeps each independent target bound to its own selection', async () => {
+    const otherMask = `data:image/png;base64,${(
+      await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#000000' } })
+        .composite([
+          {
+            input: await sharp({
+              create: { width: 128, height: 128, channels: 4, background: '#ffffff' },
+            })
+              .png()
+              .toBuffer(),
+            left: 64,
+            top: 64,
+            blend: 'dest-out',
+          },
+        ])
+        .png()
+        .toBuffer()
+    ).toString('base64')}`
+    const references = [
+      { imageId: 'masked-a', dataUrl: PIXEL, maskDataUrl: MASK },
+      { imageId: 'masked-b', dataUrl: PIXEL, maskDataUrl: otherMask },
+    ]
+    const selections = await Promise.all(references.map((reference) => imageSelection(reference)))
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion(
+              ...references.map((image, index) => ({
+                id: `masked-${index}`,
+                name: 'editImage',
+                args: {
+                  imageIds: [image.imageId],
+                  prompt: '只把本图选区改成蓝色',
+                  selectionBindings: [
+                    { imageId: image.imageId, selectionId: selections[index]!.id },
+                  ],
+                },
+              })),
+            ),
+          () => completionStream('请检查两个候选'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '两张图分别只把各自选区改成蓝色，其他不变', {
+      references,
+    })
+    const ends = eventsOfType(frames, 'toolEnd')
+    expect(ends).toHaveLength(2)
+    for (const [index, image] of references.entries()) {
+      const end = ends.find((one) => one.toolCallId === `masked-${index}`)!
+      expect(end).toMatchObject({ status: 'submitted', anchorObjectId: image.imageId })
+      const [task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, end.job!.taskId))
+      const request = await hydrateInputImages(task!.request_payload)
+      expect(request.mask).toBe(image.maskDataUrl)
+      expect(request.prompt).toContain(selections[index]!.id)
+      expect(request.prompt).not.toContain(selections[1 - index]!.id)
+      await completeWithWorker(task!.id)
+    }
+    await pickUpStrandedInboxes()
+  })
+
+  it('keeps four independently edited photos isolated through submission and partial failure', async () => {
+    const references = await Promise.all(
+      ['#ff0000', '#00ff00', '#0000ff', '#ffff00'].map(async (background, index) => ({
+        imageId: `photo-${index}`,
+        dataUrl: `data:image/png;base64,${(
+          await sharp({ create: { width: 1024, height: 1024, channels: 4, background } })
+            .png()
+            .toBuffer()
+        ).toString('base64')}`,
+      })),
+    )
+    const prompts = references.map(
+      (_, index) => `相机向左环绕 ${20 + index * 10} 度，保留当前照片的主体、场景与光源`,
+    )
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion(
+              ...references.map((reference, index) => ({
+                id: `edit-${index}`,
+                name: 'editImage',
+                args: { imageIds: [reference.imageId], prompt: prompts[index] },
+              })),
+            ),
+          () => completionStream('四张照片已分别提交'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '四张照片分别向左环绕20、30、40、50度', {
+      references,
+    })
+    const ends = eventsOfType(frames, 'toolEnd')
+    expect(ends).toHaveLength(4)
+    for (const [index, reference] of references.entries()) {
+      const end = ends.find((event) => event.toolCallId === `edit-${index}`)!
+      expect(end).toMatchObject({
+        status: 'submitted',
+        anchorObjectId: reference.imageId,
+        prompt: prompts[index],
+      })
+      const [task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, end.job!.taskId))
+      const request = await hydrateInputImages(task!.request_payload)
+      expect(request.input_images).toEqual([reference.dataUrl])
+      expect(request.prompt).toBe(prompts[index]!)
+      expect(request.n).toBe(1)
+      await db
+        .update(schema.tasks)
+        .set({ status: 'in_progress' })
+        .where(eq(schema.tasks.id, task!.id))
+      await finishTask(
+        task!.id,
+        index === 1
+          ? {
+              status: 'failed',
+              completedAt: Date.now(),
+              errorType: 'upstream_error',
+              errorMessage: 'one image failed',
+            }
+          : { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD, completedAt: Date.now() },
+      )
+    }
+    const results = await settledResults(conversationId)
+    await pickUpStrandedInboxes()
+    for (const [index, reference] of references.entries()) {
+      expect(results.find((result) => result.anchorObjectId === reference.imageId)?.status).toBe(
+        index === 1 ? 'failed' : 'succeeded',
+      )
+    }
+  })
+
+  it('keeps explicit product references attached to one target and n as versions', async () => {
+    const second = `data:image/png;base64,${(
+      await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#ff0000' } })
+        .png()
+        .toBuffer()
+    ).toString('base64')}`
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'product-edit',
+              name: 'editImage',
+              args: {
+                imageIds: ['target', 'product-reference'],
+                prompt: '只替换目标图商品，参考图提供款式，保留目标图背景',
+                n: 2,
+              },
+            }),
+          () => completionStream('已提交两个版本'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '用第二张的商品替换第一张商品，出两个版本', {
+      references: [
+        { imageId: 'target', dataUrl: PIXEL },
+        { imageId: 'product-reference', dataUrl: second },
+      ],
+    })
+    const ends = eventsOfType(frames, 'toolEnd')
+    expect(ends).toHaveLength(1)
+    expect(ends[0]).toMatchObject({ status: 'submitted', anchorObjectId: 'target' })
+    const [task] = await db.select().from(schema.tasks)
+    const request = await hydrateInputImages(task!.request_payload)
+    expect(request.input_images).toEqual([PIXEL, second])
+    expect(request.n).toBe(2)
+    await completeWithWorker(task!.id)
+    const [result] = await settledResults(conversationId)
+    expect(result?.anchorObjectId).toBe('target')
+    expect(result?.artifacts).toHaveLength(2)
+  })
+
   it('edits the original image after clarification without attaching it again', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
@@ -407,13 +594,22 @@ describe('智能体改图工具', () => {
       const [task] = await db.select().from(schema.tasks)
       const submitted = await hydrateInputImages(task!.request_payload)
       expect(submitted.input_images![0]).toStartWith('data:image/png;base64,')
-      const [stored] = await db
+      const stored = await db
         .select()
         .from(schema.agent_messages)
         .where(eq(schema.agent_messages.conversation_id, conversationId))
-      expect(stored!.content[0]).toMatchObject({
-        references: [{ imageId: 'canvas-svg', image: { mime: 'image/svg+xml' } }],
-      })
+      expect(stored.flatMap((message) => message.content)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            references: [
+              {
+                imageId: 'canvas-svg',
+                image: { mime: 'image/svg+xml', object: expect.any(String) },
+              },
+            ],
+          }),
+        ]),
+      )
     } finally {
       stop()
     }

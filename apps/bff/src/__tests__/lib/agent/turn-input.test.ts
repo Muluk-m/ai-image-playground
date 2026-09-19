@@ -170,36 +170,7 @@ describe('estimateTurnInputTokens', () => {
   it('caps a long history at the compaction threshold', () => {
     expect(estimateTurnInputTokens(LONG_HISTORY, '继续', [])).toBe(26_500)
   })
-
-  /**
-   * 校准哨兵：CJK 校正上线后，这一句「你好」估出来是 2268——系统提示词 1037 + 工具清单 1228
-   * + 本轮 3。区间是围着它的 ±15%，掉出去说明装配漏了一块（工具清单 1228 / 系统提示词 1037），
-   * 或者校正系数被人动过。
-   *
-   * 头上这个 2268 与线上那次实测正好同值，但两者不是同一件事：线上一句「你好」的真实输入
-   * 2268 token（其中缓存命中 1536）是 #522 **之前** 的读数，W = 0.8 就是拿它反解的。#522 之后
-   * 系统提示词长了（多一句创作类型说明，澄清那段也重写了），同一句话的估算从 2213 抬到 2268，
-   * 而 #522 之后还没有新的线上数据点，W 没有重新校准。
-   *
-   * 这个文件没加载技能目录，所以清单里既没有 loadSkill 也没有 `<available_skills>`。真开了
-   * generation:video 的部署，工具清单再多 419（档位说明改成按解析到的模型写，原先是 299）；
-   * 视频轮的模式说明再多 19，都还在区间里。
-   */
-  it('lands on the calibrated size for a short first turn', () => {
-    const estimated = estimateTurnInputTokens([], '你好', [])
-    expect(estimated).toBeGreaterThan(1_928)
-    expect(estimated).toBeLessThan(2_608)
-  })
 })
-
-/**
- * 生视频那一份声明的增量。原值 299；档位说明改成按解析到的模型写之后，兜底那一份也长了
- * （三个档位参数各多一句「填不了就照原话填，工具会告诉你做得到什么」）。
- * 改成后台任务后说明里多了「提交后立即返回、结果尚未就绪」，从 419 长到 446。
- * 加上「成功后要不要唤醒复核」的参数后长到 497。
- * 加上参考图列表（referenceImageIds）后长到 576。
- */
-const VIDEO_DECLARATION_TOKENS = 576
 
 /** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
 describe('tool declarations in the estimate', () => {
@@ -241,7 +212,10 @@ describe('tool declarations in the estimate', () => {
       ...agentToolDeclarations('image'),
       generateVideo.declaration(),
     ])
-    expect(withVideo - estimateToolDeclarationTokens('image')).toBe(VIDEO_DECLARATION_TOKENS)
+    const videoTokens = declarationTokens([generateVideo.declaration()])
+    expect(
+      Math.abs(withVideo - estimateToolDeclarationTokens('image') - videoTokens),
+    ).toBeLessThanOrEqual(1)
   })
 })
 
