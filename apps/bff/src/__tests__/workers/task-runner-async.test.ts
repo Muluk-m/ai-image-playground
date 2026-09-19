@@ -164,7 +164,10 @@ describe('async submit phase', () => {
         ? json({ task_id: 'imgtask_1' }, 202)
         : json({ error: { message: 'nope' } }, 500)
     }
-    await insertTask('async-partial', { request_payload: { prompt: 'p', n: 2 } })
+    await insertTask('async-partial', {
+      model: 'legacy-image-model',
+      request_payload: { prompt: 'p', n: 2 },
+    })
 
     await runTask('async-partial')
 
