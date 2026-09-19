@@ -2,21 +2,15 @@ import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
+import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { useVideoStore } from '../../video/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
+import { useGenerationMode } from '../lib/generationMode'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
 import {
@@ -29,12 +23,6 @@ import {
 } from '../lib/submitVideoFromCanvas'
 import { defaultInputItems } from '../lib/videoInputs'
 import CanvasVideoParams from './CanvasVideoParams'
-
-/** 部署关了视频（或没有视频 channel）就只剩图片档，记住的选择不作数。 */
-function useGenerateMode() {
-  const mode = useCanvasComposer((state) => state.mode)
-  return isVideoModeAvailable() ? mode : 'image'
-}
 
 /** 预览缩略图的栅格化比例：低成本、48px 展示足够清晰。 */
 const PREVIEW_SCALE = 0.25
@@ -97,14 +85,14 @@ function useSelectionInfo(editor: CanvasEditor): SelectionInfo {
 export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation(['canvas', 'common'])
   const prompt = useCanvasComposer((state) => state.prompt)
-  const { setPrompt, setMode } = useCanvasComposer.getState()
+  const { setPrompt } = useCanvasComposer.getState()
   // 输入是这一块画布的：切到别的项目 / 会话（组件随之重建）不能把写了一半的描述带过去。
   useEffect(() => () => useCanvasComposer.getState().setPrompt(''), [])
   const [previews, setPreviews] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
-  const mode = useGenerateMode()
+  const mode = useGenerationMode()
   const videoDraft = useVideoStore((state) => state.draft)
 
   // 与提交同一套选区分析：标注自动跟随被标注的图，提示与实际提交一致。
@@ -209,23 +197,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         {/* 参数控制条：与工作台共用同一份全局 params/settings。数量 n>1 时 fan-out
             成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
         <div className="flex flex-wrap items-center gap-2">
-          {isVideoModeAvailable() && (
-            <Select
-              value={mode}
-              onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
-            >
-              <SelectTrigger
-                aria-label={t('generate.modeAria')}
-                className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
-                <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
           {!video && <ParamControls showCount />}
         </div>
         {video && (

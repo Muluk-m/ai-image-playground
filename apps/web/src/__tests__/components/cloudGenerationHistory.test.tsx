@@ -39,6 +39,8 @@ beforeEach(async () => {
   )
   await bootstrapClientCapabilities(true, '')
   vi.unstubAllGlobals()
+  // 作品页现在自带输入框，它一挂载就去 IDB 读模板，所以每个用例都要有 IDB。
+  vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({
     prompt: '',
     params: { ...DEFAULT_PARAMS },
@@ -119,6 +121,41 @@ it('作品页一条列表就展示平台记录，点开能看到提示词', asyn
   expect(document.body.textContent).toContain('一只在阳光下睡觉的猫')
   const list = fetcher.mock.calls.find(([url]) => url === '/api/generations?limit=50')
   expect(list?.[1]).toMatchObject({ credentials: 'include', cache: 'no-store' })
+})
+
+it('一条作品都没有时输入框顶在页面上方，有作品之后浮回底部', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === '/api/generations?limit=50'
+        ? Response.json({ items: [], nextCursor: null })
+        : Response.json({}),
+    ),
+  )
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
+  const placement = () =>
+    host.querySelector('[data-input-bar]')?.getAttribute('data-input-bar-placement')
+  // 空画廊：浮动输入框会压住灵感探索那一排，所以它让位到顶部。
+  expect(placement()).toBe('hero')
+  await act(async () => {
+    useStore.setState({
+      tasks: [
+        {
+          id: 'local-1',
+          prompt: '一只猫',
+          params: { ...DEFAULT_PARAMS },
+          inputImageIds: [],
+          outputImages: [],
+          status: 'done',
+          error: null,
+          createdAt: 1789600000001,
+          finishedAt: 1789600000002,
+          elapsed: 1,
+        },
+      ],
+    })
+  })
+  expect(placement()).toBe('docked')
 })
 
 it('加载更多把下一页续在同一条列表后面，不替换已读到的记录', async () => {
@@ -230,7 +267,6 @@ it('列表展示封面时只读取预览，原件留到用户明确下载', asyn
 })
 
 it('复用平台记录在当前作品输入框显示提示词与参数，不自动提交生成', async () => {
-  vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ appMode: 'browse' })
   function TileWithComposer() {
     const mode = useStore((state) => state.appMode)
@@ -343,7 +379,6 @@ it('展开输出只加载预览，点击下载原图后才取原件并保留文�
 })
 
 it('复用参考图下载期间切换账号，不覆盖新账号的创作内容', async () => {
-  vi.stubGlobal('indexedDB', new IDBFactory())
   setChannels([
     {
       id: 'openai-images',
@@ -407,7 +442,6 @@ it('复用参考图下载期间切换账号，不覆盖新账号的创作内容'
 })
 
 it('复用完整参考图和蒙版，不改写本机已有原图的来源和创建时间', async () => {
-  vi.stubGlobal('indexedDB', new IDBFactory())
   setChannels([
     {
       id: 'openai-images',
