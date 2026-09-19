@@ -827,7 +827,7 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
     })
   }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
   const { request_id: id } = await (
-    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, { ...input, n: 2 })
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
   const { abortRunningTask } = await import('../../workers/task-runner')
   durable.afterWrite = (key) => {
