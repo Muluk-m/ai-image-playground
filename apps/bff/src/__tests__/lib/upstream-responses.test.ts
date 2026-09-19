@@ -121,17 +121,14 @@ describe('Astra 图片 Responses 调用', () => {
     )
     expect(charged).toBe(1)
   })
-  it('多张文生图绕过不接受 n 的 Responses 工具，单次走 Images 原生 n', async () => {
-    config.upstream.asyncImageTasks = false
+  it('多张文生图逐张调用 Responses，不向图片工具传入 n', async () => {
     let charged = 0
-    let receivedUrl = ''
-    let receivedBody: Record<string, unknown> | undefined
     setUpstreamFetchForTesting(async (url, init) => {
-      receivedUrl = String(url)
-      receivedBody = JSON.parse(String(init?.body))
-      return jsonResponse({
-        data: [{ b64_json: PNG }, { b64_json: PNG }],
-      })
+      const body = JSON.parse(String(init?.body))
+      if (!String(url).endsWith('/responses') || body.tools?.[0]?.n !== undefined) {
+        return jsonResponse({ error: { message: '图片工具只接受单张生成' } }, 400)
+      }
+      return sse([completed])
     })
     const result = await callUpstream({
       ...request,
@@ -140,10 +137,8 @@ describe('Astra 图片 Responses 调用', () => {
         charged += 1
       },
     })
-    expect(receivedUrl).toMatch(/\/v1\/images\/generations$/)
-    expect(receivedBody?.n).toBe(2)
     expect(extractMeta('openai-compat', result.payload).images).toHaveLength(2)
-    expect(charged).toBe(1)
+    expect(charged).toBe(2)
   })
 
   it.each([

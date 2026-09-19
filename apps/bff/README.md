@@ -59,9 +59,10 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就转成 `openai-compat` / `gemini`（参见 `apps/web/src/lib/channels/queueClient.ts` 的 `toQueueProvider`）。
 
 纯文生图 `n>1`：OpenAI Images channel 声明 `n` 能力时，使用一次 generations 请求并保留 `n`；
-通用网关的 `gpt-image-*` 同样使用原生 `n`。多图请求不走不接受 `n` 的 Responses 图片工具。
-带参考图 / mask 的请求及其余兼容路径保持逐图 fan-out。异步任务恢复保留已派发请求数，
-旧 fan-out 缺少任务 ID 时仍报告结果未知，不补交、不把部分结果标为完整成功。
+通用网关不根据 `gpt-image-*` 模型名推断原生多图能力，而是逐张请求、合并结果，每次派发分别记账。
+配置了 Responses 桥接时，多图同样逐张调用，不向图片工具发送不支持的 `n`。
+带参考图 / mask 的请求及其余兼容路径保持逐图 fan-out。异步任务恢复使用持久化的已派发请求数，
+不因路由变化补发旧原生批次；缺少已派发任务 ID 时仍报告结果未知，不重复提交。
 
 ## Channel 配置（`apps/bff/channels.json`）
 
