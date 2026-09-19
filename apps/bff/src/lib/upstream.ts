@@ -81,6 +81,8 @@ interface UpstreamRoute {
   supportsModeration: boolean
   /** 上游提供 sub2api 风格的异步图片任务端点。 */
   asyncTasks: boolean
+  /** 上游原生支持 n；一条请求即可返回多张图，不应在 BFF 内 fan-out。 */
+  supportsNativeN: boolean
 }
 
 /**
@@ -103,6 +105,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
       supportsModeration: declared.capabilities.includes('moderation'),
       asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
+      supportsNativeN: provider === 'openai-compat' && declared.capabilities.includes('n'),
     }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
@@ -111,9 +114,11 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     key: resolveApiKey(provider),
     style: 'openai-images',
     forceB64Json: false,
-    // 通用网关没有 capability 声明，按老行为原样透传。
+    // 通用网关没有 capability 声明；已知 GPT Image 模型仍走原生 n，
+    // 其它兼容模型保持逐图 fan-out 的保守行为。
     supportsModeration: true,
     asyncTasks: provider === 'openai-compat' && config.upstream.asyncImageTasks,
+    supportsNativeN: provider === 'openai-compat' && model.startsWith('gpt-image-'),
   }
 }
 export interface UpstreamCallParams {
@@ -211,8 +216,18 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     forceB64Json,
     supportsModeration,
     asyncTasks,
+    supportsNativeN,
   } = resolveUpstream(provider, model)
   let request = params.request
+  // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
+  const requestedImageCount = Math.max(1, request.n ?? 1)
+  const useNativeN =
+    provider === 'openai-compat' &&
+    style === 'openai-images' &&
+    supportsNativeN &&
+    requestedImageCount > 1 &&
+    !request.input_images?.length &&
+    !request.mask
   // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
   if (forceB64Json) {
     request = { ...request, extra: { ...request.extra, response_format: 'b64_json' } }
@@ -426,6 +441,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       }
 
       if (
+        !useNativeN &&
         style === 'openai-images' &&
         isGptImageModel(model) &&
         config.upstream.imageResponsesModel &&
@@ -504,7 +520,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
       const headers = { 'content-type': 'application/json', ...authHeader }
       const n = Math.max(1, request.n ?? 1)
-      const unitRequest = n === 1 ? request : withoutImageCount(request)
+      // 原生 n 是一次上游生成请求；否则沿用兼容网关的单图 fan-out。
+      const unitRequest = useNativeN || n === 1 ? request : withoutImageCount(request)
       const body = JSON.stringify(
         style === 'grok-openai-images' && isGrokImagine2(model)
           ? buildGrokImagine2Body(model, unitRequest)
@@ -512,7 +529,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       )
       return await dispatch(
         `${base}/images/generations`,
-        n,
+        useNativeN ? 1 : n,
         () => ({ method: 'POST', headers, body }),
         mergeOpenAIImageResults,
       )

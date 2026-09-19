@@ -100,7 +100,7 @@ describe('Astra 图片 Responses 调用', () => {
     })
   })
 
-  it('文生图按数量生成并交付图片，每张只记账一次', async () => {
+  it('单张文生图走 Responses 桥接，单次记账并交付图片', async () => {
     let charged = 0
     setUpstreamFetchForTesting(async (_url, init) => {
       const body = JSON.parse(String(init?.body))
@@ -111,15 +111,15 @@ describe('Astra 图片 Responses 调用', () => {
     })
     const result = await callUpstream({
       ...request,
-      request: { prompt: '蓝色方块', n: 2 },
+      request: { prompt: '蓝色方块' },
       beforeRequest: async () => {
         charged += 1
       },
     })
     expect(extractMeta('openai-compat', result.payload).images.map((image) => image.index)).toEqual(
-      [0, 1],
+      [0],
     )
-    expect(charged).toBe(2)
+    expect(charged).toBe(1)
   })
 
   it.each([
