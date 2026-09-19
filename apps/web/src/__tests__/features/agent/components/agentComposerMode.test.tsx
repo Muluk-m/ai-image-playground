@@ -53,10 +53,10 @@ import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
-import { useCanvasComposer } from '../../../../features/canvas/composerStore'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
-import { chooseOption, stubPointerApis } from '../../../helpers/radix'
+import { useStore } from '../../../../store'
+import { stubPointerApis } from '../../../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -123,7 +123,7 @@ beforeEach(async () => {
     },
   })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
-  useCanvasComposer.setState({ agentVideoPending: false })
+  useStore.setState({ appMode: 'video' })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -136,8 +136,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('创作类型切换', () => {
-  it('默认是图片，起轮就按图片发', async () => {
+describe('这一轮创作什么由入口决定', () => {
+  it('创作入口按图片发', async () => {
+    useStore.setState({ appMode: 'create' })
     render()
     await settle()
 
@@ -146,10 +147,9 @@ describe('创作类型切换', () => {
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
-  it('切到视频之后这一轮按视频发，且发完不弹回图片', async () => {
+  it('视频入口按视频发，连发两轮都还是视频', async () => {
+    useStore.setState({ appMode: 'video' })
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('做个开箱片')
@@ -160,73 +160,27 @@ describe('创作类型切换', () => {
     expect(send).toHaveBeenLastCalledWith('再来一段', [], 'video')
   })
 
-  it('切换同时写进会话状态，代用户发一轮的入口据此跟上', async () => {
-    render()
-    await settle()
-    expect(useAgentStore.getState().mode).toBe('image')
-
-    chooseOption('创作类型：图片', '视频')
-    await settle()
-
-    expect(useAgentStore.getState().mode).toBe('video')
-  })
-})
-
-describe('从视频入口或「生成视频」进来', () => {
-  it('下一轮预置为视频，只接手一次，之后用户照常能切回图片', async () => {
-    useCanvasComposer.setState({ agentVideoPending: true })
+  it('写进会话状态，代用户发一轮的入口据此跟上', async () => {
+    useStore.setState({ appMode: 'video' })
     render()
     await settle()
 
     expect(useAgentStore.getState().mode).toBe('video')
-    expect(useCanvasComposer.getState().agentVideoPending).toBe(false)
-
-    chooseOption('创作类型：视频', '图片')
-    await settle()
-    type('画一只猫')
-    click('发送并创作')
-    expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
-  it('输入框已经开着时也跟着切', async () => {
-    render()
-    await settle()
-    expect(useAgentStore.getState().mode).toBe('image')
-
-    act(() => useCanvasComposer.setState({ agentVideoPending: true }))
-    await settle()
-
-    type('做个开箱片')
-    click('发送并创作')
-    expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
-  })
-
-  it('做不了视频的部署不接手，也不按视频发', async () => {
-    videoAvailable.value = false
-    useCanvasComposer.setState({ agentVideoPending: true })
+  it('输入框里没有图片 / 视频切换：入口已经说明了这一轮做什么', async () => {
+    useStore.setState({ appMode: 'video' })
     render()
     await settle()
 
-    expect(useAgentStore.getState().mode).toBe('image')
+    expect(document.querySelector('[aria-label^="创作类型"]')).toBeNull()
   })
 })
 
 describe('部署做不了视频时', () => {
-  it('不给「视频」这个选项', async () => {
+  it('视频入口也按图片发：服务端那时本来就把视频轮当图片轮装配', async () => {
     videoAvailable.value = false
-    render()
-    await settle()
-
-    const trigger = document.querySelector<HTMLElement>('[aria-label^="创作类型"]')
-    // 只有一个选项时开关本身也没有意义了。
-    expect(trigger).toBeNull()
-    expect(host.textContent).not.toContain('视频')
-  })
-
-  it('把上次存下来的视频草稿归一成图片，不按视频发出去', async () => {
-    const session = agentDraft(null)
-    session.update((draft) => ({ ...draft, mode: 'video' }))
-    videoAvailable.value = false
+    useStore.setState({ appMode: 'video' })
     render()
     await settle()
 
@@ -240,8 +194,6 @@ describe('部署做不了视频时', () => {
 describe('`/` 技能候选', () => {
   it('视频轮打 `/` 弹出图标、中文标题与用户向简介，选中后补成 `/name`', async () => {
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/story')
@@ -267,8 +219,6 @@ describe('`/` 技能候选', () => {
 
   it('技能标题与缩略图混排后仍按原命令和引用序号发送', async () => {
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
     type('/story')
     const option = host.querySelector<HTMLElement>('[role="option"]')!
@@ -296,8 +246,6 @@ describe('`/` 技能候选', () => {
   it('技能没写简介时次行退回 description，并去掉开头的「何时用：」', async () => {
     render()
     await settle()
-    chooseOption('创作类型：图片', '视频')
-    await settle()
 
     type('/image')
     const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')][0]
@@ -309,8 +257,6 @@ describe('`/` 技能候选', () => {
 
   it('只打一个 `/` 就列出这个 mode 的全部技能', async () => {
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/')
@@ -326,8 +272,6 @@ describe('`/` 技能候选', () => {
       references: [{ id: 'img-1', dataUrl: 'data:image/png;base64,aGk=' }],
     }))
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     // 光标停在命令名末尾（可见文本的第 6 位）。
@@ -345,6 +289,7 @@ describe('`/` 技能候选', () => {
   })
 
   it('图片轮没有技能时不弹任何候选', async () => {
+    useStore.setState({ appMode: 'create' })
     render()
     await settle()
     type('/story')

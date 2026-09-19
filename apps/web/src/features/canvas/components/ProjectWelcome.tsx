@@ -5,8 +5,8 @@ import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
-import { useCanvasComposer } from '../composerStore'
 import { exampleClipUrl, imageExampleKeys, videoExamples } from '../lib/creationExamples'
+import { useGenerationMode } from '../lib/generationMode'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import CanvasVideoParams from './CanvasVideoParams'
 import ProjectGrid from './ProjectGrid'
@@ -23,8 +23,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
   const { t } = useTranslation(['canvas', 'agent', 'video'])
   const error = useAgentStore((state) => state.error)
   const historyFailed = useAgentStore((state) => state.historyFailed)
-  const mode = useCanvasComposer((state) => state.mode)
-  const video = mode === 'video'
+  const video = useGenerationMode() === 'video'
   const examples = videoExamples()
   const imageKeys = imageExampleKeys()
 

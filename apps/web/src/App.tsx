@@ -5,7 +5,6 @@ import DetailModal from './components/DetailModal'
 import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
-import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
 import SettingsModal from './components/SettingsModal'
@@ -99,14 +98,11 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       {appMode !== 'browse' ? (
         <CanvasMode />
       ) : (
-        <>
-          <main data-home-main data-drag-select-surface className="pb-48">
-            <div className="safe-area-x max-w-7xl mx-auto">
-              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
-            </div>
-          </main>
-          <InputBar />
-        </>
+        <main data-home-main data-drag-select-surface className="pb-8">
+          <div className="safe-area-x max-w-7xl mx-auto">
+            <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
+          </div>
+        </main>
       )}
       <DetailModal />
       <Lightbox />
