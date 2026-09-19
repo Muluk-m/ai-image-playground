@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
+import { extractMeta } from '../../lib/extractImages'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -201,6 +202,52 @@ describe('async submit phase', () => {
 })
 
 describe('restart recovery', () => {
+  it('keeps a pre-upgrade GPT partial fan-out incomplete without resubmitting', async () => {
+    await insertTask('gpt-legacy-partial', {
+      status: 'in_progress',
+      started_at: 1,
+      request_payload: { prompt: 'p', n: 2 },
+      upstream_task_ids: ['imgtask_1'],
+      upstream_submitted_at: Date.now(),
+      upstream_invocation_count: 2,
+    })
+    await recoverTasksByIds(['gpt-legacy-partial'])
+    await runTask('gpt-legacy-partial')
+    expect(await readTask('gpt-legacy-partial')).toMatchObject({
+      status: 'failed',
+      errorType: 'upstream_result_unknown',
+      invocations: 2,
+      taskIds: ['imgtask_1'],
+    })
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_1'])
+  })
+
+  it('resumes a native GPT batch as one request and archives every output', async () => {
+    upstream.handler = () =>
+      json({ status: 'completed', result: { data: [{ url: RESULT_URL }, { url: RESULT_URL }] } })
+    await insertTask('gpt-native-resume', {
+      status: 'in_progress',
+      started_at: 1,
+      request_payload: { prompt: 'p', n: 2 },
+      upstream_task_ids: ['imgtask_batch'],
+      upstream_submitted_at: Date.now(),
+      upstream_invocation_count: 1,
+    })
+    await recoverTasksByIds(['gpt-native-resume'])
+    await runTask('gpt-native-resume')
+    expect(await readTask('gpt-native-resume')).toMatchObject({
+      status: 'completed',
+      invocations: 1,
+      taskIds: ['imgtask_batch'],
+    })
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'gpt-native-resume'))
+    expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_batch'])
+  })
+
   it('resumes polling from the stored id without resubmitting or recharging', async () => {
     await insertTask('async-resume', {
       status: 'in_progress',

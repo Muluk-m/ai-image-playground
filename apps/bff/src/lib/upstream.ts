@@ -137,6 +137,8 @@ export interface UpstreamCallParams {
 export interface UpstreamResume {
   readonly pollOnly?: boolean
   readonly taskIds: readonly string[]
+  /** 已派发的请求数；路由升级不能把旧 fan-out 的缺失提交认成完整原生批次。 */
+  readonly invocationCount?: number
   /** 首次提交时刻，超时预算的锚点；重启不能重新发一份完整预算。 */
   readonly submittedAt: number
 }
@@ -387,8 +389,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
       /**
        * 一次逻辑调用 → count 个上游请求 → 合并。同步模式直接发；异步模式提交后转轮询。
-       * n 策略两个端点共用：n===1 直接透传，n>1 fan-out 成 count 次单图请求（每次不带 n）
-       * 再合并 data，对 task-runner / 前端透明。
+       * count 是上游请求数，不是产图数；原生 n 只派发一次，其余路径逐图 fan-out。
+       * 恢复时保留已派发数量，避免新路由掩盖旧任务缺失的提交结果。
        */
       const dispatch = async (
         url: string,
@@ -404,10 +406,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           )
         }
         const protocol = imageTaskProtocol(base, url)
-        const taskIds = await collectTaskIds(protocol, count, makeInit)
+        const expectedCount = Math.max(count, resume?.invocationCount ?? 0)
+        const taskIds = await collectTaskIds(protocol, expectedCount, makeInit)
         const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
         const result = results.length === 1 ? results[0]! : merge(results)
-        if (taskIds.length < count) throw new UpstreamPartialResultError(result.payload)
+        if (taskIds.length < expectedCount) throw new UpstreamPartialResultError(result.payload)
         return result
       }
 
