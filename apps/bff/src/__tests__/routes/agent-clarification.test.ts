@@ -6,11 +6,11 @@ import {
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  eventsOfType,
   parseFrames,
   recordingAgentFetch,
   toolCallCompletion,
@@ -109,27 +109,6 @@ function clarificationCall(id: string, options: readonly string[]) {
   })
 }
 
-/** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
-function settleSubmittedTasks(): () => void {
-  let stopped = false
-  void (async () => {
-    while (!stopped) {
-      await db
-        .update(schema.tasks)
-        .set({
-          status: 'completed',
-          result_payload: { data: [{ b64_json: 'aGk=', mime: 'image/png' }] },
-          completed_at: Date.now(),
-        })
-        .where(eq(schema.tasks.status, 'queued'))
-      await Bun.sleep(2)
-    }
-  })()
-  return () => {
-    stopped = true
-  }
-}
-
 beforeEach(async () => {
   _setChannelsForTesting([IMAGE_CHANNEL])
   setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
@@ -224,14 +203,16 @@ describe('智能体澄清', () => {
         () => completionStream('不该走到这里'),
       ]),
     )
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '画只猫')
-    stop()
 
-    // 生图提交即收尾（后台任务），没有等结果那段进度。
+    // 生图只拟稿，卡片停在等确认；澄清照样是这一轮的收尾。
     expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'clarification', 'turnEnd'])
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      toolName: 'generateImage',
+      status: 'awaiting_confirmation',
+    })
     const end = frames.at(-1)!.event
     expect(end).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
     expect(calls).toHaveLength(1)

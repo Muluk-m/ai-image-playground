@@ -6,6 +6,7 @@ import {
   agentConversationTitle,
   agentHeartbeatFrame,
   agentMessageText,
+  agentToolResultSummary,
   agentTurnCostTotal,
   encodeAgentFrame,
   parseAgentFrame,
@@ -36,6 +37,36 @@ describe('agentMessageText', () => {
       createdAt: 1,
     })
     expect(text).toBe('好的，我来处理')
+  })
+})
+
+describe('confirmed generation instructions in model history', () => {
+  it('keeps the edited instruction available after a confirmed job fails', () => {
+    const prompt = '将浴缸换成白色，保留绿植。'
+    const summary = agentToolResultSummary({
+      type: 'toolResult',
+      toolCallId: 'edit-bath',
+      toolName: 'editImage',
+      title: '换浴缸',
+      status: 'failed',
+      message: 'timeout',
+      prompt,
+      job: { taskId: 'confirmed-task', media: 'image' },
+    })
+    expect(summary).toContain(prompt)
+  })
+
+  it('does not replay an unconfirmed failed tool proposal as executed instructions', () => {
+    const prompt = '未经确认的绿色浴缸方案'
+    const summary = agentToolResultSummary({
+      type: 'toolResult',
+      toolCallId: 'failed-draft',
+      toolName: 'editImage',
+      title: '换浴缸',
+      status: 'failed',
+      prompt,
+    })
+    expect(summary).not.toContain(prompt)
   })
 })
 

@@ -10,6 +10,7 @@ import {
 } from '../../lib/private-overlay'
 import {
   completionStream,
+  confirmPendingDrafts,
   controlledCompletion,
   eventsOfType,
   parseFrames,
@@ -134,47 +135,41 @@ async function project() {
   ).json()
   return { id, conversationId: conversation.id as string }
 }
+/**
+ * 一轮生图：模型只拟稿，用户在卡上确认之后任务才建出来。确认完先读一眼历史（那时任务还排着），
+ * 再让 worker 把它跑完。
+ */
 async function runTool(conversationId: string) {
   const response = await request(`/api/agent/conversations/${conversationId}/turns`, deviceA, {
     deviceId: 'tool-history-device',
     text: '生成一张图片',
   })
   if (!response.ok) throw new Error(await response.text())
-  const reader = response.body!.getReader(),
-    decoder = new TextDecoder()
-  let payload = '',
-    accepted: GenerationDetail | undefined
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      payload += decoder.decode(value, { stream: true })
-      if (
-        !accepted &&
-        // 生图是后台任务：工具收尾时任务已经提交、还排着。
-        parseFrames(payload).some(
-          (frame) => frame.event.type === 'toolEnd' && frame.event.status === 'submitted',
-        )
-      ) {
-        const page = await (await request('/api/generations', deviceB)).json()
-        accepted = (await (
-          await request(`/api/generations/${page.items[0].id}`, deviceB)
-        ).json()) as GenerationDetail
-        await runTask(accepted.id)
-      }
-    }
-  } finally {
-    await reader.cancel()
-  }
-  if (!accepted) throw new Error('tool did not submit')
-  return { frames: parseFrames(payload), accepted }
+  const frames = parseFrames(await response.text())
+  // 拟稿即收尾：这一轮结束时什么都没提交，历史里也还没有它。
+  expect(eventsOfType(frames, 'toolEnd')).toMatchObject([{ status: 'awaiting_confirmation' }])
+  expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(0)
+  const [confirmed] = await confirmPendingDrafts(app, conversationId, {
+    deviceId: 'tool-history-device',
+    cookie: deviceA,
+  })
+  const page = await (await request('/api/generations', deviceB)).json()
+  const accepted = (await (
+    await request(`/api/generations/${page.items[0].id}`, deviceB)
+  ).json()) as GenerationDetail
+  await runTask(accepted.id)
+  return { frames, accepted, confirmed: confirmed! }
 }
 
 it('真正工具任务冻结项目会话来源，会话轮本身不成为图片历史，临时任务清理后归属仍在', async () => {
   const original = await project()
-  const { frames, accepted } = await runTool(original.conversationId)
+  const { frames, accepted, confirmed } = await runTool(original.conversationId)
   const turn = eventsOfType(frames, 'turnStart')[0]!
-  expect(eventsOfType(frames, 'toolEnd')).toMatchObject([{ status: 'submitted' }])
+  // 用户确认之后，那张卡带着刚建出来的任务转成已提交。
+  expect(confirmed).toMatchObject({
+    status: 'submitted',
+    job: { taskId: accepted.id, media: 'image' },
+  })
   const source = {
     kind: 'agent',
     conversationId: original.conversationId,

@@ -6,11 +6,12 @@ import {
   type AgentToolResultBlock,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  confirmPendingDrafts,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
   toolCallCompletion,
@@ -41,6 +42,7 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
+const CHAT_MODEL = 'fixture-agent-model'
 const USER_ID = 'agent-wake-credits-user'
 let sessionToken = ''
 
@@ -82,6 +84,28 @@ async function runTurn(conversationId: string, text: string) {
   const body = await response.text()
   if (!response.ok) throw new Error(`turn returned ${response.status}: ${body}`)
   await waitFor(async () => !(await leased(conversationId)), 3_000)
+}
+
+/** 用户在卡上按下确认：拟稿之后任务才建出来，预扣也要到这一步才发生。 */
+function confirmDrafts(conversationId: string) {
+  return confirmPendingDrafts(app, conversationId, {
+    deviceId: DEVICE,
+    cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+  })
+}
+
+/** 这个会话里工具交出去的那条生成任务；对话轮自己那条 chat 任务不在此列。 */
+async function generationTask(conversationId: string) {
+  const [row] = await db
+    .select()
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.agent_conversation_id, conversationId),
+        ne(schema.tasks.model, CHAT_MODEL),
+      ),
+    )
+  return row
 }
 
 async function snapshot(conversationId: string): Promise<AgentConversationSnapshot> {
@@ -142,16 +166,13 @@ describe('积分不足时不唤醒', () => {
             name: 'generateImage',
             args: { prompt: '一只橘猫' },
           }),
-        () => completionStream('已开始出图'),
         () => completionStream('不该有这一轮'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
-    const [task] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.agent_conversation_id, conversationId))
+    await confirmDrafts(conversationId)
+    const task = await generationTask(conversationId)
 
     // 这一轮之后余额见底：任务失败本该唤醒智能体，但再起一轮的预扣会被拒。
     billing.answer = { kind: 'insufficient_credits', required: 50, available: 3 }
@@ -170,7 +191,7 @@ describe('积分不足时不唤醒', () => {
     ).toBe(true)
 
     expect(await pickUpStrandedInboxes()).toBe(0)
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
     expect(await turnCount(conversationId)).toBe(1)
     const [wake] = await db
       .select()
@@ -196,7 +217,7 @@ describe('积分不足时不唤醒', () => {
     // 充值之后也不补唤醒：这一批已经了结，结果在用户下次说话时智能体看得到。
     billing.answer = { kind: 'reserved', credits: 50 }
     expect(await pickUpStrandedInboxes()).toBe(0)
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
   })
 
   it('lets the user message start without the merged wake when only the merged turn does not fit', async () => {
@@ -208,17 +229,14 @@ describe('积分不足时不唤醒', () => {
             name: 'generateImage',
             args: { prompt: '一只橘猫' },
           }),
-        () => completionStream('已开始出图'),
         () => completionStream('好的，背景换成蓝色'),
         () => completionStream('不该有单独的唤醒轮'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
-    const [task] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.agent_conversation_id, conversationId))
+    await confirmDrafts(conversationId)
+    const task = await generationTask(conversationId)
     const now = Date.now()
     await db
       .update(schema.tasks)
@@ -245,9 +263,9 @@ describe('积分不足时不唤醒', () => {
 
     // 用户的话照常起轮，模型收到的只有他的原话，没有并进唤醒说明。
     await waitFor(async () => (await wakeRow(conversationId))?.status === 'cancelled', 3_000)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     const asked = JSON.stringify(
-      calls[2]!.messages.filter((message) => message.role === 'user').at(-1),
+      calls[1]!.messages.filter((message) => message.role === 'user').at(-1),
     )
     expect(asked).toContain('顺便把背景换成蓝色')
     expect(asked).not.toContain('先回应用户这条消息')
@@ -268,7 +286,7 @@ describe('积分不足时不唤醒', () => {
       )
     expect(block?.wakeSkipped).toBe('insufficient_credits')
     expect(await pickUpStrandedInboxes()).toBe(0)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
   })
 })
 

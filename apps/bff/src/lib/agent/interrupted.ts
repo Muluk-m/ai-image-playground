@@ -1,11 +1,12 @@
 import type { AgentInboxResumePayload } from '@image-playground/db'
 import type { AgentToolEndEvent } from '@image-playground/shared'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { appendAgentMessage, listAgentToolCalls } from './conversations'
 import {
   type AgentReplayedSubmission,
   agentSubmissionKey,
+  agentToolDraftedBlock,
   agentToolStartFromSnapshot,
   agentToolSubmittedBlock,
   isAgentToolName,
@@ -41,8 +42,10 @@ export async function recoverInterruptedTurn(
   const events = await restoreSubmittedJobCards(conversationId, turnId)
   return { events, resume: await resumePayload(conversationId, turnId) }
 }
-
-/** 工具起跑落了快照、任务也提交了，结果卡却没写下的那几次调用：照快照补写成「已提交」。 */
+/**
+ * 结果卡没写下的那几次调用，照它们留下的东西补一张：提交过任务的补「已提交」，只拟了稿的
+ * 按草稿补「等待确认」——草稿已经落库，卡没落就点不开，那份材料会永远卡在库里。
+ */
 async function restoreSubmittedJobCards(
   conversationId: string,
   turnId: string,
@@ -79,20 +82,35 @@ async function restoreSubmittedJobCards(
       ),
     )
     .orderBy(asc(schema.agent_jobs.submitted_at))
+  const pending = await db
+    .select({
+      toolCallId: schema.agent_generation_drafts.tool_call_id,
+      prompt: schema.agent_generation_drafts.prompt,
+      submission: schema.agent_generation_drafts.submission,
+    })
+    .from(schema.agent_generation_drafts)
+    .where(
+      and(
+        eq(schema.agent_generation_drafts.conversation_id, conversationId),
+        eq(schema.agent_generation_drafts.turn_id, turnId),
+        isNull(schema.agent_generation_drafts.task_id),
+      ),
+    )
   const restored: AgentToolEndEvent[] = []
   for (const call of calls) {
     if (stored.has(call.messageId) || !isAgentToolName(call.toolName)) continue
+    const start = agentToolStartFromSnapshot(call.toolName, call.toolCallId, call.snapshot)
     const job = jobs.find((one) => one.toolCallId === call.toolCallId)
-    // 没提交出任务的调用没有东西可交代：它连同那段没说完的回复一起丢掉。
-    if (!job) continue
-    const block = agentToolSubmittedBlock(
-      agentToolStartFromSnapshot(call.toolName, call.toolCallId, call.snapshot),
-      {
-        taskId: job.taskId,
-        media: call.toolName === 'generateVideo' ? 'video' : 'image',
-        ...(job.review ? { review: true as const } : {}),
-      },
-    )
+    const draft = pending.find((one) => one.toolCallId === call.toolCallId)
+    // 没提交出任务、也没拟出稿的调用没有东西可交代：它连同那段没说完的回复一起丢掉。
+    if (!job && !draft) continue
+    const block = job
+      ? agentToolSubmittedBlock(start, {
+          taskId: job.taskId,
+          media: call.toolName === 'generateVideo' ? 'video' : 'image',
+          ...(job.review ? { review: true as const } : {}),
+        })
+      : agentToolDraftedBlock(start, draft!.prompt, draft!.submission.anchorObjectId)
     await appendAgentMessage(db, {
       id: call.messageId,
       conversationId,
@@ -144,8 +162,16 @@ async function resumePayload(
         eq(schema.agent_messages.role, 'assistant'),
       ),
     )
-  // 它已经问出了澄清：在等用户回答，不是没做完。
-  if (said.some((message) => message.content.some((block) => block.type === 'clarification')))
+  // 它已经问出了澄清，或者已经拟好一张等确认的稿：都是在等用户，不是没做完。
+  if (
+    said.some((message) =>
+      message.content.some(
+        (block) =>
+          block.type === 'clarification' ||
+          (block.type === 'toolResult' && block.status === 'awaiting_confirmation'),
+      ),
+    )
+  )
     return null
   const payload = started.payload
   // 被打断的是一轮唤醒：续跑接着处理它那一批结果，输入全部沿用那一批（见 `executeResumeTurn`）。

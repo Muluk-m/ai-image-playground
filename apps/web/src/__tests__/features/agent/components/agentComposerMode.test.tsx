@@ -142,7 +142,7 @@ describe('创作类型切换', () => {
     await settle()
 
     type('画一只猫')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
@@ -153,10 +153,10 @@ describe('创作类型切换', () => {
     await settle()
 
     type('做个开箱片')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
     type('再来一段')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenLastCalledWith('再来一段', [], 'video')
   })
 
@@ -184,7 +184,7 @@ describe('从视频入口或「生成视频」进来', () => {
     chooseOption('创作类型：视频', '图片')
     await settle()
     type('画一只猫')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
@@ -197,7 +197,7 @@ describe('从视频入口或「生成视频」进来', () => {
     await settle()
 
     type('做个开箱片')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
   })
 
@@ -231,7 +231,7 @@ describe('部署做不了视频时', () => {
     await settle()
 
     type('画一只猫')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
     expect(useAgentStore.getState().mode).toBe('image')
   })
@@ -285,7 +285,7 @@ describe('`/` 技能候选', () => {
     type(' 做成短片')
     expect(editor().textContent).toContain('分镜短片')
     expect(editor().textContent).not.toContain('/storyboard-short')
-    click('发送并创作')
+    click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith(
       '/storyboard-short 参考 [image 1] 做成短片',
       [{ imageId: 'ref', dataUrl: 'data:image/png;base64,aGk=' }],

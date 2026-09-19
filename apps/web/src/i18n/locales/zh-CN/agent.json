@@ -47,6 +47,20 @@
     "place": "放入画布",
     "viewPrompt": "查看提示词"
   },
+  "confirm": {
+    "pending": "提示词已拟好，还没有提交生成任务，也没有扣生成的积分。核对下面这段（可以直接改）后点「确认生成」。",
+    "charge": "这段对话本身的消耗照常计入；生成的花费在确认之后才产生。",
+    "fieldAria": "待确认的提示词",
+    "submit": "确认生成",
+    "submitting": "提交中…",
+    "empty": "提示词不能为空",
+    "outputsImage_other": "确认后生成 {{count}} 张",
+    "outputsVideo_other": "确认后生成 {{count}} 段视频",
+    "model": "模型 {{name}}",
+    "gone": "这张草稿卡已经不在了，让助手重新拟一份吧。",
+    "notConfirmable": "这份草稿已失效（可能在别处确认过），让助手重新拟一份吧。",
+    "failed": "没能提交，改过的提示词已保留，请重试。"
+  },
   "toolFailure": {
     "recharge": "去充值",
     "login": "去登录",
@@ -91,7 +105,8 @@
     "attachAria": "添加参考图",
     "attachTitle": "添加参考图（也可以拖进来或粘贴）",
     "sending": "发送中…",
-    "sendAndCreate": "发送并创作",
+    "sendAndCreate": "发送并拟提示词",
+    "sendAndCreateTitle": "发送：助手先拟好提示词，你确认后才开始生成",
     "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
     "abortedToast": "已中止，草稿已放回输入框。",
     "aborting": "正在中止…",

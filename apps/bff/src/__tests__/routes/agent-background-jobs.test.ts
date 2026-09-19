@@ -14,6 +14,7 @@ import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  confirmPendingDrafts,
   controlledCompletion,
   eventsOfType,
   parseFrames,
@@ -152,6 +153,11 @@ function generateCall(n = 1) {
   })
 }
 
+/** 用户在卡上确认：生图工具只拟稿，后台任务要到这一步才建出来。 */
+function confirmDrafts(conversationId: string) {
+  return confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+}
+
 beforeEach(async () => {
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
   setObjectStoreForTesting(new InMemoryObjectStore())
@@ -173,42 +179,46 @@ afterAll(async () => {
 })
 
 describe('生成改为后台任务', () => {
-  it('hands the conversation back as soon as the task is submitted', async () => {
+  it('drafts first and hands the conversation back, and submits when the user confirms', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [() => generateCall(2), () => completionStream('已开始出 2 张')]),
+      scriptedAgentFetch(calls, [() => generateCall(2), () => completionStream('还排着')]),
     )
     const conversationId = await startConversation()
 
     // 没有 worker：任务一直排着，轮照样收尾。
     const frames = await runTurn(conversationId, '画两张橘猫')
 
-    expect(types(frames)).toEqual([
-      'turnStart',
-      'toolStart',
-      'toolEnd',
-      'assistantStart',
-      'textDelta',
-      'turnEnd',
-    ])
+    // 拟稿即收尾：不再问模型第二次，这一刻一条任务都没有。
+    expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'turnEnd'])
     expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    expect(calls).toHaveLength(1)
+    expect(await db.select().from(schema.tasks)).toEqual([])
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end).toMatchObject({ toolCallId: 'call-1', status: 'awaiting_confirmation' })
+    expect(end!.job).toBeUndefined()
+    // 待确认的卡没有任务可等，不进后台任务列表。
+    expect(await readJobs(conversationId)).toEqual([])
+
+    const [confirmed] = await confirmDrafts(conversationId)
+
     const task = await onlyTask()
     expect(task.status).toBe('queued')
-    const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end).toMatchObject({
+    // 张数随草稿冻结，按拟稿时那一份提交。
+    expect(task.request_payload.n).toBe(2)
+    expect(confirmed).toMatchObject({
       toolCallId: 'call-1',
       status: 'submitted',
       job: { taskId: task.id, media: 'image' },
     })
-    expect(end!.artifacts).toBeUndefined()
+    expect(confirmed!.artifacts).toBeUndefined()
 
-    // 模型收到的是「已提交、结果尚未就绪」，不是一个可以顺口说「画好了」的结果。
-    const toolResult = JSON.stringify(calls[1]!.messages.at(-1))
-    expect(toolResult).toContain('结果尚未就绪')
-    expect(toolResult).toContain(task.id)
+    // 模型下一轮看到的是「已提交、结果尚未就绪」，不是一个可以顺口说「画好了」的结果。
+    await runTurn(conversationId, '好了吗')
+    expect(JSON.stringify(calls[1]!.messages.slice(1))).toContain('结果尚未就绪')
   })
 
-  it('tells the model in the system prompt and tool description not to claim unfinished results', async () => {
+  it('tells the model in the system prompt and tool description that a draft submits nothing', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好的')]))
     const conversationId = await startConversation()
@@ -216,23 +226,24 @@ describe('生成改为后台任务', () => {
     await runTurn(conversationId, '你好')
 
     const system = JSON.stringify(calls[0]!.messages[0]!.content)
-    expect(system).toContain('结果出来之前不得宣称已经完成')
+    expect(system).toContain('不得声称已经开始或完成生成')
+    // 工具自己也说清楚：这一次调用什么都没提交，更谈不上有结果。
     const tools = JSON.stringify(calls[0]!.tools)
-    expect(tools).toContain('返回时结果尚未就绪')
+    expect(tools).toContain('没有提交任务')
   })
 
   it('delivers the finished task to the job list, the snapshot and the next turn', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () => generateCall(2),
-        () => completionStream('已开始'),
-        () => completionStream('看到了'),
-      ]),
+      scriptedAgentFetch(calls, [() => generateCall(2), () => completionStream('看到了')]),
     )
     const conversationId = await startConversation()
     const frames = await runTurn(conversationId, '画两张橘猫')
     const [end] = eventsOfType(frames, 'toolEnd')
+    // 待确认的卡不在这张表上：它还没有任务可等。
+    expect(await readJobs(conversationId)).toEqual([])
+
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
 
     const pending = await readJobs(conversationId)
@@ -253,6 +264,7 @@ describe('生成改为后台任务', () => {
       projectArtifactId(task.id, 0),
       projectArtifactId(task.id, 1),
     ])
+    // 确认就地改写那张卡：结局落在拟稿时的同一条消息上。
     const snapshot = await readMessages(conversationId)
     expect(snapshot.find((message) => message.id === end!.messageId)?.content).toEqual([
       done!.result,
@@ -266,7 +278,7 @@ describe('生成改为后台任务', () => {
     // 没有唤醒：用户下次说话时，模型在对话记录里看到结果。
     await runTurn(conversationId, '效果怎么样')
     // 系统提示词里也有「结果尚未就绪」那句规矩，只看回放的对话记录。
-    const replay = JSON.stringify(calls[2]!.messages.slice(1))
+    const replay = JSON.stringify(calls[1]!.messages.slice(1))
     expect(replay).toContain(`完成，图片 ${projectArtifactId(task.id, 0)}`)
     expect(replay).not.toContain('结果尚未就绪')
   })
@@ -274,14 +286,11 @@ describe('生成改为后台任务', () => {
   it('settles a finished task before the retention purge even if nobody read the conversation', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () => generateCall(),
-        () => completionStream('已开始'),
-        () => completionStream('看到了'),
-      ]),
+      scriptedAgentFetch(calls, [() => generateCall(), () => completionStream('看到了')]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
 
     // 用户关掉页面，任务跑完，过了保留期才被清：清之前没有任何人读过这个会话。
@@ -297,7 +306,7 @@ describe('生成改为后台任务', () => {
     ])
 
     await runTurn(conversationId, '效果怎么样')
-    const replay = JSON.stringify(calls[2]!.messages.slice(1))
+    const replay = JSON.stringify(calls[1]!.messages.slice(1))
     expect(replay).toContain(`完成，图片 ${projectArtifactId(task.id, 0)}`)
     expect(replay).not.toContain('任务丢失了')
   })
@@ -308,6 +317,7 @@ describe('生成改为后台任务', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
     await finishTask(task.id, 'in_progress')
 
@@ -322,6 +332,7 @@ describe('生成改为后台任务', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
 
     await finishTask(task.id, 'in_progress')
@@ -333,18 +344,22 @@ describe('生成改为后台任务', () => {
     expect(failed!.result.artifacts).toBeUndefined()
   })
 
-  it('does not cancel the submitted task when the reply is stopped', async () => {
+  it('does not cancel a confirmed task when a later reply is stopped', async () => {
     const calls: AgentCall[] = []
     const reply = controlledCompletion()
     let at = 0
     const answers = [() => generateCall(), (signal?: AbortSignal) => reply.responseFor(signal)]
     setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => answers[at++]!(signal)))
     const conversationId = await startConversation()
+    await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
+    expect((await onlyTask()).status).toBe('queued')
 
-    const response = await turnRequest(conversationId, '画一只橘猫')
-    // 读到工具收尾那一帧：任务已经提交，轮还在等下一句回复。
+    // 任务在后台排着，用户又说了一句；停的是这一句的回复，不是那条任务。
+    const response = await turnRequest(conversationId, '顺便说说别的')
+    reply.push('我看看')
     const seen = await readFrames(response, 3)
-    expect(types(seen)).toEqual(['turnStart', 'toolStart', 'toolEnd'])
+    expect(types(seen)).toEqual(['turnStart', 'assistantStart', 'textDelta'])
     const turnId = eventsOfType(seen, 'turnStart')[0]!.turnId
 
     const stopped = await request(
@@ -364,8 +379,7 @@ describe('生成改为后台任务', () => {
       await Bun.sleep(5)
     }
 
-    const task = await onlyTask()
-    expect(task.status).toBe('queued')
+    expect((await onlyTask()).status).toBe('queued')
     expect((await readJobs(conversationId))[0]!.result.status).toBe('submitted')
   })
 
@@ -375,6 +389,7 @@ describe('生成改为后台任务', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
     expect(task.status).toBe('queued')
 
@@ -403,6 +418,7 @@ describe('后台任务的进度与取消', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
 
     // 排着队：阶段是「已提交」，已用时间从任务受理那一刻算，谁来读都是同一个起点。
@@ -433,6 +449,7 @@ describe('后台任务的进度与取消', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
     const setTask = (patch: Partial<typeof schema.tasks.$inferInsert>) =>
       db.update(schema.tasks).set(patch).where(eq(schema.tasks.id, task.id))
@@ -491,6 +508,7 @@ describe('后台任务的进度与取消', () => {
     const conversationId = await startConversation()
     const frames = await runTurn(conversationId, '画一只橘猫')
     const [end] = eventsOfType(frames, 'toolEnd')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
     await finishTask(task.id, 'in_progress')
 
@@ -528,6 +546,7 @@ describe('后台任务的进度与取消', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
     await finishTask(task.id, 'completed')
 
@@ -544,6 +563,7 @@ describe('后台任务的进度与取消', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const task = await onlyTask()
 
     expect((await cancelJob(conversationId, 'not-a-task')).status).toBe(404)

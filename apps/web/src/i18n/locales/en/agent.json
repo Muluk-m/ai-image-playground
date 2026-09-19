@@ -47,6 +47,22 @@
     "place": "Add to canvas",
     "viewPrompt": "View prompt"
   },
+  "confirm": {
+    "pending": "The prompt is drafted. Nothing is generating yet and no generation credits have been spent. Read it below — you can edit it — then press Confirm and generate.",
+    "charge": "The conversation itself still costs what it costs; generation is charged only once you confirm.",
+    "fieldAria": "Prompt awaiting confirmation",
+    "submit": "Confirm and generate",
+    "submitting": "Submitting…",
+    "empty": "The prompt can't be empty",
+    "outputsImage_one": "Generates {{count}} image once confirmed",
+    "outputsImage_other": "Generates {{count}} images once confirmed",
+    "outputsVideo_one": "Generates {{count}} video once confirmed",
+    "outputsVideo_other": "Generates {{count}} videos once confirmed",
+    "model": "Model {{name}}",
+    "gone": "This draft card is gone. Ask the assistant to draft it again.",
+    "notConfirmable": "This draft is no longer valid — it may have been confirmed elsewhere. Ask the assistant to draft it again.",
+    "failed": "Couldn't submit it. Your edited prompt is kept, please retry."
+  },
   "toolFailure": {
     "recharge": "Top up",
     "login": "Sign in",
@@ -92,7 +108,8 @@
     "attachAria": "Add a reference image",
     "attachTitle": "Add a reference image (you can also drop or paste one)",
     "sending": "Sending…",
-    "sendAndCreate": "Send and create",
+    "sendAndCreate": "Send and draft the prompt",
+    "sendAndCreateTitle": "Send: the assistant drafts a prompt first; generation starts only after you confirm",
     "tooManyReferences_one": "At most {{count}} reference image per turn",
     "tooManyReferences_other": "At most {{count}} reference images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",

@@ -160,6 +160,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     ...(input.wake?.plan ? { carried: input.wake.plan.authorization } : {}),
   })
   let clarified = false
+  /** 这一轮已经拟出待确认的稿：接下来该说话的是用户，再问一次模型只是白花钱。 */
+  let drafted = false
   const maskedEditPlan = createMaskedEditPlan(
     () => authorization.current().instructions,
     images.identify,
@@ -197,8 +199,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     },
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
-    // 澄清或用户中止后，不再回上游追加一次模型调用。
-    shouldStopAfterTurn: () => clarified || aborted,
+    // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
+    shouldStopAfterTurn: () => clarified || drafted || aborted,
     transformContext: createCompactionTransform({
       conversationId: input.conversationId,
       turnId: input.turnId,
@@ -401,6 +403,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
+      if (block.status === 'awaiting_confirmation') drafted = true
       if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'
         agent.abort()

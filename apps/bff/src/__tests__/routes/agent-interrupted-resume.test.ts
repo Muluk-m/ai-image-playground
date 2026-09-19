@@ -13,6 +13,7 @@ import {
   type AgentCall,
   type ControlledCompletion,
   completionStream,
+  confirmPendingDrafts,
   controlledCompletion,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
@@ -124,6 +125,48 @@ async function tasksOf(conversationId: string) {
     .where(eq(schema.tasks.agent_conversation_id, conversationId))
 }
 
+async function jobsOf(conversationId: string) {
+  return db
+    .select()
+    .from(schema.agent_jobs)
+    .where(eq(schema.agent_jobs.conversation_id, conversationId))
+}
+
+/** 这次调用落库的结果卡：工具一跑完它就在，用户此刻就能在卡上按确认。 */
+async function cardOf(conversationId: string, toolCallId: string) {
+  const [row] = await db
+    .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        sql`${schema.agent_messages.content}->0->>'toolCallId' = ${toolCallId}`,
+      ),
+    )
+  return row ? { id: row.id, block: row.content[0] as AgentToolResultBlock } : undefined
+}
+
+/**
+ * 等这次调用的卡落定：卡片与它的事件都落了库——进程此刻死掉，续播的客户端与刷新回来的用户
+ * 看到的是同一张卡，补写也认得出这一轮做到哪儿了。
+ */
+async function waitForCard(conversationId: string, toolCallId: string) {
+  await waitFor(async () => {
+    const [event] = await db
+      .select({ seq: schema.agent_turn_events.seq })
+      .from(schema.agent_turn_events)
+      .where(
+        and(
+          eq(schema.agent_turn_events.conversation_id, conversationId),
+          sql`${schema.agent_turn_events.event}->>'toolCallId' = ${toolCallId}`,
+          sql`${schema.agent_turn_events.event}->>'type' = 'toolEnd'`,
+        ),
+      )
+    return event !== undefined && (await cardOf(conversationId, toolCallId)) !== undefined
+  }, 3_000)
+  return (await cardOf(conversationId, toolCallId))!
+}
+
 /** 这几个字已经作为事件落了库：进程此刻死掉，续播的客户端也看过它们。 */
 async function deltaStored(conversationId: string, delta: string): Promise<boolean> {
   const [row] = await db
@@ -138,10 +181,58 @@ async function deltaStored(conversationId: string, delta: string): Promise<boole
   return row !== undefined
 }
 
+/** 执行者没了：执行租约被接管（心跳过期、归了一个已经不在的实例）。 */
+async function abandonExecution(conversationId: string): Promise<void> {
+  await db
+    .update(schema.agent_executions)
+    .set({ instance: 'crashed-instance', heartbeat_at: Date.now() - 2 * AGENT_EXECUTION_LEASE_MS })
+    .where(eq(schema.agent_executions.conversation_id, conversationId))
+}
+
+/** 与确认端点自己那把卡片锁不在一个号段：这一把只用来把第二次拟稿按住。 */
+const DRAFT_STALL_LOCK = 8_731_042
+
 /**
- * 回复说到一半，执行者没了：已经流出去的那几个字落了事件，执行租约被接管（心跳过期、归了一个
- * 已经不在的实例）。这边的轮再想落库就发现租约丢了，只能撒手——和进程被杀时留下的一样：没有
- * 终帧、没有页脚、租约还标着在跑。
+ * 把 `call-2` 那次调用按在草稿落库那一步，放手时这一笔再也写不下去：测试握着这把咨询锁的
+ * 这段时间里，第一张卡已经落库（用户看得见、也确认得了），而这一轮还在准备第二张——进程正是
+ * 死在这里，准备了一半的那次调用什么也没留下。
+ */
+async function holdSecondDraft(): Promise<() => Promise<void>> {
+  await db.execute(
+    sql.raw(`CREATE FUNCTION hold_second_draft() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(${DRAFT_STALL_LOCK});
+        RAISE EXCEPTION 'the executor died before this draft landed';
+      END $$`),
+  )
+  await db.execute(sql`
+    CREATE TRIGGER hold_second_draft BEFORE INSERT ON agent_generation_drafts FOR EACH ROW
+    WHEN (NEW.tool_call_id = 'call-2') EXECUTE FUNCTION hold_second_draft()`)
+  let release!: () => void
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let acquired!: () => void
+  const locked = new Promise<void>((resolve) => {
+    acquired = resolve
+  })
+  const holding = db.transaction(async (tx) => {
+    await tx.execute(sql.raw(`SELECT pg_advisory_xact_lock(${DRAFT_STALL_LOCK})`))
+    acquired()
+    await released
+  })
+  await locked
+  return async () => {
+    release()
+    await holding
+    await db.execute(sql`DROP TRIGGER hold_second_draft ON agent_generation_drafts`)
+    await db.execute(sql`DROP FUNCTION hold_second_draft()`)
+  }
+}
+
+/**
+ * 回复说到一半，执行者没了：已经流出去的那几个字落了事件，执行租约被接管。这边的轮再想落库
+ * 就发现租约丢了，只能撒手——和进程被杀时留下的一样：没有终帧、没有页脚、租约还标着在跑。
  */
 async function crashMidReply(
   conversationId: string,
@@ -150,10 +241,7 @@ async function crashMidReply(
 ): Promise<void> {
   upstream.push(partial)
   await waitFor(() => deltaStored(conversationId, partial), 3_000)
-  await db
-    .update(schema.agent_executions)
-    .set({ instance: 'crashed-instance', heartbeat_at: Date.now() - 2 * AGENT_EXECUTION_LEASE_MS })
-    .where(eq(schema.agent_executions.conversation_id, conversationId))
+  await abandonExecution(conversationId)
   upstream.push('，剩下的这半句永远不会落库')
   upstream.finish()
   await waitFor(async () => runningTurn(conversationId) === undefined, 3_000)
@@ -300,73 +388,68 @@ describe('中断续跑', () => {
     expect(footers.map((one) => one.error)).toEqual(['agent_turn_interrupted', undefined])
   })
 
-  it('does not resubmit a job the interrupted turn already submitted, and restores its card', async () => {
-    const interrupted = controlledCompletion()
+  it('does not resubmit a job confirmed on the interrupted turn, and keeps its submitted card', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () =>
-          toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '一只橘猫' } }),
-        () => interrupted.responseFor(),
+          toolCallCompletion(
+            { id: 'call-1', name: 'generateImage', args: { prompt: '一只橘猫' } },
+            { id: 'call-2', name: 'generateImage', args: { prompt: '再来一版橘猫' } },
+          ),
         // 续跑那一轮的模型没理会提示，把同一张图又要了一次：服务端按幂等键交回原来那个任务。
         () =>
-          toolCallCompletion({ id: 'call-2', name: 'generateImage', args: { prompt: '一只橘猫' } }),
+          toolCallCompletion({ id: 'call-3', name: 'generateImage', args: { prompt: '一只橘猫' } }),
         () => completionStream('图还在后台出，出来后会放到画布上。'),
       ]),
     )
     const conversationId = await startConversation()
-    await send(conversationId, '画一只橘猫')
-    await waitFor(async () => calls.length === 2, 3_000)
+    const release = await holdSecondDraft()
+    try {
+      await send(conversationId, '画一只橘猫')
+      await waitForCard(conversationId, 'call-1')
+      // 用户在这一轮还跑着的时候按下了确认：任务与后台登记都记在这一轮名下。
+      expect(await tasksOf(conversationId)).toEqual([])
+      const [confirmed] = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+      expect(confirmed).toMatchObject({ status: 'submitted', prompt: '一只橘猫' })
+      // 确认之后执行者就没了：这一轮再想落库就发现租约丢了。
+      await abandonExecution(conversationId)
+    } finally {
+      await release()
+    }
+    await waitFor(async () => runningTurn(conversationId) === undefined, 3_000)
     const [task] = await tasksOf(conversationId)
     expect(task).toBeDefined()
-    // 进程死在任务提交之后、结果卡落库之前：任务与登记已经写下，结果卡没有。
-    const [call] = await db
-      .select()
-      .from(schema.agent_tool_calls)
-      .where(eq(schema.agent_tool_calls.conversation_id, conversationId))
-    await db
-      .delete(schema.agent_messages)
-      .where(
-        and(
-          eq(schema.agent_messages.conversation_id, conversationId),
-          eq(schema.agent_messages.id, call!.message_id),
-        ),
-      )
-    await db
-      .delete(schema.agent_turn_events)
-      .where(
-        and(
-          eq(schema.agent_turn_events.conversation_id, conversationId),
-          sql`${schema.agent_turn_events.event}->>'type' = 'toolEnd'`,
-        ),
-      )
-    await crashMidReply(conversationId, interrupted, '已经开始')
+    const submitted = (await cardOf(conversationId, 'call-1'))!
 
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
 
     // 续跑那一轮看得到这次调用已经提交过、结果还没出来。
-    expect(calls).toHaveLength(4)
-    expect(lastUserInput(calls[2]!)).toContain(RESUME_NOTICE)
-    expect(JSON.stringify(calls[2]!.messages)).toContain('一只橘猫：已提交后台任务，结果尚未就绪')
+    expect(calls).toHaveLength(3)
+    expect(lastUserInput(calls[1]!)).toContain(RESUME_NOTICE)
+    expect(JSON.stringify(calls[1]!.messages)).toContain('一只橘猫：已提交后台任务，结果尚未就绪')
     // 它还是再要了一次：没有再提交，任务还是那一个，交回的就是它。
     expect(await tasksOf(conversationId)).toHaveLength(1)
-    expect(JSON.stringify(calls[3]!.messages)).toContain('没有重复提交')
+    expect(JSON.stringify(calls[2]!.messages)).toContain('没有重复提交')
     const replayed = (await snapshot(conversationId)).messages
       .flatMap((message) => message.content)
-      .find((block) => block.type === 'toolResult' && block.toolCallId === 'call-2')
+      .find((block) => block.type === 'toolResult' && block.toolCallId === 'call-3')
     expect(replayed).toMatchObject({ status: 'submitted', job: { taskId: task!.id } })
 
-    // 结果卡照起跑时的参数补上了，任务结束后照常结算、落到画布。
+    // 确认过的那张卡原样留着——补写不会拿起跑时的快照把它盖回待确认——任务结束后照常结算、落到画布。
     const card = (await snapshot(conversationId)).messages.find(
-      (message) => message.id === call!.message_id,
+      (message) => message.id === submitted.id,
     )
     const block = card?.content[0] as AgentToolResultBlock | undefined
     expect(block).toMatchObject({
       type: 'toolResult',
       toolCallId: 'call-1',
       status: 'submitted',
+      prompt: '一只橘猫',
       job: { taskId: task!.id, media: 'image' },
     })
+    // 后台登记也只有确认出来的那一条：续跑没有再交一次。
+    expect(await jobsOf(conversationId)).toHaveLength(1)
     await db
       .update(schema.tasks)
       .set({ status: 'in_progress', started_at: Date.now() })
@@ -379,10 +462,11 @@ describe('中断续跑', () => {
       }),
     ).toBe(true)
     const settled = (await snapshot(conversationId)).messages.find(
-      (message) => message.id === call!.message_id,
+      (message) => message.id === submitted.id,
     )
     expect(settled?.content[0]).toMatchObject({ status: 'succeeded' })
   })
+
   it('resumes an interrupted wake turn with that batch, not the original request', async () => {
     const interruptedWake = controlledCompletion()
     setAgentFetchForTesting(
@@ -393,7 +477,6 @@ describe('中断续跑', () => {
             name: 'generateImage',
             args: { prompt: '一只橘猫', reviewAfterCompletion: true },
           }),
-        () => completionStream('已开始出图，出来后我看一下'),
         () => interruptedWake.responseFor(),
         () => completionStream('看过了，橘猫符合要求'),
       ]),
@@ -401,19 +484,23 @@ describe('中断续跑', () => {
     const conversationId = await startConversation()
     await send(conversationId, '画一只橘猫，画完帮我检查一下')
     await waitForTurns(conversationId, 1)
+    // 拟稿那一轮不建任务：用户在卡上确认之后才有得等。
+    expect(await tasksOf(conversationId)).toEqual([])
+    await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
     const [task] = await tasksOf(conversationId)
+    expect(task).toBeDefined()
 
     // 任务成功，唤醒轮起来复核，说到一半执行者没了。
     await completeTask(task!.id)
     expect(await pickUpStrandedInboxes()).toBe(1)
-    await waitFor(async () => calls.length === 3, 3_000)
+    await waitFor(async () => calls.length === 2, 3_000)
     await crashMidReply(conversationId, interruptedWake, '我来看看')
 
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 3)
 
-    expect(calls).toHaveLength(4)
-    const resumed = lastUserInput(calls[3]!)
+    expect(calls).toHaveLength(3)
+    const resumed = lastUserInput(calls[2]!)
     expect(resumed).toContain(RESUME_NOTICE)
     // 接着处理的是那一批结果：唤醒说明与要复核的产物都在，不是让它把用户最早的请求再做一遍。
     expect(resumed).toContain('你之前提交的后台任务有结果了')

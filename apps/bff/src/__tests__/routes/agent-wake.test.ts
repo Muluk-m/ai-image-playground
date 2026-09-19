@@ -13,11 +13,10 @@ import sharp from 'sharp'
 import {
   type AgentCall,
   completionStream,
-  controlledCompletion,
+  confirmPendingDrafts,
   eventsOfType,
   parseFrames,
   readFrames,
-  recordingAgentFetch,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
@@ -126,11 +125,14 @@ async function waitForTurns(conversationId: string, count: number): Promise<void
 }
 
 async function tasksOf(conversationId: string) {
-  return db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.agent_conversation_id, conversationId))
-    .orderBy(schema.tasks.submitted_at)
+  return (
+    db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.agent_conversation_id, conversationId))
+      // 与 `agent_jobs` 的排序对齐：同一毫秒确认的两张稿，两处认的先后才是同一个。
+      .orderBy(schema.tasks.submitted_at, schema.tasks.id)
+  )
 }
 
 async function wakes(conversationId: string) {
@@ -178,6 +180,38 @@ async function work(taskId: string, outcome: 'completed' | 'failed', completedAt
   expect(finished).toBe(true)
 }
 
+/** 用户在卡上按下确认：拟稿之后任务才建出来，凡是要断言提交内容的用例都走一遍它。 */
+function confirmDrafts(conversationId: string) {
+  return confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+}
+
+/** 这个会话里此刻还等着用户确认的那几张卡。 */
+async function pendingCards(conversationId: string): Promise<AgentToolResultBlock[]> {
+  const { messages } = await snapshot(conversationId)
+  return messages
+    .flatMap((message) => message.content)
+    .filter(
+      (block): block is AgentToolResultBlock =>
+        block.type === 'toolResult' && block.status === 'awaiting_confirmation',
+    )
+}
+
+/** 按提示词认出这条任务：同一轮的两张稿确认得够近时，提交时刻分不出先后。 */
+async function taskFor(conversationId: string, call: string) {
+  const tasks = await tasksOf(conversationId)
+  return tasks.find((task) => task.request_payload.prompt.includes(call))!
+}
+
+/** 写入可以按 key 停住的对象存储：草稿材料卡在归档里时，拟它的那一轮还跑着。 */
+class GatedObjectStore extends InMemoryObjectStore {
+  hold: ((key: string) => Promise<void> | undefined) | undefined
+
+  override async write(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    await this.hold?.(key)
+    return super.write(key, bytes, contentType)
+  }
+}
+
 function generate(id: string, extra: Record<string, unknown> = {}): ToolCallSpec {
   return { id, name: 'generateImage', args: { prompt: `一只橘猫 ${id}`, ...extra } }
 }
@@ -212,12 +246,14 @@ describe('唤醒', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1')),
-        () => completionStream('已开始出图'),
         () => completionStream('这张没出来，要不要换个说法再试？'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    // 拟稿这一轮什么都没交出去：确认之后才有任务可等。
+    expect(await tasksOf(conversationId)).toEqual([])
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
 
     await work(task!.id, 'failed')
@@ -225,8 +261,8 @@ describe('唤醒', () => {
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
 
-    expect(calls).toHaveLength(3)
-    const woken = lastUserInput(calls[2]!)
+    expect(calls).toHaveLength(2)
+    const woken = lastUserInput(calls[1]!)
     expect(woken).toContain('系统通知')
     expect(woken).toContain('失败（上游超时）')
     // 唤醒轮不落用户消息：历史里只有一条用户消息，后面接着智能体的说明。
@@ -239,18 +275,18 @@ describe('唤醒', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1')),
-        () => completionStream('已开始出图'),
         () => completionStream('不该有这一轮'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
 
     await work(task!.id, 'completed')
     expect(await pickUpStrandedInboxes()).toBe(0)
     expect(await wakes(conversationId)).toHaveLength(0)
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
     expect(await turnIds(conversationId)).toHaveLength(1)
   })
 
@@ -258,19 +294,19 @@ describe('唤醒', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1', { reviewAfterCompletion: true })),
-        () => completionStream('已开始出图，出来后我看一下'),
         () => completionStream('看过了，符合要求'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫，画完帮我检查一下')
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
 
     await work(task!.id, 'completed')
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
 
-    const woken = lastUserInput(calls[2]!)
+    const woken = lastUserInput(calls[1]!)
     const artifactId = projectArtifactId(task!.id, 0)
     expect(woken).toContain(`完成，图片 ${artifactId}`)
     // 产物本身作为视觉证据附上，模型看得到它，不只是一个 id。
@@ -282,12 +318,13 @@ describe('唤醒', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1'), generate('call-2')),
-        () => completionStream('两张都开始了'),
         () => completionStream('两张都失败了'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画两只不同的猫')
+    // 一轮拟两张稿，用户一次都确认了：两条任务同属拟它们的那一轮。
+    expect(await confirmDrafts(conversationId)).toHaveLength(2)
     const [first, second] = await tasksOf(conversationId)
 
     await work(first!.id, 'failed')
@@ -300,8 +337,8 @@ describe('唤醒', () => {
     expect(wake!.payload).toMatchObject({ taskIds: [first!.id, second!.id] })
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
-    expect(calls).toHaveLength(3)
-    const woken = lastUserInput(calls[2]!)
+    expect(calls).toHaveLength(2)
+    const woken = lastUserInput(calls[1]!)
     expect(woken).toContain('一只橘猫 call-1：失败')
     expect(woken).toContain('一只橘猫 call-2：失败')
   })
@@ -310,92 +347,111 @@ describe('唤醒', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1'), generate('call-2')),
-        () => completionStream('两张都开始了'),
         () => completionStream('第一张没出来'),
         () => completionStream('第二张也没出来'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画两只不同的猫')
-    const [first, second] = await tasksOf(conversationId)
+    await confirmDrafts(conversationId)
+    const first = await taskFor(conversationId, 'call-1')
+    const second = await taskFor(conversationId, 'call-2')
 
     const endedAt = Date.now()
-    await work(first!.id, 'failed', endedAt)
+    await work(first.id, 'failed', endedAt)
     expect(await pickUpStrandedInboxes(endedAt + AGENT_WAKE_BATCH_WAIT_MS - 1_000)).toBe(0)
     expect(await wakes(conversationId)).toHaveLength(0)
 
     expect(await pickUpStrandedInboxes(endedAt + AGENT_WAKE_BATCH_WAIT_MS)).toBe(1)
     await waitForTurns(conversationId, 2)
     const [early] = await wakes(conversationId)
-    expect(early!.payload).toMatchObject({ taskIds: [first!.id] })
-    const firstWake = lastUserInput(calls[2]!)
+    expect(early!.payload).toMatchObject({ taskIds: [first.id] })
+    const firstWake = lastUserInput(calls[1]!)
     expect(firstWake).toContain('一只橘猫 call-1：失败')
     expect(firstWake).not.toContain('call-2')
 
-    await work(second!.id, 'failed')
+    await work(second.id, 'failed')
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 3)
-    expect(lastUserInput(calls[3]!)).toContain('一只橘猫 call-2：失败')
+    expect(lastUserInput(calls[2]!)).toContain('一只橘猫 call-2：失败')
     expect(await wakes(conversationId)).toHaveLength(2)
   })
 
   it('waits for the submitting turn to end before it wakes, then wakes right after it', async () => {
-    // 这一轮提交之后还在说话：任务这时失败了，这一轮还可能再提交，不能先唤醒。
-    const reply = controlledCompletion()
-    const answers = [
-      () => toolCallCompletion(generate('call-1')),
-      (signal?: AbortSignal) => reply.responseFor(signal),
-      () => completionStream('刚才那张失败了'),
-    ]
-    let at = 0
-    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => answers[at++]!(signal)))
+    // 同一条助手消息里拟两张稿：第一张落了库、用户当场确认，第二张的材料还卡在归档。任务这时
+    // 失败了，拟它的那一轮还在跑、还可能再拟一张，不能先唤醒。
+    const store = new GatedObjectStore()
+    let release!: () => void
+    const archived = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    // 只挡草稿材料：起轮时归档的那几张引用图走 `agent/` 前缀，照常放行。
+    store.hold = (key) => (!key.startsWith('agent/') && key.includes('/in/') ? archived : undefined)
+    setObjectStoreForTesting(store)
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion(generate('call-1'), {
+            id: 'edit-1',
+            name: 'editImage',
+            args: { prompt: '再把杯子换成蓝色', imageIds: ['target'] },
+          }),
+        () => completionStream('刚才那张失败了'),
+      ]),
+    )
     const conversationId = await startConversation()
     const response = await request(`/api/agent/conversations/${conversationId}/turns`, {
       method: 'POST',
-      body: { deviceId: DEVICE, text: '画一只橘猫' },
+      body: {
+        deviceId: DEVICE,
+        text: '画一只橘猫，再把杯子换成蓝色',
+        references: [{ imageId: 'target', dataUrl: PIXEL }],
+      },
     })
     await readFrames(response, 3)
+    await waitFor(async () => (await pendingCards(conversationId)).length === 1, 3_000)
+
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
     await work(task!.id, 'failed')
     expect(await wakes(conversationId)).toHaveLength(0)
     expect(await pickUpStrandedInboxes()).toBe(0)
 
-    reply.push('已开始出图')
-    reply.finish()
+    release()
     // 那一轮收尾放手时凑齐了这一批，当场唤醒，不必等巡查。
     await waitForTurns(conversationId, 2)
     expect(await wakes(conversationId)).toHaveLength(1)
-    expect(lastUserInput(calls[2]!)).toContain('失败（上游超时）')
+    expect(lastUserInput(calls[1]!)).toContain('失败（上游超时）')
   })
 
   it('does not wake the agent for tasks that were cancelled', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1')),
-        () => completionStream('已开始出图'),
         () => completionStream('不该有这一轮'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
 
     await cancelTasks(eq(schema.tasks.id, task!.id))
     expect(await pickUpStrandedInboxes()).toBe(0)
     expect(await wakes(conversationId)).toHaveLength(0)
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
   })
 
   it('does not wake the agent when a task the user submitted in the conversation fails', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1')),
-        () => completionStream('已开始出图'),
         () => completionStream('不该有这一轮'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const [agentTask] = await tasksOf(conversationId)
     const [turnId] = await turnIds(conversationId)
     await work(agentTask!.id, 'completed')
@@ -414,20 +470,20 @@ describe('唤醒', () => {
 
     expect(await pickUpStrandedInboxes()).toBe(0)
     expect(await wakes(conversationId)).toHaveLength(0)
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
   })
 
   it('keeps a single executor per conversation while an old instance still holds it', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1')),
-        () => completionStream('已开始出图'),
         () => completionStream('这张没出来'),
         () => completionStream('不该有第二个唤醒轮'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
 
     // 滚动发布：旧实例还握着这个会话的执行租约（它在跑别的轮）。
@@ -454,7 +510,7 @@ describe('唤醒', () => {
     await work(task!.id, 'failed')
     expect(await wakes(conversationId)).toHaveLength(1)
     expect(await pickUpStrandedInboxes()).toBe(0)
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
 
     // 旧实例收尾放手之后，新旧两个实例同时来接：只有一个起得了轮。
     await db
@@ -464,14 +520,14 @@ describe('唤醒', () => {
     const started = await Promise.all([pickUpStrandedInboxes(), pickUpStrandedInboxes()])
     expect(started.reduce((sum, one) => sum + one, 0)).toBe(1)
     await waitForTurns(conversationId, 2)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
     const [wake] = await wakes(conversationId)
     expect(wake!.status).toBe('consumed')
   })
 })
 
 describe('局部改图', () => {
-  it('returns as soon as the masked edit is submitted and reviews the candidate on wake', async () => {
+  it('drafts the masked edit, submits it on confirmation, and reviews the candidate on wake', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () =>
@@ -484,7 +540,6 @@ describe('局部改图', () => {
               selectionBindings: [{ imageId: 'target', selectionId: SELECTION_ID }],
             },
           }),
-        () => completionStream('已开始改，出来后我检查一下'),
         () => completionStream('检查过了，杯子已经是蓝色'),
       ]),
     )
@@ -493,19 +548,25 @@ describe('局部改图', () => {
       { imageId: 'target', dataUrl: PIXEL, maskDataUrl: MASK },
     ])
 
-    // 提交即返回：这一轮收尾时任务还排着，结果卡是「已提交」。
+    // 拟稿即返回：这一轮收尾时还没有任务，卡停在「等待确认」。
     const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end).toMatchObject({ toolName: 'editImage', status: 'submitted' })
+    expect(end).toMatchObject({ toolName: 'editImage', status: 'awaiting_confirmation' })
     expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    expect(await tasksOf(conversationId)).toEqual([])
+
+    // 用户确认之后才提交：送出去的是卡上那份服务端拼好的执行指令，遮罩跟着一起走。
+    const [drafted] = await pendingCards(conversationId)
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
     expect(task!.status).toBe('queued')
+    expect(drafted!.prompt).toBe(task!.request_payload.prompt)
     expect(task!.request_payload.mask).toBeTruthy()
 
     // 候选出来了：模型没选复核也一定被唤醒，看着候选检查。
     await work(task!.id, 'completed')
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
-    const woken = lastUserInput(calls[2]!)
+    const woken = lastUserInput(calls[1]!)
     const artifactId = projectArtifactId(task!.id, 0)
     expect(woken).toContain('需要复核')
     expect(woken).toContain(`图片 ${artifactId} 原图`)
@@ -530,8 +591,7 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion({ id: 'edit-1', name: 'editImage', args: edit }),
-        () => completionStream('已开始改'),
-        // 唤醒轮：候选失败了，模型想原样再付一次费，又想顺手追加一个不在计划里的改法。
+        // 唤醒轮：候选失败了，模型想原样再拟一次稿，又想顺手追加一个不在计划里的改法。
         () =>
           toolCallCompletion(
             { id: 'same-again', name: 'editImage', args: { ...edit, prompt: '再试一次' } },
@@ -546,16 +606,19 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '把圈里的杯子换成蓝色', [masked('target')])
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
 
     await work(task!.id, 'failed')
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
 
+    // 两次都被计划挡下：唤醒轮连稿都没拟出来，也就没有第二条任务。
+    expect(await confirmDrafts(conversationId)).toEqual([])
     expect(await tasksOf(conversationId)).toHaveLength(1)
-    expect(calls).toHaveLength(4)
-    const refusals = JSON.stringify(calls[3]!.messages)
-    expect(refusals).toContain('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
+    expect(calls).toHaveLength(3)
+    const refusals = JSON.stringify(calls[2]!.messages)
+    expect(refusals).toContain('这个编辑操作已经拟过稿，请先检查候选；不要自行重复拟稿')
     expect(refusals).toContain(
       '本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示',
     )
@@ -588,8 +651,7 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
               deferredEdits: [second, third],
             },
           }),
-        () => completionStream('已开始改 A'),
-        // 第一次唤醒：A 的产物出来了，接着改 B。
+        // 第一次唤醒：A 的产物出来了，接着拟 B 的稿。
         () =>
           toolCallCompletion({
             id: 'second',
@@ -601,8 +663,7 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
               requestQuote: second.requestQuote,
             },
           }),
-        () => completionStream('A 改好了，B 已开始改'),
-        // 第二次唤醒：提交 B 的是唤醒轮，授权原文仍是用户最初那句。
+        // 第二次唤醒：拟 C 的是唤醒轮，授权原文仍是用户最初那句。
         () =>
           toolCallCompletion({
             id: 'third',
@@ -614,17 +675,19 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
               requestQuote: third.requestQuote,
             },
           }),
-        () => completionStream('B 改好了，C 已开始改'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, userText, ['a', 'b', 'c'].map(masked))
+    await confirmDrafts(conversationId)
 
     const [a] = await tasksOf(conversationId)
     produced.push(projectArtifactId(a!.id, 0))
     await work(a!.id, 'completed')
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 2)
+    // 唤醒轮同样只拟稿：确认之后 B 才交出去，计划随草稿冻结，授权原文还是预先列明的那一句。
+    expect(await confirmDrafts(conversationId)).toHaveLength(1)
     const [, b] = await tasksOf(conversationId)
     expect(b!.request_payload.prompt).toContain(second.requestQuote)
 
@@ -632,6 +695,7 @@ describe('唤醒轮接着提交那一轮的改图计划', () => {
     await work(b!.id, 'completed')
     expect(await pickUpStrandedInboxes()).toBe(1)
     await waitForTurns(conversationId, 3)
+    expect(await confirmDrafts(conversationId)).toHaveLength(1)
     const tasks = await tasksOf(conversationId)
     expect(tasks).toHaveLength(3)
     expect(tasks[2]!.request_payload.prompt).toContain(third.requestQuote)
@@ -643,12 +707,12 @@ describe('滚动发布', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion(generate('call-1')),
-        () => completionStream('已开始出图'),
         () => completionStream('这张没出来'),
       ]),
     )
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
     await work(task!.id, 'failed')
 

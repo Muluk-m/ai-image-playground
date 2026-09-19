@@ -160,10 +160,17 @@ export async function markAgentJobsWakeSkipped(
   }
 }
 
-/** 删除会话时一并取消它的后台任务；对话任务不在此列，它跟着轮走。取消按原桶退回。 */
-export async function cancelAgentConversationJobs(conversationId: string): Promise<number> {
+/**
+ * 删除会话时一并取消它的后台任务；对话任务不在此列，它跟着轮走。取消按原桶退回。
+ * 给了事务就在它上面做：删会话时墓碑与取消要同一次提交（见 `routes/agent.ts`）。
+ */
+export async function cancelAgentConversationJobs(
+  conversationId: string,
+  tx?: BffTransaction,
+): Promise<number> {
   const cancelled = await cancelTasks(
     and(eq(schema.tasks.agent_conversation_id, conversationId), ne(schema.tasks.kind, 'chat'))!,
+    tx ? { tx } : {},
   )
   return cancelled.length
 }

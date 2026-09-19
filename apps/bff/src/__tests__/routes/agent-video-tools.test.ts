@@ -14,6 +14,7 @@ import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import {
   type AgentCall,
   completionStream,
+  confirmPendingDrafts,
   eventsOfType,
   parseFrames,
   scriptedAgentFetch,
@@ -136,6 +137,25 @@ async function settledJobs(conversationId: string): Promise<AgentToolResultBlock
   return ((await response.json()) as AgentBackgroundJobsResponse).jobs.map((job) => job.result)
 }
 
+/** 用户在卡上确认：生视频只拟稿，任务、预扣与档位记录都要到这一步才落下。 */
+function confirmDrafts(conversationId: string) {
+  return confirmPendingDrafts(app, conversationId, {
+    deviceId: DEVICE,
+    cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+  })
+}
+
+/** 这个会话建出来的视频任务。对话轮自己的那条 chat 任务不带档位，按这个筛掉。 */
+async function videoTasks() {
+  return (await db.select().from(schema.tasks)).filter((one) => one.request_payload.video)
+}
+
+async function videoTask() {
+  const tasks = await videoTasks()
+  expect(tasks).toHaveLength(1)
+  return tasks[0]!
+}
+
 function types(frames: { event: AgentTurnEvent }[]): string[] {
   return frames.map((frame) => frame.event.type)
 }
@@ -166,7 +186,7 @@ function settleSubmittedTasks(): () => void {
   }
 }
 
-/** 上游先要一次生视频，再回一句话收尾。 */
+/** 上游先要一次生视频；拟稿即收尾，末尾那句收尾的话只有不拟稿的驳回路径用得上。 */
 function videoTurn(calls: AgentCall[], args: Record<string, unknown>) {
   setAgentFetchForTesting(
     scriptedAgentFetch(calls, [
@@ -230,31 +250,33 @@ describe('智能体生视频工具', () => {
     ])
   })
 
-  it('submits a text-to-video task and reports a video artifact', async () => {
+  it('drafts the text-to-video request, and submits it once the user confirms', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '海浪拍打礁石，镜头缓慢推进' })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '来一段海浪的视频')
 
-    // 生视频是后台任务：提交即收尾，片子之后按任务结算。
-    expect(types(frames)).toEqual([
-      'turnStart',
-      'toolStart',
-      'toolEnd',
-      'assistantStart',
-      'textDelta',
-      'turnEnd',
-    ])
+    // 拟稿即收尾：这一轮不再问模型第二次，也没有任何视频任务落库。
+    expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'turnEnd'])
+    expect(calls).toHaveLength(1)
+    expect(await videoTasks()).toEqual([])
 
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', toolName: 'generateVideo' })
-    expect(end!.status).toBe('submitted')
-    const record = { model: GROK, duration: 5, resolution: '720p', aspectRatio: '16:9' }
-    expect(end!.job).toMatchObject({ media: 'video', video: record })
+    expect(end!.status).toBe('awaiting_confirmation')
+    expect(end!.job).toBeUndefined()
     // 文生视频没有源图可贴，产出落视口中央。
     expect(end!.anchorObjectId).toBeUndefined()
+    // 确认之前不会有产物，画布也不占位。
+    expect(eventsOfType(frames, 'toolStart')[0]!.outputCount).toBeUndefined()
+
+    const stop = settleSubmittedTasks()
+    const [confirmed] = await confirmDrafts(conversationId)
+
+    // 档位随草稿冻结，确认之后记在卡上。
+    const record = { model: GROK, duration: 5, resolution: '720p', aspectRatio: '16:9' }
+    expect(confirmed).toMatchObject({ status: 'submitted', job: { media: 'video', video: record } })
 
     const [settled] = await settledJobs(conversationId)
     stop()
@@ -269,14 +291,15 @@ describe('智能体生视频工具', () => {
     })
 
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
-    expect(task!.id).toBe(end!.job!.taskId)
-    expect(task!.model).toBe(GROK)
-    expect(task!.agent_turn_id).toBe(turnStart.turnId)
-    expect(task!.request_payload.prompt).toBe('海浪拍打礁石，镜头缓慢推进')
-    expect(task!.request_payload.input_images).toBeUndefined()
+    const task = await videoTask()
+    expect(task.id).toBe(confirmed!.job!.taskId)
+    expect(task.model).toBe(GROK)
+    // 任务算在拟稿那一轮名下：确认不另起一轮。
+    expect(task.agent_turn_id).toBe(turnStart.turnId)
+    expect(task.request_payload.prompt).toBe('海浪拍打礁石，镜头缓慢推进')
+    expect(task.request_payload.input_images).toBeUndefined()
     // 用户没说档位，取现有默认值。
-    expect(task!.request_payload.video).toMatchObject({
+    expect(task.request_payload.video).toMatchObject({
       duration_seconds: 5,
       resolution: '720p',
       aspect_ratio: '16:9',
@@ -286,22 +309,24 @@ describe('智能体生视频工具', () => {
   it('animates the referenced image and anchors the output to it', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '让这只猫眨眼', imageId: 'canvas-1' })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '让[image 1]动起来', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
     ])
-    stop()
 
     const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.status).toBe('submitted')
+    expect(end!.status).toBe('awaiting_confirmation')
+    // 锚点拟稿时就定下，确认之后产出照它落位。
     expect(end!.anchorObjectId).toBe('canvas-1')
-    expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1' })
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
-    expect(task!.request_payload.input_images).toHaveLength(1)
-    expect(task!.request_payload.video).toMatchObject({ first_frame_index: 0 })
+    const [confirmed] = await confirmDrafts(conversationId)
+
+    expect(confirmed!.anchorObjectId).toBe('canvas-1')
+    expect(confirmed!.job!.video).toMatchObject({ firstFrameId: 'canvas-1' })
+    const task = await videoTask()
+    expect(task.request_payload.input_images).toHaveLength(1)
+    expect(task.request_payload.video).toMatchObject({ first_frame_index: 0 })
   })
 
   it('sends several referenced images as reference images and records them on the video', async () => {
@@ -310,25 +335,25 @@ describe('智能体生视频工具', () => {
       prompt: '图片1 的人拿着图片2 的球拍挥拍',
       referenceImageIds: ['canvas-1', 'canvas-2', 'canvas-1'],
     })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '用[image 1][image 2]做一段挥拍', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
       { imageId: 'canvas-2', dataUrl: PIXEL },
     ])
-    stop()
 
     const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.status).toBe('submitted')
+    expect(end!.status).toBe('awaiting_confirmation')
     expect(end!.anchorObjectId).toBe('canvas-1')
-    expect(end!.job!.video).toMatchObject({ referenceIds: ['canvas-1', 'canvas-2'] })
-    expect(end!.job!.video).not.toHaveProperty('firstFrameId')
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
-    expect(task!.request_payload.input_images).toHaveLength(2)
-    expect(task!.request_payload.video).toMatchObject({ reference_image_indices: [0, 1] })
-    expect(task!.request_payload.video).not.toHaveProperty('first_frame_index')
+    const [confirmed] = await confirmDrafts(conversationId)
+
+    expect(confirmed!.job!.video).toMatchObject({ referenceIds: ['canvas-1', 'canvas-2'] })
+    expect(confirmed!.job!.video).not.toHaveProperty('firstFrameId')
+    const task = await videoTask()
+    expect(task.request_payload.input_images).toHaveLength(2)
+    expect(task.request_payload.video).toMatchObject({ reference_image_indices: [0, 1] })
+    expect(task.request_payload.video).not.toHaveProperty('first_frame_index')
   })
 
   it('puts the first frame before the references and drops a reference repeating it', async () => {
@@ -338,19 +363,19 @@ describe('智能体生视频工具', () => {
       imageId: 'canvas-1',
       referenceImageIds: ['canvas-1', 'canvas-2'],
     })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
-    const frames = await runTurn(conversationId, '让[image 1]动起来，带上[image 2]', [
+    await runTurn(conversationId, '让[image 1]动起来，带上[image 2]', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
       { imageId: 'canvas-2', dataUrl: PIXEL },
     ])
-    stop()
+    const [confirmed] = await confirmDrafts(conversationId)
 
-    const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1', referenceIds: ['canvas-2'] })
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
-    expect(task!.request_payload.video).toMatchObject({
+    expect(confirmed!.job!.video).toMatchObject({
+      firstFrameId: 'canvas-1',
+      referenceIds: ['canvas-2'],
+    })
+    expect((await videoTask()).request_payload.video).toMatchObject({
       first_frame_index: 0,
       reference_image_indices: [1],
     })
@@ -411,44 +436,49 @@ describe('智能体生视频工具', () => {
       resolution: '1080p',
       aspectRatio: '9:16',
     })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     await runTurn(conversationId, '来一段 10 秒竖屏的城市夜景，要 1080p')
-    stop()
+    const [confirmed] = await confirmDrafts(conversationId)
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
-    expect(task!.request_payload.video).toMatchObject({
+    expect(confirmed!.job!.video).toMatchObject({
+      duration: 10,
+      resolution: '1080p',
+      aspectRatio: '9:16',
+    })
+    expect((await videoTask()).request_payload.video).toMatchObject({
       duration_seconds: 10,
       resolution: '1080p',
       aspect_ratio: '9:16',
     })
   })
 
-  it('falls back for what the model never asked, and says which preset it used', async () => {
+  it('falls back for what the model never asked, and freezes the preset it drafted', async () => {
     _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(VEO)])
     const calls: AgentCall[] = []
     // 模型一个档位都没填：默认 5 秒 Veo 做不到，按它的矩阵退到 4 秒。没有用户约束被丢掉。
     videoTurn(calls, { prompt: '一杯咖啡冒热气' })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '来一段咖啡视频')
-    stop()
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
-    expect(task!.model).toBe(VEO)
-    expect(task!.request_payload.video).toMatchObject({
+    expect(eventsOfType(frames, 'toolEnd')[0]!.status).toBe('awaiting_confirmation')
+    const [confirmed] = await confirmDrafts(conversationId)
+
+    // 退档也要说出口：退到哪一档随草稿冻结，确认时原样记到卡上，用户在卡上看得见。
+    expect(confirmed!.job!.video).toMatchObject({
+      model: VEO,
+      duration: 4,
+      resolution: '720p',
+      aspectRatio: '16:9',
+    })
+    const task = await videoTask()
+    expect(task.model).toBe(VEO)
+    expect(task.request_payload.video).toMatchObject({
       duration_seconds: 4,
       aspect_ratio: '16:9',
       resolution: '720p',
     })
-    expect(eventsOfType(frames, 'toolEnd')[0]!.status).toBe('submitted')
-    // 退档也要说出口：模型照着这句话才讲得出「我替你定了 4 秒」。
-    const report = modelReport(calls)
-    expect(report).toContain('4 秒')
-    expect(report).toContain('720p')
-    expect(report).toContain('16:9')
   })
 
   it.each([
@@ -488,14 +518,17 @@ describe('智能体生视频工具', () => {
     for (const fragment of expected) expect(report).toContain(fragment)
   })
 
-  it('charges the video task by seconds and the resolution multiplier', async () => {
+  it('charges the video task by seconds and the resolution multiplier, and only once confirmed', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '海浪', durationSeconds: 10, resolution: '1080p' })
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     await runTurn(conversationId, '来一段 10 秒 1080p 的海浪')
-    stop()
+
+    // 拟稿一分钱都不扣：这一刻只有对话轮自己那一笔。
+    expect(billing.reservations.filter((one) => one.model === GROK)).toEqual([])
+
+    await confirmDrafts(conversationId)
 
     // 对话轮与视频任务各预扣一次，各按各的口径。
     expect(billing.reservations).toHaveLength(2)
@@ -505,14 +538,15 @@ describe('智能体生视频工具', () => {
 })
 
 describe('智能体排时间线工具', () => {
-  /** 先出一段视频，返回它落画布的产物 id。 */
+  /** 先出一段视频：拟稿、确认、等它跑完，返回它落画布的产物 id。 */
   async function generatedVideo(conversationId: string): Promise<string> {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '第一镜' })
-    const stop = settleSubmittedTasks()
     await runTurn(conversationId, '先出第一镜')
-    stop()
+    const stop = settleSubmittedTasks()
+    await confirmDrafts(conversationId)
     await settledJobs(conversationId)
+    stop()
     const jobs = await db.select().from(schema.agent_jobs)
     const mine = new Set(
       jobs.filter((job) => job.conversation_id === conversationId).map((job) => job.task_id),

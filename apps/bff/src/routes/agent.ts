@@ -1,6 +1,8 @@
 import type {
   AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
+  AgentConfirmationRefusedBody,
+  AgentConfirmationResponse,
   AgentConversationSnapshot,
   AgentMessageQueuedBody,
   AgentQueueFullBody,
@@ -25,6 +27,7 @@ import {
   cancelAgentConversationJobs,
   cancelAgentJob,
 } from '../lib/agent/background-jobs'
+import { confirmAgentGeneration, lockConversation } from '../lib/agent/confirmations'
 import {
   type AgentOwner,
   adoptDeviceConversations,
@@ -400,6 +403,46 @@ export const agentRoutes = new Elysia()
     },
   )
   .post(
+    // 确认一张待确认的生成卡：按用户最后改过的提示词与拟稿时冻结的材料提交，不再经过模型。
+    // 它不跟轮（那一轮早已结束），所以不必转发到跑着轮的实例；同一张卡的并发确认由卡片级的
+    // 咨询锁串行，只会有一条任务。
+    '/api/agent/conversations/:id/confirmations',
+    async ({ params, body, authUser, status }) => {
+      const owner = ownerOf(authUser, body.deviceId)
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const outcome = await confirmAgentGeneration({
+        conversationId: conversation.id,
+        owner,
+        messageId: body.messageId,
+        prompt: body.prompt,
+        deviceId: body.deviceId,
+        userId: authUser?.id ?? null,
+      })
+      if (outcome.kind === 'not_found') return status(404, { error: 'message_not_found' })
+      if (outcome.kind === 'not_confirmable') return status(422, { error: 'not_confirmable' })
+      if (outcome.kind === 'refused') {
+        const refused: AgentConfirmationRefusedBody = {
+          error: 'confirmation_refused',
+          code: outcome.code,
+        }
+        return status(409, refused)
+      }
+      const response: AgentConfirmationResponse = { message: outcome.message }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        messageId: t.String({ minLength: 1, maxLength: 128 }),
+        // 空白与超长由确认本身按 `confirmation_refused` 回绝（界面只认 code）；这里只挡住
+        // 明显的滥用体积。
+        prompt: t.String({ maxLength: 20_000 }),
+      }),
+    },
+  )
+  .post(
     '/api/agent/conversations/:id/turns',
     async ({ params, body, authUser, request, server, status }) => {
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
@@ -644,9 +687,14 @@ export const agentRoutes = new Elysia()
             .limit(1)
           if (project) return status(409, { error: 'project_conversation_bound' })
         }
-        await softDeleteAgentConversation(conversation.id, owner)
-        // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
-        await cancelAgentConversationJobs(conversation.id)
+        // 删除与确认生成走同一把会话锁：确认不会把任务建进一个刚删掉的会话，
+        // 墓碑与取消也同一次提交，没有「删完又冒出一条任务」的缝。
+        await db.transaction(async (tx) => {
+          await lockConversation(tx, conversation.id, owner.kind === 'user' ? owner.userId : null)
+          await softDeleteAgentConversation(conversation.id, owner, tx)
+          // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
+          await cancelAgentConversationJobs(conversation.id, tx)
+        })
         return { ok: true }
       })
     },

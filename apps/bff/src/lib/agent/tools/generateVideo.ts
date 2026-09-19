@@ -1,5 +1,4 @@
 import type {
-  AgentToolArtifact,
   VideoGenerationRecord,
   VideoModelSupport,
   VideoPreset,
@@ -25,27 +24,14 @@ import { requireAgentImages } from '../images'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import { reviewParameter } from './queueParams'
-import { noModelMessage, type QueueTarget, resolveAgentModel, runQueueTask } from './queueTask'
+import { draftQueueTask, noModelMessage, type QueueTarget, resolveAgentModel } from './queueTask'
 
 const TITLE_MAX_CHARS = 32
 
 /**
- * 给视频产物记下实际提交的档位与模型：画布据此「改一个参数重来」和续写。
- * 记的是补齐后的档位，不是模型请求的原值——用户看到的应当是真正生成它的那一套。
+ * 给这段视频记下真正定下的档位与模型：随草稿冻结，确认提交时记到任务上，任务结束后由结算
+ * 照它记到产物上。画布据此「改一个参数重来」和续写。记的是补齐后的档位，不是模型请求的原值。
  */
-export function withVideoRecord(
-  artifacts: readonly AgentToolArtifact[],
-  model: string,
-  preset: VideoPreset,
-  firstFrameId: string | null,
-  referenceIds: readonly string[] = [],
-): AgentToolArtifact[] {
-  const video = videoRecord(model, preset, firstFrameId, referenceIds)
-  return artifacts.map((artifact) =>
-    artifact.media === 'video' ? { ...artifact, video } : artifact,
-  )
-}
-
 function videoRecord(
   model: string,
   preset: VideoPreset,
@@ -230,12 +216,13 @@ function videoParameters(support: VideoModelSupport | null) {
   })
 }
 
-const GUIDANCE_BASE = '用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。'
+const GUIDANCE_BASE =
+  '用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。工具只拟稿：提示词与档位交给用户在卡片上确认，确认之后系统才提交，所以不要说已经在出片。'
 
 function videoGuidance(): string {
   const support = videoModel()?.support
   if (!support) return GUIDANCE_BASE
-  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会提交、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
+  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会拟稿、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
 }
 
 const FIELD_PARAMS: Record<VideoPresetConflict['field'], string> = {
@@ -269,9 +256,9 @@ function refusalText(
   ].join('\n')
 }
 
-/** 提交出去的到底是哪一档。模型没填的项按矩阵退档，退到哪也要说出口，不能只有我们知道。 */
-function submittedText(support: VideoModelSupport, preset: VideoPreset): string {
-  return `实际提交的档位：${preset.duration} 秒 / ${VIDEO_RESOLUTION_LABELS[preset.resolution]} / ${preset.aspectRatio}（${support.label}，${supportText(support)}）。用户没指定的项由这个模型的矩阵补齐；回复时如实说你替他定了什么。`
+/** 拟稿定下的到底是哪一档。模型没填的项按矩阵退档，退到哪也要说出口，不能只有我们知道。 */
+function draftedPresetText(support: VideoModelSupport, preset: VideoPreset): string {
+  return `待确认的档位：${preset.duration} 秒 / ${VIDEO_RESOLUTION_LABELS[preset.resolution]} / ${preset.aspectRatio}（${support.label}，${supportText(support)}）。用户没指定的项由这个模型的矩阵补齐；回复时如实说你替他定了什么。`
 }
 
 /** 模型填的档位里，这个部署做不到的那几项。`call()` 与 `execute()` 同一个算式。 */
@@ -320,8 +307,10 @@ export const generateVideo = defineAgentTool({
   // 只在视频轮：图片轮里出现它，模型就会把「让它动起来」当成随时可选的下一步。
   modes: ['video'],
   label: '生视频',
+  // 拟稿即收尾：档位与提示词交给用户确认，不提交任务、不落画布。
+  confirms: true,
   description:
-    '生成一段视频。提交后立即返回「已提交」，视频在后台生成，完成后自动落到用户的画布上，带封面可播放；返回时结果尚未就绪。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',
+    '拟一份生视频草稿交给用户确认。调用后立即返回「等待确认」：没有提交任务，也没有产生费用；用户可以改提示词，确认后系统才提交，视频在后台生成，完成后自动落到画布上，带封面可播放。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',
   guidance: videoGuidance,
   // 静态的那份只在解析不出模型时用得上（那时工具本来就不在清单里），形状由它定型。
   parameters: videoParameters(null),
@@ -397,9 +386,10 @@ export const generateVideo = defineAgentTool({
       const referenceStart = source ? 1 : 0
       // 产出贴着起始帧放；没有起始帧就贴着第一张参考图。
       const anchorImage = source ?? references[0]
-      const outcome = await runQueueTask(
+      const outcome = await draftQueueTask(
         context,
         {
+          toolName: 'generateVideo',
           media: 'video',
           toolCallId,
           target,
@@ -414,47 +404,22 @@ export const generateVideo = defineAgentTool({
               ? { reference_image_indices: references.map((_, i) => referenceStart + i) }
               : {}),
           },
+          // 档位随草稿冻结：确认提交时记到任务上，任务结束后再照它记到产物上。
+          videoRecord: videoRecord(
+            target.model,
+            preset,
+            source?.imageId ?? null,
+            references.map((one) => one.imageId),
+          ),
           ...(anchorImage ? { anchorObjectId: anchorImage.imageId } : {}),
           review: params.reviewAfterCompletion === true,
         },
         signal,
       )
       // 结果块只读 `details`，所以多这一段文字不动前端协议：它只进模型的上下文。
-      const job = outcome.details?.job
       return {
         ...outcome,
-        // 档位记在任务上：产物要等任务结束才有，那时再照它记到产物上。
-        ...(job
-          ? {
-              details: {
-                ...outcome.details,
-                job: {
-                  ...job,
-                  video: videoRecord(
-                    target.model,
-                    preset,
-                    source?.imageId ?? null,
-                    references.map((one) => one.imageId),
-                  ),
-                },
-              },
-            }
-          : {}),
-        ...(outcome.details?.artifacts
-          ? {
-              details: {
-                ...outcome.details,
-                artifacts: withVideoRecord(
-                  outcome.details.artifacts,
-                  target.model,
-                  preset,
-                  source?.imageId ?? null,
-                  references.map((one) => one.imageId),
-                ),
-              },
-            }
-          : {}),
-        content: [...outcome.content, { type: 'text', text: submittedText(support, preset) }],
+        content: [...outcome.content, { type: 'text', text: draftedPresetText(support, preset) }],
       }
     }
   },

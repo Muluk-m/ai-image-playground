@@ -13,6 +13,7 @@ import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import {
   completionStream,
+  confirmPendingDrafts,
   eventsOfType,
   parseFrames,
   scriptedAgentFetch,
@@ -157,6 +158,13 @@ async function failedCall() {
   })
   const frames = parseFrames(await response.text())
   const [end] = eventsOfType(frames, 'toolEnd')
+  // 生成工具只拟稿：这一刻还没有任务，用户在卡上确认之后才提交。
+  expect(end!.status).toBe('awaiting_confirmation')
+  expect(await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))).toEqual([])
+  await confirmPendingDrafts(app, conversationId, {
+    deviceId: DEVICE,
+    cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+  })
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
   // 这里只看重试：原来那次失败按规则会唤醒智能体（见 agent-wake），先记成已投递，免得唤醒轮
   // 在测试中途抢着调用对话模型。

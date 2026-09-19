@@ -634,3 +634,73 @@ describe('排时间线的结果卡', () => {
       })
   })
 })
+
+describe('确认过的生成不被重放盖回去', () => {
+  const DRAFT: AgentToolResultBlock = {
+    type: 'toolResult',
+    toolCallId: 'call-4',
+    toolName: 'generateImage',
+    status: 'awaiting_confirmation',
+    title: '换一只浴缸',
+    prompt: '把白色浴缸换成浅灰绿色浴缸',
+  }
+  const START: AgentTurnEvent = {
+    type: 'toolStart',
+    messageId: 'tool-4',
+    toolCallId: 'call-4',
+    toolName: 'generateImage',
+    title: DRAFT.title,
+    prompt: DRAFT.prompt,
+  }
+  /** 用户确认之后服务端就地改写出来的那张卡，面板上此刻就是它。 */
+  const confirmed: AgentPanelState = {
+    turns: {},
+    messages: [
+      {
+        kind: 'tool',
+        id: 'tool-4',
+        turnId: TURN,
+        toolCallId: 'call-4',
+        toolName: 'generateImage',
+        title: DRAFT.title,
+        prompt: '把浴缸换成白色浴缸',
+        status: 'submitted',
+        job: { taskId: 'task-4', media: 'image' },
+      },
+    ],
+  }
+
+  it('活跃轮从游标重放 toolStart 与那张草稿时，卡仍是已提交', () => {
+    const state = replay([START, toolEnd(DRAFT, 'tool-4')], null, confirmed)
+
+    expect(state.messages).toEqual(confirmed.messages)
+  })
+
+  it('任务已经结算的卡不被重放拉回生成中', () => {
+    const settled: AgentPanelState = {
+      turns: {},
+      messages: [
+        {
+          ...confirmed.messages[0],
+          status: 'succeeded',
+          artifacts: [FIRST],
+          delivery: 'placed',
+        } as AgentPanelMessage,
+      ],
+    }
+
+    const state = replay([START], null, settled)
+
+    expect(state.messages).toEqual(settled.messages)
+  })
+
+  it('结果块本身的前进照旧生效：已提交换成成功', () => {
+    const state = replay(
+      [toolEnd({ ...SUCCEEDED, toolCallId: 'call-4' }, 'tool-4')],
+      null,
+      confirmed,
+    )
+
+    expect(state.messages[0]).toMatchObject({ status: 'succeeded', artifacts: [FIRST, SECOND] })
+  })
+})

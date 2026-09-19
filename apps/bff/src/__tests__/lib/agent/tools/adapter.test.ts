@@ -16,7 +16,9 @@ process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../agent-operator-config.json')
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
-const { agentToolEnd, agentToolStage, agentToolStart } = await import('../../../../lib/agent/tools')
+const { agentToolEnd, agentToolStage, agentToolStart, agentToolStartFromSnapshot } = await import(
+  '../../../../lib/agent/tools'
+)
 const { clarificationFromResult } = await import('../../../../lib/agent/clarification')
 
 /** 锚点只经过 `identify`，所以这里只要一张翻译表。 */
@@ -32,42 +34,29 @@ const start = (toolName: AgentToolName, args: unknown) =>
   agentToolStart('image', toolName, 'call-1', args, images)
 
 const facts = (toolName: AgentToolName, args: unknown) => {
-  const {
-    toolCallId: _id,
-    toolName: _name,
-    title,
-    prompt,
-    outputCount,
-    anchorObjectId,
-  } = start(toolName, args)
-  return { title, prompt, outputCount: outputCount ?? 0, anchorObjectId }
+  const { toolCallId: _id, toolName: _name, title, prompt, anchorObjectId } = start(toolName, args)
+  return { title, prompt, anchorObjectId }
 }
 
-it('reads a generateImage call the way the canvas needs it', () => {
+it('reads a generateImage call the way the panel needs it', () => {
   expect(facts('generateImage', { prompt: '画一只在窗台上晒太阳的橘猫', n: 3 })).toEqual({
     title: '画一只在窗台上晒太阳的橘猫',
     prompt: '画一只在窗台上晒太阳的橘猫',
-    outputCount: 3,
     anchorObjectId: undefined,
   })
-  // 模型把整数写成字符串时，占位数要和真正提交的张数同一个值。
-  expect(facts('generateImage', { prompt: '换个角度', n: '2' }).outputCount).toBe(2)
   expect(facts('generateImage', { prompt: ' \n ' })).toEqual({
     title: '生图',
     prompt: ' \n ',
-    outputCount: 1,
     anchorObjectId: undefined,
   })
   expect(facts('generateImage', {})).toEqual({
     title: '生图',
     prompt: undefined,
-    outputCount: 1,
     anchorObjectId: undefined,
   })
   expect(facts('generateImage', null)).toEqual({
     title: '生图',
     prompt: undefined,
-    outputCount: 1,
     anchorObjectId: undefined,
   })
   expect(facts('generateImage', { prompt: `${'很长的提示词'.repeat(10)}` }).title).toBe(
@@ -81,7 +70,6 @@ it('reads an editImage call down to its anchor', () => {
   ).toEqual({
     title: '把背景换成海边',
     prompt: '把背景换成海边',
-    outputCount: 2,
     anchorObjectId: 'canvas-first',
   })
   // 有选区绑定时标题不看提示词。
@@ -95,21 +83,18 @@ it('reads an editImage call down to its anchor', () => {
   expect(facts('editImage', { imageIds: [] })).toEqual({
     title: '改图',
     prompt: undefined,
-    outputCount: 1,
     anchorObjectId: undefined,
   })
   // 残缺参数不能在这里抛：这一刻 pi 还没有校验过模型给的东西。模型把单张写成裸字符串时，
-  // pi 校验前的那次转换会把它收成一张的数组，占位框因此和产出落在同一处。
+  // pi 校验前的那次转换会把它收成一张的数组，锚点因此和产出落在同一处。
   expect(facts('editImage', { imageIds: 'image 1', selectionBindings: [] })).toEqual({
     title: '改图',
     prompt: undefined,
-    outputCount: 1,
     anchorObjectId: 'canvas-first',
   })
   expect(facts('editImage', null)).toEqual({
     title: '改图',
     prompt: undefined,
-    outputCount: 1,
     anchorObjectId: undefined,
   })
   expect(() =>
@@ -117,19 +102,15 @@ it('reads an editImage call down to its anchor', () => {
   ).not.toThrow()
 })
 
-it('reads a generateVideo call as exactly one artifact', () => {
+it('reads a generateVideo call down to its first frame', () => {
   expect(facts('generateVideo', { prompt: '让镜头缓缓推近', imageId: 'image 1' })).toEqual({
     title: '视频：让镜头缓缓推近',
     prompt: '让镜头缓缓推近',
-    outputCount: 1,
     anchorObjectId: 'canvas-first',
   })
-  // 视频没有 n，图片的张数参数对它没有意义。
-  expect(facts('generateVideo', { prompt: '让镜头缓缓推近', n: 4 }).outputCount).toBe(1)
   expect(facts('generateVideo', {})).toEqual({
     title: '生视频',
     prompt: undefined,
-    outputCount: 1,
     anchorObjectId: undefined,
   })
 })
@@ -138,17 +119,32 @@ it('reads a readLibrary call as something that never lands on the canvas', () =>
   expect(facts('readLibrary', { query: '公司 logo' })).toEqual({
     title: '素材：公司 logo',
     prompt: undefined,
-    outputCount: 0,
     anchorObjectId: undefined,
   })
   expect(facts('readLibrary', {})).toEqual({
     title: '查素材库',
     prompt: undefined,
-    outputCount: 0,
     anchorObjectId: undefined,
   })
   // 查素材库的结果卡不展示提示词，模型多塞一个 prompt 也不行。
   expect(facts('readLibrary', { query: 'logo', prompt: '画一只猫' }).prompt).toBeUndefined()
+})
+
+it('reserves no place on the canvas until the user confirms the draft', () => {
+  // 生成工具只拟稿：这一刻还没有任务，占了位就是一个永远填不上的框。
+  expect(start('generateImage', { prompt: '橘猫', n: 3 }).outputCount).toBeUndefined()
+  expect(
+    start('editImage', { prompt: '改背景', imageIds: ['image 1'], n: 2 }).outputCount,
+  ).toBeUndefined()
+  expect(start('generateVideo', { prompt: '让镜头缓缓推近' }).outputCount).toBeUndefined()
+  expect(start('readLibrary', { query: 'logo' }).outputCount).toBeUndefined()
+  // 中断续跑补写的是一次真的提交过的调用：那时任务已经在跑，占位数照记，与提交的张数同一个算式。
+  expect(
+    agentToolStartFromSnapshot('generateImage', 'call-1', {
+      mode: 'image',
+      args: { prompt: '橘猫', n: 3 },
+    }).outputCount,
+  ).toBe(3)
 })
 
 it('turns a finished tool call into the block the panel and the history share', () => {

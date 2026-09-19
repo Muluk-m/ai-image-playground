@@ -219,7 +219,8 @@ export function agentToolStart(
     toolName,
     title: call?.title ?? toolName,
     ...(call?.prompt ? { prompt: call.prompt } : {}),
-    ...(call?.outputCount ? { outputCount: call.outputCount } : {}),
+    // 只拟稿的工具这一刻不占画布：稿子可能被用户改掉，也可能永远不确认，占了就是一个填不上的框。
+    ...(!spec?.confirms && call?.outputCount ? { outputCount: call.outputCount } : {}),
     ...(anchorObjectId ? { anchorObjectId } : {}),
     ...(snapshot ? { snapshot: { ...snapshot, ...(imageIds?.length ? { imageIds } : {}) } } : {}),
   }
@@ -251,6 +252,29 @@ export function agentToolSubmittedBlock(
   job: AgentBackgroundJob,
 ): AgentToolResultBlock {
   return toolResultBlock(start, { content: [], details: { job } }, null)
+}
+
+/**
+ * 拟好稿却没来得及写下结果卡的那次调用：照草稿补一张「等待确认」的卡。提示词取草稿里那一份——
+ * 它才是真正会送进上游的那一句，模型手上的参数只是摘要。
+ */
+export function agentToolDraftedBlock(
+  start: AgentToolStart,
+  prompt: string,
+  anchorObjectId?: string,
+): AgentToolResultBlock {
+  return toolResultBlock(
+    start,
+    {
+      content: [],
+      details: {
+        awaitingConfirmation: true as const,
+        executedPrompt: prompt,
+        ...(anchorObjectId ? { anchorObjectId } : {}),
+      },
+    },
+    null,
+  )
 }
 
 /** 工具收尾这一刻：下发与落库的结果块，外加这次失败要不要把整轮停下。 */

@@ -14,6 +14,7 @@ import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  confirmPendingDrafts,
   eventsOfType,
   parseFrames,
   scriptedAgentFetch,
@@ -139,6 +140,10 @@ async function failedCall(errorType = 'upstream_timeout', calls: AgentCall[] = [
   const conversationId = await startConversation()
   const frames = await runTurn(conversationId, '画两张橘猫')
   const [end] = eventsOfType(frames, 'toolEnd')
+  // 生成工具只拟稿：这一刻还没有任务，用户在卡上确认之后才提交。
+  expect(end!.status).toBe('awaiting_confirmation')
+  expect(await db.select().from(schema.tasks)).toEqual([])
+  await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
   const [task] = await db.select().from(schema.tasks)
   // 这里只看重试：原来那次失败按规则会唤醒智能体（见 agent-wake），先记成已投递，免得唤醒轮
   // 在测试中途抢着调用对话模型。
