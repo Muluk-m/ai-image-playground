@@ -8,15 +8,22 @@
     "kindVideo": "Video",
     "promptAria": "Video description",
     "promptPlaceholder": "Describe the frame, motion and camera… (Cmd/Ctrl + Enter to generate)",
+    "paramsAria": "Video settings",
+    "addFrame": "Add image",
+    "frameAlt": "Reference image {{index}}",
+    "removeFrame": "Remove reference image {{index}}",
+    "hintText": "No image means text to video; add one for a first frame or references",
+    "hintFirst": "This one is the first frame; the aspect follows it",
+    "hintReferences": "{{count}} images used as references",
     "submit": "Start creating · open the canvas",
     "noModel": "This deployment has no video model available",
     "tools": "Shortcuts",
-    "toolsHint": "Start from an asset or an idea",
+    "toolsHint": "Start from a local image, an idea or your assets",
     "tool": {
-      "fromImage": { "title": "Image to video", "hint": "Pick an asset as the first frame" },
+      "fromImage": { "title": "Image to video", "hint": "Pick an image as the first frame" },
       "references": { "title": "Reference to video", "hint": "Pick images to set style and subject" },
       "inspiration": { "title": "Inspiration", "hint": "Browse ready-made prompts" },
-      "works": { "title": "My work", "hint": "See the videos you already made" }
+      "assets": { "title": "Assets", "hint": "Manage the images you saved" }
     },
     "cases": "Examples",
     "casesHint": "Tap one to fill the prompt above"
