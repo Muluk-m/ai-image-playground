@@ -87,7 +87,9 @@
     "compression": "压缩",
     "moderation": "审核",
     "count": "数量",
-    "noModel": "未选择"
+    "noModel": "未选择",
+    "more": "更多",
+    "fewer": "收起"
   },
   "size": {
     "titleRatio": "设置画面比例",

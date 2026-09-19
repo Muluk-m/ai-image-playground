@@ -60,7 +60,11 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <div className="rounded-[22px] bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-[1.5px] shadow-[0_24px_60px_-30px_hsl(var(--primary)/0.4)]">
             <div className="rounded-[21px] bg-card p-3">
               <div className="mb-2 px-1">
-                {video ? <CanvasVideoParams hasFirstFrame={false} /> : <ParamControls showCount />}
+                {video ? (
+                  <CanvasVideoParams hasFirstFrame={false} />
+                ) : (
+                  <ParamControls showCount collapsible />
+                )}
               </div>
               <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />
             </div>

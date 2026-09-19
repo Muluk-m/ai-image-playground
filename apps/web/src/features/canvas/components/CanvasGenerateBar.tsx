@@ -227,7 +227,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               </SelectContent>
             </Select>
           )}
-          {!video && <ParamControls showCount />}
+          {!video && <ParamControls showCount collapsible />}
         </div>
         {video && (
           <CanvasVideoParams

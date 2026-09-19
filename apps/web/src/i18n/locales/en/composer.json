@@ -99,7 +99,9 @@
     "compression": "Compression",
     "moderation": "Moderation",
     "count": "Count",
-    "noModel": "Not selected"
+    "noModel": "Not selected",
+    "more": "More",
+    "fewer": "Less"
   },
   "size": {
     "titleRatio": "Set aspect ratio",
