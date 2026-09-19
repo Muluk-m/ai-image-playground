@@ -48,7 +48,7 @@
     "project_conflict": "这个项目在别处也被改过，已暂停保存。当前内容已保留。",
     "project_document_too_large": "容量或画布大小超出限制，当前内容已保留。",
     "fallback": "保存失败，当前内容已保留，请重试。",
-    "media_local": "画布里有内容还没保存完或不受支持，暂时只留在这个浏览器。",
+    "media_local": "画布里有内容没能保存，当前内容已保留。",
     "unauthorized": "登录已过期，当前内容已保留，请重新登录。",
     "project_not_found": "项目不存在或当前账号没有访问权限，当前内容已保留。",
     "invalid_project_document": "画布格式不受支持，当前内容已保留，请更新页面后重试。",

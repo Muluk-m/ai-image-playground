@@ -2,7 +2,9 @@ name: Web checks
 on:
   pull_request:
   push:
-    branches: [main]
+    # test 是测试环境分支（.github/workflows/test-preview.yml）。它跑 CI，但不会触发
+    # 生产发布：deploy.yml 的 workflow_run 只接 branches: [main]。
+    branches: [main, test]
 permissions:
   contents: read
 concurrency:

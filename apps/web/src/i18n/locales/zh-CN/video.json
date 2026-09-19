@@ -1,4 +1,9 @@
 {
+  "entry": {
+    "title": "给想象，一段镜头。",
+    "newCanvas": "新建视频画布",
+    "continue": "回到上次的画布"
+  },
   "landing": {
     "title": "给想象，一段镜头。",
     "subtitle": "描述画面、动作和运镜，作品会在画布里展开。",
@@ -16,7 +21,7 @@
     "hintFirst": "这张当首帧，画幅随它",
     "hintReferences": "{{count}} 张图当参考图",
     "submit": "开始创作 · 进入画布",
-    "noModel": "当前部署没有可用的视频模型",
+    "noModel": "暂时没有可用的视频模型",
     "tools": "快捷工具",
     "toolsHint": "从本机图片、灵感或素材开始",
     "tool": {
@@ -25,8 +30,7 @@
       "inspiration": { "title": "灵感库", "hint": "翻现成的提示词" },
       "assets": { "title": "素材库", "hint": "管理已存的图片" }
     },
-    "cases": "案例",
-    "casesHint": "点一下把提示词填进上面的输入框"
+    "cases": "案例"
   },
   "status": {
     "queued": "排队"
@@ -53,7 +57,7 @@
     "seconds": "{{seconds}} 秒"
   },
   "error": {
-    "noModel": "当前部署没有可用的视频模型"
+    "noModel": "暂时没有可用的视频模型"
   },
   "aspect": {
     "followsFirstFrame": "随首帧"
@@ -69,7 +73,7 @@
     "extendLabel": "接多长",
     "keepDuration": "沿用 {{seconds}} 秒 · 最高 {{resolution}}",
     "submitted": "已提交{{label}}",
-    "noModel": "当前部署没有支持{{label}}的模型",
+    "noModel": "暂时没有支持{{label}}的模型",
     "notDone": "这条还没生成完",
     "tooShort": "源片不足 {{seconds}} 秒",
     "tooLong": "源片超过 {{seconds}} 秒",

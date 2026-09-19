@@ -35,5 +35,5 @@ export async function placeCloudGeneration(
   if (!(await workspace.flush())) throw new Error('save_failed')
   if (!isCurrent()) return
   workspace.sink.focus([artifactId])
-  useStore.getState().setAppMode('create')
+  useStore.getState().setAppMode('canvas')
 }

@@ -8,16 +8,20 @@ import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
+import RecentGenerations from './components/RecentGenerations'
 import SettingsModal from './components/SettingsModal'
+import Sidebar from './components/Sidebar'
+import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
-import LibraryPanel from './features/library/components/LibraryPanel'
+import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
+import VideoHome from './features/video/components/VideoHome'
 import { i18next } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -96,23 +100,34 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   return (
     <>
       <Header />
-      {appMode !== 'browse' ? (
-        <CanvasMode />
-      ) : (
-        <>
-          <main data-home-main data-drag-select-surface className="pb-48">
-            <div className="safe-area-x max-w-7xl mx-auto">
-              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
-            </div>
-          </main>
-          <InputBar />
-        </>
-      )}
+      <Sidebar />
+      <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
+        {appMode === 'canvas' ? (
+          <CanvasMode />
+        ) : appMode === 'video' ? (
+          <VideoHome />
+        ) : appMode === 'assets' || appMode === 'templates' || appMode === 'projects' ? (
+          <LibraryPage kind={appMode} />
+        ) : (
+          <>
+            <main data-home-main data-drag-select-surface className="pb-48">
+              <div className="safe-area-x max-w-7xl mx-auto">
+                {appMode === 'image' ? (
+                  <RecentGenerations key={user?.id ?? 'anonymous'} userId={user?.id} />
+                ) : (
+                  <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
+                )}
+              </div>
+            </main>
+            <TaskBulkActions />
+            {appMode === 'image' ? <InputBar /> : null}
+          </>
+        )}
+      </div>
       <DetailModal />
       <Lightbox />
       <SettingsModal />
       <InspirationPanel />
-      <LibraryPanel />
       <SaveAssetDialog />
       <SaveTemplateDialog />
       <ConfirmDialog />

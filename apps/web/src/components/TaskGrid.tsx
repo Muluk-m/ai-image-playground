@@ -21,10 +21,13 @@ function setFallbackName(task: TaskRecord | undefined): string {
 }
 
 /**
- * 作品列表。只有一种卡：只在平台留有记录的生成先被镜像成本机任务记录（见 `lib/cloudMirror`），
+ * 生成记录的网格。只有一种卡：只在平台留有记录的生成先被镜像成本机任务记录（见 `lib/cloudMirror`），
  * 再和本机生成一起按时间倒序排进同一个网格。像素存在哪儿不该从卡片上看出来。
+ *
+ * 给了 `limit` 就是生图入口的「最近生成」：只摆最近几条，且不受作品入口留下的搜索与筛选影响——
+ * 那一页没有清除它们的入口。
  */
-export default function TaskGrid() {
+export default function TaskGrid({ limit }: { limit?: number } = {}) {
   const { t } = useTranslation('task')
   const tasks = useStore((s) => s.tasks)
   const searchQuery = useStore((s) => s.searchQuery)
@@ -57,8 +60,10 @@ export default function TaskGrid() {
   const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
   const [expandedSetIds, setExpandedSetIds] = useState<string[]>([])
 
+  const unfiltered = limit !== undefined
   const filteredTasks = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
+    if (unfiltered) return sorted
     const q = searchQuery.trim().toLowerCase()
 
     return sorted.filter((t) => {
@@ -71,7 +76,7 @@ export default function TaskGrid() {
       const paramStr = JSON.stringify(t.params).toLowerCase()
       return prompt.includes(q) || paramStr.includes(q)
     })
-  }, [tasks, searchQuery, filterStatus, filterFavorite])
+  }, [tasks, searchQuery, filterStatus, filterFavorite, unfiltered])
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
 
@@ -353,7 +358,7 @@ export default function TaskGrid() {
   )
 
   if (!filteredTasks.length) {
-    if (searchQuery || filterFavorite || filterStatus !== 'all') {
+    if (!unfiltered && (searchQuery || filterFavorite || filterStatus !== 'all')) {
       return (
         <div className="text-center py-20 text-muted-foreground">
           <p className="text-sm">{t('grid.noMatches')}</p>
@@ -392,11 +397,16 @@ export default function TaskGrid() {
   })
 
   rows.sort((a, b) => b.at - a.at)
+  const visibleRows = limit === undefined ? rows : rows.slice(0, limit)
 
   return (
-    <div ref={rootRef} data-task-grid-root className="relative min-h-[50vh]">
-      <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
-        {rows.flatMap((row) => row.nodes)}
+    <div
+      ref={rootRef}
+      data-task-grid-root
+      className={`relative ${unfiltered ? '' : 'min-h-[50vh]'}`}
+    >
+      <div ref={gridRef} className="grid grid-cols-1 gap-4 pb-6 sm:grid-cols-2 lg:grid-cols-3">
+        {visibleRows.flatMap((row) => row.nodes)}
       </div>
       {selectionBox && (
         <div

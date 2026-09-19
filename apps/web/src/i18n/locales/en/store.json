@@ -1,8 +1,12 @@
 {
   "appMode": {
-    "browse": "Gallery",
-    "create": "Create",
-    "video": "Video"
+    "image": "Images",
+    "canvas": "Canvas",
+    "video": "Video",
+    "works": "Works",
+    "assets": "Assets",
+    "templates": "Templates",
+    "projects": "All projects"
   },
   "task": {
     "interrupted": "Request interrupted",

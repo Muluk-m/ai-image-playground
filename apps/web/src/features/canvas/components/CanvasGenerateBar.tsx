@@ -168,12 +168,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
       !submissionGuard.blocked
     : (prompt.trim().length > 0 || imageCount > 0) && !submissionGuard.blocked
 
+  // 没选中任何图片时不提示：空选就是文生图 / 文生视频，说出来只是在讲机制。
   const hint = video
     ? (videoRefusal ??
       (referenceItems
         ? t('video.hintReferences', { count: referenceItems.length })
         : imageCount === 0
-          ? t('video.hintText')
+          ? null
           : imageCount === 1
             ? t('video.hintFirst')
             : t('video.hintFirstLast')))
@@ -181,7 +182,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
       ? t('generate.hintAnnotated', { count: imageCount })
       : imageCount > 0
         ? t('generate.hintSelected', { count: imageCount })
-        : t('generate.hintEmpty')
+        : null
 
   const run = async () => {
     if (!canSubmit) return
@@ -226,7 +227,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               </SelectContent>
             </Select>
           )}
-          {!video && <ParamControls showCount />}
+          {!video && <ParamControls showCount collapsible />}
         </div>
         {video && (
           <CanvasVideoParams

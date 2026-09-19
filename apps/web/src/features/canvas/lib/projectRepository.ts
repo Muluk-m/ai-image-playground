@@ -231,7 +231,7 @@ export const projectRepository = {
         result = request.result ?? {
           id: summary.id,
           name: summary.name,
-          customName: true,
+          customName: summary.name !== UNTITLED_PROJECT,
           conversationId: null,
           sceneKey: `${scope}:project:${summary.id}`,
           createdAt: summary.createdAt,

@@ -407,28 +407,57 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['create', 'browse', 'video'] as const
+export const APP_MODES = [
+  'image',
+  'canvas',
+  'video',
+  'works',
+  'assets',
+  'templates',
+  'projects',
+] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
  * 取值时才翻译：模块加载那一刻语言可能还没切完，而写死的字面量在切换后也不会跟着变。
- * 消费方（Header）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
+ * 消费方（侧栏）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
  */
 export const APP_MODE_LABELS: Record<AppMode, string> = {
-  get browse() {
-    return i18next.t('appMode.browse', { ns: 'store' })
+  get image() {
+    return i18next.t('appMode.image', { ns: 'store' })
   },
-  get create() {
-    return i18next.t('appMode.create', { ns: 'store' })
+  get canvas() {
+    return i18next.t('appMode.canvas', { ns: 'store' })
   },
   get video() {
     return i18next.t('appMode.video', { ns: 'store' })
   },
+  get works() {
+    return i18next.t('appMode.works', { ns: 'store' })
+  },
+  get assets() {
+    return i18next.t('appMode.assets', { ns: 'store' })
+  },
+  get templates() {
+    return i18next.t('appMode.templates', { ns: 'store' })
+  },
+  get projects() {
+    return i18next.t('appMode.projects', { ns: 'store' })
+  },
 }
 
-/** 分段控件与模式分发都只认这份列表。视频要 BFF 频道加能力开关，纯静态形态没有。 */
+/** 侧栏「创作」组。视频要 BFF 频道加能力开关，纯静态形态没有。 */
 export function visibleAppModes(): AppMode[] {
-  return APP_MODES.filter((mode) => mode !== 'video' || isVideoModeAvailable())
+  const creation: AppMode[] = ['image', 'canvas', 'video']
+  return creation.filter((mode) => mode !== 'video' || isVideoModeAvailable())
+}
+
+/** 侧栏「我的」组。项目不在里面：它是画布的实例，从「全部项目」进。 */
+export const LIBRARY_APP_MODES: readonly AppMode[] = ['works', 'assets', 'templates']
+
+/** 工作台入口：主区本身就要吃掉整屏宽度，侧栏默认收成图标条。 */
+export function isWorkbenchMode(mode: AppMode): boolean {
+  return mode === 'canvas' || mode === 'video'
 }
 
 export function getPersistedState(state: AppState) {
@@ -570,6 +599,12 @@ interface AppState {
   /** 当前会话的顶层页面；每次打开应用从工作台开始，不持久化或跨设备同步。 */
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
+  /**
+   * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
+   * 用户按折叠键就以他的选择为准，换入口时回到默认。
+   */
+  sidebarExpanded: boolean | null
+  toggleSidebar: () => void
   /**
    * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
    * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
@@ -808,9 +843,12 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      // 刷新作品 / 视频地址时直接落在对应入口，不先闪一下画布。
-      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'create',
-      setAppMode: (appMode) => set({ appMode }),
+      // 刷新生图 / 视频 / 作品地址时直接落在对应入口，不先闪一下画布。
+      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'canvas',
+      setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
+      sidebarExpanded: null,
+      toggleSidebar: () =>
+        set((s) => ({ sidebarExpanded: !(s.sidebarExpanded ?? !isWorkbenchMode(s.appMode)) })),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
         set((s) => ({ pendingCanvasImages: [...s.pendingCanvasImages, ...dataUrls] })),
@@ -2050,6 +2088,8 @@ async function reuseLocalConfig(task: TaskRecord) {
     })
     return
   }
+  // 复用出来的提示词与参数落在生图入口的输入框里，作品入口没有它，不切过去就只剩一句 toast。
+  useStore.getState().setAppMode('image')
 
   showToast(
     shouldTemporarilyReuseProfile && matchedView
@@ -2162,7 +2202,7 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
     return
   }
   queueCanvasImages([dataUrl])
-  setAppMode('create')
+  setAppMode('canvas')
 }
 
 /** 平台记录的输出按序号对回详情里的那一张，再交给显式放置；失败按原因给话说清。 */

@@ -35,7 +35,6 @@ export default function Header() {
   const auth = useAuth()
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
-  const openLibrary = useLibraryStore((s) => s.openPanel)
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
@@ -84,7 +83,7 @@ export default function Header() {
           <h1 className="min-w-0 shrink-0">
             <button
               type="button"
-              onClick={() => setAppMode('create')}
+              onClick={() => setAppMode('canvas')}
               aria-label={t('header.homeAria')}
               className="flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -105,7 +104,7 @@ export default function Header() {
           </h1>
           <nav
             aria-label={t('header.nav')}
-            className="studio-main-nav flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4"
+            className="studio-main-nav flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4 md:hidden"
           >
             {visibleAppModes().map((mode) => (
               <button
@@ -138,25 +137,6 @@ export default function Header() {
               </button>
               <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
                 {t('header.inspiration')}
-              </ViewportTooltip>
-            </div>
-            <div className="relative" {...libraryTooltip.handlers}>
-              <button
-                type="button"
-                onClick={() => {
-                  dismissAllTooltips()
-                  openLibrary('projects')
-                }}
-                className="flex h-9 items-center gap-2 px-2.5 rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={t('header.library')}
-              >
-                <LibraryIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
-                <span className="hidden text-xs text-muted-foreground sm:inline">
-                  {t('header.library')}
-                </span>
-              </button>
-              <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
-                {t('header.library')}
               </ViewportTooltip>
             </div>
             <div className="ml-2 flex items-center gap-2 border-l border-border pl-3">

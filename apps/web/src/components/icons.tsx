@@ -305,6 +305,99 @@ export function VideoIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** 画布入口：一块画框。 */
+export function CanvasIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2.5" />
+      <path d="M3 8.5h18M8.5 3v18" />
+    </svg>
+  )
+}
+
+/** 生图入口：提示词直出的一张图。 */
+export function PromptImageIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="m4.5 16.5 4-4.5 3.5 4 2.5-2.5 5 5" />
+      <circle cx="9" cy="9" r="1.4" />
+    </svg>
+  )
+}
+
+/** 模板入口：一份存下来的提示词。 */
+export function TemplateIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+      <path d="M7.5 9h9M7.5 13h9M7.5 17h5" />
+    </svg>
+  )
+}
+
+/** 作品入口：一叠成品。 */
+export function GalleryIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="7" y="3.5" width="13.5" height="13.5" rx="2.5" />
+      <path d="M3.5 7v11.5A2 2 0 0 0 5.5 20.5H17" />
+      <path d="m9 14 2.5-3 3 3.5 2-2 3.5 4" />
+    </svg>
+  )
+}
+
+/** 素材入口：一张存下来的图。 */
+export function AssetIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l1.8 2.2h8a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+      <circle cx="9.5" cy="12" r="1.3" />
+      <path d="m7 17.5 3.5-3.2 2.4 2.2 2.2-2 3.4 3" />
+    </svg>
+  )
+}
+
 export function GlobeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg

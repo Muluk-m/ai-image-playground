@@ -14,12 +14,14 @@ import {
 } from './lib/templates'
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
+/** 素材与模板各是一个入口；项目走「全部项目」。这里只用来决定这三处的搜索框与落点归谁。 */
 export type LibraryTab = 'projects' | 'assets' | 'templates'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
 export interface LibraryState {
-  panelOpen: boolean
+  /** 素材或模板入口是否正在主区里；由 `LibraryPage` 挂载时登记。 */
+  onLibraryPage: boolean
   tab: LibraryTab
   searchKeyword: string
   assets: AssetRecord[]
@@ -31,9 +33,8 @@ export interface LibraryState {
   /** 正在为当前 composer 状态取模板名。 */
   namingTemplate: boolean
 
-  openPanel: (tab?: LibraryTab) => void
-  closePanel: () => void
-  setTab: (tab: LibraryTab) => void
+  enterLibraryPage: (tab: LibraryTab) => void
+  leaveLibraryPage: () => void
   setSearch: (keyword: string) => void
   openTemplateDetail: (id: string) => void
   closeTemplateDetail: () => void
@@ -63,7 +64,7 @@ export interface LibraryState {
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
-  panelOpen: false,
+  onLibraryPage: false,
   tab: 'assets',
   searchKeyword: '',
   assets: [],
@@ -72,14 +73,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   pendingAssetNames: [],
   namingTemplate: false,
 
-  openPanel: (tab) => {
-    set({ panelOpen: true, ...(tab ? { tab, searchKeyword: '' } : {}) })
+  enterLibraryPage: (tab) => {
+    set({ onLibraryPage: true, tab, searchKeyword: '' })
     useStore.getState().markLibraryPanelOpened()
-    void get().loadAssets()
-    void get().loadTemplates()
   },
-  closePanel: () => set({ panelOpen: false, detailTemplateId: null }),
-  setTab: (tab) => set({ tab }),
+  leaveLibraryPage: () => set({ onLibraryPage: false, detailTemplateId: null }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
   openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
   closeTemplateDetail: () => set({ detailTemplateId: null }),
@@ -149,8 +147,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
     // 面板外（composer 的 `@` 菜单）插入的引用胶囊本身就是反馈，再 toast 是噪音。
-    if (get().panelOpen) {
-      get().closePanel()
+    if (get().onLibraryPage) {
+      useStore.getState().setAppMode('image')
       main.showToast(
         already
           ? i18next.t('library:toast.alreadyInReferences')
@@ -322,10 +320,12 @@ async function writeTemplateIntoComposer(
   )
   main.setParams(template.params)
   await writeTemplate(set, { ...template, lastUsedAt: Date.now() })
-  get().closePanel()
+  // 套用完就该看见输入框里的结果：详情收起，切回生图入口。
+  set(() => ({ detailTemplateId: null }))
+  useStore.getState().setAppMode('image')
 }
 
-/** 面板列表：按名字过滤，最近用过的排在前面。 */
+/** 列表：按名字过滤，最近用过的排在前面。 */
 export function selectVisibleAssets(state: LibraryState): AssetRecord[] {
   const keyword = state.searchKeyword.trim().toLowerCase()
   return state.assets

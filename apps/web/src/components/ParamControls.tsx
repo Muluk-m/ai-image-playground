@@ -106,12 +106,17 @@ export type UnsupportedParam = 'transparent' | 'noRewrite'
 
 export default function ParamControls({
   showCount = false,
+  collapsible = false,
   unsupported,
 }: {
   showCount?: boolean
+  /** 输入框里的那一条：默认只露模型、尺寸与数量，其余收在「更多」后面。 */
+  collapsible?: boolean
   unsupported?: ReadonlySet<UnsupportedParam>
 }) {
   const { t } = useTranslation('composer')
+  const [expanded, setExpanded] = useState(false)
+  const showSecondary = !collapsible || expanded
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
@@ -334,23 +339,24 @@ export default function ParamControls({
           }}
         />
       )}
-      {geminiFields.map(({ labelKey, field, icon, options }) => {
-        const currentValue = (params[field] as string | undefined) ?? 'auto'
-        return (
-          <ParamChip key={field} icon={icon} label={t(labelKey)} value={currentValue}>
-            <ChipSelect
-              value={currentValue}
-              onChange={(val) =>
-                setParams({
-                  [field]: val === 'auto' ? undefined : val,
-                } as Partial<TaskParams>)
-              }
-              options={options}
-            />
-          </ParamChip>
-        )
-      })}
-      {!isGeminiProvider && (
+      {showSecondary &&
+        geminiFields.map(({ labelKey, field, icon, options }) => {
+          const currentValue = (params[field] as string | undefined) ?? 'auto'
+          return (
+            <ParamChip key={field} icon={icon} label={t(labelKey)} value={currentValue}>
+              <ChipSelect
+                value={currentValue}
+                onChange={(val) =>
+                  setParams({
+                    [field]: val === 'auto' ? undefined : val,
+                  } as Partial<TaskParams>)
+                }
+                options={options}
+              />
+            </ParamChip>
+          )
+        })}
+      {!isGeminiProvider && showSecondary && (
         <>
           {/* 不可用的质量、压缩参数直接不渲染，避免占位挤掉单行布局。 */}
           {capabilities.quality && (
@@ -456,6 +462,13 @@ export default function ParamControls({
             className="w-7 bg-transparent text-xs font-medium text-muted-foreground outline-none"
           />
         </ParamChip>
+      )}
+      {collapsible && (
+        <ParamChip
+          icon={ChipIcons.more}
+          label={t(expanded ? 'param.fewer' : 'param.more')}
+          onClick={() => setExpanded((was) => !was)}
+        />
       )}
       {showSizePicker && (
         <SizePickerModal

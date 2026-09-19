@@ -96,7 +96,6 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
           {submitting ? t('confirm.submitting') : t('confirm.submit')}
         </Button>
       </div>
-      <p className={CARD_NOTE}>{t('confirm.charge')}</p>
       {failure && (
         <p role="alert" className={CARD_NOTE}>
           {failureText()}

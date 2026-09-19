@@ -4,8 +4,8 @@ import { type AppMode, useStore } from '../store'
 import { APP_MODE_PATHS, pathAppMode } from './appPaths'
 
 /**
- * 顶部三个入口各有自己的地址：创作是 `/p/<项目>`（没有项目时是 `/`），作品是 `/works`，
- * 视频是 `/video`。切换入口写一条历史记录，前进后退和刷新都回到同一个入口。
+ * 侧栏四个入口各有自己的地址：画布是 `/p/<项目>`（没有项目时是 `/`），生图是 `/image`，
+ * 视频是 `/video`，作品是 `/works`。切换入口写一条历史记录，前进后退和刷新都回到同一个入口。
  */
 
 function isRoot(pathname: string): boolean {
@@ -14,7 +14,7 @@ function isRoot(pathname: string): boolean {
 
 function writeModeRoute(mode: AppMode): void {
   const { pathname, search, hash } = window.location
-  if (mode !== 'create') {
+  if (mode !== 'canvas') {
     const target = APP_MODE_PATHS[mode]
     if (pathname !== target) window.history.pushState(null, '', `${target}${search}${hash}`)
     return
@@ -27,12 +27,12 @@ function writeModeRoute(mode: AppMode): void {
   else if (!isRoot(pathname)) window.history.pushState(null, '', `/${search}${hash}`)
 }
 
-/** 入口和地址双向同步。要在项目目录加载前装上，加载完激活项目时才不会把作品 / 视频地址改成项目地址。 */
+/** 入口和地址双向同步。要在项目目录加载前装上，加载完激活项目时才不会把生图 / 作品地址改成项目地址。 */
 export function installAppRouting(): () => void {
   const sync = () => {
     const { pathname } = window.location
-    const mode = pathAppMode(pathname) ?? (isRoot(pathname) ? 'create' : null)
-    // 项目地址由项目导航切回创作。
+    const mode = pathAppMode(pathname) ?? (isRoot(pathname) ? 'canvas' : null)
+    // 项目地址由项目导航切回画布。
     if (mode && useStore.getState().appMode !== mode) useStore.getState().setAppMode(mode)
   }
   sync()

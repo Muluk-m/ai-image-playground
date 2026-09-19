@@ -16,11 +16,11 @@
     "reuse": "复用配置",
     "editOutput": "编辑输出",
     "sendToCanvas": "送入画布",
-    "sendToCanvasTitle": "送入创作模式画布",
+    "sendToCanvasTitle": "送入画布",
     "deleteRecord": "删除记录"
   },
   "confirm": {
-    "deleteMessage": "确定要删除这条记录吗？仅清理不再使用的关联图片。"
+    "deleteMessage": "确定要删除这条记录吗？"
   },
   "prompt": {
     "empty": "(无提示词)"
@@ -94,6 +94,7 @@
   },
   "grid": {
     "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",
+    "recent": "最近生成",
     "noMatches": "没有找到匹配的记录"
   },
   "set": {
@@ -129,7 +130,7 @@
     "reference": "参考图 {{number}}",
     "mask": "蒙版",
     "archiving": "正在保存",
-    "unavailable": "部分原件未能保存。已保留可恢复的图片，不会自动重新生成。",
+    "unavailable": "部分原图未能保存。",
     "place": "放入当前项目",
     "agentSource": "智能体生成",
     "studioSource": "工作台生成"

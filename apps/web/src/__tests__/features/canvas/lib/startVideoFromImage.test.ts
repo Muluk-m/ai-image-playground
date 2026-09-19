@@ -22,9 +22,9 @@ beforeEach(() => {
   cached.value = 'data:image/png;base64,AAAA'
   capabilities.agent = true
   useCanvasComposer.setState({ mode: 'image', agentVideoPending: false })
-  useLibraryStore.setState({ panelOpen: true })
+  useLibraryStore.setState({ onLibraryPage: true })
   useStore.setState({
-    appMode: 'browse',
+    appMode: 'image',
     pendingCanvasImages: [],
     lightboxImageId: 'img-1',
     detailTaskId: 'task-1',
@@ -33,15 +33,15 @@ beforeEach(() => {
 })
 
 describe('从一张图发起生成视频', () => {
-  it('从作品页进视频入口，把图放上画布并预置视频', async () => {
+  it('从别的入口做视频，把图放上画布并预置视频', async () => {
     await startVideoFromImage('img-1')
 
     const main = useStore.getState()
-    expect(main.appMode).toBe('video')
+    expect(main.appMode).toBe('canvas')
     expect(main.pendingCanvasImages).toEqual(['data:image/png;base64,AAAA'])
     expect(main.lightboxImageId).toBeNull()
     expect(main.detailTaskId).toBeNull()
-    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useLibraryStore.getState().onLibraryPage).toBe(false)
     expect(useCanvasComposer.getState().mode).toBe('video')
     expect(useCanvasComposer.getState().agentVideoPending).toBe(true)
   })
@@ -57,12 +57,12 @@ describe('从一张图发起生成视频', () => {
     expect(localStorage.getItem('canvas.generateMode')).toBeNull()
   })
 
-  it('已经在创作画布上就留在原入口', async () => {
-    useStore.setState({ appMode: 'create' })
+  it('已经在画布上就留在原入口', async () => {
+    useStore.setState({ appMode: 'canvas' })
 
     await startVideoFromImage('img-1')
 
-    expect(useStore.getState().appMode).toBe('create')
+    expect(useStore.getState().appMode).toBe('canvas')
     expect(useStore.getState().pendingCanvasImages).toHaveLength(1)
     expect(useCanvasComposer.getState().mode).toBe('video')
   })
@@ -72,9 +72,9 @@ describe('从一张图发起生成视频', () => {
 
     await startVideoFromImage('img-1')
 
-    expect(useStore.getState().appMode).toBe('browse')
+    expect(useStore.getState().appMode).toBe('image')
     expect(useStore.getState().lightboxImageId).toBe('img-1')
-    expect(useLibraryStore.getState().panelOpen).toBe(true)
+    expect(useLibraryStore.getState().onLibraryPage).toBe(true)
     expect(useStore.getState().pendingCanvasImages).toEqual([])
     expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.any(String), 'error')
     expect(useCanvasComposer.getState().mode).toBe('image')

@@ -28,7 +28,7 @@
     "expand": "Expand input",
     "expandHint": "Click to expand input",
     "emptyPromptHint": "Click to expand and write a new prompt...",
-    "collapse": "Collapse into the mini bar",
+    "collapse": "Collapse the input box",
     "library": "Assets and templates",
     "saveTemplate": "Save as template"
   },
@@ -78,7 +78,7 @@
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
     "generateShortcut": "Generate (Ctrl+Enter)",
     "configureApiFirst": "Configure the API first",
-    "apiNotConfigured": "The API is not set up yet. Open the top-right menu → Settings"
+    "apiNotConfigured": "Configure the API in Settings first"
   },
   "search": {
     "favoriteOnly": "Favorites only",
@@ -99,7 +99,9 @@
     "compression": "Compression",
     "moderation": "Moderation",
     "count": "Count",
-    "noModel": "Not selected"
+    "noModel": "Not selected",
+    "more": "More",
+    "fewer": "Less"
   },
   "size": {
     "titleRatio": "Set aspect ratio",
@@ -111,8 +113,7 @@
     "modeResolution": "Custom size",
     "autoTitle": "Auto size",
     "autoTitleRatio": "Smart ratio",
-    "autoLine1": "No resolution is sent to the model",
-    "autoLine2": "The model picks the output size",
+    "autoLine1": "The model decides the size",
     "baseResolution": "Base resolution",
     "imageRatio": "Aspect ratio",
     "customRatio": "Custom ratio",
