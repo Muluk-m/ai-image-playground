@@ -284,6 +284,18 @@ export function setAgentWakePickupDelayForTesting(ms?: number): void {
 }
 
 /**
+ * 服务端在起轮时把首句标题交给小模型改写，改完不另行通知。首轮收尾读到的多半还是首句，
+ * 所以隔这么久再补拉一次会话列表，项目名跟着一起更新。只补这一次，不轮询。
+ */
+const DEFAULT_TITLE_REWRITE_MS = 4_000
+let titleRewriteMs = DEFAULT_TITLE_REWRITE_MS
+
+/** 测试注入点；不传恢复真实节奏。 */
+export function setAgentTitleRewriteDelayForTesting(ms?: number): void {
+  titleRewriteMs = ms ?? DEFAULT_TITLE_REWRITE_MS
+}
+
+/**
  * 这个任务结束后服务端会不会唤醒智能体：失败一律唤醒（被取消的不算），成功只在提交时要求了
  * 复核。只按错误码与复核标记判断，不读服务端文字。
  */
@@ -1434,7 +1446,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
         await follow(target, { frames: outcome.frames }, trimmed, turnDelivery, async (turnId) => {
           if (submission.cancelled) await requestAbort(target, turnId)
         })
-        if (firstTurn) await get().refreshConversations()
+        if (firstTurn) {
+          await get().refreshConversations()
+          setTimeout(() => void get().refreshConversations(), titleRewriteMs)
+        }
       } finally {
         if (pendingStart === submission) pendingStart = null
       }

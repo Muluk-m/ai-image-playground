@@ -407,7 +407,15 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['image', 'canvas', 'video', 'works'] as const
+export const APP_MODES = [
+  'image',
+  'canvas',
+  'video',
+  'works',
+  'assets',
+  'templates',
+  'projects',
+] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
@@ -427,12 +435,25 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   get works() {
     return i18next.t('appMode.works', { ns: 'store' })
   },
+  get assets() {
+    return i18next.t('appMode.assets', { ns: 'store' })
+  },
+  get templates() {
+    return i18next.t('appMode.templates', { ns: 'store' })
+  },
+  get projects() {
+    return i18next.t('appMode.projects', { ns: 'store' })
+  },
 }
 
-/** 分段控件与模式分发都只认这份列表。视频要 BFF 频道加能力开关，纯静态形态没有。 */
+/** 侧栏「创作」组。视频要 BFF 频道加能力开关，纯静态形态没有。 */
 export function visibleAppModes(): AppMode[] {
-  return APP_MODES.filter((mode) => mode !== 'video' || isVideoModeAvailable())
+  const creation: AppMode[] = ['image', 'canvas', 'video']
+  return creation.filter((mode) => mode !== 'video' || isVideoModeAvailable())
 }
+
+/** 侧栏「我的」组。项目不在里面：它是画布的实例，从「全部项目」进。 */
+export const LIBRARY_APP_MODES: readonly AppMode[] = ['works', 'assets', 'templates']
 
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)

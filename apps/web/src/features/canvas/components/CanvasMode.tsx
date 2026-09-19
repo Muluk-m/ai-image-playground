@@ -198,14 +198,25 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               style={{ width: 340 }}
               aria-label={t('sidebar.title')}
             >
-              <div className="flex justify-between px-4 text-xs">
-                <span>{t('sidebar.title')}</span>
+              <div className="flex items-center justify-between px-4 pb-2 pt-3">
+                <span className="text-[13px] font-medium text-foreground">
+                  {t('sidebar.title')}
+                </span>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
                   aria-label={t('sidebar.collapseAria')}
+                  className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
-                  {t('sidebar.collapse')}
+                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+                    <path
+                      d="M10 3.5 5.5 8l4.5 4.5"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
               </div>
               <div className="studio-chat-empty px-4">
@@ -275,11 +286,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <div className="studio-empty">
                 <img src="/brand/muvloom-icon.svg" alt="" />
                 <h2>{t('empty.title')}</h2>
-                <p>
-                  {hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}
-                  <br />
-                  {t('empty.bodyDrop')}
-                </p>
+                <p>{hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}</p>
                 <button
                   type="button"
                   className="studio-secondary"

@@ -23,7 +23,7 @@
     "expand": "展开输入框",
     "expandHint": "点击展开输入框",
     "emptyPromptHint": "点击展开输入框，输入新的 prompt...",
-    "collapse": "收起输入框（折叠成 mini bar）",
+    "collapse": "收起输入框",
     "library": "素材与模板",
     "saveTemplate": "存为模板"
   },
@@ -66,7 +66,7 @@
     "maskEditShortcut": "遮罩编辑 (Ctrl+Enter)",
     "generateShortcut": "生成 (Ctrl+Enter)",
     "configureApiFirst": "请先配置 API",
-    "apiNotConfigured": "尚未完成 API 配置，请打开右上角菜单 → 设置"
+    "apiNotConfigured": "请先在设置里配置 API"
   },
   "search": {
     "favoriteOnly": "只看收藏",
@@ -99,8 +99,7 @@
     "modeResolution": "自定义宽高",
     "autoTitle": "自动尺寸",
     "autoTitleRatio": "智能比例",
-    "autoLine1": "不向模型传递具体的分辨率参数",
-    "autoLine2": "由模型自己决定生成尺寸",
+    "autoLine1": "尺寸由模型决定",
     "baseResolution": "基准分辨率",
     "imageRatio": "图像比例",
     "customRatio": "自定义比例",

@@ -360,6 +360,44 @@ export function TemplateIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** 作品入口：一叠成品。 */
+export function GalleryIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="7" y="3.5" width="13.5" height="13.5" rx="2.5" />
+      <path d="M3.5 7v11.5A2 2 0 0 0 5.5 20.5H17" />
+      <path d="m9 14 2.5-3 3 3.5 2-2 3.5 4" />
+    </svg>
+  )
+}
+
+/** 素材入口：一张存下来的图。 */
+export function AssetIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l1.8 2.2h8a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+      <circle cx="9.5" cy="12" r="1.3" />
+      <path d="m7 17.5 3.5-3.2 2.4 2.2 2.2-2 3.4 3" />
+    </svg>
+  )
+}
+
 export function GlobeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg

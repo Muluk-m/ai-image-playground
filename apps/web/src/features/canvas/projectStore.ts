@@ -1,4 +1,8 @@
-import type { AgentConversationView, CloudProjectSummary } from '@image-playground/shared'
+import {
+  type AgentConversationView,
+  type CloudProjectSummary,
+  PROJECT_NAME_MAX_LENGTH,
+} from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
 import { pathAppMode } from '../../lib/appPaths'
@@ -192,18 +196,23 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   },
   async update(id, patch) {
     const current = get().projects.find((one) => one.id === id)
-    if (current?.cloud && patch.name !== undefined && cloudProjectsEnabled()) {
-      const { renameCloudProject } = await import('./lib/workspaces')
-      await renameCloudProject(current, patch.name)
-      return
-    }
+    if (
+      patch.name !== undefined &&
+      (!patch.name.trim() || patch.name.length > PROJECT_NAME_MAX_LENGTH)
+    )
+      throw new Error('invalid_project_name')
+    // 云端项目的名字也先落本机：改名不必等网络，`nameDirty` 保证它不被远端那份盖回去。
+    const renaming = patch.name === undefined ? undefined : current?.cloud
     const project = await projectRepository.update(id, {
       ...patch,
-      ...(current?.cloud && patch.name !== undefined
-        ? { cloud: { ...current.cloud, nameDirty: true } }
-        : {}),
+      ...(renaming ? { cloud: { ...renaming, nameDirty: true } } : {}),
     })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
+    if (renaming && cloudProjectsEnabled()) {
+      // workspaces 反过来依赖本模块，静态引入会成环。
+      const { pushCloudProjectName } = await import('./lib/workspaces')
+      await pushCloudProjectName(project)
+    }
   },
   async restore(id) {
     const scope = scopedStorageName(CANVAS_PROJECT_KEY)
@@ -256,7 +265,10 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       if (existing) {
         if (existing.cloud?.deleted) continue
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
-          await get().update(existing.id, { name: conversation.title, hasContent: true })
+          // 自动命名是顺带做的：一个项目改不动，后面的项目不该跟着没名字。
+          await get()
+            .update(existing.id, { name: conversation.title, hasContent: true })
+            .catch(() => {})
         continue
       }
       const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {

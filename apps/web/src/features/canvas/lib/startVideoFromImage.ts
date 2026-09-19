@@ -18,7 +18,7 @@ export async function startVideoFromImage(imageId: string): Promise<void> {
   }
   main.setLightboxImageId(null)
   main.setDetailTaskId(null)
-  useLibraryStore.getState().closePanel()
+  useLibraryStore.getState().leaveLibraryPage()
   main.queueCanvasImages([dataUrl])
   useCanvasComposer.getState().requestVideo()
   if (useStore.getState().appMode !== 'canvas') main.setAppMode('canvas')

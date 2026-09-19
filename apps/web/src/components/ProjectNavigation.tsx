@@ -7,6 +7,7 @@ import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { formatDateMinute } from '../i18n/format'
+import { useStore } from '../store'
 import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -36,7 +37,7 @@ export default function ProjectNavigation() {
     .slice(0, query ? 30 : 8)
   const allProjects = () => {
     setOpen(false)
-    useLibraryStore.getState().openPanel('projects')
+    useStore.getState().setAppMode('projects')
   }
   const enter = async (id?: string) => {
     if (busy) return

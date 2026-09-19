@@ -23,7 +23,7 @@ let root: Root
 
 beforeEach(() => {
   useStore.setState({ appMode: 'canvas' })
-  useLibraryStore.setState({ panelOpen: false, tab: 'assets' })
+  useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -51,9 +51,9 @@ it('每个创作入口都是一个独立去处，选中的那个自己标出来'
   expect(useStore.getState().appMode).toBe('video')
 })
 
-it('素材与模板开的是同一个面板的两个页签，不换入口', () => {
+it('素材与模板和别的入口同一层级：换地址、换主区', () => {
   act(() => entry('模板').dispatchEvent(new MouseEvent('click', { bubbles: true })))
 
-  expect(useLibraryStore.getState()).toMatchObject({ panelOpen: true, tab: 'templates' })
-  expect(useStore.getState().appMode).toBe('canvas')
+  expect(useStore.getState().appMode).toBe('templates')
+  expect(entry('模板').getAttribute('aria-pressed')).toBe('true')
 })

@@ -243,11 +243,18 @@ export class CanvasWorkspace {
   }
 }
 
-export async function renameCloudProject(project: CanvasProject, name: string): Promise<void> {
-  const target = workspace(project.sceneKey)
-  await target.ready
-  if (!target.cloud) throw new Error('cloud_project_unavailable')
-  await target.cloud.rename(name)
+/**
+ * 名字已经写进本机目录并标了 `nameDirty`，这里把它推给已经打开的那个云端会话。
+ * 项目没打开就什么都不做：不为改个名字把整份文档拉下来，下次打开时会连同文档一起推上去。
+ */
+export async function pushCloudProjectName(project: CanvasProject): Promise<void> {
+  const session = workspaces.get(project.sceneKey)?.cloud
+  if (!session) return
+  try {
+    await session.rename(project.name)
+  } catch {
+    // 推不上去就留着 `nameDirty`，下次同步再补；改名不该因为网络失手而回滚。
+  }
 }
 
 const workspaces = new Map<string, CanvasWorkspace>()
