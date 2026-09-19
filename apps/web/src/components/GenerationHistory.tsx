@@ -6,8 +6,8 @@ import TaskGrid from './TaskGrid'
 import { Button } from './ui/button'
 
 /**
- * 作品页。**一条列表**：本机任务与只在平台留有记录的生成按时间穿插，不分「此设备 / 云端」
- * 两个页签——那是存储位置，不是用户要挑的东西。同一条生成两边都有时只显示本机那张卡。
+ * 作品页。**一条列表、一种卡**：只在平台留有记录的生成被镜像成本机任务记录（`lib/cloudMirror`），
+ * 和本机生成穿插在同一个网格里。不分「此设备 / 云端」两个页签——那是存储位置，不是用户要挑的东西。
  *
  * 平台记录按游标往后读，所以底部是「加载更多」而不是翻页；本机任务不分页，翻页会把两边的
  * 时间线切断。
@@ -18,7 +18,7 @@ export default function GenerationHistory({ userId }: { userId?: string }) {
   return (
     <>
       <SearchBar />
-      <TaskGrid cloudItems={cloud.items} />
+      <TaskGrid />
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">

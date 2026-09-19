@@ -229,6 +229,11 @@ export interface TaskRecord {
   isFavorite?: boolean
   /** 归属：套内逐镜提交才带，零散提交不带。 */
   origin?: TaskOrigin
+  /**
+   * 只在平台上留有记录的生成：像素不在本机，`outputImages` 是 `aip-media:` 引用。
+   * 删除要走平台接口，本机删掉不算删。
+   */
+  remoteOnly?: true
 }
 
 // ===== IndexedDB 存储的图片 =====

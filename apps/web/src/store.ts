@@ -1,8 +1,10 @@
+import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { describeError, i18next } from './i18n'
 import {
   clientProfileToApiProfile,
+  createBuiltinEdgeProfile,
   DEFAULT_SETTINGS,
   getActiveApiProfile,
   getCustomProviderDefinition,
@@ -16,6 +18,7 @@ import {
   getProfileModels,
   modelSupportsEdit,
   NO_EDIT_SUPPORT_MESSAGE,
+  updateSelectedModel,
 } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
@@ -45,6 +48,7 @@ import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
@@ -60,6 +64,7 @@ import {
   getImageThumbnail,
   getReferencedImageIds,
   getStoredFreshImageThumbnail,
+  hashDataUrl,
   putImage,
   putImageThumbnail,
   putTask,
@@ -69,6 +74,7 @@ import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from '.
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { placeCloudGeneration } from './lib/placeCloudGeneration'
 import {
   getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
@@ -83,6 +89,8 @@ import {
   MAX_BATCH_IMAGES,
   type SlotValues,
 } from './lib/promptSlots'
+import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
+import { reuseCloudGeneration } from './lib/reuseCloudGeneration'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
   createTransparentOutputMeta,
@@ -789,6 +797,7 @@ export const useStore = create<AppState>()(
       setDetailTaskId: (detailTaskId) => {
         if (detailTaskId) dismissAllTooltips()
         set({ detailTaskId })
+        if (detailTaskId) void hydrateRemoteTask(detailTaskId)
       },
       lightboxImageId: null,
       lightboxImageList: [],
@@ -1770,8 +1779,137 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   if (task) putTask(task)
 }
 
-/** 重试失败的任务：创建新任务并执行 */
+/** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出、参考图与遮罩。 */
+const hydratedRemoteTasks = new Set<string>()
+async function hydrateRemoteTask(taskId: string) {
+  const task = useStore.getState().tasks.find((t) => t.id === taskId)
+  if (!task?.remoteOnly || hydratedRemoteTasks.has(taskId)) return
+  hydratedRemoteTasks.add(taskId)
+  const detail = await readRemoteGeneration(taskId)
+  if (!detail) {
+    hydratedRemoteTasks.delete(taskId)
+    return
+  }
+  updateTaskInStore(taskId, {
+    prompt: detail.prompt,
+    outputImages: detail.outputs.map((output) => mediaRef(output.mediaId)),
+    inputImageIds: detail.inputs.map((input) => mediaRef(input.mediaId)),
+    maskImageId: detail.mask ? mediaRef(detail.mask.mediaId) : null,
+  })
+}
+/**
+ * 把一条只在平台留有记录的生成搬到本机：产出、参考图、遮罩都下原图存进本机图库，id 换成本机 id，
+ * 顺手认出它该用哪个内置 channel 的 profile。复用、编辑、放入画布、重试都要真实像素，所以这些
+ * 动作在动手之前先过这里——之后它就是一条普通任务，下游不需要再分情况。
+ */
+export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecord> {
+  if (!task.remoteOnly) return task
+  const detail = await readRemoteGeneration(task.id)
+  const outputs = detail
+    ? detail.outputs.map((image) => mediaRef(image.mediaId))
+    : task.outputImages
+  const inputs = detail ? detail.inputs.map((image) => mediaRef(image.mediaId)) : task.inputImageIds
+  const mask = detail?.mask ? mediaRef(detail.mask.mediaId) : (task.maskImageId ?? null)
+  const [outputImages, inputImageIds, maskImageId] = await Promise.all([
+    localizeRefs(outputs, 'generated'),
+    localizeRefs(inputs, 'upload'),
+    mask ? localizeRef(mask, 'mask') : Promise.resolve(null),
+  ])
+  const localized: TaskRecord = {
+    ...task,
+    prompt: detail?.prompt ?? task.prompt,
+    outputImages,
+    inputImageIds,
+    maskImageId,
+    maskTargetImageId: maskImageId ? (inputImageIds[0] ?? null) : null,
+    apiProfileId: builtinProfileId(detail?.provider ?? '', task.apiModel ?? ''),
+    remoteOnly: undefined,
+  }
+  await putTask(localized)
+  useStore.setState((state) => ({
+    tasks: state.tasks.map((item) => (item.id === localized.id ? localized : item)),
+  }))
+  return localized
+}
+
+async function localizeRefs(
+  refs: readonly string[],
+  source: 'generated' | 'upload',
+): Promise<string[]> {
+  const localized = await Promise.all(refs.map((ref) => localizeRef(ref, source)))
+  return localized.filter((id): id is string => id !== null)
+}
+
+/** 已经是本机 id 的原样返回；云媒体引用下原图存本机，返回新 id。取不到图返回 null。 */
+async function localizeRef(
+  ref: string,
+  source: 'generated' | 'upload' | 'mask',
+): Promise<string | null> {
+  if (!ref.startsWith('aip-media:')) return ref
+  try {
+    const dataUrl = await resolveMediaSource(ref, 'original')
+    const id = await hashDataUrl(dataUrl)
+    await putImage({ id, dataUrl, createdAt: Date.now(), source })
+    return id
+  } catch {
+    return null
+  }
+}
+
+/** 平台记录只给了 provider 与模型；找出承载这个模型的内置 channel，复用时才能切到对的模型。 */
+function builtinProfileId(provider: string, model: string): string | undefined {
+  const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
+  const channel = getPublicChannels().find(
+    (entry) => entry.kind === kind && entry.models.some((item) => item.id === model),
+  )
+  if (!channel) return undefined
+  const settings = normalizeSettings(useStore.getState().settings)
+  const existing = settings.profiles.find(
+    (item) => item.source === 'builtin-edge' && item.channelId === channel.id,
+  )
+  if (existing) return existing.id
+  const created = createBuiltinEdgeProfile(channel.id, model)
+  useStore.getState().setSettings({ profiles: [...settings.profiles, created] })
+  return created.id
+}
+
+/** 复用一条刚搬回本机的平台记录时连模型一起切过去；不切等于换个模型重跑，不叫复用。 */
+function activateTaskProfile(task: TaskRecord) {
+  if (!task.apiProfileId || !task.apiModel) return
+  const state = useStore.getState()
+  const settings = normalizeSettings(state.settings)
+  const publicChannels = getPublicChannels()
+  state.setSettings({
+    profiles: settings.profiles.map((profile) =>
+      profile.id === task.apiProfileId
+        ? updateSelectedModel(profile, task.apiModel as string, publicChannels)
+        : profile,
+    ),
+    activeProfileId: task.apiProfileId,
+  })
+}
+
+/**
+ * 搬回本机之后输出图换了 id，所以按序号找回调用方点的那一张；本机记录原样返回它给的 id。
+ */
+function resolveOutputId(
+  original: TaskRecord,
+  local: TaskRecord,
+  imageId?: string,
+): string | undefined {
+  if (local === original) return imageId ?? original.outputImages?.[0]
+  const index = imageId ? original.outputImages.indexOf(imageId) : 0
+  return local.outputImages[index >= 0 ? index : 0]
+}
+
+/**
+ * 重试失败的任务：创建新任务并执行。像素只在平台上的记录先搬回本机，重试和本机记录走同一条路。
+ */
 export async function retryTask(task: TaskRecord) {
+  return retryLocalTask(await materializeRemoteTask(task))
+}
+
+async function retryLocalTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
@@ -1808,8 +1946,28 @@ export async function retryTask(task: TaskRecord) {
   executeTask(taskId)
 }
 
-/** 复用配置 */
+/**
+ * 复用配置。平台记录走云端复用：它要按 provider+model 认回内置模型、把参考图和遮罩按引用取回来，
+ * 而不是照本机 id 读图。
+ */
 export async function reuseConfig(task: TaskRecord) {
+  if (task.remoteOnly) {
+    const detail = await readRemoteGeneration(task.id)
+    if (!detail) {
+      useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
+      return
+    }
+    try {
+      await reuseCloudGeneration(detail, new AbortController().signal)
+    } catch {
+      useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
+    }
+    return
+  }
+  return reuseLocalConfig(task)
+}
+
+async function reuseLocalConfig(task: TaskRecord) {
   const {
     settings,
     setPrompt,
@@ -1907,9 +2065,10 @@ export async function reuseConfig(task: TaskRecord) {
  * 再打开遮罩编辑器。不传 imageId 时默认取首张输出图。
  */
 export async function editOutputImage(task: TaskRecord, imageId?: string) {
+  const local = await materializeRemoteTask(task)
   const { inputImages, addInputImage, setMaskEditorImageId, showToast, settings } =
     useStore.getState()
-  const targetId = imageId ?? task.outputImages?.[0]
+  const targetId = resolveOutputId(task, local, imageId)
   if (!targetId) return
 
   if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels())) {
@@ -1987,8 +2146,12 @@ export async function addCompletedCanvasTask(args: {
 /**
  * 把一条任务的输出图送进创作模式画布：取全分辨率原图 → 入 handoff 队列 → 切到 create 模式，
  * 由画布 onMount 消费队列放图。默认送第一张输出图。
+ *
+ * 平台记录走显式放置（`placeCloudGeneration`）：它带稳定产物身份，重复放只定位已有对象、
+ * 不覆盖已经被移动过的那张，也不会和同步送达的产物撞成两个。
  */
 export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
+  if (task.remoteOnly) return placeRemoteOutputOnCanvas(task, imageId)
   const { queueCanvasImages, setAppMode, showToast } = useStore.getState()
   const targetId = imageId ?? task.outputImages?.[0]
   if (!targetId) return
@@ -2000,6 +2163,32 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
   }
   queueCanvasImages([dataUrl])
   setAppMode('create')
+}
+
+/** 平台记录的输出按序号对回详情里的那一张，再交给显式放置；失败按原因给话说清。 */
+async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
+  const { showToast } = useStore.getState()
+  const detail = await readRemoteGeneration(task.id)
+  const index = imageId ? Math.max(task.outputImages.indexOf(imageId), 0) : 0
+  const output = detail?.outputs[index] ?? detail?.outputs[0]
+  if (!output) {
+    showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
+    return
+  }
+  try {
+    await placeCloudGeneration(detail as GenerationDetail, output, new AbortController().signal)
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : ''
+    showToast(
+      i18next.t(
+        reason === 'project_not_ready' ? 'toast.canvasNotReady' : 'toast.canvasPlaceFailed',
+        {
+          ns: 'store',
+        },
+      ),
+      'error',
+    )
+  }
 }
 
 /** 删除多条任务 */
@@ -2049,9 +2238,16 @@ export async function removeMultipleTasks(taskIds: string[]) {
   showToast(i18next.t('toast.tasksDeleted', { ns: 'store', count: taskIds.length }), 'success')
 }
 
-/** 删除单条任务 */
+/**
+ * 删除单条任务。像素只在平台上的那条（`remoteOnly`）先删平台记录：本机删掉不算删，刷新就回来了。
+ * 平台删不掉时整件事不做，免得列表和平台各说一套。
+ */
 export async function removeTask(task: TaskRecord) {
   const { tasks, setTasks, showToast } = useStore.getState()
+  if (task.remoteOnly && !(await deleteRemoteGeneration(task.id))) {
+    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+    return
+  }
 
   // 收集此任务关联的图片
   const taskImageIds = new Set([

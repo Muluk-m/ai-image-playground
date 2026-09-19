@@ -99,6 +99,11 @@ function request(path: string, cookie: string, body?: unknown) {
     }),
   )
 }
+function remove(path: string, cookie: string) {
+  return app.handle(
+    new Request(`http://localhost${path}`, { method: 'DELETE', headers: { cookie } }),
+  )
+}
 const input = {
   prompt: 'Cloud history fixture',
   device_id: 'generation-device-a',
@@ -411,6 +416,55 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   expect((await request('/api/generations', '')).status).toBe(401)
 })
 
+it('列表条目自带提示词和参数，卡片不用再逐条读详情', async () => {
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+      ...input,
+      quality: 'high',
+      size: 'auto',
+      n: 1,
+    })
+  ).json()
+  const [item] = (await (await request('/api/generations', deviceB)).json()).items
+  expect(item).toMatchObject({
+    id,
+    prompt: input.prompt,
+    parameters: { quality: 'high', size: 'auto', n: 1 },
+    actualParameters: {},
+  })
+  // 图片行仍然只在详情里：列表为了提示词多带一列，不能顺手把每条的原件也查出来。
+  expect(item.outputs).toBeUndefined()
+})
+
+it('删除作品后列表和详情都读不到，任务随后完成也不会让它复活', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#4488cc' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: png.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  expect((await remove(`/api/generations/${id}`, deviceB)).status).toBe(204)
+  expect((await (await request('/api/generations', deviceA)).json()).items).toEqual([])
+  expect((await request(`/api/generations/${id}`, deviceA)).status).toBe(404)
+  // 删除是终态：任务完成时的重新发布只改状态，不能把记录带回列表。
+  await runTask(id)
+  expect((await (await request('/api/generations', deviceB)).json()).items).toEqual([])
+  expect((await remove(`/api/generations/${id}`, deviceA)).status).toBe(404)
+})
+
+it('别人的作品删不掉，没有登录也删不掉', async () => {
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  expect((await remove(`/api/generations/${id}`, stranger)).status).toBe(404)
+  expect((await remove(`/api/generations/${id}`, '')).status).toBe(401)
+  expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
+})
+
 it('没有项目的生成原件在临时任务清理后仍可跨设备读取', async () => {
   const original = await sharp({
     create: { width: 8, height: 6, channels: 3, background: '#77aa44' },
@@ -446,7 +500,6 @@ it('没有项目的生成原件在临时任务清理后仍可跨设备读取', a
   const listing = await (await request('/api/generations', deviceB)).json()
   expect(listing.items[0].cover).toMatchObject({ mediaId, width: 8, height: 6 })
   expect(listing.items[0].outputs).toBeUndefined()
-  expect(listing.items[0].parameters).toBeUndefined()
   const access = await request(`/api/media/${mediaId}/access`, deviceB)
   expect(access.status).toBe(200)
   const { originalUrl } = await access.json()

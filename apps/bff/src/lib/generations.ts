@@ -3,7 +3,7 @@ import {
   type GenerationPage,
   projectArtifactId,
 } from '@image-playground/shared'
-import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
 const table = schema.generation_records
@@ -19,6 +19,9 @@ const columns = {
   startedAt: table.started_at,
   completedAt: table.completed_at,
   revision: sql<string>`${table.revision}::text`,
+  prompt: table.prompt,
+  parameters: table.parameters,
+  actualParameters: table.actual_parameters,
 }
 export type GenerationCursor = { createdAt: number; id: string }
 export async function listGenerations(
@@ -32,6 +35,7 @@ export async function listGenerations(
     .where(
       and(
         eq(table.user_id, userId),
+        isNull(table.deleted_at),
         cursor
           ? or(
               lt(table.created_at, cursor.createdAt),
@@ -93,14 +97,9 @@ export async function readGeneration(
   id: string,
 ): Promise<GenerationDetail | undefined> {
   const [record] = await db
-    .select({
-      ...columns,
-      prompt: table.prompt,
-      parameters: table.parameters,
-      actualParameters: table.actual_parameters,
-    })
+    .select(columns)
     .from(table)
-    .where(and(eq(table.user_id, userId), eq(table.id, id)))
+    .where(and(eq(table.user_id, userId), eq(table.id, id), isNull(table.deleted_at)))
   if (!record) return undefined
   const images = await db
     .select({
@@ -131,4 +130,17 @@ export async function readGeneration(
     inputs: byRole('input'),
     mask: byRole('mask')[0] ?? null,
   }
+}
+
+/**
+ * 软删一条生成记录：只有本人未删除的记录会被标记，返回是否真的改到了行。
+ * 媒体对象留在原地——它可能被画布或别的记录引用，回收由媒体侧的保留策略负责。
+ */
+export async function deleteGeneration(userId: string, id: string): Promise<boolean> {
+  const deleted = await db
+    .update(table)
+    .set({ deleted_at: Date.now() })
+    .where(and(eq(table.user_id, userId), eq(table.id, id), isNull(table.deleted_at)))
+    .returning({ id: table.id })
+  return deleted.length > 0
 }

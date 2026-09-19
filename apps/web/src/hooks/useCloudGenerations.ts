@@ -1,14 +1,13 @@
-import type { GenerationPage, GenerationSummary } from '@image-playground/shared'
+import type { GenerationPage } from '@image-playground/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { authenticatedBffFetch } from '../lib/authClient'
 import { scopedStorageName } from '../lib/authScope'
+import { mirrorGenerations } from '../lib/cloudMirror'
 import { bffBaseUrl } from '../lib/runtimeConfig'
 
 const PAGE_SIZE = 50
 
 export interface CloudGenerations {
-  /** 已读到的全部条目，按服务端顺序（新的在前）累积。 */
-  readonly items: readonly GenerationSummary[]
   readonly loading: boolean
   readonly failed: boolean
   readonly hasMore: boolean
@@ -17,14 +16,12 @@ export interface CloudGenerations {
 }
 
 /**
- * 作品页的云端记录：按游标往后累积成一条列表，而不是上一页 / 下一页。
+ * 作品页的平台记录：读到之后直接并进本机历史（`mirrorGenerations`），不单独渲染成另一种卡。
  *
- * 作品页只有一个列表，本机任务和平台任务穿插在一起，所以这里必须是「继续往下读」的形状；
- * 翻页会让穿插失去意义（本机任务不分页）。账号命名空间一变就整份丢掉重读，不把上一个账号的
- * 记录混进来。
+ * 按游标往后累积而不是翻页：作品页只有一条时间线，本机任务不分页，翻页会把它切断。
+ * 账号命名空间一变就整份重读，不把上一个账号的记录并进来。
  */
 export function useCloudGenerations(enabled: boolean): CloudGenerations {
-  const [items, setItems] = useState<readonly GenerationSummary[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -32,7 +29,7 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
   const scope = scopedStorageName('generation-history')
 
   const load = useCallback(
-    async (next: string | null, append: boolean) => {
+    async (next: string | null) => {
       request.current?.abort()
       const controller = new AbortController()
       request.current = controller
@@ -49,7 +46,8 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
         if (!response.ok) throw new Error('load_failed')
         const page: GenerationPage = await response.json()
         if (!current()) return
-        setItems((previous) => (append ? [...previous, ...page.items] : page.items))
+        await mirrorGenerations(page.items)
+        if (!current()) return
         setCursor(page.nextCursor)
       } catch {
         if (current()) setFailed(true)
@@ -62,22 +60,20 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
 
   useEffect(() => {
     if (!enabled) {
-      setItems([])
       setCursor(null)
       return
     }
-    void load(null, false)
+    void load(null)
     return () => request.current?.abort()
   }, [enabled, load])
 
   return {
-    items,
     loading,
     failed,
     hasMore: cursor !== null,
     loadMore: () => {
-      if (!loading && cursor) void load(cursor, true)
+      if (!loading && cursor) void load(cursor)
     },
-    reload: () => void load(null, false),
+    reload: () => void load(null),
   }
 }

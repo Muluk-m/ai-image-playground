@@ -3,8 +3,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../../../hooks/useImageThumbnail', () => ({
-  useImageThumbnail: () => ({ dataUrl: 'data:image/png;base64,thumb' }),
+vi.mock('../../../../hooks/useImagePreview', () => ({
+  useImagePreview: () => ({ url: 'data:image/png;base64,thumb' }),
 }))
 
 import SuggestionMenu, { useSuggestionMenu } from '../../../../components/SuggestionMenu'
