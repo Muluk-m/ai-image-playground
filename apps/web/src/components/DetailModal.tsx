@@ -9,13 +9,12 @@ import {
   copyTextToClipboard,
   getClipboardFailureMessage,
 } from '../lib/clipboard'
+import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
   editOutputImage,
-  ensureImageCached,
-  getCachedImage,
   getCodexCliPromptKey,
   removeTask,
   retryTask,
@@ -98,15 +97,10 @@ export default function DetailModal() {
     const ids = [
       ...new Set([...(task.inputImageIds || []), ...(task.maskImageId ? [task.maskImageId] : [])]),
     ]
-    const initial: Record<string, string> = {}
+    // 按图片 id 存，读的时候只认当前任务的 id，所以不清空上一条任务的条目：
+    // task 对象每次 store 更新都会换引用，清空会让已经显示的参考图闪一下。
     for (const id of ids) {
-      const cached = getCachedImage(id)
-      if (cached) initial[id] = cached
-    }
-    setImageSrcs(initial)
-    for (const id of ids) {
-      if (initial[id]) continue
-      ensureImageCached(id).then((url) => {
+      void loadImageOriginal(id).then((url) => {
         if (!cancelled && url) setImageSrcs((prev) => ({ ...prev, [id]: url }))
       })
     }
@@ -132,22 +126,9 @@ export default function DetailModal() {
     }
 
     let cancelled = false
-    const setOutputImage = (dataUrl: string) => {
-      if (!cancelled) setOutputPreviewSrcs({ [currentOutputImageId]: dataUrl })
-    }
-
-    const cached = getCachedImage(currentOutputImageId)
-    if (cached) {
-      setOutputImage(cached)
-    } else {
-      ensureImageCached(currentOutputImageId)
-        .then((dataUrl) => {
-          if (dataUrl) setOutputImage(dataUrl)
-        })
-        .catch(() => {
-          if (!cancelled) setOutputPreviewSrcs({})
-        })
-    }
+    void loadImageOriginal(currentOutputImageId).then((url) => {
+      if (!cancelled) setOutputPreviewSrcs(url ? { [currentOutputImageId]: url } : {})
+    })
 
     return () => {
       cancelled = true

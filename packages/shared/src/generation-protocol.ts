@@ -18,6 +18,9 @@ export interface GenerationSummary {
   startedAt: number | null
   completedAt: number | null
   revision: string
+  prompt: string
+  parameters: GenerationParameters
+  actualParameters: Pick<GenerationParameters, 'size' | 'quality' | 'output_format'>
 }
 
 export interface GenerationImage {
@@ -46,10 +49,7 @@ export type GenerationParameters = Pick<
 export interface GenerationDetail extends GenerationSummary {
   inputs: GenerationImage[]
   mask: GenerationImage | null
-  parameters: GenerationParameters
-  actualParameters: Pick<GenerationParameters, 'size' | 'quality' | 'output_format'>
   outputs: GenerationImage[]
-  prompt: string
 }
 
 export interface GenerationPage {

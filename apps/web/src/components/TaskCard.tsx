@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useImageThumbnail } from '../hooks/useImageThumbnail'
+import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
@@ -32,12 +32,16 @@ export default function TaskCard({
   isSelected,
 }: Props) {
   const { t } = useTranslation(['task', 'common'])
-  const thumbnail = useImageThumbnail(task.outputImages?.[0])
-  const thumbSrc = thumbnail?.dataUrl ?? ''
-  const coverRatio =
-    thumbnail?.width && thumbnail.height ? formatImageRatio(thumbnail.width, thumbnail.height) : ''
-  const coverSize =
-    thumbnail?.width && thumbnail.height ? `${thumbnail.width}×${thumbnail.height}` : ''
+  const preview = useImagePreview(task.outputImages?.[0])
+  const thumbSrc = preview?.url ?? ''
+  // 平台图只有 URL、没有宽高，此时不渲染角标，别给用户一个空壳子。
+  const coverBadges =
+    preview?.width && preview.height
+      ? {
+          ratio: formatImageRatio(preview.width, preview.height),
+          size: `${preview.width}×${preview.height}`,
+        }
+      : null
   const [now, setNow] = useState(Date.now())
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
@@ -182,7 +186,8 @@ export default function TaskCard({
     } else if (task.elapsed != null) {
       seconds = Math.floor(task.elapsed / 1000)
     } else {
-      return '00:00'
+      // 平台镜像的记录没有本机耗时，没有就不显示，不要糊一个 00:00 上去。
+      return null
     }
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
     const ss = String(seconds % 60).padStart(2, '0')
@@ -364,27 +369,29 @@ export default function TaskCard({
             )}
             {/* 运行中显示耗时，完成后显示封面图比例与分辨率标签 */}
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
-              {showRunningTimer || task.status !== 'done' || !coverRatio || !coverSize ? (
-                <span className="flex items-center gap-1 bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {duration}
-                </span>
-              ) : (
+              {!showRunningTimer && task.status === 'done' && coverBadges ? (
                 <>
                   <span className="bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
-                    {coverRatio}
+                    {coverBadges.ratio}
                   </span>
                   <span className="bg-black/50 text-white/90 text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-medium">
-                    {coverSize}
+                    {coverBadges.size}
                   </span>
                 </>
+              ) : (
+                duration && (
+                  <span className="flex items-center gap-1 bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    {duration}
+                  </span>
+                )
               )}
             </div>
           </div>
