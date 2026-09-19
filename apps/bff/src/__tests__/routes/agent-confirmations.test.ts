@@ -41,6 +41,7 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
+const { purgeStaleGenerationDrafts } = await import('../../db/maintenance')
 
 type InternalChannel = import('../../lib/channels').InternalChannel
 
@@ -650,5 +651,43 @@ describe('生成前确认', () => {
     expect(blockOf(again.json).prompt).toBe(WHITE_PROMPT)
     expect(await generationTasks(conversationId)).toHaveLength(1)
     expect(generationHolds()).toHaveLength(1)
+  })
+  it('一直没确认的草稿到期后连它归档的输入图一起清掉，已确认的回执留着', async () => {
+    const abandoned: AgentCall[] = []
+    draftingTurn(abandoned, 'editImage', { imageIds: ['[image 1]'], prompt: GREEN_DRAFT })
+    const staleId = await startConversation()
+    await runTurn(staleId, '换个颜色', { references: [{ imageId: 'bath', dataUrl: PIXEL }] })
+    const [stale] = await db
+      .select()
+      .from(schema.agent_generation_drafts)
+      .where(eq(schema.agent_generation_drafts.conversation_id, staleId))
+    expect(stale).toBeDefined()
+    // 输入图归档在草稿名下，不属于任何任务——`purgeOldTasks` 那条路走不到它。
+    expect((await storage.listPrefix(`${stale!.id}/`)).length).toBeGreaterThan(0)
+
+    const confirmedCalls: AgentCall[] = []
+    draftingTurn(confirmedCalls, 'generateImage', { prompt: GREEN_DRAFT })
+    const keptId = await startConversation()
+    await runTurn(keptId, '画一版')
+    const kept = await pendingCard(keptId)
+    await confirm(keptId, kept.messageId, WHITE_PROMPT)
+
+    // 这个文件里别的用例也会留下没确认的草稿，所以只断言这一条被清掉。
+    expect(await purgeStaleGenerationDrafts(-1)).toBeGreaterThanOrEqual(1)
+
+    expect(
+      await db
+        .select()
+        .from(schema.agent_generation_drafts)
+        .where(eq(schema.agent_generation_drafts.conversation_id, staleId)),
+    ).toEqual([])
+    expect(await storage.listPrefix(`${stale!.id}/`)).toEqual([])
+    // 已确认的那份是幂等回执，再确认要靠它交回同一条任务，不能跟着清掉。
+    expect(
+      await db
+        .select()
+        .from(schema.agent_generation_drafts)
+        .where(eq(schema.agent_generation_drafts.conversation_id, keptId)),
+    ).toHaveLength(1)
   })
 })
