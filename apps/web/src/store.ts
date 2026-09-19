@@ -455,6 +455,11 @@ export function visibleAppModes(): AppMode[] {
 /** 侧栏「我的」组。项目不在里面：它是画布的实例，从「全部项目」进。 */
 export const LIBRARY_APP_MODES: readonly AppMode[] = ['works', 'assets', 'templates']
 
+/** 工作台入口：主区本身就要吃掉整屏宽度，侧栏默认收成图标条。 */
+export function isWorkbenchMode(mode: AppMode): boolean {
+  return mode === 'canvas' || mode === 'video'
+}
+
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
   // builtin-edge profile 不进 localStorage：其完整定义来自 config/channels.json + edge env。
@@ -594,6 +599,12 @@ interface AppState {
   /** 当前会话的顶层页面；每次打开应用从工作台开始，不持久化或跨设备同步。 */
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
+  /**
+   * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
+   * 用户按折叠键就以他的选择为准，换入口时回到默认。
+   */
+  sidebarExpanded: boolean | null
+  toggleSidebar: () => void
   /**
    * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
    * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
@@ -834,7 +845,10 @@ export const useStore = create<AppState>()(
       },
       // 刷新生图 / 视频 / 作品地址时直接落在对应入口，不先闪一下画布。
       appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'canvas',
-      setAppMode: (appMode) => set({ appMode }),
+      setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
+      sidebarExpanded: null,
+      toggleSidebar: () =>
+        set((s) => ({ sidebarExpanded: !(s.sidebarExpanded ?? !isWorkbenchMode(s.appMode)) })),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
         set((s) => ({ pendingCanvasImages: [...s.pendingCanvasImages, ...dataUrls] })),

@@ -18,6 +18,8 @@
     "assets": "Assets",
     "templates": "Templates",
     "recentCanvases": "Recent canvases",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
     "allProjects": "All projects"
   },
   "logout": {

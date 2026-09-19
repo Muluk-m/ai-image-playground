@@ -81,7 +81,10 @@ export default function TaskBulkActions() {
   if (selectedTaskIds.length === 0) return null
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-36 z-30 flex justify-center px-4 md:pl-60">
+    <div
+      className="pointer-events-none fixed inset-x-0 bottom-36 z-30 flex justify-center px-4"
+      style={{ paddingLeft: 'var(--app-sidebar-width)' }}
+    >
       <div className="pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur dark:shadow-lg">
         <button
           type="button"

@@ -18,6 +18,8 @@
     "assets": "素材",
     "templates": "模板",
     "recentCanvases": "最近 · 画布",
+    "collapse": "收起侧栏",
+    "expand": "展开侧栏",
     "allProjects": "全部项目"
   },
   "logout": {
