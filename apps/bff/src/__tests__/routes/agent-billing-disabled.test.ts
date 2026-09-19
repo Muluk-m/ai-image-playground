@@ -83,6 +83,41 @@ describe('billing:credits 关着的部署', () => {
     expect(billing.settlements).toEqual([])
   })
 
+  it('不同设备与会话的独立用量不会混进下一轮', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const spaces: { id: string; device: string }[] = []
+    for (const device of [DEVICE, 'device-other-abcdefgh']) {
+      const created = await post('/api/agent/conversations', { deviceId: device })
+      const { conversation } = (await created.json()) as { conversation: { id: string } }
+      spaces.push({ id: conversation.id, device })
+      for (let turn = 0; turn < 2; turn += 1) {
+        const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+          deviceId: device,
+          text: '继续',
+        })
+        expect(parseFrames(await response.text()).at(-1)?.event).toMatchObject({
+          type: 'turnEnd',
+          usage: { inputTokens: 12, outputTokens: 4 },
+        })
+      }
+    }
+    const rows = await db.select().from(schema.agent_model_calls)
+    expect(rows).toHaveLength(4)
+    for (const space of spaces) {
+      const own = rows.filter((row) => row.conversation_id === space.id)
+      expect(own).toHaveLength(2)
+      expect(new Set(own.map((row) => row.turn_id)).size).toBe(2)
+      for (const row of own) expect(row).toMatchObject({ user_id: null, device_id: space.device })
+    }
+    const forbidden = await post(`/api/agent/conversations/${spaces[0]!.id}/turns`, {
+      deviceId: spaces[1]!.device,
+      text: '跨设备读取',
+    })
+    expect(forbidden.status).toBe(404)
+    expect(await db.select().from(schema.agent_model_calls)).toHaveLength(4)
+    expect(billing.reservations).toEqual([])
+  })
+
   it('轮的两头都不带积分，界面上因此没有消耗可显示', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
     const created = await post('/api/agent/conversations', { deviceId: DEVICE })

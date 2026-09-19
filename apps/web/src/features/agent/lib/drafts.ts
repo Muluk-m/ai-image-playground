@@ -1,0 +1,268 @@
+import { i18next } from '../../../i18n'
+import { scopedStorageName } from '../../../lib/authScope'
+import { flushOnPageHide } from '../../../lib/flushOnPageHide'
+import { type AgentDraft, EMPTY_DRAFT, hasDraftContent } from './references'
+
+const sessions = new Map<string, DraftSession>()
+const DB_NAME = 'image-playground-agent-drafts'
+let database: Promise<IDBDatabase> | undefined
+
+function openDatabase(): Promise<IDBDatabase> {
+  if (!database) {
+    database = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1)
+      request.onupgradeneeded = () => request.result.createObjectStore('drafts')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    database.catch(() => {
+      database = undefined
+    })
+  }
+  return database
+}
+
+/** 创作类型跟着输入框此刻的选择走：搁在一边的那份不该把用户刚切的类型改回去。 */
+function withMode(draft: AgentDraft, mode: AgentDraft['mode']): AgentDraft {
+  const { mode: _ignored, ...rest } = draft
+  return mode ? { ...rest, mode } : rest
+}
+
+export interface DraftSnapshot {
+  readonly draft: AgentDraft
+  readonly loading: boolean
+  readonly submitting: boolean
+  readonly error: string | null
+  /**
+   * 上次没发出去、这次读回来的那份草稿。它先不进输入框，由用户选恢复还是丢弃；
+   * 决定之前照旧留在存储里，不会因为这次没理它就丢了。
+   */
+  readonly unsent: AgentDraft | null
+}
+
+/** 草稿独立于输入框的挂载周期；每个账号、会话各保留一份。 */
+export class DraftSession {
+  private snapshot: DraftSnapshot = {
+    draft: EMPTY_DRAFT,
+    loading: true,
+    submitting: false,
+    error: null,
+    unsent: null,
+  }
+  private listeners = new Set<() => void>()
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private writes: Promise<void> = Promise.resolve()
+  private revision = 0
+  private savedRevision = 0
+  private submission = 0
+  private previousKey: string | undefined
+
+  readonly ready: Promise<void>
+
+  constructor(
+    public key: string,
+    private fallbackKey?: string,
+  ) {
+    this.ready = this.restore()
+  }
+
+  getSnapshot = () => this.snapshot
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private publish(patch: Partial<DraftSnapshot>) {
+    this.snapshot = { ...this.snapshot, ...patch }
+    for (const listener of this.listeners) listener()
+  }
+
+  private async restore() {
+    try {
+      const db = await openDatabase()
+      const stored = await new Promise<AgentDraft | undefined>((resolve, reject) => {
+        const request = db.transaction('drafts').objectStore('drafts').get(this.key)
+        request.onsuccess = () => {
+          if (request.result || !this.fallbackKey) {
+            resolve(request.result)
+            return
+          }
+          const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
+          fallback.onsuccess = () => resolve(fallback.result)
+          fallback.onerror = () => reject(fallback.error)
+        }
+        request.onerror = () => reject(request.error)
+      })
+      if (
+        this.revision === 0 &&
+        stored &&
+        typeof stored.prompt === 'string' &&
+        Array.isArray(stored.references)
+      ) {
+        // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
+        if (hasDraftContent(stored))
+          this.publish({
+            draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
+            unsent: stored,
+          })
+        else this.publish({ draft: stored })
+      }
+    } catch {
+      this.publish({ error: i18next.t('draft.unreadable', { ns: 'agent' }) })
+    } finally {
+      this.publish({ loading: false })
+    }
+  }
+
+  update = (change: AgentDraft | ((draft: AgentDraft) => AgentDraft)) => {
+    const draft = typeof change === 'function' ? change(this.snapshot.draft) : change
+    if (draft === this.snapshot.draft) return
+    this.revision += 1
+    this.publish({ draft })
+    clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      void this.flush()
+    }, 300)
+  }
+
+  /** 把没发出去的那份放回输入框；输入框里此刻跟着选区带进来的图保留。 */
+  restoreUnsent = () => {
+    const unsent = this.snapshot.unsent
+    if (!unsent) return
+    const kept = this.snapshot.draft.references.filter(
+      (one) => one.origin === 'selection' && !unsent.references.some((old) => old.id === one.id),
+    )
+    this.publish({ unsent: null })
+    this.update(
+      withMode(
+        { ...unsent, references: [...unsent.references, ...kept] },
+        this.snapshot.draft.mode,
+      ),
+    )
+  }
+
+  /** 丢掉没发出去的那份：存储里换成输入框此刻的内容。 */
+  discardUnsent = () => {
+    if (!this.snapshot.unsent) return
+    this.publish({ unsent: null })
+    this.revision += 1
+    void this.flush()
+  }
+
+  moveTo(key: string) {
+    this.previousKey = this.key
+    this.key = key
+    this.revision += 1
+    void this.flush()
+  }
+
+  setSubmitting(submitting: boolean) {
+    this.submission += 1
+    this.publish({ submitting })
+  }
+
+  beginSubmission(): () => void {
+    this.setSubmitting(true)
+    const submission = this.submission
+    return () => {
+      if (this.submission === submission) this.publish({ submitting: false })
+    }
+  }
+
+  accept(draft: AgentDraft) {
+    // 创作类型跟着这个会话走，发出去一条不该把它弹回图片。
+    if (this.snapshot.draft === draft) {
+      this.update({ ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) })
+    }
+    void this.flush()
+  }
+
+  flush = (): Promise<void> => {
+    clearTimeout(this.timer)
+    if (this.revision === this.savedRevision) return this.writes
+    const revision = this.revision
+    // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。
+    const { draft: current, unsent } = this.snapshot
+    const draft = unsent && !hasDraftContent(current) ? withMode(unsent, current.mode) : current
+    const key = this.key
+    const previousKey = this.previousKey
+    this.writes = this.writes.then(async () => {
+      try {
+        const db = await openDatabase()
+        await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction('drafts', 'readwrite')
+          transaction.objectStore('drafts').put(draft, key)
+          if (previousKey) transaction.objectStore('drafts').delete(previousKey)
+          transaction.oncomplete = () => resolve()
+          transaction.onabort = () => reject(transaction.error)
+          transaction.onerror = () => reject(transaction.error)
+        })
+        this.savedRevision = Math.max(this.savedRevision, revision)
+        if (this.previousKey === previousKey) this.previousKey = undefined
+        this.publish({ error: null })
+      } catch {
+        this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
+      }
+    })
+    return this.writes
+  }
+}
+
+/** 冲的是此刻还活着的那些：被 `removeProjectDraft` 摘掉的不在其中，也就不会被写回去。 */
+function flushSessions() {
+  for (const session of sessions.values()) void session.flush()
+}
+
+export function agentDraft(
+  conversationId: string | null,
+  projectId?: string,
+  legacyDraft = false,
+): DraftSession {
+  const legacyKey = scopedStorageName(`agent-draft:${conversationId ?? 'new'}`)
+  const key = projectId ? scopedStorageName(`agent-project-draft:${projectId}`) : legacyKey
+  let session = sessions.get(key)
+  if (!session) {
+    // 登记在这里而不是输入框里：草稿活得比它久。同一个函数登记多次只算一次。
+    flushOnPageHide(flushSessions)
+    session = new DraftSession(
+      key,
+      projectId && (conversationId || legacyDraft) ? legacyKey : undefined,
+    )
+    sessions.set(key, session)
+  }
+  return session
+}
+
+/** 首条消息创建会话时沿用同一份草稿，避免上传中的输入突然切到空草稿。 */
+export function bindNewAgentDraft(conversationId: string, projectId?: string): void {
+  if (projectId) return
+  const oldKey = scopedStorageName('agent-draft:new')
+  const session = sessions.get(oldKey)
+  if (!session) return
+  const key = scopedStorageName(`agent-draft:${conversationId}`)
+  session.moveTo(key)
+  sessions.set(key, session)
+  sessions.delete(oldKey)
+}
+
+export async function removeProjectDraft(
+  projectId: string,
+  conversationId: string | null,
+): Promise<void> {
+  const key = scopedStorageName(`agent-project-draft:${projectId}`)
+  const legacyKey = conversationId ? scopedStorageName(`agent-draft:${conversationId}`) : null
+  const session = sessions.get(key)
+  if (session) await session.flush()
+  const db = await openDatabase()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').delete(key)
+    if (legacyKey) tx.objectStore('drafts').delete(legacyKey)
+    tx.oncomplete = () => resolve()
+    tx.onabort = () => reject(tx.error)
+    tx.onerror = () => reject(tx.error)
+  })
+  sessions.delete(key)
+}

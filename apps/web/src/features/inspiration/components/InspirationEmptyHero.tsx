@@ -1,32 +1,49 @@
+import { useEffect, useRef, useState } from 'react'
 import { SparkleIcon } from '../../../components/icons'
 import heroSeedData from '../../../generated/heroSeed.json'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
+import { HERO_CARD_COUNT, rotateHeroItems } from '../lib/heroRotation'
 import { useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
 
-// build 期由 scripts/build-hero-seed.mjs 从 manifest 提取，硬编码到 bundle。
-// 首屏立即可见，不依赖 manifest fetch。
+// 完整清单不可用时保留离线示例。
 const HERO_SEED = heroSeedData as InspirationItem[]
 
 export default function InspirationEmptyHero() {
   const openPanel = useInspirationStore((s) => s.openPanel)
+  const available = useInspirationStore((s) => s.items)
+  const status = useInspirationStore((s) => s.status)
+  const loadRemote = useInspirationStore((s) => s.loadRemote)
+  const [items, setItems] = useState<InspirationItem[]>([])
+  const selected = useRef(false)
+  useEffect(() => {
+    void loadRemote()
+  }, [loadRemote])
+  useEffect(() => {
+    // 每次进入只选一批，收藏、输入和后台清单更新都不会让卡片跳动。
+    if (selected.current || (!available.length && status !== 'ready' && status !== 'error')) return
+    selected.current = true
+    setItems(rotateHeroItems(available.length ? available : HERO_SEED))
+  }, [available, status])
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
+  const { t } = useTranslation('inspiration')
 
   return (
     <div className="py-8 sm:py-10">
       <div className="mb-4 flex items-center justify-between gap-3 sm:mb-5">
-        <h2 className="font-display inline-flex items-center gap-1.5 text-sm font-medium tracking-wide text-blue-600 dark:text-blue-300 sm:text-base">
+        <h2 className="font-display inline-flex items-center gap-1.5 text-sm font-medium tracking-wide text-primary sm:text-base">
           <SparkleIcon className="h-4 w-4" aria-hidden />
-          灵感探索
+          {t('hero.title')}
         </h2>
         <button
           type="button"
           onClick={openPanel}
-          className="group inline-flex items-center gap-0.5 text-xs text-gray-500 transition-colors hover:text-gray-800 focus:outline-none focus-visible:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 dark:focus-visible:text-gray-100 sm:text-sm"
+          className="group inline-flex items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:text-foreground sm:text-sm"
         >
-          查看全部
+          {t('hero.viewAll')}
           <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
             →
           </span>
@@ -40,7 +57,17 @@ export default function InspirationEmptyHero() {
       */}
       <div className="-mx-4 overflow-x-auto hide-scrollbar sm:mx-0 sm:overflow-x-visible">
         <div className="flex snap-x snap-mandatory gap-3 px-4 sm:grid sm:snap-none sm:grid-cols-3 sm:gap-3.5 sm:px-0 lg:grid-cols-6">
-          {HERO_SEED.map((item) => (
+          {items.length === 0 &&
+            Array.from({ length: HERO_CARD_COUNT }, (_, index) => (
+              <div
+                key={index}
+                aria-hidden
+                className="w-[42%] flex-shrink-0 snap-start sm:w-auto sm:flex-shrink"
+              >
+                <div className="aspect-[3/4] animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
+              </div>
+            ))}
+          {items.map((item) => (
             <div
               key={item.id}
               className="w-[42%] flex-shrink-0 snap-start sm:w-auto sm:flex-shrink"

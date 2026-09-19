@@ -58,7 +58,16 @@ services:
     environment:
       APP_ROLE: bff
       PORT: "37377"
+      # Per-process connection caps. Both deployments share one PostgreSQL (max_connections 100),
+      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 3) = 26
+      # steady, under 50 with both deployments mid-rollout plus migrate and pg-backup. Queries past
+      # the cap wait for a free connection instead of failing. The BFF's work is short
+      # transactions; its background sweeps (agent inbox pickup, retries, purge, heartbeat) each
+      # hold one at a time, leaving most for requests. scripts/rollout-runtime.sh repeats the bff
+      # and worker values.
+      DATABASE_POOL_MAX: "6"
       STATIC_DIR: ""
+      EXECUTOR_ORIGIN: http://bff:37377
       # Override in app.env when something other than cloudflared terminates the ingress.
       CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-cf-connecting-ip}
     command:
@@ -94,6 +103,10 @@ services:
     environment:
       APP_ROLE: worker
       WORKER_HEALTH_PORT: "37379"
+      # One per in-flight task at the default WORKER_OPENAI_CONCURRENCY + WORKER_GEMINI_CONCURRENCY
+      # (1 + 2), plus one so the queue poll and maintenance loop never wait behind settlements.
+      # Raise it with those concurrencies.
+      DATABASE_POOL_MAX: "4"
     command:
       - bun
       - run
@@ -129,12 +142,23 @@ services:
     environment:
       APP_ROLE: admin
       PORT: "37378"
+      # Operator traffic only; the operations board fans out a dozen short reads per load.
+      DATABASE_POOL_MAX: "3"
       ADMIN_DIST_DIR: /app/apps/admin/dist
-      BFF_INTERNAL_URL: http://bff:37377
+      BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
+      OPS_DEPLOYMENTS_LOG: /host/deployments.log
     command:
       - bun
       - run
       - /app/apps/admin/server/index.ts
+    # The deploy log, read-only, for the operations board's deployment list. It holds commit ids,
+    # image tags and the deploying account, no secrets. Absent on hosts that never ran the deploy
+    # script, where /dev/null stands in and the board says so.
+    volumes:
+      - type: bind
+        source: ${DEPLOYMENTS_LOG_SOURCE:-/dev/null}
+        target: /host/deployments.log
+        read_only: true
     depends_on:
       bff:
         condition: service_healthy
@@ -208,8 +232,64 @@ services:
     networks:
       - application
 
+  # Samples the host's disk and memory for the operations board (docs/adr/0007). It gets exactly
+  # two read-only files from the host and no Docker socket: /proc/meminfo, and one file that lives
+  # on the filesystem to watch, because statfs on a bind-mounted file reports the filesystem behind
+  # it. If Docker's data sits on a separate partition, point HOST_DISK_PROBE_SOURCE at a file
+  # there. Named variables instead of app.env, like pg-backup: no provider, database or object
+  # store credential belongs in here.
+  host-collector:
+    image: ${APP_IMAGE:-ai-image-playground:local}
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_ROLE: host-collector
+      BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      # Disk and memory alerts go out from here, not through the BFF: a full disk is exactly when
+      # the BFF and the database stop answering.
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_HOST_ALERTS: ${OPS_HOST_ALERTS:-true}
+      OPS_DEPLOYMENT_NAME: ${OPS_DEPLOYMENT_NAME:-${COMPOSE_PROJECT_NAME:-deployment}}
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/host-collector-index.ts
+    volumes:
+      - type: bind
+        source: ${HOST_DISK_PROBE_SOURCE:-/etc/hostname}
+        target: /host/disk-probe
+        read_only: true
+      - type: bind
+        source: /proc/meminfo
+        target: /host/meminfo
+        read_only: true
+      - type: bind
+        source: /proc/stat
+        target: /host/stat
+        read_only: true
+      - type: bind
+        source: /proc/loadavg
+        target: /host/loadavg
+        read_only: true
+      # Per-container memory, CPU and OOM kills, read from cgroup files. Read-only and without the
+      # Docker socket: it can see how much each container uses, not what is inside it (ADR 0007).
+      - type: bind
+        source: /sys/fs/cgroup
+        target: /host/cgroup
+        read_only: true
+      - type: bind
+        source: ${OPS_BOARD_DIR:?Set OPS_BOARD_DIR, or drive this file through scripts/app-compose.sh}
+        target: /host/ops-board
+        read_only: true
+        bind:
+          create_host_path: false
+    # Deliberately no depends_on: a BFF that never turns healthy is one of the moments the disk
+    # and memory alerts are for. Reports to it simply fail and are retried on the next sample.
+    networks:
+      - application
+
   pg-backup:
-    build: ./backup
     image: ${BACKUP_IMAGE:-ai-image-playground-pg-backup:local}
     init: true
     restart: unless-stopped
@@ -227,9 +307,10 @@ services:
       - application-infra
     healthcheck:
       test:
-        - CMD-SHELL
-        - test -n "$$(find /var/lib/pg-backup/last-success -mmin -1560)"
-      interval: 1h
+        - CMD
+        - sh
+        - /usr/local/bin/healthcheck.sh
+      interval: 5m
       timeout: 10s
       retries: 1
       start_period: 30s

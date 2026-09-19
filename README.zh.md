@@ -35,6 +35,7 @@
 - **合并素材** — 框选多张图一起发起，作为参考图合并生成（「把小猫放到小狗旁边」）
 - **原地生成** — 不选图时就是纯文生图，结果直接落在画布上、跟素材摆在一起
 - **并发不阻塞** — 每次生成都有实时占位框，多个任务并行跑、你继续操作画布，n>1 一次出多张变体
+- **张数交给智能体** — 启用智能体后，用自然语言描述需要几张图或几个版本，不用手填数量。生图、改图工具默认一张，单次调用最多十张；直接生图仍保留手动数量。
 - **刷新不丢** — 画布内容本地持久化；后端模式下进行中的生成刷新页面后自动续跑
 - **与工作台打通** — 画布生成同样落入共享历史（可收藏 / 检索 / 复用），工作台的图也能一键发到画布继续创作
 - **键盘友好** — 完整快捷键 + 内置速查面板（⌘⏎ 发起生成，V/H/D/E 切工具，撤销重做…）
@@ -44,6 +45,7 @@
 - **多个模型** — OpenAI、Gemini、自定义 HTTP，自带 API key 即用。模型选择器使用短名称和品牌图标，悬停查看完整名称与模型 ID；同名模型以配置名称区分。
 - **固定工作台首页** — 每次打开都进入工作台，不恢复或同步上次页签。主导航与工具分区，设置收进右上角账户／应用菜单。
 - **参考图 + 遮罩** — 最多 16 张参考图，OpenAI 路径支持可视化遮罩编辑器
+- **默认宽松审核** — 普通生图和 Agent 生图在支持的上游使用 `low`，不再提供审核强度选择器；上游自身的内容安全策略仍然生效。
 - **瀑布流历史** — 每次生成连同实际参数本地保存，可收藏、可检索
 - **灵感库** — 几百个一键套用的高质量提示词
 
@@ -167,7 +169,19 @@ provision 结束前会检查并列出这类 schema。没有任何 Compose 文件
 对象存储用任意 S3 兼容服务，两份部署样例都指向 Cloudflare R2。bucket 与其他业务共用时，
 `S3_KEY_PREFIX` 把该部署的对象限制在一个前缀下。每个 project 另跑一个 `pg-backup`
 sidecar，每天把本组数据库的 `pg_dump` 传到同 bucket 的 `<S3_KEY_PREFIX>pg/<UTC 日期>.dump`。
-保留期由 bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
+保留期由 bucket 的 lifecycle 规则负责，sidecar 不删任何对象。容器启动时若最新一份已超过 24 小时
+（例如 cron 那一刻宿主机正宕着）会立刻补备一次。每周一凌晨 3 点（北京时间）它还会把最新一份 dump
+恢复进容器内的临时 PostgreSQL 并核对表与行数，结论写到 `<S3_KEY_PREFIX>pg/drill/latest.json`；
+演练失败或超过 8 天没跑，worker 会发告警。
+
+每个 project 还跑一个 `host-collector` sidecar，每分钟读一次宿主机的磁盘、内存、CPU、负载、Swap、
+开机时间，以及每个容器的内存、CPU 和 OOM 次数，交给后台的「运维看板」画近 7 天的趋势。它只拿到宿主机的
+只读视图，不挂 Docker socket：`/proc/meminfo`、`/proc/stat`、`/proc/loadavg`、`/sys/fs/cgroup`、
+`scripts/app-compose.sh up` 每次发布后重写的容器名对照表，以及待测文件系统上的任意一个文件（默认
+`/etc/hostname`）——对挂进来的文件做 statfs，得到的就是它背后那块盘的用量。后台容器另外只读挂载宿主机
+上的部署日志，列出最近几次发布。Docker 的数据若在单独的分区，把 `HOST_DISK_PROBE_SOURCE` 指到那个分区上的一个
+文件。没配 `INTERNAL_API_TOKEN` 的部署里它照样能起，只是读数进不了看板。取舍见
+[`docs/adr/0007`](./docs/adr/0007-host-sampling-without-the-docker-socket.md)。
 
 `app-compose.sh` 默认读取
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`，并要求同目录存在
@@ -330,17 +344,10 @@ cloudflared 日志出现 `open /etc/cloudflared/config.yml: permission denied` �
 ```bash
 scripts/infra-compose.sh up
 scripts/infra-compose.sh provision                    # 每个部署数据库跑一次
-scripts/vps-deploy.sh internal                        # 之后每次部署都走这一条
+/path/to/release/scripts/vps-deploy.sh internal /path/to/release
 ```
 
-`vps-deploy.sh <internal|paid|all> [git-ref]` 是一次上线的唯一入口。它在检出有未提交的
-已跟踪改动时拒绝执行，fetch 后 detach 到指定 ref（默认 `origin/main`），paid 形态会
-fast-forward `./private`，然后构建、经 `app-compose.sh up` 滚动，最后往
-`$config_root/deployments.log` 追加一行。把一个对私有仓库有读权限的 GitHub token 放进
-`$config_root/secrets/private-repo-token`，`./private` 就能无交互地 fast-forward。
-
-每次构建都按来源提交打 tag，那正是 `app-compose.sh rollback` 的回滚目标。底下的构件仍是
-`app-compose.sh` 与 `infra-compose.sh`：回滚、停项目、临时 compose 命令都走它们。
+发布流程：在 **macmini2** 运行 `scripts/build-vps-release.sh all /绝对路径/release`，将整个产物目录传到 VPS，再运行产物内的 `scripts/vps-deploy.sh all /绝对路径/release`。VPS 不再构建或拉取源码。固定提交、资源预算、完整性校验、互斥锁及回滚见 [镜像发布手册](docs/deploy/image-release.md)。
 
 在持有域名的那个账号下把 hostname 指到隧道：
 
@@ -391,13 +398,13 @@ BFF 600 MB 那两条只在同源与 nginx 形态下才是约束，那里前面�
 收不到请求。把 `net.core.rmem_max` / `wmem_max` 调大只能消掉 quic-go 的告警，解决不了问题。
 隧道下大上传挂住，先试 `protocol: http2`。
 
-把每一步换成 `image-playground-paid` 再做一遍，然后用 `scripts/vps-deploy.sh paid` 与
+把每一步换成 `image-playground-paid` 再做一遍，然后用 `/path/to/release/scripts/vps-deploy.sh paid /path/to/release` 与
 `scripts/pages-release.sh paid` 部署，就能在同一台机器上跑第二套完全独立的部署：各自的
 数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL 进程和这台机器。
-两套都配好之后，`scripts/vps-deploy.sh all` 一条命令滚完整台机器。
+两套都配好之后，`/path/to/release/scripts/vps-deploy.sh all /path/to/release` 一条命令滚完整台机器。
 
-paid 形态两边都需要那份经过评审的 `./private` overlay：VPS 上检出旁边一份，发它 Pages
-项目的那台机器的检出里也要一份。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的
+paid 形态需要在 macmini2 的镜像构建检出和 Pages 发布检出里分别准备经过评审的 `./private` overlay。
+VPS 只接收已包含 overlay 的镜像，不需要私有源码检出。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的
 检出里跑，因为 overlay 只凭文件存在就会被编译进去。
 
 ## 🛠 开发

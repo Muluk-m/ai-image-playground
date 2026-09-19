@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { getApiErrorMessage } from '../../../lib/imageApiShared'
 import type { InspirationManifest } from '../types'
 
@@ -28,19 +29,27 @@ export async function fetchRemoteManifest(
   url: string,
   signal?: AbortSignal,
 ): Promise<InspirationManifest> {
-  const response = await fetch(url, { method: 'GET', signal })
+  const response = await fetch(url, {
+    method: 'GET',
+    signal: signal ?? AbortSignal.timeout(10_000),
+  })
   if (!response.ok) {
-    throw new Error(`远程灵感清单加载失败：${await getApiErrorMessage(response)}`)
+    throw new Error(
+      i18next.t('manifest.loadFailed', {
+        ns: 'inspiration',
+        reason: await getApiErrorMessage(response),
+      }),
+    )
   }
   let payload: unknown
   try {
     payload = await response.json()
   } catch {
-    throw new Error('远程灵感清单返回非 JSON 内容')
+    throw new Error(i18next.t('manifest.notJson', { ns: 'inspiration' }))
   }
   const manifest = validateManifest(payload)
   if (!manifest) {
-    throw new Error('远程灵感清单结构无效')
+    throw new Error(i18next.t('manifest.invalid', { ns: 'inspiration' }))
   }
   return manifest
 }

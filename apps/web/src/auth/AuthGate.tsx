@@ -1,16 +1,18 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { adoptAgentConversations } from '../features/agent/lib/agentClient'
+import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
   getCurrentUser,
   logoutUser,
 } from '../lib/authClient'
-import { setClientStorageScope } from '../lib/authScope'
+import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { recoverStorageUser, rememberStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
@@ -21,13 +23,14 @@ const App = lazy(() => import('../App'))
 type Phase = 'checking' | 'ready' | 'login' | 'unavailable'
 
 function LoadingScreen() {
+  const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen" aria-live="polite">
       <img src="/brand/muvloom-icon.svg" alt="" width="40" height="40" />
       <div className="auth-status-line">
         <span />
       </div>
-      <p>正在准备工作台</p>
+      <p>{t('status.preparing')}</p>
     </main>
   )
 }
@@ -41,6 +44,7 @@ function ProblemScreen({
   description: string
   retry?: () => void
 }) {
+  const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen">
       <div className="auth-problem-mark">!</div>
@@ -48,7 +52,7 @@ function ProblemScreen({
       <p>{description}</p>
       {retry ? (
         <button type="button" onClick={retry}>
-          重新连接
+          {t('status.retry')}
         </button>
       ) : null}
     </main>
@@ -66,8 +70,10 @@ async function adoptDeviceConversations(): Promise<void> {
 }
 
 export function AuthGate() {
+  const { t } = useTranslation('auth')
   const runtime = getRuntimeConfig()
   const accountsLoginEnabled = isClientCapabilityEnabled('accounts:login')
+  const localRecoveryEnabled = isClientCapabilityEnabled('accounts:local-recovery')
   const [phase, setPhase] = useState<Phase>('checking')
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -76,13 +82,17 @@ export function AuthGate() {
   useEffect(() => {
     let cancelled = false
     async function boot(): Promise<void> {
-      if (!accountsLoginEnabled) {
-        setClientStorageScope(null)
-        if (!cancelled) setPhase('ready')
-        return
-      }
-
       try {
+        setRecoveryBackend(
+          !accountsLoginEnabled && localRecoveryEnabled ? runtime.bff.baseUrl : null,
+        )
+        if (!accountsLoginEnabled) {
+          const id = localRecoveryEnabled ? await recoverStorageUser() : null
+          if (cancelled) return
+          setClientStorageScope(id)
+          setPhase('ready')
+          return
+        }
         const currentUser = await getCurrentUser()
         setClientStorageScope(currentUser.id)
         const [adopted] = await Promise.all([
@@ -95,6 +105,7 @@ export function AuthGate() {
         ])
         if (!cancelled) {
           setAdoptedTaskCount(adopted)
+          rememberStorageUser(currentUser.id)
           setUser(currentUser)
           setPhase('ready')
         }
@@ -111,20 +122,29 @@ export function AuthGate() {
     return () => {
       cancelled = true
     }
-  }, [accountsLoginEnabled, attempt, runtime.bff.baseUrl, runtime.bff.enabled])
+  }, [
+    accountsLoginEnabled,
+    localRecoveryEnabled,
+    attempt,
+    runtime.bff.baseUrl,
+    runtime.bff.enabled,
+  ])
 
   useEffect(() => {
+    if (!accountsLoginEnabled) return
     const expired = () => {
+      rememberStorageUser(null)
       setUser(null)
       setPhase('login')
     }
     window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
-  }, [])
+  }, [accountsLoginEnabled])
 
   const logout = useCallback(async (clearLocalData: boolean) => {
     try {
       await logoutUser()
+      rememberStorageUser(null)
       if (clearLocalData) await clearScopedClientStorage()
     } finally {
       window.location.reload()
@@ -136,8 +156,8 @@ export function AuthGate() {
   if (phase === 'unavailable') {
     return (
       <ProblemScreen
-        title="暂时无法连接服务"
-        description="工作台没有进入匿名模式。请确认服务运行正常后重试。"
+        title={t('status.unavailableTitle')}
+        description={t('status.unavailableDescription')}
         retry={() => {
           setPhase('checking')
           setAttempt((value) => value + 1)

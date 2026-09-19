@@ -130,6 +130,7 @@ export interface UpstreamCallParams {
 }
 
 export interface UpstreamResume {
+  readonly pollOnly?: boolean
   readonly taskIds: readonly string[]
   /** 首次提交时刻，超时预算的锚点；重启不能重新发一份完整预算。 */
   readonly submittedAt: number
@@ -176,6 +177,12 @@ export class UpstreamResultUnknownError extends Error {
   }
 }
 
+export class UpstreamPartialResultError extends UpstreamResultUnknownError {
+  constructor(readonly payload: unknown) {
+    super('部分图片已完成，其余提交结果未知；未重复生成')
+  }
+}
+
 export class UpstreamTimeoutError extends UpstreamResultUnknownError {
   constructor(message = 'Upstream call exceeded BFF hard timeout') {
     super(message)
@@ -213,7 +220,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   if (!supportsModeration) request = withoutModeration(request)
 
   const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
-  const deadline = startDeadline(deadlineAt - Date.now(), externalSignal)
+  // A resumed task may have completed while its worker was unavailable. Give the
+  // read-only final lookup a bounded transport window, never a new generation budget.
+  const finalLookup = Boolean(resume?.taskIds.length) && Date.now() >= deadlineAt
+  const deadline = startDeadline(finalLookup ? 20_000 : deadlineAt - Date.now(), externalSignal)
 
   const fetchInit = (init: UpstreamFetchInit): UpstreamFetchInit => ({
     ...init,
@@ -299,6 +309,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       ): Promise<string[]> => {
         const missing = count - resumeIds.length
         if (missing <= 0) return [...resumeIds]
+        if (finalLookup || resume?.pollOnly) return [...resumeIds]
         const settled = await Promise.allSettled(
           Array.from({ length: missing }, async () =>
             protocol.readTaskId(
@@ -337,7 +348,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       ): Promise<UpstreamCallResult> => {
         const pollUrl = protocol.pollUrl(taskId)
         for (let attempt = 0; ; attempt++) {
-          if (Date.now() >= deadlineAt) throw new UpstreamTimeoutError()
+          if (Date.now() >= deadlineAt && !(finalLookup && attempt === 0))
+            throw new UpstreamTimeoutError()
           let payload: unknown
           try {
             payload = (
@@ -353,6 +365,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           const state = protocol.readState(payload)
           if (state.kind === 'completed') return { payload: state.payload }
           if (state.kind === 'failed') throw asyncTaskFailure(state.status, payload)
+          if (finalLookup) throw new UpstreamTimeoutError()
           await pollDelay(attempt)
         }
       }
@@ -378,7 +391,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const protocol = imageTaskProtocol(base, url)
         const taskIds = await collectTaskIds(protocol, count, makeInit)
         const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
-        return results.length === 1 ? results[0]! : merge(results)
+        const result = results.length === 1 ? results[0]! : merge(results)
+        if (taskIds.length < count) throw new UpstreamPartialResultError(result.payload)
+        return result
       }
 
       const videoSpec = VIDEO_STYLE_SPECS[style]
@@ -827,8 +842,15 @@ function videoFrame(request: HydratedSubmitRequest, index: number | undefined): 
   return request.input_images?.[index]
 }
 
-/** 有首帧时上游要求换到图生视频模型，文生的那个不吃 image 字段。 */
-const GROK_VIDEO_FIRST_FRAME_MODEL = 'grok-imagine-video-1.5'
+/** 参考图按用户排好的顺序取；下标由提交校验保证落在输入图里。 */
+function videoReferences(request: HydratedSubmitRequest, video: HydratedVideoRequest): string[] {
+  return (video.reference_image_indices ?? [])
+    .map((index) => request.input_images?.[index])
+    .filter((url): url is string => typeof url === 'string')
+}
+
+/** 有首帧或参考图时上游要求换到 1.5：文生的那个既不吃 image，也不吃 reference_images。 */
+const GROK_VIDEO_IMAGE_MODEL = 'grok-imagine-video-1.5'
 
 function buildGrokVideoBody(
   model: string,
@@ -847,13 +869,15 @@ function buildGrokVideoBody(
     }
   }
   const firstFrame = videoFrame(request, video.first_frame_index)
+  const references = videoReferences(request, video)
   return {
-    model: firstFrame ? GROK_VIDEO_FIRST_FRAME_MODEL : model,
+    model: firstFrame || references.length ? GROK_VIDEO_IMAGE_MODEL : model,
     prompt: request.prompt,
     duration: video.duration_seconds,
     aspect_ratio: video.aspect_ratio,
     resolution: video.resolution,
     ...(firstFrame ? { image: { url: firstFrame } } : {}),
+    ...(references.length ? { reference_images: references.map((url) => ({ url })) } : {}),
   }
 }
 
@@ -898,6 +922,13 @@ function buildArkVideoBody(
       { type: 'text', text: request.prompt },
       ...frame('first_frame', video.first_frame_index),
       ...frame('last_frame', video.last_frame_index),
+      // 提示词里的「图片 n」按 content 里 image_url 的顺序数，所以参考图保持用户排好的顺序。
+      // 这依赖矩阵里 Seedance 的 withFrames:false：帧与参考图同时出现时，帧会占掉前面的编号。
+      ...videoReferences(request, video).map((url) => ({
+        type: 'image_url',
+        image_url: { url },
+        role: 'reference_image',
+      })),
     ],
     ratio: video.aspect_ratio,
     duration: video.duration_seconds,

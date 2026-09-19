@@ -1,12 +1,35 @@
 import type { AgentTurnParams, QueueProvider, SubmitRequest } from '@image-playground/shared'
-import { AGENT_TURN_MAX_N, nearestAspectRatio } from '@image-playground/shared'
+import { AGENT_IMAGE_MAX_N, nearestAspectRatio } from '@image-playground/shared'
+import { Type } from 'typebox'
+import { Value } from 'typebox/value'
+
+export const imageCountParameter = Type.Optional(
+  Type.Integer({
+    minimum: 1,
+    maximum: AGENT_IMAGE_MAX_N,
+    description:
+      '同一提示词生成的张数或版本数。按用户需求选择；未要求多张时默认 1。不同画面或修改方案请分别调用。',
+  }),
+)
+
+/** 提交生成任务的工具共用：成功后要不要被唤醒回来复核。失败一律唤醒，不归它管。 */
+export const reviewParameter = Type.Optional(
+  Type.Boolean({
+    description:
+      '成功后是否唤醒你回来复核结果；需要你检查效果再汇报时设为 true，普通出图不需要。失败总会唤醒你。',
+  }),
+)
 
 /**
- * 这一轮的图片工具一次出几张。画布起跑时按它占位，队列请求按它填 `n`——
+ * 这次图片工具调用出几张。画布起跑时按它占位，队列请求按它填 `n`——
  * 两处同一个算式，占位框数量才不会和真正出的张数对不上。
  */
-export function agentImageCount(params: AgentTurnParams | undefined): number {
-  return Math.min(AGENT_TURN_MAX_N, Math.max(1, params?.n ?? 1))
+export function agentImageCount(args: { readonly n?: unknown } | null | undefined): number {
+  // toolStart 早于 pi 的参数校验；沿用同一转换，避免 "3" 被执行为三张却只占一个位。
+  const n = Value.Convert(imageCountParameter, args?.n)
+  return typeof n === 'number' && Number.isInteger(n)
+    ? Math.min(AGENT_IMAGE_MAX_N, Math.max(1, n))
+    : 1
 }
 
 /**
@@ -20,7 +43,7 @@ export function queueParamsFor(
   provider: QueueProvider,
   params: AgentTurnParams | undefined,
 ): Partial<SubmitRequest> {
-  const mapped: Partial<SubmitRequest> = { n: agentImageCount(params) }
+  const mapped: Partial<SubmitRequest> = {}
   if (!params) return mapped
 
   if (params.size && params.size !== 'auto') mapped.size = params.size
@@ -28,7 +51,6 @@ export function queueParamsFor(
 
   if (provider === 'openai-compat') {
     if (params.output_format) mapped.output_format = params.output_format
-    if (params.moderation) mapped.moderation = params.moderation
     // 压缩率只对有损格式成立，png 带上它上游会拒。
     if (
       params.output_format &&

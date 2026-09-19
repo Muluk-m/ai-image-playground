@@ -1,0 +1,137 @@
+{
+  "download": {
+    "started_other": "开始下载 {{count}} 张图片...",
+    "partial": "下载完成: 成功 {{success}}，失败 {{failed}}",
+    "succeeded_other": "成功下载 {{count}} 张图片",
+    "start": "开始下载",
+    "failed": "下载失败",
+    "inProgress": "正在下载...",
+    "single": "下载图片",
+    "multiple": "下载 {{n}} 张图片"
+  },
+  "action": {
+    "retryTask": "重试任务",
+    "favorite": "收藏记录",
+    "unfavorite": "取消收藏",
+    "reuse": "复用配置",
+    "editOutput": "编辑输出",
+    "sendToCanvas": "送入画布",
+    "sendToCanvasTitle": "送入创作模式画布",
+    "deleteRecord": "删除记录"
+  },
+  "confirm": {
+    "deleteMessage": "确定要删除这条记录吗？仅清理不再使用的关联图片。"
+  },
+  "prompt": {
+    "empty": "(无提示词)"
+  },
+  "param": {
+    "size": "尺寸",
+    "quality": "质量",
+    "format": "格式",
+    "moderation": "审核",
+    "count": "数量",
+    "compression": "压缩率"
+  },
+  "card": {
+    "generating": "生成中...",
+    "phase": {
+      "queued": "排队中...",
+      "generating": "生成中...",
+      "reconnecting": "恢复连接中...",
+      "confirming": "结果确认中..."
+    },
+    "inpaint": "局部重绘",
+    "transparentBackground": "透明背景"
+  },
+  "detail": {
+    "generateFailed": "生成失败",
+    "errorCopied": "完整报错已复制",
+    "copyErrorFailed": "复制报错失败",
+    "promptCopied": "提示词已复制",
+    "copyPromptFailed": "复制提示词失败",
+    "promptRevisedReason": "接口返回的提示词已被改写",
+    "promptMissingReason": "接口没有返回官方 API 会返回的部分信息",
+    "referenceCopied": "参考图已复制",
+    "copyReferenceFailed": "复制参考图失败",
+    "copyFullError": "复制完整报错",
+    "viewRawResponse": "查看原始响应",
+    "imageUrlCopied": "图片链接已复制",
+    "copyLinkFailed": "复制链接失败",
+    "copyImageUrls": "复制图片链接",
+    "inputSection": "输入内容",
+    "copyPrompt": "复制提示词",
+    "promptRevised": "提示词已被改写",
+    "expandAll": "展开全部",
+    "referenceSection": "参考图",
+    "copyReference": "复制参考图",
+    "paramsSection": "参数配置",
+    "source": "来源",
+    "createdAt": "创建于 {{time}}",
+    "elapsed": "耗时 {{duration}}",
+    "copyAll": "全部复制"
+  },
+  "rawUrls": {
+    "title": "原始图片链接 ({{n}})",
+    "imageIndex": "图片 {{n}}",
+    "copyLink": "复制链接"
+  },
+  "rawResponse": {
+    "title": "原始响应数据"
+  },
+  "menu": {
+    "imageCopied": "图片已复制",
+    "referenceLimit": "参考图数量已达上限（16 张），无法继续添加",
+    "addReferenceFailed": "加入参考图失败：{{reason}}",
+    "saveAsAsset": "存为素材",
+    "saveAsAssetFailed": "存为素材失败：{{reason}}",
+    "makeVideo": "做成视频",
+    "makeVideoFailed": "做成视频失败：{{reason}}"
+  },
+  "lightbox": {
+    "saveImage": "保存图片",
+    "saveFailed": "保存失败"
+  },
+  "grid": {
+    "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",
+    "noMatches": "没有找到匹配的记录"
+  },
+  "set": {
+    "storyboardFallback": "分镜",
+    "productShotFallback": "商品图任务",
+    "doneCount": "完成 {{done}}/{{total}}",
+    "failedCount": "失败 {{failed}}",
+    "expandToView": "展开查看",
+    "resultAlt": "{{name}} 结果"
+  },
+  "cloudHistory": {
+    "refresh": "刷新",
+    "loading": "正在加载…",
+    "more": "加载更多",
+    "close": "关闭",
+    "details": "查看详情",
+    "openAria": "查看 {{model}} 的这条生成",
+    "status": {
+      "queued": "排队中",
+      "in_progress": "生成中",
+      "completed": "已完成",
+      "failed": "生成失败",
+      "cancelled": "已取消"
+    },
+    "reuse": "复用参数",
+    "preparing": "正在准备…",
+    "reuseFailed": "未能恢复全部参考图和参数，请重试。",
+    "modelUnavailable": "原模型当前不可用，请稍后重试。",
+    "download": "下载原图",
+    "downloadFailed": "原图下载失败，请重试。",
+    "output": "生成图片 {{number}}",
+    "references": "参考图",
+    "reference": "参考图 {{number}}",
+    "mask": "蒙版",
+    "archiving": "正在保存",
+    "unavailable": "部分原件未能保存。已保留可恢复的图片，不会自动重新生成。",
+    "place": "放入当前项目",
+    "agentSource": "智能体生成",
+    "studioSource": "工作台生成"
+  }
+}

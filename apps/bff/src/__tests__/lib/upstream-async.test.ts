@@ -18,6 +18,7 @@ const {
   setAsyncPollBackoffForTesting,
   setUpstreamFetchForTesting,
   UpstreamResultUnknownError,
+  UpstreamPartialResultError,
   UpstreamTimeoutError,
 } = await import('../../lib/upstream')
 const { _setChannelsForTesting } = await import('../../lib/channels')
@@ -291,7 +292,26 @@ describe('resume', () => {
     expect(result.payload).toEqual(COMPLETED_BODY.result)
   })
 
-  it('gives up without any request once the deadline anchored at submit time has passed', async () => {
+  it('collects an already completed result after the original deadline without resubmitting', async () => {
+    let invocations = 0
+    const result = await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat' },
+      resume: {
+        taskIds: ['imgtask_9'],
+        submittedAt: Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS - 1,
+      },
+      beforeRequest: async () => {
+        invocations += 1
+      },
+    })
+    expect(result.payload).toEqual(COMPLETED_BODY.result)
+    expect(upstream.calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
+    expect(invocations).toBe(0)
+  })
+
+  it('stops after one final lookup when an expired task is still pending', async () => {
+    upstream.handler = () => json({ status: 'processing' })
     await expect(
       callUpstream({
         ...grokRequest,
@@ -302,7 +322,21 @@ describe('resume', () => {
         },
       }),
     ).rejects.toBeInstanceOf(UpstreamTimeoutError)
-    expect(upstream.calls).toEqual([])
+    expect(upstream.calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
+  })
+
+  it('collects known fan-out results without submitting the unknown remainder after the deadline', async () => {
+    await expect(
+      callUpstream({
+        ...grokRequest,
+        request: { prompt: 'a cat', n: 2 },
+        resume: {
+          taskIds: ['imgtask_9'],
+          submittedAt: Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS - 1,
+        },
+      }),
+    ).rejects.toBeInstanceOf(UpstreamPartialResultError)
+    expect(upstream.calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
   })
 
   it('never counts a poll as an upstream invocation', async () => {

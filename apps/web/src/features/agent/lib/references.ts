@@ -1,4 +1,4 @@
-import type { AgentTurnReference } from '@image-playground/shared'
+import type { AgentMode, AgentTurnReference } from '@image-playground/shared'
 import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
@@ -13,14 +13,30 @@ export interface AgentReference extends InputImage {
   /** 素材名；有名字时胶囊显示名字而不是序号。 */
   readonly name?: string
   readonly maskDataUrl?: string
+  /**
+   * `'selection'` 即跟着画布选区自动带进来的，缺席即用户手动附上的。随草稿落盘：输入框重挂、
+   * 发送失败放回来都还认得出。老草稿里没有这一项，读回来按手动算。
+   */
+  readonly origin?: 'selection'
 }
 
 export interface AgentDraft {
   readonly prompt: string
   readonly references: readonly AgentReference[]
+  /** 这份草稿发出去时要创作什么。老草稿里没有这一项，读回来按图片算。 */
+  readonly mode?: AgentMode
 }
 
 export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }
+
+/** 草稿里有没有用户自己写下或附上的东西；跟着画布选区自动带进来的图不算。 */
+export function hasDraftContent(draft: AgentDraft): boolean {
+  return draft.prompt.trim() !== '' || draft.references.some((one) => one.origin !== 'selection')
+}
+
+export function draftMode(draft: AgentDraft): AgentMode {
+  return draft.mode === 'video' ? 'video' : 'image'
+}
 
 export function referenceLabels(references: readonly AgentReference[]): MentionLabelResolver {
   const named: Record<string, string> = {}
@@ -120,33 +136,4 @@ export function draftForSubmit(draft: AgentDraft): AgentSubmission {
       ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
     })),
   }
-}
-
-/**
- * 让引用区跟着画布选区走。`selected` 里有、草稿里没有的加进来并记为自动附上；
- * 记为自动附上、现在又没选中的撤掉（指向它的引用降级）。用户手动 `@` 进来的一律不动。
- */
-export function syncSelectedReferences(
-  draft: AgentDraft,
-  canvas: readonly { readonly imageId: string; readonly dataUrl: string }[],
-  selected: ReadonlySet<string>,
-  auto: Set<string>,
-): AgentDraft {
-  let next = draft
-  for (const id of [...auto]) {
-    if (selected.has(id)) continue
-    auto.delete(id)
-    const index = next.references.findIndex((one) => one.id === id)
-    if (index >= 0) next = removeReference(next, index)
-  }
-  for (const image of canvas) {
-    if (!selected.has(image.imageId)) continue
-    if (next.references.some((one) => one.id === image.imageId)) continue
-    auto.add(image.imageId)
-    next = {
-      ...next,
-      references: [...next.references, { id: image.imageId, dataUrl: image.dataUrl }],
-    }
-  }
-  return next
 }

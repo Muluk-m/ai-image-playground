@@ -40,6 +40,11 @@ export const CHANNEL_CAPABILITIES = [
   'resolution',
   'first_frame',
   'last_frame',
+  /**
+   * 该渠道的后端接得住参考图（全能参考）。能力本身看视频矩阵；这个 token 只是开关：
+   * 后端上线在前、运营在 channels.json 加它在后，前端才出参考图入口——旧后端会把参考图静默丢掉。
+   */
+  'reference_images',
 ] as const
 export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 

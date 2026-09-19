@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
+import { subscribeTheme } from '../../../theme'
 import type { CanvasEl } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
 import type { Box } from '../lib/geometry'
@@ -25,6 +27,7 @@ function paint(
   proj: MinimapProjection,
   rects: readonly MinimapRect[],
   viewport: Box,
+  viewportColor: string,
 ): void {
   ctx.clearRect(0, 0, MINIMAP_WIDTH, MINIMAP_HEIGHT)
   for (const rect of rects) {
@@ -43,7 +46,7 @@ function paint(
     }
   }
   const vp = projectBox(proj, viewport)
-  ctx.strokeStyle = 'rgba(255,255,255,0.92)'
+  ctx.strokeStyle = viewportColor
   ctx.lineWidth = 1.5
   ctx.strokeRect(vp.x, vp.y, Math.max(3, vp.w), Math.max(3, vp.h))
 }
@@ -63,6 +66,7 @@ interface RectCache {
  * 一个包围盒都不用重算。
  */
 export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation('canvas')
   const { doc } = editor
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -102,15 +106,18 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
     const draw = () => {
       frame = 0
       const { proj, rects, viewport } = currentFrame()
-      paint(target, proj, rects, viewport)
+      paint(target, proj, rects, viewport, getComputedStyle(canvas).color)
     }
 
     draw()
+    // 颜色取自 CSS 变量，主题一换（无论是系统变了还是用户翻转）就得重画。
+    const unsubscribeTheme = subscribeTheme(draw)
     const unsubscribe = doc.subscribe(() => {
       if (!frame) frame = requestAnimationFrame(draw)
     })
     return () => {
       unsubscribe()
+      unsubscribeTheme()
       if (frame) cancelAnimationFrame(frame)
     }
   }, [doc, currentFrame, hasContent])
@@ -127,12 +134,12 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
   }
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-sidebar shadow-lg backdrop-blur">
       <canvas
         ref={canvasRef}
         style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }}
         className="block cursor-pointer touch-none"
-        aria-label="画布小地图"
+        aria-label={t('minimap.label')}
         onPointerDown={(event) => {
           const { proj, viewport } = currentFrame()
           const point = pagePointOf(event, proj)

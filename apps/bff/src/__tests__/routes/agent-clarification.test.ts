@@ -173,6 +173,13 @@ describe('智能体澄清', () => {
     // 澄清那一轮只调了一次上游：工具结果没有被喂回去再要一句回复。
     expect(calls).toHaveLength(1)
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('askClarification')
+    // 提问门槛按「对意图的掌握程度」定，不按价格分档；问法是给方向选项让用户点，不是让他填表。
+    const system = String(JSON.stringify(calls[0]!.messages[0]!.content))
+    expect(system).toContain('存在两种以上合理解读')
+    expect(system).toContain('每轮只问最关键的一个问题')
+    expect(system).toContain('问不问只看你对意图的掌握程度，不看这一次花多少钱')
+    expect(system).toContain('本身不构成先问的条件')
+    expect(system).not.toContain('不要反问风格')
 
     const askedMessages = await readMessages(conversationId)
     expect(askedMessages.map((message) => message.role)).toEqual(['user', 'assistant'])
@@ -223,14 +230,8 @@ describe('智能体澄清', () => {
     const frames = await runTurn(conversationId, '画只猫')
     stop()
 
-    expect(types(frames)).toEqual([
-      'turnStart',
-      'toolStart',
-      'toolProgress',
-      'toolEnd',
-      'clarification',
-      'turnEnd',
-    ])
+    // 生图提交即收尾（后台任务），没有等结果那段进度。
+    expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'clarification', 'turnEnd'])
     const end = frames.at(-1)!.event
     expect(end).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
     expect(calls).toHaveLength(1)

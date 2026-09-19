@@ -82,6 +82,7 @@ beforeEach(() => {
     turn: 'idle',
     activeTurn: null,
     turns: {},
+    queue: [],
     error: null,
     loaded: false,
   })
@@ -92,52 +93,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// 去重、断点续播与退避本身归 agentClient 管，测在 lib/agentClient.test.ts；
+// 这里只钉住面板对各种终局的反应。
 describe('断线重连', () => {
-  it('流断在轮结束之前时带 Last-Event-ID 续播，不重复渲染已收到的片段', async () => {
-    turnResponses = [
-      () =>
-        sse(
-          [
-            { id: 1, event: TURN_START },
-            { id: 2, event: ASSISTANT_START },
-            { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的，' } },
-          ],
-          true,
-        ),
-      () =>
-        sse([
-          { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的，' } },
-          { id: 4, event: { type: 'textDelta', messageId: 'assistant-1', delta: '这就来' } },
-          { id: 5, event: TURN_END },
-        ]),
-    ]
-
-    await state().send('把背景换成浅木色')
-
-    expect(resumeRequests).toHaveLength(1)
-    expect(resumeRequests[0]!.lastEventId).toBe('3')
-    expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
-    expect(state().turn).toBe('idle')
-    expect(state().messages).toEqual([
-      {
-        kind: 'text',
-        id: 'user-1',
-        turnId: 'turn-1',
-        role: 'user',
-        text: '把背景换成浅木色',
-        streaming: false,
-      },
-      {
-        kind: 'text',
-        id: 'assistant-1',
-        turnId: 'turn-1',
-        role: 'assistant',
-        text: '好的，这就来',
-        streaming: false,
-      },
-    ])
-  })
-
   it('起轮的请求压根没发出去时直接判失败，不停在进行中', async () => {
     turnResponses = [
       () => {
@@ -216,6 +174,76 @@ describe('刷新后重新挂上', () => {
   })
 })
 
+describe('先取快照再接增量', () => {
+  const USER_MESSAGE = {
+    id: 'user-1',
+    turnId: TURN,
+    role: 'user',
+    content: [{ type: 'text', text: '把背景换成浅木色' }],
+    createdAt: 1,
+  }
+  const TURN_FRAMES = [
+    { id: 8, event: TURN_START },
+    { id: 9, event: ASSISTANT_START },
+    { id: 10, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的' } as const },
+    { id: 11, event: { ...TURN_END, cost: { chat: 1, image: 0, video: 0 } } },
+  ]
+
+  it('快照带游标时从游标之后接会话级增量，不再把这一轮从头按轮要一遍', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () =>
+      Response.json({
+        messages: [USER_MESSAGE],
+        activeTurn: { turnId: TURN },
+        turns: [],
+        cursor: 7,
+      })
+    turnResponses = [() => sse(TURN_FRAMES)]
+
+    await state().load()
+
+    expect(resumeRequests).toHaveLength(1)
+    expect(resumeRequests[0]!.url).toBe(
+      `http://bff.test/api/agent/conversations/${CONVERSATION}/events`,
+    )
+    expect(resumeRequests[0]!.lastEventId).toBe('7')
+    expect(state().turn).toBe('idle')
+    expect(state().messages.map((one) => one.id)).toEqual(['user-1', 'assistant-1'])
+  })
+
+  it('另一台设备打开同一会话，看到的面板与一直连着的那台一致', async () => {
+    // 这台一直连着：起轮那条流从头看到尾。
+    turnResponses = [() => sse(TURN_FRAMES)]
+    await state().send('把背景换成浅木色')
+    const watched = { messages: state().messages, turns: state().turns, turn: state().turn }
+
+    // 另一台中途打开：先取快照，再从游标接增量。
+    useAgentStore.setState({
+      conversationId: null,
+      messages: [],
+      turn: 'idle',
+      activeTurn: null,
+      turns: {},
+      error: null,
+      loaded: false,
+    })
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () =>
+      Response.json({
+        messages: [USER_MESSAGE],
+        activeTurn: { turnId: TURN },
+        turns: [],
+        cursor: 7,
+      })
+    turnResponses = [() => sse(TURN_FRAMES)]
+    await state().load()
+
+    expect({ messages: state().messages, turns: state().turns, turn: state().turn }).toEqual(
+      watched,
+    )
+  })
+})
+
 describe('另一个标签页占着这个会话', () => {
   const OTHER_TAB_HISTORY = () =>
     Response.json({
@@ -248,7 +276,7 @@ describe('另一个标签页占着这个会话', () => {
 
     await state().send('再画一只猫')
 
-    expect(state().error).toBeNull()
+    expect(state().error).toContain('本次消息未发送')
     expect(state().turn).toBe('idle')
     expect(resumeRequests).toHaveLength(1)
     expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
@@ -290,7 +318,7 @@ describe('另一个标签页占着这个会话', () => {
     await state().send('再画一只猫')
 
     expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
-    expect(state().error).toBeNull()
+    expect(state().error).toContain('本次消息未发送')
   })
 
   it('409 没带轮标识时仍按失败处理', async () => {
@@ -361,18 +389,17 @@ describe('中止', () => {
   })
 })
 
-describe('插话', () => {
-  it('轮进行中再发一句就是插话，不另起一轮', async () => {
+describe('忙时发送与插话', () => {
+  it('轮进行中再发一句进排队列表，不另起一轮也不插话', async () => {
+    const queued = {
+      id: 'queue-1',
+      clientMessageId: 'client-1',
+      text: '改成狗',
+      referenceCount: 0,
+      createdAt: 1,
+    }
     turnResponses = [
-      () =>
-        sse([
-          { id: 1, event: TURN_START },
-          { id: 2, event: ASSISTANT_START },
-          { id: 3, event: { type: 'interjection', messageId: 'user-2', text: '改成狗' } },
-          { id: 4, event: { type: 'assistantStart', messageId: 'assistant-2' } },
-          { id: 5, event: { type: 'textDelta', messageId: 'assistant-2', delta: '好，改成狗' } },
-          { id: 6, event: TURN_END },
-        ]),
+      () => Response.json({ queued, state: 'pending', turnId: TURN }, { status: 202 }),
     ]
     useAgentStore.setState({
       conversationId: CONVERSATION,
@@ -384,8 +411,10 @@ describe('插话', () => {
     await state().send('改成狗')
 
     expect(posted).toHaveLength(1)
-    expect(posted[0]!.url).toContain(`/turns/${TURN}/interject`)
+    expect(posted[0]!.url).toMatch(new RegExp(`/conversations/${CONVERSATION}/turns$`))
     expect(posted[0]!.body).toMatchObject({ text: '改成狗' })
+    expect(state().queue).toEqual([queued])
+    expect(state().turn).toBe('running')
   })
 
   it('插话的消息与随后的回复都进对话流', async () => {

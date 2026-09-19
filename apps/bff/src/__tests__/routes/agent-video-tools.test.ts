@@ -1,7 +1,13 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentTurnEvent } from '@image-playground/shared'
+import {
+  type AgentBackgroundJobsResponse,
+  type AgentToolResultBlock,
+  type AgentTurnEvent,
+  DEVICE_ID_HEADER,
+  projectArtifactId,
+} from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
@@ -45,6 +51,7 @@ const PIXEL = 'data:image/png;base64,aGk='
 
 const GROK = 'grok-imagine-video'
 const VEO = 'veo-3.1-lite-generate-preview'
+const AGNES = 'agnes-video-2.5-flash'
 
 const VIDEO_RESULT_PAYLOAD = {
   data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
@@ -58,7 +65,14 @@ function videoChannel(modelId: string): InternalChannel {
     baseUrl: 'https://gateway.example/v1',
     auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
     allowedPaths: ['videos/generations'],
-    models: [{ id: modelId, label: modelId, media: 'video', capabilities: ['generate'] }],
+    models: [
+      {
+        id: modelId,
+        label: modelId,
+        media: 'video',
+        capabilities: ['generate', 'reference_images'],
+      },
+    ],
     defaults: { asyncTasks: true },
   }
 }
@@ -94,14 +108,41 @@ async function runTurn(conversationId: string, text: string, references: unknown
         'content-type': 'application/json',
         cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
       },
-      body: JSON.stringify({ deviceId: DEVICE, text, references }),
+      // 生视频工具只在视频轮进模型的清单，所以这一整份用例都按视频轮起。
+      body: JSON.stringify({ deviceId: DEVICE, text, references, mode: 'video' }),
     }),
   )
   return parseFrames(await response.text())
 }
 
+/** 等迷你 worker 把任务推到终态，读回结算过的后台任务。 */
+async function settledJobs(conversationId: string): Promise<AgentToolResultBlock[]> {
+  for (let i = 0; i < 400; i++) {
+    const queued = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.status, 'queued'))
+    if (queued.length === 0) break
+    await Bun.sleep(5)
+  }
+  const response = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/jobs`, {
+      headers: {
+        [DEVICE_ID_HEADER]: DEVICE,
+        cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+      },
+    }),
+  )
+  return ((await response.json()) as AgentBackgroundJobsResponse).jobs.map((job) => job.result)
+}
+
 function types(frames: { event: AgentTurnEvent }[]): string[] {
   return frames.map((frame) => frame.event.type)
+}
+
+/** 工具收尾之后模型收到的那一份对话，工具结果就在里面。 */
+function modelReport(calls: AgentCall[]): string {
+  return JSON.stringify(calls.at(-1)!.messages)
 }
 
 /** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
@@ -176,11 +217,15 @@ describe('智能体生视频工具', () => {
 
     await runTurn(conversationId, '你好')
 
+    // 视频轮照样带着生图与改图：首帧要先画出来、改到位，再让它动起来。
+    // `loadSkill` 在场是因为 `apps/bff/skills/video` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'arrangeTimeline',
       'askClarification',
       'editImage',
       'generateImage',
       'generateVideo',
+      'loadSkill',
       'readLibrary',
     ])
   })
@@ -192,12 +237,11 @@ describe('智能体生视频工具', () => {
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '来一段海浪的视频')
-    stop()
 
+    // 生视频是后台任务：提交即收尾，片子之后按任务结算。
     expect(types(frames)).toEqual([
       'turnStart',
       'toolStart',
-      'toolProgress',
       'toolEnd',
       'assistantStart',
       'textDelta',
@@ -206,19 +250,27 @@ describe('智能体生视频工具', () => {
 
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', toolName: 'generateVideo' })
-    expect(end!.status).toBe('succeeded')
-    expect(end!.artifacts).toHaveLength(1)
-    expect(end!.artifacts![0]).toMatchObject({
-      media: 'video',
-      mime: 'video/mp4',
-      outputIndex: 0,
-    })
+    expect(end!.status).toBe('submitted')
+    const record = { model: GROK, duration: 5, resolution: '720p', aspectRatio: '16:9' }
+    expect(end!.job).toMatchObject({ media: 'video', video: record })
     // 文生视频没有源图可贴，产出落视口中央。
     expect(end!.anchorObjectId).toBeUndefined()
 
+    const [settled] = await settledJobs(conversationId)
+    stop()
+    expect(settled!.status).toBe('succeeded')
+    expect(settled!.artifacts).toHaveLength(1)
+    // 实际提交的档位随任务记下，结算时落到产物上。
+    expect(settled!.artifacts![0]).toMatchObject({
+      media: 'video',
+      mime: 'video/mp4',
+      outputIndex: 0,
+      video: record,
+    })
+
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
     const [task] = await db.select().from(schema.tasks)
-    expect(task!.id).toBe(end!.artifacts![0]!.taskId)
+    expect(task!.id).toBe(end!.job!.taskId)
     expect(task!.model).toBe(GROK)
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
     expect(task!.request_payload.prompt).toBe('海浪拍打礁石，镜头缓慢推进')
@@ -243,12 +295,112 @@ describe('智能体生视频工具', () => {
     stop()
 
     const [end] = eventsOfType(frames, 'toolEnd')
-    expect(end!.status).toBe('succeeded')
+    expect(end!.status).toBe('submitted')
     expect(end!.anchorObjectId).toBe('canvas-1')
+    expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1' })
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.input_images).toHaveLength(1)
     expect(task!.request_payload.video).toMatchObject({ first_frame_index: 0 })
+  })
+
+  it('sends several referenced images as reference images and records them on the video', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '图片1 的人拿着图片2 的球拍挥拍',
+      referenceImageIds: ['canvas-1', 'canvas-2', 'canvas-1'],
+    })
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '用[image 1][image 2]做一段挥拍', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+      { imageId: 'canvas-2', dataUrl: PIXEL },
+    ])
+    stop()
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.status).toBe('submitted')
+    expect(end!.anchorObjectId).toBe('canvas-1')
+    expect(end!.job!.video).toMatchObject({ referenceIds: ['canvas-1', 'canvas-2'] })
+    expect(end!.job!.video).not.toHaveProperty('firstFrameId')
+
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload.input_images).toHaveLength(2)
+    expect(task!.request_payload.video).toMatchObject({ reference_image_indices: [0, 1] })
+    expect(task!.request_payload.video).not.toHaveProperty('first_frame_index')
+  })
+
+  it('puts the first frame before the references and drops a reference repeating it', async () => {
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      prompt: '从这张开始，带上那两样东西',
+      imageId: 'canvas-1',
+      referenceImageIds: ['canvas-1', 'canvas-2'],
+    })
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '让[image 1]动起来，带上[image 2]', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+      { imageId: 'canvas-2', dataUrl: PIXEL },
+    ])
+    stop()
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.job!.video).toMatchObject({ firstFrameId: 'canvas-1', referenceIds: ['canvas-2'] })
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload.video).toMatchObject({
+      first_frame_index: 0,
+      reference_image_indices: [1],
+    })
+  })
+
+  it('does not submit references the model cannot take, and says why with a code', async () => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(AGNES)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '挥拍', referenceImageIds: ['canvas-1'] })
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
+
+    // 这一轮只留下对话本身的任务，没有视频任务。
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
+    expect(modelReport(calls)).toContain('referenceUnsupported')
+  })
+
+  it('treats a channel that has not declared reference_images as unable to take them', async () => {
+    const channel = videoChannel(GROK)
+    _setChannelsForTesting([
+      TEST_IMAGE_CHANNEL,
+      {
+        ...channel,
+        models: channel.models.map((model) => ({ ...model, capabilities: ['generate'] })),
+      },
+    ])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '挥拍', referenceImageIds: ['canvas-1'] })
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
+
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
+    expect(modelReport(calls)).toContain('referenceUnsupported')
+  })
+
+  it('describes the reference limit of the current model in the tool parameters', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好')]))
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '你好')
+
+    const tools = JSON.stringify(calls[0]!.tools)
+    expect(tools).toContain('referenceImageIds')
+    expect(tools).toContain('最多 7 张')
+    expect(tools).toContain('720p')
   })
 
   it('takes the duration, resolution and aspect ratio the model inferred', async () => {
@@ -273,15 +425,15 @@ describe('智能体生视频工具', () => {
     })
   })
 
-  it('falls back to what the resolved model supports', async () => {
+  it('falls back for what the model never asked, and says which preset it used', async () => {
     _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(VEO)])
     const calls: AgentCall[] = []
-    // Veo 只有 4 / 6 / 8 秒，也没有 1:1。
-    videoTurn(calls, { prompt: '一杯咖啡冒热气', durationSeconds: 10, aspectRatio: '1:1' })
+    // 模型一个档位都没填：默认 5 秒 Veo 做不到，按它的矩阵退到 4 秒。没有用户约束被丢掉。
+    videoTurn(calls, { prompt: '一杯咖啡冒热气' })
     const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
-    await runTurn(conversationId, '来一段方形的咖啡视频')
+    const frames = await runTurn(conversationId, '来一段咖啡视频')
     stop()
 
     const [task] = await db.select().from(schema.tasks)
@@ -291,6 +443,49 @@ describe('智能体生视频工具', () => {
       aspect_ratio: '16:9',
       resolution: '720p',
     })
+    expect(eventsOfType(frames, 'toolEnd')[0]!.status).toBe('submitted')
+    // 退档也要说出口：模型照着这句话才讲得出「我替你定了 4 秒」。
+    const report = modelReport(calls)
+    expect(report).toContain('4 秒')
+    expect(report).toContain('720p')
+    expect(report).toContain('16:9')
+  })
+
+  it.each([
+    // Veo 只有 4 / 6 / 8 秒：10 秒是用户明说的，退到 4 秒等于花钱交付他没要的东西。
+    [VEO, { durationSeconds: 10 }, ['durationSeconds', '4 / 6 / 8 秒', 'Veo 3.1 Lite']],
+    // Agnes 只有 720p。
+    [AGNES, { resolution: '1080p' }, ['resolution', '720p', 'Agnes 2.5 Flash']],
+    // Veo 没有 1:1。
+    [VEO, { aspectRatio: '1:1' }, ['aspectRatio', '16:9 / 9:16']],
+    // 1080p 这一档只配 8 秒；这条走的是 durationsByResolution。
+    [VEO, { durationSeconds: 6, resolution: '1080p' }, ['durationSeconds', '1080p 下 8 秒']],
+  ] as const)('refuses to submit %s when the model asked for %o, and tells it what is possible', async (modelId, asked, expected) => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(modelId)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '一杯咖啡冒热气', ...asked })
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '来一段咖啡视频')
+    stop()
+
+    // 视频任务一条都没落库、一分都没预扣：没提交就没花钱，这正是「宁可不花钱先说」。
+    // （对话轮自己那条任务与预扣照常，所以按模型筛。）
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks.filter((task) => task.model === modelId)).toHaveLength(0)
+    expect(billing.reservations.filter((one) => one.model === modelId)).toHaveLength(0)
+    const [end] = eventsOfType(frames, 'toolEnd')
+    // 不算失败：`onError: 'abort'` 会把整轮停掉，模型就没机会把实话讲给用户。
+    expect(end!.status).toBe('succeeded')
+    expect(end!.artifacts ?? []).toHaveLength(0)
+    // 不会有产物的调用不占画布的位，否则那个框永远填不上。
+    expect(eventsOfType(frames, 'toolStart')[0]!.outputCount).toBeUndefined()
+    // 模型照旧收到最后一句话，回复里才讲得出「这个模型做不到，你要哪个」。
+    expect(types(frames).at(-1)).toBe('turnEnd')
+
+    const report = modelReport(calls)
+    for (const fragment of expected) expect(report).toContain(fragment)
   })
 
   it('charges the video task by seconds and the resolution multiplier', async () => {
@@ -306,5 +501,104 @@ describe('智能体生视频工具', () => {
     expect(billing.reservations).toHaveLength(2)
     const video = billing.reservations.find((one) => one.model === GROK)
     expect(video).toMatchObject({ userId: USER_ID, quantity: 10, unitMultiplier: 1.6 })
+  })
+})
+
+describe('智能体排时间线工具', () => {
+  /** 先出一段视频，返回它落画布的产物 id。 */
+  async function generatedVideo(conversationId: string): Promise<string> {
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '第一镜' })
+    const stop = settleSubmittedTasks()
+    await runTurn(conversationId, '先出第一镜')
+    stop()
+    await settledJobs(conversationId)
+    const jobs = await db.select().from(schema.agent_jobs)
+    const mine = new Set(
+      jobs.filter((job) => job.conversation_id === conversationId).map((job) => job.task_id),
+    )
+    const [task] = (await db.select().from(schema.tasks)).filter(
+      (one) => one.request_payload.video && mine.has(one.id),
+    )
+    return projectArtifactId(task!.id, 0)
+  }
+
+  it('arranges finished videos in order without submitting or charging anything', async () => {
+    const conversationId = await startConversation()
+    const videoId = await generatedVideo(conversationId)
+    const before = (await db.select().from(schema.tasks)).length
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: { clips: [{ videoId, inSeconds: 1 }, { videoId: 'agent_missing_0' }] },
+          }),
+        () => completionStream('排好了'),
+      ]),
+    )
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.status).toBe('succeeded')
+    expect(end!.timeline!.timelineId).toMatch(/^timeline_/)
+    expect(end!.timeline!.clips).toEqual([{ videoId, in: 1, out: 5 }])
+    expect(modelReport(calls)).toContain('agent_missing_0')
+    // 只多了这一轮对话本身的任务，没有生成任务，也没有额外预扣。
+    const after = await db.select().from(schema.tasks)
+    expect(after.filter((one) => one.request_payload.video)).toHaveLength(1)
+    expect(after.length - before).toBeLessThanOrEqual(1)
+  })
+
+  it('skips videos from another conversation and clips that start at the end', async () => {
+    const elsewhere = await generatedVideo(await startConversation())
+    const conversationId = await startConversation()
+    const videoId = await generatedVideo(conversationId)
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: {
+              clips: [{ videoId: elsewhere }, { videoId, inSeconds: 5 }, { videoId }],
+            },
+          }),
+        () => completionStream('排好了'),
+      ]),
+    )
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.timeline!.clips).toEqual([{ videoId, in: 0, out: 5 }])
+    expect(modelReport(calls)).toContain(elsewhere)
+    expect(modelReport(calls)).toContain('入点已经到了结尾')
+  })
+
+  it('reports and places nothing when no listed video can be used', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-t',
+            name: 'arrangeTimeline',
+            args: { clips: [{ videoId: 'agent_missing_0' }] },
+          }),
+        () => completionStream('没排成'),
+      ]),
+    )
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '排进时间线')
+
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end!.timeline).toBeUndefined()
+    expect(modelReport(calls)).toContain('没有可以排的视频')
   })
 })

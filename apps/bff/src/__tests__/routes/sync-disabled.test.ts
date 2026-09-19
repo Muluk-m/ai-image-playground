@@ -11,7 +11,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../login-only-opera
 const { syncRoutes } = await import('../../routes/sync')
 const { capabilityManifest } = await import('../../lib/capabilities')
 
-const app = new Elysia().use(syncRoutes)
+const { projectRoutes } = await import('../../routes/projects')
+const app = new Elysia().use(syncRoutes).use(projectRoutes)
 
 describe('POST /api/sync without the capability', () => {
   it('answers 404 and keeps the capability off in the manifest', async () => {
@@ -50,4 +51,22 @@ describe('POST /api/sync without the capability', () => {
       capability: 'accounts:sync',
     })
   })
+})
+
+it('云端项目端点在同步能力不可用时拒绝访问', async () => {
+  const id = crypto.randomUUID()
+  for (const [path, method] of [
+    ['', 'GET'],
+    [`/${id}`, 'GET'],
+    [`/${id}`, 'PUT'],
+  ]) {
+    const response = await app.handle(
+      new Request(`http://localhost/api/projects${path}`, { method }),
+    )
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({
+      error: 'capability_unavailable',
+      capability: 'accounts:sync',
+    })
+  }
 })

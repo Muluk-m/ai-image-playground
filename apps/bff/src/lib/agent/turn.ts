@@ -1,74 +1,55 @@
-import { Agent, type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
-import type { ImageContent } from '@earendil-works/pi-ai'
+import { Agent } from '@earendil-works/pi-agent-core'
 import type {
   AgentContentBlock,
   AgentMessageView,
-  AgentToolName,
-  AgentToolResultBlock,
+  AgentMode,
+  AgentStoredReference,
   AgentTurnCost,
   AgentTurnErrorCode,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import {
-  agentClarificationSummary,
-  agentTextFromBlocks,
-  agentToolResultSummary,
-} from '@image-playground/shared'
 import { db } from '../../db/client'
+import { bffDrain } from '../drain'
 import { log } from '../logger'
-import type { TaskOutcome } from '../private-overlay'
-import {
-  AGENT_CLARIFICATION_TOOL,
-  clarificationFromResult,
-  clarificationTool,
-} from './clarification'
-import { compactionBudget } from './compaction'
-import { compactionSettings } from './compaction-settings'
+import type { BffTransaction, TaskOutcome } from '../private-overlay'
+import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { createCompactionTransform } from './compaction-transform'
-import { appendAgentMessage, touchAgentConversation } from './conversations'
-import { lastAgentEventSeq } from './events'
+import { appendAgentMessage, recordAgentToolCall, touchAgentConversation } from './conversations'
+import { openTurnEventLog } from './events'
+import { ConversationExecutionLost } from './execution'
 import {
-  activeAgentReferences,
+  type AgentImageReference,
+  archiveAgentReferences,
   createAgentImageSource,
-  referenceManifest,
+  removeAgentTurnReferences,
   requireAgentImages,
 } from './images'
+import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
-import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
+import { type RunningTurn, registerRunningTurn } from './runningTurns'
+import { agentThinking } from './thinking'
 import {
-  type AgentToolDetails,
-  agentToolAbortsTurn,
-  agentToolAnchor,
-  agentToolGuidance,
-  agentToolOutputCount,
-  agentTools,
-  agentToolTitle,
+  type AgentSubmissionReplay,
+  type AgentToolStart,
+  agentToolEnd,
+  agentToolStage,
+  agentToolStart,
+  agentTurnTools,
+  createToolFailureLog,
   isAgentToolName,
 } from './tools'
+import { createTurnAuthorization } from './turn-authorization'
+import {
+  expandSkillInvocation,
+  turnInitialState,
+  turnModelPrompt,
+  turnPromptText,
+  turnVisualEvidence,
+} from './turn-input'
 import { recordAgentTurnSummary } from './turn-summary'
-
-const EMPTY_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-}
-
-function systemPrompt(): string {
-  return [
-    '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
-    '用中文回答，简短、具体，不要复述用户的话。',
-    // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
-    ...agentToolGuidance(),
-    '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
-    '先结合参考图和对话上下文执行；只有缺少会阻止执行的信息时才调用澄清工具。用户回答后直接继续，不要让他重复引用已有的图。',
-    '只能使用清单中的工具；交互设计图不等于可运行网页或交互代码，不要把前者说成后者。',
-  ].join('\n')
-}
+import { createAgentUsageLedger } from './usage-ledger'
 
 export interface AgentTurnSettlement {
   readonly outcome: TaskOutcome
@@ -77,90 +58,48 @@ export interface AgentTurnSettlement {
 }
 
 export interface StartAgentTurnInput {
+  readonly assertExecution?: () => Promise<void>
+  readonly withExecution?: <T>(callback: (tx: BffTransaction) => Promise<T>) => Promise<T>
   readonly conversationId: string
   readonly turnId: string
   readonly userMessageId: string
+  /** 这一轮取走的排队消息；缺席即这一句是当场发来的，没排过队。 */
+  readonly queueId?: string
   readonly history: readonly AgentMessageView[]
   readonly text: string
   /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
   readonly references: readonly AgentTurnReference[]
+  /** 这一轮要创作什么；缺席即图片。工具清单与技能清单都按它过滤。 */
+  readonly mode: AgentMode
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
+  /**
+   * 唤醒轮：`text` 是给模型的系统说明，不是用户的话，也不落库。授权原文与改图计划接着提交那一批
+   * 的那一轮（`plan`，它记着当时的授权原文）；没有记下计划时退回 `authorizationPrompt`（提交那一轮
+   * 用户的原话）。要复核的产物作为视觉证据附上。
+   */
+  readonly wake?: {
+    readonly authorizationPrompt: string
+    readonly plan?: MaskedPlanCarry
+    readonly reviewImageIds: readonly string[]
+    /** 中断续跑才有：被打断那一轮已经提交的任务，同样的调用再来一次时交回它们（见 `interrupted.ts`）。 */
+    readonly replay?: AgentSubmissionReplay
+  }
+  /**
+   * 并进这一轮的唤醒：用户说话时恰好有后台任务的结果等着智能体看。`text` 跟在用户原话后面
+   * 送给模型，不落库、不算授权原文；要复核的产物与唤醒轮一样作为视觉证据附上。
+   */
+  readonly wakeNote?: {
+    readonly text: string
+    readonly reviewImageIds: readonly string[]
+  }
   /** 起轮时预扣的积分；缺席即这个部署不计费。 */
   readonly reservedCredits?: number
   /** 收尾结算，回报本轮结算后的消耗；缺席即这个部署不计费。 */
   readonly settle?: (settlement: AgentTurnSettlement) => Promise<AgentTurnCost>
-}
-
-/** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
-function replayText(message: AgentMessageView): string {
-  return message.content
-    .map((block) => {
-      if (block.type === 'text')
-        return (
-          block.text + (message.role === 'user' ? referenceManifest(block.references ?? []) : '')
-        )
-      if (block.type === 'clarification') return agentClarificationSummary(block)
-      return agentToolResultSummary(block)
-    })
-    .join('\n')
-    .trim()
-}
-
-/** 历史消息回放成 pi 的形状；助手消息的用量与停因是回放占位，不进任何计费。 */
-function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
-  const model = agentModel()
-  const messages: AgentMessage[] = []
-  for (const message of history) {
-    const text = replayText(message)
-    if (!text) continue
-    messages.push(
-      message.role === 'user'
-        ? { role: 'user', content: [{ type: 'text', text }], timestamp: message.createdAt }
-        : {
-            role: 'assistant',
-            content: [{ type: 'text', text }],
-            api: model.api,
-            provider: model.provider,
-            model: model.id,
-            usage: EMPTY_USAGE,
-            stopReason: 'stop',
-            timestamp: message.createdAt,
-          },
-    )
-  }
-  return messages
-}
-
-/**
- * 预扣要在起轮前定额，只能估。上限取压缩阈值：压缩保证送出去的输入不超过它，
- * 不封顶就会拿整段未压缩的历史去预扣，长会话每一轮都按上限占住余额。
- */
-export function estimateTurnInputTokens(
-  history: readonly AgentMessageView[],
-  text: string,
-  references: readonly AgentTurnReference[],
-): number {
-  const now = Date.now()
-  const active = activeAgentReferences(references, history)
-  const messages: AgentMessage[] = [
-    { role: 'user', content: [{ type: 'text', text: systemPrompt() }], timestamp: now },
-    ...replayed(history),
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: text + referenceManifest(active) },
-        // pi 按图片块数量估 token，无需为预扣读取或复制图片字节。
-        ...active.map((): ImageContent => ({ type: 'image', data: '', mimeType: 'image/png' })),
-      ],
-      timestamp: now,
-    },
-  ]
-  const estimated = messages.reduce((total, message) => total + estimateTokens(message), 0)
-  return Math.min(estimated, compactionBudget(compactionSettings()).threshold)
 }
 
 interface OpenAssistantMessage {
@@ -168,117 +107,133 @@ interface OpenAssistantMessage {
   text: string
 }
 
-/**
- * 一轮可以打好几次上游（工具循环、插话），用量按转录里的助手消息累加，只取末条会漏掉工具那几次。
- * 回放进来的历史助手消息带的是占位零，加进来不影响；摘要走独立请求，压根不进转录。
- * 全零就是没报：中转网关吞掉 `stream_options` 时 pi 也只能填零，与真·零 token 不可区分。
- */
-function reportedUsage(messages: readonly AgentMessage[]): AgentTurnUsage | null {
-  let inputTokens = 0
-  let outputTokens = 0
-  for (const message of messages) {
-    if (message.role !== 'assistant') continue
-    inputTokens += message.usage.input
-    outputTokens += message.usage.output
-  }
-  if (!inputTokens && !outputTokens) return null
-  return { inputTokens, outputTokens }
-}
-
 interface OpenToolCall {
   readonly messageId: string
-  readonly toolName: AgentToolName
-  readonly title: string
+  /** 起跑那一刻工具的自述；结果卡照它出，中途不再重算。 */
+  readonly start: AgentToolStart
 }
 
-function toolDetails(result: unknown): AgentToolDetails | undefined {
-  return (result as { details?: AgentToolDetails } | undefined)?.details
-}
+const settlementDelay = (attempt: number) => Math.min(1_000 * 2 ** Math.min(attempt, 5), 30_000)
 
-/** pi 把工具抛出的错误写成结果的文字块。 */
-function toolErrorText(result: unknown): string {
-  const content = (result as { content?: { type: string }[] } | undefined)?.content
-  return agentTextFromBlocks(content ?? []) || '工具执行失败'
-}
-
-function toolResultBlock(
-  pending: OpenToolCall,
-  toolCallId: string,
-  result: unknown,
-  isError: boolean,
-): AgentToolResultBlock {
-  const head = { type: 'toolResult', toolCallId, toolName: pending.toolName } as const
-  if (isError) {
-    return { ...head, status: 'failed', title: pending.title, message: toolErrorText(result) }
+async function settleDurably(
+  settle: NonNullable<StartAgentTurnInput['settle']>,
+  settlement: AgentTurnSettlement,
+  assertExecution?: () => Promise<void>,
+): Promise<AgentTurnCost> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await assertExecution?.()
+      return await settle(settlement)
+    } catch (thrown) {
+      if (thrown instanceof ConversationExecutionLost) throw thrown
+      log.error(
+        { event: 'agent.turn_settle_retry', attempt: attempt + 1, err: thrown },
+        'agent turn settlement will retry',
+      )
+      await new Promise((resolve) => setTimeout(resolve, settlementDelay(attempt)))
+    }
   }
-  const details = toolDetails(result)
-  return {
-    ...head,
-    status: 'succeeded',
-    title: pending.title,
-    ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
-    ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
-  }
-}
-
-function assistantCount(messages: readonly { readonly role: string }[]): number {
-  return messages.filter((message) => message.role === 'assistant').length
 }
 
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
   const { conversationId, turnId, userMessageId, settle, text: prompt } = input
-  const turnParams = input.params
-  // 收尾闭包只留这个计数，不留 input：捕获它就等于把整段历史再钉住一份到轮结束。
-  const replayedAssistants = assistantCount(input.history)
+  const ledger = createAgentUsageLedger({
+    conversationId,
+    turnId,
+    userId: input.userId,
+    deviceId: input.deviceId,
+  })
+  let modelCallId: string | null = null
+  const stream = agentStreamFn(input.params?.thinkingDepth)
   const startedAt = Date.now()
-  const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
+  const events = await openTurnEventLog(conversationId, turnId)
   const images = createAgentImageSource({
     references: input.references,
     history: input.history,
     userId: input.userId,
   })
+  const authorization = createTurnAuthorization({
+    history: input.history,
+    prompt: input.wake?.authorizationPrompt ?? prompt,
+    references: images.references,
+    ...(input.wake?.plan ? { carried: input.wake.plan.authorization } : {}),
+  })
   let clarified = false
+  const maskedEditPlan = createMaskedEditPlan(
+    () => authorization.current().instructions,
+    images.identify,
+    images.masked,
+    input.wake?.plan,
+  )
+  const toolFailures = createToolFailureLog()
   const agent = new Agent({
     initialState: {
-      systemPrompt: systemPrompt(),
-      model: agentModel(),
-      messages: replayed(input.history),
-      tools: [
-        ...agentTools({
+      ...turnInitialState(input.history, input.mode),
+      model: agentModel(input.params?.thinkingDepth),
+      thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
+      // 清单与预扣估算读的是同一份声明：`agentToolDeclarations(mode)` 与这里同源。
+      tools: agentTurnTools(
+        {
+          mode: input.mode,
           conversationId: input.conversationId,
           turnId: input.turnId,
           userId: input.userId,
           deviceId: input.deviceId,
           images,
+          authorization: () => authorization.current(),
+          maskedEditPlan,
+          assertExecution: input.assertExecution,
           ...(input.params ? { params: input.params } : {}),
-        }),
-        clarificationTool,
-      ],
+          ...(input.wake?.replay ? { replay: input.wake.replay } : {}),
+        },
+        toolFailures,
+      ),
     },
-    streamFn: agentStreamFn(),
+    streamFn: async (model, context, options) => {
+      await input.assertExecution?.()
+      modelCallId = await ledger.begin('conversation', model.id, context)
+      return stream(model, context, options)
+    },
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
-    // 澄清即收尾：用户的选择是下一条用户消息，所以这一轮不再回上游要下一句。
-    shouldStopAfterTurn: () => clarified,
+    // 澄清或用户中止后，不再回上游追加一次模型调用。
+    shouldStopAfterTurn: () => clarified || aborted,
     transformContext: createCompactionTransform({
       conversationId: input.conversationId,
       turnId: input.turnId,
       historyIds: input.history.map((message) => message.id),
       userMessageId: input.userMessageId,
+      onSummaryAttempt: ledger.recordSummary,
     }),
   })
 
   let error: AgentTurnErrorCode | undefined
   let aborted = false
+  /** 终帧发过没有。收尾半路抛错时据此补一个，续播的消费者不能一直等下去。 */
+  let ended = false
   let storedAny = false
   let open: OpenAssistantMessage | null = null
-  let queued: { readonly id: string; readonly text: string }[] = []
+  let acceptingInterjections = true
+  const steeringReferences = new Map<
+    string,
+    {
+      references: readonly AgentTurnReference[]
+      text: string
+      /** 插话那一刻本轮认的引用；授权原文的清单按它拼。 */
+      active: readonly AgentImageReference[]
+    }[]
+  >()
+  let queued: {
+    readonly id: string
+    readonly text: string
+    readonly references: readonly AgentStoredReference[]
+  }[] = []
   // 消息表的读回顺序是插入顺序，所以落库排成一条链，不让插话抢在半截回复前面。
   let writes: Promise<void> = Promise.resolve()
 
-  const write = (append: () => Promise<void>) => {
-    writes = writes.then(append)
+  const write = (append: (executor: typeof db | BffTransaction) => Promise<void>) => {
+    writes = writes.then(() => (input.withExecution ? input.withExecution(append) : append(db)))
     return writes
   }
 
@@ -292,13 +247,19 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     const pending = queued
     queued = []
     for (const message of pending) {
-      write(async () => {
-        await appendAgentMessage(db, {
+      write(async (executor) => {
+        await appendAgentMessage(executor, {
           id: message.id,
           conversationId,
           turnId,
           role: 'user',
-          content: [{ type: 'text', text: message.text }],
+          content: [
+            {
+              type: 'text',
+              text: message.text,
+              ...(message.references.length ? { references: [...message.references] } : {}),
+            },
+          ],
         })
       })
     }
@@ -308,8 +269,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const openTools = new Map<string, OpenToolCall>()
 
   const storeBlock = (block: AgentContentBlock, messageId: string) =>
-    write(async () => {
-      await appendAgentMessage(db, {
+    write(async (executor) => {
+      await appendAgentMessage(executor, {
         id: messageId,
         conversationId,
         turnId,
@@ -320,9 +281,9 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     })
 
   const store = (message: OpenAssistantMessage) =>
-    write(async () => {
+    write(async (executor) => {
       if (!message.text) return
-      await appendAgentMessage(db, {
+      await appendAgentMessage(executor, {
         id: message.id,
         conversationId,
         turnId,
@@ -333,6 +294,25 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     })
 
   agent.subscribe(async (event) => {
+    if (event.type === 'message_start' && event.message.role === 'user') {
+      const content = event.message.content
+      const text =
+        typeof content === 'string'
+          ? content
+          : content
+              .filter((block) => block.type === 'text')
+              .map((block) => block.text)
+              .join('')
+      const pending = steeringReferences.get(text)
+      const steering = pending?.shift()
+      if (steering) {
+        maskedEditPlan.interjected()
+        images.attach(steering.references)
+        if (images.masked) maskedEditPlan.protect()
+        authorization.amend(steering.text, steering.active)
+      }
+      if (pending?.length === 0) steeringReferences.delete(text)
+    }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       open = { id: crypto.randomUUID(), text: '' }
     }
@@ -349,34 +329,50 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       })
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
+      // 在读取任何生成结果之前冻结整批方案；未提交过任务时允许修正参数错误。
+      maskedEditPlan.capture(
+        event.message.content.flatMap((block) => (block.type === 'toolCall' ? [block] : [])),
+      )
+      if (modelCallId) {
+        await ledger.finish(modelCallId, event.message)
+        modelCallId = null
+      }
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。工具失败时的中止也走这里，
       // 那时 error 已经写好，别让它把更准的那个原因盖掉。
-      if (event.message.stopReason === 'error') error ??= 'agent_upstream_error'
+      if (event.message.stopReason === 'error' && !aborted) error ??= 'agent_upstream_error'
       else await closeOpen()
       open = null
       flushQueued()
     }
     if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
-      const title = agentToolTitle(event.toolName, event.args)
-      openTools.set(event.toolCallId, { messageId, toolName: event.toolName, title })
-      // 画布要在工具跑完之前就占好位，所以这里把「占几个、占在哪」一并发出去：
-      // 参数快照与锚点这一刻都在手上，等到 toolEnd 再说就晚了整整一次生成。
-      const outputCount = agentToolOutputCount(event.toolName, turnParams)
-      const anchorObjectId = agentToolAnchor(event.toolName, event.args, images)
-      events.emit({
-        type: 'toolStart',
-        messageId,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        title,
-        ...(outputCount ? { outputCount } : {}),
-        ...(anchorObjectId ? { anchorObjectId } : {}),
-      })
+      const start = agentToolStart(
+        input.mode,
+        event.toolName,
+        event.toolCallId,
+        event.args,
+        images,
+        input.params,
+      )
+      openTools.set(event.toolCallId, { messageId, start })
+      events.emit({ type: 'toolStart', messageId, ...start, startedAt: Date.now() })
+      // 起跑就落库：结果卡要等工具跑完，轮在半截丢了也还找得回当时的参数。
+      const { snapshot } = start
+      if (snapshot)
+        await write((executor) =>
+          recordAgentToolCall(executor, {
+            conversationId,
+            turnId,
+            messageId,
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            snapshot,
+          }),
+        )
     }
     if (event.type === 'tool_execution_update') {
       const pending = openTools.get(event.toolCallId)
-      const stage = toolDetails(event.partialResult)?.stage
+      const stage = agentToolStage(event.partialResult)
       if (pending && stage) {
         events.emit({
           type: 'toolProgress',
@@ -400,11 +396,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const pending = openTools.get(event.toolCallId)
       if (!pending) return
       openTools.delete(event.toolCallId)
-      const block = toolResultBlock(pending, event.toolCallId, event.result, event.isError)
+      const failure = event.isError ? toolFailures.take(event.toolCallId, aborted) : null
+      const { block, abortsTurn } = agentToolEnd(pending.start, event.result, failure)
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
-      if (event.isError && agentToolAbortsTurn(event.toolName)) {
+      if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'
         agent.abort()
       }
@@ -416,19 +413,56 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     turnId,
     userMessageId,
     reservedCredits: input.reservedCredits,
+    ...(input.wake ? { wake: true as const } : {}),
   })
+  if (input.queueId) events.emit({ type: 'queuedMessageConsumed', queueId: input.queueId, turnId })
 
+  let resolveCompleted!: () => void
+  const completed = new Promise<void>((resolve) => {
+    resolveCompleted = resolve
+  })
   const turn: RunningTurn = {
+    completed,
     conversationId,
     turnId,
+    mode: input.mode,
     read: (afterSeq) => events.read(afterSeq),
-    interject(text) {
-      const messageId = crypto.randomUUID()
-      // 插话要等当前这条助手消息落库；pi 也是等它跑完才把插话喂进去。
-      queued.push({ id: messageId, text })
+    async interject(text, references = [], options = {}) {
+      if (!acceptingInterjections || aborted) return null
+      const evidence = await turnVisualEvidence(references)
+      if (!acceptingInterjections || aborted) return null
+      await input.assertExecution?.()
+      const messageId = options.messageId ?? crypto.randomUUID()
+      const archiveId = `${turnId}/interjections/${messageId}`
+      const stored = await archiveAgentReferences(conversationId, archiveId, references)
+      // 上传期间本轮可能已结束；拒收并只清理本次上传，不能误删首轮或其它插话的引用。
+      const reject = async () => {
+        if (stored.length) await removeAgentTurnReferences(conversationId, archiveId)
+        return null
+      }
+      if (!acceptingInterjections || aborted) return reject()
+      // 排队消息升级来的插话到这一刻才从收件箱取走：之前的几秒里它仍然排着，停止与撤回拿得到它。
+      if (options.claim && !(await options.claim())) return reject()
+      // 取走之后到这里之间本轮可能刚好收尾：交由调用方放回收件箱。
+      if (!acceptingInterjections || aborted) return reject()
+      const active = references.length ? references : images.references
+      const steered = turnModelPrompt(
+        turnPromptText(expandSkillInvocation(text, input.mode), active),
+        evidence,
+      )
+      const pending = steeringReferences.get(steered.text) ?? []
+      // 授权原文仍是用户打的那句：`/skill-name` 展开出来的是给模型看的指引，不是他的许可。
+      pending.push({ references, text, active })
+      steeringReferences.set(steered.text, pending)
+      queued.push({ id: messageId, text, references: stored })
       if (!open) flushQueued()
       events.emit({ type: 'interjection', messageId, text })
-      agent.steer({ role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() })
+      await input.assertExecution?.()
+      agent.steer({
+        role: 'user',
+        content: [{ type: 'text', text: steered.text }, ...steered.content],
+        timestamp: Date.now(),
+      })
       return messageId
     },
     abort() {
@@ -442,16 +476,26 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     images,
     images.references.map((reference) => reference.imageId),
   )
-    .then((references) => {
+    .then(async (references) => {
       if (aborted) return
-      const content = references.map(
-        (image): ImageContent => ({
-          type: 'image',
-          mimeType: image.dataUrl.slice(5, image.dataUrl.indexOf(';')),
-          data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1),
-        }),
+      // 唤醒轮要复核的产物跟在参考图后面；取不到的那张（任务行已清掉）就不附，模型照结果文字说。
+      const reviewIds = [
+        ...(input.wake?.reviewImageIds ?? []),
+        ...(input.wakeNote?.reviewImageIds ?? []),
+      ]
+      const reviewed = (await Promise.all(reviewIds.map((id) => images.resolve(id)))).filter(
+        (image) => image !== null,
       )
-      return agent.prompt(`${prompt}${referenceManifest(images.references)}`, content)
+      const evidence = await turnVisualEvidence([...references, ...reviewed])
+      if (aborted) return
+      // `/skill-name` 只改送给模型的这一份；落库与回显的用户消息仍是他打的原话。
+      const asked = turnPromptText(expandSkillInvocation(prompt, input.mode), images.references)
+      const sent = turnModelPrompt(
+        input.wakeNote ? `${asked}\n\n${input.wakeNote.text}` : asked,
+        evidence,
+      )
+      await input.assertExecution?.()
+      return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {
       if (aborted || error) return
@@ -459,29 +503,28 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       error = 'agent_run_failed'
     })
     .then(async () => {
+      acceptingInterjections = false
+      // 已经排队的落库先等定，「这一轮写出过东西没有」才算得准。
+      await writes
+      // 没收尾的半截回复也算产出，空轮兜底连它一起看：失败与否必须在决定落不落它之前定死，
+      // 否则就成了「因为没落所以判失败、因为失败所以不落」。
+      if (!error && !aborted && !storedAny && !open?.text) error = 'agent_run_failed'
+      // 失败的轮不留这段没收尾的回复：面板在 turnEnd failed 时把它撤掉，历史要跟着撤，
+      // 不然刷新回来它又冒出来。中止不在此列——那段话用户还看得见，照旧落库。
+      if (error) open = null
       // 中止时 pi 可能走不到 message_end，已经流给用户的半截回复要自己落库。
       await closeOpen()
       flushQueued()
       await writes
-      if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
-      const usage = reportedUsage(agent.state.messages)
+      const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
       let cost: AgentTurnCost | undefined
-      try {
-        cost = await settle?.({
-          outcome,
-          usage,
-          upstreamInvocationCount: Math.max(
-            0,
-            assistantCount(agent.state.messages) - replayedAssistants,
-          ),
-        })
-      } catch (thrown) {
-        // 结算失败不该把已经流给用户的这一轮拖成报错；占用留给运维扫，不在这里重试。
-        log.error(
-          { event: 'agent.turn_settle_failed', err: thrown },
-          'agent turn settlement failed',
+      if (settle) {
+        cost = await settleDurably(
+          settle,
+          { outcome, usage, upstreamInvocationCount },
+          input.assertExecution,
         )
       }
       log.info(
@@ -515,10 +558,34 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         usage,
         cost,
       })
+      ended = true
       await touchAgentConversation(conversationId)
       await events.flush()
+    })
+    .catch(async (err) => {
+      // 租约已经归了别人：这里不能再写，终帧由接手的一方补（见 `sealAbandonedTurns`）。
+      if (err instanceof ConversationExecutionLost) return
+      bffDrain.failed()
+      log.error(
+        { event: 'agent.finalization_failed', turnId, err },
+        'turn could not be durably finalized; the recovery scan seals it once the lease expires',
+      )
+      if (ended) return
+      events.emit({
+        type: 'turnEnd',
+        turnId,
+        durationMs: Date.now() - startedAt,
+        stopReason: 'failed',
+        error: 'agent_run_failed',
+        usage: null,
+      })
+      // 落不了库也无妨：连着的消费者已经收到终帧，之后的读取由补写兜底。
+      await events.flush().catch(() => {})
+    })
+    .finally(() => {
       unregister()
       events.close()
+      resolveCompleted()
     })
 
   return turn

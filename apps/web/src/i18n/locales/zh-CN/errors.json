@@ -1,0 +1,80 @@
+{
+  "login": {
+    "invalid_credentials": "邮箱地址或密码不正确",
+    "rate_limited": "尝试次数过多，请稍后再试",
+    "fallback": "暂时无法登录，请检查网络后重试"
+  },
+  "oauth": {
+    "registration_closed": "注册暂未开放，请联系管理员开通账户",
+    "invalid_referral_code": "邀请码无效或已不可用，请修改或清空后重试",
+    "registration_reward_unavailable": "邀请奖励暂时无法发放，请稍后重试或清空邀请码",
+    "account_disabled": "该账户已被停用",
+    "access_denied": "你取消了第三方授权",
+    "fallback": "第三方登录失败，请重试或改用邮箱登录"
+  },
+  "registration": {
+    "username_taken": "该邮箱地址已注册",
+    "invalid_username": "邮箱地址格式不正确",
+    "invalid_password": "密码格式不正确",
+    "rate_limited": "注册尝试过于频繁，请稍后再试",
+    "invalid_referral_code": "邀请码无效或已不可用，请修改或清空后重试",
+    "registration_reward_unavailable": "邀请奖励暂时无法发放，请稍后重试或清空邀请码",
+    "fallback": "暂时无法创建账户，请检查网络后重试"
+  },
+  "link": {
+    "identity_taken": "该第三方账号已绑定到其他账户",
+    "unauthenticated": "登录状态已失效，请重新登录后再绑定",
+    "access_denied": "你取消了第三方授权",
+    "fallback": "绑定失败，请稍后重试"
+  },
+  "password": {
+    "invalid_credentials": "当前密码不正确",
+    "current_password_required": "请填写当前密码",
+    "invalid_password": "密码需为 {{min}}-{{max}} 位",
+    "rate_limited": "尝试次数过多，请稍后再试",
+    "fallback": "暂时无法修改密码，请稍后重试"
+  },
+  "unlink": {
+    "last_login_method": "解绑后将无法登录，请先设置密码",
+    "not_linked": "该账号尚未绑定",
+    "fallback": "暂时无法解绑，请稍后重试"
+  },
+  "generations": {
+    "fallback": "暂时无法加载记录，请刷新重试。"
+  },
+  "projectSync": {
+    "local_save_failed": "保存失败，请保留此页面并重试。",
+    "load_failed": "项目读取失败，原内容已保留，请重新读取。",
+    "project_conflict": "这个项目在别处也被改过，已暂停保存。当前内容已保留。",
+    "project_document_too_large": "容量或画布大小超出限制，当前内容已保留。",
+    "fallback": "保存失败，当前内容已保留，请重试。",
+    "media_local": "画布里有内容还没保存完或不受支持，暂时只留在这个浏览器。",
+    "unauthorized": "登录已过期，当前内容已保留，请重新登录。",
+    "project_not_found": "项目不存在或当前账号没有访问权限，当前内容已保留。",
+    "invalid_project_document": "画布格式不受支持，当前内容已保留，请更新页面后重试。",
+    "recovery_copy_failed": "无法保存恢复副本。请释放浏览器存储空间后重试，当前修改未被替换。",
+    "recovery_changed": "保存副本期间有了新修改，已保留在当前画布。请再次选择处理方式。",
+    "project_deleted": "这个项目已被删除。当前编辑仍保留，可另存为新项目。"
+  },
+  "cloudPlacement": {
+    "place_failed": "未能放入当前项目，请重试。",
+    "project_not_ready": "项目仍在保存或存在冲突，请先完成保存或处理冲突。",
+    "fallback": "未能放入当前项目，请重试。"
+  },
+  "projectRecycle": {
+    "fallback": "回收站操作失败，请重试。"
+  },
+  "agentTool": {
+    "upstream_error": "生成服务出错了，这次没有出来",
+    "timeout": "生成超时，这次没有出来",
+    "no_output": "生成完成了，但没有拿到结果",
+    "result_unknown": "这次的结果没能确认，可能已经生成；请先看看画布与历史",
+    "insufficient_credits": "积分不够，这次没有提交",
+    "quota_exceeded": "今天的生成额度已经用完",
+    "authentication_required": "需要先登录才能生成",
+    "invalid_params": "这次的参数不成立，没有提交",
+    "model_unavailable": "要用的模型暂时不可用",
+    "cancelled": "已中止",
+    "fallback": "没有完成"
+  }
+}

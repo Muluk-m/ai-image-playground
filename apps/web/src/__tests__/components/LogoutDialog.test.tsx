@@ -35,10 +35,15 @@ function button(label: string): HTMLButtonElement {
   return found
 }
 
-function checkbox(): HTMLInputElement {
-  const found = document.querySelector<HTMLInputElement>('input[type="checkbox"]')
+// Radix 把勾选框渲染成带 role 的 button，不再是 <input>，所以按语义找而不是按标签。
+function checkbox(): HTMLButtonElement {
+  const found = document.querySelector<HTMLButtonElement>('[role="checkbox"]')
   if (!found) throw new Error('no checkbox')
   return found
+}
+
+function isChecked(): boolean {
+  return checkbox().getAttribute('aria-checked') === 'true'
 }
 
 function click(element: HTMLElement): void {
@@ -52,7 +57,7 @@ describe('the logout dialog', () => {
     const onConfirm = vi.fn()
     render(onConfirm)
 
-    expect(checkbox().checked).toBe(false)
+    expect(isChecked()).toBe(false)
     click(button('退出'))
 
     expect(onConfirm).toHaveBeenCalledWith(false)
@@ -71,6 +76,6 @@ describe('the logout dialog', () => {
   it('offers clearing the local data', () => {
     render(vi.fn())
 
-    expect(document.body.textContent).toContain('同时清除本机数据')
+    expect(document.body.textContent).toContain('同时清除这个浏览器里的数据')
   })
 })

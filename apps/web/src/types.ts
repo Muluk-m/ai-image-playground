@@ -52,6 +52,7 @@ export interface CustomProviderDefinition {
   poll?: CustomProviderPollMapping
 }
 
+import { DEFAULT_IMAGE_MODERATION } from '@image-playground/shared'
 import type { ClientProfile } from './lib/channels/types'
 
 export interface AppSettings {
@@ -115,7 +116,7 @@ export const DEFAULT_PARAMS: TaskParams = {
   quality: 'auto',
   output_format: 'png',
   output_compression: null,
-  moderation: 'auto',
+  moderation: DEFAULT_IMAGE_MODERATION,
   n: 1,
   transparent_output: false,
   no_rewrite: true,
@@ -189,6 +190,8 @@ export interface TaskRecord {
   customRecoverable?: boolean
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
+  /** Server-reported durable queue phase; absent for BYOK and older BFFs. */
+  queuePhase?: import('@image-playground/shared').TaskProgressPhase
   /**
    * 客户端幂等键。submitTask 时为每个任务生成一次 UUID 并持久化；提交期间
    * 页面刷新时重提带相同 ID，BFF 用它去重。仅 BFF queue 路径会带。

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CloseIcon, LibraryIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 
 /**
@@ -7,6 +8,7 @@ import { useStore } from '../../../store'
  * 关不关由本地 state 决定。
  */
 export default function AssetHint() {
+  const { t } = useTranslation('library')
   const [visible, setVisible] = useState(() => !useStore.getState().assetHintShown)
 
   useEffect(() => {
@@ -16,14 +18,14 @@ export default function AssetHint() {
   if (!visible) return null
 
   return (
-    <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-blue-500/[0.08] px-2 py-1 text-xs text-blue-700 dark:bg-blue-500/[0.12] dark:text-blue-300">
+    <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-primary/[0.08] px-2 py-1 text-xs text-primary">
       <LibraryIcon className="h-3.5 w-3.5 shrink-0" />
-      <span className="flex-1">右键可存为素材</span>
+      <span className="flex-1">{t('hint.rightClickToSave')}</span>
       <button
         type="button"
         onClick={() => setVisible(false)}
-        aria-label="关闭提示"
-        className="shrink-0 rounded p-0.5 transition hover:bg-blue-500/15"
+        aria-label={t('hint.close')}
+        className="shrink-0 rounded p-0.5 transition hover:bg-primary/15"
       >
         <CloseIcon className="h-3.5 w-3.5" />
       </button>

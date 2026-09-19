@@ -10,7 +10,7 @@ export default function AssetThumb({ imageId, alt }: { imageId: string; alt: str
     void ensureAssetImage(imageId)
   }, [imageId])
 
-  if (!thumbnail?.dataUrl) return <div className="h-full w-full bg-gray-100 dark:bg-white/[0.04]" />
+  if (!thumbnail?.dataUrl) return <div className="h-full w-full bg-muted" />
   return (
     <img
       src={thumbnail.dataUrl}

@@ -1,8 +1,11 @@
+import { i18next, useTranslation } from '../i18n'
 import { syncNow } from '../lib/sync/engine'
 import { type AssetUploadProgress, useSyncStatus } from '../lib/sync/status'
 
 /** 设置页「数据管理」里的同步状态。只标状态，不解释规则。 */
 export default function SyncStatusPanel() {
+  // 标签由 syncLabel 这个纯函数拼出来，订阅语言变化才能在切换后重渲染。
+  const { t } = useTranslation('shell')
   const enabled = useSyncStatus((s) => s.enabled)
   const status = useSyncStatus((s) => s.status)
   const pending = useSyncStatus((s) => s.pending)
@@ -12,11 +15,11 @@ export default function SyncStatusPanel() {
 
   const failed = status === 'error'
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 dark:border-white/[0.06] dark:bg-white/[0.02] shadow-sm flex items-center justify-between gap-3">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">同步</h4>
+        <h4 className="text-sm font-bold text-foreground">{t('sync.title')}</h4>
         <p
-          className={`mt-1 text-[13px] ${failed ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}
+          className={`mt-1 text-[13px] ${failed ? 'text-destructive dark:text-destructive' : 'text-muted-foreground dark:text-muted-foreground'}`}
         >
           {syncLabel({ status, pending, lastSyncedAt, uploads })}
         </p>
@@ -25,9 +28,9 @@ export default function SyncStatusPanel() {
         <button
           type="button"
           onClick={() => void syncNow()}
-          className="shrink-0 rounded-xl bg-gray-100/80 px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-200 hover:text-gray-900 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1] dark:hover:text-white"
+          className="shrink-0 rounded-xl bg-muted/80 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-muted hover:text-foreground dark:hover:text-white"
         >
-          立即重试
+          {t('sync.retryNow')}
         </button>
       ) : null}
     </div>
@@ -47,19 +50,20 @@ export function syncLabel({
   uploads?: AssetUploadProgress | null
   now?: number
 }): string {
-  if (status === 'error') return '同步失败'
-  if (uploads) return `上传素材图 ${uploads.done}/${uploads.total}`
-  if (status === 'syncing') return '同步中'
-  if (pending > 0) return `${pending} 项待同步`
-  if (lastSyncedAt === null) return '尚未同步'
-  return `已同步 · ${relativeTime(now - lastSyncedAt)}`
+  if (status === 'error') return i18next.t('sync.failed', { ns: 'shell' })
+  if (uploads)
+    return i18next.t('sync.uploading', { ns: 'shell', done: uploads.done, total: uploads.total })
+  if (status === 'syncing') return i18next.t('sync.syncing', { ns: 'shell' })
+  if (pending > 0) return i18next.t('sync.pending', { ns: 'shell', count: pending })
+  if (lastSyncedAt === null) return i18next.t('sync.never', { ns: 'shell' })
+  return i18next.t('sync.syncedAt', { ns: 'shell', relative: relativeTime(now - lastSyncedAt) })
 }
 
 function relativeTime(elapsedMs: number): string {
   const minutes = Math.floor(elapsedMs / 60_000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes} 分钟前`
+  if (minutes < 1) return i18next.t('sync.justNow', { ns: 'shell' })
+  if (minutes < 60) return i18next.t('sync.minutesAgo', { ns: 'shell', count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
-  return `${Math.floor(hours / 24)} 天前`
+  if (hours < 24) return i18next.t('sync.hoursAgo', { ns: 'shell', count: hours })
+  return i18next.t('sync.daysAgo', { ns: 'shell', count: Math.floor(hours / 24) })
 }

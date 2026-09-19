@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from '../i18n'
 import {
   calculateImageSize,
   normalizeCodexCliImageSize,
@@ -12,13 +13,7 @@ import Overlay from './Overlay'
 import ViewportTooltip from './ViewportTooltip'
 
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
-const SIZE_LIMIT_TEXT =
-  '由于模型限制，不符合要求的分辨率会被自动规整：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
-const LIMITED_SIZE_LIMIT_TEXT =
-  '由于模型限制，不符合要求的分辨率会被自动规整：\n宽高均为 16 的倍数，宽高比不超过 3:1，分辨率不超过 1K。'
-const LIMITED_TIER_HINT_TEXT = '当前模型不支持 1K 以上的分辨率'
 const LIMITED_TIER_DESCRIPTION_ID = 'size-picker-limited-tier-description'
-const CLAMPED_SIZE_TEXT = '由于模型限制，原始分辨率已被自动规整'
 const RATIOS = [
   { label: '1:1', value: '1:1' },
   { label: '3:2', value: '3:2' },
@@ -81,12 +76,13 @@ export default function SizePickerModal({
   ratioOnly = false,
   limitTo1K = false,
 }: Props) {
+  const { t } = useTranslation(['composer', 'common'])
+  const limitedTierHintText = t('size.limitedTierHint')
   const currentPreset = findPresetForSize(currentSize, ratioOnly || limitTo1K)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
-    if (ratioOnly) return 'ratio'
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
-    if (currentPreset) return 'ratio'
+    if (ratioOnly || currentPreset) return 'ratio'
     return 'resolution'
   })
 
@@ -113,7 +109,7 @@ export default function SizePickerModal({
   )
 
   const normalizeSize = limitTo1K ? normalizeCodexCliImageSize : normalizeImageSize
-  const sizeLimitText = limitTo1K ? LIMITED_SIZE_LIMIT_TEXT : SIZE_LIMIT_TEXT
+  const sizeLimitText = limitTo1K ? t('size.limitedLimitText') : t('size.limitText')
 
   const activeRatio = ratio === 'custom' ? customRatio : ratio
   const parsedCustomRatio = parseRatio(customRatio)
@@ -201,27 +197,29 @@ export default function SizePickerModal({
   const buttonClass = (active: boolean) => {
     return `rounded-xl border px-3 py-2 text-sm transition ${
       active
-        ? 'border-blue-400 bg-blue-50 text-blue-600 dark:border-blue-500/50 dark:bg-blue-500/10 dark:text-blue-300'
-        : 'border-gray-200/70 bg-white/60 text-gray-600 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]'
+        ? 'border-primary bg-primary/10 text-primary'
+        : 'border-border/70 bg-card/60 text-muted-foreground hover:bg-card'
     }`
   }
 
   return (
     <Overlay onClose={onClose} tier="modal">
-      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
-              {ratioOnly ? '设置画面比例' : '设置图像尺寸'}
+            <h3 className="text-base font-semibold text-foreground">
+              {ratioOnly ? t('size.titleRatio') : t('size.titleSize')}
             </h3>
-            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-              当前：{ratioOnly ? sizeRatioLabel(currentSize) : currentSize || 'auto'}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('size.current', {
+                value: ratioOnly ? sizeRatioLabel(currentSize) : currentSize || 'auto',
+              })}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-            aria-label="关闭"
+            className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
+            aria-label={t('common:action.close')}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -235,36 +233,38 @@ export default function SizePickerModal({
         </div>
 
         <div className="space-y-6">
-          {!ratioOnly && (
-            <div className="flex rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04]">
+          {(allowAuto || !ratioOnly) && (
+            <div className="flex rounded-xl bg-muted/80 p-1">
               {allowAuto && (
                 <button
                   onClick={() => setMode('auto')}
-                  className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'auto' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                  className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'auto' ? 'bg-card text-foreground shadow-sm bg-muted dark:text-foreground' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'}`}
                 >
-                  自动
+                  {ratioOnly ? t('size.modeAutoRatio') : t('size.modeAuto')}
                 </button>
               )}
               <button
                 onClick={() => setMode('ratio')}
-                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'ratio' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'ratio' ? 'bg-card text-foreground shadow-sm bg-muted dark:text-foreground' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'}`}
               >
-                按比例
+                {t('size.modeRatio')}
               </button>
-              <button
-                onClick={() => setMode('resolution')}
-                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-              >
-                自定义宽高
-              </button>
+              {!ratioOnly && (
+                <button
+                  onClick={() => setMode('resolution')}
+                  className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-card text-foreground shadow-sm bg-muted dark:text-foreground' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'}`}
+                >
+                  {t('size.modeResolution')}
+                </button>
+              )}
             </div>
           )}
 
-          <div className="h-[380px] max-h-[55vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1 pb-2">
+          <div className="max-h-[55vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1 pb-2">
             {mode === 'auto' && (
               <div className="flex h-full animate-fade-in items-center justify-center pt-8 pb-4 text-center">
                 <div>
-                  <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-500 dark:bg-blue-500/10">
+                  <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -274,11 +274,13 @@ export default function SizePickerModal({
                       />
                     </svg>
                   </div>
-                  <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">自动尺寸</h4>
-                  <p className="mt-2 text-xs text-gray-400 leading-relaxed dark:text-gray-500">
-                    不向模型传递具体的分辨率参数
+                  <h4 className="text-sm font-medium text-foreground">
+                    {ratioOnly ? t('size.autoTitleRatio') : t('size.autoTitle')}
+                  </h4>
+                  <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                    {t('size.autoLine1')}
                     <br />
-                    由模型自己决定生成尺寸
+                    {t('size.autoLine2')}
                   </p>
                 </div>
               </div>
@@ -288,8 +290,8 @@ export default function SizePickerModal({
               <div className="space-y-5 animate-fade-in">
                 {!ratioOnly && (
                   <section>
-                    <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">
-                      基准分辨率
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">
+                      {t('size.baseResolution')}
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       {TIERS.map((item) => {
@@ -331,7 +333,7 @@ export default function SizePickerModal({
                               visible={tierHint === item}
                               className="w-52 text-center"
                             >
-                              {LIMITED_TIER_HINT_TEXT}
+                              {limitedTierHintText}
                             </ViewportTooltip>
                           </div>
                         )
@@ -339,15 +341,15 @@ export default function SizePickerModal({
                     </div>
                     {limitTo1K && (
                       <p id={LIMITED_TIER_DESCRIPTION_ID} className="sr-only">
-                        {LIMITED_TIER_HINT_TEXT}
+                        {limitedTierHintText}
                       </p>
                     )}
                   </section>
                 )}
 
                 <section>
-                  <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">
-                    图像比例
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">
+                    {t('size.imageRatio')}
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     {RATIOS.map((item) => {
@@ -376,33 +378,31 @@ export default function SizePickerModal({
                       className={`${buttonClass(ratio === 'custom')} col-span-4`}
                       onClick={() => setRatio('custom')}
                     >
-                      自定义比例
+                      {t('size.customRatio')}
                     </button>
                   </div>
                 </section>
 
                 {ratio === 'custom' && (
                   <label className="block animate-fade-in">
-                    <span className="mb-2 block text-xs font-medium text-gray-400 dark:text-gray-500">
-                      输入自定义比例
+                    <span className="mb-2 block text-xs font-medium text-muted-foreground">
+                      {t('size.customRatioLabel')}
                     </span>
                     <input
                       value={customRatio}
                       onChange={(e) => setCustomRatio(e.target.value)}
-                      placeholder="例如 5:4 / 2.39:1"
+                      placeholder={t('size.customRatioPlaceholder')}
                       className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition ${
                         customRatioValid
-                          ? 'border-gray-200/70 bg-white/60 text-gray-700 focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50'
-                          : 'border-red-300 bg-white/60 text-gray-700 focus:border-red-400 dark:border-red-500/40 dark:bg-white/[0.03] dark:text-gray-200'
+                          ? 'border-border/70 bg-card/60 text-foreground focus:border-primary'
+                          : 'border-destructive bg-card/60 text-foreground focus:border-destructive dark:border-destructive/40'
                       }`}
                     />
                   </label>
                 )}
 
                 {ratioOnly && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                    最终像素数量由模型决定，仅保证所选宽高比例。
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t('size.ratioOnlyNote')}</p>
                 )}
               </div>
             )}
@@ -410,23 +410,23 @@ export default function SizePickerModal({
             {!ratioOnly && mode === 'resolution' && (
               <div className="space-y-5 animate-fade-in">
                 <section>
-                  <div className="mb-4 text-xs font-medium text-gray-400 dark:text-gray-500">
-                    输入具体像素值
+                  <div className="mb-4 text-xs font-medium text-muted-foreground">
+                    {t('size.pixelSection')}
                   </div>
                   <div className="flex items-center gap-4">
                     <label className="flex-1">
-                      <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400">
-                        宽度 (Width)
+                      <span className="mb-1.5 block text-xs text-muted-foreground">
+                        {t('size.width')}
                       </span>
                       <input
                         type="number"
                         value={customW}
                         onChange={(e) => setCustomW(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                        placeholder="例如 1024"
+                        className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+                        placeholder={t('size.pixelPlaceholder')}
                       />
                     </label>
-                    <div className="mt-5 text-gray-300 dark:text-gray-600">
+                    <div className="mt-5 text-foreground">
                       <svg
                         className="h-4 w-4"
                         fill="none"
@@ -442,23 +442,23 @@ export default function SizePickerModal({
                       </svg>
                     </div>
                     <label className="flex-1">
-                      <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400">
-                        高度 (Height)
+                      <span className="mb-1.5 block text-xs text-muted-foreground">
+                        {t('size.height')}
                       </span>
                       <input
                         type="number"
                         value={customH}
                         onChange={(e) => setCustomH(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                        placeholder="例如 1024"
+                        className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary"
+                        placeholder={t('size.pixelPlaceholder')}
                       />
                     </label>
                   </div>
                 </section>
-                <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs text-gray-600 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-gray-400">
+                <div className="rounded-xl border border-border/80 bg-card/80 p-3 text-xs text-muted-foreground">
                   <div className="flex items-start gap-2">
                     <svg
-                      className="mt-[2px] h-4 w-4 flex-shrink-0 text-blue-500"
+                      className="mt-[2px] h-4 w-4 flex-shrink-0 text-primary"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -477,11 +477,15 @@ export default function SizePickerModal({
             )}
           </div>
 
-          <div className="rounded-2xl bg-gray-50 px-4 py-3 dark:bg-white/[0.03]">
-            <div className="text-xs text-gray-400 dark:text-gray-500">将使用</div>
+          <div className="rounded-2xl bg-card px-4 py-3">
+            <div className="text-xs text-muted-foreground">{t('size.willUse')}</div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="font-mono text-lg font-semibold text-gray-800 dark:text-gray-100">
-                {previewSize ? (ratioOnly ? sizeRatioLabel(previewSize) : previewSize) : '尺寸无效'}
+              <span className="font-mono text-lg font-semibold text-foreground">
+                {previewSize
+                  ? ratioOnly
+                    ? sizeRatioLabel(previewSize)
+                    : previewSize
+                  : t('size.invalid')}
               </span>
               {isClamped && (
                 <div
@@ -494,7 +498,7 @@ export default function SizePickerModal({
                   onClick={showHint}
                 >
                   <svg
-                    className="w-5 h-5 text-yellow-500 cursor-pointer"
+                    className="w-5 h-5 text-warning cursor-pointer"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -510,7 +514,7 @@ export default function SizePickerModal({
                     visible={hintVisible}
                     className="w-56 whitespace-pre-line text-center"
                   >
-                    {CLAMPED_SIZE_TEXT}
+                    {t('size.clampedHint')}
                   </ViewportTooltip>
                 </div>
               )}
@@ -521,16 +525,16 @@ export default function SizePickerModal({
         <div className="mt-5 flex gap-2">
           <button
             onClick={onClose}
-            className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+            className="flex-1 rounded-xl bg-muted px-4 py-2.5 text-sm text-muted-foreground transition hover:bg-muted"
           >
-            取消
+            {t('common:action.cancel')}
           </button>
           <button
             onClick={applySize}
             disabled={!previewSize}
-            className="flex-1 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            确定
+            {t('common:action.confirm')}
           </button>
         </div>
       </div>

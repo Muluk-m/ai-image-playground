@@ -23,7 +23,7 @@ const { abortAllRunningTasks, abortRunningTask, runningTaskIds, runTask } = awai
 const { recoverTasksByIds } = await import('../../db/maintenance')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { MAX_ATTEMPTS, RETRY_BACKOFF_MS } = await import('../../lib/retry')
+const { MAX_ATTEMPTS } = await import('../../lib/retry')
 
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
@@ -87,15 +87,19 @@ async function abortForShutdown(running: Promise<void>): Promise<void> {
 }
 
 describe('shutdown abort', () => {
-  it('requeues the task with the next retry attempt', async () => {
+  it('does not resubmit an already dispatched request whose result is unknown', async () => {
     const { running } = await startInflightTask('drain-requeue')
 
     await abortForShutdown(running)
 
     const row = await readTask('drain-requeue')
-    expect(row).toMatchObject({ status: 'queued', attempt: 1, errorType: null })
-    expect(row?.next).toBeGreaterThanOrEqual(Date.now() - RETRY_BACKOFF_MS[0])
-    expect(row?.completedAt).toBeNull()
+    expect(row).toMatchObject({
+      status: 'failed',
+      attempt: 1,
+      errorType: 'upstream_result_unknown',
+    })
+    expect(row?.next).toBeNull()
+    expect(row?.completedAt).not.toBeNull()
   })
 
   it('fails the task once the retry budget is spent', async () => {
@@ -105,7 +109,7 @@ describe('shutdown abort', () => {
 
     expect(await readTask('drain-exhausted')).toMatchObject({
       status: 'failed',
-      errorType: 'interrupted',
+      errorType: 'upstream_result_unknown',
       attempt: MAX_ATTEMPTS,
     })
   })

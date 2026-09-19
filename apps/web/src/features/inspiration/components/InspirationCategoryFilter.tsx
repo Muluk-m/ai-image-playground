@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from '../../../i18n'
 import { useInspirationStore } from '../store'
 
 export default function InspirationCategoryFilter() {
@@ -6,6 +7,7 @@ export default function InspirationCategoryFilter() {
   const selectedProvider = useInspirationStore((s) => s.selectedProvider)
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
   const setCategory = useInspirationStore((s) => s.setCategory)
+  const { t } = useTranslation('inspiration')
 
   // 分类列表跟随当前 provider 过滤——只看到对应模型下实际存在的分类
   const visibleCategories = useMemo(() => {
@@ -20,7 +22,7 @@ export default function InspirationCategoryFilter() {
   return (
     <nav className="flex flex-col gap-1 p-2">
       <CategoryButton
-        label="全部"
+        label={t('filter.all')}
         active={selectedCategory === null}
         onClick={() => setCategory(null)}
       />
@@ -50,9 +52,7 @@ function CategoryButton({
       type="button"
       onClick={onClick}
       className={`rounded-lg px-3 py-2 text-left text-sm transition ${
-        active
-          ? 'bg-blue-500/10 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300 font-medium'
-          : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.04]'
+        active ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted'
       }`}
     >
       {label}

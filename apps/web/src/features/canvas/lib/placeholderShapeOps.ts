@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
 import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
@@ -5,7 +6,10 @@ import { Box } from './geometry'
 import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
 
 /** 要放的一项。`id` 与 `video` 只属于这一项，`opts.meta` 是整批共用的溯源。 */
-export type PlaceItem = Pick<PlacedImage, 'dataUrl' | 'id' | 'video'>
+export type PlaceItem = Pick<
+  PlacedImage,
+  'dataUrl' | 'id' | 'video' | 'name' | 'groupId' | 'createdAt'
+>
 
 /** 统一的错误消息提取（画布任务终局共用）。 */
 export function errorMessage(err: unknown): string {
@@ -39,7 +43,12 @@ export async function settleGeneration(
   result: CallApiResult,
 ): Promise<boolean> {
   if (result.images.length === 0) {
-    markPlaceholderStatus(editor, placeholderId, 'error', '生成完成但未返回图片')
+    markPlaceholderStatus(
+      editor,
+      placeholderId,
+      'error',
+      i18next.t('placeholder.noImages', { ns: 'canvas' }),
+    )
     return false
   }
   await placeResults(editor, placeholderId, target, result.images)
@@ -58,7 +67,12 @@ export async function placeImagesIntoTargets(
   editor: CanvasEditor,
   placing: readonly PlaceItem[],
   targets: readonly PlacementTarget[],
-  opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
+  opts: {
+    meta?: Record<string, string>
+    canPlace?: () => boolean
+    /** 落完选中新元素（默认）。不选时用户手上的选区不被打断。 */
+    select?: boolean
+  } = {},
 ): Promise<void> {
   const sizes = await Promise.all(placing.map((one) => getImageDimensions(one.dataUrl)))
   if (opts.canPlace && !opts.canPlace()) return
@@ -66,6 +80,8 @@ export async function placeImagesIntoTargets(
   const items: PlacedImage[] = []
   for (let i = 0; i < placing.length; i++) {
     const one = placing[i]!
+    // Cloud delivery can arrive while decoding; preserve its identity and user edits.
+    if (one.id && editor.getElement(one.id)) continue
     const target = targets[i]!
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
@@ -75,13 +91,18 @@ export async function placeImagesIntoTargets(
       y: target.y + (target.h - fitted.h) / 2,
       width: fitted.w,
       height: fitted.h,
+      naturalWidth: width,
+      naturalHeight: height,
+      name: one.name,
+      groupId: one.groupId,
+      createdAt: one.createdAt,
       ...(one.id ? { id: one.id } : {}),
       ...(one.video ? { video: one.video } : {}),
     })
   }
   const ids = editor.placeImages(items, opts.meta)
   if (ids.length === 0) return
-  editor.setSelectedElements(ids)
+  if (opts.select !== false) editor.setSelectedElements(ids)
 
   // 镜头反馈：结果完全在视口外（用户平移去了别处 / 恢复场景）时把镜头带过去，
   // 否则生成完了用户根本不知道图落在哪。视口内可见则不动。
@@ -125,7 +146,9 @@ async function placeResults(
 ): Promise<void> {
   const placeholder = editor.getPlaceholder(placeholderId)
   const anchor = placeholder ? targetFromShape(placeholder) : target
-  const provenance = placeholder ? { prompt: placeholder.meta.prompt } : undefined
+  const provenance = placeholder
+    ? { prompt: placeholder.meta.prompt, taskId: placeholder.meta.taskId }
+    : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
   await placeImagesOnCanvas(
     editor,

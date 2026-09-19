@@ -1,5 +1,8 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
+import ThemeToggleButton from '../components/ThemeToggleButton'
+import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
+import { useLocalePicker } from '../i18n/useLocalePicker'
 import {
   AuthRequestError,
   fetchOAuthProviders,
@@ -51,11 +54,12 @@ function FeatureIcon({ kind }: { kind: 'model' | 'speed' | 'security' }) {
 }
 
 function AuthShowcase() {
+  const { t } = useTranslation('auth')
   return (
     <section className="auth-showcase">
       <header className="auth-brand">
         <img src="/brand/muvloom-icon.svg" alt="" width="30" height="30" />
-        <span>幕芽 Muvloom</span>
+        <span>{t('brand.name')}</span>
       </header>
 
       <div className="auth-art-wall" aria-hidden>
@@ -88,11 +92,11 @@ function AuthShowcase() {
 
       <div className="auth-showcase-copy">
         <h2>
-          让灵感，
+          {t('showcase.headlineLine1')}
           <br />
-          长成画面
+          {t('showcase.headlineLine2')}
         </h2>
-        <p>AI 图片与视频创作工作台，把你的想法变成图片、镜头与故事。</p>
+        <p>{t('showcase.tagline')}</p>
       </div>
 
       <div className="auth-benefits">
@@ -100,33 +104,33 @@ function AuthShowcase() {
           <span className="auth-benefit-icon">
             <FeatureIcon kind="model" />
           </span>
-          <strong>强大模型</strong>
+          <strong>{t('showcase.benefit.model.title')}</strong>
           <p>
-            前沿 AI 模型
+            {t('showcase.benefit.model.line1')}
             <br />
-            图片与视频创作
+            {t('showcase.benefit.model.line2')}
           </p>
         </div>
         <div>
           <span className="auth-benefit-icon">
             <FeatureIcon kind="speed" />
           </span>
-          <strong>快速生成</strong>
+          <strong>{t('showcase.benefit.speed.title')}</strong>
           <p>
-            多种创作方式
+            {t('showcase.benefit.speed.line1')}
             <br />
-            高效实现创意
+            {t('showcase.benefit.speed.line2')}
           </p>
         </div>
         <div>
           <span className="auth-benefit-icon">
             <FeatureIcon kind="security" />
           </span>
-          <strong>安全可靠</strong>
+          <strong>{t('showcase.benefit.security.title')}</strong>
           <p>
-            隐私保护
+            {t('showcase.benefit.security.line1')}
             <br />
-            你的数据安全无忧
+            {t('showcase.benefit.security.line2')}
           </p>
         </div>
       </div>
@@ -134,38 +138,83 @@ function AuthShowcase() {
   )
 }
 
-function errorMessage(error: unknown): string {
+/** 叶子名与 BFF 的 `error.code` 同名，新增错误码时两边对照即可。 */
+type LoginErrorKey =
+  | 'login.invalid_credentials'
+  | 'login.rate_limited'
+  | 'login.fallback'
+  | 'oauth.registration_closed'
+  | 'oauth.invalid_referral_code'
+  | 'oauth.registration_reward_unavailable'
+  | 'oauth.account_disabled'
+  | 'oauth.access_denied'
+  | 'oauth.fallback'
+  | 'registration.username_taken'
+  | 'registration.invalid_username'
+  | 'registration.invalid_password'
+  | 'registration.rate_limited'
+  | 'registration.invalid_referral_code'
+  | 'registration.registration_reward_unavailable'
+  | 'registration.fallback'
+
+function loginErrorKey(error: unknown): LoginErrorKey {
   if (error instanceof AuthRequestError) {
-    if (error.code === 'invalid_credentials') return '邮箱地址或密码不正确'
-    if (error.code === 'rate_limited') return '尝试次数过多，请稍后再试'
+    if (error.code === 'invalid_credentials') return 'login.invalid_credentials'
+    if (error.code === 'rate_limited') return 'login.rate_limited'
   }
-  return '暂时无法登录，请检查网络后重试'
+  return 'login.fallback'
 }
 
-function oauthErrorMessage(code: string): string {
-  if (code === 'registration_closed') return '注册暂未开放，请联系管理员开通账户'
-  if (code === 'invalid_referral_code') return '邀请码无效或已不可用，请修改或清空后重试'
-  if (code === 'registration_reward_unavailable')
-    return '邀请奖励暂时无法发放，请稍后重试或清空邀请码'
-  if (code === 'account_disabled') return '该账户已被停用'
-  if (code === 'access_denied') return '你取消了第三方授权'
-  return '第三方登录失败，请重试或改用邮箱登录'
+function oauthErrorKey(code: string): LoginErrorKey {
+  if (code === 'registration_closed') return 'oauth.registration_closed'
+  if (code === 'invalid_referral_code') return 'oauth.invalid_referral_code'
+  if (code === 'registration_reward_unavailable') return 'oauth.registration_reward_unavailable'
+  if (code === 'account_disabled') return 'oauth.account_disabled'
+  if (code === 'access_denied') return 'oauth.access_denied'
+  return 'oauth.fallback'
 }
 
-function registrationErrorMessage(error: unknown): string {
+function registrationErrorKey(error: unknown): LoginErrorKey {
   if (error instanceof AuthRequestError) {
-    if (error.code === 'username_taken') return '该邮箱地址已注册'
-    if (error.code === 'invalid_username') return '邮箱地址格式不正确'
-    if (error.code === 'invalid_password') return '密码格式不正确'
-    if (error.code === 'rate_limited') return '注册尝试过于频繁，请稍后再试'
-    if (error.code === 'invalid_referral_code') return '邀请码无效或已不可用，请修改或清空后重试'
-    if (error.code === 'registration_reward_unavailable')
-      return '邀请奖励暂时无法发放，请稍后重试或清空邀请码'
+    if (error.code === 'username_taken') return 'registration.username_taken'
+    if (error.code === 'invalid_username') return 'registration.invalid_username'
+    if (error.code === 'invalid_password') return 'registration.invalid_password'
+    if (error.code === 'rate_limited') return 'registration.rate_limited'
+    if (error.code === 'invalid_referral_code') return 'registration.invalid_referral_code'
+    if (error.code === 'registration_reward_unavailable') {
+      return 'registration.registration_reward_unavailable'
+    }
   }
-  return '暂时无法创建账户，请检查网络后重试'
+  return 'registration.fallback'
+}
+
+function LanguagePicker() {
+  const { t } = useTranslation('common')
+  const { locale, change } = useLocalePicker()
+  return (
+    <label className="auth-language">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3c2.2 2.5 3.3 5.5 3.3 9S14.2 18.5 12 21c-2.2-2.5-3.3-5.5-3.3-9S9.8 5.5 12 3Z" />
+      </svg>
+      <select
+        aria-label={t('locale.label')}
+        value={locale}
+        onChange={(event) => change(event.currentTarget.value as AppLocale)}
+      >
+        {SUPPORTED_LOCALES.map((locale) => (
+          <option key={locale} value={locale}>
+            {t(`locale.${locale}` as const)}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 export function LoginScreen() {
+  const { t } = useTranslation('auth')
+  const { t: tError } = useTranslation('errors')
   const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
   const referralEnabled =
     PrivateWebSupportsReferrals &&
@@ -176,15 +225,25 @@ export function LoginScreen() {
       ? ''
       : (new URLSearchParams(window.location.search).get('ref') ?? ''),
   )
+  const [referralExpanded, setReferralExpanded] = useState(Boolean(referralCode))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [errorKey, setErrorKey] = useState<LoginErrorKey | null>(null)
   const [view, setView] = useState<'login' | 'registration'>(
     referralEnabled && referralCode ? 'registration' : 'login',
   )
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previousView = useRef(view)
+  useEffect(() => {
+    if (previousView.current !== view) {
+      panelRef.current?.querySelector('h1')?.focus({ preventScroll: true })
+      previousView.current = view
+    }
+  }, [view])
   const [providers, setProviders] = useState<OAuthProviderView[]>([])
+  const error = errorKey ? tError(errorKey) : null
 
   useEffect(() => {
     let cancelled = false
@@ -200,7 +259,7 @@ export function LoginScreen() {
     const url = new URL(window.location.href)
     const code = url.searchParams.get(OAUTH_ERROR_QUERY_PARAM)
     if (!code) return
-    setError(oauthErrorMessage(code))
+    setErrorKey(oauthErrorKey(code))
     // Strip the parameter so a reload does not resurface a failure the user already saw.
     url.searchParams.delete(OAUTH_ERROR_QUERY_PARAM)
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
@@ -210,12 +269,12 @@ export function LoginScreen() {
     event.preventDefault()
     if (!username.trim() || !password || pending) return
     setPending(true)
-    setError(null)
+    setErrorKey(null)
     try {
       await loginUser(username, password)
       window.location.reload()
     } catch (err) {
-      setError(errorMessage(err))
+      setErrorKey(loginErrorKey(err))
       setPending(false)
     }
   }
@@ -223,7 +282,7 @@ export function LoginScreen() {
   async function submitRegistration(credentials: RegistrationCredentials): Promise<void> {
     if (pending) return
     setPending(true)
-    setError(null)
+    setErrorKey(null)
     try {
       await registerUser(
         credentials.username,
@@ -232,35 +291,39 @@ export function LoginScreen() {
       )
       window.location.reload()
     } catch (err) {
-      setError(registrationErrorMessage(err))
+      setErrorKey(registrationErrorKey(err))
       setPending(false)
     }
   }
 
   const invitationField = referralEnabled ? (
-    <div className="auth-form mb-4">
+    <details
+      className="auth-referral"
+      open={referralExpanded}
+      onToggle={(event) => setReferralExpanded(event.currentTarget.open)}
+    >
+      <summary>
+        {t('referral.summary')}
+        <span>{t('referral.optional')}</span>
+      </summary>
       <label className="auth-field">
-        <span>邀请码（选填）</span>
+        <span>{t('referral.label')}</span>
         <input
           name="referral_code"
           value={referralCode}
           maxLength={64}
           onChange={(event) => {
             setReferralCode(event.currentTarget.value)
-            setError(null)
+            setErrorKey(null)
           }}
           autoCapitalize="none"
           spellCheck={false}
           autoComplete="off"
           disabled={pending}
-          placeholder="填写或清空邀请码"
-          aria-describedby="referral-code-hint"
+          placeholder={t('referral.placeholder')}
         />
       </label>
-      <p id="referral-code-hint" className="text-xs text-muted-foreground">
-        仅在首次注册时确定邀请关系，已有账户登录不会补绑。
-      </p>
-    </div>
+    </details>
   ) : null
   const providerButtons =
     providers.length > 0 ? (
@@ -274,7 +337,7 @@ export function LoginScreen() {
               onClick={() => {
                 window.location.href = oauthStartUrl(
                   provider.id,
-                  referralEnabled ? referralCode : undefined,
+                  view === 'registration' && referralEnabled ? referralCode : undefined,
                 )
               }}
             >
@@ -284,7 +347,9 @@ export function LoginScreen() {
           ))}
         </div>
         <div className="auth-divider">
-          <span>或使用邮箱{view === 'registration' ? '注册' : '登录'}</span>
+          <span>
+            {view === 'registration' ? t('login.dividerRegister') : t('login.dividerLogin')}
+          </span>
         </div>
       </>
     ) : null
@@ -295,53 +360,42 @@ export function LoginScreen() {
         <AuthShowcase />
 
         <section className="auth-panel">
-          <label className="auth-language">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              aria-hidden
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18M12 3c2.2 2.5 3.3 5.5 3.3 9S14.2 18.5 12 21c-2.2-2.5-3.3-5.5-3.3-9S9.8 5.5 12 3Z" />
-            </svg>
-            <select aria-label="界面语言" value="zh-CN" disabled>
-              <option value="zh-CN">中文</option>
-            </select>
-          </label>
+          {/* 显示设置在登录前就要能改：这里没有头像菜单，所以语言与主题各放一个控件。 */}
+          <div className="auth-display">
+            <LanguagePicker />
+            <ThemeToggleButton className="auth-theme" />
+          </div>
 
-          <div className="auth-panel-content">
+          <div className="auth-panel-content" ref={panelRef}>
             {view === 'registration' ? (
               <RegistrationPanel
                 pending={pending}
                 error={error}
                 onBack={() => {
-                  setError(null)
+                  setErrorKey(null)
                   setView('login')
                 }}
+                invitationField={invitationField}
                 onRegister={(credentials) => void submitRegistration(credentials)}
               >
-                {invitationField}
                 {providerButtons}
               </RegistrationPanel>
             ) : (
               <div className="auth-form-view auth-login">
                 <div className="auth-form-heading">
-                  <h1>欢迎回来</h1>
-                  <p>登录你的账户，继续创作</p>
+                  <h1 tabIndex={-1}>{t('login.title')}</h1>
+                  <p>{t('login.subtitle')}</p>
                 </div>
 
-                {providers.length > 0 ? invitationField : null}
                 {providerButtons}
 
                 <form
                   className="auth-form"
                   onSubmit={(event) => void submit(event)}
-                  aria-label="用户登录"
+                  aria-label={t('login.formLabel')}
                 >
                   <label className="auth-field">
-                    <span>邮箱地址</span>
+                    <span>{t('login.emailLabel')}</span>
                     <input
                       name="username"
                       type="text"
@@ -351,14 +405,13 @@ export function LoginScreen() {
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
-                      autoFocus
                       disabled={pending}
-                      placeholder="请输入您的邮箱地址"
+                      placeholder={t('login.emailPlaceholder')}
                     />
                   </label>
 
                   <label className="auth-field">
-                    <span>密码</span>
+                    <span>{t('login.passwordLabel')}</span>
                     <div className="auth-password">
                       <input
                         name="password"
@@ -367,13 +420,13 @@ export function LoginScreen() {
                         onChange={(event) => setPassword(event.currentTarget.value)}
                         autoComplete="current-password"
                         disabled={pending}
-                        placeholder="请输入密码"
+                        placeholder={t('login.passwordPlaceholder')}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword((value) => !value)}
                         disabled={pending}
-                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                        aria-label={showPassword ? t('password.hide') : t('password.show')}
                       >
                         <EyeIcon crossed={showPassword} />
                       </button>
@@ -396,31 +449,31 @@ export function LoginScreen() {
                     {pending ? (
                       <>
                         <i className="auth-spinner" aria-hidden />
-                        正在登录
+                        {t('login.submitting')}
                       </>
                     ) : (
-                      '登录'
+                      t('login.submit')
                     )}
                   </button>
                 </form>
 
                 <p className="auth-switch">
-                  还没有账户？
+                  {t('login.noAccount')}
                   {registrationEnabled ? (
                     <button
                       type="button"
                       onClick={() => {
-                        setError(null)
+                        setErrorKey(null)
                         setView('registration')
                       }}
                     >
-                      立即注册
+                      {t('login.registerLink')}
                     </button>
                   ) : (
-                    <span>注册暂未开放</span>
+                    <span>{t('login.registrationClosed')}</span>
                   )}
                 </p>
-                <p className="auth-terms">登录即表示你同意我们的服务条款和隐私政策</p>
+                <p className="auth-terms">{t('login.terms')}</p>
               </div>
             )}
           </div>

@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { resumeQueueImageApi } from '../../../lib/api'
 import { addCompletedCanvasTask, useStore } from '../../../store'
 import { snapshotParams } from './canvasTaskRuntime'
@@ -8,6 +9,7 @@ import {
   settleGeneration,
   targetFromShape,
 } from './placeholderShapeOps'
+import { resumeCanvasVideo } from './submitVideoFromCanvas'
 
 /** builtin-edge 且有 bffRequestId：用它续 poll（不重传输入图），完成替换占位框。 */
 async function resumeOne(
@@ -61,19 +63,32 @@ export function recoverCanvasTasks(editor: CanvasEditor): void {
   for (const placeholder of editor.getPlaceholders()) {
     if (placeholder.status !== 'loading') continue
     const meta = placeholder.meta
+    if (meta.cloudGeneration) continue
 
     if (meta.agent) {
       // 智能体的占位框只是那一轮的脚手架：这里没有 BFF 请求可续、画布上也没法重试，
       // 产物由智能体面板那条交付链路补送。留着它就是个永远转圈的空框。
       editor.deleteElement(placeholder.id, { history: false })
+    } else if (meta.video && meta.bffRequestId) {
+      void resumeCanvasVideo(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge' && meta.bffRequestId) {
       void resumeOne(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge') {
       // submit 未确认窗口：不自动重提交（决策 6），标记需手动重试。
-      markPlaceholderStatus(editor, placeholder.id, 'stale', '任务未确认，请手动重试')
+      markPlaceholderStatus(
+        editor,
+        placeholder.id,
+        'stale',
+        i18next.t('placeholder.unconfirmed', { ns: 'canvas' }),
+      )
     } else {
       // BYOK 不经 BFF、无跨会话恢复能力：诚实标失效并给重试，而非僵尸转圈。
-      markPlaceholderStatus(editor, placeholder.id, 'stale', 'BYOK 任务无法跨会话恢复，请重试')
+      markPlaceholderStatus(
+        editor,
+        placeholder.id,
+        'stale',
+        i18next.t('placeholder.byokUnrecoverable', { ns: 'canvas' }),
+      )
     }
   }
 }

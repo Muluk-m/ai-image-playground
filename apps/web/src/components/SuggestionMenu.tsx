@@ -1,10 +1,21 @@
-import { type KeyboardEvent, type ReactNode, useCallback, useState } from 'react'
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import ComposerPopover from './ComposerPopover'
 
 export interface SuggestionMenuOption<T> {
   key: string
   label: string
+  /** 第二行的补充说明；缺席即这一条只有一行。 */
+  description?: string
   thumbnail?: ReactNode
+  /** 行首的小图标；`thumbnail` 是图片缩略图，这个是线条图标，两者不同时出现。 */
+  icon?: ReactNode
   /** 选中时交还给调用方的候选身份，弹层自己不解释它 */
   value: T
 }
@@ -38,18 +49,30 @@ export default function SuggestionMenu<T>({
   onActiveIndexChange,
   onSelect,
 }: SuggestionMenuProps<T>) {
+  const listRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const list = listRef.current
+    const active = list?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!list || !active) return
+    const viewport = list.getBoundingClientRect()
+    const item = active.getBoundingClientRect()
+    const top = viewport.top + list.clientTop
+    const bottom = top + list.clientHeight
+    // Scroll only the menu, leaving the canvas and input focus in place.
+    if (item.top < top) list.scrollTop += item.top - top
+    else if (item.bottom > bottom) list.scrollTop += item.bottom - bottom
+  }, [activeIndex, groups])
+
   return (
     <ComposerPopover offsetLeft={offsetLeft}>
-      <div className="max-h-56 overflow-y-auto custom-scrollbar" role="listbox">
+      <div ref={listRef} className="max-h-56 overflow-y-auto custom-scrollbar" role="listbox">
         {groups.map((group, groupIndex) => (
           <div key={group.key}>
-            <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+            <div className="px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground">
               {group.heading}
             </div>
             {group.options.length === 0 && group.emptyNote && (
-              <div className="px-2 py-1.5 text-xs text-gray-400 dark:text-gray-500">
-                {group.emptyNote}
-              </div>
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{group.emptyNote}</div>
             )}
             {group.options.map((option, optionIndex) => {
               const index = countOptionsBefore(groups, groupIndex) + optionIndex
@@ -66,16 +89,28 @@ export default function SuggestionMenu<T>({
                   onMouseEnter={() => onActiveIndexChange(index)}
                   className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
                     index === activeIndex
-                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
-                      : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-foreground hover:bg-card'
                   }`}
                 >
                   {option.thumbnail && (
-                    <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
+                    <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border/70">
                       {option.thumbnail}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium">{option.label}</span>
+                  {!option.thumbnail && option.icon && (
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/70">
+                      {option.icon}
+                    </span>
+                  )}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate font-medium">{option.label}</span>
+                    {option.description && (
+                      <span className="truncate text-[11px] font-normal text-muted-foreground">
+                        {option.description}
+                      </span>
+                    )}
+                  </span>
                 </button>
               )
             })}

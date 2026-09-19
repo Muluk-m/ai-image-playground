@@ -1,4 +1,6 @@
+import MediaImage from '../../../components/MediaImage'
 import type { SuggestionMenuGroup } from '../../../components/SuggestionMenu'
+import { i18next } from '../../../i18n'
 import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { assetOptions, inputImageOptions, labelMatches } from '../../library/lib/assetMentions'
@@ -22,7 +24,9 @@ export function canvasImages(doc: CanvasDoc): CanvasImage[] {
   const images = doc.elements.filter((element): element is ImageEl => element.type === 'image')
   return images.reverse().flatMap((element, at) => {
     const dataUrl = doc.files[element.fileId]
-    return dataUrl ? [{ imageId: element.id, dataUrl, label: `画布图${at + 1}` }] : []
+    if (!dataUrl) return []
+    const label = i18next.t('mentions.canvasImage', { ns: 'agent', index: at + 1 })
+    return [{ imageId: element.id, dataUrl, label }]
   })
 }
 
@@ -50,16 +54,24 @@ export function buildAgentMentionGroups({
     .map((image) => ({
       key: `canvas:${image.imageId}`,
       label: image.label,
-      thumbnail: <img src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
+      thumbnail: <MediaImage src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
       value: { type: 'canvas', imageId: image.imageId } as const,
     }))
 
   return [
-    { key: 'references', heading: '本次参考图', options: referenceOptions },
-    { key: 'canvas', heading: '画布', options: canvasOptions },
+    {
+      key: 'references',
+      heading: i18next.t('mentions.headingReferences', { ns: 'agent' }),
+      options: referenceOptions,
+    },
+    {
+      key: 'canvas',
+      heading: i18next.t('mentions.headingCanvas', { ns: 'agent' }),
+      options: canvasOptions,
+    },
     {
       key: 'assets',
-      heading: '素材',
+      heading: i18next.t('mentions.headingAssets', { ns: 'agent' }),
       options: assetOptions<AgentMentionValue>(
         assets,
         query,

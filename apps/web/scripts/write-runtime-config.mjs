@@ -8,6 +8,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseRuntimeOrigins } from '../../../packages/shared/src/runtime-origins.mjs'
 
 function parseBoolean(name, raw) {
   if (raw === undefined || raw === '') return false
@@ -23,9 +24,13 @@ function parseBoolean(name, raw) {
 export function buildRuntimeConfig(env) {
   const enabled = parseBoolean('BFF_ENABLED', env.BFF_ENABLED)
   const baseUrl = (env.BFF_BASE_URL ?? '').trim().replace(/\/+$/, '')
+  const baseUrlsByOrigin = parseRuntimeOrigins(
+    env.BFF_BASE_URLS_BY_ORIGIN ? JSON.parse(env.BFF_BASE_URLS_BY_ORIGIN) : undefined,
+  )
 
   if (!enabled) {
-    if (baseUrl) throw new Error('BFF_BASE_URL is set but BFF_ENABLED is not true')
+    if (baseUrl || baseUrlsByOrigin)
+      throw new Error('BFF origin is set but BFF_ENABLED is not true')
     return { bff: { enabled: false, baseUrl: '' } }
   }
 
@@ -48,7 +53,25 @@ export function buildRuntimeConfig(env) {
     throw new Error('BFF_BASE_URL must not carry a query string or fragment')
   }
 
-  return { bff: { enabled: true, baseUrl } }
+  let localCompatibility
+  if (env.LOCAL_COMPATIBILITY) {
+    localCompatibility = JSON.parse(env.LOCAL_COMPATIBILITY)
+    for (const key of ['sourceOrigin', 'targetOrigin']) {
+      const origin = localCompatibility[key]
+      if (
+        typeof origin !== 'string' ||
+        !origin.startsWith('https://') ||
+        new URL(origin).origin !== origin
+      )
+        throw new Error('LOCAL_COMPATIBILITY requires exact HTTPS origins')
+    }
+    if (localCompatibility.sourceOrigin === localCompatibility.targetOrigin)
+      throw new Error('LOCAL_COMPATIBILITY origins must differ')
+  }
+  return {
+    bff: { enabled: true, baseUrl, ...(baseUrlsByOrigin ? { baseUrlsByOrigin } : {}) },
+    ...(localCompatibility ? { localCompatibility } : {}),
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { CloseIcon, EditIcon, SparkleIcon, TrashIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
+import { useTranslation } from '../../../i18n'
+import { formatDateTime } from '../../../i18n/format'
 import { useStore } from '../../../store'
 import {
   getTemplateAssetRefs,
@@ -10,11 +12,8 @@ import {
 import { useLibraryStore } from '../store'
 import AssetThumb from './AssetThumb'
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleString('zh-CN')
-}
-
 export default function TemplateDetail() {
+  const { t } = useTranslation(['library', 'common'])
   const template = useLibraryStore(
     (s) => s.templates.find((t) => t.id === s.detailTemplateId) ?? null,
   )
@@ -37,10 +36,10 @@ export default function TemplateDetail() {
 
   return (
     <Overlay onClose={closeTemplateDetail} tier="raised">
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/50 bg-white shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10">
-        <div className="flex shrink-0 items-center gap-2 border-b border-gray-100 p-5 dark:border-white/[0.08]">
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/50 bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border p-5">
           {draftName === null ? (
-            <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-gray-800 dark:text-gray-100">
+            <h3 className="min-w-0 flex-1 truncate text-lg font-bold text-foreground">
               {template.name}
             </h3>
           ) : (
@@ -54,23 +53,23 @@ export default function TemplateDetail() {
                 if (e.key === 'Escape') setDraftName(null)
               }}
               maxLength={40}
-              className="min-w-0 flex-1 rounded-lg border border-blue-300 bg-white px-2 py-1 text-lg font-bold text-gray-800 focus:outline-none dark:border-blue-500/50 dark:bg-white/[0.06] dark:text-gray-100"
+              className="min-w-0 flex-1 rounded-lg border border-primary bg-card px-2 py-1 text-lg font-bold text-foreground focus:outline-none"
             />
           )}
           <button
             type="button"
             onClick={() => setDraftName(template.name)}
-            aria-label="重命名"
-            title="重命名"
-            className="shrink-0 rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+            aria-label={t('action.rename')}
+            title={t('action.rename')}
+            className="shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
           >
             <EditIcon className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={closeTemplateDetail}
-            aria-label="关闭"
-            className="shrink-0 rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+            aria-label={t('common:action.close')}
+            className="shrink-0 rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
           >
             <CloseIcon className="h-5 w-5" />
           </button>
@@ -78,12 +77,12 @@ export default function TemplateDetail() {
 
         <div className="custom-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
           <section>
-            <h4 className="mb-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
-              完整提示词
+            <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">
+              {t('templateDetail.fullPrompt')}
             </h4>
             <div
               data-selectable-text
-              className="whitespace-pre-wrap break-words rounded-xl border border-gray-200/60 bg-gray-50/80 p-3 text-sm leading-relaxed text-gray-800 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-gray-100"
+              className="whitespace-pre-wrap break-words rounded-xl border border-border/60 bg-card/80 p-3 text-sm leading-relaxed text-foreground"
             >
               {getTemplatePromptParts(template, assets).map((part, index) =>
                 part.type === 'text' ? (
@@ -102,26 +101,24 @@ export default function TemplateDetail() {
 
           {refs.length > 0 && (
             <section>
-              <h4 className="mb-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
-                引用素材
+              <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">
+                {t('templateDetail.referencedAssets')}
               </h4>
               <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {refs.map((ref, index) => (
                   <li
                     key={`${ref.assetId}:${index}`}
-                    className="flex items-center gap-2 rounded-xl border border-gray-200/60 p-2 dark:border-white/[0.06]"
+                    className="flex items-center gap-2 rounded-xl border border-border/60 p-2"
                   >
-                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-gray-100 dark:bg-white/[0.04]">
+                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
                       {ref.asset && <AssetThumb imageId={ref.asset.imageId} alt={ref.asset.name} />}
                     </div>
                     <span
                       className={`min-w-0 flex-1 truncate text-xs ${
-                        ref.asset
-                          ? 'text-gray-800 dark:text-gray-100'
-                          : 'text-gray-400 dark:text-gray-500'
+                        ref.asset ? 'text-foreground' : 'text-muted-foreground'
                       }`}
                     >
-                      {ref.asset?.name ?? '素材已删除'}
+                      {ref.asset?.name ?? t('asset.deleted')}
                     </span>
                   </li>
                 ))}
@@ -130,12 +127,14 @@ export default function TemplateDetail() {
           )}
 
           <section>
-            <h4 className="mb-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">参数</h4>
+            <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">
+              {t('templateDetail.params')}
+            </h4>
             <div className="flex flex-wrap gap-2 text-xs">
               {getTemplateParamEntries(template.params).map((entry) => (
                 <span
                   key={entry.label}
-                  className="rounded-md bg-gray-100 px-2 py-1 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300"
+                  className="rounded-md bg-muted px-2 py-1 text-muted-foreground"
                 >
                   {entry.label} {entry.value}
                 </span>
@@ -143,34 +142,38 @@ export default function TemplateDetail() {
             </div>
           </section>
 
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
-            <span>创建于 {formatTime(template.createdAt)}</span>
-            <span>最近使用 {formatTime(template.lastUsedAt)}</span>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            <span>
+              {t('templateDetail.createdAt', { time: formatDateTime(template.createdAt) })}
+            </span>
+            <span>
+              {t('templateDetail.lastUsedAt', { time: formatDateTime(template.lastUsedAt) })}
+            </span>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-100 p-4 dark:border-white/[0.08]">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-4">
           <button
             type="button"
             onClick={() =>
               setConfirmDialog({
-                title: '删除模板',
-                message: `确定删除模板「${template.name}」吗？`,
+                title: t('template.deleteTitle'),
+                message: t('template.deleteMessage', { name: template.name }),
                 action: () => void deleteTemplate(template.id),
               })
             }
-            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-gray-500 transition hover:bg-red-50 hover:text-red-500 dark:text-gray-400 dark:hover:bg-red-500/10"
+            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10"
           >
             <TrashIcon className="h-4 w-4" />
-            删除
+            {t('common:action.delete')}
           </button>
           <button
             type="button"
             onClick={() => void applyTemplate(template.id)}
-            className="flex items-center gap-1.5 rounded-xl bg-blue-500 px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-600"
+            className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
           >
             <SparkleIcon className="h-4 w-4" />
-            套用
+            {t('template.apply')}
           </button>
         </div>
       </div>

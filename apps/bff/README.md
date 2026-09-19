@@ -39,8 +39,6 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 | `POST` | `/api/auth/logout` | 撤销当前 session（需 `accounts:login`） |
 | `GET` | `/api/auth/me` | 查询当前账号（需 `accounts:login`） |
 | `GET` | `/api/channels` | 返回 sanitized channel 列表；账号登录能力开启时需登录 |
-| `POST` | `/api/remix/listing` | 抓亚马逊商品页解析图集，返回 `{ asin, title?, images }`（需 `remix:listing`）|
-| `GET` | `/api/remix/image?url=` | 代理亚马逊图片字节，主机白名单外一律拒绝（需 `remix:listing`）|
 | `POST` | `/v1/queue/{provider}/{model}/submit` | 入队，立即返回 `request_id` |
 | `GET` | `/v1/queue/requests/{id}/status` | 状态查询（含 queue_position / started_at 等）|
 | `GET` | `/v1/queue/requests/{id}` | 拿结果（`completed` 时含 `payload`；其它状态 425）|
@@ -141,6 +139,8 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 |---|---|---|
 | `PORT` | `37377` | BFF 监听端口 |
 | `DATABASE_URL` | — | PostgreSQL connection URL；BFF/worker 使用可写角色 |
+| `DATABASE_POOL_MAX` | `10` | 本进程最多同时持有的数据库连接数（BFF、worker、Admin 通用），须为正整数，否则拒绝启动；超出的查询排队等待。Compose 部署按角色写在 `deploy/compose.app.yaml`（发布脚本 `scripts/rollout-runtime.sh` 同步），`app.env` 里设了也会被覆盖 |
+| `DATABASE_IDLE_TIMEOUT_SECONDS` | `60` | 连接空闲这么久就关闭，须为正整数。Bun 同样会切断静默这么久的单条语句或事务，调小前先确认没有更长的等待 |
 | `S3_ENDPOINT` | — | S3-compatible object storage endpoint, such as the Cloudflare R2 account URL |
 | `S3_BUCKET` | — | Deployment-specific image bucket |
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |

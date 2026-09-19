@@ -24,7 +24,7 @@ export default function ChipRow<T extends string | number>({
   return (
     <div className="flex items-center gap-2">
       <span className={PARAM_ROW_KEY}>{label}</span>
-      {note && <span className="text-xs text-gray-600 dark:text-gray-300">{note}</span>}
+      {note && <span className="text-xs text-muted-foreground">{note}</span>}
       <div role="group" aria-label={label} className="flex flex-wrap gap-1.5">
         {options.map((option) => {
           const off = Boolean(disabled || optionDisabled?.(option))

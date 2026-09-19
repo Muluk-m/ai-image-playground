@@ -36,16 +36,32 @@ export async function importImageFiles(
       const dataUrl = await fileToDataUrl(file)
       const { width, height } = await getImageDimensions(dataUrl)
       const scale = Math.min(1, MAX_SIDE / Math.max(width, height))
-      return { dataUrl, width: width * scale, height: height * scale }
+      return {
+        dataUrl,
+        width: width * scale,
+        height: height * scale,
+        name: file.name,
+        naturalWidth: width,
+        naturalHeight: height,
+      }
     }),
   )
   for (const r of results) {
-    if (r.status === 'rejected') console.warn('[canvas] 图片导入失败，已跳过', r.reason)
+    if (r.status === 'rejected')
+      console.warn('[canvas] skipped an image that failed to import', r.reason)
   }
   const entries = results
     .filter(
-      (r): r is PromiseFulfilledResult<{ dataUrl: string; width: number; height: number }> =>
-        r.status === 'fulfilled',
+      (
+        r,
+      ): r is PromiseFulfilledResult<{
+        dataUrl: string
+        width: number
+        height: number
+        name: string
+        naturalWidth: number
+        naturalHeight: number
+      }> => r.status === 'fulfilled',
     )
     .map((r) => r.value)
   if (entries.length === 0) return 0
@@ -59,6 +75,9 @@ export async function importImageFiles(
       y: center.y - e.height / 2,
       width: e.width,
       height: e.height,
+      name: e.name,
+      naturalWidth: e.naturalWidth,
+      naturalHeight: e.naturalHeight,
     }
     x += e.width + PLACEMENT_GAP
     return item

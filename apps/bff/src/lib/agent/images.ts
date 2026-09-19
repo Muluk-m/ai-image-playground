@@ -6,6 +6,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { db, schema } from '../../db/client'
+import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
@@ -13,6 +14,8 @@ import { objectStore } from '../objectStore'
 import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
+import { toModelImageDataUrl } from './modelImage'
+import { AgentToolError } from './tools/errors'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
 
@@ -26,10 +29,13 @@ export interface ResolvedAgentImage {
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
+  /** 当前这批引用里有没有用户画的遮罩；「本轮存在用户选区」的判断只问这一处。 */
+  readonly masked: boolean
   /**
    * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
    * 工具起跑时要立刻把锚点告诉画布，那一刻等不起一次对象存储往返。
    */
+  attach(references: readonly AgentTurnReference[]): void
   identify(imageId: string): string
   resolve(imageId: string): Promise<ResolvedAgentImage | null>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
@@ -45,7 +51,8 @@ export async function requireAgentImages(
   return resolved.map((image, at) => {
     if (!image) {
       const available = source.references.map((reference) => reference.imageId).join('、')
-      throw new Error(
+      throw new AgentToolError(
+        'invalid_params',
         `图片 ${imageIds[at]} 不可用。${available ? `可用参考图 id：${available}；请核对后重试。` : '当前会话没有可用参考图。'}`,
       )
     }
@@ -61,6 +68,13 @@ interface TaskOutput {
 function dataUrl(bytes: Uint8Array, mime: string): string {
   const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   return `data:${mime};base64,${view.toString('base64')}`
+}
+
+/** 画布可存 SVG、用户能拖进 AVIF，但对话和生图上游只接收几种位图；读取时转换也能修复历史会话。 */
+async function modelImage(image: ResolvedAgentImage | null): Promise<ResolvedAgentImage | null> {
+  if (!image) return image
+  const normalized = await toModelImageDataUrl(image.dataUrl)
+  return normalized === image.dataUrl ? image : { ...image, dataUrl: normalized }
 }
 
 async function readTaskOutput(
@@ -83,7 +97,12 @@ async function readTaskOutput(
   if (!ref) return null
   if (ref.kind === 'b64') return { dataUrl: `data:${ref.mime};base64,${ref.data}` }
   if (ref.kind === 'object')
-    return { dataUrl: dataUrl(await objectStore().read(ref.data), ref.mime) }
+    return {
+      dataUrl: dataUrl(
+        await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.data),
+        ref.mime,
+      ),
+    }
   const upstream = await fetch(ref.data)
   if (!upstream.ok) return null
   const mime = upstream.headers.get('content-type') ?? ref.mime
@@ -116,13 +135,19 @@ function rememberImages(
   }
 }
 
+/** 用户在这张图上画没画遮罩。新旧两种引用形态各把它存在不同字段里，问法只此一处。 */
+export function referenceHasMask(reference: AgentImageReference): boolean {
+  return Boolean('dataUrl' in reference ? reference.maskDataUrl : reference.mask)
+}
+
 /** 附在用户消息后面送给模型；没有引用时是空串。 */
 export function referenceManifest(references: readonly AgentImageReference[]): string {
   if (references.length === 0) return ''
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
-    const masked = 'dataUrl' in one ? one.maskDataUrl : one.mask
-    const mask = masked ? '，用户在上面画了遮罩' : ''
+    const mask = referenceHasMask(one)
+      ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+      : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
   })
   return `\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）：\n${lines.join('\n')}`
@@ -192,7 +217,7 @@ export function createAgentImageSource(input: {
   readonly userId: string | null
 }): AgentImageSource {
   const { userId } = input
-  const active = activeAgentReferences(input.references, input.history)
+  let active = activeAgentReferences(input.references, input.history)
   const references = new Map<string, AgentImageReference>()
   for (const message of input.history) {
     if (message.role !== 'user') continue
@@ -241,7 +266,20 @@ export function createAgentImageSource(input: {
   }
 
   return {
-    references: active,
+    get references() {
+      return active
+    },
+    get masked() {
+      return active.some(referenceHasMask)
+    },
+    attach(added) {
+      if (!added.length) return
+      active = added
+      for (const reference of added) {
+        references.set(reference.imageId, reference)
+        resolving.delete(reference.imageId)
+      }
+    },
     note(artifacts) {
       rememberImages(outputs, artifacts)
     },
@@ -252,7 +290,7 @@ export function createAgentImageSource(input: {
       const id = identify(imageId)
       const running = resolving.get(id)
       if (running) return running
-      const started = read(id)
+      const started = read(id).then(modelImage)
       resolving.set(id, started)
       return started
     },

@@ -1,0 +1,136 @@
+{
+  "size": {
+    "tooLarge": "{{label}}过大：{{size}}，上限为 {{limit}}",
+    "imageInputPayload": "图像输入有效负载总大小",
+    "maskBaseFile": "遮罩主图文件",
+    "maskFile": "遮罩文件"
+  },
+  "canvas": {
+    "unsupported": "当前浏览器不支持 Canvas",
+    "unsupportedTransparent": "当前浏览器不支持 Canvas，无法执行透明背景后处理"
+  },
+  "image": {
+    "loadFailed": "图片加载失败",
+    "exportFailed": "图片导出失败",
+    "transcodeFailed": "图片转码失败",
+    "invalidSize": "图片尺寸无效",
+    "onlyImages": "只支持图片文件",
+    "limitReached": "参考图数量已达上限（{{max}} 张），无法继续添加"
+  },
+  "imageFetch": {
+    "corsHint": " 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。",
+    "corsBlocked": "图片已生成，但因服务商未允许跨域，图片链接下载失败。{{hint}}",
+    "offline": "图片链接下载失败（网络不可用）。{{hint}}",
+    "failed": "图片链接下载失败（可能因跨域限制、链接过期或网络异常）。{{hint}}",
+    "httpFailed": "图片 URL 下载失败：HTTP {{status}}"
+  },
+  "proxy": {
+    "upstreamFailed": "上游 API 调用失败（代理层）"
+  },
+  "imageApi": {
+    "streamRequestFailed": "流式请求失败",
+    "streamNoBody": "接口未返回可读取的流式响应",
+    "streamBadJsonEvent": "流式接口返回了无法解析的 JSON 事件",
+    "streamNoDataEvent": "未从流式响应中解析到有效的 data 事件",
+    "streamNoFinalImage": "流式接口未返回最终图片数据",
+    "streamNoUsableImage": "流式接口未返回可用图片数据",
+    "noImageData": "接口未返回图片数据",
+    "noImageDataProvider": "接口没有返回图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。",
+    "unrecognizedShapeProvider": "接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。",
+    "unrecognizedShapeCustom": "接口没有返回可识别的图片数据，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。",
+    "allConcurrentFailed": "所有并发请求均失败",
+    "asyncTaskFailed": "异步任务失败",
+    "asyncMissingPoll": "自定义异步任务缺少 poll 配置",
+    "asyncMissingTaskId": "无法从响应中提取异步任务 ID，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的 taskIdPath。",
+    "asyncTaskIdWithoutPoll": "异步接口返回了 task_id，但服务商配置缺少 poll",
+    "geminiNoImageData": "Gemini 未返回可用图片数据",
+    "geminiNoMaskEdit": "Gemini 服务商不支持遮罩编辑，请改用 OpenAI 服务商"
+  },
+  "queue": {
+    "unsupportedKindCall": "callQueueChannelApi: 不支持的 channel kind {{kind}}",
+    "unsupportedKindResume": "resumeQueueChannelApi: 不支持的 channel kind {{kind}}",
+    "unsupportedKindVideo": "submitVideoRequest: 不支持的 channel kind {{kind}}",
+    "completedWithoutImages": "BFF 返回 completed 但 images 列表为空",
+    "completedWithoutOutputs": "BFF 返回 completed 但输出列表为空",
+    "insufficientCredits": "积分不足，请充值或开通套餐后再生成",
+    "dailyQuotaUsed": "今日 {{quota}} 张已用完",
+    "dailyQuotaExhausted": "今日生成额度已用完",
+    "quotaResetHint": "{{exhausted}}，UTC 0 点（北京 8 点）后重置",
+    "submitFailed": "BFF submit 失败：{{reason}}",
+    "submitMissingRequestId": "BFF submit 响应缺少 request_id",
+    "taskFailed": "BFF 任务执行失败",
+    "cancelled": "BFF 任务被取消",
+    "statusFailed": "BFF status 查询失败：{{reason}}",
+    "consecutiveFailures": "BFF 连续 {{attempts}} 次连不上：{{reason}}",
+    "pollLastError": "，最后一次错误：{{reason}}",
+    "pollTimeout": "BFF 任务超过 {{seconds}}s 未完成{{trailing}}",
+    "resultMetaFailed": "BFF result meta 拉取失败：{{reason}}",
+    "notCompleted": "BFF 返回非 completed 状态：{{status}}",
+    "imageFetchFailed": "BFF image #{{index}} 拉取失败：{{reason}}",
+    "bffVideoNotSupported": "该模型不支持视频生成",
+    "bffVideoParamsRequired": "视频任务缺少视频参数",
+    "bffInvalidVideoRequest": "视频参数不符合该模型的限制，请调整后重试",
+    "bffInvalidVideoSource": "源视频不可用，请换一个来源",
+    "bffInvalidInputImage": "参考图无法使用，请换一张"
+  },
+  "dispatch": {
+    "builtinOnly": "当前部署只允许使用内置模型",
+    "channelNotFound": "找不到内置 channel：{{id}}",
+    "unsupportedChannelKind": "不支持的内置 channel kind：{{kind}}",
+    "queueKindMisuse": "queue kind {{kind}} 仅用于 builtin-edge profile，不应作为 user-byok kind",
+    "resumeProfileMissing": "恢复 BFF queue 任务时未找到对应内置 channel profile",
+    "resumeKindNotQueue": "channel kind {{kind}} 非 queue，无法恢复"
+  },
+  "profile": {
+    "defaultName": "默认",
+    "newName": "新配置",
+    "importedName": "导入配置",
+    "urlParamName": "URL 参数配置",
+    "customProviderName": "自定义服务商",
+    "httpTemplate": "HTTP 模板",
+    "missingName": "缺少名称",
+    "missingApiUrl": "缺少 API URL",
+    "missingApiKey": "缺少 API Key",
+    "missingModelId": "缺少模型 ID",
+    "needApiUrl": "请先填写 API URL",
+    "needApiKey": "请先填写 API Key",
+    "noModelList": "接口返回中未找到可识别的模型列表",
+    "importMarkdownLink": "JSON 包含 Markdown 链接，请粘贴纯文本",
+    "importBadApiMode": "apiMode 格式无效，应为 images 或 responses",
+    "importInvalidJson": "JSON 格式无效",
+    "importRootNotObject": "JSON 根节点必须是对象",
+    "importNoValidProviders": "customProviders 数组中没有有效的服务商配置",
+    "importUnrecognized": "无法识别该 JSON。请粘贴自定义服务商配置。"
+  },
+  "param": {
+    "actualResponseValue": "API 实际响应值"
+  },
+  "model": {
+    "noEditSupport": "当前模型不支持参考图（图生图），切换模型后可用"
+  },
+  "mask": {
+    "sizeMismatch": "遮罩尺寸与遮罩主图不一致，请重新绘制遮罩",
+    "baseImageMissing": "遮罩主图已不存在，请重新选择遮罩区域",
+    "emptySelection": "请先圈选或涂抹需要编辑的区域"
+  },
+  "transparent": {
+    "pixelSizeMismatch": "透明背景像素数据尺寸不匹配",
+    "unsupportedKeyColor": "不支持的透明背景 key color：{{keyColor}}"
+  },
+  "clipboard": {
+    "iframeDenied": "复制失败：内嵌页面未授予剪贴板权限"
+  },
+  "storage": {
+    "adoptTxAborted": "认领历史的 {{store}} 事务被中止"
+  },
+  "mention": {
+    "imageLabel": "@图{{n}}",
+    "removedImage": "@已移除图片"
+  },
+  "legacyProduct": {
+    "background": "换背景",
+    "replaceProduct": "换产品",
+    "replaceAndBackground": "换产品并换背景",
+    "remix": "借创意重做"
+  }
+}

@@ -8,6 +8,7 @@ import {
 export interface AgentCall {
   readonly url: string
   readonly authorization: string | null
+  readonly reasoning_effort?: string
   readonly model: string
   readonly messages: { role: string; content: unknown }[]
   readonly tools?: { function: { name: string } }[]
@@ -17,6 +18,7 @@ export interface AgentCall {
 interface CompletionUsage {
   readonly prompt_tokens: number
   readonly completion_tokens: number
+  readonly prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
 }
 
 const REPORTED_USAGE: CompletionUsage = { prompt_tokens: 12, completion_tokens: 4 }
@@ -35,6 +37,15 @@ export function completionStream(...deltas: string[]): Response {
 export function completion({ deltas, usage }: CompletionOptions): Response {
   const stream = controlledCompletion(usage ?? null)
   for (const delta of deltas) stream.push(delta)
+  stream.finish()
+  return stream.responseFor()
+}
+
+/** 先说一句再调工具：多步轮里那条既有正文又有工具调用的回复。 */
+export function replyThenToolCall(text: string, call: ToolCallSpec): Response {
+  const stream = controlledCompletion()
+  stream.push(text)
+  stream.pushToolCall(0, call)
   stream.finish()
   return stream.responseFor()
 }
@@ -99,6 +110,7 @@ export function recordingAgentFetch(
       url: String(input),
       authorization: new Headers(request.headers).get('authorization'),
       model: sent.model,
+      reasoning_effort: sent.reasoning_effort,
       messages: sent.messages,
       tools: sent.tools,
       stream_options: sent.stream_options,
@@ -143,6 +155,8 @@ export interface ControlledCompletion {
   push(content: string): void
   pushToolCall(index: number, call: ToolCallSpec): void
   finish(): void
+  /** 上游流到一半断掉：已推的帧读完之后才报错，所以要等消费者收到它们再调。 */
+  fail(message?: string): void
 }
 
 /** 上游流由测试逐段驱动：断线续播、中止与插话都要求这一轮在断言期间保持进行中。 */
@@ -208,6 +222,9 @@ export function controlledCompletion(
       })
       controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       controller.close()
+    },
+    fail(message = 'upstream stream failed') {
+      controller.error(new Error(message))
     },
   }
 }

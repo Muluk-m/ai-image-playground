@@ -2,8 +2,10 @@ import react from '@vitejs/plugin-react'
 import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
-import { defineConfig, type Plugin } from 'vite'
+import type { Plugin } from 'vite'
+import { defineConfig } from 'vitest/config'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
+import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
@@ -67,7 +69,7 @@ export default defineConfig(({ command }) => {
   }
 
   return {
-    plugins: [react(), injectSwBuildVersion()],
+    plugins: [react(), themeBootPlugin(), injectSwBuildVersion()],
     base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
@@ -75,6 +77,7 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: {
+        '@': resolve(__dirname, 'src'),
         react: resolve(__dirname, 'node_modules/react'),
         'react-dom': resolve(__dirname, 'node_modules/react-dom'),
       },
@@ -84,12 +87,21 @@ export default defineConfig(({ command }) => {
       host: true,
       proxy: Object.keys(proxy).length ? proxy : undefined,
     },
+    test: {
+      // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
+      // 所有断言中文文案的历史用例打红。
+      setupFiles: ['./src/__tests__/setup/i18n.ts'],
+    },
     build: {
       // main.tsx 用 top-level await 启动 runtime/channel discovery；
       // vite 默认 target='modules' (ES2020) 不支持 TLA，会构建失败。
       // 'esnext' 与 TLA 的 baseline (Chrome 89+/Safari 15+) 对齐。
       target: 'esnext',
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          localCompatibility: resolve(__dirname, 'local-compat.html'),
+        },
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor
           // 大概率不变，业务代码改动只 bust 业务 chunk）。用函数形式才能匹配

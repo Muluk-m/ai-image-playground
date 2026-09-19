@@ -9,7 +9,7 @@ export function getDbHandle(): DbHandle {
   const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
   let handle = handles.get(url)
   if (!handle) {
-    handle = createDb(url)
+    handle = createDb(url, config.databasePool)
     handles.set(url, handle)
   }
   return handle

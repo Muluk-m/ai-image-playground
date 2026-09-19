@@ -1,15 +1,19 @@
 import { captureVideoFrame } from '../../video/lib/playback'
 
 /** 上游慢或跨域没配好时，抓封面不该把整次落画布拖住。 */
-const CAPTURE_TIMEOUT_MS = 8_000
+const CAPTURE_TIMEOUT_MS = 30_000
 const FALLBACK_WIDTH = 640
 const FALLBACK_HEIGHT = 360
 const FALLBACK_FILL = '#17171a'
 
-function blankPoster(width: number, height: number): string {
+/** 取不到首帧时的深色底：视频仍然点得开，只是没有封面。 */
+export function blankVideoPoster(size: {
+  readonly width?: number
+  readonly height?: number
+}): string {
   const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(width))
-  canvas.height = Math.max(1, Math.round(height))
+  canvas.width = Math.max(1, Math.round(size.width ?? FALLBACK_WIDTH))
+  canvas.height = Math.max(1, Math.round(size.height ?? FALLBACK_HEIGHT))
   const context = canvas.getContext('2d')
   if (context) {
     context.fillStyle = FALLBACK_FILL
@@ -18,7 +22,8 @@ function blankPoster(width: number, height: number): string {
   return canvas.toDataURL('image/png')
 }
 
-function captureFirstFrame(url: string): Promise<string | null> {
+/** 抓视频首帧当封面：抓不到、或上游慢到超时都返回 null，不该把调用方拖住。 */
+export function captureVideoPoster(url: string): Promise<string | null> {
   return new Promise((resolve) => {
     const video = document.createElement('video')
     const listeners = new AbortController()
@@ -35,7 +40,7 @@ function captureFirstFrame(url: string): Promise<string | null> {
     }
     const timer = window.setTimeout(() => settle(null), CAPTURE_TIMEOUT_MS)
     video.crossOrigin = 'use-credentials'
-    video.preload = 'metadata'
+    video.preload = 'auto'
     video.muted = true
     video.addEventListener(
       'loadeddata',
@@ -46,14 +51,28 @@ function captureFirstFrame(url: string): Promise<string | null> {
     )
     video.addEventListener('error', () => settle(null), { signal: listeners.signal })
     video.src = url
+    video.load()
   })
 }
 
-/** 画布上的视频对象是一张封面加一个播放地址；取不到首帧就给深色底，仍然点得开。 */
-export async function videoPosterDataUrl(
-  url: string,
-  size: { readonly width?: number; readonly height?: number },
-): Promise<string> {
-  const captured = await captureFirstFrame(url)
-  return captured ?? blankPoster(size.width ?? FALLBACK_WIDTH, size.height ?? FALLBACK_HEIGHT)
+/** Only replace the exact legacy solid placeholder, never a user's real cover. */
+export function isBlankVideoPoster(source: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onerror = () => resolve(false)
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 4
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return resolve(false)
+        ctx.drawImage(image, 0, 0, 4, 4)
+        const pixels = ctx.getImageData(0, 0, 4, 4).data
+        resolve(pixels.every((value, index) => value === [23, 23, 26, 255][index % 4]))
+      } catch {
+        resolve(false)
+      }
+    }
+    image.src = source
+  })
 }

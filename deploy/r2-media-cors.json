@@ -1,0 +1,19 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://muvloom.online",
+          "https://image.nainma.online",
+          "https://image-playground.qiliangjia.one",
+          "https://ai-image-playground.pages.dev",
+          "https://ai-image-playground-internal.pages.dev"
+        ],
+        "methods": ["GET", "HEAD", "PUT"],
+        "headers": ["Content-Type", "Range"]
+      },
+      "exposeHeaders": ["ETag", "Content-Range"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

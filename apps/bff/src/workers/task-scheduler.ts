@@ -1,7 +1,10 @@
+import { hostname } from 'node:os'
 import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { executionContext } from '../db/execution-context'
+import { finishTask } from '../db/task-transitions'
 import { log } from '../lib/logger'
 import { abortRunningTask, runningTaskIds, runTask } from './task-runner'
 
@@ -27,6 +30,7 @@ export class TaskScheduler {
   private timer: ReturnType<typeof setInterval> | null = null
   private ticking = false
   private stopped = true
+  private draining = false
   private lastSuccessfulPollTimestamp: number | null = null
 
   constructor(options: TaskSchedulerOptions = {}) {
@@ -45,6 +49,22 @@ export class TaskScheduler {
     this.stopped = false
     void this.tick()
     this.timer = setInterval(() => void this.tick(), this.pollIntervalMs)
+  }
+
+  resume(): void {
+    this.draining = false
+  }
+
+  drain(): void {
+    this.draining = true
+  }
+
+  drainStatus() {
+    return {
+      draining: this.draining,
+      active: this.activeCount(),
+      safeToStop: this.draining && !this.ticking && this.activeCount() === 0,
+    }
   }
 
   stop(): void {
@@ -85,8 +105,12 @@ export class TaskScheduler {
     this.ticking = true
     try {
       await this.abortTasksCancelledInDatabase()
+      if (this.draining) {
+        this.lastSuccessfulPollTimestamp = this.clock()
+        return
+      }
       for (const provider of PROVIDERS) {
-        if (this.stopped) return
+        if (this.stopped || this.draining) return
         const active = this.active.get(provider)!
         const available = this.concurrency[provider] - active.size
         if (available <= 0) continue
@@ -104,7 +128,7 @@ export class TaskScheduler {
           .orderBy(asc(schema.tasks.submitted_at))
           .limit(available)
 
-        if (this.stopped) return
+        if (this.stopped || this.draining) return
         for (const task of due) this.launch(provider, task.id)
       }
       this.lastSuccessfulPollTimestamp = this.clock()
@@ -122,22 +146,21 @@ export class TaskScheduler {
     const active = this.active.get(provider)!
     if (active.has(id)) return
 
-    const promise = Promise.resolve()
-      .then(() => this.executeTask(id))
-      .catch(async (err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        log.error({ event: 'task.crashed', taskId: id, err: message }, 'task-runner crashed')
-        await db
-          .update(schema.tasks)
-          .set({
+    const promise = executionContext.run(`${hostname()}:${crypto.randomUUID()}`, () =>
+      Promise.resolve()
+        .then(() => this.executeTask(id))
+        .catch(async (err) => {
+          const message = err instanceof Error ? err.message : String(err)
+          log.error({ event: 'task.crashed', taskId: id, err: message }, 'task-runner crashed')
+          await finishTask(id, {
             status: 'failed',
-            error_message: `Worker 执行异常：${message}`,
-            error_type: 'interrupted',
-            completed_at: Date.now(),
+            errorType: 'interrupted',
+            errorMessage: `Worker 执行异常：${message}`,
+            completedAt: Date.now(),
           })
-          .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-      })
-      .finally(() => active.delete(id))
+        })
+        .finally(() => active.delete(id)),
+    )
     active.set(id, promise)
   }
 

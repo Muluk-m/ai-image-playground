@@ -1,9 +1,8 @@
-import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { agentImageCount } from './queueParams'
-import { runQueueTask } from './queueTask'
-import type { AgentToolDefinition, AgentToolDetails } from './types'
+import { defineAgentTool } from './adapter'
+import { agentImageCount, imageCountParameter, reviewParameter } from './queueParams'
+import { resolveAgentModel, runQueueTask } from './queueTask'
 
 const TITLE_MAX_CHARS = 40
 
@@ -11,31 +10,40 @@ const parameters = Type.Object({
   prompt: Type.String({
     description: '完整描述要画的画面，包含主体、场景与风格。用用户说话的语言写。',
   }),
+  n: imageCountParameter,
+  reviewAfterCompletion: reviewParameter,
 })
 
-function title(args: unknown): string {
-  const prompt = (args as { prompt?: unknown } | null)?.prompt
-  return typeof prompt === 'string' && prompt.trim()
-    ? agentTitleLine(prompt, TITLE_MAX_CHARS)
-    : '生图'
-}
-
-export const generateImage: AgentToolDefinition = {
+export const generateImage = defineAgentTool({
   name: 'generateImage',
-  guidance: '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
-  title,
-  outputCount: agentImageCount,
+  // 视频轮也要它：首帧先画出来，才有东西可以动。
+  modes: ['image', 'video'],
+  label: '生图',
+  description:
+    '按提示词生成全新的图片。提交后立即返回「已提交」，图在后台生成，完成后自动落到用户的画布上；返回时结果尚未就绪。可用 n 指定同一画面的版本数；改已有的图用 editImage。',
+  guidance:
+    '用户要新图时调生图工具，把意图补成完整提示词；细节自行补全，不要用开放式问题反问。方向本身拿不准时用澄清工具给出具体方案让他选。张数按用户需求选，未要求多张时只出一张；同一画面的多个版本用 n，不同画面分别调用。',
+  parameters,
   onError: 'abort',
-  create(context) {
-    const tool: AgentTool<typeof parameters, AgentToolDetails> = {
-      name: 'generateImage',
-      label: '生图',
-      description:
-        '按提示词生成一张全新的图片，产出直接落到用户的画布上。用户想要一张新图时调用它；改已有的图用 editImage。',
-      parameters,
-      execute: (_toolCallId, params, signal, onUpdate) =>
-        runQueueTask(context, { media: 'image', prompt: params.prompt }, signal, onUpdate),
+  target: (params) => resolveAgentModel('image', params?.model),
+  call({ prompt, n }) {
+    const written = typeof prompt === 'string' ? prompt : undefined
+    return {
+      title: written?.trim() ? agentTitleLine(written, TITLE_MAX_CHARS) : '生图',
+      outputCount: agentImageCount({ n }),
+      ...(written ? { prompt: written } : {}),
     }
-    return tool as AgentTool
   },
-}
+  execute: (context) => (toolCallId, params, signal) =>
+    runQueueTask(
+      context,
+      {
+        media: 'image',
+        toolCallId,
+        prompt: params.prompt,
+        n: params.n,
+        review: params.reviewAfterCompletion === true,
+      },
+      signal,
+    ),
+})

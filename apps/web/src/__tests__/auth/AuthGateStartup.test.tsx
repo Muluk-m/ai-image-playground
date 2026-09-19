@@ -32,15 +32,13 @@ beforeEach(() => {
     }),
   )
   // Keep AuthGate and its entire eager import graph real. Only replace the lazy workspace's
-  // unrelated rendering; its actual coach/store must load at the same post-authentication seam.
+  // unrelated rendering; its actual store must hydrate at the same post-authentication seam.
   vi.doMock('../../App', async () => {
-    const { default: LibraryCoach, useLibraryCoach } = await import(
-      '../../features/library/components/LibraryCoach'
-    )
+    const { useStore } = await import('../../store')
     return {
       default: function Workspace() {
-        const { active, dismiss } = useLibraryCoach()
-        return <main data-testid="workspace">{active && <LibraryCoach onDismiss={dismiss} />}</main>
+        const dismissed = useStore((s) => s.libraryCoachDismissed)
+        return <main data-testid="workspace" data-coach-dismissed={String(dismissed)} />
       },
     }
   })
@@ -88,6 +86,10 @@ async function boot() {
   expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
 }
 
+function coachDismissed(): string | null | undefined {
+  return host.querySelector('[data-testid="workspace"]')?.getAttribute('data-coach-dismissed')
+}
+
 describe('authenticated startup coach state', () => {
   it('keeps a returning user’s coach dismissed instead of reading anonymous defaults', async () => {
     saveCoachState('image-playground', false)
@@ -95,7 +97,7 @@ describe('authenticated startup coach state', () => {
 
     await boot()
 
-    expect(host.querySelector('[aria-label="素材与模板引导"]')).toBeNull()
+    expect(coachDismissed()).toBe('true')
   })
 
   it('does not inherit an anonymous visitor’s dismissal for a user who has not seen the coach', async () => {
@@ -104,6 +106,28 @@ describe('authenticated startup coach state', () => {
 
     await boot()
 
-    expect(host.querySelector('[aria-label="素材与模板引导"]')).not.toBeNull()
+    expect(coachDismissed()).toBe('false')
+  })
+})
+
+describe('fallback startup', () => {
+  it('opens the existing user workspace without requesting login or adoption', async () => {
+    saveCoachState('image-playground', false)
+    saveCoachState('image-playground:user-alice', true)
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/capabilities'))
+        return Response.json({ ...allCapabilitiesOff(), 'accounts:local-recovery': true })
+      return original(...args)
+    })
+    await boot()
+    expect(coachDismissed()).toBe('true')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/auth/'))).toBe(false)
+    const { scopedStorageName } = await import('../../lib/authScope')
+    expect(scopedStorageName('image-playground')).toBe('image-playground:user-alice')
+    const { AUTH_SESSION_EXPIRED_EVENT } = await import('../../lib/authClient')
+    await act(async () => window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT)))
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
   })
 })

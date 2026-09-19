@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useImageThumbnail } from '../hooks/useImageThumbnail'
+import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
@@ -30,6 +31,7 @@ export default function TaskCard({
   onClick,
   isSelected,
 }: Props) {
+  const { t } = useTranslation(['task', 'common'])
   const thumbnail = useImageThumbnail(task.outputImages?.[0])
   const thumbSrc = thumbnail?.dataUrl ?? ''
   const coverRatio =
@@ -57,12 +59,12 @@ export default function TaskCard({
     if (ids.length === 0 || isDownloading) return
     setIsDownloading(true)
     try {
-      if (ids.length > 1) showToast(`开始下载 ${ids.length} 张图片...`, 'info')
+      if (ids.length > 1) showToast(t('download.started', { count: ids.length }), 'info')
       const { success, failed } = await downloadImagesByIds(ids)
       if (failed > 0) {
-        showToast(`下载完成: 成功 ${success}，失败 ${failed}`, 'info')
+        showToast(t('download.partial', { success, failed }), 'info')
       } else if (ids.length > 1) {
-        showToast(`成功下载 ${success} 张图片`, 'success')
+        showToast(t('download.succeeded', { count: success }), 'success')
       }
     } finally {
       setIsDownloading(false)
@@ -190,11 +192,12 @@ export default function TaskCard({
   const showSwipeAction = isSwipeReady || swipeActionActive
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const showRunningTimer = task.status === 'running' || isCustomReconnecting
+  const runningLabel = task.queuePhase ? t(`card.phase.${task.queuePhase}`) : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
-      ? 'bg-gray-500 dark:bg-gray-600'
-      : 'bg-blue-500'
-    : 'bg-gray-200 dark:bg-gray-700'
+      ? 'bg-muted'
+      : 'bg-primary'
+    : 'bg-muted'
 
   const qualityDisplay = getParamDisplay(task, 'quality')
   const showQuality = task.params.quality !== 'auto' || qualityDisplay.isMismatch
@@ -221,7 +224,7 @@ export default function TaskCard({
         } ${swipeBgClass} ${swipeOffset > 0 ? 'justify-start pl-6' : 'justify-end pr-6'}`}
       >
         <svg
-          className={`w-8 h-8 transition-transform duration-150 ${showSwipeAction ? 'scale-110 text-white' : 'scale-90 text-white/60'}`}
+          className={`w-8 h-8 transition-transform duration-150 ${showSwipeAction ? 'scale-110' : 'scale-90'} ${showSwipeAction && !swipeStartedSelected ? 'text-primary-foreground' : 'text-muted-foreground'}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -240,16 +243,16 @@ export default function TaskCard({
       </div>
 
       <div
-        className={`relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden cursor-pointer duration-200 hover:shadow-lg dark:hover:bg-gray-800/80 ${
+        className={`relative bg-card rounded-xl border overflow-hidden cursor-pointer duration-200 hover:shadow-lg dark:hover:bg-muted/80 ${
           !isSwiping
             ? 'transition-[box-shadow,border-color,background-color,transform]'
             : 'transition-[box-shadow,border-color,background-color]'
         } ${isFreshRef.current ? 'animate-task-pop-in' : ''} ${
           task.status === 'running'
-            ? 'border-blue-400 generating'
+            ? 'border-primary generating'
             : isSelected
-              ? 'border-blue-500 shadow-md ring-2 ring-blue-500/50'
-              : 'border-gray-200 dark:border-white/[0.08] hover:border-gray-300 dark:hover:border-white/[0.18]'
+              ? 'border-primary shadow-md ring-2 ring-ring/50'
+              : 'border-border hover:border-border dark:hover:border-white/[0.18]'
         }`}
         style={{
           transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
@@ -269,9 +272,9 @@ export default function TaskCard({
       >
         {/* 选中时的角标 */}
         {isSelected && (
-          <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center shadow-sm">
+          <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-primary rounded-full flex items-center justify-center shadow-sm">
             <svg
-              className="w-3 h-3 text-white"
+              className="w-3 h-3 text-primary-foreground"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -287,10 +290,10 @@ export default function TaskCard({
         )}
         <div className="flex h-40">
           {/* 左侧图片区域 */}
-          <div className="w-40 min-w-[10rem] h-full bg-gray-100 dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
+          <div className="w-40 min-w-[10rem] h-full bg-muted dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
             {task.status === 'running' && (
               <div className="flex flex-col items-center gap-2">
-                <svg className="w-8 h-8 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg className="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle
                     className="opacity-25"
                     cx="12"
@@ -305,13 +308,13 @@ export default function TaskCard({
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                   />
                 </svg>
-                <span className="text-xs text-gray-400 dark:text-gray-500">生成中...</span>
+                <span className="text-xs text-muted-foreground">{runningLabel}</span>
               </div>
             )}
             {task.status === 'error' && (
               <div className="flex flex-col items-center gap-1 px-2">
                 <svg
-                  className="w-7 h-7 text-red-400"
+                  className="w-7 h-7 text-destructive"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -323,7 +326,9 @@ export default function TaskCard({
                     d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                <span className="text-xs text-red-400 text-center leading-tight">失败</span>
+                <span className="text-xs text-destructive text-center leading-tight">
+                  {t('common:state.failed')}
+                </span>
               </div>
             )}
             {task.status === 'done' && thumbSrc && (
@@ -344,7 +349,7 @@ export default function TaskCard({
             )}
             {task.status === 'done' && !thumbSrc && (
               <svg
-                className="w-8 h-8 text-gray-300"
+                className="w-8 h-8 text-foreground"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -387,8 +392,8 @@ export default function TaskCard({
           {/* 右侧信息区域 */}
           <div className="flex-1 p-3 flex flex-col min-w-0">
             <div className="flex-1 min-h-0 mb-2 overflow-hidden">
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed line-clamp-3">
-                {task.prompt || '(无提示词)'}
+              <p className="text-sm text-foreground leading-relaxed line-clamp-3">
+                {task.prompt || t('prompt.empty')}
               </p>
             </div>
             <div className="mt-auto flex flex-col gap-1.5">
@@ -404,7 +409,7 @@ export default function TaskCard({
                 {/* Model */}
                 {showModel && (
                   <span
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-gray-600 dark:text-gray-300 text-xs flex-shrink-0"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0"
                     title={task.apiModel}
                   >
                     <ModelLogo model={model} />
@@ -414,16 +419,16 @@ export default function TaskCard({
                 {/* API Name */}
                 {(task.apiProfileName || task.apiProvider) && (
                   <span
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-gray-600 dark:text-gray-300 text-xs flex-shrink-0"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0"
                     title={task.apiProfileName || task.apiProvider}
                   >
-                    <CodeIcon className="w-3 h-3 flex-shrink-0 text-gray-400" />
+                    <CodeIcon className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
                     <span>{task.apiProfileName || task.apiProvider}</span>
                   </span>
                 )}
                 {/* Mask */}
                 {task.maskImageId && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs flex-shrink-0">
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs flex-shrink-0">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -432,69 +437,61 @@ export default function TaskCard({
                         d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
                       />
                     </svg>
-                    局部重绘
+                    {t('card.inpaint')}
                   </span>
                 )}
                 {showTransparentOutput && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs flex-shrink-0">
-                    透明背景
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs flex-shrink-0">
+                    {t('card.transparentBackground')}
                   </span>
                 )}
                 {/* Params: only show if not default or mismatch */}
                 {showQuality && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
-                    <span className="text-gray-400 dark:text-gray-500">质量</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
+                    <span className="text-muted-foreground">{t('param.quality')}</span>
                     {qualityDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={qualityDisplay.displayValue}
                         className="px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-300">
-                        {qualityDisplay.displayValue}
-                      </span>
+                      <span className="text-muted-foreground">{qualityDisplay.displayValue}</span>
                     )}
                   </span>
                 )}
                 {showSize && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
-                    <span className="text-gray-400 dark:text-gray-500">尺寸</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
+                    <span className="text-muted-foreground">{t('param.size')}</span>
                     {sizeDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={sizeDisplay.displayValue}
                         className="px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-300">
-                        {sizeDisplay.displayValue}
-                      </span>
+                      <span className="text-muted-foreground">{sizeDisplay.displayValue}</span>
                     )}
                   </span>
                 )}
                 {showFormat && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
-                    <span className="text-gray-400 dark:text-gray-500">格式</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
+                    <span className="text-muted-foreground">{t('param.format')}</span>
                     {formatDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={formatDisplay.displayValue}
                         className="px-1 rounded-sm"
                       />
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-300">
-                        {formatDisplay.displayValue}
-                      </span>
+                      <span className="text-muted-foreground">{formatDisplay.displayValue}</span>
                     )}
                   </span>
                 )}
                 {showN && (
-                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
-                    <span className="text-gray-400 dark:text-gray-500">数量</span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
+                    <span className="text-muted-foreground">{t('param.count')}</span>
                     {nDisplay.isMismatch ? (
                       <ActualValueBadge value={nDisplay.displayValue} className="px-1 rounded-sm" />
                     ) : (
-                      <span className="text-gray-600 dark:text-gray-300">
-                        {nDisplay.displayValue}
-                      </span>
+                      <span className="text-muted-foreground">{nDisplay.displayValue}</span>
                     )}
                   </span>
                 )}
@@ -507,8 +504,8 @@ export default function TaskCard({
                 {(task.status === 'error' || settings.alwaysShowRetryButton) && (
                   <button
                     onClick={() => retryTask(task)}
-                    className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 text-gray-400 hover:text-blue-500 transition"
-                    title="重试任务"
+                    className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
+                    title={t('action.retryTask')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -524,10 +521,10 @@ export default function TaskCard({
                   onClick={() => updateTaskInStore(task.id, { isFavorite: !task.isFavorite })}
                   className={`p-1.5 rounded-md transition ${
                     task.isFavorite
-                      ? 'text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10'
-                      : 'text-gray-400 hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10'
+                      ? 'text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
+                      : 'text-muted-foreground hover:text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                   }`}
-                  title={task.isFavorite ? '取消收藏' : '收藏记录'}
+                  title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 >
                   <svg
                     className="w-4 h-4"
@@ -545,8 +542,8 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onReuse}
-                  className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 text-gray-400 hover:text-blue-500 transition"
-                  title="复用配置"
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
+                  title={t('action.reuse')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -559,8 +556,8 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onEditOutputs}
-                  className="p-1.5 rounded-md hover:bg-green-50 dark:hover:bg-green-950/30 text-gray-400 hover:text-green-500 transition disabled:opacity-30"
-                  title="编辑输出"
+                  className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-30"
+                  title={t('action.editOutput')}
                   disabled={!task.outputImages?.length}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -574,8 +571,8 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onSendToCanvas}
-                  className="p-1.5 rounded-md hover:bg-purple-50 dark:hover:bg-purple-950/30 text-gray-400 hover:text-purple-500 transition disabled:opacity-30"
-                  title="送入创作模式画布"
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30"
+                  title={t('action.sendToCanvasTitle')}
                   disabled={!task.outputImages?.length}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -589,13 +586,13 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={handleDownload}
-                  className="p-1.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-gray-400 hover:text-indigo-500 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed"
                   title={
                     isDownloading
-                      ? '正在下载...'
+                      ? t('download.inProgress')
                       : (task.outputImages?.length ?? 0) > 1
-                        ? `下载 ${task.outputImages?.length} 张图片`
-                        : '下载图片'
+                        ? t('download.multiple', { n: task.outputImages?.length })
+                        : t('download.single')
                   }
                   disabled={!task.outputImages?.length || isDownloading}
                 >
@@ -610,8 +607,8 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onDelete}
-                  className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 text-gray-400 hover:text-red-500 transition"
-                  title="删除记录"
+                  className="p-1.5 rounded-md hover:bg-destructive/10 dark:hover:bg-destructive/30 text-muted-foreground hover:text-destructive transition"
+                  title={t('action.deleteRecord')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path

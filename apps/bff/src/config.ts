@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { databasePoolFromEnv } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
@@ -21,17 +23,6 @@ const booleanEnv = (key: string, fallback: boolean): boolean => {
   if (value !== 'true' && value !== 'false') throw new Error(`${key} must be true or false`)
   return value === 'true'
 }
-/** 抠图 URL 把它当字面前缀拼两次，所以只收裸 origin：带路径或查询会拼出别的地址。 */
-const bareHttpsOrigin = (raw: string): string => {
-  if (!raw) return ''
-  try {
-    const url = new URL(raw)
-    if (url.protocol !== 'https:' || url.pathname !== '/' || url.search || url.hash) return ''
-    return url.origin
-  } catch {
-    return ''
-  }
-}
 const clientIpSource = env('CLIENT_IP_SOURCE', 'peer')
 if (
   clientIpSource !== 'peer' &&
@@ -46,6 +37,29 @@ const workerHealthStaleAfterMs = positiveIntEnv(
   'WORKER_HEALTH_STALE_AFTER_MS',
   Math.max(10_000, workerPollIntervalMs * 5),
 )
+const executionOrigin = (key: string): string => {
+  const origin = env(key, '')
+  if (!origin) return ''
+  try {
+    const url = new URL(origin)
+    if (
+      (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+      url.pathname !== '/' ||
+      url.search ||
+      url.hash ||
+      url.username ||
+      url.password
+    ) {
+      throw new Error()
+    }
+    return url.origin
+  } catch {
+    throw new Error(`${key} must be a bare http(s) origin`)
+  }
+}
+const executorOrigin = executionOrigin('EXECUTOR_ORIGIN')
+const legacyExecutorOrigin = executionOrigin('LEGACY_EXECUTOR_ORIGIN')
+const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
 
 export const config = {
   port: Number(env('PORT', '37377')),
@@ -71,18 +85,6 @@ export const config = {
   assertValid(): void {
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
-    }
-    if (hasCapability(config.operator, 'matte:server')) {
-      // 取图 token 的 HMAC secret 由它派生，空 secret 等于任何人都能签出取图 token。
-      if (!config.auth.internalApiToken) {
-        throw new Error('Missing env: INTERNAL_API_TOKEN (required by matte:server)')
-      }
-      if (!env('MATTE_TRANSFORM_ORIGIN', '')) {
-        throw new Error('Missing env: MATTE_TRANSFORM_ORIGIN (required by matte:server)')
-      }
-      if (!config.matte.transformOrigin) {
-        throw new Error('MATTE_TRANSFORM_ORIGIN must be a bare https:// origin')
-      }
     }
     if (hasCapability(config.operator, 'agent:chat') && !config.agent.model) {
       throw new Error('Missing env: AGENT_CHAT_MODEL (required by agent:chat)')
@@ -110,14 +112,6 @@ export const config = {
     /** GPT Image 2 的 Responses 主模型；留空保留网关原生 Images 协议。 */
     imageResponsesModel: env('UPSTREAM_IMAGE_RESPONSES_MODEL', ''),
   },
-  remix: {
-    /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
-    visionModel: env('REMIX_VISION_MODEL', 'gpt-6-astra'),
-  },
-  storyboard: {
-    /** 分镜脚本模型。默认跟视觉模型同一个，写脚本吃力时单独换。 */
-    model: env('STORYBOARD_MODEL', '') || env('REMIX_VISION_MODEL', 'gpt-6-astra'),
-  },
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
     model: env('AGENT_CHAT_MODEL', ''),
@@ -130,13 +124,9 @@ export const config = {
     /** 生视频工具用的模型。留空跟随内置 channel 的默认视频模型。 */
     videoModel: env('AGENT_VIDEO_MODEL', ''),
   },
-  matte: {
-    /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */
-    get transformOrigin(): string {
-      return bareHttpsOrigin(env('MATTE_TRANSFORM_ORIGIN', ''))
-    },
-  },
   databaseUrl: env('DATABASE_URL'),
+  /** 连接池上限与空闲回收，部署按角色设（deploy/compose.app.yaml）；worker 与 BFF 用各自的 application_name。 */
+  databasePool: databasePoolFromEnv(process.env.APP_ROLE === 'worker' ? 'aip-worker' : 'aip-bff'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   /** Explicit origins from CORS_ALLOWED_ORIGINS; empty when the deployment allows any origin. */
   get corsOriginList(): string[] {
@@ -170,7 +160,15 @@ export const config = {
       return normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
     },
   },
+  execution: {
+    legacyOrigin: legacyExecutorOrigin,
+    origin: executorOrigin,
+  },
   worker: {
+    activationFile: process.env.WORKER_ACTIVATION_FILE?.trim() ?? '',
+    get startPaused() {
+      return workerStartsPaused && !(this.activationFile && existsSync(this.activationFile))
+    },
     pollIntervalMs: workerPollIntervalMs,
     /** 调大要连带调大进程管理器的停机宽限（deploy/compose.app.yaml），否则先挨 SIGKILL。 */
     drainTimeoutMs: positiveIntEnv(

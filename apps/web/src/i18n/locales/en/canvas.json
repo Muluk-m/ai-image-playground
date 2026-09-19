@@ -1,0 +1,321 @@
+{
+  "toolbar": {
+    "toolTitle": "{{label}} ({{hotkey}})",
+    "tool": {
+      "select": "Select",
+      "hand": "Hand",
+      "pen": "Pen",
+      "eraser": "Eraser",
+      "arrow": "Arrow",
+      "text": "Text"
+    },
+    "undo": "Undo (⌘Z)",
+    "redo": "Redo (⌘⇧Z)",
+    "duplicate": "Duplicate (⌘D)",
+    "deleteSelected": "Delete selection (Del)",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "resetZoom": "Reset to 100%",
+    "groupAria": "Canvas tools"
+  },
+  "shortcuts": {
+    "title": "Shortcuts",
+    "collapse": "Hide shortcuts",
+    "expand": "Show shortcuts",
+    "row": {
+      "copyPaste": "Copy / paste",
+      "delete": "Delete",
+      "selectAll": "Select all / add",
+      "undoRedo": "Undo / redo",
+      "duplicate": "Duplicate",
+      "selectHand": "Select / hand",
+      "penEraser": "Pen / eraser",
+      "arrowText": "Arrow / text",
+      "zoomPan": "Zoom / pan",
+      "freeDrag": "Drag, no snap",
+      "submitBack": "Generate / back to canvas"
+    },
+    "key": {
+      "click": "click",
+      "wheel": "wheel",
+      "drag": "drag"
+    }
+  },
+  "generate": {
+    "hintAnnotated_one": "{{count}} image + markup selected · follows the markup, no lines in the output",
+    "hintAnnotated_other": "{{count}} images + markup selected · follows the markup, no lines in the output",
+    "hintSelected_one": "{{count}} image selected · used as its own reference image",
+    "hintSelected_other": "{{count}} images selected · each used as its own reference image",
+    "hintEmpty": "With nothing selected this generates from text; select images to mark them up and iterate",
+    "inputAlt": "Input {{index}}",
+    "previewPending": "Building preview…",
+    "annotationHint": "Text markup → change request: {{text}}",
+    "promptPlaceholder": "Describe what to create or change… (⌘/Ctrl + Enter)",
+    "promptAria": "Creation prompt",
+    "modeAria": "Generation type",
+    "modeImage": "Image",
+    "modeVideo": "Video"
+  },
+  "submit": {
+    "blocked": "Can't generate right now",
+    "rasterizeFailed": "Could not process the selected images, please retry",
+    "emptyInput": "Enter a prompt, or select images on the canvas first",
+    "inputsLost": "The original input images were lost when the page closed; select the images again to generate"
+  },
+  "placeholder": {
+    "generating": "Generating…",
+    "failed": "Generation failed",
+    "stale": "Task expired",
+    "noImages": "Finished without returning an image",
+    "unconfirmed": "Task unconfirmed, retry manually",
+    "byokUnrecoverable": "BYOK tasks can't resume across sessions, please retry"
+  },
+  "style": {
+    "color": "Annotation color {{color}}"
+  },
+  "minimap": {
+    "label": "Canvas minimap"
+  },
+  "videoOverlay": {
+    "play": "Play"
+  },
+  "project": {
+    "backToProjects": "Back to projects",
+    "restoring": "Restoring your projects…",
+    "reload": "Reload",
+    "untitled": "Untitled project",
+    "routeUnavailable": "This project can't be opened right now. Check the account, or try again on the original device.",
+    "cloudListFailed": "Could not load the project list. Projects already open still work.",
+    "loadFailed": "Could not load the projects. Your content is kept, please reload."
+  },
+  "mobileSwitch": {
+    "aria": "Creation view",
+    "chat": "Chat",
+    "canvas": "Canvas"
+  },
+  "sidebar": {
+    "title": "Image creation",
+    "collapseAria": "Collapse panel",
+    "collapse": "Collapse ←",
+    "emptyTitle": "Start from an idea",
+    "emptyBody": "Describe the image, or drop a reference onto the canvas. Select an image to generate a new version of it.",
+    "openChat": "Open creation panel"
+  },
+  "workspace": {
+    "canvasAria": "Creation canvas",
+    "untitled": "My canvas",
+    "saveFailed": "Save failed",
+    "restoring": "Restoring",
+    "autoSaved": "Auto-saved",
+    "dropHint": "Drop an image to start"
+  },
+  "saveError": {
+    "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
+    "messageDetailed": "The canvas could not be saved. Your content is still on this page. Go back to that conversation and retry the save; do not refresh or close until it succeeds.",
+    "retry": "Retry save"
+  },
+  "empty": {
+    "title": "Give your imagination a picture.",
+    "bodyAgent": "Describe your idea and the results appear here.",
+    "bodyDirect": "Describe the image to start creating.",
+    "bodyDrop": "You can also drop in an image and explore from there.",
+    "import": "＋ Import reference images"
+  },
+  "import": {
+    "inputAria": "Import canvas images",
+    "noneImported": "No images imported. Choose a valid image file.",
+    "failed": "Image import failed, please retry"
+  },
+  "loadError": {
+    "message": "Could not load the canvas. Your content is kept, please retry.",
+    "retry": "Reload"
+  },
+  "loading": {
+    "restoring": "Restoring the canvas…"
+  },
+  "sync": {
+    "offline": "Changes kept · waiting for connection",
+    "loading": "Loading the canvas",
+    "pending": "Waiting to save",
+    "syncing": "Saving",
+    "saved": "Saved",
+    "error": "Save failed",
+    "loadError": "Canvas load failed",
+    "conflict": "This project has two different sets of changes",
+    "mediaLocal": "Some canvas content is not saved yet",
+    "retry": "Retry",
+    "localOnly": "Draft stays in this browser",
+    "localError": "Changes are not written yet",
+    "authError": "Sign in again to save",
+    "permissionError": "Project cannot be saved right now",
+    "quotaError": "Storage or canvas size limit exceeded",
+    "formatError": "This canvas cannot be saved",
+    "local": "Changes kept · waiting to save",
+    "copySuffix": "recovery copy",
+    "conflictHelp": "This project was changed in two places. Your current changes are kept as a separate recovery copy before the other set is used.",
+    "useCloud": "Use the other set",
+    "saveCopy": "Save current changes as a project",
+    "deleted": "Project deleted"
+  },
+  "welcome": {
+    "aria": "Start a new project",
+    "title": "Let the idea unfold here.",
+    "subtitle": "Describe the image you want, or add a reference.",
+    "recent": "Recent projects",
+    "allProjects": "All projects →"
+  },
+  "imageMenu": {
+    "copied": "Image copied",
+    "downloadFailed": "Download failed",
+    "copy": "Copy image",
+    "download": "Download image",
+    "preview": "View original",
+    "previewTouch": "View original / hold to save",
+    "previewFailed": "Could not load the original. Close and try again.",
+    "loading": "Loading original…"
+  },
+  "grid": {
+    "loadingCloud": "Loading projects…",
+    "retryCloud": "Retry loading projects",
+    "refreshCloud": "Refresh projects",
+    "loadMore": "Load more projects",
+    "newProject": "New project",
+    "openAria": "Open project {{name}}",
+    "current": "Current project",
+    "updatedAt": "Updated {{date}}",
+    "actionsAria": "More actions for {{name}}",
+    "rename": "Rename",
+    "renameAria": "Rename project {{name}}",
+    "deleteAria": "Delete project {{name}}",
+    "deleteTitle": "Delete project",
+    "deleteMessage": "Delete “{{name}}” along with its canvas and conversation? This cannot be undone.",
+    "noMatch": "No matching projects",
+    "renameTitle": "Rename project",
+    "renamePlaceholder": "Give the project a name",
+    "renameFailed": "Could not save the project name. Please retry."
+  },
+  "imageName": {
+    "video": "Video",
+    "image": "Image"
+  },
+  "touch": {
+    "hint": "Drag to pan · Pinch to zoom · Tap, then drag an element",
+    "editText": "Edit text",
+    "edit": "Edit",
+    "imageActions": "Image actions"
+  },
+  "trash": {
+    "title": "Recycle bin",
+    "back": "Back to projects",
+    "help": "Restore canvases and conversations before expiry. Recycled content still counts toward your storage. Edits that are not saved yet are preserved.",
+    "empty": "The recycle bin is empty",
+    "until": "Restorable until {{date}}",
+    "localEdits": "Save current edits as a new project",
+    "restore": "Restore",
+    "deleteMessage": "Move “{{name}}” to the recycle bin? It will disappear on your other devices and can be restored before expiry."
+  },
+  "video": {
+    "hintText": "No image selected: text to video",
+    "hintFirst": "The selected image is the first frame",
+    "hintFirstLast": "Left image is the first frame, right image the last frame",
+    "promptPlaceholder": "Describe the scene, motion and camera… (⌘/Ctrl + Enter to generate)",
+    "refuse": {
+      "videoSelected": "A video is selected: extend or edit it from the toolbar on the video",
+      "tooManyImages": "A video takes at most two images: a first frame and a last frame",
+      "firstFrameUnsupported": "{{model}} cannot start from an image; deselect the images",
+      "lastFrameUnsupported": "{{model}} has no last frame; select one image as the first frame"
+    },
+    "hintReferences_one": "The {{count}} selected image is a reference; mention it as Image 1",
+    "hintReferences_other": "The {{count}} selected images are references; mention them as Image 1, Image 2"
+  },
+  "videoToolbar": {
+    "aria": "Video actions",
+    "download": "Download",
+    "downloadFailed": "Could not download the video",
+    "regenerate": "Regenerate",
+    "firstFrame": "First frame",
+    "lastFrame": "Last frame",
+    "frameFailed": "Could not capture a frame from this video; try again later",
+    "sourceGone": "The source video is no longer on the canvas",
+    "unknownSource": "This video has no recorded length, so it cannot be extended or edited",
+    "noPromptRecorded": "This video has no recorded description (agent videos only keep a title); write one again.",
+    "modelUnavailable": "The original model is not available here; settings were left unchanged, pick a model yourself.",
+    "videoUnavailable": "This deployment cannot generate video",
+    "regenerateTitle": "Regenerate with changes",
+    "regenerateSubmitted": "Regeneration submitted",
+    "framesGoneTextOnly": "Some of the original frames or reference images are no longer on the canvas, so this run uses text only.",
+    "keepsFrames_one": "Keep the {{count}} original input image",
+    "keepsFrames_other": "Keep the {{count}} original input images (frames and references)",
+    "nothingRecorded": "This video has no recorded settings or description; choose settings and write one.",
+    "noSettingsRecorded": "This video has no recorded settings; the current ones are used.",
+    "framesFailed": "The original frames could not be prepared; try again, or turn off \"Keep the original frames\" to use text only."
+  },
+  "timeline": {
+    "title": "Timeline",
+    "missing": "Missing",
+    "add": "Add to timeline",
+    "addCount_one": "Add {{count}} clip to a timeline",
+    "addCount_other": "Add {{count}} clips to a timeline",
+    "appendCount_one": "Append {{count}} clip to the timeline",
+    "appendCount_other": "Append {{count}} clips to the timeline",
+    "full": "A timeline holds at most {{max}} clips; the rest were not added",
+    "edit": "Edit timeline",
+    "editorTitle": "Edit timeline",
+    "done": "Done",
+    "empty": "This timeline has no clips yet",
+    "play": "Play",
+    "pause": "Pause",
+    "playhead": "Playhead",
+    "track": "Clips",
+    "clipLabel": "Clip {{index}}, {{seconds}} s",
+    "removeClip": "Remove clip {{index}}",
+    "trimIn": "Clip {{index}} in point",
+    "trimOut": "Clip {{index}} out point",
+    "seconds": "{{seconds}} s",
+    "changedElsewhere": "This timeline was changed elsewhere while you were editing; your edits replaced it. Press ⌘Z to undo if needed."
+  },
+  "film": {
+    "export": "Export film",
+    "progress": "Exporting {{percent}}%",
+    "fetching": "Downloading clips {{percent}}%",
+    "encoding": "Composing film {{percent}}%",
+    "keepForeground": "Keep this page in the foreground while exporting",
+    "cancel": "Cancel",
+    "cancelled": "Export cancelled",
+    "done": "Film downloaded",
+    "failed": "Couldn't compose the film. Please try again.",
+    "fetchFailed": "Couldn't download clip {{position}}. Please try again.",
+    "unreadable": "Clip {{position}} can't be decoded. Replace it and export again.",
+    "tooLongActual": "The film is longer than the limit. Trim it and export again.",
+    "missing": "Clip {{position}} is missing. Remove or replace it before exporting.",
+    "tooMany": "A film can have at most {{max}} clips",
+    "tooLong": "A film can be at most {{minutes}} minutes long",
+    "unsupported": "This browser can't encode H.264 video. You can download all clips instead.",
+    "downloadClips": "Download all clips",
+    "zipping": "Packing clips",
+    "zipFailed": "Couldn't pack the clips. Please try again.",
+    "fileName": "film",
+    "clipsFileName": "timeline-clips"
+  },
+  "referenceVideo": {
+    "toolbarAria": "Make a video from the selected images",
+    "open_one": "Make a video from {{count}} image",
+    "open_other": "Make a video from {{count}} images",
+    "title_one": "Make a video from {{count}} image",
+    "title_other": "Make a video from {{count}} images",
+    "hint": "Ordered left to right as on the canvas; drag to reorder. Mark each as the first frame, last frame or a reference, and mention references as Image 1, Image 2 in the description.",
+    "listAria": "Input images",
+    "roleAria": "How input {{no}} is used",
+    "moveUp": "Move input {{no}} up",
+    "role": {
+      "reference": "Reference",
+      "first": "First frame",
+      "last": "Last frame"
+    },
+    "placeholder": "e.g. the person in Image 1 swings the racket from Image 2 on the court in Image 3",
+    "modelWithoutReferences": "{{label}} (no reference images)",
+    "submit": "Generate video",
+    "submitted": "Video generation submitted",
+    "referenceLabel": "Image {{no}}"
+  }
+}

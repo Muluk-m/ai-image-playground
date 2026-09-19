@@ -1,0 +1,110 @@
+{
+  "landing": {
+    "title": "给想象，一段镜头。",
+    "subtitle": "描述画面、动作和运镜，作品会在画布里展开。",
+    "composerAria": "视频创作",
+    "kindAria": "创作类型",
+    "kindImage": "图片",
+    "kindVideo": "视频",
+    "promptAria": "视频描述",
+    "promptPlaceholder": "描述画面、动作和运镜…（⌘/Ctrl + Enter 生成）",
+    "paramsAria": "视频参数",
+    "addFrame": "加图",
+    "frameAlt": "第 {{index}} 张参考图",
+    "removeFrame": "移除第 {{index}} 张参考图",
+    "hintText": "不加图就是文生视频；加图可当首帧或参考图",
+    "hintFirst": "这张当首帧，画幅随它",
+    "hintReferences": "{{count}} 张图当参考图",
+    "submit": "开始创作 · 进入画布",
+    "noModel": "当前部署没有可用的视频模型",
+    "tools": "快捷工具",
+    "toolsHint": "从本机图片、灵感或素材开始",
+    "tool": {
+      "fromImage": { "title": "图生视频", "hint": "挑一张图当首帧" },
+      "references": { "title": "参考图生视频", "hint": "挑几张图定风格与主体" },
+      "inspiration": { "title": "灵感库", "hint": "翻现成的提示词" },
+      "assets": { "title": "素材库", "hint": "管理已存的图片" }
+    },
+    "cases": "案例",
+    "casesHint": "点一下把提示词填进上面的输入框"
+  },
+  "status": {
+    "queued": "排队"
+  },
+  "style": {
+    "realistic": "写实",
+    "magazine": "杂志",
+    "animation": "动画",
+    "any": "不限"
+  },
+  "frameSlot": {
+    "first": "首帧",
+    "last": "尾帧",
+    "both": "首帧 · 尾帧",
+    "removeAria": "移除{{label}}"
+  },
+  "field": {
+    "description": "描述",
+    "model": "模型",
+    "resolution": "清晰度",
+    "aspectRatio": "比例"
+  },
+  "shared": {
+    "seconds": "{{seconds}} 秒"
+  },
+  "error": {
+    "noModel": "当前部署没有可用的视频模型"
+  },
+  "aspect": {
+    "followsFirstFrame": "随首帧"
+  },
+  "composer": {
+    "durationLabel": "时长"
+  },
+  "derive": {
+    "titleExtend": "续写 · 从最后一帧往后",
+    "titleEdit": "改视频 · 保留画面改内容",
+    "placeholderExtend": "接下来发生什么，镜头怎么动",
+    "placeholderEdit": "改什么，保留什么",
+    "extendLabel": "接多长",
+    "keepDuration": "沿用 {{seconds}} 秒 · 最高 {{resolution}}",
+    "submitted": "已提交{{label}}",
+    "noModel": "当前部署没有支持{{label}}的模型",
+    "notDone": "这条还没生成完",
+    "tooShort": "源片不足 {{seconds}} 秒",
+    "tooLong": "源片超过 {{seconds}} 秒",
+    "extend": "续写",
+    "edit": "改视频"
+  },
+  "download": {
+    "started": "开始下载",
+    "fetchFailed": "视频拉取失败：{{status}}"
+  },
+  "store": {
+    "emptyPrompt": "请先写一句描述"
+  },
+  "library": {
+    "load": "载入编辑"
+  },
+  "reject": {
+    "promptTooLong": "{{label}} 描述最多 {{max}} 字",
+    "modelUnsupported": "该模型不支持视频生成",
+    "modeUnsupported": "不支持的视频模式",
+    "durationUnsupported": "{{label}} 时长只支持 {{durations}} 秒",
+    "extendDurationOutOfRange": "续写时长只支持 {{min}}-{{max}} 秒",
+    "editDurationMissing": "改视频缺少源片时长",
+    "aspectRatioUnsupported": "{{label}} 画幅只支持 {{allowed}}",
+    "resolutionUnsupported": "{{label}} 清晰度只支持 {{allowed}}",
+    "durationForResolutionUnsupported": "{{label}} {{resolution}} 只支持 {{durations}} 秒",
+    "frameUnsupported": "{{label}} 不支持{{frame}}",
+    "frameImageMissing": "{{frame}}图片不存在",
+    "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
+    "deriveFramesRejected": "续写和改视频不接受首尾帧或参考图",
+    "deriveSourceMissing": "{{mode}}缺少源视频",
+    "referenceUnsupported": "{{label}} 不支持参考图",
+    "referenceTooMany": "{{label}} 最多 {{max}} 张参考图",
+    "referenceResolutionUnsupported": "{{label}} 带参考图时清晰度最高 {{resolution}}",
+    "referenceFramesRejected": "{{label}} 的参考图不能与首尾帧同时使用",
+    "referenceImageMissing": "参考图不存在"
+  }
+}

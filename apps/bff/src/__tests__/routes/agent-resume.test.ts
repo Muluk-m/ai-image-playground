@@ -4,9 +4,11 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import {
   type AgentActiveTurnView,
   type AgentMessageView,
+  type AgentTurnSummaryView,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import {
   type AgentCall,
   type ControlledCompletion,
@@ -16,6 +18,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_resume')
@@ -28,6 +31,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { createAgentImageSource } = await import('../../lib/agent/images')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 const app = new Elysia().use(agentRoutes)
@@ -74,6 +79,7 @@ function resume(conversationId: string, turnId: string, lastEventId?: number): P
 async function readState(conversationId: string): Promise<{
   messages: AgentMessageView[]
   activeTurn: AgentActiveTurnView | null
+  turns: AgentTurnSummaryView[]
 }> {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
@@ -83,6 +89,7 @@ async function readState(conversationId: string): Promise<{
   return (await response.json()) as {
     messages: AgentMessageView[]
     activeTurn: AgentActiveTurnView | null
+    turns: AgentTurnSummaryView[]
   }
 }
 
@@ -90,6 +97,7 @@ let upstream: ControlledCompletion
 let calls: AgentCall[]
 
 beforeEach(async () => {
+  setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.agent_conversations)
   calls = []
   upstream = controlledCompletion()
@@ -107,6 +115,7 @@ afterEach(async () => {
     await waitFor(async () => (await readState(conversationId)).activeTurn === null)
   }
   setAgentFetchForTesting()
+  setObjectStoreForTesting()
 })
 
 afterAll(async () => {
@@ -184,7 +193,7 @@ describe('断线续播', () => {
 })
 
 describe('中止', () => {
-  it('中止进行中的轮，已经流出去的文字留在历史里', async () => {
+  it('中止进行中的轮，已经流出去的文字留在历史里，刷新读回仍标着已停止', async () => {
     const conversationId = await startConversation()
     const live = await startTurn(conversationId, '画一只猫')
     upstream.push('好的，我先')
@@ -202,10 +211,11 @@ describe('中止', () => {
     const end = rest.at(-1)!.event
     expect(end).toMatchObject({ type: 'turnEnd', turnId, stopReason: 'aborted' })
 
-    const { messages, activeTurn } = await readState(conversationId)
+    const { messages, activeTurn, turns } = await readState(conversationId)
     expect(activeTurn).toBeNull()
     expect(messages.map((message) => message.role)).toEqual(['user', 'assistant'])
     expect(messages[1]!.content).toEqual([{ type: 'text', text: '好的，我先' }])
+    expect(turns).toEqual([expect.objectContaining({ turnId, stopReason: 'aborted' })])
   })
 
   it('轮已经结束时中止回 404', async () => {
@@ -226,7 +236,80 @@ describe('中止', () => {
   })
 })
 
+describe('失败', () => {
+  it('上游流到一半报错，半截回复不进历史', async () => {
+    const conversationId = await startConversation()
+    const live = await startTurn(conversationId, '画一只猫')
+    upstream.push('好的，我先')
+    const seen = await readFrames(live, 3)
+    const turnStart = seen[0]!.event
+    const turnId = turnStart.type === 'turnStart' ? turnStart.turnId : ''
+
+    const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
+    upstream.fail()
+
+    const rest = await drainFrames(await resumed)
+    const end = rest.at(-1)!.event
+    expect(end).toMatchObject({ type: 'turnEnd', turnId, stopReason: 'failed' })
+
+    // 面板在 turnEnd failed 时撤掉这段没收尾的文字，历史里也不能留着它。
+    const { messages, activeTurn } = await readState(conversationId)
+    expect(activeTurn).toBeNull()
+    expect(messages.map((message) => message.role)).toEqual(['user'])
+    expect(messages[0]!.content).toEqual([{ type: 'text', text: '画一只猫' }])
+  })
+})
+
 describe('插话', () => {
+  it('新参考图与遮罩随插话归档，模型可见，下一轮仍可改图', async () => {
+    const second = controlledCompletion()
+    const conversationId = await startConversation()
+    const live = await startTurn(conversationId, '先聊聊')
+    upstream.push('好的')
+    const seen = await readFrames(live, 3)
+    const start = seen[0]!.event
+    const turnId = start.type === 'turnStart' ? start.turnId : ''
+    const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
+    const reference = {
+      imageId: 'new-image',
+      dataUrl: `data:image/png;base64,${(
+        await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ffffff' } })
+          .png()
+          .toBuffer()
+      ).toString('base64')}`,
+      maskDataUrl: `data:image/png;base64,${(
+        await sharp({ create: { width: 2, height: 2, channels: 4, background: '#00000000' } })
+          .png()
+          .toBuffer()
+      ).toString('base64')}`,
+    }
+    const interjected = await post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+      {
+        deviceId: DEVICE,
+        text: '修改 [image 1]',
+        references: [reference],
+      },
+    )
+    expect(interjected.status).toBe(200)
+    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => second.responseFor(signal)))
+    upstream.finish()
+    await waitFor(() => calls.length === 2)
+    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('new-image')
+    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('data:image/png;base64,')
+    second.push('收到图片')
+    second.finish()
+    await drainFrames(await resumed)
+    const { messages } = await readState(conversationId)
+    const block = messages.find(
+      (message) => message.role === 'user' && JSON.stringify(message.content).includes('new-image'),
+    )!.content[0]!
+    expect(block.type === 'text' && block.references?.[0]?.mask).toBeTruthy()
+    expect(JSON.stringify(block)).not.toContain('data:image')
+    const source = createAgentImageSource({ references: [], history: messages, userId: null })
+    expect(await source.resolve('image 1')).toEqual(reference)
+  })
+
   it('轮进行中追加一条用户消息，运行时接着它往下跑', async () => {
     const second = controlledCompletion()
     const conversationId = await startConversation()
@@ -287,7 +370,7 @@ describe('插话', () => {
 })
 
 describe('并发', () => {
-  it('同一个会话已经有轮在跑时不再起第二轮，409 带上在跑的那一轮', async () => {
+  it('同一个会话已经有轮在跑时不再起第二轮，这句话排进队、带上在跑的那一轮', async () => {
     const conversationId = await startConversation()
     const live = await startTurn(conversationId, '你好')
     upstream.push('好的')
@@ -297,9 +380,14 @@ describe('并发', () => {
 
     const second = await startTurn(conversationId, '再来一句')
 
-    expect(second.status).toBe(409)
-    // 另一个标签页据此转去续播这一轮，而不是把 409 当失败报错。
-    expect(await second.json()).toEqual({ error: 'turn_already_running', turnId })
+    expect(second.status).toBe(202)
+    // 另一个标签页据此挂回这一轮，而不是把它当失败报错；它那句话排在这一轮之后。
+    expect(await second.json()).toMatchObject({
+      state: 'pending',
+      turnId,
+      queued: { text: '再来一句' },
+    })
+    await db.delete(schema.agent_inbox)
     upstream.finish()
   })
 })

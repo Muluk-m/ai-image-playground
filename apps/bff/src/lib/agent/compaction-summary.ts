@@ -2,7 +2,7 @@ import { serializeConversation } from '@earendil-works/pi-agent-core'
 import type { Message } from '@earendil-works/pi-ai'
 import type { AgentCompactionNarrative } from '@image-playground/shared'
 import { config } from '../../config'
-import { askChatModel } from '../chatCompletion'
+import { askChatModel, type ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
 import type { CompactionMessage, Summarize, SummaryRequest } from './compaction'
@@ -55,7 +55,10 @@ function parseNarrative(value: unknown): AgentCompactionNarrative | null {
  * 摘要走独立的一次性对话，不经智能体的消息流：它的输出既不进 `messages`，
  * 也不计入任何一轮的用量——压缩由平台承担。
  */
-export const summarizeCompaction: Summarize = async (request) => {
+export async function summarizeCompaction(
+  request: SummaryRequest,
+  onAttempt?: (attempt: ChatAttempt) => Promise<void>,
+): ReturnType<Summarize> {
   try {
     return await askChatModel(
       {
@@ -63,6 +66,7 @@ export const summarizeCompaction: Summarize = async (request) => {
         prompt: buildSummaryPrompt(request),
         maxTokens: SUMMARY_MAX_TOKENS,
         timeoutMs: SUMMARY_TIMEOUT_MS,
+        onAttempt,
       },
       parseNarrative,
     )

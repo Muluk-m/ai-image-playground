@@ -1,0 +1,80 @@
+{
+  "login": {
+    "invalid_credentials": "That email address or password is not correct",
+    "rate_limited": "Too many attempts, please try again later",
+    "fallback": "Cannot sign in right now, check your connection and retry"
+  },
+  "oauth": {
+    "registration_closed": "Sign-up is closed, ask an administrator to open an account for you",
+    "invalid_referral_code": "That invite code is invalid or no longer usable, edit or clear it and retry",
+    "registration_reward_unavailable": "The invite reward cannot be granted right now, retry later or clear the invite code",
+    "account_disabled": "This account has been disabled",
+    "access_denied": "You canceled the third-party authorization",
+    "fallback": "Third-party sign-in failed, retry or use your email instead"
+  },
+  "registration": {
+    "username_taken": "That email address is already registered",
+    "invalid_username": "That email address is not formatted correctly",
+    "invalid_password": "That password is not formatted correctly",
+    "rate_limited": "Too many sign-up attempts, please try again later",
+    "invalid_referral_code": "That invite code is invalid or no longer usable, edit or clear it and retry",
+    "registration_reward_unavailable": "The invite reward cannot be granted right now, retry later or clear the invite code",
+    "fallback": "Cannot create the account right now, check your connection and retry"
+  },
+  "link": {
+    "identity_taken": "That third-party account is already linked to another account",
+    "unauthenticated": "Your session expired, sign in again before linking",
+    "access_denied": "You canceled the third-party authorization",
+    "fallback": "Linking failed, please try again later"
+  },
+  "password": {
+    "invalid_credentials": "The current password is not correct",
+    "current_password_required": "Enter your current password",
+    "invalid_password": "Password must be {{min}}-{{max}} characters",
+    "rate_limited": "Too many attempts, please try again later",
+    "fallback": "Cannot change the password right now, please try again later"
+  },
+  "unlink": {
+    "last_login_method": "Unlinking would leave you unable to sign in, set a password first",
+    "not_linked": "That account is not linked",
+    "fallback": "Cannot unlink right now, please try again later"
+  },
+  "generations": {
+    "fallback": "Unable to load the history. Please refresh and try again."
+  },
+  "projectSync": {
+    "local_save_failed": "Save failed. Keep this page open and retry.",
+    "load_failed": "Could not load the project. Your content is kept, please reload.",
+    "project_conflict": "This project was changed elsewhere, so saving is paused. Your current content is kept.",
+    "project_document_too_large": "Storage or canvas size limit exceeded. Your current content is kept.",
+    "fallback": "Save failed. Your current content is kept, please retry.",
+    "media_local": "The canvas has content that is not saved yet or cannot be saved, so it stays in this browser for now.",
+    "unauthorized": "Your session expired. Your current content is kept. Sign in again.",
+    "project_not_found": "This project is unavailable or you do not have access. Your current content is kept.",
+    "invalid_project_document": "This canvas format is not supported. Your current content is kept. Update the page and retry.",
+    "recovery_copy_failed": "Could not save a recovery copy. Free browser storage and retry. Your current changes were not replaced.",
+    "recovery_changed": "New changes were made while saving the copy. They remain on this canvas. Choose a recovery action again.",
+    "project_deleted": "This project was deleted. Your current edits are preserved and can be saved as a new project."
+  },
+  "cloudPlacement": {
+    "place_failed": "Could not add to the current project. Please retry.",
+    "project_not_ready": "The project is still saving or has a conflict. Finish saving or resolve the conflict first.",
+    "fallback": "Could not add to the current project. Please retry."
+  },
+  "projectRecycle": {
+    "fallback": "The recycle bin operation failed. Please retry."
+  },
+  "agentTool": {
+    "upstream_error": "The generation service failed, so nothing came out",
+    "timeout": "Generation timed out, so nothing came out",
+    "no_output": "Generation finished but returned no result",
+    "result_unknown": "We lost track of this one, so it may still have come out; check the canvas and history",
+    "insufficient_credits": "Not enough credits, so this wasn't submitted",
+    "quota_exceeded": "Today's generation quota is used up",
+    "authentication_required": "Sign in to generate",
+    "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
+    "model_unavailable": "The model it needed isn't available right now",
+    "cancelled": "Stopped",
+    "fallback": "Didn't finish"
+  }
+}

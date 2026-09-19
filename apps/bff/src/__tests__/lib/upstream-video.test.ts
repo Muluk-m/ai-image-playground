@@ -232,6 +232,49 @@ describe('Grok video upstream', () => {
     })
   })
 
+  it('sends reference images to the 1.5 model next to the first frame', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_ref' })
+      if (url === `${GROK_BASE}/videos/req_ref`)
+        return json({ status: 'done', video: { duration: 5, url: '/v1/videos/req_ref/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+    const second = TINY_PNG_DATA_URL.replace('AAAA', 'AAAB')
+
+    await run('grok-imagine-video', {
+      input_images: [TINY_PNG_DATA_URL, second, TINY_PNG_DATA_URL],
+      video: video({ first_frame_index: 0, reference_image_indices: [2, 1] }),
+    })
+
+    const body = bodyOf(`${GROK_BASE}/videos/generations`)
+    expect(body).toMatchObject({
+      model: 'grok-imagine-video-1.5',
+      image: { url: TINY_PNG_DATA_URL },
+      reference_images: [{ url: TINY_PNG_DATA_URL }, { url: second }],
+    })
+  })
+
+  it('sends reference images alone to the 1.5 model without an image field', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_ref2' })
+      if (url === `${GROK_BASE}/videos/req_ref2`)
+        return json({ status: 'done', video: { duration: 5, url: '/v1/videos/req_ref2/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    await run('grok-imagine-video', {
+      input_images: [TINY_PNG_DATA_URL],
+      video: video({ reference_image_indices: [0] }),
+    })
+
+    const body = bodyOf(`${GROK_BASE}/videos/generations`)
+    expect(body).toMatchObject({
+      model: 'grok-imagine-video-1.5',
+      reference_images: [{ url: TINY_PNG_DATA_URL }],
+    })
+    expect(body).not.toHaveProperty('image')
+  })
+
   it('reads the content endpoint with the channel credential', async () => {
     handler = (url) => {
       if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_3' })
@@ -467,6 +510,25 @@ describe('Seedance video upstream', () => {
       { type: 'text', text: 'a cat surfing' },
       { type: 'image_url', image_url: { url: TINY_PNG_DATA_URL }, role: 'first_frame' },
       { type: 'image_url', image_url: { url: TINY_PNG_DATA_URL }, role: 'last_frame' },
+    ])
+  })
+
+  it('sends reference images as reference_image items in the order given', async () => {
+    handler = (url) =>
+      url === ARK_TASKS
+        ? json({ id: 'task_ark_2' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+    const second = TINY_PNG_DATA_URL.replace('AAAA', 'AAAB')
+
+    await run(ARK_MODEL, {
+      input_images: [TINY_PNG_DATA_URL, second],
+      video: video({ reference_image_indices: [1, 0] }),
+    })
+
+    expect(bodyOf(ARK_TASKS).content).toEqual([
+      { type: 'text', text: 'a cat surfing' },
+      { type: 'image_url', image_url: { url: second }, role: 'reference_image' },
+      { type: 'image_url', image_url: { url: TINY_PNG_DATA_URL }, role: 'reference_image' },
     ])
   })
 

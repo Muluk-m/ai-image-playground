@@ -1,3 +1,4 @@
+import type { VideoGenerationRecord } from '@image-playground/shared'
 import type { CanvasTaskMeta, CanvasTaskStatus } from './editor'
 
 /**
@@ -20,10 +21,22 @@ export interface ImageEl {
   /** 旋转角度（度），绕左上角。 */
   rotation: number
   fileId: string
+  name?: string
+  naturalWidth?: number
+  naturalHeight?: number
+  createdAt?: number
+  groupId?: string
   /** 生成溯源（prompt 等）。 */
   meta?: Record<string, string>
   /** 有值即这张位图只是封面，真正的片子在服务端；播放地址现拼，存整条会随部署换源而死。 */
-  video?: { taskId: string; outputIndex: number }
+  video?: CanvasVideoRef
+}
+
+/** 画布上一段视频的来源。`generation` 是它实际按什么生成的，早于它的存档没有。 */
+export interface CanvasVideoRef {
+  taskId: string
+  outputIndex: number
+  generation?: VideoGenerationRecord
 }
 
 export interface FreedrawEl {
@@ -69,7 +82,28 @@ export interface PlaceholderEl {
   meta: CanvasTaskMeta
 }
 
-export type CanvasEl = ImageEl | FreedrawEl | ArrowEl | TextEl | PlaceholderEl
+/** 时间线上的一段：引用画布上的一个视频元素，按入 / 出点截取（秒）。`out` 缺省即播到结尾。 */
+export interface TimelineClip {
+  elementId: string
+  in: number
+  out?: number
+}
+
+/**
+ * 时间线：只存对画布上视频元素的有序引用，不存媒体。源元素被删时那一段显示「素材缺失」，
+ * 不自动移除——静默少一段，成片就和用户排的不一样了。宽高由片段推出，存下来供选区与导出用。
+ */
+export interface TimelineEl {
+  id: string
+  type: 'timeline'
+  x: number
+  y: number
+  width: number
+  height: number
+  clips: TimelineClip[]
+}
+
+export type CanvasEl = ImageEl | FreedrawEl | ArrowEl | TextEl | PlaceholderEl | TimelineEl
 
 export interface Camera {
   /** 视口左上角的页面坐标。 */
@@ -113,8 +147,6 @@ export class CanvasDoc {
   editingTextId: string | null = null
   /** 单调递增版本号，驱动 useSyncExternalStore。 */
   version = 0
-  /** 用户编辑的单调计数，边界与 undo 历史同一个（见 captureHistory）。 */
-  editRevision = 0
 
   private listeners = new Set<() => void>()
   private undoStack: HistorySnapshot[] = []
@@ -137,9 +169,6 @@ export class CanvasDoc {
    * 拖拽 / 画笔这类连续手势只在手势开始 capture 一次，过程中的高频更新不入栈。
    */
   captureHistory(): void {
-    // 兼当 editRevision 的入口：这里正好是「一次用户操作」的边界，占位框状态流转与
-    // restore 都不经过它，智能体的画布冲突判据要的就是这条线。
-    this.editRevision += 1
     this.undoStack.push({ elements: this.elements, files: this.files })
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift()
     this.redoStack = []
@@ -156,7 +185,6 @@ export class CanvasDoc {
   undo(): void {
     const snap = this.undoStack.pop()
     if (!snap) return
-    this.editRevision += 1
     this.redoStack.push({ elements: this.elements, files: this.files })
     this.elements = snap.elements
     this.files = snap.files
@@ -167,7 +195,6 @@ export class CanvasDoc {
   redo(): void {
     const snap = this.redoStack.pop()
     if (!snap) return
-    this.editRevision += 1
     this.undoStack.push({ elements: this.elements, files: this.files })
     this.elements = snap.elements
     this.files = snap.files
@@ -220,6 +247,15 @@ export class CanvasDoc {
     if (opts.history) this.captureHistory()
     this.elements = next
     this.emit()
+  }
+
+  /** Refresh derived video covers without changing geometry or adding an undo step. */
+  replaceVideoPoster(id: string, expectedFileId: string, dataUrl: string): void {
+    const element = this.getElement(id)
+    if (element?.type !== 'image' || !element.video || element.fileId !== expectedFileId) return
+    const fileId = newElementId()
+    this.files = { ...this.files, [fileId]: dataUrl }
+    this.updateElements([{ id, patch: { fileId } }])
   }
 
   /** history=false 用于手势内的回滚清理（过短的箭头 / 空文字），调用方已 capture。 */

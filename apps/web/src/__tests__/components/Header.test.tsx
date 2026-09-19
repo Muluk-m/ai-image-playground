@@ -69,24 +69,41 @@ function modeButton(label: string): HTMLButtonElement {
 }
 
 describe('the mode switch', () => {
-  it('offers the workbench, the canvas and the product shots mode', () => {
+  it('does not auto-open onboarding prompts for a fresh empty account', () => {
+    useStore.setState({ inspirationCoachDismissed: false, tasks: [] })
+    act(() => root.render(<Header />))
+    expect(document.body.textContent).not.toContain('不知道画什么')
+    expect(document.querySelector('.animate-coach-pulse')).toBeNull()
+    expect(document.querySelector('button[aria-label="灵感库"]')).not.toBeNull()
+  })
+  it('starts in creation and the brand returns there', () => {
+    expect(useStore.getInitialState().appMode).toBe('create')
+    act(() => root.render(<Header />))
+    act(() =>
+      (
+        document.querySelector('[aria-label="幕芽 Muvloom，返回创作"]') as HTMLButtonElement
+      ).click(),
+    )
+    expect(useStore.getState().appMode).toBe('create')
+  })
+  it('offers creation first and keeps history without product shots', () => {
     act(() => root.render(<Header />))
 
-    expect(modeButton('工作台').getAttribute('aria-pressed')).toBe('true')
+    expect(modeButton('作品').getAttribute('aria-pressed')).toBe('true')
     expect(modeButton('创作')).toBeTruthy()
-    expect(modeButton('商品图')).toBeTruthy()
-    expect([...document.querySelectorAll('button[aria-pressed]')]).toHaveLength(3)
+    expect(document.querySelector('nav')?.textContent).not.toContain('商品图')
+    expect([...document.querySelectorAll('button[aria-pressed]')]).toHaveLength(2)
   })
 
-  it('switches to the product shots mode when it is picked', () => {
+  it('switches to creation when it is picked', () => {
     act(() => root.render(<Header />))
 
     act(() => {
-      modeButton('商品图').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modeButton('创作').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(useStore.getState().appMode).toBe('product')
-    expect(modeButton('商品图').getAttribute('aria-pressed')).toBe('true')
+    expect(useStore.getState().appMode).toBe('create')
+    expect(modeButton('创作').getAttribute('aria-pressed')).toBe('true')
   })
 })
 
@@ -100,9 +117,9 @@ describe('logging out', () => {
     })
     click('退出登录')
     expect(logout).not.toHaveBeenCalled()
-    expect(document.body.textContent).toContain('同时清除本机数据')
+    expect(document.body.textContent).toContain('同时清除这个浏览器里的数据')
 
-    const box = document.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    const box = document.querySelector<HTMLButtonElement>('[role="checkbox"]')
     act(() => box?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
     click('退出', 'dialog')
 

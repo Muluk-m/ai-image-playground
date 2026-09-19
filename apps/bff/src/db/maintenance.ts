@@ -1,12 +1,33 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq, inArray, isNotNull, lt, notInArray, type SQL } from 'drizzle-orm'
+import {
+  and,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notExists,
+  notInArray,
+  or,
+  type SQL,
+} from 'drizzle-orm'
+import { config } from '../config'
+import { settleAgentConversationJobs } from '../lib/agent/conversations'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { db, schema } from './client'
-import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
+import {
+  finishTask,
+  requeueTask,
+  requeueTaskArchive,
+  requeueTasksForPolling,
+} from './task-transitions'
 
 export interface RecoveredTasks {
   requeued: number
@@ -35,7 +56,13 @@ export function recoverAbandonedTasks(
   ownedIds: readonly string[] = [],
   now = Date.now(),
 ): Promise<RecoveredTasks> {
-  const stale = lt(schema.tasks.started_at, now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS)
+  const stale = or(
+    lt(schema.tasks.lease_expires_at, now),
+    and(
+      isNull(schema.tasks.execution_token),
+      lt(schema.tasks.started_at, now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS),
+    ),
+  )!
   const scope =
     ownedIds.length === 0 ? stale : and(stale, notInArray(schema.tasks.id, [...ownedIds]))
   return recoverTasks(scope as SQL, now)
@@ -46,38 +73,94 @@ export function recoverAbandonedTasks(
  * 首次提交时刻判超时，不会无限回队）；没有的只能按重试预算重跑，预算用尽才落 failed。
  */
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
+  const recoverable = and(
+    scope,
+    config.execution.legacyOrigin
+      ? or(
+          ne(schema.tasks.kind, 'chat'),
+          notExists(
+            db
+              .select({ id: schema.agent_conversations.id })
+              .from(schema.agent_conversations)
+              .where(
+                and(
+                  eq(schema.agent_conversations.id, schema.tasks.agent_conversation_id),
+                  eq(schema.agent_conversations.runtime_generation, 0),
+                ),
+              ),
+          ),
+        )
+      : undefined,
+    or(
+      ne(schema.tasks.kind, 'chat'),
+      notExists(
+        db
+          .select({ id: schema.agent_executions.turn_id })
+          .from(schema.agent_executions)
+          .where(
+            and(
+              eq(schema.agent_executions.turn_id, schema.tasks.agent_turn_id),
+              eq(schema.agent_executions.conversation_id, schema.tasks.agent_conversation_id),
+              eq(schema.agent_executions.state, 'running'),
+              gt(schema.agent_executions.heartbeat_at, now - 60_000),
+            ),
+          ),
+      ),
+    ),
+  )
   const candidates = await db
     .select({
       id: schema.tasks.id,
       kind: schema.tasks.kind,
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
+      archivePayload: schema.tasks.archive_payload,
+      executionToken: schema.tasks.execution_token,
+      invocationCount: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
-    .where(and(eq(schema.tasks.status, 'in_progress'), scope))
+    .where(and(eq(schema.tasks.status, 'in_progress'), recoverable))
 
-  // 轮询恢复没有 per-row 计算，一条 UPDATE 收掉；启动与 SIGTERM drain 都在等这个结果。
-  const resumedPolling = await requeueTasksForPolling(
-    candidates.filter((c) => c.upstreamTaskIds?.length).map((c) => c.id),
-  )
-
+  let resumedPolling = 0
   let requeued = 0
   let failed = 0
   for (const candidate of candidates) {
-    if (candidate.upstreamTaskIds?.length) continue
+    const guard = and(
+      recoverable,
+      candidate.executionToken
+        ? eq(schema.tasks.execution_token, candidate.executionToken)
+        : isNull(schema.tasks.execution_token),
+    )
+    if (candidate.archivePayload) {
+      if (await requeueTaskArchive(candidate.id, now, candidate.archivePayload, guard)) requeued++
+      continue
+    }
+    if (candidate.upstreamTaskIds?.length) {
+      resumedPolling += await requeueTasksForPolling([candidate.id], guard)
+      continue
+    }
     const attemptJustFailed = candidate.attemptCount + 1
     // 对话轮不能回队：worker 会把它当生图任务重跑一遍。断了就是断了，退款收场。
     const plan: RetryPlan =
-      candidate.kind === 'chat' ? { shouldRetry: false } : planNextAttempt(attemptJustFailed, now)
+      candidate.kind === 'chat' || candidate.invocationCount > 0
+        ? { shouldRetry: false }
+        : planNextAttempt(attemptJustFailed, now)
     const written = plan.shouldRetry
-      ? await requeueTask(candidate.id, attemptJustFailed, plan.nextRetryAt)
-      : await finishTask(candidate.id, {
-          status: 'failed',
-          attemptCount: attemptJustFailed,
-          errorMessage: '任务 worker 中断，重试次数已用尽',
-          errorType: 'interrupted',
-          completedAt: now,
-        })
+      ? await requeueTask(candidate.id, attemptJustFailed, plan.nextRetryAt, guard)
+      : await finishTask(
+          candidate.id,
+          {
+            status: 'failed',
+            attemptCount: attemptJustFailed,
+            errorMessage:
+              candidate.invocationCount > 0
+                ? '执行连接中断，上游结果尚未确认；未重新提交'
+                : '任务执行中断',
+            errorType: candidate.invocationCount > 0 ? 'upstream_result_unknown' : 'interrupted',
+            completedAt: now,
+          },
+          guard,
+        )
     if (!written) continue
     if (plan.shouldRetry) requeued += 1
     else failed += 1
@@ -135,6 +218,30 @@ export async function purgeOrphanedAssetObjects(): Promise<number> {
   return removed
 }
 
+/** 返回结算失败的会话：它们的任务行这一轮不能清。 */
+async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
+  const conversations = await db
+    .selectDistinct({ id: schema.tasks.agent_conversation_id })
+    .from(schema.tasks)
+    .where(
+      and(expired, isNotNull(schema.tasks.agent_conversation_id), ne(schema.tasks.kind, 'chat')),
+    )
+  const failed: string[] = []
+  for (const { id } of conversations) {
+    if (!id) continue
+    try {
+      await settleAgentConversationJobs(id)
+    } catch (error) {
+      failed.push(id)
+      log.warn(
+        { event: 'agent.jobs.settle_before_purge_failed', conversationId: id, err: String(error) },
+        'agent jobs left unsettled; their task rows are kept for the next purge',
+      )
+    }
+  }
+  return failed
+}
+
 /**
  * 删除 30 天前完成的任务（成功 / 失败 / 取消）。不删 queued/in_progress，避免
  * 误清正在跑的；worker 的 recoverAbandonedTasks 会收拾无主 in_progress。
@@ -143,13 +250,42 @@ export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,
 ): Promise<number> {
   const threshold = Date.now() - retentionMs
+  const expired = and(
+    inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
+    isNotNull(schema.tasks.completed_at),
+    lt(schema.tasks.completed_at, threshold),
+  )!
+  // 智能体的后台任务只在有人读会话时结算；没人读过的会话若直接清行，结果就只剩「任务丢失了」。
+  // 清之前先把它们所在的会话结算一遍，结算失败的会话这一轮不清，留给下次。
+  const unsettled = await settleAgentJobsBeforePurge(expired)
   const deleted = await db
     .delete(schema.tasks)
     .where(
       and(
-        inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
-        isNotNull(schema.tasks.completed_at),
-        lt(schema.tasks.completed_at, threshold),
+        expired,
+        unsettled.length === 0
+          ? undefined
+          : or(
+              isNull(schema.tasks.agent_conversation_id),
+              notInArray(schema.tasks.agent_conversation_id, unsettled),
+            ),
+        // Old owned commands must remain replayable until their durable receipt is adopted.
+        or(
+          isNull(schema.tasks.user_id),
+          isNull(schema.tasks.client_request_id),
+          exists(
+            db
+              .select({ id: schema.generation_commands.task_id })
+              .from(schema.generation_commands)
+              .where(
+                and(
+                  eq(schema.generation_commands.user_id, schema.tasks.user_id),
+                  eq(schema.generation_commands.command_id, schema.tasks.client_request_id),
+                  eq(schema.generation_commands.task_id, schema.tasks.id),
+                ),
+              ),
+          ),
+        ),
       ),
     )
     .returning({ id: schema.tasks.id })
@@ -164,5 +300,20 @@ export async function purgeOldTasks(
       )
     }
   }
+  return deleted.length
+}
+
+/** 宿主机采样只为看近几天的趋势；留久了这张表自己就成了吃磁盘的那个。 */
+const HOST_SAMPLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+export async function purgeOldHostSamples(now: number = Date.now()): Promise<number> {
+  const before = now - HOST_SAMPLE_RETENTION_MS
+  // 容器读数与接口统计和宿主机采样同一个保留期：看板上三者画在同一段时间上。
+  await db.delete(schema.container_samples).where(lt(schema.container_samples.sampled_at, before))
+  await db.delete(schema.api_minutes).where(lt(schema.api_minutes.minute, before))
+  const deleted = await db
+    .delete(schema.host_samples)
+    .where(lt(schema.host_samples.sampled_at, before))
+    .returning({ sampled_at: schema.host_samples.sampled_at })
   return deleted.length
 }

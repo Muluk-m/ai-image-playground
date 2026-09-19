@@ -1,0 +1,265 @@
+{
+  "label": {
+    "chat": "对话",
+    "layers": "创作记录"
+  },
+  "reference": {
+    "view": "查看参考图 {{label}}",
+    "loading": "正在加载原图…",
+    "unavailable": "无法加载原图，请稍后再试。"
+  },
+  "panel": {
+    "resizeAria": "拖动调整面板宽度",
+    "resizeTitle": "拖动调整宽度",
+    "collapseAria": "收起面板",
+    "expand": "展开对话",
+    "aria": "创作对话",
+    "newProjectAria": "新建项目",
+    "logAria": "对话记录",
+    "emptyTitle": "今天，想创作什么？",
+    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。",
+    "jumpToLatest": "有新消息"
+  },
+  "suggestions": {
+    "aria": "示例提示词",
+    "productTitle": "产品主图",
+    "productPrompt": "为一只极简风格的白色陶瓷咖啡杯拍一张电商主图：纯色背景，柔和侧光，突出釉面质感。",
+    "posterTitle": "节日海报",
+    "posterPrompt": "设计一张中秋节海报：夜空中的满月、远山与桂花，暖金色调，顶部留出标题位置。",
+    "characterTitle": "角色插画",
+    "characterPrompt": "画一个赛博朋克风格的少女角色半身像：雨夜街头，霓虹灯光映在雨衣上，电影感构图。",
+    "draftKeptToast": "输入框里已有内容，清空后再选示例"
+  },
+  "reply": {
+    "copyAria": "复制回复",
+    "copied": "已复制",
+    "copyFailed": "复制失败，请选择回复文字手动复制"
+  },
+  "tool": {
+    "background": "已在后台生成，完成后自动放入画布",
+    "preparing": "准备中",
+    "notFinished": "没有完成",
+    "delivering": "产物已生成，正在放入画布…",
+    "offCanvas": "产物不在当前画布上，可以再放入。",
+    "deliveryFailed": "产物已生成，但放入画布失败，可以重试。",
+    "skillNotFound": "没找到技能：{{name}}",
+    "locateTitle": "在画布上定位这些产物",
+    "place": "放入画布",
+    "viewPrompt": "查看提示词"
+  },
+  "toolFailure": {
+    "recharge": "去充值",
+    "login": "去登录",
+    "reprocess": "让助手重新处理",
+    "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。",
+    "retry": "重试"
+  },
+  "retry": {
+    "record": "重试",
+    "viewOriginal": "查看原失败卡",
+    "queued": "排队中",
+    "withdraw": "撤回",
+    "withdrawing": "撤回中…",
+    "withdrawFailed": "没能撤回，请稍后再试",
+    "withdrawn": "重试已撤回",
+    "retryRemaining_other": "重试剩余 {{count}} 个失败占位"
+  },
+  "cost": {
+    "duration": "本轮耗时 {{duration}}",
+    "free": "本轮免费，未扣积分",
+    "spent": "消耗",
+    "image": "生图",
+    "video": "生视频",
+    "failed": "本轮失败",
+    "interrupted": "已中断，已自动续上",
+    "stopped": "已停止",
+    "noCredits": "未扣积分"
+  },
+  "composer": {
+    "placeholder": "说一句你想做什么，@ 引用画布或素材",
+    "editorAria": "对智能体说",
+    "drawMaskAria": "给参考图 {{label}} 画遮罩",
+    "editMaskAria": "修改参考图 {{label}} 的遮罩",
+    "removeReferenceAria": "移除参考图 {{label}}",
+    "abort": "中止",
+    "interject": "插话",
+    "send": "发送",
+    "dropHint": "松开即作为参考图",
+    "draftLoadingToast": "草稿正在恢复，请稍后添加图片。",
+    "sendFailedToast": "消息未发送成功，草稿已放回输入框，请重试。",
+    "fileInputAria": "选择参考图",
+    "attachAria": "添加参考图",
+    "attachTitle": "添加参考图（也可以拖进来或粘贴）",
+    "sending": "发送中…",
+    "sendAndCreate": "发送并创作",
+    "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
+    "abortedToast": "已中止，草稿已放回输入框。",
+    "aborting": "正在中止…",
+    "modeAria": "创作类型",
+    "modeImage": "图片",
+    "modeVideo": "视频",
+    "queue": "加入排队"
+  },
+  "queue": {
+    "title_other": "排队中 {{count}} 条",
+    "hint": "当前回复结束后按顺序处理",
+    "references_other": "{{count}} 张图",
+    "withdraw": "撤回",
+    "withdrawAria": "撤回这条排队消息：{{text}}",
+    "dismiss": "移除",
+    "dismissAria": "移除这条没能处理的消息：{{text}}",
+    "failure": {
+      "insufficient_credits": "余额不足，未处理",
+      "model_price_unavailable": "模型暂不可用，未处理",
+      "unauthorized": "需要登录，未处理"
+    },
+    "interject": "现在插话",
+    "interjectAria": "现在插话：{{text}}"
+  },
+  "params": {
+    "title": "生成参数",
+    "autoSize": "自动尺寸",
+    "note": "张数由智能体按需求决定。参数改动从下一轮生效。",
+    "autoRatio": "自动比例",
+    "thinkingFast": "快速",
+    "thinkingMedium": "中等",
+    "thinkingDeep": "深度",
+    "thinkingSummary": "思考：{{label}}",
+    "thinkingLegend": "思考深度",
+    "closeAria": "关闭生成参数",
+    "done": "完成"
+  },
+  "mentions": {
+    "canvasImage": "画布图{{index}}",
+    "headingReferences": "本次参考图",
+    "headingCanvas": "画布",
+    "headingAssets": "素材",
+    "headingSkills": "技能"
+  },
+  "activity": {
+    "sending": "发送中",
+    "thinking": "思考中",
+    "executing": "执行中",
+    "stopping": "正在中止"
+  },
+  "clarification": {
+    "chosen": "已选：{{answer}}",
+    "answered": "已回答",
+    "other": "其他…",
+    "otherAria": "其他回答",
+    "otherPlaceholder": "说说你想要的"
+  },
+  "connection": {
+    "reconnecting": "连接中断，正在重新连接…"
+  },
+  "delivery": {
+    "generateFailed": "生成失败",
+    "artifactName": "生成作品"
+  },
+  "error": {
+    "turnFailed": "这一轮没有跑完",
+    "rateLimited": "发送太频繁，稍后再试",
+    "conversationUnreadable": "对话暂时未能加载，请重新加载。",
+    "conversationGone": "这段对话已不可用，画布和草稿仍保留，可以继续创作。",
+    "invalidSelection": "选区无法使用，请重新圈选。草稿已保留。",
+    "interjectFailed": "插话未发送成功，草稿已保留，请重试。",
+    "canvasBindFailed": "画布未能保存到新会话，请重试。原画布和草稿已保留。",
+    "turnAlreadyRunning": "会话中已有任务运行，本次消息未发送，草稿已保留。",
+    "stopFailed": "中止未成功，请点击中止重试。",
+    "queueFull_other": "排队已满（最多 {{count}} 条），等前面的处理完再发。草稿已保留。",
+    "queueFailed": "消息未能加入排队，草稿已保留，请重试。",
+    "queueAlreadyConsumed": "这条消息已经在处理了，没能撤回。",
+    "queueWithdrawFailed": "撤回未成功，请重试。",
+    "queueInterjectTooLate": "当前回复已经结束，这条消息会在下一轮处理。",
+    "queueInterjectConsumed": "这条消息已经在处理了。",
+    "queueInterjectFailed": "插话未成功，请重试。",
+    "retryFailed": "重试没能提交，请稍后再试。"
+  },
+  "project": {
+    "createFailed": "项目创建失败，当前内容已保留，请重试。",
+    "saveFailed": "当前项目未能保存，内容已保留，请重试。",
+    "deleteBusy": "项目仍有任务运行，完成后再删除。",
+    "deleteFailed": "项目删除失败，请重试。",
+    "openFailed": "项目暂时无法打开，请重试。"
+  },
+  "draft": {
+    "unreadable": "草稿暂时无法读取或保存，刷新前请复制输入内容。",
+    "saveFailed": "草稿保存失败，内容仍在当前页面，刷新前请复制。",
+    "unsent": "你有一条未发送的草稿",
+    "restore": "恢复",
+    "discard": "丢弃"
+  },
+  "promptDialog": {
+    "title": "提示词",
+    "closeAria": "关闭提示词",
+    "copyFailed": "复制失败，请选择正文手动复制",
+    "copied": "已复制",
+    "bodyAria": "完整提示词",
+    "charCount_other": "{{count}} 字符",
+    "saveTemplate": "存为模板",
+    "templateSaveFailed": "模板保存失败，请重试",
+    "templateName": "模板名称",
+    "templateNamePlaceholder": "给这段提示词起个名字",
+    "saving": "保存中…",
+    "saveTemplateAction": "保存模板"
+  },
+  "creations": {
+    "taskTitle": "生成任务",
+    "importedTitle": "导入图片",
+    "earlierTitle": "较早的内容",
+    "locateAria": "定位 {{name}}",
+    "generating": "正在生成",
+    "notFinished": "生成未完成",
+    "previewUnavailable": "预览不可用",
+    "emptyTitle": "还没有创作记录",
+    "emptyBody": "生成作品或导入图片后，会按任务显示在这里。",
+    "itemCount_other": "{{count}} 项",
+    "marks": "画布标注",
+    "markText": "文字",
+    "markArrow": "箭头",
+    "markPen": "画笔"
+  },
+  "history": {
+    "loading": "正在加载对话…",
+    "failed": "对话暂时未能加载，项目和草稿已保留。",
+    "retry": "重新加载"
+  },
+  "navigation": {
+    "back": "返回项目列表",
+    "switchAria": "切换项目，当前：{{name}}",
+    "switchTitle": "切换项目",
+    "search": "搜索项目",
+    "recent": "最近项目",
+    "results": "搜索结果",
+    "newHint": "开启独立的对话与画布",
+    "all": "查看全部项目"
+  },
+  "job": {
+    "phase": {
+      "submitted": "已提交",
+      "queued": "排队中",
+      "generating": "生成中",
+      "reconnecting": "重新连接中",
+      "confirming": "确认结果",
+      "delivering": "放入画布"
+    },
+    "progress": "{{phase}} · 已用 {{elapsed}}",
+    "progressAria": "生成进度",
+    "cancel": "取消任务",
+    "cancelling": "正在取消…",
+    "cancelFailed": "没能取消，请稍后再试",
+    "cancelled": "已取消",
+    "cancelledRefunded": "已取消，积分已退回",
+    "wakeSkipped": {
+      "insufficient_credits": "积分不足，助手未查看结果",
+      "wake_limit": "助手已连续自动查看 3 次，等你发话后再继续"
+    },
+    "inbox": {
+      "aria": "后台任务",
+      "summary": "{{running}} 个进行中 · {{completed}} 个已完成",
+      "locate": "在画布上定位",
+      "succeeded": "已完成",
+      "failed": "没有完成"
+    }
+  }
+}

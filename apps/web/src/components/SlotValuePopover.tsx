@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from '../i18n'
 import { parseSlotValueLines } from '../lib/promptSlots'
 import ComposerPopover from './ComposerPopover'
 
@@ -18,8 +19,10 @@ export default function SlotValuePopover({
   onChange,
   onClose,
 }: SlotValuePopoverProps) {
+  const { t } = useTranslation('composer')
   const [text, setText] = useState(() => values.join('\n'))
   const ref = useRef<HTMLDivElement>(null)
+  const slot = `{${name}}`
 
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
@@ -34,13 +37,13 @@ export default function SlotValuePopover({
   }, [onClose])
 
   return (
-    <ComposerPopover ref={ref} heading={`槽位 {${name}}`} offsetLeft={offsetLeft}>
+    <ComposerPopover ref={ref} heading={t('slot.heading', { slot })} offsetLeft={offsetLeft}>
       <textarea
         autoFocus
         value={text}
         rows={4}
-        placeholder="一行一个值"
-        aria-label={`槽位 {${name}} 的值`}
+        placeholder={t('slot.placeholder')}
+        aria-label={t('slot.valuesLabel', { slot })}
         onChange={(e) => {
           setText(e.target.value)
           onChange(parseSlotValueLines(e.target.value))
@@ -51,7 +54,7 @@ export default function SlotValuePopover({
             onClose()
           }
         }}
-        className="custom-scrollbar w-full resize-none rounded-xl bg-gray-50 px-2 py-1.5 text-xs leading-relaxed text-gray-700 outline-none placeholder:text-gray-400 focus:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-200 dark:placeholder:text-gray-500 dark:focus:bg-white/[0.07]"
+        className="custom-scrollbar w-full resize-none rounded-xl bg-card px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted"
       />
     </ComposerPopover>
   )

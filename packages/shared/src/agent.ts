@@ -1,7 +1,8 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { ChannelMedia } from './channel-discovery'
-import type { StoredImageRef } from './queue-protocol'
+import type { StoredImageRef, TaskProgressPhase } from './queue-protocol'
+import type { VideoGenerationRecord } from './video-generation'
 
 /**
  * 匿名设备标识的传输位置。它是纯 bearer——知道就等于持有，所以只走请求头或请求体：
@@ -21,8 +22,50 @@ export interface AgentTextBlock {
   readonly references?: readonly AgentStoredReference[]
 }
 
+/**
+ * 这一轮要创作什么。它决定模型收到哪些工具、系统提示词里列哪些技能，
+ * 不决定历史怎么渲染——旧轮的工具结果在任何创作类型下都照样认得出来。
+ * 请求里缺席即 `image`：老客户端不知道有这回事。
+ */
+export type AgentMode = 'image' | 'video'
+
+export const AGENT_MODES: readonly AgentMode[] = ['image', 'video']
+
+export function isAgentMode(value: unknown): value is AgentMode {
+  return value === 'image' || value === 'video'
+}
+
 /** 智能体可调用的工具。 */
-export type AgentToolName = 'generateImage' | 'editImage' | 'readLibrary' | 'generateVideo'
+export type AgentToolName =
+  | 'generateImage'
+  | 'editImage'
+  | 'readLibrary'
+  | 'generateVideo'
+  | 'loadSkill'
+  | 'arrangeTimeline'
+
+/**
+ * 技能没写 `meta.json`、或写坏了时用的图标。技能不会因此被丢掉，只是长得一样。
+ * 前端的白名单映射表必须收着它，否则回退还得再回退一次。
+ */
+export const DEFAULT_AGENT_SKILL_ICON = 'sparkles'
+
+/**
+ * 技能清单端点给前端的那一份：标识、标题、「何时用」，外加界面用的图标与一句话简介。
+ * `name` 是 Agent Skills 标准的 kebab-case 标识，服务端只认它；`title` 是给人看的那个名字。
+ *
+ * `icon` / `summary` 来自技能目录里的 `meta.json`，**只走界面**：它们不进系统提示词、
+ * 不进任何给模型的文本（见 `apps/bff/src/lib/agent/turn-input.ts` 的 `<available_skills>`）。
+ */
+export interface AgentSkillSummary {
+  readonly name: string
+  readonly title: string
+  readonly description: string
+  /** lucide 图标名，kebab-case。前端按白名单映射成组件，不认识的名字回退默认图标。 */
+  readonly icon: string
+  /** 写给用户的一句话简介；空串表示这条技能没写，界面回退到去掉「何时用：」的 description。 */
+  readonly summary: string
+}
 
 /**
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
@@ -47,32 +90,102 @@ export interface AgentStoredReference {
 
 /**
  * 一轮里生效的生成参数：用户在输入框的参数浮层里选，随起轮一起送到服务端，
- * 生图与改图工具提交队列任务时按它填。
+ * 生图与改图工具提交队列任务时按它填。张数由每次工具调用决定，审核使用应用默认。
  *
  * 字段名对齐 `SubmitRequest`，避免在途中翻译两次；但 `gemini_*` 三项保持前缀，
  * 因为它们只对 gemini 系模型成立，往队列请求里填哪一支由服务端按 provider 决定。
  */
+export type AgentThinkingDepth = 'fast' | 'medium' | 'deep'
+
 export interface AgentTurnParams {
+  readonly thinkingDepth?: AgentThinkingDepth
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
   readonly size?: string
   readonly quality?: string
   readonly output_format?: string
   readonly output_compression?: number
-  readonly moderation?: string
-  /** 一次出几张。缺席按 1。 */
-  readonly n?: number
   readonly gemini_aspect_ratio?: string
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
 }
 
-/** 一次提交最多出几张：和输入框的数量 chip 同一上限，服务端不认更大的数。 */
-export const AGENT_TURN_MAX_N = 10
+/** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
+export const AGENT_IMAGE_MAX_N = 10
 
 export const AGENT_TURN_MAX_REFERENCES = 8
 
-export type AgentToolStatus = 'succeeded' | 'failed'
+/**
+ * 一次工具调用的结局。`submitted` 是后台任务刚提交、结果尚未就绪：调用本身已经收尾，
+ * 任务结束后服务端把它就地改写成 `succeeded` 或 `failed`（见 {@link AgentBackgroundJob}）。
+ * `queued` 只出现在重试记录上：它在会话的重试队列里等前一条重试结束，轮到时服务端提交任务、
+ * 就地改成 `submitted`；撤回的改成 `failed`（`cancelled`）。
+ */
+export type AgentToolStatus = 'succeeded' | 'failed' | 'submitted' | 'queued'
+
+/**
+ * 一次工具调用为什么失败。界面只按它决定给什么出路（ADR 0006），不读 `message`：
+ *
+ * - `upstream_error` / `timeout` / `no_output`：上游那一侧没出来，原样再跑一次有望成功。
+ * - `result_unknown`：执行者中途丢了，或上游的结局查不到；上游可能已经出图、已经计费，
+ *   不能原样重试（ADR 0009），不给出路。
+ * - `insufficient_credits` / `quota_exceeded`：钱或额度不够，出路是充值。
+ * - `authentication_required`：没登录，出路是登录。
+ * - `invalid_params`：模型给的参数本身不成立（图片 id 不存在、违反选区约束、张数越界），
+ *   出路是让智能体换个做法重新处理。
+ * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
+ * - `cancelled`：用户中止了这一轮，不需要出路。
+ * - `unknown`：归不进上面任何一类。
+ *
+ * 旧记录没有这一位；前端认不出的码也按没有处理。
+ */
+export type AgentToolErrorCode =
+  | 'upstream_error'
+  | 'timeout'
+  | 'no_output'
+  | 'result_unknown'
+  | 'insufficient_credits'
+  | 'quota_exceeded'
+  | 'authentication_required'
+  | 'invalid_params'
+  | 'model_unavailable'
+  | 'cancelled'
+  | 'unknown'
+
+export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
+  'upstream_error',
+  'timeout',
+  'no_output',
+  'result_unknown',
+  'insufficient_credits',
+  'quota_exceeded',
+  'authentication_required',
+  'invalid_params',
+  'model_unavailable',
+  'cancelled',
+  'unknown',
+]
+
+export function isAgentToolErrorCode(value: unknown): value is AgentToolErrorCode {
+  return AGENT_TOOL_ERROR_CODES.includes(value as AgentToolErrorCode)
+}
+
+/**
+ * 工具起跑那一刻模型选定的全部参数，失败记录与重试都从这里取，不再回头问模型。
+ * 旧记录没有它：那些失败没有可复原的参数。
+ */
+export interface AgentToolCallSnapshot {
+  /** 这一轮的创作类型；同一个工具在两种类型下装配的清单不同。 */
+  readonly mode: AgentMode
+  /** 模型给的参数，按工具 schema 换算后的原样：提示词、张数、选区绑定、档位都在这里。 */
+  readonly args: Readonly<Record<string, unknown>>
+  /** 参数里引用的图（可能写成 `image 2` 这类编号）翻成的真实图片 id，顺序与参数一致。 */
+  readonly imageIds?: readonly string[]
+  /** 这一轮用户在参数浮层里选的生成参数（尺寸、质量等）。 */
+  readonly params?: AgentTurnParams
+  /** 起跑时解析到的生成模型；缺席即当时没有可用模型。 */
+  readonly target?: { readonly provider: string; readonly model: string }
+}
 
 /**
  * 工具产出的一件产物。`artifactId` 同时是画布对象的 id，结果卡凭它定位到画布上同一个对象。
@@ -86,6 +199,40 @@ export interface AgentToolArtifact {
   readonly mime: string
   readonly width?: number
   readonly height?: number
+  /** 视频产物实际提交的参数。早于它的记录没有；图片产物永远没有。 */
+  readonly video?: VideoGenerationRecord
+}
+
+/**
+ * 智能体排好的一条时间线：按顺序引用本会话落画布的视频产物（产物 id 即画布对象 id），带每段入出点（秒）。
+ * 画布按它建一条时间线元素，id 用 `timelineId`，所以重放不会建出第二条。
+ */
+export interface AgentTimelinePlan {
+  readonly timelineId: string
+  readonly clips: readonly AgentTimelineClip[]
+}
+
+/** 时间线上的一段：哪段视频、从第几秒播到第几秒。出点总在入点之后。 */
+export interface AgentTimelineClip {
+  readonly videoId: string
+  readonly in: number
+  readonly out: number
+}
+
+/**
+ * 工具提交的后台任务：提交后立即交还对话，任务结束后产物按产物交付落画布。
+ * 结果块带着它，任务结束时服务端据此把块改写成终局；旧记录与不提交后台任务的调用缺席。
+ */
+export interface AgentBackgroundJob {
+  readonly taskId: string
+  readonly media: ChannelMedia
+  /** 视频任务实际提交的档位；任务成功时记到产物上。 */
+  readonly video?: VideoGenerationRecord
+  /**
+   * 智能体提交时要求成功后回来复核（局部改图总是要）。失败一律唤醒，与它无关；界面据此知道
+   * 任务结束后会不会有一轮唤醒要挂上。
+   */
+  readonly review?: true
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
@@ -96,11 +243,162 @@ export interface AgentToolResultBlock {
   readonly status: AgentToolStatus
   /** 面板上这张卡的一行标签。 */
   readonly title: string
+  /** 完整生成提示词，标题仅用于摘要。旧记录可能缺席。 */
+  readonly prompt?: string
   readonly artifacts?: readonly AgentToolArtifact[]
   /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
   readonly anchorObjectId?: string
-  /** 失败原因，一句话。 */
+  /** 读取技能这一步的结果。缺席即这条不是读技能，或者它还没跑完。 */
+  readonly skill?: AgentSkillOutcome
+  /** 失败原因，一句话。给日志与模型看，界面按 `errorCode` 出文案。 */
   readonly message?: string
+  /** 失败的分类；只在 `status: 'failed'` 时有。旧记录缺席。 */
+  readonly errorCode?: AgentToolErrorCode
+  /** 起跑时的参数快照；只有提交生成任务的工具有。旧记录缺席。 */
+  readonly snapshot?: AgentToolCallSnapshot
+  /** 这次调用提交的后台任务；任务结束后仍保留，标明这张卡的结局来自后台任务。 */
+  readonly job?: AgentBackgroundJob
+  /** 这张卡是一条重试记录：用户在哪张失败卡的哪个失败占位上点了重试。普通调用缺席。 */
+  readonly retryOf?: AgentToolRetryOrigin
+  /**
+   * 这个后台任务结束后本该唤醒智能体，但没有唤醒：面板按原因说明智能体没有查看这个结果。
+   * 结果照常落画布，用户下次说话时智能体在对话记录里看得到它。缺席即唤醒过或本就不唤醒。
+   */
+  readonly wakeSkipped?: AgentWakeSkipReason
+  /** 排时间线这一步的结果：画布照它建时间线。缺席即这条不是排时间线，或者没有可排的视频。 */
+  readonly timeline?: AgentTimelinePlan
+}
+
+/**
+ * 没有唤醒智能体的原因：积分不足以再起一轮；用户没说话时已经连续自动唤醒了
+ * {@link AGENT_MAX_CONSECUTIVE_WAKES} 次。
+ */
+export type AgentWakeSkipReason = 'insufficient_credits' | 'wake_limit'
+
+/** 用户没说话时最多连续自动唤醒这么多次，之后停下等用户；用户一说话就重新计数。 */
+export const AGENT_MAX_CONSECUTIVE_WAKES = 3
+
+/**
+ * 重试记录指回的那次失败调用。重试不改写原卡：原卡保持失败，重试另起一条记录挂在对话末尾，
+ * 凭它跳回原卡、把结果落回原来的失败占位。
+ */
+export interface AgentToolRetryOrigin {
+  /** 原失败卡的消息 id。 */
+  readonly messageId: string
+  readonly toolCallId: string
+  /** 结果要落回的那个失败占位（画布对象 id）；缺席即就近落。 */
+  readonly placeholderId?: string
+}
+
+/** 原样再跑一次有望成功的那几类失败（上游出错、超时、没出图）。 */
+export const AGENT_RETRYABLE_ERROR_CODES: readonly AgentToolErrorCode[] = [
+  'upstream_error',
+  'timeout',
+  'no_output',
+]
+
+/** 能按快照原样重出的工具。查素材库、读技能不提交生成任务，没有可重出的东西。 */
+const RETRYABLE_TOOLS: readonly AgentToolName[] = ['generateImage', 'editImage', 'generateVideo']
+
+/**
+ * 局部改图（选区绑定、分方案摘录）与连锁改图（列了后续步骤、或是后续步骤本身）的参数离不开
+ * 那一轮的上下文：原样重出可能改错地方，只能交给智能体重新处理。
+ */
+function localEdit(snapshot: AgentToolCallSnapshot): boolean {
+  const { selectionBindings, requestQuote, deferredEdits } = snapshot.args
+  return (
+    (Array.isArray(selectionBindings) && selectionBindings.length > 0) ||
+    (typeof requestQuote === 'string' && requestQuote.length > 0) ||
+    (Array.isArray(deferredEdits) && deferredEdits.length > 0)
+  )
+}
+
+/** 判定重试资格要看的那几位：服务端的结果块与前端的结果卡都有。 */
+export interface AgentRetryCandidate {
+  readonly status: string
+  readonly toolName?: AgentToolName
+  readonly errorCode?: AgentToolErrorCode
+  readonly snapshot?: AgentToolCallSnapshot
+  readonly job?: AgentBackgroundJob
+  readonly retryOf?: AgentToolRetryOrigin
+}
+
+/**
+ * 这张失败卡能不能原样重试。只看结构化的几位，不读文字（ADR 0006）：错误码可重试、
+ * 起跑时记了参数快照与模型、是提交过后台任务的生成调用、不是局部或连锁改图。
+ * 局部与连锁改图留在轮里同步等结果，从来不带 `job`，这里也因此把它们挡在门外。
+ * 模型是否已下线要问此刻的模型清单，由调用方另判。重试记录本身不再重试：重试一律从原卡出发。
+ */
+export function agentToolRetryable(block: AgentRetryCandidate): boolean {
+  return (
+    block.status === 'failed' &&
+    block.errorCode !== undefined &&
+    AGENT_RETRYABLE_ERROR_CODES.includes(block.errorCode) &&
+    block.toolName !== undefined &&
+    RETRYABLE_TOOLS.includes(block.toolName) &&
+    block.snapshot?.target !== undefined &&
+    block.job !== undefined &&
+    block.retryOf === undefined &&
+    !localEdit(block.snapshot)
+  )
+}
+
+/** `POST .../retries` 成功时的响应：追加在对话末尾的那条重试记录。 */
+export interface AgentRetryResponse {
+  readonly message: AgentMessageView
+}
+
+/** 重试没能提交（模型已下线、积分不够、没登录……）时的响应体；界面只按 `code` 给出路。 */
+export interface AgentRetryRefusedBody {
+  readonly error: 'retry_refused'
+  readonly code: AgentToolErrorCode
+}
+
+/** `GET .../jobs` 里的一项：一次提交了后台任务的工具调用，结果块是它此刻的样子。 */
+export interface AgentBackgroundJobView {
+  /** 那张结果卡的消息 id。 */
+  readonly messageId: string
+  readonly turnId: string
+  readonly result: AgentToolResultBlock
+  /** 任务还没结束时它此刻走到哪一步；结果块已是终局时缺席。 */
+  readonly progress?: AgentBackgroundJobProgress
+}
+
+/**
+ * 没结束的后台任务此刻的进度，取自任务表：`submitted` 是排着队，`running` 是在生成。
+ * 已用时间从 `submittedAt`（任务受理时刻，epoch 毫秒）算起，所以刷新、换设备后看到的是同一个数。
+ */
+export interface AgentBackgroundJobProgress {
+  readonly stage: AgentToolStage
+  readonly submittedAt: number
+  /**
+   * 任务表里的持久阶段（ADR 0009）：执行器在滚动发布或重启后重新接上上游时是 `reconnecting`，
+   * 结果已归档、正在确认时是 `confirming`。旧服务端缺席，这时按 `stage` 读。
+   */
+  readonly phase?: TaskProgressPhase
+}
+
+export interface AgentBackgroundJobsResponse {
+  readonly jobs: readonly AgentBackgroundJobView[]
+}
+
+/** `POST .../jobs/:taskId/cancel` 的回应：取消之后这次调用此刻的样子（已结束的任务原样返回）。 */
+export interface AgentBackgroundJobCancelResponse {
+  readonly job: AgentBackgroundJobView
+}
+
+/**
+ * 读取技能读到了什么。`found` 是机器可读的那一位：面板据它决定这一行说「读取技能」还是
+ * 「没找到技能」，不靠匹配工具返回的文案。
+ */
+export interface AgentSkillOutcome {
+  readonly label: string
+  readonly found: boolean
+  /**
+   * 这条技能的图标名，与 `/` 菜单用同一张白名单映射表。老消息里没有这一位（这个字段是后加的），
+   * 没找到技能的那次也没有——两种情况界面都退回默认图标。
+   */
+  readonly icon?: string
 }
 
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */
@@ -161,6 +459,11 @@ export interface AgentTurnStartEvent {
   readonly userMessageId: string
   /** 本轮预扣的积分；不计费的部署里缺席。 */
   readonly reservedCredits?: number
+  /**
+   * 这一轮是唤醒：后台任务结束后智能体回来看结果，或者中断续跑（上一轮被服务重启打断后接着做），
+   * 不是用户说了话。`userMessageId` 此时不指向任何一条消息，界面不为它出用户气泡。
+   */
+  readonly wake?: true
 }
 
 /** 一轮里可以有多条助手消息：插话之后运行时会开新的一条。 */
@@ -185,10 +488,19 @@ export interface AgentToolStartEvent {
   readonly toolCallId: string
   readonly toolName: AgentToolName
   readonly title: string
+  /** 完整生成提示词，标题仅用于摘要。旧记录可能缺席。 */
+  readonly prompt?: string
   /** 这次调用会落几件产物；缺席即这个工具不落画布（查素材库），画布不必占位。 */
   readonly outputCount?: number
   /** 占位框贴着这个画布对象放；缺席就落在视口中央。与结果里的 `anchorObjectId` 同源。 */
   readonly anchorObjectId?: string
+  /** 起跑这一刻的参数快照，与结果块里的是同一份。 */
+  readonly snapshot?: AgentToolCallSnapshot
+  /**
+   * 服务端看到工具起跑的时刻（epoch 毫秒）。它随事件落进轮的事件日志，续播、刷新、换设备
+   * 重放出来的是同一个数，已用时间因此不从零重来。旧记录缺席。
+   */
+  readonly startedAt?: number
 }
 
 /** 分钟级任务的中途进度。一轮里可以有多次工具调用，各自按 `toolCallId` 独立上报。 */
@@ -218,15 +530,135 @@ export interface AgentInterjectionEvent {
   readonly text: string
 }
 
+/**
+ * 排队消息：智能体忙时用户发出、存在服务端会话收件箱里、还没被处理的那条话。
+ * 当前回复可以结束时按顺序取，每轮取一条。只给界面看的那几项，参考图字节不下发。
+ */
+export interface AgentQueuedMessageView {
+  /** 收件箱记录 id；被处理后它就是那条用户消息的 id。 */
+  readonly id: string
+  /** 客户端生成的消息 id，同一条消息网络重发时据此认出来，不排第二次。 */
+  readonly clientMessageId: string
+  readonly text: string
+  /** 附带了几张参考图。 */
+  readonly referenceCount: number
+  readonly createdAt: number
+  /**
+   * 轮到它时没能开轮的原因（错误码，界面据此选文案）。带着它的这一条不再排着、也不挡后面的，
+   * 留在列表里等用户看过后撤掉。缺席即仍在排队。
+   */
+  readonly failure?: AgentQueuedMessageFailure
+  /**
+   * 这是对澄清卡片的答复：它排在其他排队消息前面，智能体停下来等的问题最先得到回答。
+   * 缺席即普通的排队消息。
+   */
+  readonly clarificationAnswer?: true
+}
+
+/** 排队消息轮到时开不了轮的原因：余额不足、模型没有定价、需要登录。 */
+export type AgentQueuedMessageFailure =
+  | 'insufficient_credits'
+  | 'model_price_unavailable'
+  | 'unauthorized'
+
+/** 每个会话最多同时排着这么多条用户消息；再发就拒收并提示。 */
+export const AGENT_QUEUE_MAX_PENDING = 10
+
+/** 收件箱记录此刻的状态：待处理、已被某一轮消费、已撤回、轮到时没能开轮。 */
+export type AgentQueuedMessageState = 'pending' | 'consumed' | 'cancelled' | 'failed'
+
+/**
+ * 撤回排队消息的结局，三者只有一个成立：撤回成功（再撤一次也还是它）、已经被一轮处理了、
+ * 没有这条。撤回与处理由同一条记录上的原子更新裁决，跨设备并发也不会两边都算数。
+ */
+export type AgentQueueWithdrawResult = 'cancelled' | 'already_consumed' | 'not_found'
+
+/**
+ * 发消息被收进收件箱时的 202 响应体。会话空闲、这条消息当场开了一轮时不走它，直接回事件流。
+ * `turnId`：`pending` 时是正在跑的那一轮，`consumed` 时是处理了它的那一轮。
+ */
+export interface AgentMessageQueuedBody {
+  readonly queued: AgentQueuedMessageView
+  readonly state: AgentQueuedMessageState
+  readonly turnId?: string
+}
+
+/**
+ * 把排队消息升级为插话的结局：插进了正在跑的那一轮（在它下一个动作边界生效）；已经被处理了；
+ * 已撤回；没有这条；会话此刻没有在跑的轮（它照旧排着，下一轮处理）。
+ */
+export type AgentQueueInterjectResult =
+  | 'interjected'
+  | 'already_consumed'
+  | 'cancelled'
+  | 'not_found'
+  | 'not_running'
+
+/** 停止当前回复时退回给客户端的一条排队消息：放回输入框，由用户改了再发或删掉。 */
+export interface AgentReturnedQueuedMessage {
+  readonly id: string
+  readonly text: string
+  /** 它当初附带的参考图，原样还回去。 */
+  readonly references: readonly AgentTurnReference[]
+}
+
+/** 停止当前回复的响应体。`returned` 是被退回的排队消息，按原先的处理顺序；老服务端没有这一项。 */
+export interface AgentTurnAbortedBody {
+  readonly aborted: true
+  readonly returned?: readonly AgentReturnedQueuedMessage[]
+}
+
+/** 满额时的 409 响应体。 */
+export interface AgentQueueFullBody {
+  readonly error: 'queue_full'
+  readonly limit: number
+}
+
+/** 有一条消息排进了队。 */
+export interface AgentMessageQueuedEvent {
+  readonly type: 'messageQueued'
+  readonly message: AgentQueuedMessageView
+}
+
+/** 一条排队消息被撤回了。 */
+export interface AgentQueuedMessageWithdrawnEvent {
+  readonly type: 'queuedMessageWithdrawn'
+  readonly queueId: string
+}
+
+/** 一条排队消息升级成了插话，进了正在跑的这一轮；随后的 `interjection` 事件带着它的正文。 */
+export interface AgentQueuedMessageInterjectedEvent {
+  readonly type: 'queuedMessageInterjected'
+  readonly queueId: string
+  readonly turnId: string
+}
+
+/** 一条排队消息被这一轮取走处理；它紧跟在那一轮的 `turnStart` 之后。 */
+export interface AgentQueuedMessageConsumedEvent {
+  readonly type: 'queuedMessageConsumed'
+  readonly queueId: string
+  readonly turnId: string
+}
+
 /** 上游按 `stream_options.include_usage` 在末帧回的用量。中转网关不透传时是 null。 */
 export interface AgentTurnUsage {
+  /** Total input, including the separately reported cached portion. */
   readonly inputTokens: number
+  readonly cachedInputTokens?: number
   readonly outputTokens: number
 }
 
 export type AgentTurnStopReason = 'completed' | 'aborted' | 'failed'
 
-export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed' | 'agent_tool_failed'
+/**
+ * `agent_turn_interrupted`：这一轮被服务重启或执行者接管打断，已经排上了一次中断续跑——界面不把它
+ * 当失败报，只标明「已中断，自动续上」。其余几个是真的失败。
+ */
+export type AgentTurnErrorCode =
+  | 'agent_upstream_error'
+  | 'agent_run_failed'
+  | 'agent_tool_failed'
+  | 'agent_turn_interrupted'
 
 /** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
@@ -250,6 +682,10 @@ export type AgentTurnEvent =
   | AgentToolEndEvent
   | AgentClarificationEvent
   | AgentInterjectionEvent
+  | AgentMessageQueuedEvent
+  | AgentQueuedMessageWithdrawnEvent
+  | AgentQueuedMessageConsumedEvent
+  | AgentQueuedMessageInterjectedEvent
   | AgentTurnEndEvent
 
 /** 翻历史时每轮页脚要的那几项。 */
@@ -257,12 +693,29 @@ export interface AgentTurnSummaryView {
   readonly turnId: string
   readonly durationMs: number
   readonly stopReason: AgentTurnStopReason
+  /** 只在失败的轮上：被打断并排上了中断续跑时是 `agent_turn_interrupted`，其余缺席。 */
+  readonly error?: AgentTurnErrorCode
   readonly cost?: AgentTurnCost
 }
 
 /** 进行中的轮，`GET .../messages` 用它告诉刷新后的前端该挂回哪一轮。 */
 export interface AgentActiveTurnView {
   readonly turnId: string
+}
+
+/**
+ * `GET .../messages` 的响应：会话快照。`cursor` 是快照覆盖到的会话事件序号，客户端从它之后
+ * 接增量（`GET .../events` 带 `Last-Event-ID`），快照与增量之间不重不漏。有进行中的轮时，
+ * 游标停在那一轮的 `turnStart` 之前：还没落库的半截回复只在事件里，得从轮头重放出来。
+ * 老服务端不回 `cursor`，客户端据此退回按轮续播。
+ */
+export interface AgentConversationSnapshot {
+  readonly messages: readonly AgentMessageView[]
+  readonly turns: readonly AgentTurnSummaryView[]
+  readonly activeTurn: AgentActiveTurnView | null
+  readonly cursor?: number
+  /** 按处理顺序排着的消息，连同轮到时没能开轮、还没撤掉的那几条（带 `failure`）；老服务端没有这一项。 */
+  readonly queue?: readonly AgentQueuedMessageView[]
 }
 
 /**
@@ -330,11 +783,15 @@ export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图�
 
 /** 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。 */
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
-  if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
+  // 重试是用户自己点的：模型据此知道那张失败的图已经补上（或又失败了），不必再提议重做。
+  const title = block.retryOf ? `用户重试了「${block.title}」` : block.title
+  if (block.status === 'failed') return `${title}：失败（${block.message ?? '未知原因'}）`
+  if (block.status === 'submitted') return `${title}：已提交后台任务，结果尚未就绪`
+  if (block.status === 'queued') return `${title}：排队等待重试，尚未提交`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')
-  return listed ? `${block.title}：完成，${listed}` : `${block.title}：完成`
+  return listed ? `${title}：完成，${listed}` : `${title}：完成`
 }
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */

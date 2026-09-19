@@ -1,11 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AuthGate } from './auth/AuthGate'
+import { bootstrapLocale } from './i18n'
 import './index.css'
-import { bootstrapChannels } from './lib/channels/bootstrapChannels'
-import { bootstrapClientCapabilities } from './lib/clientCapabilities'
+import { restoreLocalStorage } from './lib/localCompatibility/bridge'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
+import { initTheme } from './theme'
 
 installMobileViewportGuards()
 
@@ -27,13 +27,32 @@ if ('serviceWorker' in navigator) {
 // Capabilities and channel discovery share one startup round trip. The channel request can return
 // 401 before login; AuthGate retries it after establishing an authenticated session.
 const runtime = await loadRuntimeConfig()
-await Promise.all([
-  bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl),
-  bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl),
-])
+const restored =
+  !runtime.localCompatibility || (await restoreLocalStorage(runtime.localCompatibility))
+if (!restored && runtime.localCompatibility) {
+  const fallback = new URL(runtime.localCompatibility.sourceOrigin)
+  fallback.pathname = location.pathname
+  fallback.search = location.search
+  fallback.hash = location.hash
+  location.replace(fallback.href)
+} else {
+  // 首帧的明暗已由 index.html 里的内联脚本定好；这里在旧站数据搬完之后接手后续变化。
+  initTheme()
+  const [{ AuthGate }, { bootstrapChannels }, { bootstrapClientCapabilities }] = await Promise.all([
+    import('./auth/AuthGate'),
+    import('./lib/channels/bootstrapChannels'),
+    import('./lib/clientCapabilities'),
+  ])
+  await Promise.all([
+    // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
+    bootstrapLocale(),
+    bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl),
+    bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl),
+  ])
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <AuthGate />
-  </StrictMode>,
-)
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <AuthGate />
+    </StrictMode>,
+  )
+}

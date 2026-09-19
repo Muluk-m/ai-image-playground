@@ -6,8 +6,9 @@ import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
 import {
   agentActivityPhase,
   answerableClarificationId,
-  useAgentStore,
-} from '../../../features/agent/store'
+  conversationStarted,
+} from '../../../features/agent/lib/panelMessages'
+import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -86,10 +87,15 @@ beforeEach(() => {
     conversations: [],
     messages: [],
     turn: 'idle',
+    stopping: false,
+    reconnecting: false,
     activeTurn: null,
     turns: {},
+    queue: [],
     error: null,
     loaded: false,
+    historyLoading: false,
+    historyFailed: false,
   })
 })
 
@@ -162,6 +168,103 @@ describe('一轮对话', () => {
     expect(state().messages.map((message) => message.kind === 'text' && message.role)).toEqual([
       'user',
     ])
+  })
+
+  it('停止的轮留下说了一半的回复并记为已停止，刷新读回来还是同一个样子', async () => {
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        ASSISTANT_START,
+        { type: 'textDelta', messageId: 'assistant-1', delta: '好的，我先' },
+        { type: 'turnEnd', turnId: 'turn-1', durationMs: 900, stopReason: 'aborted', usage: null },
+      )
+
+    await state().send('画一只猫')
+
+    const live = { messages: state().messages, turns: state().turns }
+    expect(state().turn).toBe('idle')
+    expect(state().error).toBeNull()
+    expect(live.messages.map((message) => message.kind === 'text' && message.text)).toEqual([
+      '画一只猫',
+      '好的，我先',
+    ])
+    expect(live.turns['turn-1']).toMatchObject({ stopReason: 'aborted' })
+
+    messagesResponse = () =>
+      Response.json({
+        messages: [
+          {
+            id: 'user-1',
+            turnId: 'turn-1',
+            role: 'user',
+            content: [{ type: 'text', text: '画一只猫' }],
+            createdAt: 1,
+          },
+          {
+            id: 'assistant-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [{ type: 'text', text: '好的，我先' }],
+            createdAt: 2,
+          },
+        ],
+        activeTurn: null,
+        turns: [{ turnId: 'turn-1', durationMs: 900, stopReason: 'aborted' }],
+      })
+    await state().selectConversation(CONVERSATION)
+
+    expect(state().messages).toEqual(live.messages)
+    expect(state().turns).toEqual(live.turns)
+  })
+
+  it('断线续播期间标出正在重连，接上后撤掉', async () => {
+    // 起轮那条流读完 turnStart 就被掐断；续播请求由用例决定何时接上。
+    const dropped = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(frames(TURN_START)))
+      },
+      pull(controller) {
+        controller.error(new Error('network dropped'))
+      },
+    })
+    let reconnect!: (response: Response) => void
+    const resumed = new Promise<Response>((resolve) => {
+      reconnect = resolve
+    })
+    let calls = 0
+    turnResponse = () => {
+      calls += 1
+      return calls === 1 ? new Response(dropped) : resumed
+    }
+
+    const sending = state().send('把背景换成浅木色')
+    await vi.waitFor(() => expect(state().reconnecting).toBe(true))
+    expect(state().turn).toBe('running')
+
+    reconnect(turnStream(TURN_START, TURN_END))
+    await sending
+
+    expect(state().reconnecting).toBe(false)
+    expect(state().turn).toBe('idle')
+  })
+
+  it('断线中途被重置的旧轮留下的重连标记，不会挂到下一轮上', async () => {
+    // 旧跟随者被重置后它的收尾不再写回，面板上残留着 reconnecting=true。
+    useAgentStore.setState({ reconnecting: true })
+    let finish!: (response: Response) => void
+    turnResponse = () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+
+    const sending = state().send('把背景换成浅木色')
+    expect(state().turn).toBe('running')
+    expect(state().reconnecting).toBe(false)
+
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    finish(turnStream(TURN_START, TURN_END))
+    await sending
+    expect(state().reconnecting).toBe(false)
   })
 
   it('空白消息不发', async () => {
@@ -248,7 +351,7 @@ describe('读回历史', () => {
 
     expect(state().conversationId).toBe(CONVERSATION)
     expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
-    expect(state().error).toBe('这个会话读不回来，稍后再试')
+    expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 
   it('网络断了同样留着会话', async () => {
@@ -260,11 +363,136 @@ describe('读回历史', () => {
     await state().load()
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(state().error).toBe('这个会话读不回来，稍后再试')
+    expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 })
 
 describe('发送反馈', () => {
+  it('创建会话期间中止，不提交模型任务且让输入框恢复草稿', async () => {
+    let release!: (response: Response) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve
+        }),
+    )
+    const accepted = vi.fn()
+    const sending = state().send('还没发出的草稿', [], accepted)
+    await state().abort()
+    release(Response.json({ conversation: conversation(CONVERSATION, '') }))
+    expect(await sending).toBe('cancelled')
+    expect(accepted).not.toHaveBeenCalled()
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(state().messages).toEqual([])
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+  })
+
+  it('连续中止只提交一次；网络失败后可再次中止', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    let reject!: (error: Error) => void
+    turnResponse = () =>
+      new Promise<Response>((_, fail) => {
+        reject = fail
+      })
+    const stopping = state().abort()
+    await state().abort()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // 没拿到响应的停止会重发同一个请求；一直断网，重发也失败，才报停止失败。
+    turnResponse = () => Promise.reject(new TypeError('offline'))
+    reject(new TypeError('offline'))
+    await stopping
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(state().stopping).toBe(false)
+    turnResponse = () => Response.json({ aborted: true })
+    await state().abort()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(state().error).toBeNull()
+  })
+
+  it('中止遇到已结束的轮，按历史恢复结束状态', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => Response.json({ error: 'turn_not_found' }, { status: 404 })
+    await state().abort()
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(state().error).toBeNull()
+  })
+
+  it('中止遇到已结束的轮时一并撤掉重连提示', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      reconnecting: true,
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => Response.json({ error: 'turn_not_found' }, { status: 404 })
+    await state().abort()
+    expect(state().reconnecting).toBe(false)
+  })
+
+  it('发送响应尚未到达时记住中止，收到轮标识后立即中止该轮', async () => {
+    useAgentStore.setState({ conversationId: CONVERSATION })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    turnResponse = async () => {
+      await gate
+      return turnStream(TURN_START, TURN_END)
+    }
+    const sending = state().send('画一只橘猫')
+    await state().abort()
+    const phaseAfterClick = agentActivityPhase(state())
+    release()
+    await sending
+    expect(phaseAfterClick).toBe('stopping')
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/turn-1/abort')),
+    ).toHaveLength(1)
+  })
+
+  it('服务端拒绝中止时保留运行状态并提供重试提示', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+    await state().abort()
+    expect(state().turn).toBe('running')
+    expect(state().error).toContain('中止未成功')
+  })
+
+  it('先上屏的那条就算会话开始了；起轮失败时撤掉它，欢迎页回来', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    turnResponse = async () => {
+      await gate
+      return new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 })
+    }
+
+    const sending = state().send('画一只橘猫')
+    await Promise.resolve()
+    expect(conversationStarted(state().messages)).toBe(true)
+
+    release()
+    await sending
+    expect(state().turn).toBe('failed')
+    expect(state().messages).toEqual([])
+    expect(conversationStarted(state().messages)).toBe(false)
+  })
+
   it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
@@ -275,60 +503,25 @@ describe('发送反馈', () => {
       return turnStream(TURN_START, TURN_END)
     }
 
-    const sending = state().send('把背景换成浅木色')
+    const references = [{ imageId: 'outfit', dataUrl: 'data:image/png;base64,AQID' }]
+    const sending = state().send('[image 1]把背景换成浅木色', references)
     await Promise.resolve()
     expect(state().turn).toBe('running')
     expect(state().activeTurn).toBeNull()
     expect(agentActivityPhase(state())).toBe('sending')
     const pending = state().messages.filter((one) => one.kind === 'text' && one.pending)
     expect(pending).toHaveLength(1)
-    expect(pending[0]).toMatchObject({ role: 'user', text: '把背景换成浅木色' })
+    expect(pending[0]).toMatchObject({
+      role: 'user',
+      text: '[image 1]把背景换成浅木色',
+      references,
+    })
 
     release()
     await sending
     expect(state().messages.map((one) => one.id)).toEqual(['user-1'])
     expect(state().messages.some((one) => one.kind === 'text' && one.pending)).toBe(false)
-  })
-
-  it('状态相位：起轮前发送中，等模型时思考中，工具跑着执行中，文字在流就让位', () => {
-    const user = {
-      kind: 'text' as const,
-      id: 'user-1',
-      turnId: 'turn-1',
-      role: 'user' as const,
-      text: '画',
-      streaming: false,
-    }
-    expect(agentActivityPhase({ turn: 'idle', activeTurn: null, messages: [user] })).toBeNull()
-    expect(agentActivityPhase({ turn: 'running', activeTurn: null, messages: [user] })).toBe(
-      'sending',
-    )
-    const active = { turnId: 'turn-1' }
-    expect(agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user] })).toBe(
-      'thinking',
-    )
-    const tool = {
-      kind: 'tool' as const,
-      id: 'tool-1',
-      turnId: 'turn-1',
-      toolCallId: 'call-1',
-      title: '生成图片',
-      status: 'running' as const,
-    }
-    expect(
-      agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, tool] }),
-    ).toBe('executing')
-    const reply = { ...user, id: 'assistant-1', role: 'assistant' as const, streaming: true }
-    expect(
-      agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, reply] }),
-    ).toBeNull()
-    expect(
-      agentActivityPhase({
-        turn: 'running',
-        activeTurn: active,
-        messages: [user, { ...reply, text: '' }],
-      }),
-    ).toBe('thinking')
+    expect(state().messages[0]).toMatchObject({ references })
   })
 })
 
@@ -553,50 +746,69 @@ describe('澄清', () => {
     // 后面已经有用户消息了，这条澄清作过答。
     expect(answerableClarificationId(state().messages)).toBeNull()
   })
+})
 
-  it('重新打开会话时没作答的澄清还能作答', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
-    messagesResponse = () =>
-      Response.json({
-        activeTurn: null,
-        turns: [],
-        messages: [
-          {
-            id: 'user-1',
-            turnId: 'turn-1',
-            role: 'user',
-            content: [{ type: 'text', text: '给我画个杯子' }],
+describe('发送确认', () => {
+  it('忙时发送携带引用，拒收时不清草稿也不结束正在运行的轮', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => new Response(null, { status: 409 })
+    const accepted = vi.fn()
+    const references = [{ imageId: 'new-image', dataUrl: 'data:image/png;base64,aGk=' }]
+    await state().send('修改这张', references, accepted)
+    expect(accepted).not.toHaveBeenCalled()
+    expect(state().turn).toBe('running')
+    expect(state().error).toContain('草稿已保留')
+    const request = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!
+    expect(JSON.parse(String(request[1]?.body)).references).toEqual(references)
+    turnResponse = () =>
+      Response.json(
+        {
+          queued: {
+            id: 'queue-1',
+            clientMessageId: 'client-1',
+            text: '修改这张',
+            referenceCount: 1,
             createdAt: 1,
           },
-          {
-            id: 'clarify-1',
-            turnId: 'turn-1',
-            role: 'assistant',
-            content: [
-              {
-                type: 'clarification',
-                question: '要哪种风格？',
-                options: ['写实照片', '扁平插画'],
-              },
-            ],
-            createdAt: 2,
-          },
-        ],
-      })
+          state: 'pending',
+          turnId: 'turn-1',
+        },
+        { status: 202 },
+      )
+    await state().send('修改这张', references, accepted)
+    expect(accepted).toHaveBeenCalledOnce()
+  })
+  it('起轮失败时不确认发送，成功响应后才确认', async () => {
+    turnResponse = () => new Response(null, { status: 429 })
+    const accepted = vi.fn()
+    await state().send('画一只猫', [], accepted)
+    expect(accepted).not.toHaveBeenCalled()
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('画一只猫', [], accepted)
+    expect(accepted).toHaveBeenCalledOnce()
+  })
+})
 
+describe('历史读取重试', () => {
+  it('失败后仅重读当前会话，期间禁止发送，不新建会话或发起轮', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () => new Response('{}', { status: 503 })
     await state().load()
-
-    expect(state().messages).toEqual([
-      {
-        kind: 'text',
-        id: 'user-1',
-        turnId: 'turn-1',
-        role: 'user',
-        text: '给我画个杯子',
-        streaming: false,
-      },
-      CARD,
-    ])
-    expect(answerableClarificationId(state().messages)).toBe('clarify-1')
+    expect(state().historyFailed).toBe(true)
+    expect(state().conversationId).toBe(CONVERSATION)
+    const calls = fetchMock.mock.calls.length
+    await state().send('草稿不能误发')
+    expect(fetchMock).toHaveBeenCalledTimes(calls)
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    await state().retryHistory()
+    expect(state().historyFailed).toBe(false)
+    expect(state().historyLoading).toBe(false)
+    expect(state().error).toBeNull()
+    expect(state().conversationId).toBe(CONVERSATION)
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 })

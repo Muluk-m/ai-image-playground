@@ -81,10 +81,15 @@ async function startConversation(): Promise<string> {
   return json.conversation.id
 }
 
-async function runTurn(conversationId: string, text: string): Promise<ReceivedFrame[]> {
+async function runTurn(
+  conversationId: string,
+  text: string,
+  mode?: 'image' | 'video',
+): Promise<ReceivedFrame[]> {
   const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
     deviceId: DEVICE,
     text,
+    ...(mode ? { mode } : {}),
   })
   return parseFrames(await response.text())
 }
@@ -216,7 +221,8 @@ describe('本轮消耗', () => {
     const stop = settleSubmittedTasks(VIDEO_RESULT_PAYLOAD)
     const conversationId = await startConversation()
 
-    const frames = await runTurn(conversationId, '来一段海浪的视频')
+    // 生视频工具只在视频轮进模型的清单。
+    const frames = await runTurn(conversationId, '来一段海浪的视频', 'video')
     stop()
 
     expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 125 })
@@ -268,6 +274,36 @@ describe('本轮消耗', () => {
       turnId,
       stopReason: 'completed',
       cost: { chat: 42, image: 0, video: 0 },
+    })
+  })
+})
+
+describe('工具提交被计费拒绝', () => {
+  it('把积分不够的生图失败归为 insufficient_credits', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () => {
+            // 这一轮的对话预扣已经过了；轮到工具提交时积分不够。
+            billing.answer = { kind: 'insufficient_credits', required: 85, available: 3 }
+            return toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '一只橘猫' },
+            })
+          },
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画一只橘猫')
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'insufficient_credits',
     })
   })
 })

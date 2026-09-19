@@ -2,13 +2,21 @@
 
 本文件给 Claude Code（claude.ai/code）当作工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
+## 部署与灾备
+
+- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- 前端两套 Pages、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
+- macmini2 旧备用已停止，Tunnel 禁用；配置、镜像及数据卷保留。启停与历史数据状态见[灾备附录](docs/deploy/cold-recovery.md#附录旧备用服务)。
+- 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)，不定时同步备用 PG；新实例只用 R2。保持原域名、会话密钥和账号命名空间，切回前核对两端增量；不得直接覆盖原库或自动绑定匿名数据。
+- 固定 API 切换和跨机器单写者保护尚未上线；不得将恢复演练或同库发布排空视为完整灾备。
+
 ## 项目概况
 
 `ai-image-playground` — AI 生图工作台。fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，扩展了 Gemini 原生协议、异步队列模式、可选 BFF 后端、内置 channel discovery。
 
 pnpm workspace + Turbo v2 + Biome：
 
-- `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。历史 / 配置全存浏览器 IndexedDB。
+- `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。画布、已缓存产物与配置存浏览器 IndexedDB；完整 Agent 对话存对应 BFF 的 PostgreSQL，本地不是完整消息备份。
 - `apps/bff/` — **可选**任务队列 BFF（Elysia + Bun + Drizzle + PostgreSQL via `bun:sql`）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
 - `apps/admin/` — 可选运维面板（Bun + Elysia 服务端，端口 37378；Vite + TanStack Router + shadcn 前端）。HMAC cookie 鉴权；数据库连接只读，用户与运营写操作一律代理到 BFF。
 - `packages/shared/` — 跨 app 协议类型（`runtime-config.ts` / `channel-discovery.ts` / `queue-protocol.ts`）。
@@ -45,12 +53,12 @@ pnpm workspace + Turbo v2 + Biome：
 
 任一项不过就不要 push。
 
-CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）只兜前两项加 `apps/web`：
-`pnpm lint`、`pnpm typecheck`、`apps/web` 的测试与构建。**`apps/bff`、`apps/admin` 与私有包的测试
-CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这三处时本地就是唯一关卡，
-别指望 PR 变绿说明测试过了。
+CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm lint`、`pnpm typecheck`、
+`apps/web` 构建，并在带 PostgreSQL 的 job 中串行执行公开 workspace 的完整 `pnpm test`，
+包含 BFF、Admin 和数据库迁移回滚测试。**私有包不在公开 CI 中**；涉及私有接缝时仍需在
+带 `private/` 的环境中完成对应测试，不能只凭 PR 变绿判断。
 
-**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`，通过现有发布脚本部署受影响的内部版与付费版服务，并核验线上版本和行为。除非用户明确要求仅本地修改或暂不部署，否则直接完成整条链路，无需再次询问是否部署。
+**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。除非用户明确要求仅本地修改或暂不合并，否则直接完成整条链路，无需再次询问是否部署。
 
 ## 测试约定
 
@@ -76,7 +84,9 @@ CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这
 ## Runtime 配置
 
 [`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。
-`runtime-config.json` 只包含连接 BFF 前必须知道的 `bff.enabled` 与 `bff.baseUrl`；schema
+`runtime-config.json` 只保存连接 BFF 前必须知道的启用状态与地址：`bff.enabled`、默认
+`bff.baseUrl`，以及可选的 `bff.baseUrlsByOrigin`。多个前端域名共享发布包时，按当前前端
+origin 精确选择映射中的 API；未匹配时沿用默认地址，以保留各域名原有的第一方登录 Cookie。schema
 无效或文件不存在时回退到 `BAKED_DEFAULTS`（`bff.enabled=false`）。能力只能由 BFF 求值，前端并行读取
 `/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
 配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。
@@ -115,8 +125,7 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 
 **收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
 
-- 免费：`./scripts/app-compose.sh build <image>`
-- 收费：`./scripts/app-compose.sh build-private <image>`（`--build-arg PRIVATE_OVERLAY_PRESENT=true` + `--build-context private-overlay=private/`）
+- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh all <目录>` 构建（付费版带入私有 overlay 的 main HEAD）；应急时在 macmini2 手动执行同一脚本（`internal`/`paid`/`all`）。
 
 **分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 

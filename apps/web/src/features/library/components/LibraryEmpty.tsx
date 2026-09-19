@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../i18n'
 import NewAssetButton from './NewAssetButton'
 
 /** 参考图缩略图 + 右键菜单：告诉用户素材从哪来。 */
@@ -6,7 +7,7 @@ function SaveAssetIllustration() {
     <svg
       data-empty-illustration
       viewBox="0 0 104 64"
-      className="h-16 w-auto text-gray-300 dark:text-gray-600"
+      className="h-16 w-auto text-foreground"
       fill="none"
       aria-hidden="true"
     >
@@ -26,25 +27,25 @@ function SaveAssetIllustration() {
         width="46"
         height="24"
         rx="5"
-        className="fill-white dark:fill-gray-900"
+        className="fill-white dark:fill-muted"
         stroke="currentColor"
         strokeWidth="2"
       />
       <rect x="60" y="41" width="26" height="3" rx="1.5" fill="currentColor" />
-      <rect x="60" y="49" width="18" height="3" rx="1.5" className="fill-blue-500" />
+      <rect x="60" y="49" width="18" height="3" rx="1.5" className="fill-primary" />
     </svg>
   )
 }
 
 export function AssetsEmpty({ onImport }: { onImport: () => void }) {
+  const { t } = useTranslation('library')
+
   return (
     <div className="flex flex-col items-center gap-4 pt-12 text-center">
       <SaveAssetIllustration />
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        拖入或粘贴图片，或右键参考图缩略图存为素材
-        <span className="mt-1 block text-xs text-gray-400 dark:text-gray-500">
-          手机上长按缩略图
-        </span>
+      <p className="text-sm text-muted-foreground">
+        {t('empty.assetsTitle')}
+        <span className="mt-1 block text-xs text-muted-foreground">{t('empty.assetsMobile')}</span>
       </p>
       <NewAssetButton onClick={onImport} />
     </div>
@@ -52,14 +53,12 @@ export function AssetsEmpty({ onImport }: { onImport: () => void }) {
 }
 
 export function TemplatesEmpty() {
-  return (
-    <p className="pt-16 text-center text-sm text-gray-500 dark:text-gray-400">
-      写好提示词后点存为模板，输入 / 调用
-    </p>
-  )
+  const { t } = useTranslation('library')
+
+  return <p className="pt-16 text-center text-sm text-muted-foreground">{t('empty.templates')}</p>
 }
 
 /** 库里有东西、只是被搜索过滤光时的那一行。 */
 export function NoMatch({ label }: { label: string }) {
-  return <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">{label}</p>
+  return <p className="pt-16 text-center text-sm text-muted-foreground">{label}</p>
 }

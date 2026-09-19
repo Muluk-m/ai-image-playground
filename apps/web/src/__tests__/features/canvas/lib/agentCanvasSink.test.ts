@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { createArtifactDelivery } from '../../../../features/agent/lib/artifactDelivery'
+import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -53,77 +55,117 @@ beforeEach(() => {
   )
 })
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  setAgentCanvasSink(null)
+  vi.unstubAllGlobals()
+})
 
-describe('画布编辑修订号', () => {
-  it('平移、缩放、选区与工具不算编辑', () => {
-    addText('text-1')
-    const before = sink.revision()
-
-    doc.setCamera({ x: 120, y: 40 })
-    doc.zoomAt(10, 10, 2)
-    doc.setSelection(['text-1'])
-    doc.setTool('pen')
-    doc.notifyAssetLoaded()
-
-    expect(sink.revision()).toBe(before)
+it('云端新结果自动进入可见画布，重复交付不再抢走用户镜头', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    queueMicrotask(() => callback(performance.now() + 1_000))
+    return 1
   })
-
-  it('增删元素与撤销重做各抬一次', () => {
-    const start = sink.revision()
-
-    addText('text-1')
-    doc.deleteElements(['text-1'])
-    doc.undo()
-    doc.redo()
-
-    expect(sink.revision()).toBe(start + 4)
+  const cloudSink = createAgentCanvasSink(editor, undefined, {
+    enabled: () => true,
+    refresh: async () => {
+      doc.addElements([
+        {
+          id: 'result',
+          type: 'image',
+          fileId: 'file',
+          x: 4_000,
+          y: 3_000,
+          width: 200,
+          height: 100,
+          rotation: 0,
+        },
+      ])
+    },
   })
+  setAgentCanvasSink(cloudSink)
+  const delivery = createArtifactDelivery(() => {})
+  const turn = delivery.beginTurn()
+  const message = {
+    kind: 'tool' as const,
+    id: 'tool',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage' as const,
+    title: '生成结果',
+    status: 'succeeded' as const,
+    artifacts: [
+      {
+        artifactId: 'result',
+        taskId: 'task',
+        media: 'image' as const,
+        outputIndex: 0,
+        mime: 'image/png',
+      },
+    ],
+  }
+  turn.enqueue(message)
+  await turn.settled()
+  expect(editor.getSelectedIds()).toEqual(['result'])
+  const result = editor.getElementPageBounds('result')!
+  expect((result.midX - doc.camera.x) * doc.camera.zoom).toBe(400)
+  expect((result.midY - doc.camera.y) * doc.camera.zoom).toBe(300)
+  doc.setCamera({ x: 100, y: 200 })
+  turn.enqueue(message)
+  await turn.settled()
+  expect(doc.camera).toMatchObject({ x: 100, y: 200 })
+})
 
-  it('一次拖拽只算一次，过程中的高频更新不重复计', () => {
-    addText('text-1')
-    const before = sink.revision()
-
-    doc.captureHistory()
-    doc.updateElements([{ id: 'text-1', patch: { x: 10 } }])
-    doc.updateElements([{ id: 'text-1', patch: { x: 20 } }])
-
-    expect(sink.revision()).toBe(before + 1)
+it('后台完成交付不会移动已离开项目或新项目的镜头', async () => {
+  const cloudSink = createAgentCanvasSink(editor, undefined, {
+    enabled: () => true,
+    refresh: async () => {
+      doc.addElements([
+        {
+          id: 'background-result',
+          type: 'image',
+          fileId: 'file',
+          x: 4_000,
+          y: 3_000,
+          width: 200,
+          height: 100,
+          rotation: 0,
+        },
+      ])
+    },
   })
-
-  it('占位框状态流转与场景恢复不算用户编辑', () => {
-    const placeholderId = editor.createPlaceholder(
-      { x: 0, y: 0, w: 10, h: 10 },
-      { taskId: 't', clientRequestId: 'c', source: 'builtin-edge', prompt: '' },
-    )
-    const before = sink.revision()
-
-    editor.updatePlaceholder(placeholderId, { status: 'error', message: '上游拒绝' })
-    doc.restore([], {})
-
-    expect(sink.revision()).toBe(before)
+  cloudSink.background = true
+  setAgentCanvasSink(cloudSink)
+  const turn = createArtifactDelivery(() => {}).beginTurn()
+  const next = new CanvasDoc()
+  setAgentCanvasSink(createAgentCanvasSink(new CanvasEditor(next)))
+  turn.enqueue({
+    kind: 'tool',
+    id: 'tool',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '后台生成结果',
+    status: 'succeeded',
+    artifacts: [
+      {
+        artifactId: 'background-result',
+        taskId: 'task',
+        media: 'image',
+        outputIndex: 0,
+        mime: 'image/png',
+      },
+    ],
   })
+  await turn.settled()
+  expect(editor.getElement('background-result')?.type).toBe('image')
+  expect(editor.getSelectedIds()).toEqual([])
+  expect(doc.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+  expect(next.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+  expect(next.elements).toEqual([])
 })
 
 describe('落画布', () => {
-  it('基线与当前修订号一致时写入', async () => {
-    const outcome = await sink.place(IMAGES, { baseRevision: sink.revision() })
-
-    expect(outcome).toBe('placed')
-    expect(editor.getElement('agent_image_1')).toMatchObject({ type: 'image' })
-  })
-
-  it('基线过期时判为画布冲突，一张都不写', async () => {
-    const base = sink.revision()
-    addText('text-1')
-
-    const outcome = await sink.place(IMAGES, { baseRevision: base })
-
-    expect(outcome).toBe('conflict')
-    expect(editor.getElement('agent_image_1')).toBeUndefined()
-  })
-
-  it('不带基线时无条件写入', async () => {
+  it('用户中途改过画布也照样写入', async () => {
     addText('text-1')
 
     const outcome = await sink.place(IMAGES)
@@ -132,11 +174,11 @@ describe('落画布', () => {
     expect(editor.getElement('agent_image_1')).toMatchObject({ type: 'image' })
   })
 
-  it('写入后的修订号可以当作下一次的基线', async () => {
-    await sink.place(IMAGES, { baseRevision: sink.revision() })
+  it('连着两次交付都写入', async () => {
+    await sink.place(IMAGES)
 
     const second = [{ ...IMAGES[0]!, artifactId: 'agent_image_2' }]
-    expect(await sink.place(second, { baseRevision: sink.revision() })).toBe('placed')
+    expect(await sink.place(second)).toBe('placed')
     expect(editor.getElements().map((element) => element.id)).toEqual([
       'agent_image_1',
       'agent_image_2',
@@ -160,16 +202,53 @@ describe('落画布', () => {
     expect(editor.getElement('agent_image_1')).not.toHaveProperty('video')
   })
 
-  it('图片尺寸晚到期间用户编辑，真正插入前仍判为冲突', async () => {
-    holdSizing = true
-    const placing = sink.place(IMAGES, { baseRevision: sink.revision() })
-    await vi.waitFor(() => expect(sizing).toHaveLength(1))
-    addText('user-edit')
-    sizing[0]!()
+  it('产物记下这次调用的完整提示词，视频重新生成据此预填', async () => {
+    await sink.place([
+      {
+        artifactId: 'agent_video_3',
+        dataUrl: 'data:image/png;base64,UE9T',
+        prompt: '黄昏的海边，一个人慢跑，镜头缓慢推近',
+        name: '视频：海边慢跑 1',
+        video: { taskId: 'task-4', outputIndex: 0 },
+      },
+    ])
+    expect(editor.getElement('agent_video_3')).toMatchObject({
+      meta: { prompt: '视频：海边慢跑', userPrompt: '黄昏的海边，一个人慢跑，镜头缓慢推近' },
+    })
+  })
 
-    expect(await placing).toBe('conflict')
-    expect(editor.getElement('agent_image_1')).toBeUndefined()
-    expect(editor.getElement('user-edit')).toMatchObject({ type: 'text' })
+  it('超长提示词不记，免得云端项目整份同步失败', async () => {
+    await sink.place([
+      {
+        artifactId: 'agent_video_5',
+        dataUrl: 'data:image/png;base64,UE9T',
+        prompt: '长'.repeat(10001),
+        name: '视频 1',
+        video: { taskId: 'task-5', outputIndex: 0 },
+      },
+    ])
+    expect(editor.getElement('agent_video_5')).not.toHaveProperty('meta.userPrompt')
+  })
+
+  it('视频产物带着生成参数落画布，「改参数重来」才有据可依', async () => {
+    const generation = {
+      model: 'grok-imagine-video',
+      duration: 6,
+      aspectRatio: '9:16',
+      resolution: '720p',
+      firstFrameId: 'agent_image_1',
+    } as const
+    await sink.place([
+      {
+        artifactId: 'agent_video_2',
+        dataUrl: 'data:image/png;base64,UE9T',
+        video: { taskId: 'task-3', outputIndex: 0, generation },
+      },
+    ])
+
+    expect(editor.getElement('agent_video_2')).toMatchObject({
+      video: { taskId: 'task-3', outputIndex: 0, generation },
+    })
   })
 
   it('尺寸加载期间原画布失效，不再写入离开的画布', async () => {
@@ -236,13 +315,11 @@ describe('工具起跑占位', () => {
     expect(scrolled).toEqual([[...ids]])
   })
 
-  it('占位不算用户编辑：修订号不动，智能体不会判自己冲突', async () => {
-    const before = sink.revision()
-
+  it('占位不算用户编辑：占位框不进 undo 栈', async () => {
     const ids = await sink.reserve({ count: 2 })
     sink.discard(ids)
 
-    expect(sink.revision()).toBe(before)
+    expect(doc.canUndo).toBe(false)
   })
 
   it('占位框让开画布上已有的元素', async () => {
@@ -284,12 +361,12 @@ describe('工具起跑占位', () => {
     expect(first.collides(second)).toBe(false)
   })
 
-  it('落图被判冲突时占位框留在原地，不把它连同产物一起吞掉', async () => {
+  it('原画布已离开、没落成图时占位框留在原地，不把它连同产物一起吞掉', async () => {
     const [id] = await sink.reserve({ count: 1 })
-    const base = sink.revision()
-    addText('user-edit')
 
-    expect(await sink.place(IMAGES, { baseRevision: base, placeholderIds: [id!] })).toBe('conflict')
+    expect(await sink.place(IMAGES, { placeholderIds: [id!], isCurrent: () => false })).toBe(
+      'unavailable',
+    )
     expect(editor.getPlaceholder(id!)).toBeDefined()
   })
 
@@ -302,5 +379,291 @@ describe('工具起跑占位', () => {
       status: 'error',
       message: '上游拒绝了这张图',
     })
+  })
+
+  it('带错误码的失败占位把码记在占位框上，刷新恢复后仍在', async () => {
+    const [id] = await sink.reserve({ count: 1, messageId: 'tool-credits' })
+
+    sink.markFailed([id!], '积分不够', 'insufficient_credits')
+
+    expect(editor.getPlaceholder(id!)).toMatchObject({
+      status: 'error',
+      meta: { agent: true, agentErrorCode: 'insufficient_credits' },
+    })
+    const restored = new CanvasDoc()
+    restored.restore([...doc.elements], doc.files)
+    expect(new CanvasEditor(restored).getPlaceholder(id!)?.meta.agentErrorCode).toBe(
+      'insufficient_credits',
+    )
+  })
+
+  it('云端项目的工具失败时立即拉取云端，服务端留下的失败占位马上出现', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const cloudSink = createAgentCanvasSink(editor, undefined, { enabled: () => true, refresh })
+    // 云端项目的图片占位由服务端预留，本机不占位。
+    const ids = await cloudSink.reserve({ count: 1, messageId: 'tool-cloud' })
+    expect(editor.getPlaceholders()).toEqual([])
+
+    cloudSink.markFailed(ids, '上游超时', 'timeout')
+
+    expect(refresh).toHaveBeenCalledTimes(1)
+    // 已受理的任务失败由服务端留失败占位，本机不再叠一个。
+    expect(editor.getPlaceholders()).toEqual([])
+  })
+
+  it.each([
+    'insufficient_credits',
+    'authentication_required',
+    'model_unavailable',
+  ] as const)('云端项目的调用提交就被拒（%s）：本机补一个带码的失败占位，与本机项目一致', async (code) => {
+    const cloudSink = createAgentCanvasSink(editor, undefined, {
+      enabled: () => true,
+      refresh: () => Promise.resolve(),
+    })
+    const ids = await cloudSink.reserve({
+      count: 2,
+      messageId: 'tool-refused',
+      conversationId: 'conv-1',
+      title: '一只橘猫',
+    })
+
+    cloudSink.markFailed(ids, '服务端写的那句话', code)
+
+    const placeholders = editor.getPlaceholders()
+    expect(placeholders).toHaveLength(2)
+    for (const one of placeholders)
+      expect(one).toMatchObject({
+        status: 'error',
+        meta: {
+          agent: true,
+          agentErrorCode: code,
+          agentConversationId: 'conv-1',
+          agentMessageId: 'tool-refused',
+          prompt: '一只橘猫',
+        },
+      })
+  })
+
+  it('云端项目重放同一次被拒的调用不叠第二组失败占位', async () => {
+    const cloud = { enabled: () => true, refresh: () => Promise.resolve() }
+    const first = createAgentCanvasSink(editor, undefined, cloud)
+    first.markFailed(
+      await first.reserve({ count: 1, messageId: 'tool-refused' }),
+      '',
+      'insufficient_credits',
+    )
+    const replay = createAgentCanvasSink(editor, undefined, cloud)
+    replay.markFailed(
+      await replay.reserve({ count: 1, messageId: 'tool-refused' }),
+      '',
+      'insufficient_credits',
+    )
+
+    expect(editor.getPlaceholders()).toHaveLength(1)
+  })
+
+  it('云端项目的调用被收掉（成功交付、轮中止）后再失败也不补占位', async () => {
+    const cloudSink = createAgentCanvasSink(editor, undefined, {
+      enabled: () => true,
+      refresh: () => Promise.resolve(),
+    })
+    const ids = await cloudSink.reserve({ count: 1, messageId: 'tool-discarded' })
+
+    cloudSink.discard(ids)
+    cloudSink.markFailed(ids, '', 'insufficient_credits')
+
+    expect(editor.getPlaceholders()).toEqual([])
+  })
+
+  it('本机项目的工具失败不去拉取云端', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const localSink = createAgentCanvasSink(editor, undefined, { enabled: () => false, refresh })
+    const [id] = await localSink.reserve({ count: 1 })
+
+    localSink.markFailed([id!], '上游超时', 'timeout')
+
+    expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+it('重放已失败工具时复用原占位，刷新恢复后仍然幂等', async () => {
+  const ids = await sink.reserve({ count: 2, messageId: 'tool-failed', title: '失败任务' })
+  sink.markFailed(ids, '上游失败')
+  const restored = new CanvasDoc()
+  restored.restore([...doc.elements], doc.files)
+  const resumed = createAgentCanvasSink(new CanvasEditor(restored))
+  const replay = await resumed.reserve({ count: 2, messageId: 'tool-failed', title: '失败任务' })
+  resumed.markFailed(replay, '上游失败')
+  expect(replay).toEqual(ids)
+  expect(restored.elements).toHaveLength(2)
+  expect(
+    restored.elements.every((one) => one.type === 'placeholder' && one.status === 'error'),
+  ).toBe(true)
+})
+
+describe('focusPending', () => {
+  it('selects the placeholders a still-running call reserved and leaves others alone', async () => {
+    const mine = await sink.reserve({ count: 2, messageId: 'tool-1', title: '橘猫' })
+    await sink.reserve({ count: 1, messageId: 'tool-2', title: '别的' })
+    editor.setSelectedElements([])
+
+    expect(sink.focusPending!({ messageId: 'tool-1', taskId: 'task-1' })).toBe(true)
+    expect(editor.getSelectedIds().sort()).toEqual([...mine].sort())
+
+    // 没有对应的占位（已经落图、或切过画布）就什么也不动。
+    editor.setSelectedElements([])
+    expect(sink.focusPending!({ messageId: 'gone' })).toBe(false)
+    expect(editor.getSelectedIds()).toEqual([])
+  })
+})
+
+describe('单张重试', () => {
+  it('重试让本机的失败占位重新转圈，结果落进它', async () => {
+    const [id] = await sink.reserve({ count: 1, messageId: 'tool-1' })
+    sink.markFailed([id!], '上游超时', 'timeout')
+
+    sink.revive?.([id!])
+
+    expect(editor.getPlaceholder(id!)).toMatchObject({ status: 'loading', message: '' })
+    await sink.place(IMAGES, { placeholderIds: [id!] })
+    expect(editor.getPlaceholder(id!)).toBeUndefined()
+    expect(editor.getElement('agent_image_1')?.type).toBe('image')
+  })
+
+  it('云端失败占位不由本机改状态：重试只拉云端，拉回来之前不兑现，标错也不改写服务端的码', async () => {
+    let pulled!: () => void
+    const refresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          pulled = resolve
+        }),
+    )
+    const cloudSink = createAgentCanvasSink(editor, undefined, { enabled: () => true, refresh })
+    const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+    const id = editor.createPlaceholder(
+      { x: 0, y: 0, w: 360, h: 360 },
+      {
+        taskId: '',
+        clientRequestId: generationId,
+        source: 'builtin-edge',
+        prompt: '',
+        agent: true,
+        cloudGeneration: { id: generationId, position: 0 },
+        agentErrorCode: 'timeout',
+      },
+      { history: false },
+    )
+    editor.updatePlaceholder(id, { status: 'error' })
+
+    let revived = false
+    const reviving = cloudSink.revive?.([id]).then(() => {
+      revived = true
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(editor.getPlaceholder(id)?.status).toBe('error')
+    await Promise.resolve()
+    // 云端文档还没拉回来：占位还是旧的失败占位，调用方的重试按钮得继续按住。
+    expect(revived).toBe(false)
+    pulled()
+    await reviving
+    expect(revived).toBe(true)
+
+    cloudSink.markFailed([id], '', 'insufficient_credits')
+    expect(editor.getPlaceholder(id)?.meta.agentErrorCode).toBe('timeout')
+  })
+})
+
+describe('智能体排的时间线', () => {
+  const video = (id: string, x: number, duration: number) =>
+    doc.addElements([
+      {
+        id,
+        type: 'image',
+        fileId: `file-${id}`,
+        x,
+        y: 100,
+        width: 200,
+        height: 120,
+        rotation: 0,
+        video: {
+          taskId: `task-${id}`,
+          outputIndex: 0,
+          generation: {
+            model: 'grok-imagine-video',
+            duration,
+            aspectRatio: '16:9',
+            resolution: '720p',
+          },
+        },
+      },
+    ])
+
+  const timelineCard = (timelineId: string, videoIds: readonly string[]) => ({
+    kind: 'tool' as const,
+    id: `tool-${timelineId}`,
+    turnId: 'turn',
+    toolCallId: `call-${timelineId}`,
+    toolName: 'arrangeTimeline' as const,
+    title: '排进时间线',
+    status: 'succeeded' as const,
+    timeline: {
+      timelineId,
+      clips: videoIds.map((videoId) => ({ videoId, in: 0, out: 5 })),
+    },
+  })
+
+  it('按智能体给的顺序排进一条新时间线，落在这些视频下方并选中它', async () => {
+    video('agent_a_1', 0, 5)
+    video('agent_b_1', 300, 5)
+    setAgentCanvasSink(sink)
+    const turn = createArtifactDelivery(() => {}).beginTurn()
+
+    turn.enqueue(timelineCard('timeline_1', ['agent_b_1', 'agent_gone_1', 'agent_a_1']))
+    await turn.settled()
+
+    const timeline = editor.getElementPageBounds('timeline_1')
+    expect(editor.getElement('timeline_1')).toMatchObject({
+      type: 'timeline',
+      clips: [
+        { elementId: 'agent_b_1', in: 0, out: 5 },
+        { elementId: 'agent_a_1', in: 0, out: 5 },
+      ],
+    })
+    expect(timeline?.x).toBe(0)
+    expect(timeline!.y).toBeGreaterThan(220)
+    expect(editor.getSelectedIds()).toEqual(['timeline_1'])
+  })
+
+  it('同一次排布重放不建第二条，也不动用户自己的时间线', async () => {
+    video('agent_a_1', 0, 5)
+    doc.addElements([
+      {
+        id: 'mine',
+        type: 'timeline',
+        x: 0,
+        y: 600,
+        width: 240,
+        height: 120,
+        clips: [{ elementId: 'agent_a_1', in: 1 }],
+      },
+    ])
+
+    expect(await sink.placeTimeline!(timelineCard('timeline_1', ['agent_a_1']).timeline)).toBe(
+      'placed',
+    )
+    expect(await sink.placeTimeline!(timelineCard('timeline_1', ['agent_a_1']).timeline)).toBe(
+      'placed',
+    )
+
+    const timelines = editor.getElements().filter((element) => element.type === 'timeline')
+    expect(timelines.map((one) => one.id)).toEqual(['mine', 'timeline_1'])
+    expect(editor.getElement('mine')).toMatchObject({ clips: [{ elementId: 'agent_a_1', in: 1 }] })
+  })
+
+  it('计划里的视频都不在画布上时不建空时间线', async () => {
+    expect(await sink.placeTimeline!(timelineCard('timeline_1', ['agent_gone_1']).timeline)).toBe(
+      'unavailable',
+    )
+    expect(editor.getElement('timeline_1')).toBeUndefined()
   })
 })

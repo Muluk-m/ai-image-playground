@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
+import { useLocalePicker } from '../i18n/useLocalePicker'
 import { normalizeBaseUrl } from '../lib/api'
 import {
   type ApiProfile,
@@ -29,8 +31,12 @@ import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { isApiProxyAvailable, readClientDevProxyConfig } from '../lib/devProxy'
 import { fetchProfileModels } from '../lib/fetchProfileModels'
+import { isSeedNewProfileName, profileSeedNames } from '../lib/profileSeedNames'
 import { getProviderModelOptions } from '../lib/providerModels'
 import { clearData, exportData, importData, useStore } from '../store'
+import type { ThemeChoice } from '../theme'
+import { THEME_LABEL_KEY } from '../theme/labels'
+import { useTheme } from '../theme/useTheme'
 import type { AppSettings, CustomProviderDefinition } from '../types'
 
 // SettingsModal 内部 draft 仍以扁平 ApiProfile 形态承载表单。加载/提交两端做一次 ClientProfile ↔ ApiProfile 转换。
@@ -203,12 +209,14 @@ function saveCopyImportUrlOptions(options: CopyImportUrlOptions) {
   }
 }
 
+/** 设置面板是唯一能选回「跟随系统」的地方；头像菜单与登录页只做亮暗翻转。 */
+const THEME_CHOICES: readonly ThemeChoice[] = ['system', 'light', 'dark']
+
 interface CustomProviderForm {
   json: string
 }
 
 const DEFAULT_CUSTOM_PROVIDER_MANIFEST = {
-  name: '自定义服务商',
   submit: {
     path: 'images/generations',
     method: 'POST',
@@ -255,7 +263,12 @@ const DEFAULT_CUSTOM_PROVIDER_MANIFEST = {
 
 function createDefaultCustomProviderForm(): CustomProviderForm {
   return {
-    json: JSON.stringify(DEFAULT_CUSTOM_PROVIDER_MANIFEST, null, 2),
+    // 名字是初值文案：打开表单这一刻的界面语言，所以不能跟着模块级常量一起定死。
+    json: JSON.stringify(
+      { name: profileSeedNames().customProvider, ...DEFAULT_CUSTOM_PROVIDER_MANIFEST },
+      null,
+      2,
+    ),
   }
 }
 
@@ -279,9 +292,9 @@ function customProviderFormToInput(form: CustomProviderForm) {
 }
 
 function isPristineNewOpenAIProfile(profile: ApiProfile) {
-  const defaultProfile = createDefaultOpenAIProfile({ id: profile.id, name: '新配置' })
+  const defaultProfile = createDefaultOpenAIProfile({ id: profile.id, name: profile.name })
   return (
-    profile.name === '新配置' &&
+    isSeedNewProfileName(profile.name) &&
     profile.provider === 'openai' &&
     profile.baseUrl === defaultProfile.baseUrl &&
     profile.apiKey === '' &&
@@ -398,6 +411,10 @@ profiles 中不要包含 apiKey（用户导入后自行填写）。
 {"customProviders":[{"id":"custom-example-task","name":"示例任务服务商","submit":{"path":"images/generations","method":"POST","contentType":"json","body":{"model":"$profile.model","prompt":"$prompt","n":"$params.n","size":"$params.size","resolution":"2k","quality":"$params.quality","image_urls":"$inputImages.dataUrls"},"taskIdPath":"data.0.task_id"},"poll":{"path":"tasks/{task_id}","method":"GET","query":{"language":"zh"},"intervalSeconds":5,"statusPath":"data.status","successValues":["completed"],"failureValues":["failed","cancelled"],"errorPath":"data.error.message","result":{"imageUrlPaths":["data.result.images.*.url.*"],"b64JsonPaths":[]}}}],"profiles":[{"name":"示例任务服务商","provider":"custom-example-task","baseUrl":"","model":"${DEFAULT_IMAGES_MODEL}","apiMode":"images"}]}`
 
 export default function SettingsModal() {
+  const { t } = useTranslation('settings')
+  const { t: tCommon } = useTranslation('common')
+  const localePicker = useLocalePicker()
+  const themeControls = useTheme()
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
@@ -487,16 +504,16 @@ export default function SettingsModal() {
   const providerOrder = draft.providerOrder || defaultProviderOrder
 
   const unorderedProviderOptions = [
-    { label: 'OpenAI 兼容接口', value: 'openai', draggable: true },
+    { label: t('provider.openaiCompatible'), value: 'openai', draggable: true },
     { label: 'Gemini', value: 'gemini', draggable: true },
     ...draft.customProviders.map((provider) => ({
       label: provider.name,
       value: provider.id,
       draggable: true,
       actions: [
-        { label: '编辑', onClick: () => openEditCustomProvider(provider) },
+        { label: tCommon('action.edit'), onClick: () => openEditCustomProvider(provider) },
         {
-          label: '删除',
+          label: tCommon('action.delete'),
           variant: 'danger' as const,
           onClick: () => confirmDeleteCustomProvider(provider),
         },
@@ -505,7 +522,11 @@ export default function SettingsModal() {
   ]
 
   const providerOptions = [
-    { label: '创建自定义服务商', value: ADD_CUSTOM_PROVIDER_VALUE, variant: 'action' as const },
+    {
+      label: t('provider.createCustom'),
+      value: ADD_CUSTOM_PROVIDER_VALUE,
+      variant: 'action' as const,
+    },
     ...unorderedProviderOptions.sort((a, b) => {
       const aIndex = providerOrder.indexOf(String(a.value))
       const bIndex = providerOrder.indexOf(String(b.value))
@@ -639,7 +660,11 @@ export default function SettingsModal() {
       const defaultModel = getDefaultModelForMode(profile.apiMode)
       return {
         ...profile,
-        name: profile.name.trim() || (profile.id === DEFAULT_OPENAI_PROFILE_ID ? '默认' : '新配置'),
+        name:
+          profile.name.trim() ||
+          (profile.id === DEFAULT_OPENAI_PROFILE_ID
+            ? profileSeedNames().defaultProfile
+            : profileSeedNames().newProfile),
         baseUrl: normalizedBaseUrl,
         model: profile.model.trim() || defaultModel,
         timeout: Number(profile.timeout) || DEFAULT_API_TIMEOUT,
@@ -737,12 +762,12 @@ export default function SettingsModal() {
     try {
       await copyTextToClipboard(createProfileImportUrl(profile, options))
       showToast(
-        options.includeApiKey ? '导入 URL 已复制（包含 API Key）' : '导入 URL 已复制',
+        options.includeApiKey ? t('toast.importUrlCopiedWithKey') : t('toast.importUrlCopied'),
         'success',
       )
       setCopyImportUrlProfile(null)
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制导入 URL 失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('toast.copyImportUrlFailed'), err), 'error')
     }
   }
 
@@ -831,7 +856,10 @@ export default function SettingsModal() {
 
   const createNewProfile = () => {
     setReusedTaskApiProfile(null)
-    const profile = createDefaultOpenAIProfile({ id: newId('openai'), name: '新配置' })
+    const profile = createDefaultOpenAIProfile({
+      id: newId('openai'),
+      name: profileSeedNames().newProfile,
+    })
     const nextDraft = normalizeDraftSettings({
       ...draft,
       profiles: [...draft.profiles, profile],
@@ -847,7 +875,7 @@ export default function SettingsModal() {
     const profile: ApiProfile = {
       ...activeProfile,
       id: newId(activeProfile.provider === 'openai' ? 'openai' : 'profile'),
-      name: `${activeProfile.name}（复制）`,
+      name: profileSeedNames().copyOf(activeProfile.name),
     }
     const nextDraft = normalizeDraftSettings({
       ...draft,
@@ -1084,7 +1112,7 @@ export default function SettingsModal() {
         : input,
       usedIds,
     )
-    if (!provider) throw new Error('自定义服务商配置无效')
+    if (!provider) throw new Error(t('customProvider.invalid'))
     return provider
   }
 
@@ -1109,7 +1137,7 @@ export default function SettingsModal() {
         setShowCustomProviderImport(false)
         setEditingCustomProviderId(null)
         setCustomProviderImportError(null)
-        showToast('服务商配置已更新', 'success')
+        showToast(t('toast.providerUpdated'), 'success')
         return
       }
 
@@ -1132,8 +1160,8 @@ export default function SettingsModal() {
 
   function confirmDeleteCustomProvider(provider: CustomProviderDefinition) {
     setConfirmDialog({
-      title: '删除服务商',
-      message: `确定要删除自定义服务商「${provider.name}」吗？正在使用它的配置会切回 OpenAI 兼容接口。`,
+      title: t('provider.deleteTitle'),
+      message: t('provider.deleteMessage', { name: provider.name }),
       action: () => deleteCustomProvider(provider),
     })
   }
@@ -1148,15 +1176,15 @@ export default function SettingsModal() {
       ),
     })
     commitSettings(nextDraft)
-    showToast('服务商已删除', 'success')
+    showToast(t('toast.providerDeleted'), 'success')
   }
 
   const copyCustomProviderLlmPrompt = async () => {
     try {
       await copyTextToClipboard(CUSTOM_PROVIDER_LLM_PROMPT)
-      showToast('LLM 生成提示词已复制', 'success')
+      showToast(t('toast.llmPromptCopied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制 LLM 生成提示词失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('toast.copyLlmPromptFailed'), err), 'error')
     }
   }
 
@@ -1165,7 +1193,7 @@ export default function SettingsModal() {
     try {
       const text = await navigator.clipboard.readText()
       if (!text.trim()) {
-        throw new Error('剪贴板为空')
+        throw new Error(t('toast.clipboardEmpty'))
       }
       const importedRaw = importCustomProviderSettingsFromJson(text, draft.customProviders)
       // Convert ApiProfile[] from importer to be compatible with draft (ApiProfile[]); ImportedProviderSettings.profiles is ClientProfile[]
@@ -1220,10 +1248,10 @@ export default function SettingsModal() {
         setCustomProviderImportError(null)
         showToast(
           shouldReplaceActiveProfile
-            ? '已覆盖当前空配置'
+            ? t('toast.overwroteEmptyProfile')
             : switchedToExistingProfile
-              ? '已存在相同配置，已切换到已有配置'
-              : 'JSON 配置已导入并切换',
+              ? t('toast.switchedToExisting')
+              : t('toast.jsonImportedAndSwitched'),
           'success',
         )
         return
@@ -1232,12 +1260,12 @@ export default function SettingsModal() {
       const provider = imported.customProviders[0]
       setCustomProviderForm(customProviderToForm(provider))
       setCustomProviderImportError(null)
-      showToast('JSON 配置已导入', 'success')
+      showToast(t('toast.jsonImported'), 'success')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setCustomProviderImportError(null)
       if (err instanceof Error && err.name === 'NotAllowedError') {
-        showToast('无法读取剪贴板，请允许浏览器访问剪贴板，或直接粘贴到输入框中', 'error')
+        showToast(t('toast.clipboardBlocked'), 'error')
       } else {
         showToast(msg, 'error')
       }
@@ -1249,12 +1277,12 @@ export default function SettingsModal() {
   return (
     <>
       <Overlay onClose={handleClose} tier="modal">
-        <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-white/50 bg-white/95 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex h-[85vh] sm:h-[600px] flex-col overflow-hidden">
+        <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-white/50 bg-card/95 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10 flex h-[85vh] sm:h-[600px] flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between shrink-0 p-5 border-b border-gray-100 dark:border-white/[0.08]">
-            <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+          <div className="flex items-center justify-between shrink-0 p-5 border-b border-border border-border">
+            <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
               <svg
-                className="w-5 h-5 text-blue-500"
+                className="w-5 h-5 text-primary"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1272,16 +1300,16 @@ export default function SettingsModal() {
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                 />
               </svg>
-              设置
+              {t('modal.title')}
             </h3>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-400 dark:text-gray-500 font-mono select-none">
+              <span className="text-sm text-muted-foreground font-mono select-none">
                 v{__APP_VERSION__}
               </span>
               <button
                 onClick={handleClose}
-                className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                aria-label="关闭"
+                className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
+                aria-label={tCommon('action.close')}
               >
                 <CloseIcon className="h-5 w-5" />
               </button>
@@ -1290,11 +1318,11 @@ export default function SettingsModal() {
 
           <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
             {/* Sidebar */}
-            <div className="w-full sm:w-48 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-gray-100 dark:border-white/[0.08] bg-gray-50/50 dark:bg-white/[0.02]">
+            <div className="w-full sm:w-48 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-border border-border bg-card/50">
               <nav className="flex-1 overflow-x-auto sm:overflow-y-auto custom-scrollbar p-3 space-x-1 sm:space-x-0 sm:space-y-1 flex sm:flex-col">
                 <button
                   onClick={() => setActiveTab('general')}
-                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'general' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
+                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'general' ? 'bg-accent shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 hover:bg-accent'}`}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -1304,12 +1332,12 @@ export default function SettingsModal() {
                       d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"
                     />
                   </svg>
-                  习惯配置
+                  {t('tab.general')}
                 </button>
                 {isByokGenerationEnabled() && (
                   <button
                     onClick={() => setActiveTab('api')}
-                    className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
+                    className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-accent shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 hover:bg-accent'}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -1319,12 +1347,12 @@ export default function SettingsModal() {
                         d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
                       />
                     </svg>
-                    API 配置
+                    {t('tab.api')}
                   </button>
                 )}
                 <button
                   onClick={() => setActiveTab('data')}
-                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
+                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-accent shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 hover:bg-accent'}`}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -1334,7 +1362,7 @@ export default function SettingsModal() {
                       d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
                     />
                   </svg>
-                  数据管理
+                  {t('tab.data')}
                 </button>
               </nav>
             </div>
@@ -1344,10 +1372,56 @@ export default function SettingsModal() {
               <div className="flex-1 overflow-y-auto overscroll-contain custom-scrollbar p-5 sm:p-6">
                 {activeTab === 'general' && (
                   <div className="space-y-4">
+                    <div className="block">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="block text-sm text-muted-foreground">
+                          {tCommon('locale.label')}
+                        </span>
+                        <div className="w-32">
+                          <select
+                            aria-label={tCommon('locale.label')}
+                            value={localePicker.locale}
+                            onChange={(event) =>
+                              localePicker.change(event.currentTarget.value as AppLocale)
+                            }
+                            className="w-full px-3 py-1.5 rounded-xl border border-border/60 border-border bg-card/50 hover:bg-card text-xs transition-all duration-200 shadow-sm text-foreground outline-none"
+                          >
+                            {SUPPORTED_LOCALES.map((locale) => (
+                              <option key={locale} value={locale}>
+                                {tCommon(`locale.${locale}` as const)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="block">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="block text-sm text-muted-foreground">
+                          {tCommon('theme.label')}
+                        </span>
+                        <div className="w-32">
+                          <select
+                            aria-label={tCommon('theme.label')}
+                            value={themeControls.choice}
+                            onChange={(event) =>
+                              themeControls.setChoice(event.currentTarget.value as ThemeChoice)
+                            }
+                            className="w-full px-3 py-1.5 rounded-xl border border-border/60 border-border bg-card/50 hover:bg-card text-xs transition-all duration-200 shadow-sm text-foreground outline-none"
+                          >
+                            {THEME_CHOICES.map((choice) => (
+                              <option key={choice} value={choice}>
+                                {tCommon(THEME_LABEL_KEY[choice])}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
                     <div className="hidden sm:block">
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          任务提交方式
+                        <span className="block text-sm text-muted-foreground">
+                          {t('general.submitShortcut')}
                         </span>
                         <div className="w-32">
                           <Select
@@ -1364,21 +1438,18 @@ export default function SettingsModal() {
                                 value: 'ctrl-enter',
                               },
                             ]}
-                            className="w-full px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm text-gray-700 dark:text-gray-200 outline-none"
+                            className="w-full px-3 py-1.5 rounded-xl border border-border/60 border-border bg-card/50 hover:bg-card text-xs transition-all duration-200 shadow-sm text-foreground outline-none"
                           />
                         </div>
                       </div>
-                      <div
-                        data-selectable-text
-                        className="text-xs text-gray-500 dark:text-gray-500"
-                      >
-                        选择 Enter 提交时，使用 Shift + Enter 换行；否则直接 Enter 换行。
+                      <div data-selectable-text className="text-xs text-muted-foreground">
+                        {t('general.submitShortcutHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          提交任务后清空输入框
+                        <span className="block text-sm text-muted-foreground">
+                          {t('general.clearInputAfterSubmit')}
                         </span>
                         <button
                           type="button"
@@ -1388,27 +1459,24 @@ export default function SettingsModal() {
                               clearInputAfterSubmit: !draft.clearInputAfterSubmit,
                             })
                           }
-                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.clearInputAfterSubmit ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.clearInputAfterSubmit ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                           role="switch"
                           aria-checked={draft.clearInputAfterSubmit}
-                          aria-label="提交任务后清空输入框"
+                          aria-label={t('general.clearInputAfterSubmit')}
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.clearInputAfterSubmit ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.clearInputAfterSubmit ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
-                      <div
-                        data-selectable-text
-                        className="text-xs text-gray-500 dark:text-gray-500"
-                      >
-                        开启后，提交成功创建任务时会清空提示词和参考图。
+                      <div data-selectable-text className="text-xs text-muted-foreground">
+                        {t('general.clearInputAfterSubmitHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          重启后加载上次的输入框
+                        <span className="block text-sm text-muted-foreground">
+                          {t('general.persistInput')}
                         </span>
                         <button
                           type="button"
@@ -1418,27 +1486,24 @@ export default function SettingsModal() {
                               persistInputOnRestart: !draft.persistInputOnRestart,
                             })
                           }
-                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.persistInputOnRestart ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.persistInputOnRestart ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                           role="switch"
                           aria-checked={draft.persistInputOnRestart}
-                          aria-label="重启后加载上次的输入框"
+                          aria-label={t('general.persistInput')}
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.persistInputOnRestart ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.persistInputOnRestart ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
-                      <div
-                        data-selectable-text
-                        className="text-xs text-gray-500 dark:text-gray-500"
-                      >
-                        关闭后，不再持久化提示词和参考图，下次启动会使用空输入框。
+                      <div data-selectable-text className="text-xs text-muted-foreground">
+                        {t('general.persistInputHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          复用配置时临时复用该任务的 API 配置
+                        <span className="block text-sm text-muted-foreground">
+                          {t('general.reuseTaskProfile')}
                         </span>
                         <button
                           type="button"
@@ -1448,28 +1513,24 @@ export default function SettingsModal() {
                               reuseTaskApiProfileTemporarily: !draft.reuseTaskApiProfileTemporarily,
                             })
                           }
-                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.reuseTaskApiProfileTemporarily ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.reuseTaskApiProfileTemporarily ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                           role="switch"
                           aria-checked={draft.reuseTaskApiProfileTemporarily}
-                          aria-label="复用配置时临时复用该任务的 API 配置"
+                          aria-label={t('general.reuseTaskProfile')}
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.reuseTaskApiProfileTemporarily ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.reuseTaskApiProfileTemporarily ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
-                      <div
-                        data-selectable-text
-                        className="text-xs text-gray-500 dark:text-gray-500"
-                      >
-                        开启后，复用历史任务时会临时使用该任务的 API
-                        配置，找不到该配置时提交会提示；关闭后，会继续使用当前的 API 配置。
+                      <div data-selectable-text className="text-xs text-muted-foreground">
+                        {t('general.reuseTaskProfileHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          成功任务仍然展示重试按钮
+                        <span className="block text-sm text-muted-foreground">
+                          {t('general.alwaysShowRetry')}
                         </span>
                         <button
                           type="button"
@@ -1479,21 +1540,18 @@ export default function SettingsModal() {
                               alwaysShowRetryButton: !draft.alwaysShowRetryButton,
                             })
                           }
-                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.alwaysShowRetryButton ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.alwaysShowRetryButton ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                           role="switch"
                           aria-checked={draft.alwaysShowRetryButton}
-                          aria-label="成功任务仍然展示重试按钮"
+                          aria-label={t('general.alwaysShowRetry')}
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.alwaysShowRetryButton ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.alwaysShowRetryButton ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
-                      <div
-                        data-selectable-text
-                        className="text-xs text-gray-500 dark:text-gray-500"
-                      >
-                        开启后，即使任务成功生成，也会在任务卡片和详情页显示重试按钮。
+                      <div data-selectable-text className="text-xs text-muted-foreground">
+                        {t('general.alwaysShowRetryHint')}
                       </div>
                     </div>
                   </div>
@@ -1503,8 +1561,8 @@ export default function SettingsModal() {
                   <div className="space-y-4">
                     <div>
                       <div className="mb-1.5 flex items-center gap-1.5">
-                        <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          当前配置
+                        <span className="block text-sm text-muted-foreground">
+                          {t('profile.current')}
                         </span>
                         <span className="relative inline-flex">
                           <button
@@ -1523,8 +1581,8 @@ export default function SettingsModal() {
                             }}
                             onTouchEnd={clearProfileImportUrlTooltipTimer}
                             onTouchCancel={clearProfileImportUrlTooltipTimer}
-                            className="flex h-5 w-5 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                            aria-label={`复制导入配置「${activeProfile.name}」的 URL`}
+                            className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
+                            aria-label={t('profile.copyImportUrlFor', { name: activeProfile.name })}
                           >
                             <LinkIcon className="h-3.5 w-3.5" />
                           </button>
@@ -1532,7 +1590,7 @@ export default function SettingsModal() {
                             visible={profileImportUrlTooltipVisible}
                             className="whitespace-nowrap"
                           >
-                            复制导入 URL
+                            {t('profile.copyImportUrl')}
                           </ViewportTooltip>
                         </span>
                         {!activeIsBuiltin && (
@@ -1553,8 +1611,8 @@ export default function SettingsModal() {
                               }}
                               onTouchEnd={clearDuplicateProfileTooltipTimer}
                               onTouchCancel={clearDuplicateProfileTooltipTimer}
-                              className="flex h-5 w-5 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                              aria-label={`复制一份配置「${activeProfile.name}」`}
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
+                              aria-label={t('profile.duplicateAria', { name: activeProfile.name })}
                             >
                               <CopyIcon className="h-3.5 w-3.5" />
                             </button>
@@ -1562,7 +1620,7 @@ export default function SettingsModal() {
                               visible={duplicateProfileTooltipVisible}
                               className="whitespace-nowrap"
                             >
-                              复制当前配置
+                              {t('profile.duplicate')}
                             </ViewportTooltip>
                           </span>
                         )}
@@ -1575,24 +1633,24 @@ export default function SettingsModal() {
                             if (!showProfileMenu) updateProfileMenuMaxHeight()
                             setShowProfileMenu(!showProfileMenu)
                           }}
-                          className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition hover:bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                          className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground outline-none transition hover:bg-card border-border"
                           title={activeProfile.name}
                         >
                           <span className="flex min-w-0 items-center gap-2">
                             <span className="min-w-0 truncate">{activeProfile.name}</span>
-                            <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
+                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                               {getApiProviderLabel(draft, activeProfile.provider)}
                             </span>
                           </span>
                           <ChevronDownIcon
-                            className={`w-3.5 h-3.5 flex-shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${showProfileMenu ? 'rotate-180' : ''}`}
+                            className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground dark:text-muted-foreground transition-transform duration-200 ${showProfileMenu ? 'rotate-180' : ''}`}
                           />
                         </button>
 
                         {showProfileMenu && (
                           <>
                             <div
-                              className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-gray-200/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down dark:border-white/[0.08] dark:bg-gray-900/95 dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
+                              className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down border-border dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
                               style={{ maxHeight: profileMenuMaxHeight }}
                             >
                               <button
@@ -1601,9 +1659,11 @@ export default function SettingsModal() {
                                   e.preventDefault()
                                   createNewProfile()
                                 }}
-                                className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
+                                className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                               >
-                                <span className="truncate font-semibold">创建新配置</span>
+                                <span className="truncate font-semibold">
+                                  {t('profile.create')}
+                                </span>
                                 <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                                   <PlusIcon className="h-4 w-4" />
                                 </span>
@@ -1630,35 +1690,35 @@ export default function SettingsModal() {
                                       e.preventDefault()
                                       switchProfile(profile.id)
                                     }}
-                                    className={`relative group flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-xs transition-colors ${draggedProfileId === profile.id ? 'opacity-40 bg-gray-100 dark:bg-white/[0.04]' : profile.id === activeProfile.id ? 'bg-blue-50 font-medium text-blue-600 dark:bg-blue-500/10 dark:text-blue-400' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'}`}
+                                    className={`relative group flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-xs transition-colors ${draggedProfileId === profile.id ? 'opacity-40 bg-muted bg-accent' : profile.id === activeProfile.id ? 'bg-primary/10 font-medium text-primary dark:bg-primary/10 dark:text-primary' : 'text-foreground hover:bg-card dark:text-foreground hover:bg-accent'}`}
                                   >
                                     {dragOverProfileId === profile.id &&
                                       dragDropPosition === 'before' &&
                                       draggedProfileId !== profile.id && (
-                                        <div className="absolute -top-[1px] left-0 right-0 h-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
+                                        <div className="absolute -top-[1px] left-0 right-0 h-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
                                       )}
                                     {dragOverProfileId === profile.id &&
                                       dragDropPosition === 'after' &&
                                       draggedProfileId !== profile.id && (
-                                        <div className="absolute -bottom-[1px] left-0 right-0 h-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
+                                        <div className="absolute -bottom-[1px] left-0 right-0 h-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
                                       )}
                                     <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
                                       <div
                                         data-drag-handle
-                                        className="flex cursor-grab active:cursor-grabbing items-center justify-center text-gray-400 opacity-60 transition-opacity hover:opacity-100 dark:text-gray-500"
+                                        className="flex cursor-grab active:cursor-grabbing items-center justify-center text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
                                         style={{ touchAction: 'none' }}
-                                        title="拖拽排序"
+                                        title={t('profile.dragToReorder')}
                                       >
                                         <DragHandleIcon className="h-3.5 w-3.5" />
                                       </div>
                                       <span className="min-w-0 truncate">{profile.name}</span>
                                       {isBuiltinDraftProfile(profile) && (
-                                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] shrink-0 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                                          内置
+                                        <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] shrink-0 text-warning dark:bg-warning/20 dark:text-warning">
+                                          {t('profile.builtinBadge')}
                                         </span>
                                       )}
                                       <span
-                                        className={`rounded px-1.5 py-0.5 text-[10px] shrink-0 ${profile.id === activeProfile.id ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300' : 'bg-gray-100 text-gray-500 dark:bg-white/[0.08] dark:text-gray-400'}`}
+                                        className={`rounded px-1.5 py-0.5 text-[10px] shrink-0 ${profile.id === activeProfile.id ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' : 'bg-muted text-muted-foreground bg-accent dark:text-muted-foreground'}`}
                                       >
                                         {getApiProviderLabel(draft, profile.provider)}
                                       </span>
@@ -1673,9 +1733,11 @@ export default function SettingsModal() {
                                             e.stopPropagation()
                                             confirmCopyProfileImportUrl(profile)
                                           }}
-                                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-gray-100 hover:text-gray-600 hover:opacity-100 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                                          aria-label={`复制导入配置「${profile.name}」的 URL`}
-                                          title="复制导入 URL"
+                                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-60 transition-all hover:bg-muted hover:text-muted-foreground hover:opacity-100 hover:bg-accent"
+                                          aria-label={t('profile.copyImportUrlFor', {
+                                            name: profile.name,
+                                          })}
+                                          title={t('profile.copyImportUrl')}
                                         >
                                           <LinkIcon className="h-3.5 w-3.5" />
                                         </button>
@@ -1688,13 +1750,15 @@ export default function SettingsModal() {
                                               e.preventDefault()
                                               e.stopPropagation()
                                               setConfirmDialog({
-                                                title: '删除配置',
-                                                message: `确定要删除配置「${profile.name}」吗？`,
+                                                title: t('profile.delete'),
+                                                message: t('profile.deleteMessage', {
+                                                  name: profile.name,
+                                                }),
                                                 action: () => deleteProfile(profile.id),
                                               })
                                             }}
-                                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-red-50 hover:text-red-500 hover:opacity-100 dark:hover:bg-red-500/10"
-                                            aria-label="删除配置"
+                                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-60 transition-all hover:bg-destructive/10 hover:text-destructive hover:opacity-100 dark:hover:bg-destructive/10"
+                                            aria-label={t('profile.delete')}
                                           >
                                             <TrashIcon className="h-3.5 w-3.5" />
                                           </button>
@@ -1710,14 +1774,14 @@ export default function SettingsModal() {
                     </div>
 
                     {activeIsBuiltin ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                        内置模型
+                      <div className="rounded-xl border border-warning bg-warning/10 px-3 py-2 text-xs text-warning dark:border-warning/30 dark:bg-warning/10 dark:text-warning">
+                        {t('profile.builtinModel')}
                       </div>
                     ) : (
                       <>
                         <label className="block">
-                          <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                            配置名称
+                          <span className="mb-1.5 block text-sm text-muted-foreground">
+                            {t('profile.name')}
                           </span>
                           <input
                             value={activeProfile.name}
@@ -1725,29 +1789,27 @@ export default function SettingsModal() {
                             onBlur={(e) => commitActiveProfilePatch({ name: e.target.value })}
                             type="text"
                             readOnly={activeIsBuiltin}
-                            className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${activeIsBuiltin ? 'cursor-not-allowed opacity-60' : ''}`}
+                            className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'cursor-not-allowed opacity-60' : ''}`}
                           />
                         </label>
 
                         <div className="block">
-                          <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                            服务商类型
+                          <span className="mb-1.5 block text-sm text-muted-foreground">
+                            {t('provider.type')}
                           </span>
                           <Select
                             value={activeProfile.provider}
                             onChange={handleProviderTypeChange}
                             onReorder={handleProviderReorder}
                             options={providerOptions}
-                            className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                            className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                           />
                         </div>
 
                         {activeProviderUsesApiUrl && (
                           <label className="block">
                             <div className="mb-1.5 flex items-center justify-between">
-                              <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                API URL
-                              </span>
+                              <span className="block text-sm text-muted-foreground">API URL</span>
                             </div>
                             <input
                               value={activeProfile.baseUrl}
@@ -1757,22 +1819,20 @@ export default function SettingsModal() {
                               disabled={apiProxyEnabled}
                               readOnly={activeIsBuiltin}
                               placeholder={DEFAULT_BYOK_BASEURL}
-                              className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${apiProxyEnabled || activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${apiProxyEnabled || activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
                             />
                             <div
                               data-selectable-text
-                              className="mt-1.5 min-h-[22px] flex items-center text-xs text-gray-500 dark:text-gray-500"
+                              className="mt-1.5 min-h-[22px] flex items-center text-xs text-muted-foreground"
                             >
                               {apiProxyEnabled ? (
-                                <span className="text-yellow-600 dark:text-yellow-500">
-                                  已开启代理，实际请求目标由部署端决定，此处设置被忽略。
+                                <span className="text-warning dark:text-warning">
+                                  {t('apiUrl.proxyIgnored')}
                                 </span>
                               ) : (
                                 <span>
-                                  支持通过查询参数覆盖：
-                                  <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
-                                    ?apiUrl=
-                                  </code>
+                                  {t('hint.queryOverride')}
+                                  <code className="bg-muted px-1 py-0.5 rounded">?apiUrl=</code>
                                 </span>
                               )}
                             </div>
@@ -1782,33 +1842,28 @@ export default function SettingsModal() {
                         {activeProfile.provider === 'openai' && (
                           <div className="block">
                             <div className="mb-1.5 flex items-center justify-between">
-                              <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                Codex CLI 兼容模式
+                              <span className="block text-sm text-muted-foreground">
+                                {t('codexCli.label')}
                               </span>
                               <button
                                 type="button"
                                 onClick={() =>
                                   updateActiveProfile({ codexCli: !activeProfile.codexCli }, true)
                                 }
-                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.codexCli ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.codexCli ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                                 role="switch"
                                 aria-checked={activeProfile.codexCli}
-                                aria-label="Codex CLI 兼容模式"
+                                aria-label={t('codexCli.label')}
                               >
                                 <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.codexCli ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${activeProfile.codexCli ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                                 />
                               </button>
                             </div>
-                            <div
-                              data-selectable-text
-                              className="text-xs text-gray-500 dark:text-gray-500"
-                            >
-                              开启后应用 Codex CLI 实际支持的参数。支持查询参数覆盖：
-                              <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
-                                codexCli=true
-                              </code>
-                              。
+                            <div data-selectable-text className="text-xs text-muted-foreground">
+                              {t('codexCli.hint')}
+                              <code className="bg-muted px-1 py-0.5 rounded">codexCli=true</code>
+                              {t('hint.period')}
                             </div>
                           </div>
                         )}
@@ -1816,36 +1871,32 @@ export default function SettingsModal() {
                         {apiProxyAvailable && activeProfile.provider === 'openai' && (
                           <div className="block">
                             <div className="mb-1.5 flex items-center justify-between">
-                              <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                API 代理
+                              <span className="block text-sm text-muted-foreground">
+                                {t('apiProxy.label')}
                               </span>
                               <button
                                 type="button"
                                 onClick={() =>
                                   updateActiveProfile({ apiProxy: !activeProfile.apiProxy }, true)
                                 }
-                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${apiProxyChecked ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${apiProxyChecked ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                                 role="switch"
                                 aria-checked={apiProxyChecked}
-                                aria-label="API 代理"
+                                aria-label={t('apiProxy.label')}
                               >
                                 <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${apiProxyChecked ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${apiProxyChecked ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                                 />
                               </button>
                             </div>
-                            <div
-                              data-selectable-text
-                              className="text-xs text-gray-500 dark:text-gray-500"
-                            >
-                              当前部署提供同源代理时默认开启，可手动关闭。开启后用于解决浏览器跨域限制，API
-                              URL 设置会被忽略。
+                            <div data-selectable-text className="text-xs text-muted-foreground">
+                              {t('apiProxy.hint')}
                             </div>
                           </div>
                         )}
 
                         <div className="block">
-                          <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
+                          <span className="mb-1.5 block text-sm text-muted-foreground">
                             API Key
                           </span>
                           <div className="relative">
@@ -1856,12 +1907,12 @@ export default function SettingsModal() {
                               type={showApiKey ? 'text' : 'password'}
                               readOnly={activeIsBuiltin}
                               placeholder="sk-..."
-                              className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 pr-10 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 pr-10 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
                             />
                             <button
                               type="button"
                               onClick={() => setShowApiKey((v) => !v)}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
                               tabIndex={-1}
                             >
                               {showApiKey ? (
@@ -1897,19 +1948,17 @@ export default function SettingsModal() {
                           </div>
                           <div
                             data-selectable-text
-                            className="mt-1.5 text-xs text-gray-500 dark:text-gray-500"
+                            className="mt-1.5 text-xs text-muted-foreground"
                           >
-                            支持通过查询参数覆盖：
-                            <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
-                              ?apiKey=
-                            </code>
+                            {t('hint.queryOverride')}
+                            <code className="bg-muted px-1 py-0.5 rounded">?apiKey=</code>
                           </div>
                         </div>
 
                         {activeProfile.provider === 'openai' && (
                           <div className="block">
-                            <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                              API 接口
+                            <span className="mb-1.5 block text-sm text-muted-foreground">
+                              {t('apiMode.label')}
                             </span>
                             <Select
                               value={activeProfile.apiMode ?? ('images' as const)}
@@ -1926,28 +1975,26 @@ export default function SettingsModal() {
                                 { label: 'Images API (/v1/images)', value: 'images' },
                                 { label: 'Responses API (/v1/responses)', value: 'responses' },
                               ]}
-                              className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                              className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                             />
                             <div
                               data-selectable-text
-                              className="mt-1.5 text-xs text-gray-500 dark:text-gray-500"
+                              className="mt-1.5 text-xs text-muted-foreground"
                             >
-                              支持通过查询参数覆盖：
-                              <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
-                                apiMode=images
-                              </code>{' '}
-                              或{' '}
-                              <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
+                              {t('hint.queryOverride')}
+                              <code className="rounded bg-muted px-1 py-0.5">apiMode=images</code>{' '}
+                              {t('hint.or')}{' '}
+                              <code className="rounded bg-muted px-1 py-0.5">
                                 apiMode=responses
                               </code>
-                              。
+                              {t('hint.period')}
                             </div>
                           </div>
                         )}
 
                         <label className="block">
-                          <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                            模型 ID
+                          <span className="mb-1.5 block text-sm text-muted-foreground">
+                            {t('model.label')}
                           </span>
                           {(() => {
                             const fallbackOptions = getProviderModelOptions(activeProfile.provider)
@@ -1967,10 +2014,10 @@ export default function SettingsModal() {
                                   kind,
                                 })
                                 setProfileModelCache(activeProfile.id, models)
-                                showToast(`已拉取 ${models.length} 个模型`, 'success')
+                                showToast(t('model.fetched', { count: models.length }), 'success')
                               } catch (err) {
                                 showToast(
-                                  err instanceof Error ? err.message : '拉取模型失败',
+                                  err instanceof Error ? err.message : t('model.fetchFailed'),
                                   'error',
                                 )
                               } finally {
@@ -1995,15 +2042,15 @@ export default function SettingsModal() {
                                     type="button"
                                     onClick={handleRefresh}
                                     disabled={refreshingModels}
-                                    className="shrink-0 rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-xs text-gray-600 transition hover:border-blue-300 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300"
-                                    title="从上游 API /models 拉取模型列表"
+                                    className="shrink-0 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed border-border"
+                                    title={t('model.fetchTitle')}
                                   >
-                                    {refreshingModels ? '拉取中…' : '拉取模型'}
+                                    {refreshingModels ? t('model.fetching') : t('model.fetch')}
                                   </button>
                                 </div>
                                 {cached.length > 0 && (
-                                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-500">
-                                    上游接口共 {cached.length} 个模型
+                                  <div className="mt-1 text-xs text-muted-foreground">
+                                    {t('model.cachedCount', { count: cached.length })}
                                   </div>
                                 )}
                               </>
@@ -2011,44 +2058,42 @@ export default function SettingsModal() {
                           })()}
                           <div
                             data-selectable-text
-                            className="mt-1.5 text-xs text-gray-500 dark:text-gray-500"
+                            className="mt-1.5 text-xs text-muted-foreground"
                           >
                             {activeCustomProvider ? (
                               <>
-                                当前使用{' '}
-                                <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
+                                {t('model.usingProvider')}{' '}
+                                <code className="rounded bg-muted px-1 py-0.5">
                                   {activeCustomProvider.name}
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             ) : (activeProfile.apiMode ?? ('images' as const)) === 'responses' ? (
                               <>
-                                Responses API 需要使用支持{' '}
-                                <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
+                                {t('model.responsesHintPrefix')}{' '}
+                                <code className="rounded bg-muted px-1 py-0.5">
                                   image_generation
                                 </code>{' '}
-                                工具的文本模型，例如{' '}
-                                <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
+                                {t('model.responsesHintSuffix')}{' '}
+                                <code className="rounded bg-muted px-1 py-0.5">
                                   {DEFAULT_RESPONSES_MODEL}
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             ) : (
                               <>
-                                Images API 需要使用 GPT Image 模型，例如{' '}
-                                <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
+                                {t('model.imagesHint')}{' '}
+                                <code className="rounded bg-muted px-1 py-0.5">
                                   {DEFAULT_IMAGES_MODEL}
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             )}
                             {activeProfile.provider === 'openai' && (
                               <>
-                                支持通过查询参数覆盖：
-                                <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
-                                  ?model=
-                                </code>
-                                。
+                                {t('hint.queryOverride')}
+                                <code className="rounded bg-muted px-1 py-0.5">?model=</code>
+                                {t('hint.period')}
                               </>
                             )}
                           </div>
@@ -2057,8 +2102,8 @@ export default function SettingsModal() {
                         {activeProviderIsOpenAICompatible && (
                           <div className="block">
                             <div className="mb-1.5 flex items-center justify-between">
-                              <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                返回 Base64 图片数据
+                              <span className="block text-sm text-muted-foreground">
+                                {t('b64.label')}
                               </span>
                               <button
                                 type="button"
@@ -2068,33 +2113,30 @@ export default function SettingsModal() {
                                     true,
                                   )
                                 }
-                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.responseFormatB64Json ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.responseFormatB64Json ? 'bg-primary' : 'bg-muted dark:bg-muted'}`}
                                 role="switch"
                                 aria-checked={!!activeProfile.responseFormatB64Json}
-                                aria-label="返回 Base64 图片数据"
+                                aria-label={t('b64.label')}
                               >
                                 <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.responseFormatB64Json ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${activeProfile.responseFormatB64Json ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                                 />
                               </button>
                             </div>
-                            <div
-                              data-selectable-text
-                              className="text-xs text-gray-500 dark:text-gray-500"
-                            >
-                              开启后在请求体中追加{' '}
-                              <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
+                            <div data-selectable-text className="text-xs text-muted-foreground">
+                              {t('b64.hintPrefix')}{' '}
+                              <code className="bg-muted px-1 py-0.5 rounded">
                                 response_format: b64_json
                               </code>
-                              ，尝试使接口直接返回 Base64 编码的图片数据而非 URL。
+                              {t('b64.hintSuffix')}
                             </div>
                           </div>
                         )}
 
                         {activeProviderIsOpenAICompatible && (
                           <label className="block">
-                            <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                              请求超时 (秒)
+                            <span className="mb-1.5 block text-sm text-muted-foreground">
+                              {t('timeout.label')}
                             </span>
                             <input
                               value={timeoutInput}
@@ -2103,7 +2145,7 @@ export default function SettingsModal() {
                               type="number"
                               min={10}
                               max={600}
-                              className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                              className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                             />
                           </label>
                         )}
@@ -2115,9 +2157,9 @@ export default function SettingsModal() {
                 {activeTab === 'data' && (
                   <div className="space-y-4">
                     <SyncStatusPanel />
-                    <div className="rounded-2xl bg-gray-50/80 p-4 border border-gray-200/60 dark:bg-white/[0.02] dark:border-white/[0.05] flex items-start gap-3">
+                    <div className="rounded-2xl bg-card/80 p-4 border border-border/60 border-border flex items-start gap-3">
                       <svg
-                        className="w-5 h-5 text-blue-500 shrink-0 mt-0.5"
+                        className="w-5 h-5 text-primary shrink-0 mt-0.5"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -2129,62 +2171,62 @@ export default function SettingsModal() {
                           d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
                         />
                       </svg>
-                      <div className="text-[13px] leading-relaxed text-gray-500 dark:text-gray-400">
-                        所有的配置、任务记录和生成的图片均仅保存在您的浏览器本地（除非您使用的服务商存储了它们）。如果您需要清理浏览器站点数据、重置浏览器或使用其他设备，请先导出备份。
+                      <div className="text-[13px] leading-relaxed text-muted-foreground">
+                        {t('data.notice')}
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-gray-100 bg-white p-4 dark:border-white/[0.06] dark:bg-white/[0.02] space-y-4 shadow-sm">
+                    <div className="rounded-2xl border border-border bg-card p-4 border-border space-y-4 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
-                        <ExportIcon className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                          导出数据
+                        <ExportIcon className="w-4 h-4 text-foreground" />
+                        <h4 className="text-sm font-bold text-foreground">
+                          {t('data.exportTitle')}
                         </h4>
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-3">
                         <Checkbox
                           checked={exportConfig}
                           onChange={setExportConfig}
-                          label="包含配置"
+                          label={t('data.includeConfig')}
                         />
                         <Checkbox
                           checked={exportTasks}
                           onChange={setExportTasks}
-                          label="包含任务和图片"
+                          label={t('data.includeTasks')}
                         />
                       </div>
                       <button
                         onClick={() => exportData({ exportConfig, exportTasks })}
                         disabled={!exportConfig && !exportTasks}
-                        className="w-full rounded-xl bg-gray-100/80 px-4 py-2.5 text-sm font-medium text-gray-700 transition-all hover:bg-gray-200 hover:text-gray-900 disabled:opacity-50 disabled:hover:bg-gray-100/80 disabled:hover:text-gray-700 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1] dark:hover:text-white dark:disabled:hover:bg-white/[0.06] dark:disabled:hover:text-gray-300 flex items-center justify-center gap-2"
+                        className="w-full rounded-xl bg-muted/80 px-4 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-muted hover:text-foreground disabled:opacity-50 disabled:hover:bg-muted/80 disabled:hover:text-foreground dark:hover:text-white flex items-center justify-center gap-2"
                       >
-                        导出所选数据
+                        {t('data.exportSelected')}
                       </button>
                     </div>
 
-                    <div className="rounded-2xl border border-gray-100 bg-white p-4 dark:border-white/[0.06] dark:bg-white/[0.02] space-y-4 shadow-sm">
+                    <div className="rounded-2xl border border-border bg-card p-4 border-border space-y-4 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
-                        <ImportIcon className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                          导入数据
+                        <ImportIcon className="w-4 h-4 text-foreground" />
+                        <h4 className="text-sm font-bold text-foreground">
+                          {t('data.importTitle')}
                         </h4>
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-3">
                         <Checkbox
                           checked={importConfig}
                           onChange={setImportConfig}
-                          label="包含配置"
+                          label={t('data.includeConfig')}
                         />
                         <Checkbox
                           checked={importTasks}
                           onChange={setImportTasks}
-                          label="包含任务和图片"
+                          label={t('data.includeTasks')}
                         />
                       </div>
                       <button
                         onClick={() => importInputRef.current?.click()}
                         disabled={(!importConfig && !importTasks) || isImportingData}
-                        className="w-full rounded-xl bg-gray-100/80 px-4 py-2.5 text-sm font-medium text-gray-700 transition-all hover:bg-gray-200 hover:text-gray-900 disabled:opacity-50 disabled:hover:bg-gray-100/80 disabled:hover:text-gray-700 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1] dark:hover:text-white dark:disabled:hover:bg-white/[0.06] dark:disabled:hover:text-gray-300 flex items-center justify-center gap-2"
+                        className="w-full rounded-xl bg-muted/80 px-4 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-muted hover:text-foreground disabled:opacity-50 disabled:hover:bg-muted/80 disabled:hover:text-foreground dark:hover:text-white flex items-center justify-center gap-2"
                       >
                         {isImportingData ? (
                           <>
@@ -2203,10 +2245,10 @@ export default function SettingsModal() {
                                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                               ></path>
                             </svg>
-                            导入中...
+                            {t('data.importing')}
                           </>
                         ) : (
-                          '从 ZIP 导入所选数据'
+                          t('data.importFromZip')
                         )}
                       </button>
                       <input
@@ -2218,39 +2260,39 @@ export default function SettingsModal() {
                       />
                     </div>
 
-                    <div className="rounded-2xl border border-red-100/50 bg-red-50/30 p-4 dark:border-red-500/10 dark:bg-red-500/5 space-y-4 shadow-sm">
+                    <div className="rounded-2xl border border-destructive/50 bg-destructive/30 p-4 dark:border-destructive/10 dark:bg-destructive/5 space-y-4 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
-                        <TrashIcon className="w-4 h-4 text-red-500/90 dark:text-red-400" />
-                        <h4 className="text-sm font-bold text-red-500/90 dark:text-red-400">
-                          清除数据
+                        <TrashIcon className="w-4 h-4 text-destructive/90 dark:text-destructive" />
+                        <h4 className="text-sm font-bold text-destructive/90 dark:text-destructive">
+                          {t('data.clearTitle')}
                         </h4>
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-3">
                         <Checkbox
                           checked={clearConfig}
                           onChange={setClearConfig}
-                          label="包含配置"
+                          label={t('data.includeConfig')}
                           tone="danger"
                         />
                         <Checkbox
                           checked={clearTasks}
                           onChange={setClearTasks}
-                          label="包含任务和图片"
+                          label={t('data.includeTasks')}
                           tone="danger"
                         />
                       </div>
                       <button
                         onClick={() =>
                           setConfirmDialog({
-                            title: '清空所选数据',
-                            message: `确定要清空所选的数据吗？此操作不可恢复。`,
+                            title: t('data.clearSelected'),
+                            message: t('data.clearMessage'),
                             action: () => handleClearAllData(),
                           })
                         }
                         disabled={!clearConfig && !clearTasks}
-                        className="w-full rounded-xl border border-red-200/60 bg-red-50/50 px-4 py-2.5 text-sm font-medium text-red-500 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 disabled:opacity-50 disabled:hover:bg-red-50/50 disabled:hover:border-red-200/60 disabled:hover:text-red-500 dark:border-red-500/15 dark:bg-red-500/5 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:border-red-500/30 dark:hover:text-red-300 dark:disabled:hover:bg-red-500/5 dark:disabled:hover:border-red-500/15 dark:disabled:hover:text-red-400"
+                        className="w-full rounded-xl border border-destructive/60 bg-destructive/50 px-4 py-2.5 text-sm font-medium text-destructive transition-all hover:bg-destructive/10 hover:border-destructive hover:text-destructive disabled:opacity-50 disabled:hover:bg-destructive/50 disabled:hover:border-destructive/60 disabled:hover:text-destructive dark:border-destructive/15 dark:bg-destructive/5 dark:text-destructive dark:hover:bg-destructive/10 dark:hover:border-destructive/30 dark:hover:text-destructive dark:disabled:hover:bg-destructive/5 dark:disabled:hover:border-destructive/15 dark:disabled:hover:text-destructive"
                       >
-                        清空所选数据
+                        {t('data.clearSelected')}
                       </button>
                     </div>
                   </div>
@@ -2269,10 +2311,10 @@ export default function SettingsModal() {
           }}
           tier="raised"
         >
-          <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
+          <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
             <div className="mb-5 flex items-center justify-between gap-4 shrink-0">
-              <h3 className="text-base font-bold text-gray-800 dark:text-gray-100">
-                {editingCustomProviderId ? '编辑自定义服务商' : '创建自定义服务商'}
+              <h3 className="text-base font-bold text-foreground">
+                {editingCustomProviderId ? t('provider.editCustom') : t('provider.createCustom')}
               </h3>
               <div className="flex items-center gap-3">
                 <button
@@ -2281,8 +2323,8 @@ export default function SettingsModal() {
                     setShowCustomProviderImport(false)
                     setEditingCustomProviderId(null)
                   }}
-                  className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                  aria-label="关闭"
+                  className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
+                  aria-label={tCommon('action.close')}
                 >
                   <CloseIcon className="h-5 w-5" />
                 </button>
@@ -2290,10 +2332,10 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex-1 flex flex-col min-h-0 px-1 -mx-1 pb-2">
-              <div className="mb-6 shrink-0 rounded-2xl bg-gray-50/80 p-4 border border-gray-200/60 dark:bg-white/[0.02] dark:border-white/[0.05]">
-                <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-800 dark:text-gray-200">
+              <div className="mb-6 shrink-0 rounded-2xl bg-card/80 p-4 border border-border/60 border-border">
+                <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
                   <svg
-                    className="h-4 w-4 text-blue-500"
+                    className="h-4 w-4 text-primary"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -2305,21 +2347,20 @@ export default function SettingsModal() {
                       d="M13 10V3L4 14h7v7l9-11h-7z"
                     />
                   </svg>
-                  AI 一键生成与导入
+                  {t('customProvider.aiGenerate')}
                 </div>
                 <div
                   data-selectable-text
-                  className="mb-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400"
+                  className="mb-4 text-xs leading-relaxed text-muted-foreground"
                 >
-                  复制提示词发给 LLM，可根据 API 文档自动生成完整的配置（包含服务商、模型、URL
-                  等）。复制 LLM 输出的 JSON 后，点击“从剪贴板粘贴并导入”即可一键生效。
+                  {t('customProvider.aiGenerateHint')}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="relative inline-flex">
                     <button
                       type="button"
                       onClick={copyCustomProviderLlmPrompt}
-                      aria-label="复制用于生成完整导入 JSON 的 LLM 提示词"
+                      aria-label={t('customProvider.copyPromptAria')}
                       onMouseEnter={() => setLlmPromptTooltipVisible(true)}
                       onMouseLeave={() => setLlmPromptTooltipVisible(false)}
                       onFocus={() => setLlmPromptTooltipVisible(true)}
@@ -2333,23 +2374,23 @@ export default function SettingsModal() {
                       }}
                       onTouchEnd={clearLlmPromptTooltipTimer}
                       onTouchCancel={clearLlmPromptTooltipTimer}
-                      className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-gray-50 hover:text-gray-900 dark:bg-white/[0.05] dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+                      className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground border-border dark:hover:text-white"
                     >
                       <LinkIcon className="h-3.5 w-3.5" />
-                      复制生成提示词
+                      {t('customProvider.copyPrompt')}
                     </button>
                     <ViewportTooltip
                       visible={llmPromptTooltipVisible}
                       className="w-56 whitespace-normal text-center"
                     >
-                      生成完整的服务商和配置信息，包含模型和接口地址，导入后只需填入 API Key。
+                      {t('customProvider.copyPromptTooltip')}
                     </ViewportTooltip>
                   </span>
                   <button
                     type="button"
                     onClick={handleCustomProviderJsonPaste}
                     disabled={isImportingJson}
-                    className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white/[0.05] dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+                    className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed border-border dark:hover:text-white"
                   >
                     {isImportingJson ? (
                       <>
@@ -2368,10 +2409,10 @@ export default function SettingsModal() {
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                           ></path>
                         </svg>
-                        导入中...
+                        {t('data.importing')}
                       </>
                     ) : (
-                      '从剪贴板粘贴并导入'
+                      t('customProvider.pasteImport')
                     )}
                   </button>
                 </div>
@@ -2379,14 +2420,14 @@ export default function SettingsModal() {
 
               <div className="flex-1 flex flex-col min-h-0">
                 <label className="flex-1 flex flex-col min-h-0">
-                  <span className="mb-1 shrink-0 block text-xs text-gray-500 dark:text-gray-400">
-                    手动编辑 (仅接口映射 Manifest)
+                  <span className="mb-1 shrink-0 block text-xs text-muted-foreground">
+                    {t('customProvider.manualEdit')}
                   </span>
                   <textarea
                     value={customProviderForm.json}
                     onChange={(e) => updateCustomProviderForm({ json: e.target.value })}
                     spellCheck={false}
-                    className="flex-1 min-h-[150px] w-full resize-none rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 font-mono text-xs leading-relaxed text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 custom-scrollbar"
+                    className="flex-1 min-h-[150px] w-full resize-none rounded-xl border border-border/70 bg-card/60 px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none transition focus:border-primary border-border custom-scrollbar"
                   />
                 </label>
               </div>
@@ -2394,7 +2435,7 @@ export default function SettingsModal() {
               {customProviderImportError && (
                 <div
                   data-selectable-text
-                  className="shrink-0 mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-500 dark:bg-red-500/10 dark:text-red-300"
+                  className="shrink-0 mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive dark:bg-destructive/10 dark:text-destructive"
                 >
                   {customProviderImportError}
                 </div>
@@ -2407,16 +2448,18 @@ export default function SettingsModal() {
                   setShowCustomProviderImport(false)
                   setEditingCustomProviderId(null)
                 }}
-                className="rounded-xl bg-gray-100 px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                className="rounded-xl bg-muted px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
               >
-                取消
+                {tCommon('action.cancel')}
               </button>
               <button
                 type="button"
                 onClick={saveCustomProvider}
-                className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
               >
-                {editingCustomProviderId ? '保存修改' : '创建并使用'}
+                {editingCustomProviderId
+                  ? t('customProvider.saveEdit')
+                  : t('customProvider.createAndUse')}
               </button>
             </div>
           </div>
@@ -2425,7 +2468,7 @@ export default function SettingsModal() {
       {profileTouchDragPreview &&
         createPortal(
           <div
-            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-white/95 px-3 py-2 text-xs text-gray-700 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:bg-gray-900/95 dark:text-gray-300 dark:ring-white/10"
+            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-card/95 px-3 py-2 text-xs text-foreground shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:ring-white/10"
             style={{
               left: profileTouchDragPreview.x - profileTouchDragPreview.offsetX,
               top: profileTouchDragPreview.y - profileTouchDragPreview.offsetY,
@@ -2434,9 +2477,9 @@ export default function SettingsModal() {
             }}
           >
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
-              <DragHandleIcon className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+              <DragHandleIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">{profileTouchDragPreview.label}</span>
-              <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-white/[0.08] dark:text-gray-400">
+              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {profileTouchDragPreview.providerLabel}
               </span>
             </div>
@@ -2445,28 +2488,28 @@ export default function SettingsModal() {
         )}
       {copyImportUrlProfile && (
         <Overlay onClose={() => setCopyImportUrlProfile(null)} tier="raised">
-          <div className="relative bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/50 dark:border-white/[0.08] rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
+          <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
             <button
               type="button"
               onClick={() => setCopyImportUrlProfile(null)}
-              className="absolute right-4 top-4 shrink-0 rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-              aria-label="关闭"
+              className="absolute right-4 top-4 shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
+              aria-label={tCommon('action.close')}
             >
               <CloseIcon className="h-5 w-5" />
             </button>
 
-            <h3 className="mb-3 pr-8 flex items-start gap-2.5 text-base font-bold text-gray-800 dark:text-gray-100 leading-snug">
-              <CopyIcon className="h-5 w-5 shrink-0 text-blue-500 mt-0.5" />
-              <span>复制导入配置「{copyImportUrlProfile.name}」的 URL</span>
+            <h3 className="mb-3 pr-8 flex items-start gap-2.5 text-base font-bold text-foreground leading-snug">
+              <CopyIcon className="h-5 w-5 shrink-0 text-primary mt-0.5" />
+              <span>{t('profile.copyImportUrlFor', { name: copyImportUrlProfile.name })}</span>
             </h3>
-            <div className="text-[13px] text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
-              是否包含 API Key？如果选择「不包含」，可额外配置是否使用 New API 变量。
+            <div className="text-[13px] text-muted-foreground mb-5 leading-relaxed">
+              {t('importUrl.question')}
             </div>
 
             {!copyImportUrlOptions.includeApiKey && (
-              <div className="mb-6 rounded-2xl bg-gray-50/80 p-4 dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5">
-                <div className="text-[13px] font-bold text-gray-700 dark:text-gray-300 mb-3.5">
-                  New API 变量配置
+              <div className="mb-6 rounded-2xl bg-card/80 p-4 ring-1 ring-black/5 dark:ring-white/5">
+                <div className="text-[13px] font-bold text-foreground mb-3.5">
+                  {t('importUrl.newApiVars')}
                 </div>
                 <div className="space-y-3">
                   <Checkbox
@@ -2476,11 +2519,11 @@ export default function SettingsModal() {
                     }
                     label={
                       <>
-                        使用{' '}
-                        <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
+                        {t('importUrl.use')}{' '}
+                        <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
                           {'{address}'}
                         </code>{' '}
-                        (不含 /v1)
+                        {t('importUrl.addressSuffix')}
                       </>
                     }
                   />
@@ -2489,8 +2532,8 @@ export default function SettingsModal() {
                     onChange={(checked) => updateCopyImportUrlOptions({ useNewApiKey: checked })}
                     label={
                       <>
-                        使用{' '}
-                        <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
+                        {t('importUrl.use')}{' '}
+                        <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
                           {'{key}'}
                         </code>
                       </>
@@ -2501,8 +2544,8 @@ export default function SettingsModal() {
                     onChange={(checked) => updateCopyImportUrlOptions({ useNewApiModel: checked })}
                     label={
                       <>
-                        使用{' '}
-                        <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
+                        {t('importUrl.use')}{' '}
+                        <code className="mx-0.5 rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
                           {'{model}'}
                         </code>
                       </>
@@ -2518,18 +2561,18 @@ export default function SettingsModal() {
                   const options = { ...copyImportUrlOptions, includeApiKey: false }
                   copyProfileImportUrl(copyImportUrlProfile, options)
                 }}
-                className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-white/[0.08] text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition"
+                className="flex-1 py-2 rounded-xl border border-border border-border text-sm text-muted-foreground hover:bg-card hover:bg-accent transition"
               >
-                不包含
+                {t('importUrl.exclude')}
               </button>
               <button
                 onClick={() => {
                   const options = { ...copyImportUrlOptions, includeApiKey: true }
                   copyProfileImportUrl(copyImportUrlProfile, options)
                 }}
-                className="flex-1 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition shadow-sm shadow-blue-500/20"
+                className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition shadow-sm shadow-blue-500/20"
               >
-                包含 API Key
+                {t('importUrl.include')}
               </button>
             </div>
           </div>

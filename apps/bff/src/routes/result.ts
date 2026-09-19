@@ -1,7 +1,10 @@
 import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { durableMediaStore } from '../lib/durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
+import { readGeneration } from '../lib/generations'
 import { jsonResponse } from '../lib/gzipResponse'
 import { isStoredImageRef } from '../lib/imageArchive'
 import { type ObjectRangeReader, objectStore } from '../lib/objectStore'
@@ -28,7 +31,23 @@ export const resultRoutes = new Elysia()
         .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
         .limit(1)
 
-      if (!task) return status(404, { error: 'task_not_found' })
+      if (!task) {
+        const generation = authUser && (await readGeneration(authUser.id, params.id))
+        if (generation?.status === 'completed' && generation.outputs.length)
+          return jsonResponse(
+            {
+              request_id: generation.id,
+              status: 'completed',
+              actual_params: generation.actualParameters,
+              images: generation.outputs.map((image) => ({
+                index: image.index,
+                mime: image.contentType,
+              })),
+            },
+            request,
+          )
+        return status(404, { error: 'task_not_found' })
+      }
 
       if (task.status === 'completed') {
         const provider = asQueueProvider(task.provider)
@@ -102,7 +121,10 @@ export const resultRoutes = new Elysia()
         return new Response(Buffer.from(input.data, 'base64'), { headers })
       }
       try {
-        return new Response(await objectStore().read(input.data), { headers })
+        return new Response(
+          await (input.store === 'durable' ? durableMediaStore() : objectStore()).read(input.data),
+          { headers },
+        )
       } catch {
         return status(502, { error: 'object_storage_error' })
       }
@@ -126,6 +148,44 @@ async function serveOutput(
     .from(schema.tasks)
     .where(taskAccessWhere(params.id, userId, serviceIdentity))
     .limit(1)
+  if (userId) {
+    const index = Number(params.index)
+    if (!Number.isInteger(index) || index < 0)
+      return Response.json({ error: 'bad_index' }, { status: 400 })
+    const [image] = await db
+      .select({ key: schema.media_objects.object_key, mime: schema.media_objects.content_type })
+      .from(schema.generation_images)
+      .innerJoin(
+        schema.media_objects,
+        eq(schema.generation_images.media_id, schema.media_objects.id),
+      )
+      .innerJoin(
+        schema.generation_records,
+        eq(schema.generation_images.generation_id, schema.generation_records.id),
+      )
+      .where(
+        and(
+          eq(schema.generation_records.id, params.id),
+          eq(schema.generation_records.user_id, userId),
+          eq(schema.generation_records.status, 'completed'),
+          eq(schema.media_objects.user_id, userId),
+          eq(schema.generation_images.role, 'output'),
+          eq(schema.generation_images.position, index),
+        ),
+      )
+    if (image?.key) {
+      try {
+        return rangeStreamResponse(
+          await durableMediaStore().open(image.key),
+          image.mime,
+          'private, no-store',
+          request.headers.get('range'),
+        )
+      } catch {
+        return Response.json({ error: 'object_storage_error' }, { status: 502 })
+      }
+    }
+  }
   if (!task || task.status !== 'completed')
     return Response.json({ error: 'not_ready' }, { status: 404 })
   const provider = asQueueProvider(task.provider)
@@ -149,9 +209,19 @@ async function serveOutput(
     try {
       // 图片整份读省一次元信息往返；视频只按 Range 取那一段，内存与片长无关。
       if (!isSeekable(ref.mime)) {
-        return mediaResponse(await objectStore().read(ref.data), ref.mime, cacheControl, range)
+        return mediaResponse(
+          await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.data),
+          ref.mime,
+          cacheControl,
+          range,
+        )
       }
-      return rangeStreamResponse(await objectStore().open(ref.data), ref.mime, cacheControl, range)
+      return rangeStreamResponse(
+        await (ref.store === 'durable' ? durableMediaStore() : objectStore()).open(ref.data),
+        ref.mime,
+        cacheControl,
+        range,
+      )
     } catch {
       return Response.json({ error: 'object_storage_error' }, { status: 502 })
     }
@@ -255,7 +325,7 @@ function parseByteRange(
 
 type InputImage =
   | { kind: 'b64'; data: string; mime: string }
-  | { kind: 'object'; data: string; mime: string }
+  | { kind: 'object'; data: string; mime: string; store?: 'durable' }
 
 function resolveInputImage(provider: string, payload: unknown, index: number): InputImage | null {
   if (!payload || typeof payload !== 'object') return null
@@ -265,7 +335,7 @@ function resolveInputImage(provider: string, payload: unknown, index: number): I
   if (archived.length > 0) {
     const value = archived[index]
     if (isStoredImageRef(value)) {
-      return { kind: 'object', data: value.object, mime: value.mime }
+      return { kind: 'object', data: value.object, mime: value.mime, store: value.store }
     }
     return typeof value === 'string' ? parseDataUrl(value) : null
   }

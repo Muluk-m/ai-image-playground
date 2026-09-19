@@ -6,6 +6,12 @@ import {
   PASSWORD_MIN_LENGTH,
 } from '@image-playground/shared'
 import { type FormEvent, type ReactNode, useState } from 'react'
+import { useTranslation } from '../i18n'
+
+type ValidationErrorKey =
+  | 'validation.invalidEmail'
+  | 'validation.passwordLength'
+  | 'validation.passwordMismatch'
 
 export interface RegistrationCredentials {
   username: string
@@ -18,6 +24,7 @@ interface RegistrationPanelProps {
   onBack: () => void
   onRegister: (credentials: RegistrationCredentials) => void
   children?: ReactNode
+  invitationField?: ReactNode
 }
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -36,51 +43,56 @@ export function RegistrationPanel({
   onBack,
   onRegister,
   children,
+  invitationField,
 }: RegistrationPanelProps) {
+  const { t } = useTranslation('auth')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
-  const [validationError, setValidationError] = useState<string | null>(null)
+  // 存 key 而不是译文：切语言时这条校验提示会跟着当前语言重新渲染。
+  const [validationErrorKey, setValidationErrorKey] = useState<ValidationErrorKey | null>(null)
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedEmail = email.trim()
     if (!isValidEmailAddress(normalizedEmail)) {
-      setValidationError('请输入有效的邮箱地址')
+      setValidationErrorKey('validation.invalidEmail')
       return
     }
     if (!isValidPassword(password)) {
-      setValidationError(`密码需为 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位`)
+      setValidationErrorKey('validation.passwordLength')
       return
     }
     if (password !== confirmPassword) {
-      setValidationError('两次输入的密码不一致')
+      setValidationErrorKey('validation.passwordMismatch')
       return
     }
-    setValidationError(null)
+    setValidationErrorKey(null)
     onRegister({ username: normalizedEmail, password })
   }
 
-  const visibleError = validationError || error
+  const visibleError = validationErrorKey
+    ? t(validationErrorKey, { min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })
+    : error
 
   return (
     <div className="auth-form-view auth-registration">
       <button type="button" className="auth-back" onClick={onBack} disabled={pending}>
         <span aria-hidden>←</span>
-        返回登录
+        {t('registration.back')}
       </button>
 
       <div className="auth-form-heading">
-        <h1>创建账户</h1>
-        <p>注册后即可开始你的创作旅程</p>
+        <h1 tabIndex={-1}>{t('registration.title')}</h1>
+        <p>{t('registration.subtitle')}</p>
       </div>
       {children}
 
       <form onSubmit={submit} className="auth-form" noValidate>
         <label className="auth-field" htmlFor="registration-email">
-          <span>邮箱地址</span>
+          <span>{t('registration.emailLabel')}</span>
           <input
             id="registration-email"
             name="username"
@@ -89,17 +101,16 @@ export function RegistrationPanel({
             maxLength={EMAIL_MAX_LENGTH}
             value={email}
             onChange={(event) => setEmail(event.currentTarget.value)}
-            placeholder="请输入你的邮箱地址"
+            placeholder={t('registration.emailPlaceholder')}
             disabled={pending}
             autoCapitalize="none"
             spellCheck={false}
-            autoFocus
             required
           />
         </label>
 
         <label className="auth-field" htmlFor="registration-password">
-          <span>密码</span>
+          <span>{t('registration.passwordLabel')}</span>
           <div className="auth-password">
             <input
               id="registration-password"
@@ -110,7 +121,10 @@ export function RegistrationPanel({
               maxLength={PASSWORD_MAX_LENGTH}
               value={password}
               onChange={(event) => setPassword(event.currentTarget.value)}
-              placeholder={`请输入 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位密码`}
+              placeholder={t('registration.passwordPlaceholder', {
+                min: PASSWORD_MIN_LENGTH,
+                max: PASSWORD_MAX_LENGTH,
+              })}
               disabled={pending}
               required
             />
@@ -118,7 +132,7 @@ export function RegistrationPanel({
               type="button"
               onClick={() => setShowPassword((value) => !value)}
               disabled={pending}
-              aria-label={showPassword ? '隐藏密码' : '显示密码'}
+              aria-label={showPassword ? t('password.hide') : t('password.show')}
             >
               <EyeIcon crossed={showPassword} />
             </button>
@@ -126,7 +140,7 @@ export function RegistrationPanel({
         </label>
 
         <label className="auth-field" htmlFor="registration-confirm-password">
-          <span>确认密码</span>
+          <span>{t('registration.confirmationLabel')}</span>
           <div className="auth-password">
             <input
               id="registration-confirm-password"
@@ -137,7 +151,7 @@ export function RegistrationPanel({
               maxLength={PASSWORD_MAX_LENGTH}
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.currentTarget.value)}
-              placeholder="请再次输入密码"
+              placeholder={t('registration.confirmationPlaceholder')}
               disabled={pending}
               required
             />
@@ -145,12 +159,16 @@ export function RegistrationPanel({
               type="button"
               onClick={() => setShowConfirmation((value) => !value)}
               disabled={pending}
-              aria-label={showConfirmation ? '隐藏确认密码' : '显示确认密码'}
+              aria-label={
+                showConfirmation ? t('password.hideConfirmation') : t('password.showConfirmation')
+              }
             >
               <EyeIcon crossed={showConfirmation} />
             </button>
           </div>
         </label>
+
+        {invitationField}
 
         <div className="auth-message-slot" aria-live="polite">
           {visibleError ? (
@@ -164,21 +182,21 @@ export function RegistrationPanel({
           {pending ? (
             <>
               <i className="auth-spinner" aria-hidden />
-              正在创建账户
+              {t('registration.submitting')}
             </>
           ) : (
-            '创建账户'
+            t('registration.submit')
           )}
         </button>
       </form>
 
       <p className="auth-switch">
-        已有账户？
+        {t('registration.haveAccount')}
         <button type="button" onClick={onBack} disabled={pending}>
-          返回登录
+          {t('registration.back')}
         </button>
       </p>
-      <p className="auth-terms">注册即表示你同意我们的服务条款和隐私政策</p>
+      <p className="auth-terms">{t('registration.terms')}</p>
     </div>
   )
 }
