@@ -64,6 +64,11 @@ export default function CanvasMode() {
     showCanvasWorkspace(true)
     return () => showCanvasWorkspace(false)
   }, [])
+  // 视频入口就是这张画布，只是生成方式预置到视频：每次进入都预置一次，之后由用户自己切。
+  const videoEntry = useStore((state) => state.appMode === 'video')
+  useEffect(() => {
+    if (videoEntry) useCanvasComposer.getState().requestVideo()
+  }, [videoEntry])
   if (routeError)
     return (
       <div className="studio-canvas-status" role="alert">

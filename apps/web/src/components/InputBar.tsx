@@ -88,11 +88,7 @@ function useIsMobile() {
   return isMobile
 }
 
-/**
- * `placement`：作品页没有作品时输入框顶在页面上方（`hero`），有作品之后浮回底部（`docked`）。
- * 浮动态是 fixed，所以两种形态在 DOM 里是同一个位置的同一个实例，切换不会重新挂载。
- */
-export default function InputBar({ placement = 'docked' }: { placement?: 'docked' | 'hero' } = {}) {
+export default function InputBar() {
   const { t, i18n } = useTranslation(['composer', 'common'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
@@ -1339,12 +1335,7 @@ export default function InputBar({ placement = 'docked' }: { placement?: 'docked
 
       <div
         data-input-bar
-        data-input-bar-placement={placement}
-        className={
-          placement === 'hero'
-            ? 'relative z-30 mx-auto mb-7 w-full max-w-4xl px-3 sm:px-4'
-            : 'studio-history-composer fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300'
-        }
+        className="studio-history-composer fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300"
       >
         {selectedTaskIds.length > 0 && (
           <div className="flex justify-center mb-3">
@@ -1736,7 +1727,7 @@ export default function InputBar({ placement = 'docked' }: { placement?: 'docked
                   >
                     <BookmarkIcon className="h-5 w-5" />
                   </button>
-                  <ParamControls showCount layout="compact" />
+                  <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <div
                     className="relative ml-auto flex flex-shrink-0 items-center gap-2"
@@ -1796,7 +1787,7 @@ export default function InputBar({ placement = 'docked' }: { placement?: 'docked
                   <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
                     <div className="collapse-inner">
                       <div className="flex flex-wrap items-center gap-2">
-                        <ParamControls showCount layout="compact" />
+                        <ParamControls showCount />
                       </div>
                     </div>
                   </div>

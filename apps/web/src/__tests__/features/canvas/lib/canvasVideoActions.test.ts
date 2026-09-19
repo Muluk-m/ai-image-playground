@@ -117,7 +117,7 @@ beforeEach(() => {
   doc = new CanvasDoc()
   doc.setViewport(800, 600)
   editor = new CanvasEditor(doc)
-  useCanvasComposer.setState({ prompt: '' })
+  useCanvasComposer.setState({ mode: 'image', prompt: '' })
   vi.stubGlobal('requestAnimationFrame', () => 0)
   vi.stubGlobal('cancelAnimationFrame', () => {})
   vi.stubGlobal(

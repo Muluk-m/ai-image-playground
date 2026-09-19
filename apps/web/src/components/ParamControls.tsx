@@ -28,12 +28,10 @@ import {
   type TaskParams,
 } from '../types'
 import { ChipIcons } from './chipIcons'
-import { ChevronDownIcon } from './icons'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import ParamChip from './ParamChip'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 /** chip 模式 Select trigger：让 trigger 充满 chip wrapper（由 wrapperClassName='absolute inset-0' 提供），chevron 靠右对齐。 */
 const CHIP_TRIGGER_CLASS = '!justify-end !bg-transparent !border-0 !shadow-none !px-3 !py-0 h-full'
@@ -109,15 +107,9 @@ export type UnsupportedParam = 'transparent' | 'noRewrite'
 export default function ParamControls({
   showCount = false,
   unsupported,
-  layout = 'row',
 }: {
   showCount?: boolean
   unsupported?: ReadonlySet<UnsupportedParam>
-  /**
-   * `row` 把每个参数摊成一颗 chip；`compact` 只留模型和一颗「参数」入口，其余收进浮层。
-   * 输入框那条一行放不下七八颗 chip，摊开来比收起来更难用。
-   */
-  layout?: 'row' | 'compact'
 }) {
   const { t } = useTranslation('composer')
   const params = useStore((s) => s.params)
@@ -316,32 +308,21 @@ export default function ParamControls({
   const currentModel = globalModelOptions.find((option) => option.value === currentModelValue)
   const modelLine = currentModel?.label ?? t('param.noModel')
 
-  const sizeSummary = capabilities.size ? displaySize : sizeRatioLabel(params.size)
-  const modelChip = globalModelOptions.length > 0 && (
-    <ParamChip
-      icon={currentModel?.icon ?? ChipIcons.model}
-      label={modelLine}
-      className="min-w-[184px] max-w-[224px] shrink-0 pr-9"
-    >
-      <ChipSelect
-        value={currentModelValue}
-        onChange={(val) => handleGlobalModelPick(val)}
-        options={globalModelOptions}
-      />
-    </ParamChip>
-  )
-  const sizePicker = showSizePicker && (
-    <SizePickerModal
-      currentSize={params.size}
-      onSelect={(size) => setParams({ size })}
-      onClose={() => setShowSizePicker(false)}
-      allowAuto={true}
-      ratioOnly={!capabilities.size}
-      limitTo1K={activeView.codexCli}
-    />
-  )
-  const secondaryChips = (
+  return (
     <>
+      {globalModelOptions.length > 0 && (
+        <ParamChip
+          icon={currentModel?.icon ?? ChipIcons.model}
+          label={modelLine}
+          className="min-w-[184px] max-w-[224px] shrink-0 pr-9"
+        >
+          <ChipSelect
+            value={currentModelValue}
+            onChange={(val) => handleGlobalModelPick(val)}
+            options={globalModelOptions}
+          />
+        </ParamChip>
+      )}
       {!isGeminiProvider && (
         <ParamChip
           icon={ChipIcons.size}
@@ -476,42 +457,16 @@ export default function ParamControls({
           />
         </ParamChip>
       )}
-    </>
-  )
-
-  if (layout === 'compact') {
-    return (
-      <>
-        {modelChip}
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              title={t('param.more')}
-              className="relative inline-flex h-10 items-center gap-2 rounded-xl border border-input bg-background px-3 text-left text-xs font-medium transition-colors duration-150 hover:border-ring/40 hover:bg-accent"
-            >
-              <span className="flex shrink-0 items-center justify-center text-muted-foreground">
-                {ChipIcons.size}
-              </span>
-              <span className="text-foreground">{t('param.more')}</span>
-              <span className="min-w-0 truncate text-muted-foreground">{sizeSummary}</span>
-              <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-auto max-w-[min(24rem,calc(100vw-2rem))] p-3">
-            <div className="flex flex-wrap gap-2">{secondaryChips}</div>
-          </PopoverContent>
-        </Popover>
-        {sizePicker}
-      </>
-    )
-  }
-
-  return (
-    <>
-      {modelChip}
-      {secondaryChips}
-      {sizePicker}
+      {showSizePicker && (
+        <SizePickerModal
+          currentSize={params.size}
+          onSelect={(size) => setParams({ size })}
+          onClose={() => setShowSizePicker(false)}
+          allowAuto={true}
+          ratioOnly={!capabilities.size}
+          limitTo1K={activeView.codexCli}
+        />
+      )}
     </>
   )
 }

@@ -50,8 +50,8 @@ import {
   isCursorInSelectedImageMention,
 } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
+import { useCanvasComposer } from '../../canvas/composerStore'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
-import { useGenerationMode } from '../../canvas/lib/generationMode'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
@@ -258,13 +258,24 @@ export default function AgentComposer({
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [])
 
-  // 这一轮生成什么由入口决定（创作=图片，视频=视频），输入框里不再有可切的开关。
-  const mode = useGenerationMode()
-  // store 让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
+  // 做不了视频的部署里「视频」这个选项不该出现，存下来的旧草稿也按图片算——
+  // 服务端在那种部署里本来就会把视频轮当图片轮装配，开关留着只会骗人。
+  const videoAvailable = isVideoModeAvailable()
+  const mode = videoAvailable ? draftMode(draft) : 'image'
+  // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
+  // 换会话时这份草稿重新读盘，读完再同步过去，所以切走不会把上一个会话的类型带过去。
   const setSessionMode = useAgentStore((state) => state.setMode)
   useEffect(() => {
     if (!loading) setSessionMode(mode)
   }, [mode, loading, setSessionMode])
+
+  // 进视频入口、从图片发起「生成视频」时，下一轮预置为视频；草稿读完才接手，免得被读盘覆盖。
+  const agentVideoPending = useCanvasComposer((state) => state.agentVideoPending)
+  useEffect(() => {
+    if (loading || !videoAvailable || !agentVideoPending) return
+    if (!useCanvasComposer.getState().consumeAgentVideo()) return
+    setDraft((current) => (current.mode === 'video' ? current : { ...current, mode: 'video' }))
+  }, [loading, videoAvailable, agentVideoPending, setDraft])
 
   const skills = useAgentSkills(mode)
 
@@ -575,6 +586,45 @@ export default function AgentComposer({
             />
           </div>
           <ComposerActions className="min-w-0">
+            {videoAvailable && (
+              <Select
+                value={mode}
+                onValueChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    mode: value === 'video' ? 'video' : 'image',
+                  }))
+                }
+              >
+                <SelectTrigger
+                  aria-label={`${t('composer.modeAria')}：${t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}`}
+                  title={t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}
+                  className="h-8 w-8 justify-center rounded-full border-0 bg-muted p-0 text-muted-foreground [&>svg]:hidden"
+                >
+                  <SelectValue>
+                    {mode === 'video' ? (
+                      <VideoIcon className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="image">
+                    <span className="flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                      {t('composer.modeImage')}
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="video">
+                    <span className="flex items-center gap-2">
+                      <VideoIcon className="h-4 w-4" aria-hidden="true" />
+                      {t('composer.modeVideo')}
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <AgentParamsChip />
             {running && (
               <button
