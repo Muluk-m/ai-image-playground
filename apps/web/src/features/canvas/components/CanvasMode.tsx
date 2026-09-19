@@ -162,8 +162,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
 
   return (
     <div
-      className="studio-shell fixed bottom-0 right-0 left-0 z-30 md:left-60"
-      style={{ top: HEADER_OFFSET }}
+      className="studio-shell fixed bottom-0 right-0 z-30"
+      style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
     >
       {showWelcome && !mobile && !loading && !loadFailed ? (
         <ProjectWelcome workspace={workspace} />

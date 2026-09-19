@@ -101,7 +101,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     <>
       <Header />
       <Sidebar />
-      <div className="md:pl-60">
+      <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
         {appMode === 'canvas' ? (
           <CanvasMode />
         ) : appMode === 'video' ? (

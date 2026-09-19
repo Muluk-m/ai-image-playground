@@ -36,7 +36,9 @@ afterEach(() => {
 })
 
 function entry(label: string): HTMLButtonElement {
-  const button = [...host.querySelectorAll('button')].find((one) => one.textContent === label)
+  const button = [...host.querySelectorAll('button')].find(
+    (one) => one.getAttribute('aria-label') === label || one.textContent === label,
+  )
   if (!button) throw new Error(`侧栏没有「${label}」`)
   return button
 }
@@ -56,4 +58,23 @@ it('素材与模板和别的入口同一层级：换地址、换主区', () => {
 
   expect(useStore.getState().appMode).toBe('templates')
   expect(entry('模板').getAttribute('aria-pressed')).toBe('true')
+})
+
+it('工作台入口默认收起侧栏，只留图标；换到库页自动摊开', () => {
+  expect(entry('画布').textContent).toBe('')
+
+  act(() => entry('作品').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+  expect(entry('作品').textContent).toBe('作品')
+})
+
+it('自己按了折叠就以自己的选择为准，换入口后回到默认', () => {
+  act(() => entry('展开侧栏').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(entry('画布').textContent).toBe('画布')
+
+  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => entry('生图').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+  expect(entry('画布').textContent).toBe('')
 })

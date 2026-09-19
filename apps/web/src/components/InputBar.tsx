@@ -1256,7 +1256,11 @@ export default function InputBar() {
 
       <div
         data-input-bar
-        className="studio-history-composer fixed bottom-4 left-1/2 z-30 w-full max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4 md:left-[calc(50%+7.5rem)] md:w-[calc(100%-15rem)]"
+        className="studio-history-composer fixed bottom-4 z-30 max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4"
+        style={{
+          left: 'calc(50% + var(--app-sidebar-width) / 2)',
+          width: 'calc(100% - var(--app-sidebar-width))',
+        }}
       >
         <div
           ref={cardRef}
