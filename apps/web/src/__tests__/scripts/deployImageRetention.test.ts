@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -67,5 +69,44 @@ describe('select_stale_images', () => {
   it('两个形态共用仓库名时互不误删', () => {
     const tags = [internal('aaaaaaa1'), paid('aaaaaaa1', 'bbbbbbb1'), internal('aaaaaaa2')]
     expect(stale('ai-image-playground:vps-main', 1, tags)).toEqual([internal('aaaaaaa2')])
+  })
+})
+
+/**
+ * 镜像是按 digest 拉下来的，删掉本地 tag 之后还剩一条 `<registry>@sha256:...` 引用钉着快照。
+ * 生产就是这样把 50G 根分区堆到 84%、把发布卡在空间预检上的：`docker images` 看着只有几代。
+ * 这里用假 docker 钉住"没有 tag 了就连带把 digest 引用删掉，还有 tag 的不许碰"。
+ */
+function releaseUntagged(imageId: string, repoTags: number | 'missing') {
+  const dir = mkdtempSync(join(tmpdir(), 'aip-release-untagged-'))
+  const calls = join(dir, 'calls')
+  const inspect =
+    repoTags === 'missing' ? 'exit 1' : `[ "$1" = "image" ] && printf '%s' ${repoTags}`
+  writeFileSync(
+    join(dir, 'docker'),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "${calls}"\ncase "$1 $2" in\n  'image inspect') ${inspect}; exit 0 ;;\n  'rmi '*) exit 0 ;;\nesac\nexit 0\n`,
+  )
+  chmodSync(join(dir, 'docker'), 0o755)
+  const out = execFileSync('sh', ['-c', `. "$0"; release_untagged_image "$1"`, lib, imageId], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+  })
+  const log = existsSync(calls) ? readFileSync(calls, 'utf8').split('\n').filter(Boolean) : []
+  return { out: out.trim(), removed: log.some((line) => line.startsWith('rmi ')) }
+}
+
+describe('release_untagged_image', () => {
+  it('最后一个 tag 没了就把 digest 引用一起删掉，层才真的回收', () => {
+    const result = releaseUntagged('sha256:abc', 0)
+    expect(result.removed).toBe(true)
+    expect(result.out).toContain('sha256:abc')
+  })
+
+  it('还有别的 tag 指着它就不碰：那是另一代的回滚目标', () => {
+    expect(releaseUntagged('sha256:abc', 1).removed).toBe(false)
+  })
+
+  it('镜像已经不在了也不报错', () => {
+    expect(releaseUntagged('sha256:gone', 'missing')).toEqual({ out: '', removed: false })
   })
 })
