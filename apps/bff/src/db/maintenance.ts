@@ -303,6 +303,41 @@ export async function purgeOldTasks(
   return deleted.length
 }
 
+/**
+ * 清掉一直没被确认的生成草稿，连同它归档在 `${draftId}/in/` 的输入图与遮罩。
+ *
+ * 拟稿不建任务，所以这些行与对象走不到 `purgeOldTasks` 那条路（它只清 `${task.id}/`）；
+ * 没有这一步，对象存储就按「生成尝试次数」而不是生成数增长。
+ * 已确认的草稿留着当幂等回执——它的输入图在确认那一刻就已经丢掉了。
+ * 保留期沿用任务的那一个：卡片可确认的窗口与产物的留存窗口是同一段时间。
+ */
+export async function purgeStaleGenerationDrafts(
+  retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,
+): Promise<number> {
+  const threshold = Date.now() - retentionMs
+  const deleted = await db
+    .delete(schema.agent_generation_drafts)
+    .where(
+      and(
+        isNull(schema.agent_generation_drafts.task_id),
+        lt(schema.agent_generation_drafts.created_at, threshold),
+      ),
+    )
+    .returning({ id: schema.agent_generation_drafts.id })
+
+  for (const draft of deleted) {
+    try {
+      await objectStore().deletePrefix(`${draft.id}/`)
+    } catch (error) {
+      log.warn(
+        { event: 'object_store.cleanup_failed', draftId: draft.id, err: String(error) },
+        'draft row deleted; object prefix left for lifecycle cleanup',
+      )
+    }
+  }
+  return deleted.length
+}
+
 /** 宿主机采样只为看近几天的趋势；留久了这张表自己就成了吃磁盘的那个。 */
 const HOST_SAMPLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 

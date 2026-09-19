@@ -1,7 +1,12 @@
 import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
-import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
+import {
+  purgeOldTasks,
+  purgeOrphanedAssetObjects,
+  purgeStaleGenerationDrafts,
+  runPrivateMaintenance,
+} from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
@@ -89,6 +94,11 @@ setInterval(async () => {
     const expired = await purgeOldAgentTurnEvents()
     if (expired > 0) {
       log.info({ event: 'periodic.purged_agent_events', count: expired }, 'purged agent events')
+    }
+    // 拟了稿一直没确认的那些：行与它归档的输入图不属于任何任务，别处没人清。
+    const drafts = await purgeStaleGenerationDrafts()
+    if (drafts > 0) {
+      log.info({ event: 'periodic.purged_agent_drafts', count: drafts }, 'purged agent drafts')
     }
   }
 }, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)
