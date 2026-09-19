@@ -17,7 +17,7 @@
   },
   "asset": {
     "new": "New asset",
-    "unsynced": "Unsynced",
+    "unsynced": "Waiting to save",
     "addAsReference": "Add reference",
     "zoom": "Zoom in",
     "makeVideo": "Make a video",

@@ -164,10 +164,10 @@ it('实际项目列表回收站把过期项目的本机编辑存为新身份，�
         .find((one) => one.textContent?.includes('回收站'))!
         .click(),
     )
-    await vi.waitFor(() => expect(host.textContent).toContain('本机编辑另存为新项目'))
+    await vi.waitFor(() => expect(host.textContent).toContain('当前编辑另存为新项目'))
     await act(async () =>
       [...host.querySelectorAll('button')]
-        .find((one) => one.textContent === '本机编辑另存为新项目')!
+        .find((one) => one.textContent === '当前编辑另存为新项目')!
         .click(),
     )
     await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).not.toBe(id))

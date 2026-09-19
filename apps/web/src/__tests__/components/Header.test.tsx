@@ -117,7 +117,7 @@ describe('logging out', () => {
     })
     click('退出登录')
     expect(logout).not.toHaveBeenCalled()
-    expect(document.body.textContent).toContain('同时清除本机数据')
+    expect(document.body.textContent).toContain('同时清除这个浏览器里的数据')
 
     const box = document.querySelector<HTMLButtonElement>('[role="checkbox"]')
     act(() => box?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
