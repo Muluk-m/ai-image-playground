@@ -20,6 +20,12 @@ import type {
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
 export type AgentDeliveryStatus = 'pending' | 'placed' | 'unavailable' | 'failed'
 
+export interface AgentTextReference {
+  readonly imageId: string
+  readonly dataUrl: string
+  readonly name?: string
+}
+
 export interface AgentTextMessage {
   readonly kind: 'text'
   readonly id: string

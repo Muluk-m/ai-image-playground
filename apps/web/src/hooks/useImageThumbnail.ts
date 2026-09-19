@@ -20,11 +20,13 @@ export function useImageThumbnail(imageId: string | undefined): ImageThumbnail |
       if (!cancelled) setThumbnail(next)
     }
     const unsubscribe = subscribeImageThumbnail(imageId, apply)
-    ensureImageThumbnailCached(imageId)
+    void ensureImageThumbnailCached(imageId)
       .then((next) => {
         if (next) apply(next)
       })
-      .catch(() => apply({ dataUrl: '' }))
+      .catch(() => {
+        // 失败时保持 null，让调用方渲染自己的占位图；绝不能把空 src 交给 <img>。
+      })
 
     return () => {
       cancelled = true

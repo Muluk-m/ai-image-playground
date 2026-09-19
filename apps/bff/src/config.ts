@@ -178,8 +178,9 @@ export const config = {
     healthPort: positiveIntEnv('WORKER_HEALTH_PORT', 37_379),
     healthStaleAfterMs: workerHealthStaleAfterMs,
     concurrency: {
-      openaiCompat: positiveIntEnv('WORKER_OPENAI_CONCURRENCY', 1),
-      gemini: positiveIntEnv('WORKER_GEMINI_CONCURRENCY', 2),
+      // 一次 n=4 请求仍由上游决定内部并行；独立任务默认允许并发，避免空队列时被单 worker 串行化。
+      openaiCompat: positiveIntEnv('WORKER_OPENAI_CONCURRENCY', 4),
+      gemini: positiveIntEnv('WORKER_GEMINI_CONCURRENCY', 4),
     },
   },
 }

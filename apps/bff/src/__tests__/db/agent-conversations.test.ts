@@ -137,6 +137,17 @@ describe('agent conversations', () => {
     expect((await findAgentConversation(conversation.id, USER))!.title).toBe('第一句')
   })
 
+  it('only renames while the title is still the one the caller saw', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+
+    await setAgentConversationTitle(db, conversation.id, USER, '小模型起的名字', '第一句')
+    expect((await findAgentConversation(conversation.id, USER))!.title).toBe('小模型起的名字')
+
+    // 迟到的那一次：标题已经不是它出发时那句，不覆盖。
+    await setAgentConversationTitle(db, conversation.id, USER, '更迟的名字', '第一句')
+    expect((await findAgentConversation(conversation.id, USER))!.title).toBe('小模型起的名字')
+  })
+
   it('drops a soft deleted conversation from reads', async () => {
     const conversation = await createAgentConversation(USER, '第一句')
     await appendAgentMessage(db, {

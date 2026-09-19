@@ -6,17 +6,22 @@ import type {
   AgentWakeSkipReason,
 } from '@image-playground/shared'
 import {
+  AGENT_CONVERSATION_TITLE_MAX_CHARS,
   AGENT_MAX_CONSECUTIVE_WAKES,
   AGENT_QUEUE_MAX_PENDING,
   agentConversationTitle,
+  agentTitleLine,
 } from '@image-playground/shared'
 import { and, asc, eq, isNull } from 'drizzle-orm'
+import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
+import { askChatModel } from '../chatCompletion'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
+import { isObject } from '../type-guards'
 import { markAgentJobsWakeSkipped } from './background-jobs'
 import { type ChatTaskReserved, chatTaskPricing, reserveChatTask } from './chat-task'
 import {
@@ -59,6 +64,42 @@ import {
   wakeTurnPrompt,
   wakeTurnSetup,
 } from './wake-prompt'
+
+const TITLE_TIMEOUT_MS = 2_000
+/** 一句标题加 JSON 外壳绰绰有余：卡得太紧回复被截断，解析不出来这一趟就白跑。 */
+const TITLE_MAX_TOKENS = 64
+
+/**
+ * 首轮落库的标题就是用户那句原话，这里让小模型把它概括成一个短名字。整件事在后台做：
+ * 概括要过一次上游，挡在起轮前面对话就迟迟不动。
+ *
+ * 只在标题仍是那句原话时才改：概括迟到、期间标题已被写成别的，那一份才是更新的意思。
+ */
+async function nameConversation(
+  conversationId: string,
+  owner: AgentOwner,
+  text: string,
+): Promise<void> {
+  try {
+    const title = await askChatModel(
+      {
+        model: config.agent.summaryModel,
+        prompt:
+          '请把下面这条用户请求概括成一个简短中文项目标题。只输出 JSON：{"title":"标题"}，标题不要标点，最多12个字。\n\n用户请求：' +
+          text,
+        maxTokens: TITLE_MAX_TOKENS,
+        timeoutMs: TITLE_TIMEOUT_MS,
+      },
+      (value) =>
+        isObject(value) && typeof value.title === 'string'
+          ? agentTitleLine(value.title, AGENT_CONVERSATION_TITLE_MAX_CHARS)
+          : null,
+    )
+    await setAgentConversationTitle(db, conversationId, owner, title, agentConversationTitle(text))
+  } catch {
+    // 概括不是对话主链路：首句标题已在事务里落库，这里失败就保留它。
+  }
+}
 
 export interface StartConversationTurnInput {
   readonly conversationId: string
@@ -739,6 +780,8 @@ async function executeConversationTurn(
   if (written.kind !== 'reserved') return written
 
   await assertOwnership()
+  // 自动命名不挡对话：小模型在后台改写标题，迟到或失败都只是继续用首句那个。
+  if (history.length === 0) void nameConversation(conversationId, owner, text)
   return {
     kind: 'started',
     turn: await startAgentTurn({
