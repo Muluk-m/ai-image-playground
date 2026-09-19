@@ -98,7 +98,7 @@ beforeEach(async () => {
   await currentCanvasWorkspace().ready
   toasts.length = 0
   useStore.setState({
-    appMode: 'browse',
+    appMode: 'image',
     showToast: (message: string) => {
       toasts.push(message)
     },
@@ -133,7 +133,7 @@ it('从作品页显式放入当前项目，重复放不复制，也不覆盖已�
   expect(Object.values(workspace.doc.files)).toContain(
     'aip-media:22222222-2222-4222-8222-222222222222',
   )
-  expect(useStore.getState().appMode).toBe('create')
+  expect(useStore.getState().appMode).toBe('canvas')
   const placed = workspace.doc.elements[0]!
   workspace.doc.updateElements([{ id: placed.id, patch: { x: 617, y: 391 } }])
   await place()
@@ -159,7 +159,7 @@ it('读取原图期间切换项目，迟到的手动放置不污染任何项目'
   await placing
   expect(original.doc.elements).toHaveLength(0)
   expect(next.doc.elements).toHaveLength(0)
-  expect(useStore.getState().appMode).toBe('browse')
+  expect(useStore.getState().appMode).toBe('image')
 })
 it('原图加载期间同步已经送达产物，手动放置保留同步对象的位置且不重复插入', async () => {
   holdDecode = true
@@ -198,5 +198,5 @@ it('原项目仍有同身份的生成占位时提示等待同步，不谎报放�
   expect(toasts.join(' ')).toContain('保存')
   expect(workspace.doc.elements).toHaveLength(1)
   expect(workspace.doc.elements[0]).toMatchObject({ type: 'placeholder', x: 40, y: 50 })
-  expect(useStore.getState().appMode).toBe('browse')
+  expect(useStore.getState().appMode).toBe('image')
 })

@@ -64,11 +64,6 @@ export default function CanvasMode() {
     showCanvasWorkspace(true)
     return () => showCanvasWorkspace(false)
   }, [])
-  // 视频入口就是这张画布，只是生成方式预置到视频：每次进入都预置一次，之后由用户自己切。
-  const videoEntry = useStore((state) => state.appMode === 'video')
-  useEffect(() => {
-    if (videoEntry) useCanvasComposer.getState().requestVideo()
-  }, [videoEntry])
   if (routeError)
     return (
       <div className="studio-canvas-status" role="alert">
@@ -166,7 +161,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   }, [editor, workspace, loading, loadFailed, pendingImages])
 
   return (
-    <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
+    <div
+      className="studio-shell fixed bottom-0 right-0 left-0 z-30 md:left-60"
+      style={{ top: HEADER_OFFSET }}
+    >
       {showWelcome && !mobile && !loading && !loadFailed ? (
         <ProjectWelcome workspace={workspace} />
       ) : (

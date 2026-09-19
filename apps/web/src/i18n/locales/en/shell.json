@@ -1,16 +1,24 @@
 {
   "header": {
     "brandName": "Muvloom",
-    "homeAria": "Muvloom, back to creating",
+    "homeAria": "Muvloom, back to the canvas",
     "nav": "Main navigation",
     "inspiration": "Inspiration",
-    "library": "My assets",
+    "library": "Assets",
     "accountMenu": "Open your account",
     "appMenu": "Open the app menu",
     "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Sign-in methods",
     "loggingOut": "Signing out"
+  },
+  "nav": {
+    "create": "Create",
+    "mine": "Library",
+    "assets": "Assets",
+    "templates": "Templates",
+    "recentCanvases": "Recent canvases",
+    "allProjects": "All projects"
   },
   "logout": {
     "title": "Sign out",

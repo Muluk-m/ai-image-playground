@@ -407,22 +407,25 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['create', 'browse', 'video'] as const
+export const APP_MODES = ['image', 'canvas', 'video', 'works'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
  * 取值时才翻译：模块加载那一刻语言可能还没切完，而写死的字面量在切换后也不会跟着变。
- * 消费方（Header）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
+ * 消费方（侧栏）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
  */
 export const APP_MODE_LABELS: Record<AppMode, string> = {
-  get browse() {
-    return i18next.t('appMode.browse', { ns: 'store' })
+  get image() {
+    return i18next.t('appMode.image', { ns: 'store' })
   },
-  get create() {
-    return i18next.t('appMode.create', { ns: 'store' })
+  get canvas() {
+    return i18next.t('appMode.canvas', { ns: 'store' })
   },
   get video() {
     return i18next.t('appMode.video', { ns: 'store' })
+  },
+  get works() {
+    return i18next.t('appMode.works', { ns: 'store' })
   },
 }
 
@@ -808,8 +811,8 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      // 刷新作品 / 视频地址时直接落在对应入口，不先闪一下画布。
-      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'create',
+      // 刷新生图 / 视频 / 作品地址时直接落在对应入口，不先闪一下画布。
+      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'canvas',
       setAppMode: (appMode) => set({ appMode }),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
@@ -2050,6 +2053,8 @@ async function reuseLocalConfig(task: TaskRecord) {
     })
     return
   }
+  // 复用出来的提示词与参数落在生图入口的输入框里，作品入口没有它，不切过去就只剩一句 toast。
+  useStore.getState().setAppMode('image')
 
   showToast(
     shouldTemporarilyReuseProfile && matchedView
@@ -2162,7 +2167,7 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
     return
   }
   queueCanvasImages([dataUrl])
-  setAppMode('create')
+  setAppMode('canvas')
 }
 
 /** 平台记录的输出按序号对回详情里的那一张，再交给显式放置；失败按原因给话说清。 */

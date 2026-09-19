@@ -17,7 +17,7 @@ const IMAGE_B = 'data:image/png;base64,BBBB'
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({
-    appMode: 'browse',
+    appMode: 'image',
     inputImages: [],
     prompt: '',
     params: { ...DEFAULT_PARAMS },

@@ -305,6 +305,61 @@ export function VideoIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** 画布入口：一块画框。 */
+export function CanvasIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2.5" />
+      <path d="M3 8.5h18M8.5 3v18" />
+    </svg>
+  )
+}
+
+/** 生图入口：提示词直出的一张图。 */
+export function PromptImageIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="m4.5 16.5 4-4.5 3.5 4 2.5-2.5 5 5" />
+      <circle cx="9" cy="9" r="1.4" />
+    </svg>
+  )
+}
+
+/** 模板入口：一份存下来的提示词。 */
+export function TemplateIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+      <path d="M7.5 9h9M7.5 13h9M7.5 17h5" />
+    </svg>
+  )
+}
+
 export function GlobeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
