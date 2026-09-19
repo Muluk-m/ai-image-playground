@@ -54,9 +54,9 @@ it('冲突界面提供保留两稿的恢复动作，采用云端稿后副本仍�
   try {
     await act(async () => root.render(<ProjectSyncStatus session={session} />))
     const buttons = Array.from(host.querySelectorAll('button'))
-    expect(buttons.map((button) => button.textContent)).toEqual(['使用云端版', '本机版另存为项目'])
+    expect(buttons.map((button) => button.textContent)).toEqual(['用另一份', '当前修改另存为项目'])
     await act(async () => buttons[0]!.click())
-    await vi.waitFor(() => expect(host.textContent).toContain('画布已同步'))
+    await vi.waitFor(() => expect(host.textContent).toContain('已保存'))
     expect(await projectRepository.list()).toHaveLength(2)
     expect(editor.doc.elements).toEqual([])
   } finally {

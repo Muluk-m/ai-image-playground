@@ -76,6 +76,6 @@ describe('the logout dialog', () => {
   it('offers clearing the local data', () => {
     render(vi.fn())
 
-    expect(document.body.textContent).toContain('同时清除本机数据')
+    expect(document.body.textContent).toContain('同时清除这个浏览器里的数据')
   })
 })
