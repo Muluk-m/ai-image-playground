@@ -12,9 +12,9 @@ import { matchProfile } from './matchProfile'
  * - 若主输入框已有内容，先弹 ConfirmDialog 确认覆盖
  * - 同步 setPrompt + setParams（仅覆盖 size/quality/n）
  * - 尝试切到匹配 provider+model 的 profile（同族模型可回退）；找不到时 toast 警告但仍应用 prompt/params
- * - 应用后关闭 Panel
+ * - 应用后关闭 Panel，再回调 `onApplied`（确认框取消时不回调）
  */
-export function applyInspiration(item: InspirationItem) {
+export function applyInspiration(item: InspirationItem, onApplied?: () => void) {
   const main = useStore.getState()
   const hasUnsavedInput = main.prompt.trim().length > 0
 
@@ -26,15 +26,15 @@ export function applyInspiration(item: InspirationItem) {
       cancelText: i18next.t('action.cancel'),
       showCancel: true,
       tone: 'warning',
-      action: () => doApply(item),
+      action: () => doApply(item, onApplied),
     })
     return
   }
 
-  doApply(item)
+  doApply(item, onApplied)
 }
 
-function doApply(item: InspirationItem) {
+function doApply(item: InspirationItem, onApplied?: () => void) {
   const main = useStore.getState()
   const inspiration = useInspirationStore.getState()
 
@@ -75,4 +75,5 @@ function doApply(item: InspirationItem) {
   }
 
   inspiration.closePanel()
+  onApplied?.()
 }

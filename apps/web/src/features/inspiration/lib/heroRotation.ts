@@ -1,7 +1,8 @@
 import type { InspirationItem } from '../types'
 
 const PREVIOUS_BATCH_KEY = 'inspiration-hero-previous:v1'
-export const HERO_CARD_COUNT = 6
+/** 瀑布流四到五列，一屏半左右的量：少了看着空，多了首屏全是别人的图。 */
+export const HERO_CARD_COUNT = 15
 
 export function selectHeroItems(
   items: readonly InspirationItem[],
