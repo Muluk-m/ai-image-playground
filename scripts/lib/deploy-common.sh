@@ -75,17 +75,22 @@ select_stale_images() {
   '
 }
 
-# release_untagged_image <image-id>
+# release_untagged_image <image-id> <local-repository>
 #
 # Drops an image that no local tag names any more. Untagging is not enough to reclaim the
 # layers: releases arrive by digest, so every image also carries a `<registry>@sha256:...`
 # reference that outlives the tag and pins its snapshot forever. Production filled 84% of a
 # 50 GiB disk that way and refused a rollout on the free-space check while `docker images`
-# listed only a few live tags. An image another tag still names, or one already gone, is left
-# alone.
+# listed only a few live tags; 24 such images held 24 GiB.
+#
+# Emptiness is decided on the local repository, not on `len .RepoTags`: Docker reports the
+# registry reference among the names too, so a count is never zero and the image is never
+# reclaimed. An image another local tag still names, or one already gone, is left alone.
 release_untagged_image() {
-  remaining=$(docker image inspect "$1" --format '{{len .RepoTags}}' 2>/dev/null) || return 0
-  [ "$remaining" = 0 ] || return 0
+  names=$(docker image inspect "$1" \
+    --format '{{range .RepoTags}}{{println .}}{{end}}{{range .RepoDigests}}{{println .}}{{end}}' \
+    2>/dev/null) || return 0
+  printf '%s\n' "$names" | grep -q "^$2[:@]" && return 0
   docker rmi "$1" >/dev/null 2>&1 && echo "released the registry reference of $1"
 }
 
