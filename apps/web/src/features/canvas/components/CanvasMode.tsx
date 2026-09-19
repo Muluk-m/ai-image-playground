@@ -14,7 +14,6 @@ import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
 import { projectDisplayName } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
-import { submitVideoFromCanvas } from '../lib/submitVideoFromCanvas'
 import {
   type CanvasWorkspace,
   currentCanvasWorkspace,
@@ -165,19 +164,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       (error) => console.warn('[canvas] 工作台图片放置失败', error),
     )
   }, [editor, workspace, loading, loadFailed, pendingImages])
-
-  // 视频入口落地页交接过来的一句话：工作区就绪后才起轮，产物才有画布可落。
-  const handoffPrompt = useCanvasComposer((state) => state.handoffPrompt)
-  useEffect(() => {
-    if (loading || loadFailed || handoffPrompt === null) return
-    const prompt = useCanvasComposer.getState().consumeHandoffPrompt()
-    if (prompt === null) return
-    if (hasAgent) {
-      void useAgentStore.getState().send(prompt, [], undefined, 'video')
-      return
-    }
-    void submitVideoFromCanvas(editor, prompt)
-  }, [editor, hasAgent, loading, loadFailed, handoffPrompt])
 
   return (
     <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
