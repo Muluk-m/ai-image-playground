@@ -31,7 +31,7 @@
 command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-actions-deploy
 ```
 
-只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`，其余一律拒绝（退出码 2）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；目录已存在即拒绝，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码。发布失败后目录保留：排查后删除该目录再重跑 workflow，或按手动步骤在 VPS 上直接重跑。脚本更新后须重新安装。
+只接受 `deploy <aip-12位hex-12位hex> <internal|paid|all> <run_id>`，其余一律拒绝（退出码 2）。stdin 的 tar 仅限相对路径的普通文件和目录（拒绝绝对路径、`..`、隐藏项、链接，上限 64 MiB），解到 `~/releases/<release-id>`；同一提交重发（手动触发）时原目录保留供回滚，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行包内 `vps-deploy.sh` 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查，可直接重跑 workflow。脚本更新后须重新安装。
 
 ## 前端：两套 Pages（手动应急）
 
