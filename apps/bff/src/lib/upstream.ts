@@ -114,11 +114,10 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     key: resolveApiKey(provider),
     style: 'openai-images',
     forceB64Json: false,
-    // 通用网关没有 capability 声明；已知 GPT Image 模型仍走原生 n，
-    // 其它兼容模型保持逐图 fan-out 的保守行为。
     supportsModeration: true,
     asyncTasks: provider === 'openai-compat' && config.upstream.asyncImageTasks,
-    supportsNativeN: provider === 'openai-compat' && model.startsWith('gpt-image-'),
+    // 通用网关未声明原生多图能力；模型名不能证明当前上游会兑现 n。
+    supportsNativeN: false,
   }
 }
 export interface UpstreamCallParams {
@@ -406,7 +405,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           )
         }
         const protocol = imageTaskProtocol(base, url)
-        const expectedCount = Math.max(count, resume?.invocationCount ?? 0)
+        // 已提交任务只恢复当时的调用数，不能按新路由补发或误判旧原生批次。
+        const expectedCount = resume?.invocationCount ?? count
         const taskIds = await collectTaskIds(protocol, expectedCount, makeInit)
         const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
         const result = results.length === 1 ? results[0]! : merge(results)

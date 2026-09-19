@@ -106,6 +106,31 @@ describe('async submit phase', () => {
     expect(row?.submittedAt).toBeGreaterThan(0)
   })
 
+  it('archives two Flare outputs when the gateway returns one image per invocation', async () => {
+    let submits = 0
+    upstream.handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: `imgtask_${++submits}` }, 202)
+        : json({
+            status: 'completed',
+            result: { data: [{ url: `${RESULT_URL}?task=${url.split('/').at(-1)}` }] },
+          })
+    await insertTask('flare-multi', {
+      model: 'gpt-image-2.5-flare',
+      request_payload: { prompt: 'two blue circle variants', n: 2 },
+    })
+
+    await runTask('flare-multi')
+
+    expect(await readTask('flare-multi')).toMatchObject({
+      status: 'completed',
+      invocations: 2,
+      taskIds: ['imgtask_1', 'imgtask_2'],
+    })
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'flare-multi'))
+    expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
+  })
+
   it('leaves no task id behind when the submit never reached the upstream', async () => {
     upstream.handler = () => {
       throw new Error('socket hang up')
