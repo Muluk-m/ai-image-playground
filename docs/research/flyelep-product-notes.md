@@ -1,7 +1,8 @@
 # 飞象（flyelep.cn）产品实测笔记与开源技能仓库借鉴边界
 
 > 一手来源：owner 的登录态浏览器实测，2026-09-17，**只读观察、未触发任何生成**。
-> 二手来源：该产品公开的 MIT 开源技能仓库（`flyelep-skills`，Agent Skills 形态的 HTTP API 说明书）。
+> 二手来源：该产品公开的技能仓库 [`FlyelepAI/agent-skills`](https://github.com/FlyelepAI/agent-skills)（Agent Skills 形态的 HTTP API 说明书，共 16 条）。
+> **2026-09-19 补充**：四条目标技能（`partial-redrawing` / `scene-replace` / `product-replace` / `product-color-change`）的字段全表、图片角色划分、提示词原文与失败归因，见 [电商图竞品调研](ecommerce-image-competitors.md#三飞象四条技能的字段全表主要参考对象)。
 > 本文脱敏：不写具体账号、项目名与商品名，以「一个已有的 A+ 详情项目」这类说法指代。
 
 ## 一、这是个什么产品
@@ -83,7 +84,7 @@
 
 ## 六、飞象开源技能仓库能借什么、不能借什么
 
-那个仓库（MIT）把它自己的 HTTP API 写成了 Agent Skills 目录：
+那个仓库把它自己的 HTTP API 写成了 Agent Skills 目录：
 `generate-poster` / `generate-video` / `scene-replace` / `product-replace` /
 `product-color-change` / `image-translate` / `gen-hot-image` / `gen-hot-video` 等十余条。
 
@@ -128,8 +129,9 @@
 
 ### 许可
 
-该仓库以 MIT 许可公开。我们借用的是上面第 2、3 两点里的**词表与经验**，
-不复制它的文本、接口与品牌标识。PR 描述里注明来源与许可。
+该仓库 README 末尾自称 MIT，但仓库根目录没有 LICENSE 文件，GitHub API 返回的 `license` 字段为 `null`
+（2026-09-19 核对）。我们借用的是上面第 2、3 两点里的**词表与经验**，
+不复制它的文本、接口与品牌标识。PR 描述里注明来源，并按「README 自称 MIT、未附许可证正本」表述。
 
 ## 七、未验证
 
