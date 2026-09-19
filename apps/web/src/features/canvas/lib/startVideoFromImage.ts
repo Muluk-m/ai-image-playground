@@ -4,9 +4,9 @@ import { useLibraryStore } from '../../library/store'
 import { useCanvasComposer } from '../composerStore'
 
 /**
- * 全局的「生成视频 / 用作首帧」：把图放上当前画布（放完即选中），再切到视频入口。
- * 生成类型由入口决定，所以这里只切入口、不再另设一个「下一轮按视频」的标记。
- * 入口挂在全局，不知道自己浮在哪个面上，所以三个浮层一起关。
+ * 全局的「生成视频 / 用作首帧」：把图放上当前画布（放完即选中），再把生成方式切到视频。
+ * 从作品页发起时进视频入口；已经在画布上就留在原入口。入口挂在全局，不知道自己浮在哪个面上，
+ * 所以三个浮层一起关。
  */
 export async function startVideoFromImage(imageId: string): Promise<void> {
   const main = useStore.getState()
@@ -20,5 +20,6 @@ export async function startVideoFromImage(imageId: string): Promise<void> {
   main.setDetailTaskId(null)
   useLibraryStore.getState().closePanel()
   main.queueCanvasImages([dataUrl])
-  main.setAppMode('video')
+  useCanvasComposer.getState().requestVideo()
+  if (useStore.getState().appMode === 'browse') main.setAppMode('video')
 }
