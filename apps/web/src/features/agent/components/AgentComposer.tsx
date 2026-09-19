@@ -652,7 +652,7 @@ export default function AgentComposer({
                     ? t('composer.queue')
                     : t('composer.sendAndCreate')
               }
-              title={running ? t('composer.queue') : t('composer.sendAndCreate')}
+              title={running ? t('composer.queue') : t('composer.sendAndCreateTitle')}
               disabled={historyBlocked || loading || submitting || !draft.prompt.trim()}
               onClick={submit}
             />

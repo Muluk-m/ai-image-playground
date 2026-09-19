@@ -23,7 +23,7 @@ export interface AgentToolContext {
   readonly turnId: string
   readonly userId: string | null
   readonly deviceId: string
-  /** External side effects must verify that this BFF still owns the turn before they start. */
+  /** 外部副作用开始前确认当前 BFF 仍拥有这一轮。 */
   readonly assertExecution?: () => Promise<void>
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
@@ -33,10 +33,7 @@ export interface AgentToolContext {
   readonly maskedEditPlan?: MaskedEditPlan
   /** 这一轮用户在参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
-  /**
-   * 中断续跑那一轮才有：被打断那一轮已经提交成后台任务的调用。一模一样的调用再来一次时交回
-   * 那个任务，不再提交（见 `agentTurnTools`）。
-   */
+  /** 续跑轮里已经提交的后台调用，用于提交去重。 */
   readonly replay?: AgentSubmissionReplay
 }
 
@@ -61,6 +58,11 @@ export interface AgentToolDetails {
   readonly artifacts?: readonly AgentToolArtifact[]
   readonly job?: AgentBackgroundJob
   readonly anchorObjectId?: string
+  /**
+   * 这次调用只拟了稿：请求已经准备齐全、存成待确认的草稿，但没有提交任何任务，也没有花钱。
+   * 卡片停在「等待确认」，用户确认后由 `confirmations.ts` 按冻结的材料提交。
+   */
+  readonly awaitingConfirmation?: true
   /** 读取技能这一步读到了什么；只有那个工具会填。 */
   readonly skill?: AgentSkillOutcome
   /** 排时间线的结果；只有那个工具会填。 */
@@ -102,6 +104,11 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
   readonly label: string
   /** 给模型看的工具说明。 */
   readonly description: string
+  /**
+   * 这个工具只拟稿，不自己提交：它的每次调用都停在「等待确认」，由用户在卡片上确认后才建任务。
+   * 起跑时因此不报占位数——那一刻画布上还不会有东西要占位（见 `agentToolStart`）。
+   */
+  readonly confirms?: true
   /**
    * 进系统提示词的那一句用法指引。工具不在场时它跟着一起消失。
    * 写成函数就是「这一句随部署变」——生视频的档位跟着运行期解析到的那个模型走。
@@ -156,6 +163,8 @@ export interface AgentToolSpec {
   /** 系统提示词里的那一句。随部署变，所以每次现问，不缓存成常量。 */
   guidance(): string
   readonly onError: 'abort' | 'continue'
+  /** 只拟稿、由用户确认后才提交的工具；起跑时不占画布。 */
+  readonly confirms?: true
   /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
   declaration(): AgentToolDeclaration
   available?(mode: AgentMode): boolean

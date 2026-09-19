@@ -14,6 +14,7 @@ import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  confirmPendingDrafts,
   eventsOfType,
   parseFrames,
   replyThenToolCall,
@@ -148,6 +149,29 @@ function toolResults(messages: readonly AgentMessageView[]): AgentToolResultBloc
   )
 }
 
+/** 这个会话里停在「等确认」的那些卡：拟稿只出卡，任务要到用户确认才有。 */
+async function pendingCards(
+  conversationId: string,
+): Promise<{ messageId: string; block: AgentToolResultBlock }[]> {
+  const messages = await readMessages(conversationId)
+  return messages.flatMap((message) =>
+    message.content.flatMap((block) =>
+      block.type === 'toolResult' && block.status === 'awaiting_confirmation'
+        ? [{ messageId: message.id, block }]
+        : [],
+    ),
+  )
+}
+
+/** 用户在卡上按下「确认生成」。要看回绝状态码的用例不能走 `confirmPendingDrafts`。 */
+function confirm(conversationId: string, messageId: string, prompt: string) {
+  return post(`/api/agent/conversations/${conversationId}/confirmations`, {
+    deviceId: DEVICE,
+    messageId,
+    prompt,
+  })
+}
+
 beforeEach(async () => {
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
   setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 30_000 })
@@ -175,25 +199,16 @@ describe('智能体生图工具', () => {
             name: 'generateImage',
             args: { prompt: '一只橘猫坐在窗台上' },
           }),
-        () => completionStream('画好了'),
       ]),
     )
     const stop = settleSubmittedTasks('completed')
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '画一只橘猫坐在窗台上')
-    stop()
 
-    // 生图是后台任务：提交即收尾，没有等结果那段进度。
-    expect(types(frames)).toEqual([
-      'turnStart',
-      'toolStart',
-      'toolEnd',
-      'assistantStart',
-      'textDelta',
-      'turnEnd',
-    ])
-    expect(frames.map((frame) => frame.id)).toEqual([1, 2, 3, 4, 5, 6])
+    // 生图只拟稿：拟完这一轮就收尾，不再回上游要那句结束语。
+    expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'turnEnd'])
+    expect(frames.map((frame) => frame.id)).toEqual([1, 2, 3, 4])
 
     const [start] = eventsOfType(frames, 'toolStart')
     expect(start).toMatchObject({
@@ -206,15 +221,20 @@ describe('智能体生图工具', () => {
     expect(end).toMatchObject({
       messageId: start!.messageId,
       toolCallId: 'call-1',
-      status: 'submitted',
+      status: 'awaiting_confirmation',
       title: '一只橘猫坐在窗台上',
       prompt: '一只橘猫坐在窗台上',
-      job: { media: 'image' },
     })
+    // 确认之前没有任务，这一轮也就没有东西可挂。
+    expect(end!.job).toBeUndefined()
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+
+    const [confirmed] = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+    expect(confirmed).toMatchObject({ status: 'submitted', prompt: '一只橘猫坐在窗台上' })
 
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
     const [task] = await db.select().from(schema.tasks)
-    expect(task!.id).toBe(end!.job!.taskId)
+    expect(task!.id).toBe(confirmed!.job!.taskId)
     expect(task!.agent_conversation_id).toBe(conversationId)
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
     expect(task!.model).toBe('gpt-image-2.5-flare')
@@ -223,7 +243,8 @@ describe('智能体生图工具', () => {
 
     // 任务跑完后读回会话，结果卡已经结算成产物。
     const messages = await readSettledMessages(conversationId)
-    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant'])
+    stop()
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant'])
     expect(messages[1]!.content).toEqual([
       {
         type: 'toolResult',
@@ -245,7 +266,6 @@ describe('智能体生图工具', () => {
         job: { taskId: task!.id, media: 'image' },
       },
     ])
-    expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
 
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('generateImage')
   })
@@ -255,28 +275,26 @@ describe('智能体生图工具', () => {
       scriptedAgentFetch(
         [],
         [
+          () => toolCallCompletion({ id: 'call-0', name: 'readLibrary', args: {} }),
           () =>
             toolCallCompletion({
               id: 'call-1',
               name: 'generateImage',
               args: { prompt: '一只橘猫坐在窗台上' },
             }),
-          () => completionStream('画好了'),
         ],
       ),
     )
-    const stop = settleSubmittedTasks('completed')
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '画一只橘猫坐在窗台上')
-    stop()
 
-    // 两次上游各报 12 / 4；只读末条就会把工具那一次白送。
+    // 查素材库那一次让循环继续，拟稿那一次收尾；两次上游各报 12 / 4，只读末条就会白送前一次。
     const [end] = eventsOfType(frames, 'turnEnd')
     expect(end!.usage).toEqual({ inputTokens: 24, outputTokens: 8 })
   })
 
-  it('reserves and returns the model-selected count independently for each image call', async () => {
+  it('reserves no canvas slot before confirmation, then honours each count', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
@@ -285,24 +303,32 @@ describe('智能体生图工具', () => {
             { id: 'call-1', name: 'generateImage', args: { prompt: '橘猫', n: '3' } },
             { id: 'call-2', name: 'generateImage', args: { prompt: '黑猫', n: 2 } },
           ),
-        () => completionStream('五张都好了'),
       ]),
     )
     const stop = settleSubmittedTasks('completed')
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '画三张橘猫和两张黑猫')
-    stop()
 
     const starts = eventsOfType(frames, 'toolStart')
     expect(starts.map((event) => event.toolCallId)).toEqual(['call-1', 'call-2'])
-    expect(starts.map((event) => event.outputCount)).toEqual([3, 2])
+    // 稿子可能被改、也可能永远不确认：这一刻一个占位框都不留。
+    expect(starts.map((event) => event.outputCount)).toEqual([undefined, undefined])
     expect(starts.map((event) => event.title)).toEqual(['橘猫', '黑猫'])
     expect(new Set(starts.map((event) => event.messageId)).size).toBe(2)
 
     const ends = eventsOfType(frames, 'toolEnd')
-    expect(ends.map((event) => event.status)).toEqual(['submitted', 'submitted'])
+    expect(ends.map((event) => event.status)).toEqual([
+      'awaiting_confirmation',
+      'awaiting_confirmation',
+    ])
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+
+    const confirmed = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+    expect(confirmed.map((block) => block.status)).toEqual(['submitted', 'submitted'])
+
     const settled = toolResults(await readSettledMessages(conversationId))
+    stop()
     expect(settled.map((block) => block.status)).toEqual(['succeeded', 'succeeded'])
     expect(settled.map((block) => block.artifacts?.length)).toEqual([3, 2])
     const artifactIds = settled.flatMap((block) =>
@@ -312,7 +338,12 @@ describe('智能体生图工具', () => {
 
     const tasks = await db.select().from(schema.tasks)
     expect(tasks).toHaveLength(2)
-    expect(tasks.map((task) => task.request_payload.prompt).sort()).toEqual(['橘猫', '黑猫'])
+    // 张数各归各的：确认之后每条任务带的还是模型给它的那个数。
+    const submitted = tasks.map((task) => [task.request_payload.prompt, task.request_payload.n])
+    expect(submitted.sort()).toEqual([
+      ['橘猫', 3],
+      ['黑猫', 2],
+    ])
   })
 
   it('rejects an over-limit image count before creating a task', async () => {
@@ -336,6 +367,10 @@ describe('智能体生图工具', () => {
       const frames = await runTurn(conversationId, '画十一张橘猫')
       expect(eventsOfType(frames, 'toolEnd')[0]?.status).toBe('failed')
       expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+      const drafts = await db
+        .select({ id: schema.agent_generation_drafts.id })
+        .from(schema.agent_generation_drafts)
+      expect(drafts).toEqual([])
     } finally {
       stop()
     }
@@ -346,7 +381,6 @@ describe('智能体生图工具', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
-        () => completionStream('已经开始画了'),
       ]),
     )
     const stop = settleSubmittedTasks('failed')
@@ -354,13 +388,16 @@ describe('智能体生图工具', () => {
 
     const frames = await runTurn(conversationId, '画一只橘猫')
 
-    // 任务在后台失败，不再把已经交还的这一轮拖成失败。
+    // 拟完稿这一轮就交还，卡停在等确认上。
     expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
       toolCallId: 'call-1',
-      status: 'submitted',
+      status: 'awaiting_confirmation',
     })
     expect(eventsOfType(frames, 'turnEnd')[0]!.stopReason).toBe('completed')
 
+    await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+
+    // 任务在后台失败，不再把已经交还的这一轮拖成失败。
     const [result] = toolResults(await readSettledMessages(conversationId))
     stop()
     expect(result).toMatchObject({ toolCallId: 'call-1', status: 'failed' })
@@ -425,7 +462,6 @@ describe('智能体生图工具', () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () => toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } }),
-        () => completionStream('画好了'),
         () => completionStream('好的'),
       ]),
     )
@@ -433,17 +469,13 @@ describe('智能体生图工具', () => {
     const conversationId = await startConversation()
 
     await runTurn(conversationId, '画一只橘猫')
-    await runTurn(conversationId, '再说说这张图')
+    await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+    await readSettledMessages(conversationId)
     stop()
+    await runTurn(conversationId, '再说说这张图')
 
     const replayed = calls.at(-1)!.messages
-    expect(replayed.map((message) => message.role)).toEqual([
-      'system',
-      'user',
-      'assistant',
-      'assistant',
-      'user',
-    ])
+    expect(replayed.map((message) => message.role)).toEqual(['system', 'user', 'assistant', 'user'])
     expect(JSON.stringify(replayed[2])).toContain('橘猫')
   })
 })
@@ -464,13 +496,11 @@ describe('工具调用的参数快照与失败分类', () => {
         ],
       ),
     )
-    const stop = settleSubmittedTasks('completed')
     const conversationId = await startConversation()
     const frames = await runTurn(conversationId, '画两张橘猫', {
       size: '1024x1536',
       quality: 'high',
     })
-    stop()
 
     const snapshot = {
       mode: 'image' as const,
@@ -506,6 +536,7 @@ describe('工具调用的参数快照与失败分类', () => {
     const stop = settleSubmittedTasks('failed', errorType)
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
 
     // 分类发生在后台任务结算时：读回的结果卡带着错误码。
     const [result] = toolResults(await readSettledMessages(conversationId))
@@ -527,6 +558,7 @@ describe('工具调用的参数快照与失败分类', () => {
     const stop = settleSubmittedTasks('empty')
     const conversationId = await startConversation()
     await runTurn(conversationId, '画一只橘猫')
+    await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
 
     const [result] = toolResults(await readSettledMessages(conversationId))
     stop()
@@ -658,11 +690,18 @@ describe('工具调用的参数快照与失败分类', () => {
       const conversationId = await startConversation()
       const frames = await runTurn(conversationId, '画两只橘猫')
 
+      // 额度在提交那一刻才查：稿子照拟，任务卡在确认这一步。
       expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
-        status: 'failed',
-        errorCode: 'quota_exceeded',
+        status: 'awaiting_confirmation',
       })
+      const [pending] = await pendingCards(conversationId)
+      const refused = await confirm(conversationId, pending!.messageId, pending!.block.prompt!)
+
+      expect(refused.status).toBe(409)
+      expect(refused.json).toEqual({ error: 'confirmation_refused', code: 'quota_exceeded' })
       expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+      // 稿子还留着：额度恢复之后还能确认。
+      expect((await pendingCards(conversationId))[0]!.block.status).toBe('awaiting_confirmation')
     } finally {
       config.operator = original
     }

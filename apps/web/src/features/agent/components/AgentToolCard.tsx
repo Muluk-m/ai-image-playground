@@ -24,6 +24,7 @@ import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
+import AgentPromptDraft from './AgentPromptDraft'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
@@ -288,14 +289,18 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       ) : (
         <p className={CARD_TITLE}>{message.title}</p>
       )}
-      {message.prompt && (
-        <button
-          type="button"
-          className={`self-start ${GHOST_LINK}`}
-          onClick={() => setPromptOpen(true)}
-        >
-          {t('tool.viewPrompt')}
-        </button>
+      {message.status === 'awaiting_confirmation' ? (
+        <AgentPromptDraft message={message} />
+      ) : (
+        message.prompt && (
+          <button
+            type="button"
+            className={`self-start ${GHOST_LINK}`}
+            onClick={() => setPromptOpen(true)}
+          >
+            {t('tool.viewPrompt')}
+          </button>
+        )
       )}
       {promptOpen && message.prompt && (
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />

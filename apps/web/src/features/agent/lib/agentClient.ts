@@ -3,6 +3,7 @@ import type {
   AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentBackgroundJobView,
+  AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
   AgentMessageQueuedBody,
@@ -472,6 +473,27 @@ export async function retryToolCall(
   })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as AgentRetryResponse).message
+}
+
+/**
+ * 确认一张草稿卡：把用户核对过（可能改过）的提示词原样交给服务端，它照这份字提交生成任务，
+ * 不再经模型改写。服务端就地改写同一条消息，返回提交之后它的样子。
+ * 重复确认是幂等的：已经提交过的那条原样返回，不会出第二个任务。
+ */
+export async function confirmToolPrompt(
+  conversationId: string,
+  messageId: string,
+  prompt: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentMessageView> {
+  const response = await fetcher(url(`/conversations/${conversationId}/confirmations`), {
+    ...jsonInit({ deviceId: getDeviceId(), messageId, prompt }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  // 端点的响应形状由协议定死，与这个文件里其它端点一样按它读。
+  const body = (await response.json()) as AgentConfirmationResponse
+  return body.message
 }
 
 /** 中止一条还在跑的重试，按原桶退回。 */

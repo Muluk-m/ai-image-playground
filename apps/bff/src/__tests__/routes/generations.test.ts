@@ -827,7 +827,7 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
     })
   }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
   const { request_id: id } = await (
-    await request('/v1/queue/openai-compat/legacy-image-model/submit', deviceA, { ...input, n: 2 })
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
   const { abortRunningTask } = await import('../../workers/task-runner')
   durable.afterWrite = (key) => {
@@ -837,7 +837,7 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
     }
   }
   await runTask(id)
-  expect(calls).toBe(2)
+  expect(calls).toBe(1)
   durable.afterWrite = undefined
   const { recoverTasksByIds } = await import('../../db/maintenance')
   await recoverTasksByIds([id])
@@ -849,7 +849,7 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
   expect(detail.outputs).toHaveLength(1)
   const status = await (await request(`/v1/queue/requests/${id}/status`, deviceB)).json()
   expect(status.error.type).toBe('upstream_result_unknown')
-  expect(calls).toBe(2)
+  expect(calls).toBe(1)
 })
 
 it('混合内联和 URL 多图中断后恢复，第二张不会覆盖已经保存的第一张', async () => {

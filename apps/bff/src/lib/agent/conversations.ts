@@ -158,9 +158,13 @@ export async function touchAgentConversation(id: string, now = Date.now()): Prom
     .where(eq(schema.agent_conversations.id, id))
 }
 
-export async function softDeleteAgentConversation(id: string, owner: AgentOwner): Promise<void> {
+export async function softDeleteAgentConversation(
+  id: string,
+  owner: AgentOwner,
+  executor: Executor = db,
+): Promise<void> {
   const now = Date.now()
-  await db
+  await executor
     .update(schema.agent_conversations)
     .set({ deleted_at: now, updated_at: now })
     .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))

@@ -8,6 +8,7 @@ import {
   type AgentCall,
   type ControlledCompletion,
   completionStream,
+  confirmPendingDrafts,
   controlledCompletion,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
@@ -19,9 +20,10 @@ import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { waitFor } from '../helpers/upstreamStubs'
 
 // A rollout stops old executors after a finite drain deadline (ADR 0009, superseded in part).
-// This file proves what the forced stop relies on: a billed agent turn cut off after its job was
-// already submitted upstream is recovered without a second upstream submission and without a
-// second settlement of anything.
+// This file proves what the forced stop relies on: a billed agent turn cut off while a generation
+// job confirmed earlier is already at the upstream is recovered without a second upstream
+// submission and without a second settlement of anything. The job exists only because the user
+// confirmed the drafted prompt — a turn no longer submits anything by itself.
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_forced_stop_recovery')
 process.env.PORT = '0'
@@ -201,33 +203,44 @@ describe('forced stop after the drain deadline', () => {
   ] as const
   it.each(
     recoveryOrders,
-  )('recovers a billed turn stopped after its job reached the upstream without resubmitting or settling twice when %s', async (_order, workerFirst) => {
+  )('recovers a billed turn stopped while a confirmed job was at the upstream without resubmitting or settling twice when %s', async (_order, workerFirst) => {
     const interrupted = controlledCompletion()
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () =>
           toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '一只橘猫' } }),
         () => interrupted.responseFor(),
-        // The resumed turn asks for the same picture again; the idempotency key hands back the job.
-        () =>
-          toolCallCompletion({ id: 'call-2', name: 'generateImage', args: { prompt: '一只橘猫' } }),
         () => completionStream('图还在后台出，出来后会放到画布上。'),
       ]),
     )
     const conversationId = await startConversation()
+    // 第一轮只拟稿：这一刻还没有生成任务，也没有为它预扣。
     await send(conversationId, '画一只橘猫')
+    await waitFor(async () => calls.length === 1, 3_000)
+    // 拟完稿这一轮就收尾了，卡片这时才落库。
+    await waitFor(async () => runningTurn(conversationId) === undefined, 5_000)
+    expect((await tasksOf(conversationId)).filter((task) => task.kind !== 'chat')).toEqual([])
+    // 用户确认，任务这才建出来，挂在拟稿那一轮下面。
+    const [confirmed] = await confirmPendingDrafts(app, conversationId, {
+      deviceId: DEVICE,
+      cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+    })
+    const jobId = confirmed?.job?.taskId
+    expect(jobId).toBeTruthy()
+    // 第二轮说到一半被停掉：它是被计费的那一轮，任务此刻已经在上游跑着。
+    await send(conversationId, '出得怎么样了')
     await waitFor(async () => calls.length === 2, 3_000)
-    const [job] = (await tasksOf(conversationId)).filter((task) => task.kind !== 'chat')
-    expect(job).toBeDefined()
-    const [interruptedChat] = (await tasksOf(conversationId)).filter((t) => t.kind === 'chat')
+    const [interruptedChat] = (await tasksOf(conversationId)).filter(
+      (task) => task.kind === 'chat' && task.status === 'in_progress',
+    )
     expect(interruptedChat).toBeDefined()
 
-    await forceStopBothExecutors(conversationId, interrupted, job!.id)
+    await forceStopBothExecutors(conversationId, interrupted, jobId!)
 
     // The replacement generation's worker scan and BFF pickup run, twice each, as their timers do.
     if (workerFirst) await recoverAbandonedTasks()
     expect(await pickUpStrandedInboxes()).toBe(1)
-    await waitFor(async () => calls.length === 4, 5_000)
+    await waitFor(async () => calls.length === 3, 5_000)
     await waitFor(async () => !(await leased(conversationId)), 5_000)
     await recoverAbandonedTasks()
     expect(await pickUpStrandedInboxes()).toBe(0)
@@ -237,25 +250,29 @@ describe('forced stop after the drain deadline', () => {
     // One job, never resubmitted: it goes back to polling the id it already had.
     expect(jobs).toHaveLength(1)
     expect(jobs[0]).toMatchObject({
-      id: job!.id,
+      id: jobId,
       status: 'queued',
       upstream_task_ids: [UPSTREAM_JOB_ID],
       upstream_invocation_count: 1,
     })
-    expect(settlementsOf(job!.id)).toHaveLength(0)
+    expect(settlementsOf(jobId!)).toHaveLength(0)
 
-    // The cut-off turn's hold is released exactly once; the resumed turn is billed exactly once.
+    // 被停掉那一轮的预扣只退一次，续跑那一轮只计费一次；三条对话任务是拟稿轮、被停轮与续跑轮。
     const chats = tasks.filter((task) => task.kind === 'chat')
-    expect(chats).toHaveLength(2)
+    expect(chats).toHaveLength(3)
     expect(settlementsOf(interruptedChat!.id)).toEqual([
       expect.objectContaining({ outcome: 'failed' }),
     ])
-    const resumedChat = chats.find((task) => task.id !== interruptedChat!.id)
+    const resumedChat = chats.find(
+      (task) =>
+        task.submitted_at > interruptedChat!.submitted_at && task.id !== interruptedChat!.id,
+    )
     expect(settlementsOf(resumedChat!.id)).toEqual([
       expect.objectContaining({ outcome: 'completed' }),
     ])
+    // 每条任务都只预扣一次：三轮对话，加上用户确认时建出来的那条生成任务。
     expect(billing.reservations.map((one) => one.taskId).sort()).toEqual(
-      [interruptedChat!.id, job!.id, resumedChat!.id].sort(),
+      [...chats.map((task) => task.id), jobId!].sort(),
     )
 
     // The new worker finishes polling the stored id; the job settles once, and later scans by
@@ -263,9 +280,9 @@ describe('forced stop after the drain deadline', () => {
     await db
       .update(schema.tasks)
       .set({ status: 'in_progress', started_at: Date.now(), execution_token: 'new-worker' })
-      .where(eq(schema.tasks.id, job!.id))
+      .where(eq(schema.tasks.id, jobId!))
     expect(
-      await finishTask(job!.id, {
+      await finishTask(jobId!, {
         status: 'completed',
         completedAt: Date.now(),
         resultPayload: TEST_RESULT_PAYLOAD,
@@ -274,7 +291,7 @@ describe('forced stop after the drain deadline', () => {
     await recoverAbandonedTasks()
     await pickUpStrandedInboxes()
     await waitFor(async () => !(await leased(conversationId)), 5_000)
-    expect(settlementsOf(job!.id)).toEqual([expect.objectContaining({ outcome: 'completed' })])
+    expect(settlementsOf(jobId!)).toEqual([expect.objectContaining({ outcome: 'completed' })])
     expect(settlementsOf(interruptedChat!.id)).toHaveLength(1)
     expect(settlementsOf(resumedChat!.id)).toHaveLength(1)
   })
