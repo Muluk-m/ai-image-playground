@@ -113,13 +113,24 @@ describe('ci-receive.sh', () => {
     expect(existsSync(log)).toBe(false)
   })
 
-  it('refuses a release directory that already exists', () => {
+  it('redeploys a commit already on the host into a run-specific directory', () => {
     mkdirSync(join(releases, id))
     writeFileSync(join(releases, id, 'marker'), 'kept')
-    const result = receive(`deploy ${id} all 1`)
+    const result = receive(`deploy ${id} all 42`)
+    expect(result.status).toBe(0)
+    expect(readdirSync(join(releases, id))).toEqual(['marker'])
+    expect(readFileSync(join(releases, `${id}.run-42`, 'images.tsv'), 'utf8')).toBe('manifest\n')
+    expect(readFileSync(log, 'utf8')).toBe(
+      `all ${releases}/${id}.run-42 actor=github-actions/run-42\n`,
+    )
+  })
+
+  it('refuses when even the run-specific directory already exists', () => {
+    mkdirSync(join(releases, id))
+    mkdirSync(join(releases, `${id}.run-42`))
+    const result = receive(`deploy ${id} all 42`)
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('already exists')
-    expect(readdirSync(join(releases, id))).toEqual(['marker'])
     expect(existsSync(log)).toBe(false)
   })
 

@@ -32,8 +32,13 @@ releases_root=${HOME:?HOME must be set}/releases
 release=$releases_root/$release_id
 mkdir -p "$releases_root"
 if [ -e "$release" ]; then
-  echo "Release directory already exists: $release. Remove it or deploy it by hand." >&2
-  exit 1
+  # The same commit again (a manual re-run): keep the earlier directory for rollback and use one
+  # named after this run.
+  release=$release.run-$run_id
+  if [ -e "$release" ]; then
+    echo "Release directory already exists: $release. Remove it or deploy it by hand." >&2
+    exit 1
+  fi
 fi
 
 incoming=$(mktemp -d "$releases_root/.incoming.XXXXXX")
