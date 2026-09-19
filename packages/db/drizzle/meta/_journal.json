@@ -236,8 +236,15 @@
     {
       "idx": 34,
       "version": "7",
-      "when": 1789780000000,
-      "tag": "0034_agent_generation_drafts",
+      "when": 1789800000000,
+      "tag": "0034_generation_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789801000000,
+      "tag": "0035_agent_generation_drafts",
       "breakpoints": true
     }
   ]

@@ -21,7 +21,6 @@ vi.mock('../../store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../store')>()
   return {
     ...actual,
-    getCachedImage: () => IMAGE_SRC,
     ensureImageCached: async () => IMAGE_SRC,
   }
 })
@@ -70,8 +69,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderLightbox() {
-  act(() => root.render(<Lightbox />))
+/** 取图一律是异步的（本机图走 IndexedDB，平台图走签名 URL），先等它落下来。 */
+async function renderLightbox() {
+  await act(async () => root.render(<Lightbox />))
 }
 
 function lightboxRoot(): HTMLDivElement {
@@ -116,16 +116,16 @@ function zoomInByDoubleTap(image: HTMLImageElement) {
 }
 
 describe('Lightbox 触控手势', () => {
-  it('放大后单指静止触摸不被取消，长按保存菜单仍能弹出', () => {
-    renderLightbox()
+  it('放大后单指静止触摸不被取消，长按保存菜单仍能弹出', async () => {
+    await renderLightbox()
     const image = lightboxImage()
     zoomInByDoubleTap(image)
 
     expect(fireTouch(image, 'touchstart', [{ x: 100, y: 100 }])).toBe(false)
   })
 
-  it('双指捏合仍被取消', () => {
-    renderLightbox()
+  it('双指捏合仍被取消', async () => {
+    await renderLightbox()
     const image = lightboxImage()
 
     expect(
@@ -136,8 +136,8 @@ describe('Lightbox 触控手势', () => {
     ).toBe(true)
   })
 
-  it('单指移动超过阈值后才拦截并开始拖动', () => {
-    renderLightbox()
+  it('单指移动超过阈值后才拦截并开始拖动', async () => {
+    await renderLightbox()
     const image = lightboxImage()
     zoomInByDoubleTap(image)
 
@@ -150,8 +150,8 @@ describe('Lightbox 触控手势', () => {
     expect(image.parentElement?.style.transform).not.toBe(before)
   })
 
-  it('系统长按菜单打断触摸（touchcancel）后不残留拖动状态', () => {
-    renderLightbox()
+  it('系统长按菜单打断触摸（touchcancel）后不残留拖动状态', async () => {
+    await renderLightbox()
     const image = lightboxImage()
     zoomInByDoubleTap(image)
 
@@ -165,8 +165,8 @@ describe('Lightbox 触控手势', () => {
 })
 
 describe('Lightbox 图片元素', () => {
-  it('可命中且按 saveable-image 放行长按菜单与选择', () => {
-    renderLightbox()
+  it('可命中且按 saveable-image 放行长按菜单与选择', async () => {
+    await renderLightbox()
     const image = lightboxImage()
 
     expect(image.className).toContain('saveable-image')
@@ -185,20 +185,20 @@ describe('Lightbox 保存按钮', () => {
     return lightboxRoot().querySelector<HTMLButtonElement>('button[data-save-image]')
   }
 
-  it('只在粗指针设备上出现', () => {
-    renderLightbox()
+  it('只在粗指针设备上出现', async () => {
+    await renderLightbox()
     expect(saveButton()).toBeNull()
 
     act(() => root.unmount())
     stubPointer('coarse')
     root = createRoot(host)
-    renderLightbox()
+    await renderLightbox()
     expect(saveButton()?.textContent).toContain('保存图片')
   })
 
   it('点击后走下载路径', async () => {
     stubPointer('coarse')
-    renderLightbox()
+    await renderLightbox()
 
     await act(async () => {
       saveButton()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))

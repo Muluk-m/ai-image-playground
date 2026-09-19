@@ -775,6 +775,8 @@ export const generation_records = pgTable(
   'generation_records',
   {
     source: bunJsonb('source').$type<GenerationSource>(),
+    /** 用户删除作品只隐藏记录；媒体对象可能还被画布或别的记录引用，不跟着删。 */
+    deleted_at: epochMs('deleted_at'),
     id: text('id').primaryKey(),
     user_id: text('user_id')
       .notNull()

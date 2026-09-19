@@ -4,7 +4,8 @@ import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
-import { ensureImageCached, getCachedImage, useStore } from '../store'
+import { loadImageOriginal } from '../lib/imageSource'
+import { useStore } from '../store'
 import { DownloadIcon, VideoIcon } from './icons'
 import Overlay from './Overlay'
 
@@ -41,15 +42,9 @@ export default function Lightbox() {
 
     setSrc('')
 
-    const imageId = lightboxImageId
-    const cached = getCachedImage(imageId)
-    if (cached) {
-      setSrc(cached)
-    } else {
-      ensureImageCached(imageId).then((url) => {
-        if (!cancelled && url) setSrc(url)
-      })
-    }
+    void loadImageOriginal(lightboxImageId).then((url) => {
+      if (!cancelled && url) setSrc(url)
+    })
 
     return () => {
       cancelled = true
@@ -73,19 +68,11 @@ export default function Lightbox() {
     setMaskImageSrc('')
 
     const taskWithMask = tasks.find((t) => t.maskTargetImageId === lightboxImageId && t.maskImageId)
-    if (taskWithMask?.maskImageId) {
-      const maskImageId = taskWithMask.maskImageId
-      const cached = getCachedImage(maskImageId)
-      if (cached) {
-        setMaskImageSrc(cached)
-      } else {
-        ensureImageCached(maskImageId).then((url) => {
-          if (!cancelled && url) setMaskImageSrc(url)
-        })
-      }
-    } else {
-      setMaskImageSrc('')
-    }
+    const maskImageId = taskWithMask?.maskImageId
+    if (!maskImageId) return
+    void loadImageOriginal(maskImageId).then((url) => {
+      if (!cancelled && url) setMaskImageSrc(url)
+    })
 
     return () => {
       cancelled = true
