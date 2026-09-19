@@ -208,7 +208,7 @@ it('原项目仍有同身份的生成占位时提示等待同步，不谎报放�
   workspace.doc.updateElements([{ id, patch: { id: detail.outputs[0]!.artifactId! } }])
   await act(async () => root.render(<CloudGenerationDetail detail={detail} />))
   await clickPlace()
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('同步')
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('保存')
   expect(workspace.doc.elements).toHaveLength(1)
   expect(workspace.doc.elements[0]).toMatchObject({ type: 'placeholder', x: 40, y: 50 })
   expect(useStore.getState().appMode).toBe('browse')

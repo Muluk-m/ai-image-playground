@@ -17,7 +17,7 @@
   },
   "asset": {
     "new": "新建素材",
-    "unsynced": "未同步",
+    "unsynced": "等待保存",
     "addAsReference": "加入参考图",
     "zoom": "放大预览",
     "makeVideo": "做成视频",

@@ -170,13 +170,6 @@ export default function ProjectGrid({
                 collisionPadding={12}
                 className="z-[600] w-56 rounded-xl p-1.5"
               >
-                <p className="border-b border-border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                  {project.cloud
-                    ? project.cloud.revision > 0
-                      ? t('grid.cloudHint')
-                      : t('grid.pendingSyncHint')
-                    : t('grid.localOnlyHint')}
-                </p>
                 <Button
                   variant="ghost"
                   className="mt-1 w-full justify-start gap-3 px-3"

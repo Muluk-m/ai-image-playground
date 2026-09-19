@@ -107,13 +107,12 @@
     "resultAlt": "{{name}} result"
   },
   "cloudHistory": {
-    "title": "Cloud history",
-    "description": "Image tasks submitted to the platform",
     "refresh": "Refresh",
     "loading": "Loading…",
-    "empty": "No cloud image tasks yet",
+    "more": "Load more",
+    "close": "Close",
     "details": "View details",
-    "local": "This device",
+    "openAria": "View this {{model}} generation",
     "status": {
       "queued": "Queued",
       "in_progress": "Generating",
@@ -121,9 +120,6 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     },
-    "pages": "History pages",
-    "previous": "Previous",
-    "next": "Next",
     "reuse": "Reuse settings",
     "preparing": "Preparing…",
     "reuseFailed": "Could not restore all references and settings. Please retry.",

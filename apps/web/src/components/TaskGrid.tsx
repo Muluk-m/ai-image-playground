@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import type { GenerationSummary } from '@image-playground/shared'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { i18next, useTranslation } from '../i18n'
 import {
@@ -10,6 +11,7 @@ import {
 import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
+import CloudTaskTile from './CloudTaskTile'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
 
@@ -20,7 +22,16 @@ function setFallbackName(task: TaskRecord | undefined): string {
     : i18next.t('set.productShotFallback', { ns: 'task' })
 }
 
-export default function TaskGrid() {
+/**
+ * 作品列表。本机任务与只在平台留有记录的生成穿插在同一个网格里，按时间倒序——作品页不分
+ * 「此设备 / 云端」两张列表。`bffRequestId` 是两边同一条生成的连接点，本机有记录时只渲染
+ * 本机那张卡（它才有复用、放入画布、删除这些动作）。
+ */
+export default function TaskGrid({
+  cloudItems = [],
+}: {
+  cloudItems?: readonly GenerationSummary[]
+}) {
   const { t } = useTranslation('task')
   const tasks = useStore((s) => s.tasks)
   const searchQuery = useStore((s) => s.searchQuery)
@@ -70,6 +81,15 @@ export default function TaskGrid() {
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
+  // 收藏与状态筛选是本机概念，筛选生效时不混入平台记录，免得筛完还剩一堆筛不动的卡。
+  const cloudOnly = useMemo(() => {
+    if (filterFavorite || filterStatus !== 'all') return []
+    const known = new Set(tasks.map((task) => task.bffRequestId).filter(Boolean))
+    const keyword = searchQuery.trim().toLowerCase()
+    return cloudItems.filter(
+      (item) => !known.has(item.id) && (!keyword || item.model.toLowerCase().includes(keyword)),
+    )
+  }, [cloudItems, tasks, searchQuery, filterFavorite, filterStatus])
   const [productShotJobs, setProductShotJobs] = useState<LegacyProductJob[]>([])
   const [storyboardTitles, setStoryboardTitles] = useState<Map<string, string>>(new Map())
 
@@ -347,7 +367,7 @@ export default function TaskGrid() {
     </div>
   )
 
-  if (!filteredTasks.length) {
+  if (!filteredTasks.length && !cloudOnly.length) {
     if (searchQuery || filterFavorite || filterStatus !== 'all') {
       return (
         <div className="text-center py-20 text-muted-foreground">
@@ -358,32 +378,44 @@ export default function TaskGrid() {
     return <InspirationEmptyHero />
   }
 
+  // 两边的卡按同一条时间轴排；套折成一条，落在它最新那条任务的位置上。
+  const rows: { at: number; nodes: ReactNode[] }[] = historyItems.map((item) => {
+    if (item.kind === 'task') return { at: item.task.createdAt, nodes: [renderTask(item.task)] }
+    const expanded = expandedSetIds.includes(item.setId)
+    const title = storyboardTitles.get(item.setId)
+    const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
+    return {
+      at: Math.max(...item.tasks.map((task) => task.createdAt)),
+      nodes: [
+        <SetHistoryCard
+          key={`set-${item.setId}`}
+          name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
+          actions={legacyActionLabels(job)}
+          tasks={item.tasks}
+          expanded={expanded}
+          onToggle={() =>
+            setExpandedSetIds((ids) =>
+              ids.includes(item.setId)
+                ? ids.filter((id) => id !== item.setId)
+                : [...ids, item.setId],
+            )
+          }
+        />,
+        ...(expanded ? item.tasks.map(renderTask) : []),
+      ],
+    }
+  })
+  for (const item of cloudOnly)
+    rows.push({
+      at: item.createdAt,
+      nodes: [<CloudTaskTile key={`cloud-${item.id}`} item={item} />],
+    })
+  rows.sort((a, b) => b.at - a.at)
+
   return (
     <div ref={rootRef} data-task-grid-root className="relative min-h-[50vh]">
       <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
-        {historyItems.flatMap((item) => {
-          if (item.kind === 'task') return [renderTask(item.task)]
-          const expanded = expandedSetIds.includes(item.setId)
-          const title = storyboardTitles.get(item.setId)
-          const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
-          return [
-            <SetHistoryCard
-              key={`set-${item.setId}`}
-              name={title ?? job?.name ?? setFallbackName(item.tasks[0])}
-              actions={legacyActionLabels(job)}
-              tasks={item.tasks}
-              expanded={expanded}
-              onToggle={() =>
-                setExpandedSetIds((ids) =>
-                  ids.includes(item.setId)
-                    ? ids.filter((id) => id !== item.setId)
-                    : [...ids, item.setId],
-                )
-              }
-            />,
-            ...(expanded ? item.tasks.map(renderTask) : []),
-          ]
-        })}
+        {rows.flatMap((row) => row.nodes)}
       </div>
       {selectionBox && (
         <div

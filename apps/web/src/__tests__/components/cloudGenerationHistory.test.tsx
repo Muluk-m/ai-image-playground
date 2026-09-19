@@ -3,26 +3,51 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import CloudGenerationHistory from '../../components/CloudGenerationHistory'
+import CloudTaskTile from '../../components/CloudTaskTile'
+import GenerationHistory from '../../components/GenerationHistory'
 import InputBar from '../../components/InputBar'
 import { setClientStorageScope } from '../../lib/authScope'
 import { setChannels } from '../../lib/channels/channelStore'
+import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { getImage, hashDataUrl, putImage } from '../../lib/db'
 import { useStore } from '../../store'
 import { DEFAULT_PARAMS } from '../../types'
 
 let host: HTMLDivElement
 let root: Root
-beforeEach(() => {
+
+const MANIFEST = {
+  'accounts:local-recovery': false,
+  'accounts:login': true,
+  'accounts:self-register': false,
+  'accounts:sync': true,
+  'agent:chat': false,
+  'billing:credits': false,
+  'generation:byok': true,
+  'generation:video': false,
+  'quota:daily': false,
+}
+
+beforeEach(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   setClientStorageScope('owner')
   setChannels([])
+  // 作品页只有登录且开着同步的部署才读平台记录，能力位得先就位。
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json(MANIFEST)),
+  )
+  await bootstrapClientCapabilities(true, '')
+  vi.unstubAllGlobals()
   useStore.setState({
     prompt: '',
     params: { ...DEFAULT_PARAMS },
     inputImages: [],
     maskDraft: null,
     tasks: [],
+    searchQuery: '',
+    filterStatus: 'all',
+    filterFavorite: false,
   })
   host = document.createElement('div')
   document.body.append(host)
@@ -34,22 +59,45 @@ afterEach(() => {
   setClientStorageScope(null)
   vi.unstubAllGlobals()
 })
+
 const item = {
   id: '11111111-1111-4111-8111-111111111111',
   provider: 'openai-compat',
   model: 'gpt-image-2',
   status: 'queued',
+  archiveStatus: 'none',
+  errorType: null,
+  cover: null,
   createdAt: 1789600000000,
   startedAt: null,
   completedAt: null,
   revision: '1',
+} as const
+/** 详情浮层 portal 到 body，所以按钮在整篇文档里找，不只在挂载点里。 */
+const button = (label: string) => {
+  const found = [...document.body.querySelectorAll('button')].find((node) =>
+    node.textContent?.includes(label),
+  )
+  if (!found) throw new Error(`missing button: ${label}`)
+  return found
 }
-it('空白设备能查看云端任务及提示词，刷新显示最新状态', async () => {
-  const fetcher = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: null }))
-    .mockResolvedValueOnce(
-      Response.json({
+const click = async (label: string) => {
+  await act(async () => button(label).click())
+}
+/** 平台记录那张卡是整块可点的按钮；点它打开详情。 */
+const openTile = async () => {
+  const tile = host.querySelector<HTMLButtonElement>('button[aria-label*="gpt-image-2"]')
+  if (!tile) throw new Error('missing cloud tile')
+  await act(async () => tile.click())
+}
+
+it('作品页一条列表就展示平台记录，点开能看到提示词', async () => {
+  // 空列表会渲出灵感库空态，它自己也发请求；所以这里按 URL 分派，不按调用顺序。
+  const fetcher = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url === '/api/generations?limit=50')
+      return Response.json({ items: [item], nextCursor: null })
+    if (url.startsWith('/api/generations/'))
+      return Response.json({
         ...item,
         prompt: '一只在阳光下睡觉的猫',
         parameters: {},
@@ -57,54 +105,51 @@ it('空白设备能查看云端任务及提示词，刷新显示最新状态', a
         inputs: [],
         mask: null,
         outputs: [],
-      }),
-    )
-    .mockResolvedValueOnce(
-      Response.json({ items: [{ ...item, status: 'completed', revision: '3' }], nextCursor: null }),
-    )
+      })
+    return Response.json({})
+  })
   vi.stubGlobal('fetch', fetcher)
-  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
   expect(host.textContent).toContain('gpt-image-2')
   expect(host.textContent).toContain('排队中')
-  const button = (label: string) => {
-    const found = [...host.querySelectorAll('button')].find((node) =>
-      node.textContent?.includes(label),
-    )
-    if (!found) throw new Error(`missing button: ${label}`)
-    return found
+  // 没有「此设备 / 云端记录」这种页签：存储位置不是用户要挑的东西。
+  expect(host.textContent).not.toContain('此设备')
+  expect(host.textContent).not.toContain('云端记录')
+  await openTile()
+  expect(document.body.textContent).toContain('一只在阳光下睡觉的猫')
+  const list = fetcher.mock.calls.find(([url]) => url === '/api/generations?limit=50')
+  expect(list?.[1]).toMatchObject({ credentials: 'include', cache: 'no-store' })
+})
+
+it('加载更多把下一页续在同一条列表后面，不替换已读到的记录', async () => {
+  const second = {
+    ...item,
+    id: '22222222-2222-4222-8222-222222222222',
+    model: 'second-model',
+    createdAt: item.createdAt - 1000,
   }
-  await act(async () => button('查看详情').click())
-  expect(host.textContent).toContain('一只在阳光下睡觉的猫')
-  await act(async () => button('刷新').click())
-  expect(host.textContent).toContain('已完成')
-  expect(fetcher.mock.calls[0]?.[0]).toBe('/api/generations?limit=50')
-  expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ credentials: 'include', cache: 'no-store' })
-})
-it('按页加载记录，翻页后不会继续堆积旧页节点', async () => {
-  const fetcher = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: 'next-page' }))
-    .mockResolvedValueOnce(
-      Response.json({
-        items: [{ ...item, id: '22222222-2222-4222-8222-222222222222', model: 'second-model' }],
-        nextCursor: null,
-      }),
-    )
+  const fetcher = vi.fn(async (url: string) => {
+    if (url === '/api/generations?limit=50')
+      return Response.json({ items: [item], nextCursor: 'next-page' })
+    if (url === '/api/generations?limit=50&cursor=next-page')
+      return Response.json({ items: [second], nextCursor: null })
+    return Response.json({})
+  })
   vi.stubGlobal('fetch', fetcher)
-  await act(async () => root.render(<CloudGenerationHistory />))
-  const next = [...host.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('下一页'),
-  )
-  expect(next).toBeDefined()
-  await act(async () => next!.click())
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
+  await click('加载更多')
   expect(host.textContent).toContain('second-model')
-  expect(host.textContent).not.toContain('gpt-image-2')
-  expect(fetcher.mock.calls[1]?.[0]).toBe('/api/generations?limit=50&cursor=next-page')
+  expect(host.textContent).toContain('gpt-image-2')
+  expect(fetcher.mock.calls.map(([url]) => url)).toContain(
+    '/api/generations?limit=50&cursor=next-page',
+  )
 })
+
 it('切换账号后丢弃上一账号晚到的历史响应', async () => {
   let respond!: (value: Response) => void
   vi.stubGlobal(
     'fetch',
+    // 这个包的 lib 目标还没有 Promise.withResolvers，这里只能用 executor 形式挂住 resolve。
     vi.fn(
       () =>
         new Promise<Response>((resolve) => {
@@ -112,11 +157,12 @@ it('切换账号后丢弃上一账号晚到的历史响应', async () => {
         }),
     ),
   )
-  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
   setClientStorageScope('different-owner')
   await act(async () => respond(Response.json({ items: [item], nextCursor: null })))
   expect(host.textContent).not.toContain('gpt-image-2')
 })
+
 it('断网显示可恢复错误，刷新后能看到记录', async () => {
   vi.stubGlobal(
     'fetch',
@@ -125,17 +171,37 @@ it('断网显示可恢复错误，刷新后能看到记录', async () => {
       .mockRejectedValueOnce(new TypeError('network'))
       .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: null })),
   )
-  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('刷新重试')
-  const refresh = [...host.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('刷新'),
-  )!
-  await act(async () => refresh.click())
+  await click('刷新')
   expect(host.querySelector('[role="alert"]')).toBeNull()
   expect(host.textContent).toContain('gpt-image-2')
 })
 
-it('云端列表展示封面时只读取预览，原件留到用户明确下载', async () => {
+it('本机已有同一条生成时只显示本机那张卡，不重复一条平台记录', async () => {
+  useStore.setState({
+    tasks: [
+      {
+        id: 'local-1',
+        prompt: '本机记录',
+        status: 'completed',
+        createdAt: item.createdAt,
+        params: { ...DEFAULT_PARAMS },
+        inputImageIds: [],
+        outputImages: [],
+        bffRequestId: item.id,
+      } as never,
+    ],
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ items: [item], nextCursor: null })),
+  )
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
+  expect(host.querySelector('button[aria-label*="gpt-image-2"]')).toBeNull()
+})
+
+it('列表展示封面时只读取预览，原件留到用户明确下载', async () => {
   const mediaId = '77777777-7777-4777-8777-777777777777'
   const fetcher = vi.fn(async (url: string) => {
     if (url.startsWith('/api/generations'))
@@ -158,19 +224,19 @@ it('云端列表展示封面时只读取预览，原件留到用户明确下载'
     return new Response('image bytes')
   })
   vi.stubGlobal('fetch', fetcher)
-  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
   expect(fetcher.mock.calls.map(([url]) => url)).toContain('https://media.example/preview.webp')
   expect(fetcher.mock.calls.map(([url]) => url)).not.toContain('https://media.example/original.png')
 })
 
-it('复用云端记录在当前作品输入框显示提示词与参数，不自动提交生成', async () => {
+it('复用平台记录在当前作品输入框显示提示词与参数，不自动提交生成', async () => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ appMode: 'browse' })
-  function HistoryWithComposer() {
+  function TileWithComposer() {
     const mode = useStore((state) => state.appMode)
     return mode === 'browse' ? (
       <>
-        <CloudGenerationHistory />
+        <CloudTaskTile item={item} />
         <InputBar />
       </>
     ) : (
@@ -186,36 +252,26 @@ it('复用云端记录在当前作品输入框显示提示词与参数，不自�
       models: [{ id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate'] }],
     },
   ])
-  const fetcher = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: null }))
-    .mockResolvedValueOnce(
-      Response.json({
-        ...item,
-        prompt: '一只猫',
-        parameters: {
-          size: '1536x1024',
-          quality: 'high',
-          n: 2,
-          output_format: 'webp',
-          output_compression: 90,
-        },
-        actualParameters: {},
-        inputs: [],
-        mask: null,
-        outputs: [],
-      }),
-    )
+  const fetcher = vi.fn(async () =>
+    Response.json({
+      ...item,
+      prompt: '一只猫',
+      parameters: {
+        size: '1536x1024',
+        quality: 'high',
+        n: 2,
+        output_format: 'webp',
+        output_compression: 90,
+      },
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+      outputs: [],
+    }),
+  )
   vi.stubGlobal('fetch', fetcher)
-  await act(async () => root.render(<HistoryWithComposer />))
-  const click = async (label: string) => {
-    const button = [...host.querySelectorAll('button')].find((node) =>
-      node.textContent?.includes(label),
-    )
-    expect(button).toBeDefined()
-    await act(async () => button!.click())
-  }
-  await click('查看详情')
+  await act(async () => root.render(<TileWithComposer />))
+  await openTile()
   await click('复用参数')
   expect(useStore.getState().prompt).toBe('一只猫')
   expect(useStore.getState().params).toMatchObject({
@@ -232,7 +288,7 @@ it('复用云端记录在当前作品输入框显示提示词与参数，不自�
   expect(host.querySelector('[contenteditable]')?.textContent).toBe('一只猫')
   expect(useStore.getState().appMode).toBe('browse')
   expect(useStore.getState().tasks).toHaveLength(0)
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
 it('展开输出只加载预览，点击下载原图后才取原件并保留文件格式', async () => {
@@ -262,7 +318,6 @@ it('展开输出只加载预览，点击下载原图后才取原件并保留文�
         status: 200,
         blob: async () => new Blob(['exact original'], { type: 'image/png' }),
       } as Response
-    if (url.includes('?')) return Response.json({ items: [item], nextCursor: null })
     return Response.json({
       ...item,
       prompt: '原图',
@@ -274,20 +329,12 @@ it('展开输出只加载预览，点击下载原图后才取原件并保留文�
     })
   })
   vi.stubGlobal('fetch', fetcher)
-  await act(async () => root.render(<CloudGenerationHistory />))
-  await act(async () =>
-    [...host.querySelectorAll('button')]
-      .find((node) => node.textContent?.includes('查看详情'))!
-      .click(),
-  )
+  await act(async () => root.render(<CloudTaskTile item={item} />))
+  await openTile()
   expect(urls).toContain('https://media.example/output-preview.webp')
   expect(urls).not.toContain('https://media.example/output-original.png')
-  const button = [...host.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('下载原图'),
-  )
-  expect(button).toBeDefined()
   await act(async () => {
-    button!.click()
+    button('下载原图').click()
     await vi.waitFor(() => expect(download).toHaveBeenCalledOnce())
   })
   expect(urls).toContain('https://media.example/output-original.png')
@@ -329,7 +376,6 @@ it('复用参考图下载期间切换账号，不覆盖新账号的创作内容'
           status: 200,
           blob: async () => new Blob(['preview'], { type: 'image/png' }),
         } as Response
-      if (url.includes('?')) return Response.json({ items: [item], nextCursor: null })
       return Response.json({
         ...item,
         prompt: '旧账号内容',
@@ -341,16 +387,10 @@ it('复用参考图下载期间切换账号，不覆盖新账号的创作内容'
       })
     }),
   )
-  await act(async () => root.render(<CloudGenerationHistory />))
-  await act(async () =>
-    [...host.querySelectorAll('button')]
-      .find((node) => node.textContent?.includes('查看详情'))!
-      .click(),
-  )
+  await act(async () => root.render(<CloudTaskTile item={item} />))
+  await openTile()
   await act(async () => {
-    ;[...host.querySelectorAll('button')]
-      .find((node) => node.textContent?.includes('复用参数'))!
-      .click()
+    button('复用参数').click()
     await vi.waitFor(() => expect(respond).toBeDefined())
   })
   setClientStorageScope('different-owner')
@@ -408,7 +448,6 @@ it('复用完整参考图和蒙版，不改写本机已有原图的来源和创�
           status: 200,
           blob: async () => new Blob([url.split('/').slice(-1)[0]!], { type: 'image/png' }),
         } as Response
-      if (url.includes('?')) return Response.json({ items: [item], nextCursor: null })
       return Response.json({
         ...item,
         prompt: '带蒙版',
@@ -420,16 +459,10 @@ it('复用完整参考图和蒙版，不改写本机已有原图的来源和创�
       })
     }),
   )
-  await act(async () => root.render(<CloudGenerationHistory />))
-  await act(async () =>
-    [...host.querySelectorAll('button')]
-      .find((node) => node.textContent?.includes('查看详情'))!
-      .click(),
-  )
+  await act(async () => root.render(<CloudTaskTile item={item} />))
+  await openTile()
   await act(async () => {
-    ;[...host.querySelectorAll('button')]
-      .find((node) => node.textContent?.includes('复用参数'))!
-      .click()
+    button('复用参数').click()
     await vi.waitFor(() => expect(useStore.getState().prompt).toBe('带蒙版'))
   })
   expect(useStore.getState().inputImages).toEqual([{ id: storedId, dataUrl }])

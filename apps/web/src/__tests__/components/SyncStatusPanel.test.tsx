@@ -59,7 +59,7 @@ describe('the sync status panel', () => {
   it('offers a retry only when the last run failed', () => {
     useSyncStatus.setState({ status: 'error' })
     render()
-    expect(host.textContent).toContain('同步失败')
+    expect(host.textContent).toContain('保存失败')
     expect(host.querySelector('button')?.textContent).toBe('立即重试')
 
     act(() => {
@@ -81,10 +81,10 @@ describe('the status label', () => {
   const now = 1_700_000_000_000
 
   it('states the state and nothing else', () => {
-    expect(syncLabel({ status: 'idle', pending: 2, lastSyncedAt: now, now })).toBe('2 项待同步')
-    expect(syncLabel({ status: 'error', pending: 0, lastSyncedAt: now, now })).toBe('同步失败')
-    expect(syncLabel({ status: 'syncing', pending: 0, lastSyncedAt: now, now })).toBe('同步中')
-    expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: null, now })).toBe('尚未同步')
+    expect(syncLabel({ status: 'idle', pending: 2, lastSyncedAt: now, now })).toBe('2 项待保存')
+    expect(syncLabel({ status: 'error', pending: 0, lastSyncedAt: now, now })).toBe('保存失败')
+    expect(syncLabel({ status: 'syncing', pending: 0, lastSyncedAt: now, now })).toBe('保存中')
+    expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: null, now })).toBe('尚未保存')
   })
 
   it('counts the asset images a bulk upload still has to send', () => {
@@ -101,16 +101,16 @@ describe('the status label', () => {
 
   it('dates the last successful run', () => {
     expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: now - 5_000, now })).toBe(
-      '已同步 · 刚刚',
+      '已保存 · 刚刚',
     )
     expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: now - 180_000, now })).toBe(
-      '已同步 · 3 分钟前',
+      '已保存 · 3 分钟前',
     )
     expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: now - 7_200_000, now })).toBe(
-      '已同步 · 2 小时前',
+      '已保存 · 2 小时前',
     )
     expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: now - 172_800_000, now })).toBe(
-      '已同步 · 2 天前',
+      '已保存 · 2 天前',
     )
   })
 })
