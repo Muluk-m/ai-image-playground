@@ -5,13 +5,25 @@ checked-origin MessageChannel before the application opens IndexedDB. Each ackno
 follows a committed destination transaction. Source databases are never deleted. Existing
 conflicts are backed up locally; an ambiguous empty destination canvas does not qualify as
 completed migration. Restricted browsers and unresolved imports return to the source URL
-with `__legacy=1` rather than showing an empty destination workspace.
+with `__legacy=1` rather than showing an empty destination workspace. That return happens
+**once per browser**: the source drawing is already preserved locally as a separate 旧站画布
+project, so a second unresolved import completes instead of pinning the browser to the old
+origin forever.
 
 Login continuity uses top-level HTTPS API navigations, because the source's SameSite=Lax
 session cookie cannot be read inside a cross-site iframe. Both API hosts must reach the same
 BFF process and database. Set `DOMAIN_HANDOFF_CONFIG_FILE` to a mounted JSON file containing
 `sourceOrigin`, `targetOrigin`, `sourceApiOrigin`, and `targetApiOrigin` (bare HTTPS origins).
 The configuration is validated at startup; without it the handoff is disabled.
+
+The exchange binding cookie carries the `__Host-` prefix, so no sibling host under the API's
+registrable domain can overwrite it; that cookie is the only thing tying a redemption to the
+browser that started it. Before enabling the handoff, check that `CLIENT_IP_SOURCE` identifies
+the visitor (`cf-connecting-ip` behind Cloudflare) and not the reverse proxy — the start
+endpoint's throughput budget is per address, and a collapsed address budget sends every
+visitor to the legacy domain. The routes are additionally gated on the `accounts:login`
+capability: with accounts disabled the handoff reports itself unavailable instead of minting
+sessions.
 
 The target API binds a two-minute, single-use exchange to an HttpOnly cookie. The source API
 identifies its existing session; the target API revalidates the active user and unexpired
@@ -24,6 +36,13 @@ HttpOnly completion receipt prevents query parameters from pretending the exchan
 Deploy the BFF and configuration before the frontend. Keep the per-origin API mapping so
 source fallback still uses the source API and its cookies. The frontend records successful
 handoff once; it must not silently sign the user back in after an intentional logout.
+
+**Only a failed local import returns a visitor to the source origin.** If the browser data
+arrived but the login handoff cannot run — the target API is slow or down, the deployment has
+no `accounts:login` (so `/api/auth/me` answers 404), or the handoff is switched off — the app
+mounts normally on the target origin and the visitor signs in again by hand. A handoff fault
+must not move a visitor whose data is already correct; the deploy order above is a convention,
+not something the browser can enforce.
 
 ## Redirect rollout
 

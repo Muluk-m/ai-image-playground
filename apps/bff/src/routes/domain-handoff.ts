@@ -2,9 +2,10 @@ import { randomBytes } from 'node:crypto'
 import { and, eq, gt } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import { domainHandoffConfig } from '../lib/domain-handoff-config'
 import { clientAddress } from '../lib/http'
-import { createRateLimiter } from '../lib/rate-limit'
+import { createWindowLimiter } from '../lib/rate-limit'
 import { resolveAuthUser } from '../lib/user-auth'
 import {
   createUserSession,
@@ -14,19 +15,18 @@ import {
 } from '../lib/user-session'
 
 const COMPLETE = '__Host-image_playground_domain_complete'
-const starts = createRateLimiter({
-  maxFailures: 30,
-  windowMs: 120_000,
-  lockMs: 120_000,
-  maxEntries: 2048,
-})
-const COOKIE = 'image_playground_domain_handoff'
+// 吞吐限速，不是失败锁定：成功的交接不能记成 failure（见 lib/rate-limit.ts）。
+const starts = createWindowLimiter(120_000, 2048)
+const START_BUDGET = 30
+// `__Host-` 前缀：同注册域下的兄弟主机不能用 Domain= 覆盖它。整个设计只靠这一个
+// cookie 把兑换绑到发起它的浏览器上，被覆盖等于强制登录。前缀要求 Path=/ 且无 Domain。
+const COOKIE = '__Host-image_playground_domain_handoff'
 const TTL = 120_000
 const OPTIONS = {
   httpOnly: true,
   secure: true,
   sameSite: 'lax',
-  path: '/api/auth/domain',
+  path: '/',
   maxAge: TTL / 1000,
 } as const
 interface Handoff {
@@ -63,11 +63,16 @@ function returnUrl(origin: string, path: string): string {
   return url.href
 }
 
+// 与其它 /api/auth/* 一样受 accounts:login 管：能力关掉时交接也签不出会话。
+function handoffConfig() {
+  return isCapabilityEnabled('accounts:login') ? domainHandoffConfig() : null
+}
+
 export const domainHandoffRoutes = new Elysia()
   .use(resolveAuthUser)
   .get('/api/auth/domain/available', ({ request, cookie, set }) => {
     set.headers['cache-control'] = 'no-store'
-    const config = domainHandoffConfig()
+    const config = handoffConfig()
     return {
       enabled: !!config && onHost(request, config.targetApiOrigin),
       completed: cookie[COMPLETE]?.value === '1',
@@ -76,9 +81,10 @@ export const domainHandoffRoutes = new Elysia()
   .get(
     '/api/auth/domain/start',
     ({ request, query, cookie, authUser, status, server }) => {
-      const config = domainHandoffConfig()
+      const config = handoffConfig()
       if (!config || !onHost(request, config.targetApiOrigin)) return status(404)
-      let path = query.return ?? '/'
+      // `//p/x` 这种协议相对路径会解析到别的 origin；当根路径处理，不要把正常访客顶成 400。
+      let path = query.return?.startsWith('//') ? '/' : (query.return ?? '/')
       let destination: string
       try {
         destination = returnUrl(config.targetOrigin, path)
@@ -88,12 +94,11 @@ export const domainHandoffRoutes = new Elysia()
         return status(400)
       }
       if (authUser) {
-        cookie[COMPLETE]!.set({ ...OPTIONS, path: '/', value: '1' })
+        cookie[COMPLETE]!.set({ ...OPTIONS, value: '1' })
         return redirect(destination)
       }
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
-      if (starts.isLocked(address) || starts.recordFailure(address))
-        return fallback(config.sourceOrigin, path)
+      if (starts.over(address, START_BUDGET)) return fallback(config.sourceOrigin, path)
       const oldBinding = cookie[COOKIE]?.value
       for (const [key, flow] of pending) {
         if (typeof oldBinding === 'string' && flow.binding === hashSessionToken(oldBinding))
@@ -117,7 +122,7 @@ export const domainHandoffRoutes = new Elysia()
   .get(
     '/api/auth/domain/authorize',
     ({ request, query, cookie, authUser, status }) => {
-      const config = domainHandoffConfig()
+      const config = handoffConfig()
       if (!config || !onHost(request, config.sourceApiOrigin)) return status(404)
       const flow = pending.get(query.state)
       if (!flow || flow.expires <= Date.now() || flow.issued)
@@ -138,7 +143,7 @@ export const domainHandoffRoutes = new Elysia()
   .get(
     '/api/auth/domain/finish',
     async ({ request, query, cookie, authUser, status }) => {
-      const config = domainHandoffConfig()
+      const config = handoffConfig()
       if (!config || !onHost(request, config.targetApiOrigin)) return status(404)
       const flow = pending.get(query.state)
       const binding = cookie[COOKIE]?.value
@@ -186,7 +191,7 @@ export const domainHandoffRoutes = new Elysia()
         if (!token) return fallback(config.sourceOrigin, flow.returnPath)
         setUserSessionCookie(cookie, token)
       }
-      cookie[COMPLETE]!.set({ ...OPTIONS, path: '/', value: '1' })
+      cookie[COMPLETE]!.set({ ...OPTIONS, value: '1' })
       return redirect(returnUrl(config.targetOrigin, flow.returnPath))
     },
     {

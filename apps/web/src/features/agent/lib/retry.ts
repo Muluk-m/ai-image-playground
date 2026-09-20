@@ -1,6 +1,8 @@
 import type { AgentToolErrorCode } from '@image-playground/shared'
 import {
   AGENT_RETRYABLE_ERROR_CODES,
+  agentToolLocalEdit,
+  agentToolRerunnable,
   agentToolRetryable,
   videoRateMultiplier,
 } from '@image-playground/shared'
@@ -50,6 +52,24 @@ function modelOffered(message: AgentToolMessage): boolean {
   return getStoredChannels().some((channel) =>
     channel.models.some((one) => one.id === model && (one.media ?? 'image') === media),
   )
+}
+
+/**
+ * 一次跑过的生成，本该由「原样重试」收场，却重出不了的原因。
+ *
+ * - `local_edit`：局部改图、分方案与连锁改图的后续步骤，参数离不开那一轮的上下文，重出会改错地方。
+ * - `model_gone`：当时那个模型已经不在这个部署的清单上，重出必然再失败一次。
+ *
+ * 认不出是哪一次生成的（旧记录没有快照、查素材库这类不出图的调用）一律 `null`：既给不出
+ * 重试，也没法请智能体照着重新处理，那些失败只说原因。界面按这个原因把「让助手重新处理」
+ * 摆出来，并在替用户说的那句话里讲清重出不了的到底是什么。
+ */
+export type AgentRerunBlock = 'local_edit' | 'model_gone'
+
+export function agentRerunBlock(origin: AgentToolMessage): AgentRerunBlock | null {
+  if (!agentToolRerunnable(origin)) return null
+  if (!modelOffered(origin)) return 'model_gone'
+  return agentToolLocalEdit(origin.snapshot) ? 'local_edit' : null
 }
 
 /**

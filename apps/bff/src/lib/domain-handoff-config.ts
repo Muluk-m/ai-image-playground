@@ -16,6 +16,9 @@ function loadDomainHandoffConfig(): DomainHandoffConfig | null {
     'sourceApiOrigin',
     'targetApiOrigin',
   ] as const) {
+    // 缺字段、非字符串或不是 URL 时都走这条错误，不能让 new URL 抛裸 TypeError 把 BFF 的启动带下去。
+    if (typeof value[key] !== 'string' || !URL.canParse(value[key]))
+      throw new Error('Invalid domain handoff origin')
     const url = new URL(value[key])
     if (url.protocol !== 'https:' || url.origin !== value[key])
       throw new Error('Invalid domain handoff origin')

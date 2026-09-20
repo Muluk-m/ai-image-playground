@@ -6,6 +6,8 @@ export interface CompatibilityConfig {
 }
 const PROTOCOL = 'muvloom-local-storage-v1'
 const DONE = 'muvloom-local-compatibility-v3'
+/** 未解决的导入只把访客弹回旧域名一次，第二次照常放行，否则 DONE 永远写不下去。 */
+const BOUNCED = 'muvloom-local-compatibility-bounced-v3'
 const IDLE_MS = 15_000
 
 type StorageDocument = Document & {
@@ -84,6 +86,12 @@ export async function restoreLocalStorage(config: CompatibilityConfig): Promise<
   }
   beginImport()
   let resolved = true
+  let bounced = false
+  try {
+    bounced = localStorage.getItem(BOUNCED) === config.sourceOrigin
+  } catch {
+    return false
+  }
   const frame = document.createElement('iframe')
   frame.hidden = true
   frame.src = `${config.sourceOrigin}/local-compat.html`
@@ -119,8 +127,10 @@ export async function restoreLocalStorage(config: CompatibilityConfig): Promise<
       resetTimeout()
       try {
         if (event.data?.done) {
-          if (resolved) localStorage.setItem(DONE, config.sourceOrigin)
-          finish(resolved)
+          // 源数据已经作为「旧站画布」留在本机；第二次仍未解决就当已完成，不能把浏览器永久钉在旧域名。
+          if (resolved || bounced) localStorage.setItem(DONE, config.sourceOrigin)
+          else localStorage.setItem(BOUNCED, config.sourceOrigin)
+          finish(resolved || bounced)
         } else if (event.data?.entry) {
           if (!(await importEntry(event.data.entry))) resolved = false
           if (!stopped) {
