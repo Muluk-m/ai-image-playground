@@ -98,7 +98,8 @@
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
     "recent": "Recent",
     "noMatches": "No matching records",
-    "empty": "No works yet. Write a line on Create, or pick a starting point in Explore."
+    "empty": "No works yet. Write a line on Create, or pick a starting point in Explore.",
+    "mine": "My works"
   },
   "set": {
     "storyboardFallback": "Storyboard",

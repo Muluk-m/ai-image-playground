@@ -18,6 +18,7 @@ import CanvasMode from './features/canvas/components/CanvasMode'
 import ProjectsPage from './features/canvas/components/ProjectsPage'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
 import ExplorePage from './features/inspiration/components/ExplorePage'
+import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
@@ -113,17 +114,17 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <LibraryPage />
         ) : (
           <>
-            <main data-home-main data-drag-select-surface className="relative pb-48">
+            <main data-home-main data-drag-select-surface className="relative pb-24">
               {/* 首屏氛围图：只铺顶部一段，下沿渐隐进背景色，内容压在它上面。 */}
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-cover bg-top bg-no-repeat"
+                className="pointer-events-none absolute inset-x-0 top-0 h-[560px] bg-cover bg-top bg-no-repeat"
                 style={{
                   backgroundImage:
-                    'linear-gradient(to bottom, transparent 46%, hsl(var(--background))), url(/hero/hero-8.webp)',
+                    'linear-gradient(to bottom, transparent 52%, hsl(var(--background))), url(/hero/hero-8.webp)',
                 }}
               />
-              <div className="safe-area-x relative mx-auto max-w-7xl">
+              <div className="safe-area-x relative mx-auto max-w-6xl">
                 <div className="pt-12 text-center">
                   <h1 className="text-[30px] font-semibold leading-tight sm:text-[38px]">
                     {t('hero.titleLead')}
@@ -132,11 +133,15 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                   <p className="pb-6 pt-2 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
                 <CreateModeSwitch />
+                {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
+                <div className="pt-6">
+                  <InputBar inline />
+                </div>
+                <InspirationChips />
                 <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
               </div>
             </main>
             <TaskBulkActions />
-            <InputBar />
           </>
         )}
       </div>

@@ -17,7 +17,16 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
   return (
     <>
-      <SearchBar />
+      {hero ? (
+        <div className="flex items-center gap-3 pb-1 pt-10">
+          <h2 className="text-[15px] font-semibold">{t('grid.mine')}</h2>
+          <div className="ml-auto w-full max-w-sm">
+            <SearchBar compact />
+          </div>
+        </div>
+      ) : (
+        <SearchBar />
+      )}
       <TaskGrid hero={hero} />
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">

@@ -88,7 +88,8 @@ function useIsMobile() {
   return isMobile
 }
 
-export default function InputBar() {
+/** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
+export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
   const { t, i18n } = useTranslation(['composer', 'common'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
@@ -1258,15 +1259,27 @@ export default function InputBar() {
 
       <div
         data-input-bar
-        className="studio-history-composer fixed bottom-4 z-30 max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4"
-        style={{
-          left: 'calc(50% + var(--app-sidebar-width) / 2)',
-          width: 'calc(100% - var(--app-sidebar-width))',
-        }}
+        className={
+          inline
+            ? 'studio-history-composer relative z-10 mx-auto w-full max-w-4xl'
+            : 'studio-history-composer fixed bottom-4 z-30 max-w-4xl -translate-x-1/2 px-3 transition-all duration-300 sm:bottom-6 sm:px-4'
+        }
+        style={
+          inline
+            ? undefined
+            : {
+                left: 'calc(50% + var(--app-sidebar-width) / 2)',
+                width: 'calc(100% - var(--app-sidebar-width))',
+              }
+        }
       >
         <div
           ref={cardRef}
-          className={`relative bg-card text-card-foreground backdrop-blur-2xl border border-border shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
+          className={`relative rounded-2xl border border-border bg-card text-card-foreground ring-1 ring-black/5 backdrop-blur-2xl sm:rounded-3xl dark:ring-white/10 ${
+            inline
+              ? 'studio-hero-composer'
+              : 'shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)]'
+          } ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
         >
           {barCollapsed ? (
             <div className="flex items-center gap-2">

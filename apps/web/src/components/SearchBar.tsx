@@ -2,7 +2,8 @@ import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import Select from './Select'
 
-export default function SearchBar() {
+/** `compact`：首屏「我的作品」那一行用的窄版，不自带上下留白。 */
+export default function SearchBar({ compact = false }: { compact?: boolean } = {}) {
   const { t } = useTranslation(['composer', 'common'])
   const searchQuery = useStore((s) => s.searchQuery)
   const setSearchQuery = useStore((s) => s.setSearchQuery)
@@ -12,7 +13,7 @@ export default function SearchBar() {
   const setFilterFavorite = useStore((s) => s.setFilterFavorite)
 
   return (
-    <div data-no-drag-select className="mt-6 mb-4 flex gap-3">
+    <div data-no-drag-select className={`flex gap-3 ${compact ? '' : 'mb-4 mt-6'}`}>
       <div className="flex gap-2 flex-shrink-0 z-20">
         <button
           onClick={() => setFilterFavorite(!filterFavorite)}

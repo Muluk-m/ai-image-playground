@@ -123,3 +123,11 @@
     inset 0 0 0 1px rgb(255 255 255 / 0.22),
     0 10px 30px -12px hsl(var(--primary) / 0.85);
 }
+
+/* 首屏那张输入卡：暗底上要「浮」起来，靠一层绿调外发光而不是硬阴影。 */
+.studio-hero-composer {
+  background: hsl(var(--card) / 0.86);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.14),
+    0 40px 90px -50px hsl(var(--primary) / 0.7);
+}
