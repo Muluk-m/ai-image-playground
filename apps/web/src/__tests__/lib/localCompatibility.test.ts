@@ -1,6 +1,7 @@
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
+  beginImport,
   exportStorage,
   importEntry,
   pack,
@@ -26,6 +27,7 @@ function storage(): Storage {
   }
 }
 beforeEach(() => {
+  beginImport()
   vi.stubGlobal('indexedDB', new IDBFactory())
   vi.stubGlobal('IDBKeyRange', IDBKeyRange)
   vi.stubGlobal('localStorage', storage())
@@ -314,7 +316,7 @@ it.each([
   })
   await row(recoveryKey, source)
   await row(projectKey, originalProject)
-  await row(sceneKey, source)
+  expect(await row(sceneKey, source)).toBe(!edited)
   const values: unknown[] = []
   for await (const entry of exportStorage())
     if (entry.kind === 'record') values.push(unpack(entry.value))
