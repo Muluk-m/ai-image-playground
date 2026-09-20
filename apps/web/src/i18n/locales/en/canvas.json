@@ -49,7 +49,7 @@
     "inputAlt": "Input {{index}}",
     "previewPending": "Building preview…",
     "annotationHint": "Text markup → change request: {{text}}",
-    "promptPlaceholder": "Describe what to create or change… (⌘/Ctrl + Enter)",
+    "promptPlaceholder": "Describe the image you want, or drop in a reference",
     "promptAria": "Creation prompt",
     "modeAria": "Generation type",
     "modeImage": "Image",
@@ -98,8 +98,8 @@
     "title": "Image creation",
     "collapseAria": "Collapse panel",
     "collapse": "Collapse ←",
-    "emptyTitle": "Start from an idea",
-    "emptyBody": "Describe the image, or drop in a reference.",
+    "emptyTitle": "What are you making today",
+    "emptyBody": "Pick one to start, or just write a line.",
     "openChat": "Open creation panel"
   },
   "workspace": {

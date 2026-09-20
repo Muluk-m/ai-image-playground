@@ -221,7 +221,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </button>
               </div>
               <div className="studio-chat-empty px-4">
-                <span className="studio-spark">✧</span>
                 <h3>{t('sidebar.emptyTitle')}</h3>
                 <p>{t('sidebar.emptyBody')}</p>
                 {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
