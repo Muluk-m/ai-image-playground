@@ -22,7 +22,20 @@ const LABEL_KEY = {
   'media-local': 'sync.mediaLocal',
 } as const satisfies Record<ProjectSyncStatus, string>
 
-export default function ProjectSyncStatus({ session }: { session: CloudProjectSession }) {
+/** 一切正常时的那几个状态：画布上只在出岔子时才出声，这些安静掉。 */
+const QUIET: Partial<Record<ProjectSyncStatus, true>> = {
+  saved: true,
+  syncing: true,
+  loading: true,
+}
+
+export default function ProjectSyncStatus({
+  session,
+  quiet = false,
+}: {
+  session: CloudProjectSession
+  quiet?: boolean
+}) {
   const { t } = useTranslation(['canvas', 'errors'])
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const [resolving, setResolving] = useState(false)
@@ -41,6 +54,7 @@ export default function ProjectSyncStatus({ session }: { session: CloudProjectSe
       setResolving(false)
     }
   }
+  if (quiet && QUIET[state.status]) return null
   return (
     <div
       className="pointer-events-auto max-w-sm text-xs text-muted-foreground"

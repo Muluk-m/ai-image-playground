@@ -104,11 +104,7 @@
   },
   "workspace": {
     "canvasAria": "Creation canvas",
-    "untitled": "My canvas",
-    "saveFailed": "Save failed",
-    "restoring": "Restoring",
-    "autoSaved": "Auto-saved",
-    "dropHint": "Drop an image to start"
+    "untitled": "My canvas"
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",

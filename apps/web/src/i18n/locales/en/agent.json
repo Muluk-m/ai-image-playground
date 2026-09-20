@@ -278,8 +278,16 @@
       "wake_limit": "The assistant has checked back 3 times in a row and will wait for you before continuing"
     },
     "inbox": {
-      "aria": "Background jobs",
+      "title": "Generation jobs",
+      "subtitle": "Background jobs from this conversation",
+      "tabRunning": "Running",
+      "tabFinished": "Finished",
+      "groupProcessing": "Processing",
+      "groupQueued": "Queued",
+      "empty": "Nothing has finished yet",
       "summary": "{{running}} running · {{completed}} done",
+      "summaryFailed": "{{running}} running · {{completed}} done · {{failed}} failed",
+      "count": "{{done}}/{{total}}",
       "locate": "Locate on canvas",
       "succeeded": "Done",
       "failed": "Did not finish"

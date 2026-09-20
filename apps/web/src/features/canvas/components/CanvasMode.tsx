@@ -3,6 +3,7 @@ import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
+import AgentJobInbox from '../../agent/components/AgentJobInbox'
 import AgentPanel from '../../agent/components/AgentPanel'
 import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { conversationStarted } from '../../agent/lib/panelMessages'
@@ -242,18 +243,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <strong>
                 {project ? projectDisplayName(project.name) : t('workspace.untitled')}
               </strong>
-              {workspace.cloud ? (
-                <ProjectSyncStatus session={workspace.cloud} />
-              ) : (
-                <span>
-                  {saveFailed
-                    ? t('workspace.saveFailed')
-                    : loading
-                      ? t('workspace.restoring')
-                      : t('workspace.autoSaved')}{' '}
-                  · {t('workspace.dropHint')}
-                </span>
-              )}
+              {/* 画布上只留项目名。自动保存、拖入提示这类常态文字没人读，还压在右上角控件底下；
+              同步状态只在出岔子（冲突、报错、待重试）时才出声。 */}
+              {workspace.cloud && <ProjectSyncStatus session={workspace.cloud} quiet />}
             </div>
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
@@ -263,10 +255,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
+            {/* 后台任务入口贴画布右上角：任务落的是画布，进度和定位就该在画布上，
+            不占对话顶上的常驻位置。 */}
+            {hasAgent && (
+              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end">
+                <AgentJobInbox />
+              </div>
+            )}
             {saveFailed && (
               <div
                 role="alert"
-                className="absolute right-4 top-4 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg"
+                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg"
               >
                 <p>{t('saveError.message')}</p>
                 <button
