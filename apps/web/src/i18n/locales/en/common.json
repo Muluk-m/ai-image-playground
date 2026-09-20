@@ -1,0 +1,40 @@
+{
+  "documentTitle": "Muvloom · AI image and video studio",
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "toDark": "Switch to dark",
+    "toLight": "Switch to light"
+  },
+  "locale": {
+    "switchAria": "Language: {{current}}. Switch to {{next}}",
+    "label": "Language",
+    "zh-CN": "中文",
+    "en": "English"
+  },
+  "action": {
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "retry": "Retry",
+    "copy": "Copy",
+    "clear": "Clear",
+    "save": "Save",
+    "download": "Download",
+    "collapse": "Collapse",
+    "generate": "Generate"
+  },
+  "state": {
+    "generating": "Generating",
+    "failed": "Failed",
+    "unknown": "Unknown"
+  },
+  "toast": {
+    "copySucceeded": "Copied",
+    "copyFailed": "Copy failed"
+  }
+}

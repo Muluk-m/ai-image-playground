@@ -1,4 +1,6 @@
+import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
+import { flushOnPageHide } from '../../../lib/flushOnPageHide'
 import { useStore } from '../../../store'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
 import { currentCanvasProject, useCanvasProjectStore } from '../projectStore'
@@ -13,7 +15,7 @@ import {
   saveScene,
 } from './persistence'
 import { cloudProjectsEnabled } from './projectClient'
-import type { CanvasProject } from './projectRepository'
+import { type CanvasProject, projectRepository } from './projectRepository'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 
 import { canvasSceneKey } from './workspaceKeys'
@@ -23,9 +25,16 @@ export { canvasSceneKey } from './workspaceKeys'
 /** 生命周期属于会话，切模式/切会话只换视图，异步任务仍写原文档并自动保存。 */
 export class CanvasWorkspace {
   readonly id = crypto.randomUUID()
+  private readonly scope = scopedStorageName('canvas')
   readonly doc = new CanvasDoc()
   readonly editor = new CanvasEditor(this.doc)
-  readonly sink = createAgentCanvasSink(this.editor, () => this.ready)
+  readonly sink = createAgentCanvasSink(this.editor, () => this.ready, {
+    enabled: () => Boolean(this.cloud),
+    refresh: async () => {
+      if (!(await this.flush())) throw new Error('local_save_failed')
+      await this.cloud?.refresh(true)
+    },
+  })
   cloud: CloudProjectSession | undefined
   needsInitialFit = false
   ready: Promise<unknown>
@@ -34,6 +43,7 @@ export class CanvasWorkspace {
   private timer: ReturnType<typeof setTimeout> | undefined
   private writes: Promise<unknown> = Promise.resolve()
   private disposed = false
+  private refreshing = false
   private revision = 0
   private savedRevision = 0
   private structureRevision = 0
@@ -60,10 +70,7 @@ export class CanvasWorkspace {
     if (patch.saveFailed && !this.state.saveFailed)
       useStore
         .getState()
-        .showToast(
-          '画布保存失败，内容仍在当前页面。请回到对应会话重试保存，成功前不要刷新或关闭。',
-          'error',
-        )
+        .showToast(i18next.t('saveError.messageDetailed', { ns: 'canvas' }), 'error')
     this.state = { ...this.state, ...patch }
     for (const listener of this.listeners) listener()
   }
@@ -84,7 +91,9 @@ export class CanvasWorkspace {
       if (project?.cloud && cloudProjectsEnabled()) {
         this.cloud ??= new CloudProjectSession(project, this.editor, (updated) => {
           useCanvasProjectStore.setState((state) => ({
-            projects: state.projects.map((one) => (one.id === updated.id ? updated : one)),
+            projects: state.projects.some((one) => one.id === updated.id)
+              ? state.projects.map((one) => (one.id === updated.id ? updated : one))
+              : [...state.projects, updated],
             cloudCatalog: state.cloudCatalog[updated.id]
               ? {
                   ...state.cloudCatalog,
@@ -98,6 +107,7 @@ export class CanvasWorkspace {
           }))
         })
         await this.cloud.load(hasLocal)
+        this.cloud.start()
         this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
       }
       let { elements, files, camera } = this.doc
@@ -131,55 +141,75 @@ export class CanvasWorkspace {
     void this.ready.catch(() => {})
   }
   refreshCloud() {
-    if (!this.cloud || this.state.loading || this.state.loadFailed) return
+    if (
+      this.disposed ||
+      this.refreshing ||
+      !this.cloud ||
+      this.state.loading ||
+      this.state.loadFailed
+    )
+      return
+    this.refreshing = true
     this.ready = this.ready.then(async () => {
-      if (!(await this.flush())) return
-      this.update({ loading: true })
       try {
-        await this.cloud!.load(true)
-        this.update({ loading: false, loadFailed: false })
-      } catch (error) {
-        this.update({ loading: false, loadFailed: true })
-        throw error
+        if (!(await this.flush())) return
+        await this.cloud!.refresh()
+      } catch {
+        // 已打开的本机画布继续可用；具体同步失败由 cloud 状态展示。
+      } finally {
+        this.refreshing = false
       }
     })
     void this.ready.catch(() => {})
   }
   flush = (): Promise<boolean> => {
     clearTimeout(this.timer)
-    const save = this.writes.then(async () => {
-      if (this.disposed || this.state.loading || this.state.loadFailed) return false
-      if (this.savedRevision === this.revision && !this.state.saveFailed) return true
-      const revision = this.revision
-      const structureRevision = this.structureRevision
-      const preserveStructure = structureRevision === this.savedStructureRevision
-      const localProject = useCanvasProjectStore
-        .getState()
-        .projects.find((one) => one.sceneKey === this.key)
-      const cloud = this.localCloudCheckpoint
-        ? {
-            ...this.localCloudCheckpoint,
-            name: localProject?.name ?? this.localCloudCheckpoint.name,
+    const save = this.writes
+      .then(async () => {
+        if (
+          this.disposed ||
+          this.scope !== scopedStorageName('canvas') ||
+          this.state.loading ||
+          this.state.loadFailed
+        )
+          return false
+        if (this.savedRevision === this.revision && !this.state.saveFailed) return true
+        const revision = this.revision
+        const structureRevision = this.structureRevision
+        const preserveStructure = structureRevision === this.savedStructureRevision
+        const localProject = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.sceneKey === this.key)
+        const cloud = this.localCloudCheckpoint
+          ? {
+              ...this.localCloudCheckpoint,
+              name: localProject?.name ?? this.localCloudCheckpoint.name,
+            }
+          : undefined
+        let saved = this.cloud
+          ? await this.cloud.saveLocal(preserveStructure)
+          : await saveScene(this.editor, this.key, undefined, { preserveStructure, cloud })
+        if (this.disposed || this.scope !== scopedStorageName('canvas')) return false
+        if (saved) {
+          try {
+            await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
+          } catch {
+            saved = false
           }
-        : undefined
-      let saved = this.cloud
-        ? await this.cloud.saveLocal(preserveStructure)
-        : await saveScene(this.editor, this.key, undefined, { preserveStructure, cloud })
-      if (saved) {
-        try {
-          await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
-        } catch {
-          saved = false
         }
-      }
-      if (saved) {
-        this.savedRevision = revision
-        this.savedStructureRevision = structureRevision
-      }
-      this.update({ saveFailed: !saved })
-      if (saved) void this.cloud?.sync().catch(() => {})
-      return saved
-    })
+        if (saved) {
+          this.savedRevision = revision
+          this.savedStructureRevision = structureRevision
+        }
+        this.update({ saveFailed: !saved })
+        if (saved) this.cloud?.requestSync()
+        return saved
+      })
+      .catch(() => {
+        if (!this.disposed && this.scope === scopedStorageName('canvas'))
+          this.update({ saveFailed: true })
+        return false
+      })
     this.writes = save
     return save
   }
@@ -220,13 +250,52 @@ export async function renameCloudProject(project: CanvasProject, name: string): 
   await target.cloud.rename(name)
 }
 
+/**
+ * 会话标题定下来时给还没起名的云端项目改名。只对已经开着的工作区就地改：为了给一堆旧项目
+ * 补名字而把它们的文档逐个拉起来推一遍，代价太大。没开着的返回 false，由调用方落本地并标
+ * `nameDirty`，等它下次打开时那次 push 顺手带上去。
+ */
+export async function autoNameCloudProject(project: CanvasProject, name: string): Promise<boolean> {
+  const target = workspaces.get(project.sceneKey)
+  if (!target?.cloud) return false
+  await target.cloud.rename(name, false)
+  return true
+}
+
 const workspaces = new Map<string, CanvasWorkspace>()
 const listeners = new Set<() => void>()
 let current: CanvasWorkspace | undefined
 let visible = false
 let lifecycleInstalled = false
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+let workspaceScope = scopedStorageName('canvas')
+
+function ensureWorkspaceScope() {
+  const scope = scopedStorageName('canvas')
+  if (scope === workspaceScope) return
+  for (const item of workspaces.values()) item.dispose()
+  workspaces.clear()
+  current = undefined
+  workspaceScope = scope
+  clearInterval(refreshTimer)
+  refreshTimer = undefined
+  setAgentCanvasSink(null)
+}
+
+function refreshVisibleWorkspace() {
+  clearInterval(refreshTimer)
+  refreshTimer = undefined
+  if (!visible || document.visibilityState !== 'visible') return
+  current?.refreshCloud()
+  refreshTimer = setInterval(() => {
+    if (document.visibilityState === 'hidden') return
+    current?.refreshCloud()
+    void useCanvasProjectStore.getState().refreshCloud()
+  }, 15000)
+}
 
 function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
+  ensureWorkspaceScope()
   let value = workspaces.get(key)
   if (!value) {
     value = new CanvasWorkspace(key, migrateLegacy)
@@ -237,19 +306,27 @@ function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
 }
 
 export function currentCanvasWorkspace(): CanvasWorkspace {
+  ensureWorkspaceScope()
   if (!current) {
     const remembered = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
     current = workspace(currentCanvasProject()?.sceneKey ?? canvasSceneKey(remembered), true)
+    const opened = current
+    void opened.ready
+      .then(() => {
+        if (current === opened && visible) {
+          setAgentCanvasSink(opened.sink)
+          refreshVisibleWorkspace()
+        }
+      })
+      .catch(() => {})
   }
   if (!lifecycleInstalled) {
     lifecycleInstalled = true
-    const flush = () => {
+    // 冲的是此刻还活着的那些：`forgetCanvasWorkspace` 摘掉的不在其中。
+    flushOnPageHide(() => {
       for (const item of workspaces.values()) void item.flush()
-    }
-    window.addEventListener('pagehide', flush)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') flush()
     })
+    document.addEventListener('visibilitychange', refreshVisibleWorkspace)
   }
   return current
 }
@@ -262,12 +339,15 @@ export function subscribeCanvasWorkspace(listener: () => void): () => void {
 }
 
 export function showCanvasWorkspace(show: boolean): void {
+  const changed = show !== visible
   visible = show
   setAgentCanvasSink(show ? currentCanvasWorkspace().sink : null)
+  if (changed) refreshVisibleWorkspace()
   if (!show) void current?.flush()
 }
 
 export function selectCanvasWorkspace(conversationId: string | null): void {
+  ensureWorkspaceScope()
   // 不在画布里时无需加载图片；下次打开画布从记住的会话初始化。
   if (!current) return
   void current.flush()
@@ -320,6 +400,33 @@ export async function prepareCanvasRemoval(key: string): Promise<void> {
 }
 
 export function forgetCanvasWorkspace(key: string): void {
+  if (workspaces.get(key) === current) {
+    clearInterval(refreshTimer)
+    refreshTimer = undefined
+  }
   workspaces.get(key)?.dispose()
   workspaces.delete(key)
+}
+
+export async function reloadCloudProject(id: string): Promise<void> {
+  const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  if (project) await workspaces.get(project.sceneKey)?.cloud?.load(true)
+}
+
+export async function copyDeletedProjectLocally(id: string): Promise<CanvasProject> {
+  const scope = scopedStorageName('canvas')
+  const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  if (!project?.cloud?.deleted) throw new Error('project_not_deleted')
+  const cached = workspaces.get(project.sceneKey)
+  if (cached && !(await cached.flush())) throw new Error('local_save_failed')
+  if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+  const scene = await readPersistedScene(project.sceneKey)
+  if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+  if (!scene) throw new Error('local_scene_missing')
+  const copy = await projectRepository.createRecoveryCopy(project, scene)
+  if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+  useCanvasProjectStore.setState((state) => ({
+    projects: [...state.projects.filter((one) => one.id !== copy.id), copy],
+  }))
+  return copy
 }

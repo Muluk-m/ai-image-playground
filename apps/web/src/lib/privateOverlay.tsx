@@ -99,6 +99,8 @@ export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals
+/** 构建时带了收费 overlay；没有它，充值之类的信号没有人接。 */
+export const PrivateWebOverlayPresent = overlay !== EMPTY_OVERLAY
 
 export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
   return overlay.useSubmissionGuard(input)

@@ -2,8 +2,10 @@ import react from '@vitejs/plugin-react'
 import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
-import { defineConfig, type Plugin } from 'vite'
+import type { Plugin } from 'vite'
+import { defineConfig } from 'vitest/config'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
+import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
@@ -67,7 +69,7 @@ export default defineConfig(({ command }) => {
   }
 
   return {
-    plugins: [react(), injectSwBuildVersion()],
+    plugins: [react(), themeBootPlugin(), injectSwBuildVersion()],
     base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
@@ -84,6 +86,11 @@ export default defineConfig(({ command }) => {
     server: {
       host: true,
       proxy: Object.keys(proxy).length ? proxy : undefined,
+    },
+    test: {
+      // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
+      // 所有断言中文文案的历史用例打红。
+      setupFiles: ['./src/__tests__/setup/i18n.ts'],
     },
     build: {
       // main.tsx 用 top-level await 启动 runtime/channel discovery；

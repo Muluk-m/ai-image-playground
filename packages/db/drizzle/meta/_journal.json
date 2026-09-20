@@ -134,6 +134,118 @@
       "when": 1789563144507,
       "tag": "0019_domain_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789640000000,
+      "tag": "0020_cloud_generations",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789647900311,
+      "tag": "0021_service_heartbeats",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789648819573,
+      "tag": "0022_host_samples",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789650000000,
+      "tag": "0023_durable_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789650100000,
+      "tag": "0024_generation_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789650200000,
+      "tag": "0025_project_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789650300000,
+      "tag": "0026_project_generation_outputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1789650400000,
+      "tag": "0027_generation_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789650500000,
+      "tag": "0028_project_recycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789680000000,
+      "tag": "0029_task_execution_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0030_ops_more",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789720000000,
+      "tag": "0031_agent_tool_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789740000000,
+      "tag": "0032_agent_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789760000000,
+      "tag": "0033_agent_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789800000000,
+      "tag": "0034_generation_soft_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789801000000,
+      "tag": "0035_agent_generation_drafts",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
+import { extractMeta } from '../../lib/extractImages'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -105,6 +106,31 @@ describe('async submit phase', () => {
     expect(row?.submittedAt).toBeGreaterThan(0)
   })
 
+  it('archives two Flare outputs when the gateway returns one image per invocation', async () => {
+    let submits = 0
+    upstream.handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: `imgtask_${++submits}` }, 202)
+        : json({
+            status: 'completed',
+            result: { data: [{ url: `${RESULT_URL}?task=${url.split('/').at(-1)}` }] },
+          })
+    await insertTask('flare-multi', {
+      model: 'gpt-image-2.5-flare',
+      request_payload: { prompt: 'two blue circle variants', n: 2 },
+    })
+
+    await runTask('flare-multi')
+
+    expect(await readTask('flare-multi')).toMatchObject({
+      status: 'completed',
+      invocations: 2,
+      taskIds: ['imgtask_1', 'imgtask_2'],
+    })
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'flare-multi'))
+    expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
+  })
+
   it('leaves no task id behind when the submit never reached the upstream', async () => {
     upstream.handler = () => {
       throw new Error('socket hang up')
@@ -156,7 +182,7 @@ describe('async submit phase', () => {
     })
   })
 
-  it('submits only the missing share after a partial fan-out failure', async () => {
+  it('does not resubmit after a partial fan-out leaves one request outcome unknown', async () => {
     let submits = 0
     upstream.handler = (url) => {
       if (!url.endsWith('/async')) return json({ status: 'processing' })
@@ -164,7 +190,10 @@ describe('async submit phase', () => {
         ? json({ task_id: 'imgtask_1' }, 202)
         : json({ error: { message: 'nope' } }, 500)
     }
-    await insertTask('async-partial', { request_payload: { prompt: 'p', n: 2 } })
+    await insertTask('async-partial', {
+      model: 'legacy-image-model',
+      request_payload: { prompt: 'p', n: 2 },
+    })
 
     await runTask('async-partial')
 
@@ -184,19 +213,66 @@ describe('async submit phase', () => {
 
     await runTask('async-partial')
 
-    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
-    expect(upstream.calls).toContain('http://localhost:9999/v1/images/tasks/imgtask_1')
-    expect(upstream.calls).toContain('http://localhost:9999/v1/images/tasks/imgtask_2')
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(0)
     const done = await readTask('async-partial')
-    expect(done).toMatchObject({ status: 'completed', taskIds: ['imgtask_1', 'imgtask_2'] })
-    // 3 次派发换到 2 个 id：多出来的那次是回 500、没建出任务的提交。记账在派发前，
-    // 所以差值意味着「结果未知的派发」，不等于重复提交。
-    expect(done?.invocations).toBe(3)
+    expect(done).toMatchObject({
+      status: 'failed',
+      errorType: 'upstream_result_unknown',
+      taskIds: ['imgtask_1'],
+    })
+    // 两次派发只换到一个 id，缺失的那次可能已被上游接受；不能自动补交。
+    expect(done?.invocations).toBe(2)
     expect(done?.submittedAt).toBe(requeued!.submittedAt)
   })
 })
 
 describe('restart recovery', () => {
+  it('keeps a pre-upgrade GPT partial fan-out incomplete without resubmitting', async () => {
+    await insertTask('gpt-legacy-partial', {
+      status: 'in_progress',
+      started_at: 1,
+      request_payload: { prompt: 'p', n: 2 },
+      upstream_task_ids: ['imgtask_1'],
+      upstream_submitted_at: Date.now(),
+      upstream_invocation_count: 2,
+    })
+    await recoverTasksByIds(['gpt-legacy-partial'])
+    await runTask('gpt-legacy-partial')
+    expect(await readTask('gpt-legacy-partial')).toMatchObject({
+      status: 'failed',
+      errorType: 'upstream_result_unknown',
+      invocations: 2,
+      taskIds: ['imgtask_1'],
+    })
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_1'])
+  })
+
+  it('resumes a native GPT batch as one request and archives every output', async () => {
+    upstream.handler = () =>
+      json({ status: 'completed', result: { data: [{ url: RESULT_URL }, { url: RESULT_URL }] } })
+    await insertTask('gpt-native-resume', {
+      status: 'in_progress',
+      started_at: 1,
+      request_payload: { prompt: 'p', n: 2 },
+      upstream_task_ids: ['imgtask_batch'],
+      upstream_submitted_at: Date.now(),
+      upstream_invocation_count: 1,
+    })
+    await recoverTasksByIds(['gpt-native-resume'])
+    await runTask('gpt-native-resume')
+    expect(await readTask('gpt-native-resume')).toMatchObject({
+      status: 'completed',
+      invocations: 1,
+      taskIds: ['imgtask_batch'],
+    })
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'gpt-native-resume'))
+    expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_batch'])
+  })
+
   it('resumes polling from the stored id without resubmitting or recharging', async () => {
     await insertTask('async-resume', {
       status: 'in_progress',
@@ -227,7 +303,7 @@ describe('restart recovery', () => {
     expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_7'])
   })
 
-  it('fails a resumed task whose original submit is already past the polling deadline', async () => {
+  it('performs one final lookup for an expired resumed task and accepts a completed result', async () => {
     await insertTask('async-expired', {
       status: 'in_progress',
       started_at: 1,
@@ -239,11 +315,8 @@ describe('restart recovery', () => {
     await recoverTasksByIds(['async-expired'])
     await runTask('async-expired')
 
-    expect(await readTask('async-expired')).toMatchObject({
-      status: 'failed',
-      errorType: 'upstream_result_unknown',
-    })
-    expect(upstream.calls).toEqual([])
+    expect(await readTask('async-expired')).toMatchObject({ status: 'completed', errorType: null })
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_8'])
   })
 
   it('writes a terminal timeout when the budget expires during a polling sleep', async () => {

@@ -1,7 +1,9 @@
 import type {
+  AgentConversationView,
   CloudProject,
   CloudProjectSummary,
   ProjectPage,
+  ProjectTrashPage,
   ProjectWrite,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -55,4 +57,25 @@ export function putCloudProject(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+export function ensureCloudProjectConversation(
+  id: string,
+  conversationId?: string,
+): Promise<{ conversation: AgentConversationView }> {
+  return json(`/${encodeURIComponent(id)}/conversation`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(conversationId ? { conversationId } : {}),
+  })
+}
+
+export function deleteCloudProject(id: string): Promise<{ ok: true }> {
+  return json(`/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+export function restoreDeletedCloudProject(id: string): Promise<{ ok: true }> {
+  return json(`/${encodeURIComponent(id)}/restore`, { method: 'POST' })
+}
+export function listRecycledCloudProjects(cursor?: string): Promise<ProjectTrashPage> {
+  return json(`/trash${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 }

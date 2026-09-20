@@ -1,14 +1,18 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
+import {
+  type AgentToolArtifact,
+  type AgentToolErrorCode,
+  isVideoGenerationRecord,
+} from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
-import { fetchToolImage, toolArtifactUrl } from './agentClient'
+import { artifactBitmap } from './artifactSource'
 import {
   type AgentCanvasSink,
   type AgentPlacedArtifact,
   type AgentReservation,
   agentCanvasSink,
 } from './canvasSink'
-import { videoPosterDataUrl } from './videoPoster'
 
 interface DeliveryOrigin {
   readonly generation: number
@@ -31,21 +35,48 @@ export interface TurnArtifactDelivery {
   reserve(messageId: string, request: AgentReservation): void
   enqueue(message: AgentToolMessage): void
   /** 工具失败：占的位转错误态，不再转圈。 */
-  failed(messageId: string, message: string | undefined): void
+  failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode): void
   /** 工具跑完了但没有产物：占的位直接收掉。 */
   discard(messageId: string): void
+  /**
+   * 后台任务：这次调用占的位不随本轮收掉，移交给返回的把手。任务结束时由它落图或标错；
+   * 它与本轮同属一个画布与会话，切走之后同样按「画布已离开」处理。
+   */
+  handOff(messageId: string): TurnArtifactDelivery
+  /** 单张重试：结果落回这些已经在画布上的失败占位，而不是另占新位。 */
+  adopt(messageId: string, placeholderIds: readonly string[]): void
   settled(): Promise<void>
 }
 
-async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
+/**
+ * 产物到画布对象：视频落的是封面加播放来源（mp4 不下载到本地）和它实际的生成参数。
+ * 参数是服务端写的，但结果块会原样存进会话历史；形状不对就不带，片子照样能播。
+ */
+export function placedArtifact(artifact: AgentToolArtifact, dataUrl: string): AgentPlacedArtifact {
   const { artifactId, taskId, outputIndex } = artifact
-  return artifact.media === 'video'
-    ? {
-        artifactId,
-        dataUrl: await videoPosterDataUrl(toolArtifactUrl(artifact), artifact),
-        video: { taskId, outputIndex },
-      }
-    : { artifactId, dataUrl: await fetchToolImage(artifact) }
+  if (artifact.media !== 'video') return { artifactId, dataUrl }
+  const generation = isVideoGenerationRecord(artifact.video) ? artifact.video : undefined
+  return {
+    artifactId,
+    dataUrl,
+    video: { taskId, outputIndex, ...(generation ? { generation } : {}) },
+  }
+}
+
+async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
+  return placedArtifact(artifact, await artifactBitmap(artifact))
+}
+
+/** 这张卡有东西要落画布：产物，或者一条排好的时间线。 */
+export function deliverable(message: AgentToolMessage): boolean {
+  return Boolean(message.artifacts?.length || message.timeline)
+}
+
+/** 落完之后镜头要带去的画布对象。 */
+function deliveredIds(message: AgentToolMessage): string[] {
+  return message.timeline
+    ? [message.timeline.timelineId]
+    : (message.artifacts ?? []).map((artifact) => artifact.artifactId)
 }
 
 /** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
@@ -92,11 +123,25 @@ export function createArtifactDelivery(
   const place = async (
     origin: DeliveryOrigin,
     message: AgentToolMessage,
+    manual: boolean,
   ): Promise<AgentDeliveryStatus> => {
     const canvas = origin.canvas
     if (!canvas || !current(origin)) return 'unavailable'
+    // 排时间线不产新媒体，只在画布上把已有的视频排成一条。
+    if (message.timeline) {
+      if (!canvas.placeTimeline) return 'unavailable'
+      const outcome = await canvas.placeTimeline(message.timeline)
+      return current(origin) ? outcome : 'unavailable'
+    }
     // 起跑时占的位先认领回来：它决定产物落在哪，也决定这一轮结束时谁该被收掉。
     const placeholderIds = (await claim(origin, message.id)) ?? []
+    if (!manual && canvas.syncArtifacts) {
+      const outcome = await canvas.syncArtifacts(message.artifacts ?? [])
+      if (outcome !== null) {
+        canvas.discard(placeholderIds)
+        return current(origin) ? outcome : 'unavailable'
+      }
+    }
     const missing = (message.artifacts ?? []).filter((artifact) => !canvas.has(artifact.artifactId))
     if (!missing.length) {
       canvas.discard(placeholderIds)
@@ -106,7 +151,8 @@ export function createArtifactDelivery(
       missing.map(async (artifact) => ({
         ...(await prepare(artifact)),
         taskId: artifact.taskId,
-        name: `${message.title || '生成作品'} ${artifact.outputIndex + 1}`,
+        ...(message.prompt ? { prompt: message.prompt } : {}),
+        name: `${message.title || i18next.t('delivery.artifactName', { ns: 'agent' })} ${artifact.outputIndex + 1}`,
       })),
     )
     if (!current(origin)) return 'unavailable'
@@ -116,7 +162,7 @@ export function createArtifactDelivery(
       isCurrent: () => current(origin),
     })
     if (outcome !== 'placed') canvas.discard(placeholderIds)
-    return outcome === 'conflict' ? 'unavailable' : outcome
+    return outcome
   }
 
   /**
@@ -137,7 +183,7 @@ export function createArtifactDelivery(
           return []
         },
         (error) => {
-          console.warn('[agent] 画布占位失败', error)
+          console.warn('[agent] canvas reservation failed', error)
           return []
         },
       ),
@@ -153,9 +199,14 @@ export function createArtifactDelivery(
     for (const ids of await Promise.all(pending)) canvas.discard(ids)
   }
 
-  const enqueue = (origin: DeliveryOrigin, message: AgentToolMessage, manual = false) => {
+  const enqueue = (
+    origin: DeliveryOrigin,
+    message: AgentToolMessage,
+    manual = false,
+    retry = false,
+  ) => {
     const previous = records.get(message.id)
-    if (previous && (!manual || previous.status === 'pending')) {
+    if (previous && ((!manual && !retry) || previous.status === 'pending')) {
       if (belongs(origin)) changed(message.id, previous.status)
       origin.pending = previous.pending.then(() => {
         if (belongs(origin)) changed(message.id, previous.status)
@@ -167,9 +218,13 @@ export function createArtifactDelivery(
     if (belongs(origin)) changed(message.id, 'pending')
     record.pending = queue = queue.then(async () => {
       try {
-        record.status = await place(origin, message)
+        record.status = await place(origin, message, manual)
+        // 新结果不仅要落盘，还要进入当前视口；后台项目与重复事件不能抢走用户镜头。
+        if (record.status === 'placed' && belongs(origin) && origin.canvas === agentCanvasSink()) {
+          origin.canvas?.focus(deliveredIds(message))
+        }
       } catch (error) {
-        console.warn('[agent] 产物交付失败', error)
+        console.warn('[agent] artifact delivery failed', error)
         record.status = 'failed'
       }
       if (belongs(origin)) changed(message.id, record.status)
@@ -177,6 +232,48 @@ export function createArtifactDelivery(
     origin.pending = record.pending
     return record.pending
   }
+
+  /** 一轮（或一个后台任务）的交付把手：占位、落图、标错都记在它自己的来源上。 */
+  const handle = (origin: DeliveryOrigin): TurnArtifactDelivery => ({
+    isCurrent: () => belongs(origin),
+    canContinue: () => belongs(origin) || current(origin),
+    reserve(messageId: string, request: AgentReservation) {
+      reserve(origin, messageId, request)
+    },
+    enqueue(message: AgentToolMessage) {
+      if (deliverable(message)) void enqueue(origin, message)
+    },
+    failed(messageId: string, message: string | undefined, errorCode?: AgentToolErrorCode) {
+      const note = message ?? i18next.t('delivery.generateFailed', { ns: 'agent' })
+      void claim(origin, messageId)?.then((ids) => origin.canvas?.markFailed(ids, note, errorCode))
+    },
+    discard(messageId: string) {
+      void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))
+    },
+    handOff(messageId: string) {
+      // 同一块画布、同一代会话：切走之后它与本轮一样落不下去，由结果卡手动放入兜底。
+      const job: DeliveryOrigin = {
+        generation: origin.generation,
+        scope: origin.scope,
+        canvas: origin.canvas,
+        pending: Promise.resolve(),
+        reserved: new Map(),
+      }
+      const reserved = claim(origin, messageId)
+      if (reserved) job.reserved.set(messageId, reserved)
+      origins.add(job)
+      return handle(job)
+    },
+    adopt(messageId: string, placeholderIds: readonly string[]) {
+      if (!origin.reserved.has(messageId))
+        origin.reserved.set(messageId, Promise.resolve(placeholderIds))
+    },
+    async settled() {
+      await origin.pending
+      await releaseAll(origin)
+      origins.delete(origin)
+    },
+  })
 
   return {
     /** 只恢复交付展示，不下载历史产物；文字与进行中的轮不等场景恢复。 */
@@ -187,7 +284,7 @@ export function createArtifactDelivery(
       try {
         if (canvas?.ready) await canvas.ready
       } catch (error) {
-        console.warn('[agent] 画布恢复失败', error)
+        console.warn('[agent] canvas restore failed', error)
         canvas = null
       }
       if (generation !== owner || scope() !== ownerScope) return
@@ -209,30 +306,7 @@ export function createArtifactDelivery(
       }
     },
     beginTurn(): TurnArtifactDelivery {
-      const origin = capture()
-      return {
-        isCurrent: () => belongs(origin),
-        canContinue: () => belongs(origin) || current(origin),
-        reserve(messageId: string, request: AgentReservation) {
-          reserve(origin, messageId, request)
-        },
-        enqueue(message: AgentToolMessage) {
-          if (message.artifacts?.length) void enqueue(origin, message)
-        },
-        failed(messageId: string, message: string | undefined) {
-          void claim(origin, messageId)?.then((ids) =>
-            origin.canvas?.markFailed(ids, message ?? '生成失败'),
-          )
-        },
-        discard(messageId: string) {
-          void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))
-        },
-        async settled() {
-          await origin.pending
-          await releaseAll(origin)
-          origins.delete(origin)
-        },
-      }
+      return handle(capture())
     },
     async placeOnCanvas(message: AgentToolMessage) {
       const origin = capture()
@@ -248,9 +322,14 @@ export function createArtifactDelivery(
      */
     async redeliverUnavailable(messages: readonly AgentPanelMessage[]) {
       for (const message of messages) {
-        if (message.kind !== 'tool' || !message.artifacts?.length) continue
+        if (message.kind !== 'tool' || !deliverable(message)) continue
         if (records.get(message.id)?.status !== 'unavailable') continue
-        await this.placeOnCanvas(message)
+        const origin = capture()
+        try {
+          await enqueue(origin, message, false, true)
+        } finally {
+          origins.delete(origin)
+        }
       }
     },
     reset() {

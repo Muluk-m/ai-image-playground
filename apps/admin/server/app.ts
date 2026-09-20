@@ -6,6 +6,7 @@ import { authRoutes } from './routes/auth'
 import { devicesRoutes } from './routes/devices'
 import { googleAuthRoutes } from './routes/google-auth'
 import { imagesRoutes } from './routes/images'
+import { opsRoutes } from './routes/ops'
 import { overviewRoutes } from './routes/overview'
 import { extensionRoutes, privateRoutes } from './routes/private'
 import { tasksRoutes } from './routes/tasks'
@@ -29,6 +30,7 @@ const apiApp = new Elysia()
   .use(googleAuthRoutes)
   .use(devicesRoutes)
   .use(overviewRoutes)
+  .use(opsRoutes)
   .use(tasksRoutes)
   .use(imagesRoutes)
   .use(extensionRoutes)

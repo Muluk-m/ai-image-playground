@@ -1,6 +1,7 @@
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import type { AgentClarificationBlock } from '@image-playground/shared'
 import { Type } from 'typebox'
+import { asPiTool, piToolResult } from './tools/adapter'
 
 export const AGENT_CLARIFICATION_TOOL = 'askClarification'
 
@@ -13,11 +14,13 @@ interface ClarificationDetails {
 }
 
 const parameters = Type.Object({
-  question: Type.String({ description: '一句话问清你拿不准的那一点，不要铺陈。' }),
+  question: Type.String({
+    description: '一句话问清最影响结果的那一点，不要铺陈，也不要一次问几件事。',
+  }),
   options: Type.Array(Type.String(), {
     minItems: MIN_OPTIONS,
     maxItems: MAX_OPTIONS,
-    description: `${COUNT} 个互斥的选项，每项一句短语；用户点其中一项就是他的下一条消息。`,
+    description: `${COUNT} 个互斥的选项，每项是一个你可以直接照做的具体方案，一句短语写清会产出什么；推荐项放第一个；界面自带「其他」，不要自己加。用户点其中一项就是他的下一条消息。`,
   }),
 })
 
@@ -37,13 +40,13 @@ const tool: AgentTool<typeof parameters, ClarificationDetails> = {
   name: AGENT_CLARIFICATION_TOOL,
   label: '澄清',
   description:
-    '拿不准用户要哪一种时，给他一个单选。发出后这一轮就结束，他选的那一项会作为下一条用户消息回来。',
+    '请求有几种合理解读、猜错会白花一次生成时，先给用户一个单选：你把方案想好，他只需点一下。发出后这一轮就结束，他选的那一项会作为下一条用户消息回来。',
   parameters,
   execute: async (_toolCallId, params) => clarify(params.question, params.options),
 }
 
-export const clarificationTool = tool as AgentTool
+export const clarificationTool = asPiTool(tool)
 
 export function clarificationFromResult(result: unknown): AgentClarificationBlock | null {
-  return (result as { details?: ClarificationDetails } | undefined)?.details?.clarification ?? null
+  return piToolResult<ClarificationDetails>(result).details?.clarification ?? null
 }

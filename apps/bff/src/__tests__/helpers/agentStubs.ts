@@ -1,13 +1,29 @@
 import { mock } from 'bun:test'
 import {
   AGENT_FRAME_SEPARATOR,
+  type AgentMessageView,
+  type AgentToolResultBlock,
   type AgentTurnEvent,
+  DEVICE_ID_HEADER,
+  PROMPT_REWRITE_GUARD_PREFIX,
   parseAgentFrame,
 } from '@image-playground/shared'
+
+/**
+ * 落库的那一句。确认提交时会钉上创作页同款的防改写 guard（`lib/agent/prompt-shaping.ts`），
+ * 卡面上展示给用户的仍是原文，所以断言 `request_payload.prompt` 时要按它拼。
+ *
+ * `TEST_IMAGE_CHANNEL` 的模型没声明 `size` 能力，带尺寸的用例还会多一段构图指令，那一段
+ * 由用例自己拼——它才知道这一轮带没带尺寸。
+ */
+export function submittedPrompt(prompt: string): string {
+  return `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}`
+}
 
 export interface AgentCall {
   readonly url: string
   readonly authorization: string | null
+  readonly reasoning_effort?: string
   readonly model: string
   readonly messages: { role: string; content: unknown }[]
   readonly tools?: { function: { name: string } }[]
@@ -17,6 +33,7 @@ export interface AgentCall {
 interface CompletionUsage {
   readonly prompt_tokens: number
   readonly completion_tokens: number
+  readonly prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
 }
 
 const REPORTED_USAGE: CompletionUsage = { prompt_tokens: 12, completion_tokens: 4 }
@@ -35,6 +52,15 @@ export function completionStream(...deltas: string[]): Response {
 export function completion({ deltas, usage }: CompletionOptions): Response {
   const stream = controlledCompletion(usage ?? null)
   for (const delta of deltas) stream.push(delta)
+  stream.finish()
+  return stream.responseFor()
+}
+
+/** 先说一句再调工具：多步轮里那条既有正文又有工具调用的回复。 */
+export function replyThenToolCall(text: string, call: ToolCallSpec): Response {
+  const stream = controlledCompletion()
+  stream.push(text)
+  stream.pushToolCall(0, call)
   stream.finish()
   return stream.responseFor()
 }
@@ -99,12 +125,65 @@ export function recordingAgentFetch(
       url: String(input),
       authorization: new Headers(request.headers).get('authorization'),
       model: sent.model,
+      reasoning_effort: sent.reasoning_effort,
       messages: sent.messages,
       tools: sent.tools,
       stream_options: sent.stream_options,
     })
     return answer(request.signal)
   }) as unknown as typeof globalThis.fetch
+}
+
+export interface ConfirmDraftsOptions {
+  readonly deviceId: string
+  readonly cookie?: string
+  /** 用户在卡上改成的提示词；缺席即照拟稿原样确认。 */
+  readonly prompt?: (block: AgentToolResultBlock) => string
+}
+
+/**
+ * 用户确认这个会话里所有待确认的生成卡。生成工具只拟稿，任务要到这一步才建出来，
+ * 所以凡是要断言「提交了什么」的用例都在起轮之后走一遍它。返回确认之后的那几张卡。
+ */
+export async function confirmPendingDrafts(
+  app: { handle(request: Request): Promise<Response> },
+  conversationId: string,
+  options: ConfirmDraftsOptions,
+): Promise<AgentToolResultBlock[]> {
+  const headers = {
+    [DEVICE_ID_HEADER]: options.deviceId,
+    ...(options.cookie ? { cookie: options.cookie } : {}),
+  }
+  const snapshot = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, { headers }),
+  )
+  const { messages } = (await snapshot.json()) as { messages: AgentMessageView[] }
+  const pending = messages.flatMap((message) =>
+    message.content.flatMap((block) =>
+      block.type === 'toolResult' && block.status === 'awaiting_confirmation'
+        ? [{ messageId: message.id, block }]
+        : [],
+    ),
+  )
+  const confirmed: AgentToolResultBlock[] = []
+  for (const card of pending) {
+    const response = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${conversationId}/confirmations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({
+          deviceId: options.deviceId,
+          messageId: card.messageId,
+          prompt: options.prompt?.(card.block) ?? card.block.prompt ?? '',
+        }),
+      }),
+    )
+    if (!response.ok) throw new Error(`confirmation returned ${response.status}`)
+    const body = (await response.json()) as { message?: AgentMessageView }
+    const block = body.message?.content.find((one) => one.type === 'toolResult')
+    if (block?.type === 'toolResult') confirmed.push(block)
+  }
+  return confirmed
 }
 
 export interface ReceivedFrame {
@@ -143,6 +222,8 @@ export interface ControlledCompletion {
   push(content: string): void
   pushToolCall(index: number, call: ToolCallSpec): void
   finish(): void
+  /** 上游流到一半断掉：已推的帧读完之后才报错，所以要等消费者收到它们再调。 */
+  fail(message?: string): void
 }
 
 /** 上游流由测试逐段驱动：断线续播、中止与插话都要求这一轮在断言期间保持进行中。 */
@@ -208,6 +289,9 @@ export function controlledCompletion(
       })
       controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       controller.close()
+    },
+    fail(message = 'upstream stream failed') {
+      controller.error(new Error(message))
     },
   }
 }

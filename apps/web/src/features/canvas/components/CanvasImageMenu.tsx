@@ -1,7 +1,12 @@
+import { useEffect, useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CopyIcon, DownloadIcon } from '../../../components/icons'
+import { ImagePreview } from '../../../components/Lightbox'
+import Overlay from '../../../components/Overlay'
+import { useTranslation } from '../../../i18n'
 import { dataUrlToBlob } from '../../../lib/canvasImage'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../lib/canvasDoc'
@@ -26,9 +31,34 @@ export default function CanvasImageMenu({
   doc: CanvasDoc
   onClose: () => void
 }) {
-  if (!menu) return null
-  const element = doc.getElement(menu.id)
+  const { t } = useTranslation(['canvas', 'common'])
+  const [preview, setPreview] = useState(false)
+  const [previewSrc, setPreviewSrc] = useState('')
+  const [previewFailed, setPreviewFailed] = useState(false)
+  // 「长按保存」只对触屏成立；用鼠标的设备在预览里右键另存，不必提。
+  const [coarsePointer] = useState(() => window.matchMedia?.('(pointer: coarse)').matches ?? false)
+  useEffect(() => {
+    setPreview(false)
+    setPreviewSrc('')
+    setPreviewFailed(false)
+  }, [menu?.id])
+  const element = menu ? doc.getElement(menu.id) : undefined
   const dataUrl = element?.type === 'image' ? doc.files[element.fileId] : undefined
+  useEffect(() => {
+    if (!preview || !dataUrl) return
+    let cancelled = false
+    void resolveMediaSource(dataUrl)
+      .then((src) => {
+        if (!cancelled) setPreviewSrc(src)
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewFailed(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [preview, dataUrl])
+  if (!menu) return null
   if (!dataUrl) return null
   const showToast = useStore.getState().showToast
 
@@ -36,9 +66,9 @@ export default function CanvasImageMenu({
     onClose()
     try {
       await copyBlobToClipboard(await dataUrlToBlob(dataUrl))
-      showToast('图片已复制', 'success')
+      showToast(t('imageMenu.copied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('common:toast.copyFailed'), err), 'error')
     }
   }
   const download = async () => {
@@ -48,20 +78,39 @@ export default function CanvasImageMenu({
       const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
       downloadBlob(blob, `canvas-${menu.id}.${ext}`)
     } catch {
-      showToast('下载失败', 'error')
+      showToast(t('imageMenu.downloadFailed'), 'error')
     }
   }
+
+  if (preview)
+    return previewSrc ? (
+      <ImagePreview src={previewSrc} onClose={onClose} />
+    ) : (
+      <Overlay onClose={onClose}>
+        <div className="rounded-xl bg-card p-6 text-foreground" role="status">
+          {previewFailed ? t('imageMenu.previewFailed') : t('imageMenu.loading')}
+          <button type="button" className="ml-4 min-h-11 underline" onClick={onClose}>
+            {t('common:action.close')}
+          </button>
+        </div>
+      </Overlay>
+    )
 
   return (
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
       <ContextMenuItem
+        icon={<span aria-hidden="true">↗</span>}
+        label={t(coarsePointer ? 'imageMenu.previewTouch' : 'imageMenu.preview')}
+        onClick={() => setPreview(true)}
+      />
+      <ContextMenuItem
         icon={<CopyIcon className="h-4 w-4" />}
-        label="复制图片"
+        label={t('imageMenu.copy')}
         onClick={() => void copy()}
       />
       <ContextMenuItem
         icon={<DownloadIcon className="h-4 w-4" />}
-        label="下载图片"
+        label={t('imageMenu.download')}
         onClick={() => void download()}
       />
     </ContextMenu>

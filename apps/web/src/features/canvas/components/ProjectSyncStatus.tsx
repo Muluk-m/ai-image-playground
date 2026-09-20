@@ -1,35 +1,107 @@
-import { useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
+import { Button } from '../../../components/ui/button'
+import { useTranslation } from '../../../i18n'
 import type { CloudProjectSession, ProjectSyncStatus } from '../lib/cloudProjects'
 
-const labels: Record<ProjectSyncStatus, string> = {
-  loading: '正在读取云端画布',
-  pending: '画布等待同步',
-  syncing: '画布正在同步',
-  saved: '画布已同步',
-  error: '画布同步失败',
-  'load-error': '画布读取失败',
-  conflict: '画布同步冲突',
-  'media-local': '画布尚未完整同步',
+const LABEL_KEY = {
+  deleted: 'sync.deleted',
+  loading: 'sync.loading',
+  'local-error': 'sync.localError',
+  'auth-error': 'sync.authError',
+  'permission-error': 'sync.permissionError',
+  'quota-error': 'sync.quotaError',
+  'format-error': 'sync.formatError',
+  pending: 'sync.pending',
+  local: 'sync.local',
+  offline: 'sync.offline',
+  syncing: 'sync.syncing',
+  saved: 'sync.saved',
+  error: 'sync.error',
+  'load-error': 'sync.loadError',
+  conflict: 'sync.conflict',
+  'media-local': 'sync.mediaLocal',
+} as const satisfies Record<ProjectSyncStatus, string>
+
+/** 一切正常时的那几个状态：画布上只在出岔子时才出声，这些安静掉。 */
+const QUIET: Partial<Record<ProjectSyncStatus, true>> = {
+  saved: true,
+  syncing: true,
+  loading: true,
 }
-export default function ProjectSyncStatus({ session }: { session: CloudProjectSession }) {
+
+export default function ProjectSyncStatus({
+  session,
+  quiet = false,
+}: {
+  session: CloudProjectSession
+  quiet?: boolean
+}) {
+  const { t } = useTranslation(['canvas', 'errors'])
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
+  const [resolving, setResolving] = useState(false)
+  const resolve = async (choice: 'cloud' | 'copy') => {
+    if (resolving) return
+    setResolving(true)
+    try {
+      const copy = await session.resolveConflict(choice)
+      if (choice === 'copy' && copy) {
+        const { useAgentStore } = await import('../../agent/store')
+        await useAgentStore.getState().selectProject(copy.id)
+      }
+    } catch {
+      // The session retains both the conflict and an actionable failure message.
+    } finally {
+      setResolving(false)
+    }
+  }
+  if (quiet && QUIET[state.status]) return null
   return (
     <div
       className="pointer-events-auto max-w-sm text-xs text-muted-foreground"
-      role={state.status === 'error' || state.status === 'conflict' ? 'alert' : 'status'}
+      role={state.status.endsWith('error') || state.status === 'conflict' ? 'alert' : 'status'}
     >
-      <p>{labels[state.status]}</p>
-      {state.message && <p className="mt-1">{state.message}</p>}
-      {(state.status === 'error' || state.status === 'pending') && (
-        <button
+      <p>{t(LABEL_KEY[state.status])}</p>
+      {state.message && <p className="mt-1">{t(state.message)}</p>}
+      {((state.status.endsWith('error') && state.status !== 'load-error') ||
+        state.status === 'pending') && (
+        <Button
           type="button"
-          className="ml-2 underline"
+          variant="link"
+          size="sm"
+          className="ml-2"
           onClick={() => void session.sync().catch(() => {})}
         >
-          重试同步
-        </button>
+          {t('sync.retry')}
+        </Button>
       )}
-      {state.status === 'saved' && <small>草稿仅保存在此设备</small>}
+      {(state.status === 'conflict' || state.status === 'deleted') && (
+        <div className="mt-2 space-y-2">
+          {state.status === 'conflict' && <p>{t('sync.conflictHelp')}</p>}
+          <div className="flex flex-wrap gap-2">
+            {state.status === 'conflict' && (
+              <Button
+                type="button"
+                disabled={resolving}
+                variant="outline"
+                size="sm"
+                onClick={() => void resolve('cloud')}
+              >
+                {t('sync.useCloud')}
+              </Button>
+            )}
+            <Button
+              type="button"
+              disabled={resolving}
+              variant="outline"
+              size="sm"
+              onClick={() => void resolve('copy')}
+            >
+              {t('sync.saveCopy')}
+            </Button>
+          </div>
+        </div>
+      )}
+      {state.status === 'saved' && <small>{t('sync.localOnly')}</small>}
     </div>
   )
 }

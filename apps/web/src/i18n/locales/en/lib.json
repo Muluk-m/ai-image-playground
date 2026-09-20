@@ -1,0 +1,136 @@
+{
+  "size": {
+    "tooLarge": "{{label}} is too large: {{size}}, the limit is {{limit}}",
+    "imageInputPayload": "Total image input payload",
+    "maskBaseFile": "Mask base image file",
+    "maskFile": "Mask file"
+  },
+  "canvas": {
+    "unsupported": "This browser does not support Canvas",
+    "unsupportedTransparent": "This browser does not support Canvas, so transparent-background post-processing cannot run"
+  },
+  "image": {
+    "loadFailed": "Could not load the image",
+    "exportFailed": "Could not export the image",
+    "transcodeFailed": "Could not transcode the image",
+    "invalidSize": "Invalid image size",
+    "onlyImages": "Only image files are supported",
+    "limitReached": "Reference image limit reached ({{max}}), cannot add more"
+  },
+  "imageFetch": {
+    "corsHint": " Use the link button to copy the result URL, or turn on “Return base64 image data” to avoid this.",
+    "corsBlocked": "The image was generated, but the provider does not allow cross-origin requests, so downloading it failed.{{hint}}",
+    "offline": "Image download failed (no network).{{hint}}",
+    "failed": "Image download failed (cross-origin restriction, expired link, or network error).{{hint}}",
+    "httpFailed": "Image URL download failed: HTTP {{status}}"
+  },
+  "proxy": {
+    "upstreamFailed": "Upstream API call failed (proxy layer)"
+  },
+  "imageApi": {
+    "streamRequestFailed": "Streaming request failed",
+    "streamNoBody": "The endpoint returned no readable stream",
+    "streamBadJsonEvent": "The streaming endpoint returned an unparsable JSON event",
+    "streamNoDataEvent": "No valid data event was parsed from the streaming response",
+    "streamNoFinalImage": "The streaming endpoint returned no final image data",
+    "streamNoUsableImage": "The streaming endpoint returned no usable image data",
+    "noImageData": "The endpoint returned no image data",
+    "noImageDataProvider": "The endpoint returned no image data. Check the raw response to see what the provider actually returns. If you are going through a relay or compatible endpoint, create and use a “custom provider” configuration.",
+    "unrecognizedShapeProvider": "The endpoint returned no recognizable image data. Check the raw response to see what the provider actually returns. If you are going through a relay or compatible endpoint, create and use a “custom provider” configuration.",
+    "unrecognizedShapeCustom": "The endpoint returned no recognizable image data. Check the raw response to see what the endpoint actually returns, then adjust the result extraction path in the “custom provider” configuration to match the API docs.",
+    "allConcurrentFailed": "Every concurrent request failed",
+    "asyncTaskFailed": "The async task failed",
+    "asyncMissingPoll": "The custom async task has no poll configuration",
+    "asyncMissingTaskId": "Could not extract the async task ID from the response. Check the raw response to see what the endpoint actually returns, then adjust taskIdPath in the “custom provider” configuration to match the API docs.",
+    "asyncTaskIdWithoutPoll": "The async endpoint returned a task_id, but the provider configuration has no poll",
+    "geminiNoImageData": "Gemini returned no usable image data",
+    "geminiNoMaskEdit": "The Gemini provider does not support mask editing, switch to an OpenAI provider"
+  },
+  "queue": {
+    "unsupportedKindCall": "callQueueChannelApi: unsupported channel kind {{kind}}",
+    "unsupportedKindResume": "resumeQueueChannelApi: unsupported channel kind {{kind}}",
+    "unsupportedKindVideo": "submitVideoRequest: unsupported channel kind {{kind}}",
+    "completedWithoutImages": "The BFF returned completed but the images list is empty",
+    "completedWithoutOutputs": "The BFF returned completed but the output list is empty",
+    "insufficientCredits": "Not enough credits. Top up or start a plan, then generate again",
+    "dailyQuotaUsed": "All {{quota}} images for today are used up",
+    "dailyQuotaExhausted": "Today's generation quota is used up",
+    "quotaResetHint": "{{exhausted}}, resets at 00:00 UTC",
+    "submitFailed": "BFF submit failed: {{reason}}",
+    "submitMissingRequestId": "The BFF submit response has no request_id",
+    "taskFailed": "The BFF task failed",
+    "cancelled": "The BFF task was canceled",
+    "statusFailed": "BFF status query failed: {{reason}}",
+    "consecutiveFailures": "The BFF was unreachable {{attempts}} times in a row: {{reason}}",
+    "pollLastError": ", last error: {{reason}}",
+    "pollTimeout": "The BFF task did not finish within {{seconds}}s{{trailing}}",
+    "resultMetaFailed": "Could not fetch the BFF result meta: {{reason}}",
+    "notCompleted": "The BFF returned a non-completed status: {{status}}",
+    "imageFetchFailed": "Could not fetch BFF image #{{index}}: {{reason}}",
+    "bffVideoNotSupported": "This model cannot generate video",
+    "bffVideoParamsRequired": "The video task is missing its video parameters",
+    "bffInvalidVideoRequest": "These video settings are outside what the model allows, adjust them and retry",
+    "bffInvalidVideoSource": "That source video cannot be used, pick another one",
+    "bffInvalidInputImage": "That reference image cannot be used, pick another one"
+  },
+  "dispatch": {
+    "builtinOnly": "This deployment only allows built-in models",
+    "channelNotFound": "Built-in channel not found: {{id}}",
+    "unsupportedChannelKind": "Unsupported built-in channel kind: {{kind}}",
+    "queueKindMisuse": "queue kind {{kind}} is only for a builtin-edge profile, never a user-byok kind",
+    "resumeProfileMissing": "No matching built-in channel profile was found when resuming the BFF queue task",
+    "resumeKindNotQueue": "channel kind {{kind}} is not a queue, cannot resume"
+  },
+  "profile": {
+    "defaultName": "Default",
+    "newName": "New profile",
+    "importedName": "Imported profile",
+    "urlParamName": "URL parameter profile",
+    "customProviderName": "Custom provider",
+    "httpTemplate": "HTTP template",
+    "missingName": "Missing name",
+    "missingApiUrl": "Missing API URL",
+    "missingApiKey": "Missing API key",
+    "missingModelId": "Missing model ID",
+    "needApiUrl": "Fill in the API URL first",
+    "needApiKey": "Fill in the API key first",
+    "noModelList": "No recognizable model list in the response",
+    "importMarkdownLink": "The JSON contains a Markdown link, paste plain text instead",
+    "importBadApiMode": "Invalid apiMode, it must be images or responses",
+    "importInvalidJson": "Invalid JSON",
+    "importRootNotObject": "The JSON root must be an object",
+    "importNoValidProviders": "The customProviders array has no valid provider configuration",
+    "importUnrecognized": "Could not recognize this JSON. Paste a custom provider configuration."
+  },
+  "param": {
+    "actualResponseValue": "Actual API response value"
+  },
+  "model": {
+    "noEditSupport": "This model has no reference image support (image-to-image); switch models to use it"
+  },
+  "mask": {
+    "sizeMismatch": "The mask size does not match the base image, draw the mask again",
+    "baseImageMissing": "The mask base image is gone, pick the mask area again",
+    "emptySelection": "Select or paint the area you want to edit first"
+  },
+  "transparent": {
+    "pixelSizeMismatch": "Transparent-background pixel data size mismatch",
+    "unsupportedKeyColor": "Unsupported transparent-background key color: {{keyColor}}"
+  },
+  "clipboard": {
+    "iframeDenied": "Copy failed: the embedding page did not grant clipboard permission"
+  },
+  "storage": {
+    "adoptTxAborted": "The {{store}} transaction for adopting history was aborted"
+  },
+  "mention": {
+    "imageLabel": "@Image {{n}}",
+    "removedImage": "@removed image"
+  },
+  "legacyProduct": {
+    "background": "Swap background",
+    "replaceProduct": "Swap product",
+    "replaceAndBackground": "Swap product and background",
+    "remix": "Remake from the idea"
+  }
+}

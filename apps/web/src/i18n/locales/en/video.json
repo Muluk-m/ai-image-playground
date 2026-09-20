@@ -1,0 +1,110 @@
+{
+  "landing": {
+    "title": "Give your imagination a shot.",
+    "subtitle": "Describe the frame, the motion and the camera. The result opens on the canvas.",
+    "composerAria": "Video creation",
+    "kindAria": "Creation type",
+    "kindImage": "Image",
+    "kindVideo": "Video",
+    "promptAria": "Video description",
+    "promptPlaceholder": "Describe the frame, motion and camera… (Cmd/Ctrl + Enter to generate)",
+    "paramsAria": "Video settings",
+    "addFrame": "Add image",
+    "frameAlt": "Reference image {{index}}",
+    "removeFrame": "Remove reference image {{index}}",
+    "hintText": "No image means text to video; add one for a first frame or references",
+    "hintFirst": "This one is the first frame; the aspect follows it",
+    "hintReferences": "{{count}} images used as references",
+    "submit": "Start creating · open the canvas",
+    "noModel": "This deployment has no video model available",
+    "tools": "Shortcuts",
+    "toolsHint": "Start from a local image, an idea or your assets",
+    "tool": {
+      "fromImage": { "title": "Image to video", "hint": "Pick an image as the first frame" },
+      "references": { "title": "Reference to video", "hint": "Pick images to set style and subject" },
+      "inspiration": { "title": "Inspiration", "hint": "Browse ready-made prompts" },
+      "assets": { "title": "Assets", "hint": "Manage the images you saved" }
+    },
+    "cases": "Examples",
+    "casesHint": "Tap one to fill the prompt above"
+  },
+  "status": {
+    "queued": "Queued"
+  },
+  "style": {
+    "realistic": "Realistic",
+    "magazine": "Magazine",
+    "animation": "Animation",
+    "any": "Any"
+  },
+  "frameSlot": {
+    "first": "First frame",
+    "last": "Last frame",
+    "both": "First · last frame",
+    "removeAria": "Remove {{label}}"
+  },
+  "field": {
+    "description": "Description",
+    "model": "Model",
+    "resolution": "Resolution",
+    "aspectRatio": "Aspect ratio"
+  },
+  "shared": {
+    "seconds": "{{seconds}}s"
+  },
+  "error": {
+    "noModel": "This deployment has no video model available"
+  },
+  "aspect": {
+    "followsFirstFrame": "Follows first frame"
+  },
+  "composer": {
+    "durationLabel": "Duration"
+  },
+  "derive": {
+    "titleExtend": "Extend · continue from the last frame",
+    "titleEdit": "Edit video · keep the shot, change the content",
+    "placeholderExtend": "What happens next, how the camera moves",
+    "placeholderEdit": "What to change, what to keep",
+    "extendLabel": "Length",
+    "keepDuration": "Keeps {{seconds}}s · up to {{resolution}}",
+    "submitted": "Submitted: {{label}}",
+    "noModel": "No model in this deployment supports {{label}}",
+    "notDone": "This one hasn't finished yet",
+    "tooShort": "Source is under {{seconds}}s",
+    "tooLong": "Source is over {{seconds}}s",
+    "extend": "Extend",
+    "edit": "Edit"
+  },
+  "download": {
+    "started": "Download started",
+    "fetchFailed": "Could not fetch the video: {{status}}"
+  },
+  "store": {
+    "emptyPrompt": "Write a description first"
+  },
+  "library": {
+    "load": "Load & edit"
+  },
+  "reject": {
+    "promptTooLong": "{{label}} allows at most {{max}} characters",
+    "modelUnsupported": "This model cannot generate video",
+    "modeUnsupported": "Unsupported video mode",
+    "durationUnsupported": "{{label}} only supports {{durations}} seconds",
+    "extendDurationOutOfRange": "Extend only supports {{min}}-{{max}} seconds",
+    "editDurationMissing": "Edit is missing the source duration",
+    "aspectRatioUnsupported": "{{label}} only supports these aspect ratios: {{allowed}}",
+    "resolutionUnsupported": "{{label}} only supports these resolutions: {{allowed}}",
+    "durationForResolutionUnsupported": "{{label}} {{resolution}} only supports {{durations}} seconds",
+    "frameUnsupported": "{{frame}} is not supported by {{label}}",
+    "frameImageMissing": "{{frame}} image is gone",
+    "deriveModeUnsupported": "{{label}} does not support {{mode}}",
+    "deriveFramesRejected": "Extend and edit take no frames or reference images",
+    "deriveSourceMissing": "{{mode}} is missing its source video",
+    "referenceUnsupported": "{{label}} does not take reference images",
+    "referenceTooMany": "{{label}} takes at most {{max}} reference images",
+    "referenceResolutionUnsupported": "{{label}} goes up to {{resolution}} with reference images",
+    "referenceFramesRejected": "{{label}} cannot combine reference images with first or last frames",
+    "referenceImageMissing": "A reference image is gone"
+  }
+}

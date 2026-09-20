@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { startVideoFromImage } from '../features/video/lib/entry'
+import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
+import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
-import { ensureImageCached, getCachedImage, useStore } from '../store'
+import { loadImageOriginal } from '../lib/imageSource'
+import { useStore } from '../store'
 import { DownloadIcon, VideoIcon } from './icons'
 import Overlay from './Overlay'
 
@@ -40,15 +42,9 @@ export default function Lightbox() {
 
     setSrc('')
 
-    const imageId = lightboxImageId
-    const cached = getCachedImage(imageId)
-    if (cached) {
-      setSrc(cached)
-    } else {
-      ensureImageCached(imageId).then((url) => {
-        if (!cancelled && url) setSrc(url)
-      })
-    }
+    void loadImageOriginal(lightboxImageId).then((url) => {
+      if (!cancelled && url) setSrc(url)
+    })
 
     return () => {
       cancelled = true
@@ -72,19 +68,11 @@ export default function Lightbox() {
     setMaskImageSrc('')
 
     const taskWithMask = tasks.find((t) => t.maskTargetImageId === lightboxImageId && t.maskImageId)
-    if (taskWithMask?.maskImageId) {
-      const maskImageId = taskWithMask.maskImageId
-      const cached = getCachedImage(maskImageId)
-      if (cached) {
-        setMaskImageSrc(cached)
-      } else {
-        ensureImageCached(maskImageId).then((url) => {
-          if (!cancelled && url) setMaskImageSrc(url)
-        })
-      }
-    } else {
-      setMaskImageSrc('')
-    }
+    const maskImageId = taskWithMask?.maskImageId
+    if (!maskImageId) return
+    void loadImageOriginal(maskImageId).then((url) => {
+      if (!cancelled && url) setMaskImageSrc(url)
+    })
 
     return () => {
       cancelled = true
@@ -168,6 +156,22 @@ export default function Lightbox() {
   )
 }
 
+/** A canvas original can be previewed without importing it into generation history. */
+export function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
+  return (
+    <LightboxInner
+      src={src}
+      imageId=""
+      onClose={onClose}
+      showNav={false}
+      currentIndex={0}
+      total={1}
+      onPrev={() => {}}
+      onNext={() => {}}
+    />
+  )
+}
+
 interface LightboxInnerProps {
   src: string
   imageId: string
@@ -192,11 +196,12 @@ function LightboxInner({
   onPrev,
   onNext,
 }: LightboxInnerProps) {
+  const { t } = useTranslation('task')
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
   // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
-  const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
+  const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
   // 用 ref 追踪最新变换，避免闭包过期
   const scaleRef = useRef(1)
@@ -392,17 +397,17 @@ function LightboxInner({
         const filename = `image-${Date.now()}.${blob.type.split('/')[1] || 'png'}`
         if ('download' in document.createElement('a')) {
           downloadBlob(blob, filename)
-          showToast('开始下载', 'success')
+          showToast(t('download.start'), 'success')
         } else {
           // iOS 13 之前忽略 download 属性，只能把图打开让用户长按保存
           window.open(URL.createObjectURL(blob), '_blank')
         }
       } catch (err) {
         console.error(err)
-        showToast('保存失败', 'error')
+        showToast(t('lightbox.saveFailed'), 'error')
       }
     },
-    [src, showToast],
+    [src, showToast, t],
   )
 
   // ====== 触控事件 ======
@@ -597,18 +602,18 @@ function LightboxInner({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  startVideoFromImage(imageId)
+                  void startVideoFromImage(imageId)
                 }}
                 className={actionBtnClass}
               >
                 <VideoIcon className="w-4 h-4" />
-                做成视频
+                {t('menu.makeVideo')}
               </button>
             )}
             {coarsePointer && (
               <button data-save-image onClick={handleSave} className={actionBtnClass}>
                 <DownloadIcon className="w-4 h-4" />
-                保存图片
+                {t('lightbox.saveImage')}
               </button>
             )}
           </div>

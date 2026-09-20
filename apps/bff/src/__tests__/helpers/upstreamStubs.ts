@@ -61,7 +61,9 @@ export function recordingUpstreamFetch(): RecordingUpstream {
 }
 
 /** 换掉 globalThis.fetch，返回还原函数。归档回源取图走的是它，不是 upstream 注入点。 */
-export function stubGlobalFetch(handler: () => Response | Promise<Response>): () => void {
+export function stubGlobalFetch(
+  handler: (input: string | URL | Request, init?: RequestInit) => Response | Promise<Response>,
+): () => void {
   const real = globalThis.fetch
   globalThis.fetch = handler as unknown as typeof fetch
   return () => {

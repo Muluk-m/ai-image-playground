@@ -1,9 +1,11 @@
+import type { AgentToolErrorCode, VideoGenerationRecord } from '@image-playground/shared'
 import Konva from 'konva'
 import type { CanvasProfileSnapshot } from '../../../store'
 import type { TaskParams } from '../../../types'
 import {
   type CanvasDoc,
   type CanvasEl,
+  type CanvasVideoRef,
   type ImageEl,
   newElementId,
   type PlaceholderEl,
@@ -28,6 +30,7 @@ export const STATUS_ACCENT: Record<CanvasTaskStatus, string> = {
  * 不另设独立任务表。只存轻量 id / 标识，**绝不**把输入图塞进来（决策 2 / 决策 6）。
  */
 export interface CanvasTaskMeta {
+  cloudGeneration?: { id: string; position: number }
   createdAt?: number
   taskId: string
   clientRequestId: string
@@ -37,6 +40,11 @@ export interface CanvasTaskMeta {
   source: 'builtin-edge' | 'user-byok'
   /** 人话需求（不含指令样板），供失效 / 错误态「重试」与落历史复用。 */
   prompt: string
+  /**
+   * 用户在输入框里写的原话，不含拼进来的文字标注。视频「重新生成」只载回它：
+   * 首尾帧上的标注会随选区自动再拼一次，载回合并后的 `prompt` 会重复。
+   */
+  userPrompt?: string
   /** 是否标注模式：重试时据此重新注入指令前缀。 */
   annotated?: boolean
   /** 发起时的输入图数量：重试时判定「输入图已丢失」，拒绝静默退化成文生图。 */
@@ -50,7 +58,13 @@ export interface CanvasTaskMeta {
    * 产物由智能体面板那条交付链路送达。刷新后残留的这种占位框直接清掉。
    */
   agentMessageId?: string
+  /** 智能体占位所属的会话；失败占位只在这个会话打开时才给「让助手重新处理」。旧占位框没有。 */
+  agentConversationId?: string
   agent?: true
+  /** 智能体占位失败的分类；失败占位按它出文案与出路，不读 `message`。旧占位框没有。 */
+  agentErrorCode?: AgentToolErrorCode
+  /** 有值即这是一条视频任务：提交到哪条 channel、按什么档位生成。恢复与重试都认它。 */
+  video?: { channelId: string; generation: VideoGenerationRecord }
 }
 
 /** 占位框的业务视图：几何 + 状态 + 恢复元数据（屏蔽底层元素结构）。 */
@@ -118,6 +132,7 @@ export function elementBounds(el: CanvasEl): Box {
     }
     case 'text':
     case 'placeholder':
+    case 'timeline':
       return new Box(el.x, el.y, el.width, el.height)
   }
 }
@@ -140,6 +155,8 @@ async function buildExportNode(
     case 'text':
       return new Konva.Text(textProps(el))
     case 'placeholder':
+    // 时间线是编排用的 UI，不是画面内容：导出 / 栅格化选区时不画它。
+    case 'timeline':
       return null
   }
 }
@@ -154,7 +171,7 @@ export interface PlacedImage
   height: number
   id?: string
   /** 有值即这张位图是视频封面。 */
-  video?: { taskId: string; outputIndex: number }
+  video?: CanvasVideoRef
 }
 
 /** 相机平滑动画时长（scrollToElements）。 */
@@ -175,10 +192,6 @@ export class CanvasEditor {
 
   getElement(id: string): CanvasEl | undefined {
     return this.doc.getElement(id)
-  }
-
-  editRevision(): number {
-    return this.doc.editRevision
   }
 
   getSelectedIds(): string[] {
@@ -224,8 +237,7 @@ export class CanvasEditor {
 
   /**
    * 创建 loading 占位框（虚线矩形），返回元素 id。
-   * `history: false` 给智能体用：它的占位框是机器搭的脚手架，既不该进 undo 栈，
-   * 也不该抬 editRevision——那条线是「用户动过画布」的判据，抬了智能体会判自己冲突。
+   * `history: false` 给智能体用：它的占位框是机器搭的脚手架，不该进 undo 栈。
    */
   createPlaceholder(
     target: { x: number; y: number; w: number; h: number },

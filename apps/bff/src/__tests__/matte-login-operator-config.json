@@ -1,7 +1,0 @@
-{
-  "capabilities": {
-    "matte:server": true,
-    "accounts:login": true,
-    "accounts:self-register": false
-  }
-}

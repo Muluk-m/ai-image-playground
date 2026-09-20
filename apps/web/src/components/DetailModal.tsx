@@ -1,5 +1,8 @@
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTooltip } from '../hooks/useTooltip'
+import { useTranslation } from '../i18n'
+import { formatDateTime } from '../i18n/format'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import {
@@ -7,13 +10,11 @@ import {
   copyTextToClipboard,
   getClipboardFailureMessage,
 } from '../lib/clipboard'
+import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
-import { formatImageRatio } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
   editOutputImage,
-  ensureImageCached,
-  getCachedImage,
   getCodexCliPromptKey,
   removeTask,
   retryTask,
@@ -29,6 +30,7 @@ import Overlay from './Overlay'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function DetailModal() {
+  const { t } = useTranslation(['task', 'common'])
   const tasks = useStore((s) => s.tasks)
   const detailTaskId = useStore((s) => s.detailTaskId)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
@@ -95,15 +97,10 @@ export default function DetailModal() {
     const ids = [
       ...new Set([...(task.inputImageIds || []), ...(task.maskImageId ? [task.maskImageId] : [])]),
     ]
-    const initial: Record<string, string> = {}
+    // 按图片 id 存，读的时候只认当前任务的 id，所以不清空上一条任务的条目：
+    // task 对象每次 store 更新都会换引用，清空会让已经显示的参考图闪一下。
     for (const id of ids) {
-      const cached = getCachedImage(id)
-      if (cached) initial[id] = cached
-    }
-    setImageSrcs(initial)
-    for (const id of ids) {
-      if (initial[id]) continue
-      ensureImageCached(id).then((url) => {
+      void loadImageOriginal(id).then((url) => {
         if (!cancelled && url) setImageSrcs((prev) => ({ ...prev, [id]: url }))
       })
     }
@@ -129,22 +126,9 @@ export default function DetailModal() {
     }
 
     let cancelled = false
-    const setOutputImage = (dataUrl: string) => {
-      if (!cancelled) setOutputPreviewSrcs({ [currentOutputImageId]: dataUrl })
-    }
-
-    const cached = getCachedImage(currentOutputImageId)
-    if (cached) {
-      setOutputImage(cached)
-    } else {
-      ensureImageCached(currentOutputImageId)
-        .then((dataUrl) => {
-          if (dataUrl) setOutputImage(dataUrl)
-        })
-        .catch(() => {
-          if (!cancelled) setOutputPreviewSrcs({})
-        })
-    }
+    void loadImageOriginal(currentOutputImageId).then((url) => {
+      if (!cancelled) setOutputPreviewSrcs(url ? { [currentOutputImageId]: url } : {})
+    })
 
     return () => {
       cancelled = true
@@ -213,16 +197,18 @@ export default function DetailModal() {
       (!currentRevisedPrompt || showRevisedPrompt) &&
       !hasHandledPromptWarning,
   )
-  const taskProviderName = taskProvider ? getApiProviderLabel(settings, taskProvider) : '未知'
-  const taskProfileName = task.apiProfileName || '未知'
-  const taskModel = task.apiModel || '未知'
+  const taskProviderName = taskProvider
+    ? getApiProviderLabel(settings, taskProvider)
+    : t('common:state.unknown')
+  const taskProfileName = task.apiProfileName || t('common:state.unknown')
+  const taskModel = task.apiModel || t('common:state.unknown')
   const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const rawImageUrls = task.rawImageUrls ?? []
 
   const formatTime = (ts: number | null) => {
     if (!ts) return ''
-    return new Date(ts).toLocaleString('zh-CN')
+    return formatDateTime(ts)
   }
 
   const formatDuration = () => {
@@ -258,8 +244,8 @@ export default function DetailModal() {
   const handleDelete = () => {
     setDetailTaskId(null)
     setConfirmDialog({
-      title: '删除记录',
-      message: '确定要删除这条记录吗？仅清理不再使用的关联图片。',
+      title: t('action.deleteRecord'),
+      message: t('confirm.deleteMessage'),
       action: () => removeTask(task),
     })
   }
@@ -269,12 +255,12 @@ export default function DetailModal() {
   }
 
   const handleCopyError = async () => {
-    const errorText = task.error || '生成失败'
+    const errorText = task.error || t('detail.generateFailed')
     try {
       await copyTextToClipboard(errorText)
-      showToast('完整报错已复制', 'success')
+      showToast(t('detail.errorCopied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制报错失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('detail.copyErrorFailed'), err), 'error')
     }
   }
 
@@ -282,15 +268,15 @@ export default function DetailModal() {
     if (!task.prompt) return
     try {
       await copyTextToClipboard(task.prompt)
-      showToast('提示词已复制', 'success')
+      showToast(t('detail.promptCopied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制提示词失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('detail.copyPromptFailed'), err), 'error')
     }
   }
 
   const handleShowPromptWarning = () => {
     showCodexCliPrompt(
-      currentRevisedPrompt ? '接口返回的提示词已被改写' : '接口没有返回官方 API 会返回的部分信息',
+      t(currentRevisedPrompt ? 'detail.promptRevisedReason' : 'detail.promptMissingReason'),
     )
   }
 
@@ -302,10 +288,10 @@ export default function DetailModal() {
       const res = await fetch(src)
       const blob = await res.blob()
       await copyBlobToClipboard(blob)
-      showToast('参考图已复制', 'success')
+      showToast(t('detail.referenceCopied'), 'success')
     } catch (err) {
       console.error(err)
-      showToast(getClipboardFailureMessage('复制参考图失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('detail.copyReferenceFailed'), err), 'error')
     }
   }
 
@@ -322,7 +308,7 @@ export default function DetailModal() {
             <button
               onClick={() => setDetailTaskId(null)}
               className="p-1 rounded-full hover:bg-muted transition text-muted-foreground"
-              aria-label="关闭"
+              aria-label={t('common:action.close')}
             >
               <CloseIcon className="w-6 h-6" />
             </button>
@@ -507,7 +493,7 @@ export default function DetailModal() {
                     WebkitLineClamp: 4,
                   }}
                 >
-                  {task.error || '生成失败'}
+                  {task.error || t('detail.generateFailed')}
                 </p>
                 <div className="mt-3 flex items-center justify-center gap-2">
                   <div className="relative group">
@@ -519,7 +505,7 @@ export default function DetailModal() {
                         handleCopyError()
                       }}
                       className="inline-flex items-center justify-center rounded-full border border-destructive/80 bg-card/80 px-3 py-1.5 text-destructive transition hover:bg-destructive/10 dark:border-destructive/20 dark:hover:bg-destructive/10"
-                      aria-label="复制完整报错"
+                      aria-label={t('detail.copyFullError')}
                     >
                       <CopyIcon className="h-4 w-4" />
                     </button>
@@ -527,7 +513,7 @@ export default function DetailModal() {
                       visible={copyErrorTooltip.visible}
                       className="whitespace-nowrap"
                     >
-                      复制完整报错
+                      {t('detail.copyFullError')}
                     </ViewportTooltip>
                   </div>
                   {task.rawResponsePayload && (
@@ -540,7 +526,7 @@ export default function DetailModal() {
                           setShowRawResponseModal(true)
                         }}
                         className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-primary/10 px-3 py-1.5 text-primary transition hover:bg-primary/10"
-                        aria-label="查看原始响应"
+                        aria-label={t('detail.viewRawResponse')}
                       >
                         <CodeIcon className="h-4 w-4" />
                       </button>
@@ -548,7 +534,7 @@ export default function DetailModal() {
                         visible={viewRawResponseTooltip.visible}
                         className="whitespace-nowrap"
                       >
-                        查看原始响应
+                        {t('detail.viewRawResponse')}
                       </ViewportTooltip>
                     </div>
                   )}
@@ -562,9 +548,12 @@ export default function DetailModal() {
                             copyRawUrlsTooltip.handlers.onClick()
                             try {
                               await copyTextToClipboard(task.rawImageUrls![0])
-                              showToast('图片链接已复制', 'success')
+                              showToast(t('detail.imageUrlCopied'), 'success')
                             } catch (err) {
-                              showToast(getClipboardFailureMessage('复制链接失败', err), 'error')
+                              showToast(
+                                getClipboardFailureMessage(t('detail.copyLinkFailed'), err),
+                                'error',
+                              )
                             }
                           } else {
                             dismissAllTooltips()
@@ -572,7 +561,7 @@ export default function DetailModal() {
                           }
                         }}
                         className="inline-flex items-center justify-center rounded-full border border-success/80 bg-success/10 px-3 py-1.5 text-success transition hover:bg-success/10 dark:border-success/20 dark:bg-success/10 dark:text-success dark:hover:bg-success/20"
-                        aria-label="复制图片链接"
+                        aria-label={t('detail.copyImageUrls')}
                       >
                         <LinkIcon className="h-4 w-4" />
                       </button>
@@ -580,7 +569,7 @@ export default function DetailModal() {
                         visible={copyRawUrlsTooltip.visible}
                         className="whitespace-nowrap"
                       >
-                        复制图片链接
+                        {t('detail.copyImageUrls')}
                       </ViewportTooltip>
                     </div>
                   )}
@@ -593,7 +582,7 @@ export default function DetailModal() {
                         handleRetry()
                       }}
                       className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
-                      aria-label="重试任务"
+                      aria-label={t('action.retryTask')}
                     >
                       <svg
                         className="h-4 w-4"
@@ -613,7 +602,7 @@ export default function DetailModal() {
                       </svg>
                     </button>
                     <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
-                      重试任务
+                      {t('action.retryTask')}
                     </ViewportTooltip>
                   </div>
                 </div>
@@ -626,7 +615,7 @@ export default function DetailModal() {
             <button
               onClick={() => setDetailTaskId(null)}
               className="absolute top-3 right-3 hidden p-1 rounded-full hover:bg-muted transition text-muted-foreground z-10 md:block"
-              aria-label="关闭"
+              aria-label={t('common:action.close')}
             >
               <CloseIcon className="w-5 h-5" />
             </button>
@@ -634,13 +623,13 @@ export default function DetailModal() {
             <div data-selectable-text className="flex-1">
               <div className="flex items-center gap-1.5 mb-2">
                 <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  输入内容
+                  {t('detail.inputSection')}
                 </h3>
                 {task.prompt && (
                   <button
                     onClick={handleCopyPrompt}
                     className="p-1 rounded text-muted-foreground hover:bg-muted transition"
-                    title="复制提示词"
+                    title={t('detail.copyPrompt')}
                   >
                     <CopyIcon className="h-4 w-4" />
                   </button>
@@ -651,7 +640,7 @@ export default function DetailModal() {
                       type="button"
                       className="p-1 rounded text-warning hover:bg-warning/10 dark:text-warning dark:hover:bg-warning/10 transition"
                       onClick={handleShowPromptWarning}
-                      aria-label="提示词已被改写"
+                      aria-label={t('detail.promptRevised')}
                     >
                       <svg
                         className="w-4 h-4"
@@ -675,14 +664,14 @@ export default function DetailModal() {
                   promptExpanded ? 'mb-1' : 'line-clamp-4 mb-1'
                 }`}
               >
-                {task.prompt || '(无提示词)'}
+                {task.prompt || t('prompt.empty')}
               </p>
               {(task.prompt?.length ?? 0) > 120 && (
                 <button
                   onClick={() => setPromptExpanded((v) => !v)}
                   className="mb-3 text-xs text-primary hover:text-primary transition"
                 >
-                  {promptExpanded ? '收起' : '展开全部'}
+                  {promptExpanded ? t('common:action.collapse') : t('detail.expandAll')}
                 </button>
               )}
               {(task.prompt?.length ?? 0) <= 120 && <span className="block mb-3" />}
@@ -700,12 +689,12 @@ export default function DetailModal() {
                 <div className="mb-4">
                   <div className="flex items-center gap-1.5 mb-2">
                     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      参考图
+                      {t('detail.referenceSection')}
                     </h3>
                     <button
                       onClick={handleCopyInputImage}
                       className="p-1 rounded text-muted-foreground hover:bg-muted transition"
-                      title="复制参考图"
+                      title={t('detail.copyReference')}
                     >
                       <CopyIcon className="h-4 w-4" />
                     </button>
@@ -746,11 +735,11 @@ export default function DetailModal() {
 
               {/* 参数 */}
               <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                参数配置
+                {t('detail.paramsSection')}
               </h3>
               {showSourceInfo && (
                 <div className="mb-2 rounded-lg bg-card px-3 py-2 text-xs">
-                  <span className="text-muted-foreground">来源</span>
+                  <span className="text-muted-foreground">{t('detail.source')}</span>
                   <br />
                   <span className="font-medium text-foreground">{taskProviderName}</span>
                   <span className="text-muted-foreground">
@@ -761,7 +750,7 @@ export default function DetailModal() {
               )}
               <div className="grid grid-cols-2 gap-2 text-xs mb-4">
                 <div className="bg-card rounded-lg px-3 py-2">
-                  <span className="text-muted-foreground">尺寸</span>
+                  <span className="text-muted-foreground">{t('param.size')}</span>
                   <br />
                   <DetailParamValue
                     task={task}
@@ -771,7 +760,7 @@ export default function DetailModal() {
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
-                  <span className="text-muted-foreground">质量</span>
+                  <span className="text-muted-foreground">{t('param.quality')}</span>
                   <br />
                   <DetailParamValue
                     task={task}
@@ -781,7 +770,7 @@ export default function DetailModal() {
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
-                  <span className="text-muted-foreground">格式</span>
+                  <span className="text-muted-foreground">{t('param.format')}</span>
                   <br />
                   <DetailParamValue
                     task={task}
@@ -791,7 +780,7 @@ export default function DetailModal() {
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
-                  <span className="text-muted-foreground">审核</span>
+                  <span className="text-muted-foreground">{t('param.moderation')}</span>
                   <br />
                   <DetailParamValue
                     task={task}
@@ -801,13 +790,13 @@ export default function DetailModal() {
                   />
                 </div>
                 <div className="bg-card rounded-lg px-3 py-2">
-                  <span className="text-muted-foreground">数量</span>
+                  <span className="text-muted-foreground">{t('param.count')}</span>
                   <br />
                   <DetailParamValue task={task} paramKey="n" className="font-medium" />
                 </div>
                 {task.params.output_compression != null && (
                   <div className="bg-card rounded-lg px-3 py-2">
-                    <span className="text-muted-foreground">压缩率</span>
+                    <span className="text-muted-foreground">{t('param.compression')}</span>
                     <br />
                     <DetailParamValue
                       task={task}
@@ -821,8 +810,10 @@ export default function DetailModal() {
 
               {/* 时间 */}
               <div className="text-xs text-muted-foreground mb-4">
-                <span>创建于 {formatTime(task.createdAt)}</span>
-                {formatDuration() && <span> · 耗时 {formatDuration()}</span>}
+                <span>{t('detail.createdAt', { time: formatTime(task.createdAt) })}</span>
+                {formatDuration() && (
+                  <span> · {t('detail.elapsed', { duration: formatDuration() })}</span>
+                )}
               </div>
             </div>
 
@@ -845,7 +836,7 @@ export default function DetailModal() {
                     d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
                   />
                 </svg>
-                复用配置
+                {t('action.reuse')}
               </button>
               <button
                 onClick={handleEdit}
@@ -853,7 +844,7 @@ export default function DetailModal() {
                 className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-success/10 dark:bg-success/10 text-success dark:text-success hover:bg-success/10 dark:hover:bg-success/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
               >
                 <EditIcon className="w-4 h-4 flex-shrink-0" />
-                编辑输出
+                {t('action.editOutput')}
               </button>
               <button
                 onClick={handleSendToCanvas}
@@ -873,12 +864,12 @@ export default function DetailModal() {
                     d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z M4 15l4-4a2 2 0 012.8 0l4 4 M14 13l1.5-1.5a2 2 0 012.8 0L20 13 M9 9a1 1 0 100-2 1 1 0 000 2z"
                   />
                 </svg>
-                送入画布
+                {t('action.sendToCanvas')}
               </button>
               <button
                 onClick={handleDelete}
                 className="col-span-2 sm:flex-none sm:w-11 w-full flex items-center justify-center rounded-xl bg-destructive/10 dark:bg-destructive/10 text-destructive dark:text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 transition"
-                title="删除记录"
+                title={t('action.deleteRecord')}
               >
                 <TrashIcon className="w-5 h-5" />
               </button>
@@ -889,7 +880,7 @@ export default function DetailModal() {
                     ? 'bg-warning/10 text-warning hover:bg-warning/10 dark:bg-warning/10 dark:hover:bg-warning/20'
                     : 'bg-card text-muted-foreground hover:bg-warning/10 hover:text-warning dark:hover:bg-warning/10'
                 }`}
-                title={task.isFavorite ? '取消收藏' : '收藏记录'}
+                title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
               >
                 <svg
                   className="w-5 h-5"
@@ -915,7 +906,7 @@ export default function DetailModal() {
           <div className="flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
               <h3 className="text-base font-semibold text-foreground dark:text-white">
-                原始图片链接 ({rawImageUrls.length})
+                {t('rawUrls.title', { n: rawImageUrls.length })}
               </h3>
               <div className="flex items-center gap-2">
                 <button
@@ -923,15 +914,18 @@ export default function DetailModal() {
                   onClick={async () => {
                     try {
                       await copyTextToClipboard(rawImageUrls.join('\n'))
-                      showToast('复制成功', 'success')
+                      showToast(t('common:toast.copySucceeded'), 'success')
                     } catch (err) {
-                      showToast(getClipboardFailureMessage('复制失败', err), 'error')
+                      showToast(
+                        getClipboardFailureMessage(t('common:toast.copyFailed'), err),
+                        'error',
+                      )
                     }
                   }}
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-card text-muted-foreground hover:bg-muted transition-colors text-xs font-medium"
                 >
                   <CopyIcon className="w-3.5 h-3.5" />
-                  全部复制
+                  {t('detail.copyAll')}
                 </button>
                 <button
                   type="button"
@@ -950,7 +944,9 @@ export default function DetailModal() {
                     className="group flex items-center gap-3 p-3 sm:p-4 rounded-xl bg-card border border-border shadow-sm hover:shadow-md transition-all"
                   >
                     <div className="flex-1 min-w-0 flex flex-col gap-1">
-                      <div className="text-xs font-medium text-muted-foreground">图片 {i + 1}</div>
+                      <div className="text-xs font-medium text-muted-foreground">
+                        {t('rawUrls.imageIndex', { n: i + 1 })}
+                      </div>
                       <div className="text-sm text-foreground truncate select-text" title={url}>
                         {url}
                       </div>
@@ -960,16 +956,19 @@ export default function DetailModal() {
                       onClick={async () => {
                         try {
                           await copyTextToClipboard(url)
-                          showToast('复制成功', 'success')
+                          showToast(t('common:toast.copySucceeded'), 'success')
                         } catch (err) {
-                          showToast(getClipboardFailureMessage('复制失败', err), 'error')
+                          showToast(
+                            getClipboardFailureMessage(t('common:toast.copyFailed'), err),
+                            'error',
+                          )
                         }
                       }}
                       className="flex-shrink-0 p-2 sm:px-3 sm:py-1.5 flex items-center justify-center gap-1.5 rounded-lg bg-card text-muted-foreground hover:bg-muted transition-colors text-xs font-medium border border-transparent border-border"
-                      title="复制链接"
+                      title={t('rawUrls.copyLink')}
                     >
                       <CopyIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                      <span className="hidden sm:inline">复制</span>
+                      <span className="hidden sm:inline">{t('common:action.copy')}</span>
                     </button>
                   </div>
                 ))}
@@ -989,7 +988,7 @@ export default function DetailModal() {
           >
             <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
               <h3 className="text-base font-semibold text-foreground dark:text-white">
-                原始响应数据
+                {t('rawResponse.title')}
               </h3>
               <div className="flex items-center gap-2">
                 <button
@@ -997,15 +996,18 @@ export default function DetailModal() {
                   onClick={async () => {
                     try {
                       await copyTextToClipboard(task.rawResponsePayload!)
-                      showToast('复制成功', 'success')
+                      showToast(t('common:toast.copySucceeded'), 'success')
                     } catch (err) {
-                      showToast(getClipboardFailureMessage('复制失败', err), 'error')
+                      showToast(
+                        getClipboardFailureMessage(t('common:toast.copyFailed'), err),
+                        'error',
+                      )
                     }
                   }}
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-card text-muted-foreground hover:bg-muted transition-colors text-xs font-medium"
                 >
                   <CopyIcon className="w-3.5 h-3.5" />
-                  全部复制
+                  {t('detail.copyAll')}
                 </button>
                 <button
                   type="button"

@@ -1,3 +1,5 @@
+import type { TaskProgressPhase } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import type { ApiMode, AppSettings, TaskParams } from '../types'
 
 /**
@@ -15,19 +17,6 @@ export interface BYOKAdapterProfile {
   codexCli: boolean
   apiProxy: boolean
   responseFormatB64Json?: boolean
-}
-
-/**
- * 防改写的 prompt 头部 guard：Codex 系网关默认会改写用户 prompt，
- * 加这段前缀指示上游"原样使用 prompt 不要重写"。由 composer 的「防改写」开关
- * （`params.no_rewrite`，默认关闭）控制，在 `callImageApi` 分发层统一应用，
- * BYOK / edge 下游 adapter 无需感知。
- */
-export const PROMPT_REWRITE_GUARD_PREFIX =
-  'Use the following text as the complete prompt. Do not rewrite it:'
-
-export function applyPromptRewriteGuard(prompt: string): string {
-  return `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}`
 }
 
 export const MIME_MAP: Record<string, string> = {
@@ -49,6 +38,8 @@ export interface CallApiOptions {
   onCustomTaskEnqueued?: (task: { taskId: string }) => void
   /** BFF queue 模式 submit 成功后立刻回调，把 request_id 持久化以便刷新后恢复 */
   onQueueSubmitted?: (requestId: string) => void
+  /** Durable queue phase reported by the BFF. */
+  onQueueStatus?: (phase: TaskProgressPhase) => void
   /**
    * BFF queue 幂等键。callImageApi → queueClient.submit 透传给 BFF；BFF 用它
    * 去重，使「页面提交期间刷新→重提交」不会消耗双份上游配额。
@@ -104,12 +95,23 @@ export function getDataUrlDecodedByteSize(dataUrl: string): number {
 
 function assertMaxBytes(label: string, bytes: number, maxBytes: number) {
   if (bytes > maxBytes) {
-    throw new Error(`${label}过大：${formatMiB(bytes)}，上限为 ${formatMiB(maxBytes)}`)
+    throw new Error(
+      i18next.t('size.tooLarge', {
+        ns: 'lib',
+        label,
+        size: formatMiB(bytes),
+        limit: formatMiB(maxBytes),
+      }),
+    )
   }
 }
 
 export function assertImageInputPayloadSize(bytes: number) {
-  assertMaxBytes('图像输入有效负载总大小', bytes, MAX_IMAGE_INPUT_PAYLOAD_BYTES)
+  assertMaxBytes(
+    i18next.t('size.imageInputPayload', { ns: 'lib' }),
+    bytes,
+    MAX_IMAGE_INPUT_PAYLOAD_BYTES,
+  )
 }
 
 export function assertMaskEditFileSize(label: string, bytes: number) {
@@ -136,8 +138,14 @@ async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> 
   return bytesToDataUrl(await blob.arrayBuffer(), blob.type || fallbackMime)
 }
 
-export const IMAGE_FETCH_CORS_HINT =
-  ' 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。'
+/**
+ * 语言可以在运行时切换，而这条提示是 module-level 常量：`export let` 的 live binding 让
+ * 已经 import 它的模块（store.ts 用它做 `includes` 判重）在切换后读到的是当前语言那一条。
+ */
+export let IMAGE_FETCH_CORS_HINT = i18next.t('imageFetch.corsHint', { ns: 'lib' })
+i18next.on('languageChanged', () => {
+  IMAGE_FETCH_CORS_HINT = i18next.t('imageFetch.corsHint', { ns: 'lib' })
+})
 
 async function probeNoCorsReachability(
   url: string,
@@ -178,21 +186,19 @@ export async function fetchImageUrlAsDataUrl(
       const probe = await probeNoCorsReachability(url)
       if (probe === 'opaque') {
         throw new Error(
-          `图片已生成，但因服务商未允许跨域，图片链接下载失败。${IMAGE_FETCH_CORS_HINT}`,
+          i18next.t('imageFetch.corsBlocked', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }),
         )
       }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        throw new Error(`图片链接下载失败（网络不可用）。${IMAGE_FETCH_CORS_HINT}`)
+        throw new Error(i18next.t('imageFetch.offline', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }))
       }
-      throw new Error(
-        `图片链接下载失败（可能因跨域限制、链接过期或网络异常）。${IMAGE_FETCH_CORS_HINT}`,
-      )
+      throw new Error(i18next.t('imageFetch.failed', { ns: 'lib', hint: IMAGE_FETCH_CORS_HINT }))
     }
     throw err
   }
 
   if (!response.ok) {
-    throw new Error(`图片 URL 下载失败：HTTP ${response.status}`)
+    throw new Error(i18next.t('imageFetch.httpFailed', { ns: 'lib', status: response.status }))
   }
 
   const blob = await response.blob()
@@ -215,7 +221,7 @@ export function throwIfProxyError(payload: unknown): void {
   const record = payload as Record<string, unknown>
   if (record._proxyError !== true) return
   const err = record.error as { message?: string } | undefined
-  const msg = err?.message ?? '上游 API 调用失败（代理层）'
+  const msg = err?.message ?? i18next.t('proxy.upstreamFailed', { ns: 'lib' })
   throw new Error(msg)
 }
 

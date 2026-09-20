@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
+import AgentJobInbox from '../../agent/components/AgentJobInbox'
 import AgentPanel from '../../agent/components/AgentPanel'
+import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
-import { conversationStarted, useAgentStore } from '../../agent/store'
+import { useAgentStore } from '../../agent/store'
+import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
+import { projectDisplayName } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import {
   type CanvasWorkspace,
@@ -23,11 +28,14 @@ import CanvasMinimap from './CanvasMinimap'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
+import CanvasVideoToolbar from './CanvasVideoToolbar'
+import FilmExportStatus from './FilmExportStatus'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectSyncStatus from './ProjectSyncStatus'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
+import TimelineEditorHost from './TimelineEditor'
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
@@ -35,6 +43,7 @@ import StylePanel from './StylePanel'
  * - 对话与画布分栏；占位框状态 UI 由 PlaceholderOverlay 浮层渲染
  */
 export default function CanvasMode() {
+  const { t } = useTranslation('canvas')
   const workspace = useSyncExternalStore(subscribeCanvasWorkspace, currentCanvasWorkspace)
   const projectsLoaded = useCanvasProjectStore((state) => state.loaded)
   const routeError = useCanvasProjectStore((state) => state.routeError)
@@ -56,6 +65,11 @@ export default function CanvasMode() {
     showCanvasWorkspace(true)
     return () => showCanvasWorkspace(false)
   }, [])
+  // 视频入口就是这张画布，只是生成方式预置到视频：每次进入都预置一次，之后由用户自己切。
+  const videoEntry = useStore((state) => state.appMode === 'video')
+  useEffect(() => {
+    if (videoEntry) useCanvasComposer.getState().requestVideo()
+  }, [videoEntry])
   if (routeError)
     return (
       <div className="studio-canvas-status" role="alert">
@@ -72,7 +86,7 @@ export default function CanvasMode() {
               } else location.assign('/')
             }}
           >
-            返回项目
+            {t('project.backToProjects')}
           </button>
         </div>
       </div>
@@ -81,10 +95,10 @@ export default function CanvasMode() {
     return (
       <div className="studio-canvas-status" role={projectError ? 'alert' : 'status'}>
         <div>
-          {projectError || '正在恢复项目…'}
+          {projectError || t('project.restoring')}
           {projectError && (
             <button type="button" className="ml-3 underline" onClick={() => void initialize()}>
-              重新加载
+              {t('project.reload')}
             </button>
           )}
         </div>
@@ -94,6 +108,7 @@ export default function CanvasMode() {
 }
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
+  const { t } = useTranslation('canvas')
   const mobile = useMobileWorkspace()
   const [mobileView, setMobileView] = useState<'chat' | 'canvas'>('chat')
   const { doc, editor } = workspace
@@ -107,7 +122,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
-  const showWelcome = hasAgent && !hasContent && !project?.hasContent && !started
+  const showWelcome =
+    hasAgent && !hasContent && !project?.hasContent && !project?.workspaceOpened && !started
+  // 首页停在 `/`，起手工作区不占地址（见 projectStore.activate）。第一句话落下、
+  // 或画布上真有了东西，这个工作区才成为一个「项目」，这时补一条 `/p/<项目>` 的历史。
+  useEffect(() => {
+    if (showWelcome || !project) return
+    if ((globalThis.location?.pathname ?? '/').replace(/\/+$/, '') !== '') return
+    writeProjectRoute(project.id)
+  }, [showWelcome, project])
   useEffect(() => {
     if (hasAgent) void useAgentStore.getState().load()
   }, [hasAgent])
@@ -134,8 +157,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     return unsubscribe
   }, [doc, editor, workspace, loading])
 
+  // 画布已经开着时也可能有图送进来（素材库、灯箱里的「生成视频」），所以跟着队列长度重跑。
+  const pendingImages = useStore((state) => state.pendingCanvasImages.length)
   useEffect(() => {
-    if (loading || loadFailed) return
+    if (loading || loadFailed || pendingImages === 0) return
     const pending = useStore.getState().consumeCanvasImages()
     if (!pending.length) return
     void placeImagesIntoTargets(
@@ -146,7 +171,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       () => workspace.flush(),
       (error) => console.warn('[canvas] 工作台图片放置失败', error),
     )
-  }, [editor, workspace, loading, loadFailed])
+  }, [editor, workspace, loading, loadFailed, pendingImages])
 
   return (
     <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
@@ -154,20 +179,20 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <ProjectWelcome workspace={workspace} />
       ) : (
         <div className="studio-layout" data-mobile-view={mobileView} inert={loading || loadFailed}>
-          <div className="studio-mobile-switch" role="group" aria-label="创作视图">
+          <div className="studio-mobile-switch" role="group" aria-label={t('mobileSwitch.aria')}>
             <button
               type="button"
               aria-pressed={mobileView === 'chat'}
               onClick={() => setMobileView('chat')}
             >
-              对话
+              {t('mobileSwitch.chat')}
             </button>
             <button
               type="button"
               aria-pressed={mobileView === 'canvas'}
               onClick={() => setMobileView('canvas')}
             >
-              画布
+              {t('mobileSwitch.canvas')}
             </button>
           </div>
           {hasAgent ? (
@@ -181,59 +206,70 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <aside
               className="studio-sidebar studio-sidebar--direct"
               style={{ width: 340 }}
-              aria-label="图片创作"
+              aria-label={t('sidebar.title')}
             >
               <div className="flex justify-between px-4 text-xs">
-                <span>图片创作</span>
-                <button type="button" onClick={() => setOpen(false)} aria-label="收起面板">
-                  收起 ←
+                <span>{t('sidebar.title')}</span>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label={t('sidebar.collapseAria')}
+                >
+                  {t('sidebar.collapse')}
                 </button>
               </div>
               <div className="studio-chat-empty px-4">
                 <span className="studio-spark">✧</span>
-                <h3>从一个想法开始</h3>
-                <p>描述画面，或将参考图拖入右侧画布。选中图片后，可以继续生成新的版本。</p>
+                <h3>{t('sidebar.emptyTitle')}</h3>
+                <p>{t('sidebar.emptyBody')}</p>
               </div>
               <CanvasGenerateBar editor={editor} />
             </aside>
           ) : (
             <button type="button" className="studio-open-chat" onClick={() => setOpen(true)}>
-              展开创作
+              {t('sidebar.openChat')}
             </button>
           )}
           <section
             className="studio-canvas"
-            aria-label="创作画布"
+            aria-label={t('workspace.canvasAria')}
             inert={mobile && mobileView !== 'canvas'}
           >
             <div className="studio-canvas-heading">
-              <strong>{project?.name ?? '我的画布'}</strong>
-              {workspace.cloud ? (
-                <ProjectSyncStatus session={workspace.cloud} />
-              ) : (
-                <span>
-                  {saveFailed ? '本机保存失败' : loading ? '正在恢复' : '本机自动保存'} ·
-                  拖入图片开始创作
-                </span>
-              )}
+              <strong>
+                {project ? projectDisplayName(project.name) : t('workspace.untitled')}
+              </strong>
+              {/* 画布上只留项目名。自动保存、拖入提示这类常态文字没人读，还压在右上角控件底下；
+              同步状态只在出岔子（冲突、报错、待重试）时才出声。 */}
+              {workspace.cloud && <ProjectSyncStatus session={workspace.cloud} quiet />}
             </div>
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
+            <CanvasVideoToolbar editor={editor} />
+            <TimelineEditorHost editor={editor} />
+            <FilmExportStatus />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
+            {/* 后台任务入口贴画布右上角：任务落的是画布，进度和定位就该在画布上，
+            不占对话顶上的常驻位置。 */}
+            {hasAgent && (
+              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end">
+                <AgentJobInbox />
+              </div>
+            )}
             {saveFailed && (
               <div
                 role="alert"
-                className="absolute right-4 top-4 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg"
+                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg"
               >
-                <p>画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。</p>
+                <p>{t('saveError.message')}</p>
                 <button
                   type="button"
                   className="mt-2 underline"
                   onClick={() => void workspace.flush()}
                 >
-                  重试保存
+                  {t('saveError.retry')}
                 </button>
               </div>
             )}
@@ -246,18 +282,18 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             {!hasContent && !loading && !loadFailed && (
               <div className="studio-empty">
                 <img src="/brand/muvloom-icon.svg" alt="" />
-                <h2>给想象，一个画面。</h2>
+                <h2>{t('empty.title')}</h2>
                 <p>
-                  {hasAgent ? '描述你的想法，作品会在这里展开。' : '输入画面描述，开始你的创作。'}
+                  {hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}
                   <br />
-                  也可以拖入图片，继续探索新的可能。
+                  {t('empty.bodyDrop')}
                 </p>
                 <button
                   type="button"
                   className="studio-secondary"
                   onClick={() => fileInput.current?.click()}
                 >
-                  ＋ 导入参考图片
+                  {t('empty.import')}
                 </button>
               </div>
             )}
@@ -267,7 +303,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               accept="image/*"
               multiple
               className="hidden"
-              aria-label="导入画布图片"
+              aria-label={t('import.inputAria')}
               onChange={(event) => {
                 const files = [...(event.currentTarget.files ?? [])]
                 event.currentTarget.value = ''
@@ -276,10 +312,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   y: editor.getViewportPageBounds().midY,
                 })
                   .then((count) => {
-                    if (!count)
-                      useStore.getState().showToast('未能导入图片，请选择有效的图片文件', 'error')
+                    if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
                   })
-                  .catch(() => useStore.getState().showToast('图片导入失败，请重试', 'error'))
+                  .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
               }}
             />
           </section>
@@ -289,13 +324,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <div role={loadFailed ? 'alert' : 'status'} className="studio-canvas-status">
           {loadFailed ? (
             <div>
-              <p>画布读取失败，原内容已保留，请重试。</p>
+              <p>{t('loadError.message')}</p>
               <button type="button" className="mt-2 underline" onClick={workspace.retryLoad}>
-                重新读取
+                {t('loadError.retry')}
               </button>
             </div>
           ) : (
-            '正在恢复画布…'
+            t('loading.restoring')
           )}
         </div>
       )}

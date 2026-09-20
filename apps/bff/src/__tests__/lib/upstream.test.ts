@@ -74,9 +74,9 @@ describe('callUpstream OpenAI route', () => {
     expect(parsed.response_format).toBeUndefined()
   })
 
-  it('records every dispatch when OpenAI fans out the requested image count', async () => {
+  it('delivers every requested image and accounts each gateway invocation', async () => {
     let dispatches = 0
-    await callUpstream({
+    const result = await callUpstream({
       provider: 'openai-compat',
       model: 'gpt-image-2',
       request: { prompt: 'a cat', n: 4 },
@@ -84,7 +84,14 @@ describe('callUpstream OpenAI route', () => {
         dispatches += 1
       },
     })
+    expect(result.payload).toMatchObject({
+      data: Array.from({ length: 4 }, () => ({ b64_json: 'ok' })),
+    })
     expect(dispatches).toBe(4)
+    expect(calls).toHaveLength(4)
+    for (const call of calls) {
+      expect(JSON.parse(call.init?.body as string).n).toBeUndefined()
+    }
   })
 
   it('starts the accounted request before applying a concurrent cancellation', async () => {
@@ -260,21 +267,6 @@ describe('callUpstream OpenAI route', () => {
     expect(result.payload).toMatchObject({
       data: [{ b64_json: 'ok-1' }, { b64_json: 'ok-2' }, { b64_json: 'ok-3' }],
     })
-  })
-
-  it('without input_images and n>1: sends one generation request per image and omits n', async () => {
-    const result = await callUpstream({
-      provider: 'openai-compat',
-      model: 'gpt-image-2',
-      request: { prompt: 'generate', n: 2 },
-    })
-    const payload = result.payload as { data: unknown[] }
-    expect(payload.data).toHaveLength(2)
-    expect(calls).toHaveLength(2)
-    for (const call of calls) {
-      expect(call.url).toMatch(/\/v1\/images\/generations$/)
-      expect(JSON.parse(call.init?.body as string).n).toBeUndefined()
-    }
   })
 
   it('with mask: appends mask Blob alongside image[] in FormData', async () => {

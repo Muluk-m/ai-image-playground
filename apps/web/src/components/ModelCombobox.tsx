@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from '../i18n'
 import { ChevronDownIcon } from './icons'
 
 interface ModelComboboxProps {
@@ -26,6 +27,7 @@ export default function ModelCombobox({
   className,
   disabled,
 }: ModelComboboxProps) {
+  const { t } = useTranslation('composer')
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -82,7 +84,7 @@ export default function ModelCombobox({
             if (!disabled) setIsOpen((v) => !v)
           }}
           disabled={disabled}
-          aria-label="展开模型候选"
+          aria-label={t('model.expandOptions')}
           className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
         >
           <ChevronDownIcon

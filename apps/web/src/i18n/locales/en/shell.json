@@ -1,0 +1,54 @@
+{
+  "header": {
+    "brandName": "Muvloom",
+    "homeAria": "Muvloom, back to creating",
+    "nav": "Main navigation",
+    "inspiration": "Inspiration",
+    "library": "My assets",
+    "accountMenu": "Open your account",
+    "appMenu": "Open the app menu",
+    "unsynced": "Changes waiting to save",
+    "settings": "Settings",
+    "loginMethods": "Sign-in methods",
+    "loggingOut": "Signing out"
+  },
+  "logout": {
+    "title": "Sign out",
+    "clearLocalData": "Also clear the data in this browser",
+    "confirm": "Sign out"
+  },
+  "sync": {
+    "title": "Save status",
+    "retryNow": "Retry now",
+    "failed": "Save failed",
+    "syncing": "Saving",
+    "uploading": "Uploading assets {{done}}/{{total}}",
+    "pending_one": "{{count}} item waiting to save",
+    "pending_other": "{{count}} items waiting to save",
+    "never": "Not saved yet",
+    "syncedAt": "Saved · {{relative}}",
+    "justNow": "Just now",
+    "minutesAgo_one": "{{count}} minute ago",
+    "minutesAgo_other": "{{count}} minutes ago",
+    "hoursAgo_one": "{{count}} hour ago",
+    "hoursAgo_other": "{{count}} hours ago",
+    "daysAgo_one": "{{count}} day ago",
+    "daysAgo_other": "{{count}} days ago"
+  },
+  "update": {
+    "available": "A new version is available",
+    "refresh": "Refresh",
+    "skip": "Skip this version"
+  },
+  "confirm": {
+    "confirm": "Confirm",
+    "deleteConfirm": "Delete"
+  },
+  "credits": {
+    "ariaLabel": "{{amount}} credits"
+  },
+  "toast": {
+    "historyAdopted_one": "Recovered {{count}} item from before you signed in",
+    "historyAdopted_other": "Recovered {{count}} items from before you signed in"
+  }
+}

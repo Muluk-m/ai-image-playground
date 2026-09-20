@@ -1,0 +1,140 @@
+import { and, eq, exists, gt, inArray, isNull, lte, ne, not } from 'drizzle-orm'
+import { config } from '../../config'
+import { db, schema } from '../../db/client'
+import { bffDrain } from '../drain'
+import { log } from '../logger'
+import { recoverAbandonedExecution } from './events'
+import { AGENT_EXECUTION_LEASE_MS } from './execution'
+import { heldByClarification, TURN_KINDS } from './inbox'
+import { drainConversationInbox } from './start-turn'
+import { deliverDueAgentWakes } from './wake'
+
+/**
+ * 接手没人处理的排队消息与唤醒。排队消息平时由当前回复收尾的那个实例接着取；取不到的有两种：
+ * 那个实例正在下线（滚动发布时旧版本只收尾、不再开新轮，见 ADR 0009），或者它半路没了。
+ * 这时会话没有活着的执行租约、收件箱里却还有待处理的消息——由仍在接新活的实例来取。
+ * 唤醒由 worker 在任务终态的事务里写进收件箱，没有谁收尾会顺手取它，全靠这里：会话空着就
+ * 领租约起轮，忙着就留给当前那一轮收尾时取。等太久先唤醒的那一批也由这里按时投递。
+ *
+ * 执行者没了的会话（租约还标着在跑、心跳早已过期）也由这里接手：补写它被打断的那一轮，
+ * 排上一次中断续跑，再和别的收件箱记录一样开轮（见 `interrupted.ts`）。
+ */
+
+const inbox = schema.agent_inbox
+const executions = schema.agent_executions
+const conversations = schema.agent_conversations
+
+/** 一次最多接手这么多个会话；剩下的下一次再接。 */
+const PICKUP_BATCH = 50
+/** 巡一次的间隔：旧实例收尾放手后，排着的下一条最迟隔这么久在新版本上开轮。 */
+export const AGENT_INBOX_PICKUP_INTERVAL_MS = 5_000
+
+/** 收件箱里有该处理的用户消息或唤醒、却没有活着的执行租约的会话。 */
+export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<string[]> {
+  const leased = db
+    .select({ one: executions.conversation_id })
+    .from(executions)
+    .where(
+      and(
+        eq(executions.conversation_id, inbox.conversation_id),
+        eq(executions.state, 'running'),
+        gt(executions.heartbeat_at, Date.now() - AGENT_EXECUTION_LEASE_MS),
+      ),
+    )
+  const rows = await db
+    .selectDistinct({ id: inbox.conversation_id })
+    .from(inbox)
+    .innerJoin(conversations, eq(conversations.id, inbox.conversation_id))
+    .where(
+      and(
+        inArray(inbox.kind, [...TURN_KINDS]),
+        eq(inbox.status, 'pending'),
+        // 在等澄清答复、只剩问之前就排着的那几条：不是没人处理，是在等用户。取不到就别占名额。
+        not(heldByClarification),
+        isNull(conversations.deleted_at),
+        not(exists(leased)),
+        // 还归旧二进制管的会话由它自己收尾；新版本不去抢（见 `forwardActiveTurn`）。
+        config.execution.legacyOrigin ? ne(conversations.runtime_generation, 0) : undefined,
+      ),
+    )
+    .limit(limit)
+  return rows.map((row) => row.id)
+}
+
+/** 执行租约还标着在跑、心跳却已过期的会话：它的执行者没了（进程被杀、被接管）。 */
+export async function abandonedExecutions(
+  limit = PICKUP_BATCH,
+  now = Date.now(),
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: executions.conversation_id })
+    .from(executions)
+    .innerJoin(conversations, eq(conversations.id, executions.conversation_id))
+    .where(
+      and(
+        eq(executions.state, 'running'),
+        lte(executions.heartbeat_at, now - AGENT_EXECUTION_LEASE_MS),
+        isNull(conversations.deleted_at),
+        config.execution.legacyOrigin ? ne(conversations.runtime_generation, 0) : undefined,
+      ),
+    )
+    .limit(limit)
+  return rows.map((row) => row.id)
+}
+
+/**
+ * 巡一次：先接手执行者没了的会话（补写被打断的轮、排上中断续跑），再把到了时候的唤醒投递进
+ * 收件箱，最后给每个没人处理的会话各取一条开轮。本实例正在下线就不接。返回开了轮的会话数。
+ */
+export async function pickUpStrandedInboxes(now = Date.now()): Promise<number> {
+  if (bffDrain.status().draining) return 0
+  for (const conversationId of await abandonedExecutions()) {
+    try {
+      await recoverAbandonedExecution(conversationId)
+    } catch (err) {
+      log.error(
+        { event: 'agent.execution_recovery_failed', conversationId, err },
+        'abandoned agent execution could not be recovered',
+      )
+    }
+  }
+  try {
+    await deliverDueAgentWakes(undefined, now)
+  } catch (err) {
+    log.error({ event: 'agent.wake_delivery_failed', err }, 'background job wakes not delivered')
+  }
+  let started = 0
+  for (const conversationId of await strandedInboxConversations()) {
+    try {
+      const result = await drainConversationInbox(conversationId)
+      if (result.kind === 'started') started += 1
+    } catch (err) {
+      log.error(
+        { event: 'agent.inbox_pickup_failed', conversationId, err },
+        'stranded queued agent message could not start a turn',
+      )
+    }
+  }
+  return started
+}
+
+/** 开机先巡一次，之后按间隔巡。返回停止函数。 */
+export function startInboxPickup(intervalMs = AGENT_INBOX_PICKUP_INTERVAL_MS): () => void {
+  let running = false
+  const tick = async () => {
+    if (running) return
+    running = true
+    try {
+      const started = await pickUpStrandedInboxes()
+      if (started > 0)
+        log.info({ event: 'agent.inbox_picked_up', started }, 'picked up stranded queued messages')
+    } catch (err) {
+      log.error({ event: 'agent.inbox_pickup_failed', err }, 'inbox pickup scan failed')
+    } finally {
+      running = false
+    }
+  }
+  void tick()
+  const timer = setInterval(() => void tick(), intervalMs)
+  return () => clearInterval(timer)
+}

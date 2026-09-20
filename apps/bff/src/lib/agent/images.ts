@@ -6,6 +6,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { db, schema } from '../../db/client'
+import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
@@ -14,6 +15,7 @@ import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
 import { toModelImageDataUrl } from './modelImage'
+import { AgentToolError } from './tools/errors'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
 
@@ -27,6 +29,8 @@ export interface ResolvedAgentImage {
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
+  /** 当前这批引用里有没有用户画的遮罩；「本轮存在用户选区」的判断只问这一处。 */
+  readonly masked: boolean
   /**
    * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
    * 工具起跑时要立刻把锚点告诉画布，那一刻等不起一次对象存储往返。
@@ -47,7 +51,8 @@ export async function requireAgentImages(
   return resolved.map((image, at) => {
     if (!image) {
       const available = source.references.map((reference) => reference.imageId).join('、')
-      throw new Error(
+      throw new AgentToolError(
+        'invalid_params',
         `图片 ${imageIds[at]} 不可用。${available ? `可用参考图 id：${available}；请核对后重试。` : '当前会话没有可用参考图。'}`,
       )
     }
@@ -92,7 +97,12 @@ async function readTaskOutput(
   if (!ref) return null
   if (ref.kind === 'b64') return { dataUrl: `data:${ref.mime};base64,${ref.data}` }
   if (ref.kind === 'object')
-    return { dataUrl: dataUrl(await objectStore().read(ref.data), ref.mime) }
+    return {
+      dataUrl: dataUrl(
+        await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.data),
+        ref.mime,
+      ),
+    }
   const upstream = await fetch(ref.data)
   if (!upstream.ok) return null
   const mime = upstream.headers.get('content-type') ?? ref.mime
@@ -125,19 +135,41 @@ function rememberImages(
   }
 }
 
-/** 附在用户消息后面送给模型；没有引用时是空串。 */
-export function referenceManifest(references: readonly AgentImageReference[]): string {
+/** 用户在这张图上画没画遮罩。新旧两种引用形态各把它存在不同字段里，问法只此一处。 */
+export function referenceHasMask(reference: AgentImageReference): boolean {
+  return Boolean('dataUrl' in reference ? reference.maskDataUrl : reference.mask)
+}
+
+/**
+ * 附在用户消息后面送给模型；没有引用时是空串。
+ *
+ * `attached` 说的是这批图的**内容**在不在这一份输入里。本轮用户附上的图连字节一起发；
+ * 从上下文里沿用下来的那批只给 id——它们不代表本轮意图，模型要看内容得自己调 `viewImage`。
+ * 两种措辞都带同一份编号，`[image N]` 的可寻址性不因为字节没发而丢。
+ */
+export function referenceManifest(
+  references: readonly AgentImageReference[],
+  attached: boolean,
+): string {
   if (references.length === 0) return ''
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
-    const masked = 'dataUrl' in one ? one.maskDataUrl : one.mask
-    const mask = masked ? '，用户在上面画了遮罩' : ''
+    const mask = referenceHasMask(one)
+      ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+      : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
   })
-  return `\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）：\n${lines.join('\n')}`
+  const head = attached
+    ? '可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：'
+    : '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+  return `\n\n${head}\n${lines.join('\n')}`
 }
 
-/** 保留最近一批引用的编号；更早的图仍可凭原 id 取回。 */
+/**
+ * 保留最近一批引用的编号；更早的图仍可凭原 id 取回。
+ *
+ * 沿用下来的这一批**只进清单文字**：它让 `[image N]` 仍然指得回真 id，不再让本轮重发字节。
+ */
 export function activeAgentReferences(
   current: readonly AgentTurnReference[],
   history: readonly AgentMessageView[],
@@ -252,6 +284,9 @@ export function createAgentImageSource(input: {
   return {
     get references() {
       return active
+    },
+    get masked() {
+      return active.some(referenceHasMask)
     },
     attach(added) {
       if (!added.length) return

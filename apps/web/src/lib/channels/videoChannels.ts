@@ -15,12 +15,17 @@ export function videoModelOptions(): VideoModelOption[] {
   for (const channel of getStoredChannels()) {
     for (const model of channel.models) {
       if (model.media !== 'video') continue
-      const support = VIDEO_MODEL_SUPPORT[model.id]
-      if (!support) continue
+      const matrix = VIDEO_MODEL_SUPPORT[model.id]
+      if (!matrix) continue
+      // 参考图要等渠道声明：旧后端不认这个字段，会把参考图静默丢掉，照样扣费出一段文生视频。
+      const { referenceImages: _gated, ...base } = matrix
+      const support: VideoModelSupport = model.capabilities?.includes('reference_images')
+        ? matrix
+        : base
       options.push({
         channelId: channel.id,
         modelId: model.id,
-        label: support.label,
+        label: matrix.label,
         support,
       })
     }

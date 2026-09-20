@@ -39,6 +39,9 @@
 !apps/admin/server
 !apps/admin/contracts.ts
 !apps/bff/channels.json
+# 智能体技能目录：`SKILL.md` 与附属文件是运行时读盘的，不进模块图，
+# 漏掉这一行镜像照样构建成功、容器照样起得来，只是一条技能都没有。
+!apps/bff/skills
 
 
 # ── Optional private overlay ──────────────────────────────────────
@@ -57,6 +60,7 @@
 !deploy/nginx.proxy.conf
 !scripts/docker-entrypoint.sh
 !scripts/check-dependencies.ts
+!scripts/release-router.ts
 
 # ── 上面 `!` 放行的目录里仍有 gitignored 兄弟，重新排除 ────────────
 # operator 的部署配置：vite 会把 public/** 原样复制进 dist，绝不能从宿主机带进来

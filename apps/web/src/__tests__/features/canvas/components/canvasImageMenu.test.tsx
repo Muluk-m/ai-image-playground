@@ -31,7 +31,7 @@ function render(menu: { id: string; x: number; y: number } | null, onClose = () 
 }
 
 function item(label: string): HTMLButtonElement {
-  return [...document.querySelectorAll('button')].find((b) => b.textContent === label)!
+  return [...document.querySelectorAll('button')].find((b) => b.textContent?.endsWith(label))!
 }
 
 beforeEach(() => {
@@ -49,6 +49,7 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('画布图片右键菜单', () => {
@@ -75,6 +76,36 @@ describe('画布图片右键菜单', () => {
     })
     await vi.waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1))
     expect(downloadBlob.mock.calls[0]![1]).toBe('canvas-img-1.png')
+  })
+
+  it('opens the original image in a touch-saveable preview without importing it', async () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    render({ id: 'img-1', x: 10, y: 10 })
+    await act(async () => {
+      item('查看原图 / 长按保存').click()
+      await Promise.resolve()
+    })
+    const image = document.querySelector<HTMLImageElement>(
+      '[data-lightbox-root] img.saveable-image',
+    )
+    expect(image?.src).toBe(PIXEL)
+    expect(document.querySelector('[data-save-image]')).not.toBeNull()
+  })
+
+  it('用鼠标的设备只写「查看原图」，不提长按保存', () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    render({ id: 'img-1', x: 10, y: 10 })
+    const labels = [...document.querySelectorAll('button')].map((b) => b.textContent)
+    expect(labels.some((text) => text?.endsWith('查看原图'))).toBe(true)
+    expect(labels.some((text) => text?.includes('长按'))).toBe(false)
   })
 
   it('指着的不是图片就没有菜单', () => {

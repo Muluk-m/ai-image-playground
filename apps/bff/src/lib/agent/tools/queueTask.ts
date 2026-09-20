@@ -1,15 +1,20 @@
 import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import type {
   AgentToolArtifact,
-  AgentTurnParams,
+  AgentToolName,
   ChannelMedia,
   PersistedVideoRequest,
   QueueProvider,
+  VideoGenerationRecord,
 } from '@image-playground/shared'
-import { AGENT_ARTIFACT_NOUN } from '@image-playground/shared'
+import { projectArtifactId } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
-import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
+import type { ExtractedResult } from '../../extractImages'
+import { submitAgentGeneration } from '../auto-submit'
+import { saveGenerationDraft } from '../confirmations'
+import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
+import { AgentToolError } from './errors'
 import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
@@ -23,19 +28,17 @@ const WORDS: Record<ChannelMedia, MediaWords> = {
   video: { verb: '生视频', unit: '段视频' },
 }
 
-function refusal(kind: CreateQueueTaskOutcome['kind'], words: MediaWords): string {
-  if (kind === 'insufficient_credits') return `积分不够，这${words.unit}没有提交`
-  if (kind === 'quota_exceeded') return '今天的生成次数已经用完'
-  if (kind === 'authentication_required') return `${words.verb}需要先登录`
-  return `${words.verb}任务没能提交`
-}
-
 export interface QueueTarget {
   readonly provider: QueueProvider
   readonly model: string
 }
 
 export interface QueueTaskInput {
+  readonly toolName: AgentToolName
+  readonly toolCallId?: string
+  readonly maskedOperation?: MaskedOperation
+  /** 这次真遮罩编辑的内容身份；缺席即这次提交不参与内容去重。 */
+  readonly maskedContent?: MaskedEditContent
   readonly media: ChannelMedia
   /** 已经解析好的模型；缺席就按介质现解析。 */
   readonly target?: QueueTarget
@@ -46,8 +49,31 @@ export interface QueueTaskInput {
   readonly mask?: string
   /** 视频档位；缺席即这是一条图片任务。 */
   readonly video?: PersistedVideoRequest
+  /** 视频产物要标注的档位与来源图；确认提交时随任务记下。 */
+  readonly videoRecord?: VideoGenerationRecord
   /** 产出落画布时贴着这个画布对象放。 */
   readonly anchorObjectId?: string
+  /**
+   * 成功后要不要唤醒智能体回来复核（失败一律唤醒）。模型在拟稿时自己选；局部改图的候选
+   * 必须复核，由改图工具定死。
+   */
+  readonly review?: boolean
+}
+
+/**
+ * 拟好稿之后给模型的那句话。它不会在这一轮回到模型手里（拟稿即收尾，见 `turn.ts`），
+ * 但会作为历史进下一轮：那时模型要知道的是「这次没有提交，也没有花钱，等用户确认」。
+ */
+function draftText(words: MediaWords, count: number): string {
+  return `已按用户要求拟好${words.verb}提示词（${count} ${words.unit}），提示词已原样展示给用户，等他确认。这次调用没有提交任何任务，也没有产生任何费用。用户可以直接修改提示词再点「确认生成」，届时系统按他确认的那一份原样提交。不要说已经在生成或已经生成好，也不要描述成品的样子；不要为同一件事再拟一次稿。`
+}
+
+/**
+ * 出图模式下提交完给模型的那句话。这一轮不会因此收尾，模型接着往下做，所以措辞要让它
+ * 明白「这一张已经在跑、已经计费」，别再为同一件事提交第二次。
+ */
+function submittedText(words: MediaWords, count: number): string {
+  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，产物会自动落到画布上。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
 }
 
 /**
@@ -66,72 +92,151 @@ export function resolveAgentModel(
   return resolveQueueModel(media, configured || undefined)
 }
 
-/** 没有可用模型时的那一句；工具的可用性判定与执行都从这里拿，两处不会各说各的。 */
-export function noModelMessage(media: ChannelMedia): string {
-  return `暂时没有可用的${WORDS[media].verb}模型`
-}
-
-/** 提交进现有队列，然后等它跑完。失败一律抛，由轮翻译成用户看得懂的一句话。 */
-export async function runQueueTask(
-  context: AgentToolContext,
-  input: QueueTaskInput,
-  signal: AbortSignal | undefined,
-  onUpdate: ((partial: AgentToolResult<AgentToolDetails>) => void) | undefined,
-): Promise<AgentToolResult<AgentToolDetails>> {
-  const words = WORDS[input.media]
-  const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
-  if (!target) throw new Error(noModelMessage(input.media))
-
-  const submitted = await createQueueTask({
-    provider: target.provider,
-    model: target.model,
-    request: {
-      prompt: input.prompt,
-      device_id: context.deviceId,
-      // 视频档位由 input.video 自己带，图片参数对它没有意义。
-      ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
-      n: input.media === 'image' ? agentImageCount(input) : 1,
-      ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
-      ...(input.mask ? { mask: input.mask } : {}),
-    },
-    ...(input.video ? { video: input.video } : {}),
-    userId: context.userId,
-    agent: { conversationId: context.conversationId, turnId: context.turnId },
-  })
-  if (submitted.kind !== 'created') throw new Error(refusal(submitted.kind, words))
-
-  onUpdate?.({ content: [], details: { stage: 'submitted' } })
-  const outcome = await awaitQueueTask(submitted.taskId, {
-    signal,
-    onStatus: (status) => {
-      if (status === 'in_progress') onUpdate?.({ content: [], details: { stage: 'running' } })
-    },
-  })
-  if (outcome.kind !== 'completed') throw new Error(outcome.reason)
-
-  const artifacts: AgentToolArtifact[] = outcome.result.images.map((output) => ({
+/** 一条跑完的队列任务落成的产物。同步等结果与后台任务结算走同一个算式。 */
+export function queueArtifacts(
+  taskId: string,
+  media: ChannelMedia,
+  result: ExtractedResult,
+): AgentToolArtifact[] {
+  return result.images.map((output) => ({
     // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。
-    artifactId: `agent_${crypto.randomUUID()}`,
-    media: input.media,
-    taskId: submitted.taskId,
+    artifactId: projectArtifactId(taskId, output.index),
+    media,
+    taskId,
     outputIndex: output.index,
     mime: output.mime,
     ...(output.width !== undefined ? { width: output.width } : {}),
     ...(output.height !== undefined ? { height: output.height } : {}),
   }))
-  context.images.note(artifacts)
+}
 
+/** 没有可用模型时的那一句；工具的可用性判定与执行都从这里拿，两处不会各说各的。 */
+export function noModelMessage(media: ChannelMedia): string {
+  return `暂时没有可用的${WORDS[media].verb}模型`
+}
+
+/**
+ * 生成工具的唯一出口。对话模式下请求准备齐了（模型、提示词、输入图、遮罩、档位、张数）却
+ * **不提交**，而是把这整份材料存成一份待确认的草稿，卡片停在「等待确认」；队列任务、预留与
+ * 扣费都要等用户在卡上确认之后才发生（见 `confirmations.ts`）。
+ *
+ * 出图模式（`params.autoSubmit`）走同一份材料当场提交，卡片直接是「已提交」，这一轮不因此
+ * 收尾，模型接着出下一张（见 `auto-submit.ts`）。额度领完、或者提交被拒（余额不够、配额用尽）
+ * 都退回拟稿：稿子照样留给用户，不中断整轮。
+ *
+ * 门设在这一处而不是各工具入口：草稿里的提示词必须是真正会送进上游的那一句——遮罩编辑的执行
+ * 指令由服务端按用户原文与选区拼出来，模型手里的只是摘要。准备做完再拟稿，用户看到、改到的
+ * 才是真正会执行的东西。
+ */
+export async function draftQueueTask(
+  context: AgentToolContext,
+  input: QueueTaskInput,
+  signal: AbortSignal | undefined,
+): Promise<AgentToolResult<AgentToolDetails>> {
+  const words = WORDS[input.media]
+  const review = input.review === true
+  const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
+  if (!target) throw new AgentToolError('model_unavailable', noModelMessage(input.media))
+
+  const hasSelection = context.images.masked
+  if (hasSelection) context.maskedEditPlan?.protect()
+  const maskedTurn = input.media === 'image' && (hasSelection || context.maskedEditPlan?.protected)
+  if (maskedTurn && !input.inputImages?.length)
+    throw new AgentToolError(
+      'invalid_params',
+      '本轮存在用户选区，请使用改图工具核对目标与参考，不能改为无参考生图',
+    )
+  // 批次身份只在遮罩轮上问；内容身份跟着这次编辑走，与本轮是不是遮罩轮无关。
+  const submission: MaskedSubmission = {
+    ...(maskedTurn
+      ? {
+          call: {
+            toolCallId: input.toolCallId ?? '',
+            ...(input.maskedOperation ? { operation: input.maskedOperation } : {}),
+          },
+        }
+      : {}),
+    ...(input.maskedContent ? { content: input.maskedContent } : {}),
+  }
+  const approval = context.maskedEditPlan?.approve(submission) ?? 'approved'
+  if (approval === 'already-submitted')
+    throw new AgentToolError(
+      'invalid_params',
+      '这个编辑操作已经拟过稿，请先检查候选；不要自行重复拟稿',
+    )
+  if (approval === 'outside-batch')
+    throw new AgentToolError(
+      'invalid_params',
+      '本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示',
+    )
+
+  if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
+  await context.assertExecution?.()
+  const count = input.media === 'image' ? agentImageCount(input) : 1
+  // 计划随材料一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
+  const plan = context.maskedEditPlan?.carryAfter(submission)
+  const request = {
+    prompt: input.prompt,
+    device_id: context.deviceId,
+    // 视频档位由 input.video 自己带，图片参数对它没有意义。
+    ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
+    n: count,
+    ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
+    ...(input.mask ? { mask: input.mask } : {}),
+  }
+  const draftSubmission = {
+    review,
+    ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
+    ...(plan ? { plan } : {}),
+    ...(input.videoRecord ? { videoRecord: input.videoRecord } : {}),
+  }
+
+  if (context.autoSubmit?.take()) {
+    const submitted = await submitAgentGeneration({
+      conversationId: context.conversationId,
+      turnId: context.turnId,
+      toolCallId: input.toolCallId ?? '',
+      userId: context.userId,
+      media: input.media,
+      provider: target.provider,
+      model: target.model,
+      request,
+      ...(input.video ? { video: input.video } : {}),
+      submission: draftSubmission,
+    })
+    if (submitted.kind === 'created') {
+      context.maskedEditPlan?.submitted(submission)
+      return {
+        content: [{ type: 'text', text: submittedText(words, count) }],
+        details: {
+          executedPrompt: input.prompt,
+          job: submitted.job,
+          ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
+        },
+      }
+    }
+  }
+
+  await saveGenerationDraft({
+    conversationId: context.conversationId,
+    turnId: context.turnId,
+    toolCallId: input.toolCallId ?? '',
+    toolName: input.toolName,
+    media: input.media,
+    provider: target.provider,
+    model: target.model,
+    prompt: input.prompt,
+    request,
+    ...(input.video ? { video: input.video } : {}),
+    submission: draftSubmission,
+  })
+  // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
+  context.maskedEditPlan?.submitted(submission)
   return {
-    content: [
-      {
-        type: 'text',
-        text: `已生成 ${artifacts.length} ${words.unit}并放到画布上，${
-          AGENT_ARTIFACT_NOUN[input.media]
-        } id：${artifacts.map((artifact) => artifact.artifactId).join(', ')}`,
-      },
-    ],
+    content: [{ type: 'text', text: draftText(words, count) }],
     details: {
-      artifacts,
+      executedPrompt: input.prompt,
+      awaitingConfirmation: true as const,
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     },
   }

@@ -14,12 +14,8 @@ const MANIFEST = {
   'agent:chat': true,
   'billing:credits': false,
   'generation:byok': true,
-  'generation:storyboard': false,
   'generation:video': false,
-  'matte:server': false,
   'quota:daily': false,
-  'remix:analyze': false,
-  'remix:listing': false,
 }
 
 let host: HTMLDivElement

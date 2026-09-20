@@ -2,13 +2,23 @@
 
 本文件给 Claude Code（claude.ai/code）当作工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
+## 部署与灾备
+
+- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- 前端两套 Pages、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
+- **测试环境：推 `test` 分支即由 `.github/workflows/deploy-test.yml` 发布到 https://test.muvloom.online（独立 Pages 项目 `muvloom-test`，与付费站同账号，发的是付费形态的包）。** 流程是「`ci-check-test-branch.sh` 确认 test 不落后 main → lint / typecheck / apps/web build → 克隆 overlay → `scripts/pages-release.sh test`」。**落后 main 直接失败，CI 不自动合**：无人看管地解冲突会让测试站跑着一份哪里都不存在的代码；红灯时把 main 合进 test 再推一次。只发前端，**`TEST_BFF_BASE_URL` 目前就是付费站的生产 API，测试站读写生产数据**。别在 `test` 上直接改代码，也别拿它当长期集成分支。细节见[测试环境手册](docs/deploy/test-environment.md)。
+- 前端发布只有 `scripts/pages-release.sh` 一个入口，用 `internal|paid|test` 选目标，每个目标的 Pages 项目与域名在 `pages.env` 里各自写死。底层的 `scripts/pages-deploy.sh` 不直接调——漏掉分支参数曾把未合并的分支发到生产。
+- macmini2 旧备用已停止，Tunnel 禁用；配置、镜像及数据卷保留。启停与历史数据状态见[灾备附录](docs/deploy/cold-recovery.md#附录旧备用服务)。
+- 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)，不定时同步备用 PG；新实例只用 R2。保持原域名、会话密钥和账号命名空间，切回前核对两端增量；不得直接覆盖原库或自动绑定匿名数据。
+- 固定 API 切换和跨机器单写者保护尚未上线；不得将恢复演练或同库发布排空视为完整灾备。
+
 ## 项目概况
 
 `ai-image-playground` — AI 生图工作台。fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，扩展了 Gemini 原生协议、异步队列模式、可选 BFF 后端、内置 channel discovery。
 
 pnpm workspace + Turbo v2 + Biome：
 
-- `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。历史 / 配置全存浏览器 IndexedDB。
+- `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。画布、已缓存产物与配置存浏览器 IndexedDB；完整 Agent 对话存对应 BFF 的 PostgreSQL，本地不是完整消息备份。
 - `apps/bff/` — **可选**任务队列 BFF（Elysia + Bun + Drizzle + PostgreSQL via `bun:sql`）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
 - `apps/admin/` — 可选运维面板（Bun + Elysia 服务端，端口 37378；Vite + TanStack Router + shadcn 前端）。HMAC cookie 鉴权；数据库连接只读，用户与运营写操作一律代理到 BFF。
 - `packages/shared/` — 跨 app 协议类型（`runtime-config.ts` / `channel-discovery.ts` / `queue-protocol.ts`）。
@@ -50,7 +60,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 包含 BFF、Admin 和数据库迁移回滚测试。**私有包不在公开 CI 中**；涉及私有接缝时仍需在
 带 `private/` 的环境中完成对应测试，不能只凭 PR 变绿判断。
 
-**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`，通过现有发布脚本部署受影响的内部版与付费版服务，并核验线上版本和行为。除非用户明确要求仅本地修改或暂不部署，否则直接完成整条链路，无需再次询问是否部署。
+**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。除非用户明确要求仅本地修改或暂不合并，否则直接完成整条链路，无需再次询问是否部署。
 
 ## 测试约定
 
@@ -117,8 +127,7 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 
 **收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
 
-- 免费：`./scripts/app-compose.sh build <image>`
-- 收费：`./scripts/app-compose.sh build-private <image>`（`--build-arg PRIVATE_OVERLAY_PRESENT=true` + `--build-context private-overlay=private/`）
+- 生产镜像由部署 workflow 执行 `./scripts/build-vps-release.sh all <目录>` 构建（付费版带入私有 overlay 的 main HEAD）；应急时在 macmini2 手动执行同一脚本（`internal`/`paid`/`all`）。
 
 **分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 

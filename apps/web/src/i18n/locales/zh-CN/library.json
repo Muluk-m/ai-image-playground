@@ -1,0 +1,82 @@
+{
+  "action": {
+    "rename": "重命名"
+  },
+  "panel": {
+    "title": "我的资产",
+    "tabProjects": "我的项目",
+    "tabAssets": "素材",
+    "tabTemplates": "模板",
+    "searchProjects": "搜索项目名",
+    "searchAssets": "搜索素材名",
+    "searchTemplates": "搜索模板名",
+    "reloadProjects": "重新加载",
+    "noMatchAssets": "没有匹配的素材",
+    "noMatchTemplates": "没有匹配的模板",
+    "dropToSave": "松开即存为素材"
+  },
+  "asset": {
+    "new": "新建素材",
+    "unsynced": "等待保存",
+    "addAsReference": "加入参考图",
+    "zoom": "放大预览",
+    "makeVideo": "做成视频",
+    "deleted": "素材已删除",
+    "deleteTitle": "删除素材",
+    "deleteMessage": "确定删除素材「{{name}}」吗？图片本身保留。"
+  },
+  "template": {
+    "apply": "套用",
+    "viewDetail": "查看详情",
+    "menuHeading": "模板",
+    "paramSize": "尺寸",
+    "paramQuality": "质量",
+    "paramCount": "数量",
+    "paramCountValue_other": "{{count}} 张",
+    "deleteTitle": "删除模板",
+    "deleteMessage": "确定删除模板「{{name}}」吗？",
+    "replaceTitle": "替换当前输入？",
+    "replaceMessage": "将以模板「{{name}}」的提示词、参考图与参数覆盖当前输入。",
+    "replaceConfirm": "替换并套用"
+  },
+  "templateDetail": {
+    "fullPrompt": "完整提示词",
+    "referencedAssets": "引用素材",
+    "params": "参数",
+    "createdAt": "创建于 {{time}}",
+    "lastUsedAt": "最近使用 {{time}}"
+  },
+  "saveAsset": {
+    "title": "存为素材",
+    "placeholder": "素材名",
+    "remaining_other": "还剩 {{count}} 张"
+  },
+  "saveTemplate": {
+    "title": "存为模板",
+    "description": "保存当前提示词、引用的素材与尺寸 / 质量 / 数量",
+    "placeholder": "模板名"
+  },
+  "empty": {
+    "assetsTitle": "拖入或粘贴图片，或右键参考图缩略图存为素材",
+    "assetsMobile": "手机上长按缩略图",
+    "templates": "写好提示词后点存为模板，输入 / 调用"
+  },
+  "hint": {
+    "rightClickToSave": "右键可存为素材",
+    "close": "关闭提示"
+  },
+  "mention": {
+    "headingImages": "本次参考图",
+    "headingAssets": "素材",
+    "assetsEmptyNote": "还没有素材，右键参考图可保存"
+  },
+  "toast": {
+    "assetSaved": "已存为素材",
+    "templateSaved": "已存为模板",
+    "promptTemplateSaved": "已存为模板，可在我的资产中查看",
+    "assetImageMissing": "素材图片已丢失",
+    "alreadyInReferences": "已在参考图中",
+    "addedToReferences": "已加入参考图",
+    "imageAddFailed": "图片添加失败：{{reason}}"
+  }
+}

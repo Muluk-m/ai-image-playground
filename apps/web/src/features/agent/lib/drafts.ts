@@ -1,5 +1,7 @@
+import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
-import { type AgentDraft, EMPTY_DRAFT } from './references'
+import { flushOnPageHide } from '../../../lib/flushOnPageHide'
+import { type AgentDraft, EMPTY_DRAFT, hasDraftContent } from './references'
 
 const sessions = new Map<string, DraftSession>()
 const DB_NAME = 'image-playground-agent-drafts'
@@ -20,11 +22,22 @@ function openDatabase(): Promise<IDBDatabase> {
   return database
 }
 
+/** 创作类型跟着输入框此刻的选择走：搁在一边的那份不该把用户刚切的类型改回去。 */
+function withMode(draft: AgentDraft, mode: AgentDraft['mode']): AgentDraft {
+  const { mode: _ignored, ...rest } = draft
+  return mode ? { ...rest, mode } : rest
+}
+
 export interface DraftSnapshot {
   readonly draft: AgentDraft
   readonly loading: boolean
   readonly submitting: boolean
   readonly error: string | null
+  /**
+   * 上次没发出去、这次读回来的那份草稿。它先不进输入框，由用户选恢复还是丢弃；
+   * 决定之前照旧留在存储里，不会因为这次没理它就丢了。
+   */
+  readonly unsent: AgentDraft | null
 }
 
 /** 草稿独立于输入框的挂载周期；每个账号、会话各保留一份。 */
@@ -34,6 +47,7 @@ export class DraftSession {
     loading: true,
     submitting: false,
     error: null,
+    unsent: null,
   }
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -87,10 +101,16 @@ export class DraftSession {
         typeof stored.prompt === 'string' &&
         Array.isArray(stored.references)
       ) {
-        this.publish({ draft: stored })
+        // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
+        if (hasDraftContent(stored))
+          this.publish({
+            draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
+            unsent: stored,
+          })
+        else this.publish({ draft: stored })
       }
     } catch {
-      this.publish({ error: '草稿暂时无法读取或保存，刷新前请复制输入内容。' })
+      this.publish({ error: i18next.t('draft.unreadable', { ns: 'agent' }) })
     } finally {
       this.publish({ loading: false })
     }
@@ -105,6 +125,30 @@ export class DraftSession {
     this.timer = setTimeout(() => {
       void this.flush()
     }, 300)
+  }
+
+  /** 把没发出去的那份放回输入框；输入框里此刻跟着选区带进来的图保留。 */
+  restoreUnsent = () => {
+    const unsent = this.snapshot.unsent
+    if (!unsent) return
+    const kept = this.snapshot.draft.references.filter(
+      (one) => one.origin === 'selection' && !unsent.references.some((old) => old.id === one.id),
+    )
+    this.publish({ unsent: null })
+    this.update(
+      withMode(
+        { ...unsent, references: [...unsent.references, ...kept] },
+        this.snapshot.draft.mode,
+      ),
+    )
+  }
+
+  /** 丢掉没发出去的那份：存储里换成输入框此刻的内容。 */
+  discardUnsent = () => {
+    if (!this.snapshot.unsent) return
+    this.publish({ unsent: null })
+    this.revision += 1
+    void this.flush()
   }
 
   moveTo(key: string) {
@@ -128,7 +172,10 @@ export class DraftSession {
   }
 
   accept(draft: AgentDraft) {
-    if (this.snapshot.draft === draft) this.update(EMPTY_DRAFT)
+    // 创作类型跟着这个会话走，发出去一条不该把它弹回图片。
+    if (this.snapshot.draft === draft) {
+      this.update({ ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) })
+    }
     void this.flush()
   }
 
@@ -136,7 +183,9 @@ export class DraftSession {
     clearTimeout(this.timer)
     if (this.revision === this.savedRevision) return this.writes
     const revision = this.revision
-    const draft = this.snapshot.draft
+    // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。
+    const { draft: current, unsent } = this.snapshot
+    const draft = unsent && !hasDraftContent(current) ? withMode(unsent, current.mode) : current
     const key = this.key
     const previousKey = this.previousKey
     this.writes = this.writes.then(async () => {
@@ -154,11 +203,16 @@ export class DraftSession {
         if (this.previousKey === previousKey) this.previousKey = undefined
         this.publish({ error: null })
       } catch {
-        this.publish({ error: '草稿保存失败，内容仍在当前页面，刷新前请复制。' })
+        this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
       }
     })
     return this.writes
   }
+}
+
+/** 冲的是此刻还活着的那些：被 `removeProjectDraft` 摘掉的不在其中，也就不会被写回去。 */
+function flushSessions() {
+  for (const session of sessions.values()) void session.flush()
 }
 
 export function agentDraft(
@@ -170,6 +224,8 @@ export function agentDraft(
   const key = projectId ? scopedStorageName(`agent-project-draft:${projectId}`) : legacyKey
   let session = sessions.get(key)
   if (!session) {
+    // 登记在这里而不是输入框里：草稿活得比它久。同一个函数登记多次只算一次。
+    flushOnPageHide(flushSessions)
     session = new DraftSession(
       key,
       projectId && (conversationId || legacyDraft) ? legacyKey : undefined,

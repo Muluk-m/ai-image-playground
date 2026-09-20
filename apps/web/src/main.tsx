@@ -1,10 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { bootstrapLocale } from './i18n'
 import './index.css'
 import { legacyFallback, restoreLogin } from './lib/localCompatibility/auth'
 import { restoreLocalStorage } from './lib/localCompatibility/bridge'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
+import { initTheme } from './theme'
 
 installMobileViewportGuards()
 
@@ -35,12 +37,16 @@ if (!restored && runtime.localCompatibility) {
   !runtime.bff.enabled ||
   (await restoreLogin(runtime.localCompatibility, runtime.bff.baseUrl))
 ) {
+  // 首帧的明暗已由 index.html 里的内联脚本定好；这里在旧站数据搬完之后接手后续变化。
+  initTheme()
   const [{ AuthGate }, { bootstrapChannels }, { bootstrapClientCapabilities }] = await Promise.all([
     import('./auth/AuthGate'),
     import('./lib/channels/bootstrapChannels'),
     import('./lib/clientCapabilities'),
   ])
   await Promise.all([
+    // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
+    bootstrapLocale(),
     bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl),
     bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl),
   ])

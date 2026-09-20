@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from '../i18n'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from './icons'
 
@@ -45,6 +46,7 @@ export default function Select({
   wrapperClassName,
   hideSelectedLabel,
 }: SelectProps) {
+  const { t } = useTranslation(['composer', 'common'])
   const [isOpen, setIsOpen] = useState(false)
   const [menuMaxHeight, setMenuMaxHeight] = useState(DEFAULT_DROPDOWN_MAX_HEIGHT)
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom')
@@ -398,7 +400,7 @@ export default function Select({
                     data-drag-handle
                     className="flex cursor-grab active:cursor-grabbing items-center justify-center text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
                     style={{ touchAction: 'none' }}
-                    title="拖拽排序"
+                    title={t('select.dragToReorder')}
                   >
                     <DragHandleIcon className="h-3.5 w-3.5" />
                   </div>
@@ -441,9 +443,9 @@ export default function Select({
                           : 'text-muted-foreground hover:bg-muted hover:text-muted-foreground'
                       }`}
                     >
-                      {action.label === '编辑' ? (
+                      {action.label === t('common:action.edit') ? (
                         <EditIcon className="w-3.5 h-3.5" />
-                      ) : action.label === '删除' ? (
+                      ) : action.label === t('common:action.delete') ? (
                         <TrashIcon className="w-3.5 h-3.5" />
                       ) : (
                         action.label

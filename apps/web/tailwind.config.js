@@ -5,8 +5,14 @@ import { fileURLToPath } from 'node:url';
 import colors from 'tailwindcss/colors';
 import animate from 'tailwindcss-animate';
 
-const defaultOverlayEntry = resolve(dirname(fileURLToPath(import.meta.url)), '../../private/apps/web/index.tsx');
-const privateWebOverlayEntry = process.env.PRIVATE_WEB_OVERLAY_ENTRY || (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
+// Match the file-presence detection used by the Web overlay, including plain Vite builds.
+const defaultOverlayEntry = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../private/apps/web/index.tsx',
+);
+const privateWebOverlayEntry =
+  process.env.PRIVATE_WEB_OVERLAY_ENTRY ||
+  (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
 const privateWebOverlayRoot = privateWebOverlayEntry
   ? dirname(privateWebOverlayEntry)
   : undefined;
@@ -19,7 +25,8 @@ const privateWebOverlayContent = privateWebOverlayRoot
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'media',
+  // 由 src/theme 在 <html> 上打 .dark：没选过时它跟随系统，选过就固定，所以不能再用 media。
+  darkMode: 'class',
   content: [
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',

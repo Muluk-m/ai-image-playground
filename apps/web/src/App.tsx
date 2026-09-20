@@ -2,14 +2,13 @@ import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
 import DetailModal from './components/DetailModal'
+import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
-import SearchBar from './components/SearchBar'
 import SettingsModal from './components/SettingsModal'
-import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
@@ -19,7 +18,8 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import VideoMode from './features/video/components/VideoMode'
+import { i18next } from './i18n'
+import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
 import {
@@ -34,6 +34,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
 
+  useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
 
   // 匿名设备没有同步；能力关不关由引擎自己判断。
@@ -61,7 +62,12 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     initHashRoute()
 
     if (adoptedTaskCount > 0) {
-      useStore.getState().showToast(`已找回登录前的 ${adoptedTaskCount} 条历史`, 'success')
+      useStore
+        .getState()
+        .showToast(
+          i18next.t('toast.historyAdopted', { ns: 'shell', count: adoptedTaskCount }),
+          'success',
+        )
     }
   }, [setSettings, adoptedTaskCount])
 
@@ -90,16 +96,13 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   return (
     <>
       <Header />
-      {appMode === 'create' ? (
+      {appMode !== 'browse' ? (
         <CanvasMode />
-      ) : appMode === 'video' ? (
-        <VideoMode />
       ) : (
         <>
           <main data-home-main data-drag-select-surface className="pb-48">
             <div className="safe-area-x max-w-7xl mx-auto">
-              <SearchBar />
-              <TaskGrid />
+              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
             </div>
           </main>
           <InputBar />

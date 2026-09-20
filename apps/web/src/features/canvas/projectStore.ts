@@ -1,5 +1,7 @@
 import type { AgentConversationView, CloudProjectSummary } from '@image-playground/shared'
 import { create } from 'zustand'
+import { i18next } from '../../i18n'
+import { pathAppMode } from '../../lib/appPaths'
 import {
   AGENT_CONVERSATION_KEY,
   CANVAS_PROJECT_KEY,
@@ -8,8 +10,14 @@ import {
 } from '../../lib/authScope'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
-import { cloudProjectsEnabled, getCloudProject, listCloudProjects } from './lib/projectClient'
-import { type CanvasProject, projectRepository } from './lib/projectRepository'
+import {
+  cloudProjectsEnabled,
+  ensureCloudProjectConversation,
+  getCloudProject,
+  listCloudProjects,
+  restoreDeletedCloudProject,
+} from './lib/projectClient'
+import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
 import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './lib/projectRoute'
 import { canvasSceneKey } from './lib/workspaceKeys'
 
@@ -29,6 +37,10 @@ interface ProjectState {
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
+  /** 会话标题给的自动名；与用户自己改名不同，不把项目钉成「自定义名字」。 */
+  autoName(id: string, name: string): Promise<void>
+  restore(id: string): Promise<void>
+  markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
   importConversations(
     conversations: readonly AgentConversationView[],
@@ -71,6 +83,8 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     try {
       const page = await listCloudProjects(more ? (get().cloudCursor ?? undefined) : undefined)
       if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+      await get().markDeleted(page.deletedIds ?? [])
+      if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
       set((state) => ({
         cloudCatalog: {
           ...state.cloudCatalog,
@@ -78,18 +92,18 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         },
       }))
       for (const summary of page.projects) {
-        const project = await projectRepository.importCloud(summary)
+        const project = await restoreCloudProject(summary)
         if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
         set((state) => ({
           projects: state.projects.some((one) => one.id === project.id)
-            ? state.projects
+            ? state.projects.map((one) => (one.id === project.id ? project : one))
             : [...state.projects, project],
         }))
       }
       set({ cloudCursor: page.nextCursor })
     } catch {
       if (scopedStorageName(CANVAS_PROJECT_KEY) === scope)
-        set({ cloudError: '云端项目列表读取失败，本机项目仍可使用。' })
+        set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
     } finally {
       if (scopedStorageName(CANVAS_PROJECT_KEY) === scope) set({ cloudLoading: false })
     }
@@ -102,7 +116,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         let projects = await projectRepository.list()
         for (const legacy of await projectRepository.legacyScenes()) {
           if (!projects.some((one) => one.sceneKey === legacy.sceneKey))
-            projects.push(await projectRepository.create('未命名项目', legacy))
+            projects.push(await projectRepository.create(UNTITLED_PROJECT, legacy))
         }
         set({ projects })
         await get().refreshCloud()
@@ -114,31 +128,41 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         if (routeId && !projects.some((one) => one.id === routeId)) {
           if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
           projects.push(
-            await projectRepository.importCloud(
-              await getCloudProject(routeId, AbortSignal.timeout(10000)),
-            ),
+            await restoreCloudProject(await getCloudProject(routeId, AbortSignal.timeout(10000))),
           )
         }
-        let active =
-          projects.find((one) => one.id === routeId) ??
-          projects.find((one) => one.id === remembered) ??
-          projects.find((one) => conversationId && one.conversationId === conversationId)
-        active ??= projects.find((one) => one.sceneKey === canvasSceneKey(conversationId))
-        active ??= projects[0]
+        const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
+        // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
+        // 挑一个干净的空工作区起手。已有的空项目优先复用，否则才新建——
+        // 每次回首页都建一个会刷出一堆未命名项目。
+        let active = route
+          ? available.find((one) => one.id === routeId)
+          : available.find((one) => !one.hasContent && !one.workspaceOpened && !one.conversationId)
+        if (route) {
+          active ??= available.find((one) => one.id === remembered)
+          active ??= available.find(
+            (one) => conversationId && one.conversationId === conversationId,
+          )
+          active ??= available.find((one) => one.sceneKey === canvasSceneKey(conversationId))
+          active ??= available[0]
+        }
         if (!active) {
+          // 首页那条不挂上次那段会话：挂上去就等于把它又拉回来了。场景键仍取未绑定会话的那把，
+          // 首次发送前留下的草稿才认得出自己属于这个起手工作区。
+          const bound = route ? conversationId : null
           active =
-            cloudProjectsEnabled() && !conversationId
-              ? await projectRepository.create('未命名项目', undefined, true)
-              : await projectRepository.create('未命名项目', {
-                  sceneKey: canvasSceneKey(conversationId),
-                  conversationId,
+            cloudProjectsEnabled() && !bound
+              ? await projectRepository.create(UNTITLED_PROJECT, undefined, true)
+              : await projectRepository.create(UNTITLED_PROJECT, {
+                  sceneKey: canvasSceneKey(bound),
+                  conversationId: bound,
                 })
           projects.push(active)
         }
         set({ projects, loaded: true, error: null })
         if (readProjectRoute() === route) get().activate(active.id, true)
       } catch {
-        set({ error: '项目读取失败，原内容已保留，请重新加载。' })
+        set({ error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
         throw new Error('Project catalog unavailable')
       } finally {
         loading = undefined
@@ -148,7 +172,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   },
   async create() {
     await get().load()
-    const project = await projectRepository.create('未命名项目', undefined, cloudProjectsEnabled())
+    const project = await projectRepository.create(
+      UNTITLED_PROJECT,
+      undefined,
+      cloudProjectsEnabled(),
+      true,
+    )
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)
     return project
@@ -159,9 +188,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const existing = get().projects.find((one) => one.id === id)
     if (existing) return existing
     if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
-    const project = await projectRepository.importCloud(
-      await getCloudProject(id, AbortSignal.timeout(10000)),
-    )
+    const project = await restoreCloudProject(await getCloudProject(id, AbortSignal.timeout(10000)))
     set((state) => ({ projects: [...state.projects, project] }))
     return project
   },
@@ -169,7 +196,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
-    writeProjectRoute(id, replaceRoute)
+    const pathname = globalThis.location?.pathname ?? '/'
+    // 正在作品 / 视频入口时（例如刷新 /works 后项目目录才加载完）不把地址改成项目地址。
+    // 在 `/` 上由目录加载挑出来的起手工作区也不改地址：首页就该停在首页，
+    // 地址等第一句话落下（见 CanvasMode 的 enterProjectRoute）或用户自己开项目时再换。
+    const landing = replaceRoute && pathname.replace(/\/+$/, '') === ''
+    if (!pathAppMode(pathname) && !landing) writeProjectRoute(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)
@@ -190,6 +222,55 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
   },
+  async autoName(id, name) {
+    const current = get().projects.find((one) => one.id === id)
+    if (current?.cloud && cloudProjectsEnabled()) {
+      // 动态 import：workspaces 反过来依赖这个 store，静态引会成环。
+      const { autoNameCloudProject } = await import('./lib/workspaces')
+      // 开着的那个工作区自己会把新名字推上去并回写本机记录。
+      if (await autoNameCloudProject(current, name)) return
+    }
+    const project = await projectRepository.update(id, {
+      name,
+      hasContent: true,
+      ...(current?.cloud ? { cloud: { ...current.cloud, nameDirty: true } } : {}),
+    })
+    set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
+  },
+  async restore(id) {
+    const scope = scopedStorageName(CANVAS_PROJECT_KEY)
+    await restoreDeletedCloudProject(id)
+    if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+    const summary = await getCloudProject(id, AbortSignal.timeout(15000))
+    if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+    const project = await restoreCloudProject(summary)
+    if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+    set((state) => ({
+      projects: [...state.projects.filter((one) => one.id !== id), project],
+      cloudCatalog: { ...state.cloudCatalog, [id]: summary },
+    }))
+    const { reloadCloudProject } = await import('./lib/workspaces')
+    if (scopedStorageName(CANVAS_PROJECT_KEY) === scope) await reloadCloudProject(id)
+  },
+  async markDeleted(ids) {
+    const scope = scopedStorageName(CANVAS_PROJECT_KEY)
+    for (const id of ids) {
+      const project = get().projects.find((one) => one.id === id)
+      if (project?.cloud && !project.cloud.deleted) {
+        const updated = await projectRepository.update(id, {
+          cloud: { ...project.cloud, deleted: true },
+        })
+        if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+        set((state) => ({ projects: state.projects.map((one) => (one.id === id ? updated : one)) }))
+      }
+    }
+    if (scopedStorageName(CANVAS_PROJECT_KEY) === scope)
+      set((state) => ({
+        cloudCatalog: Object.fromEntries(
+          Object.entries(state.cloudCatalog).filter(([id]) => !ids.includes(id)),
+        ),
+      }))
+  },
   async remove(id) {
     if (get().projects.find((one) => one.id === id)?.cloud)
       throw new Error('cloud_project_delete_unavailable')
@@ -205,11 +286,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       if (!isCurrent()) return
       const existing = get().projects.find((one) => one.conversationId === conversation.id)
       if (existing) {
+        if (existing.cloud?.deleted) continue
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
-          await get().update(existing.id, { name: conversation.title, hasContent: true })
+          await get().autoName(existing.id, conversation.title)
         continue
       }
-      const project = await projectRepository.create(conversation.title || '未命名项目', {
+      const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
         sceneKey: canvasSceneKey(conversation.id),
         conversationId: conversation.id,
       })
@@ -240,4 +322,15 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
 export function currentCanvasProject(): CanvasProject | undefined {
   const state = useCanvasProjectStore.getState()
   return state.projects.find((one) => one.id === state.activeId)
+}
+
+export async function restoreCloudProject(summary: CloudProjectSummary): Promise<CanvasProject> {
+  const scope = scopedStorageName('canvas')
+  const local = useCanvasProjectStore.getState().projects.find((one) => one.id === summary.id)
+  if (summary.conversationId === null && local?.cloud && local.conversationId) {
+    const { conversation } = await ensureCloudProjectConversation(summary.id, local.conversationId)
+    if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+    summary = { ...summary, conversationId: conversation.id }
+  }
+  return projectRepository.importCloud(summary)
 }

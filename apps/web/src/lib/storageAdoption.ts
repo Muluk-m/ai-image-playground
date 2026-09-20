@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import {
   SCOPED_LOCAL_STORAGE_KEYS,
   STORE_PERSIST_KEY,
@@ -31,7 +32,7 @@ let adoption: Promise<number> | null = null
  */
 export function adoptAnonymousStorage(): Promise<number> {
   adoption ??= runAdoption().catch((error) => {
-    console.error('[storage-adoption] 认领匿名历史失败', error)
+    console.error('[storage-adoption] adopt anonymous history failed', error)
     return 0
   })
   return adoption
@@ -123,7 +124,10 @@ function runTransaction<T>(
     const read = body(tx.objectStore(storeName))
     tx.oncomplete = () => resolve(read())
     tx.onerror = () => reject(tx.error)
-    tx.onabort = () => reject(tx.error ?? new Error(`认领历史的 ${storeName} 事务被中止`))
+    tx.onabort = () =>
+      reject(
+        tx.error ?? new Error(i18next.t('storage.adoptTxAborted', { ns: 'lib', store: storeName })),
+      )
   })
 }
 

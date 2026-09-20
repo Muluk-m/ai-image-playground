@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import AgentParamsChip from '../../../../features/agent/components/AgentParamsChip'
+import { useAgentStore } from '../../../../features/agent/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import { DEFAULT_PARAMS } from '../../../../types'
@@ -30,6 +31,7 @@ function toggle(): void {
 }
 
 beforeEach(() => {
+  useAgentStore.setState({ thinkingDepth: 'medium' })
   setChannels([])
   useStore.setState({ params: { ...DEFAULT_PARAMS } })
   host = document.createElement('div')
@@ -98,6 +100,22 @@ function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
   })
 }
 
+/**
+ * 自带 Key 的配置在智能体这条路上不生效：服务端没有 BYOK 分支，模型一律从内置渠道挑。
+ * 摘要里摆 profile 的模型名就是「界面写 A、实际花钱跑 B」，所以那个名字不能出现，
+ * 面板里得说清楚为什么。
+ */
+it('自带 Key 时摘要不摆本地模型名，面板说明智能体只能用内置渠道', () => {
+  useProfile('openai-compat', 'my-private-image-model')
+  render()
+
+  expect(trigger().textContent).not.toContain('my-private-image-model')
+  expect(trigger().textContent).toContain('内置渠道模型')
+
+  toggle()
+  expect(host.textContent).toContain('智能体只能用内置渠道的模型')
+})
+
 describe('gemini 专属参数跟着当前模型走', () => {
   it('摘要展示实际的 Gemini 比例，不读取另一种协议的尺寸', () => {
     useProfile('gemini', 'gemini-3.1-flash-image')
@@ -126,7 +144,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
 
     expect(host.textContent).toContain('比例')
     expect(host.textContent).not.toContain('分辨率')
-    expect(host.textContent).not.toContain('思考')
+    expect(host.querySelector('[title^="思考:"]')).toBeNull()
   })
 
   it('不走 gemini 协议时一项都不给', () => {
@@ -135,7 +153,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
     toggle()
 
     expect(host.textContent).not.toContain('分辨率')
-    expect(host.textContent).not.toContain('思考')
+    expect(host.querySelector('[title^="思考:"]')).toBeNull()
   })
 })
 
@@ -217,4 +235,15 @@ it('Escape dismisses only the topmost picker and leaves unconfirmed parameters u
   expect(useStore.getState().params.size).toBe('auto')
   act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   expect(trigger().getAttribute('aria-expanded')).toBe('false')
+})
+
+it('selects and remembers thinking depth independently of the image model', () => {
+  render()
+  toggle()
+  const deep = [...host.querySelectorAll('button')].find((button) => button.textContent === '深度')!
+  act(() => deep.click())
+  expect(deep.getAttribute('aria-pressed')).toBe('true')
+  expect(useAgentStore.getState().thinkingDepth).toBe('deep')
+  expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
+  expect(trigger().textContent).toContain('思考：深度')
 })

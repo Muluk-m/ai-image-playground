@@ -1,8 +1,9 @@
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
-import { useImageThumbnail } from '../hooks/useImageThumbnail'
+import { useImagePreview } from '../hooks/useImagePreview'
+import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
-import { formatImageRatio } from '../lib/size'
 import { retryTask, updateTaskInStore, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { CodeIcon } from './icons'
@@ -30,12 +31,17 @@ export default function TaskCard({
   onClick,
   isSelected,
 }: Props) {
-  const thumbnail = useImageThumbnail(task.outputImages?.[0])
-  const thumbSrc = thumbnail?.dataUrl ?? ''
-  const coverRatio =
-    thumbnail?.width && thumbnail.height ? formatImageRatio(thumbnail.width, thumbnail.height) : ''
-  const coverSize =
-    thumbnail?.width && thumbnail.height ? `${thumbnail.width}×${thumbnail.height}` : ''
+  const { t } = useTranslation(['task', 'common'])
+  const preview = useImagePreview(task.outputImages?.[0])
+  const thumbSrc = preview?.url ?? ''
+  // 平台图只有 URL、没有宽高，此时不渲染角标，别给用户一个空壳子。
+  const coverBadges =
+    preview?.width && preview.height
+      ? {
+          ratio: formatImageRatio(preview.width, preview.height),
+          size: `${preview.width}×${preview.height}`,
+        }
+      : null
   const [now, setNow] = useState(Date.now())
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
@@ -57,12 +63,12 @@ export default function TaskCard({
     if (ids.length === 0 || isDownloading) return
     setIsDownloading(true)
     try {
-      if (ids.length > 1) showToast(`开始下载 ${ids.length} 张图片...`, 'info')
+      if (ids.length > 1) showToast(t('download.started', { count: ids.length }), 'info')
       const { success, failed } = await downloadImagesByIds(ids)
       if (failed > 0) {
-        showToast(`下载完成: 成功 ${success}，失败 ${failed}`, 'info')
+        showToast(t('download.partial', { success, failed }), 'info')
       } else if (ids.length > 1) {
-        showToast(`成功下载 ${success} 张图片`, 'success')
+        showToast(t('download.succeeded', { count: success }), 'success')
       }
     } finally {
       setIsDownloading(false)
@@ -180,7 +186,8 @@ export default function TaskCard({
     } else if (task.elapsed != null) {
       seconds = Math.floor(task.elapsed / 1000)
     } else {
-      return '00:00'
+      // 平台镜像的记录没有本机耗时，没有就不显示，不要糊一个 00:00 上去。
+      return null
     }
     const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
     const ss = String(seconds % 60).padStart(2, '0')
@@ -190,6 +197,7 @@ export default function TaskCard({
   const showSwipeAction = isSwipeReady || swipeActionActive
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const showRunningTimer = task.status === 'running' || isCustomReconnecting
+  const runningLabel = task.queuePhase ? t(`card.phase.${task.queuePhase}`) : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -305,7 +313,7 @@ export default function TaskCard({
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                   />
                 </svg>
-                <span className="text-xs text-muted-foreground">生成中...</span>
+                <span className="text-xs text-muted-foreground">{runningLabel}</span>
               </div>
             )}
             {task.status === 'error' && (
@@ -323,7 +331,9 @@ export default function TaskCard({
                     d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                <span className="text-xs text-destructive text-center leading-tight">失败</span>
+                <span className="text-xs text-destructive text-center leading-tight">
+                  {t('common:state.failed')}
+                </span>
               </div>
             )}
             {task.status === 'done' && thumbSrc && (
@@ -359,27 +369,29 @@ export default function TaskCard({
             )}
             {/* 运行中显示耗时，完成后显示封面图比例与分辨率标签 */}
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
-              {showRunningTimer || task.status !== 'done' || !coverRatio || !coverSize ? (
-                <span className="flex items-center gap-1 bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {duration}
-                </span>
-              ) : (
+              {!showRunningTimer && task.status === 'done' && coverBadges ? (
                 <>
                   <span className="bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
-                    {coverRatio}
+                    {coverBadges.ratio}
                   </span>
                   <span className="bg-black/50 text-white/90 text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-medium">
-                    {coverSize}
+                    {coverBadges.size}
                   </span>
                 </>
+              ) : (
+                duration && (
+                  <span className="flex items-center gap-1 bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    {duration}
+                  </span>
+                )
               )}
             </div>
           </div>
@@ -388,7 +400,7 @@ export default function TaskCard({
           <div className="flex-1 p-3 flex flex-col min-w-0">
             <div className="flex-1 min-h-0 mb-2 overflow-hidden">
               <p className="text-sm text-foreground leading-relaxed line-clamp-3">
-                {task.prompt || '(无提示词)'}
+                {task.prompt || t('prompt.empty')}
               </p>
             </div>
             <div className="mt-auto flex flex-col gap-1.5">
@@ -432,18 +444,18 @@ export default function TaskCard({
                         d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
                       />
                     </svg>
-                    局部重绘
+                    {t('card.inpaint')}
                   </span>
                 )}
                 {showTransparentOutput && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/10 dark:bg-success/10 text-success dark:text-success text-xs flex-shrink-0">
-                    透明背景
+                    {t('card.transparentBackground')}
                   </span>
                 )}
                 {/* Params: only show if not default or mismatch */}
                 {showQuality && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">质量</span>
+                    <span className="text-muted-foreground">{t('param.quality')}</span>
                     {qualityDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={qualityDisplay.displayValue}
@@ -456,7 +468,7 @@ export default function TaskCard({
                 )}
                 {showSize && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">尺寸</span>
+                    <span className="text-muted-foreground">{t('param.size')}</span>
                     {sizeDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={sizeDisplay.displayValue}
@@ -469,7 +481,7 @@ export default function TaskCard({
                 )}
                 {showFormat && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">格式</span>
+                    <span className="text-muted-foreground">{t('param.format')}</span>
                     {formatDisplay.isMismatch ? (
                       <ActualValueBadge
                         value={formatDisplay.displayValue}
@@ -482,7 +494,7 @@ export default function TaskCard({
                 )}
                 {showN && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-xs flex-shrink-0">
-                    <span className="text-muted-foreground">数量</span>
+                    <span className="text-muted-foreground">{t('param.count')}</span>
                     {nDisplay.isMismatch ? (
                       <ActualValueBadge value={nDisplay.displayValue} className="px-1 rounded-sm" />
                     ) : (
@@ -500,7 +512,7 @@ export default function TaskCard({
                   <button
                     onClick={() => retryTask(task)}
                     className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
-                    title="重试任务"
+                    title={t('action.retryTask')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -519,7 +531,7 @@ export default function TaskCard({
                       ? 'text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                       : 'text-muted-foreground hover:text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                   }`}
-                  title={task.isFavorite ? '取消收藏' : '收藏记录'}
+                  title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 >
                   <svg
                     className="w-4 h-4"
@@ -538,7 +550,7 @@ export default function TaskCard({
                 <button
                   onClick={onReuse}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
-                  title="复用配置"
+                  title={t('action.reuse')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -552,7 +564,7 @@ export default function TaskCard({
                 <button
                   onClick={onEditOutputs}
                   className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-30"
-                  title="编辑输出"
+                  title={t('action.editOutput')}
                   disabled={!task.outputImages?.length}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -567,7 +579,7 @@ export default function TaskCard({
                 <button
                   onClick={onSendToCanvas}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30"
-                  title="送入创作模式画布"
+                  title={t('action.sendToCanvasTitle')}
                   disabled={!task.outputImages?.length}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -584,10 +596,10 @@ export default function TaskCard({
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed"
                   title={
                     isDownloading
-                      ? '正在下载...'
+                      ? t('download.inProgress')
                       : (task.outputImages?.length ?? 0) > 1
-                        ? `下载 ${task.outputImages?.length} 张图片`
-                        : '下载图片'
+                        ? t('download.multiple', { n: task.outputImages?.length })
+                        : t('download.single')
                   }
                   disabled={!task.outputImages?.length || isDownloading}
                 >
@@ -603,7 +615,7 @@ export default function TaskCard({
                 <button
                   onClick={onDelete}
                   className="p-1.5 rounded-md hover:bg-destructive/10 dark:hover:bg-destructive/30 text-muted-foreground hover:text-destructive transition"
-                  title="删除记录"
+                  title={t('action.deleteRecord')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path

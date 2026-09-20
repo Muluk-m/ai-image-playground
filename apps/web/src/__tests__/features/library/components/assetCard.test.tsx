@@ -61,7 +61,7 @@ describe('the unsynced mark on an asset card', () => {
 
     render()
 
-    expect(host.textContent).toContain('未同步')
+    expect(host.textContent).toContain('等待保存')
   })
 
   it('stays away while the engine is not running', () => {
@@ -69,6 +69,6 @@ describe('the unsynced mark on an asset card', () => {
 
     render()
 
-    expect(host.textContent).not.toContain('未同步')
+    expect(host.textContent).not.toContain('等待保存')
   })
 })

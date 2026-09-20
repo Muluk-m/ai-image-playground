@@ -190,6 +190,8 @@ export interface TaskRecord {
   customRecoverable?: boolean
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
+  /** Server-reported durable queue phase; absent for BYOK and older BFFs. */
+  queuePhase?: import('@image-playground/shared').TaskProgressPhase
   /**
    * 客户端幂等键。submitTask 时为每个任务生成一次 UUID 并持久化；提交期间
    * 页面刷新时重提带相同 ID，BFF 用它去重。仅 BFF queue 路径会带。
@@ -227,6 +229,11 @@ export interface TaskRecord {
   isFavorite?: boolean
   /** 归属：套内逐镜提交才带，零散提交不带。 */
   origin?: TaskOrigin
+  /**
+   * 只在平台上留有记录的生成：像素不在本机，`outputImages` 是 `aip-media:` 引用。
+   * 删除要走平台接口，本机删掉不算删。
+   */
+  remoteOnly?: true
 }
 
 // ===== IndexedDB 存储的图片 =====

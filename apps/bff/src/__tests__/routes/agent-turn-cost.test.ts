@@ -2,18 +2,17 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { type AgentTurnSummaryView, DEVICE_ID_HEADER } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import {
   completionStream,
+  confirmPendingDrafts,
   eventsOfType,
   parseFrames,
   type ReceivedFrame,
   recordingAgentFetch,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
-  TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -41,10 +40,6 @@ const { purgeOldAgentTurnEvents } = await import('../../lib/agent/events')
 
 type InternalChannel = import('../../lib/channels').InternalChannel
 
-const VIDEO_RESULT_PAYLOAD = {
-  data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
-}
-
 const VIDEO_CHANNEL: InternalChannel = {
   id: 'video-gateway',
   kind: 'openai-queue',
@@ -59,6 +54,9 @@ const VIDEO_CHANNEL: InternalChannel = {
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-cost-user'
+const CHAT_MODEL = 'fixture-agent-model'
+const IMAGE_MODEL = TEST_IMAGE_CHANNEL.models[0]!.id
+const VIDEO_MODEL = VIDEO_CHANNEL.models[0]!.id
 let sessionToken = ''
 
 function cookie(): Record<string, string> {
@@ -81,10 +79,15 @@ async function startConversation(): Promise<string> {
   return json.conversation.id
 }
 
-async function runTurn(conversationId: string, text: string): Promise<ReceivedFrame[]> {
+async function runTurn(
+  conversationId: string,
+  text: string,
+  mode?: 'image' | 'video',
+): Promise<ReceivedFrame[]> {
   const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
     deviceId: DEVICE,
     text,
+    ...(mode ? { mode } : {}),
   })
   return parseFrames(await response.text())
 }
@@ -98,23 +101,9 @@ async function readTurnSummaries(conversationId: string): Promise<AgentTurnSumma
   return ((await response.json()) as { turns: AgentTurnSummaryView[] }).turns
 }
 
-/** 测试里的迷你 worker：把工具刚提交的任务推到完成，让工具循环能往下跑。 */
-function settleSubmittedTasks(
-  resultPayload: (typeof schema.tasks.$inferInsert)['result_payload'] = TEST_RESULT_PAYLOAD,
-): () => void {
-  let stopped = false
-  void (async () => {
-    while (!stopped) {
-      await db
-        .update(schema.tasks)
-        .set({ status: 'completed', result_payload: resultPayload, completed_at: Date.now() })
-        .where(eq(schema.tasks.status, 'queued'))
-      await Bun.sleep(2)
-    }
-  })()
-  return () => {
-    stopped = true
-  }
+/** 为生成预扣下的那几笔；对话模型自己那一笔跟着轮走，不算在内。 */
+function generationHolds() {
+  return billing.reservations.filter((one) => one.model !== CHAT_MODEL)
 }
 
 beforeEach(async () => {
@@ -170,7 +159,7 @@ describe('本轮消耗', () => {
     expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
   })
 
-  it('把本轮工具任务的积分归集到生图那一档', async () => {
+  it('拟稿那一轮的页脚只有对话费，生图的钱到用户确认才扣', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
         [],
@@ -181,22 +170,42 @@ describe('本轮消耗', () => {
               name: 'generateImage',
               args: { prompt: '一只橘猫坐在窗台上' },
             }),
-          () => completionStream('画好了'),
         ],
       ),
     )
     billing.settledCredits = 42
+    // 任何漏进页脚的生成任务都会按这个单价冒出来，生图那一档的 0 才钉得住。
     billing.creditsPerTask = 85
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '画一只橘猫坐在窗台上')
-    stop()
 
-    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 85, video: 0 })
+    // 拟稿不建任务也不预扣：这一轮只花了对话的钱。
+    expect(generationHolds()).toEqual([])
+    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+
+    const [card] = await confirmPendingDrafts(app, conversationId, {
+      deviceId: DEVICE,
+      cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+    })
+
+    // 生图的钱在确认这一刻才扣，且只扣一笔，落在这张卡领到的那条任务上。
+    expect(generationHolds()).toEqual([
+      {
+        taskId: card!.job!.taskId,
+        userId: USER_ID,
+        model: IMAGE_MODEL,
+        quantity: 1,
+        unitMultiplier: 1,
+      },
+    ])
+    // 确认出去的任务不归任何一轮的页脚：拟稿那一轮早已结算，不会被回填。
+    const turns = await readTurnSummaries(conversationId)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
   })
 
-  it('把本轮生视频任务的积分归集到生视频那一档', async () => {
+  it('生视频同理：页脚只有对话费，确认时按草稿冻结的秒数与清晰度预扣', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
         [],
@@ -205,21 +214,44 @@ describe('本轮消耗', () => {
             toolCallCompletion({
               id: 'call-1',
               name: 'generateVideo',
-              args: { prompt: '海浪拍打礁石' },
+              args: {
+                prompt: '海浪拍打礁石',
+                durationSeconds: 5,
+                resolution: '1080p',
+                aspectRatio: '16:9',
+              },
             }),
-          () => completionStream('视频好了'),
         ],
       ),
     )
     billing.settledCredits = 42
     billing.creditsPerTask = 125
-    const stop = settleSubmittedTasks(VIDEO_RESULT_PAYLOAD)
     const conversationId = await startConversation()
 
-    const frames = await runTurn(conversationId, '来一段海浪的视频')
-    stop()
+    // 生视频工具只在视频轮进模型的清单。
+    const frames = await runTurn(conversationId, '来一段海浪的视频', 'video')
 
-    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 125 })
+    expect(generationHolds()).toEqual([])
+    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+
+    const [card] = await confirmPendingDrafts(app, conversationId, {
+      deviceId: DEVICE,
+      cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+    })
+
+    // 视频按秒计价，清晰度是倍率：两样都取拟稿时冻结的那一档。
+    expect(generationHolds()).toEqual([
+      {
+        taskId: card!.job!.taskId,
+        userId: USER_ID,
+        model: VIDEO_MODEL,
+        quantity: 5,
+        unitMultiplier: 1.6,
+      },
+    ])
+    const turns = await readTurnSummaries(conversationId)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
   })
 
   it('失败的轮消耗是零', async () => {

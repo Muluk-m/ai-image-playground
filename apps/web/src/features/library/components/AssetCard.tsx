@@ -1,9 +1,10 @@
 import { type KeyboardEvent, useMemo, useState } from 'react'
 import { EditIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
-import { startVideoFromImage } from '../../video/lib/entry'
+import { startVideoFromImage } from '../../canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import AssetThumb from './AssetThumb'
@@ -12,12 +13,12 @@ const ICON_BUTTON =
   'shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground'
 
 export default function AssetCard({ asset }: { asset: AssetRecord }) {
+  const { t } = useTranslation(['library', 'common'])
   const attachAsset = useLibraryStore((s) => s.attachAsset)
   const renameAsset = useLibraryStore((s) => s.renameAsset)
   const deleteAsset = useLibraryStore((s) => s.deleteAsset)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
-  const videoMode = useStore((s) => s.appMode === 'video')
   const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
   const unsynced = useSyncStatus((s) => s.enabled && s.unsyncedImages.includes(asset.imageId))
   const [draftName, setDraftName] = useState<string | null>(null)
@@ -48,20 +49,20 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         <AssetThumb imageId={asset.imageId} alt={asset.name} />
         {unsynced && (
           <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium text-white">
-            未同步
+            {t('asset.unsynced')}
           </span>
         )}
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
-          {videoMode ? '填入首帧' : '加入参考图'}
+          {t('asset.addAsReference')}
         </span>
       </div>
 
       <button
         type="button"
         onClick={() => setLightboxImageId(asset.imageId)}
-        aria-label="放大预览"
-        title="放大预览"
+        aria-label={t('asset.zoom')}
+        title={t('asset.zoom')}
         className="absolute right-1.5 top-1.5 rounded-lg bg-black/45 p-1.5 text-white transition hover:bg-black/65"
       >
         <ZoomIcon className="h-3.5 w-3.5" />
@@ -86,12 +87,12 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
           />
         )}
 
-        {videoAvailable && !videoMode && (
+        {videoAvailable && (
           <button
             type="button"
-            onClick={() => startVideoFromImage(asset.imageId)}
-            aria-label="做成视频"
-            title="做成视频"
+            onClick={() => void startVideoFromImage(asset.imageId)}
+            aria-label={t('asset.makeVideo')}
+            title={t('asset.makeVideo')}
             className={ICON_BUTTON}
           >
             <VideoIcon className="h-3.5 w-3.5" />
@@ -100,7 +101,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         <button
           type="button"
           onClick={() => setDraftName(asset.name)}
-          aria-label="重命名"
+          aria-label={t('action.rename')}
           className={ICON_BUTTON}
         >
           <EditIcon className="h-3.5 w-3.5" />
@@ -109,12 +110,12 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
           type="button"
           onClick={() =>
             setConfirmDialog({
-              title: '删除素材',
-              message: `确定删除素材「${asset.name}」吗？图片本身保留。`,
+              title: t('asset.deleteTitle'),
+              message: t('asset.deleteMessage', { name: asset.name }),
               action: () => void deleteAsset(asset.id),
             })
           }
-          aria-label="删除"
+          aria-label={t('common:action.delete')}
           className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10"
         >
           <TrashIcon className="h-3.5 w-3.5" />

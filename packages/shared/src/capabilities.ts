@@ -1,20 +1,28 @@
 import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from './project-protocol'
 
 export const CAPABILITIES = {
+  'accounts:local-recovery': { defaultValue: false, clientExposed: true },
   'accounts:login': { defaultValue: false, clientExposed: true },
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'agent:chat': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   'generation:byok': { defaultValue: false, clientExposed: true },
-  'generation:storyboard': { defaultValue: false, clientExposed: true },
   'generation:video': { defaultValue: false, clientExposed: true },
-  'matte:server': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
-  'remix:analyze': { defaultValue: false, clientExposed: true },
-  'remix:listing': { defaultValue: false, clientExposed: true },
 } as const satisfies Record<`${string}:${string}`, CapabilityDefinition>
+
+/**
+ * 已下线能力的名字。旧运营配置里可能还留着它们，读配置时静默忽略而不是拒绝启动；
+ * 不要复用这些名字表示新能力。
+ */
+export const RETIRED_CAPABILITIES: readonly string[] = [
+  'generation:storyboard',
+  'matte:server',
+  'remix:analyze',
+  'remix:listing',
+]
 
 export interface CapabilityDefinition {
   readonly defaultValue: false
@@ -46,10 +54,12 @@ export const QUOTAS = {
   'agent:turns-per-device-minute': { defaultValue: 20 },
   'agent:turns-per-ip-hour': { defaultValue: 600 },
   'generation:daily-images': { defaultValue: 0 },
+  'sync:user-media-bytes': { defaultValue: 10 * 1024 * 1024 * 1024 },
   'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
   'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },
   'sync:project-elements': { defaultValue: PROJECT_ELEMENT_MAX_COUNT },
+  'sync:project-recycle-days': { defaultValue: 30 },
   'sync:user-projects': { defaultValue: 100 },
 } as const satisfies Record<`${string}:${string}`, QuotaDefinition>
 

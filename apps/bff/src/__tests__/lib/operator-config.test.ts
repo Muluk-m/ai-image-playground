@@ -143,6 +143,29 @@ describe('operator config', () => {
     expect(loadOperatorConfig(syncWithLogin).capabilities['accounts:sync']).toBe(true)
   })
 
+  it('ignores retired capabilities left in an older file but still rejects unknown ones', async () => {
+    const retired = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'quota:daily': true,
+          'generation:storyboard': true,
+          'matte:server': true,
+          'remix:analyze': false,
+          'remix:listing': true,
+        },
+      }),
+    )
+    const resolved = loadOperatorConfig(retired)
+    expect(resolved.capabilities['quota:daily']).toBe(true)
+    expect(evaluateCapability(resolved, 'matte:server')).toBe(false)
+    expect(evaluateCapability(resolved, 'generation:storyboard')).toBe(false)
+    expect(resolved.capabilities).not.toHaveProperty('matte:server')
+    expect(await configModuleExitCode(retired)).toBe(0)
+
+    const unknown = temporaryFile(JSON.stringify({ capabilities: { 'made:up': true } }))
+    expect(() => loadOperatorConfig(unknown)).toThrow('unknown capability: made:up')
+  })
+
   it('keeps known keys typed while evaluating runtime unknown keys as false', () => {
     const known: CapabilityKey = 'accounts:login'
     const resolved = loadOperatorConfig(sampleFile)

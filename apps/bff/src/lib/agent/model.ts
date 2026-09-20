@@ -1,8 +1,10 @@
 import type { StreamFn } from '@earendil-works/pi-agent-core'
 import { createModels, createProvider, type Model } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
+import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
 import { resolveApiKey } from '../resolveApiKey'
+import { agentThinking } from './thinking'
 
 const PROVIDER_ID = 'upstream-gateway'
 
@@ -22,35 +24,38 @@ export function setAgentFetchForTesting(impl?: AgentFetch): void {
  * `supportsUsageInStreaming` 显式写死：pi 会按 baseUrl 猜兼容性，猜错就没有
  * `stream_options.include_usage`，流式响应也就不带用量，token 计费无从结算。
  */
-function gatewayModel(): Model<'openai-completions'> {
+function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
   return {
-    id: config.agent.model,
-    name: config.agent.model,
+    id: agentThinking(depth).model,
+    name: agentThinking(depth).model,
     api: 'openai-completions',
     provider: PROVIDER_ID,
     baseUrl: `${config.upstream.baseUrl}/v1`,
-    reasoning: false,
+    reasoning: !!depth,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: config.agent.contextWindow,
     maxTokens: config.agent.maxTokens,
     compat: {
       supportsStore: false,
+      supportsReasoningEffort: true,
       maxTokensField: 'max_tokens',
       supportsUsageInStreaming: true,
     },
   }
 }
 
-let cached: { model: Model<'openai-completions'>; streamFn: StreamFn } | undefined
+const runtimes = new Map<string, { model: Model<'openai-completions'>; streamFn: StreamFn }>()
 
 /**
  * 不给 pi 装 telemetry exporter。它的 telemetry 是零依赖契约包，默认 no-op；
  * 装一个就等于把会话内容导给第三方后端。要可观测性走我们自己的 logger。
  */
-function runtime() {
+function runtime(depth?: AgentThinkingDepth) {
+  const key = depth ?? 'legacy'
+  const cached = runtimes.get(key)
   if (cached) return cached
-  const model = gatewayModel()
+  const model = gatewayModel(depth)
   const models = createModels()
   models.setProvider(
     createProvider({
@@ -72,14 +77,15 @@ function runtime() {
       ...options,
       fetch: fetchImpl as typeof globalThis.fetch | undefined,
     })
-  cached = { model, streamFn }
-  return cached
+  const result = { model, streamFn }
+  runtimes.set(key, result)
+  return result
 }
 
-export function agentModel(): Model<'openai-completions'> {
-  return runtime().model
+export function agentModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
+  return runtime(depth).model
 }
 
-export function agentStreamFn(): StreamFn {
-  return runtime().streamFn
+export function agentStreamFn(depth?: AgentThinkingDepth): StreamFn {
+  return runtime(depth).streamFn
 }

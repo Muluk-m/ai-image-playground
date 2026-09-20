@@ -1,7 +1,0 @@
-{
-  "capabilities": {
-    "remix:analyze": true,
-    "accounts:login": true,
-    "accounts:self-register": false
-  }
-}

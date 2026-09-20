@@ -1,7 +1,10 @@
+import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { describeError, i18next } from './i18n'
 import {
   clientProfileToApiProfile,
+  createBuiltinEdgeProfile,
   DEFAULT_SETTINGS,
   getActiveApiProfile,
   getCustomProviderDefinition,
@@ -9,11 +12,13 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
+import { pathAppMode } from './lib/appPaths'
 import {
   getModelCapabilities,
   getProfileModels,
   modelSupportsEdit,
   NO_EDIT_SUPPORT_MESSAGE,
+  updateSelectedModel,
 } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
@@ -43,6 +48,7 @@ import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
@@ -58,6 +64,7 @@ import {
   getImageThumbnail,
   getReferencedImageIds,
   getStoredFreshImageThumbnail,
+  hashDataUrl,
   putImage,
   putImageThumbnail,
   putTask,
@@ -67,6 +74,7 @@ import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from '.
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { placeCloudGeneration } from './lib/placeCloudGeneration'
 import {
   getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
@@ -81,6 +89,8 @@ import {
   MAX_BATCH_IMAGES,
   type SlotValues,
 } from './lib/promptSlots'
+import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
+import { reuseCloudGeneration } from './lib/reuseCloudGeneration'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
   createTransparentOutputMeta,
@@ -111,10 +121,13 @@ const CUSTOM_RECOVERY_POLL_MS = 10_000
 const SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX = 80
 const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const OPENAI_INTERRUPTED_ERROR = '请求中断'
+/** 任务文案在写进任务那一刻才求值：模块级常量会被之后的语言切换甩在身后。 */
+function createOpenAIInterruptedError() {
+  return i18next.t('task.interrupted', { ns: 'store' })
+}
 
 function createOpenAITimeoutError(timeoutSeconds: number) {
-  return `请求超时：超过 ${timeoutSeconds} 秒仍未完成，请稍后重试或提高超时时间。`
+  return i18next.t('task.timeout', { ns: 'store', timeoutSeconds })
 }
 
 export function getCachedImage(id: string): string | undefined {
@@ -161,7 +174,7 @@ async function storeGeneratedImages(
         outputDataUrl = await removeKeyedBackgroundFromDataUrl(dataUrl)
         transparentOriginalImageIds.push(originalId)
       } catch (err) {
-        console.warn('透明背景后处理失败，已回退为原始输出', err)
+        console.warn('transparent background post-processing failed, kept the raw output', err)
         outputIds.push(originalId)
         outputDataUrls.push(dataUrl)
         transparentOriginalImageIds.push('')
@@ -292,7 +305,7 @@ function scheduleThumbnailBackfillTick() {
     thumbnailBackfillScheduled = false
     // The tick can outlive its page, so a rejection here has nowhere to go.
     processNextThumbnailBackfill().catch((err) => {
-      console.warn('缩略图补齐调度失败', err)
+      console.warn('thumbnail backfill scheduling failed', err)
     })
   }
 
@@ -397,10 +410,20 @@ function orderImagesWithMaskFirst(
 export const APP_MODES = ['create', 'browse', 'video'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
+/**
+ * 取值时才翻译：模块加载那一刻语言可能还没切完，而写死的字面量在切换后也不会跟着变。
+ * 消费方（Header）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
+ */
 export const APP_MODE_LABELS: Record<AppMode, string> = {
-  browse: '作品',
-  create: '创作',
-  video: '视频',
+  get browse() {
+    return i18next.t('appMode.browse', { ns: 'store' })
+  },
+  get create() {
+    return i18next.t('appMode.create', { ns: 'store' })
+  },
+  get video() {
+    return i18next.t('appMode.video', { ns: 'store' })
+  },
 }
 
 /** 分段控件与模式分发都只认这份列表。视频要 BFF 频道加能力开关，纯静态形态没有。 */
@@ -431,7 +454,6 @@ export function getPersistedState(state: AppState) {
     libraryCoachDismissed: state.libraryCoachDismissed,
     libraryPanelOpened: state.libraryPanelOpened,
     assetHintShown: state.assetHintShown,
-    matteOverlayHidden: state.matteOverlayHidden,
     pinnedInspirationIds: state.pinnedInspirationIds,
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
@@ -465,7 +487,6 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     libraryCoachDismissed: Boolean(persisted.libraryCoachDismissed),
     libraryPanelOpened: Boolean(persisted.libraryPanelOpened),
     assetHintShown: Boolean(persisted.assetHintShown),
-    matteOverlayHidden: Boolean(persisted.matteOverlayHidden),
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
@@ -577,9 +598,6 @@ interface AppState {
   /** 参考图缩略图上方的一次性提示，出现过就不再出现。 */
   assetHintShown: boolean
   markAssetHintShown: () => void
-  /** 商品图预览区的蒙版叠色开关，默认叠。 */
-  matteOverlayHidden: boolean
-  setMatteOverlayHidden: (hidden: boolean) => void
   /** 用户手动置顶的灵感 id 列表；顺序 = pin 顺序（最近 pin 的在前）。 */
   pinnedInspirationIds: string[]
   /** toggle 置顶状态：未 pin → pin（插到最前）；已 pin → unpin。 */
@@ -779,6 +797,7 @@ export const useStore = create<AppState>()(
       setDetailTaskId: (detailTaskId) => {
         if (detailTaskId) dismissAllTooltips()
         set({ detailTaskId })
+        if (detailTaskId) void hydrateRemoteTask(detailTaskId)
       },
       lightboxImageId: null,
       lightboxImageList: [],
@@ -789,7 +808,8 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      appMode: 'create',
+      // 刷新作品 / 视频地址时直接落在对应入口，不先闪一下画布。
+      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'create',
       setAppMode: (appMode) => set({ appMode }),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
@@ -817,8 +837,6 @@ export const useStore = create<AppState>()(
       markLibraryPanelOpened: () => set({ libraryPanelOpened: true }),
       assetHintShown: false,
       markAssetHintShown: () => set({ assetHintShown: true }),
-      matteOverlayHidden: false,
-      setMatteOverlayHidden: (matteOverlayHidden) => set({ matteOverlayHidden }),
       pinnedInspirationIds: [],
       toggleInspirationPin: (id) =>
         set((st) => {
@@ -912,7 +930,7 @@ export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Dat
     const updated: TaskRecord = {
       ...task,
       status: 'error',
-      error: OPENAI_INTERRUPTED_ERROR,
+      error: createOpenAIInterruptedError(),
       finishedAt: now,
       elapsed: Math.max(0, now - task.createdAt),
     }
@@ -952,7 +970,8 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
   const timer = setTimeout(() => {
     openAIWatchdogTimers.delete(taskId)
     const failed = failOpenAITaskIfStillRunning(taskId, createOpenAITimeoutError(timeoutSeconds))
-    if (failed) useStore.getState().showToast('OpenAI 任务请求超时', 'error')
+    if (failed)
+      useStore.getState().showToast(i18next.t('toast.openaiTimeout', { ns: 'store' }), 'error')
   }, remainingMs)
   openAIWatchdogTimers.set(taskId, timer)
 }
@@ -963,9 +982,9 @@ export function showCodexCliPrompt(reason: string) {
   const promptKey = getCodexCliPromptKey(settings)
 
   state.setConfirmDialog({
-    title: '检测到 Codex CLI API',
-    message: `${reason}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。提示词防改写由输入栏参数中的「防改写」开关控制（默认开启）。`,
-    confirmText: '开启',
+    title: i18next.t('codexCli.title', { ns: 'store' }),
+    message: i18next.t('codexCli.message', { ns: 'store', reason }),
+    confirmText: i18next.t('codexCli.confirm', { ns: 'store' }),
     action: () => {
       const state = useStore.getState()
       state.dismissCodexCliPrompt(promptKey)
@@ -1053,7 +1072,7 @@ function getReusedTaskApiProfile(
 }
 
 function getTaskApiProfileName(task: TaskRecord) {
-  return task.apiProfileName || task.apiModel || '未知配置'
+  return task.apiProfileName || task.apiModel || i18next.t('profile.unknown', { ns: 'store' })
 }
 
 function isConnectionRecoverableError(err: unknown) {
@@ -1094,20 +1113,20 @@ function getApiRequestNetworkErrorHint(
 
   if (elapsedSeconds <= 15) {
     if (usesApiProxy) {
-      return '提示：请求立即失败，请检查 API 代理服务是否正常运行。'
+      return i18next.t('networkHint.proxyDown', { ns: 'store' })
     }
-    return '提示：接口可能不支持浏览器跨域请求，可开启 API 代理解决。'
+    return i18next.t('networkHint.cors', { ns: 'store' })
   }
 
   if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
-    return '提示：请求等待约 60 秒后被断开，这通常是 Nginx 等反向代理的默认超时，而非接口本身报错。可调大代理的超时时间（如 proxy_read_timeout），或降低图片尺寸/质量后重试。'
+    return i18next.t('networkHint.reverseProxy60s', { ns: 'store' })
   }
 
   if (elapsedSeconds >= 110 && elapsedSeconds <= 140) {
-    return '提示：请求等待约 120 秒后被断开，这通常是 Cloudflare 等 CDN/网关的超时限制，而非接口本身报错。如果使用 Cloudflare，可考虑升级套餐或使用不经过 CDN 的直连地址。'
+    return i18next.t('networkHint.cdn120s', { ns: 'store' })
   }
 
-  return '提示：请求等待较长时间后被断开，通常是反向代理或网关的超时限制，而非接口本身报错。可检查代理超时设置，或降低图片尺寸/质量后重试。'
+  return i18next.t('networkHint.generic', { ns: 'store' })
 }
 
 function getRawErrorPayload(
@@ -1325,7 +1344,7 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     (!normalizedSettings.profiles.some((item) => item.id === input.profileId) ||
       !getProfileModels(selectedProfile, getPublicChannels()).includes(input.modelId))
   ) {
-    showToast('所选模型或配置已不可用，请重新选择', 'error')
+    showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
     return []
   }
   const profile = input.modelId
@@ -1334,20 +1353,20 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const requestSettings = createSettingsForApiProfile(normalizedSettings, profile)
 
   if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
-    showToast('当前部署只允许使用内置模型', 'error')
+    showToast(i18next.t('submit.builtinOnly', { ns: 'store' }), 'error')
     return []
   }
 
   const validationError = validateClientProfile(profile)
   if (validationError) {
-    showToast(`请先完善请求 API 配置：${validationError}`, 'error')
+    showToast(i18next.t('submit.invalidProfile', { ns: 'store', reason: validationError }), 'error')
     useStore.getState().setShowSettings(true)
     return []
   }
 
   const trimmedPrompt = input.prompt.trim()
   if (!trimmedPrompt) {
-    showToast('请输入提示词', 'error')
+    showToast(i18next.t('submit.promptRequired', { ns: 'store' }), 'error')
     return []
   }
 
@@ -1361,7 +1380,10 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     quantity: prompts.length * Math.max(1, taskParams.n),
   })
   if (submissionGuard.blocked) {
-    showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    showToast(
+      submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'store' }),
+      'error',
+    )
     return []
   }
 
@@ -1450,10 +1472,14 @@ export async function submitTask(
         useStore.getState().setReusedTaskApiProfile(null)
       } else {
         setConfirmDialog({
-          title: '找不到 API 配置',
-          message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${clientProfileToApiProfile(activeProfile).name}」提交任务吗？`,
-          confirmText: '使用当前配置提交',
-          cancelText: '放弃提交',
+          title: i18next.t('reuseProfile.missingTitle', { ns: 'store' }),
+          message: i18next.t('reuseProfile.missingMessage', {
+            ns: 'store',
+            taskProfile: reusedTaskApiProfileName || i18next.t('profile.unknown', { ns: 'store' }),
+            currentProfile: clientProfileToApiProfile(activeProfile).name,
+          }),
+          confirmText: i18next.t('reuseProfile.confirm', { ns: 'store' }),
+          cancelText: i18next.t('reuseProfile.cancel', { ns: 'store' }),
           action: () => {
             void submitTask({ ...options, useCurrentApiProfileWhenReusedMissing: true })
           },
@@ -1468,7 +1494,10 @@ export async function submitTask(
 
   const unfilledSlots = getUnfilledPromptSlots(prompt, slotValues)
   if (unfilledSlots.length > 0) {
-    showToast(`槽位 {${unfilledSlots[0]}} 未填值`, 'error')
+    showToast(
+      i18next.t('submit.slotUnfilled', { ns: 'store', slot: `{${unfilledSlots[0]}}` }),
+      'error',
+    )
     return
   }
 
@@ -1485,9 +1514,9 @@ export async function submitTask(
       )
       if (coverage === 'full' && !options.allowFullMask) {
         setConfirmDialog({
-          title: '确认编辑整张图片？',
-          message: '当前遮罩覆盖了整张图片，提交后可能会重绘全部内容。是否继续？',
-          confirmText: '继续提交',
+          title: i18next.t('mask.fullTitle', { ns: 'store' }),
+          message: i18next.t('mask.fullMessage', { ns: 'store' }),
+          confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
           tone: 'warning',
           action: () => {
             void submitTask({ allowFullMask: true })
@@ -1514,7 +1543,7 @@ export async function submitTask(
   }
 
   if (getSubmissionImageCount(prompt.trim(), slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
-    showToast(`单次最多 ${MAX_BATCH_IMAGES} 张`, 'error')
+    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
     return
   }
 
@@ -1551,7 +1580,7 @@ async function executeTask(taskId: string) {
   if (!taskProfile && task.apiProfileId) {
     updateTaskInStore(taskId, {
       status: 'error',
-      error: '找不到此任务所使用的 API 配置。',
+      error: i18next.t('task.profileMissing', { ns: 'store' }),
       customRecoverable: false,
       finishedAt: Date.now(),
       elapsed: Date.now() - task.createdAt,
@@ -1594,6 +1623,7 @@ async function executeTask(taskId: string) {
           prompt: task.prompt,
           params: task.params,
           inputImageDataUrls: [],
+          onQueueStatus: (queuePhase) => updateTaskInStore(taskId, { queuePhase }),
         },
         task.bffRequestId!,
       )
@@ -1602,12 +1632,12 @@ async function executeTask(taskId: string) {
       const inputDataUrls: string[] = []
       for (const imgId of task.inputImageIds) {
         const dataUrl = await ensureImageCached(imgId)
-        if (!dataUrl) throw new Error('输入图片已不存在')
+        if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
         inputDataUrls.push(dataUrl)
       }
       if (task.maskImageId) {
         maskDataUrl = await ensureImageCached(task.maskImageId)
-        if (!maskDataUrl) throw new Error('遮罩图片已不存在')
+        if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
       }
 
       const requestPrompt =
@@ -1631,6 +1661,7 @@ async function executeTask(taskId: string) {
           updateTaskInStore(taskId, { bffRequestId: requestId })
           notifyPrivateSubmissionAccepted()
         },
+        onQueueStatus: (queuePhase) => updateTaskInStore(taskId, { queuePhase }),
       })
     }
 
@@ -1679,7 +1710,12 @@ async function executeTask(taskId: string) {
       customRecoverable: false,
     })
 
-    useStore.getState().showToast(`生成完成，共 ${outputIds.length} 张图片`, 'success')
+    useStore
+      .getState()
+      .showToast(
+        i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
+        'success',
+      )
     const currentMask = useStore.getState().maskDraft
     if (
       maskDataUrl &&
@@ -1699,7 +1735,7 @@ async function executeTask(taskId: string) {
     if (latestCustomTaskInfo && isConnectionRecoverableError(err)) {
       updateTaskInStore(taskId, {
         status: 'error',
-        error: '与自定义异步任务的连接已断开，之后会继续查询任务结果。',
+        error: i18next.t('task.customDisconnected', { ns: 'store' }),
         customTaskId: latestCustomTaskInfo.taskId,
         customRecoverable: true,
         finishedAt: Date.now(),
@@ -1743,8 +1779,137 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   if (task) putTask(task)
 }
 
-/** 重试失败的任务：创建新任务并执行 */
+/** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出、参考图与遮罩。 */
+const hydratedRemoteTasks = new Set<string>()
+async function hydrateRemoteTask(taskId: string) {
+  const task = useStore.getState().tasks.find((t) => t.id === taskId)
+  if (!task?.remoteOnly || hydratedRemoteTasks.has(taskId)) return
+  hydratedRemoteTasks.add(taskId)
+  const detail = await readRemoteGeneration(taskId)
+  if (!detail) {
+    hydratedRemoteTasks.delete(taskId)
+    return
+  }
+  updateTaskInStore(taskId, {
+    prompt: detail.prompt,
+    outputImages: detail.outputs.map((output) => mediaRef(output.mediaId)),
+    inputImageIds: detail.inputs.map((input) => mediaRef(input.mediaId)),
+    maskImageId: detail.mask ? mediaRef(detail.mask.mediaId) : null,
+  })
+}
+/**
+ * 把一条只在平台留有记录的生成搬到本机：产出、参考图、遮罩都下原图存进本机图库，id 换成本机 id，
+ * 顺手认出它该用哪个内置 channel 的 profile。复用、编辑、放入画布、重试都要真实像素，所以这些
+ * 动作在动手之前先过这里——之后它就是一条普通任务，下游不需要再分情况。
+ */
+export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecord> {
+  if (!task.remoteOnly) return task
+  const detail = await readRemoteGeneration(task.id)
+  const outputs = detail
+    ? detail.outputs.map((image) => mediaRef(image.mediaId))
+    : task.outputImages
+  const inputs = detail ? detail.inputs.map((image) => mediaRef(image.mediaId)) : task.inputImageIds
+  const mask = detail?.mask ? mediaRef(detail.mask.mediaId) : (task.maskImageId ?? null)
+  const [outputImages, inputImageIds, maskImageId] = await Promise.all([
+    localizeRefs(outputs, 'generated'),
+    localizeRefs(inputs, 'upload'),
+    mask ? localizeRef(mask, 'mask') : Promise.resolve(null),
+  ])
+  const localized: TaskRecord = {
+    ...task,
+    prompt: detail?.prompt ?? task.prompt,
+    outputImages,
+    inputImageIds,
+    maskImageId,
+    maskTargetImageId: maskImageId ? (inputImageIds[0] ?? null) : null,
+    apiProfileId: builtinProfileId(detail?.provider ?? '', task.apiModel ?? ''),
+    remoteOnly: undefined,
+  }
+  await putTask(localized)
+  useStore.setState((state) => ({
+    tasks: state.tasks.map((item) => (item.id === localized.id ? localized : item)),
+  }))
+  return localized
+}
+
+async function localizeRefs(
+  refs: readonly string[],
+  source: 'generated' | 'upload',
+): Promise<string[]> {
+  const localized = await Promise.all(refs.map((ref) => localizeRef(ref, source)))
+  return localized.filter((id): id is string => id !== null)
+}
+
+/** 已经是本机 id 的原样返回；云媒体引用下原图存本机，返回新 id。取不到图返回 null。 */
+async function localizeRef(
+  ref: string,
+  source: 'generated' | 'upload' | 'mask',
+): Promise<string | null> {
+  if (!ref.startsWith('aip-media:')) return ref
+  try {
+    const dataUrl = await resolveMediaSource(ref, 'original')
+    const id = await hashDataUrl(dataUrl)
+    await putImage({ id, dataUrl, createdAt: Date.now(), source })
+    return id
+  } catch {
+    return null
+  }
+}
+
+/** 平台记录只给了 provider 与模型；找出承载这个模型的内置 channel，复用时才能切到对的模型。 */
+function builtinProfileId(provider: string, model: string): string | undefined {
+  const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
+  const channel = getPublicChannels().find(
+    (entry) => entry.kind === kind && entry.models.some((item) => item.id === model),
+  )
+  if (!channel) return undefined
+  const settings = normalizeSettings(useStore.getState().settings)
+  const existing = settings.profiles.find(
+    (item) => item.source === 'builtin-edge' && item.channelId === channel.id,
+  )
+  if (existing) return existing.id
+  const created = createBuiltinEdgeProfile(channel.id, model)
+  useStore.getState().setSettings({ profiles: [...settings.profiles, created] })
+  return created.id
+}
+
+/** 复用一条刚搬回本机的平台记录时连模型一起切过去；不切等于换个模型重跑，不叫复用。 */
+function activateTaskProfile(task: TaskRecord) {
+  if (!task.apiProfileId || !task.apiModel) return
+  const state = useStore.getState()
+  const settings = normalizeSettings(state.settings)
+  const publicChannels = getPublicChannels()
+  state.setSettings({
+    profiles: settings.profiles.map((profile) =>
+      profile.id === task.apiProfileId
+        ? updateSelectedModel(profile, task.apiModel as string, publicChannels)
+        : profile,
+    ),
+    activeProfileId: task.apiProfileId,
+  })
+}
+
+/**
+ * 搬回本机之后输出图换了 id，所以按序号找回调用方点的那一张；本机记录原样返回它给的 id。
+ */
+function resolveOutputId(
+  original: TaskRecord,
+  local: TaskRecord,
+  imageId?: string,
+): string | undefined {
+  if (local === original) return imageId ?? original.outputImages?.[0]
+  const index = imageId ? original.outputImages.indexOf(imageId) : 0
+  return local.outputImages[index >= 0 ? index : 0]
+}
+
+/**
+ * 重试失败的任务：创建新任务并执行。像素只在平台上的记录先搬回本机，重试和本机记录走同一条路。
+ */
 export async function retryTask(task: TaskRecord) {
+  return retryLocalTask(await materializeRemoteTask(task))
+}
+
+async function retryLocalTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
@@ -1781,8 +1946,28 @@ export async function retryTask(task: TaskRecord) {
   executeTask(taskId)
 }
 
-/** 复用配置 */
+/**
+ * 复用配置。平台记录走云端复用：它要按 provider+model 认回内置模型、把参考图和遮罩按引用取回来，
+ * 而不是照本机 id 读图。
+ */
 export async function reuseConfig(task: TaskRecord) {
+  if (task.remoteOnly) {
+    const detail = await readRemoteGeneration(task.id)
+    if (!detail) {
+      useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
+      return
+    }
+    try {
+      await reuseCloudGeneration(detail, new AbortController().signal)
+    } catch {
+      useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
+    }
+    return
+  }
+  return reuseLocalConfig(task)
+}
+
+async function reuseLocalConfig(task: TaskRecord) {
   const {
     settings,
     setPrompt,
@@ -1851,10 +2036,14 @@ export async function reuseConfig(task: TaskRecord) {
   }
   if (missingReusedProfile) {
     setConfirmDialog({
-      title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${taskProfileName}」，要使用当前的 API 配置「${currentView.name}」提交任务吗？`,
-      confirmText: '使用当前配置提交',
-      cancelText: '放弃提交',
+      title: i18next.t('reuseProfile.missingTitle', { ns: 'store' }),
+      message: i18next.t('reuseProfile.missingMessage', {
+        ns: 'store',
+        taskProfile: taskProfileName,
+        currentProfile: currentView.name,
+      }),
+      confirmText: i18next.t('reuseProfile.confirm', { ns: 'store' }),
+      cancelText: i18next.t('reuseProfile.cancel', { ns: 'store' }),
       action: () => {
         void submitTask({ useCurrentApiProfileWhenReusedMissing: true })
       },
@@ -1864,8 +2053,8 @@ export async function reuseConfig(task: TaskRecord) {
 
   showToast(
     shouldTemporarilyReuseProfile && matchedView
-      ? `已临时复用该任务的 API 配置「${matchedView.name}」`
-      : '已复用配置到输入框',
+      ? i18next.t('toast.profileReused', { ns: 'store', profile: matchedView.name })
+      : i18next.t('toast.configReused', { ns: 'store' }),
     'success',
   )
 }
@@ -1876,9 +2065,10 @@ export async function reuseConfig(task: TaskRecord) {
  * 再打开遮罩编辑器。不传 imageId 时默认取首张输出图。
  */
 export async function editOutputImage(task: TaskRecord, imageId?: string) {
+  const local = await materializeRemoteTask(task)
   const { inputImages, addInputImage, setMaskEditorImageId, showToast, settings } =
     useStore.getState()
-  const targetId = imageId ?? task.outputImages?.[0]
+  const targetId = resolveOutputId(task, local, imageId)
   if (!targetId) return
 
   if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels())) {
@@ -1888,7 +2078,7 @@ export async function editOutputImage(task: TaskRecord, imageId?: string) {
 
   const dataUrl = await ensureImageCached(targetId)
   if (!dataUrl) {
-    showToast('图片已不存在，无法编辑', 'error')
+    showToast(i18next.t('toast.imageMissingForEdit', { ns: 'store' }), 'error')
     return
   }
   if (!inputImages.find((i) => i.id === targetId)) {
@@ -1956,19 +2146,49 @@ export async function addCompletedCanvasTask(args: {
 /**
  * 把一条任务的输出图送进创作模式画布：取全分辨率原图 → 入 handoff 队列 → 切到 create 模式，
  * 由画布 onMount 消费队列放图。默认送第一张输出图。
+ *
+ * 平台记录走显式放置（`placeCloudGeneration`）：它带稳定产物身份，重复放只定位已有对象、
+ * 不覆盖已经被移动过的那张，也不会和同步送达的产物撞成两个。
  */
 export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
+  if (task.remoteOnly) return placeRemoteOutputOnCanvas(task, imageId)
   const { queueCanvasImages, setAppMode, showToast } = useStore.getState()
   const targetId = imageId ?? task.outputImages?.[0]
   if (!targetId) return
 
   const dataUrl = await ensureImageCached(targetId)
   if (!dataUrl) {
-    showToast('图片已不存在，无法送入画布', 'error')
+    showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
     return
   }
   queueCanvasImages([dataUrl])
   setAppMode('create')
+}
+
+/** 平台记录的输出按序号对回详情里的那一张，再交给显式放置；失败按原因给话说清。 */
+async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
+  const { showToast } = useStore.getState()
+  const detail = await readRemoteGeneration(task.id)
+  const index = imageId ? Math.max(task.outputImages.indexOf(imageId), 0) : 0
+  const output = detail?.outputs[index] ?? detail?.outputs[0]
+  if (!output) {
+    showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
+    return
+  }
+  try {
+    await placeCloudGeneration(detail as GenerationDetail, output, new AbortController().signal)
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : ''
+    showToast(
+      i18next.t(
+        reason === 'project_not_ready' ? 'toast.canvasNotReady' : 'toast.canvasPlaceFailed',
+        {
+          ns: 'store',
+        },
+      ),
+      'error',
+    )
+  }
 }
 
 /** 删除多条任务 */
@@ -2015,12 +2235,19 @@ export async function removeMultipleTasks(taskIds: string[]) {
     useStore.getState().setSelectedTaskIds(newSelection)
   }
 
-  showToast(`已删除 ${taskIds.length} 条记录`, 'success')
+  showToast(i18next.t('toast.tasksDeleted', { ns: 'store', count: taskIds.length }), 'success')
 }
 
-/** 删除单条任务 */
+/**
+ * 删除单条任务。像素只在平台上的那条（`remoteOnly`）先删平台记录：本机删掉不算删，刷新就回来了。
+ * 平台删不掉时整件事不做，免得列表和平台各说一套。
+ */
 export async function removeTask(task: TaskRecord) {
   const { tasks, setTasks, showToast } = useStore.getState()
+  if (task.remoteOnly && !(await deleteRemoteGeneration(task.id))) {
+    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+    return
+  }
 
   // 收集此任务关联的图片
   const taskImageIds = new Set([
@@ -2046,7 +2273,7 @@ export async function removeTask(task: TaskRecord) {
     }
   }
 
-  showToast('记录已删除', 'success')
+  showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
 }
 
 /** 清空数据选项 */
@@ -2077,7 +2304,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     setParams({ ...DEFAULT_PARAMS })
   }
 
-  showToast('所选数据已清空', 'success')
+  showToast(i18next.t('toast.dataCleared', { ns: 'store' }), 'success')
 }
 
 /** 从 dataUrl 解析出 MIME 扩展名和二进制数据 */
@@ -2128,7 +2355,12 @@ async function completeRecoveredCustomTask(
     finishedAt: Date.now(),
     elapsed: Date.now() - task.createdAt,
   })
-  useStore.getState().showToast(`自定义异步任务已恢复，共 ${outputIds.length} 张图片`, 'success')
+  useStore
+    .getState()
+    .showToast(
+      i18next.t('toast.customTaskRecovered', { ns: 'store', count: outputIds.length }),
+      'success',
+    )
 }
 
 async function recoverCustomTask(taskId: string) {
@@ -2293,11 +2525,14 @@ export async function exportData(
     a.download = `image-playground-${formatExportFileTime(new Date(exportedAt))}.zip`
     a.click()
     URL.revokeObjectURL(url)
-    useStore.getState().showToast('数据已导出', 'success')
+    useStore.getState().showToast(i18next.t('toast.exported', { ns: 'store' }), 'success')
   } catch (e) {
     useStore
       .getState()
-      .showToast(`导出失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+      .showToast(
+        i18next.t('toast.exportFailed', { ns: 'store', reason: describeError(e) }),
+        'error',
+      )
   }
 }
 
@@ -2317,7 +2552,7 @@ export async function importData(
     const unzipped = unzipSync(new Uint8Array(buffer))
 
     const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) throw new Error('ZIP 中缺少 manifest.json')
+    if (!manifestBytes) throw new Error(i18next.t('error.manifestMissing', { ns: 'store' }))
 
     const data: ExportData = JSON.parse(strFromU8(manifestBytes))
 
@@ -2373,11 +2608,11 @@ export async function importData(
       state.setSettings(mergeImportedSettings(state.settings, data.settings))
     }
 
-    let msg = '数据已成功导入'
+    let msg = i18next.t('toast.imported', { ns: 'store' })
     if (options.importTasks && data.tasks) {
-      msg = `已导入 ${data.tasks.length} 条记录`
+      msg = i18next.t('toast.importedTasks', { ns: 'store', count: data.tasks.length })
     } else if (options.importConfig && data.settings) {
-      msg = '配置已成功导入'
+      msg = i18next.t('toast.importedConfig', { ns: 'store' })
     }
 
     useStore.getState().showToast(msg, 'success')
@@ -2385,7 +2620,10 @@ export async function importData(
   } catch (e) {
     useStore
       .getState()
-      .showToast(`导入失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+      .showToast(
+        i18next.t('toast.importFailed', { ns: 'store', reason: describeError(e) }),
+        'error',
+      )
     return false
   }
 }
@@ -2415,7 +2653,8 @@ export async function storeImageFromUrl(
 ): Promise<{ id: string; dataUrl: string }> {
   const res = await fetcher(src)
   const blob = await res.blob()
-  if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
+  if (!blob.type.startsWith('image/'))
+    throw new Error(i18next.t('error.notAnImage', { ns: 'store' }))
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)

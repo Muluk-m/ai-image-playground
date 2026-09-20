@@ -1,6 +1,7 @@
 import type { ProjectWrite } from '@image-playground/shared'
 import type { Camera, CanvasEl } from './canvasDoc'
 import type { CanvasEditor } from './editor'
+import type { MediaBindings } from './projectMedia'
 
 /**
  * 画布场景的 IndexedDB 持久化。与项目 image-playground 主库隔离，独立 DB；
@@ -15,7 +16,7 @@ const SCENE_FORMAT = 2
 /** 变更高频触发（拖拽 / 画笔每帧都算），落盘防抖窗口。 */
 export const PERSIST_DEBOUNCE_MS = 500
 
-interface PersistedScene {
+export interface PersistedScene {
   version: typeof SCENE_FORMAT
   elements: readonly CanvasEl[]
   /** fileId → dataUrl，只存仍被引用的。 */
@@ -31,6 +32,8 @@ export interface CloudSceneCheckpoint {
   savedContent: string | null
   pending: ProjectWrite | null
   conflict: boolean
+  deleted?: boolean
+  media?: MediaBindings
 }
 
 /** 连接缓存：防抖落盘高频调用，每次新开连接会积累未关闭句柄。失败/被关则下次重开。 */

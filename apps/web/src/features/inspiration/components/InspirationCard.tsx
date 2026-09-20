@@ -1,5 +1,6 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { StarIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { InspirationItem } from '../types'
 
@@ -16,6 +17,7 @@ interface Props {
  */
 export default function InspirationCard({ item, pinned, onClick }: Props) {
   const togglePin = useStore((s) => s.toggleInspirationPin)
+  const { t } = useTranslation('inspiration')
 
   const handlePinClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation()
@@ -35,7 +37,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       tabIndex={0}
       onClick={onClick}
       onKeyDown={handleKeyDown}
-      title={`${item.title}\n推荐模型：${item.recommendedModel}`}
+      title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
       className="group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring/60 dark:hover:shadow-blue-500/10"
     >
       <div className="relative aspect-[3/4] overflow-hidden bg-muted">
@@ -54,17 +56,17 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           type="button"
           onClick={handlePinClick}
           aria-pressed={pinned}
-          aria-label={pinned ? '取消置顶' : '置顶'}
+          aria-label={pinned ? t('card.unpin') : t('card.pin')}
           className={`absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
             pinned
               ? 'bg-warning/90 text-white opacity-100 shadow-sm'
-              : 'bg-black/45 text-white opacity-0 hover:bg-black/65 group-hover:opacity-100'
+              : 'bg-black/45 text-white opacity-0 hover:bg-black/65 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
           }`}
         >
           <StarIcon width={14} height={14} filled={pinned} aria-hidden />
         </button>
 
-        <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 transition duration-300 group-hover:opacity-100">
+        <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 transition duration-300 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <p className="line-clamp-6 p-3 text-[11px] leading-relaxed text-white/95">
             {item.prompt}
           </p>

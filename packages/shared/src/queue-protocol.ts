@@ -15,6 +15,8 @@ export const DEFAULT_IMAGE_MODERATION = 'low' as const
 
 export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
+export const TASK_PROGRESS_PHASES = ['queued', 'generating', 'reconnecting', 'confirming'] as const
+export type TaskProgressPhase = (typeof TASK_PROGRESS_PHASES)[number]
 
 /**
  * `queue` 是 worker 跑的生图 / 生视频任务；`chat` 是一轮对话的占用记录，worker 不碰它，
@@ -25,6 +27,7 @@ export type TaskKind = (typeof TASK_KINDS)[number]
 
 /** Server-side persisted image reference. Queue clients continue to submit data URL strings. */
 export interface StoredImageRef {
+  store?: 'durable'
   object: string
   mime: string
 }
@@ -106,6 +109,9 @@ export type PersistedVideoRequest = VideoRequest & { source_video?: StoredImageR
 
 /** BFF-only database representation after input pixel bytes move to object storage. */
 export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask' | 'video'> & {
+  /** 服务端为 Agent 局部编辑设置；不接受模型或客户端决定是否保护选区外像素。 */
+  preserve_outside_mask?: true
+  masked_original_size?: { width: number; height: number }
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
   video?: PersistedVideoRequest
@@ -131,6 +137,8 @@ export interface StatusResultMeta {
 export interface StatusResponse {
   request_id: string
   status: TaskStatus
+  /** Human-facing progress within queued/in_progress. Older BFFs omit it. */
+  phase?: TaskProgressPhase
   submitted_at: number
   started_at?: number
   completed_at?: number

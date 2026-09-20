@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDownIcon, SettingsIcon } from '../../../components/icons'
 import { compactModelName } from '../../../components/ModelIdentity'
 import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
+import { Button } from '../../../components/ui/button'
 import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
+import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { normalizeImageSize, sizeRatioLabel } from '../../../lib/size'
 import { useStore } from '../../../store'
 import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
+import { useAgentStore } from '../store'
 
 /**
  * 智能体这条路做不到的两项，chip 不出现。理由见 `lib/turnParams.ts`：
@@ -15,34 +18,51 @@ import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
  */
 const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRewrite'])
 
-/** 收起时只给一行摘要：当前打哪个模型、出多大。张数由智能体按需求决定。 */
-function useSummary(): string[] {
+/**
+ * 收起时只给一行摘要：当前打哪个模型、出多大。张数由智能体按需求决定。
+ *
+ * 自带 Key 的配置在智能体这条路上不生效——服务端没有 BYOK 分支，模型一律从内置渠道里挑。
+ * 所以 BYOK 时不摆 profile 里那个模型名：那是「界面写 A、实际花钱跑 B」。真正用上的那一个
+ * 由服务端冻结进草稿，卡片上那行写的就是它。
+ */
+function useSummary(): { readonly parts: string[]; readonly byok: boolean } {
+  const { t } = useTranslation('agent')
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
   return useMemo(() => {
     const active = getActiveApiProfile(settings)
     const profile = clientProfileToApiProfile(active)
     const capabilities = getParamCapabilities(active, params.output_format)
-    const parts = [compactModelName(profile.model, profile.model)]
+    const byok = active.source === 'user-byok'
+    const parts = [byok ? t('params.builtinModel') : compactModelName(profile.model, profile.model)]
     parts.push(
       profile.provider === 'gemini'
-        ? params.gemini_aspect_ratio || '自动比例'
+        ? params.gemini_aspect_ratio || t('params.autoRatio')
         : params.size && params.size !== 'auto'
           ? capabilities.size
             ? normalizeImageSize(params.size)
             : sizeRatioLabel(params.size)
           : capabilities.size
-            ? '自动尺寸'
-            : '自动比例',
+            ? t('params.autoSize')
+            : t('params.autoRatio'),
     )
-    return parts
-  }, [params, settings])
+    return { parts, byok }
+  }, [params, settings, t])
 }
 
 export default function AgentParamsChip() {
+  const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const summary = useSummary()
+  const generation = useSummary()
+  const depth = useAgentStore((state) => state.thinkingDepth)
+  const setDepth = useAgentStore((state) => state.setThinkingDepth)
+  const labels = {
+    fast: t('params.thinkingFast'),
+    medium: t('params.thinkingMedium'),
+    deep: t('params.thinkingDeep'),
+  }
+  const summary = [t('params.thinkingSummary', { label: labels[depth] }), ...generation.parts]
   const insidePointerRef = useRef<Event | null>(null)
   useCloseOnEscape(open, () => setOpen(false))
 
@@ -71,7 +91,7 @@ export default function AgentParamsChip() {
       <button
         type="button"
         aria-expanded={open}
-        aria-label="生成参数"
+        aria-label={t('params.title')}
         className={`flex min-w-0 max-w-full items-center h-8 gap-1.5 rounded-full bg-muted px-2.5 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
@@ -87,22 +107,43 @@ export default function AgentParamsChip() {
           className={`studio-agent-params absolute bottom-full right-0 z-10 mb-2 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
         >
           <div className="mb-2 flex items-center justify-between">
-            <p className={`text-xs font-semibold ${INK}`}>生成参数</p>
+            <p className={`text-xs font-semibold ${INK}`}>{t('params.title')}</p>
             <button
               type="button"
-              aria-label="关闭生成参数"
+              aria-label={t('params.closeAria')}
               onClick={() => setOpen(false)}
               className="rounded-lg px-3 py-2 text-sm text-muted-foreground"
             >
-              完成
+              {t('params.done')}
             </button>
           </div>
+          <fieldset className="mb-3">
+            <legend className={`mb-2 text-xs font-semibold ${INK}`}>
+              {t('params.thinkingLegend')}
+            </legend>
+            <div className="flex gap-1">
+              {(['fast', 'medium', 'deep'] as const).map((value) => (
+                <Button
+                  type="button"
+                  key={value}
+                  aria-pressed={depth === value}
+                  onClick={() => setDepth(value)}
+                  size="sm"
+                  variant={depth === value ? 'default' : 'secondary'}
+                  className="flex-1"
+                >
+                  {labels[value]}
+                </Button>
+              ))}
+            </div>
+          </fieldset>
           <div className="flex flex-wrap items-center gap-1.5">
             <ParamControls unsupported={UNSUPPORTED} />
           </div>
-          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>
-            张数由智能体按需求决定。参数改动从下一轮生效。
-          </p>
+          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
+          {generation.byok && (
+            <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.byokNote')}</p>
+          )}
         </div>
       )}
     </div>

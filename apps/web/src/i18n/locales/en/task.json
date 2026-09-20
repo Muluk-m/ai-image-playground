@@ -1,0 +1,139 @@
+{
+  "download": {
+    "started_one": "Downloading {{count}} image...",
+    "started_other": "Downloading {{count}} images...",
+    "partial": "Download finished: {{success}} succeeded, {{failed}} failed",
+    "succeeded_one": "Downloaded {{count}} image",
+    "succeeded_other": "Downloaded {{count}} images",
+    "start": "Download started",
+    "failed": "Download failed",
+    "inProgress": "Downloading...",
+    "single": "Download image",
+    "multiple": "Download {{n}} images"
+  },
+  "action": {
+    "retryTask": "Retry task",
+    "favorite": "Add to favorites",
+    "unfavorite": "Remove from favorites",
+    "reuse": "Reuse config",
+    "editOutput": "Edit output",
+    "sendToCanvas": "Send to canvas",
+    "sendToCanvasTitle": "Send to create canvas",
+    "deleteRecord": "Delete record"
+  },
+  "confirm": {
+    "deleteMessage": "Delete this record? Only images that are no longer used get cleaned up."
+  },
+  "prompt": {
+    "empty": "(no prompt)"
+  },
+  "param": {
+    "size": "Size",
+    "quality": "Quality",
+    "format": "Format",
+    "moderation": "Moderation",
+    "count": "Count",
+    "compression": "Compression"
+  },
+  "card": {
+    "generating": "Generating...",
+    "phase": {
+      "queued": "Queued...",
+      "generating": "Generating...",
+      "reconnecting": "Reconnecting...",
+      "confirming": "Confirming result..."
+    },
+    "inpaint": "Inpaint",
+    "transparentBackground": "Transparent"
+  },
+  "detail": {
+    "generateFailed": "Generation failed",
+    "errorCopied": "Full error copied",
+    "copyErrorFailed": "Could not copy the error",
+    "promptCopied": "Prompt copied",
+    "copyPromptFailed": "Could not copy the prompt",
+    "promptRevisedReason": "The API rewrote the prompt it returned",
+    "promptMissingReason": "The API left out some fields the official API returns",
+    "referenceCopied": "Reference image copied",
+    "copyReferenceFailed": "Could not copy the reference image",
+    "copyFullError": "Copy full error",
+    "viewRawResponse": "View raw response",
+    "imageUrlCopied": "Image link copied",
+    "copyLinkFailed": "Could not copy the link",
+    "copyImageUrls": "Copy image links",
+    "inputSection": "Input",
+    "copyPrompt": "Copy prompt",
+    "promptRevised": "Prompt was rewritten",
+    "expandAll": "Show all",
+    "referenceSection": "Reference images",
+    "copyReference": "Copy reference image",
+    "paramsSection": "Parameters",
+    "source": "Source",
+    "createdAt": "Created {{time}}",
+    "elapsed": "Took {{duration}}",
+    "copyAll": "Copy all"
+  },
+  "rawUrls": {
+    "title": "Raw image links ({{n}})",
+    "imageIndex": "Image {{n}}",
+    "copyLink": "Copy link"
+  },
+  "rawResponse": {
+    "title": "Raw response data"
+  },
+  "menu": {
+    "imageCopied": "Image copied",
+    "referenceLimit": "Reference image limit reached (16), can't add more",
+    "addReferenceFailed": "Could not add the reference image: {{reason}}",
+    "saveAsAsset": "Save as asset",
+    "saveAsAssetFailed": "Could not save as asset: {{reason}}",
+    "makeVideo": "Make video",
+    "makeVideoFailed": "Could not create the video: {{reason}}"
+  },
+  "lightbox": {
+    "saveImage": "Save image",
+    "saveFailed": "Save failed"
+  },
+  "grid": {
+    "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
+    "noMatches": "No matching records"
+  },
+  "set": {
+    "storyboardFallback": "Storyboard",
+    "productShotFallback": "Product shot task",
+    "doneCount": "Done {{done}}/{{total}}",
+    "failedCount": "{{failed}} failed",
+    "expandToView": "Expand",
+    "resultAlt": "{{name}} result"
+  },
+  "cloudHistory": {
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "more": "Load more",
+    "close": "Close",
+    "details": "View details",
+    "openAria": "View this {{model}} generation",
+    "status": {
+      "queued": "Queued",
+      "in_progress": "Generating",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "reuse": "Reuse settings",
+    "preparing": "Preparing…",
+    "reuseFailed": "Could not restore all references and settings. Please retry.",
+    "modelUnavailable": "The original model is currently unavailable. Please retry later.",
+    "download": "Download original",
+    "downloadFailed": "Could not download the original. Please retry.",
+    "output": "Generated image {{number}}",
+    "references": "References",
+    "reference": "Reference {{number}}",
+    "mask": "Mask",
+    "archiving": "Saving",
+    "unavailable": "Some originals could not be saved. Recoverable images are retained; generation will not restart automatically.",
+    "place": "Add to current project",
+    "agentSource": "Agent generation",
+    "studioSource": "Studio generation"
+  }
+}

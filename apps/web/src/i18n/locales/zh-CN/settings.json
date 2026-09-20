@@ -1,0 +1,132 @@
+{
+  "modal": {
+    "title": "设置"
+  },
+  "tab": {
+    "general": "习惯配置",
+    "api": "API 配置",
+    "data": "数据管理"
+  },
+  "general": {
+    "submitShortcut": "任务提交方式",
+    "submitShortcutHint": "选择 Enter 提交时，使用 Shift + Enter 换行；否则直接 Enter 换行。",
+    "clearInputAfterSubmit": "提交任务后清空输入框",
+    "clearInputAfterSubmitHint": "开启后，提交成功创建任务时会清空提示词和参考图。",
+    "persistInput": "重启后加载上次的输入框",
+    "persistInputHint": "关闭后，不再持久化提示词和参考图，下次启动会使用空输入框。",
+    "reuseTaskProfile": "复用配置时临时复用该任务的 API 配置",
+    "reuseTaskProfileHint": "开启后，复用历史任务时会临时使用该任务的 API 配置，找不到该配置时提交会提示；关闭后，会继续使用当前的 API 配置。",
+    "alwaysShowRetry": "成功任务仍然展示重试按钮",
+    "alwaysShowRetryHint": "开启后，即使任务成功生成，也会在任务卡片和详情页显示重试按钮。"
+  },
+  "profile": {
+    "current": "当前配置",
+    "name": "配置名称",
+    "create": "创建新配置",
+    "duplicate": "复制当前配置",
+    "duplicateAria": "复制一份配置「{{name}}」",
+    "copyImportUrl": "复制导入 URL",
+    "copyImportUrlFor": "复制导入配置「{{name}}」的 URL",
+    "dragToReorder": "拖拽排序",
+    "builtinBadge": "内置",
+    "builtinModel": "内置模型",
+    "delete": "删除配置",
+    "deleteMessage": "确定要删除配置「{{name}}」吗？"
+  },
+  "provider": {
+    "type": "服务商类型",
+    "openaiCompatible": "OpenAI 兼容接口",
+    "createCustom": "创建自定义服务商",
+    "editCustom": "编辑自定义服务商",
+    "deleteTitle": "删除服务商",
+    "deleteMessage": "确定要删除自定义服务商「{{name}}」吗？正在使用它的配置会切回 OpenAI 兼容接口。"
+  },
+  "apiUrl": {
+    "proxyIgnored": "已开启代理，实际请求目标由部署端决定，此处设置被忽略。"
+  },
+  "codexCli": {
+    "label": "Codex CLI 兼容模式",
+    "hint": "开启后应用 Codex CLI 实际支持的参数。支持查询参数覆盖："
+  },
+  "apiProxy": {
+    "label": "API 代理",
+    "hint": "当前部署提供同源代理时默认开启，可手动关闭。开启后用于解决浏览器跨域限制，API URL 设置会被忽略。"
+  },
+  "apiMode": {
+    "label": "API 接口"
+  },
+  "model": {
+    "label": "模型 ID",
+    "fetch": "拉取模型",
+    "fetching": "拉取中…",
+    "fetchTitle": "从上游 API /models 拉取模型列表",
+    "fetched_other": "已拉取 {{count}} 个模型",
+    "fetchFailed": "拉取模型失败",
+    "cachedCount_other": "上游接口共 {{count}} 个模型",
+    "usingProvider": "当前使用",
+    "responsesHintPrefix": "Responses API 需要使用支持",
+    "responsesHintSuffix": "工具的文本模型，例如",
+    "imagesHint": "Images API 需要使用 GPT Image 模型，例如"
+  },
+  "b64": {
+    "label": "返回 Base64 图片数据",
+    "hintPrefix": "开启后在请求体中追加",
+    "hintSuffix": "，尝试使接口直接返回 Base64 编码的图片数据而非 URL。"
+  },
+  "timeout": {
+    "label": "请求超时 (秒)"
+  },
+  "hint": {
+    "queryOverride": "支持通过查询参数覆盖：",
+    "or": "或",
+    "period": "。"
+  },
+  "customProvider": {
+    "invalid": "自定义服务商配置无效",
+    "aiGenerate": "AI 一键生成与导入",
+    "aiGenerateHint": "复制提示词发给 LLM，可根据 API 文档自动生成完整的配置（包含服务商、模型、URL 等）。复制 LLM 输出的 JSON 后，点击“从剪贴板粘贴并导入”即可一键生效。",
+    "copyPrompt": "复制生成提示词",
+    "copyPromptAria": "复制用于生成完整导入 JSON 的 LLM 提示词",
+    "copyPromptTooltip": "生成完整的服务商和配置信息，包含模型和接口地址，导入后只需填入 API Key。",
+    "pasteImport": "从剪贴板粘贴并导入",
+    "manualEdit": "手动编辑 (仅接口映射 Manifest)",
+    "saveEdit": "保存修改",
+    "createAndUse": "创建并使用"
+  },
+  "data": {
+    "notice": "所有的配置、任务记录和生成的图片均仅保存在您的浏览器本地（除非您使用的服务商存储了它们）。如果您需要清理浏览器站点数据、重置浏览器或使用其他设备，请先导出备份。",
+    "exportTitle": "导出数据",
+    "importTitle": "导入数据",
+    "clearTitle": "清除数据",
+    "includeConfig": "包含配置",
+    "includeTasks": "包含任务和图片",
+    "exportSelected": "导出所选数据",
+    "importFromZip": "从 ZIP 导入所选数据",
+    "importing": "导入中...",
+    "clearSelected": "清空所选数据",
+    "clearMessage": "确定要清空所选的数据吗？此操作不可恢复。"
+  },
+  "importUrl": {
+    "question": "是否包含 API Key？如果选择「不包含」，可额外配置是否使用 New API 变量。",
+    "newApiVars": "New API 变量配置",
+    "use": "使用",
+    "addressSuffix": "(不含 /v1)",
+    "exclude": "不包含",
+    "include": "包含 API Key"
+  },
+  "toast": {
+    "importUrlCopied": "导入 URL 已复制",
+    "importUrlCopiedWithKey": "导入 URL 已复制（包含 API Key）",
+    "copyImportUrlFailed": "复制导入 URL 失败",
+    "llmPromptCopied": "LLM 生成提示词已复制",
+    "copyLlmPromptFailed": "复制 LLM 生成提示词失败",
+    "providerUpdated": "服务商配置已更新",
+    "providerDeleted": "服务商已删除",
+    "clipboardEmpty": "剪贴板为空",
+    "clipboardBlocked": "无法读取剪贴板，请允许浏览器访问剪贴板，或直接粘贴到输入框中",
+    "overwroteEmptyProfile": "已覆盖当前空配置",
+    "switchedToExisting": "已存在相同配置，已切换到已有配置",
+    "jsonImportedAndSwitched": "JSON 配置已导入并切换",
+    "jsonImported": "JSON 配置已导入"
+  }
+}

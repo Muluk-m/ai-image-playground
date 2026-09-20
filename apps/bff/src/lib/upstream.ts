@@ -81,6 +81,8 @@ interface UpstreamRoute {
   supportsModeration: boolean
   /** 上游提供 sub2api 风格的异步图片任务端点。 */
   asyncTasks: boolean
+  /** 上游原生支持 n；一条请求即可返回多张图，不应在 BFF 内 fan-out。 */
+  supportsNativeN: boolean
 }
 
 /**
@@ -103,6 +105,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
       supportsModeration: declared.capabilities.includes('moderation'),
       asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
+      supportsNativeN: provider === 'openai-compat' && declared.capabilities.includes('n'),
     }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
@@ -111,9 +114,10 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     key: resolveApiKey(provider),
     style: 'openai-images',
     forceB64Json: false,
-    // 通用网关没有 capability 声明，按老行为原样透传。
     supportsModeration: true,
     asyncTasks: provider === 'openai-compat' && config.upstream.asyncImageTasks,
+    // 通用网关未声明原生多图能力；模型名不能证明当前上游会兑现 n。
+    supportsNativeN: false,
   }
 }
 export interface UpstreamCallParams {
@@ -130,7 +134,10 @@ export interface UpstreamCallParams {
 }
 
 export interface UpstreamResume {
+  readonly pollOnly?: boolean
   readonly taskIds: readonly string[]
+  /** 已派发的请求数；路由升级不能把旧 fan-out 的缺失提交认成完整原生批次。 */
+  readonly invocationCount?: number
   /** 首次提交时刻，超时预算的锚点；重启不能重新发一份完整预算。 */
   readonly submittedAt: number
 }
@@ -176,6 +183,12 @@ export class UpstreamResultUnknownError extends Error {
   }
 }
 
+export class UpstreamPartialResultError extends UpstreamResultUnknownError {
+  constructor(readonly payload: unknown) {
+    super('部分图片已完成，其余提交结果未知；未重复生成')
+  }
+}
+
 export class UpstreamTimeoutError extends UpstreamResultUnknownError {
   constructor(message = 'Upstream call exceeded BFF hard timeout') {
     super(message)
@@ -204,8 +217,18 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     forceB64Json,
     supportsModeration,
     asyncTasks,
+    supportsNativeN,
   } = resolveUpstream(provider, model)
   let request = params.request
+  // 原生 n 只适用于无参考图的 Images generations；Responses 图片工具不接受 tools[].n。
+  const requestedImageCount = Math.max(1, request.n ?? 1)
+  const useNativeN =
+    provider === 'openai-compat' &&
+    style === 'openai-images' &&
+    supportsNativeN &&
+    requestedImageCount > 1 &&
+    !request.input_images?.length &&
+    !request.mask
   // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
   if (forceB64Json) {
     request = { ...request, extra: { ...request.extra, response_format: 'b64_json' } }
@@ -213,7 +236,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   if (!supportsModeration) request = withoutModeration(request)
 
   const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
-  const deadline = startDeadline(deadlineAt - Date.now(), externalSignal)
+  // A resumed task may have completed while its worker was unavailable. Give the
+  // read-only final lookup a bounded transport window, never a new generation budget.
+  const finalLookup = Boolean(resume?.taskIds.length) && Date.now() >= deadlineAt
+  const deadline = startDeadline(finalLookup ? 20_000 : deadlineAt - Date.now(), externalSignal)
 
   const fetchInit = (init: UpstreamFetchInit): UpstreamFetchInit => ({
     ...init,
@@ -299,6 +325,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       ): Promise<string[]> => {
         const missing = count - resumeIds.length
         if (missing <= 0) return [...resumeIds]
+        if (finalLookup || resume?.pollOnly) return [...resumeIds]
         const settled = await Promise.allSettled(
           Array.from({ length: missing }, async () =>
             protocol.readTaskId(
@@ -337,7 +364,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       ): Promise<UpstreamCallResult> => {
         const pollUrl = protocol.pollUrl(taskId)
         for (let attempt = 0; ; attempt++) {
-          if (Date.now() >= deadlineAt) throw new UpstreamTimeoutError()
+          if (Date.now() >= deadlineAt && !(finalLookup && attempt === 0))
+            throw new UpstreamTimeoutError()
           let payload: unknown
           try {
             payload = (
@@ -353,14 +381,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           const state = protocol.readState(payload)
           if (state.kind === 'completed') return { payload: state.payload }
           if (state.kind === 'failed') throw asyncTaskFailure(state.status, payload)
+          if (finalLookup) throw new UpstreamTimeoutError()
           await pollDelay(attempt)
         }
       }
 
       /**
        * 一次逻辑调用 → count 个上游请求 → 合并。同步模式直接发；异步模式提交后转轮询。
-       * n 策略两个端点共用：n===1 直接透传，n>1 fan-out 成 count 次单图请求（每次不带 n）
-       * 再合并 data，对 task-runner / 前端透明。
+       * count 是上游请求数，不是产图数；原生 n 只派发一次，其余路径逐图 fan-out。
+       * 恢复时保留已派发数量，避免新路由掩盖旧任务缺失的提交结果。
        */
       const dispatch = async (
         url: string,
@@ -376,9 +405,13 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           )
         }
         const protocol = imageTaskProtocol(base, url)
-        const taskIds = await collectTaskIds(protocol, count, makeInit)
+        // 已提交任务只恢复当时的调用数，不能按新路由补发或误判旧原生批次。
+        const expectedCount = resume?.invocationCount ?? count
+        const taskIds = await collectTaskIds(protocol, expectedCount, makeInit)
         const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
-        return results.length === 1 ? results[0]! : merge(results)
+        const result = results.length === 1 ? results[0]! : merge(results)
+        if (taskIds.length < expectedCount) throw new UpstreamPartialResultError(result.payload)
+        return result
       }
 
       const videoSpec = VIDEO_STYLE_SPECS[style]
@@ -411,6 +444,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       }
 
       if (
+        !useNativeN &&
         style === 'openai-images' &&
         isGptImageModel(model) &&
         config.upstream.imageResponsesModel &&
@@ -489,7 +523,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
       const headers = { 'content-type': 'application/json', ...authHeader }
       const n = Math.max(1, request.n ?? 1)
-      const unitRequest = n === 1 ? request : withoutImageCount(request)
+      // 原生 n 是一次上游生成请求；否则沿用兼容网关的单图 fan-out。
+      const unitRequest = useNativeN || n === 1 ? request : withoutImageCount(request)
       const body = JSON.stringify(
         style === 'grok-openai-images' && isGrokImagine2(model)
           ? buildGrokImagine2Body(model, unitRequest)
@@ -497,7 +532,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       )
       return await dispatch(
         `${base}/images/generations`,
-        n,
+        useNativeN ? 1 : n,
         () => ({ method: 'POST', headers, body }),
         mergeOpenAIImageResults,
       )
@@ -827,8 +862,15 @@ function videoFrame(request: HydratedSubmitRequest, index: number | undefined): 
   return request.input_images?.[index]
 }
 
-/** 有首帧时上游要求换到图生视频模型，文生的那个不吃 image 字段。 */
-const GROK_VIDEO_FIRST_FRAME_MODEL = 'grok-imagine-video-1.5'
+/** 参考图按用户排好的顺序取；下标由提交校验保证落在输入图里。 */
+function videoReferences(request: HydratedSubmitRequest, video: HydratedVideoRequest): string[] {
+  return (video.reference_image_indices ?? [])
+    .map((index) => request.input_images?.[index])
+    .filter((url): url is string => typeof url === 'string')
+}
+
+/** 有首帧或参考图时上游要求换到 1.5：文生的那个既不吃 image，也不吃 reference_images。 */
+const GROK_VIDEO_IMAGE_MODEL = 'grok-imagine-video-1.5'
 
 function buildGrokVideoBody(
   model: string,
@@ -847,13 +889,15 @@ function buildGrokVideoBody(
     }
   }
   const firstFrame = videoFrame(request, video.first_frame_index)
+  const references = videoReferences(request, video)
   return {
-    model: firstFrame ? GROK_VIDEO_FIRST_FRAME_MODEL : model,
+    model: firstFrame || references.length ? GROK_VIDEO_IMAGE_MODEL : model,
     prompt: request.prompt,
     duration: video.duration_seconds,
     aspect_ratio: video.aspect_ratio,
     resolution: video.resolution,
     ...(firstFrame ? { image: { url: firstFrame } } : {}),
+    ...(references.length ? { reference_images: references.map((url) => ({ url })) } : {}),
   }
 }
 
@@ -898,6 +942,13 @@ function buildArkVideoBody(
       { type: 'text', text: request.prompt },
       ...frame('first_frame', video.first_frame_index),
       ...frame('last_frame', video.last_frame_index),
+      // 提示词里的「图片 n」按 content 里 image_url 的顺序数，所以参考图保持用户排好的顺序。
+      // 这依赖矩阵里 Seedance 的 withFrames:false：帧与参考图同时出现时，帧会占掉前面的编号。
+      ...videoReferences(request, video).map((url) => ({
+        type: 'image_url',
+        image_url: { url },
+        role: 'reference_image',
+      })),
     ],
     ratio: video.aspect_ratio,
     duration: video.duration_seconds,

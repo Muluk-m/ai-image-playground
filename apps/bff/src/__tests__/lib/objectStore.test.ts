@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { normalizeKeyPrefix } from '../../lib/objectKeyPrefix'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
+const { createDurableMediaStore } = await import('../../lib/durableMediaStore')
 const { S3ObjectStore } = await import('../../lib/objectStore')
 type S3ClientLike = import('../../lib/objectStore').S3ClientLike
 
@@ -16,9 +17,26 @@ class FakeS3Client {
   readonly deleted: string[] = []
   readonly statted: string[] = []
   pageSize = 1_000
+  now = 0
+  readonly created = new Map<string, number>()
+
+  presign(key: string, options: { expiresIn?: number; method?: string }) {
+    return `https://r2.example.test/${key}?expiresIn=${options.expiresIn}&method=${options.method}`
+  }
+
+  expireTemporaryObjects() {
+    for (const [key, created] of this.created) {
+      if (
+        (key.startsWith('image-playground/') || key.startsWith('image-playground-paid/')) &&
+        this.now - created >= 45 * 86400000
+      )
+        this.objects.delete(key)
+    }
+  }
 
   async write(key: string, bytes: Uint8Array): Promise<void> {
     this.objects.set(key, Uint8Array.from(bytes))
+    this.created.set(key, this.now)
   }
 
   file(key: string, span?: { begin: number; end: number }) {
@@ -144,4 +162,41 @@ describe('normalizeKeyPrefix', () => {
   it('中间的斜杠原样保留', () => {
     expect(normalizeKeyPrefix('team/image-playground')).toBe('team/image-playground/')
   })
+})
+
+describe('S3ObjectStore.listEntries', () => {
+  it('returns size and modification time with the deployment prefix stripped from each key', async () => {
+    const modified = new Date('2026-09-17T18:00:05Z')
+    const client = {
+      list: async ({ prefix }: { prefix?: string }) => ({
+        contents: [
+          { key: `${prefix}2026-09-17.dump`, size: 42, lastModified: modified.toISOString() },
+        ],
+        isTruncated: false,
+      }),
+    } as unknown as S3ClientLike
+    const store = new S3ObjectStore(client, 'image-playground/')
+
+    expect(await store.listEntries('pg/')).toEqual([
+      { key: 'pg/2026-09-17.dump', size: 42, lastModified: modified.getTime() },
+    ])
+  })
+})
+
+it('实际临时前缀的45天过期规则不触及项目原件，授权地址仍指向可读的持久对象', async () => {
+  const client = new FakeS3Client()
+  const temporary = store(client, 'image-playground-paid/')
+  const durable = createDurableMediaStore(
+    client as unknown as S3ClientLike & Pick<Bun.S3Client, 'presign'>,
+    'image-playground-paid/',
+  )
+  await temporary.write('task/output.png', new Uint8Array([1]), 'image/png')
+  await durable.write('objects/owner/media/original', new Uint8Array([2, 3]), 'image/png')
+  client.now = 50 * 86400000
+  client.expireTemporaryObjects()
+  await expect(temporary.read('task/output.png')).rejects.toThrow('missing object')
+  expect(await durable.read('objects/owner/media/original')).toEqual(new Uint8Array([2, 3]))
+  const signed = new URL(durable.sign('objects/owner/media/original', 'GET'))
+  expect(signed.pathname).toBe('/durable/image-playground-paid/objects/owner/media/original')
+  expect(signed.searchParams.get('expiresIn')).toBe('600')
 })

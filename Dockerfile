@@ -7,7 +7,7 @@ FROM scratch AS private-overlay
 
 # The public lockfile carries the private/apps/* importers, so pnpm fetches their
 # dependencies only when the overlay manifests are present at install time.
-FROM oven/bun:1 AS private-manifests
+FROM --platform=$BUILDPLATFORM oven/bun:1 AS private-manifests
 COPY --from=private-overlay / /overlay/private
 RUN mkdir -p /overlay/private \
   && find /overlay/private ! -type d ! -name package.json -delete \
@@ -17,7 +17,7 @@ RUN mkdir -p /overlay/private \
 # worker, or Admin with APP_ROLE and command; both deployment projects reuse the
 # same immutable image and the web role writes its runtime config at startup.
 
-FROM oven/bun:1 AS deps
+FROM --platform=$BUILDPLATFORM oven/bun:1 AS deps
 WORKDIR /app
 
 # packageManager is the source of truth for pnpm. @pnpm/exe supplies a native
@@ -38,11 +38,17 @@ COPY --from=private-manifests /overlay/private ./private
 ARG PRIVATE_OVERLAY_PRESENT=false
 RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private; fi
 
-RUN pnpm install --frozen-lockfile
+# Compile with the builder's native CPU (Bun/JSC cannot reliably run under QEMU).
+# Also install the target optional binaries, especially sharp, for the runtime image.
+ARG TARGETARCH
+RUN case "$TARGETARCH" in amd64) cpu=x64 ;; arm64) cpu=arm64 ;; *) exit 1 ;; esac \
+  && printf '\nsupportedArchitectures:\n  os: [linux]\n  cpu: [current, %s]\n  libc: [glibc]\n' "$cpu" >> pnpm-workspace.yaml \
+  && pnpm install --frozen-lockfile
 
 FROM deps AS web-build
 WORKDIR /app
 COPY . .
+COPY --from=deps /app/pnpm-workspace.yaml ./
 COPY --from=private-overlay / /app/private
 ARG PRIVATE_OVERLAY_PRESENT=false
 RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
@@ -53,6 +59,7 @@ RUN pnpm --filter @image-playground/web build
 FROM deps AS admin-build
 WORKDIR /app
 COPY . .
+COPY --from=deps /app/pnpm-workspace.yaml ./
 COPY --from=private-overlay / /app/private
 ENV PRIVATE_ADMIN_OVERLAY_ENTRY=/app/private/apps/admin/index.tsx
 ARG PRIVATE_OVERLAY_PRESENT=false
@@ -93,13 +100,21 @@ COPY --from=web-build /app/private ./private
 COPY deploy/nginx.conf deploy/nginx.api-only.conf deploy/nginx.proxy.conf ./deploy/
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY scripts/check-dependencies.ts ./scripts/check-dependencies.ts
+COPY scripts/release-router.ts ./scripts/release-router.ts
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+LABEL app.execution-protocol="1"
 ENV APP_ROLE=bff
 ENV PORT=37377
 ENV STATIC_DIR=
 ENV BFF_ENABLED=true
 ENV ADMIN_DIST_DIR=/app/apps/admin/dist
+
+# The commits this image was built from. Services report it in their heartbeat so the operations
+# board can show what is actually running. Declared last: it changes every build, and nothing
+# after it is worth caching.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=$APP_VERSION
 
 EXPOSE 8080 37377 37378 37379
 

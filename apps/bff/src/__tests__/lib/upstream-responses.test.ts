@@ -100,11 +100,32 @@ describe('Astra 图片 Responses 调用', () => {
     })
   })
 
-  it('文生图按数量生成并交付图片，每张只记账一次', async () => {
+  it('单张文生图走 Responses 桥接，单次记账并交付图片', async () => {
     let charged = 0
     setUpstreamFetchForTesting(async (_url, init) => {
       const body = JSON.parse(String(init?.body))
       if (body.tools?.[0]?.action !== 'generate' || body.tools[0].n !== undefined) {
+        return jsonResponse({ error: { message: '图片工具只接受单张生成' } }, 400)
+      }
+      return sse([completed])
+    })
+    const result = await callUpstream({
+      ...request,
+      request: { prompt: '蓝色方块' },
+      beforeRequest: async () => {
+        charged += 1
+      },
+    })
+    expect(extractMeta('openai-compat', result.payload).images.map((image) => image.index)).toEqual(
+      [0],
+    )
+    expect(charged).toBe(1)
+  })
+  it('多张文生图逐张调用 Responses，不向图片工具传入 n', async () => {
+    let charged = 0
+    setUpstreamFetchForTesting(async (url, init) => {
+      const body = JSON.parse(String(init?.body))
+      if (!String(url).endsWith('/responses') || body.tools?.[0]?.n !== undefined) {
         return jsonResponse({ error: { message: '图片工具只接受单张生成' } }, 400)
       }
       return sse([completed])
@@ -116,9 +137,7 @@ describe('Astra 图片 Responses 调用', () => {
         charged += 1
       },
     })
-    expect(extractMeta('openai-compat', result.payload).images.map((image) => image.index)).toEqual(
-      [0, 1],
-    )
+    expect(extractMeta('openai-compat', result.payload).images).toHaveLength(2)
     expect(charged).toBe(2)
   })
 

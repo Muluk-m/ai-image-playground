@@ -1,10 +1,33 @@
-import type { AgentTurnAlreadyRunningBody, AuthUserView } from '@image-playground/shared'
+import type {
+  AgentBackgroundJobCancelResponse,
+  AgentBackgroundJobsResponse,
+  AgentConfirmationRefusedBody,
+  AgentConfirmationResponse,
+  AgentConversationSnapshot,
+  AgentMessageQueuedBody,
+  AgentQueueFullBody,
+  AgentQueueInterjectResult,
+  AgentRetryRefusedBody,
+  AgentRetryResponse,
+  AgentTurnAbortedBody,
+  AuthUserView,
+} from '@image-playground/shared'
 import {
+  AGENT_QUEUE_MAX_PENDING,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
+import sharp from 'sharp'
+import { db, schema } from '../db/client'
+import {
+  agentJobViews,
+  cancelAgentConversationJobs,
+  cancelAgentJob,
+} from '../lib/agent/background-jobs'
+import { confirmAgentGeneration, lockConversation } from '../lib/agent/confirmations'
 import {
   type AgentOwner,
   adoptDeviceConversations,
@@ -14,13 +37,51 @@ import {
   listAgentMessages,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
-import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
-import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
+import {
+  isSealLease,
+  lastConversationEventSeq,
+  notifyConversation,
+  openTurnEventBase,
+  readConversationEvents,
+  readTurnEvents,
+  sealAbandonedTurns,
+} from '../lib/agent/events'
+import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
+import {
+  agentInboxEntry,
+  claimAgentMessageForInterjection,
+  enqueueAgentUserMessage,
+  hasPendingAgentWake,
+  type InboxEntry,
+  pendingAgentMessage,
+  queuedAgentMessages,
+  requeueAgentMessage,
+  returnAgentMessages,
+  returnedAgentMessages,
+  settleAgentInterjection,
+  withdrawAgentMessage,
+} from '../lib/agent/inbox'
+import { withAgentLifecycle } from '../lib/agent/lifecycle'
+import {
+  advanceAgentRetryQueueSafely,
+  cancelAgentRetry,
+  retryAgentToolCall,
+} from '../lib/agent/retry'
+import {
+  beginTurnStop,
+  claimForTurn,
+  type RunningTurn,
+  runningTurn,
+  turnStopping,
+} from '../lib/agent/runningTurns'
+import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
-import { startConversationTurn } from '../lib/agent/start-turn'
+import { drainConversationInbox } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { listAgentTurnSummaries } from '../lib/agent/turn-summary'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { bffDrain } from '../lib/drain'
+import { durableMediaStore } from '../lib/durableMediaStore'
 import {
   badRequestOnValidation,
   clientAddress,
@@ -28,6 +89,8 @@ import {
   deviceIdSchema,
   imageDataUrlSchema,
 } from '../lib/http'
+import { log } from '../lib/logger'
+import { objectStore } from '../lib/objectStore'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { resolveAuthUser } from '../lib/user-auth'
 
@@ -46,7 +109,10 @@ const TURN_NOT_FOUND = { error: 'turn_not_found' }
  */
 const paramsSchema = t.Optional(
   t.Object({
+    thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
+    /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
+    autoSubmit: t.Optional(t.Literal(true)),
     size: t.Optional(t.String({ maxLength: 32 })),
     quality: t.Optional(t.String({ maxLength: 16 })),
     output_format: t.Optional(t.String({ maxLength: 16 })),
@@ -69,8 +135,49 @@ const referencesSchema = t.Optional(
   ),
 )
 
+/** 创作类型。缺席即图片：老客户端不发这一项，它们要的从来都是图。 */
+const modeSchema = t.Optional(t.Union([t.Literal('image'), t.Literal('video')]))
+
 const turnParams = t.Object({ id: t.String(), turnId: t.String() })
 const turnBody = t.Object({ deviceId: deviceIdSchema() })
+
+/** 轮级端点共用这段：归属查会话、会话查在跑的轮，两级查不到都是同一个 404。 */
+async function activeTurnOf(
+  params: { id: string; turnId: string },
+  deviceId: string,
+  authUser: AuthUserView | null,
+): Promise<RunningTurn | null> {
+  const conversation = await findAgentConversation(params.id, ownerOf(authUser, deviceId))
+  const active = conversation ? runningTurn(conversation.id) : undefined
+  return active?.turnId === params.turnId ? active : null
+}
+
+/**
+ * 202 响应体按记录此刻的状态写：`consumed` 带处理它的那一轮，`pending` 带正在跑的那一轮。
+ * 入队之后它可能已经被并发的收尾取走、被别的设备撤回，拿入队那一刻的状态会报错情况。
+ */
+function queuedBody(entry: InboxEntry, runningTurnId?: string): AgentMessageQueuedBody {
+  const turnId =
+    entry.state === 'consumed'
+      ? (entry.consumedTurnId ?? undefined)
+      : entry.state === 'pending'
+        ? runningTurnId
+        : undefined
+  return { queued: entry.view, state: entry.state, ...(turnId ? { turnId } : {}) }
+}
+
+/** 重读这一条再回 202；记录没了（会话刚被删）就按已撤回报。 */
+async function settledQueuedBody(
+  conversationId: string,
+  entry: InboxEntry,
+  runningTurnId?: string,
+): Promise<AgentMessageQueuedBody> {
+  const now = (await agentInboxEntry(conversationId, entry.view.id)) ?? {
+    ...entry,
+    state: 'cancelled' as const,
+  }
+  return queuedBody(now, runningTurnId)
+}
 
 function lastEventId(raw: string | undefined): number {
   const parsed = Number(raw)
@@ -92,23 +199,250 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations/:id/messages',
-    async ({ params, headers, authUser, status }) => {
+    async ({ params, headers, authUser, status, request }) => {
       const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
-      const active = runningTurn(conversation.id)
-      const [messages, turns] = await Promise.all([
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      const local = runningTurn(conversation.id)
+      // 被打断的轮先补上终帧，快照里的页脚与之后的增量才对得上。
+      if (!local) await sealAbandonedTurns(conversation.id)
+      const execution = await conversationExecution(conversation.id)
+      const remote =
+        execution && execution.instance !== agentInstance && !isSealLease(execution.turn_id)
+          ? { turnId: execution.turn_id }
+          : undefined
+      const active = local ?? remote
+      // 游标先于消息读：两次读取之间新落的东西会在增量里再来一遍（按 id 幂等），而不是漏掉。
+      // 别的实例刚起的轮不给游标：它的开头可能已经落库、序号已经算进最大序号，
+      // 从那之后接会把这一轮的开头整段漏掉；没有游标，客户端就按轮从头重放。
+      const liveBase = local ? openTurnEventBase(conversation.id, local.turnId) : undefined
+      const cursor = remote
+        ? undefined
+        : (liveBase ?? (await lastConversationEventSeq(conversation.id)))
+      const [messages, turns, queue] = await Promise.all([
         listAgentMessages(conversation.id, owner),
         listAgentTurnSummaries(conversation.id),
+        queuedAgentMessages(conversation.id),
       ])
-      return {
+      // 没有谁在跑、队里却还有待处理的（排队消息或唤醒）：收尾的那个实例下线了或半路没了。
+      // 这里接着开轮，不必等定时巡查；客户端再看一次快照就挂得上。
+      if (
+        !execution &&
+        !bffDrain.status().draining &&
+        (queue.some((one) => !one.failure) || (await hasPendingAgentWake(conversation.id)))
+      )
+        void drainConversationInbox(conversation.id).catch((err) =>
+          log.error(
+            { event: 'agent.inbox_drain_failed', conversationId: conversation.id, err },
+            'queued agent message could not start a turn',
+          ),
+        )
+      const snapshot: AgentConversationSnapshot = {
         messages,
         turns,
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
+        ...(cursor === undefined ? {} : { cursor }),
+        queue,
       }
+      return snapshot
     },
     { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  .get(
+    '/api/agent/conversations/:id/messages/:messageId/references/:index',
+    async ({ params, query, headers, authUser, status }) => {
+      const conversation = await findAgentConversation(
+        params.id,
+        ownerOf(authUser, headers[DEVICE_ID_HEADER]),
+      )
+      if (!conversation) return status(404, NOT_FOUND)
+      const [message] = await db
+        .select({ content: schema.agent_messages.content })
+        .from(schema.agent_messages)
+        .where(
+          and(
+            eq(schema.agent_messages.id, params.messageId),
+            eq(schema.agent_messages.conversation_id, conversation.id),
+            eq(schema.agent_messages.role, 'user'),
+            isNull(schema.agent_messages.deleted_at),
+          ),
+        )
+        .limit(1)
+      const references = message?.content.flatMap((block) =>
+        block.type === 'text' ? (block.references ?? []) : [],
+      )
+      const reference = references?.[params.index]
+      if (!reference) return status(404, { error: 'reference_not_found' })
+      try {
+        const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
+        const original = query.variant === 'original'
+        const bytes = await store.read(reference.image.object)
+        const image = original
+          ? bytes
+          : await sharp(bytes)
+              .rotate()
+              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+              .webp({ quality: 80 })
+              .toBuffer()
+        return new Response(image, {
+          headers: {
+            'content-type': original ? reference.image.mime : 'image/webp',
+            'cache-control': 'private, max-age=31536000, immutable',
+            'content-security-policy': "default-src 'none'; sandbox",
+            'x-content-type-options': 'nosniff',
+            vary: `Cookie, ${DEVICE_ID_HEADER}`,
+          },
+        })
+      } catch {
+        return status(502, { error: 'object_storage_error' })
+      }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        messageId: t.String(),
+        index: t.Integer({ minimum: 0, maximum: AGENT_TURN_MAX_REFERENCES - 1 }),
+      }),
+      query: t.Object({
+        variant: t.Optional(t.Union([t.Literal('thumbnail'), t.Literal('original')])),
+      }),
+      headers: deviceIdHeaderSchema(),
+    },
+  )
+  .get(
+    // 这个会话提交过的后台任务，结果块是此刻的样子（读取即结算）。面板有没结束的任务时靠它
+    // 等结果：它只读任务表与消息表，不跟轮，所以不用转发到跑着轮的实例。
+    '/api/agent/conversations/:id/jobs',
+    async ({ params, headers, authUser, status }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      // 看着这个会话的客户端每次来问，顺手推一下重试队列：前一条刚结束，下一条不必等巡到。
+      await advanceAgentRetryQueueSafely(conversation.id)
+      const messages = await listAgentMessages(conversation.id, owner)
+      const response: AgentBackgroundJobsResponse = {
+        jobs: await agentJobViews(conversation.id, messages),
+      }
+      return response
+    },
+    { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  .post(
+    // 单独取消一个后台任务，按原桶退回；回的是取消之后这次调用的样子。已经结束的任务原样返回，
+    // 两台设备同时点取消只有一次真正生效。只动任务表，不跟轮，所以同样不用转发。
+    '/api/agent/conversations/:id/jobs/:taskId/cancel',
+    async ({ params, headers, authUser, status }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const find = async () =>
+        (
+          await agentJobViews(conversation.id, await listAgentMessages(conversation.id, owner))
+        ).find((job) => job.result.job?.taskId === params.taskId)
+      // 先确认它是这个会话里某次调用提交的后台任务：会话里别的任务（对话轮自己）不归这里取消。
+      if (!(await find())) return status(404, NOT_FOUND)
+      await cancelAgentJob(conversation.id, params.taskId)
+      const job = await find()
+      if (!job) return status(404, NOT_FOUND)
+      const response: AgentBackgroundJobCancelResponse = { job }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String(), taskId: t.String() }),
+      headers: deviceIdHeaderSchema(),
+    },
+  )
+  .post(
+    // 单张重试：按失败卡起跑时的参数快照重出一张，不经对话模型。它不跟轮，不必转发到跑着轮的实例；
+    // 重试记录的落库与在跑那一轮的写入由消息表的会话锁串行。同一个占位上已有重试在跑就原样给回它。
+    '/api/agent/conversations/:id/retries',
+    async ({ params, body, authUser, status }) => {
+      const owner = ownerOf(authUser, body.deviceId)
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const outcome = await retryAgentToolCall({
+        conversationId: conversation.id,
+        messageId: body.messageId,
+        ...(body.placeholderId ? { placeholderId: body.placeholderId } : {}),
+        deviceId: body.deviceId,
+        userId: authUser?.id ?? null,
+      })
+      if (outcome.kind === 'not_found') return status(404, { error: 'message_not_found' })
+      if (outcome.kind === 'not_retryable') return status(422, { error: 'not_retryable' })
+      if (outcome.kind === 'refused') {
+        const refused: AgentRetryRefusedBody = { error: 'retry_refused', code: outcome.code }
+        return status(409, refused)
+      }
+      const response: AgentRetryResponse = { message: outcome.message }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        messageId: t.String({ minLength: 1, maxLength: 128 }),
+        placeholderId: t.Optional(t.String({ minLength: 1, maxLength: 256 })),
+      }),
+    },
+  )
+  .post(
+    // 中止一条还在跑的重试，按原桶退回。
+    '/api/agent/conversations/:id/retries/:messageId/cancel',
+    async ({ params, body, authUser, status }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const outcome = await cancelAgentRetry(conversation.id, params.messageId)
+      if (outcome === 'not_found') return status(404, { error: 'retry_not_found' })
+      if (outcome === 'finished') return status(409, { error: 'retry_finished' })
+      return { cancelled: true }
+    },
+    {
+      params: t.Object({ id: t.String(), messageId: t.String() }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
+    },
+  )
+  .post(
+    // 确认一张待确认的生成卡：按用户最后改过的提示词与拟稿时冻结的材料提交，不再经过模型。
+    // 它不跟轮（那一轮早已结束），所以不必转发到跑着轮的实例；同一张卡的并发确认由卡片级的
+    // 咨询锁串行，只会有一条任务。
+    '/api/agent/conversations/:id/confirmations',
+    async ({ params, body, authUser, status }) => {
+      const owner = ownerOf(authUser, body.deviceId)
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      const outcome = await confirmAgentGeneration({
+        conversationId: conversation.id,
+        owner,
+        messageId: body.messageId,
+        prompt: body.prompt,
+        deviceId: body.deviceId,
+        userId: authUser?.id ?? null,
+      })
+      if (outcome.kind === 'not_found') return status(404, { error: 'message_not_found' })
+      if (outcome.kind === 'not_confirmable') return status(422, { error: 'not_confirmable' })
+      if (outcome.kind === 'refused') {
+        const refused: AgentConfirmationRefusedBody = {
+          error: 'confirmation_refused',
+          code: outcome.code,
+        }
+        return status(409, refused)
+      }
+      const response: AgentConfirmationResponse = { message: outcome.message }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        messageId: t.String({ minLength: 1, maxLength: 128 }),
+        // 空白与超长由确认本身按 `confirmation_refused` 回绝（界面只认 code）；这里只挡住
+        // 明显的滥用体积。
+        prompt: t.String({ maxLength: 20_000 }),
+      }),
+    },
   )
   .post(
     '/api/agent/conversations/:id/turns',
@@ -119,29 +453,75 @@ export const agentRoutes = new Elysia()
       }
 
       const owner = ownerOf(authUser, body.deviceId)
-      const conversation = await findAgentConversation(params.id, owner)
-      if (!conversation) return status(404, NOT_FOUND)
-      // 409 带上在跑的那一轮：另一个标签页占着会话时，客户端据此转去续播而不是报错。
-      const active = runningTurn(conversation.id)
-      if (active) {
-        const body: AgentTurnAlreadyRunningBody = {
-          error: 'turn_already_running',
-          turnId: active.turnId,
-        }
-        return status(409, body)
-      }
+      return withAgentLifecycle(owner, async () => {
+        const conversation = await findAgentConversation(params.id, owner)
+        if (!conversation) return status(404, NOT_FOUND)
+        // 会话在别的实例上跑着：排队与通知都得落在那边，那一轮收尾时才取得到。
+        const forwarded = await forwardActiveTurn(conversation.id, request, body)
+        if (forwarded) return forwarded
 
-      const started = await startConversationTurn({
-        conversationId: conversation.id,
-        owner,
-        text: body.text,
-        references: body.references ?? [],
-        deviceId: body.deviceId,
-        ...(body.params ? { params: body.params } : {}),
+        try {
+          await validateSelections(body.references ?? [])
+        } catch (error) {
+          if (error instanceof InvalidSelectionError)
+            return status(422, { error: 'invalid_selection' })
+          throw error
+        }
+        // 开不了轮的请求不进收件箱：排进去也没有哪一轮能取走它。
+        if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
+          return status(401, { error: 'unauthorized' })
+        if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
+
+        // 每条消息先进收件箱，再按顺序开轮：忙时它排在后面，闲时它当场就是下一条。
+        const enqueued = await enqueueAgentUserMessage(conversation.id, {
+          clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
+          text: body.text,
+          references: body.references ?? [],
+          deviceId: body.deviceId,
+          ...(body.mode ? { mode: body.mode } : {}),
+          ...(body.params ? { params: body.params } : {}),
+          ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
+        })
+        if (enqueued.kind === 'full') {
+          const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
+          return status(409, full)
+        }
+        const { entry } = enqueued
+        if (enqueued.kind === 'duplicate') {
+          // 网络重发的同一条：交回它此刻的状态，不排第二次、不开第二轮。
+          return status(202, queuedBody(entry, runningTurn(conversation.id)?.turnId))
+        }
+
+        const local = runningTurn(conversation.id)
+        if (local) {
+          notifyConversation(conversation.id, { type: 'messageQueued', message: entry.view })
+          return status(202, queuedBody(entry, local.turnId))
+        }
+        const drained = await drainConversationInbox(conversation.id, { quietFor: entry.view.id })
+        if (drained.kind === 'started' && drained.queueId === entry.view.id)
+          return agentTurnStream(drained.turn.read(0))
+        if (drained.kind !== 'not_started' || drained.queueId !== entry.view.id) {
+          // 这一条没有当场开轮：前面还排着别的、会话被别处占着、被别的设备撤回了，或者被并发的
+          // 收尾取走了。重读它此刻的状态再回报。
+          const running =
+            drained.kind === 'started'
+              ? drained.turn.turnId
+              : drained.kind === 'already_running'
+                ? drained.turnId
+                : undefined
+          const body = await settledQueuedBody(conversation.id, entry, running)
+          if (body.state === 'pending')
+            notifyConversation(conversation.id, { type: 'messageQueued', message: body.queued })
+          return status(202, body)
+        }
+        // 开不了轮（余额不足等）：这一条不留在队里，照旧把原因交回去，草稿留在输入框。
+        await withdrawAgentMessage(conversation.id, entry.view.id)
+        const { failure } = drained
+        if (failure.kind === 'draining') return status(503, { error: 'instance_draining' })
+        if (failure.kind === 'authentication_required')
+          return status(401, { error: 'unauthorized' })
+        return reservationFailureResponse(failure)
       })
-      if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
-      if (started.kind !== 'started') return reservationFailureResponse(started)
-      return agentTurnStream(started.turn.read(0))
     },
     {
       params: t.Object({ id: t.String() }),
@@ -149,9 +529,134 @@ export const agentRoutes = new Elysia()
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
         references: referencesSchema,
+        mode: modeSchema,
         params: paramsSchema,
+        /** 客户端为这条消息生成的 id：网络重发时据此认出同一条，不排两次。 */
+        clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        /** 这是对澄清卡片的答复：排在其他排队消息前面处理。 */
+        clarificationAnswer: t.Optional(t.Boolean()),
       }),
     },
+  )
+  .get(
+    // 还排着的消息，按处理顺序。刷新、换设备都读这一份。
+    '/api/agent/conversations/:id/queue',
+    async ({ params, headers, authUser, status }) => {
+      const conversation = await findAgentConversation(
+        params.id,
+        ownerOf(authUser, headers[DEVICE_ID_HEADER]),
+      )
+      if (!conversation) return status(404, NOT_FOUND)
+      return { queue: await queuedAgentMessages(conversation.id) }
+    },
+    { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+  )
+  .post(
+    '/api/agent/conversations/:id/queue/:queueId/withdraw',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      // 撤回的通知要进正在跑的那一轮的事件流，所以落在它所在的实例上。
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const { result, fresh } = await withdrawAgentMessage(conversation.id, params.queueId)
+      if (fresh)
+        notifyConversation(conversation.id, {
+          type: 'queuedMessageWithdrawn',
+          queueId: params.queueId,
+        })
+      return { result }
+    },
+    {
+      params: t.Object({ id: t.String(), queueId: t.String({ maxLength: 128 }) }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
+    },
+  )
+  .post(
+    // 把一条排队消息升级为插话：进正在跑的那一轮，在它下一个动作边界生效，不再等这一轮结束。
+    '/api/agent/conversations/:id/queue/:queueId/interject',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      // 插话只能进本进程里跑着的那一轮。
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const reply = (result: AgentQueueInterjectResult, turnId?: string) =>
+        turnId ? { result, turnId } : { result }
+      const active = runningTurn(conversation.id)
+      if (!active) {
+        const entry = await agentInboxEntry(conversation.id, params.queueId)
+        if (!entry) return reply('not_found')
+        if (entry.state === 'pending') return reply('not_running')
+        return reply(entry.state === 'consumed' ? 'already_consumed' : 'cancelled')
+      }
+      const pending = await pendingAgentMessage(conversation.id, params.queueId)
+      if (pending.kind === 'unavailable') return reply(pending.result)
+      const { message } = pending
+      // 参考图校验与归档要花几秒：这期间它仍然排着，到真正进这一轮的前一刻才取走。
+      let claimed = false
+      const claim = () =>
+        claimForTurn(active.turnId, async () => {
+          claimed = await claimAgentMessageForInterjection(
+            conversation.id,
+            message.id,
+            active.turnId,
+          )
+          return claimed
+        })
+      // 取走之后才插不进去的那种（本轮刚好收尾）：取走之后的每一步都已同步写进这一轮，抛错
+      // 也是插进去之后的事，所以只有明确返回 null 才放回。
+      const messageId = await active.interject(message.text, message.references, {
+        messageId: message.id,
+        claim,
+      })
+      if (!messageId) {
+        if (claimed) {
+          await requeueAgentMessage(conversation.id, message.id, active.turnId)
+          // 放回去的时候那一轮可能已经放手了：没人会再来取，这里接着开轮。按了停止的不开——
+          // 停止等着这一步落定，随后把它和别的排队消息一起退回。
+          if (!turnStopping(active.turnId) && !runningTurn(conversation.id))
+            void drainConversationInbox(conversation.id).catch((err) =>
+              log.error(
+                { event: 'agent.inbox_drain_failed', conversationId: conversation.id, err },
+                'queued agent message could not start a turn',
+              ),
+            )
+          return reply('not_running')
+        }
+        // 没取到：它此刻的状态就是结局（被停止退回、被撤回、被起轮取走，或者仍排着）。
+        const entry = await agentInboxEntry(conversation.id, message.id)
+        if (!entry) return reply('not_found')
+        if (entry.state === 'pending') return reply('not_running')
+        return reply(entry.state === 'consumed' ? 'already_consumed' : 'cancelled')
+      }
+      await settleAgentInterjection(conversation.id, message.id)
+      notifyConversation(conversation.id, {
+        type: 'queuedMessageInterjected',
+        queueId: message.id,
+        turnId: active.turnId,
+      })
+      return reply('interjected', active.turnId)
+    },
+    {
+      params: t.Object({ id: t.String(), queueId: t.String({ maxLength: 128 }) }),
+      body: t.Object({ deviceId: deviceIdSchema() }),
+    },
+  )
+  .get(
+    // 输入框打 `/` 时的候选。只有名字与「何时用」：正文是给模型读的，不是给这个弹层读的。
+    '/api/agent/skills',
+    async ({ query }) => {
+      // 动态引入：`skills` 与 `tools` 静态依赖 pi，模块图不该因为一条清单端点被提到路由加载时。
+      const [{ agentSkillSummaries, ensureAgentSkills }, { resolveAgentMode }] = await Promise.all([
+        import('../lib/agent/skills'),
+        import('../lib/agent/tools'),
+      ])
+      await ensureAgentSkills()
+      // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
+      return { skills: agentSkillSummaries(resolveAgentMode(query.mode ?? 'image')) }
+    },
+    { query: t.Object({ mode: modeSchema }) },
   )
   .get(
     '/api/agent/conversations',
@@ -162,12 +667,38 @@ export const agentRoutes = new Elysia()
   )
   .delete(
     '/api/agent/conversations/:id',
-    async ({ params, body, authUser, status }) => {
+    async ({ params, body, authUser, status, request }) => {
       const owner = ownerOf(authUser, body.deviceId)
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
-      await softDeleteAgentConversation(conversation.id, owner)
-      return { ok: true }
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      return withAgentLifecycle(owner, async () => {
+        if (runningTurn(conversation.id) || (await conversationExecution(conversation.id)))
+          return status(409, { error: 'conversation_busy' })
+        if (owner.kind === 'user') {
+          const [project] = await db
+            .select({ id: schema.canvas_projects.id })
+            .from(schema.canvas_projects)
+            .where(
+              and(
+                eq(schema.canvas_projects.user_id, owner.userId),
+                eq(schema.canvas_projects.conversation_id, conversation.id),
+              ),
+            )
+            .limit(1)
+          if (project) return status(409, { error: 'project_conversation_bound' })
+        }
+        // 删除与确认生成走同一把会话锁：确认不会把任务建进一个刚删掉的会话，
+        // 墓碑与取消也同一次提交，没有「删完又冒出一条任务」的缝。
+        await db.transaction(async (tx) => {
+          await lockConversation(tx, conversation.id, owner.kind === 'user' ? owner.userId : null)
+          await softDeleteAgentConversation(conversation.id, owner, tx)
+          // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
+          await cancelAgentConversationJobs(conversation.id, tx)
+        })
+        return { ok: true }
+      })
     },
     { params: t.Object({ id: t.String() }), body: t.Object({ deviceId: deviceIdSchema() }) },
   )
@@ -181,21 +712,21 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations/:id/turns/:turnId/events',
-    async ({ params, headers, authUser, status }) => {
+    async ({ params, headers, authUser, status, request }) => {
       const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
 
-      const after = lastEventId(headers['last-event-id'])
-      const active = runningTurn(conversation.id)
-      if (active?.turnId === params.turnId) return agentTurnStream(active.read(after))
-
-      const stored = await readAgentTurnEvents(conversation.id, params.turnId, after)
-      // 断点之后没有新事件不代表轮不存在；只有整轮都查不到才是没这一轮。
-      if (stored.length === 0 && !(await agentTurnHasEvents(conversation.id, params.turnId))) {
-        return status(404, TURN_NOT_FOUND)
-      }
-      return agentReplayStream(stored)
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      await sealAbandonedTurns(conversation.id)
+      const feed = await readTurnEvents(
+        conversation.id,
+        params.turnId,
+        lastEventId(headers['last-event-id']),
+      )
+      if (feed.kind === 'no-such-turn') return status(404, TURN_NOT_FOUND)
+      return feed.kind === 'live' ? agentTurnStream(feed.events) : agentReplayStream(feed.events)
     },
     {
       params: turnParams,
@@ -206,29 +737,74 @@ export const agentRoutes = new Elysia()
       }),
     },
   )
-  .resolve(async ({ params, body, authUser }) => {
-    // 轮级端点共用这段：归属查会话、会话查在跑的轮，两级都可能 404。
-    const record = params as { id?: string; turnId?: string }
-    const deviceId = (body as { deviceId?: string } | undefined)?.deviceId
-    if (!record.turnId || !deviceId) return { activeTurn: null as RunningTurn | null }
-    const conversation = await findAgentConversation(record.id!, ownerOf(authUser, deviceId))
-    const active = conversation ? runningTurn(conversation.id) : undefined
-    return { activeTurn: active?.turnId === record.turnId ? active : null }
-  })
+  .get(
+    // 会话级增量：快照之后的全部事件，跨轮按序号续播；有轮在跑就跟到它收尾。
+    '/api/agent/conversations/:id/events',
+    async ({ params, headers, authUser, status, request }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+
+      const forwarded = await forwardActiveTurn(conversation.id, request)
+      if (forwarded) return forwarded
+      await sealAbandonedTurns(conversation.id)
+      return agentTurnStream(
+        await readConversationEvents(conversation.id, lastEventId(headers['last-event-id'])),
+      )
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      headers: t.Object({
+        [DEVICE_ID_HEADER]: deviceIdSchema(),
+        'last-event-id': t.Optional(t.String()),
+      }),
+    },
+  )
   .post(
     '/api/agent/conversations/:id/turns/:turnId/abort',
-    ({ activeTurn, status }) => {
-      if (!activeTurn) return status(404, TURN_NOT_FOUND)
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
+      if (!activeTurn) {
+        // 这一轮已经停下：多半是上一次停止的响应丢了、客户端在重发。那次退回的排队消息仍然
+        // 交还，不能因为服务端已经撤掉就两头落空。
+        const returned = await returnedAgentMessages(conversation.id, params.turnId)
+        if (returned.length === 0) return status(404, TURN_NOT_FOUND)
+        const aborted: AgentTurnAbortedBody = { aborted: true, returned }
+        return aborted
+      }
+      // 先让在路上的插话升级落定，再退回排队消息，最后中止：这一轮收尾时队里已经空了，不会
+      // 接着开下一轮。退回的交给客户端放回输入框，由用户决定改了再发还是删掉。
+      await beginTurnStop(activeTurn)
+      const { returned, fresh } = await returnAgentMessages(conversation.id, activeTurn.turnId)
+      for (const queueId of fresh)
+        notifyConversation(conversation.id, { type: 'queuedMessageWithdrawn', queueId })
       activeTurn.abort()
-      return { aborted: true }
+      const aborted: AgentTurnAbortedBody = { aborted: true, returned }
+      return aborted
     },
     { params: turnParams, body: turnBody },
   )
   .post(
     '/api/agent/conversations/:id/turns/:turnId/interject',
-    async ({ activeTurn, body, status }) => {
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
-      const messageId = await activeTurn.interject(body.text, body.references)
+      let messageId: string | null
+      try {
+        messageId = await activeTurn.interject(body.text, body.references)
+      } catch (error) {
+        if (error instanceof InvalidSelectionError)
+          return status(422, { error: 'invalid_selection' })
+        throw error
+      }
       return messageId ? { messageId } : status(409, { error: 'turn_finished' })
     },
     {

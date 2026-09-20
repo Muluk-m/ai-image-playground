@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(19)
+    expect(rows).toHaveLength(35)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -89,7 +89,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(19)
+    expect(rows).toHaveLength(35)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -140,6 +140,22 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0035_agent_generation_drafts.down.sql',
+      '0034_generation_soft_delete.down.sql',
+      '0033_agent_jobs.down.sql',
+      '0032_agent_inbox.down.sql',
+      '0031_agent_tool_calls.down.sql',
+      '0030_ops_more.down.sql',
+      '0029_task_execution_leases.down.sql',
+      '0028_project_recycle.down.sql',
+      '0027_generation_source.down.sql',
+      '0026_project_generation_outputs.down.sql',
+      '0025_project_conversations.down.sql',
+      '0024_generation_images.down.sql',
+      '0023_durable_media.down.sql',
+      '0022_host_samples.down.sql',
+      '0021_service_heartbeats.down.sql',
+      '0020_cloud_generations.down.sql',
       '0019_domain_migration.down.sql',
       '0018_cloud_projects.down.sql',
       '0017_agent_model_calls.down.sql',
@@ -191,6 +207,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(19)
+    expect(restored).toHaveLength(35)
   })
 })

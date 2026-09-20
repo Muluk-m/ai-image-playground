@@ -6,11 +6,11 @@ import {
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  eventsOfType,
   parseFrames,
   recordingAgentFetch,
   toolCallCompletion,
@@ -109,27 +109,6 @@ function clarificationCall(id: string, options: readonly string[]) {
   })
 }
 
-/** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
-function settleSubmittedTasks(): () => void {
-  let stopped = false
-  void (async () => {
-    while (!stopped) {
-      await db
-        .update(schema.tasks)
-        .set({
-          status: 'completed',
-          result_payload: { data: [{ b64_json: 'aGk=', mime: 'image/png' }] },
-          completed_at: Date.now(),
-        })
-        .where(eq(schema.tasks.status, 'queued'))
-      await Bun.sleep(2)
-    }
-  })()
-  return () => {
-    stopped = true
-  }
-}
-
 beforeEach(async () => {
   _setChannelsForTesting([IMAGE_CHANNEL])
   setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
@@ -173,6 +152,13 @@ describe('智能体澄清', () => {
     // 澄清那一轮只调了一次上游：工具结果没有被喂回去再要一句回复。
     expect(calls).toHaveLength(1)
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('askClarification')
+    // 提问门槛按「对意图的掌握程度」定，不按价格分档；问法是给方向选项让用户点，不是让他填表。
+    const system = String(JSON.stringify(calls[0]!.messages[0]!.content))
+    expect(system).toContain('存在两种以上合理解读')
+    expect(system).toContain('每轮只问最关键的一个问题')
+    expect(system).toContain('问不问只看你对意图的掌握程度，不看这一次花多少钱')
+    expect(system).toContain('本身不构成先问的条件')
+    expect(system).not.toContain('不要反问风格')
 
     const askedMessages = await readMessages(conversationId)
     expect(askedMessages.map((message) => message.role)).toEqual(['user', 'assistant'])
@@ -217,20 +203,16 @@ describe('智能体澄清', () => {
         () => completionStream('不该走到这里'),
       ]),
     )
-    const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
     const frames = await runTurn(conversationId, '画只猫')
-    stop()
 
-    expect(types(frames)).toEqual([
-      'turnStart',
-      'toolStart',
-      'toolProgress',
-      'toolEnd',
-      'clarification',
-      'turnEnd',
-    ])
+    // 生图只拟稿，卡片停在等确认；澄清照样是这一轮的收尾。
+    expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'clarification', 'turnEnd'])
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      toolName: 'generateImage',
+      status: 'awaiting_confirmation',
+    })
     const end = frames.at(-1)!.event
     expect(end).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
     expect(calls).toHaveLength(1)

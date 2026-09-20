@@ -31,7 +31,10 @@ export function copySelection(doc: CanvasDoc): number {
 /** 把剪贴板内容粘贴回画布（新 id、整体偏移），粘贴结果成为新选区。 */
 export function pasteClipboard(doc: CanvasDoc): string[] {
   if (!clipboard) return []
-  const pasted = clipboard.elements.map((el) => cloneWithOffset(el, PASTE_OFFSET, PASTE_OFFSET))
+  const pasted = remapTimelines(
+    clipboard.elements,
+    clipboard.elements.map((el) => cloneWithOffset(el, PASTE_OFFSET, PASTE_OFFSET)),
+  )
   doc.addElements(pasted, { files: { ...clipboard.files } })
   doc.setSelection(pasted.map((el) => el.id))
   // 连续粘贴逐次错开：把剪贴板自身也位移一步
@@ -48,10 +51,32 @@ export function pasteClipboard(doc: CanvasDoc): string[] {
 export function duplicateSelection(doc: CanvasDoc): string[] {
   const els = doc.elements.filter((el) => doc.selection.has(el.id) && el.type !== 'placeholder')
   if (els.length === 0) return []
-  const dup = els.map((el) => cloneWithOffset(el, PASTE_OFFSET, PASTE_OFFSET))
+  const dup = remapTimelines(
+    els,
+    els.map((el) => cloneWithOffset(el, PASTE_OFFSET, PASTE_OFFSET)),
+  )
   doc.addElements(dup)
   doc.setSelection(dup.map((el) => el.id))
   return dup.map((el) => el.id)
+}
+
+/**
+ * 同一批里复制的时间线改指向同一批复制出来的视频：连同视频一起复制的时间线，副本编排的是
+ * 副本。不在这一批里的视频保持原引用（只复制时间线时，它仍指着原来那几段）。
+ */
+function remapTimelines(sources: readonly CanvasEl[], copies: CanvasEl[]): CanvasEl[] {
+  const ids = new Map(sources.map((el, index) => [el.id, copies[index]!.id]))
+  return copies.map((copy) =>
+    copy.type === 'timeline'
+      ? {
+          ...copy,
+          clips: copy.clips.map((clip) => ({
+            ...clip,
+            elementId: ids.get(clip.elementId) ?? clip.elementId,
+          })),
+        }
+      : copy,
+  )
 }
 
 /** 深拷贝一个元素并整体位移；id 缺省重新生成（图片共享同一 fileId，位图不复制）。 */

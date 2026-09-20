@@ -1,26 +1,28 @@
+import { hostname } from 'node:os'
 import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
-import { Elysia } from 'elysia'
+import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
+import { appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
+import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { agentRoutes } from './routes/agent'
 import { userAuthRoutes } from './routes/auth'
-import { bgswapPlanRoutes } from './routes/bgswap-plan'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { domainHandoffRoutes } from './routes/domain-handoff'
+import { generationRoutes } from './routes/generations'
+import { internalDrainRoutes } from './routes/internal-drain'
+import { internalOpsRoutes } from './routes/internal-ops'
 import { internalUserRoutes } from './routes/internal-users'
-import { matteRoutes } from './routes/matte'
+import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
 import { projectRoutes } from './routes/projects'
-import { remixAnalyzeRoutes } from './routes/remix-analyze'
-import { remixListingRoutes } from './routes/remix-listing'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
-import { storyboardPlanRoutes } from './routes/storyboard-plan'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
 
@@ -124,9 +126,45 @@ async function serveSpaFallback(): Promise<Response | null> {
   })
 }
 
+/** 运维看板的接口统计。按实例累计，由 `index.ts` 每分钟写库一次。 */
+export const apiMetrics = createApiMetrics(hostname())
+const requestStartedAt = new WeakMap<Request, number>()
+
+/**
+ * 路由直接返回 Response 时它自己带着状态码，`set.status` 仍是默认的 200；
+ * `status(4xx, …)` 返回的对象把状态码放在 `code` 上。三处都看，才不会把错误数成成功。
+ */
+function responseStatus(value: unknown, status: number | string | undefined): number {
+  if (value instanceof Response) return value.status
+  if (value && typeof value === 'object' && 'code' in value) {
+    const code = (value as { code: unknown }).code
+    if (typeof code === 'number' && code >= 100 && code < 600) return code
+  }
+  if (typeof status === 'number') return status
+  if (typeof status === 'string') return StatusMap[status as keyof typeof StatusMap] ?? 200
+  return 200
+}
+
 export const app = new Elysia()
+  .onRequest(({ request }) => {
+    requestStartedAt.set(request, performance.now())
+  })
+  .onAfterResponse({ as: 'global' }, ({ request, route, set, responseValue }) => {
+    const startedAt = requestStartedAt.get(request)
+    if (startedAt === undefined) return
+    const { pathname } = new URL(request.url)
+    if (!isApiPath(pathname) || !isCountedPath(pathname)) return
+    apiMetrics.record({
+      at: Date.now(),
+      route: `${request.method} ${route || '（未匹配的路径）'}`,
+      status: responseStatus(responseValue, set.status),
+      durationMs: performance.now() - startedAt,
+    })
+  })
   .use(cors({ origin: corsOrigin, credentials: true }))
-  .get('/health', () => ({ ok: true }))
+  // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
+  // commit that is serving.
+  .get('/health', () => ({ ok: true, version: appVersion() }))
   .use(userAuthRoutes)
   .use(domainHandoffRoutes)
   .use(oauthRoutes)
@@ -136,15 +174,14 @@ export const app = new Elysia()
   .use(statusRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
-  .use(bgswapPlanRoutes)
-  .use(matteRoutes)
-  .use(remixAnalyzeRoutes)
-  .use(remixListingRoutes)
-  .use(storyboardPlanRoutes)
   .use(agentRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
+  .use(mediaRoutes)
+  .use(generationRoutes)
   .use(internalUserRoutes)
+  .use(internalOpsRoutes)
+  .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)
   .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {

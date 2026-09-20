@@ -2,6 +2,9 @@ import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
+import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
+import { useTranslation } from '../../../i18n'
+import { mediaIdentity } from '../../../lib/cloudMedia'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
@@ -25,8 +28,11 @@ import {
   type SnapTargets,
   selectionBounds,
 } from '../lib/snapping'
+import { bindCanvasTouch } from '../lib/touchGestures'
+import { useTimelineEditor } from '../timelineEditorStore'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import SelectionInfo from './SelectionInfo'
+import TimelineShape from './TimelineShape'
 
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
@@ -54,7 +60,25 @@ type Gesture =
  * - 外部图片：文件拖入落在指针处；系统剪贴板图片 ⌘V 落视口中心
  * 文档状态全部在 CanvasDoc；本组件是无状态渲染 + 手势翻译层。
  */
+/**
+ * 命中节点所属的画布元素 id。多数元素就是一个带 id 的节点；时间线是一组节点，点中的是
+ * 里面没有 id 的背景，所以往上找第一个带 id 的祖先（到 Layer 为止）。
+ */
+function elementIdAt(node: Konva.Node | null | undefined): string | undefined {
+  for (
+    let current = node;
+    current && current.getType() !== 'Layer';
+    current = current.getParent()
+  ) {
+    const id = current.id()
+    if (id) return id
+  }
+  return undefined
+}
+
 export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation('canvas')
+  const mobile = useMobileWorkspace()
   const doc = editor.doc
   useSyncExternalStore(doc.subscribe, () => doc.version)
 
@@ -76,6 +100,31 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const { camera, viewport, tool, selection, editingTextId } = doc
   const selectMode = tool === 'select' && !spaceDown
 
+  useEffect(() => {
+    const container = stageRef.current?.container()
+    if (!container) return
+    return bindCanvasTouch(container, doc, {
+      native: (point) =>
+        doc.tool === 'select' &&
+        Boolean(stageRef.current?.getIntersection(point)?.findAncestor('Transformer')),
+      hit: (point) => elementIdAt(stageRef.current?.getIntersection(point)),
+      menu: (id, point) => setImageMenu({ id, ...point }),
+      active: setPanning,
+      interrupt: () => {
+        trRef.current?.stopTransform()
+        const gesture = gestureRef.current
+        gestureRef.current = null
+        if (gesture?.kind === 'draw' || gesture?.kind === 'arrow') {
+          doc.deleteElements([gesture.id], { history: false })
+        } else if (gesture?.kind === 'erase' && gesture.captured) {
+          doc.undo()
+        }
+        setMarquee(null)
+        setHoveredId(null)
+      },
+    })
+  }, [doc])
+
   // ===== 视口尺寸跟随容器 =====
   useEffect(() => {
     const el = containerRef.current
@@ -93,6 +142,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       const t = e.target as HTMLElement | null
       return (
         doc.editingTextId !== null ||
+        // 全屏编辑时间线时，画布整个让位：它的 Delete / ⌘Z 会删掉或撤掉正在编辑的那条。
+        useTimelineEditor.getState().openId !== null ||
         t?.tagName === 'INPUT' ||
         t?.tagName === 'TEXTAREA' ||
         t?.isContentEditable
@@ -316,9 +367,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     const stage = stageRef.current
     const pos = stage?.getPointerPosition()
     if (!stage || !pos) return
-    const node = stage.getIntersection(pos)
-    if (!node) return
-    const el = node.id() ? doc.getElement(node.id()) : undefined
+    const id = elementIdAt(stage.getIntersection(pos))
+    const el = id ? doc.getElement(id) : undefined
     if (!el || el.type === 'placeholder') return
     if (!g.captured) {
       doc.captureHistory()
@@ -339,7 +389,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       const dy = e.evt.clientY - g.lastY
       g.lastX = e.evt.clientX
       g.lastY = e.evt.clientY
-      doc.setCamera({ x: camera.x - dx / camera.zoom, y: camera.y - dy / camera.zoom })
+      const current = doc.camera
+      doc.setCamera({ x: current.x - dx / current.zoom, y: current.y - dy / current.zoom })
       return
     }
     const p = pagePoint()
@@ -590,6 +641,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       className="absolute inset-0 overflow-hidden"
       style={{
         cursor,
+        touchAction: 'none',
         backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
         backgroundSize: '20px 20px',
         backgroundPosition: `${-camera.x * camera.zoom}px ${-camera.y * camera.zoom}px`,
@@ -601,7 +653,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         const rect = containerRef.current?.getBoundingClientRect()
         if (!stage || !rect) return
         const node = stage.getIntersection({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-        const el = node?.id() ? doc.getElement(node.id()) : undefined
+        const id = elementIdAt(node)
+        const el = id ? doc.getElement(id) : undefined
         if (el?.type !== 'image') return
         setImageMenu({ id: el.id, x: e.clientX, y: e.clientY })
       }}
@@ -619,7 +672,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         void importImageFiles(editor, [...e.dataTransfer.files], drop)
       }}
     >
-      {!dragging && !panning && <SelectionInfo doc={doc} />}
+      {!dragging && !panning && (
+        <SelectionInfo doc={doc} onImageMenu={(menu) => setImageMenu(menu)} />
+      )}
       <Stage
         ref={stageRef}
         width={viewport.width}
@@ -631,6 +686,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
       >
         <Layer listening={false}></Layer>
@@ -651,6 +707,12 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
             }
             switch (el.type) {
               case 'image': {
+                if (
+                  mediaIdentity(doc.files[el.fileId]) &&
+                  !doc.selection.has(el.id) &&
+                  !elementBounds(el).collides(editor.getViewportPageBounds())
+                )
+                  return null
                 const img = getLoadedImage(el.fileId, doc.files[el.fileId], () =>
                   doc.notifyAssetLoaded(),
                 )
@@ -704,6 +766,16 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
                     {...common}
                     {...placeholderProps(el)}
                     onTransformEnd={(e) => onTransformEnd(e, el.id)}
+                  />
+                )
+              case 'timeline':
+                return (
+                  <TimelineShape
+                    key={el.id}
+                    el={el}
+                    doc={doc}
+                    labels={{ title: t('timeline.title'), missing: t('timeline.missing') }}
+                    common={common}
                   />
                 )
             }
@@ -767,7 +839,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
                     'bottom-center',
                   ]
             }
-            anchorSize={9}
+            anchorSize={mobile ? 18 : 9}
             anchorCornerRadius={4}
             anchorStroke="#3b82f6"
             anchorFill="#ffffff"
@@ -776,6 +848,11 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           />
         </Layer>
       </Stage>
+      {mobile && (
+        <div className="pointer-events-none absolute bottom-2 left-16 right-3 text-center text-[11px] text-muted-foreground">
+          {t('touch.hint')}
+        </div>
+      )}
       <CanvasImageMenu menu={imageMenu} doc={doc} onClose={() => setImageMenu(null)} />
       {editingText && (
         <textarea

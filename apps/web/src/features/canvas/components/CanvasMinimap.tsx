@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
+import { subscribeTheme } from '../../../theme'
 import type { CanvasEl } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
 import type { Box } from '../lib/geometry'
@@ -64,6 +66,7 @@ interface RectCache {
  * 一个包围盒都不用重算。
  */
 export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation('canvas')
   const { doc } = editor
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -107,14 +110,14 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
     }
 
     draw()
-    const theme = window.matchMedia?.('(prefers-color-scheme: dark)')
-    theme?.addEventListener('change', draw)
+    // 颜色取自 CSS 变量，主题一换（无论是系统变了还是用户翻转）就得重画。
+    const unsubscribeTheme = subscribeTheme(draw)
     const unsubscribe = doc.subscribe(() => {
       if (!frame) frame = requestAnimationFrame(draw)
     })
     return () => {
       unsubscribe()
-      theme?.removeEventListener('change', draw)
+      unsubscribeTheme()
       if (frame) cancelAnimationFrame(frame)
     }
   }, [doc, currentFrame, hasContent])
@@ -136,7 +139,7 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
         ref={canvasRef}
         style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }}
         className="block cursor-pointer touch-none"
-        aria-label="画布小地图"
+        aria-label={t('minimap.label')}
         onPointerDown={(event) => {
           const { proj, viewport } = currentFrame()
           const point = pagePointOf(event, proj)

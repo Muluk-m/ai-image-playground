@@ -1,0 +1,40 @@
+{
+  "documentTitle": "幕芽 Muvloom · AI 图片与视频创作工作台",
+  "theme": {
+    "label": "主题",
+    "light": "亮色",
+    "dark": "暗色",
+    "system": "跟随系统",
+    "toDark": "切到暗色",
+    "toLight": "切到亮色"
+  },
+  "locale": {
+    "switchAria": "界面语言：{{current}}，点击切换到 {{next}}",
+    "label": "界面语言",
+    "zh-CN": "中文",
+    "en": "English"
+  },
+  "action": {
+    "confirm": "确定",
+    "cancel": "取消",
+    "close": "关闭",
+    "delete": "删除",
+    "edit": "编辑",
+    "retry": "重试",
+    "copy": "复制",
+    "clear": "清空",
+    "save": "保存",
+    "download": "下载",
+    "collapse": "收起",
+    "generate": "生成"
+  },
+  "state": {
+    "generating": "生成中",
+    "failed": "失败",
+    "unknown": "未知"
+  },
+  "toast": {
+    "copySucceeded": "复制成功",
+    "copyFailed": "复制失败"
+  }
+}

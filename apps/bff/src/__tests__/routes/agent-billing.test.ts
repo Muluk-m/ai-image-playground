@@ -114,7 +114,12 @@ afterAll(async () => {
 
 describe('对话轮的预扣', () => {
   it('起轮前按估算的输入与预留的输出预扣一次', async () => {
-    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    setAgentFetchForTesting(
+      recordingAgentFetch([], () => {
+        expect(reservations).toHaveLength(1)
+        return completionStream('好')
+      }),
+    )
     const conversationId = await startConversation()
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
@@ -126,23 +131,23 @@ describe('对话轮的预扣', () => {
       model: 'fixture-agent-model',
       quantity: 1,
     })
-    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的零头是这条短提示词的输入估算。
-    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(10)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(10.5)
   })
 
   it('运营改了对话单价，下一轮就按新的输出倍数与预留预扣', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const baseline = await startConversation()
+    await runTurn(baseline, '把背景换成浅木色')
+    await waitFor(async () => settlements.length === 1)
     billing.pricing = { outputPriceRatio: 4, outputReserveTokens: 500 }
     const conversationId = await startConversation()
 
     await runTurn(conversationId, '把背景换成浅木色')
     // 等这一轮结算落定再收尾，否则 afterAll 关库时还有在途写入。
-    await waitFor(async () => settlements.length === 1)
+    await waitFor(async () => settlements.length === 2)
 
-    // 预留 500 输出 token × 4 倍 = 固定 2；剩下的零头是这条短提示词的输入估算。
-    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(2)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(2.5)
+    // 相同输入不受文案长度影响；输出预留从 2000×5 改为 500×4，每千 token 少预扣 8 单位。
+    expect(reservations).toHaveLength(2)
+    expect(reservations[0]!.unitMultiplier - reservations[1]!.unitMultiplier).toBeCloseTo(8, 6)
   })
 
   it('预扣之前先落一条对话任务，占用才挂得住，且不带用户原话', async () => {
@@ -198,7 +203,11 @@ describe('对话轮的预扣', () => {
     expect(await db.select().from(schema.agent_messages)).toHaveLength(0)
   })
 
-  it('历史参考图读取失败时退回本轮预扣且不发送上游请求', async () => {
+  /**
+   * 上一轮的参考图不再跟着下一轮重发：那批字节压根不读，所以读得出来读不出来都拖不垮纯文字轮。
+   * 这一条从前钉的是反面——历史参考图读失败就整轮失败——那正是按需取图要治的病。
+   */
+  it('纯文字轮不重发历史参考图：不读对象存储，也不为它计图', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('已看到参考图')))
     const conversationId = await startConversation()
@@ -208,21 +217,18 @@ describe('对话轮的预扣', () => {
       references: [REFERENCE],
     })
     await initial.text()
+    // 只要第二轮去读一次归档的参考图就会炸；它一次都不读。
     storage.readFailuresRemaining = 1
 
     const { frames } = await runTurn(conversationId, '继续修改这张图')
-    const failedTurnId = turnIdOf(frames)
-    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'failed' })
-    expect(settlements.find((one) => one.taskId === failedTurnId)?.outcome).toBe('failed')
+
+    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    expect(storage.readFailuresRemaining).toBe(1)
+    expect(calls).toHaveLength(2)
+    // 第一轮附了一张图，第二轮一张都没有：预扣与计费看到的图数跟着实发走。
     expect(
-      (await db.select().from(schema.tasks)).find((task) => task.id === failedTurnId)?.status,
-    ).toBe('failed')
-    expect(calls).toHaveLength(1)
-    expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
-      input_image_count: 1,
-      user_id: USER_ID,
-      device_id: DEVICE,
-    })
+      (await db.select().from(schema.agent_model_calls)).map((one) => one.input_image_count),
+    ).toEqual([1, 0])
   })
 
   it('对话模型没有有效单价时拒绝起轮', async () => {
@@ -458,4 +464,74 @@ describe('对话轮的结算', () => {
       usage: null,
     })
   })
+})
+
+it('settles reported cache hits at the configured rate without subtracting twice', async () => {
+  billing.pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  setAgentFetchForTesting(
+    recordingAgentFetch([], () =>
+      completion({
+        deltas: ['收到'],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 1000,
+          prompt_tokens_details: { cached_tokens: 8000 },
+        },
+      }),
+    ),
+  )
+  const conversationId = await startConversation()
+  const { frames } = await runTurn(conversationId, '简短回答')
+  expect(frames.at(-1)!.event).toMatchObject({
+    type: 'turnEnd',
+    usage: { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+  })
+  expect(settlements[0]?.actualUsage?.unitMultiplier).toBeCloseTo(7.8)
+  expect(settlements[0]?.actualUsage?.tokens).toEqual({
+    input: 10000,
+    cachedInput: 8000,
+    output: 1000,
+  })
+  expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+    cache_read_tokens: 8000,
+    usage: { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+  })
+})
+
+it('does not treat partial multi-call usage as the complete turn for refunds', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () => toolCallCompletion({ id: 'lookup-unknown', name: 'readLibrary', args: {} }),
+        () => completion({ deltas: ['没有素材'] }),
+      ],
+    ),
+  )
+  const { frames } = await runTurn(await startConversation(), '查找素材')
+  expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', usage: null })
+  expect(settlements[0]).toMatchObject({ upstreamInvocationCount: 2 })
+  expect(settlements[0]?.actualUsage).toBeUndefined()
+})
+
+it('counts a fully cached input even when uncached input and output are zero', async () => {
+  billing.pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  setAgentFetchForTesting(
+    recordingAgentFetch([], () =>
+      completion({
+        deltas: ['收到'],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 0,
+          prompt_tokens_details: { cached_tokens: 10000 },
+        },
+      }),
+    ),
+  )
+  const { frames } = await runTurn(await startConversation(), '继续')
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    usage: { inputTokens: 10000, cachedInputTokens: 10000, outputTokens: 0 },
+  })
+  expect(settlements[0]?.actualUsage?.unitMultiplier).toBe(1)
 })

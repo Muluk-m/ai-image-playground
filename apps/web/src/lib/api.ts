@@ -1,3 +1,5 @@
+import { applyPromptRewriteGuard, buildAspectInstruction } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
 import { modelSupportsNativeMask } from './channels/profileSelectors'
@@ -7,15 +9,9 @@ import type { UserByokProfile } from './channels/types'
 import { isByokGenerationEnabled } from './clientCapabilities'
 import { compressInputImageDataUrls } from './compressInputImage'
 import { callGeminiImageApi } from './geminiImageApi'
-import {
-  applyPromptRewriteGuard,
-  type BYOKAdapterProfile,
-  type CallApiOptions,
-  type CallApiResult,
-} from './imageApiShared'
+import type { BYOKAdapterProfile, CallApiOptions, CallApiResult } from './imageApiShared'
 import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
 import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
-import { buildAspectInstruction } from './size'
 
 export { normalizeBaseUrl } from './devProxy'
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
@@ -74,7 +70,7 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
 
   const profile = getActiveApiProfile(opts.settings)
   if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
-    throw new Error('当前部署只允许使用内置模型')
+    throw new Error(i18next.t('dispatch.builtinOnly', { ns: 'lib' }))
   }
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
@@ -109,12 +105,15 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
 
   if (profile.source === 'builtin-edge') {
     const channel = getPublicChannel(profile.channelId)
-    if (!channel) throw new Error(`找不到内置 channel：${profile.channelId}`)
+    if (!channel)
+      throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
     // builtin-edge 全部走 queue：浏览器 → BFF 都是 < 1s 短请求，永远绕开 CF Edge
     // ~60s 死线。生成 / 编辑 / mask 编辑都靠 BFF worker 调上游 /v1/images/edits
     // 或 /v1/images/generations 区分。
     if (toQueueProvider(channel.kind) === null) {
-      throw new Error(`不支持的内置 channel kind：${channel.kind}`)
+      throw new Error(
+        i18next.t('dispatch.unsupportedChannelKind', { ns: 'lib', kind: channel.kind }),
+      )
     }
     return callQueueChannelApi(opts, profile, channel)
   }
@@ -130,9 +129,7 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
       return callOpenAICompatibleImageApi(opts, byok, null)
     case 'openai-queue':
     case 'gemini-queue':
-      throw new Error(
-        `queue kind ${profile.kind} 仅用于 builtin-edge profile，不应作为 user-byok kind`,
-      )
+      throw new Error(i18next.t('dispatch.queueKindMisuse', { ns: 'lib', kind: profile.kind }))
   }
 }
 
@@ -148,12 +145,13 @@ export async function resumeQueueImageApi(
 
   const profile = getActiveApiProfile(opts.settings)
   if (profile.source !== 'builtin-edge') {
-    throw new Error('恢复 BFF queue 任务时未找到对应内置 channel profile')
+    throw new Error(i18next.t('dispatch.resumeProfileMissing', { ns: 'lib' }))
   }
   const channel = getPublicChannel(profile.channelId)
-  if (!channel) throw new Error(`找不到内置 channel：${profile.channelId}`)
+  if (!channel)
+    throw new Error(i18next.t('dispatch.channelNotFound', { ns: 'lib', id: profile.channelId }))
   if (toQueueProvider(channel.kind) === null) {
-    throw new Error(`channel kind ${channel.kind} 非 queue，无法恢复`)
+    throw new Error(i18next.t('dispatch.resumeKindNotQueue', { ns: 'lib', kind: channel.kind }))
   }
   return resumeQueueChannelApi(opts, profile, channel, requestId)
 }

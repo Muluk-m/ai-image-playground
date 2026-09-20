@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from '../i18n'
 import { parseSlotValueLines } from '../lib/promptSlots'
 import ComposerPopover from './ComposerPopover'
 
@@ -18,8 +19,10 @@ export default function SlotValuePopover({
   onChange,
   onClose,
 }: SlotValuePopoverProps) {
+  const { t } = useTranslation('composer')
   const [text, setText] = useState(() => values.join('\n'))
   const ref = useRef<HTMLDivElement>(null)
+  const slot = `{${name}}`
 
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
@@ -34,13 +37,13 @@ export default function SlotValuePopover({
   }, [onClose])
 
   return (
-    <ComposerPopover ref={ref} heading={`槽位 {${name}}`} offsetLeft={offsetLeft}>
+    <ComposerPopover ref={ref} heading={t('slot.heading', { slot })} offsetLeft={offsetLeft}>
       <textarea
         autoFocus
         value={text}
         rows={4}
-        placeholder="一行一个值"
-        aria-label={`槽位 {${name}} 的值`}
+        placeholder={t('slot.placeholder')}
+        aria-label={t('slot.valuesLabel', { slot })}
         onChange={(e) => {
           setText(e.target.value)
           onChange(parseSlotValueLines(e.target.value))

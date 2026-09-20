@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
 import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
@@ -42,7 +43,12 @@ export async function settleGeneration(
   result: CallApiResult,
 ): Promise<boolean> {
   if (result.images.length === 0) {
-    markPlaceholderStatus(editor, placeholderId, 'error', '生成完成但未返回图片')
+    markPlaceholderStatus(
+      editor,
+      placeholderId,
+      'error',
+      i18next.t('placeholder.noImages', { ns: 'canvas' }),
+    )
     return false
   }
   await placeResults(editor, placeholderId, target, result.images)
@@ -61,7 +67,12 @@ export async function placeImagesIntoTargets(
   editor: CanvasEditor,
   placing: readonly PlaceItem[],
   targets: readonly PlacementTarget[],
-  opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
+  opts: {
+    meta?: Record<string, string>
+    canPlace?: () => boolean
+    /** 落完选中新元素（默认）。不选时用户手上的选区不被打断。 */
+    select?: boolean
+  } = {},
 ): Promise<void> {
   const sizes = await Promise.all(placing.map((one) => getImageDimensions(one.dataUrl)))
   if (opts.canPlace && !opts.canPlace()) return
@@ -69,6 +80,8 @@ export async function placeImagesIntoTargets(
   const items: PlacedImage[] = []
   for (let i = 0; i < placing.length; i++) {
     const one = placing[i]!
+    // Cloud delivery can arrive while decoding; preserve its identity and user edits.
+    if (one.id && editor.getElement(one.id)) continue
     const target = targets[i]!
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
@@ -89,7 +102,7 @@ export async function placeImagesIntoTargets(
   }
   const ids = editor.placeImages(items, opts.meta)
   if (ids.length === 0) return
-  editor.setSelectedElements(ids)
+  if (opts.select !== false) editor.setSelectedElements(ids)
 
   // 镜头反馈：结果完全在视口外（用户平移去了别处 / 恢复场景）时把镜头带过去，
   // 否则生成完了用户根本不知道图落在哪。视口内可见则不动。
