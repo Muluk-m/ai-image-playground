@@ -281,6 +281,8 @@
     "inbox": {
       "aria": "Background jobs",
       "summary": "{{running}} running · {{completed}} done",
+      "summaryFailed": "{{running}} running · {{completed}} done · {{failed}} failed",
+      "count": "{{done}}/{{total}}",
       "locate": "Locate on canvas",
       "succeeded": "Done",
       "failed": "Did not finish"

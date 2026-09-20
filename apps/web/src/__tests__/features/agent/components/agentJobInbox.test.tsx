@@ -93,7 +93,7 @@ it('stays out of the way when the conversation has no background jobs', () => {
   expect(host.textContent).toBe('')
 })
 
-it('counts the running and the completed jobs and lists them on demand', () => {
+it('shows how far the batch got and lists the jobs on demand', () => {
   store.messages = [
     job('1', {}),
     job('2', { status: 'succeeded', artifacts: [IMAGE] }),
@@ -104,7 +104,13 @@ it('counts the running and the completed jobs and lists them on demand', () => {
   render()
 
   const summary = host.querySelector('button[aria-expanded]')!
-  expect(summary.textContent).toContain('2 个进行中 · 1 个已完成')
+  // 进度说的是「这批走完几个」，成与不成分两段；一句话留给读屏与悬停。
+  expect(summary.textContent).toContain('2/4')
+  expect(summary.getAttribute('aria-label')).toBe('2 个进行中 · 1 个已完成 · 1 个没有完成')
+  const [done, failed] = [...summary.querySelectorAll('span[style]')].map(
+    (one) => (one as HTMLElement).style.width,
+  )
+  expect([done, failed]).toEqual(['25%', '25%'])
   expect(host.querySelector('li')).toBeNull()
 
   act(() => (summary as HTMLButtonElement).click())
@@ -118,6 +124,22 @@ it('counts the running and the completed jobs and lists them on demand', () => {
   expect(rows[2]).toContain('已取消')
   expect(rows[3]).toContain('任务 2')
   expect(rows[3]).toContain('已完成')
+})
+
+it('counts a job still waiting in the retry queue as running, not as finished', () => {
+  // 重试队列里排着的那张还没拿到任务 id；算成已结束，顶上就会在还有活儿时说全干完了。
+  store.messages = [
+    job('1', { status: 'succeeded', artifacts: [IMAGE] }),
+    job('2', { status: 'queued', job: undefined }),
+  ]
+  render()
+
+  const summary = host.querySelector('button[aria-expanded]')!
+  expect(summary.textContent).toContain('1/2')
+  expect(summary.getAttribute('aria-label')).toBe('1 个进行中 · 1 个已完成')
+
+  act(() => (summary as HTMLButtonElement).click())
+  expect(rowButton('任务 2').textContent).toContain('排队中')
 })
 
 it('locates a running job by its placeholder and a finished one by its artifacts', () => {
