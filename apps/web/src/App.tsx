@@ -22,7 +22,6 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import { useLibraryStore } from './features/library/store'
 import { i18next } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -38,7 +37,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
-  const libraryTab = useLibraryStore((s) => s.tab)
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -111,11 +109,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         ) : appMode === 'projects' ? (
           <ProjectsPage />
         ) : appMode === 'library' ? (
-          <>
-            <LibraryPage userId={user?.id} />
-            {/* 资产是翻旧账的地方：批量操作留着，输入框不留——要接着生成就回创作页。 */}
-            {libraryTab === 'works' ? <TaskBulkActions /> : null}
-          </>
+          <LibraryPage />
         ) : (
           <>
             <main data-home-main data-drag-select-surface className="pb-48">

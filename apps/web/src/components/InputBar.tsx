@@ -21,7 +21,7 @@ import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/p
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
-import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../lib/inputImageLimit'
+import { API_MAX_IMAGES, MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
@@ -1239,7 +1239,7 @@ export default function InputBar() {
               {atImageLimit ? (
                 <>
                   <p className="text-lg font-semibold text-destructive">
-                    {t('image.limitReached', { count: API_MAX_IMAGES })}
+                    {t('image.limitReached', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">{t('image.limitHint')}</p>
                 </>
@@ -1247,7 +1247,7 @@ export default function InputBar() {
                 <>
                   <p className="text-lg font-semibold text-foreground">{t('image.dropToAdd')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {t('image.dropFormats', { count: API_MAX_IMAGES })}
+                    {t('image.dropFormats', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
                   </p>
                 </>
               )}
@@ -1520,7 +1520,7 @@ export default function InputBar() {
                       title={
                         attachDisabled
                           ? attachDisabledReason
-                          : t('image.attach', { count: API_MAX_IMAGES })
+                          : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
                       }
                     >
                       {ChipIcons.imageAttach}
@@ -1631,7 +1631,7 @@ export default function InputBar() {
                         title={
                           attachDisabled
                             ? attachDisabledReason
-                            : t('image.attach', { count: API_MAX_IMAGES })
+                            : t('image.attach', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })
                         }
                       >
                         {ChipIcons.imageAttach}

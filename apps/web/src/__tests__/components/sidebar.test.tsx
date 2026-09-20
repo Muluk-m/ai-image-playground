@@ -23,7 +23,7 @@ let root: Root
 
 beforeEach(() => {
   useStore.setState({ appMode: 'image' })
-  useLibraryStore.setState({ onLibraryPage: false, tab: 'works' })
+  useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)

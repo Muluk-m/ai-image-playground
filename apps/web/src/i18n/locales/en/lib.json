@@ -15,7 +15,9 @@
     "transcodeFailed": "Could not transcode the image",
     "invalidSize": "Invalid image size",
     "onlyImages": "Only image files are supported",
-    "limitReached": "Reference image limit reached ({{max}}), cannot add more"
+    "limitReached": "Reference image limit reached ({{max}}), cannot add more",
+    "tooLarge_one": "{{count}} image is over {{max}}MB and was skipped",
+    "tooLarge_other": "{{count}} images are over {{max}}MB and were skipped"
   },
   "imageFetch": {
     "corsHint": " Use the link button to copy the result URL, or turn on “Return base64 image data” to avoid this.",
