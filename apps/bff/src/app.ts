@@ -13,6 +13,7 @@ import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { domainHandoffRoutes } from './routes/domain-handoff'
 import { generationRoutes } from './routes/generations'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalOpsRoutes } from './routes/internal-ops'
@@ -165,6 +166,7 @@ export const app = new Elysia()
   // commit that is serving.
   .get('/health', () => ({ ok: true, version: appVersion() }))
   .use(userAuthRoutes)
+  .use(domainHandoffRoutes)
   .use(oauthRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
