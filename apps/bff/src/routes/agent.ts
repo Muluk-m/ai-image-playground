@@ -41,6 +41,7 @@ import {
   listAgentMessages,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
+import { type CookieJar, ensureDeviceClaim, holdsDeviceClaim } from '../lib/agent/deviceClaim'
 import {
   isSealLease,
   lastConversationEventSeq,
@@ -195,6 +196,17 @@ export const agentRoutes = new Elysia()
     if (!isCapabilityEnabled('agent:chat')) return capabilityUnavailable('agent:chat')
   })
   .use(resolveAuthUser)
+  // 匿名流量顺路登记持有性证明。放在这里而不是只放在建会话上：已有用户没有登记行，
+  // 下一次任何一个请求就把他们补上，缩短「标识已泄漏但还没人登记」的窗口。
+  .onBeforeHandle(async ({ authUser, headers, body, cookie }) => {
+    if (authUser) return
+    const deviceId =
+      headers[DEVICE_ID_HEADER] ||
+      (typeof body === 'object' && body && 'deviceId' in body && typeof body.deviceId === 'string'
+        ? body.deviceId
+        : '')
+    if (deviceId) await ensureDeviceClaim(deviceId, cookie as CookieJar)
+  })
   .post(
     '/api/agent/conversations',
     async ({ body, authUser }) => ({
@@ -714,8 +726,12 @@ export const agentRoutes = new Elysia()
   )
   .post(
     '/api/agent/conversations/adopt',
-    async ({ body, authUser, status }) => {
+    // 领养是不可逆的：会话改挂到账号下，原设备再也看不到。所以这一个动作不接受
+    // 「自述设备标识」，要求这个浏览器持有起轮时下发的那张 cookie。知道标识不等于持有它。
+    async ({ body, authUser, status, cookie }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!(await holdsDeviceClaim(body.deviceId, cookie as CookieJar)))
+        return status(403, { error: 'device_claim_required' })
       return { adopted: await adoptDeviceConversations(body.deviceId, authUser.id) }
     },
     { body: t.Object({ deviceId: deviceIdSchema() }) },
