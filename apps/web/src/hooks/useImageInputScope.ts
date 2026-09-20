@@ -6,7 +6,9 @@ export type ImageInputScope = AppMode | 'library'
 
 export function useImageInputScope(): ImageInputScope {
   const appMode = useStore((s) => s.appMode)
-  // 素材入口自己就是落点，图片存成素材而不是进输入框。
-  const libraryTakesOver = useLibraryStore((s) => s.onLibraryPage && s.tab === 'assets')
-  return libraryTakesOver ? 'library' : appMode
+  const tab = useLibraryStore((s) => (s.onLibraryPage ? s.tab : null))
+  // 素材页自己就是落点，图片存成素材；作品页底下有输入框，图片进输入框。
+  if (tab === 'assets') return 'library'
+  if (tab === 'works') return 'image'
+  return appMode
 }
