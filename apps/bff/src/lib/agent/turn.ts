@@ -14,6 +14,7 @@ import { db } from '../../db/client'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
+import { createAutoSubmitBudget } from './auto-submit'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, recordAgentToolCall, touchAgentConversation } from './conversations'
@@ -157,6 +158,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history,
     prompt: input.wake?.authorizationPrompt ?? prompt,
     references: images.references,
+    attached: input.references.length > 0,
     ...(input.wake?.plan ? { carried: input.wake.plan.authorization } : {}),
   })
   let clarified = false
@@ -171,7 +173,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const toolFailures = createToolFailureLog()
   const agent = new Agent({
     initialState: {
-      ...turnInitialState(input.history, input.mode),
+      ...turnInitialState(input.history, input.mode, input.params?.autoSubmit === true),
       model: agentModel(input.params?.thinkingDepth),
       thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
       // 清单与预扣估算读的是同一份声明：`agentToolDeclarations(mode)` 与这里同源。
@@ -187,6 +189,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
           maskedEditPlan,
           assertExecution: input.assertExecution,
           ...(input.params ? { params: input.params } : {}),
+          // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
+          ...(input.params?.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
           ...(input.wake?.replay ? { replay: input.wake.replay } : {}),
         },
         toolFailures,
@@ -311,7 +315,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         maskedEditPlan.interjected()
         images.attach(steering.references)
         if (images.masked) maskedEditPlan.protect()
-        authorization.amend(steering.text, steering.active)
+        authorization.amend(steering.text, steering.active, steering.references.length > 0)
       }
       if (pending?.length === 0) steeringReferences.delete(text)
     }
@@ -450,7 +454,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (!acceptingInterjections || aborted) return reject()
       const active = references.length ? references : images.references
       const steered = turnModelPrompt(
-        turnPromptText(expandSkillInvocation(text, input.mode), active),
+        turnPromptText(expandSkillInvocation(text, input.mode), active, references.length > 0),
         evidence,
       )
       const pending = steeringReferences.get(steered.text) ?? []
@@ -475,9 +479,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   }
   const unregister = registerRunningTurn(turn)
 
+  // 视觉证据只带本轮真的附上的那几张：沿用下来的引用只上清单文字，模型要看内容自己调 viewImage。
   void requireAgentImages(
     images,
-    images.references.map((reference) => reference.imageId),
+    input.references.map((reference) => reference.imageId),
   )
     .then(async (references) => {
       if (aborted) return
@@ -492,7 +497,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const evidence = await turnVisualEvidence([...references, ...reviewed])
       if (aborted) return
       // `/skill-name` 只改送给模型的这一份；落库与回显的用户消息仍是他打的原话。
-      const asked = turnPromptText(expandSkillInvocation(prompt, input.mode), images.references)
+      const asked = turnPromptText(
+        expandSkillInvocation(prompt, input.mode),
+        images.references,
+        input.references.length > 0,
+      )
       const sent = turnModelPrompt(
         input.wakeNote ? `${asked}\n\n${input.wakeNote.text}` : asked,
         evidence,

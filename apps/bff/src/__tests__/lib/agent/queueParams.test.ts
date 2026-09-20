@@ -10,6 +10,12 @@ describe('轮参数映射进队列请求', () => {
     expect(queueParamsFor('openai-compat', { quality: 'auto' })).not.toHaveProperty('quality')
   })
 
+  // 审核强度由 createQueueTask 兜底（taskSubmission.ts），映射这一层不该重复一遍。
+  it('审核强度不在映射里补，交给建任务那一处兜底', () => {
+    expect(queueParamsFor('openai-compat', undefined)).not.toHaveProperty('moderation')
+    expect(queueParamsFor('gemini', { size: '1024x1536' })).not.toHaveProperty('moderation')
+  })
+
   it('png 不带压缩率：这个字段对 png 无意义', () => {
     const mapped = queueParamsFor('openai-compat', { output_format: 'png', output_compression: 80 })
     expect(mapped.output_compression).toBeUndefined()
