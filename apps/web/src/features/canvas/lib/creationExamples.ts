@@ -3,7 +3,7 @@
  *
  * 视频那几条是从竞品与厂商官方 prompt 指南里挑的电商向单镜头案例（来源见每条 `source`），
  * 原文照抄不翻译：模型对这些写法的响应是被官方示例验证过的，改写会失真。图片档沿用原先
- * 那三条中文起手示例。
+ * 那三条中文起手示例已由灵感库取代（见 components/CreationInspiration.tsx）。
  *
  * 只放能在当前档位跑通的：单镜头、不依赖多镜头脚本或厂商独有的特效模板。
  */
@@ -73,17 +73,6 @@ const VIDEO_EXAMPLES: readonly CreationExample[] = [
   },
 ]
 
-/** 图片档：原先欢迎页那三条中文起手示例，文案键留在 agent 语料里。 */
-const IMAGE_EXAMPLE_KEYS = [
-  { id: 'product', title: 'suggestions.productTitle', prompt: 'suggestions.productPrompt' },
-  { id: 'poster', title: 'suggestions.posterTitle', prompt: 'suggestions.posterPrompt' },
-  { id: 'character', title: 'suggestions.characterTitle', prompt: 'suggestions.characterPrompt' },
-] as const
-
 export function videoExamples(): readonly CreationExample[] {
   return VIDEO_EXAMPLES
-}
-
-export function imageExampleKeys(): typeof IMAGE_EXAMPLE_KEYS {
-  return IMAGE_EXAMPLE_KEYS
 }
