@@ -16,6 +16,7 @@ import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
 import BrandAvatar from './BrandAvatar'
+import BrandMenu from './BrandMenu'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
@@ -81,26 +82,7 @@ export default function Header() {
       >
         <div className="safe-area-x safe-header-inner w-full flex items-center gap-2 sm:gap-4">
           <h1 className="min-w-0 shrink-0">
-            <button
-              type="button"
-              onClick={() => setAppMode('canvas')}
-              aria-label={t('header.homeAria')}
-              className="flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <img
-                src="/brand/muvloom-icon.svg"
-                alt=""
-                width="28"
-                height="28"
-                className="h-7 w-7 rounded-lg shrink-0"
-              />
-              <span className="truncate">
-                {t('header.brandName')}
-                {brandNeedsWordmark() ? (
-                  <span className="ml-2 hidden sm:inline">{BRAND_WORDMARK}</span>
-                ) : null}
-              </span>
-            </button>
+            <BrandMenu />
           </h1>
           <nav
             aria-label={t('header.nav')}

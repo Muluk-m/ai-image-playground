@@ -77,15 +77,19 @@ describe('the header', () => {
     expect(document.querySelector('button[aria-label="灵感库"]')).not.toBeNull()
   })
 
-  it('starts on the canvas and the brand returns there', () => {
+  it('品牌按钮开的是导航菜单，「主页」把人带回库页', () => {
     expect(useStore.getInitialState().appMode).toBe('canvas')
     act(() => root.render(<Header />))
+
     act(() =>
       (
         document.querySelector('[aria-label="幕芽 Muvloom，回到画布"]') as HTMLButtonElement
       ).click(),
     )
-    expect(useStore.getState().appMode).toBe('canvas')
+    const home = [...document.querySelectorAll('button')].find((one) => one.textContent === '主页')
+    act(() => home?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    expect(useStore.getState().appMode).toBe('image')
   })
 
   it('switches entries from the narrow-screen nav', () => {

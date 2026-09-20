@@ -1,5 +1,6 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import { ChipIcons } from '../../../components/chipIcons'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import {
@@ -14,9 +15,11 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/api
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
+import { setAgentComposerFill } from '../../agent/lib/composerFill'
 import { useVideoStore } from '../../video/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
+import { importImageFiles } from '../lib/importImages'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
 import {
@@ -95,13 +98,14 @@ function useSelectionInfo(editor: CanvasEditor): SelectionInfo {
  * 发起即返回（无全局 busy 锁），任务由画布上的占位框反馈状态，支持并发。
  */
 export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) {
-  const { t } = useTranslation(['canvas', 'common'])
+  const { t } = useTranslation(['canvas', 'common', 'composer', 'agent'])
   const prompt = useCanvasComposer((state) => state.prompt)
   const { setPrompt, setMode } = useCanvasComposer.getState()
   // 输入是这一块画布的：切到别的项目 / 会话（组件随之重建）不能把写了一半的描述带过去。
   useEffect(() => () => useCanvasComposer.getState().setPrompt(''), [])
   const [previews, setPreviews] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
   const mode = useGenerateMode()
@@ -204,32 +208,42 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
     textareaRef.current?.blur()
   }
 
+  // 空状态的示例提示词点一下填进来（没有智能体的部署里，这条输入框就是「那个输入框」）。
+  // 只换掉空草稿或上一条原样未动的建议：用户自己写的话一个字都不动。
+  const suggestedRef = useRef<string | null>(null)
+  useEffect(() =>
+    setAgentComposerFill((text) => {
+      const current = useCanvasComposer.getState().prompt
+      if (current.trim() !== '' && current !== suggestedRef.current) {
+        useStore.getState().showToast(t('agent:suggestions.draftKeptToast'), 'info')
+        return
+      }
+      suggestedRef.current = text
+      setPrompt(text)
+      // 光标放到句末等用户接着写：受控 textarea 这一帧还是旧值，等渲染完再挪。
+      window.setTimeout(() => {
+        const area = textareaRef.current
+        if (!area) return
+        area.focus()
+        area.setSelectionRange(area.value.length, area.value.length)
+      }, 0)
+    }),
+  )
+
+  // 附件即「放到画布上的参考图」：导入后自动选中，选区随即被当作本次生成的输入。
+  const attach = (files: File[]) => {
+    const bounds = editor.getViewportPageBounds()
+    void importImageFiles(editor, files, { x: bounds.midX, y: bounds.midY })
+      .then((count) => {
+        if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+      })
+      .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+  }
+
   return (
     <div className="studio-direct-composer" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="studio-direct-card">
-        {/* 参数控制条：与工作台共用同一份全局 params/settings。数量 n>1 时 fan-out
-            成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
-        <div className="flex flex-wrap items-center gap-2">
-          {isVideoModeAvailable() && (
-            <Select
-              value={mode}
-              onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
-            >
-              <SelectTrigger
-                aria-label={t('generate.modeAria')}
-                className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-xs"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
-                <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {!video && <ParamControls showCount collapsible />}
-        </div>
-        {video && (
+      {video && (
+        <div className="pb-3">
           <CanvasVideoParams
             hasFirstFrame={
               !referenceItems &&
@@ -237,10 +251,22 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               !canvasVideoSelectionRefusal(editor, videoDraft.model)
             }
           />
-        )}
+        </div>
+      )}
+      {hint && <p className="px-1 pb-2 text-[11px] text-muted-foreground">{hint}</p>}
+      <SubmissionBillingAction
+        blockedAction={submissionGuard.blockedAction}
+        className="px-1 pb-2 text-[11px]"
+      />
+      {submissionGuard.blocked && submissionGuard.disabledReason ? (
+        <p className="px-1 pb-2 text-[11px] text-destructive dark:text-destructive">
+          {submissionGuard.disabledReason}
+        </p>
+      ) : null}
+      <div className="studio-direct-card">
         {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}
         {imageCount > 0 && (
-          <div className="flex flex-wrap items-center gap-2 px-2">
+          <div className="flex flex-wrap items-center gap-2 px-1">
             {previews.map((src, i) => (
               <img
                 key={i}
@@ -261,48 +287,81 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             )}
           </div>
         )}
-        <div className="flex flex-col gap-3">
-          <div className="flex w-full flex-1 flex-col">
-            <span className="px-2 pt-1 text-[11px] text-muted-foreground">{hint}</span>
-            <SubmissionBillingAction
-              blockedAction={submissionGuard.blockedAction}
-              className="px-2 text-[11px]"
-            />
-            {submissionGuard.blocked && submissionGuard.disabledReason ? (
-              <span className="px-2 text-[11px] text-destructive dark:text-destructive">
-                {submissionGuard.disabledReason}
-              </span>
-            ) : null}
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                  e.preventDefault()
-                  void run()
-                } else if (e.key === 'Escape') {
-                  // Esc 退出输入框、焦点还给画布（恢复画布快捷键）。
-                  e.preventDefault()
-                  e.currentTarget.blur()
-                }
-              }}
-              placeholder={video ? t('video.promptPlaceholder') : t('generate.promptPlaceholder')}
-              aria-label={t('generate.promptAria')}
-              rows={5}
-              className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-            />
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              void run()
+            } else if (e.key === 'Escape') {
+              // Esc 退出输入框、焦点还给画布（恢复画布快捷键）。
+              e.preventDefault()
+              e.currentTarget.blur()
+            }
+          }}
+          placeholder={video ? t('video.promptPlaceholder') : t('generate.promptPlaceholder')}
+          aria-label={t('generate.promptAria')}
+          rows={3}
+          className="max-h-40 min-h-[4.5rem] w-full resize-none text-sm outline-none"
+        />
+        {/* 附件 + 参数 chip + 发送同属这张卡：参数跟着输入走，不散在卡外面。
+            参数与工作台共用同一份全局 params/settings，数量 n>1 时 fan-out 成 n 个并行任务。 */}
+        <div className="flex items-end gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title={t('composer:image.attach')}
+              aria-label={t('composer:image.attach')}
+              className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl border border-input bg-background text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:bg-accent hover:text-foreground"
+            >
+              {ChipIcons.imageAttach}
+            </button>
+            {isVideoModeAvailable() && (
+              <Select
+                value={mode}
+                onValueChange={(value) => setMode(value === 'video' ? 'video' : 'image')}
+              >
+                <SelectTrigger
+                  aria-label={t('generate.modeAria')}
+                  className="h-10 w-auto gap-1.5 rounded-xl border-input bg-background px-3 text-xs font-medium"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="image">{t('generate.modeImage')}</SelectItem>
+                  <SelectItem value="video">{t('generate.modeVideo')}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            {!video && <ParamControls showCount collapsible />}
           </div>
           <button
             type="button"
             onClick={() => void run()}
             disabled={!canSubmit}
-            title={submissionGuard.disabledReason}
-            className="studio-primary w-full"
+            title={submissionGuard.disabledReason ?? t('common:action.generate')}
+            aria-label={t('common:action.generate')}
+            className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
           >
-            {t('common:action.generate')}
+            {ChipIcons.sparkles}
           </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          aria-label={t('composer:image.attach')}
+          onChange={(event) => {
+            const files = [...(event.currentTarget.files ?? [])]
+            event.currentTarget.value = ''
+            attach(files)
+          }}
+        />
       </div>
     </div>
   )

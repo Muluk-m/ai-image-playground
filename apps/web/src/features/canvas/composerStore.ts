@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { safeLocalStorage } from '../../lib/authScope'
-import { agentPanelPresent } from '../agent/panelLayout'
 
 export type CanvasGenerateMode = 'image' | 'video'
 
@@ -11,20 +10,14 @@ interface CanvasComposerState {
   mode: CanvasGenerateMode
   prompt: string
   /**
-   * 有人要求「接下来生成视频」（进入视频入口、从图片发起生成视频）而智能体输入框还没接手。
-   * 输入框把自己的轮类型切到视频后清掉它；没有智能体的部署里它留着也无妨。
-   */
-  agentVideoPending: boolean
-  /**
    * 视频入口落地页交接过来的一句话。落地页自己不起轮：画布挂载、工作区就绪之后才发，
    * 这样产物有地方落（智能体的画布 sink 是 CanvasWorkspace 装的）。
    */
   handoffPrompt: string | null
   setMode(mode: CanvasGenerateMode): void
   setPrompt(prompt: string): void
-  /** 生成栏停到视频档（本次打开内），并让智能体输入框把下一轮预置为视频。 */
+  /** 生成栏停到视频档（本次打开内）。智能体输入框不看它：那边的轮类型由项目的画布类型定。 */
   requestVideo(): void
-  consumeAgentVideo(): boolean
   /** 落地页提交：记下这句话并把下一轮预置成视频，切到画布后由画布取走。 */
   handOffVideoPrompt(prompt: string): void
   consumeHandoffPrompt(): string | null
@@ -37,7 +30,6 @@ interface CanvasComposerState {
 export const useCanvasComposer = create<CanvasComposerState>((set, get) => ({
   mode: safeLocalStorage.getItem(MODE_STORAGE_KEY) === 'video' ? 'video' : 'image',
   prompt: '',
-  agentVideoPending: false,
   handoffPrompt: null,
   setMode(mode) {
     safeLocalStorage.setItem(MODE_STORAGE_KEY, mode)
@@ -47,13 +39,8 @@ export const useCanvasComposer = create<CanvasComposerState>((set, get) => ({
     set({ prompt })
   },
   requestVideo() {
-    // 预置不算用户的选择，不写进「上次停在哪档」；没有智能体的部署也不留一个没人接的标记。
-    set({ mode: 'video', agentVideoPending: agentPanelPresent() })
-  },
-  consumeAgentVideo() {
-    if (!get().agentVideoPending) return false
-    set({ agentVideoPending: false })
-    return true
+    // 预置不算用户的选择，不写进「上次停在哪档」。
+    set({ mode: 'video' })
   },
   handOffVideoPrompt(prompt) {
     const trimmed = prompt.trim()

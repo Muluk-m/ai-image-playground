@@ -22,7 +22,7 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  useStore.setState({ appMode: 'canvas' })
+  useStore.setState({ appMode: 'image' })
   useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.append(host)
@@ -60,21 +60,10 @@ it('素材与模板和别的入口同一层级：换地址、换主区', () => {
   expect(entry('模板').getAttribute('aria-pressed')).toBe('true')
 })
 
-it('工作台入口默认收起侧栏，只留图标；换到库页自动摊开', () => {
-  expect(entry('画布').textContent).toBe('')
-
-  act(() => entry('作品').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-
-  expect(entry('作品').textContent).toBe('作品')
-})
-
-it('自己按了折叠就以自己的选择为准，换入口后回到默认', () => {
-  act(() => entry('展开侧栏').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(entry('画布').textContent).toBe('画布')
+it('工作台里没有侧栏：画布与视频占整屏，导航交给左上角的品牌菜单', () => {
+  expect(host.querySelector('nav')).not.toBeNull()
 
   act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  act(() => entry('生图').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
 
-  expect(entry('画布').textContent).toBe('')
+  expect(host.querySelector('nav')).toBeNull()
 })

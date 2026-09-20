@@ -2,11 +2,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const cached = vi.hoisted(() => ({ value: 'data:image/png;base64,AAAA' as string | null }))
-const capabilities = vi.hoisted(() => ({ agent: true }))
-
-vi.mock('../../../../features/agent/panelLayout', () => ({
-  agentPanelPresent: () => capabilities.agent,
-}))
 
 vi.mock('../../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../store')>()),
@@ -20,8 +15,7 @@ import { useStore } from '../../../../store'
 
 beforeEach(() => {
   cached.value = 'data:image/png;base64,AAAA'
-  capabilities.agent = true
-  useCanvasComposer.setState({ mode: 'image', agentVideoPending: false })
+  useCanvasComposer.setState({ mode: 'image' })
   useLibraryStore.setState({ onLibraryPage: true })
   useStore.setState({
     appMode: 'image',
@@ -43,17 +37,14 @@ describe('从一张图发起生成视频', () => {
     expect(main.detailTaskId).toBeNull()
     expect(useLibraryStore.getState().onLibraryPage).toBe(false)
     expect(useCanvasComposer.getState().mode).toBe('video')
-    expect(useCanvasComposer.getState().agentVideoPending).toBe(true)
   })
 
-  it('没有智能体的部署不留等人接手的标记，也不改记住的档位', async () => {
-    capabilities.agent = false
+  it('预置不算用户的选择，不改记住的档位', async () => {
     localStorage.removeItem('canvas.generateMode')
 
     await startVideoFromImage('img-1')
 
     expect(useCanvasComposer.getState().mode).toBe('video')
-    expect(useCanvasComposer.getState().agentVideoPending).toBe(false)
     expect(localStorage.getItem('canvas.generateMode')).toBeNull()
   })
 

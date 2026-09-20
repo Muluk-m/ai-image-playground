@@ -12,6 +12,13 @@
     "loginMethods": "Sign-in methods",
     "loggingOut": "Signing out"
   },
+  "brand": {
+    "home": "Home",
+    "projects": "Projects",
+    "newProject": "New project",
+    "deleteProject": "Delete this project",
+    "deleteProjectMessage": "Delete the project “{{name}}”?"
+  },
   "nav": {
     "create": "Create",
     "mine": "Library",
