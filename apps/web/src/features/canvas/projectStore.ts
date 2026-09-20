@@ -190,8 +190,9 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
-    // 正在作品 / 视频入口时（例如刷新 /works 后项目目录才加载完）不把地址改成项目地址。
-    if (!pathAppMode(globalThis.location?.pathname ?? '/')) writeProjectRoute(id, replaceRoute)
+    // 只有人已经在画布上（项目地址）才改地址。根地址属于创作入口，活动项目不该把它劫持成 `/p/<项目>`。
+    if (readProjectRoute(globalThis.location?.pathname ?? '/') !== null)
+      writeProjectRoute(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)

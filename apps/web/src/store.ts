@@ -1,6 +1,7 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
   clientProfileToApiProfile,
@@ -824,8 +825,10 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      // 刷新生图 / 视频 / 作品地址时直接落在对应入口，不先闪一下画布。
-      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'canvas',
+      // 项目地址（`/p/<项目>`）由项目导航切到画布；其余地址与 `/` 都落在创作入口，不先闪一下画布。
+      appMode:
+        pathAppMode(globalThis.location?.pathname ?? '/') ??
+        (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
       sidebarExpanded: null,
       toggleSidebar: () =>
