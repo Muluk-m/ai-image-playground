@@ -79,7 +79,7 @@ describe('the header', () => {
   })
 
   it('品牌按钮开的是导航菜单，「主页」把人带回库页', () => {
-    expect(useStore.getInitialState().appMode).toBe('canvas')
+    expect(useStore.getInitialState().appMode).toBe('image')
     act(() => root.render(<Header />))
 
     act(() =>
