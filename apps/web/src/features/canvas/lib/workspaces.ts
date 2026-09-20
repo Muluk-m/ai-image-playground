@@ -250,6 +250,18 @@ export async function renameCloudProject(project: CanvasProject, name: string): 
   await target.cloud.rename(name)
 }
 
+/**
+ * 会话标题定下来时给还没起名的云端项目改名。只对已经开着的工作区就地改：为了给一堆旧项目
+ * 补名字而把它们的文档逐个拉起来推一遍，代价太大。没开着的返回 false，由调用方落本地并标
+ * `nameDirty`，等它下次打开时那次 push 顺手带上去。
+ */
+export async function autoNameCloudProject(project: CanvasProject, name: string): Promise<boolean> {
+  const target = workspaces.get(project.sceneKey)
+  if (!target?.cloud) return false
+  await target.cloud.rename(name, false)
+  return true
+}
+
 const workspaces = new Map<string, CanvasWorkspace>()
 const listeners = new Set<() => void>()
 let current: CanvasWorkspace | undefined

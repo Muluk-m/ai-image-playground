@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
-import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import {
+  projectRepository,
+  UNTITLED_PROJECT,
+} from '../../../../features/canvas/lib/projectRepository'
 import { setClientStorageScope } from '../../../../lib/authScope'
 
 afterEach(() => setClientStorageScope(null))
@@ -90,4 +93,21 @@ it('云端会话关联在另一设备恢复，刷新关联不覆盖本机未同�
   expect(refreshed.name).toBe('本机未同步名称')
   expect(refreshed.cloud?.revision).toBe(3)
   expect((await projectRepository.list())[0]?.conversationId).toBe(changed.conversationId)
+})
+
+it('云端那份还叫未命名时不算用户起的名字，会话标题还能接手', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const summary = {
+    id: crypto.randomUUID(),
+    name: UNTITLED_PROJECT,
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 0,
+    coverMediaId: null,
+    conversationId: crypto.randomUUID(),
+  }
+  expect((await projectRepository.importCloud(summary)).customName).toBe(false)
+  const named = { ...summary, id: crypto.randomUUID(), name: '浴缸多视角' }
+  expect((await projectRepository.importCloud(named)).customName).toBe(true)
 })
