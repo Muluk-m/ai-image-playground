@@ -14,8 +14,8 @@ import {
 } from './lib/templates'
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
-/** 资产页的三个页签。项目与灵感各自一个入口，不在里面。 */
-export type LibraryTab = 'works' | 'assets' | 'templates'
+/** 资产页的两个页签。作品在创作页、项目与灵感各自一个入口，都不在里面。 */
+export type LibraryTab = 'assets' | 'templates'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
@@ -67,7 +67,7 @@ export interface LibraryState {
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   onLibraryPage: false,
-  tab: 'works',
+  tab: 'assets',
   searchKeyword: '',
   assets: [],
   templates: [],

@@ -112,7 +112,7 @@
     "sendFailedToast": "The message was not sent. Your draft is back in the box, please retry.",
     "fileInputAria": "Choose reference images",
     "attachAria": "Add a reference image",
-    "attachTitle": "Add reference images, up to {{count}} (you can also drop or paste)",
+    "attachTitle": "Add reference images, up to {{count}} and ≤{{mb}}MB each (you can also drop or paste)",
     "sending": "Sending…",
     "sendAndCreate": "Send and draft the prompt",
     "sendAndCreateTitle": "Send: the assistant drafts a prompt first; generation starts only after you confirm",

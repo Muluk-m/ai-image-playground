@@ -36,7 +36,7 @@ import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { acceptImageFiles } from '../../../lib/imageFiles'
-import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
+import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
   getContentEditableCursor,
   getContentEditablePlainText,
@@ -577,7 +577,7 @@ export default function AgentComposer({
             />
             <ComposerAttachButton
               aria-label={t('composer.attachAria')}
-              title={t('composer.attachTitle', { count: API_MAX_IMAGES })}
+              title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
               disabled={loading}
               onClick={() => fileInputRef.current?.click()}
             />

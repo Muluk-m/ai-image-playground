@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/DropOverlay'
-import GenerationHistory from '../../../components/GenerationHistory'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
@@ -18,13 +17,13 @@ import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
-const TABS: readonly LibraryTab[] = ['works', 'assets', 'templates']
+const TABS: readonly LibraryTab[] = ['assets', 'templates']
 
 /**
- * 「资产」入口：自己攒下的东西（作品、素材、模板）同一层级、同一块主区，页签切换。
- * 项目另有一个入口（它是重活），灵感是别人的东西，在「探索」。
+ * 「资产」入口：自己攒下的料——**素材**（用户自己上传的参考图，多是白底无背景的三视图、产品图）
+ * 与**模板**。作品在创作页（那里能接着生成），项目另有一个入口，灵感在「探索」。
  */
-export default function LibraryPage({ userId }: { userId?: string }) {
+export default function LibraryPage() {
   const { t } = useTranslation('library')
   const tab = useLibraryStore((s) => s.tab)
   const setTab = useLibraryStore((s) => s.setTab)
@@ -76,17 +75,15 @@ export default function LibraryPage({ userId }: { userId?: string }) {
             </button>
           ))}
         </div>
-        {tab === 'works' ? null : (
-          <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
-            <input
-              type="search"
-              value={searchKeyword}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={placeholder}
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            />
-          </label>
-        )}
+        <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
+          <input
+            type="search"
+            value={searchKeyword}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={placeholder}
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </label>
         {tab === 'assets' && (
           <>
             <input
@@ -105,11 +102,7 @@ export default function LibraryPage({ userId }: { userId?: string }) {
         )}
       </div>
 
-      {tab === 'works' ? (
-        <div className="min-h-0 flex-1 px-5 pb-24 pt-5">
-          <GenerationHistory key={userId ?? 'anonymous'} userId={userId} />
-        </div>
-      ) : tab === 'templates' ? (
+      {tab === 'templates' ? (
         <div className="min-h-0 flex-1 p-5">
           {templates.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
