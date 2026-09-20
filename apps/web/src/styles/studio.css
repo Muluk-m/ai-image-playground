@@ -1,7 +1,3 @@
-.studio-header { background: hsl(var(--sidebar)); border-color: hsl(var(--border)); }
-.studio-header nav { background: hsl(var(--muted)); }
-.studio-header nav button { color: hsl(var(--muted-foreground)); }
-.studio-header nav button[aria-pressed="true"] { color: hsl(var(--foreground)); background: hsl(var(--sidebar)); }
 .studio-shell { background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .studio-layout { display: flex; position: relative; height: 100%; width: 100%; }
 .studio-sidebar { position: relative; z-index: 400; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-width: 50%; border-right: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); }
@@ -58,16 +54,9 @@
 .studio-mobile-switch { display: none; }
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
-  .studio-header { top: var(--workspace-viewport-top, 0px); }
-  .studio-header h1 button { min-height: 44px; }
-  .studio-header .ml-auto > div > button { min-width: 44px; min-height: 44px; }
-  .studio-main-nav {
-    position: fixed; inset: auto 0 0; margin: 0; padding: 4px 16px calc(4px + env(safe-area-inset-bottom, 0px));
-    height: var(--mobile-nav-height); border-radius: 0; border-top: 1px solid hsl(var(--border));
-    background: hsl(var(--card)); justify-content: space-around;
-  }
-  .studio-main-nav button { flex: 1; min-height: 44px; font-size: 14px; }
-  .studio-header .studio-main-nav button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / .1); box-shadow: none; }
+  .studio-header-float { top: var(--workspace-viewport-top, 0px); }
+  .studio-header-float button { min-width: 40px; min-height: 40px; }
+  .studio-mobile-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .studio-shell {
     top: calc(var(--workspace-viewport-top, 0px) + var(--safe-area-top) + var(--header-height)) !important;
     bottom: auto; height: calc(var(--workspace-viewport-height, 100dvh) - var(--safe-area-top) - var(--header-height) - var(--mobile-nav-height));
@@ -112,8 +101,25 @@
   [data-home-main] { padding-bottom: calc(12rem + var(--mobile-nav-height)); }
 }
 @media (max-width: 767px) {
-  .studio-header button[aria-haspopup="menu"],
-  .studio-header button[aria-label="打开应用菜单"],
-  .studio-header button[aria-label="打开个人账户"] { width: 44px; height: 44px; }
+  .studio-header-float button[aria-haspopup="menu"] { width: 40px; height: 40px; }
   .studio-direct-card textarea { font-size: 16px; }
+}
+
+/* 首屏标题的高亮半句：品牌绿渐变 + 柔光，暗底上才有「发光」的观感。 */
+.studio-hero-accent {
+  background: linear-gradient(100deg, #eaffd6, #a6ef7c 45%, #6fd36a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 38px hsl(var(--primary) / 0.32);
+}
+
+/* 模式切与主按钮的高亮态：亮绿渐变 + 内描边 + 外发光。 */
+.studio-mode-active {
+  font-weight: 500;
+  color: #0b1a08;
+  background: linear-gradient(135deg, #d6ffb4, #8fe06a 55%, #5fbf52);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    0 10px 30px -12px hsl(var(--primary) / 0.85);
 }

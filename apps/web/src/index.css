@@ -997,9 +997,10 @@
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
-  --header-height: 3.5rem;
+  /* 没有顶栏了：留着这个变量是给还在算偏移的老样式兜底。 */
+  --header-height: 0px;
   /* 侧栏在窄屏不占位；宽屏下由入口决定摊开还是收成图标条（见 --app-sidebar-size）。 */
-  --app-sidebar-size: 11rem;
+  --app-sidebar-size: 13rem;
   --app-sidebar-width: 0px;
   scrollbar-gutter: stable;
 }
