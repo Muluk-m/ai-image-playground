@@ -102,7 +102,7 @@
     "sendFailedToast": "消息未发送成功，草稿已放回输入框，请重试。",
     "fileInputAria": "选择参考图",
     "attachAria": "添加参考图",
-    "attachTitle": "添加参考图（也可以拖进来或粘贴）",
+    "attachTitle": "添加参考图，最多 {{count}} 张（也可以拖进来或粘贴）",
     "sending": "发送中…",
     "sendAndCreate": "发送并拟提示词",
     "sendAndCreateTitle": "发送：助手先拟好提示词，你确认后才开始生成",

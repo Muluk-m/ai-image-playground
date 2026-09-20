@@ -65,6 +65,7 @@
     "configReused": "Settings reused in the input bar",
     "imageMissingForEdit": "That image no longer exists, so it cannot be edited",
     "imageMissingForCanvas": "That image no longer exists, so it cannot go to the canvas",
+    "videoCanvasOpened": "Opened a new video canvas",
     "tasksDeleted_one": "Deleted {{count}} record",
     "tasksDeleted_other": "Deleted {{count}} records",
     "taskDeleted": "Record deleted",

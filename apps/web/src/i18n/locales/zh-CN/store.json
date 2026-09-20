@@ -63,6 +63,7 @@
     "configReused": "已复用配置到输入框",
     "imageMissingForEdit": "图片已不存在，无法编辑",
     "imageMissingForCanvas": "图片已不存在，无法送入画布",
+    "videoCanvasOpened": "已新建视频画布",
     "tasksDeleted_other": "已删除 {{count}} 条记录",
     "taskDeleted": "记录已删除",
     "configReuseFailed": "复用失败，稍后再试",
