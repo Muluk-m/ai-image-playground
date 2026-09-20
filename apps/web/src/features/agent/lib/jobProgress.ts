@@ -95,23 +95,36 @@ export function toolMessageForPlaceholder(
 }
 
 export interface AgentJobInbox {
-  /** 还没结束的后台任务，按提交先后。 */
+  /** 还没结束的：后台任务在跑的，和重试队列里排着、还没提交的。按提交先后。 */
   readonly running: readonly AgentToolMessage[]
   /** 已经结束的：成功、失败与取消的都在。 */
   readonly finished: readonly AgentToolMessage[]
-  /** 结束里成功的那几个；收件箱顶上说「几个已完成」数的是它。 */
+  /** 结束里成功的那几个；进度条里走满的一段是它。 */
   readonly completed: number
+  /** 结束里没成的那几个：失败与取消。 */
+  readonly failed: number
 }
 
-/** 这个会话提交过的后台任务，按在跑与已结束分开。 */
+/**
+ * 这个会话的后台任务，按在跑与已结束分开。
+ *
+ * 「在跑」按终局的反面数，不是只数 `submitted`：重试队列里排着的那张卡（`queued`）还没提交、
+ * 手上没有任务 id，可它确实在等着跑。只认 `submitted` 会把它算进已结束，顶上于是说「0 个进行中」，
+ * 而用户刚放进去的几个还在排队。
+ */
 export function agentJobInbox(messages: readonly AgentPanelMessage[]): AgentJobInbox {
-  const jobs = messages.filter(
-    (message): message is AgentToolMessage => message.kind === 'tool' && message.job !== undefined,
-  )
-  const finished = jobs.filter((message) => message.status !== 'submitted')
-  return {
-    running: jobs.filter((message) => message.status === 'submitted'),
-    finished,
-    completed: finished.filter((message) => message.status === 'succeeded').length,
+  const running: AgentToolMessage[] = []
+  const finished: AgentToolMessage[] = []
+  let completed = 0
+  for (const message of messages) {
+    if (message.kind !== 'tool') continue
+    // 提交过后台任务的，加上重试队列里排着、还没拿到任务 id 的那张。
+    if (message.job === undefined && message.status !== 'queued') continue
+    if (message.status === 'succeeded') {
+      finished.push(message)
+      completed += 1
+    } else if (message.status === 'failed') finished.push(message)
+    else running.push(message)
   }
+  return { running, finished, completed, failed: finished.length - completed }
 }

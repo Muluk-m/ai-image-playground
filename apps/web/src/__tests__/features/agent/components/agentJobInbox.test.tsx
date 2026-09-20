@@ -93,7 +93,17 @@ it('stays out of the way when the conversation has no background jobs', () => {
   expect(host.textContent).toBe('')
 })
 
-it('counts the running and the completed jobs and lists them on demand', () => {
+function openInbox() {
+  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+}
+
+function tabButton(label: string): HTMLButtonElement {
+  return [...host.querySelectorAll('[role="tab"]')].find((one) =>
+    one.textContent?.startsWith(label),
+  ) as HTMLButtonElement
+}
+
+it('shows how far the batch got and groups the running jobs by what they are doing', () => {
   store.messages = [
     job('1', {}),
     job('2', { status: 'succeeded', artifacts: [IMAGE] }),
@@ -104,31 +114,83 @@ it('counts the running and the completed jobs and lists them on demand', () => {
   render()
 
   const summary = host.querySelector('button[aria-expanded]')!
-  expect(summary.textContent).toContain('2 个进行中 · 1 个已完成')
+  // 入口上只有标题与「走完几个」，进度条与逐个任务在点开的弹层里；一句话留给读屏与悬停。
+  expect(summary.textContent).toContain('生成任务')
+  expect(summary.textContent).toContain('2/4')
+  expect(summary.getAttribute('aria-label')).toBe('2 个进行中 · 1 个已完成 · 1 个没有完成')
+  expect(host.querySelector('span[style]')).toBeNull()
   expect(host.querySelector('li')).toBeNull()
 
-  act(() => (summary as HTMLButtonElement).click())
-  const rows = [...host.querySelectorAll('li')].map((one) => one.textContent)
-  // 在跑的在前，结束的按新到旧。
-  expect(rows[0]).toContain('任务 1')
-  expect(rows[0]).toMatch(/生成中 · 已用 0:0[5-6]/)
-  expect(rows[1]).toContain('任务 4')
-  expect(rows[1]).toContain('已提交')
-  expect(rows[2]).toContain('任务 3')
-  expect(rows[2]).toContain('已取消')
-  expect(rows[3]).toContain('任务 2')
-  expect(rows[3]).toContain('已完成')
+  openInbox()
+  const [done, failed] = [...host.querySelectorAll('span[style]')].map(
+    (one) => (one as HTMLElement).style.width,
+  )
+  expect([done, failed]).toEqual(['25%', '25%'])
+  expect(tabButton('进行中').textContent).toBe('进行中（2）')
+  expect(tabButton('已完成').textContent).toBe('已完成（2）')
+
+  // 进行中这一页分两组：上游真在画的与还等着的。
+  const groups = [...host.querySelectorAll('button[aria-expanded]')]
+    .map((one) => one.textContent ?? '')
+    .filter((text) => text.includes('（'))
+  expect(groups).toEqual(['处理中（1）', '排队中（1）'])
+  const running = [...host.querySelectorAll('li')].map((one) => one.textContent)
+  expect(running[0]).toContain('任务 1')
+  expect(running[0]).toMatch(/生成中 · 已用 0:0[5-6]/)
+  expect(running[1]).toContain('任务 4')
+  expect(running[1]).toContain('已提交')
+
+  // 结束的在另一页，按新到旧。
+  act(() => tabButton('已完成').click())
+  const finished = [...host.querySelectorAll('li')].map((one) => one.textContent)
+  expect(finished[0]).toContain('任务 3')
+  expect(finished[0]).toContain('已取消')
+  expect(finished[1]).toContain('任务 2')
+  expect(finished[1]).toContain('已完成')
+})
+
+it('collapses a group in place', () => {
+  store.messages = [job('1', {}), job('2', {})]
+  render()
+  openInbox()
+  expect(host.querySelectorAll('li')).toHaveLength(2)
+
+  const queued = [...host.querySelectorAll('button[aria-expanded]')].find((one) =>
+    one.textContent?.startsWith('排队中'),
+  ) as HTMLButtonElement
+  act(() => queued.click())
+  expect(host.querySelector('li')).toBeNull()
+})
+
+it('counts a job still waiting in the retry queue as running, not as finished', () => {
+  // 重试队列里排着的那张还没拿到任务 id；算成已结束，顶上就会在还有活儿时说全干完了。
+  store.messages = [
+    job('1', { status: 'succeeded', artifacts: [IMAGE] }),
+    job('2', { status: 'queued', job: undefined }),
+  ]
+  render()
+
+  const summary = host.querySelector('button[aria-expanded]')!
+  expect(summary.textContent).toContain('1/2')
+  expect(summary.getAttribute('aria-label')).toBe('1 个进行中 · 1 个已完成')
+
+  openInbox()
+  expect(rowButton('任务 2').textContent).toContain('排队中')
 })
 
 it('locates a running job by its placeholder and a finished one by its artifacts', () => {
   store.messages = [job('1', {}), job('2', { status: 'succeeded', artifacts: [IMAGE] })]
   render()
-  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+  openInbox()
 
   act(() => rowButton('任务 1').click())
   expect(focusPending).toHaveBeenCalledWith({ messageId: '1', taskId: 'task-1' })
   expect(focus).not.toHaveBeenCalled()
+  // 镜头已经带过去了，弹层就让开画布。
+  expect(host.querySelector('li')).toBeNull()
 
+  openInbox()
+  act(() => tabButton('已完成').click())
   act(() => rowButton('任务 2').click())
   expect(focus).toHaveBeenCalledWith(['agent_image_1'])
 })
@@ -142,7 +204,7 @@ it('falls back to the anchor object when a running job has no placeholder after 
     '1': { stage: 'submitted', submittedAt: Date.now(), phase: 'reconnecting' },
   }
   render()
-  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+  openInbox()
   expect(rowButton('任务 1').textContent).toContain('重新连接中')
 
   act(() => rowButton('任务 1').click())
@@ -151,6 +213,7 @@ it('falls back to the anchor object when a running job has no placeholder after 
 
   // 没有占位也没有锚点：没有可去的地方，镜头不动。
   focus.mockClear()
+  openInbox()
   act(() => rowButton('任务 2').click())
   expect(focus).not.toHaveBeenCalled()
 })

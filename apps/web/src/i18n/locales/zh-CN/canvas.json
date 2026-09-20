@@ -102,11 +102,7 @@
   },
   "workspace": {
     "canvasAria": "创作画布",
-    "untitled": "我的画布",
-    "saveFailed": "保存失败",
-    "restoring": "正在恢复",
-    "autoSaved": "已自动保存",
-    "dropHint": "拖入图片开始创作"
+    "untitled": "我的画布"
   },
   "saveError": {
     "message": "画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。",

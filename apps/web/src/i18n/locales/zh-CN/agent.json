@@ -269,8 +269,16 @@
       "wake_limit": "助手已连续自动查看 3 次，等你发话后再继续"
     },
     "inbox": {
-      "aria": "后台任务",
+      "title": "生成任务",
+      "subtitle": "查看本次会话的生成任务状态",
+      "tabRunning": "进行中",
+      "tabFinished": "已完成",
+      "groupProcessing": "处理中",
+      "groupQueued": "排队中",
+      "empty": "还没有结束的任务",
       "summary": "{{running}} 个进行中 · {{completed}} 个已完成",
+      "summaryFailed": "{{running}} 个进行中 · {{completed}} 个已完成 · {{failed}} 个没有完成",
+      "count": "{{done}}/{{total}}",
       "locate": "在画布上定位",
       "succeeded": "已完成",
       "failed": "没有完成"

@@ -105,10 +105,13 @@ it('splits the background jobs of a conversation into running and finished', () 
     tool(),
     tool({ id: 'tool-2', status: 'succeeded' }),
     tool({ id: 'tool-3', status: 'failed', errorCode: 'cancelled' }),
+    // 重试队列里排着、还没提交的那张还在等着跑，不是结束了。
+    tool({ id: 'tool-5', status: 'queued', job: undefined }),
     // 不是后台任务的调用不进收件箱。
     tool({ id: 'tool-4', status: 'succeeded', job: undefined }),
   ])
-  expect(inbox.running.map((one) => one.id)).toEqual(['tool-1'])
+  expect(inbox.running.map((one) => one.id)).toEqual(['tool-1', 'tool-5'])
   expect(inbox.finished.map((one) => one.id)).toEqual(['tool-2', 'tool-3'])
   expect(inbox.completed).toBe(1)
+  expect(inbox.failed).toBe(1)
 })
