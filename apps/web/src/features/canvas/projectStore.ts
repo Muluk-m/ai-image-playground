@@ -285,8 +285,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       const existing = get().projects.find((one) => one.conversationId === conversation.id)
       if (existing) {
         if (existing.cloud?.deleted) continue
+        // 自动命名是顺带做的：一个项目改不动（本机没这条记录），后面的项目不该跟着没名字。
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
-          await get().autoName(existing.id, conversation.title)
+          await get()
+            .autoName(existing.id, conversation.title)
+            .catch(() => {})
         continue
       }
       const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
