@@ -32,9 +32,41 @@ function useOutcomeText(message: AgentToolMessage): string {
   const progress = useAgentToolProgress(message)
   const running = useAgentJobProgressText(progress)
   if (running) return running
+  // 重试队列里排着：前一条重试结束后才提交，还没有任务可言。
+  if (message.status === 'queued') return t('retry.queued')
   if (message.status === 'succeeded') return t('job.inbox.succeeded')
   if (message.errorCode === 'cancelled') return t('job.cancelled')
   return agentToolFailureText(message.errorCode) ?? t('job.inbox.failed')
+}
+
+/**
+ * 收件箱顶上的整体进度：走满的一段是已完成，接着一段是没成的，余下留给还在跑的那几个，
+ * 跑着就一直呼吸。一行字说不清「0 个进行中 · 19 个已完成」是多少活儿，一条条走满看得见。
+ */
+function InboxProgress({
+  completed,
+  failed,
+  running,
+}: {
+  completed: number
+  failed: number
+  running: number
+}) {
+  const total = completed + failed + running
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-border"
+    >
+      {completed > 0 && (
+        <span className="bg-primary" style={{ width: `${(completed / total) * 100}%` }} />
+      )}
+      {failed > 0 && (
+        <span className="bg-destructive" style={{ width: `${(failed / total) * 100}%` }} />
+      )}
+      {running > 0 && <span className="flex-1 animate-pulse bg-primary/40" />}
+    </span>
+  )
 }
 
 function InboxRow({ message }: { message: AgentToolMessage }) {
@@ -57,8 +89,8 @@ function InboxRow({ message }: { message: AgentToolMessage }) {
 }
 
 /**
- * 面板顶部的后台任务收件箱：一行说几个在跑、几个已完成，展开是逐个任务，点一下定位到画布，
- * 在跑的能单独取消。数据全来自会话消息与服务端进度，刷新、换设备后是同一份。
+ * 面板顶部的后台任务收件箱：顶上一条进度说这批活儿走到哪儿了，展开是逐个任务，点一下定位到
+ * 画布，在跑的能单独取消。数据全来自会话消息与服务端进度，刷新、换设备后是同一份。
  */
 export default function AgentJobInbox() {
   const { t } = useTranslation('agent')
@@ -67,25 +99,32 @@ export default function AgentJobInbox() {
   const [open, setOpen] = useState(false)
   if (inbox.running.length === 0 && inbox.finished.length === 0) return null
   const rows = [...inbox.running, ...[...inbox.finished].reverse()]
+  const total = inbox.running.length + inbox.finished.length
+  const label =
+    inbox.failed > 0
+      ? t('job.inbox.summaryFailed', {
+          running: inbox.running.length,
+          completed: inbox.completed,
+          failed: inbox.failed,
+        })
+      : t('job.inbox.summary', { running: inbox.running.length, completed: inbox.completed })
   return (
     <section aria-label={t('job.inbox.aria')} className="mx-3 mb-1 shrink-0 rounded-lg bg-muted">
       <button
         type="button"
         aria-expanded={open}
+        aria-label={label}
+        title={label}
         onClick={() => setOpen((value) => !value)}
-        className={`flex w-full items-center gap-1.5 px-2.5 py-1 text-[11px] ${INK_3}`}
+        className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-[11px] ${INK_3}`}
       >
-        {inbox.running.length > 0 && (
-          <span
-            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
-            aria-hidden="true"
-          />
-        )}
-        <span className="flex-1 text-left">
-          {t('job.inbox.summary', {
-            running: inbox.running.length,
-            completed: inbox.completed,
-          })}
+        <InboxProgress
+          completed={inbox.completed}
+          failed={inbox.failed}
+          running={inbox.running.length}
+        />
+        <span className="shrink-0 tabular-nums">
+          {t('job.inbox.count', { done: inbox.finished.length, total })}
         </span>
         <ChevronDown
           className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`}
