@@ -1,12 +1,15 @@
 import type { AgentToolErrorCode } from '@image-playground/shared'
+import { AGENT_RETRYABLE_ERROR_CODES } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../lib/authClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { notifyPrivateSubmissionError, PrivateWebOverlayPresent } from '../../../lib/privateOverlay'
+import type { AgentRerunBlock } from './retry'
 
 /**
  * 一次失败的工具调用给用户的出路。界面只按错误码决定（ADR 0006），不读服务端的 `message`。
- * 上游出错、超时、没出图的出路是重试，那是另一张票的事；这里对它们不给按钮。
+ * 上游出错、超时、没出图的出路是重试，那是另一张票的事；这里对它们不给按钮——除非调用方
+ * 说得出这次为什么重出不了（`AgentRerunBlock`），那时改由智能体换个做法。
  * 按钮必须真能解决问题：这个部署没有充值入口、没有登录时，只留原因不给按钮。
  */
 export type AgentToolFailureAction = 'recharge' | 'login' | 'reprocess'
@@ -18,6 +21,11 @@ function canRecharge(): boolean {
 
 export function agentToolFailureAction(
   code: AgentToolErrorCode | undefined,
+  /**
+   * 这次跑过的生成为什么重出不了；`null` 即重出得了，或者压根认不出这是哪一次生成。
+   * 缺席等同 `null`：调用方不关心重试时按码原样分流。
+   */
+  block: AgentRerunBlock | null = null,
 ): AgentToolFailureAction | null {
   switch (code) {
     case 'insufficient_credits':
@@ -30,7 +38,11 @@ export function agentToolFailureAction(
     case 'model_unavailable':
       return 'reprocess'
     default:
-      return null
+      // 可重试的那几个码正常由重试按钮收场。重出不了时它们就一个出路都没有了，交给智能体
+      // 换个做法。其余的码（取消、结果未知、没有码）不适用。
+      return block !== null && code !== undefined && AGENT_RETRYABLE_ERROR_CODES.includes(code)
+        ? 'reprocess'
+        : null
   }
 }
 
@@ -75,19 +87,27 @@ export function agentToolFailureActionLabel(action: AgentToolFailureAction): str
 /**
  * 「让助手重新处理」替用户说的那句话。它是用户消息，按此刻的界面语言写，写完不再翻译。
  * 把失败的那次调用与原因说清，智能体就能换个做法，而不是原样再来一遍。
+ *
+ * 重出不了的那两种失败，理由**不能**只写错误码的译文：一次瞬时的「生成服务出错了」，
+ * 最自然的做法恰恰是原样再调一次，那正是这条出路要避免的。所以理由改写成真正的阻碍。
  */
-export function agentReprocessMessage(title: string, code: AgentToolErrorCode): string {
-  return i18next.t('toolFailure.reprocessMessage', {
-    ns: 'agent',
-    title,
-    reason: agentToolFailureText(code) ?? '',
-  })
+export function agentReprocessMessage(
+  title: string,
+  code: AgentToolErrorCode,
+  block: AgentRerunBlock | null = null,
+): string {
+  const reason = block
+    ? i18next.t(`toolFailure.blocked.${block}`, { ns: 'agent' })
+    : (agentToolFailureText(code) ?? '')
+  return i18next.t('toolFailure.reprocessMessage', { ns: 'agent', title, reason })
 }
 
 export interface AgentToolFailureContext {
   readonly code: AgentToolErrorCode
   /** 失败的那次调用在面板上的标签，说明性消息里用它指认。 */
   readonly title: string
+  /** 这次生成为什么重出不了；缺席即出路不是由「重出不了」引出的，理由照旧取错误码译文。 */
+  readonly block?: AgentRerunBlock | null
   /** 替用户发消息的出口；由调用方接到智能体面板的发送上。 */
   readonly send: (text: string) => void
 }
@@ -105,5 +125,5 @@ export function runAgentToolFailureAction(
     window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT))
     return
   }
-  context.send(agentReprocessMessage(context.title, context.code))
+  context.send(agentReprocessMessage(context.title, context.code, context.block ?? null))
 }
