@@ -661,6 +661,36 @@ describe('生成前确认', () => {
     expect(await generationTasks(conversationId)).toHaveLength(1)
     expect(generationHolds()).toHaveLength(1)
   })
+  it('删掉会话时把参考图与草稿输入图一并清掉，不给待确认卡设过期', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'editImage', { imageIds: ['[image 1]'], prompt: GREEN_DRAFT })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '换个颜色', { references: [{ imageId: 'bath', dataUrl: PIXEL }] })
+    const [draft] = await db
+      .select()
+      .from(schema.agent_generation_drafts)
+      .where(eq(schema.agent_generation_drafts.conversation_id, conversationId))
+    expect(draft).toBeDefined()
+    // 同一批字节躺在两处：参考图按会话存，草稿输入图按草稿存。
+    expect((await storage.listPrefix(`agent/${conversationId}/`)).length).toBeGreaterThan(0)
+    expect((await storage.listPrefix(`${draft!.id}/`)).length).toBeGreaterThan(0)
+
+    const removed = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${conversationId}`, {
+        method: 'DELETE',
+        headers: {
+          'content-type': 'application/json',
+          [DEVICE_ID_HEADER]: DEVICE,
+          cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+        },
+        body: JSON.stringify({ deviceId: DEVICE }),
+      }),
+    )
+    expect(removed.status).toBe(200)
+
+    expect(await storage.listPrefix(`agent/${conversationId}/`)).toEqual([])
+    expect(await storage.listPrefix(`${draft!.id}/`)).toEqual([])
+  })
 
   /**
    * 同一个内置模型、同一句提示词、同一组 chip 参数，走创作页和走智能体发给上游的必须是同一份。

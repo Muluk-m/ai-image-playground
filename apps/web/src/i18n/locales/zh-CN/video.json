@@ -25,12 +25,25 @@
     "tools": "快捷工具",
     "toolsHint": "从本机图片、灵感或素材开始",
     "tool": {
-      "fromImage": { "title": "图生视频", "hint": "挑一张图当首帧" },
-      "references": { "title": "参考图生视频", "hint": "挑几张图定风格与主体" },
-      "inspiration": { "title": "灵感库", "hint": "翻现成的提示词" },
-      "assets": { "title": "素材库", "hint": "管理已存的图片" }
+      "fromImage": {
+        "title": "图生视频",
+        "hint": "挑一张图当首帧"
+      },
+      "references": {
+        "title": "参考图生视频",
+        "hint": "挑几张图定风格与主体"
+      },
+      "inspiration": {
+        "title": "灵感库",
+        "hint": "翻现成的提示词"
+      },
+      "assets": {
+        "title": "素材库",
+        "hint": "管理已存的图片"
+      }
     },
-    "cases": "案例"
+    "cases": "案例",
+    "casesHint": "点一下把提示词填进上面的输入框"
   },
   "status": {
     "queued": "排队"
