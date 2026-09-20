@@ -22,7 +22,8 @@
     "assets": "Assets",
     "templates": "Templates",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar"
+    "expand": "Expand sidebar",
+    "recentCanvases": "Recent canvases"
   },
   "logout": {
     "title": "Sign out",
@@ -66,5 +67,10 @@
   "mode": {
     "generate": "Generate",
     "canvas": "Canvas"
+  },
+  "hero": {
+    "titleLead": "Imagine it, ",
+    "titleAccent": "make it real",
+    "subtitle": "Turn a sentence into work you can see"
   }
 }

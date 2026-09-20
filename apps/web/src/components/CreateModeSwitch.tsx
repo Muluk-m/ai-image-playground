@@ -20,15 +20,13 @@ export default function CreateModeSwitch() {
   }
 
   return (
-    <div className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border bg-muted p-1">
+    <div className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border bg-card/70 p-1 backdrop-blur-sm">
       <button
         type="button"
         aria-pressed={!canvas}
         onClick={() => useStore.getState().setAppMode('image')}
-        className={`rounded-full px-6 py-1.5 text-[13px] transition-colors ${
-          canvas
-            ? 'text-muted-foreground hover:text-foreground'
-            : 'bg-primary font-medium text-primary-foreground'
+        className={`rounded-full px-9 py-2 text-[14px] transition-colors ${
+          canvas ? 'text-muted-foreground hover:text-foreground' : 'studio-mode-active'
         }`}
       >
         {t('mode.generate')}
@@ -37,10 +35,8 @@ export default function CreateModeSwitch() {
         type="button"
         aria-pressed={canvas}
         onClick={() => void enterCanvas()}
-        className={`rounded-full px-6 py-1.5 text-[13px] transition-colors ${
-          canvas
-            ? 'bg-primary font-medium text-primary-foreground'
-            : 'text-muted-foreground hover:text-foreground'
+        className={`rounded-full px-9 py-2 text-[14px] transition-colors ${
+          canvas ? 'studio-mode-active' : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         {t('mode.canvas')}

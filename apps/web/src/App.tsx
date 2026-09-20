@@ -22,7 +22,7 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import { i18next } from './i18n'
+import { i18next, useTranslation } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
@@ -37,6 +37,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
+  const { t } = useTranslation('shell')
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -112,11 +113,25 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <LibraryPage />
         ) : (
           <>
-            <main data-home-main data-drag-select-surface className="pb-48">
-              <div className="safe-area-x max-w-7xl mx-auto">
-                <div className="pt-5">
-                  <CreateModeSwitch />
+            <main data-home-main data-drag-select-surface className="relative pb-48">
+              {/* 首屏氛围图：只铺顶部一段，下沿渐隐进背景色，内容压在它上面。 */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-cover bg-top bg-no-repeat"
+                style={{
+                  backgroundImage:
+                    'linear-gradient(to bottom, transparent 46%, hsl(var(--background))), url(/hero/hero-8.webp)',
+                }}
+              />
+              <div className="safe-area-x relative mx-auto max-w-7xl">
+                <div className="pt-12 text-center">
+                  <h1 className="text-[30px] font-semibold leading-tight sm:text-[38px]">
+                    {t('hero.titleLead')}
+                    <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
+                  </h1>
+                  <p className="pb-6 pt-2 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
+                <CreateModeSwitch />
                 <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
               </div>
             </main>

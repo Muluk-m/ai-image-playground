@@ -61,10 +61,14 @@ it('画布与视频不占导航位：它们只从项目进', () => {
   expect(() => entry('视频')).toThrow()
 })
 
-it('工作台里没有侧栏：画布占整屏，导航交给左上角的品牌菜单', () => {
-  expect(host.querySelector('nav')).not.toBeNull()
-
+it('侧栏在画布里也留着：没有顶栏之后，它是唯一的常驻导航', () => {
   act(() => useStore.getState().setAppMode('canvas'))
 
-  expect(host.querySelector('nav')).toBeNull()
+  expect(host.querySelector('nav')).not.toBeNull()
+  // 画布是「创作」的一种模式，所以创作那项仍然标亮。
+  expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
+})
+
+it('品牌在侧栏里，不再挂在顶栏上', () => {
+  expect(host.textContent).toContain('幕芽')
 })

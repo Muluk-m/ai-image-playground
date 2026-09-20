@@ -95,16 +95,6 @@ describe('头像菜单里的界面语言', () => {
     expect(localeRow().getAttribute('aria-label')).toBe('Language: English. Switch to 中文')
   })
 
-  it('英文下品牌只出现一次 Muvloom，中文下带拉丁字标', async () => {
-    const brand = (): string => host.querySelector('h1')?.textContent ?? ''
-    expect(brand()).toBe('幕芽Muvloom')
-
-    await act(async () => {
-      await setLocale('en')
-    })
-
-    expect(brand()).toBe('Muvloom')
-  })
 })
 
 describe('头像菜单里的主题', () => {

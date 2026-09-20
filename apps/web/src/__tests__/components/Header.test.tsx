@@ -78,30 +78,15 @@ describe('the header', () => {
     expect(document.querySelector('button[aria-label="灵感库"]')).toBeNull()
   })
 
-  it('品牌按钮开的是导航菜单，「主页」把人带回库页', () => {
-    expect(useStore.getInitialState().appMode).toBe('image')
+  it('顶栏没有横栏了：账号这一簇浮在右上角，不带品牌与导航', () => {
     act(() => root.render(<Header />))
 
-    act(() =>
-      (
-        document.querySelector('[aria-label="幕芽 Muvloom，回到画布"]') as HTMLButtonElement
-      ).click(),
+    expect(document.querySelector('header')).toBeNull()
+    expect(document.querySelector('[aria-label="幕芽 Muvloom，回到画布"]')).toBeNull()
+    // 入口全在侧栏，浮层里不再重复一套。
+    expect([...document.querySelectorAll('button')].some((one) => one.textContent === '资产')).toBe(
+      false,
     )
-    const home = [...document.querySelectorAll('button')].find((one) => one.textContent === '主页')
-    act(() => home?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-
-    expect(useStore.getState().appMode).toBe('image')
-  })
-
-  it('switches entries from the narrow-screen nav', () => {
-    act(() => root.render(<Header />))
-
-    act(() => {
-      modeButton('资产').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(useStore.getState().appMode).toBe('library')
-    expect(modeButton('资产').getAttribute('aria-pressed')).toBe('true')
   })
 })
 
