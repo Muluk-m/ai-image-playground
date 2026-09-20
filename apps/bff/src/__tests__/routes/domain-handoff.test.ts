@@ -28,7 +28,7 @@ const { createUserSession, hashSessionToken, resolveUserSession } = await import
   '../../lib/user-session'
 )
 const sessionName = 'image_playground_session'
-const bindingName = 'image_playground_domain_handoff'
+const bindingName = '__Host-image_playground_domain_handoff'
 function cookie(response: Response, name: string): string {
   return (
     response.headers
@@ -130,4 +130,20 @@ it('rejects open redirects and the wrong API host', async () => {
       .status,
   ).toBe(400)
   expect((await call('https://api.old.example/api/auth/domain/start')).status).toBe(404)
+})
+it('binds the exchange to a cookie no sibling host can overwrite', async () => {
+  const start = await call('https://api.new.example/api/auth/domain/start')
+  const set = start.headers.getSetCookie().find((s) => s.startsWith(bindingName))!
+  expect(set).toContain('HttpOnly')
+  expect(set).toContain('Secure')
+  expect(set).toMatch(/Path=\/(;|$)/)
+  expect(set).not.toContain('Domain=')
+})
+it('sends a protocol-relative return path to the root instead of dead-ending', async () => {
+  const start = await call('https://api.new.example/api/auth/domain/start?return=%2F%2Fp%2Fshort')
+  expect(start.status).toBe(302)
+  expect(next(start)).toStartWith('https://api.old.example/api/auth/domain/authorize?state=')
+  const authorized = await call(next(start))
+  const result = await call(next(authorized), cookie(start, bindingName))
+  expect(next(result)).toBe('https://new.example/?__domain_auth=done')
 })
