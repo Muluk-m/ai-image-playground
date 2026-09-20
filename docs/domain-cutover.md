@@ -37,6 +37,13 @@ Deploy the BFF and configuration before the frontend. Keep the per-origin API ma
 source fallback still uses the source API and its cookies. The frontend records successful
 handoff once; it must not silently sign the user back in after an intentional logout.
 
+**Only a failed local import returns a visitor to the source origin.** If the browser data
+arrived but the login handoff cannot run — the target API is slow or down, the deployment has
+no `accounts:login` (so `/api/auth/me` answers 404), or the handoff is switched off — the app
+mounts normally on the target origin and the visitor signs in again by hand. A handoff fault
+must not move a visitor whose data is already correct; the deploy order above is a convention,
+not something the browser can enforce.
+
 ## Redirect rollout
 
 Start with a temporary 302 for source **frontend document paths only** (`/`, `/index.html`,
