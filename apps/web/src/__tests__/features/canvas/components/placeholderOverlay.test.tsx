@@ -428,20 +428,28 @@ describe('单张重试', () => {
     expect(credits.getAttribute('aria-label')).toContain('32')
   })
 
-  it('模型已下线时不出现重试', async () => {
+  // 这三种失败的码本来该给重试，资格却被否决了。原来两边都不命中，占位上一个按钮都没有——
+  // 用户只看到一句原因，无路可走。现在改走「让助手重新处理」。
+  it('模型已下线时不出现重试，改为让助手重新处理', async () => {
     offerModels('another-model')
     agent.messages = [failedCard()]
 
     await failedPlaceholder('服务端写的那句话', 'upstream_error')
 
-    expect(host.querySelector('button')).toBeNull()
+    const button = host.querySelector('button')!
+    expect(button.textContent).toBe('让助手重新处理')
+    act(() => button.click())
+    // 理由是真正的阻碍，不是错误码的译文：说「生成服务出错了」等于请它原样再来一次。
+    expect(send).toHaveBeenCalledWith(
+      '「一只橘猫」没有完成：当时用的那个模型已经不在可用清单里了。请换个做法重新处理。',
+    )
   })
 
   it.each([
     ['局部改图', { selectionBindings: [{ imageId: 'img-1', selectionId: 'sel-1' }] }],
     ['分方案改图', { requestQuote: '把猫改成蓝色' }],
     ['连锁改图', { deferredEdits: [{ targetImageId: 'x', requestQuote: 'y' }] }],
-  ])('%s不出现重试', async (_label, extra) => {
+  ])('%s不出现重试，改为让助手重新处理', async (_label, extra) => {
     offerModels(RETRY_MODEL)
     const card = failedCard({ toolName: 'editImage' })
     agent.messages = [
@@ -450,10 +458,12 @@ describe('单张重试', () => {
 
     await failedPlaceholder('服务端写的那句话', 'upstream_error')
 
-    expect(host.querySelector('button')).toBeNull()
+    expect(host.querySelector('button')?.textContent).toBe('让助手重新处理')
   })
 
-  it('没有快照（旧失败）或没提交过后台任务时不出现重试', async () => {
+  // 认不出是哪一次生成（旧失败没有参数快照、从没提交过后台任务）：既重出不了，也没法请
+  // 智能体照着重新处理，只说原因。规格把这一类明确划在范围外（保持原样）。
+  it('认不出是哪一次生成时什么按钮都不给', async () => {
     offerModels(RETRY_MODEL)
     agent.messages = [failedCard({ snapshot: undefined })]
     await failedPlaceholder('服务端写的那句话', 'upstream_error')

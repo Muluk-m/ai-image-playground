@@ -69,6 +69,10 @@
     "login": "去登录",
     "reprocess": "让助手重新处理",
     "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。",
+    "blocked": {
+      "local_edit": "它是按当时的选区或方案改的，原样重做会改错地方",
+      "model_gone": "当时用的那个模型已经不在可用清单里了"
+    },
     "retry": "重试"
   },
   "retry": {

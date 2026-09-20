@@ -23,6 +23,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { conversationExecution } = await import('../../lib/agent/execution')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { DEVICE_CLAIM_COOKIE } = await import('../../lib/agent/deviceClaim')
 const { archiveAgentReferences } = await import('../../lib/agent/images')
 const { appendAgentMessage, adoptDeviceConversations } = await import(
   '../../lib/agent/conversations'
@@ -33,15 +34,46 @@ const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const OTHER_DEVICE = 'device-zzzzzzzz'
 
+/**
+ * 浏览器会把服务端下发的持有性证明 cookie 存起来再带回去（见 `lib/agent/deviceClaim.ts`）。
+ * 测试里也照做，按设备各存一份——不带它，领养就该被拒，那正是另外几格要验的事。
+ */
+const deviceClaims = new Map<string, string>()
+
+function claimOf(deviceId: string | undefined): string | undefined {
+  return deviceId ? deviceClaims.get(deviceId) : undefined
+}
+
+function rememberClaim(deviceId: string | undefined, response: Response): void {
+  if (!deviceId) return
+  const header = response.headers.get('set-cookie')
+  const match = header?.match(new RegExp(`${DEVICE_CLAIM_COOKIE}=([^;]+)`))
+  if (match) deviceClaims.set(deviceId, `${DEVICE_CLAIM_COOKIE}=${match[1]}`)
+}
+
+function cookieHeader(...parts: (string | undefined)[]): string | undefined {
+  const joined = parts.filter(Boolean).join('; ')
+  return joined || undefined
+}
+
 async function request(
   method: string,
   path: string,
-  options: { body?: unknown; cookie?: string; deviceId?: string } = {},
+  options: {
+    body?: unknown
+    cookie?: string
+    deviceId?: string
+    /** 明确不带持有性证明：模拟另一个只知道设备标识的浏览器。 */
+    withoutClaim?: boolean
+  } = {},
 ) {
   const headers: Record<string, string> = {}
   if (options.body !== undefined) headers['content-type'] = 'application/json'
-  if (options.cookie) headers.cookie = options.cookie
   if (options.deviceId) headers[DEVICE_ID_HEADER] = options.deviceId
+  const body = options.body as { deviceId?: string } | undefined
+  const deviceId = options.deviceId ?? body?.deviceId
+  const cookie = cookieHeader(options.cookie, options.withoutClaim ? undefined : claimOf(deviceId))
+  if (cookie) headers.cookie = cookie
   const response = await app.handle(
     new Request(`http://localhost${path}`, {
       method,
@@ -49,6 +81,7 @@ async function request(
       ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
     }),
   )
+  if (!options.withoutClaim) rememberClaim(deviceId, response)
   return { status: response.status, json: (await response.json().catch(() => null)) as unknown }
 }
 
@@ -67,7 +100,8 @@ async function startConversation(deviceId = DEVICE, cookie?: string): Promise<st
  */
 async function runTurn(conversationId: string, text: string, deviceId = DEVICE, cookie?: string) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (cookie) headers.cookie = cookie
+  const jar = cookieHeader(cookie, claimOf(deviceId))
+  if (jar) headers.cookie = jar
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
       method: 'POST',
@@ -75,6 +109,7 @@ async function runTurn(conversationId: string, text: string, deviceId = DEVICE, 
       body: JSON.stringify({ deviceId, text }),
     }),
   )
+  rememberClaim(deviceId, response)
   await response.text()
   await waitFor(async () => !(await conversationExecution(conversationId)))
   return response.status
@@ -117,7 +152,9 @@ async function signIn(userId: string): Promise<string> {
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.agent_conversations)
+  await db.delete(schema.agent_device_claims)
   await db.delete(schema.users)
+  deviceClaims.clear()
   setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
 })
 
@@ -326,6 +363,8 @@ describe('POST /api/agent/conversations/adopt', () => {
   it('does not touch the conversations of another device', async () => {
     const theirs = await startConversation(OTHER_DEVICE)
     await runTurn(theirs, '别人的', OTHER_DEVICE)
+    const mine = await startConversation()
+    await runTurn(mine, '我的')
     const cookie = await signIn('user-1')
 
     const adoption = await request('POST', '/api/agent/conversations/adopt', {
@@ -333,8 +372,44 @@ describe('POST /api/agent/conversations/adopt', () => {
       cookie,
     })
 
-    expect(adoption.json).toEqual({ adopted: 0 })
+    expect(adoption.json).toEqual({ adopted: 1 })
     expect((await listConversations(OTHER_DEVICE)).map((one) => one.id)).toEqual([theirs])
+  })
+
+  /**
+   * 领养不可逆：会话改挂账号后原设备再也看不到。所以它不接受自述的设备标识——
+   * 一个从访问日志里捡到标识的人，拿不出起轮时下发的那张 cookie。
+   */
+  it('refuses a caller that only knows the device id', async () => {
+    const mine = await startConversation()
+    await runTurn(mine, '我的')
+    const cookie = await signIn('attacker')
+
+    const adoption = await request('POST', '/api/agent/conversations/adopt', {
+      body: { deviceId: DEVICE },
+      cookie,
+      withoutClaim: true,
+    })
+
+    expect(adoption.status).toBe(403)
+    expect((await listConversations()).map((one) => one.id)).toEqual([mine])
+  })
+
+  it('refuses a browser that declared the device id after someone else already held it', async () => {
+    const mine = await startConversation()
+    await runTurn(mine, '我的')
+    // 第二个浏览器报同一个标识：登记行已在，不改绑，它拿到的还是空手。
+    await request('GET', '/api/agent/conversations', { deviceId: DEVICE, withoutClaim: true })
+    const cookie = await signIn('attacker')
+
+    const adoption = await request('POST', '/api/agent/conversations/adopt', {
+      body: { deviceId: DEVICE },
+      cookie,
+      withoutClaim: true,
+    })
+
+    expect(adoption.status).toBe(403)
+    expect((await listConversations()).map((one) => one.id)).toEqual([mine])
   })
 
   it('refuses an anonymous caller', async () => {

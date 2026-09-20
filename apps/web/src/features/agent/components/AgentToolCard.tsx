@@ -13,7 +13,7 @@ import {
 } from '../agentStyles'
 import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPreview'
 import { agentCanvasSink } from '../lib/canvasSink'
-import { agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
+import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -122,11 +122,16 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
   )
 }
 
-/** 失败卡按错误码给的那一个出路；没有码或这类失败没有出路时不渲染。 */
+/**
+ * 失败卡按错误码给的那一个出路；没有码或这类失败没有出路时不渲染。
+ * 本该由重试收场、这次生成却重出不了时（局部或连锁改图、模型已下线），改由智能体重新处理——
+ * 否则这张卡上一个按钮都没有。
+ */
 function FailureAction({ message }: { message: AgentToolMessage }) {
   useTranslation('agent')
   const code = message.errorCode
-  const action = agentToolFailureAction(code)
+  const block = agentRerunBlock(message)
+  const action = agentToolFailureAction(code, block)
   if (!code || !action) return null
   return (
     <button
@@ -136,6 +141,7 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
         runAgentToolFailureAction(action, {
           code,
           title: message.title,
+          block,
           send: (text) => void useAgentStore.getState().send(text),
         })
       }

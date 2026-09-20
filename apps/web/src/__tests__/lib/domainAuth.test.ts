@@ -39,10 +39,24 @@ it('uses a top-level handoff only after the target API confirms availability', a
   expect(url.origin).toBe('https://api.new.example')
   expect(url.searchParams.get('return')).toBe('/p/short?x=1#canvas')
 })
-it('returns to the old workbench if the API is unavailable instead of looping', async () => {
+it('mounts the app when the API cannot answer, instead of returning to the old workbench', async () => {
   const fetcher = vi.fn().mockRejectedValue(new Error('offline'))
-  expect(await restoreLogin(config, 'https://api.new.example', fetcher)).toBe(false)
-  expect(replace).toHaveBeenCalledWith('https://old.example/p/short?x=1&__legacy=1#canvas')
+  expect(await restoreLogin(config, 'https://api.new.example', fetcher)).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
+})
+it('mounts the app when the deployment has no login at all', async () => {
+  // `accounts:login` 关着时 /api/auth/me 答 404，不是 401。
+  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+  expect(await restoreLogin(config, 'https://api.new.example', fetcher)).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
+})
+it('mounts the app when the handoff is switched off', async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(new Response(null, { status: 401 }))
+    .mockResolvedValueOnce(Response.json({ enabled: false }))
+  expect(await restoreLogin(config, 'https://api.new.example', fetcher)).toBe(true)
+  expect(replace).not.toHaveBeenCalled()
 })
 it('removes callback parameters before mounting the app', async () => {
   vi.stubGlobal('location', {
