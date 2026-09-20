@@ -1,8 +1,9 @@
 /** 除画布外每个入口的地址。画布用项目地址 `/p/<项目>`，没有项目时是 `/`。 */
 export const APP_MODE_PATHS = {
   image: '/image',
+  explore: '/explore',
   projects: '/projects',
-  library: '/library',
+  library: '/assets',
 } as const
 
 export type RoutedAppMode = keyof typeof APP_MODE_PATHS

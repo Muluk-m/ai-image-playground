@@ -407,8 +407,8 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-/** 一级入口只有三个：创作、项目、库。画布是项目的实例，不是导航项。 */
-export const APP_MODES = ['image', 'canvas', 'projects', 'library'] as const
+/** 一级入口四个：创作、探索、项目、资产。画布是项目的实例，不是导航项。 */
+export const APP_MODES = ['image', 'canvas', 'explore', 'projects', 'library'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
@@ -422,6 +422,9 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   get canvas() {
     return i18next.t('appMode.canvas', { ns: 'store' })
   },
+  get explore() {
+    return i18next.t('appMode.explore', { ns: 'store' })
+  },
   get projects() {
     return i18next.t('appMode.projects', { ns: 'store' })
   },
@@ -430,8 +433,8 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   },
 }
 
-/** 侧栏列的三项，按顺序。画布只从项目进，所以不在里面。 */
-export const NAV_APP_MODES: readonly AppMode[] = ['image', 'projects', 'library']
+/** 侧栏列的四项，按顺序。画布只从项目进，所以不在里面。 */
+export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'projects', 'library']
 
 /** 工作台入口：主区本身就要吃掉整屏宽度，侧栏在这里不出现。 */
 export function isWorkbenchMode(mode: AppMode): boolean {

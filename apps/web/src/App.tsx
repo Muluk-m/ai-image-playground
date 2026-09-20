@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
+import CreateModeSwitch from './components/CreateModeSwitch'
 import DetailModal from './components/DetailModal'
 import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
@@ -16,6 +17,7 @@ import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import ProjectsPage from './features/canvas/components/ProjectsPage'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
+import ExplorePage from './features/inspiration/components/ExplorePage'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
@@ -104,6 +106,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
         {appMode === 'canvas' ? (
           <CanvasMode />
+        ) : appMode === 'explore' ? (
+          <ExplorePage />
         ) : appMode === 'projects' ? (
           <ProjectsPage />
         ) : appMode === 'library' ? (
@@ -121,6 +125,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <>
             <main data-home-main data-drag-select-surface className="pb-48">
               <div className="safe-area-x max-w-7xl mx-auto">
+                <div className="pt-5">
+                  <CreateModeSwitch />
+                </div>
                 <RecentGenerations key={user?.id ?? 'anonymous'} userId={user?.id} />
               </div>
             </main>

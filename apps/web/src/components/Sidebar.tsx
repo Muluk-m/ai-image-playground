@@ -5,15 +5,16 @@ import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useTranslation } from '../i18n'
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
-import { CanvasIcon, GalleryIcon, PromptImageIcon } from './icons'
+import { AssetIcon, CanvasIcon, GalleryIcon, PromptImageIcon, SparkleIcon } from './icons'
 import { HEADER_OFFSET } from './panelStyles'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
   image: PromptImageIcon,
   canvas: CanvasIcon,
+  explore: SparkleIcon,
   projects: CanvasIcon,
-  library: GalleryIcon,
+  library: AssetIcon,
 }
 
 const ITEM =
