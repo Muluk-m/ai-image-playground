@@ -280,6 +280,12 @@
     },
     "inbox": {
       "title": "Generation jobs",
+      "subtitle": "Background jobs from this conversation",
+      "tabRunning": "Running",
+      "tabFinished": "Finished",
+      "groupProcessing": "Processing",
+      "groupQueued": "Queued",
+      "empty": "Nothing has finished yet",
       "summary": "{{running}} running · {{completed}} done",
       "summaryFailed": "{{running}} running · {{completed}} done · {{failed}} failed",
       "count": "{{done}}/{{total}}",
