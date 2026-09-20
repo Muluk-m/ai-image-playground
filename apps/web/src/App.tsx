@@ -20,6 +20,7 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
+import { useLibraryStore } from './features/library/store'
 import { i18next } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -35,6 +36,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
+  const libraryTab = useLibraryStore((s) => s.tab)
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -105,7 +107,16 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         ) : appMode === 'projects' ? (
           <ProjectsPage />
         ) : appMode === 'library' ? (
-          <LibraryPage userId={user?.id} />
+          <>
+            <LibraryPage userId={user?.id} />
+            {/* 作品页是「边看全部记录边接着生成」的那一档：批量条与输入框都留着。 */}
+            {libraryTab === 'works' ? (
+              <>
+                <TaskBulkActions />
+                <InputBar />
+              </>
+            ) : null}
+          </>
         ) : (
           <>
             <main data-home-main data-drag-select-surface className="pb-48">
