@@ -203,7 +203,11 @@ describe('对话轮的预扣', () => {
     expect(await db.select().from(schema.agent_messages)).toHaveLength(0)
   })
 
-  it('历史参考图读取失败时退回本轮预扣且不发送上游请求', async () => {
+  /**
+   * 上一轮的参考图不再跟着下一轮重发：那批字节压根不读，所以读得出来读不出来都拖不垮纯文字轮。
+   * 这一条从前钉的是反面——历史参考图读失败就整轮失败——那正是按需取图要治的病。
+   */
+  it('纯文字轮不重发历史参考图：不读对象存储，也不为它计图', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('已看到参考图')))
     const conversationId = await startConversation()
@@ -213,21 +217,18 @@ describe('对话轮的预扣', () => {
       references: [REFERENCE],
     })
     await initial.text()
+    // 只要第二轮去读一次归档的参考图就会炸；它一次都不读。
     storage.readFailuresRemaining = 1
 
     const { frames } = await runTurn(conversationId, '继续修改这张图')
-    const failedTurnId = turnIdOf(frames)
-    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'failed' })
-    expect(settlements.find((one) => one.taskId === failedTurnId)?.outcome).toBe('failed')
+
+    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    expect(storage.readFailuresRemaining).toBe(1)
+    expect(calls).toHaveLength(2)
+    // 第一轮附了一张图，第二轮一张都没有：预扣与计费看到的图数跟着实发走。
     expect(
-      (await db.select().from(schema.tasks)).find((task) => task.id === failedTurnId)?.status,
-    ).toBe('failed')
-    expect(calls).toHaveLength(1)
-    expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
-      input_image_count: 1,
-      user_id: USER_ID,
-      device_id: DEVICE,
-    })
+      (await db.select().from(schema.agent_model_calls)).map((one) => one.input_image_count),
+    ).toEqual([1, 0])
   })
 
   it('对话模型没有有效单价时拒绝起轮', async () => {

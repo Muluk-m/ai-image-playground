@@ -1,3 +1,4 @@
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTooltip } from '../hooks/useTooltip'
 import { useTranslation } from '../i18n'
@@ -11,7 +12,6 @@ import {
 } from '../lib/clipboard'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
-import { formatImageRatio } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
   editOutputImage,

@@ -18,8 +18,14 @@ import { useAgentStore } from '../store'
  */
 const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRewrite'])
 
-/** 收起时只给一行摘要：当前打哪个模型、出多大。张数由智能体按需求决定。 */
-function useSummary(): string[] {
+/**
+ * 收起时只给一行摘要：当前打哪个模型、出多大。张数由智能体按需求决定。
+ *
+ * 自带 Key 的配置在智能体这条路上不生效——服务端没有 BYOK 分支，模型一律从内置渠道里挑。
+ * 所以 BYOK 时不摆 profile 里那个模型名：那是「界面写 A、实际花钱跑 B」。真正用上的那一个
+ * 由服务端冻结进草稿，卡片上那行写的就是它。
+ */
+function useSummary(): { readonly parts: string[]; readonly byok: boolean } {
   const { t } = useTranslation('agent')
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
@@ -27,7 +33,8 @@ function useSummary(): string[] {
     const active = getActiveApiProfile(settings)
     const profile = clientProfileToApiProfile(active)
     const capabilities = getParamCapabilities(active, params.output_format)
-    const parts = [compactModelName(profile.model, profile.model)]
+    const byok = active.source === 'user-byok'
+    const parts = [byok ? t('params.builtinModel') : compactModelName(profile.model, profile.model)]
     parts.push(
       profile.provider === 'gemini'
         ? params.gemini_aspect_ratio || t('params.autoRatio')
@@ -39,7 +46,7 @@ function useSummary(): string[] {
             ? t('params.autoSize')
             : t('params.autoRatio'),
     )
-    return parts
+    return { parts, byok }
   }, [params, settings, t])
 }
 
@@ -47,7 +54,7 @@ export default function AgentParamsChip() {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const generationSummary = useSummary()
+  const generation = useSummary()
   const depth = useAgentStore((state) => state.thinkingDepth)
   const setDepth = useAgentStore((state) => state.setThinkingDepth)
   const labels = {
@@ -55,7 +62,7 @@ export default function AgentParamsChip() {
     medium: t('params.thinkingMedium'),
     deep: t('params.thinkingDeep'),
   }
-  const summary = [t('params.thinkingSummary', { label: labels[depth] }), ...generationSummary]
+  const summary = [t('params.thinkingSummary', { label: labels[depth] }), ...generation.parts]
   const insidePointerRef = useRef<Event | null>(null)
   useCloseOnEscape(open, () => setOpen(false))
 
@@ -134,6 +141,9 @@ export default function AgentParamsChip() {
             <ParamControls unsupported={UNSUPPORTED} />
           </div>
           <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
+          {generation.byok && (
+            <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.byokNote')}</p>
+          )}
         </div>
       )}
     </div>

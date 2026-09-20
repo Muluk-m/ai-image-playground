@@ -20,6 +20,7 @@ import {
   parseFrames,
   recordingAgentFetch,
   scriptedAgentFetch,
+  submittedPrompt,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
@@ -44,7 +45,7 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
-const { selectionPreview, imageSelection } = await import('../../lib/agent/selection-preview')
+const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { finishTask } = await import('../../db/task-transitions')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { conversationsWithEndedJobs } = await import('../../lib/agent/wake')
@@ -426,7 +427,7 @@ describe('智能体改图工具', () => {
         .where(eq(schema.tasks.id, end.job!.taskId))
       const request = await hydrateInputImages(task!.request_payload)
       expect(request.input_images).toEqual([reference.dataUrl])
-      expect(request.prompt).toBe(prompts[index]!)
+      expect(request.prompt).toBe(submittedPrompt(prompts[index]!))
       expect(request.n).toBe(1)
       await db
         .update(schema.tasks)
@@ -552,16 +553,6 @@ describe('智能体改图工具', () => {
       const submitted = await hydrateInputImages(task!.request_payload)
       expect(submitted.input_images).toEqual([PIXEL])
       expect(submitted.mask).toBe(MASK)
-      expect(calls[1]!.messages.at(-1)!.content).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: 'image_url',
-            image_url: expect.objectContaining({
-              url: `data:image/png;base64,${(await selectionPreview({ dataUrl: PIXEL, maskDataUrl: MASK })).data}`,
-            }),
-          }),
-        ]),
-      )
     } finally {
       stop()
     }
@@ -643,7 +634,8 @@ describe('智能体改图工具', () => {
         status: 'awaiting_confirmation',
         anchorObjectId: 'canvas-svg',
       })
-      for (const call of calls.slice(0, 2)) {
+      // 只有附了图的那一轮带 image 块；后一轮是纯文字，图靠 id 取。
+      for (const call of calls.slice(0, 1)) {
         const content = call.messages.at(-1)!.content as {
           type: string
           image_url?: { url: string }
@@ -838,7 +830,7 @@ describe('智能体改图工具', () => {
     expect(settled!.artifacts![0]!.artifactId).not.toBe('canvas-1')
 
     const [task] = await db.select().from(schema.tasks)
-    expect(task!.request_payload.prompt).toBe('把背景换成浅木色')
+    expect(task!.request_payload.prompt).toBe(submittedPrompt('把背景换成浅木色'))
     expect(task!.request_payload.input_images).toHaveLength(1)
     expect(task!.request_payload.mask).toBeUndefined()
 
@@ -849,6 +841,7 @@ describe('智能体改图工具', () => {
       'generateImage',
       'loadSkill',
       'readLibrary',
+      'viewImage',
     ])
   })
 
@@ -890,7 +883,7 @@ describe('智能体改图工具', () => {
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.mask).toBeTruthy()
     // 提交出去的还是卡上那一句。
-    expect(task!.request_payload.prompt).toBe(pending!.prompt!)
+    expect(task!.request_payload.prompt).toBe(submittedPrompt(pending!.prompt!))
   })
 
   it('hands a local edit back as a background job the agent must review', async () => {
@@ -1166,7 +1159,7 @@ it('does not charge a second masked generation when the model tries again', asyn
 
   await confirmDrafts(conversationId)
   const [task] = await db.select().from(schema.tasks)
-  expect(task!.request_payload.prompt).toBe(drafted!.prompt!)
+  expect(task!.request_payload.prompt).toBe(submittedPrompt(drafted!.prompt!))
 
   // 候选跑完把模型唤醒来复核，计划跟着草稿冻结、随确认落到登记上，唤醒轮接着它走。
   await completeWithWorker(task!.id)

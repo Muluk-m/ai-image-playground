@@ -35,10 +35,14 @@ const STORED_ARMREST: AgentStoredReference = {
 
 /** 期望值里的引用清单逐字写出来，不复用被测代码的拼法。 */
 const COVER_MANIFEST =
-  '\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）：\n[image 1] 封面，图片 id img-1'
+  '\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：\n[image 1] 封面，图片 id img-1'
 
 const ARMREST_MANIFEST =
-  '\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）：\n[image 1] 图片 id img-a'
+  '\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：\n[image 1] 图片 id img-a'
+
+/** 回放那一份：历史是纯文字，那一轮附过的图的内容不在这一份输入里。 */
+const REPLAYED_ARMREST_MANIFEST =
+  '\n\n上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。\n[image 1] 图片 id img-a'
 
 function userMessage(
   id: string,
@@ -88,14 +92,14 @@ const COMPLETED: AgentMessageView[] = [
 
 describe('turnAuthorizationText', () => {
   it('authorizes only this turn when there is no history', () => {
-    expect(turnAuthorizationText([], '把背景换成海边', [])).toBe('把背景换成海边')
-    expect(turnAuthorizationText([], '把背景换成海边', [COVER])).toBe(
+    expect(turnAuthorizationText([], '把背景换成海边', [], false)).toBe('把背景换成海边')
+    expect(turnAuthorizationText([], '把背景换成海边', [COVER], true)).toBe(
       `把背景换成海边${COVER_MANIFEST}`,
     )
   })
 
   it('leaves a completed turn out of this turn authorization', () => {
-    expect(turnAuthorizationText(COMPLETED, '再来一张', [])).toBe('再来一张')
+    expect(turnAuthorizationText(COMPLETED, '再来一张', [], false)).toBe('再来一张')
   })
 
   it('carries an unfinished clarification chain into this turn authorization', () => {
@@ -109,8 +113,8 @@ describe('turnAuthorizationText', () => {
         clarification('参考图是哪张？', ['用这张', '换一张']),
       ]),
     ]
-    expect(turnAuthorizationText(history, '用这个', [COVER])).toBe(
-      `只换扶手，颜色和背景不变${ARMREST_MANIFEST}\n向用户提问：参考图是哪张？（选项：用这张 / 换一张）\n用这个${COVER_MANIFEST}`,
+    expect(turnAuthorizationText(history, '用这个', [COVER], true)).toBe(
+      `只换扶手，颜色和背景不变${REPLAYED_ARMREST_MANIFEST}\n向用户提问：参考图是哪张？（选项：用这张 / 换一张）\n用这个${COVER_MANIFEST}`,
     )
   })
 
@@ -121,7 +125,7 @@ describe('turnAuthorizationText', () => {
       userMessage('m3', [{ type: 'text', text: '插画' }]),
       assistantMessage('m4', [clarification('横版还是竖版？', ['横版', '竖版'])]),
     ]
-    expect(turnAuthorizationText(history, '竖版', [])).toBe(
+    expect(turnAuthorizationText(history, '竖版', [], false)).toBe(
       '做一张海报\n向用户提问：要什么风格？（选项：插画 / 摄影）\n插画\n向用户提问：横版还是竖版？（选项：横版 / 竖版）\n竖版',
     )
   })
@@ -132,7 +136,7 @@ describe('turnAuthorizationText', () => {
       userMessage('m3', [{ type: 'text', text: '再做一张海报' }]),
       assistantMessage('m4', [clarification('要什么风格？', ['插画', '摄影'])]),
     ]
-    expect(turnAuthorizationText(history, '插画', [])).toBe(
+    expect(turnAuthorizationText(history, '插画', [], false)).toBe(
       '再做一张海报\n向用户提问：要什么风格？（选项：插画 / 摄影）\n插画',
     )
   })
@@ -144,13 +148,14 @@ describe('createTurnAuthorization', () => {
       history: [],
       prompt: '把背景换成海边',
       references: [],
+      attached: false,
     })
     const initial = authorization.current()
     expect(initial).toEqual({ revision: 0, instructions: '把背景换成海边' })
     // 身份就是版本：工具取了快照才认得出原文被改过。
     expect(authorization.current()).toBe(initial)
 
-    authorization.amend('再亮一点', [])
+    authorization.amend('再亮一点', [], false)
     expect(authorization.current()).toEqual({
       revision: 1,
       instructions: '把背景换成海边\n用户补充：再亮一点',
@@ -163,9 +168,10 @@ describe('createTurnAuthorization', () => {
       history: [],
       prompt: '把背景换成海边',
       references: [],
+      attached: false,
     })
-    authorization.amend('再亮一点', [])
-    authorization.amend('也换个字体', [])
+    authorization.amend('再亮一点', [], false)
+    authorization.amend('也换个字体', [], false)
     expect(authorization.current()).toEqual({
       revision: 2,
       instructions: '把背景换成海边\n用户补充：再亮一点\n用户补充：也换个字体',
@@ -177,8 +183,9 @@ describe('createTurnAuthorization', () => {
       history: [],
       prompt: '改一下扶手',
       references: [ARMREST],
+      attached: true,
     })
-    authorization.amend('参考这张', [COVER])
+    authorization.amend('参考这张', [COVER], true)
     expect(authorization.current()).toEqual({
       revision: 1,
       instructions: `改一下扶手${ARMREST_MANIFEST}\n用户补充：参考这张${COVER_MANIFEST}`,

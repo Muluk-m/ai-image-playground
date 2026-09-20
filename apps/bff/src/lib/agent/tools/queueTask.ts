@@ -11,6 +11,7 @@ import { projectArtifactId } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import type { ExtractedResult } from '../../extractImages'
+import { submitAgentGeneration } from '../auto-submit'
 import { saveGenerationDraft } from '../confirmations'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { AgentToolError } from './errors'
@@ -68,6 +69,14 @@ function draftText(words: MediaWords, count: number): string {
 }
 
 /**
+ * 出图模式下提交完给模型的那句话。这一轮不会因此收尾，模型接着往下做，所以措辞要让它
+ * 明白「这一张已经在跑、已经计费」，别再为同一件事提交第二次。
+ */
+function submittedText(words: MediaWords, count: number): string {
+  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，产物会自动落到画布上。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+}
+
+/**
  * 该介质的模型。优先用这一轮里用户选的，解析不出来（模型下线、介质不符）就退回运营配置的，
  * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败。
  */
@@ -107,9 +116,13 @@ export function noModelMessage(media: ChannelMedia): string {
 }
 
 /**
- * 生成工具的唯一出口：请求准备齐了（模型、提示词、输入图、遮罩、档位、张数），却**不提交**，
- * 而是把这整份材料存成一份待确认的草稿，卡片停在「等待确认」。队列任务、预留与扣费都要等用户
- * 在卡上确认之后才发生（见 `confirmations.ts`）。
+ * 生成工具的唯一出口。对话模式下请求准备齐了（模型、提示词、输入图、遮罩、档位、张数）却
+ * **不提交**，而是把这整份材料存成一份待确认的草稿，卡片停在「等待确认」；队列任务、预留与
+ * 扣费都要等用户在卡上确认之后才发生（见 `confirmations.ts`）。
+ *
+ * 出图模式（`params.autoSubmit`）走同一份材料当场提交，卡片直接是「已提交」，这一轮不因此
+ * 收尾，模型接着出下一张（见 `auto-submit.ts`）。额度领完、或者提交被拒（余额不够、配额用尽）
+ * 都退回拟稿：稿子照样留给用户，不中断整轮。
  *
  * 门设在这一处而不是各工具入口：草稿里的提示词必须是真正会送进上游的那一句——遮罩编辑的执行
  * 指令由服务端按用户原文与选区拼出来，模型手里的只是摘要。准备做完再拟稿，用户看到、改到的
@@ -160,8 +173,50 @@ export async function draftQueueTask(
   if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
   await context.assertExecution?.()
   const count = input.media === 'image' ? agentImageCount(input) : 1
-  // 计划随草稿一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
+  // 计划随材料一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
   const plan = context.maskedEditPlan?.carryAfter(submission)
+  const request = {
+    prompt: input.prompt,
+    device_id: context.deviceId,
+    // 视频档位由 input.video 自己带，图片参数对它没有意义。
+    ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
+    n: count,
+    ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
+    ...(input.mask ? { mask: input.mask } : {}),
+  }
+  const draftSubmission = {
+    review,
+    ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
+    ...(plan ? { plan } : {}),
+    ...(input.videoRecord ? { videoRecord: input.videoRecord } : {}),
+  }
+
+  if (context.autoSubmit?.take()) {
+    const submitted = await submitAgentGeneration({
+      conversationId: context.conversationId,
+      turnId: context.turnId,
+      toolCallId: input.toolCallId ?? '',
+      userId: context.userId,
+      media: input.media,
+      provider: target.provider,
+      model: target.model,
+      request,
+      ...(input.video ? { video: input.video } : {}),
+      submission: draftSubmission,
+    })
+    if (submitted.kind === 'created') {
+      context.maskedEditPlan?.submitted(submission)
+      return {
+        content: [{ type: 'text', text: submittedText(words, count) }],
+        details: {
+          executedPrompt: input.prompt,
+          job: submitted.job,
+          ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
+        },
+      }
+    }
+  }
+
   await saveGenerationDraft({
     conversationId: context.conversationId,
     turnId: context.turnId,
@@ -171,22 +226,9 @@ export async function draftQueueTask(
     provider: target.provider,
     model: target.model,
     prompt: input.prompt,
-    request: {
-      prompt: input.prompt,
-      device_id: context.deviceId,
-      // 视频档位由 input.video 自己带，图片参数对它没有意义。
-      ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
-      n: count,
-      ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
-      ...(input.mask ? { mask: input.mask } : {}),
-    },
+    request,
     ...(input.video ? { video: input.video } : {}),
-    submission: {
-      review,
-      ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
-      ...(plan ? { plan } : {}),
-      ...(input.videoRecord ? { videoRecord: input.videoRecord } : {}),
-    },
+    submission: draftSubmission,
   })
   // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
   context.maskedEditPlan?.submitted(submission)

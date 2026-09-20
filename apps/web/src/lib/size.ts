@@ -1,6 +1,7 @@
+import { formatImageRatio, parseImageSize } from '@image-playground/shared'
+
 export { nearestAspectRatio } from '@image-playground/shared'
 
-const SIZE_PATTERN = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/
 const RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX×]\s*(\d+(?:\.\d+)?)\s*$/
 const SIZE_MULTIPLE = 16
 const MAX_EDGE = 3840
@@ -63,20 +64,20 @@ function normalizeDimensions(width: number, height: number) {
 
 export function normalizeImageSize(size: string) {
   const trimmed = size.trim()
-  const match = trimmed.match(SIZE_PATTERN)
-  if (!match) return trimmed
+  const parsed = parseImageSize(trimmed)
+  if (!parsed) return trimmed
 
-  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]))
+  const { width, height } = normalizeDimensions(parsed.width, parsed.height)
   return `${width}x${height}`
 }
 
 /** Codex CLI 只接受到 1K 的分辨率：超出 1K 像素预算时按同一比例回落到 1K 档。 */
 export function normalizeCodexCliImageSize(size: string) {
   const trimmed = size.trim()
-  const match = trimmed.match(SIZE_PATTERN)
-  if (!match) return trimmed
+  const parsed = parseImageSize(trimmed)
+  if (!parsed) return trimmed
 
-  const { width, height } = normalizeDimensions(Number(match[1]), Number(match[2]))
+  const { width, height } = normalizeDimensions(parsed.width, parsed.height)
   const normalized = `${width}x${height}`
   if (width * height <= MAX_1K_PIXELS) return normalized
 
@@ -96,124 +97,27 @@ export function parseRatio(ratio: string) {
   return { width, height }
 }
 
-export function formatImageRatio(width: number, height: number) {
-  const roundedWidth = Math.round(width)
-  const roundedHeight = Math.round(height)
-  if (
-    !Number.isFinite(roundedWidth) ||
-    !Number.isFinite(roundedHeight) ||
-    roundedWidth <= 0 ||
-    roundedHeight <= 0
-  ) {
-    return ''
-  }
-
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
-  const divisor = gcd(roundedWidth, roundedHeight)
-  const simplifiedWidth = roundedWidth / divisor
-  const simplifiedHeight = roundedHeight / divisor
-  const simplified = `${simplifiedWidth}:${simplifiedHeight}`
-  const commonRatios = [
-    [1, 1],
-    [4, 3],
-    [3, 4],
-    [3, 2],
-    [2, 3],
-    [16, 9],
-    [9, 16],
-    [21, 9],
-    [9, 21],
-  ]
-
-  for (const [commonWidth, commonHeight] of commonRatios) {
-    if (simplifiedWidth === commonWidth && simplifiedHeight === commonHeight) {
-      return simplified
-    }
-  }
-
-  // 精确的小项分数已经是最友好的标签；继续寻找别名只会把 5:4 换成等值但更难读的 10:8。
-  if (simplifiedWidth <= 12 && simplifiedHeight <= 12) return simplified
-
-  const actualRatio = roundedWidth / roundedHeight
-  const squareDelta = Math.abs(actualRatio - 1)
-  if (squareDelta <= 0.18) return '≈1:1'
-
-  const nearest = commonRatios
-    .map(([commonWidth, commonHeight]) => {
-      const ratio = commonWidth / commonHeight
-      return {
-        label: `${commonWidth}:${commonHeight}`,
-        delta: Math.abs(actualRatio - ratio) / ratio,
-      }
-    })
-    .sort((a, b) => a.delta - b.delta)[0]
-
-  // 16 倍数与最大边长钳制会让派生尺寸漂移约 1.6%；此时保留用户选择的常用比例比显示 7:3 更准确。
-  if (nearest && nearest.delta <= 0.02) return `≈${nearest.label}`
-
-  const friendlyNearest = Array.from({ length: 12 }, (_, widthIndex) => widthIndex + 1)
-    .flatMap((friendlyWidth) =>
-      Array.from({ length: 12 }, (_, heightIndex) => heightIndex + 1).map((friendlyHeight) => {
-        const ratio = friendlyWidth / friendlyHeight
-        const delta = Math.abs(actualRatio - ratio) / ratio
-        return {
-          label: `${friendlyWidth}:${friendlyHeight}`,
-          delta,
-          // 在误差接近时偏向更短、更好读的比例，例如 7:6 优于 8:7。
-          score: delta + (friendlyWidth + friendlyHeight) * 0.002,
-        }
-      }),
-    )
-    .filter((item) => item.label !== simplified)
-    .sort((a, b) => a.score - b.score)[0]
-
-  return friendlyNearest && friendlyNearest.delta <= 0.04 ? `≈${friendlyNearest.label}` : simplified
-}
-
 export function sizeRatioLabel(size: string): string {
-  const match = size.match(SIZE_PATTERN)
-  if (!match) return 'auto'
+  const parsed = parseImageSize(size)
+  if (!parsed) return 'auto'
 
-  const label = formatImageRatio(Number(match[1]), Number(match[2])).replace(/^≈/, '')
+  const label = formatImageRatio(parsed.width, parsed.height).replace(/^≈/, '')
   return label || 'auto'
 }
 
 export function sameAspectRatio(a: string, b: string): boolean {
-  const first = a.match(SIZE_PATTERN)
-  const second = b.match(SIZE_PATTERN)
+  const first = parseImageSize(a)
+  const second = parseImageSize(b)
   if (!first || !second) return false
 
-  const firstWidth = Number(first[1])
-  const firstHeight = Number(first[2])
-  const secondWidth = Number(second[1])
-  const secondHeight = Number(second[2])
-  if (firstWidth <= 0 || firstHeight <= 0 || secondWidth <= 0 || secondHeight <= 0) {
+  if (first.width <= 0 || first.height <= 0 || second.width <= 0 || second.height <= 0) {
     return false
   }
 
-  const firstRatio = firstWidth / firstHeight
-  const secondRatio = secondWidth / secondHeight
+  const firstRatio = first.width / first.height
+  const secondRatio = second.width / second.height
   // 上游会重新量化像素数（如 1024x1824 变成 941x1672），但比例不变；只有构图比例变化才算不一致。
   return Math.abs(firstRatio - secondRatio) / Math.max(firstRatio, secondRatio) <= 0.03
-}
-
-/** 某些上游会丢弃 `size`，只服从 prompt 中明确写出的构图比例。 */
-export function buildAspectInstruction(size: string): string | null {
-  const match = size.match(SIZE_PATTERN)
-  if (!match) return null
-
-  const width = Number(match[1])
-  const height = Number(match[2])
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null
-  }
-
-  if (width === height) return 'Composition: a 1:1 square frame.'
-
-  const ratio = formatImageRatio(width, height).replace(/^≈/, '')
-  return width > height
-    ? `Composition: a wide ${ratio} landscape frame, horizontal orientation.`
-    : `Composition: a tall ${ratio} vertical frame, portrait orientation.`
 }
 
 /**
