@@ -131,3 +131,17 @@
     0 0 0 1px hsl(var(--primary) / 0.14),
     0 40px 90px -50px hsl(var(--primary) / 0.7);
 }
+
+/* 生成按钮：亮绿渐变 + 内描边 + 外发光，黑字。禁用态交回 Tailwind 的 disabled:*。 */
+.studio-generate-button {
+  color: #0b1a08;
+  background: linear-gradient(135deg, #d9ffba, #93e46f 55%, #63c455);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.28),
+    0 14px 40px -14px hsl(var(--primary) / 0.95);
+}
+.studio-generate-button:hover:not(:disabled) {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.35),
+    0 18px 48px -14px hsl(var(--primary));
+}

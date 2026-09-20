@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
+import { useAuth } from '../auth/AuthContext'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
+import { PrivateWebSidebarAccountCard } from '../lib/privateOverlay'
 import { APP_MODE_LABELS, type AppMode, NAV_APP_MODES, useStore } from '../store'
 import { AssetIcon, CanvasIcon, GalleryIcon, PromptImageIcon, SparkleIcon } from './icons'
 
@@ -32,6 +34,7 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
+  const username = useAuth().user?.username ?? null
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
     void useCanvasProjectStore.getState().load()
@@ -97,6 +100,7 @@ export default function Sidebar() {
             <span className="truncate">{projectDisplayName(project.name)}</span>
           </button>
         ))}
+        {PrivateWebSidebarAccountCard ? <PrivateWebSidebarAccountCard username={username} /> : null}
       </nav>
 
       {/* 窄屏没有侧栏的位置：同样四个入口塌成底部标签条，顶部依旧没有横栏。 */}

@@ -29,9 +29,15 @@ export interface PrivateHeaderActionsProps {
   onLogout(): void
 }
 
+export interface PrivateSidebarAccountProps {
+  username: string | null
+}
+
 export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
+  /** 侧栏左下角那张账号卡：头像、昵称与会员等级。收费 overlay 不在时用公开树的兜底。 */
+  SidebarAccountCard?: ComponentType<PrivateSidebarAccountProps>
   replacesAuthActions: boolean
   supportsReferrals: boolean
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
@@ -96,6 +102,7 @@ function resolveOverlay(): PrivateWebOverlay {
 const overlay = resolveOverlay()
 
 export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
+export const PrivateWebSidebarAccountCard = overlay.SidebarAccountCard ?? null
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals

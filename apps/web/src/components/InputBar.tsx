@@ -1577,10 +1577,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     <button
                       onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
                       disabled={hasSubmitApiConfig ? !canSubmit : false}
-                      className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
+                      className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-full pl-4 pr-6 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
                         !hasSubmitApiConfig
                           ? 'bg-muted text-muted-foreground'
-                          : 'bg-primary text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/20 hover:bg-primary/90 hover:shadow-primary/40 hover:shadow-xl disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
+                          : 'studio-generate-button disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
                       }`}
                       title={
                         submissionGuard.disabledReason ??
