@@ -21,6 +21,7 @@ export const EXPECTED_TABLES = [
   'agent_inbox',
   'agent_jobs',
   'agent_generation_drafts',
+  'agent_device_claims',
   'canvas_projects',
   'project_generation_outputs',
   'daily_quota',
