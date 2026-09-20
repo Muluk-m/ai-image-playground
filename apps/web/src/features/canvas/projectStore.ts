@@ -37,6 +37,8 @@ interface ProjectState {
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
+  /** 会话标题给的自动名；与用户自己改名不同，不把项目钉成「自定义名字」。 */
+  autoName(id: string, name: string): Promise<void>
   restore(id: string): Promise<void>
   markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
@@ -130,19 +132,30 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           )
         }
         const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
-        let active =
-          available.find((one) => one.id === routeId) ??
-          available.find((one) => one.id === remembered) ??
-          available.find((one) => conversationId && one.conversationId === conversationId)
-        active ??= available.find((one) => one.sceneKey === canvasSceneKey(conversationId))
-        active ??= available[0]
+        // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
+        // 挑一个干净的空工作区起手。已有的空项目优先复用，否则才新建——
+        // 每次回首页都建一个会刷出一堆未命名项目。
+        let active = route
+          ? available.find((one) => one.id === routeId)
+          : available.find((one) => !one.hasContent && !one.workspaceOpened && !one.conversationId)
+        if (route) {
+          active ??= available.find((one) => one.id === remembered)
+          active ??= available.find(
+            (one) => conversationId && one.conversationId === conversationId,
+          )
+          active ??= available.find((one) => one.sceneKey === canvasSceneKey(conversationId))
+          active ??= available[0]
+        }
         if (!active) {
+          // 首页那条不挂上次那段会话：挂上去就等于把它又拉回来了。场景键仍取未绑定会话的那把，
+          // 首次发送前留下的草稿才认得出自己属于这个起手工作区。
+          const bound = route ? conversationId : null
           active =
-            cloudProjectsEnabled() && !conversationId
+            cloudProjectsEnabled() && !bound
               ? await projectRepository.create(UNTITLED_PROJECT, undefined, true)
               : await projectRepository.create(UNTITLED_PROJECT, {
-                  sceneKey: canvasSceneKey(conversationId),
-                  conversationId,
+                  sceneKey: canvasSceneKey(bound),
+                  conversationId: bound,
                 })
           projects.push(active)
         }
@@ -183,8 +196,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
+    const pathname = globalThis.location?.pathname ?? '/'
     // 正在作品 / 视频入口时（例如刷新 /works 后项目目录才加载完）不把地址改成项目地址。
-    if (!pathAppMode(globalThis.location?.pathname ?? '/')) writeProjectRoute(id, replaceRoute)
+    // 在 `/` 上由目录加载挑出来的起手工作区也不改地址：首页就该停在首页，
+    // 地址等第一句话落下（见 CanvasMode 的 enterProjectRoute）或用户自己开项目时再换。
+    const landing = replaceRoute && pathname.replace(/\/+$/, '') === ''
+    if (!pathAppMode(pathname) && !landing) writeProjectRoute(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)
@@ -202,6 +219,21 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       ...(current?.cloud && patch.name !== undefined
         ? { cloud: { ...current.cloud, nameDirty: true } }
         : {}),
+    })
+    set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
+  },
+  async autoName(id, name) {
+    const current = get().projects.find((one) => one.id === id)
+    if (current?.cloud && cloudProjectsEnabled()) {
+      // 动态 import：workspaces 反过来依赖这个 store，静态引会成环。
+      const { autoNameCloudProject } = await import('./lib/workspaces')
+      // 开着的那个工作区自己会把新名字推上去并回写本机记录。
+      if (await autoNameCloudProject(current, name)) return
+    }
+    const project = await projectRepository.update(id, {
+      name,
+      hasContent: true,
+      ...(current?.cloud ? { cloud: { ...current.cloud, nameDirty: true } } : {}),
     })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
   },
@@ -256,7 +288,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       if (existing) {
         if (existing.cloud?.deleted) continue
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
-          await get().update(existing.id, { name: conversation.title, hasContent: true })
+          await get().autoName(existing.id, conversation.title)
         continue
       }
       const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {

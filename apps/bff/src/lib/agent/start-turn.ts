@@ -359,7 +359,14 @@ async function executeWakeTurn(
           deviceId,
           model: selectedModel,
           // 要复核的产物作为视觉证据随这一轮发出去，预扣时一并算上。
-          estimatedInputTokens: estimateTurnInputTokens(history, text, [], mode, reviewImageIds),
+          estimatedInputTokens: estimateTurnInputTokens(
+            history,
+            text,
+            [],
+            mode,
+            reviewImageIds,
+            params?.autoSubmit === true,
+          ),
           pricing,
         }
       : null
@@ -532,7 +539,14 @@ async function executeResumeTurn(
           userId,
           deviceId,
           model: selectedModel,
-          estimatedInputTokens: estimateTurnInputTokens(history, text, [], mode, reviewImageIds),
+          estimatedInputTokens: estimateTurnInputTokens(
+            history,
+            text,
+            [],
+            mode,
+            reviewImageIds,
+            params?.autoSubmit === true,
+          ),
           pricing,
         }
       : null
@@ -711,7 +725,14 @@ async function executeConversationTurn(
           userId,
           deviceId,
           model: selectedModel,
-          estimatedInputTokens: estimateTurnInputTokens(history, text, references, mode),
+          estimatedInputTokens: estimateTurnInputTokens(
+            history,
+            text,
+            references,
+            mode,
+            [],
+            params?.autoSubmit === true,
+          ),
           pricing,
         }
       : null
@@ -724,6 +745,7 @@ async function executeConversationTurn(
           references,
           mode,
           merged.note.reviewImageIds,
+          params?.autoSubmit === true,
         )
       : null
   const storedReferences = await archiveAgentReferences(conversationId, turnId, references)

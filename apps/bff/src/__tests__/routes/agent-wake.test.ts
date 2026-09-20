@@ -18,6 +18,7 @@ import {
   parseFrames,
   readFrames,
   scriptedAgentFetch,
+  submittedPrompt,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
   type ToolCallSpec,
@@ -559,7 +560,7 @@ describe('局部改图', () => {
     await confirmDrafts(conversationId)
     const [task] = await tasksOf(conversationId)
     expect(task!.status).toBe('queued')
-    expect(drafted!.prompt).toBe(task!.request_payload.prompt)
+    expect(task!.request_payload.prompt).toBe(submittedPrompt(drafted!.prompt!))
     expect(task!.request_payload.mask).toBeTruthy()
 
     // 候选出来了：模型没选复核也一定被唤醒，看着候选检查。

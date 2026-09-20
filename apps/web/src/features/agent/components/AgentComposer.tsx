@@ -1,4 +1,4 @@
-import { ImageIcon, VideoIcon } from 'lucide-react'
+import { ImageIcon, VideoIcon, Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -23,6 +23,7 @@ import SuggestionMenu, {
   type SuggestionMenuGroup,
   useSuggestionMenu,
 } from '../../../components/SuggestionMenu'
+import { Button } from '../../../components/ui/button'
 import {
   Select,
   SelectContent,
@@ -122,6 +123,7 @@ export default function AgentComposer({
   const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
+  const autoSubmit = useAgentStore((state) => state.autoSubmit)
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -625,6 +627,18 @@ export default function AgentComposer({
                 </SelectContent>
               </Select>
             )}
+            <Button
+              type="button"
+              size="icon"
+              variant={autoSubmit ? 'default' : 'secondary'}
+              aria-pressed={autoSubmit}
+              aria-label={t('composer.autoSubmitAria')}
+              title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
+              className="h-8 w-8 rounded-full"
+              onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
+            >
+              <Zap aria-hidden="true" />
+            </Button>
             <AgentParamsChip />
             {running && (
               <button

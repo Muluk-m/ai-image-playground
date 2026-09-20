@@ -27,8 +27,8 @@ import AgentComposer from './AgentComposer'
 import AgentConnectionHint from './AgentConnectionHint'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
-import AgentJobInbox from './AgentJobInbox'
 import AgentMessageQueue from './AgentMessageQueue'
+import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
 import AgentSkillStep from './AgentSkillStep'
 import AgentSuggestions from './AgentSuggestions'
@@ -209,7 +209,6 @@ export default function AgentPanel({
       </div>
 
       <AgentConnectionHint />
-      <AgentJobInbox />
 
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -260,6 +259,7 @@ export default function AgentPanel({
         </div>
       )}
 
+      {tab === 'chat' && <AgentPendingDrafts />}
       {tab === 'chat' && <AgentMessageQueue />}
       {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
     </div>

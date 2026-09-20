@@ -19,6 +19,7 @@ import {
   parseFrames,
   replyThenToolCall,
   scriptedAgentFetch,
+  submittedPrompt,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
@@ -239,7 +240,7 @@ describe('智能体生图工具', () => {
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
     expect(task!.model).toBe('gpt-image-2.5-flare')
     expect(task!.provider).toBe('openai-compat')
-    expect(task!.request_payload.prompt).toBe('一只橘猫坐在窗台上')
+    expect(task!.request_payload.prompt).toBe(submittedPrompt('一只橘猫坐在窗台上'))
 
     // 任务跑完后读回会话，结果卡已经结算成产物。
     const messages = await readSettledMessages(conversationId)
@@ -339,10 +340,13 @@ describe('智能体生图工具', () => {
     const tasks = await db.select().from(schema.tasks)
     expect(tasks).toHaveLength(2)
     // 张数各归各的：确认之后每条任务带的还是模型给它的那个数。
-    const submitted = tasks.map((task) => [task.request_payload.prompt, task.request_payload.n])
-    expect(submitted.sort()).toEqual([
-      ['橘猫', 3],
-      ['黑猫', 2],
+    const submittedTasks = tasks.map((task) => [
+      task.request_payload.prompt,
+      task.request_payload.n,
+    ])
+    expect(submittedTasks.sort()).toEqual([
+      [submittedPrompt('橘猫'), 3],
+      [submittedPrompt('黑猫'), 2],
     ])
   })
 
@@ -454,6 +458,7 @@ describe('智能体生图工具', () => {
       'generateImage',
       'loadSkill',
       'readLibrary',
+      'viewImage',
     ])
   })
 

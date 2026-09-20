@@ -116,6 +116,8 @@ const paramsSchema = t.Optional(
   t.Object({
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
+    /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
+    autoSubmit: t.Optional(t.Literal(true)),
     size: t.Optional(t.String({ maxLength: 32 })),
     quality: t.Optional(t.String({ maxLength: 16 })),
     output_format: t.Optional(t.String({ maxLength: 16 })),

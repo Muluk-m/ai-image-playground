@@ -15,6 +15,7 @@ import {
   completionStream,
   parseFrames,
   scriptedAgentFetch,
+  submittedPrompt,
   TEST_IMAGE_CHANNEL,
   toolCallCompletion,
 } from '../helpers/agentStubs'
@@ -108,7 +109,11 @@ async function startConversation(): Promise<string> {
 async function runTurn(
   conversationId: string,
   text: string,
-  options: { references?: unknown[]; mode?: 'image' | 'video' } = {},
+  options: {
+    references?: unknown[]
+    mode?: 'image' | 'video'
+    params?: Record<string, unknown>
+  } = {},
 ) {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
@@ -122,6 +127,7 @@ async function runTurn(
         text,
         references: options.references ?? [],
         ...(options.mode ? { mode: options.mode } : {}),
+        ...(options.params ? { params: options.params } : {}),
       }),
     }),
   )
@@ -316,7 +322,7 @@ describe('生成前确认', () => {
 
     const rows = await generationTasks(conversationId)
     expect(rows).toHaveLength(1)
-    expect(rows[0]!.request_payload.prompt).toBe(WHITE_PROMPT)
+    expect(rows[0]!.request_payload.prompt).toBe(submittedPrompt(WHITE_PROMPT))
     // 确认不再经过对话模型：上游只被问过拟稿那一次。
     expect(calls).toHaveLength(1)
     // 这时才预扣，且只扣一次。
@@ -405,7 +411,9 @@ describe('生成前确认', () => {
     // 稿子还在：改好再确认照样能提交。
     const ok = await confirm(conversationId, pending.messageId, WHITE_PROMPT)
     expect(ok.status).toBe(200)
-    expect((await generationTasks(conversationId))[0]!.request_payload.prompt).toBe(WHITE_PROMPT)
+    expect((await generationTasks(conversationId))[0]!.request_payload.prompt).toBe(
+      submittedPrompt(WHITE_PROMPT),
+    )
   })
 
   it('材料不在了的卡不提交，也不拿别的东西顶替', async () => {
@@ -470,7 +478,9 @@ describe('生成前确认', () => {
     _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel])
     const ok = await confirm(conversationId, pending.messageId, WHITE_PROMPT)
     expect(ok.status).toBe(200)
-    expect((await generationTasks(conversationId))[0]!.request_payload.prompt).toBe(WHITE_PROMPT)
+    expect((await generationTasks(conversationId))[0]!.request_payload.prompt).toBe(
+      submittedPrompt(WHITE_PROMPT),
+    )
   })
 
   it('积分不够时不建任务、不改卡，充值后还能确认', async () => {
@@ -545,7 +555,7 @@ describe('生成前确认', () => {
     expect(rows).toHaveLength(1)
     // 用户改的那一份原样送出，不会被拟稿时的授权原文重新生成一遍。
     const request = await hydrateInputImages(rows[0]!.request_payload)
-    expect(request.prompt).toBe(edited)
+    expect(request.prompt).toBe(submittedPrompt(edited))
     // 遮罩与选区外像素保护照样在：确认只换提示词，不松边界。
     expect(rows[0]!.request_payload.preserve_outside_mask).toBe(true)
     expect(rows[0]!.request_payload.mask).toBeDefined()
@@ -620,7 +630,7 @@ describe('生成前确认', () => {
     expect(after.map((card) => card.block.status)).toEqual(['submitted', 'awaiting_confirmation'])
     const rows = await generationTasks(conversationId)
     expect(rows).toHaveLength(1)
-    expect(rows[0]!.request_payload.prompt).toBe('方案 A：白色浴缸')
+    expect(rows[0]!.request_payload.prompt).toBe(submittedPrompt('方案 A：白色浴缸'))
   })
 
   it('进程死在建任务与写回之间时，再确认认领原来那条任务而不是再交一次', async () => {
@@ -680,5 +690,35 @@ describe('生成前确认', () => {
 
     expect(await storage.listPrefix(`agent/${conversationId}/`)).toEqual([])
     expect(await storage.listPrefix(`${draft!.id}/`)).toEqual([])
+  })
+
+  /**
+   * 同一个内置模型、同一句提示词、同一组 chip 参数，走创作页和走智能体发给上游的必须是同一份。
+   *
+   * 期望值是创作页那条路的逐字输出：防改写 guard 前缀与构图指令由 `apps/web/src/lib/api.ts`
+   * 的分发层钉上（这个模型没声明 `size` 能力，所以两段都有），`moderation` 由
+   * `lib/channels/queueClient.ts` 无条件带上。哪一边漏掉一段，这里就红——两边出图质感对不上
+   * 的根因正是这些看不见的差异。
+   */
+  it('确认后发给上游的提示词与审核强度，与创作页逐字相同', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一版竖构图', { params: { size: '1024x1536' } })
+    const pending = await pendingCard(conversationId)
+    // 摆在用户眼前、让他改的是干净的提示词：两段机器指令都不在卡上。
+    expect(pending.block.prompt).toBe(GREEN_DRAFT)
+
+    const { status, json } = await confirm(conversationId, pending.messageId, WHITE_PROMPT)
+
+    expect(status).toBe(200)
+    const [row] = await generationTasks(conversationId)
+    expect(row!.request_payload).toMatchObject({
+      prompt: `Use the following text as the complete prompt. Do not rewrite it:\n${WHITE_PROMPT}\n\nComposition: a tall 2:3 vertical frame, portrait orientation.`,
+      size: '1024x1536',
+      moderation: 'low',
+    })
+    // 改写过的卡面照旧只有用户确认的那一句。
+    expect(blockOf(json).prompt).toBe(WHITE_PROMPT)
   })
 })
