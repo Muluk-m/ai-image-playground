@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { bootstrapLocale } from './i18n'
 import './index.css'
-import { legacyFallback, restoreLogin } from './lib/localCompatibility/auth'
+import { restoreLogin } from './lib/localCompatibility/auth'
 import { restoreLocalStorage } from './lib/localCompatibility/bridge'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
@@ -48,11 +48,10 @@ function dismissBootSplash(): void {
 // Capabilities and channel discovery share one startup round trip. The channel request can return
 // 401 before login; AuthGate retries it after establishing an authenticated session.
 const runtime = await loadRuntimeConfig()
-const restored =
-  !runtime.localCompatibility || (await restoreLocalStorage(runtime.localCompatibility))
-if (!restored && runtime.localCompatibility) {
-  location.replace(legacyFallback(runtime.localCompatibility))
-} else if (
+// 导入没解决也照常挂载：冲突的源画布已经作为「旧站画布」项目留在本机，而旧域名只有一条
+// 一次性 301 指向这里，把访客送回去只会被那条 301 弹回来。
+if (runtime.localCompatibility) await restoreLocalStorage(runtime.localCompatibility)
+if (
   !runtime.localCompatibility ||
   !runtime.bff.enabled ||
   (await restoreLogin(runtime.localCompatibility, runtime.bff.baseUrl))

@@ -3,25 +3,16 @@ import type { CompatibilityConfig } from './bridge'
 const DONE = 'muvloom-domain-auth-v1'
 const CALLBACK = '__domain_auth'
 
-export function legacyFallback(config: CompatibilityConfig, current = location.href): string {
-  const url = new URL(current)
-  const fallback = new URL(config.sourceOrigin)
-  fallback.pathname = url.pathname
-  fallback.search = url.search
-  fallback.hash = url.hash
-  fallback.searchParams.delete(CALLBACK)
-  fallback.searchParams.set('__legacy', '1')
-  return fallback.href
-}
-
 /**
  * Storage is committed before navigating; no session credential is exposed to JavaScript.
  *
  * 只有「登录还能接过来」这一件事失败时才值得改变航向，而它失败的方式几乎都不是「交接坏了」：
  * `accounts:login` 关着时 `/api/auth/me` 答 404，前端先于 BFF 上线时交接接口还不存在，
  * `AbortSignal.timeout(5000)` 让「API 慢」与「API 挂了」同形。这些情况下正常挂载应用——
- * 本地数据已经搬过来了，访客看到的是自己的东西，只是没自动登录。回退旧站留给
- * `main.tsx` 里「本地导入真的没成」那一条路径。
+ * 本地数据已经搬过来了，访客看到的是自己的东西，只是没自动登录。
+ *
+ * 切换是一次性的：旧域名只配一条 301 指向新域名，所以**任何一步失败都不把访客送回旧域名**，
+ * 送回去只会撞上那条 301 再弹回来。
  */
 export async function restoreLogin(
   config: CompatibilityConfig,
@@ -39,7 +30,6 @@ export async function restoreLogin(
       })
     if (url.searchParams.has(CALLBACK)) {
       url.searchParams.delete(CALLBACK)
-      url.searchParams.delete('__legacy')
       history.replaceState(history.state, '', url.pathname + url.search + url.hash)
       const receipt = await get('/api/auth/domain/available')
       if (receipt.ok && (await receipt.json()).completed === true) {
@@ -58,7 +48,6 @@ export async function restoreLogin(
     const available = await get('/api/auth/domain/available')
     // 交接关着或答不上来：不做交接，也不弹走。
     if (!available.ok || !(await available.json()).enabled) return true
-    url.searchParams.delete('__legacy')
     const returnPath = url.pathname + url.search + url.hash
     location.replace(
       `${apiOrigin.replace(/\/$/, '')}/api/auth/domain/start?return=${encodeURIComponent(returnPath)}`,

@@ -3,7 +3,7 @@ import { and, eq, gt } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { isCapabilityEnabled } from '../lib/capabilities'
-import { domainHandoffConfig } from '../lib/domain-handoff-config'
+import { type DomainHandoffConfig, domainHandoffConfig } from '../lib/domain-handoff-config'
 import { clientAddress } from '../lib/http'
 import { createWindowLimiter } from '../lib/rate-limit'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -15,6 +15,7 @@ import {
 } from '../lib/user-session'
 
 const COMPLETE = '__Host-image_playground_domain_complete'
+const COOLDOWN = '__Host-image_playground_domain_cooldown'
 // 吞吐限速，不是失败锁定：成功的交接不能记成 failure（见 lib/rate-limit.ts）。
 const starts = createWindowLimiter(120_000, 2048)
 const START_BUDGET = 30
@@ -50,11 +51,18 @@ function redirect(location: string): Response {
     headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' },
   })
 }
-function fallback(origin: string, path = '/'): Response {
-  const source = new URL(path, origin)
-  source.searchParams.delete('__domain_auth')
-  source.searchParams.set('__legacy', '1')
-  return redirect(source.href)
+// 交接任何一步失败都留在**新**域名上，只在 cookie 里按两分钟停一次交接尝试。旧域名只有一条
+// 一次性 301 指向这里，把访客送回去会立刻被弹回来，来回切一次也不该发生；停两分钟是为了
+// 不和前端的「available.enabled 就发起 start」形成回环，两分钟后照常再试。
+function giveUp(
+  jar: Record<string, { set(options: Record<string, unknown> & { value: string }): void }>,
+  config: DomainHandoffConfig,
+  path = '/',
+): Response {
+  jar[COOLDOWN]?.set({ ...OPTIONS, value: '1' })
+  const target = new URL(path, config.targetOrigin)
+  target.searchParams.delete('__domain_auth')
+  return redirect(target.href)
 }
 function returnUrl(origin: string, path: string): string {
   const url = new URL(path, origin)
@@ -74,7 +82,8 @@ export const domainHandoffRoutes = new Elysia()
     set.headers['cache-control'] = 'no-store'
     const config = handoffConfig()
     return {
-      enabled: !!config && onHost(request, config.targetApiOrigin),
+      enabled:
+        !!config && onHost(request, config.targetApiOrigin) && cookie[COOLDOWN]?.value !== '1',
       completed: cookie[COMPLETE]?.value === '1',
     }
   })
@@ -98,14 +107,14 @@ export const domainHandoffRoutes = new Elysia()
         return redirect(destination)
       }
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
-      if (starts.over(address, START_BUDGET)) return fallback(config.sourceOrigin, path)
+      if (starts.over(address, START_BUDGET)) return giveUp(cookie, config, path)
       const oldBinding = cookie[COOKIE]?.value
       for (const [key, flow] of pending) {
         if (typeof oldBinding === 'string' && flow.binding === hashSessionToken(oldBinding))
           pending.delete(key)
       }
       for (const [key, flow] of pending) if (flow.expires <= Date.now()) pending.delete(key)
-      if (pending.size >= 2048) return fallback(config.sourceOrigin, path)
+      if (pending.size >= 2048) return giveUp(cookie, config, path)
       const state = random(),
         binding = random()
       pending.set(state, {
@@ -126,7 +135,7 @@ export const domainHandoffRoutes = new Elysia()
       if (!config || !onHost(request, config.sourceApiOrigin)) return status(404)
       const flow = pending.get(query.state)
       if (!flow || flow.expires <= Date.now() || flow.issued)
-        return fallback(config.sourceOrigin, flow?.returnPath)
+        return giveUp(cookie, config, flow?.returnPath)
       flow.issued = true
       const code = random()
       flow.code = hashSessionToken(code)
@@ -155,7 +164,7 @@ export const domainHandoffRoutes = new Elysia()
         typeof binding !== 'string' ||
         hashSessionToken(binding) !== flow.binding
       )
-        return fallback(config.sourceOrigin, flow?.returnPath)
+        return giveUp(cookie, config, flow?.returnPath)
       pending.delete(query.state)
       cookie[COOKIE]!.set({ ...OPTIONS, value: '', maxAge: 0 })
       // Never switch an already signed-in target account, even when the old domain has another account.
@@ -188,7 +197,7 @@ export const domainHandoffRoutes = new Elysia()
             return result
           })
           .catch(() => null)
-        if (!token) return fallback(config.sourceOrigin, flow.returnPath)
+        if (!token) return giveUp(cookie, config, flow.returnPath)
         setUserSessionCookie(cookie, token)
       }
       cookie[COMPLETE]!.set({ ...OPTIONS, value: '1' })
