@@ -1,4 +1,4 @@
-import type { AgentMessage } from '@earendil-works/pi-agent-core'
+import { type AgentMessage, estimateContextTokens } from '@earendil-works/pi-agent-core'
 import { contentText } from '@earendil-works/pi-ai'
 import type { AgentCompactionNarrative } from '@image-playground/shared'
 import { estimateMessageTokens } from './token-estimate'
@@ -76,6 +76,11 @@ export interface CompactionInput {
   readonly settings: CompactionSettings
   readonly now: number
   readonly summarize: Summarize
+  /**
+   * 这一轮请求里不由消息承担的那部分：系统说明与工具清单（见 `request-budget.ts`）。
+   * 塑形只管得着消息，可闸门管的是整份请求，所以消息能占的预算要先把它让出来。
+   */
+  readonly overheadTokens: number
 }
 
 export interface CompactionBudget {
@@ -90,11 +95,48 @@ export function compactionBudget(settings: CompactionSettings): CompactionBudget
 }
 
 /**
+ * 这段上下文此刻有多大 —— 压缩的触发判据。
+ *
+ * 锚点来自 pi 的 `estimateContextTokens`：最后一条带上游真实用量的助手消息，那个数是上游
+ * 用自己的分词器数的**整份请求**，系统说明、工具清单、图片都已经在里面。我们自己按字符数
+ * 是数不出这些的（这个部署光系统说明加工具声明就实测 3.3k），所以这个锚补的正是我们一直
+ * 看不见的那部分。锚之后新追加的消息没有对应用量，只能估。
+ *
+ * 但锚只能当**下界**用，不能直接替掉字符估算，理由有二：
+ * - 上游报的是上一份请求，这一份追加了什么它不知道；
+ * - 我们的估算器对中文另有校正（见 `token-estimate.ts`），pi 内部那个 `ceil(chars/4)` 会
+ *   把中文历史数得偏小。真让它当唯一判据，就会出现「压缩说不用压、出站硬闸说发不出去」
+ *   的死角——那一轮直接以「内容太长」收场，而它本来是压一下就能发的。
+ *
+ * 所以两个口径取大的：谁说它更大就听谁的。硬闸量的是字符估算那一路，这样触发判据永远不会
+ * 比硬闸松。
+ */
+export function contextSizeTokens(
+  messages: readonly AgentMessage[],
+  overheadTokens: number,
+): number {
+  const estimated = overheadTokens + tokensOf(messages)
+  const { usageTokens, lastUsageIndex } = estimateContextTokens([...messages])
+  if (lastUsageIndex === null) return estimated
+  return Math.max(usageTokens + tokensOf(messages.slice(lastUsageIndex + 1)), estimated)
+}
+
+/**
  * 起轮前按 token 预扣时的上限。压缩保证真正送出去的输入不超过阈值，所以再长的历史
  * 也不该按原样预扣——问的是压缩，不是把整个 budget 借出去自己挑一项。
  */
 export function reservationCeiling(settings: CompactionSettings): number {
   return compactionBudget(settings).threshold
+}
+
+/**
+ * 消息能占的那一份：整份请求的上限先让出固定开销（系统说明与工具清单，见 `request-budget.ts`）。
+ *
+ * 塑形与兜底截尾必须按同一个数来，否则「兜底也不超阈值」这句话不成立，所以只此一处。
+ * 开销自己就把上限吃光时留一个最小正数：塑形照样收敛到最新那一条，超不超交给出站硬闸判。
+ */
+export function messageBudget(settings: CompactionSettings, overheadTokens: number): number {
+  return Math.max(1, compactionBudget(settings).threshold - overheadTokens)
 }
 
 const CLOSED_BREAKER: CompactionBreaker = { failureCount: 0, openedAt: null }
@@ -153,20 +195,27 @@ function cutPoint(
   return target
 }
 
-/** 兜底的纯截尾窗口：至少留最新一条，开头不留工具结果（没有配对的调用，上游会拒）。 */
-function trailingWindow(
-  messages: readonly CompactionMessage[],
+/**
+ * 兜底的纯截尾窗口：至少留最新一条，开头不留工具结果（没有配对的调用，上游会拒）。
+ *
+ * 整条压缩路径出岔子时也走它（`compaction-transform.ts` 的 catch），理由只有一个：
+ * **摘要失败不能回退成发完整历史**——那一刻历史正是最长的那一份（#400 验收第 2 条）。
+ * 连一条都装不下时仍留最新那条：什么都不发这一轮就没法推进，超不超由出站硬闸最后判。
+ */
+export function truncateToBudget(
+  messages: readonly AgentMessage[],
   budget: number,
-): CompactionMessage[] {
+): AgentMessage[] {
+  if (messages.length === 0) return []
   let start = messages.length - 1
-  let used = tokens(messages[start]!.message)
+  let used = tokens(messages[start]!)
   while (start > 0) {
-    const cost = tokens(messages[start - 1]!.message)
+    const cost = tokens(messages[start - 1]!)
     if (used + cost > budget) break
     start -= 1
     used += cost
   }
-  while (start < messages.length - 1 && messages[start]!.message.role === 'toolResult') {
+  while (start < messages.length - 1 && messages[start]!.role === 'toolResult') {
     start += 1
   }
   return messages.slice(start)
@@ -225,19 +274,37 @@ function summaryMessage(
   ].join('\n')
   return { role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() }
 }
+/**
+ * 预算容不下的那几条近期消息：位置上留一行，模型才知道这里断过，而不是以为衔接完好。
+ * 它们没丢——下一轮的增量折叠会把它们折进摘要，用户的历史里也一直都在。
+ */
+function gapNote(count: number): AgentMessage {
+  const text = `[这里有 ${count} 条消息因长度没有随本次请求发出；需要时向用户确认，不要凭空假设]`
+  return { role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() }
+}
+
+/** 占位那一行自己也占预算。它的长度只随条数的位数变，按一条代表性的预留就够。 */
+const GAP_NOTE_TOKENS = tokens(gapNote(0))
 
 /**
- * 摘要 + 尾巴。`tailBudget` 为空表示保留完整的原文窗口——刚折叠出来的摘要不覆盖这段尾巴，
- * 裁掉它就等于两边都没有；只有拿不出新摘要的兜底路径才按预算裁。
+ * 摘要 + 尾巴，整体收进预算。
+ *
+ * 尾巴按预算从最旧的一头裁起——摘要覆盖的是折叠区，裁尾巴丢的是较早的近期消息，代价最小。
+ * 以前新折出来的摘要这一支不校验，理由是「裁掉尾巴就等于两边都没有」，可那样一来它是整条
+ * 路径上唯一能吐出超预算结果的地方，出站硬闸只能把整轮拒掉（#400 验收第 2 条）。
+ * 真裁到了就留一行占位：被裁的那几条既不在摘要里也不在尾巴里，不能无声消失（验收第 4 条）。
  */
 function shaped(
   summary: AgentMessage,
   tail: readonly CompactionMessage[],
-  tailBudget: number | null,
+  tailBudget: number,
 ): AgentMessage[] {
-  if (tailBudget === null) return [summary, ...plain(tail)]
   if (tail.length === 0) return [summary]
-  return [summary, ...plain(trailingWindow(tail, tailBudget - tokens(summary)))]
+  const budget = tailBudget - tokens(summary)
+  const whole = truncateToBudget(plain(tail), budget)
+  if (whole.length === tail.length) return [summary, ...whole]
+  const kept = truncateToBudget(plain(tail), budget - GAP_NOTE_TOKENS)
+  return [summary, gapNote(tail.length - kept.length), ...kept]
 }
 
 function cooled(
@@ -260,10 +327,14 @@ function afterFailure(
 
 export async function shapeAgentContext(input: CompactionInput): Promise<CompactionResult> {
   const messages = input.messages
-  const { threshold } = compactionBudget(input.settings)
+  const { threshold: limit } = compactionBudget(input.settings)
+  // 塑形时逐条数消息，所以它的预算要先让出固定开销（系统说明与工具清单）。
+  const threshold = messageBudget(input.settings, input.overheadTokens)
   const breaker = cooled(input.breaker, input.now, input.settings)
 
-  if (messages.length === 0 || tokensOf(plain(messages)) <= threshold) {
+  // 要不要压缩，问的是「这段上下文此刻多大」，按整份请求的上限判（`contextSizeTokens`
+  // 已经把固定开销算在内，不像下面的 threshold 要先减掉）。
+  if (messages.length === 0 || contextSizeTokens(plain(messages), input.overheadTokens) <= limit) {
     return { messages: plain(messages), state: input.state, breaker, mode: 'none' }
   }
 
@@ -283,7 +354,7 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
           mode: 'reuse',
         }
       : {
-          messages: plain(trailingWindow(messages, threshold)),
+          messages: truncateToBudget(plain(messages), threshold),
           state: input.state,
           breaker: next,
           mode: 'truncate',
@@ -291,8 +362,9 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   if (breaker.openedAt !== null) return fallback(breaker)
 
+  // 复用旧摘要这一支先按不裁尾巴试一次：装得下就原样用，保住完整的近期原文窗口。
   if (state && reusedSummary) {
-    const reused = shaped(reusedSummary, messages.slice(covered), null)
+    const reused = [reusedSummary, ...plain(messages.slice(covered))]
     if (tokensOf(reused) <= threshold) {
       return { messages: reused, state, breaker, mode: 'reuse' }
     }
@@ -303,6 +375,10 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。
   const previous = state && state.foldCount < input.settings.maxIncrementalFolds ? state : null
+  // TODO(#400)：摘要请求自己也是一次出站，折叠区却没有上限——长会话下它发的正是最长的那段
+  // 前缀。这里不能简单按预算截断：切点要与 `cutPoint` 一样吸附到用户消息边界，否则会把
+  // 工具调用与它的结果拆开。留给下一票与有界历史查询一起做。
+
   const narrative = await input.summarize({
     messages: messages.slice(previous ? covered : 0, cut),
     previousSummary: previous ? previous.narrative : null,
@@ -311,7 +387,7 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   const summary = summaryMessage(narrative, messages.slice(0, cut), input.settings.verbatimTokens)
   return {
-    messages: shaped(summary, messages.slice(cut), null),
+    messages: shaped(summary, messages.slice(cut), threshold),
     state: {
       narrative,
       anchor: { lastMessageId: messages[cut - 1]!.id, coveredCount: cut },

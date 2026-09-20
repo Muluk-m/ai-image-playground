@@ -76,6 +76,7 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      overheadTokens: 0,
     })
 
     const shaped = await transform(MESSAGES)
@@ -98,6 +99,7 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      overheadTokens: 0,
     })(MESSAGES)
 
     const summaryCalls: ChatCall[] = []
@@ -111,6 +113,7 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-2',
       historyIds: [...HISTORY_IDS, 'm6'],
       userMessageId: 'm7',
+      overheadTokens: 0,
     })([...MESSAGES.slice(0, 5), user('m7', '好的').message])
 
     expect(summaryCalls).toHaveLength(0)
@@ -126,6 +129,7 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      overheadTokens: 0,
     })(MESSAGES)
 
     expect(shaped.length).toBeGreaterThan(0)
@@ -138,9 +142,26 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      overheadTokens: 0,
     })
     setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
 
     expect((await transform(MESSAGES)).length).toBeGreaterThan(0)
+  })
+
+  // 系统说明与工具清单也占窗口：消息能占的那份预算要先把它们让出来，否则消息刚好卡在
+  // 阈值上、加上开销就超了出站硬闸。
+  it('固定开销越大，留给消息的预算越小', async () => {
+    setChatFetchForTesting(chatFetchReturning(new Response('nope', { status: 502 })))
+    const shapedWith = async (overheadTokens: number) =>
+      createCompactionTransform({
+        conversationId: await conversationId(),
+        turnId: 'turn-1',
+        historyIds: HISTORY_IDS,
+        userMessageId: 'm6',
+        overheadTokens,
+      })(MESSAGES)
+
+    expect((await shapedWith(300)).length).toBeLessThan((await shapedWith(0)).length)
   })
 })

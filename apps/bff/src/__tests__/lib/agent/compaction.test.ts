@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import {
   type CompactionBreaker,
   type CompactionMessage,
@@ -7,8 +8,22 @@ import {
   compactionBudget,
   type SummaryRequest,
   shapeAgentContext,
+  truncateToBudget,
 } from '../../../lib/agent/compaction'
-import { assistant, body, textOf, toolResult, user } from '../../helpers/agentMessages'
+import { estimateMessageTokens } from '../../../lib/agent/token-estimate'
+import {
+  assistant,
+  assistantReporting,
+  body,
+  textOf,
+  toolResult,
+  user,
+} from '../../helpers/agentMessages'
+
+/** 与压缩内部同一个估算器：断言「没超预算」不能另起一套算法。 */
+function tokensOfMessages(messages: readonly AgentMessage[]): number {
+  return messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
+}
 
 const SETTINGS: CompactionSettings = {
   contextWindow: 400,
@@ -69,6 +84,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -78,7 +94,106 @@ describe('shapeAgentContext', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('rebuilds a summary and keeps the recent tail verbatim', async () => {
+  // 上游报的用量只当下界，不替掉字符估算：它说的是上一份请求，这一份追加了什么它不知道。
+  // 这里上游报 250 没过线，锚之后又续了两条 —— 加起来才把它顶过 300。
+  it('adds the messages appended after the usage anchor', async () => {
+    const messages = [
+      assistantReporting('m1', body('a'), 250),
+      user('m2', body('b')),
+      user('m3', body('c')),
+    ]
+    const calls: SummaryRequest[] = []
+    const result = await shapeAgentContext({
+      messages,
+      state: null,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf(calls),
+    })
+
+    // 锚本身 250 没过 300 的线，锚后两条各 100 才把它顶过去。
+    expect(result.mode).toBe('rebuild')
+    expect(calls).toHaveLength(1)
+  })
+
+  // 死角防线：上游报的数比我们自己估的小（中文校正让字符估算偏保守）也不能就此放行——
+  // 出站硬闸量的是字符估算那一路，触发判据一旦更松，那一轮就会以「内容太长」直接收场。
+  it('still compacts when the character estimate exceeds the upstream usage', async () => {
+    const messages = [
+      user('m1', body('a')),
+      user('m2', body('b')),
+      user('m3', body('c')),
+      user('m4', body('d')),
+      assistantReporting('m5', body('e'), 120),
+    ]
+    const calls: SummaryRequest[] = []
+    const result = await shapeAgentContext({
+      messages,
+      state: null,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf(calls),
+    })
+
+    expect(tokensOfMessages(messages.map((entry) => entry.message))).toBeGreaterThan(
+      compactionBudget(SETTINGS).threshold,
+    )
+    expect(result.mode).toBe('rebuild')
+    expect(tokensOfMessages(result.messages)).toBeLessThanOrEqual(
+      compactionBudget(SETTINGS).threshold,
+    )
+  })
+
+  // 反过来：字符数看着不多，可上游报的用量已经压线——系统说明、工具声明、图片都在那个数里，
+  // 我们自己数消息永远看不见。按锚判就该压。
+  it('compacts when the upstream usage is over budget even if the text looks short', async () => {
+    const messages = [
+      user('m1', body('a')),
+      assistantReporting('m2', body('b'), 400),
+      user('m3', '再来一张'),
+    ]
+    const calls: SummaryRequest[] = []
+    const result = await shapeAgentContext({
+      messages,
+      state: null,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf(calls),
+    })
+
+    expect(tokensOfMessages(messages.map((m) => m.message))).toBeLessThan(
+      compactionBudget(SETTINGS).threshold,
+    )
+    expect(result.mode).toBe('rebuild')
+    expect(calls).toHaveLength(1)
+  })
+
+  // 会话第一轮还没有任何用量锚，pi 只能数消息——系统说明与工具声明这时得我们自己补上。
+  it('adds the fixed overhead while no upstream usage anchor exists yet', async () => {
+    const messages = [user('m1', body('a')), user('m2', body('b'))]
+    const calls: SummaryRequest[] = []
+    const shape = (overheadTokens: number) =>
+      shapeAgentContext({
+        messages,
+        state: null,
+        breaker: CLOSED,
+        settings: SETTINGS,
+        now: 1_000,
+        overheadTokens,
+        summarize: summarizerOf(calls),
+      })
+
+    expect((await shape(0)).mode).toBe('none')
+    expect((await shape(250)).mode).toBe('rebuild')
+  })
+
+  it('rebuilds a summary and keeps the recent tail verbatim within the budget', async () => {
     const messages = [
       user('m1', body('a')),
       assistant('m2', body('b')),
@@ -93,20 +208,45 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
     expect(result.mode).toBe('rebuild')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.previousSummary).toBeNull()
-    // 保留最近 2 条，切点向前吸附到 m3 这条用户消息
-    expect(result.messages.slice(1).map(textOf)).toEqual([body('c'), body('d'), body('e')])
+    // 切点向前吸附到 m3 这条用户消息；摘要加尾巴整体收进预算，装不下的最旧几条尾巴让位。
+    // 让位的那几条既不在摘要（它只覆盖折叠区）也不在尾巴里，所以位置上留一行占位——
+    // 用户说过的话可以不随这次请求发出，但不许无声消失。
+    expect(textOf(result.messages[1]!)).toContain('这里有 2 条消息')
+    expect(result.messages.slice(2).map(textOf)).toEqual([body('e')])
     expect(result.state).toEqual({
       narrative: narrative(),
       anchor: { lastMessageId: 'm2', coveredCount: 2 },
       foldCount: 0,
     })
     expect(textOf(result.messages[0]!)).toContain('已经出了三张图')
+  })
+
+  // 以前新折出来的摘要这一支不校验预算，是整条路径上唯一能吐出超预算结果的地方。
+  it('never returns more than the budget, not even right after folding', async () => {
+    const messages = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((marker, at) =>
+      at % 2 === 0 ? user(`m${at + 1}`, body(marker)) : assistant(`m${at + 1}`, body(marker)),
+    )
+    const result = await shapeAgentContext({
+      messages,
+      state: null,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf([]),
+    })
+
+    expect(result.mode).toBe('rebuild')
+    expect(tokensOfMessages(result.messages)).toBeLessThanOrEqual(
+      compactionBudget(SETTINGS).threshold,
+    )
   })
 
   it('keeps every folded user message verbatim in the summary', async () => {
@@ -124,6 +264,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf([]),
     })
 
@@ -148,6 +289,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf([]),
     })
 
@@ -173,6 +315,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf([]),
     })
 
@@ -201,6 +344,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -231,6 +375,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -263,6 +408,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -293,6 +439,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -315,6 +462,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: failing,
     })
 
@@ -337,6 +485,7 @@ describe('shapeAgentContext', () => {
       breaker: { failureCount: 2, openedAt: null },
       settings: SETTINGS,
       now: 5_000,
+      overheadTokens: 0,
       summarize: failing,
     })
 
@@ -362,6 +511,7 @@ describe('shapeAgentContext', () => {
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 6_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -386,6 +536,7 @@ describe('shapeAgentContext', () => {
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 6_000,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -408,6 +559,7 @@ describe('shapeAgentContext', () => {
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 5_000 + SETTINGS.breakerCooldownMs,
+      overheadTokens: 0,
       summarize: summarizerOf(calls),
     })
 
@@ -429,6 +581,7 @@ describe('shapeAgentContext', () => {
       breaker: { failureCount: 2, openedAt: null },
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf([]),
     })
 
@@ -450,6 +603,7 @@ describe('shapeAgentContext', () => {
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
+      overheadTokens: 0,
       summarize: summarizerOf([]),
     })
 
@@ -465,10 +619,35 @@ describe('shapeAgentContext', () => {
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 6_000,
+      overheadTokens: 0,
       summarize: summarizerOf([]),
     })
 
     expect(result.mode).toBe('truncate')
     expect(result.messages.map(textOf)).toEqual([body('b').repeat(10)])
+  })
+})
+
+/**
+ * 整条压缩路径出岔子时的兜底（`compaction-transform.ts` 的 catch 用它）。
+ * 它存在的理由只有一个：摘要失败不能回退成发完整历史——那一刻历史正是最长的那一份。
+ */
+describe('truncateToBudget', () => {
+  const HISTORY = [user('m1', body('a')), user('m2', body('b')), user('m3', body('c'))].map(
+    (entry) => entry.message,
+  )
+
+  it('按预算从最旧的开始裁，留下最新那几条', () => {
+    // 每条 100 token：250 的预算装得下最新两条。
+    expect(truncateToBudget(HISTORY, 250).map(textOf)).toEqual([body('b'), body('c')])
+  })
+
+  it('预算连一条都装不下时仍留最新那一条', () => {
+    // 什么都不发这一轮就没法推进了；超不超由出站硬闸最后判。
+    expect(truncateToBudget(HISTORY, 1).map(textOf)).toEqual([body('c')])
+  })
+
+  it('没有消息就没有消息', () => {
+    expect(truncateToBudget([], 250)).toEqual([])
   })
 })

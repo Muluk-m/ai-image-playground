@@ -12,7 +12,10 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '2000'
+// 窗口要装得下这个智能体的固定开销：系统说明加工具清单约 3.3k token（见 `request-budget.ts`），
+// 装不下的话出站硬闸会把每一轮都拒掉，这个文件测的用量就无从产生。留给消息的那点预算
+// （5300 − 500 预留 − 1000 余量 − 3.3k 开销 ≈ 0.5k）仍然小于下面那段历史，压缩照样触发。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '5300'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,

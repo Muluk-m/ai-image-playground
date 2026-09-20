@@ -12,6 +12,18 @@ export function user(id: string, text: string): CompactionMessage {
 }
 
 export function assistant(id: string, text: string): CompactionMessage {
+  return assistantReporting(id, text, 0)
+}
+
+/**
+ * 带上游真实用量的助手回复。压缩的触发判据拿它当下界（见 `compaction.ts` 的
+ * `contextSizeTokens`），所以想钉住「上游报的数也算数」就得造这种消息。
+ */
+export function assistantReporting(
+  id: string,
+  text: string,
+  totalTokens: number,
+): CompactionMessage {
   return {
     id,
     message: {
@@ -21,11 +33,11 @@ export function assistant(id: string, text: string): CompactionMessage {
       provider: 'p',
       model: 'm',
       usage: {
-        input: 0,
+        input: totalTokens,
         output: 0,
         cacheRead: 0,
         cacheWrite: 0,
-        totalTokens: 0,
+        totalTokens,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
       stopReason: 'stop',
