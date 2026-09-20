@@ -3,7 +3,11 @@ import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+vi.mock('../../../lib/channels/videoChannels', () => ({ isVideoModeAvailable: () => true }))
+
 import { useAgentStore } from '../../../features/agent/store'
+import ProjectsPage from '../../../features/canvas/components/ProjectsPage'
 import { CanvasDoc } from '../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../features/canvas/lib/editor'
@@ -14,7 +18,6 @@ import {
   selectCanvasWorkspace,
 } from '../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
-import VideoHome from '../../../features/video/components/VideoHome'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 
 declare global {
@@ -67,18 +70,18 @@ function active() {
   return state.projects.find((one) => one.id === state.activeId)
 }
 
-it('视频入口建出来的是视频画布，其余入口建的是图片画布', async () => {
+it('项目页选「视频」建出来的是视频画布，选「图片」建的是图片画布', async () => {
   act(() => {
-    root.render(<VideoHome />)
+    root.render(<ProjectsPage />)
   })
-  clickEntry('新建视频画布')
+  clickEntry('视频')
   await vi.waitFor(() => expect(active()?.kind).toBe('video'))
-  const video = active()!
 
-  expect((await useCanvasProjectStore.getState().create()).kind).toBe('image')
-  // 「继续」回到上一张视频画布，不会落在刚建的图片画布上。
-  clickEntry('回到上次的画布')
-  await vi.waitFor(() => expect(useCanvasProjectStore.getState().activeId).toBe(video.id))
+  act(() => {
+    root.render(<ProjectsPage />)
+  })
+  clickEntry('图片')
+  await vi.waitFor(() => expect(active()?.kind).toBe('image'))
 })
 
 it('画布类型建出来就定死，后来的写入改不动它', async () => {

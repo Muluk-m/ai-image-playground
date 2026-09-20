@@ -132,7 +132,7 @@ describe('attaching an asset', () => {
     const imageId = await storeImage(IMAGE_A)
     await useLibraryStore.getState().saveAsset(imageId, '白底图')
     useLibraryStore.setState({ onLibraryPage: true })
-    useStore.setState({ appMode: 'assets' })
+    useStore.setState({ appMode: 'library' })
 
     await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id)
 
@@ -352,7 +352,7 @@ describe('applying a template', () => {
   it('套用模板后回到输入框那一页，详情收起', async () => {
     const { template } = await saveTemplateReferencingAsset()
     useLibraryStore.setState({ onLibraryPage: true, detailTemplateId: template.id })
-    useStore.setState({ appMode: 'templates' })
+    useStore.setState({ appMode: 'library' })
 
     await useLibraryStore.getState().applyTemplate(template.id)
 

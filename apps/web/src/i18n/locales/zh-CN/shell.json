@@ -3,7 +3,6 @@
     "brandName": "幕芽",
     "homeAria": "幕芽 Muvloom，回到画布",
     "nav": "主导航",
-    "inspiration": "灵感库",
     "library": "素材",
     "accountMenu": "打开个人账户",
     "appMenu": "打开应用菜单",
@@ -20,14 +19,10 @@
     "deleteProjectMessage": "确定删除项目「{{name}}」吗？"
   },
   "nav": {
-    "create": "创作",
-    "mine": "我的",
     "assets": "素材",
     "templates": "模板",
-    "recentCanvases": "最近 · 画布",
     "collapse": "收起侧栏",
-    "expand": "展开侧栏",
-    "allProjects": "全部项目"
+    "expand": "展开侧栏"
   },
   "logout": {
     "title": "退出登录",

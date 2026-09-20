@@ -22,10 +22,10 @@ function popTo(path: string) {
 }
 
 describe('pathAppMode', () => {
-  it('maps the image, video and works addresses and leaves the rest to other routes', () => {
+  it('maps the image, projects and library addresses and leaves the rest to other routes', () => {
     expect(pathAppMode('/image')).toBe('image')
-    expect(pathAppMode('/works')).toBe('works')
-    expect(pathAppMode('/video/')).toBe('video')
+    expect(pathAppMode('/library')).toBe('library')
+    expect(pathAppMode('/projects/')).toBe('projects')
     expect(pathAppMode('/')).toBeNull()
     expect(pathAppMode('/p/abc')).toBeNull()
   })
@@ -40,44 +40,44 @@ describe('installAppRouting', () => {
 
     useStore.getState().setAppMode('image')
     expect(location.pathname).toBe('/image')
-    useStore.getState().setAppMode('video')
-    expect(location.pathname).toBe('/video')
+    useStore.getState().setAppMode('projects')
+    expect(location.pathname).toBe('/projects')
     useStore.getState().setAppMode('canvas')
     expect(location.pathname).toBe(`/p/${projectRouteSegment('project-1')}`)
-    useStore.getState().setAppMode('works')
-    expect(location.pathname).toBe('/works')
+    useStore.getState().setAppMode('library')
+    expect(location.pathname).toBe('/library')
     expect(history.length).toBe(before + 4)
   })
 
   it('follows back and forward to the page in the address', () => {
     cleanup = installAppRouting()
-    popTo('/video')
-    expect(useStore.getState().appMode).toBe('video')
-    popTo('/works')
-    expect(useStore.getState().appMode).toBe('works')
+    popTo('/projects')
+    expect(useStore.getState().appMode).toBe('projects')
+    popTo('/library')
+    expect(useStore.getState().appMode).toBe('library')
     popTo('/')
     expect(useStore.getState().appMode).toBe('canvas')
   })
 
   it('opens the page named by the address on load', () => {
-    history.replaceState(null, '', '/works')
+    history.replaceState(null, '', '/library')
     cleanup = installAppRouting()
-    expect(useStore.getState().appMode).toBe('works')
+    expect(useStore.getState().appMode).toBe('library')
   })
 
-  it('keeps the works address when the project catalog activates a project in the background', () => {
-    history.replaceState(null, '', '/works')
+  it('keeps the library address when the project catalog activates a project in the background', () => {
+    history.replaceState(null, '', '/library')
     cleanup = installAppRouting()
     useCanvasProjectStore.setState({
       projects: [{ id: 'project-1' } as never],
     })
     useCanvasProjectStore.getState().activate('project-1', true)
-    expect(location.pathname).toBe('/works')
+    expect(location.pathname).toBe('/library')
   })
 
   it('adds the active project to a bare root address without a new history entry', () => {
-    useStore.setState({ appMode: 'works' })
-    history.replaceState(null, '', '/works')
+    useStore.setState({ appMode: 'library' })
+    history.replaceState(null, '', '/library')
     cleanup = installAppRouting()
     useCanvasProjectStore.setState({ activeId: 'project-1' })
     popTo('/')

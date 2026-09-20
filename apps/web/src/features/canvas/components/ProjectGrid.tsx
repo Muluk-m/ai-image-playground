@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
@@ -41,16 +42,16 @@ export default function ProjectGrid({
         (!recent || project.hasContent),
     )
     .slice(0, recent ? 5 : undefined)
-  const enter = async (project?: CanvasProject) => {
+  const enter = async (project?: CanvasProject, kind?: 'image' | 'video') => {
     if (busy) return
     setBusy(true)
     try {
       const opened = project
         ? await useAgentStore.getState().selectProject(project.id)
-        : await useAgentStore.getState().createProject()
+        : await useAgentStore.getState().createProject(kind)
       if (opened) {
-        // 从别的入口挑项目就落到画布；已经在画布或视频入口的留在原处。
-        if (useStore.getState().appMode === 'works') useStore.getState().setAppMode('canvas')
+        // 挑中或建出项目就落到画布——项目的唯一去处就是它自己的工作台。
+        useStore.getState().setAppMode('canvas')
         useLibraryStore.getState().leaveLibraryPage()
       }
     } finally {
@@ -94,11 +95,33 @@ export default function ProjectGrid({
         </div>
       )}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {!search && (
+        {!search && !recent && (
+          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground">
+            <PlusIcon className="h-8 w-8" />
+            <span className="text-sm font-medium">{t('grid.newProject')}</span>
+            {/* 画布类型建后不可改，所以在这里问一次，而不是进去再切。 */}
+            <div className="flex gap-2">
+              <Button size="sm" disabled={busy} onClick={() => void enter(undefined, 'image')}>
+                {t('project.kindImage')}
+              </Button>
+              {isVideoModeAvailable() && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void enter(undefined, 'video')}
+                >
+                  {t('project.kindVideo')}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {!search && recent && (
           <button
             type="button"
             disabled={busy}
-            onClick={() => void enter()}
+            onClick={() => void enter(undefined, 'image')}
             className="group flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground transition hover:border-primary/60 hover:bg-muted disabled:opacity-50"
           >
             <PlusIcon className="h-8 w-8 transition group-hover:text-primary" />

@@ -3,7 +3,6 @@
     "brandName": "Muvloom",
     "homeAria": "Muvloom, back to the canvas",
     "nav": "Main navigation",
-    "inspiration": "Inspiration",
     "library": "Assets",
     "accountMenu": "Open your account",
     "appMenu": "Open the app menu",
@@ -20,14 +19,10 @@
     "deleteProjectMessage": "Delete the project “{{name}}”?"
   },
   "nav": {
-    "create": "Create",
-    "mine": "Library",
     "assets": "Assets",
     "templates": "Templates",
-    "recentCanvases": "Recent canvases",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar",
-    "allProjects": "All projects"
+    "expand": "Expand sidebar"
   },
   "logout": {
     "title": "Sign out",

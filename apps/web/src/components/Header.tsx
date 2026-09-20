@@ -14,7 +14,7 @@ import {
 } from '../lib/privateOverlay'
 import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
-import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
+import { APP_MODE_LABELS, NAV_APP_MODES, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import BrandMenu from './BrandMenu'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
@@ -35,7 +35,6 @@ export default function Header() {
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
 
-  const openInspiration = useInspirationStore((s) => s.openPanel)
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
@@ -88,7 +87,7 @@ export default function Header() {
             aria-label={t('header.nav')}
             className="studio-main-nav flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4 md:hidden"
           >
-            {visibleAppModes().map((mode) => (
+            {NAV_APP_MODES.map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -105,22 +104,7 @@ export default function Header() {
             ))}
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <div className="relative" {...inspirationTooltip.handlers}>
-              <button
-                type="button"
-                onClick={() => {
-                  dismissAllTooltips()
-                  openInspiration()
-                }}
-                className="grid h-9 w-9 place-items-center rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={t('header.inspiration')}
-              >
-                <SparkleIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
-              </button>
-              <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
-                {t('header.inspiration')}
-              </ViewportTooltip>
-            </div>
+            {/* 灵感搬进「库」的一个页签，顶栏不再另开一个入口。 */}
             <div className="ml-2 flex items-center gap-2 border-l border-border pl-3">
               <PrivateWebHeaderCreditAction />
               <PrivateWebHeaderAccountActions

@@ -2,6 +2,12 @@
   "action": {
     "rename": "Rename"
   },
+  "tab": {
+    "works": "Works",
+    "assets": "Assets",
+    "templates": "Templates",
+    "inspiration": "Inspiration"
+  },
   "panel": {
     "title": "My assets",
     "tabProjects": "My projects",

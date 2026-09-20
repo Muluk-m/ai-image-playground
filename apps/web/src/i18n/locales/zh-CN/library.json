@@ -2,6 +2,12 @@
   "action": {
     "rename": "重命名"
   },
+  "tab": {
+    "works": "作品",
+    "assets": "素材",
+    "templates": "模板",
+    "inspiration": "灵感"
+  },
   "panel": {
     "title": "我的资产",
     "tabProjects": "我的项目",
