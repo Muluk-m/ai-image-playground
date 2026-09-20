@@ -22,29 +22,28 @@
 1. **已上线的能力未验证，就不许铺新能力。** 当前有两处未验证：长画布智能体任务的质量与总成本（#408），以及 `apps/bff/skills/image/` 下三条电商技能正文自己标着「示例级内容，尚未经过真实产出验证」。
 2. **Lane C 与视频主线无依赖。** 电商三件套都走已有的 `image` 计费单元与 `editImage` 工具，不等任何视频能力。
 
-## 当前工作队列（真实状态，2026-09-20）
+## 当前工作队列（真实状态，2026-09-20 晚复核）
 
-50 张 open issue（2026-09-20 核对），其中 40 张是四条规格下的实现切片：
+25 张 open issue，其中 16 张（规格 #391 + 切片 #394–#408）属同一条规格。上午那版写的「50 张 / 40 张切片」已失真：#483（16 片）、#422 除 #440 外的 5 片、#600、#509、#252 / #273 当日全部关闭。
 
-| 规格 | open 切片 | 归属 | 处置 |
+| 规格 | open | 归属 | 处置 |
 | --- | --- | --- | --- |
-| [#391](https://github.com/Muluk-m/ai-image-playground/issues/391) 智能体画布渐进读取与有界执行 | 15（#394–#408） | Lane A | 做，优先 #400 / #398 / #396 / #408 |
-| [#483](https://github.com/Muluk-m/ai-image-playground/issues/483) 完整创作云同步与数据可携带 | 16（#501–#516） | — | **全停**，见「已砍 / 降级」 |
-| [#422](https://github.com/Muluk-m/ai-image-playground/issues/422) 云端项目同步 | 6（#440–#445） | #440 → Lane B，其余全停 | 见「已砍 / 降级」 |
-| [#634](https://github.com/Muluk-m/ai-image-playground/issues/634) 画布视频第二期 | 1 | Lane A | 做，收口 2.2 |
-| [#600](https://github.com/Muluk-m/ai-image-playground/issues/600) 对话不被生成阻塞 | 1 | Lane A | 做，最先 |
-| [#252](https://github.com/Muluk-m/ai-image-playground/issues/252) / [#273](https://github.com/Muluk-m/ai-image-playground/issues/273) Veo | 2 | — | **降级**，见「已砍 / 降级」 |
-| 零散 | #682 #380 #312 #222 #162 #78 | 分诊 | #312 是安全项，单独看；#682 独立视频工作台需先定它与 A3 的边界 |
+| [#391](https://github.com/Muluk-m/ai-image-playground/issues/391) 智能体画布渐进读取与有界执行 | 16（含 15 片 #394–#408） | Lane A2 | 做，优先 #400 / #398 / #396 / #408 |
+| [#634](https://github.com/Muluk-m/ai-image-playground/issues/634) 画布视频第二期 | 1 | Lane A3 | 做，收口 2.2 |
+| [#440](https://github.com/Muluk-m/ai-image-playground/issues/440) 无引用媒体回收与容量释放 | 1 | Lane B1 | 做，B1 三条杠杆的第一条 |
+| [#312](https://github.com/Muluk-m/ai-image-playground/issues/312) 设备标识权限提升 | 1 | Lane B2 | 待裁决走三条堵法的哪一条 |
+| [#698](https://github.com/Muluk-m/ai-image-playground/issues/698) 域名切换评审残留 | 1 | Lane B | 两条要产品裁决，其余可直接做 |
+| 未排期 | #682 #380 #222 #78 | 分诊 | 见下 |
+| 追踪票 | #162 | — | 本文件的 GitHub 侧镜像，不单独做 |
 
-[#509](https://github.com/Muluk-m/ai-image-playground/issues/509)（商品图任务与原图蒙版跨设备继续编辑）的目标功能已随 [#643](https://github.com/Muluk-m/ai-image-playground/issues/643) 删除，**应直接关闭**。
+**未排期四张的判据**：#682（独立视频工作台）先定它与 A3 的边界，且 issue 自己要求先评估能否复用 `TimelineEditor` / `useFilmExport`；#380（智能体附件读 PDF）是新能力，受硬约束 1 挡在 A 之后；#222（素材重试与字节回收）后半条与 #440 同一件事，应合并到 #440 一起做，前半条「被拒素材重试入口」独立且小；#78（配额余量读路径）是 #65 一期显式排除的尾巴，属体验补齐，最便宜。
 
 ## Lane A：收口
 
 ### A1 智能体对话不被生成阻塞（#600）
 
-- [ ] 目标：生成进行中对话仍可继续；排队消息、后台任务、唤醒与失败重试各自有明确状态。
-- 现状：旗舰模式的阻塞缺陷，规格已就绪。
-- 为什么排第一：改动面最小、用户感知最强，且不依赖任何其它项。
+- [x] 目标：生成进行中对话仍可继续；排队消息、后台任务、唤醒与失败重试各自有明确状态。
+- 现状：**已交付**，#600 于 2026-09-20 关闭。后台任务与 Postgres 收件箱的落地记在 [ADR 0012](adr/0012-agent-background-jobs-and-postgres-inbox.md)。
 - 验收：生成中发送的消息不丢、不乱序；任务失败后对话不卡死。
 
 ### A2 智能体画布有界执行与成本验证（#391，优先 #400 / #398 / #396 / #408）
