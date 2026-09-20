@@ -1246,7 +1246,9 @@ export default function InputBar() {
               ) : (
                 <>
                   <p className="text-lg font-semibold text-foreground">{t('image.dropToAdd')}</p>
-                  <p className="text-sm text-muted-foreground mt-1">{t('image.dropFormats')}</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {t('image.dropFormats', { count: API_MAX_IMAGES })}
+                  </p>
                 </>
               )}
             </div>
@@ -1515,7 +1517,11 @@ export default function InputBar() {
                           ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
                           : 'border-border/80 bg-card/70 text-muted-foreground hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]'
                       }`}
-                      title={attachDisabled ? attachDisabledReason : t('image.attach')}
+                      title={
+                        attachDisabled
+                          ? attachDisabledReason
+                          : t('image.attach', { count: API_MAX_IMAGES })
+                      }
                     >
                       {ChipIcons.imageAttach}
                     </button>
@@ -1619,7 +1625,11 @@ export default function InputBar() {
                             ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
                             : 'border-border/80 bg-card/70 text-muted-foreground hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]'
                         }`}
-                        title={attachDisabled ? attachDisabledReason : t('image.attach')}
+                        title={
+                          attachDisabled
+                            ? attachDisabledReason
+                            : t('image.attach', { count: API_MAX_IMAGES })
+                        }
                       >
                         {ChipIcons.imageAttach}
                       </button>

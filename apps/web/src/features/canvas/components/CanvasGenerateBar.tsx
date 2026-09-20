@@ -13,6 +13,7 @@ import {
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
+import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { setAgentComposerFill } from '../../agent/lib/composerFill'
@@ -313,8 +314,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              title={t('composer:image.attach')}
-              aria-label={t('composer:image.attach')}
+              title={t('composer:image.attach', { count: API_MAX_IMAGES })}
+              aria-label={t('composer:image.attach', { count: API_MAX_IMAGES })}
               className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl border border-input bg-background text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:bg-accent hover:text-foreground"
             >
               {ChipIcons.imageAttach}
@@ -355,7 +356,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           accept="image/*"
           multiple
           className="hidden"
-          aria-label={t('composer:image.attach')}
+          aria-label={t('composer:image.attach', { count: API_MAX_IMAGES })}
           onChange={(event) => {
             const files = [...(event.currentTarget.files ?? [])]
             event.currentTarget.value = ''
