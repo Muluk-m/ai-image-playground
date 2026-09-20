@@ -138,19 +138,30 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           )
         }
         const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
-        let active =
-          available.find((one) => one.id === routeId) ??
-          available.find((one) => one.id === remembered) ??
-          available.find((one) => conversationId && one.conversationId === conversationId)
-        active ??= available.find((one) => one.sceneKey === canvasSceneKey(conversationId))
-        active ??= available[0]
+        // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
+        // 挑一个干净的空工作区起手。已有的空项目优先复用，否则才新建——
+        // 每次回首页都建一个会刷出一堆未命名项目。
+        let active = route
+          ? available.find((one) => one.id === routeId)
+          : available.find((one) => !one.hasContent && !one.workspaceOpened && !one.conversationId)
+        if (route) {
+          active ??= available.find((one) => one.id === remembered)
+          active ??= available.find(
+            (one) => conversationId && one.conversationId === conversationId,
+          )
+          active ??= available.find((one) => one.sceneKey === canvasSceneKey(conversationId))
+          active ??= available[0]
+        }
         if (!active) {
+          // 首页那条不挂上次那段会话：挂上去就等于把它又拉回来了。场景键仍取未绑定会话的那把，
+          // 首次发送前留下的草稿才认得出自己属于这个起手工作区。
+          const bound = route ? conversationId : null
           active =
-            cloudProjectsEnabled() && !conversationId
+            cloudProjectsEnabled() && !bound
               ? await projectRepository.create(UNTITLED_PROJECT, undefined, true)
               : await projectRepository.create(UNTITLED_PROJECT, {
-                  sceneKey: canvasSceneKey(conversationId),
-                  conversationId,
+                  sceneKey: canvasSceneKey(bound),
+                  conversationId: bound,
                 })
           projects.push(active)
         }

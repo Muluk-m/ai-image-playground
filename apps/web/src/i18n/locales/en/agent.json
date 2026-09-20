@@ -48,7 +48,7 @@
     "viewPrompt": "View prompt"
   },
   "confirm": {
-    "pending": "Check the prompt below — you can edit it. Nothing generates until you confirm.",
+    "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",
     "fieldAria": "Prompt awaiting confirmation",
     "submit": "Confirm and generate",
     "submitting": "Submitting…",

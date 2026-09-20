@@ -1,11 +1,11 @@
-import { exportStorage, importEntry, type StorageSource } from './storage'
+import { beginImport, exportStorage, importEntry, type StorageSource } from './storage'
 
 export interface CompatibilityConfig {
   sourceOrigin: string
   targetOrigin: string
 }
 const PROTOCOL = 'muvloom-local-storage-v1'
-const DONE = 'muvloom-local-compatibility-v2'
+const DONE = 'muvloom-local-compatibility-v3'
 const IDLE_MS = 15_000
 
 type StorageDocument = Document & {
@@ -82,6 +82,8 @@ export async function restoreLocalStorage(config: CompatibilityConfig): Promise<
   } catch {
     return false
   }
+  beginImport()
+  let resolved = true
   const frame = document.createElement('iframe')
   frame.hidden = true
   frame.src = `${config.sourceOrigin}/local-compat.html`
@@ -117,10 +119,10 @@ export async function restoreLocalStorage(config: CompatibilityConfig): Promise<
       resetTimeout()
       try {
         if (event.data?.done) {
-          localStorage.setItem(DONE, config.sourceOrigin)
-          finish(true)
+          if (resolved) localStorage.setItem(DONE, config.sourceOrigin)
+          finish(resolved)
         } else if (event.data?.entry) {
-          await importEntry(event.data.entry)
+          if (!(await importEntry(event.data.entry))) resolved = false
           if (!stopped) {
             channel.port1.postMessage('ack')
             resetTimeout()

@@ -200,6 +200,21 @@ export async function removeAgentTurnReferences(
   }
 }
 
+/**
+ * 会话删掉之后，它历轮的参考图就没有任何读路径了。逐轮前缀在正常跑完的轮上不会被清
+ * （`removeAgentTurnReferences` 只在起轮失败的回滚路径上调），所以删会话时按会话前缀一次清掉。
+ */
+export async function removeAgentConversationReferences(conversationId: string): Promise<void> {
+  try {
+    await objectStore().deletePrefix(`agent/${conversationId}/`)
+  } catch (err) {
+    log.warn(
+      { event: 'agent.reference_cleanup_failed', conversationId, err },
+      'conversation reference cleanup failed',
+    )
+  }
+}
+
 export async function archiveAgentReferences(
   conversationId: string,
   turnId: string,

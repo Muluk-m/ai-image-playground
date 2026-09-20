@@ -1,4 +1,3 @@
-import ParamControls from '../../../components/ParamControls'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
@@ -7,9 +6,10 @@ import { fillAgentComposer } from '../../agent/lib/composerFill'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
 import { useCanvasComposer } from '../composerStore'
-import { exampleClipUrl, imageExampleKeys, videoExamples } from '../lib/creationExamples'
+import { exampleClipUrl, videoExamples } from '../lib/creationExamples'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import CanvasVideoParams from './CanvasVideoParams'
+import CreationInspiration from './CreationInspiration'
 import ProjectGrid from './ProjectGrid'
 import ProjectSyncStatus from './ProjectSyncStatus'
 
@@ -27,7 +27,6 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
   const mode = useCanvasComposer((state) => state.mode)
   const video = mode === 'video'
   const examples = videoExamples()
-  const imageKeys = imageExampleKeys()
 
   return (
     <main
@@ -59,13 +58,16 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           {/* 渐变描边只是一层背景，内层自己铺卡面。 */}
           <div className="rounded-[22px] bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-[1.5px] shadow-[0_24px_60px_-30px_hsl(var(--primary)/0.4)]">
             <div className="rounded-[21px] bg-card p-3">
-              <div className="mb-2 px-1">
-                {video ? (
+              {/*
+                图片档的参数不在这里：AgentComposer 底部那枚 chip 已经带着模型、尺寸与思考深度，
+                展开还能改格式与质量。再摆一行 ParamControls 就是同一组参数出现两次，
+                而且它里面的透明、防改写、张数在智能体这条路上根本不生效（见 AgentParamsChip）。
+              */}
+              {video && (
+                <div className="mb-2 px-1">
                   <CanvasVideoParams hasFirstFrame={false} />
-                ) : (
-                  <ParamControls showCount collapsible />
-                )}
-              </div>
+                </div>
+              )}
               <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />
             </div>
           </div>
@@ -77,73 +79,61 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           )}
         </div>
 
-        <div className="w-full">
-          <h2 className="mb-3 text-sm font-semibold">{t('video:landing.cases')}</h2>
-          <ul aria-label={t('agent:suggestions.aria')} className="grid gap-2 sm:grid-cols-2">
-            {video
-              ? examples.map((example) => (
-                  <li key={example.id}>
-                    <button
-                      type="button"
-                      data-prompt={example.prompt}
-                      onClick={() => fillAgentComposer(example.prompt)}
-                      className="w-full overflow-hidden rounded-xl border border-border bg-background/60 text-left transition-colors hover:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <span className="relative block">
-                        {/* 封面是 poster，悬停 / 聚焦才拉样片：首屏不为四条 720p 片子付流量。 */}
-                        <video
-                          src={exampleClipUrl(example.id)}
-                          poster={example.cover}
-                          muted
-                          loop
-                          playsInline
-                          preload="none"
-                          tabIndex={-1}
-                          aria-hidden
-                          className="aspect-[16/9] w-full object-cover"
-                          onMouseEnter={(event) => void event.currentTarget.play().catch(() => {})}
-                          onMouseLeave={(event) => {
-                            event.currentTarget.pause()
-                            event.currentTarget.currentTime = 0
-                          }}
-                        />
-                        <span className="absolute right-2 top-2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] text-foreground backdrop-blur-sm">
-                          {example.tag}
-                        </span>
+        {video ? (
+          <div className="w-full">
+            <h2 className="mb-3 text-sm font-semibold">
+              {t('video:landing.cases')}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {t('video:landing.casesHint')}
+              </span>
+            </h2>
+            <ul aria-label={t('agent:suggestions.aria')} className="grid gap-2 sm:grid-cols-2">
+              {examples.map((example) => (
+                <li key={example.id}>
+                  <button
+                    type="button"
+                    data-prompt={example.prompt}
+                    onClick={() => fillAgentComposer(example.prompt)}
+                    className="w-full overflow-hidden rounded-xl border border-border bg-background/60 text-left transition-colors hover:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="relative block">
+                      {/* 封面是 poster，悬停 / 聚焦才拉样片：首屏不为四条 720p 片子付流量。 */}
+                      <video
+                        src={exampleClipUrl(example.id)}
+                        poster={example.cover}
+                        muted
+                        loop
+                        playsInline
+                        preload="none"
+                        tabIndex={-1}
+                        aria-hidden
+                        className="aspect-[16/9] w-full object-cover"
+                        onMouseEnter={(event) => void event.currentTarget.play().catch(() => {})}
+                        onMouseLeave={(event) => {
+                          event.currentTarget.pause()
+                          event.currentTarget.currentTime = 0
+                        }}
+                      />
+                      <span className="absolute right-2 top-2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] text-foreground backdrop-blur-sm">
+                        {example.tag}
                       </span>
-                      <span className="block px-3 pb-2.5 pt-2">
-                        <span className="block text-xs font-medium text-foreground">
-                          {example.title}
-                        </span>
-                        <span className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-                          {example.prompt}
-                        </span>
+                    </span>
+                    <span className="block px-3 pb-2.5 pt-2">
+                      <span className="block text-xs font-medium text-foreground">
+                        {example.title}
                       </span>
-                    </button>
-                  </li>
-                ))
-              : imageKeys.map((example) => {
-                  const prompt = t(`agent:${example.prompt}`)
-                  return (
-                    <li key={example.id}>
-                      <button
-                        type="button"
-                        data-prompt={prompt}
-                        onClick={() => fillAgentComposer(prompt)}
-                        className="flex w-full flex-col gap-0.5 rounded-xl border border-border bg-background/60 px-3 py-2.5 text-left transition-colors hover:border-ring/60 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <span className="text-xs font-medium text-foreground">
-                          {t(`agent:${example.title}`)}
-                        </span>
-                        <span className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-                          {prompt}
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-          </ul>
-        </div>
+                      <span className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                        {example.prompt}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <CreationInspiration />
+        )}
       </section>
       <section className="mx-auto max-w-6xl" aria-label={t('welcome.recent')}>
         <div className="mb-5 flex items-center justify-between">

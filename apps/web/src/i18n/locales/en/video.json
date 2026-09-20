@@ -25,12 +25,25 @@
     "tools": "Shortcuts",
     "toolsHint": "Start from a local image, an idea or your assets",
     "tool": {
-      "fromImage": { "title": "Image to video", "hint": "Pick an image as the first frame" },
-      "references": { "title": "Reference to video", "hint": "Pick images to set style and subject" },
-      "inspiration": { "title": "Inspiration", "hint": "Browse ready-made prompts" },
-      "assets": { "title": "Assets", "hint": "Manage the images you saved" }
+      "fromImage": {
+        "title": "Image to video",
+        "hint": "Pick an image as the first frame"
+      },
+      "references": {
+        "title": "Reference to video",
+        "hint": "Pick images to set style and subject"
+      },
+      "inspiration": {
+        "title": "Inspiration",
+        "hint": "Browse ready-made prompts"
+      },
+      "assets": {
+        "title": "Assets",
+        "hint": "Manage the images you saved"
+      }
     },
-    "cases": "Examples"
+    "cases": "Examples",
+    "casesHint": "Tap one to fill the prompt above"
   },
   "status": {
     "queued": "Queued"

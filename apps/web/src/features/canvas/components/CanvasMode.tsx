@@ -120,6 +120,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
     hasAgent && !hasContent && !project?.hasContent && !project?.workspaceOpened && !started
+  // 首页停在 `/`，起手工作区不占地址（见 projectStore.activate）。第一句话落下、
+  // 或画布上真有了东西，这个工作区才成为一个「项目」，这时补一条 `/p/<项目>` 的历史。
+  useEffect(() => {
+    if (showWelcome || !project) return
+    if ((globalThis.location?.pathname ?? '/').replace(/\/+$/, '') !== '') return
+    writeProjectRoute(project.id)
+  }, [showWelcome, project])
   useEffect(() => {
     if (hasAgent) void useAgentStore.getState().load()
   }, [hasAgent])
