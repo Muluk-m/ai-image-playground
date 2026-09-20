@@ -97,11 +97,11 @@ describe('the header', () => {
     act(() => root.render(<Header />))
 
     act(() => {
-      modeButton('库').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modeButton('资产').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(useStore.getState().appMode).toBe('library')
-    expect(modeButton('库').getAttribute('aria-pressed')).toBe('true')
+    expect(modeButton('资产').getAttribute('aria-pressed')).toBe('true')
   })
 })
 

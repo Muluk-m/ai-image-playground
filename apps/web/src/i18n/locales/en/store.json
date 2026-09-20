@@ -2,8 +2,9 @@
   "appMode": {
     "image": "Create",
     "canvas": "Canvas",
+    "explore": "Explore",
     "projects": "Projects",
-    "library": "Library"
+    "library": "Assets"
   },
   "task": {
     "interrupted": "Request interrupted",

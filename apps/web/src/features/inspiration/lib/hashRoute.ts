@@ -1,5 +1,4 @@
 import { useStore } from '../../../store'
-import { useLibraryStore } from '../../library/store'
 import { onInspirationPage, openInspiration } from './navigate'
 
 const HASH = '#inspirations'
@@ -19,7 +18,7 @@ function setHash(open: boolean) {
 let unsubscribe: (() => void)[] = []
 
 /**
- * hash ↔ 灵感页双向同步：灵感现在是「库」的一个页签，所以这条老链接落到那一页，
+ * hash ↔ 探索页双向同步：灵感现在是「探索」入口，所以这条老链接落到那一页，
  * 离开那一页时 hash 自己清掉。
  */
 export function initHashRoute() {
@@ -27,12 +26,12 @@ export function initHashRoute() {
 
   for (const off of unsubscribe) off()
   const sync = () => setHash(onInspirationPage())
-  unsubscribe = [useStore.subscribe(sync), useLibraryStore.subscribe(sync)]
+  unsubscribe = [useStore.subscribe(sync)]
 
   const onHashChange = () => {
     if (window.location.hash === HASH) {
       if (!onInspirationPage()) openInspiration()
-    } else if (onInspirationPage()) useLibraryStore.getState().setTab('works')
+    } else if (onInspirationPage()) useStore.getState().setAppMode('image')
   }
   window.addEventListener('hashchange', onHashChange)
   unsubscribe.push(() => window.removeEventListener('hashchange', onHashChange))

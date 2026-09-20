@@ -43,13 +43,13 @@ function entry(label: string): HTMLButtonElement {
   return button
 }
 
-it('一级入口只有三个，选中的那个自己标出来', () => {
+it('一级入口只有四个，选中的那个自己标出来', () => {
   act(() => entry('创作').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('image')
   expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
-  expect(entry('库').getAttribute('aria-pressed')).toBe('false')
+  expect(entry('资产').getAttribute('aria-pressed')).toBe('false')
 
-  act(() => entry('库').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => entry('资产').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('library')
 
   act(() => entry('项目').dispatchEvent(new MouseEvent('click', { bubbles: true })))

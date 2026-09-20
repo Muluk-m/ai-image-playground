@@ -27,7 +27,7 @@ function setFallbackName(task: TaskRecord | undefined): string {
  * 给了 `limit` 就是生图入口的「最近生成」：只摆最近几条，且不受作品入口留下的搜索与筛选影响——
  * 那一页没有清除它们的入口。
  */
-export default function TaskGrid({ limit }: { limit?: number } = {}) {
+export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boolean } = {}) {
   const { t } = useTranslation('task')
   const tasks = useStore((s) => s.tasks)
   const searchQuery = useStore((s) => s.searchQuery)
@@ -365,6 +365,13 @@ export default function TaskGrid({ limit }: { limit?: number } = {}) {
         </div>
       )
     }
+    // 灵感推荐只在创作页的冷启动露出；资产·作品空了就说空了，别把探索页搬过来。
+    if (!hero)
+      return (
+        <div className="text-center py-20 text-muted-foreground">
+          <p className="text-sm">{t('grid.empty')}</p>
+        </div>
+      )
     return <InspirationEmptyHero />
   }
 

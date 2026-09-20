@@ -57,5 +57,9 @@
   },
   "toast": {
     "historyAdopted_other": "已找回登录前的 {{count}} 条历史"
+  },
+  "mode": {
+    "generate": "生成",
+    "canvas": "画布"
   }
 }

@@ -2,8 +2,9 @@
   "appMode": {
     "image": "创作",
     "canvas": "画布",
+    "explore": "探索",
     "projects": "项目",
-    "library": "库"
+    "library": "资产"
   },
   "task": {
     "interrupted": "请求中断",

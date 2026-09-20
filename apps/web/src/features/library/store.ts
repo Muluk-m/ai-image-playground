@@ -14,8 +14,8 @@ import {
 } from './lib/templates'
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
-/** 库页的四个页签。项目不在里面：它是画布的实例,自己一个入口。 */
-export type LibraryTab = 'works' | 'assets' | 'templates' | 'inspiration'
+/** 资产页的三个页签。项目与灵感各自一个入口，不在里面。 */
+export type LibraryTab = 'works' | 'assets' | 'templates'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 

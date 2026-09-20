@@ -6,11 +6,6 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
-import InspirationCategoryFilter from '../../inspiration/components/InspirationCategoryFilter'
-import InspirationDetail from '../../inspiration/components/InspirationDetail'
-import InspirationGrid from '../../inspiration/components/InspirationGrid'
-import InspirationProviderTabs from '../../inspiration/components/InspirationProviderTabs'
-import { useInspirationStore } from '../../inspiration/store'
 import {
   type LibraryTab,
   selectVisibleAssets,
@@ -23,14 +18,14 @@ import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
-const TABS: readonly LibraryTab[] = ['works', 'assets', 'templates', 'inspiration']
+const TABS: readonly LibraryTab[] = ['works', 'assets', 'templates']
 
 /**
- * 「库」入口：四类可复用的料（作品、素材、模板、灵感）同一层级、同一块主区，
- * 页签切换而不是四个导航项。灵感在这里是一页而不是浮层。
+ * 「资产」入口：自己攒下的东西（作品、素材、模板）同一层级、同一块主区，页签切换。
+ * 项目另有一个入口（它是重活），灵感是别人的东西，在「探索」。
  */
 export default function LibraryPage({ userId }: { userId?: string }) {
-  const { t } = useTranslation(['library', 'inspiration'])
+  const { t } = useTranslation('library')
   const tab = useLibraryStore((s) => s.tab)
   const setTab = useLibraryStore((s) => s.setTab)
   const searchKeyword = useLibraryStore((s) => s.searchKeyword)
@@ -40,9 +35,6 @@ export default function LibraryPage({ userId }: { userId?: string }) {
   const templates = useLibraryStore(useShallow(selectVisibleTemplates))
   const templateCount = useLibraryStore((s) => s.templates.length)
   const importAssetFiles = useLibraryStore((s) => s.importAssetFiles)
-  const inspirationSearch = useInspirationStore((s) => s.searchKeyword)
-  const setInspirationSearch = useInspirationStore((s) => s.setSearch)
-  const detailItemId = useInspirationStore((s) => s.detailItemId)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -53,11 +45,6 @@ export default function LibraryPage({ userId }: { userId?: string }) {
     return () => useLibraryStore.getState().leaveLibraryPage()
   }, [])
 
-  // 灵感清单 872KB，只有站到这一页才拉；已加载过的不会重复下载。
-  useEffect(() => {
-    if (tab === 'inspiration') void useInspirationStore.getState().loadRemote()
-  }, [tab])
-
   const saveAssets = (files: File[]) => {
     if (tab === 'assets') void importAssetFiles(files)
   }
@@ -66,12 +53,7 @@ export default function LibraryPage({ userId }: { userId?: string }) {
 
   const openFilePicker = () => fileInputRef.current?.click()
 
-  const placeholder =
-    tab === 'templates'
-      ? t('panel.searchTemplates')
-      : tab === 'inspiration'
-        ? t('inspiration:panel.searchPlaceholder')
-        : t('panel.searchAssets')
+  const placeholder = tab === 'templates' ? t('panel.searchTemplates') : t('panel.searchAssets')
 
   return (
     <main className="flex min-h-[calc(100dvh-3.5rem)] flex-col">
@@ -98,12 +80,8 @@ export default function LibraryPage({ userId }: { userId?: string }) {
           <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
             <input
               type="search"
-              value={tab === 'inspiration' ? inspirationSearch : searchKeyword}
-              onChange={(event) =>
-                tab === 'inspiration'
-                  ? setInspirationSearch(event.target.value)
-                  : setSearch(event.target.value)
-              }
+              value={searchKeyword}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder={placeholder}
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
@@ -130,21 +108,6 @@ export default function LibraryPage({ userId }: { userId?: string }) {
       {tab === 'works' ? (
         <div className="min-h-0 flex-1 px-5 pb-24 pt-5">
           <GenerationHistory key={userId ?? 'anonymous'} userId={userId} />
-        </div>
-      ) : tab === 'inspiration' ? (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 border-b border-border px-5 py-2">
-            <InspirationProviderTabs />
-          </div>
-          <div className="flex min-h-0 flex-1">
-            <aside className="hidden w-44 shrink-0 overflow-y-auto border-r border-border sm:block">
-              <InspirationCategoryFilter />
-            </aside>
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
-              <InspirationGrid />
-            </div>
-          </div>
-          {detailItemId && <InspirationDetail />}
         </div>
       ) : tab === 'templates' ? (
         <div className="min-h-0 flex-1 p-5">

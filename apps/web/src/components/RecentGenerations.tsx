@@ -15,7 +15,7 @@ export default function RecentGenerations({ userId }: { userId?: string }) {
   return (
     <>
       <p className="px-1 pb-3 pt-6 text-xs text-muted-foreground">{t('grid.recent')}</p>
-      <TaskGrid limit={RECENT_LIMIT} />
+      <TaskGrid limit={RECENT_LIMIT} hero />
     </>
   )
 }
