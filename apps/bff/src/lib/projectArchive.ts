@@ -101,6 +101,27 @@ export async function reserveProjectOutputs(
 }
 
 /**
+ * 产物在预留框里居中 contain。原图尺寸缺席（旧记录没量过）时只能原样用框，没有更好的答案。
+ */
+function fitInto(
+  box: { x: number; y: number; width: number; height: number },
+  naturalWidth: number | null,
+  naturalHeight: number | null,
+): { x: number; y: number; width: number; height: number } {
+  if (!naturalWidth || !naturalHeight)
+    return { x: box.x, y: box.y, width: box.width, height: box.height }
+  const scale = Math.min(box.width / naturalWidth, box.height / naturalHeight)
+  const width = naturalWidth * scale
+  const height = naturalHeight * scale
+  return {
+    x: box.x + (box.width - width) / 2,
+    y: box.y + (box.height - height) / 2,
+    width,
+    height,
+  }
+}
+
+/**
  * 任务到了终态，把它在项目里预留的位置换成产物。`failure` 有值即任务失败：没出产物的位置
  * 留作带错误码的失败占位（跨设备可见，用户自己删），不再悄悄收掉；缺席时（成功但少出了几张、
  * 取消）照旧收掉没用上的位置。
@@ -160,15 +181,15 @@ export async function publishProjectOutputs(
     const asset = link && media.find((one) => one.id === link.mediaId && one.status === 'ready')
     if (!asset) return failure ? [{ ...element, errorCode: failure }] : []
     placed.push(asset.id)
+    // 预留的位置是个框，产物按自己的长宽比 contain 进去——沿用本机落图的那条规则
+    // （placeImagesIntoTargets）。直接套用框的宽高，1597x985 的图会被拉成框的形状。
+    const box = fitInto(element, asset.width, asset.height)
     return [
       {
         id: element.id,
         type: 'image' as const,
         mediaId: asset.id,
-        x: element.x,
-        y: element.y,
-        width: element.width,
-        height: element.height,
+        ...box,
         rotation: 0,
         ...(asset.width ? { naturalWidth: asset.width } : {}),
         ...(asset.height ? { naturalHeight: asset.height } : {}),
