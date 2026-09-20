@@ -3,12 +3,12 @@ import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
 import CreateModeSwitch from './components/CreateModeSwitch'
 import DetailModal from './components/DetailModal'
+import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
-import RecentGenerations from './components/RecentGenerations'
 import SettingsModal from './components/SettingsModal'
 import Sidebar from './components/Sidebar'
 import TaskBulkActions from './components/TaskBulkActions'
@@ -113,13 +113,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         ) : appMode === 'library' ? (
           <>
             <LibraryPage userId={user?.id} />
-            {/* 作品页是「边看全部记录边接着生成」的那一档：批量条与输入框都留着。 */}
-            {libraryTab === 'works' ? (
-              <>
-                <TaskBulkActions />
-                <InputBar />
-              </>
-            ) : null}
+            {/* 资产是翻旧账的地方：批量操作留着，输入框不留——要接着生成就回创作页。 */}
+            {libraryTab === 'works' ? <TaskBulkActions /> : null}
           </>
         ) : (
           <>
@@ -128,7 +123,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 <div className="pt-5">
                   <CreateModeSwitch />
                 </div>
-                <RecentGenerations key={user?.id ?? 'anonymous'} userId={user?.id} />
+                <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
               </div>
             </main>
             <TaskBulkActions />
