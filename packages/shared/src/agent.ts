@@ -130,6 +130,17 @@ export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 12
 /** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
 export const AGENT_IMAGE_MAX_N = 10
 
+/**
+ * 这次图片工具调用出几张。画布占位与队列请求的 `n` 共用这一个算式——两处算出的数不一样，
+ * 占位框就会和真正出的张数对不上。语义与 `Type.Integer` 的 `Value.Convert` 一致：
+ * 数字串按数字读，小数截断，读不出整数一律算一张，最后收口到 1..`AGENT_IMAGE_MAX_N`。
+ */
+export function agentImageCount(args: { readonly n?: unknown } | null | undefined): number {
+  const raw = typeof args?.n === 'string' ? Number(args.n) : args?.n
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
+  return Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(raw)))
+}
+
 export const AGENT_TURN_MAX_REFERENCES = 8
 
 /**

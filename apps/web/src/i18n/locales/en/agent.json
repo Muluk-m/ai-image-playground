@@ -48,8 +48,7 @@
     "viewPrompt": "View prompt"
   },
   "confirm": {
-    "pending": "The prompt is drafted. Nothing is generating yet and no generation credits have been spent. Read it below — you can edit it — then press Confirm and generate.",
-    "charge": "The conversation itself still costs what it costs; generation is charged only once you confirm.",
+    "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",
     "fieldAria": "Prompt awaiting confirmation",
     "submit": "Confirm and generate",
     "submitting": "Submitting…",
