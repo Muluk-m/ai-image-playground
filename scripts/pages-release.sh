@@ -3,7 +3,12 @@ set -eu
 
 # One entry point for a Cloudflare Pages release (README option 4): build and upload one
 # edition's frontend, then confirm the live version manifest matches the one just built.
-# Runs on a workstation, not on the VPS.
+# Runs on a workstation or in CI, not on the VPS.
+#
+# `test` is the test environment (test.muvloom.online, its own Pages project). It is a release
+# like the others — same build, same production branch, same version check — because a preview
+# alias cannot carry a custom domain. What keeps it from touching production is that every
+# edition names its own project and origin in pages.env.
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/deploy-common.sh"
@@ -13,13 +18,13 @@ dist_manifest=$repo_root/apps/web/dist/version.json
 
 usage() {
   cat >&2 <<'EOF'
-Usage: scripts/pages-release.sh <internal|paid>
+Usage: scripts/pages-release.sh <internal|paid|test>
 
-Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed INTERNAL_ or
-PAID_ (see deploy/pages.env.example).
+Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed INTERNAL_, PAID_
+or TEST_ (see deploy/pages.env.example).
 
-The edition is asserted against the working copy: `paid` needs ./private, `internal` needs it
-absent, because the overlay is compiled in by mere file presence.
+The edition is asserted against the working copy: `paid` and `test` need ./private, `internal`
+needs it absent, because the overlay is compiled in by mere file presence.
 EOF
   exit 2
 }
@@ -33,6 +38,11 @@ case "$edition" in
     ;;
   paid)
     prefix=PAID
+    bundle=private
+    ;;
+  # The test site mirrors what ships to muvloom.online, so it is the paid shape.
+  test)
+    prefix=TEST
     bundle=private
     ;;
   *) usage ;;

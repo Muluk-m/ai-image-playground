@@ -1,0 +1,114 @@
+# Test environment: every push to `test` is checked, then released to test.muvloom.online.
+# That site is its own Cloudflare Pages project, so nothing here can reach a production domain
+# even if a project name is wrong. Production is deploy.yml.
+# Runbook: docs/deploy/test-environment.md.
+name: Deploy test
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+permissions:
+  contents: read
+# One test deployment at a time; a newer push waits rather than racing an upload.
+concurrency:
+  group: test-deploy
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+env:
+  PRIVATE_OVERLAY_REPO: git@github.com:Muluk-m/ai-image-playground-private.git
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # ci-check-test-branch.sh compares against origin/main, so it needs the full history.
+          fetch-depth: 0
+          persist-credentials: false
+      # First, because the rest of this run is wasted on a branch that is behind main. The run
+      # fails here rather than merging: resolving a conflict unattended is how a test site ends
+      # up running something that exists nowhere else. Merge main into test and push again.
+      - run: scripts/ci-check-test-branch.sh origin
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # The same build the release job runs, failing here instead of half way through an upload.
+      # The bff suite is not run: this workflow ships no backend, and `Web checks` covers it on
+      # every pull request into main.
+      - run: pnpm --dir apps/web build
+
+  publish:
+    name: Release test.muvloom.online
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require secrets
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          missing=
+          for name in PAGES_ENV PAID_CLOUDFLARE_API_TOKEN PRIVATE_OVERLAY_SSH_KEY; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Write pages.env with the CI token file
+        env:
+          PAGES_ENV: ${{ secrets.PAGES_ENV }}
+          # The test project lives in the same Cloudflare account as the paid site.
+          PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
+        run: |
+          umask 077
+          # pages-release.sh sources the token file, so only inert token characters are allowed.
+          printf '%s\n' "$PAID_CLOUDFLARE_API_TOKEN" | grep -Eqx '[A-Za-z0-9_-]+' ||
+            { echo "::error::PAID_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
+          printf 'CLOUDFLARE_API_TOKEN=%s\n' "$PAID_CLOUDFLARE_API_TOKEN" \
+            > "$RUNNER_TEMP/TEST-cloudflare.env"
+          # Later assignments win when the file is sourced: they replace workstation paths, and
+          # they drop the operator assets and the update prompt the paid site releases with.
+          {
+            printf '%s\n' "$PAGES_ENV"
+            echo "TEST_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/TEST-cloudflare.env"
+            echo "TEST_EXTRA_ASSETS_DIR="
+            echo "TEST_NOTIFY_UPDATE="
+          } > "$RUNNER_TEMP/pages.env"
+          echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
+      # The test site is the paid shape, so it needs the overlay. Its main HEAD: the test
+      # environment exists to show what the next production release would look like.
+      - name: Check out the private overlay at its main HEAD
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
+          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
+            git clone --quiet "$PRIVATE_OVERLAY_REPO" private
+          rm -f "$RUNNER_TEMP/overlay-key"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      # The overlay packages are workspace members; install their dependencies too.
+      - run: pnpm install --frozen-lockfile
+      - run: ./scripts/pages-release.sh test
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env" "$RUNNER_TEMP/overlay-key"
