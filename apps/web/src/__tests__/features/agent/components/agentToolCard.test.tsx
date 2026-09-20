@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import type { AgentToolErrorCode } from '@image-playground/shared'
+import type { AgentToolErrorCode, DiscoveredChannel } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
+import { setChannels } from '../../../../lib/channels/channelStore'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 
 const store = vi.hoisted(() => ({
@@ -267,7 +268,28 @@ describe('失败卡按错误码给出路', () => {
       ...(errorCode ? { errorCode } : {}),
     }) as const
 
-  function render(message: ReturnType<typeof failed>) {
+  const RETRY_CHANNEL: DiscoveredChannel = {
+    id: 'openai',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [{ id: 'gpt-image-1', label: 'GPT Image', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  /** 一次真的跑过的局部改图失败：认得出是哪一次生成，但带着选区绑定，重出会改错地方。 */
+  const localEditFailure = () =>
+    ({
+      ...failed('upstream_error'),
+      toolName: 'editImage',
+      snapshot: {
+        mode: 'image',
+        args: { prompt: '把猫改成蓝色', selectionBindings: [{ imageId: 'i', selectionId: 's' }] },
+        target: { provider: 'openai-compat', model: 'gpt-image-1' },
+      },
+      job: { taskId: 'task-1', media: 'image' },
+    }) as const
+
+  function render(message: AgentToolMessage) {
     const host = document.createElement('div')
     const root = createRoot(host)
     act(() => root.render(<AgentToolCard message={message} />))
@@ -307,6 +329,38 @@ describe('失败卡按错误码给出路', () => {
     try {
       expect(host.textContent).toContain(text)
       expect(buttons(host)).toEqual([])
+    } finally {
+      unmount()
+    }
+  })
+
+  // 这三个码的正常出路是画布占位上的重试。认得出是哪一次生成、却重出不了时（局部或连锁改图、
+  // 模型已下线）重试给不出来，不能让这张卡停在一句原因上。
+  it('局部改图失败给不出重试时改为让助手重新处理，并说清重出不了什么', () => {
+    send.mockClear()
+    setChannels([RETRY_CHANNEL])
+    const { host, unmount } = render(localEditFailure())
+    try {
+      expect(buttons(host)).toEqual(['让助手重新处理'])
+      act(() => host.querySelector('button')!.click())
+      expect(send).toHaveBeenCalledWith(
+        '「一只橘猫」没有完成：它是按当时的选区或方案改的，原样重做会改错地方。请换个做法重新处理。',
+      )
+    } finally {
+      unmount()
+    }
+  })
+
+  // 用户自己点出来又失败的那条重试记录不在此列：同一次失败在画布占位上仍给「重试」，
+  // 这里再长一个「让助手重新处理」就是两个互相矛盾的出路，其中一个还要花一轮对话费用。
+  it('失败的重试记录不给这条出路，免得与占位上的重试打架', () => {
+    setChannels([RETRY_CHANNEL])
+    const { host, unmount } = render({
+      ...localEditFailure(),
+      retryOf: { messageId: 'origin', toolCallId: 'c' },
+    })
+    try {
+      expect(buttons(host).filter((label) => label === '让助手重新处理')).toEqual([])
     } finally {
       unmount()
     }

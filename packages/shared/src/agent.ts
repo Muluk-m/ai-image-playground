@@ -335,8 +335,10 @@ const RETRYABLE_TOOLS: readonly AgentToolName[] = ['generateImage', 'editImage',
 /**
  * 局部改图（选区绑定、分方案摘录）与连锁改图（列了后续步骤、或是后续步骤本身）的参数离不开
  * 那一轮的上下文：原样重出可能改错地方，只能交给智能体重新处理。
+ * 没有快照就谈不上这件事，那是「认不出这次调用」，另有判据。
  */
-function localEdit(snapshot: AgentToolCallSnapshot): boolean {
+export function agentToolLocalEdit(snapshot: AgentToolCallSnapshot | undefined): boolean {
+  if (!snapshot) return false
   const { selectionBindings, requestQuote, deferredEdits } = snapshot.args
   return (
     (Array.isArray(selectionBindings) && selectionBindings.length > 0) ||
@@ -356,22 +358,33 @@ export interface AgentRetryCandidate {
 }
 
 /**
- * 这张失败卡能不能原样重试。只看结构化的几位，不读文字（ADR 0006）：错误码可重试、
- * 起跑时记了参数快照与模型、是提交过后台任务的生成调用、不是局部或连锁改图。
- * 局部与连锁改图留在轮里同步等结果，从来不带 `job`，这里也因此把它们挡在门外。
- * 模型是否已下线要问此刻的模型清单，由调用方另判。重试记录本身不再重试：重试一律从原卡出发。
+ * 这次失败认不认得出是「一次真的跑过的生成」：生成工具、起跑记了参数快照与模型、提交过
+ * 后台任务、自己不是重试记录。认得出才谈得上重出，也才谈得上请智能体照着重新处理——
+ * 认不出的（旧记录没有快照、查素材库这类不出图的调用）两件事都做不了。
  */
-export function agentToolRetryable(block: AgentRetryCandidate): boolean {
+export function agentToolRerunnable(block: AgentRetryCandidate): boolean {
   return (
     block.status === 'failed' &&
-    block.errorCode !== undefined &&
-    AGENT_RETRYABLE_ERROR_CODES.includes(block.errorCode) &&
     block.toolName !== undefined &&
     RETRYABLE_TOOLS.includes(block.toolName) &&
     block.snapshot?.target !== undefined &&
     block.job !== undefined &&
-    block.retryOf === undefined &&
-    !localEdit(block.snapshot)
+    block.retryOf === undefined
+  )
+}
+
+/**
+ * 这张失败卡能不能原样重试。只看结构化的几位，不读文字（ADR 0006）：认得出是一次跑过的
+ * 生成、错误码可重试、不是局部或连锁改图。局部与连锁改图留在轮里同步等结果，从来不带
+ * `job`，所以 `agentToolRerunnable` 也已经把它们挡在门外。
+ * 模型是否已下线要问此刻的模型清单，由调用方另判。
+ */
+export function agentToolRetryable(block: AgentRetryCandidate): boolean {
+  return (
+    agentToolRerunnable(block) &&
+    block.errorCode !== undefined &&
+    AGENT_RETRYABLE_ERROR_CODES.includes(block.errorCode) &&
+    !agentToolLocalEdit(block.snapshot)
   )
 }
 
