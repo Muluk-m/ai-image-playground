@@ -47,7 +47,7 @@
     "inputAlt": "输入 {{index}}",
     "previewPending": "预览生成中…",
     "annotationHint": "文字标注 → 修改要求：{{text}}",
-    "promptPlaceholder": "描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）",
+    "promptPlaceholder": "描述你想要的画面，或拖入参考图",
     "promptAria": "创作描述",
     "modeAria": "生成类型",
     "modeImage": "图片",
@@ -96,8 +96,8 @@
     "title": "图片创作",
     "collapseAria": "收起面板",
     "collapse": "收起 ←",
-    "emptyTitle": "从一个想法开始",
-    "emptyBody": "描述画面，或拖入一张参考图。",
+    "emptyTitle": "今天想做点什么",
+    "emptyBody": "选一个开始，或直接写一句。",
     "openChat": "展开创作"
   },
   "workspace": {
