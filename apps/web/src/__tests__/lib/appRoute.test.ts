@@ -56,7 +56,7 @@ describe('installAppRouting', () => {
     popTo('/assets')
     expect(useStore.getState().appMode).toBe('library')
     popTo('/')
-    expect(useStore.getState().appMode).toBe('canvas')
+    expect(useStore.getState().appMode).toBe('image')
   })
 
   it('opens the page named by the address on load', () => {
@@ -75,12 +75,13 @@ describe('installAppRouting', () => {
     expect(location.pathname).toBe('/assets')
   })
 
-  it('adds the active project to a bare root address without a new history entry', () => {
+  it('sends a bare root address to create, even with an active project', () => {
     useStore.setState({ appMode: 'library' })
     history.replaceState(null, '', '/assets')
     cleanup = installAppRouting()
     useCanvasProjectStore.setState({ activeId: 'project-1' })
     popTo('/')
-    expect(location.pathname).toBe(`/p/${projectRouteSegment('project-1')}`)
+    expect(useStore.getState().appMode).toBe('image')
+    expect(location.pathname).toBe('/image')
   })
 })
