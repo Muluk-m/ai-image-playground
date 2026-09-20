@@ -272,6 +272,8 @@
     "inbox": {
       "aria": "后台任务",
       "summary": "{{running}} 个进行中 · {{completed}} 个已完成",
+      "summaryFailed": "{{running}} 个进行中 · {{completed}} 个已完成 · {{failed}} 个没有完成",
+      "count": "{{done}}/{{total}}",
       "locate": "在画布上定位",
       "succeeded": "已完成",
       "failed": "没有完成"
