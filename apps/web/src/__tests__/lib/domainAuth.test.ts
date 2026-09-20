@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { legacyFallback, restoreLogin } from '../../lib/localCompatibility/auth'
+import { restoreLogin } from '../../lib/localCompatibility/auth'
 
 const config = { sourceOrigin: 'https://old.example', targetOrigin: 'https://new.example' }
 let data: Map<string, string>
@@ -19,9 +19,6 @@ beforeEach(() => {
   vi.stubGlobal('history', { state: null, replaceState: vi.fn() })
 })
 afterEach(() => vi.unstubAllGlobals())
-it('keeps the old workbench accessible with a redirect bypass and preserves the project', () => {
-  expect(legacyFallback(config)).toBe('https://old.example/p/short?x=1&__legacy=1#canvas')
-})
 it('hands off only once and never signs a user back in after logout', async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ user: { id: 'existing' } }))
   expect(await restoreLogin(config, 'https://api.new.example', fetcher)).toBe(true)
@@ -88,10 +85,4 @@ it('does not trust a forged completion query', async () => {
   expect(await restoreLogin(config, 'https://api.new.example', fetcher)).toBe(false)
   expect(data.size).toBe(0)
   expect(new URL(replace.mock.calls[0]![0]).pathname).toBe('/api/auth/domain/start')
-})
-
-it('keeps double-slash paths on the source host', () => {
-  expect(new URL(legacyFallback(config, 'https://new.example//evil.example/path')).origin).toBe(
-    config.sourceOrigin,
-  )
 })

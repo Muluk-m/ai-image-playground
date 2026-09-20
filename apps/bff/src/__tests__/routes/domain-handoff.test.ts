@@ -105,7 +105,12 @@ it('rejects a missing binding, a wrong code, and a revoked source session', asyn
     .where(eq(schema.user_sessions.token_hash, hashSessionToken(source.token)))
   const result = await call(flow.url, flow.binding)
   expect(cookie(result, sessionName)).toBe('')
-  expect(next(result)).toBe('https://old.example/p/short?x=1&__legacy=1#canvas')
+  // 交接失败不回旧域名：旧域名只有一条一次性 301，送回去会被立刻弹回来。
+  expect(next(result)).toBe('https://new.example/p/short?x=1#canvas')
+  const cooldown = cookie(result, '__Host-image_playground_domain_cooldown')
+  expect(cooldown).not.toBe('')
+  const availability = await call('https://api.new.example/api/auth/domain/available', cooldown)
+  expect(await availability.json()).toEqual({ enabled: false, completed: false })
 })
 it('preserves an existing destination account and lets anonymous visitors finish', async () => {
   const old = await account(),
