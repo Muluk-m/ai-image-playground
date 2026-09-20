@@ -39,7 +39,7 @@ const library = vi.fn()
 
 function Consumers() {
   usePasteImageFiles('image', browse)
-  usePasteImageFiles('video', video)
+  usePasteImageFiles('canvas', video)
   usePasteImageFiles('library', library)
   return null
 }
@@ -79,7 +79,7 @@ describe('routing a pasted image to one place at a time', () => {
 
   it('hands the image to the video mode instead while it is in front', () => {
     act(() => {
-      useStore.setState({ appMode: 'video' })
+      useStore.setState({ appMode: 'canvas' })
     })
 
     paste([image()])
@@ -90,7 +90,7 @@ describe('routing a pasted image to one place at a time', () => {
 
   it('lets the asset panel take over from whatever mode is behind it', () => {
     act(() => {
-      useStore.setState({ appMode: 'video' })
+      useStore.setState({ appMode: 'canvas' })
       useLibraryStore.setState({ onLibraryPage: true, tab: 'assets' })
     })
 

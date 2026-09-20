@@ -1,27 +1,38 @@
 import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/DropOverlay'
+import GenerationHistory from '../../../components/GenerationHistory'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
-import ProjectGrid from '../../canvas/components/ProjectGrid'
-import { useCanvasProjectStore } from '../../canvas/projectStore'
-import { selectVisibleAssets, selectVisibleTemplates, useLibraryStore } from '../store'
+import InspirationCategoryFilter from '../../inspiration/components/InspirationCategoryFilter'
+import InspirationDetail from '../../inspiration/components/InspirationDetail'
+import InspirationGrid from '../../inspiration/components/InspirationGrid'
+import InspirationProviderTabs from '../../inspiration/components/InspirationProviderTabs'
+import { useInspirationStore } from '../../inspiration/store'
+import {
+  type LibraryTab,
+  selectVisibleAssets,
+  selectVisibleTemplates,
+  useLibraryStore,
+} from '../store'
 import AssetCard from './AssetCard'
 import { AssetsEmpty, NoMatch, TemplatesEmpty } from './LibraryEmpty'
 import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
-export type LibraryPageKind = 'assets' | 'templates' | 'projects'
+const TABS: readonly LibraryTab[] = ['works', 'assets', 'templates', 'inspiration']
 
 /**
- * 素材、模板、项目三个入口的主区。它们和别的入口同一层级：走地址、占同一块主区，
- * 不是盖在工作台上的浮层。
+ * 「库」入口：四类可复用的料（作品、素材、模板、灵感）同一层级、同一块主区，
+ * 页签切换而不是四个导航项。灵感在这里是一页而不是浮层。
  */
-export default function LibraryPage({ kind }: { kind: LibraryPageKind }) {
-  const { t } = useTranslation(['library', 'common'])
+export default function LibraryPage({ userId }: { userId?: string }) {
+  const { t } = useTranslation(['library', 'inspiration'])
+  const tab = useLibraryStore((s) => s.tab)
+  const setTab = useLibraryStore((s) => s.setTab)
   const searchKeyword = useLibraryStore((s) => s.searchKeyword)
   const setSearch = useLibraryStore((s) => s.setSearch)
   const assets = useLibraryStore(useShallow(selectVisibleAssets))
@@ -29,24 +40,26 @@ export default function LibraryPage({ kind }: { kind: LibraryPageKind }) {
   const templates = useLibraryStore(useShallow(selectVisibleTemplates))
   const templateCount = useLibraryStore((s) => s.templates.length)
   const importAssetFiles = useLibraryStore((s) => s.importAssetFiles)
+  const inspirationSearch = useInspirationStore((s) => s.searchKeyword)
+  const setInspirationSearch = useInspirationStore((s) => s.setSearch)
+  const detailItemId = useInspirationStore((s) => s.detailItemId)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const projectError = useCanvasProjectStore((state) => state.error)
 
   useEffect(() => {
     const library = useLibraryStore.getState()
-    library.enterLibraryPage(kind)
+    library.enterLibraryPage()
     void library.loadAssets()
     void library.loadTemplates()
-    if (kind === 'projects')
-      void useCanvasProjectStore
-        .getState()
-        .load()
-        .catch(() => {})
     return () => useLibraryStore.getState().leaveLibraryPage()
-  }, [kind])
+  }, [])
+
+  // 灵感清单 872KB，只有站到这一页才拉；已加载过的不会重复下载。
+  useEffect(() => {
+    if (tab === 'inspiration') void useInspirationStore.getState().loadRemote()
+  }, [tab])
 
   const saveAssets = (files: File[]) => {
-    if (kind === 'assets') void importAssetFiles(files)
+    if (tab === 'assets') void importAssetFiles(files)
   }
   const { dragging, dropZoneProps } = useImageDropZone(saveAssets)
   usePasteImageFiles('library', saveAssets)
@@ -54,26 +67,49 @@ export default function LibraryPage({ kind }: { kind: LibraryPageKind }) {
   const openFilePicker = () => fileInputRef.current?.click()
 
   const placeholder =
-    kind === 'projects'
-      ? t('panel.searchProjects')
-      : kind === 'templates'
-        ? t('panel.searchTemplates')
+    tab === 'templates'
+      ? t('panel.searchTemplates')
+      : tab === 'inspiration'
+        ? t('inspiration:panel.searchPlaceholder')
         : t('panel.searchAssets')
 
   return (
     <main className="flex min-h-[calc(100dvh-3.5rem)] flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-3">
-        <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS[kind]}</h1>
-        <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
-          <input
-            type="search"
-            value={searchKeyword}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={placeholder}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-        {kind === 'assets' && (
+        <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS.library}</h1>
+        <div className="flex items-center gap-1">
+          {TABS.map((one) => (
+            <button
+              key={one}
+              type="button"
+              onClick={() => setTab(one)}
+              aria-pressed={tab === one}
+              className={`rounded-full px-3 py-1 text-[13px] transition-colors ${
+                tab === one
+                  ? 'bg-accent font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {t(`tab.${one}`)}
+            </button>
+          ))}
+        </div>
+        {tab === 'works' ? null : (
+          <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
+            <input
+              type="search"
+              value={tab === 'inspiration' ? inspirationSearch : searchKeyword}
+              onChange={(event) =>
+                tab === 'inspiration'
+                  ? setInspirationSearch(event.target.value)
+                  : setSearch(event.target.value)
+              }
+              placeholder={placeholder}
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+        )}
+        {tab === 'assets' && (
           <>
             <input
               ref={fileInputRef}
@@ -91,29 +127,26 @@ export default function LibraryPage({ kind }: { kind: LibraryPageKind }) {
         )}
       </div>
 
-      {kind === 'projects' ? (
-        <div className="min-h-0 flex-1 px-5 pb-10 pt-5">
-          {projectError ? (
-            <div role="alert" className="py-10 text-sm text-muted-foreground">
-              {projectError}
-              <button
-                type="button"
-                className="ml-3 text-primary underline"
-                onClick={() =>
-                  void useCanvasProjectStore
-                    .getState()
-                    .load()
-                    .catch(() => {})
-                }
-              >
-                {t('panel.reloadProjects')}
-              </button>
-            </div>
-          ) : (
-            <ProjectGrid search={searchKeyword} />
-          )}
+      {tab === 'works' ? (
+        <div className="min-h-0 flex-1 px-5 pb-24 pt-5">
+          <GenerationHistory key={userId ?? 'anonymous'} userId={userId} />
         </div>
-      ) : kind === 'templates' ? (
+      ) : tab === 'inspiration' ? (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b border-border px-5 py-2">
+            <InspirationProviderTabs />
+          </div>
+          <div className="flex min-h-0 flex-1">
+            <aside className="hidden w-44 shrink-0 overflow-y-auto border-r border-border sm:block">
+              <InspirationCategoryFilter />
+            </aside>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <InspirationGrid />
+            </div>
+          </div>
+          {detailItemId && <InspirationDetail />}
+        </div>
+      ) : tab === 'templates' ? (
         <div className="min-h-0 flex-1 p-5">
           {templates.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

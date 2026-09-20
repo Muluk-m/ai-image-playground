@@ -74,7 +74,8 @@ describe('the header', () => {
     act(() => root.render(<Header />))
     expect(document.body.textContent).not.toContain('不知道画什么')
     expect(document.querySelector('.animate-coach-pulse')).toBeNull()
-    expect(document.querySelector('button[aria-label="灵感库"]')).not.toBeNull()
+    // 灵感搬进「库」的页签后，顶栏不再有它自己的图标。
+    expect(document.querySelector('button[aria-label="灵感库"]')).toBeNull()
   })
 
   it('品牌按钮开的是导航菜单，「主页」把人带回库页', () => {
@@ -96,11 +97,11 @@ describe('the header', () => {
     act(() => root.render(<Header />))
 
     act(() => {
-      modeButton('画布').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modeButton('库').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(useStore.getState().appMode).toBe('canvas')
-    expect(modeButton('画布').getAttribute('aria-pressed')).toBe('true')
+    expect(useStore.getState().appMode).toBe('library')
+    expect(modeButton('库').getAttribute('aria-pressed')).toBe('true')
   })
 })
 

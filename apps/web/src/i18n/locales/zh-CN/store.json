@@ -1,12 +1,9 @@
 {
   "appMode": {
-    "image": "生图",
+    "image": "创作",
     "canvas": "画布",
-    "video": "视频",
-    "works": "作品",
-    "assets": "素材",
-    "templates": "模板",
-    "projects": "全部项目"
+    "projects": "项目",
+    "library": "库"
   },
   "task": {
     "interrupted": "请求中断",

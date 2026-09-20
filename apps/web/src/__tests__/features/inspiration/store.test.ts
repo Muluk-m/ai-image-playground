@@ -22,7 +22,6 @@ describe('useInspirationStore', () => {
       categories: [],
       status: 'idle',
       remoteError: null,
-      panelOpen: false,
       selectedProvider: 'all',
       selectedCategory: null,
       searchKeyword: '',
@@ -53,16 +52,5 @@ describe('useInspirationStore', () => {
     s.setProvider('gemini')
     expect(useInspirationStore.getState().selectedProvider).toBe('gemini')
     expect(useInspirationStore.getState().selectedCategory).toBeNull()
-  })
-
-  it('openPanel / closePanel toggles + closing clears detailItemId', () => {
-    const s = useInspirationStore.getState()
-    s.openPanel()
-    expect(useInspirationStore.getState().panelOpen).toBe(true)
-    s.showDetail('foo')
-    expect(useInspirationStore.getState().detailItemId).toBe('foo')
-    s.closePanel()
-    expect(useInspirationStore.getState().panelOpen).toBe(false)
-    expect(useInspirationStore.getState().detailItemId).toBeNull()
   })
 })

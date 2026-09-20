@@ -14,13 +14,13 @@ import {
 } from './lib/templates'
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
-/** 素材与模板各是一个入口；项目走「全部项目」。这里只用来决定这三处的搜索框与落点归谁。 */
-export type LibraryTab = 'projects' | 'assets' | 'templates'
+/** 库页的四个页签。项目不在里面：它是画布的实例,自己一个入口。 */
+export type LibraryTab = 'works' | 'assets' | 'templates' | 'inspiration'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
 export interface LibraryState {
-  /** 素材或模板入口是否正在主区里；由 `LibraryPage` 挂载时登记。 */
+  /** 库页是否正在主区里;由 `LibraryPage` 挂载时登记。 */
   onLibraryPage: boolean
   tab: LibraryTab
   searchKeyword: string
@@ -33,7 +33,9 @@ export interface LibraryState {
   /** 正在为当前 composer 状态取模板名。 */
   namingTemplate: boolean
 
-  enterLibraryPage: (tab: LibraryTab) => void
+  enterLibraryPage: (tab?: LibraryTab) => void
+  /** 页签切换:搜索词跟着页签走,换一类料不带着上一类的关键词。 */
+  setTab: (tab: LibraryTab) => void
   leaveLibraryPage: () => void
   setSearch: (keyword: string) => void
   openTemplateDetail: (id: string) => void
@@ -65,7 +67,7 @@ export interface LibraryState {
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   onLibraryPage: false,
-  tab: 'assets',
+  tab: 'works',
   searchKeyword: '',
   assets: [],
   templates: [],
@@ -74,10 +76,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   namingTemplate: false,
 
   enterLibraryPage: (tab) => {
-    set({ onLibraryPage: true, tab, searchKeyword: '' })
+    set((s) => ({ onLibraryPage: true, tab: tab ?? s.tab, searchKeyword: '' }))
     useStore.getState().markLibraryPanelOpened()
   },
   leaveLibraryPage: () => set({ onLibraryPage: false, detailTemplateId: null }),
+  setTab: (tab) => set({ tab, searchKeyword: '', detailTemplateId: null }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
   openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
   closeTemplateDetail: () => set({ detailTemplateId: null }),

@@ -4,44 +4,26 @@ import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useTranslation } from '../i18n'
-import {
-  APP_MODE_LABELS,
-  type AppMode,
-  isWorkbenchMode,
-  LIBRARY_APP_MODES,
-  useStore,
-  visibleAppModes,
-} from '../store'
-import {
-  AssetIcon,
-  CanvasIcon,
-  GalleryIcon,
-  PromptImageIcon,
-  TemplateIcon,
-  VideoIcon,
-} from './icons'
+import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
+import { CanvasIcon, GalleryIcon, PromptImageIcon } from './icons'
 import { HEADER_OFFSET } from './panelStyles'
 
-/** 侧栏里每个入口的图标；标签与顺序由 `visibleAppModes`、`LIBRARY_APP_MODES` 与语料决定。 */
+/** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
   image: PromptImageIcon,
   canvas: CanvasIcon,
-  video: VideoIcon,
-  works: GalleryIcon,
-  assets: AssetIcon,
-  templates: TemplateIcon,
   projects: CanvasIcon,
+  library: GalleryIcon,
 }
 
 const ITEM =
   'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 const ACTIVE_ITEM = 'bg-accent font-medium text-foreground'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
-const GROUP = 'px-2.5 pb-1 pt-3.5 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground'
 
 /**
- * 主导航：上半是创作入口（生图 / 画布 / 视频），下半是三个库（作品 / 素材 / 模板），
- * 再下面是最近的画布项目。**工作台里它不出现**——画布与视频要整屏，那里的导航挂在左上角的品牌菜单上。
+ * 主导航：创作 / 项目 / 库三项，项目下面缩进列最近几个画布。
+ * **工作台里它不出现**——画布要整屏，那里的导航挂在左上角的品牌菜单上。
  */
 export default function Sidebar() {
   const { t } = useTranslation('shell')
@@ -50,7 +32,6 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
-  const creation = visibleAppModes()
   const hidden = isWorkbenchMode(appMode)
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
@@ -94,30 +75,22 @@ export default function Sidebar() {
       style={{ top: HEADER_OFFSET, width: 'var(--app-sidebar-size)' }}
       className="fixed bottom-0 left-0 z-30 hidden flex-col overflow-y-auto overflow-x-hidden border-r border-border bg-sidebar px-2 pb-4 pt-2 md:flex"
     >
-      <p className={GROUP}>{t('nav.create')}</p>
-      {creation.map(item)}
-      <p className={GROUP}>{t('nav.mine')}</p>
-      {LIBRARY_APP_MODES.map(item)}
-
-      <p className={GROUP}>{t('nav.recentCanvases')}</p>
-      {recent.map((project) => (
-        <button
-          key={project.id}
-          type="button"
-          onClick={() => void openProject(project.id)}
-          className={`${ITEM} ${appMode === 'canvas' && project.id === activeId ? ACTIVE_ITEM : IDLE_ITEM}`}
-        >
-          <span className="truncate">{projectDisplayName(project.name)}</span>
-        </button>
+      {NAV_APP_MODES.map((mode) => (
+        <div key={mode}>
+          {item(mode)}
+          {mode === 'projects' &&
+            recent.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => void openProject(project.id)}
+                className={`${ITEM} pl-9 ${appMode === 'canvas' && project.id === activeId ? ACTIVE_ITEM : IDLE_ITEM}`}
+              >
+                <span className="truncate">{projectDisplayName(project.name)}</span>
+              </button>
+            ))}
+        </div>
       ))}
-      <button
-        type="button"
-        onClick={() => setAppMode('projects')}
-        aria-pressed={appMode === 'projects'}
-        className={`${ITEM} ${appMode === 'projects' ? ACTIVE_ITEM : IDLE_ITEM}`}
-      >
-        {t('nav.allProjects')}
-      </button>
     </nav>
   )
 }

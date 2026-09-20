@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
 import DetailModal from './components/DetailModal'
-import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
@@ -15,13 +14,12 @@ import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import ProjectsPage from './features/canvas/components/ProjectsPage'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
-import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import VideoHome from './features/video/components/VideoHome'
 import { i18next } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -104,30 +102,26 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
         {appMode === 'canvas' ? (
           <CanvasMode />
-        ) : appMode === 'video' ? (
-          <VideoHome />
-        ) : appMode === 'assets' || appMode === 'templates' || appMode === 'projects' ? (
-          <LibraryPage kind={appMode} />
+        ) : appMode === 'projects' ? (
+          <ProjectsPage />
+        ) : appMode === 'library' ? (
+          <LibraryPage userId={user?.id} />
         ) : (
           <>
             <main data-home-main data-drag-select-surface className="pb-48">
               <div className="safe-area-x max-w-7xl mx-auto">
-                {appMode === 'image' ? (
-                  <RecentGenerations key={user?.id ?? 'anonymous'} userId={user?.id} />
-                ) : (
-                  <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
-                )}
+                <RecentGenerations key={user?.id ?? 'anonymous'} userId={user?.id} />
               </div>
             </main>
             <TaskBulkActions />
-            {appMode === 'image' ? <InputBar /> : null}
+            <InputBar />
           </>
         )}
       </div>
       <DetailModal />
       <Lightbox />
       <SettingsModal />
-      <InspirationPanel />
+
       <SaveAssetDialog />
       <SaveTemplateDialog />
       <ConfirmDialog />

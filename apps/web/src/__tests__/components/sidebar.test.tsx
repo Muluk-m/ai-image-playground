@@ -23,7 +23,7 @@ let root: Root
 
 beforeEach(() => {
   useStore.setState({ appMode: 'image' })
-  useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
+  useLibraryStore.setState({ onLibraryPage: false, tab: 'works' })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -43,27 +43,28 @@ function entry(label: string): HTMLButtonElement {
   return button
 }
 
-it('每个创作入口都是一个独立去处，选中的那个自己标出来', () => {
-  act(() => entry('生图').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+it('一级入口只有三个，选中的那个自己标出来', () => {
+  act(() => entry('创作').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('image')
-  expect(entry('生图').getAttribute('aria-pressed')).toBe('true')
-  expect(entry('画布').getAttribute('aria-pressed')).toBe('false')
+  expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
+  expect(entry('库').getAttribute('aria-pressed')).toBe('false')
 
-  act(() => entry('视频').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(useStore.getState().appMode).toBe('video')
+  act(() => entry('库').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(useStore.getState().appMode).toBe('library')
+
+  act(() => entry('项目').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(useStore.getState().appMode).toBe('projects')
 })
 
-it('素材与模板和别的入口同一层级：换地址、换主区', () => {
-  act(() => entry('模板').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-
-  expect(useStore.getState().appMode).toBe('templates')
-  expect(entry('模板').getAttribute('aria-pressed')).toBe('true')
+it('画布与视频不占导航位：它们只从项目进', () => {
+  expect(() => entry('画布')).toThrow()
+  expect(() => entry('视频')).toThrow()
 })
 
-it('工作台里没有侧栏：画布与视频占整屏，导航交给左上角的品牌菜单', () => {
+it('工作台里没有侧栏：画布占整屏，导航交给左上角的品牌菜单', () => {
   expect(host.querySelector('nav')).not.toBeNull()
 
-  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => useStore.getState().setAppMode('canvas'))
 
   expect(host.querySelector('nav')).toBeNull()
 })
