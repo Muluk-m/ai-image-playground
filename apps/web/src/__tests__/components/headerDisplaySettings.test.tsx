@@ -48,7 +48,7 @@ afterEach(async () => {
 })
 
 function openAccountMenu(): void {
-  const trigger = host.querySelector<HTMLButtonElement>('button[aria-expanded]')
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="打开个人账户"]')
   if (!trigger) throw new Error('missing account menu trigger')
   act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }

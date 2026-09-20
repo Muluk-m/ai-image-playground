@@ -4,6 +4,7 @@ import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
+import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
@@ -223,6 +224,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <span className="studio-spark">✧</span>
                 <h3>{t('sidebar.emptyTitle')}</h3>
                 <p>{t('sidebar.emptyBody')}</p>
+                {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
+                <AgentSuggestions className="studio-suggestions mt-5" />
               </div>
               <CanvasGenerateBar editor={editor} />
             </aside>

@@ -83,6 +83,8 @@
     "restoring": "Restoring your projects…",
     "reload": "Reload",
     "untitled": "Untitled project",
+    "kindImage": "Image",
+    "kindVideo": "Video",
     "routeUnavailable": "This project can't be opened right now. Check the account, or try again on the original device.",
     "cloudListFailed": "Could not load the project list. Projects already open still work.",
     "loadFailed": "Could not load the projects. Your content is kept, please reload."

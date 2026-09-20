@@ -100,8 +100,7 @@
     "moderation": "Moderation",
     "count": "Count",
     "noModel": "Not selected",
-    "more": "More",
-    "fewer": "Less"
+    "more": "More"
   },
   "size": {
     "titleRatio": "Set aspect ratio",

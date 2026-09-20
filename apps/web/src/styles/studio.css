@@ -22,20 +22,19 @@
 .studio-empty h2 { font-size: 25px; font-weight: 500; letter-spacing: -.05em; }
 .studio-empty p { margin: 12px 0 22px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.9; }
 .studio-empty button { pointer-events: auto; }
-.studio-secondary, .studio-primary { border-radius: 9px; padding: 10px 16px; font-size: 12px; transition: background .15s; }
-.studio-secondary { border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); }
+.studio-secondary { border-radius: 9px; padding: 10px 16px; font-size: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); transition: background .15s; }
 .studio-secondary:hover { background: hsl(var(--muted)); }
-.studio-primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font-weight: 600; }
-.studio-primary:hover { background: hsl(var(--primary)); }
-.studio-primary:disabled { opacity: .45; cursor: not-allowed; }
 .studio-shell button:focus-visible, .studio-shell textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
 .studio-toolbar { position: absolute; top: 104px; bottom: 16px; left: 16px; z-index: 400; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 .studio-tools { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; box-shadow: var(--studio-shadow); border-radius: var(--studio-radius); }
 .studio-tools::-webkit-scrollbar { display: none; }
 .studio-tools button { flex-shrink: 0; }
 .studio-direct-composer { margin-top: auto; padding: var(--studio-space-4); }
-.studio-direct-card { display: flex; flex-direction: column; gap: 14px; }
-.studio-direct-card textarea { background: hsl(var(--background)); border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); border-radius: var(--studio-radius); padding: 12px; margin-top: 12px; }
+.studio-direct-card { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); box-shadow: var(--studio-shadow); }
+.studio-direct-card:focus-within { border-color: hsl(var(--ring) / .5); }
+/* 卡内输入区不再单独描一圈：聚焦由卡片边框（:focus-within）表示。 */
+.studio-direct-card textarea { padding: 4px 6px; background: transparent; color: hsl(var(--foreground)); }
+.studio-direct-card textarea:focus-visible { outline: none; }
 .studio-direct-card textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .studio-canvas-status { position: absolute; inset: 0; z-index: 420; display: grid; place-items: center; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; }
 @media (max-width: 767px) {

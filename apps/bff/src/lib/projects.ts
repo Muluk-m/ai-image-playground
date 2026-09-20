@@ -149,10 +149,12 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       coverMediaId: imageIds.at(-1) ?? null,
       conversationId: existing?.conversation_id ?? null,
     }
+    // 画布类型建项目时定死：已有项目以存档里那份为准，客户端后来带什么都不算数。
+    const document = existing ? { ...input.document, kind: existing.document.kind } : input.document
     const values = {
       name: project.name,
       revision: project.revision,
-      document: input.document,
+      document,
       element_count: project.elementCount,
       cover_media_id: project.coverMediaId,
       updated_at: now,

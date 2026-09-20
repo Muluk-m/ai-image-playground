@@ -78,6 +78,41 @@ it('同一用户的另一设备恢复文字画布与名称，目录不携带场�
   expect(list.projects[0]).not.toHaveProperty('document')
 })
 
+it('画布类型建项目时定死，后来的写入改不动它', async () => {
+  const id = crypto.randomUUID()
+  const created = await request(`/${id}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 0,
+    name: '视频画布',
+    document: { ...document, kind: 'video' },
+  })
+  expect(created.status).toBe(200)
+  const rewritten = await request(`/${id}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 1,
+    name: '视频画布',
+    document: { ...document, kind: 'image' },
+  })
+  expect(rewritten.status).toBe(200)
+  expect((await (await request(`/${id}`, deviceB)).json()).document.kind).toBe('video')
+
+  // 这个字段是后加的：不带它的项目一直是图片画布，也不会凭空长出一个。
+  const legacy = crypto.randomUUID()
+  await request(`/${legacy}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 0,
+    name: '老项目',
+    document,
+  })
+  await request(`/${legacy}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 1,
+    name: '老项目',
+    document: { ...document, kind: 'video' },
+  })
+  expect((await (await request(`/${legacy}`, deviceB)).json()).document).not.toHaveProperty('kind')
+})
+
 it('拒绝不完整媒体、未知格式及超出边界的结构，保留原文档', async () => {
   const id = crypto.randomUUID()
   const write = (doc: unknown) =>

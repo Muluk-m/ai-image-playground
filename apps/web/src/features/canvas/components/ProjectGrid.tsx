@@ -130,11 +130,16 @@ export default function ProjectGrid({
                     ✧
                   </span>
                 )}
-                {project.id === activeId && (
-                  <span className="absolute left-3 top-3 rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">
-                    {t('grid.current')}
+                <span className="absolute left-3 top-3 flex items-center gap-1.5">
+                  <span className="rounded-full bg-background/85 px-2 py-1 text-[10px] text-muted-foreground">
+                    {t(project.kind === 'video' ? 'project.kindVideo' : 'project.kindImage')}
                   </span>
-                )}
+                  {project.id === activeId && (
+                    <span className="rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">
+                      {t('grid.current')}
+                    </span>
+                  )}
+                </span>
               </div>
               <h3
                 className="truncate px-4 pt-3 text-sm font-medium text-foreground"

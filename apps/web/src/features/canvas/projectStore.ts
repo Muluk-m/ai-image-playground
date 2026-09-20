@@ -2,6 +2,7 @@ import {
   type AgentConversationView,
   type CloudProjectSummary,
   PROJECT_NAME_MAX_LENGTH,
+  type ProjectKind,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
@@ -37,7 +38,8 @@ interface ProjectState {
   cloudCatalog: Record<string, CloudProjectSummary>
   refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
-  create(): Promise<CanvasProject>
+  /** 画布类型建出来就定死；除了视频入口，其余新建都是图片画布。 */
+  create(kind?: ProjectKind): Promise<CanvasProject>
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
@@ -161,13 +163,14 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     })()
     return loading
   },
-  async create() {
+  async create(kind = 'image' as ProjectKind) {
     await get().load()
     const project = await projectRepository.create(
       UNTITLED_PROJECT,
       undefined,
       cloudProjectsEnabled(),
       true,
+      kind,
     )
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)

@@ -12,6 +12,13 @@
     "loginMethods": "登录方式",
     "loggingOut": "退出中"
   },
+  "brand": {
+    "home": "主页",
+    "projects": "项目库",
+    "newProject": "新建项目",
+    "deleteProject": "删除当前项目",
+    "deleteProjectMessage": "确定删除项目「{{name}}」吗？"
+  },
   "nav": {
     "create": "创作",
     "mine": "我的",
