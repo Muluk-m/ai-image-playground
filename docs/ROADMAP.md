@@ -34,7 +34,7 @@
 | [#483](https://github.com/Muluk-m/ai-image-playground/issues/483) 完整创作云同步 | **已关闭 17 张**（含 #501–#516） | — | 全停，`wontfix`，见「已砍 / 降级」 |
 | [#422](https://github.com/Muluk-m/ai-image-playground/issues/422) 云端项目同步 | **已关闭 6 张**（epic + #441–#445） | #440 → Lane B | #440 阻塞已解除（#438 / #439 已关），可开工 |
 | [#252](https://github.com/Muluk-m/ai-image-playground/issues/252) / [#273](https://github.com/Muluk-m/ai-image-playground/issues/273) Veo | **均已关闭** | — | 代码已在 main（#270 / #271 / #272），上线推迟，降级见「已砍 / 降级」 |
-| 零散 | #682 #380 #312 #222 #162 #78 | 已分诊 | #682 → `needs-triage`（等 A3 边界裁决）；#312 → `ready-for-human`（等两条堵法裁决）；#222 / #78 → `ready-for-agent`；#380 → `enhancement` 不排期；#162 正文已换成本三道结构 |
+| 零散 | #682 #380 #222 #162 #78 | 已分诊 | #682 边界已裁决（2026-09-21，见 A5），回到 `ready-for-agent`；#312 已交付关闭（#702，只堵领养）；#222 / #78 → `ready-for-agent`；#380 → `enhancement` 不排期；#162 正文已换成本三道结构 |
 
 被砍的 26 张票都写了关闭理由并打 `wontfix`，可原样重开；[#509](https://github.com/Muluk-m/ai-image-playground/issues/509) 按「目标功能已随 [#643](https://github.com/Muluk-m/ai-image-playground/issues/643) 删除」关闭。
 
@@ -62,7 +62,8 @@
 - 现状（2026-09-20 核对）：5 条方案里 4 条已落地——`/video` 进画布并预置 composer、导演台与 `POST /api/storyboard/plan` 已下线（能力位进 `RETIRED_CAPABILITIES`）、选中即参考端到端（共享矩阵 `video-presets.ts` → 画布面板 / BFF 校验 / 智能体工具描述三方同源）、`generateVideo` 收 `referenceImageIds` 且 `arrangeTimeline` 落画布、死代码（`productMatte`、remix / matte 路由、`@huggingface/transformers`、coach 组件）已清。
 - 方案条目 4「对话为空时出现底部生成栏」**形态已变更**：有智能体时走空项目落地页 `ProjectWelcome`（`CONTEXT.md` 已记为现行意图），生成栏只留在无智能体分支。该条不再做。
 - 剩余范围：用户故事 17（单张图走同一入口——`referenceSelection` 现在要求 ≥ 2 张）、18（选区混入视频时给说明——`imageSelection` 返回 `null` 后入口直接消失），以及真账号的参考图出片上线验收。
-- 验收：视频不再需要独立入口；旧导演台路径无残留；单张与混选都有明确去处或解释。
+- 验收：画布里单段视频从生成到落画布可用；旧导演台路径无残留；单张与混选都有明确去处或解释。
+- 边界：**视频以后是独立入口**（2026-09-21 裁决），所以 A3 只收口「画布里也能生成单段视频」这条；多段编排与成片搬去 A5。
 
 ### A4 电商三条技能的真实产出验证
 
@@ -70,6 +71,14 @@
 - 方法：10 个 SKU（硬表面 5 / 透明高反光 3 / 服装 2）× 3 条技能 × 3 次，统计 logo、型号字、比例、光影方向四项的失败率。
 - 产出同时回答 Lane C 的路线裁决（抠图合成 vs 全图重绘）。
 - 验收：失败率表进 `docs/research/`；三条技能正文按结论修订。
+
+### A5 独立视频工作台（#682，排在 A3 之后）
+
+- [ ] 目标：视频工程成为一等对象——有名字、片段列表、总时长，列在侧栏；工程页上方预览、下方片段轨；每段可续写 / 改视频 / 取首尾帧 / 删除 / 拖动排序；导出复用 `useFilmExport`。
+- 裁决（2026-09-21）：`/video` 不再只是把画布 composer 预置成视频，视频是自己的入口。画布 composer 仍可生成单段视频作为画布对象，多段编排与成片只在视频工作台。
+- 约束：按裁决 G1 / [ADR 0011](adr/0011-cloud-storage-limited-to-assets.md)，视频工程与片段**留本机**，不新增把产出上云的路径。
+- 先复用再新建：`TimelineEditor.tsx` 已有预览 + 播放头、片段轨、裁入裁出、删除、拖拽换序，`filmExportStore` → `lib/exportFilm.ts` 已接在工具栏；缺的是每段来源 / 模型 / 时长标注、把续写 / 改视频 / 取首尾帧从画布工具栏挪进时间线、工程级列表与总时长。
+- 验收：片段不再落在图片画布上；一个视频工程从建立到导出成片全程不经过图片画布。
 
 ## Lane B：地板
 
