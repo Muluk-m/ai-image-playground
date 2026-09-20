@@ -11,7 +11,7 @@ import {
   projectDocument,
   projectScene,
 } from './projectMedia'
-import { type CanvasProject, projectRepository } from './projectRepository'
+import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './projectRepository'
 
 type Checkpoint = Omit<CloudSceneCheckpoint, 'version' | 'name'>
 const RETRY_DELAYS = [1000, 2000, 5000, 15000, 30000]
@@ -370,6 +370,9 @@ export class CloudProjectSession {
       }
       await this.metadata({
         name: remote.name,
+        // 云端那份还叫「未命名项目」就说明没人起过名字：留着自动命名的余地，
+        // 会话标题出来后还能改过来。钉成自定义名，项目就永远停在未命名。
+        customName: remote.name !== UNTITLED_PROJECT,
         cloud: { revision: remote.revision },
         updatedAt: remote.updatedAt,
         hasContent: remote.elementCount > 0 || this.project.hasContent,
@@ -420,12 +423,18 @@ export class CloudProjectSession {
     this.editVersion++
     if (!STOPPED.has(this.state.status) && this.state.status !== 'error') this.update('pending')
   }
-  /** 名字是否算用户自己起的由调用方定；这里只负责把它写进本机并推上云端。 */
-  rename(name: string): Promise<void> {
+  /**
+   * 改名并推上去。`custom` 为假是会话标题给的自动名：不算用户起的名字，标题再变还能跟着改。
+   */
+  rename(name: string, custom = true): Promise<void> {
     return this.serialize(async () => {
       // 先把欠着的那次恢复元数据补写掉，否则它会把新名字盖回去。
       await this.saveRecoveryMetadata()
-      await this.metadata({ name, cloud: { revision: this.baseline.revision, nameDirty: true } })
+      await this.metadata({
+        name,
+        customName: custom,
+        cloud: { revision: this.baseline.revision, nameDirty: true },
+      })
       this.markChanged()
       await this.push()
     })
@@ -611,6 +620,7 @@ export class CloudProjectSession {
       }
       this.recoveryMetadata = {
         name: remote.name,
+        customName: remote.name !== UNTITLED_PROJECT,
         cloud: { revision: remote.revision },
         updatedAt: remote.updatedAt,
         hasContent: remote.elementCount > 0,

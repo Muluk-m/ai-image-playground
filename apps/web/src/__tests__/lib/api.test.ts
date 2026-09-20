@@ -3,7 +3,6 @@ import { callImageApi, resumeQueueImageApi } from '../../lib/api'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
 import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from '../../lib/channels/types'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
-import { buildAspectInstruction } from '../../lib/size'
 import { type AppSettings, DEFAULT_PARAMS } from '../../types'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
@@ -100,19 +99,6 @@ function settingsWithByok(
     activeProfileId: profile.id,
   })
 }
-
-describe('buildAspectInstruction', () => {
-  it('builds a portrait composition sentence from a parseable size', () => {
-    const expected = 'Composition: a tall 9:16 vertical frame, portrait orientation.'
-
-    expect(buildAspectInstruction('1024x1824')).toBe(expected)
-    expect(buildAspectInstruction(' 1024 × 1824 ')).toBe(expected)
-  })
-
-  it('returns null for auto size', () => {
-    expect(buildAspectInstruction('auto')).toBeNull()
-  })
-})
 
 describe('callImageApi', () => {
   afterEach(async () => {

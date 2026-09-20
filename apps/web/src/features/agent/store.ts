@@ -108,6 +108,12 @@ function readThinkingDepth(): AgentThinkingDepth {
   return value === 'fast' || value === 'deep' ? value : 'medium'
 }
 
+/**
+ * 出图模式（生成工具拟好稿当场提交，不逐张等确认）。与思考档位同样是本机偏好：
+ * 它换掉的是用户那道花钱闸门，跨会话记住才不用每批都重开，但也绝不跟着账号同步。
+ */
+const AUTO_SUBMIT_KEY = 'image-playground-agent-auto-submit'
+
 /** 重试被拒时盖在失败占位上的那一层：新的码，以及它盖的是哪一次云端生成。 */
 export interface AgentRetryRefusal {
   readonly code: AgentToolErrorCode
@@ -133,6 +139,12 @@ export type AgentPromptConfirmResult =
 export interface AgentState {
   thinkingDepth: AgentThinkingDepth
   setThinkingDepth(depth: AgentThinkingDepth): void
+  /**
+   * 出图模式：生成工具拟好稿当场提交，不再逐张等确认（`AgentTurnParams.autoSubmit`）。
+   * 与思考档位同属本机偏好，起轮时随参数快照送到服务端。
+   */
+  autoSubmit: boolean
+  setAutoSubmit(autoSubmit: boolean): void
   /**
    * 这个会话此刻在做什么。输入框上的开关是它的唯一写入口，草稿仍然负责持久化；
    * 放在 store 里是因为「代用户发一轮」的入口（澄清作答等）看不见输入框，
@@ -236,6 +248,11 @@ export interface AgentState {
    * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
    */
   confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
+  /**
+   * 按面板上的先后逐张确认所有待确认草稿。一张被拒（余额不够、没登录）就停下，
+   * 不刷出一串同样的错；返回停下之前成交的张数与那个出路。
+   */
+  confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
 
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
@@ -575,8 +592,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
       ])
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
       if (event.status === 'submitted') {
-        if (!jobDeliveries.has(event.messageId))
+        if (!jobDeliveries.has(event.messageId)) {
+          // 出图模式下生成工具当场提交，起跑那一刻还不知道会不会真提交（额度、余额都可能
+          // 让它退回拟稿），所以 `toolStart` 不带张数、没占位，位要在这里补上。
+          // `reserve` 按 messageId 幂等：起跑时已经占过的调用走到这里是空操作。
+          if (card.kind === 'tool')
+            turnDelivery.reserve(event.messageId, agentDraftReservation(card, conversationId))
           jobDeliveries.set(event.messageId, turnDelivery.handOff(event.messageId))
+        }
         watchJobs(conversationId)
       } else if (event.status === 'failed' && card.kind === 'tool')
         turnDelivery.failed(event.messageId, event.message, card.errorCode)
@@ -923,7 +946,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
   const currentTurnParams = () => {
     const { params, settings } = useStore.getState()
     const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
-    return { ...toAgentTurnParams(params, model), thinkingDepth: get().thinkingDepth }
+    return {
+      ...toAgentTurnParams(params, model, get().autoSubmit),
+      thinkingDepth: get().thinkingDepth,
+    }
   }
 
   /** 智能体忙时发的话进服务端的排队列表，当前回复结束后按顺序处理。 */
@@ -1092,6 +1118,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
     setThinkingDepth: (thinkingDepth) => {
       safeLocalStorage.setItem(THINKING_DEPTH_KEY, thinkingDepth)
       set({ thinkingDepth })
+    },
+    autoSubmit: safeLocalStorage.getItem(AUTO_SUBMIT_KEY) === '1',
+    setAutoSubmit: (autoSubmit) => {
+      safeLocalStorage.setItem(AUTO_SUBMIT_KEY, autoSubmit ? '1' : '0')
+      set({ autoSubmit })
     },
 
     setOpen: (open) => set({ open }),
@@ -1693,6 +1724,22 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // 轮询只认没结束的卡，这一步不做就没有第二次机会，占的位会一直转圈。
       deliverJob(card)
       return { ok: true }
+    },
+
+    async confirmAllPrompts() {
+      // 先把这一刻的清单定死：确认会就地换掉卡片，边遍历边读 messages 会漏掉后面那些。
+      const pending = get().messages.flatMap((one) =>
+        one.kind === 'tool' && one.status === 'awaiting_confirmation'
+          ? [{ id: one.id, prompt: get().promptDrafts[one.id] ?? one.prompt ?? '' }]
+          : [],
+      )
+      let confirmed = 0
+      for (const card of pending) {
+        const result = await get().confirmPrompt(card.id, card.prompt)
+        if (!result.ok) return { confirmed, failure: result }
+        confirmed += 1
+      }
+      return { confirmed, failure: null }
     },
   }
 })

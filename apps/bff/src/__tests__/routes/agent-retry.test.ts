@@ -18,6 +18,7 @@ import {
   eventsOfType,
   parseFrames,
   scriptedAgentFetch,
+  submittedPrompt,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
@@ -198,9 +199,10 @@ describe('单张重试', () => {
       job: { taskId: retried.id, media: 'image' },
       retryOf: { messageId: failed.id, toolCallId: 'call-1', placeholderId: 'placeholder-2' },
     })
-    // 按快照重出这一张：同一个模型、同一条提示词，张数是 1，挂在同一个会话下。
+    // 按快照重出这一张：同一个模型、同一条提示词（连提交时钉上的 guard 一起照抄），
+    // 张数是 1，挂在同一个会话下。
     expect(retried.model).toBe(toolBlock(failed).snapshot!.target!.model)
-    expect(retried.request_payload.prompt).toBe(PROMPT)
+    expect(retried.request_payload.prompt).toBe(submittedPrompt(PROMPT))
     expect(retried.request_payload.n).toBe(1)
     expect(retried.agent_conversation_id).toBe(conversationId)
     // 不调用对话模型。

@@ -1,7 +1,7 @@
+import { formatImageRatio } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import {
   calculateImageSize,
-  formatImageRatio,
   normalizeCodexCliImageSize,
   sameAspectRatio,
   sizeRatioLabel,

@@ -11,6 +11,7 @@ import type {
   AgentTurnParams,
 } from '@image-playground/shared'
 import type { Static, TSchema } from 'typebox'
+import type { AgentAutoSubmitBudget } from '../auto-submit'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
 import type { TurnAuthorizationText } from '../turn-authorization'
@@ -33,6 +34,11 @@ export interface AgentToolContext {
   readonly maskedEditPlan?: MaskedEditPlan
   /** 这一轮用户在参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
+  /**
+   * 出图模式的每轮自动提交额度；缺席即这一轮不自动提交（对话模式，生成工具只拟稿）。
+   * 领得到额度的调用当场提交并计费，领不到的退回等待确认。
+   */
+  readonly autoSubmit?: AgentAutoSubmitBudget
   /** 续跑轮里已经提交的后台调用，用于提交去重。 */
   readonly replay?: AgentSubmissionReplay
 }

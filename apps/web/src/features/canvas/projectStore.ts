@@ -43,6 +43,8 @@ interface ProjectState {
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
+  /** 会话标题给的自动名；与用户自己改名不同，不把项目钉成「自定义名字」。 */
+  autoName(id: string, name: string): Promise<void>
   restore(id: string): Promise<void>
   markDeleted(ids: readonly string[]): Promise<void>
   remove(id: string): Promise<void>
@@ -218,6 +220,21 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       await pushCloudProjectName(project)
     }
   },
+  async autoName(id, name) {
+    const current = get().projects.find((one) => one.id === id)
+    if (current?.cloud && cloudProjectsEnabled()) {
+      // 动态 import：workspaces 反过来依赖这个 store，静态引会成环。
+      const { autoNameCloudProject } = await import('./lib/workspaces')
+      // 开着的那个工作区自己会把新名字推上去并回写本机记录。
+      if (await autoNameCloudProject(current, name)) return
+    }
+    const project = await projectRepository.update(id, {
+      name,
+      hasContent: true,
+      ...(current?.cloud ? { cloud: { ...current.cloud, nameDirty: true } } : {}),
+    })
+    set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
+  },
   async restore(id) {
     const scope = scopedStorageName(CANVAS_PROJECT_KEY)
     await restoreDeletedCloudProject(id)
@@ -269,10 +286,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       if (existing) {
         if (existing.cloud?.deleted) continue
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
-          // 自动命名是顺带做的：一个项目改不动，后面的项目不该跟着没名字。
-          await get()
-            .update(existing.id, { name: conversation.title, hasContent: true })
-            .catch(() => {})
+          await get().autoName(existing.id, conversation.title)
         continue
       }
       const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {

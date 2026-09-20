@@ -13,7 +13,10 @@ import {
   completionStream,
   parseFrames,
   recordingAgentFetch,
+  scriptedAgentFetch,
+  toolCallCompletion,
 } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_turn')
 process.env.PORT = '0'
@@ -27,9 +30,11 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
+const PIXEL = 'data:image/png;base64,aGk='
 
 async function post(path: string, body: unknown) {
   const response = await app.handle(
@@ -48,15 +53,35 @@ async function startConversation(): Promise<string> {
   return (json as { conversation: { id: string } }).conversation.id
 }
 
-async function runTurn(conversationId: string, text: string) {
+async function runTurn(
+  conversationId: string,
+  text: string,
+  references?: readonly { imageId: string; dataUrl: string }[],
+) {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId: DEVICE, text }),
+      body: JSON.stringify({ deviceId: DEVICE, text, ...(references ? { references } : {}) }),
     }),
   )
   return { response, frames: parseFrames(await response.text()) }
+}
+
+/** 送上游的那一条用户消息拆成两半：真带着字节的图片块，和纯文字。 */
+function sentBlocks(call: AgentCall): { readonly images: unknown[]; readonly text: string } {
+  const content = call.messages.at(-1)?.content
+  if (typeof content === 'string') return { images: [], text: content }
+  if (!Array.isArray(content)) return { images: [], text: '' }
+  const images: unknown[] = []
+  let text = ''
+  for (const block of content) {
+    if (!block || typeof block !== 'object' || !('type' in block)) continue
+    if (block.type === 'image_url') images.push(block)
+    else if (block.type === 'text' && 'text' in block && typeof block.text === 'string')
+      text += block.text
+  }
+  return { images, text }
 }
 
 async function readMessages(conversationId: string): Promise<AgentMessageView[]> {
@@ -74,11 +99,14 @@ function types(frames: { event: AgentTurnEvent }[]): string[] {
 }
 
 beforeEach(async () => {
+  // 输入框附的参考图在起轮前先归档进对象存储，没有它带图的轮连模型都到不了。
+  setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.agent_conversations)
 })
 
 afterEach(() => {
   setAgentFetchForTesting()
+  setObjectStoreForTesting()
 })
 
 afterAll(async () => {
@@ -218,6 +246,57 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     expect((await post(path, { deviceId: DEVICE, text: '' })).status).toBe(400)
     expect((await post(path, { deviceId: DEVICE, text: 'x'.repeat(4001) })).status).toBe(400)
     expect((await post(path, { deviceId: 'short', text: '你好' })).status).toBe(400)
+  })
+
+  /**
+   * 上一轮附的图不再无条件跟着下一轮重发：纯文字轮一个图片块都不带，那批图只剩 id 与编号，
+   * 模型真要看内容得自己调 viewImage。这条是「公鸡那一轮被上一轮的商务人像带偏」的回归。
+   */
+  it('stops resending last turn reference bytes on a text-only turn', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('好的')))
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '[image 1] 把这张修一下', [
+      { imageId: 'canvas-portrait', dataUrl: PIXEL },
+    ])
+    await runTurn(conversationId, '再画一只公鸡')
+
+    // 附了图的那一轮照旧把字节发出去。
+    expect(sentBlocks(calls[0]!).images).toHaveLength(1)
+
+    const second = sentBlocks(calls[1]!)
+    expect(second.images).toEqual([])
+    // 编号与 id 仍然可寻址，只是写明了内容不在这一份输入里。
+    expect(second.text).toContain('[image 1] 图片 id canvas-portrait')
+    expect(second.text).toContain('内容没有附在本轮输入里')
+    expect(second.text).not.toContain('已附在本轮输入里')
+  })
+
+  /**
+   * 按需取图的另一半：模型调 viewImage 之后，那张图的字节真的进了下一次上游请求。
+   * 这一条钉的是与 pi 的约定——工具结果里的 image 块会随转录发出去；它一断，整个按需取图就是空的。
+   */
+  it('lets viewImage pull the bytes of a carried-over image into the model context', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => completionStream('好的'),
+        () =>
+          toolCallCompletion({ id: 'look-1', name: 'viewImage', args: { imageIds: ['image 1'] } }),
+        () => completionStream('看到了，是一张人像'),
+      ]),
+    )
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '[image 1] 把这张修一下', [
+      { imageId: 'canvas-portrait', dataUrl: PIXEL },
+    ])
+    await runTurn(conversationId, '那张图里到底是什么？')
+
+    // 起轮那一刻不带字节，工具跑完之后的那一次请求才带上。
+    expect(sentBlocks(calls[1]!).images).toEqual([])
+    expect(sentBlocks(calls[2]!).images).toHaveLength(1)
   })
 })
 

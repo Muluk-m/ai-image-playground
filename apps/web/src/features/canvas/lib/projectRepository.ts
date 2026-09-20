@@ -252,6 +252,7 @@ export const projectRepository = {
         result = request.result ?? {
           id: summary.id,
           name: summary.name,
+          // 云端还叫「未命名项目」就是没人起过名：自动命名还能接手，见 CloudProjectSession。
           customName: summary.name !== UNTITLED_PROJECT,
           conversationId: null,
           sceneKey: `${scope}:project:${summary.id}`,
