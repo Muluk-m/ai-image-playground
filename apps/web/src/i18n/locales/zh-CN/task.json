@@ -96,7 +96,8 @@
     "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",
     "recent": "最近生成",
     "noMatches": "没有找到匹配的记录",
-    "empty": "还没有作品。去创作页写一句，或到探索里挑个起点。"
+    "empty": "还没有作品。去创作页写一句，或到探索里挑个起点。",
+    "mine": "我的作品"
   },
   "set": {
     "storyboardFallback": "分镜",
