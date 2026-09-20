@@ -1,5 +1,5 @@
-import { ChevronDown } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ListChecks } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -40,8 +40,8 @@ function useOutcomeText(message: AgentToolMessage): string {
 }
 
 /**
- * 收件箱顶上的整体进度：走满的一段是已完成，接着一段是没成的，余下留给还在跑的那几个，
- * 跑着就一直呼吸。一行字说不清「0 个进行中 · 19 个已完成」是多少活儿，一条条走满看得见。
+ * 这批活儿走到哪儿了：已完成一段、没成的一段，余下留给还在跑的那几个，跑着就一直呼吸。
+ * 两个裸计数说不清进度，一条走满的杠看得见。
  */
 function InboxProgress({
   completed,
@@ -69,7 +69,7 @@ function InboxProgress({
   )
 }
 
-function InboxRow({ message }: { message: AgentToolMessage }) {
+function InboxRow({ message, onLocate }: { message: AgentToolMessage; onLocate: () => void }) {
   const { t } = useTranslation('agent')
   const outcome = useOutcomeText(message)
   return (
@@ -78,7 +78,10 @@ function InboxRow({ message }: { message: AgentToolMessage }) {
         type="button"
         title={t('job.inbox.locate')}
         className={`${LIST_ROW} min-w-0 flex-1 flex-col !items-start !gap-0.5`}
-        onClick={() => locate(message)}
+        onClick={() => {
+          locate(message)
+          onLocate()
+        }}
       >
         <span className={`w-full truncate ${INK}`}>{message.title}</span>
         <span className={`${CARD_NOTE} tabular-nums`}>{outcome}</span>
@@ -89,17 +92,34 @@ function InboxRow({ message }: { message: AgentToolMessage }) {
 }
 
 /**
- * 面板顶部的后台任务收件箱：顶上一条进度说这批活儿走到哪儿了，展开是逐个任务，点一下定位到
- * 画布，在跑的能单独取消。数据全来自会话消息与服务端进度，刷新、换设备后是同一份。
+ * 画布右上角的后台任务入口：一颗按钮说这批活儿走到哪儿了，点开是逐个任务，点一行把镜头带过去，
+ * 在跑的能单独取消。挂在画布上而不是对话顶上：任务结果落的是画布，定位过去之后弹层就收起，
+ * 不像常驻横条那样一直压着对话。数据全来自会话消息与服务端进度，刷新、换设备后是同一份。
  */
 export default function AgentJobInbox() {
   const { t } = useTranslation('agent')
   const messages = useAgentStore((state) => state.messages)
   const inbox = useMemo(() => agentJobInbox(messages), [messages])
   const [open, setOpen] = useState(false)
-  if (inbox.running.length === 0 && inbox.finished.length === 0) return null
-  const rows = [...inbox.running, ...[...inbox.finished].reverse()]
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: PointerEvent) => {
+      if (!host.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [open])
   const total = inbox.running.length + inbox.finished.length
+  if (total === 0) return null
+  const rows = [...inbox.running, ...[...inbox.finished].reverse()]
   const label =
     inbox.failed > 0
       ? t('job.inbox.summaryFailed', {
@@ -108,36 +128,44 @@ export default function AgentJobInbox() {
           failed: inbox.failed,
         })
       : t('job.inbox.summary', { running: inbox.running.length, completed: inbox.completed })
+  const count = t('job.inbox.count', { done: inbox.finished.length, total })
   return (
-    <section aria-label={t('job.inbox.aria')} className="mx-3 mb-1 shrink-0 rounded-lg bg-muted">
+    <div ref={host} className="pointer-events-auto flex flex-col items-end">
       <button
         type="button"
         aria-expanded={open}
         aria-label={label}
         title={label}
         onClick={() => setOpen((value) => !value)}
-        className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-[11px] ${INK_3}`}
+        className={`flex items-center gap-2 rounded-full border border-border bg-sidebar px-3 py-1.5 text-[11px] shadow-lg backdrop-blur transition-colors ${INK} hover:border-primary/40`}
       >
-        <InboxProgress
-          completed={inbox.completed}
-          failed={inbox.failed}
-          running={inbox.running.length}
-        />
-        <span className="shrink-0 tabular-nums">
-          {t('job.inbox.count', { done: inbox.finished.length, total })}
-        </span>
-        <ChevronDown
-          className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`}
-          aria-hidden="true"
-        />
+        <ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>{t('job.inbox.title')}</span>
+        {inbox.running.length > 0 && (
+          <span
+            className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+            aria-hidden="true"
+          />
+        )}
+        <span className={`tabular-nums ${INK_3}`}>{count}</span>
       </button>
       {open && (
-        <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto px-1 pb-1">
-          {rows.map((message) => (
-            <InboxRow key={message.id} message={message} />
-          ))}
-        </ul>
+        <div className="mt-1.5 w-72 max-w-[80vw] rounded-xl border border-border bg-sidebar p-2 shadow-xl">
+          <div className="flex items-center gap-2 px-1 pb-1.5">
+            <InboxProgress
+              completed={inbox.completed}
+              failed={inbox.failed}
+              running={inbox.running.length}
+            />
+            <span className={`shrink-0 text-[11px] tabular-nums ${INK_3}`}>{count}</span>
+          </div>
+          <ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+            {rows.map((message) => (
+              <InboxRow key={message.id} message={message} onLocate={() => setOpen(false)} />
+            ))}
+          </ul>
+        </div>
       )}
-    </section>
+    </div>
   )
 }

@@ -104,16 +104,18 @@ it('shows how far the batch got and lists the jobs on demand', () => {
   render()
 
   const summary = host.querySelector('button[aria-expanded]')!
-  // 进度说的是「这批走完几个」，成与不成分两段；一句话留给读屏与悬停。
+  // 入口上只有标题与「走完几个」，进度条与逐个任务在点开的弹层里；一句话留给读屏与悬停。
+  expect(summary.textContent).toContain('生成任务')
   expect(summary.textContent).toContain('2/4')
   expect(summary.getAttribute('aria-label')).toBe('2 个进行中 · 1 个已完成 · 1 个没有完成')
-  const [done, failed] = [...summary.querySelectorAll('span[style]')].map(
-    (one) => (one as HTMLElement).style.width,
-  )
-  expect([done, failed]).toEqual(['25%', '25%'])
+  expect(host.querySelector('span[style]')).toBeNull()
   expect(host.querySelector('li')).toBeNull()
 
   act(() => (summary as HTMLButtonElement).click())
+  const [done, failed] = [...host.querySelectorAll('span[style]')].map(
+    (one) => (one as HTMLElement).style.width,
+  )
+  expect([done, failed]).toEqual(['25%', '25%'])
   const rows = [...host.querySelectorAll('li')].map((one) => one.textContent)
   // 在跑的在前，结束的按新到旧。
   expect(rows[0]).toContain('任务 1')
@@ -142,15 +144,22 @@ it('counts a job still waiting in the retry queue as running, not as finished', 
   expect(rowButton('任务 2').textContent).toContain('排队中')
 })
 
+function openInbox() {
+  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+}
+
 it('locates a running job by its placeholder and a finished one by its artifacts', () => {
   store.messages = [job('1', {}), job('2', { status: 'succeeded', artifacts: [IMAGE] })]
   render()
-  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+  openInbox()
 
   act(() => rowButton('任务 1').click())
   expect(focusPending).toHaveBeenCalledWith({ messageId: '1', taskId: 'task-1' })
   expect(focus).not.toHaveBeenCalled()
+  // 镜头已经带过去了，弹层就让开画布。
+  expect(host.querySelector('li')).toBeNull()
 
+  openInbox()
   act(() => rowButton('任务 2').click())
   expect(focus).toHaveBeenCalledWith(['agent_image_1'])
 })
@@ -164,7 +173,7 @@ it('falls back to the anchor object when a running job has no placeholder after 
     '1': { stage: 'submitted', submittedAt: Date.now(), phase: 'reconnecting' },
   }
   render()
-  act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
+  openInbox()
   expect(rowButton('任务 1').textContent).toContain('重新连接中')
 
   act(() => rowButton('任务 1').click())
@@ -173,6 +182,7 @@ it('falls back to the anchor object when a running job has no placeholder after 
 
   // 没有占位也没有锚点：没有可去的地方，镜头不动。
   focus.mockClear()
+  openInbox()
   act(() => rowButton('任务 2').click())
   expect(focus).not.toHaveBeenCalled()
 })

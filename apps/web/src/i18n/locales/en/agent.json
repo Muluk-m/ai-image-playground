@@ -279,7 +279,7 @@
       "wake_limit": "The assistant has checked back 3 times in a row and will wait for you before continuing"
     },
     "inbox": {
-      "aria": "Background jobs",
+      "title": "Generation jobs",
       "summary": "{{running}} running · {{completed}} done",
       "summaryFailed": "{{running}} running · {{completed}} done · {{failed}} failed",
       "count": "{{done}}/{{total}}",
