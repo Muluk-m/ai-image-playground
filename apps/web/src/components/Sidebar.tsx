@@ -40,7 +40,7 @@ export default function Sidebar() {
   }, [])
   // 宽度由一个变量说了算：主区、画布与输入框都照它让位。
   useEffect(() => {
-    document.documentElement.style.setProperty('--app-sidebar-size', hidden ? '0px' : '15rem')
+    document.documentElement.style.setProperty('--app-sidebar-size', hidden ? '0px' : '11rem')
   }, [hidden])
   const recent = projectCatalog(projects, cloudCatalog)
     .filter((project) => project.hasContent)
