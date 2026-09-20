@@ -1,3 +1,4 @@
+import { applyPromptRewriteGuard, buildAspectInstruction } from '@image-playground/shared'
 import { i18next } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
@@ -8,15 +9,9 @@ import type { UserByokProfile } from './channels/types'
 import { isByokGenerationEnabled } from './clientCapabilities'
 import { compressInputImageDataUrls } from './compressInputImage'
 import { callGeminiImageApi } from './geminiImageApi'
-import {
-  applyPromptRewriteGuard,
-  type BYOKAdapterProfile,
-  type CallApiOptions,
-  type CallApiResult,
-} from './imageApiShared'
+import type { BYOKAdapterProfile, CallApiOptions, CallApiResult } from './imageApiShared'
 import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
 import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
-import { buildAspectInstruction } from './size'
 
 export { normalizeBaseUrl } from './devProxy'
 export type { CallApiOptions, CallApiResult } from './imageApiShared'

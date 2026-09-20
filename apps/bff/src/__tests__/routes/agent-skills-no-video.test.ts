@@ -108,7 +108,13 @@ describe('a deployment that cannot make video', () => {
     await runVideoTurn(conversationId, '做个 15 秒的开箱片')
 
     const names = calls[0]!.tools?.map((tool) => tool.function.name).sort() ?? []
-    expect(names).toEqual(['askClarification', 'editImage', 'generateImage', 'readLibrary'])
+    expect(names).toEqual([
+      'askClarification',
+      'editImage',
+      'generateImage',
+      'readLibrary',
+      'viewImage',
+    ])
     const prompt = systemPromptOf(calls[0]!)
     expect(prompt).not.toContain('<available_skills>')
     expect(prompt).not.toContain('storyboard-short')

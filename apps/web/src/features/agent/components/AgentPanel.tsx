@@ -28,6 +28,7 @@ import AgentConnectionHint from './AgentConnectionHint'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentMessageQueue from './AgentMessageQueue'
+import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
 import AgentSkillStep from './AgentSkillStep'
 import AgentSuggestions from './AgentSuggestions'
@@ -258,6 +259,7 @@ export default function AgentPanel({
         </div>
       )}
 
+      {tab === 'chat' && <AgentPendingDrafts />}
       {tab === 'chat' && <AgentMessageQueue />}
       {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
     </div>

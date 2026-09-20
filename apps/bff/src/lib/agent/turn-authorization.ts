@@ -24,11 +24,15 @@ function clarificationChainStart(history: readonly AgentMessageView[]): number {
   return start
 }
 
-/** 起轮那一刻的授权原文：澄清链上的用户原话与澄清摘要，收尾是本轮 prompt 与引用清单。 */
+/**
+ * 起轮那一刻的授权原文：澄清链上的用户原话与澄清摘要，收尾是本轮 prompt 与引用清单。
+ * `attached` 与送给模型的那一份同源：清单措辞两边差一个字，requestQuote 的子串校验就会失手。
+ */
 export function turnAuthorizationText(
   history: readonly AgentMessageView[],
   prompt: string,
   references: readonly AgentImageReference[],
+  attached: boolean,
 ): string {
   return [
     ...history
@@ -40,7 +44,7 @@ export function turnAuthorizationText(
               block.type === 'clarification' ? [agentClarificationSummary(block)] : [],
             ),
       ),
-    turnPromptText(prompt, references),
+    turnPromptText(prompt, references, attached),
   ].join('\n')
 }
 
@@ -54,7 +58,7 @@ export interface TurnAuthorization {
   /** 此刻的授权原文；同一版本每次拿到的是同一个对象。 */
   current(): TurnAuthorizationText
   /** 用户插话：那句原话连同它的引用清单追加成「用户补充」，版本加一。 */
-  amend(text: string, references: readonly AgentImageReference[]): void
+  amend(text: string, references: readonly AgentImageReference[], attached: boolean): void
 }
 
 /**
@@ -65,19 +69,22 @@ export function createTurnAuthorization(input: {
   readonly history: readonly AgentMessageView[]
   readonly prompt: string
   readonly references: readonly AgentImageReference[]
+  /** 这一批引用的内容有没有随本轮输入附上；只影响清单措辞。 */
+  readonly attached: boolean
   readonly carried?: string
 }): TurnAuthorization {
   let authorized: TurnAuthorizationText = {
     revision: 0,
     instructions:
-      input.carried ?? turnAuthorizationText(input.history, input.prompt, input.references),
+      input.carried ??
+      turnAuthorizationText(input.history, input.prompt, input.references, input.attached),
   }
   return {
     current: () => authorized,
-    amend(text, references) {
+    amend(text, references, attached) {
       authorized = {
         revision: authorized.revision + 1,
-        instructions: `${authorized.instructions}\n用户补充：${turnPromptText(text, references)}`,
+        instructions: `${authorized.instructions}\n用户补充：${turnPromptText(text, references, attached)}`,
       }
     },
   }

@@ -38,6 +38,8 @@ export function agentImageCount(args: { readonly n?: unknown } | null | undefine
  * 分支必须与 web 的 `lib/channels/queueClient.ts` 里 `submit()` 那段保持一致：同一组参数
  * 走直接生成和走智能体，发给上游的东西必须是同一份，否则用户改了比例却只有一条路生效。
  * `auto` 在这里等于「没选」——上游认不得这个字面量，带上去反而是个坏值。
+ * `moderation` 不在这里补：`createQueueTask` 对每一条 openai 系图片任务都会兜底成
+ * `DEFAULT_IMAGE_MODERATION`，两条路共用那一处，这里再写一遍就是第二份实现。
  */
 export function queueParamsFor(
   provider: QueueProvider,

@@ -23,6 +23,7 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
+import { shapeQueuePrompt, unshapeQueuePrompt } from './prompt-shaping'
 import { AgentToolError, queueRefusalCode } from './tools/errors'
 
 /**
@@ -180,13 +181,25 @@ export async function confirmAgentGeneration(
       // 付了费的任务就不会落进一个已经删掉或已经易主的会话。
       if (!(await conversationStillOwned(tx, input))) return { kind: 'not_found' }
 
+      // 发给上游的那一句在这里才成形：创作页在分发层加的防改写 guard 与构图指令，这条路
+      // 以前一段都不加。卡上展示、用户编辑的仍是不带机器指令的原句，所以变换只发生在提交这一刻。
+      const upstreamPrompt =
+        draft.media === 'image'
+          ? shapeQueuePrompt({
+              provider: draft.provider,
+              model: draft.model,
+              prompt,
+              size: prepared.request.size,
+            })
+          : prompt
+
       const submitted = await createQueueTask({
         tx,
         provider: draft.provider,
         model: draft.model,
         request: {
           ...prepared.request,
-          prompt,
+          prompt: upstreamPrompt,
           device_id: input.deviceId,
           client_request_id: draft.id,
         },
@@ -385,7 +398,12 @@ async function taskOfCommand(
       ),
     )
     .limit(1)
-  return task ? { taskId: task.id, prompt: task.request.prompt } : null
+  if (!task) return null
+  // 落库那一句带着提交时钉上去的机器指令，卡片要回的是用户当初确认的原文。
+  return {
+    taskId: task.id,
+    prompt: unshapeQueuePrompt({ prompt: task.request.prompt, size: draft.request.size }),
+  }
 }
 
 /** 记下这份草稿用掉了哪条任务，再把卡片改写成「已提交」。两件事同一个事务。 */

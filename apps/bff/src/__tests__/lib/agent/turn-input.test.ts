@@ -141,30 +141,31 @@ describe('estimateTurnInputTokens', () => {
     expect(added(RICH_HISTORY, '再来一张', [])).toBe(46)
   })
 
-  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（56）。
+  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（68）。
   // 清单头现在只有带引用时才拼，所以它整块算进这条增量里。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1256)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1268)
   })
 
-  // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行（170）。
+  // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行（182）。
   it('charges three image blocks for a masked reference', () => {
-    expect(added([], '换成夜景', [MASKED])).toBe(3770)
+    expect(added([], '换成夜景', [MASKED])).toBe(3782)
   })
 
-  // 上面两条各自的块与清单行加在一起（4800 字符 = 4800 + 189），清单头只写一次。
+  // 上面两条各自的块与清单行加在一起（4800 字符 = 4800 + 201），清单头只写一次。
   it('adds the blocks of every active reference', () => {
-    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4989)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5001)
   })
 
-  // 历史里那张带遮罩的图照遮罩引用算：3600（3 个图片块）+ 84（回放这两条历史消息）+ 170（清单）。
-  it('falls back to the last batch of references in history when this turn attaches none', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3854)
+  // 沿用下来的那批只上文字清单，字节一个都不发：135（回放这两条历史消息，带遮罩的那张在回放里
+  // 也写成「只给了 id」的清单）+ 129（本轮 prompt 末尾的同一份清单）。没有任何图片块。
+  it('carries the last batch of references as text only when this turn attaches none', () => {
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(264)
   })
 
-  // 本轮自己带了图，历史那批不再编号：1200（1 个图片块）+ 84（回放）+ 56（普通引用的清单）。
+  // 本轮自己带了图，历史那批不再编号：1200（1 个图片块）+ 135（回放）+ 68（普通引用的清单）。
   it('numbers only this turn references when the turn attaches its own', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1340)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1403)
   })
 
   it('caps a long history at the compaction threshold', () => {
@@ -201,6 +202,7 @@ describe('tool declarations in the estimate', () => {
     expect(agentToolDeclarations('image').map((declaration) => declaration.name)).toEqual([
       'generateImage',
       'editImage',
+      'viewImage',
       'readLibrary',
       'askClarification',
     ])
@@ -263,9 +265,9 @@ describe('estimated and sent turn input', () => {
   it('writes this turn prompt text the same way on both paths', () => {
     const estimated = estimatedTurnInput([], '换成夜景', [PLAIN, MASKED])
     // 实发那一份是 `turnPromptText` 再接视觉证据清单，估算照同一条规则拼，所以只能是前缀。
-    expect(textOf(estimated.at(-1)!).startsWith(turnPromptText('换成夜景', [PLAIN, MASKED]))).toBe(
-      true,
-    )
+    expect(
+      textOf(estimated.at(-1)!).startsWith(turnPromptText('换成夜景', [PLAIN, MASKED], true)),
+    ).toBe(true)
   })
 
   it('charges the same number of image blocks the sent evidence carries', async () => {
@@ -281,7 +283,7 @@ describe('estimated and sent turn input', () => {
    */
   it('writes the same visual evidence manifest on both paths', async () => {
     const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
-    const promptText = turnPromptText('换成夜景', [PLAIN, MASKED])
+    const promptText = turnPromptText('换成夜景', [PLAIN, MASKED], true)
     const sent = turnModelPrompt(promptText, evidence)
     const estimatedText = textOf(estimatedTurnInput([], '换成夜景', [PLAIN, MASKED]).at(-1)!)
     const estimatedManifest = estimatedText.slice(promptText.length)
@@ -306,7 +308,7 @@ describe('estimated and sent turn input', () => {
     const evidence = await turnVisualEvidence([reviewed])
     const estimated = estimatedTurnInput([], '复核', [], 'image', [reviewed.imageId]).at(-1)!
     expect(imageBlocks(estimated)).toBe(evidence.content.length)
-    expect(textOf(estimated)).toBe(turnPromptText('复核', []) + evidence.manifest)
+    expect(textOf(estimated)).toBe(turnPromptText('复核', [], false) + evidence.manifest)
     expect(
       estimateTurnInputTokens([], '复核', [], 'image', [reviewed.imageId]) -
         estimateTurnInputTokens([], '复核', []),

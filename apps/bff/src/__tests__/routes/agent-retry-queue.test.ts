@@ -17,6 +17,7 @@ import {
   eventsOfType,
   parseFrames,
   scriptedAgentFetch,
+  submittedPrompt,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
@@ -267,7 +268,7 @@ describe('重试排队', () => {
       .from(schema.tasks)
       .where(eq(schema.tasks.id, next.result.job!.taskId))
     expect(submitted!.request_payload.n).toBe(1)
-    expect(submitted!.request_payload.prompt).toBe(PROMPT)
+    expect(submitted!.request_payload.prompt).toBe(submittedPrompt(PROMPT))
     expect(submitted!.user_id).toBe(USER_ID)
     expect(submitted!.agent_turn_id).toBe(second.turnId)
 

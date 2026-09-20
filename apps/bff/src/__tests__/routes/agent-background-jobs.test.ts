@@ -42,6 +42,8 @@ const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
+// 与上面同一个理由：config 在模块求值时读环境，必须排在 env 设置之后。
+const { config } = await import('../../config')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -84,15 +86,15 @@ async function startConversation(): Promise<string> {
   return ((await response.json()) as { conversation: { id: string } }).conversation.id
 }
 
-function turnRequest(conversationId: string, text: string) {
+function turnRequest(conversationId: string, text: string, params?: Record<string, unknown>) {
   return request(`/api/agent/conversations/${conversationId}/turns`, {
     method: 'POST',
-    body: { deviceId: DEVICE, text },
+    body: { deviceId: DEVICE, text, ...(params ? { params } : {}) },
   })
 }
 
-async function runTurn(conversationId: string, text: string) {
-  return parseFrames(await (await turnRequest(conversationId, text)).text())
+async function runTurn(conversationId: string, text: string, params?: Record<string, unknown>) {
+  return parseFrames(await (await turnRequest(conversationId, text, params)).text())
 }
 
 async function readJobs(conversationId: string): Promise<AgentBackgroundJobsResponse['jobs']> {
@@ -218,18 +220,77 @@ describe('生成改为后台任务', () => {
     expect(JSON.stringify(calls[1]!.messages.slice(1))).toContain('结果尚未就绪')
   })
 
-  it('tells the model in the system prompt and tool description that a draft submits nothing', async () => {
+  // 「这一次到底提交了没有」只由系统提示词那一句说，两种模式各一份。工具自己的说明刻意不写
+  // 这件事：写在两处，出图模式一开就会有一处说错，模型照着它对用户说「等你确认」。
+  it('tells the model which submission contract this turn runs under', async () => {
+    const chat: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(chat, [() => completionStream('好的')]))
+    await runTurn(await startConversation(), '你好')
+    const chatSystem = JSON.stringify(chat[0]!.messages[0]!.content)
+    expect(chatSystem).toContain('不得声称已经开始或完成生成')
+    expect(chatSystem).not.toContain('这一轮是出图模式')
+
+    const auto: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(auto, [() => completionStream('好的')]))
+    await runTurn(await startConversation(), '你好', { autoSubmit: true })
+    const autoSystem = JSON.stringify(auto[0]!.messages[0]!.content)
+    expect(autoSystem).toContain('这一轮是出图模式')
+    expect(autoSystem).not.toContain('不得声称已经开始或完成生成')
+
+    // 工具说明在两种模式下一字不差，所以它不可能说错其中一种。
+    expect(JSON.stringify(auto[0]!.tools)).toBe(JSON.stringify(chat[0]!.tools))
+  })
+
+  it('submits on the spot in direct mode and keeps the turn going', async () => {
     const calls: AgentCall[] = []
-    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好的')]))
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [() => generateCall(2), () => completionStream('两张都在跑了')]),
+    )
     const conversationId = await startConversation()
 
-    await runTurn(conversationId, '你好')
+    const frames = await runTurn(conversationId, '画两张橘猫', { autoSubmit: true })
 
-    const system = JSON.stringify(calls[0]!.messages[0]!.content)
-    expect(system).toContain('不得声称已经开始或完成生成')
-    // 工具自己也说清楚：这一次调用什么都没提交，更谈不上有结果。
-    const tools = JSON.stringify(calls[0]!.tools)
-    expect(tools).toContain('没有提交任务')
+    const task = await onlyTask()
+    expect(task.status).toBe('queued')
+    expect(task.request_payload.n).toBe(2)
+    const [end] = eventsOfType(frames, 'toolEnd')
+    expect(end).toMatchObject({
+      toolCallId: 'call-1',
+      status: 'submitted',
+      job: { taskId: task.id, media: 'image' },
+    })
+    // 没有拟稿这一步，所以这一轮不收尾：模型被叫回来接着说话（对话模式下 calls 只有 1 次）。
+    expect(calls).toHaveLength(2)
+    expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    // 已提交的卡进后台任务列表，用户不必再点任何东西。
+    expect(await readJobs(conversationId)).toHaveLength(1)
+  })
+
+  it('falls back to a draft when the direct submission is refused, without failing the turn', async () => {
+    const original = config.operator
+    // 当天额度为 0：建任务那一步一定被拒，与余额不足走同一条回绝路径。
+    config.operator = {
+      ...original,
+      capabilities: { ...original.capabilities, 'quota:daily': true },
+      quotas: { ...original.quotas, 'generation:daily-images': 0 },
+    }
+    try {
+      const calls: AgentCall[] = []
+      setAgentFetchForTesting(scriptedAgentFetch(calls, [() => generateCall()]))
+      const conversationId = await startConversation()
+
+      const frames = await runTurn(conversationId, '画一只橘猫', { autoSubmit: true })
+
+      expect(await db.select().from(schema.tasks)).toEqual([])
+      const [end] = eventsOfType(frames, 'toolEnd')
+      // 退回待确认：不报错、不中断整轮，稿子留给用户。
+      expect(end).toMatchObject({ toolCallId: 'call-1', status: 'awaiting_confirmation' })
+      expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+      // 退回之后就是一张普通草稿：拟稿即收尾，模型没有被叫回来。
+      expect(calls).toHaveLength(1)
+    } finally {
+      config.operator = original
+    }
   })
 
   it('delivers the finished task to the job list, the snapshot and the next turn', async () => {

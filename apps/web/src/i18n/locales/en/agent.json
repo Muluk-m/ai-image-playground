@@ -60,7 +60,14 @@
     "model": "Model {{name}}",
     "gone": "This draft card is gone. Ask the assistant to draft it again.",
     "notConfirmable": "This draft is no longer valid — it may have been confirmed elsewhere. Ask the assistant to draft it again.",
-    "failed": "Couldn't submit it. Your edited prompt is kept, please retry."
+    "failed": "Couldn't submit it. Your edited prompt is kept, please retry.",
+    "allPending_one": "{{count}} draft waiting for you",
+    "allPending_other": "{{count}} drafts waiting for you",
+    "allSubmit_one": "Confirm all ({{count}})",
+    "allSubmit_other": "Confirm all ({{count}})",
+    "allSubmitting": "Submitting one by one…",
+    "allFailed_one": "Stopped after confirming {{count}}. Please retry the rest one by one.",
+    "allFailed_other": "Stopped after confirming {{count}}. Please retry the rest one by one."
   },
   "toolFailure": {
     "recharge": "Top up",
@@ -116,7 +123,10 @@
     "modeAria": "Creation type",
     "modeImage": "Image",
     "modeVideo": "Video",
-    "queue": "Queue"
+    "queue": "Queue",
+    "autoSubmitAria": "Direct generation mode",
+    "autoSubmitOnTitle": "Direct generation: the assistant starts generating — and charging — as soon as it drafts a prompt, with no per-draft confirmation",
+    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)"
   },
   "queue": {
     "title_one": "{{count}} queued",
@@ -139,6 +149,8 @@
   "params": {
     "title": "Generation settings",
     "autoSize": "Auto size",
+    "builtinModel": "Built-in channel model",
+    "byokNote": "The agent only runs on built-in channel models; your own API key profile does not apply here. The draft card names the model each generation actually uses.",
     "note": "The agent decides how many images to make. Setting changes apply from the next turn.",
     "autoRatio": "Auto ratio",
     "thinkingFast": "Fast",

@@ -5,8 +5,20 @@ import {
   type AgentToolResultBlock,
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
+  PROMPT_REWRITE_GUARD_PREFIX,
   parseAgentFrame,
 } from '@image-playground/shared'
+
+/**
+ * 落库的那一句。确认提交时会钉上创作页同款的防改写 guard（`lib/agent/prompt-shaping.ts`），
+ * 卡面上展示给用户的仍是原文，所以断言 `request_payload.prompt` 时要按它拼。
+ *
+ * `TEST_IMAGE_CHANNEL` 的模型没声明 `size` 能力，带尺寸的用例还会多一段构图指令，那一段
+ * 由用例自己拼——它才知道这一轮带没带尺寸。
+ */
+export function submittedPrompt(prompt: string): string {
+  return `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}`
+}
 
 export interface AgentCall {
   readonly url: string

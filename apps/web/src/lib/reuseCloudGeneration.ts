@@ -1,4 +1,4 @@
-import type { GenerationDetail } from '@image-playground/shared'
+import { type GenerationDetail, PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
 import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
@@ -13,7 +13,6 @@ import { scopedStorageName } from './authScope'
 import { getPublicChannels } from './channels/publicChannels'
 import { resolveMediaSource } from './cloudMedia'
 import { BASE_DB_NAME, hashDataUrl, openNamedDb } from './db'
-import { PROMPT_REWRITE_GUARD_PREFIX } from './imageApiShared'
 
 /** Prepare everything before replacing the draft; never submit a generation from history reuse. */
 export async function reuseCloudGeneration(detail: GenerationDetail, signal: AbortSignal) {

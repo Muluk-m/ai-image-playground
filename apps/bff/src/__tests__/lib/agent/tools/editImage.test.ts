@@ -34,6 +34,7 @@ function fixture() {
     history: [],
     prompt: INSTRUCTIONS,
     references: [],
+    attached: false,
   })
   let onResolve: (() => void) | undefined
   const real = createAgentImageSource({
@@ -60,7 +61,7 @@ function fixture() {
   return {
     context,
     interjectWhileFetching(text: string) {
-      onResolve = () => authorization.amend(text, [])
+      onResolve = () => authorization.amend(text, [], false)
     },
     revision: () => authorization.current().revision,
   }

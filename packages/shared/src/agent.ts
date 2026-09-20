@@ -39,6 +39,7 @@ export function isAgentMode(value: unknown): value is AgentMode {
 export type AgentToolName =
   | 'generateImage'
   | 'editImage'
+  | 'viewImage'
   | 'readLibrary'
   | 'generateVideo'
   | 'loadSkill'
@@ -101,6 +102,13 @@ export interface AgentTurnParams {
   readonly thinkingDepth?: AgentThinkingDepth
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
+  /**
+   * 出图模式：生成工具拟好稿就当场提交，不再停在「等待确认」等用户逐张点。
+   *
+   * 它换掉的是用户那道花钱闸门，所以只认显式的 `true`：缺席、`false` 都是对话模式。
+   * 一轮最多自动提交 {@link AGENT_AUTO_SUBMIT_MAX_PER_TURN} 次，超出的照常退回等待确认。
+   */
+  readonly autoSubmit?: true
   readonly size?: string
   readonly quality?: string
   readonly output_format?: string
@@ -109,6 +117,15 @@ export interface AgentTurnParams {
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
 }
+
+/**
+ * 出图模式下一轮最多自动提交多少次生成。
+ *
+ * 对话模式靠「拟稿即收尾」刹车：一拟稿这一轮就结束，模型没机会接着调。出图模式要的正是
+ * 连着出，那条刹车就没了，剩下的只有模型自己。超过这个数之后的调用退回等待确认——
+ * 不报错、不中断，用户仍然看得见那些稿，只是要自己点。
+ */
+export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 12
 
 /** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
 export const AGENT_IMAGE_MAX_N = 10
@@ -301,7 +318,7 @@ export const AGENT_RETRYABLE_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'no_output',
 ]
 
-/** 能按快照原样重出的工具。查素材库、读技能不提交生成任务，没有可重出的东西。 */
+/** 能按快照原样重出的工具。查素材库、看图、读技能不提交生成任务，没有可重出的东西。 */
 const RETRYABLE_TOOLS: readonly AgentToolName[] = ['generateImage', 'editImage', 'generateVideo']
 
 /**
