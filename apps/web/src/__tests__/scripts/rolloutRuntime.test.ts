@@ -11,7 +11,11 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// 每个用例都要 spawn 一次真实的 shell 脚本，子进程预算就是 20 秒；vitest 默认的 5 秒
+// 比它还短，全量并行跑抢 CPU 时这里会以「超时」假失败，单跑却全绿。上限跟着子进程走。
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 
 /**
  * 2026-09-18 两次付费版发布失败：旧执行器「排空前永不停止」，一代代堆在一台小 VPS 上，
