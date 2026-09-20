@@ -155,8 +155,18 @@ it('无浏览器连接也向原项目交付，保留用户移动和其他编辑�
   await runTask(submitted.taskId)
   const restored = await (await request(`/${original.id}`)).json()
   expect(restored.revision).toBe(4)
+  // 产物按自己的 4:3 居中 contain 进用户留出的 420x280 框，不被拉成框的形状。
   expect(restored.document.elements).toMatchObject([
-    { id: element.id, type: 'image', x: 900, y: 240, width: 420, height: 280 },
+    {
+      id: element.id,
+      type: 'image',
+      x: 900 + (420 - 280 * (32 / 24)) / 2,
+      y: 240,
+      width: 280 * (32 / 24),
+      height: 280,
+      naturalWidth: 32,
+      naturalHeight: 24,
+    },
     { id: 'note', text: '用户保留文字' },
   ])
   expect(restored.document.elements[0].mediaId).toBeString()
