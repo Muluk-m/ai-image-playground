@@ -3,6 +3,7 @@ import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
+import AgentJobInbox from '../../agent/components/AgentJobInbox'
 import AgentPanel from '../../agent/components/AgentPanel'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
@@ -252,6 +253,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
+            {/* 后台任务入口贴画布右上角，在标题那一行下面：任务落的是画布，进度和定位就该在画布上，
+            不占对话顶上的常驻位置。 */}
+            {hasAgent && (
+              <div className="pointer-events-none absolute right-4 top-10 z-[410] flex justify-end">
+                <AgentJobInbox />
+              </div>
+            )}
             {saveFailed && (
               <div
                 role="alert"
