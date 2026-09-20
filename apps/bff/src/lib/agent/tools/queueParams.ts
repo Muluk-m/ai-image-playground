@@ -1,7 +1,6 @@
 import type { AgentTurnParams, QueueProvider, SubmitRequest } from '@image-playground/shared'
 import { AGENT_IMAGE_MAX_N, nearestAspectRatio } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { Value } from 'typebox/value'
 
 export const imageCountParameter = Type.Optional(
   Type.Integer({
@@ -21,16 +20,10 @@ export const reviewParameter = Type.Optional(
 )
 
 /**
- * 这次图片工具调用出几张。画布起跑时按它占位，队列请求按它填 `n`——
- * 两处同一个算式，占位框数量才不会和真正出的张数对不上。
+ * 这次图片工具调用出几张。`toolStart` 早于 pi 的参数校验，所以走 shared 里与
+ * `Value.Convert` 同语义的那一份——画布占位与队列请求共用它，两处才不会各算各的。
  */
-export function agentImageCount(args: { readonly n?: unknown } | null | undefined): number {
-  // toolStart 早于 pi 的参数校验；沿用同一转换，避免 "3" 被执行为三张却只占一个位。
-  const n = Value.Convert(imageCountParameter, args?.n)
-  return typeof n === 'number' && Number.isInteger(n)
-    ? Math.min(AGENT_IMAGE_MAX_N, Math.max(1, n))
-    : 1
-}
+export { agentImageCount } from '@image-playground/shared'
 
 /**
  * 轮上的生成参数 → 队列请求字段。

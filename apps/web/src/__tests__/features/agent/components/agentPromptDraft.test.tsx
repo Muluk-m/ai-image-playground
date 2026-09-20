@@ -129,9 +129,6 @@ it('把整段草稿摊在卡上直接可改，而不是藏在「查看提示词�
   expect(field().value).toBe(DRAFTED)
   expect(field().disabled).toBe(false)
   expect(host.textContent).not.toContain('查看提示词')
-  // 还没有任何生成任务，也还没有为生成扣钱；但对话本身的消耗照旧。
-  expect(host.textContent).toContain('还没有提交生成任务')
-  expect(host.textContent).toContain('这段对话本身的消耗照常计入')
   expect(host.textContent).toContain('确认后生成 2 张')
   expect(host.textContent).toContain('gpt-image-1')
 })

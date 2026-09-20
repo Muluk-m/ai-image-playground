@@ -1,16 +1,14 @@
-import { AGENT_IMAGE_MAX_N } from '@image-playground/shared'
+import { agentImageCount } from '@image-playground/shared'
 import type { AgentToolMessage } from '../types'
 import type { AgentReservation } from './canvasSink'
 
 /**
- * 这张草稿卡确认之后会出几件产物：模型在起跑快照里给的张数，按协议上限收口。
+ * 这张草稿卡确认之后会出几件产物：模型在起跑快照里给的张数，按与服务端同一个算式收口。
  * 视频一次只出一件；旧记录与坏值都按一件算，画布不会铺出一片空框。
  */
 export function agentDraftOutputCount(message: AgentToolMessage): number {
   if (message.toolName === 'generateVideo') return 1
-  const count = message.snapshot?.args.n
-  if (typeof count !== 'number' || !Number.isFinite(count)) return 1
-  return Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(count)))
+  return agentImageCount(message.snapshot?.args)
 }
 
 /**
