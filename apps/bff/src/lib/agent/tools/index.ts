@@ -31,6 +31,7 @@ import type {
   AgentToolDetails,
   AgentToolSpec,
 } from './types'
+import { viewImage } from './viewImage'
 
 export type { AgentToolOutcome, AgentToolStart } from './adapter'
 export { agentToolStage } from './adapter'
@@ -46,6 +47,7 @@ export type {
 const TOOLS: readonly AgentToolSpec[] = [
   generateImage,
   editImage,
+  viewImage,
   readLibrary,
   generateVideo,
   arrangeTimeline,

@@ -247,6 +247,7 @@ describe('智能体生视频工具', () => {
       'generateVideo',
       'loadSkill',
       'readLibrary',
+      'viewImage',
     ])
   })
 

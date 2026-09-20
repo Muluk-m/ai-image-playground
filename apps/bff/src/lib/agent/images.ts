@@ -140,8 +140,17 @@ export function referenceHasMask(reference: AgentImageReference): boolean {
   return Boolean('dataUrl' in reference ? reference.maskDataUrl : reference.mask)
 }
 
-/** 附在用户消息后面送给模型；没有引用时是空串。 */
-export function referenceManifest(references: readonly AgentImageReference[]): string {
+/**
+ * 附在用户消息后面送给模型；没有引用时是空串。
+ *
+ * `attached` 说的是这批图的**内容**在不在这一份输入里。本轮用户附上的图连字节一起发；
+ * 从上下文里沿用下来的那批只给 id——它们不代表本轮意图，模型要看内容得自己调 `viewImage`。
+ * 两种措辞都带同一份编号，`[image N]` 的可寻址性不因为字节没发而丢。
+ */
+export function referenceManifest(
+  references: readonly AgentImageReference[],
+  attached: boolean,
+): string {
   if (references.length === 0) return ''
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
@@ -150,10 +159,17 @@ export function referenceManifest(references: readonly AgentImageReference[]): s
       : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
   })
-  return `\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）：\n${lines.join('\n')}`
+  const head = attached
+    ? '可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：'
+    : '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+  return `\n\n${head}\n${lines.join('\n')}`
 }
 
-/** 保留最近一批引用的编号；更早的图仍可凭原 id 取回。 */
+/**
+ * 保留最近一批引用的编号；更早的图仍可凭原 id 取回。
+ *
+ * 沿用下来的这一批**只进清单文字**：它让 `[image N]` 仍然指得回真 id，不再让本轮重发字节。
+ */
 export function activeAgentReferences(
   current: readonly AgentTurnReference[],
   history: readonly AgentMessageView[],

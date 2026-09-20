@@ -217,12 +217,12 @@ function videoParameters(support: VideoModelSupport | null) {
 }
 
 const GUIDANCE_BASE =
-  '用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。工具只拟稿：提示词与档位交给用户在卡片上确认，确认之后系统才提交，所以不要说已经在出片。'
+  '用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。这一次到底提交了没有以工具回执那句话为准，不要自己假定。'
 
 function videoGuidance(): string {
   const support = videoModel()?.support
   if (!support) return GUIDANCE_BASE
-  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会拟稿、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
+  return `${GUIDANCE_BASE}这个部署的视频模型是 ${support.label}：${supportText(support)}。参考图：${referenceText(support)}用户引用了几张图、要它们一起出现在片子里时，把它们放进 referenceImageIds。用户明说的档位它做不到时，工具不会发起生成、也不会替他换一档——按工具回执里的支持范围跟用户确认，或者改用支持的值重试。`
 }
 
 const FIELD_PARAMS: Record<VideoPresetConflict['field'], string> = {
@@ -307,10 +307,10 @@ export const generateVideo = defineAgentTool({
   // 只在视频轮：图片轮里出现它，模型就会把「让它动起来」当成随时可选的下一步。
   modes: ['video'],
   label: '生视频',
-  // 拟稿即收尾：档位与提示词交给用户确认，不提交任务、不落画布。
+  // 拟稿即收尾：对话模式下档位与提示词交给用户确认，不提交任务、不落画布。出图模式当场提交。
   confirms: true,
   description:
-    '拟一份生视频草稿交给用户确认。调用后立即返回「等待确认」：没有提交任务，也没有产生费用；用户可以改提示词，确认后系统才提交，视频在后台生成，完成后自动落到画布上，带封面可播放。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',
+    '发起一次生视频，完成后自动落到画布上，带封面可播放。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。提交前要不要先等用户确认由系统决定，见系统提示词里的生成流程那一段——工具返回的那句话会说清这一次到底提交了没有，照它说。',
   guidance: videoGuidance,
   // 静态的那份只在解析不出模型时用得上（那时工具本来就不在清单里），形状由它定型。
   parameters: videoParameters(null),

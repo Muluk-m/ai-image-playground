@@ -394,6 +394,20 @@ export function resolveModelMedia(model: string): ChannelMedia | undefined {
   return undefined
 }
 
+/**
+ * 这个模型在 channels.json 里声明的能力清单；模型不在任何 channel 里时 undefined。
+ *
+ * 与前端 `getParamCapabilities` 同一套口径：没声明过的模型按「什么都支持」处理，
+ * 清单里缺哪一项才是明确的「这个模型没有」。智能体据此补上创作页在分发层做的 prompt 变换。
+ */
+export function modelCapabilities(model: string): readonly ChannelCapability[] | undefined {
+  for (const channel of loaded) {
+    const declared = channel.models.find((m) => m.id === model)
+    if (declared) return declared.capabilities
+  }
+  return undefined
+}
+
 /** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
 export function resolveQueueModel(
   media: ChannelMedia,

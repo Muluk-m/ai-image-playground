@@ -100,6 +100,22 @@ function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
   })
 }
 
+/**
+ * 自带 Key 的配置在智能体这条路上不生效：服务端没有 BYOK 分支，模型一律从内置渠道挑。
+ * 摘要里摆 profile 的模型名就是「界面写 A、实际花钱跑 B」，所以那个名字不能出现，
+ * 面板里得说清楚为什么。
+ */
+it('自带 Key 时摘要不摆本地模型名，面板说明智能体只能用内置渠道', () => {
+  useProfile('openai-compat', 'my-private-image-model')
+  render()
+
+  expect(trigger().textContent).not.toContain('my-private-image-model')
+  expect(trigger().textContent).toContain('内置渠道模型')
+
+  toggle()
+  expect(host.textContent).toContain('智能体只能用内置渠道的模型')
+})
+
 describe('gemini 专属参数跟着当前模型走', () => {
   it('摘要展示实际的 Gemini 比例，不读取另一种协议的尺寸', () => {
     useProfile('gemini', 'gemini-3.1-flash-image')

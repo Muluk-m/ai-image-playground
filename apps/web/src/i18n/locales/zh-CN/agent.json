@@ -59,7 +59,11 @@
     "model": "模型 {{name}}",
     "gone": "这张草稿卡已经不在了，让助手重新拟一份吧。",
     "notConfirmable": "这份草稿已失效（可能在别处确认过），让助手重新拟一份吧。",
-    "failed": "没能提交，改过的提示词已保留，请重试。"
+    "failed": "没能提交，改过的提示词已保留，请重试。",
+    "allPending_other": "{{count}} 张稿等你确认",
+    "allSubmit_other": "全部确认（{{count}}）",
+    "allSubmitting": "逐张提交中…",
+    "allFailed_other": "已确认 {{count}} 张后停下，剩下的请逐张再试。"
   },
   "toolFailure": {
     "recharge": "去充值",
@@ -113,7 +117,10 @@
     "modeAria": "创作类型",
     "modeImage": "图片",
     "modeVideo": "视频",
-    "queue": "加入排队"
+    "queue": "加入排队",
+    "autoSubmitAria": "出图模式",
+    "autoSubmitOnTitle": "出图模式：助手拟好提示词直接开始生成并扣费，不再逐张等你确认",
+    "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）"
   },
   "queue": {
     "title_other": "排队中 {{count}} 条",
@@ -134,6 +141,8 @@
   "params": {
     "title": "生成参数",
     "autoSize": "自动尺寸",
+    "builtinModel": "内置渠道模型",
+    "byokNote": "智能体只能用内置渠道的模型，自带 Key 的配置在这里不生效。每次生成真正用上的模型以草稿卡上那一行为准。",
     "note": "张数由智能体按需求决定。参数改动从下一轮生效。",
     "autoRatio": "自动比例",
     "thinkingFast": "快速",
