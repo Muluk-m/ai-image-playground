@@ -27,7 +27,11 @@ import {
   cancelAgentConversationJobs,
   cancelAgentJob,
 } from '../lib/agent/background-jobs'
-import { confirmAgentGeneration, lockConversation } from '../lib/agent/confirmations'
+import {
+  confirmAgentGeneration,
+  discardConversationDraftInputs,
+  lockConversation,
+} from '../lib/agent/confirmations'
 import {
   type AgentOwner,
   adoptDeviceConversations,
@@ -47,6 +51,7 @@ import {
   sealAbandonedTurns,
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
+import { removeAgentConversationReferences } from '../lib/agent/images'
 import {
   agentInboxEntry,
   claimAgentMessageForInterjection,
@@ -695,6 +700,11 @@ export const agentRoutes = new Elysia()
           // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
           await cancelAgentConversationJobs(conversation.id, tx)
         })
+        // 字节在事务之外清：删对象不可回滚，放进事务只会让「墓碑已提交、对象删失败」
+        // 变成「整笔回滚但对象已经没了」。两个前缀都清——参考图按会话存，
+        // 草稿输入图按草稿存，会话没了两者都再没有读路径。
+        await removeAgentConversationReferences(conversation.id)
+        await discardConversationDraftInputs(conversation.id)
         return { ok: true }
       })
     },

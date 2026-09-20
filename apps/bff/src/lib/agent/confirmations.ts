@@ -316,6 +316,19 @@ async function discardDraftInputs(draftId: string): Promise<void> {
 }
 
 /**
+ * 会话删掉之后，它名下那些从没被确认过的草稿就再也点不动了，归档的输入图也就没了读路径。
+ * 已确认的草稿输入图在确认那一刻就丢过一次，这里再清一遍是幂等的。
+ * 只按会话删，不按时间——待确认卡不因为放久了而过期。
+ */
+export async function discardConversationDraftInputs(conversationId: string): Promise<void> {
+  const rows = await db
+    .select({ id: drafts.id })
+    .from(drafts)
+    .where(eq(drafts.conversation_id, conversationId))
+  for (const row of rows) await discardDraftInputs(row.id)
+}
+
+/**
  * 会话级的咨询锁：确认与删除会话都握它，所以「建任务」与「删会话、取消任务」不会交错。
  * 同一个会话里的两次确认也因此串成一条，双击只会有一条任务。
  */
