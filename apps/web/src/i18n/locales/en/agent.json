@@ -74,6 +74,10 @@
     "login": "Sign in",
     "reprocess": "Ask the assistant to redo it",
     "reprocessMessage": "\"{{title}}\" didn't finish: {{reason}}. Please take a different approach and redo it.",
+    "blocked": {
+      "local_edit": "it edited a specific selection or variant from that turn, so redoing it as-is would change the wrong thing",
+      "model_gone": "the model it used is no longer on the available list"
+    },
     "retry": "Retry"
   },
   "retry": {

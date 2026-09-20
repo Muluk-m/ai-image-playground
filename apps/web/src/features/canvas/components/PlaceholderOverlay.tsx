@@ -10,6 +10,7 @@ import { AgentRetryWithdraw } from '../../agent/components/AgentToolCard'
 import { toolMessageForPlaceholder } from '../../agent/lib/jobProgress'
 import {
   agentLiveRetry,
+  agentRerunBlock,
   agentRetryAvailable,
   agentRetryOrigin,
   agentRetryPricing,
@@ -143,12 +144,10 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
           refusal && refusal.generationId === p.meta.cloudGeneration?.id ? refusal.code : undefined
         const agentCode = p.meta.agent ? (refused ?? p.meta.agentErrorCode) : undefined
         const note = agentToolFailureText(agentCode) ?? p.message
-        const action = agentToolFailureAction(agentCode)
         // 失败占位留得比会话久（切会话、刷新后还在）：不是当前打开的那个会话就不给这个出路，
         // 否则这句话会落进一个毫不相干的会话。
         const ownConversation =
           Boolean(p.meta.agentConversationId) && p.meta.agentConversationId === openConversationId
-        const agentAction = action === 'reprocess' && !ownConversation ? null : action
         // 上游出错、超时、没出图才有重试；原卡没有快照、是局部或连锁改图、模型已下线时都没有。
         const origin =
           p.meta.agent && ownConversation && p.status === 'error'
@@ -158,6 +157,11 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
         const live = origin ? agentLiveRetry(messages, p.id) : null
         const queuedRetry = live?.status === 'queued' ? live : null
         const retryOrigin = !queuedRetry && agentRetryAvailable(agentCode, origin) ? origin : null
+        // 认得出这次生成、却重出不了（局部或连锁改图、模型已下线）：那几个码本该由重试收场，
+        // 没有重试就一个出路都没有了，改走「让助手重新处理」，并在那句话里讲清重出不了什么。
+        const block = origin ? agentRerunBlock(origin) : null
+        const action = agentToolFailureAction(agentCode, block)
+        const agentAction = action === 'reprocess' && !ownConversation ? null : action
         return (
           <div
             key={p.id}
@@ -242,6 +246,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                           code: agentCode,
                           // 云端项目里服务端预留的占位不带提示词，用通用的任务名指认。
                           title: p.meta.prompt || t('agent:creations.taskTitle'),
+                          block,
                           send: (text) => void useAgentStore.getState().send(text),
                         })
                       }
