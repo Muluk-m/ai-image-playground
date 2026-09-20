@@ -3,11 +3,11 @@
 产品方向与排期的唯一记录。每项写清「目标 / 现状 / 涉及层 / 待裁决 / 验收」，动工前先走 `/grill-with-docs` → `/to-spec` → `/to-tickets`（见 CLAUDE.md「Spec / Plan 流程」），
 这里只登记方向与依赖，不写设计细节。进度勾选在本文件，追踪 issue 见 GitHub `roadmap` 标签。
 
-**2026-09-19 重订，2026-09-20 复核。** 旧的 Phase 0/1/2 时间轴已失真：主线三项里 2.2 标着已交付却没收口、2.3 被自己的进展注释废掉、0.1 的 token 单元漏勾；同时 50 张 open issue 里有 40 张是四条规格下的 ready-for-agent 切片，在旧结构里一条都没出现。本次改为按**准入标准**分道。旧编号保留在「已交付」「已搁置」「已砍 / 降级」三节里，不删除。
+**2026-09-19 重订，2026-09-20 复核，2026-09-20 按本表处置 issue 队列。** 旧的 Phase 0/1/2 时间轴已失真：主线三项里 2.2 标着已交付却没收口、2.3 被自己的进展注释废掉、0.1 的 token 单元漏勾；同时当时 50 张 open issue 里有 40 张是四条规格下的 ready-for-agent 切片，在旧结构里一条都没出现。本次改为按**准入标准**分道。旧编号保留在「已交付」「已搁置」「已砍 / 降级」三节里，不删除。
 
 ## 排序原则
 
-**瓶颈不在 spec，在执行和验收。** 队列里已经躺着 40 张 spec 好、标 `ready-for-agent` 的切片，继续产 spec 只会加大堆积。
+**瓶颈不在 spec，在执行和验收。** 本文件的处置已在 tracker 上执行完（2026-09-20）：26 张票关闭，open 从 50 降到 24，其中实现切片只剩 #391 的 15 片、#634 与 #440。继续产 spec 只会加大堆积。
 
 按准入标准分三条道，不按时间分 Phase：
 
@@ -22,45 +22,47 @@
 1. **已上线的能力未验证，就不许铺新能力。** 当前有两处未验证：长画布智能体任务的质量与总成本（#408），以及 `apps/bff/skills/image/` 下三条电商技能正文自己标着「示例级内容，尚未经过真实产出验证」。
 2. **Lane C 与视频主线无依赖。** 电商三件套都走已有的 `image` 计费单元与 `editImage` 工具，不等任何视频能力。
 
-## 当前工作队列（真实状态，2026-09-20）
+## 当前工作队列（真实状态，2026-09-20 执行后）
 
-50 张 open issue（2026-09-20 核对），其中 40 张是四条规格下的实现切片：
+24 张 open issue。上一版的处置已全部落到 tracker 上：
 
-| 规格 | open 切片 | 归属 | 处置 |
+| 规格 | 状态 | 归属 | 已执行的处置 |
 | --- | --- | --- | --- |
-| [#391](https://github.com/Muluk-m/ai-image-playground/issues/391) 智能体画布渐进读取与有界执行 | 15（#394–#408） | Lane A | 做，优先 #400 / #398 / #396 / #408 |
-| [#483](https://github.com/Muluk-m/ai-image-playground/issues/483) 完整创作云同步与数据可携带 | 16（#501–#516） | — | **全停**，见「已砍 / 降级」 |
-| [#422](https://github.com/Muluk-m/ai-image-playground/issues/422) 云端项目同步 | 6（#440–#445） | #440 → Lane B，其余全停 | 见「已砍 / 降级」 |
-| [#634](https://github.com/Muluk-m/ai-image-playground/issues/634) 画布视频第二期 | 1 | Lane A | 做，收口 2.2 |
-| [#600](https://github.com/Muluk-m/ai-image-playground/issues/600) 对话不被生成阻塞 | 1 | Lane A | 做，最先 |
-| [#252](https://github.com/Muluk-m/ai-image-playground/issues/252) / [#273](https://github.com/Muluk-m/ai-image-playground/issues/273) Veo | 2 | — | **降级**，见「已砍 / 降级」 |
-| 零散 | #682 #380 #312 #222 #162 #78 | 分诊 | #312 是安全项，单独看；#682 独立视频工作台需先定它与 A3 的边界 |
+| [#391](https://github.com/Muluk-m/ai-image-playground/issues/391) 智能体画布渐进读取与有界执行 | 15 片仍 open | Lane A | 做，优先 #400 / #398 / #396；#394 / #395 / #408 前提作废已退回 `needs-triage` 等重写 |
+| [#600](https://github.com/Muluk-m/ai-image-playground/issues/600) 对话不被生成阻塞 | **已交付** | Lane A | 53 条验收全部有实现与测试，已关闭（见 A1） |
+| [#634](https://github.com/Muluk-m/ai-image-playground/issues/634) 画布视频第二期 | 5 条方案里 4 条已落地 | Lane A | 保持 open，范围收窄到用户故事 17 / 18 + 上线验收（见 A3） |
+| [#483](https://github.com/Muluk-m/ai-image-playground/issues/483) 完整创作云同步 | **已关闭 17 张**（含 #501–#516） | — | 全停，`wontfix`，见「已砍 / 降级」 |
+| [#422](https://github.com/Muluk-m/ai-image-playground/issues/422) 云端项目同步 | **已关闭 6 张**（epic + #441–#445） | #440 → Lane B | #440 阻塞已解除（#438 / #439 已关），可开工 |
+| [#252](https://github.com/Muluk-m/ai-image-playground/issues/252) / [#273](https://github.com/Muluk-m/ai-image-playground/issues/273) Veo | **均已关闭** | — | 代码已在 main（#270 / #271 / #272），上线推迟，降级见「已砍 / 降级」 |
+| 零散 | #682 #380 #312 #222 #162 #78 | 已分诊 | #682 → `needs-triage`（等 A3 边界裁决）；#312 → `ready-for-human`（等两条堵法裁决）；#222 / #78 → `ready-for-agent`；#380 → `enhancement` 不排期；#162 正文已换成本三道结构 |
 
-[#509](https://github.com/Muluk-m/ai-image-playground/issues/509)（商品图任务与原图蒙版跨设备继续编辑）的目标功能已随 [#643](https://github.com/Muluk-m/ai-image-playground/issues/643) 删除，**应直接关闭**。
+被砍的 26 张票都写了关闭理由并打 `wontfix`，可原样重开；[#509](https://github.com/Muluk-m/ai-image-playground/issues/509) 按「目标功能已随 [#643](https://github.com/Muluk-m/ai-image-playground/issues/643) 删除」关闭。
 
 ## Lane A：收口
 
-### A1 智能体对话不被生成阻塞（#600）
+### A1 智能体对话不被生成阻塞（#600，已交付 2026-09-20）
 
-- [ ] 目标：生成进行中对话仍可继续；排队消息、后台任务、唤醒与失败重试各自有明确状态。
-- 现状：旗舰模式的阻塞缺陷，规格已就绪。
-- 为什么排第一：改动面最小、用户感知最强，且不依赖任何其它项。
-- 验收：生成中发送的消息不丢、不乱序；任务失败后对话不卡死。
+- [x] 目标：生成进行中对话仍可继续；排队消息、后台任务、唤醒与失败重试各自有明确状态。
+- 落地：会话收件箱（`apps/bff/src/lib/agent/inbox.ts`，按会话加锁入队 + `client_message_id` 幂等、澄清优先、撤回三态、插话抢占、停止退回）、后台任务登记与结算（`background-jobs.ts`）、唤醒规则与批量合并（`wake.ts`，失败必唤 / 成功按 `wake_on_success` / 取消不唤）、按快照重试与整队撤回（`retry.ts`）、中断一次性续跑（`interrupted.ts`）；前端 `AgentMessageQueue` / `AgentJobInbox` / `AgentToolCard` / `PlaceholderOverlay`。取舍记在 [ADR 0012](adr/0012-agent-background-jobs-and-postgres-inbox.md)。
+- 已接受的缺口：后台任务进度 / 结束、唤醒已跳过、重试已排队与撤回由 `GET /api/agent/conversations/:id/jobs` 轮询 + 下一次快照承载，不是 SSE 一等事件（ADR 0012 Consequences）。
 
-### A2 智能体画布有界执行与成本验证（#391，优先 #400 / #398 / #396 / #408）
+### A2 智能体画布有界执行与成本验证（#391，优先 #400 / #398 / #396）
 
 - [ ] 目标：每次请求装入**有界**工作内容；长结果外置；按需读预览与高清局部；跑通一次长画布任务并记录真实总成本。
 - **这不是性能优化，是计费正确性问题。** 对话按 token 折算积分（裁决 E2）且已上线（`ModelPriceUnit` 含 `kilo_token`，私有迁移 `0008_chat_token_pricing`）。#400 的存在说明当前没有上下文上界——画布越长，用户为实现缺陷付的钱越多。
-- 现状：#408 明写「验证长画布任务的质量、**总成本**和可靠性」，至今未验证。
+- 现状（2026-09-20 逐片核对 origin/main）：**画布读取层零实现**（`queryCanvas` / `readCanvas` / `readContext` 全仓库零命中，工具注册表 7 个工具无画布工具），15 片里 7 片零实现、6 片半成品。#400 只满足 1/7：唯一阈值在 `compaction.ts` 内且只看 pi 的消息数组（系统说明与工具定义不在内），新摘要路径 `tailBudget = null` 不校验，`compaction-transform.ts` 的 `catch → return messages` 会把完整未压缩历史发出去，`listAgentMessages` 无 limit / cursor。
+- 三片前提已作废，退回 `needs-triage` 等重写，不要照原文做：#394 / #395 要的「版本化只读投影」已经存在（`canvas_projects.document` 带 `revision` + owner 作用域 + 几何与 arrow / freedraw / text），缺的只是智能体读不到它；#408 的 100 / 1,000 / 10,000 对象轴不成立（`PROJECT_ELEMENT_MAX_COUNT = 1000`，且画布对象数根本不进上下文，唯一通道是 `AGENT_TURN_MAX_REFERENCES = 8`）。作废清单见 [画布上下文调研](research/agent-canvas-context.md) 开头的抢救说明。
 - 涉及：BFF 智能体轮次输入组装、工具返回外置、画布观察刷新。
-- 验收：给定一张超过阈值的画布，单轮输入 token 有上界且可预测；一次完整长任务的总积分消耗被记录下来，与预扣口径对得上。
+- 验收：给定一张超过阈值的画布，单轮输入 token 有上界且可预测；一次完整长任务的总积分消耗被记录下来，与预扣口径对得上。真实轴是**会话消息数 M × 图片块**，数据从 `agent_model_calls.usage` / `input_image_count` 读；`token-estimate.ts` 的 CJK 系数 W 是单点反解且快照已失效，量之前先重校准。
 - **这一项不完成，Lane C 不开工。**
 
 ### A3 画布视频第二期收口（#634）
 
 - [ ] 目标：视频入口进画布、多图参考、智能体按镜头出片，以及随之而来的死代码清理。
-- 现状：规格已就绪；2.3 分镜的出口已经改到这里（#649），所以它也是 2.3 的收口。
-- 验收：视频不再需要独立入口；旧导演台路径无残留。
+- 现状（2026-09-20 核对）：5 条方案里 4 条已落地——`/video` 进画布并预置 composer、导演台与 `POST /api/storyboard/plan` 已下线（能力位进 `RETIRED_CAPABILITIES`）、选中即参考端到端（共享矩阵 `video-presets.ts` → 画布面板 / BFF 校验 / 智能体工具描述三方同源）、`generateVideo` 收 `referenceImageIds` 且 `arrangeTimeline` 落画布、死代码（`productMatte`、remix / matte 路由、`@huggingface/transformers`、coach 组件）已清。
+- 方案条目 4「对话为空时出现底部生成栏」**形态已变更**：有智能体时走空项目落地页 `ProjectWelcome`（`CONTEXT.md` 已记为现行意图），生成栏只留在无智能体分支。该条不再做。
+- 剩余范围：用户故事 17（单张图走同一入口——`referenceSelection` 现在要求 ≥ 2 张）、18（选区混入视频时给说明——`imageSelection` 返回 `null` 后入口直接消失），以及真账号的参考图出片上线验收。
+- 验收：视频不再需要独立入口；旧导演台路径无残留；单张与混选都有明确去处或解释。
 
 ### A4 电商三条技能的真实产出验证
 
@@ -79,16 +81,17 @@
 - **处置方式已裁决：只停止扩张，不回退删除。** 已上线的云端生成历史（`generation_images` / `media_objects` / `durableMediaStore`，前端 `CloudTaskTile` / `CloudGenerationDetail`）原样保留，不拆链路、不删用户既有数据。
 - **会话不变**：裁决 F1「对话历史存服务端」原义保留。智能体运行时在 BFF 进程内（[ADR 0003](adr/0003-agent-runtime-in-bff-process.md)），流式 SSE、工具调用幂等与刷新恢复都依赖服务端会话；且吃存储带宽的是媒体原件而非文本。G1 不触碰会话。
 - 本条推翻 [ADR 0007 生成原件长期保留与默认云同步边界](adr/0007-durable-generation-cloud-ownership.md)（accepted 2026-09-17），由 [ADR 0011](adr/0011-cloud-storage-limited-to-assets.md) supersede。
-- 三条省成本杠杆（替代回退，按此顺序做）：
-  1. **[#440](https://github.com/Muluk-m/ai-image-playground/issues/440) 无引用媒体回收与容量释放** —— #422 六片里唯一省成本的，从「全停」中捞回本道。
-  2. **每用户原件配额 + 保留期**：把存储上限从「随生成量线性」变成有天花板，参数走 operator-config。
-  3. **预览图分辨率降级**：`projectMedia.ts` 目前每张原件都生成 WebP 预览，这是带宽主项。
+- 四条省成本杠杆（替代回退，按此顺序做）：
+  1. **[#440](https://github.com/Muluk-m/ai-image-playground/issues/440) 无引用媒体回收与容量释放** —— #422 六片里唯一省成本的，从「全停」中捞回本道。阻塞已解除（#438 / #439 已关），可开工；现状是 `projectMedia.ts` 只有 reserve / complete / access，`recycleProject` 只写 `deleted_at`，周期维护里没有媒体 GC。
+  2. **[#222](https://github.com/Muluk-m/ai-image-playground/issues/222) 素材生命周期缺口** —— 删素材不回收字节（`sync-assets.ts` 没有删除路径，墓碑永久占住用户配额），被 413 / 415 拒绝的素材图永久摘出待推集合且无重试入口。同一类地板问题，与第 1 条一起做。
+  3. **每用户原件配额 + 保留期**：把存储上限从「随生成量线性」变成有天花板，参数走 operator-config。
+  4. **预览图分辨率降级**：`projectMedia.ts` 目前每张原件都生成 WebP 预览，这是带宽主项。
 - 验收：不新增任何「把产出上云」的路径；存储成本随注册用户数而非生成量增长。
 
 ### B2 设备标识安全项（#312）
 
 - [ ] 目标：智能体设备标识是纯 bearer，领养端点把「读」升级成了「永久占有」。
-- 现状：`needs-triage`，但这是权限提升，不是体验问题。
+- 现状：三条堵法里最便宜的第 3 条已落地（PR #358：读消息与续播的设备标识从 query 挪到请求头，`DEVICE_ID_HEADER = 'x-device-id'`），日志泄漏面已关；**领养端点仍只凭 body 里的裸设备标识**。标签 `ready-for-human`，等裁决走「服务端签发并签名设备标识」还是「只堵领养：要求起轮时下发的短期凭证」。
 - 验收：领养需要显式授权，读权限不隐式升级为占有。
 
 ## Lane C：电商图三件套
@@ -140,19 +143,20 @@
 - **1.3 付费返利与积分提现**（#414 / #417 / #420 / #421）：默认 5%、100 积分/元折算，返利进奖励余额，手动全额提现为消费积分。
 - **2.1 视频生成（部分）**：视频模式 composer、feed 与播放器（#189 / #190 / #191）；上游 Grok Imagine（含 `/videos/extensions` 续写与 `/videos/edits` 改视频）、Agnes `agnes-video`、火山方舟 Seedance 2.0（`doubao-seedance-2-0-mini-260615`，最长 15 秒、支持首尾帧，靠 `ARK_BASE_URL` / `ARK_API_KEY` 开关）。按秒计费已落地。
 - **2.2 智能体模式**：对话式工作台 + 工具注册表（`generateImage` / `editImage` / `readLibrary` / `generateVideo` / `arrangeTimeline` / `loadSkill`）+ 服务端会话（裁决 F1）+ token 折算积分（裁决 E2）。**收口项见 Lane A。**
+- **A1 智能体对话不被生成阻塞**（#600，2026-09-20）：会话收件箱、后台任务、唤醒、失败重试与面板交互全部落地，取舍见 [ADR 0012](adr/0012-agent-background-jobs-and-postgres-inbox.md)。
 - **2.3 视频分镜（形态已变更）**：独立导演台与 `POST /api/storyboard/plan` 随画布视频二期（#634）下线；分镜改由画布上的智能体按镜头出片并排进时间线（#649）。**原 2.3 作为独立模式不再存在**，剩余工作并入 A3。
 - **账户同步**（#176，2026-09-08）：登录用户的模板、素材（含图片本体）与用户设置跨设备同步。能力位 `accounts:sync`，两项素材配额走 operator-config。素材生命周期缺口见 #222。
 - **活跃热力图**（#177，2026-09-08）：按天消耗的一年一屏热力图，账户面板、Admin 用户详情与概览各一张；数据只来自积分流水，私有树实现。
 - **国际化**（#470）：工作台界面中英文，服务端错误按错误码在前端翻译（[ADR 0006](adr/0006-ui-trusts-error-codes-not-server-messages.md)）。
 - **商品图工作流下线**（#643）：前端页面、状态机、执行工作流、端侧分割模型及 BFF 的 remix-analysis / remix-listing / matte 路由全部移除；旧任务在作品中按组只读展示。
 
-## 已砍 / 降级（2026-09-19）
+## 已砍 / 降级（2026-09-19 裁决，2026-09-20 在 tracker 上执行）
 
-写清为什么砍，比留着当噪音强。
+写清为什么砍，比留着当噪音强。下列 26 张票都带关闭理由与 `wontfix` 标签，需要时原样重开。
 
-- **Veo 3.x 上游（#252 / #273）→ 降级为「有人要求再说」。** 第四家视频上游；已有 Grok / Agnes / Seedance 覆盖首尾帧、多图参考与 15 秒时长，边际价值最低，#273 还卡在人工定价。**本条修订裁决 D1**：D1 的「Grok Imagine → Agnes → Veo，之后接 Seedance」中，Veo 无限期推迟，Seedance 已提前落地。
-- **完整创作云同步与数据可携带（#483 及 #501–#516，16 片）→ 全停。** 按裁决 G1，云端只存资产。导出 / 导入 / 断点续传 / 完整可携带属于「数据可携带」的产品叙事，不是防丢地板。
-- **云端项目同步（#422）→ 除 #440 外全停**（#441–#445，5 片）。**#440（无引用媒体回收与容量释放）保留并移入 Lane B**，它是省成本而不是加成本。
+- **Veo 3.x 上游（#252 / #273）→ 降级为「有人要求再说」。** 第四家视频上游；已有 Grok / Agnes / Seedance 覆盖首尾帧、多图参考与 15 秒时长，边际价值最低，#273 还卡在人工定价。**本条修订裁决 D1**：D1 的「Grok Imagine → Agnes → Veo，之后接 Seedance」中，Veo 无限期推迟，Seedance 已提前落地。上游代码（#270 / #271 / #272）已在 main，重启时从 #273 的验收清单接着走。
+- **完整创作云同步与数据可携带（#483 及 #501–#516，16 片）→ 全停。** 按裁决 G1，云端只存资产。导出 / 导入 / 断点续传 / 完整可携带属于「数据可携带」的产品叙事，不是防丢地板。已交付的 01–03（#498 / #499 / #500）保留在线上。
+- **云端项目同步（#422）→ 除 #440 外全停**（#441–#445，5 片）。**#440（无引用媒体回收与容量释放）保留并移入 Lane B**，它是省成本而不是加成本。已交付的 01–07（#433–#439）保留在线上。
 - **#509 商品图跨设备继续编辑 → 关闭。** 目标功能已随 #643 删除。
 
 ## 已搁置
@@ -173,6 +177,7 @@
   - **货币与支付**：价格展示、充值档位与支付渠道目前只有人民币。
   - **灵感库内容**：案例的标题、说明与提示词只有中文。
   - **服务端生成文字与邮件模板**：智能体回复、工具卡标题、澄清选项和邮件没有错误码可查，要由服务端按用户语言生成，前提是 BFF 先知道界面语言。
+- **智能体附件读文档**（#380）：composer 只收图片（`accept="image/*"`，`filesToReferences` 全程按图片走）。方向认可但不排期——按硬约束 1，Lane A 未清空不铺新能力；且抽取方式、进轮次位置、附件计费与保留期三个未定项要先走 `/grill-with-docs`。
 
 ## 已裁决
 
