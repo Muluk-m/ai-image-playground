@@ -94,7 +94,6 @@ describe('头像菜单里的界面语言', () => {
     expect(localeRow().textContent).toContain('English')
     expect(localeRow().getAttribute('aria-label')).toBe('Language: English. Switch to 中文')
   })
-
 })
 
 describe('头像菜单里的主题', () => {
