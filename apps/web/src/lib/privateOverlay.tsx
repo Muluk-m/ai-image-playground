@@ -29,15 +29,19 @@ export interface PrivateHeaderActionsProps {
   onLogout(): void
 }
 
-export interface PrivateSidebarAccountProps {
-  username: string | null
-}
+/**
+ * 会员等级。公开树自己没有订阅，这四档是给 overlay 的账户面板与定价卡共用一把尺子——
+ * 等级怎么排由 overlay 按套餐目录算（月度积分从小到大），这里只钉住取值与配色的契约，
+ * 好让 `TierBadge` 这类展示件留在公开树里、两边不各画一套。
+ */
+export type PrivateMembershipTier = 'free' | 'basic' | 'plus' | 'max'
 
-/** 会员等级由收费 overlay 提供；公开树只负责画。 */
 export interface PrivateMembership {
-  tier: 'free' | 'basic' | 'plus' | 'max'
+  tier: PrivateMembershipTier
+  /** 当前套餐名；没有生效订阅时由 overlay 填「未订阅」一类的文案。 */
   planName: string
   balanceLabel: string
+  /** 到期日；没有生效订阅就是 null。 */
   expiresLabel: string | null
   openAccount(): void
   openPricing(): void
@@ -50,7 +54,7 @@ export interface PrivateMembershipSlot {
 export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
-  /** 会员等级与引导的数据源。缺它时账号卡只显示头像与昵称。 */
+  /** 会员等级与引导的数据源；缺 overlay 时右上角不渲染会员位。 */
   membership?: PrivateMembershipSlot
   replacesAuthActions: boolean
   supportsReferrals: boolean
@@ -116,10 +120,10 @@ function resolveOverlay(): PrivateWebOverlay {
 const overlay = resolveOverlay()
 
 export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
-export const PrivateWebMembership = overlay.membership ?? null
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals
+export const PrivateWebMembership = overlay.membership ?? null
 /** 构建时带了收费 overlay；没有它，充值之类的信号没有人接。 */
 export const PrivateWebOverlayPresent = overlay !== EMPTY_OVERLAY
 
