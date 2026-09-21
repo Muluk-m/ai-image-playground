@@ -1,28 +1,39 @@
 import { type AgentMessage, estimateContextTokens } from '@earendil-works/pi-agent-core'
 import { contentText } from '@earendil-works/pi-ai'
-import type { AgentCompactionNarrative } from '@image-playground/shared'
+import type {
+  AgentCompactionNarrative,
+  AgentCompactionRecord,
+  AgentCompactionVerbatim,
+} from '@image-playground/shared'
 import { estimateMessageTokens } from './token-estimate'
 
 /**
- * 上下文压缩：消息与锚点进，塑形后的消息与新锚点出。纯模块，不碰数据库也不发请求——
+ * 上下文压缩：消息与状态进，塑形后的消息与新状态出。纯模块，不碰数据库也不发请求——
  * 摘要调用由外部注入，四态才能直接测。
+ *
+ * `messages` 是**锚点之后**那一段，不是整段历史：更早的已经折进摘要，存储层根本不会把它们
+ * 读出来（#708）。锚点本身归存储层校验，走到这里的 `state` 一定是可以直接用的。
  */
 
-/** 压缩只塑造送给模型的输入，`id` 是消息在存储里的身份，用于锚点吻合。 */
+/** 压缩只塑造送给模型的输入，`id` 是消息在存储里的身份，落回锚点时要用。 */
 export interface CompactionMessage {
   readonly id: string
   readonly message: AgentMessage
 }
 
-/** 摘要覆盖到哪条、覆盖几条。两个都记：只记 id 认不出中间某条被删。 */
-export interface CompactionAnchor {
-  readonly lastMessageId: string
-  readonly coveredCount: number
-}
+/**
+ * 折叠区里用户原话的存档：逐字保留最近几条，更早的只留条数与字数。
+ *
+ * 不从原文重建，因为原文可能已经不在这一份历史里了。装不下时永远丢最旧的，被省略的
+ * 因此必然是连续的一截前缀，一个计数加一个字数就说得清。
+ */
+export type CompactionVerbatim = AgentCompactionVerbatim
 
 export interface CompactionState {
   readonly narrative: AgentCompactionNarrative
-  readonly anchor: CompactionAnchor
+  readonly verbatim: CompactionVerbatim
+  /** `messages` 里前多少条已经折进摘要。锚点之前那些不算在内，它们由 `foldedBefore` 记。 */
+  readonly foldedHere: number
   /** 自上次全量重做以来的连续增量折叠次数。 */
   readonly foldCount: number
 }
@@ -60,6 +71,10 @@ export type ToolResultOffload = (
   messages: readonly CompactionMessage[],
 ) => Promise<readonly CompactionMessage[]>
 
+/**
+ * 这一轮做了什么。`none` 是「没有新折任何东西」——已经存在的摘要仍照常排在上下文最前，
+ * 那不是这一轮的压缩动作，不该计进 `agent.compacted`。
+ */
 export type CompactionMode = 'none' | 'reuse' | 'incremental' | 'rebuild' | 'truncate'
 
 export interface CompactionResult {
@@ -70,7 +85,13 @@ export interface CompactionResult {
 }
 
 export interface CompactionInput {
+  /** 锚点之后的那一段历史，加上本轮新生成的消息。 */
   readonly messages: readonly CompactionMessage[]
+  /**
+   * 更早折进摘要、这一份 `messages` 里根本没有的条数。摘要标题上的总数要算上它，
+   * 否则模型以为只折了眼前这些。
+   */
+  readonly foldedBefore: number
   readonly state: CompactionState | null
   readonly breaker: CompactionBreaker
   readonly settings: CompactionSettings
@@ -169,13 +190,6 @@ function messageText(entry: CompactionMessage): string {
   return 'content' in message ? contentText(message.content, '') : ''
 }
 
-function anchorMatches(messages: readonly CompactionMessage[], anchor: CompactionAnchor): boolean {
-  const covered = anchor.coveredCount
-  return (
-    covered > 0 && covered <= messages.length && messages[covered - 1]!.id === anchor.lastMessageId
-  )
-}
-
 /**
  * 切点是第一条保留原文的消息。向前吸附到用户消息边界，工具调用与其结果才不会被拆散；
  * 尾段没有边界时向后吸附——只做向前那一半，整段尾巴会被摘要吃掉。
@@ -267,37 +281,61 @@ function section(value: string): string {
   return value.trim() || '（无）'
 }
 
+/** 逐字那一节自己也占预算，所以按同一个估算器量它，而不是数字符。 */
+function verbatimCost(text: string): number {
+  return tokens({ role: 'user', content: [{ type: 'text', text }], timestamp: 0 })
+}
+
+const EMPTY_VERBATIM: CompactionVerbatim = { omittedCount: 0, omittedChars: 0, kept: [] }
+
 /**
- * 折叠区里的用户消息逐字进摘要，这是硬规定。装不下时最旧的降级为一行占位，
- * 但不许消失——用户看不到自己说过的话被吞掉。
+ * 把新折进去的用户原话并进存档，超预算的从最旧的一头让位。
+ *
+ * 让位的只记条数与字数，不记正文——正文一直在用户自己的历史里，模型需要时问用户即可。
+ * 永远从最旧的丢，所以被省略的始终是连续的一截前缀，存档因此有界（#708）。
  */
-function verbatimSection(covered: readonly CompactionMessage[], budget: number): string {
-  const users = covered.filter(isUser)
-  const texts = users.map(messageText)
-  const kept = new Set<number>()
+function extendVerbatim(
+  previous: CompactionVerbatim,
+  folded: readonly CompactionMessage[],
+  budget: number,
+): CompactionVerbatim {
+  const texts = [...previous.kept, ...folded.filter(isUser).map(messageText)]
   let used = 0
-  for (let index = texts.length - 1; index >= 0; index -= 1) {
-    const cost = tokens(users[index]!.message)
+  let from = texts.length
+  while (from > 0) {
+    const cost = verbatimCost(texts[from - 1]!)
     if (used + cost > budget) break
     used += cost
-    kept.add(index)
+    from -= 1
   }
-  return texts
-    .map((text, index) =>
-      kept.has(index)
-        ? `${index + 1}. ${text}`
-        : `${index + 1}. [第 ${index + 1} 条用户消息已省略，约 ${text.length} 字]`,
-    )
-    .join('\n')
+  const dropped = texts.slice(0, from)
+  return {
+    omittedCount: previous.omittedCount + dropped.length,
+    omittedChars: previous.omittedChars + dropped.reduce((total, text) => total + text.length, 0),
+    kept: texts.slice(from),
+  }
+}
+
+/**
+ * 折叠区里的用户消息逐字进摘要，这是硬规定。装不下的最旧几条降级为一行占位，
+ * 但不许消失——用户看不到自己说过的话被吞掉。
+ */
+function verbatimSection(verbatim: CompactionVerbatim): string {
+  const omitted =
+    verbatim.omittedCount > 0
+      ? [`[最早的 ${verbatim.omittedCount} 条用户消息已省略，约 ${verbatim.omittedChars} 字]`]
+      : []
+  const kept = verbatim.kept.map((text, index) => `${verbatim.omittedCount + index + 1}. ${text}`)
+  return [...omitted, ...kept].join('\n') || '（无）'
 }
 
 function summaryMessage(
   narrative: AgentCompactionNarrative,
-  covered: readonly CompactionMessage[],
-  verbatimBudget: number,
+  verbatim: CompactionVerbatim,
+  foldedCount: number,
 ): AgentMessage {
   const text = [
-    `# 会话摘要（较早的 ${covered.length} 条消息已折叠，原文仍在用户的历史里）`,
+    `# 会话摘要（较早的 ${foldedCount} 条消息已折叠，原文仍在用户的历史里）`,
     '',
     '## 已完成',
     section(narrative.completed),
@@ -312,7 +350,7 @@ function summaryMessage(
     section(narrative.artifacts),
     '',
     '## 用户原话（逐字）',
-    verbatimSection(covered, verbatimBudget),
+    verbatimSection(verbatim),
   ].join('\n')
   return { role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() }
 }
@@ -358,6 +396,17 @@ function cooled(
   return now - breaker.openedAt >= settings.breakerCooldownMs ? CLOSED_BREAKER : breaker
 }
 
+/**
+ * 存档下来的那份摘要发出去有多大。
+ *
+ * 它永远排在上下文最前（见 `shapeAgentContext`），可 `messages` 里没有它。预扣估算不算上
+ * 这一块，压缩过的会话就会系统性少扣——历史越长少扣得越多，正好反了。
+ */
+export function storedSummaryTokens(record: AgentCompactionRecord): number {
+  if (!record.summary || !record.verbatim) return 0
+  return tokens(summaryMessage(record.summary, record.verbatim, record.anchor?.coveredCount ?? 0))
+}
+
 function afterFailure(
   breaker: CompactionBreaker,
   now: number,
@@ -374,27 +423,27 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   const threshold = messageBudget(input.settings, input.overheadTokens)
   const breaker = cooled(input.breaker, input.now, input.settings)
 
-  // 要不要压缩，问的是「这段上下文此刻多大」，按整份请求的上限判（`contextSizeTokens`
-  // 已经把固定开销算在内，不像下面的 threshold 要先减掉）。
-  if (messages.length === 0 || contextSizeTokens(plain(messages), input.overheadTokens) <= limit) {
-    return { messages: plain(messages), state: input.state, breaker, mode: 'none' }
+  // 锚点归存储层校验（`listAgentHistoryWindow`）：只比 id 认不出中间某条被删，那边是拿
+  // 活着的条数对的。走到这里的 state 已经可以直接用。
+  const state = input.state
+  const covered = state ? state.foldedHere : 0
+  // 摘要不是「超预算才加」的补丁，而是这一份上下文的开头。锚点之前的原文根本没读出来
+  // （#708），不带上它，一个压缩过的会话只要这一轮装得下就会静默丢掉早先的全部上下文。
+  const reusedSummary = state
+    ? summaryMessage(state.narrative, state.verbatim, input.foldedBefore + covered)
+    : null
+  const tail = messages.slice(covered)
+  const base = reusedSummary ? [reusedSummary, ...plain(tail)] : plain(tail)
+
+  // 要不要再折一次，问的是「这段上下文此刻多大」，按整份请求的上限判（`contextSizeTokens`
+  // 已经把固定开销算在内，不像上面的 threshold 要先减掉）。
+  if (base.length === 0 || contextSizeTokens(base, input.overheadTokens) <= limit) {
+    return { messages: base, state, breaker, mode: 'none' }
   }
 
-  // 锚点失配等同于没有摘要：继续用它会把中间被删的内容永久冻在摘要里。
-  const state = input.state && anchorMatches(messages, input.state.anchor) ? input.state : null
-  const covered = state ? state.anchor.coveredCount : 0
-  const reusedSummary = state
-    ? summaryMessage(state.narrative, messages.slice(0, covered), input.settings.verbatimTokens)
-    : null
-
   const fallback = (next: CompactionBreaker): CompactionResult =>
-    state && reusedSummary
-      ? {
-          messages: shaped(reusedSummary, messages.slice(covered), threshold),
-          state,
-          breaker: next,
-          mode: 'reuse',
-        }
+    reusedSummary
+      ? { messages: shaped(reusedSummary, tail, threshold), state, breaker: next, mode: 'reuse' }
       : {
           messages: truncateToBudget(plain(messages), threshold),
           state: input.state,
@@ -404,25 +453,19 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   if (breaker.openedAt !== null) return fallback(breaker)
 
-  // 复用旧摘要这一支先按不裁尾巴试一次：装得下就原样用，保住完整的近期原文窗口。
-  if (state && reusedSummary) {
-    const reused = [reusedSummary, ...plain(messages.slice(covered))]
-    if (tokensOf(reused) <= threshold) {
-      return { messages: reused, state, breaker, mode: 'reuse' }
-    }
-  }
-
   const cut = cutPoint(messages, input.settings.keepRecentMessages, covered)
   if (cut <= covered) return fallback(breaker)
 
-  // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。
-  const previous = state && state.foldCount < input.settings.maxIncrementalFolds ? state : null
+  // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。但这只在整段历史都还在
+  // 窗口里时办得到：锚点之前的原文已经读不回来了（#708），那时「重做」等于连同它们的
+  // 摘要一起丢掉——宁可让增量继续失真，也不能把用户早先说过的话整段抹了。
+  const rebuildable = input.foldedBefore === 0
+  const previous =
+    state && (!rebuildable || state.foldCount < input.settings.maxIncrementalFolds) ? state : null
   // 摘要请求也是一次出站，按智能体那份请求的同一条上限量它：折叠区超了就分段，
   // 每一段带上一段的摘要往下传，内容不丢而每一次请求都有界。
-  const chunks = foldChunks(
-    messages.slice(previous ? covered : 0, cut),
-    compactionBudget(input.settings).threshold,
-  )
+  const folded = messages.slice(previous ? covered : 0, cut)
+  const chunks = foldChunks(folded, compactionBudget(input.settings).threshold)
   let narrative = previous ? previous.narrative : null
   for (const chunk of chunks) {
     const next = await input.summarize({ messages: chunk, previousSummary: narrative })
@@ -434,12 +477,19 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   // 走到它说明前面的不变量破了——那不是摘要失败，不该记进熔断器。
   if (!narrative) return fallback(breaker)
 
-  const summary = summaryMessage(narrative, messages.slice(0, cut), input.settings.verbatimTokens)
+  // 重做时旧存档一并作废：它覆盖的那些消息这一次会从头折一遍，留着会把同一句记两遍。
+  const verbatim = extendVerbatim(
+    previous ? previous.verbatim : EMPTY_VERBATIM,
+    folded,
+    input.settings.verbatimTokens,
+  )
+  const summary = summaryMessage(narrative, verbatim, input.foldedBefore + cut)
   return {
     messages: shaped(summary, messages.slice(cut), threshold),
     state: {
       narrative,
-      anchor: { lastMessageId: messages[cut - 1]!.id, coveredCount: cut },
+      verbatim,
+      foldedHere: cut,
       foldCount: previous ? previous.foldCount + 1 : 0,
     },
     breaker: CLOSED_BREAKER,

@@ -2,8 +2,9 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { AgentMessageView, AgentMode, AgentTurnReference } from '@image-playground/shared'
 import { agentClarificationSummary, agentToolResultSummary } from '@image-playground/shared'
-import { reservationCeiling } from './compaction'
+import { reservationCeiling, storedSummaryTokens } from './compaction'
 import { compactionSettings } from './compaction-settings'
+import type { AgentHistoryWindow } from './conversations'
 import {
   type AgentImageReference,
   activeAgentReferences,
@@ -298,9 +299,12 @@ export function estimatedTurnInput(
 /**
  * 预扣要在起轮前定额，只能估。上限取压缩阈值：压缩保证送出去的输入不超过它，
  * 不封顶就会拿整段未压缩的历史去预扣，长会话每一轮都按上限占住余额。
+ *
+ * 吃整个窗口而不只是消息：折进摘要的那些不在 `messages` 里，可摘要本身每一轮都发出去
+ * （见 `shapeAgentContext`），漏掉它压缩过的会话就会一路少扣。
  */
 export function estimateTurnInputTokens(
-  history: readonly AgentMessageView[],
+  history: AgentHistoryWindow,
   text: string,
   references: readonly AgentTurnReference[],
   mode: AgentMode = 'image',
@@ -308,9 +312,11 @@ export function estimateTurnInputTokens(
   autoSubmit = false,
 ): number {
   const estimated =
-    estimatedTurnInput(history, text, references, mode, reviewImageIds, autoSubmit).reduce(
+    estimatedTurnInput(history.messages, text, references, mode, reviewImageIds, autoSubmit).reduce(
       (total, message) => total + estimateMessageTokens(message),
       0,
-    ) + estimateToolDeclarationTokens(mode)
+    ) +
+    estimateToolDeclarationTokens(mode) +
+    storedSummaryTokens(history.compaction)
   return Math.min(estimated, reservationCeiling(compactionSettings()))
 }

@@ -81,6 +81,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -106,6 +107,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -132,6 +134,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -160,6 +163,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -182,6 +186,7 @@ describe('shapeAgentContext', () => {
       shapeAgentContext({
         messages,
         state: null,
+        foldedBefore: 0,
         breaker: CLOSED,
         settings: SETTINGS,
         now: 1_000,
@@ -203,6 +208,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -244,6 +250,7 @@ describe('shapeAgentContext', () => {
     await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -269,6 +276,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -286,7 +294,9 @@ describe('shapeAgentContext', () => {
     expect(result.messages.slice(2).map(textOf)).toEqual([body('e')])
     expect(result.state).toEqual({
       narrative: narrative(),
-      anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      // 这一条 400 字，逐字预算 87 token 装不下，所以只留条数与字数。
+      verbatim: { omittedCount: 1, omittedChars: 400, kept: [] },
+      foldedHere: 2,
       foldCount: 0,
     })
     expect(textOf(result.messages[0]!)).toContain('已经出了三张图')
@@ -300,6 +310,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -325,6 +336,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -350,6 +362,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -359,8 +372,8 @@ describe('shapeAgentContext', () => {
 
     const summary = textOf(result.messages[0]!)
     expect(summary).not.toContain(half('a'))
-    expect(summary).toMatch(/第 1 条用户消息/)
-    expect(summary).toMatch(/第 2 条用户消息/)
+    // 让位的永远是最旧的那一截，所以一行就说得清是几条、多少字。
+    expect(summary).toContain('最早的 2 条用户消息已省略，约 400 字')
     expect(summary).toContain(half('c'))
   })
 
@@ -376,6 +389,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -386,7 +400,7 @@ describe('shapeAgentContext', () => {
     // 保留最近 2 条会落在 m5（工具结果）上，向前吸附无边界，只能向后吸附——没有更晚的
     // 用户消息时保持原切点，工具调用与其结果不被摘要吃掉半截。
     expect(result.mode).toBe('rebuild')
-    expect(result.state?.anchor.coveredCount).toBe(4)
+    expect(result.state?.foldedHere).toBe(4)
   })
 
   it('reuses a matching anchor without calling the summary model', async () => {
@@ -398,13 +412,15 @@ describe('shapeAgentContext', () => {
     ]
     const state: CompactionState = {
       narrative: narrative(),
-      anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
+      foldedHere: 2,
       foldCount: 1,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
       messages,
       state,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -412,10 +428,47 @@ describe('shapeAgentContext', () => {
       summarize: summarizerOf(calls),
     })
 
-    expect(result.mode).toBe('reuse')
+    // 摘要照旧排在最前，原文尾巴跟在后面；这一轮没新折任何东西，所以是 `none`。
+    expect(result.mode).toBe('none')
     expect(calls).toHaveLength(0)
     expect(result.state).toBe(state)
+    expect(textOf(result.messages[0]!)).toContain('已经出了三张图')
     expect(result.messages.slice(1).map(textOf)).toEqual([body('c'), body('d')])
+  })
+
+  // 有界历史查询之后，锚点之前的原文可能根本不在这一份 messages 里。用户原话只能从存档
+  // 来——这里故意让 messages 前两条写着别的内容，从原文重建就会把它们印进摘要。
+  it('quotes the archived user text rather than rebuilding it from the messages', async () => {
+    const messages = [
+      user('m1', '这句不该出现在摘要里'),
+      assistant('m2', body('b')),
+      user('m3', body('c')),
+      assistant('m4', body('d')),
+    ]
+    const state: CompactionState = {
+      narrative: narrative(),
+      verbatim: { omittedCount: 3, omittedChars: 42, kept: ['把主体换成白色马克杯'] },
+      foldedHere: 2,
+      foldCount: 1,
+    }
+    const result = await shapeAgentContext({
+      messages,
+      state,
+      foldedBefore: 8,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf([]),
+    })
+
+    const summary = textOf(result.messages[0]!)
+    expect(result.mode).toBe('none')
+    expect(summary).toContain('把主体换成白色马克杯')
+    expect(summary).not.toContain('这句不该出现在摘要里')
+    expect(summary).toContain('最早的 3 条用户消息已省略')
+    // 标题上的总数要算上没读进来的那几条，否则模型以为只折了眼前这两条。
+    expect(summary).toContain('较早的 10 条消息已折叠')
   })
 
   it('folds incrementally when the reused shape still exceeds the threshold', async () => {
@@ -429,13 +482,15 @@ describe('shapeAgentContext', () => {
     ]
     const state: CompactionState = {
       narrative: narrative(),
-      anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
+      foldedHere: 2,
       foldCount: 1,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
       messages,
       state,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -448,7 +503,7 @@ describe('shapeAgentContext', () => {
     expect(calls[0]!.previousSummary).toEqual(narrative())
     expect(calls[0]!.messages.map((entry) => entry.id)).toEqual(['m3', 'm4'])
     expect(result.state?.foldCount).toBe(2)
-    expect(result.state?.anchor).toEqual({ lastMessageId: 'm4', coveredCount: 4 })
+    expect(result.state?.foldedHere).toBe(4)
   })
 
   it('forces a full rebuild once consecutive folds hit the cap', async () => {
@@ -462,13 +517,15 @@ describe('shapeAgentContext', () => {
     ]
     const state: CompactionState = {
       narrative: narrative(),
-      anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
+      foldedHere: 2,
       foldCount: 5,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
       messages,
       state,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -488,24 +545,28 @@ describe('shapeAgentContext', () => {
     expect(result.state?.foldCount).toBe(0)
   })
 
-  it('rebuilds when the anchored count no longer lands on the anchored message', async () => {
-    // m2 被删，第 2 条现在是 m3：只比锚点 id 会把已删内容永久冻进摘要。
+  // 折叠满次数本来要丢开旧摘要重做，可锚点之前的原文已经读不回来了。那时重做等于把
+  // 它们的摘要一起抹掉——只能接着增量折，让失真也好过让整段上下文消失。
+  it('keeps folding incrementally past the cap once earlier messages are out of reach', async () => {
     const messages = [
       user('m1', body('a')),
-      user('m3', body('c')),
+      assistant('m2', body('b')),
+      user('m3', '再把杯子调小一点'),
       assistant('m4', body('d')),
       user('m5', body('e')),
       assistant('m6', body('f')),
     ]
     const state: CompactionState = {
       narrative: narrative(),
-      anchor: { lastMessageId: 'm2', coveredCount: 2 },
-      foldCount: 1,
+      verbatim: { omittedCount: 0, omittedChars: 0, kept: ['更早那段里用户说的话'] },
+      foldedHere: 2,
+      foldCount: 5,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
       messages,
       state,
+      foldedBefore: 30,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -513,9 +574,10 @@ describe('shapeAgentContext', () => {
       summarize: summarizerOf(calls),
     })
 
-    expect(result.mode).toBe('rebuild')
-    expect(calls[0]!.previousSummary).toBeNull()
-    expect(result.state?.foldCount).toBe(0)
+    expect(result.mode).toBe('incremental')
+    expect(calls[0]!.previousSummary).toEqual(narrative())
+    // 存档接着往上加，早先那句不许在重做里蒸发。
+    expect(result.state?.verbatim.kept).toContain('更早那段里用户说的话')
   })
 
   it('falls back to a trailing window when the summary call fails without a usable summary', async () => {
@@ -529,6 +591,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -552,6 +615,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: { failureCount: 2, openedAt: null },
       settings: SETTINGS,
       now: 5_000,
@@ -562,22 +626,27 @@ describe('shapeAgentContext', () => {
     expect(result.breaker).toEqual({ failureCount: 3, openedAt: 5_000 })
   })
 
+  // 装得下的会话在早返回那一步就出去了，碰不到熔断器这一支：这里要的历史得真的超预算。
   it('still reuses an existing summary while the breaker is open', async () => {
     const messages = [
       user('m1', body('a')),
       assistant('m2', body('b')),
       user('m3', body('c')),
       assistant('m4', body('d')),
+      user('m5', body('e')),
+      assistant('m6', body('f')),
     ]
     const state: CompactionState = {
       narrative: narrative(),
-      anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
+      foldedHere: 2,
       foldCount: 1,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
       messages,
       state,
+      foldedBefore: 0,
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 6_000,
@@ -603,6 +672,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 6_000,
@@ -626,6 +696,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 5_000 + SETTINGS.breakerCooldownMs,
@@ -648,6 +719,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: { failureCount: 2, openedAt: null },
       settings: SETTINGS,
       now: 1_000,
@@ -670,6 +742,7 @@ describe('shapeAgentContext', () => {
     await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: CLOSED,
       settings: SETTINGS,
       now: 1_000,
@@ -686,6 +759,7 @@ describe('shapeAgentContext', () => {
     const result = await shapeAgentContext({
       messages,
       state: null,
+      foldedBefore: 0,
       breaker: { failureCount: 3, openedAt: 5_000 },
       settings: SETTINGS,
       now: 6_000,

@@ -32,6 +32,7 @@ function source(input: {
   return createAgentImageSource({
     references: input.references ?? [],
     history: input.history ?? [],
+    conversationId: 'conv-test',
     userId: null,
   })
 }

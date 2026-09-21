@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import type { AgentCompactionRecord } from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_conversations')
 process.env.PORT = '0'
@@ -10,7 +12,9 @@ const {
   appendAgentMessage,
   createAgentConversation,
   findAgentConversation,
+  listAgentHistoryWindow,
   listAgentMessages,
+  listAgentTurnMessages,
   loadAgentCompaction,
   setAgentConversationTitle,
   saveAgentCompaction,
@@ -19,6 +23,39 @@ const {
 
 const USER = { kind: 'user', userId: 'owner-user' } as const
 const DEVICE = { kind: 'device', deviceId: 'device-abcdefgh' } as const
+
+const NARRATIVE = {
+  completed: '出了三张图',
+  inProgress: '在调背景',
+  decisions: '主体不换',
+  artifacts: 'img-1',
+}
+const VERBATIM = { omittedCount: 1, omittedChars: 12, kept: ['把背景换成浅木色'] }
+
+async function say(conversationId: string, turnId: string, text: string) {
+  return appendAgentMessage(db, {
+    conversationId,
+    turnId,
+    role: 'user',
+    content: [{ type: 'text', text }],
+  })
+}
+
+async function fold(
+  conversationId: string,
+  anchor: NonNullable<AgentCompactionRecord['anchor']>,
+  rest: Partial<AgentCompactionRecord> = {},
+) {
+  await saveAgentCompaction(conversationId, {
+    summary: NARRATIVE,
+    anchor,
+    verbatim: VERBATIM,
+    foldCount: 1,
+    failureCount: 0,
+    openedAt: null,
+    ...rest,
+  })
+}
 
 beforeEach(async () => {
   await db.delete(schema.tasks)
@@ -176,13 +213,9 @@ describe('agent conversations', () => {
     expect(await loadAgentCompaction(conversation.id)).toBeNull()
 
     const record = {
-      summary: {
-        completed: '出了三张图',
-        inProgress: '在调背景',
-        decisions: '主体不换',
-        artifacts: 'img-1',
-      },
+      summary: NARRATIVE,
       anchor: { lastMessageId: 'msg-9', coveredCount: 9 },
+      verbatim: VERBATIM,
       foldCount: 2,
       failureCount: 0,
       openedAt: null,
@@ -203,14 +236,147 @@ describe('agent conversations', () => {
     const before = await listAgentMessages(conversation.id, USER)
 
     await saveAgentCompaction(conversation.id, {
-      summary: { completed: 'a', inProgress: 'b', decisions: 'c', artifacts: 'd' },
+      summary: NARRATIVE,
       anchor: { lastMessageId: before[0]!.id, coveredCount: 1 },
+      verbatim: VERBATIM,
       foldCount: 0,
       failureCount: 0,
       openedAt: null,
     })
 
     expect(await listAgentMessages(conversation.id, USER)).toEqual(before)
+  })
+
+  it('reads the whole history back when nothing has been folded into a summary', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    const first = await say(conversation.id, 'turn-1', '把背景换成浅木色')
+    const second = await say(conversation.id, 'turn-2', '再亮一点')
+
+    const window = await listAgentHistoryWindow(conversation.id, USER)
+
+    expect(window.messages).toEqual([first, second])
+    expect(window.coveredCount).toBe(0)
+    expect(window.compaction.summary).toBeNull()
+  })
+
+  it('hands back only the messages the summary does not already cover', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    await say(conversation.id, 'turn-1', '把背景换成浅木色')
+    const anchor = await say(conversation.id, 'turn-2', '再亮一点')
+    const fresh = await say(conversation.id, 'turn-3', '导出大图')
+    await fold(conversation.id, { lastMessageId: anchor.id, coveredCount: 2 })
+
+    const window = await listAgentHistoryWindow(conversation.id, USER)
+
+    expect(window.messages).toEqual([fresh])
+    expect(window.coveredCount).toBe(2)
+    expect(window.compaction.summary).toEqual(NARRATIVE)
+  })
+
+  it('drops a summary whose covered stretch lost a message but keeps the breaker counters', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    const retracted = await say(conversation.id, 'turn-1', '把背景换成浅木色')
+    const anchor = await say(conversation.id, 'turn-2', '再亮一点')
+    const fresh = await say(conversation.id, 'turn-3', '导出大图')
+    await fold(
+      conversation.id,
+      { lastMessageId: anchor.id, coveredCount: 2 },
+      { failureCount: 2, openedAt: 1_700_000_000_000 },
+    )
+
+    // 折进摘要之后才删的那一条：锚点还在，只比 id 认不出它没了，那段内容就被永久冻在摘要里。
+    await db
+      .update(schema.agent_messages)
+      .set({ deleted_at: Date.now() })
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversation.id),
+          eq(schema.agent_messages.id, retracted.id),
+        ),
+      )
+
+    const window = await listAgentHistoryWindow(conversation.id, USER)
+
+    expect(window.messages).toEqual([anchor, fresh])
+    expect(window.coveredCount).toBe(0)
+    expect(window.compaction).toEqual({
+      summary: null,
+      anchor: null,
+      verbatim: null,
+      foldCount: 0,
+      failureCount: 2,
+      openedAt: 1_700_000_000_000,
+    })
+  })
+
+  it('refolds a record left by the version that stored no verbatim archive', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    const folded = await say(conversation.id, 'turn-1', '把背景换成浅木色')
+    const fresh = await say(conversation.id, 'turn-2', '再亮一点')
+    // 上一版落下的行：那时还没有 verbatim 这一节，用户原话补不出来，只能重折。
+    const legacy: Omit<AgentCompactionRecord, 'verbatim'> = {
+      summary: NARRATIVE,
+      anchor: { lastMessageId: folded.id, coveredCount: 1 },
+      foldCount: 1,
+      failureCount: 0,
+      openedAt: null,
+    }
+    await db
+      .update(schema.agent_conversations)
+      .set({ compaction: legacy as AgentCompactionRecord })
+      .where(eq(schema.agent_conversations.id, conversation.id))
+
+    const window = await listAgentHistoryWindow(conversation.id, USER)
+
+    expect(window.messages).toEqual([folded, fresh])
+    expect(window.coveredCount).toBe(0)
+    expect(window.compaction.summary).toBeNull()
+  })
+
+  it('answers an empty window to an owner the conversation does not belong to', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    const folded = await say(conversation.id, 'turn-1', '把背景换成浅木色')
+    await fold(
+      conversation.id,
+      { lastMessageId: folded.id, coveredCount: 1 },
+      { failureCount: 3, openedAt: 1_700_000_000_000 },
+    )
+
+    const window = await listAgentHistoryWindow(conversation.id, DEVICE)
+
+    expect(window.messages).toEqual([])
+    expect(window.coveredCount).toBe(0)
+    expect(window.compaction).toEqual({
+      summary: null,
+      anchor: null,
+      verbatim: null,
+      foldCount: 0,
+      failureCount: 0,
+      openedAt: null,
+    })
+  })
+
+  it('fetches every message of the named turns, including turns older than the window', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    const asked = await say(conversation.id, 'turn-1', '把背景换成浅木色')
+    const again = await say(conversation.id, 'turn-2', '再亮一点')
+    const anchor = await say(conversation.id, 'turn-2', '就这个方向')
+    const latest = await say(conversation.id, 'turn-3', '导出大图')
+    await fold(conversation.id, { lastMessageId: anchor.id, coveredCount: 3 })
+
+    expect((await listAgentHistoryWindow(conversation.id, USER)).messages).toEqual([latest])
+    expect(await listAgentTurnMessages(conversation.id, USER, ['turn-2', 'turn-1'])).toEqual([
+      asked,
+      again,
+      anchor,
+    ])
+  })
+
+  it('hands no turn messages to an owner the conversation does not belong to', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    await say(conversation.id, 'turn-1', '把背景换成浅木色')
+
+    expect(await listAgentTurnMessages(conversation.id, DEVICE, ['turn-1'])).toEqual([])
   })
 
   it('refuses a row that claims both a user and a device', async () => {
