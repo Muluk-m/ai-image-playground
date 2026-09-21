@@ -89,23 +89,35 @@ export class CanvasWorkspace {
         .getState()
         .projects.find((one) => one.sceneKey === this.key)
       if (project?.cloud && cloudProjectsEnabled()) {
-        this.cloud ??= new CloudProjectSession(project, this.editor, (updated) => {
-          useCanvasProjectStore.setState((state) => ({
-            projects: state.projects.some((one) => one.id === updated.id)
-              ? state.projects.map((one) => (one.id === updated.id ? updated : one))
-              : [...state.projects, updated],
-            cloudCatalog: state.cloudCatalog[updated.id]
-              ? {
-                  ...state.cloudCatalog,
-                  [updated.id]: {
-                    ...state.cloudCatalog[updated.id],
-                    name: updated.name,
-                    updatedAt: updated.updatedAt,
-                  },
-                }
-              : state.cloudCatalog,
-          }))
-        })
+        this.cloud ??= new CloudProjectSession(
+          project,
+          this.editor,
+          (updated) => {
+            useCanvasProjectStore.setState((state) => ({
+              projects: state.projects.some((one) => one.id === updated.id)
+                ? state.projects.map((one) => (one.id === updated.id ? updated : one))
+                : [...state.projects, updated],
+              cloudCatalog: state.cloudCatalog[updated.id]
+                ? {
+                    ...state.cloudCatalog,
+                    [updated.id]: {
+                      ...state.cloudCatalog[updated.id],
+                      name: updated.name,
+                      updatedAt: updated.updatedAt,
+                    },
+                  }
+                : state.cloudCatalog,
+            }))
+          },
+          (copy) => {
+            useStore
+              .getState()
+              .showToast(i18next.t('sync.conflictForked', { ns: 'canvas' }), 'info')
+            void import('../../agent/store').then(({ useAgentStore }) =>
+              useAgentStore.getState().selectProject(copy.id),
+            )
+          },
+        )
         await this.cloud.load(hasLocal)
         this.cloud.start()
         this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
