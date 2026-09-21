@@ -73,12 +73,13 @@ export default function Header() {
   return (
     <>
       {/*
-        没有顶栏：整条横栏在暗色下像一道切口，把内容挤矮。账号这一簇浮在右上角，
-        压在内容之上，不占高度；导航全部交给侧栏。
+        没有顶栏：整条横栏在暗色下像一道切口，把内容挤矮。账号这一簇做成一颗常驻胶囊浮在右上角，
+        压在内容之上不占高度；各页面用 `studio-page-head` 给它让出右侧空位，别让它盖住标题与搜索。
       */}
       <div
         data-no-drag-select
-        className="studio-header-float safe-area-top fixed right-3 top-0 z-40 flex items-center gap-1.5 pt-2 sm:right-4 sm:pt-3"
+        className="studio-header-float safe-area-top fixed right-3 top-0 z-40 flex items-center gap-1.5 rounded-full border border-border bg-card/80 px-2 py-1.5 shadow-lg backdrop-blur-md sm:right-4"
+        style={{ marginTop: 'calc(var(--safe-area-top) + 0.6rem)' }}
       >
         <PrivateWebHeaderCreditAction />
         <PrivateWebHeaderAccountActions

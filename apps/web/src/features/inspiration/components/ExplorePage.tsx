@@ -21,7 +21,7 @@ export default function ExplorePage() {
 
   return (
     <main className="flex h-[calc(100dvh-3.5rem)] flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+      <div className="studio-page-head flex shrink-0 flex-wrap items-center gap-3 border-b border-border py-3 pl-5 pr-16 md:pr-60">
         <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS.explore}</h1>
         <div className="flex-1">
           <InspirationProviderTabs />

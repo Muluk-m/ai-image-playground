@@ -22,7 +22,7 @@ export default function ProjectsPage() {
 
   return (
     <main className="flex min-h-[calc(100dvh-3.5rem)] flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+      <div className="studio-page-head flex shrink-0 flex-wrap items-center gap-3 border-b border-border py-3 pl-5 pr-16 md:pr-60">
         <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS.projects}</h1>
         <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
           <input

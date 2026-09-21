@@ -1001,6 +1001,8 @@
   --header-height: 0px;
   /* 侧栏在窄屏不占位；宽屏下由入口决定摊开还是收成图标条（见 --app-sidebar-size）。 */
   --app-sidebar-size: 13rem;
+  /* 右上角那颗常驻账号胶囊的占位宽度：各页面标题行照它让位，别被盖住。 */
+  --app-topbar-reserve: 15rem;
   --app-sidebar-width: 0px;
   scrollbar-gutter: stable;
 }

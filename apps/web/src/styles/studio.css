@@ -145,3 +145,5 @@
     inset 0 0 0 1px rgb(255 255 255 / 0.35),
     0 18px 48px -14px hsl(var(--primary));
 }
+
+/* `studio-page-head` 只做标记，右侧让位由 Tailwind 的 pr-16 / md:pr-60 出（它在层叠里压得过这里）。 */
