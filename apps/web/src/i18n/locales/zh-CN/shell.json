@@ -70,5 +70,11 @@
     "titleLead": "用想象，",
     "titleAccent": "创造更多可能",
     "subtitle": "在幕芽 Muvloom，把灵感变成看得见的作品"
+  },
+  "account": {
+    "guest": "幕芽用户",
+    "subscribe": "开通会员",
+    "upgrade": "升级会员",
+    "expires": "到期 {{date}}"
   }
 }

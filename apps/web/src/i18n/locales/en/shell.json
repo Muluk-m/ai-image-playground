@@ -75,5 +75,11 @@
     "titleLead": "Imagine it, ",
     "titleAccent": "make it real",
     "subtitle": "Turn a sentence into work you can see"
+  },
+  "account": {
+    "guest": "Guest",
+    "subscribe": "Subscribe",
+    "upgrade": "Upgrade",
+    "expires": "Ends {{date}}"
   }
 }

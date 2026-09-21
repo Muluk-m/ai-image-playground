@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, ChevronDown, FolderOpen, LoaderCircle, Plus, Search } from 'lucide-react'
+import { Check, ChevronDown, FolderOpen, LoaderCircle, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
@@ -59,17 +59,6 @@ export default function ProjectNavigation() {
   return (
     <div className="studio-agent-project shrink-0 border-b border-border px-3 py-3">
       <div className="flex min-w-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground"
-          aria-label={t('navigation.back')}
-          title={t('navigation.back')}
-          disabled={busy}
-          onClick={allProjects}
-        >
-          <ArrowLeft />
-        </Button>
         <Popover
           open={open}
           onOpenChange={(value) => {
@@ -88,7 +77,9 @@ export default function ProjectNavigation() {
               aria-label={t('navigation.switchAria', { name })}
               disabled={busy}
             >
-              <span className="truncate">{name}</span>
+              <span className="truncate" title={name}>
+                {name}
+              </span>
               <ChevronDown className="text-muted-foreground" />
             </Button>
           </PopoverTrigger>

@@ -1,12 +1,11 @@
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
-
 import { EmptyState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
 import { privateUserSummaryColumnTitle, usePrivateAdminUserSummaries } from '@/lib/private-overlay'
 import type { AdminUserRow } from '@/lib/types'
-
 import { FuzzyTime } from './FuzzyTime'
+import TierBadge from './TierBadge'
 
 export function UserTable({ users }: { users: AdminUserRow[] }) {
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
@@ -63,7 +62,8 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
                 >
                   {summaries[user.id]?.primary ?? '…'}
                 </span>
-                <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                <span className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
+                  <TierBadge tier={summaries[user.id]?.tier ?? 'free'} size={12} />
                   {summaries[user.id]?.secondary ?? '读取中'}
                 </span>
               </span>
