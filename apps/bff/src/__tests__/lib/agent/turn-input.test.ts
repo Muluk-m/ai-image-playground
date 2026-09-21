@@ -122,14 +122,30 @@ const LONG_HISTORY: AgentMessageView[] = Array.from({ length: 40 }, (_, index) =
  *
  * 这一批数字整体上移过一次：CJK 校正上线，同时空引用不再拼一个 28 字符的清单头。
  */
+/** 没有折叠过的会话：估算吃的是整个窗口，这里给一份「什么都没折」的。 */
+function unfolded(messages: readonly AgentMessageView[]) {
+  return {
+    messages,
+    coveredCount: 0,
+    compaction: {
+      summary: null,
+      anchor: null,
+      verbatim: null,
+      foldCount: 0,
+      failureCount: 0,
+      openedAt: null,
+    },
+  }
+}
+
 describe('estimateTurnInputTokens', () => {
   const bare = (history: readonly AgentMessageView[], text: string) =>
-    estimateTurnInputTokens(history, text, [])
+    estimateTurnInputTokens(unfolded(history), text, [])
   const added = (
     history: readonly AgentMessageView[],
     text: string,
     references: readonly AgentTurnReference[],
-  ) => estimateTurnInputTokens(history, text, references) - bare([], text)
+  ) => estimateTurnInputTokens(unfolded(history), text, references) - bare([], text)
 
   // 8 个汉字：ceil(8 / 4) = 2，再补 ceil(8 × 0.55) = 5。
   it('counts this turn text on top of the system prompt', () => {
@@ -169,7 +185,7 @@ describe('estimateTurnInputTokens', () => {
   })
 
   it('caps a long history at the compaction threshold', () => {
-    expect(estimateTurnInputTokens(LONG_HISTORY, '继续', [])).toBe(26_500)
+    expect(estimateTurnInputTokens(unfolded(LONG_HISTORY), '继续', [])).toBe(26_500)
   })
 })
 
@@ -188,7 +204,7 @@ describe('tool declarations in the estimate', () => {
       (total, message) => total + estimateMessageTokens(message),
       0,
     )
-    expect(estimateTurnInputTokens([], '你好', []) - messages).toBe(
+    expect(estimateTurnInputTokens(unfolded([]), '你好', []) - messages).toBe(
       estimateToolDeclarationTokens('image'),
     )
     expect(declarationTokens(agentToolDeclarations('image'))).toBe(
@@ -310,8 +326,8 @@ describe('estimated and sent turn input', () => {
     expect(imageBlocks(estimated)).toBe(evidence.content.length)
     expect(textOf(estimated)).toBe(turnPromptText('复核', [], false) + evidence.manifest)
     expect(
-      estimateTurnInputTokens([], '复核', [], 'image', [reviewed.imageId]) -
-        estimateTurnInputTokens([], '复核', []),
+      estimateTurnInputTokens(unfolded([]), '复核', [], 'image', [reviewed.imageId]) -
+        estimateTurnInputTokens(unfolded([]), '复核', []),
     ).toBeGreaterThanOrEqual(1200)
   })
 })

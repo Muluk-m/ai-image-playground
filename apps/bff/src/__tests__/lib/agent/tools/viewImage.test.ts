@@ -27,6 +27,7 @@ function context(): AgentToolContext {
     images: createAgentImageSource({
       references: [{ imageId: 'canvas-1', dataUrl: PIXEL }],
       history: [],
+      conversationId: 'conv-test',
       userId: null,
     }),
   }

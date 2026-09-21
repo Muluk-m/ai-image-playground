@@ -524,10 +524,33 @@ export interface AgentCompactionNarrative {
   readonly artifacts: string
 }
 
+/**
+ * 折叠区里用户原话的存档。
+ *
+ * 以前每一轮都从原始消息重建这一节，于是每一轮都得把整段历史读进来——这正是历史查询没法
+ * 收敛的根因。改成随摘要一起落库：原文可以不在这一份历史里，用户说过的话仍然逐字在。
+ *
+ * 装不下时永远是丢最旧的（逐字保留从最新一条往回收），所以被省略的必然是连续的一截前缀，
+ * 一个计数加一个字数就说得清，存档因此有界。
+ */
+export interface AgentCompactionVerbatim {
+  /** 最旧的几条只记条数，正文仍在用户自己的历史里。 */
+  readonly omittedCount: number
+  /** 那几条加起来大约多少字。让模型知道省掉的是一句还是一页。 */
+  readonly omittedChars: number
+  /** 逐字保留的那些，按时间顺序，从第 `omittedCount + 1` 条用户消息起。 */
+  readonly kept: readonly string[]
+}
+
 /** 会话上的上下文压缩私有状态。服务端自用，不进任何下发前端的视图。 */
 export interface AgentCompactionRecord {
   readonly summary: AgentCompactionNarrative | null
   readonly anchor: { readonly lastMessageId: string; readonly coveredCount: number } | null
+  /**
+   * 与 `summary` 同生共死。旧记录没有这一项，读到就当摘要作废重折一次——补不出来的东西
+   * 不能假装有，凭空少掉用户原话比多折一次贵得多。
+   */
+  readonly verbatim: AgentCompactionVerbatim | null
   readonly foldCount: number
   readonly failureCount: number
   readonly openedAt: number | null

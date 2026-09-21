@@ -27,7 +27,8 @@ import { type ChatTaskReserved, chatTaskPricing, reserveChatTask } from './chat-
 import {
   type AgentOwner,
   appendAgentMessage,
-  listAgentMessages,
+  listAgentHistoryWindow,
+  listAgentTurnMessages,
   setAgentConversationTitle,
 } from './conversations'
 import { isSealLease, sealAbandonedTurns } from './events'
@@ -317,20 +318,25 @@ async function executeWakeTurn(
     { startAgentTurn },
     { resolveAgentMode },
     overlay,
-    history,
+    historyWindow,
+    submittingTurn,
     plan,
   ] = await Promise.all([
     import('./turn-input'),
     import('./turn'),
     import('./tools'),
     overlayPromise,
-    // 读历史会把结束了的后台任务结算成终局：唤醒轮看到的就是它们的结果。
-    listAgentMessages(conversationId, owner),
+    // 读历史会把窗口里结束了的后台任务结算成终局：唤醒轮看到的就是它们的结果。窗口之外更老的
+    // 那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。
+    listAgentHistoryWindow(conversationId, owner),
+    // 点名的结果卡与提交那一轮的用户原话都属于提交的那一轮，而它可能比历史窗口更老：定点取回来，
+    // 在窗口里筛会静默筛不到，唤醒轮就成了「一个任务都找不到」。
+    listAgentTurnMessages(conversationId, owner, [wake.turnId]),
     // 提交这一批时的改图计划：唤醒轮接着它走，不另起一份。
     wakePlan(wake.taskIds),
     import('./skills').then((it) => it.ensureAgentSkills()),
   ])
-  const jobs = wakeJobs(history, wake.taskIds)
+  const jobs = wakeJobs(submittingTurn, wake.taskIds)
   if (jobs.length === 0) {
     // 点名的结果卡一张都不在（那一轮没能落下结果卡就没了）：没有可看的，取走它不起轮。
     await withConversationExecution(conversationId, turnId, (tx) =>
@@ -360,7 +366,7 @@ async function executeWakeTurn(
           model: selectedModel,
           // 要复核的产物作为视觉证据随这一轮发出去，预扣时一并算上。
           estimatedInputTokens: estimateTurnInputTokens(
-            history,
+            historyWindow,
             text,
             [],
             mode,
@@ -399,7 +405,7 @@ async function executeWakeTurn(
       turnId,
       // 唤醒没有用户消息；这个 id 不指向任何一条，只让轮头的形状与普通的轮一致。
       userMessageId: `${turnId}:wake`,
-      history,
+      history: historyWindow,
       text,
       references: [],
       mode,
@@ -407,7 +413,7 @@ async function executeWakeTurn(
       deviceId,
       ...(params ? { params } : {}),
       wake: {
-        authorizationPrompt: wakeAuthorizationPrompt(history, wake.turnId),
+        authorizationPrompt: wakeAuthorizationPrompt(submittingTurn, wake.turnId),
         ...(plan ? { plan } : {}),
         reviewImageIds,
       },
@@ -455,10 +461,11 @@ interface MergedWakes {
 
 function mergeWakes(
   wakes: readonly QueuedWake[],
-  history: Parameters<typeof wakeJobs>[0],
+  /** 提交这几条唤醒的那几轮的消息：结果卡可能比历史窗口更老，只能定点取。 */
+  submittingTurns: Parameters<typeof wakeJobs>[0],
 ): MergedWakes {
   const jobs = wakeJobs(
-    history,
+    submittingTurns,
     wakes.flatMap((wake) => wake.taskIds),
   )
   return {
@@ -497,13 +504,17 @@ async function executeResumeTurn(
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
   const overlayPromise = loadPrivateBffOverlay()
   const { wake } = resume
+  // 结果卡与授权原话都属于被点名的那一轮：被打断的是唤醒轮就是提交那一批的那一轮，否则是被打断的
+  // 那一轮。它可能比历史窗口更老，所以定点取而不是在窗口里筛。
+  const authorizedTurnId = wake?.turnId ?? resume.interruptedTurnId
   const [
     { estimateTurnInputTokens },
     { startAgentTurn },
     { resolveAgentMode, createSubmissionReplay },
     { resumeTurnPrompt, interruptedSubmissions },
     overlay,
-    history,
+    historyWindow,
+    authorizedTurn,
     interruptedJobs,
   ] = await Promise.all([
     import('./turn-input'),
@@ -511,7 +522,8 @@ async function executeResumeTurn(
     import('./tools'),
     import('./interrupted'),
     overlayPromise,
-    listAgentMessages(conversationId, owner),
+    listAgentHistoryWindow(conversationId, owner),
+    listAgentTurnMessages(conversationId, owner, [authorizedTurnId]),
     turnJobs(conversationId, resume.interruptedTurnId),
     import('./skills').then((it) => it.ensureAgentSkills()),
   ])
@@ -521,7 +533,7 @@ async function executeResumeTurn(
     interruptedSubmissions(conversationId, resume.interruptedTurnId),
   ])
   // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
-  const jobs = wake ? wakeJobs(history, wake.taskIds) : []
+  const jobs = wake ? wakeJobs(authorizedTurn, wake.taskIds) : []
   const setup = wake ? wakeTurnSetup(jobs) : resume
   const mode = resolveAgentMode(setup.mode ?? 'image')
   const { params } = setup
@@ -540,7 +552,7 @@ async function executeResumeTurn(
           deviceId,
           model: selectedModel,
           estimatedInputTokens: estimateTurnInputTokens(
-            history,
+            historyWindow,
             text,
             [],
             mode,
@@ -576,7 +588,7 @@ async function executeResumeTurn(
       turnId,
       // 与唤醒一样没有用户消息；界面不为它出用户气泡。
       userMessageId: `${turnId}:resume`,
-      history,
+      history: historyWindow,
       text,
       references: [],
       mode,
@@ -585,10 +597,7 @@ async function executeResumeTurn(
       ...(params ? { params } : {}),
       wake: {
         // 授权原文仍是用户的原话：被打断那一轮的，唤醒轮则是提交那一批的那一轮的。
-        authorizationPrompt: wakeAuthorizationPrompt(
-          history,
-          wake?.turnId ?? resume.interruptedTurnId,
-        ),
+        authorizationPrompt: wakeAuthorizationPrompt(authorizedTurn, authorizedTurnId),
         ...(plan ? { plan } : {}),
         reviewImageIds,
         // 被打断那一轮已经提交的任务：同样的调用再来一次时交回它，不再提交。
@@ -699,7 +708,7 @@ async function executeConversationTurn(
     { startAgentTurn },
     { resolveAgentMode },
     overlay,
-    history,
+    historyWindow,
     pricing,
     wakes,
   ] = await Promise.all([
@@ -707,14 +716,26 @@ async function executeConversationTurn(
     import('./turn'),
     import('./tools'),
     overlayPromise,
-    // 读历史会把结束了的后台任务结算成终局：并进这一轮的唤醒看到的就是它们的结果。
-    listAgentMessages(conversationId, owner),
+    // 读历史会把窗口里结束了的后台任务结算成终局：并进这一轮的唤醒看到的就是它们的结果。窗口
+    // 之外更老的那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。
+    listAgentHistoryWindow(conversationId, owner),
     billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
     // 恰好排着的唤醒并进这一轮，不再单独起轮。
     pendingAgentWakes(conversationId),
     import('./skills').then((it) => it.ensureAgentSkills()),
   ])
-  const merged = mergeWakes(wakes, history)
+  // 点名了哪几轮要等唤醒回来才知道，这一次查询只能串在后面；那几轮可能比历史窗口更老，一次全取回来。
+  const merged = mergeWakes(
+    wakes,
+    wakes.length === 0
+      ? []
+      : await listAgentTurnMessages(conversationId, owner, [
+          ...new Set(wakes.map((pending) => pending.turnId)),
+        ]),
+  )
+  // 窗口空只说明锚点之后没有消息：压缩过的长会话窗口一样可能是空的，拿它当新会话会把用户自己
+  // 改过的标题冲掉。一条都没折进摘要、窗口也空，才真是头一轮。
+  const isFirstTurn = historyWindow.coveredCount === 0 && historyWindow.messages.length === 0
   const mode: AgentMode = resolveAgentMode(input.mode ?? 'image')
   const chatTask =
     pricing && userId
@@ -726,7 +747,7 @@ async function executeConversationTurn(
           deviceId,
           model: selectedModel,
           estimatedInputTokens: estimateTurnInputTokens(
-            history,
+            historyWindow,
             text,
             references,
             mode,
@@ -740,7 +761,7 @@ async function executeConversationTurn(
   const mergedEstimate =
     chatTask && merged.note
       ? estimateTurnInputTokens(
-          history,
+          historyWindow,
           `${text}\n\n${merged.note.text}`,
           references,
           mode,
@@ -772,7 +793,7 @@ async function executeConversationTurn(
       reserved = reservation
     }
     if (merging) await consumeMergedWakes(tx, conversationId, merged, turnId)
-    if (history.length === 0) {
+    if (isFirstTurn) {
       await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
     }
     const userMessage = await appendAgentMessage(tx, {
@@ -803,7 +824,7 @@ async function executeConversationTurn(
 
   await assertOwnership()
   // 自动命名不挡对话：小模型在后台改写标题，迟到或失败都只是继续用首句那个。
-  if (history.length === 0) void nameConversation(conversationId, owner, text)
+  if (isFirstTurn) void nameConversation(conversationId, owner, text)
   return {
     kind: 'started',
     turn: await startAgentTurn({
@@ -813,7 +834,7 @@ async function executeConversationTurn(
       turnId,
       userMessageId: written.userMessageId,
       ...(queued.announce ? { queueId: queued.id } : {}),
-      history,
+      history: historyWindow,
       text,
       references,
       mode,

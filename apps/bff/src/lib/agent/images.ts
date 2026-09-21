@@ -5,6 +5,8 @@ import type {
   AgentTurnReference,
   StoredImageRef,
 } from '@image-playground/shared'
+import { parseProjectArtifactId } from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
@@ -107,6 +109,37 @@ async function readTaskOutput(
   if (!upstream.ok) return null
   const mime = upstream.headers.get('content-type') ?? ref.mime
   return { dataUrl: dataUrl(new Uint8Array(await upstream.arrayBuffer()), mime) }
+}
+
+/**
+ * 窗口之外的产物。
+ *
+ * 折进摘要的那段历史不再读回来（#708），可摘要的「产物」一节仍然点着它们的 id，模型照样
+ * 会去 `viewImage` / `editImage`。好在产物 id 本身就是 `agent_<任务 id>_<下标>`，解开它
+ * 直接回表，比为这一张图把整段历史读回来便宜得多。
+ *
+ * 多一条会话限定：这个 id 来自模型输出，而模型输出受用户文本影响。「历史里出现过的才准
+ * 解析」原先是隐含边界，回表时得由 SQL 把它写明。
+ */
+async function readFoldedOutput(
+  imageId: string,
+  conversationId: string,
+  userId: string | null,
+): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const parsed = parseProjectArtifactId(imageId)
+  if (!parsed) return null
+  const [owned] = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.id, parsed.generationId),
+        eq(schema.tasks.agent_conversation_id, conversationId),
+      ),
+    )
+    .limit(1)
+  if (!owned) return null
+  return readTaskOutput({ taskId: parsed.generationId, outputIndex: parsed.position }, userId)
 }
 
 /** 历史里的工具结果块记着每张产出图的任务与下标，所以产物不必另立一张表。 */
@@ -244,7 +277,9 @@ export async function archiveAgentReferences(
 
 export function createAgentImageSource(input: {
   readonly references: readonly AgentTurnReference[]
+  /** 锚点之后那一段历史。更早的产物不在这里，按 id 回表取（`readFoldedOutput`）。 */
   readonly history: readonly AgentMessageView[]
+  readonly conversationId: string
   readonly userId: string | null
 }): AgentImageSource {
   const { userId } = input
@@ -284,6 +319,8 @@ export function createAgentImageSource(input: {
       const image = await readTaskOutput(output, userId)
       return image ? { imageId, ...image } : null
     }
+    const folded = await readFoldedOutput(imageId, input.conversationId, userId)
+    if (folded) return { imageId, ...folded }
     if (!userId) return null
     const asset = await readAssetImage(userId, imageId)
     return asset ? { imageId, dataUrl: dataUrl(asset.bytes, asset.contentType) } : null

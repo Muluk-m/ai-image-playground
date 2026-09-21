@@ -18,7 +18,12 @@ import { createAutoSubmitBudget } from './auto-submit'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
-import { appendAgentMessage, recordAgentToolCall, touchAgentConversation } from './conversations'
+import {
+  type AgentHistoryWindow,
+  appendAgentMessage,
+  recordAgentToolCall,
+  touchAgentConversation,
+} from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost } from './execution'
 import {
@@ -72,7 +77,11 @@ export interface StartAgentTurnInput {
   readonly userMessageId: string
   /** 这一轮取走的排队消息；缺席即这一句是当场发来的，没排过队。 */
   readonly queueId?: string
-  readonly history: readonly AgentMessageView[]
+  /**
+   * 起轮时读到的那一段历史：锚点之后的消息、已折进摘要的条数、压缩记录三件一套
+   * （见 `listAgentHistoryWindow`）。整份传下去，不在沿途拆开重组。
+   */
+  readonly history: AgentHistoryWindow
   readonly text: string
   /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
   readonly references: readonly AgentTurnReference[]
@@ -157,11 +166,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const events = await openTurnEventLog(conversationId, turnId)
   const images = createAgentImageSource({
     references: input.references,
-    history: input.history,
+    history: input.history.messages,
+    conversationId: input.conversationId,
     userId: input.userId,
   })
   const authorization = createTurnAuthorization({
-    history: input.history,
+    history: input.history.messages,
     prompt: input.wake?.authorizationPrompt ?? prompt,
     references: images.references,
     attached: input.references.length > 0,
@@ -178,7 +188,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   )
   const toolFailures = createToolFailureLog()
   const initialState = turnInitialState(
-    input.history,
+    input.history.messages,
     input.mode,
     input.params?.autoSubmit === true,
   )
@@ -259,8 +269,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     transformContext: createCompactionTransform({
       conversationId: input.conversationId,
       turnId: input.turnId,
-      historyIds: input.history.map((message) => message.id),
+      historyIds: input.history.messages.map((message) => message.id),
       userMessageId: input.userMessageId,
+      compaction: input.history.compaction,
+      foldedBefore: input.history.coveredCount,
       overheadTokens,
       onSummaryAttempt: ledger.recordSummary,
     }),
