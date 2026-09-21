@@ -25,7 +25,14 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   if (failed)
     parts.push(
       <span>
-        {footer.error === 'agent_turn_interrupted' ? t('cost.interrupted') : t('cost.failed')}
+        {t(
+          footer.error === 'agent_turn_interrupted'
+            ? 'cost.interrupted'
+            : // 这一份请求太大，服务端没有发它——说清是「没发出去」，不是「跑挂了」。
+              footer.error === 'agent_context_overflow'
+              ? 'cost.contextOverflow'
+              : 'cost.failed',
+        )}
       </span>,
     )
   // 停止后说了一半的回复照样留着，页脚标明它是被停下的，不是说完了。

@@ -50,6 +50,7 @@ import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { resolveMediaSource } from './lib/cloudMedia'
+import { mirrorStatusPatch, watchMirroredGeneration } from './lib/cloudMirror'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
@@ -1270,6 +1271,12 @@ export async function initStore() {
   await Promise.all(interruptedTasks.map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
   for (const task of tasks) {
+    // 镜像卡（像素只在平台上）不走 executeTask：那条路会把产出下成本机图片，留下一条
+    // 半本机半镜像的记录。它的终态只从平台记录读。
+    if (task.remoteOnly) {
+      if (task.status === 'running') watchMirroredGeneration(task.id)
+      continue
+    }
     if (task.customTaskId && (task.status === 'running' || task.customRecoverable)) {
       scheduleCustomRecovery(task.id, 0)
     }
@@ -1812,7 +1819,14 @@ async function hydrateRemoteTask(taskId: string) {
     hydratedRemoteTasks.delete(taskId)
     return
   }
+  const patch = mirrorStatusPatch(detail)
+  // 平台还在跑：这一份补不齐，交给轮询收尾，下次展开也要重读。
+  if (patch.status === 'running') {
+    hydratedRemoteTasks.delete(taskId)
+    watchMirroredGeneration(taskId)
+  }
   updateTaskInStore(taskId, {
+    ...patch,
     prompt: detail.prompt,
     outputImages: detail.outputs.map((output) => mediaRef(output.mediaId)),
     inputImageIds: detail.inputs.map((input) => mediaRef(input.mediaId)),
