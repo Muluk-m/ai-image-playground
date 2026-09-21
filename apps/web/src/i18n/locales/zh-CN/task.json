@@ -46,6 +46,8 @@
   },
   "detail": {
     "generateFailed": "生成失败",
+    "contentPolicy": "这次的提示词没通过内容审核，上游拒绝了这次生成。换个说法再试——同样的提示词再提交一次还是这个结果。",
+    "rewritePrompt": "改一下提示词",
     "errorCopied": "完整报错已复制",
     "copyErrorFailed": "复制报错失败",
     "promptCopied": "提示词已复制",

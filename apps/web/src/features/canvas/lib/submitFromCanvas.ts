@@ -8,6 +8,7 @@ import {
   notifyPrivateSubmissionError,
   notifyPrivateSubmissionSettled,
 } from '../../../lib/privateOverlay'
+import { taskErrorTypeOf } from '../../../lib/taskError'
 import { addCompletedCanvasTask, useStore } from '../../../store'
 import {
   type CanvasTaskSpec,
@@ -110,7 +111,15 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
     }
   } catch (err) {
     notifyPrivateSubmissionError(err)
-    markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
+    // 内容安全拒绝：占位框上写可行动的那句，不糊上游英文原文（ADR 0006）。
+    markPlaceholderStatus(
+      editor,
+      placeholderId,
+      'error',
+      taskErrorTypeOf(err) === 'content_policy'
+        ? i18next.t('detail.contentPolicy', { ns: 'task' })
+        : errorMessage(err),
+    )
   } finally {
     notifyPrivateSubmissionSettled()
   }

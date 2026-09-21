@@ -83,3 +83,38 @@ it('原图还在读时先铺缩略图，尺寸角标按缩略图记的原始宽�
 
   expect(mainImage()?.src).toBe(ORIGINAL)
 })
+
+it('内容安全拒绝：卡上写可行动的那句、给改提示词的出路，不给原样重试', async () => {
+  const upstream =
+    'Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID 2b502fc3.'
+  useStore.setState({
+    tasks: [
+      { ...task, status: 'error', error: upstream, errorCode: 'content_policy', outputImages: [] },
+    ],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('没通过内容审核')
+  // 上游英文原文只留给「复制完整错误」，不糊在卡面上。
+  expect(text).not.toContain('safety system')
+  const labels = Array.from(document.body.querySelectorAll('button')).map((b) =>
+    (b.textContent ?? b.getAttribute('aria-label') ?? '').trim(),
+  )
+  expect(labels).toContain('改一下提示词')
+  // 原样重试稳定复现同一个拒绝，这条出路撤掉。
+  expect(labels.some((label) => label.includes('重试'))).toBe(false)
+})
+
+it('认不出分类的失败照旧显示上游原文', async () => {
+  useStore.setState({
+    tasks: [{ ...task, status: 'error', error: 'HTTP 502 bad gateway', outputImages: [] }],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  expect(document.body.textContent).toContain('HTTP 502 bad gateway')
+})
