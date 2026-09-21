@@ -29,6 +29,24 @@ export interface PrivateHeaderActionsProps {
   onLogout(): void
 }
 
+/**
+ * 会员等级。公开树自己没有订阅，这四档是给 overlay 的账户面板与定价卡共用一把尺子——
+ * 等级怎么排由 overlay 按套餐目录算（月度积分从小到大），这里只钉住取值与配色的契约，
+ * 好让 `TierBadge` 这类展示件留在公开树里、两边不各画一套。
+ */
+export type PrivateMembershipTier = 'free' | 'basic' | 'plus' | 'max'
+
+export interface PrivateMembership {
+  tier: PrivateMembershipTier
+  /** 当前套餐名；没有生效订阅时由 overlay 填「未订阅」一类的文案。 */
+  planName: string
+  balanceLabel: string
+  /** 到期日；没有生效订阅就是 null。 */
+  expiresLabel: string | null
+  openAccount(): void
+  openPricing(): void
+}
+
 export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
