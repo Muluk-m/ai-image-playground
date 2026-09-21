@@ -435,8 +435,8 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   },
 }
 
-/** 侧栏列的四项，按顺序。画布只从项目进，所以不在里面。 */
-export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'projects', 'library']
+/** 侧栏顶部列的三项。画布不在这里：它是下面那段列表，「全部」才去项目页。 */
+export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library']
 
 /** 工作台入口：主区本身就要吃掉整屏宽度，侧栏在这里不出现。 */
 export function isWorkbenchMode(mode: AppMode): boolean {

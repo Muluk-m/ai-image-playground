@@ -23,7 +23,10 @@
     "templates": "模板",
     "collapse": "收起侧栏",
     "expand": "展开侧栏",
-    "recentCanvases": "最近画布"
+    "canvases": "画布",
+    "allCanvases": "全部",
+    "newCanvas": "新建画布",
+    "immersive": "沉浸式打开"
   },
   "logout": {
     "title": "退出登录",

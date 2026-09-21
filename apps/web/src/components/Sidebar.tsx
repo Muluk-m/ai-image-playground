@@ -50,8 +50,15 @@ export default function Sidebar() {
     .filter((project) => project.hasContent)
     .slice(0, 4)
 
-  const openProject = async (id: string) => {
-    if (await useAgentStore.getState().selectProject(id)) setAppMode('canvas')
+  const openProject = async (id: string, immersive = false) => {
+    if (!(await useAgentStore.getState().selectProject(id))) return
+    setAppMode('canvas')
+    // 沉浸式打开：进画布顺手把侧栏收掉，整屏给画布。
+    if (immersive) useStore.setState({ sidebarExpanded: false })
+  }
+
+  const newProject = async () => {
+    if (await useAgentStore.getState().createProject()) setAppMode('canvas')
   }
 
   const item = (mode: AppMode) => {
@@ -114,22 +121,59 @@ export default function Sidebar() {
             </button>
           </div>
           {NAV_APP_MODES.map(item)}
-          {recent.length > 0 && (
-            <p className="px-3 pb-1 pt-4 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
-              {t('nav.recentCanvases')}
-            </p>
-          )}
-          {recent.map((project) => (
-            <button
-              key={project.id}
-              type="button"
-              onClick={() => void openProject(project.id)}
-              className={`${ITEM} h-9 text-[13px] ${appMode === 'canvas' && project.id === activeId ? ACTIVE_ITEM : IDLE_ITEM}`}
-            >
-              <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{projectDisplayName(project.name)}</span>
-            </button>
-          ))}
+          {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
+          <div className="group/head flex items-center gap-1 px-3 pb-1 pt-4">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {t('nav.canvases')}
+            </span>
+            <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
+              <button
+                type="button"
+                onClick={() => setAppMode('projects')}
+                className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                {t('nav.allCanvases')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void newProject()}
+                aria-label={t('nav.newCanvas')}
+                title={t('nav.newCanvas')}
+                className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                +
+              </button>
+            </span>
+          </div>
+          {recent.map((project) => {
+            const active = appMode === 'canvas' && project.id === activeId
+            return (
+              <div
+                key={project.id}
+                className={`group/row flex h-9 items-center gap-2 rounded-xl px-3 ${
+                  active ? ACTIVE_ITEM : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => void openProject(project.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[13px]"
+                >
+                  <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{projectDisplayName(project.name)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openProject(project.id, true)}
+                  aria-label={t('nav.immersive')}
+                  title={t('nav.immersive')}
+                  className="grid h-6 w-6 shrink-0 place-items-center rounded-md opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
+                >
+                  ↗
+                </button>
+              </div>
+            )
+          })}
           {PrivateWebSidebarAccountCard ? (
             <PrivateWebSidebarAccountCard username={username} />
           ) : null}

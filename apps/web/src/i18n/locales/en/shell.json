@@ -23,7 +23,10 @@
     "templates": "Templates",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "recentCanvases": "Recent canvases"
+    "canvases": "Canvases",
+    "allCanvases": "All",
+    "newCanvas": "New canvas",
+    "immersive": "Open immersive"
   },
   "logout": {
     "title": "Sign out",
