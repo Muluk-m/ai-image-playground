@@ -1,5 +1,7 @@
 import { formatImageRatio } from '@image-playground/shared'
+import { LoaderCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useImagePreview } from '../hooks/useImagePreview'
 import { useTooltip } from '../hooks/useTooltip'
 import { useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
@@ -118,6 +120,11 @@ export default function DetailModal() {
   const maskTargetSrc = maskTargetId ? imageSrcs[maskTargetId] || '' : ''
   const maskSrc = task?.maskImageId ? imageSrcs[task.maskImageId] || '' : ''
   const allInputImageIds = task?.inputImageIds ?? []
+  // 大图读原图要几秒（本机图是几 MB 的 dataURL，平台图还要下载再转 base64）。
+  // 缩略图先铺上去，面板就不会黑着等；原图到了再换，尺寸角标只认原图或缩略图记的原始宽高。
+  const outputThumbnail = useImagePreview(currentOutputImageId || undefined)
+  const outputDisplaySrc = currentOutputPreviewSrc || outputThumbnail?.url || ''
+  const outputOriginalPending = Boolean(currentOutputImageId) && !currentOutputPreviewSrc
 
   useEffect(() => {
     if (!currentOutputImageId) {
@@ -135,6 +142,15 @@ export default function DetailModal() {
     }
   }, [currentOutputImageId])
 
+  // 缩略图记的是原图宽高，角标不用等原图读完。
+  useEffect(() => {
+    const width = outputThumbnail?.width
+    const height = outputThumbnail?.height
+    if (!currentOutputImageId || !width || !height) return
+    setImageRatios((prev) => ({ ...prev, [currentOutputImageId]: formatImageRatio(width, height) }))
+    setImageSizes((prev) => ({ ...prev, [currentOutputImageId]: `${width}×${height}` }))
+  }, [currentOutputImageId, outputThumbnail?.width, outputThumbnail?.height])
+
   useEffect(() => {
     const updateImageLabelLeft = () => {
       const panel = imagePanelRef.current
@@ -149,7 +165,7 @@ export default function DetailModal() {
     updateImageLabelLeft()
     window.addEventListener('resize', updateImageLabelLeft)
     return () => window.removeEventListener('resize', updateImageLabelLeft)
-  }, [currentOutputPreviewSrc])
+  }, [outputDisplaySrc])
 
   useEffect(() => {
     let cancelled = false
@@ -319,19 +335,25 @@ export default function DetailModal() {
             ref={imagePanelRef}
             className="md:w-1/2 w-full h-64 md:h-auto bg-muted dark:bg-black/20 relative flex items-center justify-center flex-shrink-0 min-h-[16rem]"
           >
-            {task.status === 'done' && outputLen > 0 && currentOutputPreviewSrc && (
+            {task.status === 'done' && outputLen > 0 && outputDisplaySrc && (
               <>
                 <img
                   ref={mainImageRef}
-                  src={currentOutputPreviewSrc}
+                  src={outputDisplaySrc}
                   data-image-id={currentOutputImageId}
+                  decoding="async"
                   className="saveable-image max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] object-contain cursor-pointer"
                   onLoad={() => {
                     const panel = imagePanelRef.current
                     const image = mainImageRef.current
                     if (!panel || !image) return
 
-                    if (currentOutputImageId && image.naturalWidth > 0 && image.naturalHeight > 0) {
+                    if (
+                      currentOutputImageId &&
+                      !outputOriginalPending &&
+                      image.naturalWidth > 0 &&
+                      image.naturalHeight > 0
+                    ) {
                       setImageRatios((prev) => ({
                         ...prev,
                         [currentOutputImageId]: formatImageRatio(
@@ -354,6 +376,15 @@ export default function DetailModal() {
                   }
                   alt=""
                 />
+                {outputOriginalPending && (
+                  <span
+                    className="absolute bottom-3 right-3 flex items-center gap-1 rounded bg-black/50 px-2 py-0.5 text-xs text-white backdrop-blur-sm"
+                    aria-live="polite"
+                  >
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                    {t('detail.loadingOriginal')}
+                  </span>
+                )}
                 <div
                   data-selectable-text
                   className="absolute top-[15px] flex items-center gap-1.5"
@@ -433,6 +464,12 @@ export default function DetailModal() {
                   </>
                 )}
               </>
+            )}
+            {task.status === 'done' && outputLen > 0 && !outputDisplaySrc && (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+                <span className="text-xs">{t('detail.loadingImage')}</span>
+              </div>
             )}
             {task.status === 'running' && (
               <>
@@ -702,8 +739,6 @@ export default function DetailModal() {
                   <div className="flex gap-2 flex-wrap">
                     {allInputImageIds.map((imgId) => {
                       const isMaskTarget = imgId === maskTargetId
-                      const displaySrc =
-                        isMaskTarget && maskPreviewSrc ? maskPreviewSrc : imageSrcs[imgId] || ''
                       return (
                         <div key={imgId} className="relative group inline-block">
                           <div
@@ -712,14 +747,10 @@ export default function DetailModal() {
                             }`}
                             onClick={() => setLightboxImageId(imgId, allInputImageIds)}
                           >
-                            {displaySrc && (
-                              <img
-                                src={displaySrc}
-                                data-image-id={imgId}
-                                className="w-full h-full object-cover"
-                                alt=""
-                              />
-                            )}
+                            <ReferenceThumb
+                              imageId={imgId}
+                              overrideSrc={isMaskTarget ? maskPreviewSrc : ''}
+                            />
                             {isMaskTarget && (
                               <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                                 MASK
@@ -1033,5 +1064,24 @@ export default function DetailModal() {
         </Overlay>
       )}
     </>
+  )
+}
+
+/**
+ * 参考图先铺缩略图：原图（遮罩预览要用它合成）动辄几 MB，等它读完这格就一直空着。
+ * `overrideSrc` 给遮罩目标用——合成好的预览优先于任何一张原图。
+ */
+function ReferenceThumb({ imageId, overrideSrc }: { imageId: string; overrideSrc: string }) {
+  const preview = useImagePreview(imageId)
+  const src = overrideSrc || preview?.url || ''
+  if (!src) return <div className="h-full w-full animate-pulse bg-muted" />
+  return (
+    <img
+      src={src}
+      data-image-id={imageId}
+      decoding="async"
+      className="w-full h-full object-cover"
+      alt=""
+    />
   )
 }
