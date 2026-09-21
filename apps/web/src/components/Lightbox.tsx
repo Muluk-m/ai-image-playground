@@ -1,5 +1,7 @@
+import { LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
+import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
@@ -28,6 +30,7 @@ export default function Lightbox() {
   const [src, setSrc] = useState('')
   const [maskImageSrc, setMaskImageSrc] = useState('')
   const [maskPreviewSrc, setMaskPreviewSrc] = useState('')
+  const thumbnail = useImagePreview(lightboxImageId ?? undefined)
 
   const close = useCallback(() => setLightboxImageId(null), [setLightboxImageId])
 
@@ -139,11 +142,26 @@ export default function Lightbox() {
     return () => window.removeEventListener('keydown', onKey)
   }, [lightboxImageId, showNav, goPrev, goNext])
 
-  if (!lightboxImageId || !src) return null
+  // 原图读起来是几秒的事（本机几 MB 的 dataURL，平台图整张下载再转 base64）。在它到位前先
+  // 铺缩略图，缩略图也没有就先给个转圈——否则点开之后屏幕上什么都不发生，像是没点中。
+  const originalPending = !src
+  const displaySrc = src || thumbnail?.url || ''
+  if (!lightboxImageId) return null
+  if (!displaySrc) {
+    return (
+      <Overlay onClose={close} tier="raised" backdrop="none" layout="fill">
+        <div className="flex h-full w-full items-center justify-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
+          <LoaderCircle className="relative h-10 w-10 animate-spin text-white/80" />
+        </div>
+      </Overlay>
+    )
+  }
 
   return (
     <LightboxInner
-      src={src}
+      src={displaySrc}
+      originalPending={originalPending}
       imageId={lightboxImageId}
       maskPreviewSrc={maskPreviewSrc}
       onClose={close}
@@ -174,6 +192,8 @@ export function ImagePreview({ src, onClose }: { src: string; onClose: () => voi
 
 interface LightboxInnerProps {
   src: string
+  /** 展示的还是缩略图，原图仍在读：下载得等真像素，界面也要说清楚。 */
+  originalPending?: boolean
   imageId: string
   maskPreviewSrc?: string
   onClose: () => void
@@ -187,6 +207,7 @@ interface LightboxInnerProps {
 /** 内部组件：保证挂载时 DOM 已经存在，所有 ref / effect 都可靠 */
 function LightboxInner({
   src,
+  originalPending = false,
   imageId,
   maskPreviewSrc,
   onClose,
@@ -392,6 +413,11 @@ function LightboxInner({
   const handleSave = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation()
+      // 还在读原图时存下去只会得到一张缩略图，宁可让用户再等一下。
+      if (originalPending) {
+        showToast(t('lightbox.loadingOriginal'))
+        return
+      }
       try {
         const blob = await (await fetch(src)).blob()
         const filename = `image-${Date.now()}.${blob.type.split('/')[1] || 'png'}`
@@ -407,7 +433,7 @@ function LightboxInner({
         showToast(t('lightbox.saveFailed'), 'error')
       }
     },
-    [src, showToast, t],
+    [originalPending, src, showToast, t],
   )
 
   // ====== 触控事件 ======
@@ -595,6 +621,15 @@ function LightboxInner({
             )}
           </div>
         </div>
+        {originalPending && (
+          <span
+            className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur-sm"
+            aria-live="polite"
+          >
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            {t('lightbox.loadingOriginal')}
+          </span>
+        )}
 
         {(videoAvailable || coarsePointer) && (
           <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
