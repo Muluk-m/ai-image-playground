@@ -9,7 +9,17 @@ import type { CompactionMessage, Summarize, SummaryRequest } from './compaction'
 
 /** 摘要输入很大而输出是四段话；给足够写完、又不够跑题的额度。 */
 const SUMMARY_MAX_TOKENS = 1_500
-const SUMMARY_TIMEOUT_MS = 60_000
+
+/**
+ * 一段满预算的折叠区要摘多久，是量出来的不是拍的：线上那条 181 条消息的会话，折叠区 145 条
+ * 约 3.2 万字符，`gpt-5.6-luna` 实测 **83.6 秒**。原来给 60 秒，于是每一次都在快成的时候被
+ * 自己切掉、记成一次失败，三次就把熔断器打满——摘要模型换对之后，这是第二层同样静默的坑。
+ *
+ * 折叠区按 `compactionBudget().threshold` 分段（见 `foldChunks`），所以单段不会比这次更大；
+ * 180 秒是那个实测值的两倍出头，留给上游抖动。它是这一轮里用户真实等待的时间，不该再放大：
+ * 真要更快得靠缩小分段，而不是把这个数字往上堆。
+ */
+const SUMMARY_TIMEOUT_MS = 180_000
 
 function transcript(messages: readonly CompactionMessage[]): string {
   const llm = messages
