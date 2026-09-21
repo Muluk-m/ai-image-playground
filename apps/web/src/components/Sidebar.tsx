@@ -53,7 +53,8 @@ export default function Sidebar() {
   const openProject = async (id: string, immersive = false) => {
     if (!(await useAgentStore.getState().selectProject(id))) return
     setAppMode('canvas')
-    // 沉浸式打开：进画布顺手把侧栏收掉，整屏给画布。
+    // 沉浸式打开：进画布顺手把侧栏收掉。必须排在 setAppMode 后面——它会把这个选择复位成
+    // 「按入口默认」。
     if (immersive) useStore.setState({ sidebarExpanded: false })
   }
 
