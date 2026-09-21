@@ -16,6 +16,7 @@ import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { createAutoSubmitBudget } from './auto-submit'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
+import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, recordAgentToolCall, touchAgentConversation } from './conversations'
 import { openTurnEventLog } from './events'
@@ -29,6 +30,11 @@ import {
 } from './images'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
+import {
+  AgentContextOverflow,
+  assertRequestWithinBudget,
+  requestOverheadTokens,
+} from './request-budget'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
 import {
@@ -171,33 +177,78 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     input.wake?.plan,
   )
   const toolFailures = createToolFailureLog()
+  const initialState = turnInitialState(
+    input.history,
+    input.mode,
+    input.params?.autoSubmit === true,
+  )
+  const turnTools = agentTurnTools(
+    {
+      mode: input.mode,
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+      userId: input.userId,
+      deviceId: input.deviceId,
+      images,
+      authorization: () => authorization.current(),
+      maskedEditPlan,
+      assertExecution: input.assertExecution,
+      ...(input.params ? { params: input.params } : {}),
+      // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
+      ...(input.params?.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
+      ...(input.wake?.replay ? { replay: input.wake.replay } : {}),
+    },
+    toolFailures,
+  )
+  const budget = compactionSettings()
+  // 系统说明与工具清单这一轮里逐字不变，算一次就够；塑形按它让预算，硬闸按真发出去的那一份判。
+  const overheadTokens = requestOverheadTokens({
+    systemPrompt: initialState.systemPrompt,
+    tools: turnTools,
+  })
+  // 这两个在 `new Agent` 之前声明：streamFn 的闭包要写它们，读的人也该先看见它们。
+  let error: AgentTurnErrorCode | undefined
+  let aborted = false
   const agent = new Agent({
     initialState: {
-      ...turnInitialState(input.history, input.mode, input.params?.autoSubmit === true),
+      ...initialState,
       model: agentModel(input.params?.thinkingDepth),
       thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
-      // 清单与预扣估算读的是同一份声明：`agentToolDeclarations(mode)` 与这里同源。
-      tools: agentTurnTools(
-        {
-          mode: input.mode,
-          conversationId: input.conversationId,
-          turnId: input.turnId,
-          userId: input.userId,
-          deviceId: input.deviceId,
-          images,
-          authorization: () => authorization.current(),
-          maskedEditPlan,
-          assertExecution: input.assertExecution,
-          ...(input.params ? { params: input.params } : {}),
-          // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
-          ...(input.params?.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
-          ...(input.wake?.replay ? { replay: input.wake.replay } : {}),
-        },
-        toolFailures,
-      ),
+      tools: turnTools,
     },
     streamFn: async (model, context, options) => {
       await input.assertExecution?.()
+      // 最后一道闸：算出来就超限的请求不发。上游那边它是一个更贵、更慢、必然被拒的请求，
+      // 而这一刻退回去发更完整的历史只会更超（见 `request-budget.ts`）。
+      // pi 的契约是 streamFn 的失败要编进返回流里，所以它把这一抛翻成「上游出错」的终帧；
+      // 原因在这里先记下，那一段才不会把「没发出去」说成「上游挂了」。
+      try {
+        assertRequestWithinBudget(context, budget)
+      } catch (thrown) {
+        if (thrown instanceof AgentContextOverflow) {
+          // 两件事要分开：本轮内容太大，用户减字减图就能自救；固定开销自己就吃光了上限，
+          // 那是部署把窗口配小了，用户删什么都没用，每一轮都会被拒——那条要吵醒运营。
+          const misconfigured = overheadTokens >= thrown.limit
+          const entry = {
+            event: 'agent.context_overflow',
+            conversationId: input.conversationId,
+            turnId: input.turnId,
+            inputTokens: thrown.inputTokens,
+            overheadTokens,
+            limit: thrown.limit,
+          }
+          if (misconfigured) {
+            log.error(
+              entry,
+              'agent system prompt and tools alone exceed the input budget; raise the configured context window',
+            )
+          } else {
+            log.warn(entry, 'agent request exceeded the input budget and was not sent')
+          }
+          error ??= 'agent_context_overflow'
+        }
+        throw thrown
+      }
       modelCallId = await ledger.begin('conversation', model.id, context)
       return stream(model, context, options)
     },
@@ -210,12 +261,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       turnId: input.turnId,
       historyIds: input.history.map((message) => message.id),
       userMessageId: input.userMessageId,
+      overheadTokens,
       onSummaryAttempt: ledger.recordSummary,
     }),
   })
 
-  let error: AgentTurnErrorCode | undefined
-  let aborted = false
   /** 终帧发过没有。收尾半路抛错时据此补一个，续播的消费者不能一直等下去。 */
   let ended = false
   let storedAny = false

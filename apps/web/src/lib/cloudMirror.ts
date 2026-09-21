@@ -1,8 +1,9 @@
 import type { GenerationSummary, TaskStatus as QueueStatus } from '@image-playground/shared'
-import { useStore } from '../store'
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { updateTaskInStore, useStore } from '../store'
 import { DEFAULT_PARAMS, type TaskParams, type TaskRecord, type TaskStatus } from '../types'
 import { getAllTasks, putTask } from './db'
-import { mediaRef } from './remoteGenerations'
+import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 
 /**
  * 平台记录的本机镜像。
@@ -22,37 +23,129 @@ export function taskFromGeneration(item: GenerationSummary): TaskRecord {
     apiModel: item.model,
     inputImageIds: [],
     outputImages: cover,
-    status: statusFromGeneration(item.status),
-    error: item.errorType,
+    ...mirrorStatusPatch(item),
     createdAt: item.createdAt,
-    finishedAt: item.completedAt,
-    elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
     remoteOnly: true,
   }
 }
 
 /**
- * 把这一页平台记录并进本机历史。本机已有同一条生成（id 相同，或本机任务记的
- * `bffRequestId` 指向它）时保持原样：本机那条带着真实像素、收藏与参考图，比镜像完整。
+ * 把这一页平台记录并进本机历史。本机自己跑的那条（id 相同，或本机任务记的
+ * `bffRequestId` 指向它）保持原样：它带着真实像素、收藏与参考图，比镜像完整。
+ *
+ * 镜像卡不一样：它没有本机连接在等结果，状态只能一次次从平台抄。读到它时还在跑、
+ * 之后再读到已经跑完，就得就地收尾——否则那张卡会永远转下去。
  */
 export async function mirrorGenerations(items: readonly GenerationSummary[]): Promise<void> {
   if (items.length === 0) return
   // 落盘的和内存里的都算「已经有了」：刚提交还没写完的任务也不该被镜像成第二张卡。
   const stored = [...(await getAllTasks()), ...useStore.getState().tasks]
-  const known = new Set<string>()
+  const known = new Map<string, TaskRecord>()
   for (const task of stored) {
-    known.add(task.id)
-    if (task.bffRequestId) known.add(task.bffRequestId)
+    known.set(task.id, task)
+    if (task.bffRequestId) known.set(task.bffRequestId, task)
   }
-  const mirrored = items.filter((item) => !known.has(item.id)).map(taskFromGeneration)
-  if (mirrored.length === 0) return
-  await Promise.all(mirrored.map((task) => putTask(task)))
-  useStore.setState((state) => {
-    const present = new Set(state.tasks.map((task) => task.id))
-    const added = mirrored.filter((task) => !present.has(task.id))
-    if (added.length === 0) return state
-    return { tasks: [...state.tasks, ...added] }
-  })
+  const writes: TaskRecord[] = []
+  for (const item of items) {
+    const existing = known.get(item.id)
+    if (!existing) {
+      writes.push(taskFromGeneration(item))
+      continue
+    }
+    const settled = settleMirror(existing, item)
+    if (settled) writes.push(settled)
+  }
+  if (writes.length > 0) {
+    await Promise.all(writes.map((task) => putTask(task)))
+    useStore.setState((state) => {
+      const written = new Map(writes.map((task) => [task.id, task]))
+      const present = new Set(state.tasks.map((task) => task.id))
+      return {
+        tasks: [
+          ...state.tasks.map((task) => written.get(task.id) ?? task),
+          ...writes.filter((task) => !present.has(task.id)),
+        ],
+      }
+    })
+  }
+  const tasks = useStore.getState().tasks
+  for (const item of items) {
+    const task = tasks.find((candidate) => candidate.id === item.id)
+    if (task?.remoteOnly && task.status === 'running') watchMirroredGeneration(item.id)
+  }
+}
+
+/**
+ * 这一页读到的状态能不能给本机那条镜像卡收尾。本机自己跑的任务由 `executeTask` 写终态，
+ * 这里一概不碰；已经落终态的镜像也不重写（它可能已经被详情补齐过产出）。
+ */
+function settleMirror(existing: TaskRecord, item: GenerationSummary): TaskRecord | null {
+  if (!existing.remoteOnly || existing.status !== 'running') return null
+  const patch = mirrorStatusPatch(item)
+  if (patch.status === 'running') return null
+  const cover = item.cover ? [mediaRef(item.cover.mediaId)] : []
+  return {
+    ...existing,
+    ...patch,
+    outputImages: existing.outputImages.length > 0 ? existing.outputImages : cover,
+  }
+}
+
+/**
+ * 平台记录里的状态与耗时。镜像卡的终态只有这一个来源，抄的时候必须连着抄：
+ * 2026-09-21 详情已经读到 `completed`、只更新了产出与参考图，卡片就一直停在「生成中」。
+ */
+export function mirrorStatusPatch(
+  item: GenerationSummary,
+): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed'> {
+  return {
+    status: statusFromGeneration(item.status),
+    error: item.errorType,
+    finishedAt: item.completedAt,
+    elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
+  }
+}
+
+const watched = new Set<string>()
+
+/**
+ * 盯着平台上还在跑的那条生成，直到它落终态。镜像卡不是本机发起的，没有 `executeTask`
+ * 那条连接可以等；不盯着它，卡片只能等下一次重读列表或展开详情才收尾。
+ *
+ * 轮询梯度与本机队列任务共用一份（最长 30 min）。超时仍未落终态就停手：平台侧的无主扫描
+ * 会把它写成失败，下一次读列表或展开详情时照样能收尾，这里不替平台判死。
+ */
+export function watchMirroredGeneration(taskId: string): void {
+  if (watched.has(taskId)) return
+  watched.add(taskId)
+  void pollMirroredGeneration(taskId).finally(() => watched.delete(taskId))
+}
+
+async function pollMirroredGeneration(taskId: string): Promise<void> {
+  const { POLL_BACKOFF_MS, POLL_MAX_MS } = QUEUE_TIMEOUTS
+  const deadline = Date.now() + POLL_MAX_MS
+  for (let attempt = 0; Date.now() < deadline; attempt++) {
+    // apps/web 的 lib target 还没到 es2024，这里用不了 Promise.withResolvers。
+    await new Promise((resolve) =>
+      setTimeout(resolve, POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]),
+    )
+    const task = useStore.getState().tasks.find((item) => item.id === taskId)
+    // 卡被删了，或者列表刷新 / 展开详情已经替它收过尾：这一轮就不用读了。
+    if (!task?.remoteOnly || task.status !== 'running') return
+    // 读不到（离线、5xx、临时 404）不算结论，下一轮再来。
+    const detail = await readRemoteGeneration(taskId)
+    if (!detail) continue
+    const patch = mirrorStatusPatch(detail)
+    if (patch.status === 'running') continue
+    updateTaskInStore(taskId, {
+      ...patch,
+      outputImages:
+        detail.outputs.length > 0
+          ? detail.outputs.map((output) => mediaRef(output.mediaId))
+          : task.outputImages,
+    })
+    return
+  }
 }
 
 function statusFromGeneration(status: QueueStatus): TaskStatus {
