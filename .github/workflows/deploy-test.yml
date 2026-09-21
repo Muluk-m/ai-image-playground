@@ -26,6 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The commit that triggered this run, not the branch tip: a push landing mid-run would
+          # otherwise be published by a job that never checked it.
+          ref: ${{ github.sha }}
           # ci-check-test-branch.sh compares against origin/main, so it needs the full history.
           fetch-depth: 0
           persist-credentials: false
@@ -66,6 +69,7 @@ jobs:
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Write pages.env with the CI token file
         env:
