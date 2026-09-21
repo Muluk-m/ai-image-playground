@@ -125,6 +125,18 @@ export function createCompactionTransform(
       })
 
       const next: Persisted = { state: result.state, breaker: result.breaker }
+      // 熔断器打开是运营要知道的事，不是一次普通失败。它一开，这个会话此后只走降级截尾，
+      // 摘要再不会试——线上就这么静默跑过一段：摘要模型下架了，没有任何一条日志越过 warn。
+      if (next.breaker.openedAt !== null && current.breaker.openedAt === null) {
+        log.error(
+          {
+            event: 'agent.compaction_breaker_opened',
+            conversationId: input.conversationId,
+            failureCount: next.breaker.failureCount,
+          },
+          'agent compaction breaker opened; this conversation now falls back to truncation',
+        )
+      }
       if (changed(next, current)) {
         current = next
         await saveAgentCompaction(

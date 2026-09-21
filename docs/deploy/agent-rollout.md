@@ -87,7 +87,7 @@ C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才�
 AGENT_CHAT_MODEL=gpt-5.6-luna
 AGENT_CHAT_CONTEXT_WINDOW=40000
 AGENT_CHAT_MAX_TOKENS=8000
-AGENT_SUMMARY_MODEL=gpt-5.4-mini
+AGENT_SUMMARY_MODEL=gpt-5.6-luna
 AGENT_IMAGE_MODEL=gpt-image-2.5-flare
 AGENT_VIDEO_MODEL=grok-imagine-video
 ```
@@ -97,6 +97,12 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 
 生图与生视频模型必须是 `channels.json` 里的模型，且在单价表里 active，否则工具提交会被拒。
 留空则取该类目的第一个，当前分别是 `gpt-image-2.5-flare` 与 `grok-imagine-video`。
+
+`AGENT_SUMMARY_MODEL` 必须是网关**当下**还在供的模型。它配错不会让任何东西报错：摘要失败
+只打一条 `warn`，轮照常完成，用户只是拿到被截断而不是被摘要的上下文。线上就这么静默跑了
+一段时间——`gpt-5.4` 系列下架后这里还留着 `gpt-5.4-mini`，网关回 400「model is not
+supported」，是确定性错误因而不重试，三次就把熔断器打开，压缩从此再没成功过一次。
+配之前拿它打一次 `/v1/chat/completions`，别只看 `/v1/models`。
 
 ## 五、开能力，同时把阈值写死
 
