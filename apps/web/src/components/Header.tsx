@@ -17,6 +17,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
+import HeaderMembershipChip from './HeaderMembershipChip'
 import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
@@ -82,6 +83,7 @@ export default function Header() {
         style={{ top: 'calc(var(--safe-area-top) + 0.75rem)' }}
       >
         <PrivateWebHeaderCreditAction />
+        {auth.user ? <HeaderMembershipChip /> : null}
         <PrivateWebHeaderAccountActions
           username={auth.user?.username ?? null}
           loggingOut={loggingOut}
