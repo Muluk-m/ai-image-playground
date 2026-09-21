@@ -12,6 +12,7 @@ import {
   referenceManifest,
 } from './images'
 import { agentModel } from './model'
+import { requestOverheadTokens } from './request-budget'
 import {
   type EvidenceListing,
   evidenceBlocks,
@@ -60,16 +61,10 @@ function estimatedListings(references: readonly AgentImageReference[]): Evidence
 
 /**
  * 每次模型请求都带着整份工具清单（名称、说明、参数 schema），它是本轮输入里最大的一块固定开销。
- * 估算只认消息，所以把清单的 JSON 序列化当成一条文本消息交给它，用的就是同一条
- * 「字符数 / 4 再按 CJK 校正」的口径（见 `token-estimate.ts`）。这只是启发式：上游真按
- * 自己的词表分词，JSON 的结构符号都会与这里有出入，预扣本来也只求同量级。
+ * 折算规则与出站硬闸同一份（`request-budget.ts`），预扣与闸门才不会各说各的。
  */
 export function estimateToolDeclarationTokens(mode: AgentMode): number {
-  return estimateMessageTokens({
-    role: 'user',
-    content: [{ type: 'text', text: JSON.stringify(agentToolDeclarations(mode)) }],
-    timestamp: 0,
-  })
+  return requestOverheadTokens({ tools: agentToolDeclarations(mode) })
 }
 
 function escapeXml(value: string): string {

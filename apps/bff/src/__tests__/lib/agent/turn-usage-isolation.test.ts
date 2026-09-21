@@ -12,7 +12,10 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '2000'
+// 窗口要装得下这个智能体的固定开销：系统说明加工具清单约 3.3k token（见 `request-budget.ts`），
+// 装不下的话出站硬闸会把每一轮都拒掉，这个文件测的用量就无从产生。留给消息的那点预算
+// （5300 − 500 预留 − 1000 余量 − 3.3k 开销 ≈ 0.5k）仍然小于下面那段历史，压缩照样触发。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '5300'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
@@ -21,7 +24,11 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
-const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
+const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
+  '../../../lib/chatCompletion'
+)
+// 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
+setChatRetryBackoffForTesting(0)
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../../db/client')
@@ -233,8 +240,11 @@ describe('startAgentTurn usage', () => {
       .select()
       .from(schema.agent_model_calls)
       .where(eq(schema.agent_model_calls.purpose, 'compaction'))
-    expect(records).toHaveLength(1)
-    expect(records[0]).toMatchObject({ status: 'failed', usage: null })
+    // 503 是瞬时故障，会退避重试，所以这里不止一行——每一次真实请求各记一条，这才是对的账。
+    // 条数是重试预算说了算的，钉在这里只会把 `chatCompletion.ts` 的常量绑死在计费测试上。
+    expect(records.length).toBeGreaterThan(1)
+    expect(new Set(records.map((record) => record.id)).size).toBe(records.length)
+    for (const record of records) expect(record).toMatchObject({ status: 'failed', usage: null })
   })
 
   it('bills one turn the same no matter how much history the transcript replays', async () => {

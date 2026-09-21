@@ -93,6 +93,7 @@
     "video": "生视频",
     "failed": "本轮失败",
     "interrupted": "已中断，已自动续上",
+    "contextOverflow": "这一轮的内容太长，没有发出去",
     "stopped": "已停止",
     "noCredits": "未扣积分"
   },
