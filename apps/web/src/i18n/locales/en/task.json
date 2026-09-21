@@ -96,7 +96,8 @@
   },
   "lightbox": {
     "saveImage": "Save image",
-    "saveFailed": "Save failed"
+    "saveFailed": "Save failed",
+    "loadingOriginal": "Loading full image"
   },
   "grid": {
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
