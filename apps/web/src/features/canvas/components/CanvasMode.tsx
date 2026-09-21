@@ -271,7 +271,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               onClick={() => setOpen(true)}
               title={t('sidebar.openChat')}
             >
-              <img src="/brand/muvloom-mark.svg" alt="" className="h-4 w-4" />
+              <img src="/brand/muvloom-mark.svg" alt="" className="h-5 w-5" />
               {t('sidebar.openChat')}
             </button>
           )}
