@@ -50,7 +50,8 @@ export interface CompactionSettings {
   readonly maxOutputTokens: number
   readonly outputReserveTokens: number
   readonly bufferTokens: number
-  readonly keepRecentMessages: number
+  /** 近期原文保留多少 token；切点按它从最新一条往回收。 */
+  readonly keepRecentTokens: number
   /** 摘要里逐字保留用户原话的 token 上限，超出的最旧几条降级为占位。 */
   readonly verbatimTokens: number
   readonly maxIncrementalFolds: number
@@ -191,15 +192,30 @@ function messageText(entry: CompactionMessage): string {
 }
 
 /**
- * 切点是第一条保留原文的消息。向前吸附到用户消息边界，工具调用与其结果才不会被拆散；
- * 尾段没有边界时向后吸附——只做向前那一半，整段尾巴会被摘要吃掉。
+ * 切点是第一条保留原文的消息。
+ *
+ * 按 token 预算从最新一条往回收，不按条数：一条消息可能 1 token 也可能 1 万，我们这边
+ * 图片、工具结果与短对话混在一起，尺寸波动正是常态，按条数取出来的那一刀落在哪儿全看运气。
+ * 这也是 pi 的口径（`keepRecentTokens`）。
+ *
+ * 至少留最新一条：预算连它都装不下时也不能什么都不留，那一轮就没法推进了。
+ * 再向前吸附到用户消息边界，工具调用与其结果才不会被拆散；尾段没有边界时向后吸附——
+ * 只做向前那一半，整段尾巴会被摘要吃掉。
  */
 function cutPoint(
   messages: readonly CompactionMessage[],
-  keepRecentMessages: number,
+  keepRecentTokens: number,
   floor: number,
 ): number {
-  const target = Math.max(floor, messages.length - Math.max(1, keepRecentMessages))
+  let target = messages.length - 1
+  // 最新那条自己也占预算。它超了也留：什么都不留这一轮就没法推进，超不超由出站硬闸最后判。
+  let used = tokens(messages[target]!.message)
+  while (target > floor) {
+    const cost = tokens(messages[target - 1]!.message)
+    if (used + cost > keepRecentTokens) break
+    used += cost
+    target -= 1
+  }
   for (let index = target; index > floor; index -= 1) {
     if (isUser(messages[index]!)) return index
   }
@@ -453,7 +469,7 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   if (breaker.openedAt !== null) return fallback(breaker)
 
-  const cut = cutPoint(messages, input.settings.keepRecentMessages, covered)
+  const cut = cutPoint(messages, input.settings.keepRecentTokens, covered)
   if (cut <= covered) return fallback(breaker)
 
   // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。但这只在整段历史都还在

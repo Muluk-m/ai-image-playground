@@ -21,7 +21,7 @@
     "agent:compaction-buffer-tokens": 13000,
     "agent:compaction-cooldown-minutes": 360,
     "agent:compaction-failure-threshold": 3,
-    "agent:compaction-keep-messages": 10,
+    "agent:compaction-keep-tokens": 20000,
     "agent:compaction-max-folds": 5,
     "agent:compaction-output-reserve-tokens": 20000,
     "agent:compaction-verbatim-tokens": 20000,

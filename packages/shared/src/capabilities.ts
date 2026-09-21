@@ -24,6 +24,9 @@ export const RETIRED_CAPABILITIES: readonly string[] = [
   'remix:listing',
 ]
 
+/** 已经不存在的配额。部署里的旧配置文件不该因为改名而起不来，读到就跳过。 */
+export const RETIRED_QUOTAS: readonly string[] = ['agent:compaction-keep-messages']
+
 export interface CapabilityDefinition {
   readonly defaultValue: false
   readonly clientExposed: boolean
@@ -46,7 +49,8 @@ export const QUOTAS = {
   'agent:compaction-buffer-tokens': { defaultValue: 13_000 },
   'agent:compaction-cooldown-minutes': { defaultValue: 6 * 60 },
   'agent:compaction-failure-threshold': { defaultValue: 3 },
-  'agent:compaction-keep-messages': { defaultValue: 10 },
+  /** 近期原文保留多少 token。一条消息可能 1 token 也可能 1 万，按条数留在混合尺寸的会话里量不准。 */
+  'agent:compaction-keep-tokens': { defaultValue: 20_000 },
   'agent:compaction-max-folds': { defaultValue: 5 },
   'agent:compaction-output-reserve-tokens': { defaultValue: 20_000 },
   'agent:compaction-verbatim-tokens': { defaultValue: 20_000 },
