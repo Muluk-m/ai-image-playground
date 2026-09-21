@@ -138,7 +138,16 @@ export function createCompactionTransform(
       }
       if (result.mode !== 'none') {
         log.info(
-          { event: 'agent.compacted', mode: result.mode, conversationId: input.conversationId },
+          {
+            event: 'agent.compacted',
+            mode: result.mode,
+            conversationId: input.conversationId,
+            // 增量链有多深，以及这一刻摘要盖住了多少条。`maxIncrementalFolds` 对折出过
+            // 窗口的会话已经不生效（#708），是删掉它还是补回周期性重做要看这两个数在
+            // 线上长成什么样，不能凭直觉裁（#714）。
+            foldCount: result.state?.foldCount ?? 0,
+            foldedCount: input.foldedBefore + (result.state?.foldedHere ?? 0),
+          },
           'agent context compacted',
         )
       }
