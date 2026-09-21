@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
-import CreateModeSwitch from './components/CreateModeSwitch'
 import DetailModal from './components/DetailModal'
 import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
@@ -132,7 +131,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                   </h1>
                   <p className="pb-6 pt-2 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
                 </div>
-                <CreateModeSwitch />
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
                 <div className="pt-6">
                   <InputBar inline />

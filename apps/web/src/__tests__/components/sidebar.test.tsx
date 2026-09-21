@@ -43,7 +43,7 @@ function entry(label: string): HTMLButtonElement {
   return button
 }
 
-it('一级入口只有四个，选中的那个自己标出来', () => {
+it('顶部三项：创作 / 探索 / 资产，选中的那个自己标出来', () => {
   act(() => entry('创作').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('image')
   expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
@@ -51,14 +51,15 @@ it('一级入口只有四个，选中的那个自己标出来', () => {
 
   act(() => entry('资产').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('library')
-
-  act(() => entry('项目').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(useStore.getState().appMode).toBe('projects')
 })
 
-it('画布与视频不占导航位：它们只从项目进', () => {
+it('画布不占导航位：它是下面那段列表，「全部」才去项目页', () => {
   expect(() => entry('画布')).toThrow()
-  expect(() => entry('视频')).toThrow()
+  expect(() => entry('项目')).toThrow()
+
+  act(() => entry('全部').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+  expect(useStore.getState().appMode).toBe('projects')
 })
 
 it('画布里默认收起：宽度让给画布，留一颗按钮把它叫回来', () => {
