@@ -30,7 +30,7 @@ const SETTINGS: CompactionSettings = {
   maxOutputTokens: 50,
   outputReserveTokens: 100,
   bufferTokens: 50,
-  keepRecentMessages: 2,
+  keepRecentTokens: 200,
   verbatimTokens: 87,
   maxIncrementalFolds: 5,
   failureThreshold: 3,
@@ -375,6 +375,38 @@ describe('shapeAgentContext', () => {
     // 让位的永远是最旧的那一截，所以一行就说得清是几条、多少字。
     expect(summary).toContain('最早的 2 条用户消息已省略，约 400 字')
     expect(summary).toContain(half('c'))
+  })
+
+  // 切点按 token 预算取，不按条数。这一段前面是几条大消息、后面是一串短对话——按条数取
+  // 只会留下最后那两句，短的那一串明明加起来还不到预算的一成，却被摘要吃掉了。
+  it('keeps every cheap recent message the budget can afford', async () => {
+    const chatter = ['好', '再来', '行', '嗯', '继续', '可以'].map((text, at) =>
+      at % 2 === 0 ? user(`c${at}`, text) : assistant(`c${at}`, text),
+    )
+    const messages = [
+      user('m1', body('a')),
+      assistant('m2', body('b')),
+      user('m3', body('c')),
+      assistant('m4', body('d')),
+      ...chatter,
+    ]
+    const result = await shapeAgentContext({
+      messages,
+      state: null,
+      foldedBefore: 0,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf([]),
+    })
+
+    expect(result.mode).toBe('rebuild')
+    // 短对话一条不落地留在尾巴里；按条数取的话只剩最后两句。
+    const kept = new Set(result.messages.slice(1).map(textOf))
+    expect(chatter.map((entry) => textOf(entry.message)).filter((text) => !kept.has(text))).toEqual(
+      [],
+    )
   })
 
   it('adheres the cut point forward when the tail has no user boundary', async () => {
