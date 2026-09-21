@@ -724,13 +724,17 @@ export type AgentTurnStopReason = 'completed' | 'aborted' | 'failed'
 
 /**
  * `agent_turn_interrupted`：这一轮被服务重启或执行者接管打断，已经排上了一次中断续跑——界面不把它
- * 当失败报，只标明「已中断，自动续上」。其余几个是真的失败。
+ * 当失败报，只标明「已中断，自动续上」。
+ * `agent_context_overflow`：这一份请求算出来就超过输入预算，服务端没有发它。不是跑挂了，
+ * 是明确停在这里——回退成发更完整的历史只会更超（见 BFF 的 `request-budget.ts`）。
+ * 其余几个是真的失败。
  */
 export type AgentTurnErrorCode =
   | 'agent_upstream_error'
   | 'agent_run_failed'
   | 'agent_tool_failed'
   | 'agent_turn_interrupted'
+  | 'agent_context_overflow'
 
 /** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {

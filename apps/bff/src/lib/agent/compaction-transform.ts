@@ -3,7 +3,7 @@ import type { AgentCompactionRecord } from '@image-playground/shared'
 import type { ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
 import type { CompactionBreaker, CompactionMessage, CompactionState } from './compaction'
-import { shapeAgentContext } from './compaction'
+import { messageBudget, shapeAgentContext, truncateToBudget } from './compaction'
 import { compactionSettings } from './compaction-settings'
 import { summarizeCompaction } from './compaction-summary'
 import { loadAgentCompaction, saveAgentCompaction } from './conversations'
@@ -15,6 +15,11 @@ export interface CompactionTransformInput {
   readonly historyIds: readonly string[]
   /** 本轮那条用户消息，紧接在历史之后。 */
   readonly userMessageId: string
+  /**
+   * 这一轮请求里不由消息承担的固定开销：系统说明与工具清单（见 `request-budget.ts`）。
+   * 塑形要先把它让出来，否则消息刚好卡在阈值上、加上开销就超了出站硬闸。
+   */
+  readonly overheadTokens: number
   readonly onSummaryAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
 
@@ -68,11 +73,20 @@ function changed(next: Persisted, previous: Persisted): boolean {
   )
 }
 
-/** pi 的契约是这个钩子不许抛：出任何岔子都把原上下文原样交回去。 */
+/**
+ * pi 的契约是这个钩子不许抛：出任何岔子都得交回一份能用的上下文。
+ *
+ * 但「能用」不等于「原样交回」。摘要失败、连接断掉、会话行没了——出岔子的那一刻历史正是
+ * 最长的那一份，原样发出去必然超预算（#400 验收第 2 条：摘要失败也不能回退发送完整历史）。
+ * 所以兜底走按预算截尾，超不超由 `assertRequestWithinBudget` 在出站前最后判。
+ */
 export function createCompactionTransform(
   input: CompactionTransformInput,
 ): (messages: AgentMessage[]) => Promise<AgentMessage[]> {
   let current: Persisted | null = null
+  // 兜底预算在这里算一次：它要在 catch 里用，而 catch 自己不能再抛。
+  // 与塑形用的是同一个算式，「兜底也不超阈值」才成立。
+  const fallbackBudget = messageBudget(compactionSettings(), input.overheadTokens)
 
   return async (messages) => {
     try {
@@ -83,6 +97,7 @@ export function createCompactionTransform(
         breaker: current.breaker,
         settings: compactionSettings(),
         now: Date.now(),
+        overheadTokens: input.overheadTokens,
         summarize: (request) => summarizeCompaction(request, input.onSummaryAttempt),
       })
 
@@ -100,7 +115,7 @@ export function createCompactionTransform(
       return [...result.messages]
     } catch (error) {
       log.warn({ event: 'agent.compaction_failed', err: error }, 'agent compaction failed')
-      return messages
+      return truncateToBudget(messages, fallbackBudget)
     }
   }
 }
