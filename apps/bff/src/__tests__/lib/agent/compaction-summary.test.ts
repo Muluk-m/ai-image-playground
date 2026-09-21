@@ -11,7 +11,11 @@ process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 process.env.OPERATOR_CONFIG_FILE = ''
 
-const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
+const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
+  '../../../lib/chatCompletion'
+)
+// 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
+setChatRetryBackoffForTesting(0)
 const { summarizeCompaction } = await import('../../../lib/agent/compaction-summary')
 
 const NARRATIVE = {

@@ -99,6 +99,7 @@
     "video": "Video",
     "failed": "Turn failed",
     "interrupted": "Interrupted, resumed automatically",
+    "contextOverflow": "This turn was too long to send",
     "stopped": "Stopped",
     "noCredits": "No credits used"
   },

@@ -3,6 +3,8 @@ import type { AgentTurnUsage } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { ChatAttempt } from '../chatCompletion'
+import { log } from '../logger'
+import { requestInputTokens } from './request-budget'
 
 interface TurnIdentity {
   readonly conversationId: string
@@ -20,6 +22,11 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
   let inputTokens = 0
   let outputTokens = 0
   let cachedInputTokens = 0
+  /**
+   * 派发那一刻按我们的口径估的输入，按调用 id 记着。上游报回真实用量时两相对照落一条日志：
+   * 预算闸门是启发式的（`request-budget.ts`），不记偏差就永远不知道它偏了多少、偏向哪边。
+   */
+  const estimates = new Map<string, number>()
   const calls = schema.agent_model_calls
   const scope = and(
     eq(calls.conversation_id, identity.conversationId),
@@ -38,6 +45,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
               : 0),
           0,
         ) ?? 0
+      if (context) estimates.set(id, requestInputTokens(context))
       await db.insert(calls).values({
         id,
         conversation_id: identity.conversationId,
@@ -88,6 +96,23 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         })
         .where(and(scope, eq(calls.id, id), eq(calls.status, 'in_progress')))
         .returning({ purpose: calls.purpose })
+      const estimated = estimates.get(id)
+      estimates.delete(id)
+      // 估的与上游报的摆在一起，运营才能判断这条启发式偏了多少、要不要调。
+      // 上游没报用量时无从对照，那种调用不落这条。
+      if (estimated !== undefined && usage) {
+        log.info(
+          {
+            event: 'agent.input_estimate_deviation',
+            conversationId: identity.conversationId,
+            turnId: identity.turnId,
+            model: message.model,
+            estimatedInputTokens: estimated,
+            reportedInputTokens: usage.inputTokens,
+          },
+          'agent input estimate compared with the reported usage',
+        )
+      }
       if (completed?.purpose === 'conversation' && usage) {
         knownConversationCalls += 1
         inputTokens += usage.inputTokens
