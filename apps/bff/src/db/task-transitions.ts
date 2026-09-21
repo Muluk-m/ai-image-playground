@@ -1,6 +1,9 @@
-import type { AgentToolErrorCode, TaskErrorType } from '@image-playground/shared'
+import {
+  type AgentToolErrorCode,
+  type TaskErrorType,
+  taskFailureCode,
+} from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
-import { taskFailureCode } from '../lib/agent/tools/errors'
 import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'

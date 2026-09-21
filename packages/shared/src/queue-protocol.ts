@@ -37,7 +37,10 @@ export interface StoredImageRef {
  * - `upstream_timeout`: BFF 自己的 AbortController（UPSTREAM_HARD_TIMEOUT_MS）切的
  * - `upstream_result_unknown`: 请求发出后连接中断或超时，无法确认上游是否已完成
  * - `upstream_error`: 上游 HTTP 4xx/5xx 或 socket 异常关闭等其它 fetch 抛错
- * - `upstream_no_image`: 上游 HTTP 200 但解析不出图（Gemini 安全策略 / OpenAI 异常 envelope）
+ * - `content_policy`: 上游内容安全判定拒绝了这次请求（OpenAI safety system、Grok 网关内容
+ *   策略、Gemini 的 blockReason/SAFETY 类 finishReason）。它与 `upstream_error` 的区别是
+ *   出路：原样重试稳定复现，只有改提示词才有意义。
+ * - `upstream_no_image`: 上游 HTTP 200 但解析不出图，且不是内容安全拒绝
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
  *   upstream result URL, after the retry budget was spent
@@ -47,6 +50,7 @@ export type TaskErrorType =
   | 'upstream_timeout'
   | 'upstream_result_unknown'
   | 'upstream_error'
+  | 'content_policy'
   | 'upstream_no_image'
   | 'interrupted'
   | 'object_storage_error'

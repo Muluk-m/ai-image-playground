@@ -1,10 +1,11 @@
-import type {
-  AgentBackgroundJobProgress,
-  AgentBackgroundJobView,
-  AgentContentBlock,
-  AgentMessageView,
-  AgentToolResultBlock,
-  AgentWakeSkipReason,
+import {
+  type AgentBackgroundJobProgress,
+  type AgentBackgroundJobView,
+  type AgentContentBlock,
+  type AgentMessageView,
+  type AgentToolResultBlock,
+  type AgentWakeSkipReason,
+  taskFailureCode,
 } from '@image-playground/shared'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -12,7 +13,6 @@ import { cancelTasks } from '../../db/task-transitions'
 import type { BffTransaction } from '../private-overlay'
 import { taskProgressPhase } from '../task-progress'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
-import { taskFailureCode } from './tools/errors'
 import { queueArtifacts } from './tools/queueTask'
 
 /**

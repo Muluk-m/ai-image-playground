@@ -113,7 +113,7 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
             })
           }
         >
-          {agentToolFailureActionLabel(action)}
+          {agentToolFailureActionLabel(action, refused)}
         </button>
       )}
     </>

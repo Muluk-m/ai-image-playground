@@ -47,4 +47,14 @@ describe('唤醒说明', () => {
     expect(merged).toContain('失败（上游超时）')
     expect(merged).not.toContain('deferredEdits')
   })
+
+  it('内容安全拒绝让模型主动提出改写提示词，而不是笼统的「换个说法、稍后再试」', () => {
+    const blocked = job('failed')
+    const prompt = wakeTurnPrompt([
+      { ...blocked, block: { ...blocked.block, errorCode: 'content_policy' } },
+    ])
+    expect(prompt).toContain('由你改写提示词')
+    // 稍后再试对这一类是坏建议：同一段提示词重提还是同一个结果。
+    expect(prompt).not.toContain('稍后再试')
+  })
 })

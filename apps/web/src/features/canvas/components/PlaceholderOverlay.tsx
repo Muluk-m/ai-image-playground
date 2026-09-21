@@ -252,7 +252,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       }
                       style={actionStyle(accent)}
                     >
-                      {agentToolFailureActionLabel(agentAction)}
+                      {agentToolFailureActionLabel(agentAction, agentCode)}
                     </button>
                   )}
                   {/* 智能体占的位没有可重发的画布任务：它的出路按错误码给，不在这里原样重发。 */}
