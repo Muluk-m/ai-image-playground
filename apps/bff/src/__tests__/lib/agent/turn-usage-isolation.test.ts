@@ -24,7 +24,11 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
-const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
+const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
+  '../../../lib/chatCompletion'
+)
+// 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
+setChatRetryBackoffForTesting(0)
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../../db/client')
@@ -236,8 +240,11 @@ describe('startAgentTurn usage', () => {
       .select()
       .from(schema.agent_model_calls)
       .where(eq(schema.agent_model_calls.purpose, 'compaction'))
-    expect(records).toHaveLength(1)
-    expect(records[0]).toMatchObject({ status: 'failed', usage: null })
+    // 503 是瞬时故障，会退避重试，所以这里不止一行——每一次真实请求各记一条，这才是对的账。
+    // 条数是重试预算说了算的，钉在这里只会把 `chatCompletion.ts` 的常量绑死在计费测试上。
+    expect(records.length).toBeGreaterThan(1)
+    expect(new Set(records.map((record) => record.id)).size).toBe(records.length)
+    for (const record of records) expect(record).toMatchObject({ status: 'failed', usage: null })
   })
 
   it('bills one turn the same no matter how much history the transcript replays', async () => {

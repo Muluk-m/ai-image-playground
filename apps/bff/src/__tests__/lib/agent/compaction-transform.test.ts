@@ -23,7 +23,11 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 )
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
-const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
+const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
+  '../../../lib/chatCompletion'
+)
+// 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
+setChatRetryBackoffForTesting(0)
 const { createCompactionTransform } = await import('../../../lib/agent/compaction-transform')
 const { createAgentConversation, loadAgentCompaction } = await import(
   '../../../lib/agent/conversations'

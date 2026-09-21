@@ -193,6 +193,70 @@ describe('shapeAgentContext', () => {
     expect((await shape(250)).mode).toBe('rebuild')
   })
 
+  // 摘要请求自己也是一次出站。折叠区比预算长时分段折，每一段都在预算内，且一条不落——
+  // 从前面截掉的话，截掉的那截既不在摘要里也不在尾巴里，用户说过的话会无声消失。
+  it('folds an oversized region in bounded chunks without dropping a message', async () => {
+    const messages = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((marker, at) =>
+      at % 2 === 0 ? user(`m${at + 1}`, body(marker)) : assistant(`m${at + 1}`, body(marker)),
+    )
+    const calls: SummaryRequest[] = []
+    const result = await shapeAgentContext({
+      messages,
+      state: null,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf(calls),
+    })
+
+    const limit = compactionBudget(SETTINGS).threshold
+    expect(calls.length).toBeGreaterThan(1)
+    for (const call of calls) {
+      expect(tokensOfMessages(call.messages.map((entry) => entry.message))).toBeLessThanOrEqual(
+        limit,
+      )
+    }
+    // 分段之间靠上一段的摘要接力：第一段没有前情，后面每一段都带着。
+    expect(calls[0]!.previousSummary).toBeNull()
+    expect(calls.slice(1).every((call) => call.previousSummary !== null)).toBe(true)
+    // 折叠区的每一条都恰好进了某一段，顺序不变，没有重复也没有遗漏。
+    expect(calls.flatMap((call) => call.messages.map((entry) => entry.id))).toEqual(
+      messages.slice(0, 8).map((entry) => entry.id),
+    )
+    expect(result.mode).toBe('rebuild')
+  })
+
+  // 段界向前吸附到用户消息，与 cutPoint 同一条规矩：一段里不出现没有调用的工具结果。
+  it('starts every fold chunk at a user message', async () => {
+    const messages = [
+      user('m1', body('a')),
+      assistant('m2', body('b')),
+      toolResult('m3', body('c')),
+      user('m4', body('d')),
+      assistant('m5', body('e')),
+      toolResult('m6', body('f')),
+      user('m7', body('g')),
+      assistant('m8', body('h')),
+      user('m9', body('i')),
+    ]
+    const calls: SummaryRequest[] = []
+    await shapeAgentContext({
+      messages,
+      state: null,
+      breaker: CLOSED,
+      settings: SETTINGS,
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf(calls),
+    })
+
+    expect(calls.length).toBeGreaterThan(1)
+    expect(calls.map((call) => call.messages[0]!.message.role)).toEqual(
+      calls.map(() => 'user' as const),
+    )
+  })
+
   it('rebuilds a summary and keeps the recent tail verbatim within the budget', async () => {
     const messages = [
       user('m1', body('a')),
@@ -414,7 +478,13 @@ describe('shapeAgentContext', () => {
 
     expect(result.mode).toBe('rebuild')
     expect(calls[0]!.previousSummary).toBeNull()
-    expect(calls[0]!.messages.map((entry) => entry.id)).toEqual(['m1', 'm2', 'm3', 'm4'])
+    // 从 m1 起重折，不是接着锚点往下——这一段超预算所以分了段，合起来仍是整段前缀。
+    expect(calls.flatMap((call) => call.messages.map((entry) => entry.id))).toEqual([
+      'm1',
+      'm2',
+      'm3',
+      'm4',
+    ])
     expect(result.state?.foldCount).toBe(0)
   })
 

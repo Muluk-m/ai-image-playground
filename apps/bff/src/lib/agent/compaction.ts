@@ -196,6 +196,48 @@ function cutPoint(
 }
 
 /**
+ * 折叠区按预算切成几段，逐段折叠。
+ *
+ * 摘要请求自己也是一次出站，可折叠区从来没有上限——长会话第一次重建时，它发的正是整段
+ * 历史，比任何一次智能体请求都长。按预算从前面截掉不行：截掉的那截既不在摘要里也不在
+ * 尾巴里，用户说过的话会无声消失。所以改成分段，每一段带上一段的摘要往下传（复用已有的
+ * `previousSummary` 通道），内容一点不丢，每一次请求都有界。
+ *
+ * 段界向前吸附到用户消息，与 `cutPoint` 同一条规矩：一段里不出现没有调用的工具结果。
+ * 单独一条就超预算时自成一段——再切也没用，那一份超不超由上游说了算。
+ */
+function foldChunks(
+  region: readonly CompactionMessage[],
+  budget: number,
+): readonly CompactionMessage[][] {
+  const chunks: CompactionMessage[][] = []
+  let start = 0
+  while (start < region.length) {
+    let end = start + 1
+    let used = tokens(region[start]!.message)
+    while (end < region.length) {
+      const cost = tokens(region[end]!.message)
+      if (used + cost > budget) break
+      used += cost
+      end += 1
+    }
+    if (end < region.length) {
+      // 吸附：段界落在用户消息上，下一段就从一轮对话的开头起。吸不到就按原样切，
+      // 不然这一段会一路吞到底，分段等于没做。
+      for (let at = end; at > start + 1; at -= 1) {
+        if (isUser(region[at]!)) {
+          end = at
+          break
+        }
+      }
+    }
+    chunks.push(region.slice(start, end))
+    start = end
+  }
+  return chunks
+}
+
+/**
  * 兜底的纯截尾窗口：至少留最新一条，开头不留工具结果（没有配对的调用，上游会拒）。
  *
  * 整条压缩路径出岔子时也走它（`compaction-transform.ts` 的 catch），理由只有一个：
@@ -375,15 +417,22 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。
   const previous = state && state.foldCount < input.settings.maxIncrementalFolds ? state : null
-  // TODO(#400)：摘要请求自己也是一次出站，折叠区却没有上限——长会话下它发的正是最长的那段
-  // 前缀。这里不能简单按预算截断：切点要与 `cutPoint` 一样吸附到用户消息边界，否则会把
-  // 工具调用与它的结果拆开。留给下一票与有界历史查询一起做。
-
-  const narrative = await input.summarize({
-    messages: messages.slice(previous ? covered : 0, cut),
-    previousSummary: previous ? previous.narrative : null,
-  })
-  if (!narrative) return fallback(afterFailure(breaker, input.now, input.settings))
+  // 摘要请求也是一次出站，按智能体那份请求的同一条上限量它：折叠区超了就分段，
+  // 每一段带上一段的摘要往下传，内容不丢而每一次请求都有界。
+  const chunks = foldChunks(
+    messages.slice(previous ? covered : 0, cut),
+    compactionBudget(input.settings).threshold,
+  )
+  let narrative = previous ? previous.narrative : null
+  for (const chunk of chunks) {
+    const next = await input.summarize({ messages: chunk, previousSummary: narrative })
+    // 中途哪一段没折成就整体作废：半截摘要盖不住整个折叠区，用它会把没摘到的内容丢掉。
+    if (!next) return fallback(afterFailure(breaker, input.now, input.settings))
+    narrative = next
+  }
+  // `cut > covered` 已经保过折叠区非空，所以上面至少折了一段。这一行只为收敛类型，
+  // 走到它说明前面的不变量破了——那不是摘要失败，不该记进熔断器。
+  if (!narrative) return fallback(breaker)
 
   const summary = summaryMessage(narrative, messages.slice(0, cut), input.settings.verbatimTokens)
   return {
