@@ -9,7 +9,10 @@
     "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Sign-in methods",
-    "loggingOut": "Signing out"
+    "loggingOut": "Signing out",
+    "membership": {
+      "subscribe": "Get membership"
+    }
   },
   "brand": {
     "home": "Home",

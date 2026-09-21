@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { useAuth } from '../auth/AuthContext'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
@@ -8,7 +7,6 @@ import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
 import { AssetIcon, CanvasIcon, GalleryIcon, PromptImageIcon, SparkleIcon } from './icons'
-import SidebarAccountCard from './SidebarAccountCard'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
@@ -35,7 +33,6 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
-  const username = useAuth().user?.username ?? null
   // 画布是沉浸式的：那里**永远**没有这条宽栏，连手动展开都不给——左上角那颗 logo 直接回项目页。
   // 别处默认摊开，用户收起过就以他的选择为准。
   const workbench = useStore((state) => isWorkbenchMode(state.appMode))
@@ -180,7 +177,6 @@ export default function Sidebar() {
               </div>
             )
           })}
-          <SidebarAccountCard username={username} />
         </nav>
       ) : null}
 
