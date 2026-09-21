@@ -20,7 +20,7 @@ const SETTINGS: CompactionSettings = {
   maxOutputTokens: 4_000,
   outputReserveTokens: 1_000,
   bufferTokens: 500,
-  keepRecentMessages: 2,
+  keepRecentTokens: 200,
   verbatimTokens: 100,
   maxIncrementalFolds: 3,
   failureThreshold: 3,

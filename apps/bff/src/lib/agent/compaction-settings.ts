@@ -12,7 +12,7 @@ export function compactionSettings(
     maxOutputTokens,
     outputReserveTokens: quotas['agent:compaction-output-reserve-tokens'],
     bufferTokens: quotas['agent:compaction-buffer-tokens'],
-    keepRecentMessages: quotas['agent:compaction-keep-messages'],
+    keepRecentTokens: quotas['agent:compaction-keep-tokens'],
     verbatimTokens: quotas['agent:compaction-verbatim-tokens'],
     maxIncrementalFolds: quotas['agent:compaction-max-folds'],
     failureThreshold: quotas['agent:compaction-failure-threshold'],
