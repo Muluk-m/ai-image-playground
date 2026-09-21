@@ -3,7 +3,6 @@ import {
   AgentToolError,
   createToolFailureLog,
   queueRefusalCode,
-  taskFailureCode,
 } from '../../../../lib/agent/tools/errors'
 
 it('classifies every way a queue submission can be refused', () => {
@@ -14,17 +13,6 @@ it('classifies every way a queue submission can be refused', () => {
   expect(queueRefusalCode('price_unavailable')).toBe('model_unavailable')
   expect(queueRefusalCode('object_storage_error')).toBe('upstream_error')
   expect(queueRefusalCode('idempotency_conflict')).toBe('upstream_error')
-})
-
-it('classifies the failure a worker recorded on the task', () => {
-  expect(taskFailureCode('upstream_timeout')).toBe('timeout')
-  expect(taskFailureCode('upstream_no_image')).toBe('no_output')
-  expect(taskFailureCode('upstream_error')).toBe('upstream_error')
-  // 执行者丢了或上游结局查不到：可能已经出图计费，不能归进可重试的类。
-  expect(taskFailureCode('interrupted')).toBe('result_unknown')
-  expect(taskFailureCode('upstream_result_unknown')).toBe('result_unknown')
-  expect(taskFailureCode('object_storage_error')).toBe('upstream_error')
-  expect(taskFailureCode(null)).toBe('upstream_error')
 })
 
 it('remembers why each tool call failed, apart from the text pi keeps', () => {

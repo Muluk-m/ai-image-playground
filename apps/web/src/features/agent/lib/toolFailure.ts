@@ -35,6 +35,8 @@ export function agentToolFailureAction(
     case 'authentication_required':
       return isClientCapabilityEnabled('accounts:login') ? 'login' : null
     case 'invalid_params':
+    // 原样重试稳定复现，唯一的出路是改写提示词——那正是「让助手重新处理」要做的事。
+    case 'content_policy':
     case 'model_unavailable':
       return 'reprocess'
     default:
@@ -68,6 +70,8 @@ export function agentToolFailureText(code: AgentToolErrorCode | undefined): stri
       return t('agentTool.authentication_required')
     case 'invalid_params':
       return t('agentTool.invalid_params')
+    case 'content_policy':
+      return t('agentTool.content_policy')
     case 'model_unavailable':
       return t('agentTool.model_unavailable')
     case 'cancelled':
@@ -77,10 +81,15 @@ export function agentToolFailureText(code: AgentToolErrorCode | undefined): stri
   }
 }
 
-export function agentToolFailureActionLabel(action: AgentToolFailureAction): string {
+export function agentToolFailureActionLabel(
+  action: AgentToolFailureAction,
+  code?: AgentToolErrorCode,
+): string {
   const t = i18next.getFixedT(null, 'agent')
   if (action === 'recharge') return t('toolFailure.recharge')
   if (action === 'login') return t('toolFailure.login')
+  // 内容安全拒绝只有改写这一条路，按钮直说要它做什么，别让用户猜「重新处理」是什么。
+  if (code === 'content_policy') return t('toolFailure.rewrite')
   return t('toolFailure.reprocess')
 }
 
@@ -99,6 +108,9 @@ export function agentReprocessMessage(
   const reason = block
     ? i18next.t(`toolFailure.blocked.${block}`, { ns: 'agent' })
     : (agentToolFailureText(code) ?? '')
+  // 内容安全拒绝要的是改词，不是换做法：说成「换个做法」会让智能体去换模型或换参数。
+  if (code === 'content_policy')
+    return i18next.t('toolFailure.rewriteMessage', { ns: 'agent', title, reason })
   return i18next.t('toolFailure.reprocessMessage', { ns: 'agent', title, reason })
 }
 

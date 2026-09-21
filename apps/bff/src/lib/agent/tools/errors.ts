@@ -1,4 +1,4 @@
-import type { AgentToolErrorCode, TaskErrorType } from '@image-playground/shared'
+import type { AgentToolErrorCode } from '@image-playground/shared'
 import type { CreateQueueTaskOutcome } from '../../taskSubmission'
 
 /**
@@ -30,23 +30,6 @@ export function queueRefusalCode(kind: CreateQueueTaskOutcome['kind']): AgentToo
     // 没有价格即这个模型不在售：与模型下线同样是「换一个做法」，不是再试一次。
     case 'price_unavailable':
       return 'model_unavailable'
-    default:
-      return 'upstream_error'
-  }
-}
-
-/** 队列任务失败时 worker 记下的 `error_type` 各归哪一类。 */
-export function taskFailureCode(errorType: TaskErrorType | null | undefined): AgentToolErrorCode {
-  switch (errorType) {
-    case 'upstream_timeout':
-      return 'timeout'
-    case 'upstream_no_image':
-      return 'no_output'
-    // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次
-    // 就可能付两次钱，所以不归进可重试的那几类。
-    case 'upstream_result_unknown':
-    case 'interrupted':
-      return 'result_unknown'
     default:
       return 'upstream_error'
   }

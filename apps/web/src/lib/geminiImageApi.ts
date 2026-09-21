@@ -5,9 +5,9 @@ import {
   type BYOKAdapterProfile,
   type CallApiOptions,
   type CallApiResult,
-  getApiErrorMessage,
   getDataUrlEncodedByteSize,
   throwIfProxyError,
+  upstreamHttpError,
 } from './imageApiShared'
 import { nearestAspectRatio } from './size'
 
@@ -173,7 +173,7 @@ async function fetchAndParse(
 ): Promise<GeminiParseResult> {
   const response = await fetch(url, { method: 'POST', headers, body })
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response))
+    throw await upstreamHttpError(response)
   }
   const payload = (await response.json()) as GeminiResponse
   throwIfProxyError(payload)

@@ -18,7 +18,6 @@ import {
   type CallApiOptions,
   type CallApiResult,
   fetchImageUrlAsDataUrl,
-  getApiErrorMessage,
   getDataUrlDecodedByteSize,
   getDataUrlEncodedByteSize,
   isDataUrl,
@@ -28,6 +27,7 @@ import {
   normalizeBase64Image,
   pickActualParams,
   throwIfProxyError,
+  upstreamHttpError,
 } from './imageApiShared'
 
 function appendQuery(path: string, query?: Record<string, string>): string {
@@ -591,7 +591,7 @@ async function callImagesApiSingle(
     }
 
     if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response))
+      throw await upstreamHttpError(response)
     }
 
     if (isEventStreamResponse(response)) {
@@ -852,7 +852,7 @@ async function submitCustomRequest(
     signal: controller.signal,
   })
 
-  if (!response.ok) throw new Error(await getApiErrorMessage(response))
+  if (!response.ok) throw await upstreamHttpError(response)
   return response.json()
 }
 
@@ -888,7 +888,7 @@ async function pollCustomTaskResult(
 
       if (!taskResponse.ok) {
         if (isRetryablePollingStatus(taskResponse.status)) continue
-        throw new Error(await getApiErrorMessage(taskResponse))
+        throw await upstreamHttpError(taskResponse)
       }
 
       taskPayload = await taskResponse.json()
@@ -1071,7 +1071,7 @@ async function callResponsesImageApiSingle(
     )
 
     if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response))
+      throw await upstreamHttpError(response)
     }
 
     const payload = (await response.json()) as ResponsesApiResponse

@@ -1,4 +1,9 @@
-import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
+import {
+  isContentPolicyEmptyResult,
+  isContentPolicyRejection,
+  QUEUE_TIMEOUTS,
+  type TaskErrorType,
+} from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
@@ -317,13 +322,15 @@ async function executeTask(id: string): Promise<void> {
     if (meta.images.length === 0) {
       const message = describeEmptyResult(task.provider, payload)
       const attemptJustFailed = task.attempt_count + 1
+      // 审核拒绝与「上游抽风没出图」的出路不同：前者要改提示词，后者再跑一次就好。
+      const blocked = isContentPolicyEmptyResult(task.provider, payload)
       // 遮罩提交一律不自动重生成：失败就是终态，要不要再来一次由那一轮的智能体决定。
       if (
         !task.request_payload.preserve_outside_mask &&
         (await tryScheduleRetry(
           id,
           attemptJustFailed,
-          shouldRetryEmptyResult(task.provider, payload),
+          !blocked && shouldRetryEmptyResult(task.provider, payload),
           `no_image: ${message}`,
         ))
       ) {
@@ -332,7 +339,7 @@ async function executeTask(id: string): Promise<void> {
       await finishTask(id, {
         status: 'failed',
         errorMessage: message,
-        errorType: 'upstream_no_image',
+        errorType: blocked ? 'content_policy' : 'upstream_no_image',
         resultPayload: payload as Record<string, unknown>,
         completedAt: now(),
       })
@@ -416,11 +423,18 @@ async function executeTask(id: string): Promise<void> {
       : err instanceof Error
         ? err.message
         : String(err)
+    const upstreamFailure = extractUpstreamFailure(err)
     const errorType: TaskErrorType = isStorageError
       ? 'object_storage_error'
       : isUnknownResult
         ? 'upstream_result_unknown'
-        : 'upstream_error'
+        : isContentPolicyRejection({
+              status: upstreamFailure.status,
+              message,
+              payload: upstreamFailure.body,
+            })
+          ? 'content_policy'
+          : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (
@@ -435,7 +449,6 @@ async function executeTask(id: string): Promise<void> {
       return
     }
 
-    const upstream = extractUpstreamFailure(err)
     const failed = await finishTask(id, {
       status: 'failed',
       errorMessage: message,
@@ -454,8 +467,8 @@ async function executeTask(id: string): Promise<void> {
             },
           }
         : {}),
-      upstreamStatus: upstream.status,
-      upstreamBody: upstream.body,
+      upstreamStatus: upstreamFailure.status,
+      upstreamBody: upstreamFailure.body,
       completedAt: now(),
     })
     if (failed) {
@@ -465,7 +478,7 @@ async function executeTask(id: string): Promise<void> {
           taskId: id,
           errorType,
           attempt: attemptJustFailed,
-          upstreamStatus: upstream.status,
+          upstreamStatus: upstreamFailure.status,
           err: message,
         },
         'task failed',

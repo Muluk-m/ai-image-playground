@@ -68,7 +68,9 @@
     "recharge": "去充值",
     "login": "去登录",
     "reprocess": "让助手重新处理",
+    "rewrite": "让助手改写提示词",
     "reprocessMessage": "「{{title}}」没有完成：{{reason}}。请换个做法重新处理。",
+    "rewriteMessage": "「{{title}}」没有完成：{{reason}}。请帮我把提示词改写成能过审的说法，保留原本想要的画面，改完先说你改了什么再提交。",
     "blocked": {
       "local_edit": "它是按当时的选区或方案改的，原样重做会改错地方",
       "model_gone": "当时用的那个模型已经不在可用清单里了"

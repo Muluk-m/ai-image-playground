@@ -316,6 +316,9 @@ export default function DetailModal() {
     setDetailTaskId(null)
   }
 
+  // 上游按内容安全拒了这次提示词：文案换成可行动的那句，出路是改词再来，不是原样重试。
+  const blockedByContentPolicy = task.errorCode === 'content_policy'
+
   return (
     <>
       <Overlay onClose={() => setDetailTaskId(null)} tier="modal">
@@ -530,8 +533,19 @@ export default function DetailModal() {
                     WebkitLineClamp: 4,
                   }}
                 >
-                  {task.error || t('detail.generateFailed')}
+                  {blockedByContentPolicy
+                    ? t('detail.contentPolicy')
+                    : task.error || t('detail.generateFailed')}
                 </p>
+                {blockedByContentPolicy && (
+                  <button
+                    type="button"
+                    onClick={handleReuse}
+                    className="mt-3 inline-flex items-center justify-center rounded-full border border-primary/80 bg-primary/10 px-4 py-1.5 text-sm text-primary transition hover:bg-primary/20"
+                  >
+                    {t('detail.rewritePrompt')}
+                  </button>
+                )}
                 <div className="mt-3 flex items-center justify-center gap-2">
                   <div className="relative group">
                     <button
@@ -610,38 +624,41 @@ export default function DetailModal() {
                       </ViewportTooltip>
                     </div>
                   )}
-                  <div className="relative group">
-                    <button
-                      type="button"
-                      {...retryTooltip.handlers}
-                      onClick={(e) => {
-                        retryTooltip.handlers.onClick()
-                        handleRetry()
-                      }}
-                      className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
-                      aria-label={t('action.retryTask')}
-                    >
-                      <svg
-                        className="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        viewBox="0 0 24 24"
+                  {/* 内容安全拒绝原样重试稳定复现，只留改提示词那条出路。 */}
+                  {!blockedByContentPolicy && (
+                    <div className="relative group">
+                      <button
+                        type="button"
+                        {...retryTooltip.handlers}
+                        onClick={(e) => {
+                          retryTooltip.handlers.onClick()
+                          handleRetry()
+                        }}
+                        className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
+                        aria-label={t('action.retryTask')}
                       >
-                        <path
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                    </button>
-                    <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
-                      {t('action.retryTask')}
-                    </ViewportTooltip>
-                  </div>
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                      </button>
+                      <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
+                        {t('action.retryTask')}
+                      </ViewportTooltip>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

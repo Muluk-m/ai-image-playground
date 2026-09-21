@@ -48,6 +48,8 @@
   },
   "detail": {
     "generateFailed": "Generation failed",
+    "contentPolicy": "This prompt didn't pass the provider's content review, so the generation was rejected. Reword it and try again — resubmitting the same prompt lands the same way.",
+    "rewritePrompt": "Edit the prompt",
     "errorCopied": "Full error copied",
     "copyErrorFailed": "Could not copy the error",
     "promptCopied": "Prompt copied",
