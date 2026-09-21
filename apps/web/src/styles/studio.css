@@ -73,6 +73,15 @@
 .studio-agent-composer [role="textbox"]:focus-visible { outline: none; box-shadow: none; }
 
 .studio-mobile-switch { display: none; }
+
+/* 画布沉浸时这一簇直接压在画布内容上，没有底就像两层图叠在一起——给一层毛玻璃托底当 chrome 读。 */
+.studio-header-float {
+  padding: 4px;
+  border-radius: 9999px;
+  background: hsl(var(--background) / 0.72);
+  backdrop-filter: blur(12px);
+  box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.7);
+}
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .studio-header-float { top: var(--workspace-viewport-top, 0px); }

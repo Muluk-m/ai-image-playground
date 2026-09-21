@@ -208,9 +208,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   onClick={() => useStore.getState().setAppMode('projects')}
                   aria-label={t('workspace.backToProjects')}
                   title={t('workspace.backToProjects')}
-                  className="shrink-0 rounded-lg opacity-90 transition-opacity hover:opacity-100"
+                  className="grid h-9 w-9 shrink-0 place-items-center opacity-90 transition-opacity hover:opacity-100"
                 >
-                  <img src="/brand/icon-512.png" alt="" className="h-7 w-7 rounded-lg" />
+                  <img src="/brand/muvloom-icon.svg" alt="" className="h-8 w-8" />
                 </button>
                 <ProjectNavigation />
               </div>

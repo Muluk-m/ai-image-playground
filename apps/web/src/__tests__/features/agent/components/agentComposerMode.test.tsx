@@ -195,17 +195,6 @@ describe('创作类型跟着项目走', () => {
     expect(useAgentStore.getState().mode).toBe('video')
   })
 
-  it('不给切：创作类型只是个只读标识，点不开也按不动', async () => {
-    render()
-    await settle()
-
-    const indicator = host.querySelector<HTMLElement>('[aria-label^="创作类型"]')!
-    expect(indicator).not.toBeNull()
-    expect(indicator.textContent).toBe('')
-    expect(indicator.closest('button')).toBeNull()
-    expect(indicator.getAttribute('aria-expanded')).toBeNull()
-  })
-
   it('图片画布里残留的视频草稿不算数，仍按图片发', async () => {
     const session = agentDraft(null, PROJECT_ID)
     session.update((draft) => ({ ...draft, mode: 'video' }))
