@@ -306,7 +306,12 @@ describe('插话', () => {
     )!.content[0]!
     expect(block.type === 'text' && block.references?.[0]?.mask).toBeTruthy()
     expect(JSON.stringify(block)).not.toContain('data:image')
-    const source = createAgentImageSource({ references: [], history: messages, userId: null })
+    const source = createAgentImageSource({
+      references: [],
+      history: messages,
+      conversationId,
+      userId: null,
+    })
     expect(await source.resolve('image 1')).toEqual(reference)
   })
 

@@ -6,7 +6,7 @@ import type {
   AgentMessageView,
   AgentToolCallSnapshot,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { settleAgentJobs } from './background-jobs'
@@ -295,12 +295,23 @@ export async function settleAgentConversationJobs(conversationId: string): Promi
   await settleAgentJobs(conversationId, rows.map(messageView))
 }
 
-export async function listAgentMessages(
+/**
+ * 三条读路径共用的一条：`scope` 划出这一次要读的那一段，之外的部分三边完全一样。
+ * 归属只长在会话表上——消息表没有归属列，不 join 过去就认不出这一段该不该交给这个调用方。
+ */
+async function readAgentMessages(
   conversationId: string,
   owner: AgentOwner,
+  scope?: SQL,
 ): Promise<AgentMessageView[]> {
   const rows = await db
-    .select()
+    .select({
+      id: schema.agent_messages.id,
+      turn_id: schema.agent_messages.turn_id,
+      role: schema.agent_messages.role,
+      content: schema.agent_messages.content,
+      created_at: schema.agent_messages.created_at,
+    })
     .from(schema.agent_messages)
     .innerJoin(
       schema.agent_conversations,
@@ -312,14 +323,12 @@ export async function listAgentMessages(
         ownerWhere(owner),
         isNull(schema.agent_messages.deleted_at),
         isNull(schema.agent_conversations.deleted_at),
+        scope,
       ),
     )
     .orderBy(asc(schema.agent_messages.seq))
   // 已经结束的后台任务先结算成终局：快照、续轮的历史与任务列表读到的都是这一份。
-  const messages = await settleAgentJobs(
-    conversationId,
-    rows.map((row) => messageView(row.agent_messages)),
-  )
+  const messages = await settleAgentJobs(conversationId, rows.map(messageView))
   const taskIds = [
     ...new Set(
       messages.flatMap((message) =>
@@ -332,7 +341,7 @@ export async function listAgentMessages(
     ),
   ]
   if (!taskIds.length) return messages
-  // Only recover tasks tied to this already-authorized conversation; never trust artifact IDs alone.
+  // 只认挂在这个已经确权的会话下的任务：产物 id 本身证明不了归属。
   const tasks = await db
     .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
     .from(schema.tasks)
@@ -353,4 +362,143 @@ export async function listAgentMessages(
       return prompt ? { ...block, prompt } : block
     }),
   }))
+}
+
+/** 面板要的是整段历史：会话快照与任务列表里翻得到的每一条都得在，这里不按压缩收窄。 */
+export async function listAgentMessages(
+  conversationId: string,
+  owner: AgentOwner,
+): Promise<AgentMessageView[]> {
+  return readAgentMessages(conversationId, owner)
+}
+
+export interface AgentHistoryWindow {
+  /** 锚点之后的消息；摘要作废或压根没有摘要时，就是整段历史。 */
+  readonly messages: readonly AgentMessageView[]
+  /** 已经折进摘要、没有随 `messages` 读出来的条数。没有摘要时为 0。 */
+  readonly coveredCount: number
+  /**
+   * 这个会话的压缩记录。锚点那条消息已经不在、或它之前还活着的条数与记的对不上时，
+   * `summary` / `anchor` / `verbatim` 在这里就已经清空（熔断器的两个计数保留），
+   * 调用方拿到的永远是一份可以直接用的记录。
+   */
+  readonly compaction: AgentCompactionRecord
+}
+
+/** 与消息读同一套归属过滤：会话不归这个调用方（或已删）时连记录都读不到，窗口跟着退化成空窗口。 */
+async function loadOwnedCompaction(
+  conversationId: string,
+  owner: AgentOwner,
+): Promise<AgentCompactionRecord | null> {
+  const [row] = await db
+    .select({ compaction: schema.agent_conversations.compaction })
+    .from(schema.agent_conversations)
+    .where(
+      and(
+        eq(schema.agent_conversations.id, conversationId),
+        ownerWhere(owner),
+        isNull(schema.agent_conversations.deleted_at),
+      ),
+    )
+    .limit(1)
+  return row?.compaction ?? null
+}
+
+/**
+ * 摘要作废后的那一份记录。熔断器的两个计数留着：作废是历史自己变了，不是压缩又失败了一次，
+ * 清掉就等于放开一个正在熔断的会话，让它一直重试一直失败。
+ */
+function withoutSummary(record: AgentCompactionRecord | null): AgentCompactionRecord {
+  return {
+    summary: null,
+    anchor: null,
+    verbatim: null,
+    foldCount: 0,
+    failureCount: record?.failureCount ?? 0,
+    openedAt: record?.openedAt ?? null,
+  }
+}
+
+/**
+ * 锚点还作数时给出它的序号，否则 null。
+ *
+ * 只认 id 在不在是不够的：折进摘要之后又被软删的那一条，锚点照样在，删掉的内容就一直冻在
+ * 摘要里——它不随窗口读回来，也没有谁再回去动那份摘要。数一遍锚点及其之前还活着的条数，
+ * 与折的时候记下的对不上就整份作废，下一轮按现在的历史重折。
+ */
+async function liveAnchorSeq(
+  conversationId: string,
+  anchor: NonNullable<AgentCompactionRecord['anchor']>,
+): Promise<number | null> {
+  const [found] = await db
+    .select({ seq: schema.agent_messages.seq })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        eq(schema.agent_messages.id, anchor.lastMessageId),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+    .limit(1)
+  if (!found) return null
+  // 只数不取：这一段走 `(conversation_id, seq)` 索引的区间，覆盖区的行一条都不用拉回来。
+  const [covered] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        lte(schema.agent_messages.seq, found.seq),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+  return covered?.count === anchor.coveredCount ? found.seq : null
+}
+
+/**
+ * 续轮要的历史：摘要盖住的那一截不读回来，DB 扫描、结算与产物水合都只按窗口这一段走。
+ */
+export async function listAgentHistoryWindow(
+  conversationId: string,
+  owner: AgentOwner,
+): Promise<AgentHistoryWindow> {
+  const record = await loadOwnedCompaction(conversationId, owner)
+  // verbatim 与 summary 同生共死：旧记录缺这一节，用户原话补不出来，只能当摘要作废重折一次。
+  if (record?.summary && record.anchor && record.verbatim) {
+    const seq = await liveAnchorSeq(conversationId, record.anchor)
+    if (seq !== null) {
+      return {
+        messages: await readAgentMessages(
+          conversationId,
+          owner,
+          gt(schema.agent_messages.seq, seq),
+        ),
+        coveredCount: record.anchor.coveredCount,
+        compaction: record,
+      }
+    }
+  }
+  return {
+    messages: await readAgentMessages(conversationId, owner),
+    coveredCount: 0,
+    compaction: withoutSummary(record),
+  }
+}
+
+/**
+ * 指定几轮的全部消息，按 seq 升序。唤醒点名的那一轮、授权原话所在的那一轮都可能比历史窗口
+ * 更老：定点取这几条回来，不必为了它们把整段历史再读一遍。
+ */
+export async function listAgentTurnMessages(
+  conversationId: string,
+  owner: AgentOwner,
+  turnIds: readonly string[],
+): Promise<AgentMessageView[]> {
+  if (!turnIds.length) return []
+  return readAgentMessages(
+    conversationId,
+    owner,
+    inArray(schema.agent_messages.turn_id, [...turnIds]),
+  )
 }
