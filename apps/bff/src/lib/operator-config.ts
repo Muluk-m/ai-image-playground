@@ -9,6 +9,7 @@ import {
   type QuotaKey,
   type QuotaValues,
   RETIRED_CAPABILITIES,
+  RETIRED_QUOTAS,
 } from '@image-playground/shared'
 import { isObject } from './type-guards'
 
@@ -76,6 +77,7 @@ function parseQuotas(value: unknown): ParsedQuotaValues {
 
   const parsed: ParsedQuotaValues = {}
   for (const [key, quota] of Object.entries(value)) {
+    if (RETIRED_QUOTAS.includes(key)) continue
     if (!Object.hasOwn(QUOTAS, key))
       throw new Error(`operator config quotas contains unknown quota: ${key}`)
     if (typeof quota !== 'number' || !Number.isSafeInteger(quota) || quota < 0) {
