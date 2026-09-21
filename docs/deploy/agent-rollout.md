@@ -107,7 +107,7 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 "agent:compaction-output-reserve-tokens": 8000,
 "agent:compaction-buffer-tokens": 8000,
 "agent:compaction-verbatim-tokens": 6000,
-"agent:compaction-keep-messages": 10,
+"agent:compaction-keep-tokens": 6000,
 "agent:compaction-max-folds": 5,
 "agent:compaction-failure-threshold": 3,
 "agent:compaction-cooldown-minutes": 60,
