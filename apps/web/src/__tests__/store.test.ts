@@ -113,6 +113,12 @@ vi.mock('../lib/transparentImage', async (importOriginal) => {
   }
 })
 
+const readRemoteGeneration = vi.hoisted(() => vi.fn())
+vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/remoteGenerations')>()),
+  readRemoteGeneration,
+}))
+
 import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
@@ -1313,6 +1319,63 @@ describe('submitPrepared 显式参数提交接缝', () => {
     expect(useStore.getState().tasks[0]).toMatchObject({
       maskImageId: 'mask-image',
       maskTargetImageId: imageA.id,
+    })
+  })
+})
+
+describe('展开平台记录的详情', () => {
+  it('平台那条已经跑完时卡片跟着落终态，不再一直显示生成中', async () => {
+    const image = (mediaId: string) => ({
+      index: 0,
+      mediaId,
+      width: null,
+      height: null,
+      contentType: 'image/png',
+    })
+    readRemoteGeneration.mockResolvedValue({
+      id: 'gen-1',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'completed',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: 62_000,
+      revision: '1',
+      prompt: '一只猫',
+      parameters: {},
+      actualParameters: {},
+      inputs: [image('in-1')],
+      mask: null,
+      outputs: [image('out-1')],
+    })
+    useStore.setState({
+      tasks: [
+        task({
+          id: 'gen-1',
+          bffRequestId: 'gen-1',
+          status: 'running',
+          finishedAt: null,
+          elapsed: null,
+          remoteOnly: true,
+        }),
+      ],
+      detailTaskId: null,
+    })
+
+    useStore.getState().setDetailTaskId('gen-1')
+
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      '详情已经读到 completed，卡片仍停在 running',
+    )
+    expect(useStore.getState().tasks[0]).toMatchObject({
+      finishedAt: 62_000,
+      elapsed: 60_000,
+      outputImages: ['aip-media:out-1'],
+      inputImageIds: ['aip-media:in-1'],
     })
   })
 })
