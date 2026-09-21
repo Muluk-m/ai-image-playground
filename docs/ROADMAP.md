@@ -22,13 +22,13 @@
 1. **已上线的能力未验证，就不许铺新能力。** 当前有两处未验证：长画布智能体任务的质量与总成本（#408），以及 `apps/bff/skills/image/` 下三条电商技能正文自己标着「示例级内容，尚未经过真实产出验证」。
 2. **Lane C 与视频主线无依赖。** 电商三件套都走已有的 `image` 计费单元与 `editImage` 工具，不等任何视频能力。
 
-## 当前工作队列（真实状态，2026-09-20 执行后）
+## 当前工作队列（真实状态，2026-09-21 复核后）
 
-24 张 open issue。上一版的处置已全部落到 tracker 上：
+24 张 open issue。上一版的处置已全部落到 tracker 上；2026-09-21 这轮把 Lane A2 的 #400 从 1/7 推到 5/7，并拆出 #714（等线上数据再裁决）：
 
 | 规格 | 状态 | 归属 | 已执行的处置 |
 | --- | --- | --- | --- |
-| [#391](https://github.com/Muluk-m/ai-image-playground/issues/391) 智能体画布渐进读取与有界执行 | 15 片仍 open | Lane A | 做，优先 #400 / #398 / #396；#394 / #395 / #408 前提作废已退回 `needs-triage` 等重写 |
+| [#391](https://github.com/Muluk-m/ai-image-playground/issues/391) 智能体画布渐进读取与有界执行 | 15 片仍 open，#400 已 5/7 | Lane A | 做，优先 #398 / #396；#400 剩余范围收敛到 #714 与两格测试，卡在等线上数据；#394 / #395 / #408 前提作废已退回 `needs-triage` 等重写 |
 | [#600](https://github.com/Muluk-m/ai-image-playground/issues/600) 对话不被生成阻塞 | **已交付** | Lane A | 53 条验收全部有实现与测试，已关闭（见 A1） |
 | [#634](https://github.com/Muluk-m/ai-image-playground/issues/634) 画布视频第二期 | 5 条方案里 4 条已落地 | Lane A | 保持 open，范围收窄到用户故事 17 / 18 + 上线验收（见 A3） |
 | [#483](https://github.com/Muluk-m/ai-image-playground/issues/483) 完整创作云同步 | **已关闭 17 张**（含 #501–#516） | — | 全停，`wontfix`，见「已砍 / 降级」 |
@@ -50,7 +50,8 @@
 
 - [ ] 目标：每次请求装入**有界**工作内容；长结果外置；按需读预览与高清局部；跑通一次长画布任务并记录真实总成本。
 - **这不是性能优化，是计费正确性问题。** 对话按 token 折算积分（裁决 E2）且已上线（`ModelPriceUnit` 含 `kilo_token`，私有迁移 `0008_chat_token_pricing`）。#400 的存在说明当前没有上下文上界——画布越长，用户为实现缺陷付的钱越多。
-- 现状（2026-09-20 逐片核对 origin/main）：**画布读取层零实现**（`queryCanvas` / `readCanvas` / `readContext` 全仓库零命中，工具注册表 7 个工具无画布工具），15 片里 7 片零实现、6 片半成品。#400 只满足 1/7：唯一阈值在 `compaction.ts` 内且只看 pi 的消息数组（系统说明与工具定义不在内），新摘要路径 `tailBudget = null` 不校验，`compaction-transform.ts` 的 `catch → return messages` 会把完整未压缩历史发出去，`listAgentMessages` 无 limit / cursor。
+- 现状（2026-09-21 复核 `origin/main` = `9a2e71a2`）：**画布读取层仍是零实现**（`queryCanvas` / `readCanvas` / `readContext` 全仓库零命中，工具注册表无画布工具）。但 #400 已从 1/7 推到 **5/7**：统一预算口径（`request-budget.ts` 的 `requestOverheadTokens` 把系统说明与工具清单折进来，实测 image 轮 3307 token）、出站硬闸（`turn.ts:236` 的 `assertRequestWithinBudget`，超了拒发而不是回退发更多）、有界历史查询（`listAgentHistoryWindow` 换掉三处 `listAgentMessages`，锚点改由存储层按 seq 与活着的前缀条数校验，逐字用户原话随压缩记录落库）都已上线。落地 PR：#707 / #716 / #718 / #719。
+- #400 剩下的两格：**「不叠加无限摘要」现在明确不满足**——只有窗口在手时重做会抹掉锚点之前的摘要，`maxIncrementalFolds` 对折出过窗口的会话已失效，转为 #714 攒线上 `foldCount` 数据后再裁决（查证下来 pi 本身也没有重做机制）；测试还缺「带图片的历史在硬闸上的断言」与「摘要超时」两格。
 - 三片前提已作废，退回 `needs-triage` 等重写，不要照原文做：#394 / #395 要的「版本化只读投影」已经存在（`canvas_projects.document` 带 `revision` + owner 作用域 + 几何与 arrow / freedraw / text），缺的只是智能体读不到它；#408 的 100 / 1,000 / 10,000 对象轴不成立（`PROJECT_ELEMENT_MAX_COUNT = 1000`，且画布对象数根本不进上下文，唯一通道是 `AGENT_TURN_MAX_REFERENCES = 8`）。作废清单见 [画布上下文调研](research/agent-canvas-context.md) 开头的抢救说明。
 - 涉及：BFF 智能体轮次输入组装、工具返回外置、画布观察刷新。
 - 验收：给定一张超过阈值的画布，单轮输入 token 有上界且可预测；一次完整长任务的总积分消耗被记录下来，与预扣口径对得上。真实轴是**会话消息数 M × 图片块**，数据从 `agent_model_calls.usage` / `input_image_count` 读；`token-estimate.ts` 的 CJK 系数 W 是单点反解且快照已失效，量之前先重校准。
