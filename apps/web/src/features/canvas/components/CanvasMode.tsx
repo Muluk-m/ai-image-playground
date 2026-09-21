@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import BrandMenu from '../../../components/BrandMenu'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
@@ -247,11 +246,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             aria-label={t('workspace.canvasAria')}
             inert={mobile && mobileView !== 'canvas'}
           >
-            {/* 顶栏没了，项目菜单（主页 / 项目库 / 新建 / 删除）跟着项目名挪到画布左上角。 */}
-            <div className="studio-canvas-heading">
-              <BrandMenu />
-              {workspace.cloud && <ProjectSyncStatus session={workspace.cloud} quiet />}
-            </div>
+            {/* 品牌只出现一次：收起侧栏后它是左上角那颗按钮，项目名与切换在对话卡片头部。
+            这里只留同步状态，且只在出岔子时出声。 */}
+            {workspace.cloud && (
+              <div className="studio-canvas-heading">
+                <ProjectSyncStatus session={workspace.cloud} quiet />
+              </div>
+            )}
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
