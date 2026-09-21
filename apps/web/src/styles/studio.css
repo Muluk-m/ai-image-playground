@@ -1,6 +1,11 @@
 .studio-shell { background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .studio-layout { display: flex; position: relative; height: 100%; width: 100%; }
-.studio-sidebar { position: relative; z-index: 400; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-width: 50%; border-right: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); }
+.studio-sidebar {
+  position: relative; z-index: 400; display: flex; flex: 0 0 auto; flex-direction: column;
+  min-height: 0; max-width: 50%; background: hsl(var(--sidebar));
+  /* 对话是一张卡：上方留出空位给左上角那颗品牌按钮，四周脱开边缘。 */
+  margin: 52px 0 12px 12px; border: 1px solid hsl(var(--border)); border-radius: 18px; overflow: hidden;
+}
 .studio-sidebar-heading { padding: var(--studio-space-6) var(--studio-space-4) var(--studio-space-3); }
 .studio-kicker { color: hsl(var(--primary)); font-size: 10px; font-weight: 650; letter-spacing: .16em; }
 .studio-sidebar-heading h2 { margin-top: 8px; font-size: 18px; font-weight: 550; letter-spacing: -.04em; }
