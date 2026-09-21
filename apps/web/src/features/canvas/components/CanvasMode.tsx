@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
-import { useStore } from '../../../store'
+import { isWorkbenchMode, useStore } from '../../../store'
 import AgentJobInbox from '../../agent/components/AgentJobInbox'
 import AgentPanel from '../../agent/components/AgentPanel'
 import AgentSuggestions from '../../agent/components/AgentSuggestions'
@@ -33,7 +34,6 @@ import CanvasVideoToolbar from './CanvasVideoToolbar'
 import FilmExportStatus from './FilmExportStatus'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
-import ProjectSyncStatus from './ProjectSyncStatus'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
 import TimelineEditorHost from './TimelineEditor'
@@ -105,6 +105,10 @@ export default function CanvasMode() {
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
+  // 收起侧栏时左上角有一颗品牌按钮，顶行要从它右边开始排。
+  const sidebarExpanded = useStore(
+    (state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode),
+  )
   const mobile = useMobileWorkspace()
   const [mobileView, setMobileView] = useState<'chat' | 'canvas'>('chat')
   const { doc, editor } = workspace
@@ -246,13 +250,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             aria-label={t('workspace.canvasAria')}
             inert={mobile && mobileView !== 'canvas'}
           >
-            {/* 品牌只出现一次：收起侧栏后它是左上角那颗按钮，项目名与切换在对话卡片头部。
-            这里只留同步状态，且只在出岔子时出声。 */}
-            {workspace.cloud && (
-              <div className="studio-canvas-heading">
-                <ProjectSyncStatus session={workspace.cloud} quiet />
-              </div>
-            )}
+            {/* 顶行：品牌按钮（收起侧栏时）右边跟项目名与切换。同步状态不在这里出声——
+            出错会走 toast，画布上不挂常驻提示。 */}
+            <div className="studio-canvas-topbar" style={{ left: sidebarExpanded ? 16 : 62 }}>
+              <ProjectNavigation />
+            </div>
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
