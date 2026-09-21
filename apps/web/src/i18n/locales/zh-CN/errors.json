@@ -73,6 +73,7 @@
     "quota_exceeded": "今天的生成额度已经用完",
     "authentication_required": "需要先登录才能生成",
     "invalid_params": "这次的参数不成立，没有提交",
+    "content_policy": "这次的提示词没通过内容审核，上游拒绝了生成",
     "model_unavailable": "要用的模型暂时不可用",
     "cancelled": "已中止",
     "fallback": "没有完成"

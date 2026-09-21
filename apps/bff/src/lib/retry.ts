@@ -1,4 +1,4 @@
-import type { QueueProvider } from '@image-playground/shared'
+import { isContentPolicyEmptyResult, type QueueProvider } from '@image-playground/shared'
 
 /**
  * 自动重试策略：只重试上游明确返回的 408 / 429 / 5xx、「200 OK 但没图」，以及归档阶段
@@ -54,35 +54,15 @@ export function planNextAttempt(attemptJustFailed: number, now: number = Date.no
 }
 
 /**
- * Gemini finishReason 黑名单：这些都是显式审核 / 策略拒绝，重试结果稳定复现。
- * 不在此集合内的 reason（含 STOP / MAX_TOKENS / 不明 / 未携带）视为模型抽风，
- * 走重试——实测 Gemini 即便 finishReason=STOP 也常常二次请求就能出图。
- */
-const NON_RETRYABLE_GEMINI_FINISH = new Set([
-  'SAFETY',
-  'IMAGE_SAFETY',
-  'RECITATION',
-  'PROHIBITED_CONTENT',
-  'BLOCKLIST',
-  'SPII',
-])
-
-/**
  * 「上游 HTTP 200 但解析不出图」是否值得重试。task-runner 拿不到 Error 对象，
- * 只能由 payload 上的 finishReason / blockReason 决定——审核显式拒绝不重试。
+ * 只能由 payload 上的 finishReason / blockReason 决定——审核显式拒绝不重试，那类结果
+ * 重试稳定复现。判据与分类共用 `isContentPolicyEmptyResult`，两处各写一份必然走偏。
+ *
+ * 不在拒绝判据内的 reason（含 STOP / MAX_TOKENS / 不明 / 未携带）视为模型抽风，走重试
+ * ——实测 Gemini 即便 finishReason=STOP 也常常二次请求就能出图。
  */
 export function shouldRetryEmptyResult(provider: QueueProvider, payload: unknown): boolean {
-  if (provider === 'gemini') {
-    const p = payload as {
-      candidates?: Array<{ finishReason?: string }>
-      promptFeedback?: { blockReason?: string }
-    } | null
-    // prompt 整体被拦：肯定是审核类，永久失败。
-    if (p?.promptFeedback?.blockReason) return false
-    const reason = p?.candidates?.[0]?.finishReason
-    if (typeof reason === 'string' && NON_RETRYABLE_GEMINI_FINISH.has(reason)) return false
-    return true
-  }
+  if (provider === 'gemini') return !isContentPolicyEmptyResult('gemini', payload)
   // OpenAI 200 OK no_image 罕见，通常是上游异常 envelope。视为瞬时重试。
   if (provider === 'openai-compat') return true
   return false

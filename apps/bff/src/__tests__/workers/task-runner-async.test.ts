@@ -165,6 +165,31 @@ describe('async submit phase', () => {
     expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
   })
 
+  it('把上游的内容安全拒绝单独记成 content_policy，且不重试', async () => {
+    upstream.handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: 'imgtask_1' }, 202)
+        : json({
+            status: 'failed',
+            http_status: 400,
+            error: {
+              message:
+                'Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com.',
+            },
+          })
+    await insertTask('async-safety')
+
+    await runTask('async-safety')
+
+    // 归进 upstream_error 会让界面给出「再试一次」，而原样重试稳定复现同一个拒绝。
+    expect(await readTask('async-safety')).toMatchObject({
+      status: 'failed',
+      errorType: 'content_policy',
+      attempt: 0,
+    })
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
+  })
+
   it('keeps the stored id when a retryable failure sends the task back to the queue', async () => {
     upstream.handler = (url) =>
       url.endsWith('/async')

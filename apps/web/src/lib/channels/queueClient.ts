@@ -6,6 +6,7 @@ import {
   type StatusResponse,
   type StatusResultMeta,
   type SubmitResponse,
+  type TaskErrorType,
   type VideoRequest,
 } from '@image-playground/shared'
 import { describeError, i18next } from '../../i18n'
@@ -22,6 +23,7 @@ import {
 } from '../imageApiShared'
 import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
+import { taskFailure } from '../taskError'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 /**
@@ -296,7 +298,7 @@ export async function awaitQueueOutputs(requestId: string): Promise<ResultImageM
 
 type PollOutcome =
   | { kind: 'done'; result: StatusResultMeta | undefined }
-  | { kind: 'failed'; message: string }
+  | { kind: 'failed'; message: string; errorType?: TaskErrorType }
   | { kind: 'cancelled' }
   | { kind: 'pending'; phase?: StatusResponse['phase'] }
   /** 短暂错误（5xx / 网络抖动），按 consecutiveFailures 计数 */
@@ -322,6 +324,8 @@ async function classifyPollResponse(url: string): Promise<PollOutcome> {
     return {
       kind: 'failed',
       message: json.error?.message ?? i18next.t('queue.taskFailed', { ns: 'lib' }),
+      // 分类跟着失败一起带走：界面按它出文案，服务端那句英文只留给「复制完整错误」。
+      ...(json.error?.type ? { errorType: json.error.type } : {}),
     }
   if (json.status === 'cancelled') return { kind: 'cancelled' }
   return { kind: 'pending', phase: json.phase }
@@ -349,7 +353,7 @@ async function poll(
       case 'done':
         return outcome.result
       case 'failed':
-        throw new Error(outcome.message)
+        throw taskFailure(outcome.message, outcome.errorType)
       case 'cancelled':
         throw new Error(i18next.t('queue.cancelled', { ns: 'lib' }))
       case 'fatal':

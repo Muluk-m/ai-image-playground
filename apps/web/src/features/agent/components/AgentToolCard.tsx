@@ -146,7 +146,7 @@ function FailureAction({ message }: { message: AgentToolMessage }) {
         })
       }
     >
-      {agentToolFailureActionLabel(action)}
+      {agentToolFailureActionLabel(action, code)}
     </button>
   )
 }

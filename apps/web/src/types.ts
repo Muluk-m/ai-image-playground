@@ -1,3 +1,5 @@
+import type { TaskErrorType, TaskProgressPhase } from '@image-playground/shared'
+
 // ===== 设置 =====
 
 export type ApiMode = 'images' | 'responses'
@@ -191,7 +193,7 @@ export interface TaskRecord {
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
   /** Server-reported durable queue phase; absent for BYOK and older BFFs. */
-  queuePhase?: import('@image-playground/shared').TaskProgressPhase
+  queuePhase?: TaskProgressPhase
   /**
    * 客户端幂等键。submitTask 时为每个任务生成一次 UUID 并持久化；提交期间
    * 页面刷新时重提带相同 ID，BFF 用它去重。仅 BFF queue 路径会带。
@@ -221,6 +223,11 @@ export interface TaskRecord {
   rawResponsePayload?: string
   status: TaskStatus
   error: string | null
+  /**
+   * 失败分类。界面按它出文案与出路（ADR 0006），`error` 只留给「复制完整错误」。
+   * 旧记录与认不出分类的失败都缺席，那些照旧显示 `error` 原文。
+   */
+  errorCode?: TaskErrorType
   createdAt: number
   finishedAt: number | null
   /** 总耗时毫秒 */

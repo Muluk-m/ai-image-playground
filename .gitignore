@@ -3,12 +3,16 @@ dist/
 .turbo/
 artifacts/
 **/generated/
+*.tsbuildinfo
 out.png
 dev-proxy.config.json
 .dev.vars
 .env
 .env.local
 .claude/
+# 会话本地草稿与归档（PR 正文、被取代的方案等），只属于这台机器。
+.local/
+.agents/
 # Optional private overlay checkout. The public tree must work when it is absent.
 private/
 # Admin route tree is generated at build time.

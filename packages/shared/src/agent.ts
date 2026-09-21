@@ -1,7 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { ChannelMedia } from './channel-discovery'
-import type { StoredImageRef, TaskProgressPhase } from './queue-protocol'
+import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type { VideoGenerationRecord } from './video-generation'
 
 /**
@@ -165,6 +165,8 @@ export type AgentToolStatus =
  * - `authentication_required`：没登录，出路是登录。
  * - `invalid_params`：模型给的参数本身不成立（图片 id 不存在、违反选区约束、张数越界），
  *   出路是让智能体换个做法重新处理。
+ * - `content_policy`：上游按内容安全策略拒绝了这次生成。原样重试稳定复现，出路是改提示词，
+ *   在智能体这一侧就是让它改写后再提交。
  * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
  * - `cancelled`：用户中止了这一轮，不需要出路。
  * - `unknown`：归不进上面任何一类。
@@ -180,6 +182,7 @@ export type AgentToolErrorCode =
   | 'quota_exceeded'
   | 'authentication_required'
   | 'invalid_params'
+  | 'content_policy'
   | 'model_unavailable'
   | 'cancelled'
   | 'unknown'
@@ -193,6 +196,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'quota_exceeded',
   'authentication_required',
   'invalid_params',
+  'content_policy',
   'model_unavailable',
   'cancelled',
   'unknown',
@@ -200,6 +204,28 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
 
 export function isAgentToolErrorCode(value: unknown): value is AgentToolErrorCode {
   return AGENT_TOOL_ERROR_CODES.includes(value as AgentToolErrorCode)
+}
+
+/**
+ * 队列任务失败时 worker 记下的 `error_type` 各归哪一类。两端共用：智能体卡片按它出文案，
+ * 创作页的失败卡也按它取同一套译文，否则同一次失败在两处说两种话。
+ */
+export function taskFailureCode(errorType: TaskErrorType | null | undefined): AgentToolErrorCode {
+  switch (errorType) {
+    case 'upstream_timeout':
+      return 'timeout'
+    case 'content_policy':
+      return 'content_policy'
+    case 'upstream_no_image':
+      return 'no_output'
+    // 执行者丢了（ADR 0009）或上游的结局查不到：上游可能已经出图、已经计费，原样再跑一次
+    // 就可能付两次钱，所以不归进可重试的那几类。
+    case 'upstream_result_unknown':
+    case 'interrupted':
+      return 'result_unknown'
+    default:
+      return 'upstream_error'
+  }
 }
 
 /**

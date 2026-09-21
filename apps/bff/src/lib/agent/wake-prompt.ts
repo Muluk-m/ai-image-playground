@@ -93,9 +93,16 @@ function wakeResultLines(
     '（系统通知，不是用户说的话）你之前提交的后台任务有结果了：',
     ...jobs.map((job) => `- ${agentToolResultSummary(job.block)}`),
   ]
-  if (failed.length > 0)
+  const blocked = failed.filter((job) => job.block.errorCode === 'content_policy')
+  if (failed.length > blocked.length)
     lines.push(
       '失败的任务：用一两句话告诉用户哪一项没做成、原因是什么，并提议下一步（例如换个说法、稍后再试）。不要自行付费重新提交，等用户决定。',
+    )
+  if (blocked.length > 0)
+    lines.push(
+      '被内容安全拦下的任务：告诉用户这次的提示词没过上游的内容审核，原样再试还是同一个结果。' +
+        '主动提出由你改写提示词——说清你打算怎么改（换掉哪些说法、保留哪些画面意图），' +
+        '等用户点头再提交，不要擅自重提。',
     )
   if (reviewed.length > 0) lines.push(continuePlan ? `${REVIEW_LINE}${DEFERRED_LINE}` : REVIEW_LINE)
   lines.push('产物已经自动放在用户的画布上，不要让用户自己去保存。')

@@ -1,5 +1,7 @@
 import { formatImageRatio } from '@image-playground/shared'
+import { LoaderCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useImagePreview } from '../hooks/useImagePreview'
 import { useTooltip } from '../hooks/useTooltip'
 import { useTranslation } from '../i18n'
 import { formatDateTime } from '../i18n/format'
@@ -118,6 +120,11 @@ export default function DetailModal() {
   const maskTargetSrc = maskTargetId ? imageSrcs[maskTargetId] || '' : ''
   const maskSrc = task?.maskImageId ? imageSrcs[task.maskImageId] || '' : ''
   const allInputImageIds = task?.inputImageIds ?? []
+  // 大图读原图要几秒（本机图是几 MB 的 dataURL，平台图还要下载再转 base64）。
+  // 缩略图先铺上去，面板就不会黑着等；原图到了再换，尺寸角标只认原图或缩略图记的原始宽高。
+  const outputThumbnail = useImagePreview(currentOutputImageId || undefined)
+  const outputDisplaySrc = currentOutputPreviewSrc || outputThumbnail?.url || ''
+  const outputOriginalPending = Boolean(currentOutputImageId) && !currentOutputPreviewSrc
 
   useEffect(() => {
     if (!currentOutputImageId) {
@@ -135,6 +142,15 @@ export default function DetailModal() {
     }
   }, [currentOutputImageId])
 
+  // 缩略图记的是原图宽高，角标不用等原图读完。
+  useEffect(() => {
+    const width = outputThumbnail?.width
+    const height = outputThumbnail?.height
+    if (!currentOutputImageId || !width || !height) return
+    setImageRatios((prev) => ({ ...prev, [currentOutputImageId]: formatImageRatio(width, height) }))
+    setImageSizes((prev) => ({ ...prev, [currentOutputImageId]: `${width}×${height}` }))
+  }, [currentOutputImageId, outputThumbnail?.width, outputThumbnail?.height])
+
   useEffect(() => {
     const updateImageLabelLeft = () => {
       const panel = imagePanelRef.current
@@ -149,7 +165,7 @@ export default function DetailModal() {
     updateImageLabelLeft()
     window.addEventListener('resize', updateImageLabelLeft)
     return () => window.removeEventListener('resize', updateImageLabelLeft)
-  }, [currentOutputPreviewSrc])
+  }, [outputDisplaySrc])
 
   useEffect(() => {
     let cancelled = false
@@ -300,6 +316,9 @@ export default function DetailModal() {
     setDetailTaskId(null)
   }
 
+  // 上游按内容安全拒了这次提示词：文案换成可行动的那句，出路是改词再来，不是原样重试。
+  const blockedByContentPolicy = task.errorCode === 'content_policy'
+
   return (
     <>
       <Overlay onClose={() => setDetailTaskId(null)} tier="modal">
@@ -319,19 +338,25 @@ export default function DetailModal() {
             ref={imagePanelRef}
             className="md:w-1/2 w-full h-64 md:h-auto bg-muted dark:bg-black/20 relative flex items-center justify-center flex-shrink-0 min-h-[16rem]"
           >
-            {task.status === 'done' && outputLen > 0 && currentOutputPreviewSrc && (
+            {task.status === 'done' && outputLen > 0 && outputDisplaySrc && (
               <>
                 <img
                   ref={mainImageRef}
-                  src={currentOutputPreviewSrc}
+                  src={outputDisplaySrc}
                   data-image-id={currentOutputImageId}
+                  decoding="async"
                   className="saveable-image max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] object-contain cursor-pointer"
                   onLoad={() => {
                     const panel = imagePanelRef.current
                     const image = mainImageRef.current
                     if (!panel || !image) return
 
-                    if (currentOutputImageId && image.naturalWidth > 0 && image.naturalHeight > 0) {
+                    if (
+                      currentOutputImageId &&
+                      !outputOriginalPending &&
+                      image.naturalWidth > 0 &&
+                      image.naturalHeight > 0
+                    ) {
                       setImageRatios((prev) => ({
                         ...prev,
                         [currentOutputImageId]: formatImageRatio(
@@ -354,6 +379,15 @@ export default function DetailModal() {
                   }
                   alt=""
                 />
+                {outputOriginalPending && (
+                  <span
+                    className="absolute bottom-3 right-3 flex items-center gap-1 rounded bg-black/50 px-2 py-0.5 text-xs text-white backdrop-blur-sm"
+                    aria-live="polite"
+                  >
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                    {t('detail.loadingOriginal')}
+                  </span>
+                )}
                 <div
                   data-selectable-text
                   className="absolute top-[15px] flex items-center gap-1.5"
@@ -434,6 +468,12 @@ export default function DetailModal() {
                 )}
               </>
             )}
+            {task.status === 'done' && outputLen > 0 && !outputDisplaySrc && (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+                <span className="text-xs">{t('detail.loadingImage')}</span>
+              </div>
+            )}
             {task.status === 'running' && (
               <>
                 <div className="absolute left-4 top-4 flex items-center gap-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm font-mono">
@@ -493,8 +533,19 @@ export default function DetailModal() {
                     WebkitLineClamp: 4,
                   }}
                 >
-                  {task.error || t('detail.generateFailed')}
+                  {blockedByContentPolicy
+                    ? t('detail.contentPolicy')
+                    : task.error || t('detail.generateFailed')}
                 </p>
+                {blockedByContentPolicy && (
+                  <button
+                    type="button"
+                    onClick={handleReuse}
+                    className="mt-3 inline-flex items-center justify-center rounded-full border border-primary/80 bg-primary/10 px-4 py-1.5 text-sm text-primary transition hover:bg-primary/20"
+                  >
+                    {t('detail.rewritePrompt')}
+                  </button>
+                )}
                 <div className="mt-3 flex items-center justify-center gap-2">
                   <div className="relative group">
                     <button
@@ -573,38 +624,41 @@ export default function DetailModal() {
                       </ViewportTooltip>
                     </div>
                   )}
-                  <div className="relative group">
-                    <button
-                      type="button"
-                      {...retryTooltip.handlers}
-                      onClick={(e) => {
-                        retryTooltip.handlers.onClick()
-                        handleRetry()
-                      }}
-                      className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
-                      aria-label={t('action.retryTask')}
-                    >
-                      <svg
-                        className="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        viewBox="0 0 24 24"
+                  {/* 内容安全拒绝原样重试稳定复现，只留改提示词那条出路。 */}
+                  {!blockedByContentPolicy && (
+                    <div className="relative group">
+                      <button
+                        type="button"
+                        {...retryTooltip.handlers}
+                        onClick={(e) => {
+                          retryTooltip.handlers.onClick()
+                          handleRetry()
+                        }}
+                        className="inline-flex items-center justify-center rounded-full border border-primary/80 bg-card/80 px-3 py-1.5 text-primary transition hover:bg-primary/10"
+                        aria-label={t('action.retryTask')}
                       >
-                        <path
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                    </button>
-                    <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
-                      {t('action.retryTask')}
-                    </ViewportTooltip>
-                  </div>
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                      </button>
+                      <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
+                        {t('action.retryTask')}
+                      </ViewportTooltip>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -702,8 +756,6 @@ export default function DetailModal() {
                   <div className="flex gap-2 flex-wrap">
                     {allInputImageIds.map((imgId) => {
                       const isMaskTarget = imgId === maskTargetId
-                      const displaySrc =
-                        isMaskTarget && maskPreviewSrc ? maskPreviewSrc : imageSrcs[imgId] || ''
                       return (
                         <div key={imgId} className="relative group inline-block">
                           <div
@@ -712,14 +764,10 @@ export default function DetailModal() {
                             }`}
                             onClick={() => setLightboxImageId(imgId, allInputImageIds)}
                           >
-                            {displaySrc && (
-                              <img
-                                src={displaySrc}
-                                data-image-id={imgId}
-                                className="w-full h-full object-cover"
-                                alt=""
-                              />
-                            )}
+                            <ReferenceThumb
+                              imageId={imgId}
+                              overrideSrc={isMaskTarget ? maskPreviewSrc : ''}
+                            />
                             {isMaskTarget && (
                               <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
                                 MASK
@@ -1033,5 +1081,24 @@ export default function DetailModal() {
         </Overlay>
       )}
     </>
+  )
+}
+
+/**
+ * 参考图先铺缩略图：原图（遮罩预览要用它合成）动辄几 MB，等它读完这格就一直空着。
+ * `overrideSrc` 给遮罩目标用——合成好的预览优先于任何一张原图。
+ */
+function ReferenceThumb({ imageId, overrideSrc }: { imageId: string; overrideSrc: string }) {
+  const preview = useImagePreview(imageId)
+  const src = overrideSrc || preview?.url || ''
+  if (!src) return <div className="h-full w-full animate-pulse bg-muted" />
+  return (
+    <img
+      src={src}
+      data-image-id={imageId}
+      decoding="async"
+      className="w-full h-full object-cover"
+      alt=""
+    />
   )
 }
