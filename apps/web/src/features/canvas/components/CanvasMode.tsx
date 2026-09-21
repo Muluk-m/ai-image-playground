@@ -208,9 +208,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   onClick={() => useStore.getState().setAppMode('projects')}
                   aria-label={t('workspace.backToProjects')}
                   title={t('workspace.backToProjects')}
-                  className="grid h-9 w-9 shrink-0 place-items-center opacity-90 transition-opacity hover:opacity-100"
+                  className="grid h-10 w-10 shrink-0 self-center place-items-center opacity-90 transition-opacity hover:opacity-100"
                 >
-                  <img src="/brand/muvloom-icon.svg" alt="" className="h-8 w-8" />
+                  <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
                 </button>
                 <ProjectNavigation />
               </div>
@@ -264,15 +264,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               )}
             </div>
           ) : (
-            /* 收起后不是一颗光秃秃的按钮：整条对话列收成一条窄栏，顶部一个展开图标。 */
+            /* 收起后只留一颗胶囊：窄栏会压住左侧画布工具条，也没给用户任何信息。 */
             <button
               type="button"
               className="studio-open-chat"
               onClick={() => setOpen(true)}
-              aria-label={t('sidebar.openChat')}
               title={t('sidebar.openChat')}
             >
-              ›
+              <img src="/brand/muvloom-mark.svg" alt="" className="h-4 w-4" />
+              {t('sidebar.openChat')}
             </button>
           )}
           <section
