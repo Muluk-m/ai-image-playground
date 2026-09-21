@@ -94,7 +94,8 @@
   },
   "lightbox": {
     "saveImage": "保存图片",
-    "saveFailed": "保存失败"
+    "saveFailed": "保存失败",
+    "loadingOriginal": "原图加载中"
   },
   "grid": {
     "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",

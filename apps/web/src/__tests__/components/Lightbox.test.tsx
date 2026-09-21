@@ -14,14 +14,20 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const IMAGE_SRC = 'data:image/png;base64,iVBORw0KGgo='
+const THUMBNAIL_SRC = 'data:image/webp;base64,dGh1bWI='
 
-const { downloadBlob } = vi.hoisted(() => ({ downloadBlob: vi.fn() }))
+const { downloadBlob, ensureImageCached, ensureImageThumbnailCached } = vi.hoisted(() => ({
+  downloadBlob: vi.fn(),
+  ensureImageCached: vi.fn(),
+  ensureImageThumbnailCached: vi.fn(),
+}))
 
 vi.mock('../../store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../store')>()
   return {
     ...actual,
-    ensureImageCached: async () => IMAGE_SRC,
+    ensureImageCached,
+    ensureImageThumbnailCached,
   }
 })
 
@@ -45,6 +51,10 @@ function stubPointer(kind: 'coarse' | 'fine') {
 
 beforeEach(() => {
   downloadBlob.mockClear()
+  ensureImageCached.mockReset()
+  ensureImageCached.mockResolvedValue(IMAGE_SRC)
+  ensureImageThumbnailCached.mockReset()
+  ensureImageThumbnailCached.mockResolvedValue(undefined)
   stubPointer('fine')
   vi.stubGlobal(
     'fetch',
@@ -206,5 +216,53 @@ describe('Lightbox 保存按钮', () => {
 
     expect(downloadBlob).toHaveBeenCalledTimes(1)
     expect(useStore.getState().lightboxImageId).toBe('img-1')
+  })
+})
+
+describe('Lightbox 原图加载', () => {
+  /** 原图卡在读的那一段：缩略图在，原图没到。 */
+  function holdOriginal(): (url: string) => void {
+    let release: (url: string) => void = () => {}
+    ensureImageCached.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve
+        }),
+    )
+    ensureImageThumbnailCached.mockResolvedValue({
+      dataUrl: THUMBNAIL_SRC,
+      width: 4000,
+      height: 3000,
+    })
+    return (url: string) => release(url)
+  }
+
+  it('原图还在读时先铺缩略图并说明，读到再换上原图', async () => {
+    const release = holdOriginal()
+    await renderLightbox()
+
+    expect(lightboxImage().src).toBe(THUMBNAIL_SRC)
+    expect(lightboxRoot().textContent).toContain('原图加载中')
+
+    await act(async () => {
+      release(IMAGE_SRC)
+    })
+
+    expect(lightboxImage().src).toBe(IMAGE_SRC)
+    expect(lightboxRoot().textContent).not.toContain('原图加载中')
+  })
+
+  it('原图没到位时不把缩略图当原图存下去', async () => {
+    holdOriginal()
+    stubPointer('coarse')
+    await renderLightbox()
+
+    await act(async () => {
+      lightboxRoot()
+        .querySelector('button[data-save-image]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(downloadBlob).not.toHaveBeenCalled()
   })
 })
