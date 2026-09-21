@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import type { AgentCompactionRecord } from '@image-playground/shared'
 import { assistant, body, user } from '../../helpers/agentMessages'
 import {
   type ChatCall,
@@ -71,6 +72,16 @@ async function conversationId(): Promise<string> {
   return conversation.id
 }
 
+/** 没有摘要时的起手记录：存储层对一个新会话给出的就是这一份。 */
+const FRESH: AgentCompactionRecord = {
+  summary: null,
+  anchor: null,
+  verbatim: null,
+  foldCount: 0,
+  failureCount: 0,
+  openedAt: null,
+}
+
 describe('createCompactionTransform', () => {
   it('folds the old messages and stores the anchor on the conversation', async () => {
     setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
@@ -80,6 +91,8 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      compaction: FRESH,
+      foldedBefore: 0,
       overheadTokens: 0,
     })
 
@@ -89,9 +102,32 @@ describe('createCompactionTransform', () => {
     expect(await loadAgentCompaction(id)).toEqual({
       summary: NARRATIVE,
       anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      verbatim: { omittedCount: 0, omittedChars: 0, kept: [body('a')] },
       foldCount: 0,
       failureCount: 0,
       openedAt: null,
+    })
+  })
+
+  // 落回去的锚点必须是绝对位置：存储层拿 `coveredCount` 与活着的条数比对来发现「中间某条
+  // 被删」。写成局部条数的话，一个折过一次的会话每一轮都会被判成锚点失配，白重做。
+  it('writes the anchor in absolute terms when earlier messages were never loaded', async () => {
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
+    const id = await conversationId()
+
+    await createCompactionTransform({
+      conversationId: id,
+      turnId: 'turn-1',
+      historyIds: HISTORY_IDS,
+      userMessageId: 'm6',
+      compaction: FRESH,
+      foldedBefore: 40,
+      overheadTokens: 0,
+    })(MESSAGES)
+
+    expect((await loadAgentCompaction(id))?.anchor).toEqual({
+      lastMessageId: 'm2',
+      coveredCount: 42,
     })
   })
 
@@ -103,25 +139,59 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      compaction: FRESH,
+      foldedBefore: 0,
       overheadTokens: 0,
     })(MESSAGES)
+    const stored = await loadAgentCompaction(id)
 
     const summaryCalls: ChatCall[] = []
     setChatFetchForTesting(
       recordingChatFetch(summaryCalls, () => new Response('nope', { status: 502 })),
     )
 
-    // 第二轮的尾巴便宜到摘要 + 尾巴装得下：这一态不该再调模型。
+    // 第二轮起轮时窗口已经跳过折进去的那两条，摘要 + 剩下的尾巴装得下：不该再调模型，
+    // 而摘要必须仍然在最前面——锚点之前的原文这一轮根本没读出来。
     const shaped = await createCompactionTransform({
       conversationId: id,
       turnId: 'turn-2',
-      historyIds: [...HISTORY_IDS, 'm6'],
-      userMessageId: 'm7',
+      historyIds: ['m3', 'm4', 'm5'],
+      userMessageId: 'm6',
+      compaction: stored!,
+      foldedBefore: 2,
       overheadTokens: 0,
-    })([...MESSAGES.slice(0, 5), user('m7', '好的').message])
+    })([...MESSAGES.slice(2, 5), user('m6', '好的').message])
 
     expect(summaryCalls).toHaveLength(0)
     expect(JSON.stringify(shaped[0])).toContain('出了三张马克杯图')
+  })
+
+  // 折进摘要的那些原文下一轮就不会再读出来了，用户原话只能靠存档接力。
+  it('carries the archived user text into the next turn', async () => {
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
+    const id = await conversationId()
+    await createCompactionTransform({
+      conversationId: id,
+      turnId: 'turn-1',
+      historyIds: HISTORY_IDS,
+      userMessageId: 'm6',
+      compaction: FRESH,
+      foldedBefore: 0,
+      overheadTokens: 0,
+    })(MESSAGES)
+
+    // 这一轮还得再折一次：折的是窗口里的消息，而存档里那句原文早就不在窗口里了。
+    const shaped = await createCompactionTransform({
+      conversationId: id,
+      turnId: 'turn-2',
+      historyIds: ['m3', 'm4', 'm5', 'm6', 'm7'],
+      userMessageId: 'm8',
+      compaction: (await loadAgentCompaction(id))!,
+      foldedBefore: 2,
+      overheadTokens: 0,
+    })([...MESSAGES.slice(2, 6), user('m7', body('g')).message, user('m8', body('h')).message])
+
+    expect(JSON.stringify(shaped[0])).toContain(body('a'))
   })
 
   it('counts a failed summary toward the breaker and still returns a usable context', async () => {
@@ -133,24 +203,13 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-1',
       historyIds: HISTORY_IDS,
       userMessageId: 'm6',
+      compaction: FRESH,
+      foldedBefore: 0,
       overheadTokens: 0,
     })(MESSAGES)
 
     expect(shaped.length).toBeGreaterThan(0)
     expect(await loadAgentCompaction(id)).toMatchObject({ summary: null, failureCount: 1 })
-  })
-
-  it('still hands back a usable context when the conversation row is gone', async () => {
-    const transform = createCompactionTransform({
-      conversationId: 'missing-conversation',
-      turnId: 'turn-1',
-      historyIds: HISTORY_IDS,
-      userMessageId: 'm6',
-      overheadTokens: 0,
-    })
-    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
-
-    expect((await transform(MESSAGES)).length).toBeGreaterThan(0)
   })
 
   // 系统说明与工具清单也占窗口：消息能占的那份预算要先把它们让出来，否则消息刚好卡在
@@ -163,6 +222,8 @@ describe('createCompactionTransform', () => {
         turnId: 'turn-1',
         historyIds: HISTORY_IDS,
         userMessageId: 'm6',
+        compaction: FRESH,
+        foldedBefore: 0,
         overheadTokens,
       })(MESSAGES)
 

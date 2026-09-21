@@ -32,6 +32,23 @@ setChatRetryBackoffForTesting(0)
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../../db/client')
+
+/** 没有折叠过的会话：起轮时存储层给出的就是这一份（见 `listAgentHistoryWindow`）。 */
+function window(messages: readonly AgentMessageView[]) {
+  return {
+    messages,
+    coveredCount: 0,
+    compaction: {
+      summary: null,
+      anchor: null,
+      verbatim: null,
+      foldCount: 0,
+      failureCount: 0,
+      openedAt: null,
+    },
+  }
+}
+
 type AgentTurnSettlement = import('../../../lib/agent/turn').AgentTurnSettlement
 
 const NARRATIVE = {
@@ -70,7 +87,7 @@ async function usageOfTurnAfter(history: AgentMessageView[]): Promise<AgentTurnU
     conversationId: conversation.id,
     turnId: `turn-${history.length}`,
     userMessageId: 'next',
-    history,
+    history: window(history),
     text: '再来一张',
     references: [],
     mode: 'image',
@@ -109,7 +126,7 @@ describe('startAgentTurn usage', () => {
       conversationId: conversation.id,
       turnId: 'turn-settlement-retry',
       userMessageId: 'retry-message',
-      history: [],
+      history: window([]),
       references: [],
       text: '继续',
       mode: 'image',
@@ -153,7 +170,7 @@ describe('startAgentTurn usage', () => {
       conversationId: conversation.id,
       turnId: 'turn-new',
       userMessageId: 'm7',
-      history: HISTORY,
+      history: window(HISTORY),
       references: [],
       text: '再来一张',
       mode: 'image',

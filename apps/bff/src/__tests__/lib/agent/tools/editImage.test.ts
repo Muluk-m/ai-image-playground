@@ -40,6 +40,7 @@ function fixture() {
   const real = createAgentImageSource({
     references: [{ imageId: 'target', dataUrl: PIXEL }],
     history: [],
+    conversationId: 'conv-test',
     userId: null,
   })
   const images: AgentImageSource = {
