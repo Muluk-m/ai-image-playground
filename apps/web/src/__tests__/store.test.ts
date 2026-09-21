@@ -442,7 +442,6 @@ describe('input persistence setting', () => {
       prompt: 'prompt',
       inputImages: [imageA],
       slotValues: { 背景: ['浴室'] },
-      dismissedCodexCliPrompts: [],
     })
   })
 
@@ -643,7 +642,6 @@ describe('getPersistedState builtin profile stripping', () => {
       settings: { ...DEFAULT_SETTINGS },
       prompt: '',
       inputImages: [],
-      dismissedCodexCliPrompts: [],
     })
   })
 

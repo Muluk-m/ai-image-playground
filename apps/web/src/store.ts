@@ -462,7 +462,6 @@ export function getPersistedState(state: AppState) {
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
         }
       : {}),
-    dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
     libraryCoachDismissed: state.libraryCoachDismissed,
     libraryPanelOpened: state.libraryPanelOpened,
@@ -523,8 +522,6 @@ interface AppState {
   // 设置
   settings: AppSettings
   setSettings: (s: Partial<AppSettings>) => void
-  dismissedCodexCliPrompts: string[]
-  dismissCodexCliPrompt: (key: string) => void
 
   // 输入
   prompt: string
@@ -664,13 +661,6 @@ export const useStore = create<AppState>()(
               : {}),
           }
         }),
-      dismissedCodexCliPrompts: [],
-      dismissCodexCliPrompt: (key) =>
-        set((st) => ({
-          dismissedCodexCliPrompts: st.dismissedCodexCliPrompts.includes(key)
-            ? st.dismissedCodexCliPrompts
-            : [...st.dismissedCodexCliPrompts, key],
-        })),
 
       // Input
       prompt: '',
@@ -912,11 +902,6 @@ function genId(): string {
   return Date.now().toString(36) + (++uid).toString(36) + Math.random().toString(36).slice(2, 6)
 }
 
-export function getCodexCliPromptKey(settings: AppSettings): string {
-  const view = clientProfileToApiProfile(getActiveApiProfile(settings))
-  return `${view.baseUrl}\n${view.apiKey}`
-}
-
 function isOpenAITask(_task: TaskRecord) {
   return true
 }
@@ -998,30 +983,6 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
       useStore.getState().showToast(i18next.t('toast.openaiTimeout', { ns: 'store' }), 'error')
   }, remainingMs)
   openAIWatchdogTimers.set(taskId, timer)
-}
-
-export function showCodexCliPrompt(reason: string) {
-  const state = useStore.getState()
-  const settings = state.settings
-  const promptKey = getCodexCliPromptKey(settings)
-
-  state.setConfirmDialog({
-    title: i18next.t('codexCli.title', { ns: 'store' }),
-    message: i18next.t('codexCli.message', { ns: 'store', reason }),
-    confirmText: i18next.t('codexCli.confirm', { ns: 'store' }),
-    action: () => {
-      const state = useStore.getState()
-      state.dismissCodexCliPrompt(promptKey)
-      const current = normalizeSettings(state.settings)
-      const profiles = current.profiles.map((p) =>
-        p.id === current.activeProfileId && p.source === 'user-byok'
-          ? { ...p, preferences: { ...p.preferences, codexCli: true } }
-          : p,
-      )
-      state.setSettings({ profiles })
-    },
-    cancelAction: () => useStore.getState().dismissCodexCliPrompt(promptKey),
-  })
 }
 
 function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
@@ -2339,7 +2300,6 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
   }
 
   if (options.clearConfig) {
-    useStore.setState({ dismissedCodexCliPrompts: [] })
     setSettings({ ...DEFAULT_SETTINGS })
     setParams({ ...DEFAULT_PARAMS })
   }

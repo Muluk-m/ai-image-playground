@@ -198,13 +198,28 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {t('mobileSwitch.canvas')}
             </button>
           </div>
+          {/* 顶行排在对话卡片**上方**、与卡片同宽同左边界：logo（收起侧栏时那颗按钮）右边跟
+          项目名与切换。同步状态不在这里出声——出错走 toast，画布上不挂常驻提示。 */}
           {hasAgent ? (
-            <AgentPanel
-              doc={doc}
-              editor={editor}
-              mobile={mobile}
-              onViewCanvas={() => setMobileView('canvas')}
-            />
+            <div className="studio-chat-column">
+              <div className="studio-canvas-topbar">
+                {!sidebarExpanded && (
+                  <img
+                    src="/brand/icon-512.png"
+                    alt=""
+                    className="h-7 w-7 shrink-0 rounded-lg"
+                    aria-hidden="true"
+                  />
+                )}
+                <ProjectNavigation />
+              </div>
+              <AgentPanel
+                doc={doc}
+                editor={editor}
+                mobile={mobile}
+                onViewCanvas={() => setMobileView('canvas')}
+              />
+            </div>
           ) : open || mobile ? (
             <aside
               className="studio-sidebar studio-sidebar--direct"
@@ -250,11 +265,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             aria-label={t('workspace.canvasAria')}
             inert={mobile && mobileView !== 'canvas'}
           >
-            {/* 顶行：品牌按钮（收起侧栏时）右边跟项目名与切换。同步状态不在这里出声——
-            出错会走 toast，画布上不挂常驻提示。 */}
-            <div className="studio-canvas-topbar" style={{ left: sidebarExpanded ? 16 : 62 }}>
-              <ProjectNavigation />
-            </div>
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />

@@ -17,11 +17,6 @@
   "profile": {
     "unknown": "未知配置"
   },
-  "codexCli": {
-    "title": "检测到 Codex CLI API",
-    "message": "{{reason}}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。提示词防改写由输入栏参数中的「防改写」开关控制（默认开启）。",
-    "confirm": "开启"
-  },
   "networkHint": {
     "proxyDown": "提示：请求立即失败，请检查 API 代理服务是否正常运行。",
     "cors": "提示：接口可能不支持浏览器跨域请求，可开启 API 代理解决。",

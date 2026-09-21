@@ -17,11 +17,6 @@
   "profile": {
     "unknown": "Unknown profile"
   },
-  "codexCli": {
-    "title": "Codex CLI API detected",
-    "message": "{{reason}}, so this API most likely comes from Codex CLI.\n\nTurn on Codex CLI compatibility? It disables the quality parameters that do nothing here, and sends concurrent requests for multi-image Images API generations to work around the ignored count parameter. Prompt rewrite protection stays on the “no rewrite” switch in the input bar (on by default).",
-    "confirm": "Turn on"
-  },
   "networkHint": {
     "proxyDown": "Hint: the request failed instantly. Check that the API proxy service is running.",
     "cors": "Hint: this endpoint may not allow cross-origin browser requests. Turning on the API proxy usually fixes it.",

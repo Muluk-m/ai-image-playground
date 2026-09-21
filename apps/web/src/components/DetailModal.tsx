@@ -17,12 +17,10 @@ import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
   editOutputImage,
-  getCodexCliPromptKey,
   removeTask,
   retryTask,
   reuseConfig,
   sendTaskToCanvas,
-  showCodexCliPrompt,
   updateTaskInStore,
   useStore,
 } from '../store'
@@ -40,7 +38,6 @@ export default function DetailModal() {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
   const settings = useStore((s) => s.settings)
-  const dismissedCodexCliPrompts = useStore((s) => s.dismissedCodexCliPrompts)
 
   const [imageIndex, setImageIndex] = useState(0)
   const [imageSrcs, setImageSrcs] = useState<Record<string, string>>({})
@@ -199,20 +196,7 @@ export default function DetailModal() {
   const showRevisedPrompt = Boolean(
     currentRevisedPrompt && currentRevisedPrompt !== task.prompt.trim(),
   )
-  const codexCliPromptKey = getCodexCliPromptKey(settings)
-  const activeProfileForCheck = getActiveApiProfile(settings)
-  const activeCodexCli =
-    activeProfileForCheck.source === 'user-byok' && activeProfileForCheck.preferences.codexCli
-  const hasHandledPromptWarning =
-    activeCodexCli || dismissedCodexCliPrompts.includes(codexCliPromptKey)
   const taskProvider = task.apiProvider
-  const isOpenAiTask = (taskProvider ?? 'openai') === 'openai'
-  const showPromptWarning = Boolean(
-    isOpenAiTask &&
-      currentOutputImageId &&
-      (!currentRevisedPrompt || showRevisedPrompt) &&
-      !hasHandledPromptWarning,
-  )
   const taskProviderName = taskProvider
     ? getApiProviderLabel(settings, taskProvider)
     : t('common:state.unknown')
@@ -288,12 +272,6 @@ export default function DetailModal() {
     } catch (err) {
       showToast(getClipboardFailureMessage(t('detail.copyPromptFailed'), err), 'error')
     }
-  }
-
-  const handleShowPromptWarning = () => {
-    showCodexCliPrompt(
-      t(currentRevisedPrompt ? 'detail.promptRevisedReason' : 'detail.promptMissingReason'),
-    )
   }
 
   const handleCopyInputImage = async () => {
@@ -687,30 +665,6 @@ export default function DetailModal() {
                   >
                     <CopyIcon className="h-4 w-4" />
                   </button>
-                )}
-                {showPromptWarning && (
-                  <span className="relative inline-flex">
-                    <button
-                      type="button"
-                      className="p-1 rounded text-warning hover:bg-warning/10 dark:text-warning dark:hover:bg-warning/10 transition"
-                      onClick={handleShowPromptWarning}
-                      aria-label={t('detail.promptRevised')}
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-                        />
-                      </svg>
-                    </button>
-                  </span>
                 )}
               </div>
               <p
