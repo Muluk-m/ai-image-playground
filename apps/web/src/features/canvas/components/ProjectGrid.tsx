@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil } from 'lucide-react'
+import { MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import MediaImage from '../../../components/MediaImage'
@@ -62,20 +62,25 @@ export default function ProjectGrid({
   return (
     <>
       {cloudProjectsEnabled() && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        /* 工具条：一排同形状的胶囊按钮（回收站 / 刷新 / 加载更多），不要下划线链接混排。 */
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           {!recent && (
-            <Button variant="ghost" size="sm" onClick={() => setTrash(true)}>
-              <TrashIcon className="h-4 w-4" />
+            <button
+              type="button"
+              onClick={() => setTrash(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
               {t('trash.title')}
-            </Button>
+            </button>
           )}
-          {cloudError && <span role="alert">{cloudError}</span>}
           <button
             type="button"
             disabled={cloudLoading}
-            className="underline disabled:opacity-50"
             onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground disabled:opacity-50"
           >
+            <RefreshCw className={`h-3.5 w-3.5 ${cloudLoading ? 'animate-spin' : ''}`} />
             {cloudLoading
               ? t('grid.loadingCloud')
               : cloudError
@@ -86,11 +91,16 @@ export default function ProjectGrid({
             <button
               type="button"
               disabled={cloudLoading}
-              className="underline disabled:opacity-50"
               onClick={() => void useCanvasProjectStore.getState().refreshCloud(true)}
+              className="inline-flex h-8 items-center rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground disabled:opacity-50"
             >
               {t('grid.loadMore')}
             </button>
+          )}
+          {cloudError && (
+            <span role="alert" className="text-xs text-muted-foreground">
+              {cloudError}
+            </span>
           )}
         </div>
       )}

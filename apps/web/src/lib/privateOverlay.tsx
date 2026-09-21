@@ -33,11 +33,25 @@ export interface PrivateSidebarAccountProps {
   username: string | null
 }
 
+/** 会员等级由收费 overlay 提供；公开树只负责画。 */
+export interface PrivateMembership {
+  tier: 'free' | 'basic' | 'plus' | 'max'
+  planName: string
+  balanceLabel: string
+  expiresLabel: string | null
+  openAccount(): void
+  openPricing(): void
+}
+
+export interface PrivateMembershipSlot {
+  useMembership(): PrivateMembership
+}
+
 export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
-  /** 侧栏左下角那张账号卡：头像、昵称与会员等级。收费 overlay 不在时用公开树的兜底。 */
-  SidebarAccountCard?: ComponentType<PrivateSidebarAccountProps>
+  /** 会员等级与引导的数据源。缺它时账号卡只显示头像与昵称。 */
+  membership?: PrivateMembershipSlot
   replacesAuthActions: boolean
   supportsReferrals: boolean
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
@@ -102,7 +116,7 @@ function resolveOverlay(): PrivateWebOverlay {
 const overlay = resolveOverlay()
 
 export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
-export const PrivateWebSidebarAccountCard = overlay.SidebarAccountCard ?? null
+export const PrivateWebMembership = overlay.membership ?? null
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals

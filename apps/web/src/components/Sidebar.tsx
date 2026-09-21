@@ -5,9 +5,10 @@ import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
-import { PrivateWebSidebarAccountCard } from '../lib/privateOverlay'
+
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
 import { AssetIcon, CanvasIcon, GalleryIcon, PromptImageIcon, SparkleIcon } from './icons'
+import SidebarAccountCard from './SidebarAccountCard'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
@@ -175,9 +176,7 @@ export default function Sidebar() {
               </div>
             )
           })}
-          {PrivateWebSidebarAccountCard ? (
-            <PrivateWebSidebarAccountCard username={username} />
-          ) : null}
+          <SidebarAccountCard username={username} />
         </nav>
       ) : null}
 

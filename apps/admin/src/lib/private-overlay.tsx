@@ -8,6 +8,8 @@ export interface PrivateAdminUserSummary {
   primary: string
   secondary: string
   tone?: 'default' | 'warning'
+  /** 会员档位，用来在列表里画等级徽标；缺省当没有订阅。 */
+  tier?: 'free' | 'basic' | 'plus' | 'max'
 }
 
 export interface PrivateAdminOverlay {

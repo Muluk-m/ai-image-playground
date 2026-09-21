@@ -104,7 +104,8 @@
   },
   "workspace": {
     "canvasAria": "Creation canvas",
-    "untitled": "My canvas"
+    "untitled": "My canvas",
+    "backToProjects": "Back to projects"
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",

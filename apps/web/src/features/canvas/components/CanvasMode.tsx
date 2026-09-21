@@ -204,12 +204,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <div className="studio-chat-column">
               <div className="studio-canvas-topbar">
                 {!sidebarExpanded && (
-                  <img
-                    src="/brand/icon-512.png"
-                    alt=""
-                    className="h-7 w-7 shrink-0 rounded-lg"
-                    aria-hidden="true"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => useStore.getState().setAppMode('projects')}
+                    aria-label={t('workspace.backToProjects')}
+                    title={t('workspace.backToProjects')}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card/80 hover:border-primary/60"
+                  >
+                    <img src="/brand/icon-512.png" alt="" className="h-6 w-6 rounded-md" />
+                  </button>
                 )}
                 <ProjectNavigation />
               </div>
@@ -256,8 +259,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <CanvasGenerateBar editor={editor} />
             </aside>
           ) : (
-            <button type="button" className="studio-open-chat" onClick={() => setOpen(true)}>
-              {t('sidebar.openChat')}
+            /* 收起后不是一颗光秃秃的按钮：整条对话列收成一条窄栏，顶部一个展开图标。 */
+            <button
+              type="button"
+              className="studio-open-chat"
+              onClick={() => setOpen(true)}
+              aria-label={t('sidebar.openChat')}
+              title={t('sidebar.openChat')}
+            >
+              ›
             </button>
           )}
           <section
