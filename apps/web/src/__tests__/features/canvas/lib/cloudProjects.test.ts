@@ -1111,6 +1111,10 @@ it.each([
   )
   const session = new CloudProjectSession(project, editor)
   await session.load(true)
+  // 冲突会先自动分叉一份；等它落完，再改出新内容，否则第二次分叉会复用同一副本。
+  await vi.waitFor(async () => expect(await projectRepository.list()).toHaveLength(2))
+  editor.doc.updateElements([{ id: 'note', patch: { text: '自动副本之后的编辑' } }])
+  session.markChanged()
   const originalAdd = IDBObjectStore.prototype.add
   let edited = false
   const duringSave = vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (

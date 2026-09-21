@@ -147,7 +147,8 @@
     "formatError": "This canvas cannot be saved",
     "local": "Changes kept · waiting to save",
     "copySuffix": "recovery copy",
-    "conflictHelp": "Your current changes are saved as a recovery copy before the other set is used.",
+    "conflictHelp": "This project was changed in two places. Your current changes are kept as a separate recovery copy before the other set is used.",
+    "conflictForked": "This project was changed elsewhere too. Your current changes were saved as a new project and opened here.",
     "useCloud": "Use the other set",
     "saveCopy": "Save current changes as a project",
     "deleted": "Project deleted"

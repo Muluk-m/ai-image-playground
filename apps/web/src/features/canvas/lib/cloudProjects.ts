@@ -129,6 +129,7 @@ export class CloudProjectSession {
   private timer: ReturnType<typeof setTimeout> | undefined
   private scheduled: Promise<void> | undefined
   private retries = 0
+  private forking = false
   private editVersion = 0
   private lastCheck = 0
   private recoveryMetadata: Parameters<typeof projectRepository.update>[1] | undefined
@@ -172,6 +173,8 @@ export class CloudProjectSession {
     private project: CanvasProject,
     private readonly editor: CanvasEditor,
     private readonly publish: (project: CanvasProject) => void = () => {},
+    /** 冲突自动分叉出的副本；调用方负责把用户带到副本上。空实现表示只走手动按钮。 */
+    private readonly onFork: (copy: CanvasProject) => void = () => {},
   ) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => {
@@ -192,8 +195,18 @@ export class CloudProjectSession {
       this.retries = 0
       clearTimeout(this.timer)
       this.timer = undefined
+      this.forking = false
     }
     if (status === 'error') this.retryLater()
+    // 冲突不再等用户抉择：当前修改自动落成恢复副本，手动按钮只是分叉失败时的兜底。
+    if (status === 'conflict' && !this.forking) {
+      this.forking = true
+      void this.resolveConflict('copy')
+        .then((copy) => {
+          if (copy) this.onFork(copy)
+        })
+        .catch(() => {})
+    }
   }
   /** 换上云端版本；只在这台设备上的失败占位不在云端文档里，原样留下。 */
   private restoreRemote(scene: ReturnType<typeof projectScene>) {
