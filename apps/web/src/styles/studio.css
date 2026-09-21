@@ -23,12 +23,26 @@
 .studio-canvas-heading { position: absolute; top: 18px; left: 22px; right: 20px; z-index: 100; pointer-events: none; display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: hsl(var(--foreground)); }
 .studio-canvas-heading span { color: hsl(var(--muted-foreground)); font-size: 11px; }
 .studio-open-chat {
-  position: absolute; left: 12px; top: 10px; bottom: 12px; z-index: 410; width: 44px;
-  display: flex; align-items: flex-start; justify-content: center; padding-top: 10px;
-  border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar));
-  color: hsl(var(--muted-foreground)); border-radius: 18px; font-size: 16px;
+  position: absolute; left: 12px; top: 10px; z-index: 410; height: 36px;
+  display: inline-flex; align-items: center; gap: 8px; padding: 0 14px;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar) / 0.92);
+  backdrop-filter: blur(12px);
+  color: hsl(var(--foreground)); border-radius: 9999px; font-size: 13px;
+  box-shadow: var(--studio-shadow);
+  transition: background .15s, border-color .15s, transform .15s;
+  animation: studio-pill-in .18s ease-out both;
 }
-.studio-open-chat:hover { color: hsl(var(--foreground)); border-color: hsl(var(--primary) / .5); }
+.studio-open-chat:hover { border-color: hsl(var(--primary) / .5); transform: translateY(-1px); }
+@keyframes studio-pill-in {
+  from { opacity: 0; transform: scale(.9); }
+  to { opacity: 1; transform: none; }
+}
+/* 展开时对话列从那颗胶囊的位置长出来，收起/展开不再是硬切。 */
+.studio-chat-column { animation: studio-column-in .22s cubic-bezier(.2,.7,.3,1) both; transform-origin: left top; }
+@keyframes studio-column-in {
+  from { opacity: 0; transform: translateX(-10px) scaleX(.94); }
+  to { opacity: 1; transform: none; }
+}
 .studio-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: min(360px,80%); text-align: center; pointer-events: none; }
 .studio-empty img { width: 44px; height: 44px; margin: 0 auto 22px; border-radius: 12px; }
 .studio-empty h2 { font-size: 25px; font-weight: 500; letter-spacing: -.05em; }
@@ -74,14 +88,17 @@
 
 .studio-mobile-switch { display: none; }
 
-/* 画布沉浸时这一簇直接压在画布内容上，没有底就像两层图叠在一起——给一层毛玻璃托底当 chrome 读。 */
+/* 画布沉浸时这一簇直接压在画布内容上，没有底就像两层图叠在一起——给一层毛玻璃托底当 chrome 读。
+   托底与里面的 chip 都用全圆角，半径才对得上；描边留一层极淡的内阴影，避免暗底上出现白边。 */
 .studio-header-float {
-  padding: 4px;
+  padding: 3px;
   border-radius: 9999px;
-  background: hsl(var(--background) / 0.72);
-  backdrop-filter: blur(12px);
-  box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.7);
+  background: hsl(var(--background) / 0.55);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.06);
 }
+.studio-header-float > * { border-radius: 9999px; }
+.studio-header-float button { border-radius: 9999px; }
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .studio-header-float { top: var(--workspace-viewport-top, 0px); }
