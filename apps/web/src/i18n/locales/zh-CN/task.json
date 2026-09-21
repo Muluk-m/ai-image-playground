@@ -65,6 +65,8 @@
     "expandAll": "展开全部",
     "referenceSection": "参考图",
     "copyReference": "复制参考图",
+    "loadingImage": "正在读取图片",
+    "loadingOriginal": "原图加载中",
     "paramsSection": "参数配置",
     "source": "来源",
     "createdAt": "创建于 {{time}}",

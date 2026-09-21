@@ -67,6 +67,8 @@
     "expandAll": "Show all",
     "referenceSection": "Reference images",
     "copyReference": "Copy reference image",
+    "loadingImage": "Loading image",
+    "loadingOriginal": "Loading full image",
     "paramsSection": "Parameters",
     "source": "Source",
     "createdAt": "Created {{time}}",
