@@ -61,11 +61,20 @@ it('画布与视频不占导航位：它们只从项目进', () => {
   expect(() => entry('视频')).toThrow()
 })
 
-it('侧栏在画布里也留着：没有顶栏之后，它是唯一的常驻导航', () => {
+it('画布里默认收起：宽度让给画布，留一颗按钮把它叫回来', () => {
+  // 宽屏那条栏 + 窄屏底部条，摊开时两条都在。
+  expect(host.querySelectorAll('nav')).toHaveLength(2)
+
   act(() => useStore.getState().setAppMode('canvas'))
 
-  expect(host.querySelector('nav')).not.toBeNull()
-  // 画布是「创作」的一种模式，所以创作那项仍然标亮。
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
+  expect(host.querySelectorAll('nav')).toHaveLength(1)
+
+  act(() => useStore.getState().toggleSidebar())
+
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
+  expect(host.querySelectorAll('nav')).toHaveLength(2)
+  // 画布是「创作」的一种模式，所以摊开后创作那项仍然标亮。
   expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
 })
 

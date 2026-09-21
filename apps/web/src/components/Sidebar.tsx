@@ -6,7 +6,7 @@ import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { PrivateWebSidebarAccountCard } from '../lib/privateOverlay'
-import { APP_MODE_LABELS, type AppMode, NAV_APP_MODES, useStore } from '../store'
+import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
 import { AssetIcon, CanvasIcon, GalleryIcon, PromptImageIcon, SparkleIcon } from './icons'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
@@ -35,10 +35,17 @@ export default function Sidebar() {
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
   const username = useAuth().user?.username ?? null
+  // 画布要整屏，所以那里默认收起；别处默认摊开。用户手动切过就以他的选择为准。
+  const expanded = useStore((state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode))
+  const toggleSidebar = useStore((state) => state.toggleSidebar)
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
     void useCanvasProjectStore.getState().load()
   }, [])
+  // 宽度由一个变量说了算：主区、画布与输入框都照它让位。
+  useEffect(() => {
+    document.documentElement.style.setProperty('--app-sidebar-size', expanded ? '13rem' : '0px')
+  }, [expanded])
   const recent = projectCatalog(projects, cloudCatalog)
     .filter((project) => project.hasContent)
     .slice(0, 4)
@@ -67,41 +74,67 @@ export default function Sidebar() {
 
   return (
     <>
-      <nav
-        aria-label={t('header.nav')}
-        style={{ width: 'var(--app-sidebar-size)' }}
-        className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto overflow-x-hidden border-r border-border bg-sidebar px-2.5 pb-4 pt-3 md:flex"
-      >
+      {!expanded && (
         <button
           type="button"
-          onClick={() => setAppMode('image')}
-          className="mb-2 flex items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-muted"
+          onClick={toggleSidebar}
+          aria-label={t('header.nav')}
+          className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
-          <img src="/brand/muvloom-icon.svg" alt="" className="h-7 w-7 rounded-lg" />
-          <span className="truncate text-[15px] font-semibold">
-            {t('header.brandName')}
-            {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
-          </span>
+          <img src="/brand/muvloom-icon.svg" alt="" className="h-5 w-5 rounded" />
         </button>
-        {NAV_APP_MODES.map(item)}
-        {recent.length > 0 && (
-          <p className="px-3 pb-1 pt-4 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
-            {t('nav.recentCanvases')}
-          </p>
-        )}
-        {recent.map((project) => (
-          <button
-            key={project.id}
-            type="button"
-            onClick={() => void openProject(project.id)}
-            className={`${ITEM} h-9 text-[13px] ${appMode === 'canvas' && project.id === activeId ? ACTIVE_ITEM : IDLE_ITEM}`}
-          >
-            <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{projectDisplayName(project.name)}</span>
-          </button>
-        ))}
-        {PrivateWebSidebarAccountCard ? <PrivateWebSidebarAccountCard username={username} /> : null}
-      </nav>
+      )}
+      {expanded ? (
+        <nav
+          aria-label={t('header.nav')}
+          style={{ width: 'var(--app-sidebar-size)' }}
+          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto overflow-x-hidden border-r border-border bg-sidebar px-2.5 pb-4 pt-3 md:flex"
+        >
+          <div className="mb-2 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setAppMode('image')}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-muted"
+            >
+              <img src="/brand/muvloom-icon.svg" alt="" className="h-7 w-7 rounded-lg" />
+              <span className="truncate text-[15px] font-semibold">
+                {t('header.brandName')}
+                {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
+              </span>
+            </button>
+            {/* 画布要整屏：这里收起侧栏，收起后左上角留一颗品牌按钮把它叫回来。 */}
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={t('nav.collapse')}
+              title={t('nav.collapse')}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              ‹
+            </button>
+          </div>
+          {NAV_APP_MODES.map(item)}
+          {recent.length > 0 && (
+            <p className="px-3 pb-1 pt-4 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
+              {t('nav.recentCanvases')}
+            </p>
+          )}
+          {recent.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => void openProject(project.id)}
+              className={`${ITEM} h-9 text-[13px] ${appMode === 'canvas' && project.id === activeId ? ACTIVE_ITEM : IDLE_ITEM}`}
+            >
+              <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{projectDisplayName(project.name)}</span>
+            </button>
+          ))}
+          {PrivateWebSidebarAccountCard ? (
+            <PrivateWebSidebarAccountCard username={username} />
+          ) : null}
+        </nav>
+      ) : null}
 
       {/* 窄屏没有侧栏的位置：同样四个入口塌成底部标签条，顶部依旧没有横栏。 */}
       <nav
