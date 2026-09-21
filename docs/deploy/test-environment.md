@@ -27,10 +27,11 @@
 | `checks` | `scripts/ci-check-test-branch.sh`：`test` 落后 `origin/main` 就直接失败；随后 `pnpm lint`、`pnpm typecheck`、`pnpm --dir apps/web build` | 不发布 |
 | `publish` | 克隆 private overlay 的 main HEAD，`scripts/pages-release.sh test` | 不发布 |
 
-两件事值得单独说清：
+三件事值得单独说清：
 
 - **落后 main 为什么是失败而不是自动合。** 一个落后 main 的测试站展示的是谁也不会上线的行为，而这个差异在页面上完全看不出来。让 CI 自己合，就意味着无人看管地解冲突——在两份同名改动之间做决定，猜错的结果是测试站跑着一份哪里都不存在的代码。红灯就是信号：把 main 合进 `test` 再推一次。
 - **失败信息直接给缺了哪几条提交**，不只报一个数字，省得再去翻 `git log`。
+- **两个 job 都 checkout `github.sha`，不是分支尖端。** 否则运行期间落下的一次推送会被 `publish` 直接发出去，而它从没被 `checks` 检过——2026-09-21 就这么把一个未检的提交发上了测试站。新推送由它自己那次运行发布。
 
 不跑 bff 测试集：这条链路不发任何后端，而 `Web checks` 已经在每个进 main 的 PR 上跑过它。
 
