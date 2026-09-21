@@ -62,8 +62,8 @@ it('画布不占导航位：它是下面那段列表，「全部」才去项目�
   expect(useStore.getState().appMode).toBe('projects')
 })
 
-it('画布里默认收起：宽度让给画布，留一颗按钮把它叫回来', () => {
-  // 宽屏那条栏 + 窄屏底部条，摊开时两条都在。
+it('画布是沉浸式的：宽栏不出现，连手动展开都不给', () => {
+  // 宽屏那条栏 + 窄屏底部条，别处两条都在。
   expect(host.querySelectorAll('nav')).toHaveLength(2)
 
   act(() => useStore.getState().setAppMode('canvas'))
@@ -73,10 +73,8 @@ it('画布里默认收起：宽度让给画布，留一颗按钮把它叫回来'
 
   act(() => useStore.getState().toggleSidebar())
 
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
-  expect(host.querySelectorAll('nav')).toHaveLength(2)
-  // 画布是「创作」的一种模式，所以摊开后创作那项仍然标亮。
-  expect(entry('创作').getAttribute('aria-pressed')).toBe('true')
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
+  expect(host.querySelectorAll('nav')).toHaveLength(1)
 })
 
 it('品牌在侧栏里，不再挂在顶栏上', () => {

@@ -36,8 +36,12 @@ export default function Sidebar() {
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
   const username = useAuth().user?.username ?? null
-  // 画布要整屏，所以那里默认收起；别处默认摊开。用户手动切过就以他的选择为准。
-  const expanded = useStore((state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode))
+  // 画布是沉浸式的：那里**永远**没有这条宽栏，连手动展开都不给——左上角那颗 logo 直接回项目页。
+  // 别处默认摊开，用户收起过就以他的选择为准。
+  const workbench = useStore((state) => isWorkbenchMode(state.appMode))
+  const expanded = useStore(
+    (state) => !isWorkbenchMode(state.appMode) && (state.sidebarExpanded ?? true),
+  )
   const toggleSidebar = useStore((state) => state.toggleSidebar)
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
@@ -86,8 +90,8 @@ export default function Sidebar() {
       {!expanded && (
         <button
           type="button"
-          onClick={toggleSidebar}
-          aria-label={t('header.nav')}
+          onClick={() => (workbench ? setAppMode('projects') : toggleSidebar())}
+          aria-label={workbench ? t('nav.allCanvases') : t('header.nav')}
           className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
           <img src="/brand/icon-512.png" alt="" className="h-6 w-6 rounded-lg" />

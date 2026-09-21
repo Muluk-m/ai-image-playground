@@ -198,66 +198,71 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {t('mobileSwitch.canvas')}
             </button>
           </div>
-          {/* 顶行排在对话卡片**上方**、与卡片同宽同左边界：logo（收起侧栏时那颗按钮）右边跟
-          项目名与切换。同步状态不在这里出声——出错走 toast，画布上不挂常驻提示。 */}
-          {hasAgent ? (
+          {/* 顶行排在对话卡片**上方**、与卡片同左边界：logo（点它回项目页）右边跟项目名与切换。
+          智能体档与纯直出档共用这一行，同步状态不在这里出声——出错走 toast。 */}
+          {open || mobile ? (
             <div className="studio-chat-column">
               <div className="studio-canvas-topbar">
-                {!sidebarExpanded && (
-                  <button
-                    type="button"
-                    onClick={() => useStore.getState().setAppMode('projects')}
-                    aria-label={t('workspace.backToProjects')}
-                    title={t('workspace.backToProjects')}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-card/80 hover:border-primary/60"
-                  >
-                    <img src="/brand/icon-512.png" alt="" className="h-6 w-6 rounded-md" />
-                  </button>
-                )}
-                <ProjectNavigation />
-              </div>
-              <AgentPanel
-                doc={doc}
-                editor={editor}
-                mobile={mobile}
-                onViewCanvas={() => setMobileView('canvas')}
-              />
-            </div>
-          ) : open || mobile ? (
-            <aside
-              className="studio-sidebar studio-sidebar--direct"
-              style={{ width: 340 }}
-              aria-label={t('sidebar.title')}
-            >
-              <div className="flex items-center justify-between px-4 pb-2 pt-3">
-                <span className="text-[13px] font-medium text-foreground">
-                  {t('sidebar.title')}
-                </span>
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
-                  aria-label={t('sidebar.collapseAria')}
-                  className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => useStore.getState().setAppMode('projects')}
+                  aria-label={t('workspace.backToProjects')}
+                  title={t('workspace.backToProjects')}
+                  className="shrink-0 rounded-lg opacity-90 transition-opacity hover:opacity-100"
                 >
-                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
-                    <path
-                      d="M10 3.5 5.5 8l4.5 4.5"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  <img src="/brand/icon-512.png" alt="" className="h-7 w-7 rounded-lg" />
                 </button>
+                <ProjectNavigation />
               </div>
-              <div className="studio-chat-empty px-4">
-                <h3>{t('sidebar.emptyTitle')}</h3>
-                <p>{t('sidebar.emptyBody')}</p>
-                {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
-                <AgentSuggestions className="studio-suggestions mt-5" />
-              </div>
-              <CanvasGenerateBar editor={editor} />
-            </aside>
+              {hasAgent ? (
+                <AgentPanel
+                  doc={doc}
+                  editor={editor}
+                  mobile={mobile}
+                  onViewCanvas={() => setMobileView('canvas')}
+                />
+              ) : (
+                <aside
+                  className="studio-sidebar studio-sidebar--direct"
+                  style={{ width: 380 }}
+                  aria-label={t('sidebar.title')}
+                >
+                  <div className="flex items-center justify-between px-4 pb-2 pt-3">
+                    <span className="text-[13px] font-medium text-foreground">
+                      {t('sidebar.title')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOpen(false)}
+                      aria-label={t('sidebar.collapseAria')}
+                      className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <svg
+                        viewBox="0 0 16 16"
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M10 3.5 5.5 8l4.5 4.5"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="studio-chat-empty px-4">
+                    <h3>{t('sidebar.emptyTitle')}</h3>
+                    <p>{t('sidebar.emptyBody')}</p>
+                    {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
+                    <AgentSuggestions className="studio-suggestions mt-5" />
+                  </div>
+                  <CanvasGenerateBar editor={editor} />
+                </aside>
+              )}
+            </div>
           ) : (
             /* 收起后不是一颗光秃秃的按钮：整条对话列收成一条窄栏，顶部一个展开图标。 */
             <button
