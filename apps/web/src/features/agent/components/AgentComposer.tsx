@@ -1,4 +1,4 @@
-import { ImageIcon, VideoIcon, Zap } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -583,20 +583,7 @@ export default function AgentComposer({
             />
           </div>
           <ComposerActions className="min-w-0">
-            {videoAvailable && (
-              <span
-                role="img"
-                aria-label={`${t('composer.modeAria')}：${t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}`}
-                title={t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground"
-              >
-                {mode === 'video' ? (
-                  <VideoIcon className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <ImageIcon className="h-4 w-4" aria-hidden="true" />
-                )}
-              </span>
-            )}
+            {/* 模式只是状态展示、点不动，挤在按钮排里反而像可点控件——交给参数 chip 说明。 */}
             <Button
               type="button"
               size="icon"
@@ -604,7 +591,7 @@ export default function AgentComposer({
               aria-pressed={autoSubmit}
               aria-label={t('composer.autoSubmitAria')}
               title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
-              className="h-8 w-8 rounded-full"
+              className="h-8 w-8 shrink-0 rounded-full"
               onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
             >
               <Zap aria-hidden="true" />
