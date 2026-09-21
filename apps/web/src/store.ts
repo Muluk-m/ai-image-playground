@@ -92,6 +92,7 @@ import {
 } from './lib/promptSlots'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { taskErrorTypeOf } from './lib/taskError'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
   createTransparentOutputMeta,
@@ -1762,6 +1763,7 @@ async function executeTask(taskId: string) {
       updateTaskInStore(taskId, {
         status: 'error',
         error: errorMessage,
+        errorCode: taskErrorTypeOf(err),
         ...getRawErrorPayload(err),
         customRecoverable: false,
         finishedAt: Date.now(),
@@ -2420,6 +2422,7 @@ async function recoverCustomTask(taskId: string) {
     updateTaskInStore(taskId, {
       status: 'error',
       error: err instanceof Error ? err.message : String(err),
+      errorCode: taskErrorTypeOf(err),
       ...getRawErrorPayload(err),
       customRecoverable: false,
       finishedAt: Date.now(),

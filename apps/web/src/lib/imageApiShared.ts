@@ -1,6 +1,7 @@
-import type { TaskProgressPhase } from '@image-playground/shared'
+import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import { i18next } from '../i18n'
 import type { ApiMode, AppSettings, TaskParams } from '../types'
+import { taskFailure } from './taskError'
 
 /**
  * BYOK adapter 消费的扁平 profile shape。
@@ -222,29 +223,58 @@ export function throwIfProxyError(payload: unknown): void {
   if (record._proxyError !== true) return
   const err = record.error as { message?: string } | undefined
   const msg = err?.message ?? i18next.t('proxy.upstreamFailed', { ns: 'lib' })
-  throw new Error(msg)
+  throw taskFailure(
+    msg,
+    isContentPolicyRejection({ message: msg, payload }) ? 'content_policy' : undefined,
+  )
+}
+
+/** 上游错误响应体：人话与原样载荷。载荷留给内容安全判定，只读一次 body。 */
+async function readApiError(response: Response): Promise<{ message: string; payload: unknown }> {
+  let payload: unknown
+  try {
+    payload = await response.json()
+  } catch {
+    try {
+      const text = await response.text()
+      return { message: text || `HTTP ${response.status}`, payload: text }
+    } catch {
+      return { message: `HTTP ${response.status}`, payload: undefined }
+    }
+  }
+  const errJson = payload as {
+    error?: { message?: string } | string
+    detail?: unknown
+    message?: string
+  }
+  let message = `HTTP ${response.status}`
+  if (typeof errJson.error === 'object' && errJson.error?.message) message = errJson.error.message
+  else if (typeof errJson.detail === 'string') message = errJson.detail
+  else if (Array.isArray(errJson.detail))
+    message = errJson.detail
+      .map((item: unknown) => (typeof item === 'string' ? item : JSON.stringify(item)))
+      .join('\n')
+  else if (typeof errJson.error === 'string') message = errJson.error
+  else if (errJson.message) message = errJson.message
+  return { message, payload }
 }
 
 export async function getApiErrorMessage(response: Response): Promise<string> {
-  let errorMsg = `HTTP ${response.status}`
-  try {
-    const errJson = await response.json()
-    if (errJson.error?.message) errorMsg = errJson.error.message
-    else if (typeof errJson.detail === 'string') errorMsg = errJson.detail
-    else if (Array.isArray(errJson.detail))
-      errorMsg = errJson.detail
-        .map((item: unknown) => (typeof item === 'string' ? item : JSON.stringify(item)))
-        .join('\n')
-    else if (typeof errJson.error === 'string') errorMsg = errJson.error
-    else if (errJson.message) errorMsg = errJson.message
-  } catch {
-    try {
-      errorMsg = await response.text()
-    } catch {
-      /* ignore */
-    }
-  }
-  return errorMsg
+  return (await readApiError(response)).message
+}
+
+/**
+ * 上游非 2xx 时抛的错。直连（BYOK）没有 worker 给任务分类，分类就在这里做——判据与 BFF
+ * 侧同一个 `isContentPolicyRejection`，否则同一次拒绝在两条路上出两种文案。
+ */
+export async function upstreamHttpError(response: Response): Promise<Error> {
+  const { message, payload } = await readApiError(response)
+  return taskFailure(
+    message,
+    isContentPolicyRejection({ status: response.status, message, payload })
+      ? 'content_policy'
+      : undefined,
+  )
 }
 
 export function pickActualParams(source: unknown): Partial<TaskParams> {

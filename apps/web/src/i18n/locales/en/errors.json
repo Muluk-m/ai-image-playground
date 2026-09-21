@@ -73,6 +73,7 @@
     "quota_exceeded": "Today's generation quota is used up",
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
+    "content_policy": "The prompt didn't pass content review, so the provider rejected it",
     "model_unavailable": "The model it needed isn't available right now",
     "cancelled": "Stopped",
     "fallback": "Didn't finish"

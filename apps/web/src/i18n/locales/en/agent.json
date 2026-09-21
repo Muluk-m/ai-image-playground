@@ -73,7 +73,9 @@
     "recharge": "Top up",
     "login": "Sign in",
     "reprocess": "Ask the assistant to redo it",
+    "rewrite": "Ask the assistant to rewrite the prompt",
     "reprocessMessage": "\"{{title}}\" didn't finish: {{reason}}. Please take a different approach and redo it.",
+    "rewriteMessage": "\"{{title}}\" did not finish: {{reason}}. Rewrite the prompt so it passes review while keeping what I wanted in the picture, tell me what you changed, then submit.",
     "blocked": {
       "local_edit": "it edited a specific selection or variant from that turn, so redoing it as-is would change the wrong thing",
       "model_gone": "the model it used is no longer on the available list"

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { callQueueChannelApi } from '../../../lib/channels/queueClient'
 import type { BuiltinEdgeProfile, PublicChannel } from '../../../lib/channels/types'
+import { taskErrorTypeOf } from '../../../lib/taskError'
 
 const STORAGE_KEY = 'image-playground.device_id'
 
@@ -236,6 +237,27 @@ describe('callQueueChannelApi submit body', () => {
       ),
     ).rejects.toThrow('test-stop')
     expect(phases).toEqual(['reconnecting'])
+  })
+
+  it('把失败分类带出轮询，界面才能按码出文案', async () => {
+    const call = await loadCallQueueChannelApi()
+    // taskError 是纯函数模块，不参与 loadCallQueueChannelApi 的 resetModules 重载。
+    mockFetchJson(
+      { request_id: 'rid-1', status: 'queued' },
+      {
+        request_id: 'rid-1',
+        status: 'failed',
+        submitted_at: Date.now(),
+        error: {
+          message: 'Your request was rejected by the safety system.',
+          type: 'content_policy',
+        },
+      },
+    )
+    const failure = await call(mockOpts(), mockProfile(), mockChannel()).catch(
+      (err: unknown) => err,
+    )
+    expect(taskErrorTypeOf(failure)).toBe('content_policy')
   })
 
   it('429 daily_quota_exceeded 抛中文错误且 quotaExceeded=true', async () => {
