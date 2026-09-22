@@ -91,24 +91,26 @@ jobs:
         with:
           ref: ${{ needs.target.outputs.sha }}
           persist-credentials: false
-      # 取 `verified` 而不是 `main`：那个指针只在 overlay 自己的 CI（公开树 main + 那份
-      # overlay 一起 lint / typecheck / test / build）全绿之后才前移。overlay 合进一个
-      # 编译不过的提交时，这里仍然用上一次已知可用的那份，公开仓的部署链不会被它堵死。
-      #
-      # 闸门放在消费侧而不是合并侧，是因为个人账号的免费私有仓开不了分支保护与 rulesets
-      # （两个接口都回 403），拦不住「CI 红着也合」。
+      # 取 `private.lock` 钉住的那个 overlay 提交，而不是活动指针：这一版公开树和哪一份 overlay
+      # 一起发布，写在公开提交里，可复现、可回滚，也不再取决于部署那一刻指针指到哪
+      # （2026-09-22 就发生过：部署比 overlay CI 早 2 分钟取到 `verified`，生产差了一档）。
+      # lock 只会指向 overlay CI 全绿过的提交——由 `.github/workflows/overlay-bump.yml` 从 `verified`
+      # 抬升并先把这对组合构建一遍。
       #
       # 用 `actions/checkout` 而不是手搓 `git clone`：它把 github.com 的 host key 硬编码在
       # 源码里，这一步因此不碰任何网络接口。原先那版每次都匿名调 `api.github.com/meta` 取
       # known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而 runner 的出口 IP 是共享的，
       # 2026-09-22 就因为它回 403 把整条部署挂掉。调研见
       # `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
-      - name: Check out the private overlay at its verified HEAD
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the pinned commit
         id: overlay
         uses: actions/checkout@v4
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: verified
+          ref: ${{ steps.lock.outputs.sha }}
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false

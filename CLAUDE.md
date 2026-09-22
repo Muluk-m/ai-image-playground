@@ -110,9 +110,17 @@ overlay 反过来只允许通过上面三个接缝与三个**宿主面**引公�
 - `apps/bff/src/lib/private-host.ts`、`apps/web/src/lib/privateHost.ts`、`apps/admin/src/lib/private-host.ts`（lib）与 `private-host-ui.ts`（shadcn 组件，走 `@/` 别名，bun 测试不能碰）
 
 宿主面里每一行都是对收费版的承诺。改动只能**先扩后缩**：加成员随时；改名 / 删除 / 换签名前
-先确认 overlay `verified` 分支不再引用它——公开 CI 的 `with-overlay` 作业（候选公开树 +
-`verified` overlay 一起 lint / typecheck / build）会替你查。overlay 需要新宿主成员时，先在公开树
+先确认 `private.lock` 钉住的 overlay 不再引用它——公开 CI 的 `with-overlay` 作业（候选公开树 +
+钉住的 overlay 一起 lint / typecheck / build）会替你查。overlay 需要新宿主成员时，先在公开树
 加成员合进 main，再合 overlay；反过来合会让 overlay CI 红、`verified` 指针停在旧版。
+
+**overlay 版本由 `private.lock` 钉住**（一行 sha）。生产部署与 `with-overlay` 都按它取，不读活动
+指针。overlay CI 全绿把 `verified` 前移后，`.github/workflows/overlay-bump.yml`（每 10 分钟，
+也可手动跑）把 lock 抬到它：先把这对组合构建一遍，通过才提交，并显式触发一次生产部署——
+所以 overlay 合并**会**上线，不必等公开 main 另有提交。本地 `private/` 用
+`scripts/sync-private-overlay.sh` 对齐到 lock；两边错位时 typecheck / 全量测试会红（overlay 引了
+公开树没有的宿主面成员），那是版本没对上，不是代码坏了。测试环境仍取 overlay main HEAD（预览下
+一版），所以 test 可能比生产多出尚未钉住的 overlay 提交。
 
 私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
