@@ -78,6 +78,8 @@ const item = {
   prompt: '一只在阳光下睡觉的猫',
   parameters: { size: '1536x1024', quality: 'high', n: 2, output_format: 'webp' },
   actualParameters: {},
+  inputs: [],
+  mask: null,
 } as const
 
 const page = (items: unknown[], nextCursor: string | null = null) =>
@@ -263,14 +265,10 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
       models: [{ id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate'] }],
     },
   ])
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string) =>
-      url === '/api/generations?limit=50'
-        ? page([item])
-        : Response.json({ ...item, inputs: [], mask: null, outputs: [] }),
-    ),
+  const fetcher = vi.fn(async (url: string) =>
+    url === '/api/generations?limit=50' ? page([item]) : Response.json({}),
   )
+  vi.stubGlobal('fetch', fetcher)
   await act(async () => {
     root.render(
       <>
@@ -282,6 +280,8 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
   await waitCards(1)
   await click('复用配置')
   await settle()
+  // 提示词、参数和模型都已经画在卡上了，再为它们读一次详情就是让用户白等一个来回。
+  expect(fetcher.mock.calls.map(([url]) => url)).not.toContain(`/api/generations/${item.id}`)
   expect(useStore.getState().prompt).toBe('一只在阳光下睡觉的猫')
   expect(useStore.getState().params).toMatchObject({
     size: '1536x1024',
@@ -318,15 +318,15 @@ it('复用平台记录并行取回参考图，不让后一张等待前一张下�
   const firstDownload = new Promise<Response>((resolve) => {
     finishFirst = resolve
   })
+  const withReferences = {
+    ...item,
+    inputs: [
+      { index: 0, mediaId: firstId, width: null, height: null, contentType: 'image/png' },
+      { index: 1, mediaId: secondId, width: null, height: null, contentType: 'image/png' },
+    ],
+  }
   const fetcher = vi.fn(async (url: string) => {
-    if (url === '/api/generations?limit=50') return page([item])
-    if (url === `/api/generations/${item.id}`)
-      return Response.json({
-        ...item,
-        inputs: [{ mediaId: firstId }, { mediaId: secondId }],
-        mask: null,
-        outputs: [],
-      })
+    if (url === '/api/generations?limit=50') return page([withReferences])
     if (url.endsWith('/access'))
       return Response.json({
         originalUrl: `https://media.example/${url.includes(firstId) ? firstId : secondId}`,

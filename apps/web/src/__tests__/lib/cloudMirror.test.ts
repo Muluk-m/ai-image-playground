@@ -2,7 +2,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { mirrorGenerations, taskFromGeneration } from '../../lib/cloudMirror'
-import { getAllTasks } from '../../lib/db'
+import { getAllTasks, putTask } from '../../lib/db'
 import { useStore } from '../../store'
 import { DEFAULT_PARAMS } from '../../types'
 
@@ -33,6 +33,16 @@ const summary = {
   prompt: '一只猫',
   parameters: { size: '1536x1024', quality: 'high', n: 2, output_format: 'webp' },
   actualParameters: { size: '1536x1024' },
+  inputs: [
+    {
+      index: 0,
+      mediaId: '66666666-6666-4666-8666-666666666666',
+      width: 1024,
+      height: 1024,
+      contentType: 'image/png',
+    },
+  ],
+  mask: null,
 } as const
 
 beforeEach(() => {
@@ -62,6 +72,48 @@ it('平台记录变成一条普通任务记录：封面用云媒体引用，参�
     remoteOnly: true,
   })
   expect(task.params).toMatchObject({ size: '1536x1024', quality: 'high', n: 2 })
+})
+
+it('参考图、遮罩与 provider 都跟着列表落到镜像卡上：复用不用再读一次详情', () => {
+  const task = taskFromGeneration({
+    ...summary,
+    mask: { ...summary.inputs[0], mediaId: '77777777-7777-4777-8777-777777777777' },
+  })
+  expect(task).toMatchObject({
+    cloudProvider: 'openai-compat',
+    inputImageIds: ['aip-media:66666666-6666-4666-8666-666666666666'],
+    maskImageId: 'aip-media:77777777-7777-4777-8777-777777777777',
+    maskTargetImageId: 'aip-media:66666666-6666-4666-8666-666666666666',
+  })
+})
+
+it('Gemini 的比例、分辨率和思考级别照抄，复用不会悄悄换掉画面', () => {
+  const task = taskFromGeneration({
+    ...summary,
+    provider: 'gemini',
+    parameters: { aspect_ratio: '3:4', image_size: '2K', thinking_level: 'high' },
+  })
+  expect(task.params).toMatchObject({
+    gemini_aspect_ratio: '3:4',
+    gemini_image_size: '2K',
+    gemini_thinking_level: 'high',
+  })
+})
+
+it('早先版本镜下来、没有参考图的卡，再读一页列表就补齐', async () => {
+  await mirrorGenerations([summary])
+  const stale = { ...useStore.getState().tasks[0]!, cloudProvider: undefined, inputImageIds: [] }
+  useStore.setState({ tasks: [stale] })
+  await putTask(stale)
+
+  await mirrorGenerations([summary])
+
+  expect(useStore.getState().tasks).toMatchObject([
+    {
+      cloudProvider: 'openai-compat',
+      inputImageIds: ['aip-media:66666666-6666-4666-8666-666666666666'],
+    },
+  ])
 })
 
 it.each([
