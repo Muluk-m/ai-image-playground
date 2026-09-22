@@ -20,7 +20,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
-const { conversationExecution } = await import('../../lib/agent/execution')
+const { claimConversation, conversationExecution } = await import('../../lib/agent/execution')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { DEVICE_CLAIM_COOKIE } = await import('../../lib/agent/deviceClaim')
@@ -328,6 +328,26 @@ describe('DELETE /api/agent/conversations/:id', () => {
 
     expect(status).toBe(404)
     expect(await listConversations()).toHaveLength(1)
+  })
+
+  it('上一轮刚收尾、租约还没还回来时照样能删：那不叫忙', async () => {
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '收尾的一轮')
+    const [turn] = await db
+      .select()
+      .from(schema.agent_turns)
+      .where(eq(schema.agent_turns.conversation_id, conversationId))
+    expect(turn).toBeDefined()
+    // 复现终帧已经发出、租约还没异步还回去的那一瞬：页脚在，租约行仍是 running。
+    expect(await claimConversation(conversationId, turn!.turn_id)).toBe(true)
+    expect(await conversationExecution(conversationId)).toBeDefined()
+
+    const { status } = await request('DELETE', `/api/agent/conversations/${conversationId}`, {
+      body: { deviceId: DEVICE },
+    })
+
+    expect(status).toBe(200)
+    expect(await listConversations()).toEqual([])
   })
 })
 
