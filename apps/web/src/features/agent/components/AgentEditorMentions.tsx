@@ -13,7 +13,7 @@ import {
   type MentionLabelResolver,
 } from '../../../lib/promptImageMentions'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
-import type { AgentReference } from '../lib/references'
+import { type AgentReference, referenceDisplayNames } from '../lib/references'
 import AgentSkillBadge from './AgentSkillBadge'
 
 interface MentionTarget {
@@ -60,6 +60,7 @@ export default function AgentEditorMentions({
 
     const selection = document.activeElement === editor ? getContentEditableSelection(editor) : null
     editor.innerHTML = buildPromptEditorHtml(prompt, labels, {})
+    const names = referenceDisplayNames(references)
     const next: MentionTarget[] = []
     for (const element of editor.querySelectorAll<HTMLElement>('.mention-tag:not(.slot-tag)')) {
       const index = getMentionedImageIndexes(element.dataset.mentionText ?? '')[0]
@@ -82,7 +83,7 @@ export default function AgentEditorMentions({
               draggable={false}
               className="h-6 w-6 shrink-0 rounded object-cover"
             />
-            {reference.name && <span className="max-w-36 truncate">{reference.name}</span>}
+            {names[index] && <span className="max-w-36 truncate">{names[index]}</span>}
           </>
         ),
       })

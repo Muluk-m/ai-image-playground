@@ -198,10 +198,11 @@ export class CloudProjectSession {
       this.forking = false
     }
     if (status === 'error') this.retryLater()
-    // 冲突不再等用户抉择：当前修改自动落成恢复副本，手动按钮只是分叉失败时的兜底。
+    // 冲突不等用户抉择，也不把用户切走：本机修改先落成一份备份副本，然后这个项目换上云端版本。
+    // 用户始终停在正本上——对话记录挂在正本的会话里，切到副本等于让用户以为对话没了。
     if (status === 'conflict' && !this.forking) {
       this.forking = true
-      void this.resolveConflict('copy')
+      void this.resolveConflict('cloud')
         .then((copy) => {
           if (copy) this.onFork(copy)
         })

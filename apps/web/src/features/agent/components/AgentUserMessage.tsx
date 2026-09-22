@@ -10,6 +10,7 @@ import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { USER_BUBBLE } from '../agentStyles'
 import { fetchMessageReference } from '../lib/agentClient'
 import { getLeadingAgentSkill } from '../lib/agentSkillMentions'
+import { referenceDisplayNames } from '../lib/references'
 import { useAgentStore } from '../store'
 import type { AgentTextMessage } from '../types'
 import AgentSkillBadge from './AgentSkillBadge'
@@ -83,10 +84,13 @@ function ReferenceThumbnail({
   reference,
   messageId,
   index,
+  name,
 }: {
   reference: NonNullable<AgentTextMessage['references']>[number]
   messageId: string
   index: number
+  /** 同名参考图编号后的显示名；没名字的传 undefined，走序号标签。 */
+  name: string | undefined
 }) {
   const { t } = useTranslation('agent')
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -118,7 +122,7 @@ function ReferenceThumbnail({
     }
   }, [local, conversationId, messageId, index, object, identity])
   const source = local ?? (preview?.identity === identity ? preview.source : undefined)
-  const label = reference.name || getImageMentionLabel(index)
+  const label = name || getImageMentionLabel(index)
   const failed = !local && preview?.identity === identity && !preview.source
   return (
     <>
@@ -143,7 +147,7 @@ function ReferenceThumbnail({
         ) : (
           <ImageIcon className="h-6 w-6 shrink-0 p-1" aria-hidden="true" />
         )}
-        {reference.name && <span className="max-w-36 truncate">{reference.name}</span>}
+        {name && <span className="max-w-36 truncate">{name}</span>}
       </button>
       {openIdentity === identity && (
         <ReferencePreview
@@ -170,6 +174,7 @@ export default memo(function AgentUserMessage({
   const text = invocation ? invocation.rest : message.text
   const content: ReactNode[] = []
   const inlined = new Set<number>()
+  const names = referenceDisplayNames(message.references ?? [])
   let from = 0
   for (const match of text.matchAll(/\[image ([1-9]\d*)\]/g)) {
     const index = Number(match[1]) - 1
@@ -183,6 +188,7 @@ export default memo(function AgentUserMessage({
         reference={reference}
         messageId={message.id}
         index={index}
+        name={names[index]}
       />,
     )
     from = match.index + match[0].length
@@ -204,6 +210,7 @@ export default memo(function AgentUserMessage({
               reference={reference}
               messageId={message.id}
               index={index}
+              name={names[index]}
             />
           ))}
         </div>

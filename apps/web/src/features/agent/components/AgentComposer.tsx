@@ -82,6 +82,7 @@ import {
   clearReferenceMask,
   draftForSubmit,
   hasDraftContent,
+  referenceDisplayNames,
   referenceLabels,
   removeReference,
   setReferenceMask,
@@ -160,6 +161,7 @@ export default function AgentComposer({
       setDraft((current) => attachReferences(current, added))
     })
   }
+  const referenceNames = referenceDisplayNames(draft.references)
   const { dragging, dropZoneProps } = useImageDropZone(attachFiles)
   // 面板把落在对话记录上的文件递过来。
   useEffect(() => {
@@ -458,7 +460,7 @@ export default function AgentComposer({
         {draft.references.length > 0 && (
           <ComposerAttachments>
             {draft.references.map((reference, index) => {
-              const label = reference.name ?? getImageMentionLabel(index)
+              const label = referenceNames[index] ?? getImageMentionLabel(index)
               const masked = Boolean(reference.maskDataUrl)
               return (
                 <div
