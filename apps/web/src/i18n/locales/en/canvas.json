@@ -42,15 +42,14 @@
     }
   },
   "generate": {
-    "hintAnnotated_one": "{{count}} image + markup selected · follows the markup, no lines in the output",
-    "hintAnnotated_other": "{{count}} images + markup selected · follows the markup, no lines in the output",
-    "hintSelected_one": "{{count}} image selected · used as its own reference image",
-    "hintSelected_other": "{{count}} images selected · each used as its own reference image",
-    "hintEmpty": "With nothing selected this generates from text; select images to mark them up and iterate",
+    "hintAnnotated_one": "{{count}} image and markup selected · the markup will not appear in the result",
+    "hintAnnotated_other": "{{count}} images and markup selected · the markup will not appear in the result",
+    "hintSelected_one": "{{count}} image selected",
+    "hintSelected_other": "{{count}} images selected",
     "inputAlt": "Input {{index}}",
     "previewPending": "Building preview…",
     "annotationHint": "Text markup → change request: {{text}}",
-    "promptPlaceholder": "Describe what to create or change… (⌘/Ctrl + Enter)",
+    "promptPlaceholder": "Describe the image you want, or drop in a reference",
     "promptAria": "Creation prompt",
     "modeAria": "Generation type",
     "modeImage": "Image",
@@ -84,6 +83,8 @@
     "restoring": "Restoring your projects…",
     "reload": "Reload",
     "untitled": "Untitled project",
+    "kindImage": "Image",
+    "kindVideo": "Video",
     "routeUnavailable": "This project can't be opened right now. Check the account, or try again on the original device.",
     "cloudListFailed": "Could not load the project list. Projects already open still work.",
     "loadFailed": "Could not load the projects. Your content is kept, please reload."
@@ -97,13 +98,14 @@
     "title": "Image creation",
     "collapseAria": "Collapse panel",
     "collapse": "Collapse ←",
-    "emptyTitle": "Start from an idea",
-    "emptyBody": "Describe the image, or drop a reference onto the canvas. Select an image to generate a new version of it.",
+    "emptyTitle": "What are you making today",
+    "emptyBody": "Pick one to start, or just write a line.",
     "openChat": "Open creation panel"
   },
   "workspace": {
     "canvasAria": "Creation canvas",
-    "untitled": "My canvas"
+    "untitled": "My canvas",
+    "backToProjects": "Back to projects"
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
@@ -114,7 +116,6 @@
     "title": "Give your imagination a picture.",
     "bodyAgent": "Describe your idea and the results appear here.",
     "bodyDirect": "Describe the image to start creating.",
-    "bodyDrop": "You can also drop in an image and explore from there.",
     "import": "＋ Import reference images"
   },
   "import": {
@@ -140,8 +141,7 @@
     "conflict": "This project has two different sets of changes",
     "mediaLocal": "Some canvas content is not saved yet",
     "retry": "Retry",
-    "localOnly": "Draft stays in this browser",
-    "localError": "Changes are not written yet",
+    "localError": "Changes are not saved yet",
     "authError": "Sign in again to save",
     "permissionError": "Project cannot be saved right now",
     "quotaError": "Storage or canvas size limit exceeded",
@@ -204,7 +204,6 @@
   "trash": {
     "title": "Recycle bin",
     "back": "Back to projects",
-    "help": "Restore canvases and conversations before expiry. Recycled content still counts toward your storage. Edits that are not saved yet are preserved.",
     "empty": "The recycle bin is empty",
     "until": "Restorable until {{date}}",
     "localEdits": "Save current edits as a new project",
@@ -212,7 +211,6 @@
     "deleteMessage": "Move “{{name}}” to the recycle bin? It will disappear on your other devices and can be restored before expiry."
   },
   "video": {
-    "hintText": "No image selected: text to video",
     "hintFirst": "The selected image is the first frame",
     "hintFirstLast": "Left image is the first frame, right image the last frame",
     "promptPlaceholder": "Describe the scene, motion and camera… (⌘/Ctrl + Enter to generate)",
@@ -234,17 +232,17 @@
     "lastFrame": "Last frame",
     "frameFailed": "Could not capture a frame from this video; try again later",
     "sourceGone": "The source video is no longer on the canvas",
-    "unknownSource": "This video has no recorded length, so it cannot be extended or edited",
-    "noPromptRecorded": "This video has no recorded description (agent videos only keep a title); write one again.",
-    "modelUnavailable": "The original model is not available here; settings were left unchanged, pick a model yourself.",
-    "videoUnavailable": "This deployment cannot generate video",
+    "unknownSource": "This video has no length, so it cannot be extended or edited",
+    "noPromptRecorded": "This video has no original description; write one again.",
+    "modelUnavailable": "The original model is not available now; pick another one.",
+    "videoUnavailable": "Video generation is unavailable right now",
     "regenerateTitle": "Regenerate with changes",
     "regenerateSubmitted": "Regeneration submitted",
     "framesGoneTextOnly": "Some of the original frames or reference images are no longer on the canvas, so this run uses text only.",
     "keepsFrames_one": "Keep the {{count}} original input image",
     "keepsFrames_other": "Keep the {{count}} original input images (frames and references)",
-    "nothingRecorded": "This video has no recorded settings or description; choose settings and write one.",
-    "noSettingsRecorded": "This video has no recorded settings; the current ones are used.",
+    "nothingRecorded": "This video has no original settings or description; set them again.",
+    "noSettingsRecorded": "This video has no original settings; the current ones are used.",
     "framesFailed": "The original frames could not be prepared; try again, or turn off \"Keep the original frames\" to use text only."
   },
   "timeline": {
@@ -300,7 +298,7 @@
     "open_other": "Make a video from {{count}} images",
     "title_one": "Make a video from {{count}} image",
     "title_other": "Make a video from {{count}} images",
-    "hint": "Ordered left to right as on the canvas; drag to reorder. Mark each as the first frame, last frame or a reference, and mention references as Image 1, Image 2 in the description.",
+    "hint": "Drag to reorder. Mark each one as the first frame, the last frame or a reference.",
     "listAria": "Input images",
     "roleAria": "How input {{no}} is used",
     "moveUp": "Move input {{no}} up",

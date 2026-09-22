@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
-import { useStore } from '../../../store'
+import { isWorkbenchMode, useStore } from '../../../store'
 import AgentJobInbox from '../../agent/components/AgentJobInbox'
 import AgentPanel from '../../agent/components/AgentPanel'
+import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
@@ -32,7 +34,6 @@ import CanvasVideoToolbar from './CanvasVideoToolbar'
 import FilmExportStatus from './FilmExportStatus'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
-import ProjectSyncStatus from './ProjectSyncStatus'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
 import TimelineEditorHost from './TimelineEditor'
@@ -65,11 +66,6 @@ export default function CanvasMode() {
     showCanvasWorkspace(true)
     return () => showCanvasWorkspace(false)
   }, [])
-  // 视频入口就是这张画布，只是生成方式预置到视频：每次进入都预置一次，之后由用户自己切。
-  const videoEntry = useStore((state) => state.appMode === 'video')
-  useEffect(() => {
-    if (videoEntry) useCanvasComposer.getState().requestVideo()
-  }, [videoEntry])
   if (routeError)
     return (
       <div className="studio-canvas-status" role="alert">
@@ -109,6 +105,10 @@ export default function CanvasMode() {
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
+  // 收起侧栏时左上角有一颗品牌按钮，顶行要从它右边开始排。
+  const sidebarExpanded = useStore(
+    (state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode),
+  )
   const mobile = useMobileWorkspace()
   const [mobileView, setMobileView] = useState<'chat' | 'canvas'>('chat')
   const { doc, editor } = workspace
@@ -174,7 +174,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   }, [editor, workspace, loading, loadFailed, pendingImages])
 
   return (
-    <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
+    <div
+      className="studio-shell fixed bottom-0 right-0 z-30"
+      style={{ top: HEADER_OFFSET, left: 'var(--app-sidebar-width)' }}
+    >
       {showWelcome && !mobile && !loading && !loadFailed ? (
         <ProjectWelcome workspace={workspace} />
       ) : (
@@ -195,39 +198,95 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {t('mobileSwitch.canvas')}
             </button>
           </div>
-          {hasAgent ? (
-            <AgentPanel
-              doc={doc}
-              editor={editor}
-              mobile={mobile}
-              onViewCanvas={() => setMobileView('canvas')}
-            />
-          ) : open || mobile ? (
-            <aside
-              className="studio-sidebar studio-sidebar--direct"
-              style={{ width: 340 }}
-              aria-label={t('sidebar.title')}
-            >
-              <div className="flex justify-between px-4 text-xs">
-                <span>{t('sidebar.title')}</span>
+          {/* 顶行排在对话卡片**上方**、与卡片同左边界：logo（点它回项目页）右边跟项目名与切换。
+          智能体档与纯直出档共用这一行，同步状态不在这里出声——出错走 toast。 */}
+          {open || mobile ? (
+            <div className="studio-chat-column">
+              <div className="studio-canvas-topbar">
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
-                  aria-label={t('sidebar.collapseAria')}
+                  onClick={() => useStore.getState().setAppMode('projects')}
+                  aria-label={t('workspace.backToProjects')}
+                  title={t('workspace.backToProjects')}
+                  className="grid h-9 w-8 shrink-0 place-items-center self-center opacity-90 transition-opacity hover:opacity-100"
                 >
-                  {t('sidebar.collapse')}
+                  <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                 </button>
+                <ProjectNavigation />
               </div>
-              <div className="studio-chat-empty px-4">
-                <span className="studio-spark">✧</span>
-                <h3>{t('sidebar.emptyTitle')}</h3>
-                <p>{t('sidebar.emptyBody')}</p>
-              </div>
-              <CanvasGenerateBar editor={editor} />
-            </aside>
+              {hasAgent ? (
+                <AgentPanel
+                  doc={doc}
+                  editor={editor}
+                  mobile={mobile}
+                  onViewCanvas={() => setMobileView('canvas')}
+                />
+              ) : (
+                <aside
+                  className="studio-sidebar studio-sidebar--direct"
+                  style={{ width: 380 }}
+                  aria-label={t('sidebar.title')}
+                >
+                  <div className="flex items-center justify-between px-4 pb-2 pt-3">
+                    <span className="text-[13px] font-medium text-foreground">
+                      {t('sidebar.title')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOpen(false)}
+                      aria-label={t('sidebar.collapseAria')}
+                      className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <svg
+                        viewBox="0 0 16 16"
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M10 3.5 5.5 8l4.5 4.5"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="studio-chat-empty px-4">
+                    <h3>{t('sidebar.emptyTitle')}</h3>
+                    <p>{t('sidebar.emptyBody')}</p>
+                    {/* 起手示例：点一下填进下面的输入框，发不发由用户决定。 */}
+                    <AgentSuggestions className="studio-suggestions mt-5" />
+                  </div>
+                  <CanvasGenerateBar editor={editor} />
+                </aside>
+              )}
+            </div>
           ) : (
-            <button type="button" className="studio-open-chat" onClick={() => setOpen(true)}>
+            /* 收起后只留一颗胶囊：窄栏会压住左侧画布工具条，也没给用户任何信息。 */
+            <button
+              type="button"
+              className="studio-open-chat"
+              onClick={() => setOpen(true)}
+              title={t('sidebar.openChat')}
+            >
+              <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
               {t('sidebar.openChat')}
+              <svg
+                viewBox="0 0 16 16"
+                className="h-3.5 w-3.5 opacity-70"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M4 10l4-4 4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </button>
           )}
           <section
@@ -235,14 +294,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             aria-label={t('workspace.canvasAria')}
             inert={mobile && mobileView !== 'canvas'}
           >
-            <div className="studio-canvas-heading">
-              <strong>
-                {project ? projectDisplayName(project.name) : t('workspace.untitled')}
-              </strong>
-              {/* 画布上只留项目名。自动保存、拖入提示这类常态文字没人读，还压在右上角控件底下；
-              同步状态只在出岔子（冲突、报错、待重试）时才出声。 */}
-              {workspace.cloud && <ProjectSyncStatus session={workspace.cloud} quiet />}
-            </div>
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />
             <CanvasVideoOverlay editor={editor} />
@@ -251,17 +302,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
-            {/* 后台任务入口贴画布右上角：任务落的是画布，进度和定位就该在画布上，
-            不占对话顶上的常驻位置。 */}
+            {/* 后台任务入口贴画布右上角，但要让开浮在同一角的账号胶囊：胶囊是另一层
+            叠放上下文，盖住任务卡时两张圆角会切在一起。窄屏画布本身已经下移，不用再让。 */}
             {hasAgent && (
-              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end">
+              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end md:top-[var(--studio-account-cluster-clearance)]">
                 <AgentJobInbox />
               </div>
             )}
             {saveFailed && (
               <div
                 role="alert"
-                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg"
+                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg md:top-[calc(var(--studio-account-cluster-clearance)+2.75rem)]"
               >
                 <p>{t('saveError.message')}</p>
                 <button
@@ -281,13 +332,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             </div>
             {!hasContent && !loading && !loadFailed && (
               <div className="studio-empty">
-                <img src="/brand/muvloom-icon.svg" alt="" />
+                <img src="/brand/muvloom-mark.svg" alt="" />
                 <h2>{t('empty.title')}</h2>
-                <p>
-                  {hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}
-                  <br />
-                  {t('empty.bodyDrop')}
-                </p>
+                <p>{hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}</p>
                 <button
                   type="button"
                   className="studio-secondary"

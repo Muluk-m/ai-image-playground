@@ -135,10 +135,25 @@ function timelineClip(value: unknown): boolean {
   )
 }
 
+/** 画布类型：项目建出来时就定死，之后只读。 */
+export type ProjectKind = 'image' | 'video'
+
 /** 云端结构不包含位图、相机、选区或撤销历史。 */
 export interface ProjectDocument {
   version: 1
   elements: ProjectElement[]
+  /**
+   * 这张画布是拿来做图还是做片。放在文档里而不是摘要里：摘要的每一项都是服务端从文档算出来的
+   * 派生值（`elementCount`、`coverMediaId`），只有文档是客户端说了算的那份原文，而画布类型
+   * 正是「这张画布是什么」的一部分；单开一列还要连带改建表、写入、列表、回收站四处。
+   * 只有视频项目写它：缺席即图片（{@link projectKind}），老文档因此一个字节都不用动。
+   */
+  kind?: ProjectKind
+}
+
+/** 缺席读作图片：这个字段是后加的，此前存下来的文档里没有它。 */
+export function projectKind(document: Pick<ProjectDocument, 'kind'>): ProjectKind {
+  return document.kind === 'video' ? 'video' : 'image'
 }
 
 export interface CloudProjectSummary {
@@ -317,8 +332,9 @@ function element(value: unknown): value is ProjectElement {
 export function isProjectDocument(value: unknown): value is ProjectDocument {
   return (
     object(value) &&
-    keys(value, ['version', 'elements']) &&
+    keys(value, ['version', 'elements', 'kind']) &&
     value.version === 1 &&
+    (value.kind === undefined || value.kind === 'image' || value.kind === 'video') &&
     Array.isArray(value.elements) &&
     value.elements.length <= PROJECT_ELEMENT_MAX_COUNT &&
     value.elements.every(element) &&

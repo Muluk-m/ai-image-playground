@@ -72,9 +72,7 @@ function type(text: string): void {
 }
 
 function generate(): HTMLButtonElement {
-  return Array.from(document.querySelectorAll('button')).find(
-    (one) => one.textContent?.trim() === '生成',
-  ) as HTMLButtonElement
+  return document.querySelector('button[aria-label="生成"]') as HTMLButtonElement
 }
 
 beforeEach(() => {

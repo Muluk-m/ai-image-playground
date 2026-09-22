@@ -2,7 +2,9 @@ name: Web checks
 on:
   pull_request:
   push:
-    branches: [main]
+    # test 是测试环境分支（.github/workflows/test-preview.yml）。它跑 CI，但不会触发
+    # 生产发布：deploy.yml 的 workflow_run 只接 branches: [main]。
+    branches: [main, test]
 permissions:
   contents: read
 concurrency:
@@ -57,3 +59,41 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test --concurrency=1 --env-mode=loose
+  # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + 已知可用的 overlay
+  # （`verified`，不是可能在途的 main）一起 lint / typecheck / build。它执行的是「先扩后缩」——
+  # 公开树只能删掉 verified overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
+  # overlay 只经由 private-host / private-overlay 引公开树（scripts/check-private-boundary.ts）。
+  #
+  # 需要 PRIVATE_OVERLAY_SSH_KEY，fork 的 PR 拿不到 secrets，跳过；主仓 PR 与 main/test push 都跑。
+  with-overlay:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PRIVATE_OVERLAY_REPO: git@github.com:Muluk-m/ai-image-playground-private.git
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out the private overlay at its verified pointer
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
+          umask 077
+          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
+          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
+            git clone --quiet --branch verified --single-branch "$PRIVATE_OVERLAY_REPO" private
+          rm -f "$RUNNER_TEMP/overlay-key"
+          echo "overlay=$(git -C private rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm --dir apps/web build

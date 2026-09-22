@@ -101,7 +101,6 @@ export default function ProjectTrash({
         </Button>
         <h3 className="font-medium">{t('trash.title')}</h3>
       </div>
-      <p className="text-sm text-muted-foreground">{t('trash.help')}</p>
       {loading && <p role="status">{t('grid.loadingCloud')}</p>}
       {error && (
         <div role="alert">

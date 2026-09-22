@@ -74,7 +74,7 @@ beforeEach(async () => {
   setClientStorageScope('alice')
   postSyncMock.mockReset()
   postSyncMock.mockResolvedValue(response())
-  useStore.setState({ params: { ...DEFAULT_PARAMS }, appMode: 'browse' })
+  useStore.setState({ params: { ...DEFAULT_PARAMS }, appMode: 'image' })
   useStore.getState().setSettings({ enterSubmit: false })
   useLibraryStore.setState({ templates: [], assets: [] })
 })
@@ -116,10 +116,10 @@ describe('pulling on startup', () => {
     await vi.waitFor(() => {
       expect(useStore.getState().settings.enterSubmit).toBe(true)
     })
-    expect(useStore.getState().appMode).toBe('browse')
+    expect(useStore.getState().appMode).toBe('image')
     // 回传的设置不算本机改动，不能再被推回去。
     expect(readPendingChanges().settingsUpdatedAt).toBeNull()
-    useStore.getState().setAppMode('create')
+    useStore.getState().setAppMode('canvas')
     expect(readPendingChanges().settingsUpdatedAt).toBeNull()
   })
 

@@ -11,10 +11,52 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" sizes="180x180" />
     <link rel="icon" href="/brand/muvloom-icon.svg" type="image/svg+xml" />
+    <!-- 启动配置与首屏 JS 并行拉：它是整条启动链的第一环，晚一个往返首帧就晚一个往返。 -->
+    <link rel="preload" href="/runtime-config.json" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="/hero/hero-8.webp" as="image" fetchpriority="low" />
     <title>幕芽 Muvloom · AI 图片与视频创作工作台</title>
+    <style>
+      /* 启动闪屏：HTML 一到就画，避免整条启动链（配置 → 会话 → 能力）期间是一片黑。
+         应用挂载后由 main.tsx 移除。 */
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #0b0f0c;
+        transition: opacity 0.22s ease;
+      }
+      #boot.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot img {
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        animation: boot-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          opacity: 0.45;
+          transform: scale(0.96);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot img {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body class="bg-background text-foreground min-h-screen">
     <div id="root"></div>
+    <div id="boot"><img src="/brand/muvloom-icon.svg" alt="" /></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

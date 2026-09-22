@@ -1,16 +1,35 @@
 {
   "header": {
     "brandName": "Muvloom",
-    "homeAria": "Muvloom, back to creating",
+    "homeAria": "Muvloom, back to the canvas",
     "nav": "Main navigation",
-    "inspiration": "Inspiration",
-    "library": "My assets",
+    "library": "Assets",
     "accountMenu": "Open your account",
     "appMenu": "Open the app menu",
     "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Sign-in methods",
-    "loggingOut": "Signing out"
+    "loggingOut": "Signing out",
+    "membership": {
+      "subscribe": "Get membership"
+    }
+  },
+  "brand": {
+    "home": "Home",
+    "projects": "Projects",
+    "newProject": "New project",
+    "deleteProject": "Delete this project",
+    "deleteProjectMessage": "Delete the project “{{name}}”?"
+  },
+  "nav": {
+    "assets": "Assets",
+    "templates": "Templates",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "canvases": "Canvases",
+    "allCanvases": "All",
+    "newCanvas": "New canvas",
+    "immersive": "Open immersive"
   },
   "logout": {
     "title": "Sign out",
@@ -50,5 +69,20 @@
   "toast": {
     "historyAdopted_one": "Recovered {{count}} item from before you signed in",
     "historyAdopted_other": "Recovered {{count}} items from before you signed in"
+  },
+  "mode": {
+    "generate": "Generate",
+    "canvas": "Canvas"
+  },
+  "hero": {
+    "titleLead": "Imagine it, ",
+    "titleAccent": "make it real",
+    "subtitle": "Turn a sentence into work you can see"
+  },
+  "account": {
+    "guest": "Guest",
+    "subscribe": "Subscribe",
+    "upgrade": "Upgrade",
+    "expires": "Ends {{date}}"
   }
 }

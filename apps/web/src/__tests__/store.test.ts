@@ -420,17 +420,17 @@ describe('the persisted app mode', () => {
   }
 
   it('opens the workbench instead of a saved page', () => {
-    useStore.setState({ appMode: 'browse' })
-    expect(merge({ appMode: 'product' }).appMode).toBe('browse')
+    useStore.setState({ appMode: 'image' })
+    expect(merge({ appMode: 'product' }).appMode).toBe('image')
   })
 
   it('does not undo navigation chosen before hydration finishes', () => {
-    useStore.getState().setAppMode('create')
-    expect(merge({ appMode: 'product' }).appMode).toBe('create')
+    useStore.getState().setAppMode('canvas')
+    expect(merge({ appMode: 'product' }).appMode).toBe('canvas')
   })
 
   it('does not save the current page for the next visit', () => {
-    useStore.getState().setAppMode('browse')
+    useStore.getState().setAppMode('image')
     expect(getPersistedState(useStore.getState())).not.toHaveProperty('appMode')
   })
 })
@@ -442,7 +442,6 @@ describe('input persistence setting', () => {
       prompt: 'prompt',
       inputImages: [imageA],
       slotValues: { 背景: ['浴室'] },
-      dismissedCodexCliPrompts: [],
     })
   })
 
@@ -643,7 +642,6 @@ describe('getPersistedState builtin profile stripping', () => {
       settings: { ...DEFAULT_SETTINGS },
       prompt: '',
       inputImages: [],
-      dismissedCodexCliPrompts: [],
     })
   })
 

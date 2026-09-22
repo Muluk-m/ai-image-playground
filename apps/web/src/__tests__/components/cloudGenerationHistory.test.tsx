@@ -48,7 +48,7 @@ beforeEach(async () => {
     searchQuery: '',
     filterStatus: 'all',
     filterFavorite: false,
-    appMode: 'browse',
+    appMode: 'image',
   })
   host = document.createElement('div')
   document.body.append(host)
@@ -294,7 +294,7 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
     settings.profiles.find((profile) => profile.id === settings.activeProfileId),
   ).toMatchObject({ source: 'builtin-edge', selectedModelId: 'gpt-image-2' })
   expect(host.querySelector('[contenteditable]')?.textContent).toBe('一只在阳光下睡觉的猫')
-  expect(useStore.getState().appMode).toBe('browse')
+  expect(useStore.getState().appMode).toBe('image')
 })
 
 it('删除平台记录要删到平台；平台没删掉时卡还在', async () => {

@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil } from 'lucide-react'
+import { MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import MediaImage from '../../../components/MediaImage'
@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
@@ -41,17 +42,17 @@ export default function ProjectGrid({
         (!recent || project.hasContent),
     )
     .slice(0, recent ? 5 : undefined)
-  const enter = async (project?: CanvasProject) => {
+  const enter = async (project?: CanvasProject, kind?: 'image' | 'video') => {
     if (busy) return
     setBusy(true)
     try {
       const opened = project
         ? await useAgentStore.getState().selectProject(project.id)
-        : await useAgentStore.getState().createProject()
+        : await useAgentStore.getState().createProject(kind)
       if (opened) {
-        // 视频入口也是这张画布：在那里换项目就留在视频入口，只有从作品页进来才切到创作。
-        if (useStore.getState().appMode === 'browse') useStore.getState().setAppMode('create')
-        useLibraryStore.getState().closePanel()
+        // 挑中或建出项目就落到画布——项目的唯一去处就是它自己的工作台。
+        useStore.getState().setAppMode('canvas')
+        useLibraryStore.getState().leaveLibraryPage()
       }
     } finally {
       setBusy(false)
@@ -61,20 +62,25 @@ export default function ProjectGrid({
   return (
     <>
       {cloudProjectsEnabled() && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        /* 工具条：一排同形状的胶囊按钮（回收站 / 刷新 / 加载更多），不要下划线链接混排。 */
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           {!recent && (
-            <Button variant="ghost" size="sm" onClick={() => setTrash(true)}>
-              <TrashIcon className="h-4 w-4" />
+            <button
+              type="button"
+              onClick={() => setTrash(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
               {t('trash.title')}
-            </Button>
+            </button>
           )}
-          {cloudError && <span role="alert">{cloudError}</span>}
           <button
             type="button"
             disabled={cloudLoading}
-            className="underline disabled:opacity-50"
             onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground disabled:opacity-50"
           >
+            <RefreshCw className={`h-3.5 w-3.5 ${cloudLoading ? 'animate-spin' : ''}`} />
             {cloudLoading
               ? t('grid.loadingCloud')
               : cloudError
@@ -85,20 +91,47 @@ export default function ProjectGrid({
             <button
               type="button"
               disabled={cloudLoading}
-              className="underline disabled:opacity-50"
               onClick={() => void useCanvasProjectStore.getState().refreshCloud(true)}
+              className="inline-flex h-8 items-center rounded-full border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground disabled:opacity-50"
             >
               {t('grid.loadMore')}
             </button>
           )}
+          {cloudError && (
+            <span role="alert" className="text-xs text-muted-foreground">
+              {cloudError}
+            </span>
+          )}
         </div>
       )}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {!search && (
+        {!search && !recent && (
+          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground">
+            <PlusIcon className="h-8 w-8" />
+            <span className="text-sm font-medium">{t('grid.newProject')}</span>
+            {/* 画布类型建后不可改，所以在这里问一次，而不是进去再切。 */}
+            <div className="flex gap-2">
+              <Button size="sm" disabled={busy} onClick={() => void enter(undefined, 'image')}>
+                {t('project.kindImage')}
+              </Button>
+              {isVideoModeAvailable() && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void enter(undefined, 'video')}
+                >
+                  {t('project.kindVideo')}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {!search && recent && (
           <button
             type="button"
             disabled={busy}
-            onClick={() => void enter()}
+            onClick={() => void enter(undefined, 'image')}
             className="group flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground transition hover:border-primary/60 hover:bg-muted disabled:opacity-50"
           >
             <PlusIcon className="h-8 w-8 transition group-hover:text-primary" />
@@ -130,11 +163,16 @@ export default function ProjectGrid({
                     ✧
                   </span>
                 )}
-                {project.id === activeId && (
-                  <span className="absolute left-3 top-3 rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">
-                    {t('grid.current')}
+                <span className="absolute left-3 top-3 flex items-center gap-1.5">
+                  <span className="rounded-full bg-background/85 px-2 py-1 text-[10px] text-muted-foreground">
+                    {t(project.kind === 'video' ? 'project.kindVideo' : 'project.kindImage')}
                   </span>
-                )}
+                  {project.id === activeId && (
+                    <span className="rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">
+                      {t('grid.current')}
+                    </span>
+                  )}
+                </span>
               </div>
               <h3
                 className="truncate px-4 pt-3 text-sm font-medium text-foreground"

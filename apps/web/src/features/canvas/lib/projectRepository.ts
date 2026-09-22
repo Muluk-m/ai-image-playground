@@ -1,4 +1,8 @@
-import { type CloudProjectSummary, PROJECT_NAME_MAX_LENGTH } from '@image-playground/shared'
+import {
+  type CloudProjectSummary,
+  PROJECT_NAME_MAX_LENGTH,
+  type ProjectKind,
+} from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { getRecoveryBackend, scopedStorageName } from '../../../lib/authScope'
 import { openCanvasDatabase, type PersistedScene } from './persistence'
@@ -23,19 +27,30 @@ export interface CanvasProject {
   readonly createdAt: number
   readonly updatedAt: number
   readonly hasContent: boolean
+  /**
+   * 这张画布是拿来做图还是做片。建项目时定死，此后只读：`update` 的补丁类型里没有它，
+   * 从云端认领也只认领一次（{@link projectRepository.adoptKind}）。
+   */
+  readonly kind: ProjectKind
   /** 主动打开的空项目保持画布布局，初次进入仍可展示欢迎页。 */
   readonly workspaceOpened?: boolean
   readonly cover?: string
   readonly cloud?: { revision: number; nameDirty?: boolean; deleted?: boolean }
 }
 
-type StoredProject = CanvasProject & { recoveryConversations?: Record<string, string | null> }
+/** 存档里画布类型可以缺席：这个字段是后加的，更早的记录与刚从云端目录导入的都还没有。 */
+type StoredProject = Omit<CanvasProject, 'kind'> & {
+  kind?: ProjectKind
+  recoveryConversations?: Record<string, string | null>
+}
 
 function projectView(project: StoredProject): CanvasProject {
   const backend = getRecoveryBackend()
-  return backend
-    ? { ...project, conversationId: project.recoveryConversations?.[backend] ?? null }
-    : project
+  return {
+    ...project,
+    kind: project.kind ?? 'image',
+    ...(backend ? { conversationId: project.recoveryConversations?.[backend] ?? null } : {}),
+  }
 }
 
 const prefix = () => `${scopedStorageName('canvas-project')}:project:`
@@ -94,10 +109,11 @@ export const projectRepository = {
     legacy?: { sceneKey: string; conversationId: string | null },
     cloud = false,
     workspaceOpened = false,
+    kind: ProjectKind = 'image',
   ): Promise<CanvasProject> {
     const id = legacy ? `legacy:${legacy.sceneKey}` : crypto.randomUUID()
     const now = Date.now()
-    const project: CanvasProject = {
+    const project: StoredProject = {
       id,
       name,
       customName: name !== UNTITLED_PROJECT,
@@ -107,6 +123,8 @@ export const projectRepository = {
       updatedAt: now,
       hasContent: Boolean(legacy?.conversationId),
       workspaceOpened,
+      // 只有视频项目落这一项：缺席即图片，跟云端文档同一个约定。
+      ...(kind === 'video' ? { kind } : {}),
       ...(cloud ? { cloud: { revision: 0 } } : {}),
     }
     const storageKey = key(id)
@@ -163,6 +181,8 @@ export const projectRepository = {
       updatedAt: now,
       hasContent: scene.elements.length > 0,
       workspaceOpened: true,
+      // 冲突副本是同一张画布的另一份，画布类型跟着原件。
+      kind: source.kind,
       cloud: { revision: 0 },
     }
     const storageKey = key(id)
@@ -225,7 +245,8 @@ export const projectRepository = {
       const tx = db.transaction('scene', 'readwrite')
       const store = tx.objectStore('scene')
       const request = store.get(storageKey)
-      let result: CanvasProject
+      // 云端目录只有摘要，画布类型要等文档读回来才知道；在那之前这条记录先不带它。
+      let result: StoredProject
       request.onsuccess = () => {
         // 列表不能覆盖本机尚未同步的名称或文档；打开项目时再核对修订。
         result = request.result ?? {
@@ -275,7 +296,7 @@ export const projectRepository = {
       const transaction = db.transaction('scene', 'readwrite')
       const store = transaction.objectStore('scene')
       const request = store.get(storageKey)
-      let result: CanvasProject
+      let result: StoredProject
       request.onsuccess = () => {
         if (!request.result) {
           transaction.abort()
@@ -283,18 +304,49 @@ export const projectRepository = {
         }
         const stored = request.result as StoredProject
         const backend = getRecoveryBackend()
+        // 画布类型建项目时定死：补丁类型里没有它，真混进来了也按存档为准。
+        const { kind: _fixed, ...safe } = patch as Partial<CanvasProject>
         result =
           backend && 'conversationId' in patch
-            ? ({
+            ? {
                 ...stored,
-                ...patch,
+                ...safe,
                 conversationId: stored.conversationId,
                 recoveryConversations: {
                   ...stored.recoveryConversations,
                   [backend]: patch.conversationId ?? null,
                 },
-              } as StoredProject)
-            : { ...stored, ...patch }
+              }
+            : { ...stored, ...safe }
+        store.put(result, storageKey)
+      }
+      transaction.oncomplete = () => resolve(projectView(result))
+      transaction.onabort = () => reject(transaction.error ?? new Error('Project not found'))
+      transaction.onerror = () => reject(transaction.error)
+    })
+  },
+
+  /**
+   * 从另一台设备同步过来的项目，画布类型要等云端文档读回来才知道。第一次读到就认领下来，
+   * 之后再读也不改：这是本机唯一一条能写 `kind` 的路，而且只写到还空着的那格。
+   */
+  async adoptKind(id: string, kind: ProjectKind): Promise<CanvasProject> {
+    const storageKey = key(id)
+    const db = await openCanvasDatabase()
+    // `lib` 停在 ES2022，没有 `Promise.withResolvers`；这里与同文件其余事务保持一致。
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('scene', 'readwrite')
+      const store = transaction.objectStore('scene')
+      const request = store.get(storageKey)
+      let result: StoredProject
+      request.onsuccess = () => {
+        if (!request.result) {
+          transaction.abort()
+          return
+        }
+        result = request.result as StoredProject
+        if (result.kind) return
+        result = { ...result, kind }
         store.put(result, storageKey)
       }
       transaction.oncomplete = () => resolve(projectView(result))

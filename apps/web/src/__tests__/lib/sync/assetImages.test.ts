@@ -85,7 +85,7 @@ beforeEach(async () => {
     showToast: vi.fn(),
     setConfirmDialog: vi.fn(),
   })
-  useLibraryStore.setState({ assets: [], templates: [], panelOpen: false })
+  useLibraryStore.setState({ assets: [], templates: [], onLibraryPage: false })
 })
 
 afterEach(async () => {

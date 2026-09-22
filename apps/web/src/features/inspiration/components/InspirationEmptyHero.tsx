@@ -5,6 +5,7 @@ import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
 import { HERO_CARD_COUNT, rotateHeroItems } from '../lib/heroRotation'
+import { openInspiration } from '../lib/navigate'
 import { useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
@@ -13,7 +14,6 @@ import InspirationCard from './InspirationCard'
 const HERO_SEED = heroSeedData as InspirationItem[]
 
 export default function InspirationEmptyHero() {
-  const openPanel = useInspirationStore((s) => s.openPanel)
   const available = useInspirationStore((s) => s.items)
   const status = useInspirationStore((s) => s.status)
   const loadRemote = useInspirationStore((s) => s.loadRemote)
@@ -40,7 +40,7 @@ export default function InspirationEmptyHero() {
         </h2>
         <button
           type="button"
-          onClick={openPanel}
+          onClick={openInspiration}
           className="group inline-flex items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:text-foreground sm:text-sm"
         >
           {t('hero.viewAll')}

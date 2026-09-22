@@ -12,13 +12,22 @@ import { Button } from './ui/button'
  * 平台记录按游标往后读，所以底部是「加载更多」而不是翻页；本机任务不分页，翻页会把两边的
  * 时间线切断。
  */
-export default function GenerationHistory({ userId }: { userId?: string }) {
+export default function GenerationHistory({ userId, hero }: { userId?: string; hero?: boolean }) {
   const { t } = useTranslation(['task', 'errors'])
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
   return (
     <>
-      <SearchBar />
-      <TaskGrid />
+      {hero ? (
+        <div className="flex items-center gap-3 pb-1 pt-10">
+          <h2 className="text-[15px] font-semibold">{t('grid.mine')}</h2>
+          <div className="ml-auto w-full max-w-sm">
+            <SearchBar compact />
+          </div>
+        </div>
+      ) : (
+        <SearchBar />
+      )}
+      <TaskGrid hero={hero} />
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">

@@ -18,9 +18,10 @@ export const PANEL_SHADOW = 'shadow-[var(--studio-shadow)]'
 export const INK = 'text-foreground'
 export const INK_3 = 'text-muted-foreground'
 
-export const TAB = 'pb-1 text-xs transition-colors'
-export const ACTIVE_TAB = `${INK} border-b-[1.5px] border-current font-semibold`
-export const IDLE_TAB = `${INK_3} hover:text-foreground`
+// 段控风格：有底的胶囊比下划线更容易看出当前档，也和右上角账号簇的 chip 同一套。
+export const TAB = 'rounded-lg px-3 py-1.5 text-xs transition-colors'
+export const ACTIVE_TAB = `${INK} bg-muted font-semibold`
+export const IDLE_TAB = `${INK_3} hover:bg-muted/60 hover:text-foreground`
 
 export const USER_BUBBLE = `max-w-[86%] self-end rounded-xl bg-muted px-2.5 py-1.5 text-xs leading-relaxed ${INK}`
 

@@ -1,11 +1,9 @@
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
-
 import { EmptyState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
 import { privateUserSummaryColumnTitle, usePrivateAdminUserSummaries } from '@/lib/private-overlay'
 import type { AdminUserRow } from '@/lib/types'
-
 import { FuzzyTime } from './FuzzyTime'
 
 export function UserTable({ users }: { users: AdminUserRow[] }) {
@@ -63,7 +61,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
                 >
                   {summaries[user.id]?.primary ?? '…'}
                 </span>
-                <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                <span className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
                   {summaries[user.id]?.secondary ?? '读取中'}
                 </span>
               </span>

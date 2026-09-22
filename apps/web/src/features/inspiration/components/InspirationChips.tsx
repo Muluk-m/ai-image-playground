@@ -1,0 +1,50 @@
+import { useEffect } from 'react'
+import { useTranslation } from '../../../i18n'
+import { applyInspiration } from '../lib/applyInspiration'
+import { openInspiration } from '../lib/navigate'
+import { useInspirationStore } from '../store'
+
+const COUNT = 4
+
+/**
+ * 输入框下面那排起手 chip：缩略图 + 标题，点一下把灵感的提示词与参数套进输入框。
+ * 数据就是灵感清单本身，不另造一份运营文案。
+ */
+export default function InspirationChips() {
+  const items = useInspirationStore((state) => state.items)
+  const { t } = useTranslation('inspiration')
+
+  useEffect(() => {
+    void useInspirationStore.getState().loadRemote()
+  }, [])
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2.5 pt-5">
+      {items.slice(0, COUNT).map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => applyInspiration(item)}
+          className="flex items-center gap-2 rounded-xl border border-border bg-card/70 py-1.5 pl-1.5 pr-3.5 text-[13px] text-muted-foreground backdrop-blur-sm transition-colors hover:border-primary/50 hover:text-foreground"
+        >
+          <img
+            src={item.thumbnailUrl}
+            alt=""
+            loading="lazy"
+            className="h-7 w-10 rounded-lg object-cover"
+          />
+          <span className="max-w-[12rem] truncate">{item.title}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={openInspiration}
+        className="rounded-xl border border-border px-3.5 py-2.5 text-[13px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+      >
+        {t('hero.viewAll')} →
+      </button>
+    </div>
+  )
+}

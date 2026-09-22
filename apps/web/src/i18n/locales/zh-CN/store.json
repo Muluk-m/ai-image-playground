@@ -1,8 +1,10 @@
 {
   "appMode": {
-    "browse": "作品",
-    "create": "创作",
-    "video": "视频"
+    "image": "创作",
+    "canvas": "画布",
+    "explore": "探索",
+    "projects": "项目",
+    "library": "资产"
   },
   "task": {
     "interrupted": "请求中断",
@@ -14,11 +16,6 @@
   },
   "profile": {
     "unknown": "未知配置"
-  },
-  "codexCli": {
-    "title": "检测到 Codex CLI API",
-    "message": "{{reason}}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。提示词防改写由输入栏参数中的「防改写」开关控制（默认开启）。",
-    "confirm": "开启"
   },
   "networkHint": {
     "proxyDown": "提示：请求立即失败，请检查 API 代理服务是否正常运行。",
@@ -59,6 +56,7 @@
     "configReused": "已复用配置到输入框",
     "imageMissingForEdit": "图片已不存在，无法编辑",
     "imageMissingForCanvas": "图片已不存在，无法送入画布",
+    "videoCanvasOpened": "已新建视频画布",
     "tasksDeleted_other": "已删除 {{count}} 条记录",
     "taskDeleted": "记录已删除",
     "configReuseFailed": "复用失败，稍后再试",

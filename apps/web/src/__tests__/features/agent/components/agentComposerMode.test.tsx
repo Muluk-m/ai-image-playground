@@ -53,10 +53,11 @@ import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
-import { useCanvasComposer } from '../../../../features/canvas/composerStore'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import type { CanvasProject } from '../../../../features/canvas/lib/projectRepository'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../../features/library/store'
-import { chooseOption, stubPointerApis } from '../../../helpers/radix'
+import { stubPointerApis } from '../../../helpers/radix'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -98,6 +99,30 @@ function click(label: string): void {
   })
 }
 
+/** 草稿是按项目存的；换类型不能换 id，否则输入框读的是另一份草稿。 */
+const PROJECT_ID = 'project-under-test'
+
+/** 创作类型只由项目定：这里换的是「当前打开的是哪种画布」。 */
+function openProject(kind: CanvasProject['kind']): void {
+  const id = PROJECT_ID
+  useCanvasProjectStore.setState({
+    projects: [
+      {
+        id,
+        name: '项目',
+        customName: false,
+        conversationId: null,
+        sceneKey: `scene:${id}`,
+        createdAt: 0,
+        updatedAt: 0,
+        hasContent: false,
+        kind,
+      },
+    ],
+    activeId: id,
+  })
+}
+
 /** 技能候选是异步拉回来的，让那次 fetch 落地。 */
 async function settle(): Promise<void> {
   await act(async () => {
@@ -108,7 +133,7 @@ async function settle(): Promise<void> {
 beforeEach(async () => {
   videoAvailable.value = true
   stubPointerApis()
-  const session = agentDraft(null)
+  const session = agentDraft(null, PROJECT_ID)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
   session.update(EMPTY_DRAFT)
   session.setSubmitting(false)
@@ -123,7 +148,7 @@ beforeEach(async () => {
     },
   })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
-  useCanvasComposer.setState({ agentVideoPending: false })
+  openProject('image')
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -136,8 +161,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('创作类型切换', () => {
-  it('默认是图片，起轮就按图片发', async () => {
+describe('创作类型跟着项目走', () => {
+  it('图片画布起的是图片轮', async () => {
     render()
     await settle()
 
@@ -146,10 +171,9 @@ describe('创作类型切换', () => {
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
-  it('切到视频之后这一轮按视频发，且发完不弹回图片', async () => {
+  it('视频画布起的一直是视频轮，发完也不弹回图片', async () => {
+    openProject('video')
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('做个开箱片')
@@ -160,76 +184,40 @@ describe('创作类型切换', () => {
     expect(send).toHaveBeenLastCalledWith('再来一段', [], 'video')
   })
 
-  it('切换同时写进会话状态，代用户发一轮的入口据此跟上', async () => {
+  it('项目类型同时写进会话状态，代用户发一轮的入口据此跟上', async () => {
     render()
     await settle()
     expect(useAgentStore.getState().mode).toBe('image')
 
-    chooseOption('创作类型：图片', '视频')
+    act(() => openProject('video'))
     await settle()
 
     expect(useAgentStore.getState().mode).toBe('video')
   })
-})
 
-describe('从视频入口或「生成视频」进来', () => {
-  it('下一轮预置为视频，只接手一次，之后用户照常能切回图片', async () => {
-    useCanvasComposer.setState({ agentVideoPending: true })
+  it('图片画布里残留的视频草稿不算数，仍按图片发', async () => {
+    const session = agentDraft(null, PROJECT_ID)
+    session.update((draft) => ({ ...draft, mode: 'video' }))
     render()
     await settle()
 
-    expect(useAgentStore.getState().mode).toBe('video')
-    expect(useCanvasComposer.getState().agentVideoPending).toBe(false)
-
-    chooseOption('创作类型：视频', '图片')
-    await settle()
     type('画一只猫')
     click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
-  })
-
-  it('输入框已经开着时也跟着切', async () => {
-    render()
-    await settle()
-    expect(useAgentStore.getState().mode).toBe('image')
-
-    act(() => useCanvasComposer.setState({ agentVideoPending: true }))
-    await settle()
-
-    type('做个开箱片')
-    click('发送并拟提示词')
-    expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
-  })
-
-  it('做不了视频的部署不接手，也不按视频发', async () => {
-    videoAvailable.value = false
-    useCanvasComposer.setState({ agentVideoPending: true })
-    render()
-    await settle()
-
     expect(useAgentStore.getState().mode).toBe('image')
   })
 })
 
 describe('部署做不了视频时', () => {
-  it('不给「视频」这个选项', async () => {
+  it('视频画布也按图片发，界面上不提视频', async () => {
     videoAvailable.value = false
+    openProject('video')
     render()
     await settle()
 
-    const trigger = document.querySelector<HTMLElement>('[aria-label^="创作类型"]')
-    // 只有一个选项时开关本身也没有意义了。
-    expect(trigger).toBeNull()
+    // 服务端在这种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
+    expect(document.querySelector('[aria-label^="创作类型"]')).toBeNull()
     expect(host.textContent).not.toContain('视频')
-  })
-
-  it('把上次存下来的视频草稿归一成图片，不按视频发出去', async () => {
-    const session = agentDraft(null)
-    session.update((draft) => ({ ...draft, mode: 'video' }))
-    videoAvailable.value = false
-    render()
-    await settle()
-
     type('画一只猫')
     click('发送并拟提示词')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
@@ -239,9 +227,8 @@ describe('部署做不了视频时', () => {
 
 describe('`/` 技能候选', () => {
   it('视频轮打 `/` 弹出图标、中文标题与用户向简介，选中后补成 `/name`', async () => {
+    openProject('video')
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/story')
@@ -262,19 +249,18 @@ describe('`/` 技能候选', () => {
     })
 
     // 插进去的仍是标识：服务端只认它。
-    expect(agentDraft(null).getSnapshot().draft.prompt).toBe('/storyboard-short ')
+    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toBe('/storyboard-short ')
   })
 
   it('技能标题与缩略图混排后仍按原命令和引用序号发送', async () => {
+    openProject('video')
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
     type('/story')
     const option = host.querySelector<HTMLElement>('[role="option"]')!
     act(() => option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))
     type('参考 @')
-    const session = agentDraft(null)
+    const session = agentDraft(null, PROJECT_ID)
     act(() => {
       session.update((draft) => ({
         ...draft,
@@ -294,9 +280,8 @@ describe('`/` 技能候选', () => {
   })
 
   it('技能没写简介时次行退回 description，并去掉开头的「何时用：」', async () => {
+    openProject('video')
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/image')
@@ -308,9 +293,8 @@ describe('`/` 技能候选', () => {
   })
 
   it('只打一个 `/` 就列出这个 mode 的全部技能', async () => {
+    openProject('video')
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     type('/')
@@ -319,15 +303,14 @@ describe('`/` 技能候选', () => {
 
   it('草稿里已经有图片引用时，打 `/` 照样弹得出来', async () => {
     // `@` 与 `/` 共用可见文本那一套光标坐标；各用一套的话有胶囊的草稿就会算错位置。
-    const session = agentDraft(null)
+    const session = agentDraft(null, PROJECT_ID)
     session.update((draft) => ({
       ...draft,
       prompt: '/story 参考 @图1',
       references: [{ id: 'img-1', dataUrl: 'data:image/png;base64,aGk=' }],
     }))
+    openProject('video')
     render()
-    await settle()
-    chooseOption('创作类型：图片', '视频')
     await settle()
 
     // 光标停在命令名末尾（可见文本的第 6 位）。

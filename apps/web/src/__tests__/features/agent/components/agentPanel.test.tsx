@@ -1200,7 +1200,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).not.toContain('本轮失败')
   })
 
-  it('项目标题保持单行，消耗只出现在每轮页脚', () => {
+  it('项目切换不在面板里，消耗只出现在每轮页脚', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -1237,7 +1237,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.querySelector('.studio-agent-project')?.textContent).not.toContain('已用')
+    // 项目名与切换挪到了画布顶行，面板里只剩对话本身。
+    expect(host.querySelector('.studio-agent-project')).toBeNull()
     expect(host.textContent).not.toContain('312')
     expect(host.textContent).toContain('127')
     expect(host.textContent).toContain('185')

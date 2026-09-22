@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, ChevronDown, FolderOpen, LoaderCircle, Plus, Search } from 'lucide-react'
+import { Check, ChevronDown, FolderOpen, LoaderCircle, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
@@ -7,6 +7,7 @@ import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { formatDateMinute } from '../i18n/format'
+import { useStore } from '../store'
 import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -36,7 +37,7 @@ export default function ProjectNavigation() {
     .slice(0, query ? 30 : 8)
   const allProjects = () => {
     setOpen(false)
-    useLibraryStore.getState().openPanel('projects')
+    useStore.getState().setAppMode('projects')
   }
   const enter = async (id?: string) => {
     if (busy) return
@@ -58,17 +59,6 @@ export default function ProjectNavigation() {
   return (
     <div className="studio-agent-project shrink-0 border-b border-border px-3 py-3">
       <div className="flex min-w-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground"
-          aria-label={t('navigation.back')}
-          title={t('navigation.back')}
-          disabled={busy}
-          onClick={allProjects}
-        >
-          <ArrowLeft />
-        </Button>
         <Popover
           open={open}
           onOpenChange={(value) => {
@@ -82,12 +72,14 @@ export default function ProjectNavigation() {
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
-              className="min-w-0 flex-1 justify-between gap-2 px-2 text-left"
+              className="min-w-0 max-w-[15rem] flex-1 justify-between gap-2 pl-1.5 pr-2 text-left"
               title={name}
               aria-label={t('navigation.switchAria', { name })}
               disabled={busy}
             >
-              <span className="truncate">{name}</span>
+              <span className="truncate" title={name}>
+                {name}
+              </span>
               <ChevronDown className="text-muted-foreground" />
             </Button>
           </PopoverTrigger>

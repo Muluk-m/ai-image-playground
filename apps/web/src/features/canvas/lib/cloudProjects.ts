@@ -1,8 +1,4 @@
-import {
-  isProjectDocument,
-  PROJECT_NAME_MAX_LENGTH,
-  type ProjectDocument,
-} from '@image-playground/shared'
+import { isProjectDocument, type ProjectDocument, projectKind } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
@@ -218,7 +214,19 @@ export class CloudProjectSession {
     this.editor.doc.restore([...scene.elements, ...local], scene.files, this.editor.doc.camera)
   }
   private document(): ProjectDocument | null {
-    return projectDocument(this.editor.doc, this.mediaBindings)
+    return projectDocument(this.editor.doc, this.mediaBindings, this.project.kind)
+  }
+  /**
+   * 云端文档是本机第一次得知「这张画布是什么」的地方——从另一台设备同步过来的项目，
+   * 目录摘要里没有这一项。认领一次就定死，往后再读也不改。
+   */
+  private async adoptKind(document: ProjectDocument) {
+    const kind = projectKind(document)
+    if (this.project.kind === kind) return
+    this.current()
+    this.project = await projectRepository.adoptKind(this.project.id, kind)
+    this.current()
+    this.publish(this.project)
   }
   private async persist() {
     if (!(await this.saveLocal())) throw new Error('local_save_failed')
@@ -358,6 +366,7 @@ export class CloudProjectSession {
         remote.revision < 1
       )
         throw new Error('unsupported_project')
+      await this.adoptKind(remote.document)
       if (
         (version !== this.editVersion ||
           elements !== this.editor.doc.elements ||
@@ -432,8 +441,7 @@ export class CloudProjectSession {
    */
   rename(name: string, custom = true): Promise<void> {
     return this.serialize(async () => {
-      if (!name.trim() || name.length > PROJECT_NAME_MAX_LENGTH)
-        throw new Error('invalid_project_name')
+      // 先把欠着的那次恢复元数据补写掉，否则它会把新名字盖回去。
       await this.saveRecoveryMetadata()
       await this.metadata({
         name,
@@ -588,6 +596,7 @@ export class CloudProjectSession {
           remote.revision < 1)
       )
         throw new Error('unsupported_project')
+      if (remote) await this.adoptKind(remote.document)
       const version = this.editVersion
       const { elements, files, camera } = this.editor.doc
       copy = await projectRepository

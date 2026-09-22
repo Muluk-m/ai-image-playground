@@ -2,6 +2,10 @@
   "action": {
     "rename": "Rename"
   },
+  "tab": {
+    "assets": "Assets",
+    "templates": "Templates"
+  },
   "panel": {
     "title": "My assets",
     "tabProjects": "My projects",
@@ -23,7 +27,7 @@
     "makeVideo": "Make a video",
     "deleted": "Asset deleted",
     "deleteTitle": "Delete asset",
-    "deleteMessage": "Delete the asset “{{name}}”? The image itself is kept."
+    "deleteMessage": "Delete the asset “{{name}}”?"
   },
   "template": {
     "apply": "Apply",

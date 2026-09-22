@@ -1,4 +1,4 @@
-import { ImageIcon, VideoIcon, Zap } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -36,6 +36,7 @@ import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { acceptImageFiles } from '../../../lib/imageFiles'
+import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import {
   getContentEditableCursor,
   getContentEditablePlainText,
@@ -51,8 +52,8 @@ import {
   isCursorInSelectedImageMention,
 } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
-import { useCanvasComposer } from '../../canvas/composerStore'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
@@ -80,7 +81,6 @@ import {
   attachReference,
   clearReferenceMask,
   draftForSubmit,
-  draftMode,
   hasDraftContent,
   referenceLabels,
   removeReference,
@@ -260,24 +260,19 @@ export default function AgentComposer({
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [])
 
-  // 做不了视频的部署里「视频」这个选项不该出现，存下来的旧草稿也按图片算——
-  // 服务端在那种部署里本来就会把视频轮当图片轮装配，开关留着只会骗人。
+  // 做不了视频的部署里视频轮不该出现，存下来的旧草稿也按图片算——
+  // 服务端在那种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
   const videoAvailable = isVideoModeAvailable()
-  const mode = videoAvailable ? draftMode(draft) : 'image'
+  // 创作类型跟着项目走：项目建出来是图片画布还是视频画布，这里就一直是哪一轮，中途换不了。
+  const projectKind = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.id === state.activeId)?.kind === 'video' ? 'video' : 'image',
+  )
+  const mode = videoAvailable ? projectKind : 'image'
   // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
-  // 换会话时这份草稿重新读盘，读完再同步过去，所以切走不会把上一个会话的类型带过去。
   const setSessionMode = useAgentStore((state) => state.setMode)
   useEffect(() => {
     if (!loading) setSessionMode(mode)
   }, [mode, loading, setSessionMode])
-
-  // 进视频入口、从图片发起「生成视频」时，下一轮预置为视频；草稿读完才接手，免得被读盘覆盖。
-  const agentVideoPending = useCanvasComposer((state) => state.agentVideoPending)
-  useEffect(() => {
-    if (loading || !videoAvailable || !agentVideoPending) return
-    if (!useCanvasComposer.getState().consumeAgentVideo()) return
-    setDraft((current) => (current.mode === 'video' ? current : { ...current, mode: 'video' }))
-  }, [loading, videoAvailable, agentVideoPending, setDraft])
 
   const skills = useAgentSkills(mode)
 
@@ -582,51 +577,13 @@ export default function AgentComposer({
             />
             <ComposerAttachButton
               aria-label={t('composer.attachAria')}
-              title={t('composer.attachTitle')}
+              title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
               disabled={loading}
               onClick={() => fileInputRef.current?.click()}
             />
           </div>
           <ComposerActions className="min-w-0">
-            {videoAvailable && (
-              <Select
-                value={mode}
-                onValueChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    mode: value === 'video' ? 'video' : 'image',
-                  }))
-                }
-              >
-                <SelectTrigger
-                  aria-label={`${t('composer.modeAria')}：${t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}`}
-                  title={t(mode === 'video' ? 'composer.modeVideo' : 'composer.modeImage')}
-                  className="h-8 w-8 justify-center rounded-full border-0 bg-muted p-0 text-muted-foreground [&>svg]:hidden"
-                >
-                  <SelectValue>
-                    {mode === 'video' ? (
-                      <VideoIcon className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="image">
-                    <span className="flex items-center gap-2">
-                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
-                      {t('composer.modeImage')}
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="video">
-                    <span className="flex items-center gap-2">
-                      <VideoIcon className="h-4 w-4" aria-hidden="true" />
-                      {t('composer.modeVideo')}
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            )}
+            {/* 模式只是状态展示、点不动，挤在按钮排里反而像可点控件——交给参数 chip 说明。 */}
             <Button
               type="button"
               size="icon"
@@ -634,7 +591,7 @@ export default function AgentComposer({
               aria-pressed={autoSubmit}
               aria-label={t('composer.autoSubmitAria')}
               title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
-              className="h-8 w-8 rounded-full"
+              className="h-8 w-8 shrink-0 rounded-full"
               onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
             >
               <Zap aria-hidden="true" />

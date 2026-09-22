@@ -41,7 +41,7 @@ beforeEach(() => {
       activeProfileId: 'byok-1',
     },
     params: { ...DEFAULT_PARAMS },
-    appMode: 'browse',
+    appMode: 'image',
     pinnedInspirationIds: [],
     inspirationCoachDismissed: false,
     libraryCoachDismissed: false,
@@ -62,7 +62,7 @@ describe('the user settings document', () => {
   it('carries behaviour switches, params, pins and coach marks without navigation', () => {
     useStore.getState().setSettings({ enterSubmit: true, alwaysShowRetryButton: true })
     useStore.getState().setParams({ n: 3 })
-    useStore.getState().setAppMode('browse')
+    useStore.getState().setAppMode('image')
     useStore.getState().toggleInspirationPin('inspiration-7')
     useStore.getState().dismissLibraryCoach()
 
@@ -115,7 +115,7 @@ describe('applying a document from another device', () => {
       ...readUserSettingsDocument(),
       enterSubmit: true,
       params: { ...DEFAULT_PARAMS, n: 4 },
-      appMode: 'create',
+      appMode: 'canvas',
       pinnedInspirationIds: ['from-other-device'],
       inspirationCoachDismissed: true,
     })
@@ -123,7 +123,7 @@ describe('applying a document from another device', () => {
     const state = useStore.getState()
     expect(state.settings.enterSubmit).toBe(true)
     expect(state.params.n).toBe(4)
-    expect(state.appMode).toBe('browse')
+    expect(state.appMode).toBe('image')
     expect(state.pinnedInspirationIds).toEqual(['from-other-device'])
     expect(state.inspirationCoachDismissed).toBe(true)
   })
@@ -160,10 +160,10 @@ describe('applying a document from another device', () => {
   })
 
   it('does not interrupt navigation already chosen in this session', () => {
-    useStore.getState().setAppMode('browse')
-    applyUserSettingsDocument({ ...readUserSettingsDocument(), appMode: 'create' })
+    useStore.getState().setAppMode('image')
+    applyUserSettingsDocument({ ...readUserSettingsDocument(), appMode: 'canvas' })
 
-    expect(useStore.getState().appMode).toBe('browse')
+    expect(useStore.getState().appMode).toBe('image')
   })
 
   it('ignores a document that is not an object', () => {

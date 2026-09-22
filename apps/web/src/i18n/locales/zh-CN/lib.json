@@ -15,7 +15,8 @@
     "transcodeFailed": "图片转码失败",
     "invalidSize": "图片尺寸无效",
     "onlyImages": "只支持图片文件",
-    "limitReached": "参考图数量已达上限（{{max}} 张），无法继续添加"
+    "limitReached": "参考图数量已达上限（{{max}} 张），无法继续添加",
+    "tooLarge_other": "{{count}} 张图片超过 {{max}}MB，已跳过"
   },
   "imageFetch": {
     "corsHint": " 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。",

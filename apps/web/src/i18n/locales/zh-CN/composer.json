@@ -23,7 +23,7 @@
     "expand": "展开输入框",
     "expandHint": "点击展开输入框",
     "emptyPromptHint": "点击展开输入框，输入新的 prompt...",
-    "collapse": "收起输入框（折叠成 mini bar）",
+    "collapse": "收起输入框",
     "library": "素材与模板",
     "saveTemplate": "存为模板"
   },
@@ -47,10 +47,10 @@
     "limitReached_other": "已达上限 {{count}} 张",
     "limitHint": "请先移除部分参考图后再添加",
     "dropToAdd": "释放以添加参考图",
-    "dropFormats": "支持 JPG、PNG、WebP 等格式",
+    "dropFormats": "最多 {{count}} 张，单张 ≤{{mb}}MB，JPG、PNG、WebP",
     "discarded_other": "已达上限 {{limit}} 张，{{count}} 张图片被丢弃",
     "addFailed": "图片添加失败：{{reason}}",
-    "attach": "添加参考图",
+    "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "summaryWithMask_other": "1 张遮罩主图 · {{count}} 张参考图",
     "summary_other": "{{count}} 张参考图"
   },
@@ -66,7 +66,7 @@
     "maskEditShortcut": "遮罩编辑 (Ctrl+Enter)",
     "generateShortcut": "生成 (Ctrl+Enter)",
     "configureApiFirst": "请先配置 API",
-    "apiNotConfigured": "尚未完成 API 配置，请打开右上角菜单 → 设置"
+    "apiNotConfigured": "请先在设置里配置 API"
   },
   "search": {
     "favoriteOnly": "只看收藏",
@@ -87,7 +87,8 @@
     "compression": "压缩",
     "moderation": "审核",
     "count": "数量",
-    "noModel": "未选择"
+    "noModel": "未选择",
+    "more": "更多"
   },
   "size": {
     "titleRatio": "设置画面比例",
@@ -99,8 +100,7 @@
     "modeResolution": "自定义宽高",
     "autoTitle": "自动尺寸",
     "autoTitleRatio": "智能比例",
-    "autoLine1": "不向模型传递具体的分辨率参数",
-    "autoLine2": "由模型自己决定生成尺寸",
+    "autoLine1": "尺寸由模型决定",
     "baseResolution": "基准分辨率",
     "imageRatio": "图像比例",
     "customRatio": "自定义比例",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isProjectDocument } from '../project-protocol'
+import { isProjectDocument, projectKind } from '../project-protocol'
 
 const MEDIA = '0f8b6a4e-2c1d-4e5f-9a7b-3c2d1e0f9a8b'
 
@@ -121,5 +121,23 @@ describe('云端项目文档里的失败占位', () => {
     expect(isProjectDocument(withGeneration({ errorCode: 'boom' }))).toBe(false)
     expect(isProjectDocument(withGeneration({ errorCode: '' }))).toBe(false)
     expect(isProjectDocument(withGeneration({ status: 'failed' }))).toBe(false)
+  })
+})
+
+describe('云端项目文档里的画布类型', () => {
+  it('keeps the canvas kind a project was created with', () => {
+    expect(isProjectDocument({ version: 1, elements: [], kind: 'video' })).toBe(true)
+    expect(isProjectDocument({ version: 1, elements: [], kind: 'image' })).toBe(true)
+    expect(projectKind({ kind: 'video' })).toBe('video')
+  })
+
+  it('reads a document written before the field existed as an image canvas', () => {
+    expect(isProjectDocument({ version: 1, elements: [] })).toBe(true)
+    expect(projectKind({})).toBe('image')
+  })
+
+  it('rejects a kind outside the two canvases', () => {
+    expect(isProjectDocument({ version: 1, elements: [], kind: 'audio' })).toBe(false)
+    expect(isProjectDocument({ version: 1, elements: [], kind: null })).toBe(false)
   })
 })

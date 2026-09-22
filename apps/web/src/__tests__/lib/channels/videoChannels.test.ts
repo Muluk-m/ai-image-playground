@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
-import { APP_MODE_LABELS, visibleAppModes } from '../../../store'
 import {
   AGNES_CHANNEL,
   GROK_CHANNEL,
@@ -75,21 +74,18 @@ describe('参考图能力', () => {
   })
 })
 
-describe('视频模式入口', () => {
-  it('能力开启且有视频频道时可见', () => {
+describe('视频可用性', () => {
+  it('能力开启且有视频频道时可用', () => {
     expect(isVideoModeAvailable()).toBe(true)
-    expect(visibleAppModes().map((mode) => APP_MODE_LABELS[mode])).toContain('视频')
   })
 
-  it('能力关闭时隐藏', () => {
+  it('能力关闭时不可用', () => {
     isClientCapabilityEnabled.mockReturnValue(false)
     expect(isVideoModeAvailable()).toBe(false)
-    expect(visibleAppModes()).not.toContain('video')
   })
 
-  it('纯静态部署没有视频频道时隐藏', () => {
+  it('纯静态部署没有视频频道时不可用', () => {
     setChannels([IMAGE_CHANNEL])
     expect(isVideoModeAvailable()).toBe(false)
-    expect(visibleAppModes()).not.toContain('video')
   })
 })

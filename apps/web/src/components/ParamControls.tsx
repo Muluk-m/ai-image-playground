@@ -1,4 +1,5 @@
 import {
+  type ChangeEvent,
   type ComponentProps,
   type ReactNode,
   useCallback,
@@ -32,10 +33,18 @@ import { compactModelName, ModelLogo } from './ModelIdentity'
 import ParamChip from './ParamChip'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 /** chip 模式 Select trigger：让 trigger 充满 chip wrapper（由 wrapperClassName='absolute inset-0' 提供），chevron 靠右对齐。 */
 const CHIP_TRIGGER_CLASS = '!justify-end !bg-transparent !border-0 !shadow-none !px-3 !py-0 h-full'
 const CHIP_WRAPPER_CLASS = 'absolute inset-0'
+
+/** 浮层模式：控件自己带边框，label 在左边由行布局渲染。 */
+const PANEL_TRIGGER_CLASS =
+  'h-8 rounded-lg border border-input bg-background px-2.5 text-xs font-medium text-foreground transition-colors duration-150 hover:border-ring/40 hover:bg-accent'
+const PANEL_WRAPPER_CLASS = 'relative w-24 shrink-0'
+const PANEL_INPUT_CLASS =
+  'h-8 w-24 shrink-0 rounded-lg border border-input bg-background px-2.5 text-xs font-medium text-foreground outline-none'
 
 /** chip 模式 Select 的固定壳：trigger 隐藏自带 label（label/value 由 ParamChip 渲染），整个 chip 区域可点。 */
 function ChipSelect<T extends string>(props: {
@@ -65,6 +74,12 @@ const buildAutoOptions = (values: readonly string[]) => [
 const ON_OFF_OPTIONS = [
   { label: 'off', value: 'off' },
   { label: 'on', value: 'on' },
+]
+
+const FORMAT_OPTIONS = [
+  { label: 'PNG', value: 'png' },
+  { label: 'JPEG', value: 'jpeg' },
+  { label: 'WebP', value: 'webp' },
 ]
 
 const GEMINI_FIELDS: ReadonlyArray<{
@@ -97,6 +112,19 @@ const GEMINI_FIELDS: ReadonlyArray<{
   },
 ]
 
+/** 次要参数的一份描述：chip 行与「更多」浮层共用同一套取值/写值。 */
+type SecondaryControl = { key: string; label: string; icon: ReactNode } & (
+  | {
+      kind: 'select'
+      value: string
+      /** chip 上展示的文本，缺省即 value。 */
+      display?: string
+      options: ReadonlyArray<{ label: string; value: string }>
+      onChange: (value: string) => void
+    }
+  | { kind: 'compression' }
+)
+
 /**
  * 参数控制条：自包含的 chip 列表（模型 / 尺寸 / Gemini 三件套 / 质量 / 格式 / 压缩 / 数量）。
  * 全部读写全局 store。数量 n 仅在 showCount 时出现：直接生成可手选，智能体由工具调用决定。
@@ -106,9 +134,12 @@ export type UnsupportedParam = 'transparent' | 'noRewrite'
 
 export default function ParamControls({
   showCount = false,
+  collapsible = false,
   unsupported,
 }: {
   showCount?: boolean
+  /** 输入框里的那一条：默认只露模型、尺寸与数量，其余收在「更多」后面。 */
+  collapsible?: boolean
   unsupported?: ReadonlySet<UnsupportedParam>
 }) {
   const { t } = useTranslation('composer')
@@ -308,6 +339,90 @@ export default function ParamControls({
   const currentModel = globalModelOptions.find((option) => option.value === currentModelValue)
   const modelLine = currentModel?.label ?? t('param.noModel')
 
+  /** 压缩输入只有一份读写逻辑，chip 与浮层只换外壳 class。 */
+  const compressionInputProps = {
+    value: outputCompressionInput,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => setOutputCompressionInput(e.target.value),
+    onBlur: commitOutputCompression,
+    type: 'number',
+    min: 0,
+    max: 100,
+    placeholder: '0-100',
+  } as const
+
+  const secondaryControls: SecondaryControl[] = geminiFields.map(
+    ({ labelKey, field, icon, options }) => ({
+      kind: 'select',
+      key: field,
+      label: t(labelKey),
+      icon,
+      value: (params[field] as string | undefined) ?? 'auto',
+      options,
+      onChange: (val) =>
+        setParams({ [field]: val === 'auto' ? undefined : val } as Partial<TaskParams>),
+    }),
+  )
+  if (!isGeminiProvider) {
+    // 不可用的质量、压缩参数直接不进列表，免得浮层里摆着不生效的控件。
+    if (capabilities.quality) {
+      secondaryControls.push({
+        kind: 'select',
+        key: 'quality',
+        label: t('param.quality'),
+        icon: ChipIcons.quality,
+        value: params.quality,
+        options: qualityOptions,
+        onChange: (val) => setParams({ quality: val as TaskParams['quality'] }),
+      })
+    }
+    secondaryControls.push({
+      kind: 'select',
+      key: 'format',
+      label: t('param.format'),
+      icon: ChipIcons.format,
+      value: params.output_format,
+      display: params.output_format.toUpperCase(),
+      options: FORMAT_OPTIONS,
+      onChange: (val) =>
+        setParams({
+          output_format: val as TaskParams['output_format'],
+          ...(val === 'png' ? { output_compression: null } : { transparent_output: false }),
+        }),
+    })
+    if (capabilities.transparentOutput && !unsupported?.has('transparent')) {
+      secondaryControls.push({
+        kind: 'select',
+        key: 'transparent',
+        label: t('param.transparent'),
+        icon: ChipIcons.format,
+        value: params.transparent_output ? 'on' : 'off',
+        options: ON_OFF_OPTIONS,
+        onChange: (val) =>
+          setParams({ transparent_output: val === 'on', output_compression: null }),
+      })
+    }
+    // 防改写：prompt 前加 guard 前缀阻止 Codex 系网关重写提示词。默认开启。
+    if (!unsupported?.has('noRewrite')) {
+      secondaryControls.push({
+        kind: 'select',
+        key: 'noRewrite',
+        label: t('param.noRewrite'),
+        icon: ChipIcons.noRewrite,
+        value: params.no_rewrite ? 'on' : 'off',
+        options: ON_OFF_OPTIONS,
+        onChange: (val) => setParams({ no_rewrite: val === 'on' }),
+      })
+    }
+    if (capabilities.compression) {
+      secondaryControls.push({
+        kind: 'compression',
+        key: 'compression',
+        label: t('param.compression'),
+        icon: ChipIcons.compression,
+      })
+    }
+  }
+
   return (
     <>
       {globalModelOptions.length > 0 && (
@@ -334,102 +449,30 @@ export default function ParamControls({
           }}
         />
       )}
-      {geminiFields.map(({ labelKey, field, icon, options }) => {
-        const currentValue = (params[field] as string | undefined) ?? 'auto'
-        return (
-          <ParamChip key={field} icon={icon} label={t(labelKey)} value={currentValue}>
-            <ChipSelect
-              value={currentValue}
-              onChange={(val) =>
-                setParams({
-                  [field]: val === 'auto' ? undefined : val,
-                } as Partial<TaskParams>)
-              }
-              options={options}
-            />
-          </ParamChip>
-        )
-      })}
-      {!isGeminiProvider && (
-        <>
-          {/* 不可用的质量、压缩参数直接不渲染，避免占位挤掉单行布局。 */}
-          {capabilities.quality && (
-            <ParamChip icon={ChipIcons.quality} label={t('param.quality')} value={params.quality}>
-              <ChipSelect
-                value={params.quality}
-                onChange={(val) => setParams({ quality: val as any })}
-                options={qualityOptions}
-              />
-            </ParamChip>
-          )}
-          <ParamChip
-            icon={ChipIcons.format}
-            label={t('param.format')}
-            value={params.output_format.toUpperCase()}
-          >
-            <ChipSelect
-              value={params.output_format}
-              onChange={(val) =>
-                setParams({
-                  output_format: val as TaskParams['output_format'],
-                  ...(val === 'png' ? { output_compression: null } : { transparent_output: false }),
-                })
-              }
-              options={[
-                { label: 'PNG', value: 'png' },
-                { label: 'JPEG', value: 'jpeg' },
-                { label: 'WebP', value: 'webp' },
-              ]}
-            />
-          </ParamChip>
-          {capabilities.transparentOutput && !unsupported?.has('transparent') && (
+      {!collapsible &&
+        secondaryControls.map((control) =>
+          control.kind === 'select' ? (
             <ParamChip
-              icon={ChipIcons.format}
-              label={t('param.transparent')}
-              value={params.transparent_output ? 'on' : 'off'}
+              key={control.key}
+              icon={control.icon}
+              label={control.label}
+              value={control.display ?? control.value}
             >
               <ChipSelect
-                value={params.transparent_output ? 'on' : 'off'}
-                onChange={(val) =>
-                  setParams({
-                    transparent_output: val === 'on',
-                    output_compression: null,
-                  })
-                }
-                options={ON_OFF_OPTIONS}
+                value={control.value}
+                onChange={control.onChange}
+                options={control.options}
               />
             </ParamChip>
-          )}
-          {/* 防改写：prompt 前加 guard 前缀阻止 Codex 系网关重写提示词。默认开启。 */}
-          {!unsupported?.has('noRewrite') && (
-            <ParamChip
-              icon={ChipIcons.noRewrite}
-              label={t('param.noRewrite')}
-              value={params.no_rewrite ? 'on' : 'off'}
-            >
-              <ChipSelect
-                value={params.no_rewrite ? 'on' : 'off'}
-                onChange={(val) => setParams({ no_rewrite: val === 'on' })}
-                options={ON_OFF_OPTIONS}
-              />
-            </ParamChip>
-          )}
-          {capabilities.compression && (
-            <ParamChip icon={ChipIcons.compression} label={t('param.compression')}>
+          ) : (
+            <ParamChip key={control.key} icon={control.icon} label={control.label}>
               <input
-                value={outputCompressionInput}
-                onChange={(e) => setOutputCompressionInput(e.target.value)}
-                onBlur={commitOutputCompression}
-                type="number"
-                min={0}
-                max={100}
-                placeholder="0-100"
+                {...compressionInputProps}
                 className="w-12 bg-transparent text-xs font-medium text-foreground outline-none"
               />
             </ParamChip>
-          )}
-        </>
-      )}
+          ),
+        )}
       {showCount && (
         <ParamChip icon={ChipIcons.count} label={t('param.count')}>
           <input
@@ -456,6 +499,48 @@ export default function ParamControls({
             className="w-7 bg-transparent text-xs font-medium text-muted-foreground outline-none"
           />
         </ParamChip>
+      )}
+      {collapsible && secondaryControls.length > 0 && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <ParamChip
+              icon={ChipIcons.more}
+              label={t('param.more')}
+              onClick={dismissAllTooltips}
+              className="data-[state=open]:border-ring/40 data-[state=open]:bg-accent"
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="end"
+            sideOffset={8}
+            collisionPadding={12}
+            aria-label={t('param.more')}
+            className="w-64 space-y-2 rounded-2xl p-3"
+          >
+            {secondaryControls.map((control) => (
+              <div key={control.key} className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2 text-xs font-medium">
+                  <span className="flex shrink-0 items-center text-muted-foreground">
+                    {control.icon}
+                  </span>
+                  <span className="truncate">{control.label}</span>
+                </span>
+                {control.kind === 'select' ? (
+                  <Select
+                    value={control.value}
+                    onChange={control.onChange}
+                    options={control.options}
+                    className={PANEL_TRIGGER_CLASS}
+                    wrapperClassName={PANEL_WRAPPER_CLASS}
+                  />
+                ) : (
+                  <input {...compressionInputProps} className={PANEL_INPUT_CLASS} />
+                )}
+              </div>
+            ))}
+          </PopoverContent>
+        </Popover>
       )}
       {showSizePicker && (
         <SizePickerModal

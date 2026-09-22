@@ -67,6 +67,41 @@ macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260
 
 前端回滚：在独立检出恢复上一已验证公开/私有提交，使用相同生产配置重跑对应 `pages-release.sh`，按上述步骤验收。
 
+## 测试环境（test 分支预览）
+
+只发前端。push 到 `test` 分支触发 [`.github/workflows/test-preview.yml`](../../.github/workflows/test-preview.yml)：构建不含私有 overlay 的内部版前端，`runtime-config.json` 指向 `PAGES_ENV` 里的 `INTERNAL_BFF_BASE_URL`，再以 `pages-deploy.sh public <内部版项目> test` 上传到内部版 Pages 项目的预览别名。不构建、不发布后端。
+
+| 项 | 值 |
+| --- | --- |
+| 触发 | push 到 `test`；或 Actions → `Test preview` → Run workflow 选分支 |
+| 地址 | `https://test.ai-image-playground-internal.pages.dev`（别名固定，后一次发布覆盖前一次；job summary 另给本次部署的一次性地址） |
+| API | `image-api.qiliangjia.one`，即内部版生产 API |
+| Secrets | 复用 `PAGES_ENV`、`INTERNAL_CLOUDFLARE_API_TOKEN`，无新增 |
+
+`test` 分支上必须带着这个 workflow 文件（从 main 派生即可）才会触发。并发组 `test-preview` 取消排队中的旧 run。`Web checks` 现在也在 `test` 的 push 上跑，但它在 `test` 上成功不会引出生产发布：[`deploy.yml`](../../.github/workflows/deploy.yml) 的 `workflow_run` 限 `branches: [main]`，手动触发限 `github.ref == 'refs/heads/main'`。预览发布也不碰生产分支 `main` 和三个自定义域名，因此不做 `version.json` 轮询，上传成功即结束。
+
+数据是内部版生产的真实数据：账号、积分、任务队列与对象存储都与 `image-playground.qiliangjia.one` 同一份，上游调用照常计费。预览站不做删除、批量提交、结算相关的破坏性操作。与生产的另两处差异：不带私有 overlay（付费版能力和 `pages-assets` 都不在）；后端始终是 main 上已发布的那一版，前端若依赖尚未上线的 BFF 接口会直接失败。
+
+### 首次使用前的人工步骤
+
+1. **放行 API 的 CORS**，否则预览站一个接口也调不通。`CORS_ALLOWED_ORIGINS` 是精确白名单（[`apps/bff/src/config.ts`](../../apps/bff/src/config.ts) 的 `corsOriginList`、[`apps/bff/src/app.ts`](../../apps/bff/src/app.ts) 的 `cors({ origin, credentials: true })`）。2026-09-19 实测：带 `Origin: https://image-playground.qiliangjia.one` 的预检返回该 origin，带预览 origin 的预检不返回任何 `access-control-allow-origin`。在 VPS 上编辑 `~/.config/ai-image-playground/apps/image-playground-internal/app.env`，把预览 origin **追加**在现有值之后（列表第一项是 `AUTH_FRONTEND_ORIGIN` 为空时 OAuth 回跳的默认前端，内部版虽已显式设该变量，顺序仍不要动）：
+
+```sh
+CORS_ALLOWED_ORIGINS=https://image-playground.qiliangjia.one,https://test.ai-image-playground-internal.pages.dev
+```
+
+`app.env` 是 compose 的 `env_file`，整份注入容器，`restart` 不重读，改完执行一次完整发布：
+
+```sh
+cd <VPS 上的检出> && ./scripts/app-compose.sh up image-playground-internal
+```
+
+2. **放行对象存储的 CORS**，只影响云端项目的媒体上传与读取。前端拿预签名 URL 直接 `PUT`/`GET`（`apps/web/src/features/canvas/lib/projectMedia.ts`、`apps/web/src/lib/cloudMedia.ts`，均 `credentials: 'omit'`），bucket 白名单里没有预览域名。要验这部分功能，就在 R2 bucket 的 CORS 规则里加上 `https://test.ai-image-playground-internal.pages.dev`；仓库里的 [`deploy/r2-media-cors.json`](../../deploy/r2-media-cors.json) 是该策略的副本，没有脚本自动下发，两边都要改。
+
+### 预览站不支持登录
+
+会话 cookie `image_playground_session` 是 `httpOnly; Secure; SameSite=Lax; path=/`，host-only 发在 API 域上（[`apps/bff/src/lib/user-session.ts`](../../apps/bff/src/lib/user-session.ts)）。`test.<项目>.pages.dev` 与 `qiliangjia.one` 不是同一注册域，浏览器对 `credentials: 'include'` 的跨站请求不带 Lax cookie：CORS 放行之后无需登录态的接口可用，登录、积分、云同步、云端历史一概用不了；OAuth 回跳去的是 `AUTH_FRONTEND_ORIGIN`（生产站），也落不回预览站。要验证这些流程用本地 dev 或生产站，不要为了预览把 cookie 改成 `SameSite=None`。
+
 ## 后端：镜像构建与发布（手动应急）
 
 镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含脚本、Compose、`images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
