@@ -59,9 +59,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test --concurrency=1 --env-mode=loose
-  # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + 已知可用的 overlay
-  # （`verified`，不是可能在途的 main）一起 lint / typecheck / build。它执行的是「先扩后缩」——
-  # 公开树只能删掉 verified overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
+  # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
+  # overlay 一起 lint / typecheck / build。它执行的是「先扩后缩」——公开树只能删掉钉住的
+  # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
   # overlay 只经由 private-host / private-overlay 引公开树（scripts/check-private-boundary.ts）。
   #
   # 需要 PRIVATE_OVERLAY_SSH_KEY，fork 的 PR 拿不到 secrets，跳过；主仓 PR 与 main/test push 都跑。
@@ -88,12 +88,15 @@ jobs:
       # `api.github.com/meta` 取 known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而
       # runner 出口 IP 是共享的，2026-09-22 生产部署就是这么被一个 403 整条挂掉的。
       # 调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
-      - name: Check out the private overlay at its verified pointer
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the pinned commit
         id: overlay
         uses: actions/checkout@v4
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: verified
+          ref: ${{ steps.lock.outputs.sha }}
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
