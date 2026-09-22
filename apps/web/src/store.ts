@@ -581,6 +581,12 @@ interface AppState {
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
   /**
+   * 首屏输入框把这句话交给谁：`generate` 直接出图；`canvas` 新建一个画布项目、打开它，
+   * 把这句话和参考图作为第一轮发给智能体。只是首屏的一个开关，不落盘。
+   */
+  createTarget: 'generate' | 'canvas'
+  setCreateTarget: (target: 'generate' | 'canvas') => void
+  /**
    * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
    * 用户按折叠键就以他的选择为准，换入口时回到默认。
    */
@@ -822,6 +828,8 @@ export const useStore = create<AppState>()(
         pathAppMode(globalThis.location?.pathname ?? '/') ??
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
+      createTarget: 'generate',
+      setCreateTarget: (createTarget) => set({ createTarget }),
       sidebarExpanded: null,
       toggleSidebar: () =>
         set((s) => ({ sidebarExpanded: !(s.sidebarExpanded ?? !isWorkbenchMode(s.appMode)) })),
