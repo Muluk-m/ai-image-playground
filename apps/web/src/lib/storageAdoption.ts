@@ -5,14 +5,15 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from './authScope'
-import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from './db'
+import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb, STORE_MEDIA } from './db'
 import { markBulkDirty } from './sync/pending'
 
 /** 认领完成的标记，跨 scope 共用。不支持 indexedDB.databases() 的浏览器靠它避免每次启动重扫。 */
 const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
 // 图片是整张 data URL，一次全读进内存会在大库上炸掉标签页；任务行小得多，不必切这么碎。
-const BATCH_SIZE: Record<DbStoreName, number> = {
+// 云媒体缓存不在这张表里：它是可再取的派生数据，认领只搬用户真正拥有的东西。
+const BATCH_SIZE: Record<Exclude<DbStoreName, typeof STORE_MEDIA>, number> = {
   tasks: 200,
   images: 10,
   thumbnails: 50,
@@ -54,6 +55,7 @@ async function runAdoption(): Promise<number> {
   try {
     target = await openNamedDb(scopedDbName)
     for (const storeName of DB_STORE_NAMES) {
+      if (storeName === STORE_MEDIA) continue
       const copied = await copyStore(source, target, storeName)
       if (storeName === 'tasks') adoptedTasks = copied.length
       if (storeName === 'templates') adoptedTemplates = copied
@@ -92,7 +94,7 @@ async function anonymousDbMayExist(): Promise<boolean> {
 async function copyStore(
   source: IDBDatabase,
   target: IDBDatabase,
-  storeName: DbStoreName,
+  storeName: Exclude<DbStoreName, typeof STORE_MEDIA>,
 ): Promise<string[]> {
   const sourceKeys = await getAllKeys(source, storeName)
   if (sourceKeys.length === 0) return []

@@ -8,7 +8,7 @@ import type { LegacyProductJob, LegacyStoryboardRecord } from './legacyProductHi
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 11
+const DB_VERSION = 12
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
@@ -18,6 +18,7 @@ export const STORE_REMIX_SETS = 'remix_sets'
 export const STORE_BGSWAP_JOBS = 'bgswap_jobs'
 export const STORE_VIDEO_TASKS = 'video_tasks'
 export const STORE_STORYBOARDS = 'storyboards'
+export const STORE_MEDIA = 'media'
 export const DB_STORE_NAMES = [
   STORE_TASKS,
   STORE_IMAGES,
@@ -28,6 +29,7 @@ export const DB_STORE_NAMES = [
   STORE_BGSWAP_JOBS,
   STORE_VIDEO_TASKS,
   STORE_STORYBOARDS,
+  STORE_MEDIA,
 ] as const
 export type DbStoreName = (typeof DB_STORE_NAMES)[number]
 const THUMBNAIL_MAX_SIZE = 720
@@ -44,7 +46,9 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
       const db = request.result
       for (const storeName of DB_STORE_NAMES) {
         if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName, { keyPath: 'id' })
+          const store = db.createObjectStore(storeName, { keyPath: 'id' })
+          // 云媒体缓存按最久未用逐出，得有这条索引才不用把整库读出来排序。
+          if (storeName === STORE_MEDIA) store.createIndex('lastUsedAt', 'lastUsedAt')
         }
       }
       if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
@@ -167,6 +171,64 @@ export function deleteTask(id: string): Promise<undefined> {
 
 export function clearTasks(): Promise<undefined> {
   return dbTransaction(STORE_TASKS, 'readwrite', (s) => s.clear())
+}
+
+// ===== 云媒体缓存 =====
+
+/**
+ * 平台像素的本机副本。媒体身份是不可变的，所以这里不做失效，只按「最久未用」腾地方；
+ * 命中就不必回源——本机生成读 IndexedDB 是瞬时的，云端生成没有理由慢一个数量级。
+ *
+ * 存字节而不是 `Blob`：结构化克隆跨实现地还原 `Blob` 并不可靠，字节加类型是无歧义的那一份。
+ */
+export interface CachedMedia {
+  /** `<mediaId>:<variant>` */
+  id: string
+  data: ArrayBuffer
+  contentType: string
+  bytes: number
+  lastUsedAt: number
+}
+
+export async function getCachedMedia(id: string): Promise<CachedMedia | undefined> {
+  const cached = await dbTransaction<CachedMedia | undefined>(STORE_MEDIA, 'readonly', (s) =>
+    s.get(id),
+  )
+  if (cached)
+    void dbTransaction(STORE_MEDIA, 'readwrite', (s) =>
+      s.put({ ...cached, lastUsedAt: Date.now() }),
+    )
+  return cached
+}
+
+export function putCachedMedia(media: CachedMedia): Promise<IDBValidKey> {
+  return dbTransaction(STORE_MEDIA, 'readwrite', (s) => s.put(media))
+}
+
+/** 把缓存压到 `budget` 字节以内，先删最久没用过的。返回删掉的字节数。 */
+export async function pruneCachedMedia(budget: number): Promise<number> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_MEDIA, 'readwrite')
+    const store = tx.objectStore(STORE_MEDIA)
+    const totalRequest = store.getAll()
+    let removed = 0
+    totalRequest.onsuccess = () => {
+      const rows = (totalRequest.result as CachedMedia[]).sort(
+        (a, b) => a.lastUsedAt - b.lastUsedAt,
+      )
+      let total = rows.reduce((sum, row) => sum + row.bytes, 0)
+      for (const row of rows) {
+        if (total <= budget) break
+        store.delete(row.id)
+        total -= row.bytes
+        removed += row.bytes
+      }
+    }
+    tx.oncomplete = () => resolve(removed)
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
 }
 
 // ===== Images =====

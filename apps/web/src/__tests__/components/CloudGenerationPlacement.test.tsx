@@ -71,11 +71,7 @@ beforeEach(async () => {
           expiresAt: Date.now() + 600000,
         })
       if (input.startsWith('https://media.example/'))
-        return {
-          ok: true,
-          status: 200,
-          blob: async () => new Blob(['image'], { type: 'image/png' }),
-        } as Response
+        return new Response(new Blob(['image'], { type: 'image/png' }))
       if (input.includes('/api/generations/')) return Response.json(detail)
       return Response.json({ conversations: [] })
     }),
