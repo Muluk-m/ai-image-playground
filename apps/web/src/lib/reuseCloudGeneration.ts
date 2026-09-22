@@ -52,15 +52,16 @@ export async function reuseCloudGeneration(source: CloudReuseSource, signal: Abo
   const params: TaskParams = { ...source.params, no_rewrite: guarded }
   // Each reference has its own signed URL and download. Restore them concurrently;
   // preserve the recorded order, and only replace the draft once every image is ready.
+  // 用户站在那儿等，所以这几张插队到作品页正在铺的预览之前。
   const [inputs, maskDataUrl] = await Promise.all([
     Promise.all(
       source.inputs.map(async (reference): Promise<InputImage> => {
-        const dataUrl = await resolveMediaSource(reference)
+        const dataUrl = await resolveMediaSource(reference, 'original', true)
         current()
         return { id: await hashDataUrl(dataUrl), dataUrl }
       }),
     ),
-    source.mask ? resolveMediaSource(source.mask) : null,
+    source.mask ? resolveMediaSource(source.mask, 'original', true) : null,
   ])
   current()
   if (maskDataUrl && !inputs.length) throw new Error('input_unavailable')
