@@ -2,6 +2,8 @@ import { OAUTH_LINK_ERROR_QUERY_PARAM, OAUTH_LINK_QUERY_PARAM } from '@image-pla
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
+import AgentJobInbox from '../features/agent/components/AgentJobInbox'
+import { agentPanelPresent } from '../features/agent/panelLayout'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useLibraryStore } from '../features/library/store'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
@@ -24,11 +26,9 @@ import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
   const { t } = useTranslation('shell')
-  const { t: tCanvas } = useTranslation('canvas')
   useWorkspaceViewport()
   const setShowSettings = useStore((s) => s.setShowSettings)
   const workbench = useStore((s) => isWorkbenchMode(s.appMode))
-  const setAppMode = useStore((s) => s.setAppMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
@@ -85,17 +85,7 @@ export default function Header() {
         className="fixed right-3 z-40 flex items-center gap-3 sm:right-4"
         style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
       >
-        {workbench ? (
-          <button
-            type="button"
-            onClick={() => setAppMode('projects')}
-            aria-label={tCanvas('workspace.backToProjects')}
-            title={tCanvas('workspace.backToProjects')}
-            className="grid h-8 w-8 shrink-0 place-items-center"
-          >
-            <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
-          </button>
-        ) : null}
+        {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
           <PrivateWebHeaderCreditAction />
           {auth.user ? <HeaderMembershipChip /> : null}

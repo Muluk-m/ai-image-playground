@@ -4,7 +4,6 @@ import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { isWorkbenchMode, useStore } from '../../../store'
-import AgentJobInbox from '../../agent/components/AgentJobInbox'
 import AgentPanel from '../../agent/components/AgentPanel'
 import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { conversationStarted } from '../../agent/lib/panelMessages'
@@ -198,10 +197,19 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {t('mobileSwitch.canvas')}
             </button>
           </div>
-          {/* 顶行排在对话卡片上方、与卡片同左边界。标志在右上角积分胶囊左边，不占这一行。 */}
+          {/* 顶行：无底板标志在项目名左边，和项目名垂直居中。生成任务在右上角积分胶囊那一排。 */}
           {open || mobile ? (
             <div className="studio-chat-column">
               <div className="studio-canvas-topbar">
+                <button
+                  type="button"
+                  onClick={() => useStore.getState().setAppMode('projects')}
+                  aria-label={t('workspace.backToProjects')}
+                  title={t('workspace.backToProjects')}
+                  className="grid h-9 w-8 shrink-0 place-items-center"
+                >
+                  <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
+                </button>
                 <ProjectNavigation />
               </div>
               {hasAgent ? (
@@ -292,17 +300,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />
             <StylePanel doc={doc} />
-            {/* 后台任务入口贴画布右上角，但要让开浮在同一角的账号胶囊：胶囊是另一层
-            叠放上下文，盖住任务卡时两张圆角会切在一起。窄屏画布本身已经下移，不用再让。 */}
-            {hasAgent && (
-              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end md:top-[var(--studio-account-cluster-clearance)]">
-                <AgentJobInbox />
-              </div>
-            )}
             {saveFailed && (
               <div
                 role="alert"
-                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg md:top-[calc(var(--studio-account-cluster-clearance)+2.75rem)]"
+                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg md:top-[var(--studio-account-cluster-clearance)]"
               >
                 <p>{t('saveError.message')}</p>
                 <button
