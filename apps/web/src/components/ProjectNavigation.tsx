@@ -72,7 +72,7 @@ export default function ProjectNavigation() {
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
-              className="min-w-0 max-w-[15rem] flex-1 justify-between gap-2 px-2 text-left"
+              className="min-w-0 max-w-[15rem] flex-1 justify-between gap-2 pl-1.5 pr-2 text-left"
               title={name}
               aria-label={t('navigation.switchAria', { name })}
               disabled={busy}

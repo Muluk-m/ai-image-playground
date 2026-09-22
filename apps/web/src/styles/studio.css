@@ -32,7 +32,6 @@
   transition: background .15s ease, border-color .15s ease, transform .15s ease;
   animation: studio-pill-in .18s ease-out both;
 }
-.studio-open-chat img { padding: 6px; border-radius: 12px; background: hsl(var(--muted)); }
 .studio-open-chat:hover { background: hsl(var(--muted)); border-color: hsl(var(--primary) / .5); transform: translateY(-1px); }
 @keyframes studio-pill-in {
   from { opacity: 0; transform: scale(.9); }
