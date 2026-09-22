@@ -107,7 +107,7 @@ typecheck、测试和构建。两个方向的边界都由 `scripts/check-private
 overlay 反过来只允许通过上面三个接缝与三个**宿主面**引公开树，不许 `../../../apps/*/src/...`
 深路径（测试文件除外）：
 
-- `apps/bff/src/lib/private-host.ts`、`apps/web/src/lib/privateHost.ts`、`apps/admin/src/lib/private-host.ts`
+- `apps/bff/src/lib/private-host.ts`、`apps/web/src/lib/privateHost.ts`、`apps/admin/src/lib/private-host.ts`（lib）与 `private-host-ui.ts`（shadcn 组件，走 `@/` 别名，bun 测试不能碰）
 
 宿主面里每一行都是对收费版的承诺。改动只能**先扩后缩**：加成员随时；改名 / 删除 / 换签名前
 先确认 overlay `verified` 分支不再引用它——公开 CI 的 `with-overlay` 作业（候选公开树 +
