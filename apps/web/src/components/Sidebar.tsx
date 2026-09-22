@@ -122,15 +122,15 @@ export default function Sidebar() {
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
-          <div className="group/head flex items-center gap-1 px-3 pb-1 pt-4">
-            <span className="text-[11px] font-medium text-muted-foreground">
+          <div className="group/head mt-2 flex h-9 items-center gap-2 px-3">
+            <span className="text-[13px] font-medium leading-none text-muted-foreground">
               {t('nav.canvases')}
             </span>
-            <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
+            <span className="ml-auto flex h-full items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
               <button
                 type="button"
                 onClick={() => setAppMode('projects')}
-                className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="inline-flex h-7 items-center rounded-md px-1.5 text-[13px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 {t('nav.allCanvases')}
               </button>
@@ -139,7 +139,7 @@ export default function Sidebar() {
                 onClick={() => void newProject()}
                 aria-label={t('nav.newCanvas')}
                 title={t('nav.newCanvas')}
-                className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="grid h-7 w-7 place-items-center rounded-md text-[15px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 +
               </button>
