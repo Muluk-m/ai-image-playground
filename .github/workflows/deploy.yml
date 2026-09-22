@@ -90,7 +90,13 @@ jobs:
         with:
           ref: ${{ needs.target.outputs.sha }}
           persist-credentials: false
-      - name: Check out the private overlay at its main HEAD
+      # 取 `verified` 而不是 `main`：那个指针只在 overlay 自己的 CI（公开树 main + 那份
+      # overlay 一起 lint / typecheck / test / build）全绿之后才前移。overlay 合进一个
+      # 编译不过的提交时，这里仍然用上一次已知可用的那份，公开仓的部署链不会被它堵死。
+      #
+      # 闸门放在消费侧而不是合并侧，是因为个人账号的免费私有仓开不了分支保护与 rulesets
+      # （两个接口都回 403），拦不住「CI 红着也合」。
+      - name: Check out the private overlay at its verified HEAD
         id: overlay
         env:
           PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
@@ -99,7 +105,7 @@ jobs:
           printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
           curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
           GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
-            git clone --quiet "$PRIVATE_OVERLAY_REPO" private
+            git clone --quiet --branch verified "$PRIVATE_OVERLAY_REPO" private
           rm -f "$RUNNER_TEMP/overlay-key"
           echo "sha=$(git -C private rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
