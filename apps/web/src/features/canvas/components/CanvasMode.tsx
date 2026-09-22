@@ -208,9 +208,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   onClick={() => useStore.getState().setAppMode('projects')}
                   aria-label={t('workspace.backToProjects')}
                   title={t('workspace.backToProjects')}
-                  className="grid h-10 w-10 shrink-0 self-center place-items-center opacity-90 transition-opacity hover:opacity-100"
+                  className="grid h-9 w-8 shrink-0 place-items-center self-center opacity-90 transition-opacity hover:opacity-100"
                 >
-                  <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
+                  <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                 </button>
                 <ProjectNavigation />
               </div>
@@ -271,7 +271,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               onClick={() => setOpen(true)}
               title={t('sidebar.openChat')}
             >
-              <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
+              <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
               {t('sidebar.openChat')}
               <svg
                 viewBox="0 0 16 16"
