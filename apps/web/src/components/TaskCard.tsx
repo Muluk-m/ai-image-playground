@@ -4,7 +4,7 @@ import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
-import { retryTask, updateTaskInStore, useStore } from '../store'
+import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 
@@ -514,7 +514,7 @@ export default function TaskCard({
                   </button>
                 )}
                 <button
-                  onClick={() => updateTaskInStore(task.id, { isFavorite: !task.isFavorite })}
+                  onClick={() => void setTaskFavorite(task, !task.isFavorite)}
                   className={`p-1.5 rounded-md transition ${
                     task.isFavorite
                       ? 'text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
