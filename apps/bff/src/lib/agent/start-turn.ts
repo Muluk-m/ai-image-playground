@@ -314,7 +314,7 @@ async function executeWakeTurn(
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
   const overlayPromise = loadPrivateBffOverlay()
   const [
-    { estimateTurnInputTokens },
+    { estimateTurnInputTokens, clarificationChainStart },
     { startAgentTurn },
     { resolveAgentMode },
     overlay,
@@ -353,6 +353,9 @@ async function executeWakeTurn(
   const selectedModel = agentThinking(params?.thinkingDepth).model
   const text = wakeTurnPrompt(jobs)
   const reviewImageIds = wakeReviewImageIds(jobs)
+  const selectionHistoryStart = plan?.protected
+    ? 0
+    : clarificationChainStart(historyWindow.messages)
   const deviceId = wake.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
   const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
   const chatTask =
@@ -372,6 +375,7 @@ async function executeWakeTurn(
             mode,
             reviewImageIds,
             params?.autoSubmit === true,
+            selectionHistoryStart,
           ),
           pricing,
         }
@@ -408,6 +412,7 @@ async function executeWakeTurn(
       history: historyWindow,
       text,
       references: [],
+      selectionHistoryStart,
       mode,
       userId,
       deviceId,
@@ -508,7 +513,7 @@ async function executeResumeTurn(
   // 那一轮。它可能比历史窗口更老，所以定点取而不是在窗口里筛。
   const authorizedTurnId = wake?.turnId ?? resume.interruptedTurnId
   const [
-    { estimateTurnInputTokens },
+    { estimateTurnInputTokens, clarificationChainStart },
     { startAgentTurn },
     { resolveAgentMode, createSubmissionReplay },
     { resumeTurnPrompt, interruptedSubmissions },
@@ -540,17 +545,25 @@ async function executeResumeTurn(
   const selectedModel = agentThinking(params?.thinkingDepth).model
   const text = resumeTurnPrompt(wake ? wakeTurnPrompt(jobs) : undefined)
   const reviewImageIds = wakeReviewImageIds(jobs)
+  const interruptedStart = historyWindow.messages.findIndex(
+    (message) => message.turnId === resume.interruptedTurnId,
+  )
+  const selectionHistoryStart = plan?.protected
+    ? 0
+    : !wake && interruptedStart >= 0
+      ? clarificationChainStart(historyWindow.messages.slice(0, interruptedStart))
+      : clarificationChainStart(historyWindow.messages)
   const deviceId = resume.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
   const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
   const chatTask =
     pricing && userId
       ? {
+          model: selectedModel,
           taskHooks: overlay.taskHooks,
           conversationId,
           turnId,
           userId,
           deviceId,
-          model: selectedModel,
           estimatedInputTokens: estimateTurnInputTokens(
             historyWindow,
             text,
@@ -558,6 +571,7 @@ async function executeResumeTurn(
             mode,
             reviewImageIds,
             params?.autoSubmit === true,
+            selectionHistoryStart,
           ),
           pricing,
         }
@@ -591,6 +605,7 @@ async function executeResumeTurn(
       history: historyWindow,
       text,
       references: [],
+      selectionHistoryStart,
       mode,
       userId,
       deviceId,
@@ -704,7 +719,7 @@ async function executeConversationTurn(
   // `skills` 与 `tools` 也静态依赖 pi，所以同样只能晚到这里。技能清单进系统提示词，
   // 预扣估算之前就得读完盘；加载只发生一次，之后都是缓存。
   const [
-    { estimateTurnInputTokens },
+    { estimateTurnInputTokens, clarificationChainStart },
     { startAgentTurn },
     { resolveAgentMode },
     overlay,
@@ -737,15 +752,16 @@ async function executeConversationTurn(
   // 改过的标题冲掉。一条都没折进摘要、窗口也空，才真是头一轮。
   const isFirstTurn = historyWindow.coveredCount === 0 && historyWindow.messages.length === 0
   const mode: AgentMode = resolveAgentMode(input.mode ?? 'image')
+  const selectionHistoryStart = clarificationChainStart(historyWindow.messages)
   const chatTask =
     pricing && userId
       ? {
+          model: selectedModel,
           taskHooks: overlay.taskHooks,
           conversationId,
           turnId,
           userId,
           deviceId,
-          model: selectedModel,
           estimatedInputTokens: estimateTurnInputTokens(
             historyWindow,
             text,
@@ -753,6 +769,7 @@ async function executeConversationTurn(
             mode,
             [],
             params?.autoSubmit === true,
+            selectionHistoryStart,
           ),
           pricing,
         }
@@ -767,6 +784,7 @@ async function executeConversationTurn(
           mode,
           merged.note.reviewImageIds,
           params?.autoSubmit === true,
+          selectionHistoryStart,
         )
       : null
   const storedReferences = await archiveAgentReferences(conversationId, turnId, references)
@@ -831,12 +849,13 @@ async function executeConversationTurn(
       assertExecution: assertOwnership,
       withExecution: (callback) => withConversationExecution(conversationId, turnId, callback),
       conversationId,
-      turnId,
       userMessageId: written.userMessageId,
+      turnId,
       ...(queued.announce ? { queueId: queued.id } : {}),
       history: historyWindow,
       text,
       references,
+      selectionHistoryStart,
       mode,
       userId,
       deviceId,
