@@ -46,15 +46,18 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
     gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === p.image_size),
     gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === p.thinking_level),
   }
-  const inputs: InputImage[] = []
-  for (const image of detail.inputs) {
-    const dataUrl = await resolveMediaSource(`aip-media:${image.mediaId}`)
-    current()
-    inputs.push({ id: await hashDataUrl(dataUrl), dataUrl })
-  }
-  const maskDataUrl = detail.mask
-    ? await resolveMediaSource(`aip-media:${detail.mask.mediaId}`)
-    : null
+  // Each reference has its own signed URL and download. Restore them concurrently;
+  // preserve the recorded order, and only replace the draft once every image is ready.
+  const [inputs, maskDataUrl] = await Promise.all([
+    Promise.all(
+      detail.inputs.map(async (image): Promise<InputImage> => {
+        const dataUrl = await resolveMediaSource(`aip-media:${image.mediaId}`)
+        current()
+        return { id: await hashDataUrl(dataUrl), dataUrl }
+      }),
+    ),
+    detail.mask ? resolveMediaSource(`aip-media:${detail.mask.mediaId}`) : null,
+  ])
   current()
   if (maskDataUrl && !inputs.length) throw new Error('input_unavailable')
   if (inputs.length) {
