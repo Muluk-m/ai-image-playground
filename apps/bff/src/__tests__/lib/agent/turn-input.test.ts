@@ -219,6 +219,7 @@ describe('tool declarations in the estimate', () => {
       'editImage',
       'viewImage',
       'readLibrary',
+      'readCanvas',
       'askClarification',
     ])
   })

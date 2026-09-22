@@ -457,6 +457,7 @@ describe('智能体生图工具', () => {
       'editImage',
       'generateImage',
       'loadSkill',
+      'readCanvas',
       'readLibrary',
       'viewImage',
     ])
