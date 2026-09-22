@@ -152,6 +152,7 @@ GHCR 不可用时构建加 `RELEASE_TRANSPORT=archive`：不登录、不推送�
 1. 预检：停止并删除 `releases/current` 以外的全部带标签执行器（不探测，死容器不阻塞发布），清理 `activated/` 残留与已废弃的 `retained`。
 2. 兼容迁移；启动新 BFF、暂停接单的新 worker，均需健康。
 3. `release-router` 不存在则创建；镜像与本次不同则同别名启动新路由、健康后停旧路由（旧路由在途请求有 30 秒收尾，更早镜像的旧路由会直接断开，客户端重连）。检查隧道指向路由。
+   路由转发保留公开 `Host`，供登录交接等按域名校验的接口使用；上游连接地址只取 `route.json`，不使用客户端提供的 `Host` 或 `X-Forwarded-Host` 选择上游。
 4. 旧 worker 全部进入 drain 后启用新 worker，再原子切换 `route.json` 与 `current`。
 5. 切换后旧一代最多排空 `DEPLOY_DRAIN_DEADLINE_SECONDS`（默认 300）。到期仍在执行的发 SIGTERM，宽限 `DEPLOY_STOP_GRACE_SECONDS`（默认 75）后删除。被打断的队列任务按租约回收并续轮询已提交的上游任务，不重提；被打断的对话轮由新一代补写终帧并续跑一次，原轮预扣退回、续跑轮计费一次。输出如实给出「N 个排空完成、M 个到期强停、K 个已停止」；强停不算失败，退出码仍为 0。
 6. 更新 admin、host-collector、pg-backup。
