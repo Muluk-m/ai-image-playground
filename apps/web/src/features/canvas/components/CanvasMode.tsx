@@ -332,7 +332,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             </div>
             {!hasContent && !loading && !loadFailed && (
               <div className="studio-empty">
-                <img src="/brand/muvloom-icon.svg" alt="" />
+                <img src="/brand/muvloom-mark.svg" alt="" />
                 <h2>{t('empty.title')}</h2>
                 <p>{hasAgent ? t('empty.bodyAgent') : t('empty.bodyDirect')}</p>
                 <button

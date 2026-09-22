@@ -40,7 +40,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
         className="mx-auto flex w-full max-w-3xl flex-col items-center gap-7 pb-10 pt-[9vh]"
         aria-label={t('welcome.aria')}
       >
-        <img src="/brand/muvloom-icon.svg" alt="Muvloom" className="h-14 w-14" />
+        <img src="/brand/muvloom-mark.svg" alt="Muvloom" className="h-14 w-14" />
         <div className="text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
             {video ? t('video:landing.title') : t('welcome.title')}
