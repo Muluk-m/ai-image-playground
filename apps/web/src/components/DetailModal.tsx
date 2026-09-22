@@ -1,6 +1,7 @@
 import { formatImageRatio } from '@image-playground/shared'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTooltip } from '../hooks/useTooltip'
 import { useTranslation } from '../i18n'
@@ -21,7 +22,7 @@ import {
   retryTask,
   reuseConfig,
   sendTaskToCanvas,
-  updateTaskInStore,
+  setTaskFavorite,
   useStore,
 } from '../store'
 import { CloseIcon, CodeIcon, CopyIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
@@ -31,7 +32,7 @@ import ViewportTooltip from './ViewportTooltip'
 
 export default function DetailModal() {
   const { t } = useTranslation(['task', 'common'])
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useHistoryTasks()
   const detailTaskId = useStore((s) => s.detailTaskId)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
@@ -251,7 +252,7 @@ export default function DetailModal() {
   }
 
   const handleToggleFavorite = () => {
-    updateTaskInStore(task.id, { isFavorite: !task.isFavorite })
+    void setTaskFavorite(task, !task.isFavorite)
   }
 
   const handleCopyError = async () => {
