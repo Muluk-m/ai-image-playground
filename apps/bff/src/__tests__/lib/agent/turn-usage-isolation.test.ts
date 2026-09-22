@@ -12,10 +12,11 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
-// 窗口要装得下这个智能体的固定开销：系统说明加工具清单约 3.3k token（见 `request-budget.ts`），
-// 装不下的话出站硬闸会把每一轮都拒掉，这个文件测的用量就无从产生。留给消息的那点预算
-// （5300 − 500 预留 − 1000 余量 − 3.3k 开销 ≈ 0.5k）仍然小于下面那段历史，压缩照样触发。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '5300'
+// 窗口要落在一条实测出来的带里：低于约 5400 时固定开销（系统说明 + 工具清单，见
+// `request-budget.ts`）装不下，出站硬闸把每一轮都拒掉，这个文件要测的用量无从产生；高于约 5700
+// 时留给消息的预算装得下整段历史，压缩根本不触发，同样测不到东西。5500 在带的中间。
+// 贴着任一边设都会让「往某个工具上加个参数」把这个文件弄红，而那跟它测的用量隔离毫无关系。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '5500'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
