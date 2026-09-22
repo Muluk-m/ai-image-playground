@@ -80,7 +80,7 @@ export default function Header() {
       <div
         data-no-drag-select
         className="studio-header-float fixed right-3 z-40 flex items-center gap-2 sm:right-4"
-        style={{ top: 'calc(var(--safe-area-top) + 0.75rem)' }}
+        style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
       >
         <PrivateWebHeaderCreditAction />
         {auth.user ? <HeaderMembershipChip /> : null}
