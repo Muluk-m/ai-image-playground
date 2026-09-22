@@ -31,7 +31,10 @@ export interface ResolvedAgentImage {
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
-  /** 当前这批引用里有没有用户画的遮罩；「本轮存在用户选区」的判断只问这一处。 */
+  /**
+   * 本轮用户**亲手附上**的图里有没有他画的遮罩；「本轮存在用户选区」的判断只问这一处。
+   * 从历史沿用下来的引用不算：那是上一轮的意图，用它当门禁会把之后每一轮都锁在局部改图里。
+   */
   readonly masked: boolean
   /**
    * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
@@ -284,6 +287,9 @@ export function createAgentImageSource(input: {
 }): AgentImageSource {
   const { userId } = input
   let active = activeAgentReferences(input.references, input.history)
+  // 选区只属于画它的那一轮：沿用下来的引用只进清单文字，不把旧遮罩变成本轮的门禁。
+  // 否则用户一旦圈过一次，之后每一轮都被判成遮罩轮，连「重做整张」都提交不了。
+  let attachedNow: readonly AgentImageReference[] = input.references
   const references = new Map<string, AgentImageReference>()
   for (const message of input.history) {
     if (message.role !== 'user') continue
@@ -338,11 +344,12 @@ export function createAgentImageSource(input: {
       return active
     },
     get masked() {
-      return active.some(referenceHasMask)
+      return attachedNow.some(referenceHasMask)
     },
     attach(added) {
       if (!added.length) return
       active = added
+      attachedNow = added
       for (const reference of added) {
         references.set(reference.imageId, reference)
         resolving.delete(reference.imageId)

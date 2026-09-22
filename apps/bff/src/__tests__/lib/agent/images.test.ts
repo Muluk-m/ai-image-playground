@@ -63,23 +63,7 @@ it('reports a mask when one attached reference carries the drawn selection', () 
   ).toBe(true)
 })
 
-it('reports a mask when the archived reference kept its selection in object storage', () => {
-  expect(
-    source({
-      history: [
-        userMessage([
-          {
-            imageId: 'a',
-            image: { object: 'agent/c/t/0/in/0', mime: 'image/png' },
-            mask: { object: 'agent/c/t/0/in/mask', mime: 'image/png' },
-          },
-        ]),
-      ],
-    }).masked,
-  ).toBe(true)
-})
-
-it('asks only the batch the turn is working on, not every reference ever seen', () => {
+it('keeps a selection drawn in an earlier turn from gating this one', () => {
   const masked = userMessage([
     {
       imageId: 'old',
@@ -87,11 +71,9 @@ it('asks only the batch the turn is working on, not every reference ever seen', 
       mask: { object: 'agent/c/t/0/in/mask', mime: 'image/png' },
     },
   ])
-  const plain = userMessage([
-    { imageId: 'newer', image: { object: 'agent/c/t/1/in/0', mime: 'image/png' } },
-  ])
-  // 最近一批引用说了算：更早那批仍可凭原 id 取回，但不再让这一轮变成遮罩轮。
-  expect(source({ history: [masked, plain] }).masked).toBe(false)
+  // 沿用下来的引用只进清单文字：用户这一轮没有圈选，就该能改口重做整张，
+  // 否则圈过一次之后每一轮都被判成遮罩轮，连一次整图重做都提交不了。
+  expect(source({ history: [masked] }).masked).toBe(false)
   expect(
     source({ references: [{ imageId: 'now', dataUrl: PIXEL }], history: [masked] }).masked,
   ).toBe(false)
