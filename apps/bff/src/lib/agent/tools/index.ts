@@ -22,6 +22,7 @@ import type { ToolFailureLog } from './errors'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
+import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
 import type {
   AgentReplayedSubmission,
@@ -49,6 +50,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   editImage,
   viewImage,
   readLibrary,
+  readCanvas,
   generateVideo,
   arrangeTimeline,
   loadSkill,
