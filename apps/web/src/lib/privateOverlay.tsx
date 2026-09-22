@@ -30,25 +30,27 @@ export interface PrivateHeaderActionsProps {
 }
 
 /**
- * 会员等级。公开树自己没有订阅，这四档是给 overlay 的账户面板与定价卡共用一把尺子——
- * 等级怎么排由 overlay 按套餐目录算（月度积分从小到大），这里只钉住取值与配色的契约，
- * 好让 `TierBadge` 这类展示件留在公开树里、两边不各画一套。
+ * 右上角账号簇里那一格会员位的**渲染契约**。公开树不认识「等级」这个概念——等级、配色、
+ * 徽标画法全是收费版独有的，按 `docs/dual-edition-isolation.md` 第 (i) 条它们得留在 overlay
+ * 里真删掉。所以这里只留展示所需的最小面：一个徽标组件、一个强调色、一句文案、一个动作。
  */
-export type PrivateMembershipTier = 'free' | 'basic' | 'plus' | 'max'
-
-export interface PrivateMembership {
-  tier: PrivateMembershipTier
-  /** 当前套餐名；没有生效订阅时由 overlay 填「未订阅」一类的文案。 */
-  planName: string
-  balanceLabel: string
-  /** 到期日；没有生效订阅就是 null。 */
-  expiresLabel: string | null
-  openAccount(): void
-  openPricing(): void
+export interface PrivateMembershipView {
+  /** 有生效订阅时 false 走「开通会员」引导，true 走等级展示。 */
+  subscribed: boolean
+  /** 已订阅时是套餐名；未订阅时由 overlay 给引导文案。 */
+  label: string
+  /** 徽标与文字的强调色（overlay 传十六进制，公开树只往 style 里塞）。 */
+  accent: string
+  /** 徽标；由 overlay 提供，公开树不画。 */
+  Badge: ComponentType<{ size?: number }>
+  /** 鼠标悬停补充说明，例如到期日。 */
+  hint: string | null
+  /** 点这一格该干什么：已订阅去账户，未订阅去套餐页。 */
+  open(): void
 }
 
 export interface PrivateMembershipSlot {
-  useMembership(): PrivateMembership
+  useMembership(): PrivateMembershipView
 }
 
 export interface PrivateWebOverlay {
