@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
+import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
-import { removeMultipleTasks, updateTaskInStore, useStore } from '../store'
+import { removeMultipleTasks, setTaskFavorite, useStore } from '../store'
 
 /**
  * 选中任务后的批量操作条。生成记录能在生图与作品两个入口里框选，所以它不能挂在输入框上，
@@ -9,7 +10,7 @@ import { removeMultipleTasks, updateTaskInStore, useStore } from '../store'
  */
 export default function TaskBulkActions() {
   const { t } = useTranslation('composer')
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
   const filterFavorite = useStore((s) => s.filterFavorite)
@@ -48,7 +49,7 @@ export default function TaskBulkActions() {
         : t('bulk.unfavoriteMessage', { count: selectedTaskIds.length }),
       confirmText: isFavorite ? t('bulk.confirmFavorite') : t('bulk.confirmUnfavorite'),
       action: () => {
-        selectedTaskIds.forEach((id) => updateTaskInStore(id, { isFavorite }))
+        for (const task of selected) void setTaskFavorite(task, isFavorite)
         clearSelection()
       },
     })

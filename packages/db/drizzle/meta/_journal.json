@@ -257,15 +257,22 @@
     {
       "idx": 37,
       "version": "7",
-      "when": 1789803000000,
-      "tag": "0037_asset_views",
+      "when": 1790118000000,
+      "tag": "0037_email_verification",
       "breakpoints": true
     },
     {
       "idx": 38,
       "version": "7",
-      "when": 1789804000000,
-      "tag": "0038_user_looks",
+      "when": 1790119000000,
+      "tag": "0038_asset_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790120000000,
+      "tag": "0039_user_looks",
       "breakpoints": true
     }
   ]

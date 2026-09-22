@@ -29,8 +29,8 @@ export async function loadImagePreview(ref: string): Promise<ImagePreview | null
   return { url: thumbnail.dataUrl, width: thumbnail.width, height: thumbnail.height }
 }
 
-/** 需要真实像素时用（下载、编辑、复用、送画布）；读不到返回 null。 */
+/** 需要真实像素时用（下载、编辑、复用、送画布）；读不到返回 null。这些都是用户点出来的，要插队。 */
 export async function loadImageOriginal(ref: string): Promise<string | null> {
-  if (isMediaRef(ref)) return await resolveMediaSource(ref, 'original').catch(() => null)
+  if (isMediaRef(ref)) return await resolveMediaSource(ref, 'original', true).catch(() => null)
   return (await ensureImageCached(ref).catch(() => undefined)) ?? null
 }

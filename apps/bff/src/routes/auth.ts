@@ -1,5 +1,6 @@
 import {
   EMAIL_MAX_LENGTH,
+  isValidEmailAddress,
   isValidUsername,
   normalizeUsername,
   PASSWORD_MAX_LENGTH,
@@ -10,7 +11,11 @@ import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
-import { createRateLimiter } from '../lib/rate-limit'
+import { createRateLimiter, createWindowLimiter } from '../lib/rate-limit'
+import {
+  issueRegistrationVerification,
+  RegistrationVerificationIssueError,
+} from '../lib/registration-verification'
 import {
   listLoginMethods,
   registerUser,
@@ -51,6 +56,8 @@ const registrationLimiter = createRateLimiter({
   lockMs: 60 * 60_000,
   maxEntries: 2048,
 })
+const verificationSourceLimiter = createWindowLimiter(60 * 60_000, 2048)
+const verificationEmailLimiter = createWindowLimiter(60 * 60_000, 2048)
 
 const passwordChangeLimiter = createRateLimiter({
   maxFailures: 10,
@@ -61,6 +68,41 @@ const passwordChangeLimiter = createRateLimiter({
 
 export const userAuthRoutes = new Elysia()
   .use(resolveAuthUser)
+  .post(
+    '/api/auth/register/verification',
+    async ({ body, request, server, status }) => {
+      if (
+        !isCapabilityEnabled('accounts:self-register') ||
+        !isCapabilityEnabled('accounts:email-verification')
+      ) {
+        return capabilityUnavailable('accounts:email-verification')
+      }
+      const email = normalizeUsername(body.email)
+      if (!isValidEmailAddress(email)) return status(400, { error: 'invalid_username' })
+
+      const source = clientAddress(request, server?.requestIP(request)?.address ?? null)
+      if (verificationSourceLimiter.over(source, 5) || verificationEmailLimiter.over(email, 3)) {
+        return status(429, { error: 'rate_limited' })
+      }
+      try {
+        const verification = await issueRegistrationVerification(email)
+        return {
+          challenge_id: verification.challengeId,
+          expires_in_seconds: verification.expiresInSeconds,
+        }
+      } catch (error) {
+        if (error instanceof RegistrationVerificationIssueError) {
+          return status(error.code === 'rate_limited' ? 429 : 503, { error: error.code })
+        }
+        throw error
+      }
+    },
+    {
+      body: t.Object({
+        email: t.String({ minLength: 1, maxLength: EMAIL_MAX_LENGTH }),
+      }),
+    },
+  )
   .post(
     '/api/auth/register',
     async ({ body, cookie, request, server, status }) => {
@@ -75,7 +117,14 @@ export const userAuthRoutes = new Elysia()
 
       let registration: Awaited<ReturnType<typeof registerUser>>
       try {
-        registration = await registerUser(body.username, body.password, body.referral_code)
+        registration = await registerUser(body.username, body.password, {
+          referralCode: body.referral_code,
+          verification: isCapabilityEnabled('accounts:email-verification')
+            ? body.verification_id && body.verification_code
+              ? { challengeId: body.verification_id, code: body.verification_code }
+              : undefined
+            : undefined,
+        })
       } catch (error) {
         if (error instanceof UserOperationError) {
           if (error.code === 'username_taken') return status(409, { error: error.code })
@@ -83,7 +132,10 @@ export const userAuthRoutes = new Elysia()
             error.code === 'invalid_username' ||
             error.code === 'invalid_password' ||
             error.code === 'invalid_referral_code' ||
-            error.code === 'registration_reward_unavailable'
+            error.code === 'registration_reward_unavailable' ||
+            error.code === 'email_verification_required' ||
+            error.code === 'invalid_email_verification' ||
+            error.code === 'email_verification_expired'
           ) {
             return status(400, { error: error.code })
           }
@@ -100,6 +152,8 @@ export const userAuthRoutes = new Elysia()
         username: t.String({ minLength: 1, maxLength: EMAIL_MAX_LENGTH }),
         password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
         referral_code: t.Optional(t.String({ maxLength: 64 })),
+        verification_id: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
+        verification_code: t.Optional(t.String({ pattern: '^[0-9]{6}$' })),
       }),
     },
   )

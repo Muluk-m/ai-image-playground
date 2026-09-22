@@ -1,6 +1,7 @@
 {
   "capabilities": {
     "accounts:login": false,
+    "accounts:email-verification": false,
     "accounts:self-register": false,
     "billing:credits": false,
     "generation:byok": false,

@@ -4,9 +4,8 @@ import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
-import { retryTask, updateTaskInStore, useStore } from '../store'
+import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
-import { CodeIcon } from './icons'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
@@ -423,16 +422,6 @@ export default function TaskCard({
                     <span>{compactModelName(model, model)}</span>
                   </span>
                 )}
-                {/* API Name */}
-                {(task.apiProfileName || task.apiProvider) && (
-                  <span
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0"
-                    title={task.apiProfileName || task.apiProvider}
-                  >
-                    <CodeIcon className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
-                    <span>{task.apiProfileName || task.apiProvider}</span>
-                  </span>
-                )}
                 {/* Mask */}
                 {task.maskImageId && (
                   <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs flex-shrink-0">
@@ -525,7 +514,7 @@ export default function TaskCard({
                   </button>
                 )}
                 <button
-                  onClick={() => updateTaskInStore(task.id, { isFavorite: !task.isFavorite })}
+                  onClick={() => void setTaskFavorite(task, !task.isFavorite)}
                   className={`p-1.5 rounded-md transition ${
                     task.isFavorite
                       ? 'text-warning hover:bg-warning/10 dark:hover:bg-warning/10'

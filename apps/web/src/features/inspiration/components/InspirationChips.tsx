@@ -32,13 +32,13 @@ export default function InspirationChips() {
   if (items.length === 0) return null
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2.5 pt-5">
+    <div className="-mx-4 flex items-center gap-2.5 overflow-x-auto px-4 pt-5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:justify-center sm:overflow-visible sm:px-0">
       {picked.map((item) => (
         <button
           key={item.id}
           type="button"
           onClick={() => applyInspiration(item)}
-          className="flex items-center gap-2 rounded-xl border border-border bg-card/70 py-1.5 pl-1.5 pr-3.5 text-[13px] text-muted-foreground backdrop-blur-sm transition-colors hover:border-primary/50 hover:text-foreground"
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card/70 py-1.5 pl-1.5 pr-3.5 text-[13px] text-muted-foreground backdrop-blur-sm transition-colors hover:border-primary/50 hover:text-foreground"
         >
           <img
             src={item.thumbnailUrl}
@@ -52,7 +52,7 @@ export default function InspirationChips() {
       <button
         type="button"
         onClick={openInspiration}
-        className="rounded-xl border border-border px-3.5 py-2.5 text-[13px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        className="shrink-0 rounded-xl border border-border px-3.5 py-2.5 text-[13px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
       >
         {t('hero.viewAll')} →
       </button>

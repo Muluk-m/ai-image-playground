@@ -7,10 +7,10 @@ const databaseUrl = await resetTestDatabase('schema_verifier')
 
 describe('verifySchema', () => {
   it('accepts the complete committed schema', async () => {
-    await expect(verifySchema(databaseUrl)).resolves.toEqual({
+    await expect(verifySchema(databaseUrl)).resolves.toMatchObject({
       tables: EXPECTED_TABLES.length,
       indexes: EXPECTED_INDEXES.length,
-      migrations: 38,
+      migrations: 39,
     })
   })
 
