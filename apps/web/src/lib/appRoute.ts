@@ -1,10 +1,11 @@
 import { readProjectRoute, writeProjectRoute } from '../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
+import { useLibraryStore } from '../features/library/store'
 import { type AppMode, useStore } from '../store'
-import { APP_MODE_PATHS, pathAppMode } from './appPaths'
+import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH, pathAppMode } from './appPaths'
 
 /**
- * 四个入口各有自己的地址：创作 `/image`、探索 `/explore`、项目 `/projects`、资产 `/assets`。
+ * 三个入口各有自己的地址：创作 `/image`、探索 `/explore`、资产 `/assets`（老的 `/projects` 落到资产的项目标签）。
  * 画布不是导航项，它住在项目地址 `/p/<项目>`。切换入口写一条历史记录，前进后退和刷新都回到同一个入口。
  * 根地址 `/` 属于创作——进站不再被当前项目劫持到画布。
  */
@@ -33,6 +34,8 @@ export function installAppRouting(): () => void {
   const sync = () => {
     const { pathname } = window.location
     const mode = pathAppMode(pathname) ?? (isRoot(pathname) ? 'image' : null)
+    if (pathname.replace(/\/+$/, '') === LEGACY_PROJECTS_PATH)
+      useLibraryStore.getState().setTab('projects')
     // 项目地址由项目导航切回画布。
     if (mode && useStore.getState().appMode !== mode) useStore.getState().setAppMode(mode)
   }

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 vi.mock('../../../lib/channels/videoChannels', () => ({ isVideoModeAvailable: () => true }))
 
 import { useAgentStore } from '../../../features/agent/store'
-import ProjectsPage from '../../../features/canvas/components/ProjectsPage'
+import ProjectsTab from '../../../features/canvas/components/ProjectsTab'
 import { CanvasDoc } from '../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../features/canvas/lib/editor'
@@ -72,13 +72,13 @@ function active() {
 
 it('项目页选「视频」建出来的是视频画布，选「图片」建的是图片画布', async () => {
   act(() => {
-    root.render(<ProjectsPage />)
+    root.render(<ProjectsTab search="" />)
   })
   clickEntry('视频')
   await vi.waitFor(() => expect(active()?.kind).toBe('video'))
 
   act(() => {
-    root.render(<ProjectsPage />)
+    root.render(<ProjectsTab search="" />)
   })
   clickEntry('图片')
   await vi.waitFor(() => expect(active()?.kind).toBe('image'))

@@ -412,7 +412,7 @@ function orderImagesWithMaskFirst(
 }
 
 /** 一级入口四个：创作、探索、项目、资产。画布是项目的实例，不是导航项。 */
-export const APP_MODES = ['image', 'canvas', 'explore', 'projects', 'library'] as const
+export const APP_MODES = ['image', 'canvas', 'explore', 'library'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
@@ -428,9 +428,6 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   },
   get explore() {
     return i18next.t('appMode.explore', { ns: 'store' })
-  },
-  get projects() {
-    return i18next.t('appMode.projects', { ns: 'store' })
   },
   get library() {
     return i18next.t('appMode.library', { ns: 'store' })

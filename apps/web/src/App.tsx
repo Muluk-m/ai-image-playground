@@ -16,7 +16,6 @@ import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
-import ProjectsPage from './features/canvas/components/ProjectsPage'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
@@ -110,8 +109,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <CanvasMode />
         ) : appMode === 'explore' ? (
           <ExplorePage />
-        ) : appMode === 'projects' ? (
-          <ProjectsPage />
         ) : appMode === 'library' ? (
           <LibraryPage />
         ) : (
