@@ -37,6 +37,18 @@
   所以闸门放在消费侧：红的合并推不动指针，公开仓的部署链不会被 overlay 堵死。
   代价是 overlay CI 一直红时生产会停在旧 overlay 上——版本号里带着私有 sha，看得出来。
 
+**边界要画两个方向（2026-09-22 追记）**。上面那条只守了"公开树不引 private"；反方向一直没守，
+overlay 曾深路径引了公开树 20 多个模块（`components/Overlay`、`i18n`、admin 的 `ui/*`……），
+等于整棵公开源码树都是它的 API，公开树任何重构都可能悄悄打断收费版，而公开 CI 全绿。现在：
+
+- overlay 只许经三个接缝 + 三个宿主面（`private-host.ts` / `privateHost.ts`）引公开树，
+  `check-private-boundary.ts` 反向扫描 `private/` 强制；
+- 公开 CI 的 `with-overlay` 作业把候选公开树和 `verified` overlay 放在一起构建——收费版是公开
+  main 最重要的消费者，得在公开 PR 里有一票；它执行的就是"先扩后缩"：宿主面成员只有在
+  `verified` overlay 不再引用之后才能删。
+
+`verified` 指针从"唯一防线"退回"最后一道闸"。
+
 **动手之前必须先修两个已存在的坑**（§7.1、§7.2），否则任何隔离设计都会被静默绕过。
 
 ---

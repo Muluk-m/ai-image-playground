@@ -111,7 +111,7 @@ export default function StylePanel({ doc }: { doc: CanvasDoc }) {
   }
 
   return (
-    <div className="pointer-events-none absolute right-4 top-4 z-[400]">
+    <div className="pointer-events-none absolute right-4 top-4 z-[400] sm:top-[var(--studio-account-cluster-clearance)]">
       <div className="pointer-events-auto w-40 rounded-2xl border border-border bg-sidebar p-2.5 shadow-lg backdrop-blur">
         <div className="grid grid-cols-4 gap-1.5">
           {COLORS.map((color) => (

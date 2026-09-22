@@ -89,18 +89,33 @@
 
 .studio-mobile-switch { display: none; }
 
+/* 右上角账号胶囊的几何：画布从顶上铺开，任务卡和样式面板得从胶囊下沿再让开一截。
+   数字和 .studio-header-float 的 padding、控件高度绑在一起，改一边要改另一边。 */
+:root {
+  --studio-account-cluster-top: 0.75rem;
+  --studio-account-cluster-pad: 3px;
+  --studio-account-cluster-control: 2rem;
+  --studio-account-cluster-clearance: calc(
+    var(--studio-account-cluster-top) + var(--studio-account-cluster-pad) * 2 +
+      var(--studio-account-cluster-control) + 0.75rem
+  );
+}
 /* 画布沉浸时这一簇直接压在画布内容上，没有底就像两层图叠在一起——给一层毛玻璃托底当 chrome 读。
-   托底与里面的 chip 都用全圆角，半径才对得上；描边留一层极淡的内阴影，避免暗底上出现白边。 */
+   托底与里面的 chip 都是胶囊，内圆角比外圆角正好小一个 padding，曲线才同心。
+   描边留一层极淡的内阴影，避免暗底上出现白边。
+   积分按钮自带 rounded-lg，和「> *」特异度相同且写在 Tailwind 层里更晚，会把胶囊切回 8px，
+   灰底拐角就和外层对不齐。这里只打第一层按钮，特异度压过实用类；再往下是账号菜单，不能被切成胶囊。 */
 .studio-header-float {
-  padding: 3px;
+  padding: var(--studio-account-cluster-pad);
   border-radius: 9999px;
   background: hsl(var(--background) / 0.55);
   backdrop-filter: blur(14px);
   box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.06);
 }
-/* 只圆到簇里第一层控件：再往下就是账号菜单里的卡片，被全圆角一刀切会变成胶囊。 */
-.studio-header-float > *,
-.studio-header-float > * > button { border-radius: 9999px; }
+.studio-header-float > button,
+.studio-header-float > * > button {
+  border-radius: 9999px;
+}
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .studio-header-float { top: var(--workspace-viewport-top, 0px); }

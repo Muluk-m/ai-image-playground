@@ -96,11 +96,23 @@ origin 精确选择映射中的 API；未匹配时沿用默认地址，以保留
 ## 私有树接缝
 
 `private/apps/{bff,web,admin}` 是可选 overlay 工作区；目录缺席时公开树必须独立
-typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `private/`：
+typecheck、测试和构建。两个方向的边界都由 `scripts/check-private-boundary.ts`（`pnpm lint`）强制：
+
+公开树只允许以下三个审计接缝引用 `private/`：
 
 - `apps/bff/src/lib/private-overlay.ts`：任务事务 hook 与私有 BFF routes
 - `apps/web/src/lib/privateOverlay.tsx`：用户侧 header、提交门禁和状态 UI
 - `apps/admin/src/lib/private-overlay.tsx`：运营概览、用户摘要和用户详情 UI
+
+overlay 反过来只允许通过上面三个接缝与三个**宿主面**引公开树，不许 `../../../apps/*/src/...`
+深路径（测试文件除外）：
+
+- `apps/bff/src/lib/private-host.ts`、`apps/web/src/lib/privateHost.ts`、`apps/admin/src/lib/private-host.ts`
+
+宿主面里每一行都是对收费版的承诺。改动只能**先扩后缩**：加成员随时；改名 / 删除 / 换签名前
+先确认 overlay `verified` 分支不再引用它——公开 CI 的 `with-overlay` 作业（候选公开树 +
+`verified` overlay 一起 lint / typecheck / build）会替你查。overlay 需要新宿主成员时，先在公开树
+加成员合进 main，再合 overlay；反过来合会让 overlay CI 红、`verified` 指针停在旧版。
 
 私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
