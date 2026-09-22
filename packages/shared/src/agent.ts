@@ -41,6 +41,7 @@ export type AgentToolName =
   | 'editImage'
   | 'viewImage'
   | 'readLibrary'
+  | 'readCanvas'
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
