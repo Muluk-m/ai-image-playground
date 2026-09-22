@@ -149,7 +149,7 @@
     "local": "Changes kept · waiting to save",
     "copySuffix": "recovery copy",
     "conflictHelp": "This project was changed in two places. Your current changes are kept as a separate recovery copy before the other set is used.",
-    "conflictForked": "This project was changed elsewhere too. Your current changes were saved as a new project and opened here.",
+    "conflictForked": "This project was also changed elsewhere, so the latest version is now open. Your changes here were kept in \"{{name}}\".",
     "useCloud": "Use the other set",
     "saveCopy": "Save current changes as a project",
     "deleted": "Project deleted"

@@ -6,7 +6,10 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
-import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import {
+  type CanvasProject,
+  projectRepository,
+} from '../../../../features/canvas/lib/projectRepository'
 import { setClientStorageScope } from '../../../../lib/authScope'
 
 afterEach(() => {
@@ -333,7 +336,8 @@ it('收到冲突后停写，刷新后仍保留本机原稿', async () => {
   await second.load(true)
   expect(second.getSnapshot().status).toBe('conflict')
   expect(restored.doc.elements[0]).toMatchObject({ text: '本机原稿' })
-  expect(fetcher).toHaveBeenCalledTimes(1)
+  // PUT 撞 409 后会自动去拉云端稿；这里云端也拒绝，本机原稿必须原样留下。
+  expect(fetcher).toHaveBeenCalledTimes(2)
 })
 
 it('较早确认不能把同步期间的新编辑标成已同步', async () => {
@@ -768,6 +772,8 @@ it('检查远端期间发生的新编辑不能被较晚的 GET 覆盖', async ()
   await loadScene(restored, project.sceneKey)
   expect(restored.doc.elements[0]).toMatchObject({ text: '读取期间编辑的稿件' })
   session.dispose()
+  // 冲突会自动再去读一次云端；这个 stub 不认 abort，得手动放行，别让它占着同步槽拖累后面的用例。
+  finish(Response.json({ error: 'unavailable' }, { status: 503 }))
 })
 
 it('重复打开或恢复可见时五秒内至多检查一次远端', async () => {
@@ -948,17 +954,24 @@ it('使用云端版前保存可重新打开的独立本机副本，重复操作�
         : Response.json(remote),
     ),
   )
-  const session = new CloudProjectSession(project, editor)
+  const forked: CanvasProject[] = []
+  const session = new CloudProjectSession(project, editor, undefined, (copy) => {
+    forked.push(copy)
+  })
   await session.load(true)
-  expect(session.getSnapshot().status).toBe('conflict')
-  const copy = await session.resolveConflict('cloud')
-  expect(copy?.id).not.toBe(project.id)
-  expect(copy?.conversationId).toBeNull()
+  // 冲突不等人：本机稿自动落成副本，正本换上云端稿，人留在正本（会话跟着正本）。
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+  expect(forked).toHaveLength(1)
+  const copy = forked[0]!
+  expect(copy.id).not.toBe(project.id)
+  expect(copy.conversationId).toBeNull()
   const reopened = new CanvasEditor(new CanvasDoc())
-  expect(await loadScene(reopened, copy!.sceneKey)).toBe(true)
+  expect(await loadScene(reopened, copy.sceneKey)).toBe(true)
   expect(reopened.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(editor.doc.elements).toEqual([])
-  expect(session.getSnapshot().status).toBe('saved')
+  expect(
+    (await projectRepository.list()).find((one) => one.id === project.id)?.conversationId,
+  ).toBe('original-conversation')
   await session.resolveConflict('cloud')
   expect(await projectRepository.list()).toHaveLength(2)
 })
@@ -1101,18 +1114,29 @@ it.each([
     ...receipt(project.id, { name: '云端', baseRevision: 2, document: { elements: [] } }),
     document: { version: 1, elements: [] },
   }
+  // 自动采用云端那一步先让云端拒绝一次：冲突留在手上，才轮得到手动路径。
+  let cloudReads = 0
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_url: string, init?: RequestInit) =>
       init?.method === 'PUT'
         ? Response.json({ error: 'project_conflict' }, { status: 409 })
-        : Response.json(remote),
+        : cloudReads++ === 0
+          ? Response.json({ error: 'unavailable' }, { status: 503 })
+          : Response.json(remote),
     ),
   )
   const session = new CloudProjectSession(project, editor)
   await session.load(true)
-  // 冲突会先自动分叉一份；等它落完，再改出新内容，否则第二次分叉会复用同一副本。
-  await vi.waitFor(async () => expect(await projectRepository.list()).toHaveLength(2))
+  // 自动那一轮云端读失败就不会落副本，冲突原样留在手上；等它失败完再改内容，走手动路径。
+  await vi.waitFor(() => expect(cloudReads).toBe(1))
+  await vi.waitFor(() =>
+    expect(session.getSnapshot()).toMatchObject({
+      status: 'conflict',
+      message: expect.any(String),
+    }),
+  )
+  expect(await projectRepository.list()).toHaveLength(1)
   editor.doc.updateElements([{ id: 'note', patch: { text: '自动副本之后的编辑' } }])
   session.markChanged()
   const originalAdd = IDBObjectStore.prototype.add
@@ -1214,8 +1238,6 @@ it.each([
       : Response.json(remote),
   )
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession(project, editor)
-  await session.load(true)
   const originalPut = IDBObjectStore.prototype.put
   const fault = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
     this: IDBObjectStore,
@@ -1225,12 +1247,14 @@ it.each([
     if (args[0]?.id === project.id && args[0]?.name === '云端新名称') this.transaction.abort()
     return request
   })
+  const session = new CloudProjectSession(project, editor)
   try {
-    await expect(session.resolveConflict('cloud')).rejects.toBeDefined()
+    await session.load(true)
+    // 冲突自动采用云端稿时项目索引写不进去，状态要落到 local-error 而不是吞掉。
+    await vi.waitFor(() => expect(session.getSnapshot().status).toBe('local-error'))
   } finally {
     fault.mockRestore()
   }
-  expect(session.getSnapshot().status).toBe('local-error')
   allowWrite = true
   if (action === 'rename') await session.rename('恢复后的新名称')
   await session.sync()

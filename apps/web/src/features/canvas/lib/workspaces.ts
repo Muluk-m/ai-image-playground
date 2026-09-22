@@ -109,13 +109,14 @@ export class CanvasWorkspace {
                 : state.cloudCatalog,
             }))
           },
+          // 副本只是备份，人留在正本：告诉他备份叫什么就够了，不切过去。
           (copy) => {
             useStore
               .getState()
-              .showToast(i18next.t('sync.conflictForked', { ns: 'canvas' }), 'info')
-            void import('../../agent/store').then(({ useAgentStore }) =>
-              useAgentStore.getState().selectProject(copy.id),
-            )
+              .showToast(
+                i18next.t('sync.conflictForked', { ns: 'canvas', name: copy.name }),
+                'info',
+              )
           },
         )
         await this.cloud.load(hasLocal)
