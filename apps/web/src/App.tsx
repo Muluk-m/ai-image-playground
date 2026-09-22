@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
+import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
 import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
@@ -133,7 +134,10 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 </div>
                 {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
                 <div className="pt-6">
-                  <InputBar inline />
+                  <CreateTargetSwitch />
+                  <div className="pt-4">
+                    <InputBar inline />
+                  </div>
                 </div>
                 <InspirationChips />
                 <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
