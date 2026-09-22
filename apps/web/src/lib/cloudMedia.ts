@@ -16,16 +16,32 @@ const loading = new Map<string, Promise<string>>()
 let cacheSize = 0
 const CACHE_BYTES = 32 * 1024 * 1024
 let active = 0
-const waiting: (() => void)[] = []
+interface Waiting {
+  /** 用户点出来的取图排在前面。 */
+  urgent: boolean
+  resume: () => void
+}
+const waiting: Waiting[] = []
 
-async function bounded<T>(work: () => Promise<T>): Promise<T> {
-  if (active >= 2) await new Promise<void>((resolve) => waiting.push(resolve))
-  else active++
+/**
+ * 同时最多两路回源。作品页一进来就在铺几十张预览，用户这时点「复用配置」「编辑」「看原图」，
+ * 要取的那几张会排在整页预览后面——2026-09-22 生产实测，刚加载完就点复用要等 21s。
+ * 所以队列分两档：用户点出来的插到所有背景预览之前，背景之间仍按先来后到。
+ */
+async function bounded<T>(work: () => Promise<T>, urgent = false): Promise<T> {
+  if (active >= 2) {
+    await new Promise<void>((resolve) => {
+      const entry: Waiting = { urgent, resume: resolve }
+      const firstBackground = urgent ? waiting.findIndex((item) => !item.urgent) : -1
+      if (firstBackground >= 0) waiting.splice(firstBackground, 0, entry)
+      else waiting.push(entry)
+    })
+  } else active++
   try {
     return await work()
   } finally {
     const next = waiting.shift()
-    if (next) next()
+    if (next) next.resume()
     else active--
   }
 }
@@ -63,10 +79,15 @@ export function blobDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-/** Stable media identities remain in documents; expiring URLs only live for this request. */
+/**
+ * Stable media identities remain in documents; expiring URLs only live for this request.
+ *
+ * `urgent` 留给用户当场点出来的取图：它要插在正在铺的背景预览之前。
+ */
 export async function resolveMediaSource(
   source: string,
   variant: Variant = 'original',
+  urgent = false,
 ): Promise<string> {
   const id = mediaIdentity(source)
   if (!id) return source
@@ -117,7 +138,7 @@ export async function resolveMediaSource(
       return data
     }
     throw new Error('media_download_failed')
-  })
+  }, urgent)
   loading.set(key, operation)
   try {
     return await operation
