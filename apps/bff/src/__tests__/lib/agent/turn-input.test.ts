@@ -19,11 +19,13 @@ const {
   estimateToolDeclarationTokens,
   estimateTurnInputTokens,
   estimatedTurnInput,
+  expandSkillInvocation,
   turnInitialState,
   turnModelPrompt,
   turnPromptText,
   turnVisualEvidence,
 } = await import('../../../lib/agent/turn-input')
+const { lookSkillContent } = await import('../../../lib/agent/skills')
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
 const { generateVideo } = await import('../../../lib/agent/tools/generateVideo')
 
@@ -328,5 +330,78 @@ describe('estimated and sent turn input', () => {
       estimateTurnInputTokens(unfolded([]), '复核', [], 'image', [reviewed.imageId]) -
         estimateTurnInputTokens(unfolded([]), '复核', []),
     ).toBeGreaterThanOrEqual(1200)
+  })
+})
+
+describe('这一轮的观众', () => {
+  const look = {
+    id: 'l1',
+    name: '岩壁大理石',
+    description: '何时用：给素材出冷峻岩壁场景图。不处理：白底主图。',
+    body: '## 1. 一句话目标\n把素材放进岩壁场景。',
+    model: 'gpt-image-2.5-sunburst',
+    size: '3:4',
+    slotCount: 1,
+  }
+  const audience = {
+    userId: 'user-1',
+    looks: [
+      {
+        name: 'look-l1',
+        title: look.name,
+        description: look.description,
+        content: lookSkillContent(look),
+        directory: '',
+        icon: 'sparkles',
+        summary: '',
+      },
+    ],
+  }
+
+  it('把这个用户的模板排进技能清单，正文留在外面', () => {
+    const { systemPrompt } = turnInitialState([], 'image', false, 0, audience)
+    expect(systemPrompt).toContain('<name>look-l1</name>')
+    expect(systemPrompt).toContain(`<description>${look.description}</description>`)
+    expect(systemPrompt).toContain('<location>skill://look-l1/SKILL.md</location>')
+    // 正文要模型自己调 loadSkill 才进上下文，常驻里一个字都不该有。
+    expect(systemPrompt).not.toContain('把素材放进岩壁场景')
+  })
+
+  it('没有观众的那一轮一条模板都不露', () => {
+    expect(turnInitialState([], 'image').systemPrompt).not.toContain('look-l1')
+  })
+
+  it('视频轮不列模板，也不认它的斜杠命令', () => {
+    // 模板钉的是出图模型与尺寸；内置模板同样只放在 `image/` 下。
+    expect(turnInitialState([], 'video', false, 0, audience).systemPrompt).not.toContain('look-l1')
+    expect(expandSkillInvocation('/look-l1 出个片子', 'video', audience)).toBe('/look-l1 出个片子')
+  })
+
+  it('`/look-<id>` 与内置技能走同一条注入路', () => {
+    const expanded = expandSkillInvocation('/look-l1 用这条浴缸素材', 'image', audience)
+    expect(expanded).toContain('<skill name="look-l1" location="skill://look-l1/SKILL.md">')
+    expect(expanded).toContain('模型：gpt-image-2.5-sunburst · 尺寸：3:4 · 素材位：1')
+    expect(expanded).toContain('把素材放进岩壁场景')
+    expect(expanded).toContain('用这条浴缸素材')
+  })
+
+  it('不带观众时 `/look-<id>` 只是一句普通文字', () => {
+    expect(expandSkillInvocation('/look-l1 用这条浴缸素材', 'image')).toBe(
+      '/look-l1 用这条浴缸素材',
+    )
+  })
+
+  it('预扣把模板清单也算进去', () => {
+    const withLook = estimateTurnInputTokens(
+      unfolded([]),
+      '出一张',
+      [],
+      'image',
+      [],
+      false,
+      0,
+      audience,
+    )
+    expect(withLook).toBeGreaterThan(estimateTurnInputTokens(unfolded([]), '出一张', []))
   })
 })

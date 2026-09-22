@@ -1,7 +1,11 @@
-import type { UserAssetRow, UserTemplateRow } from '@image-playground/db'
+import type { UserAssetRow, UserLookRow, UserTemplateRow } from '@image-playground/db'
 import type {
   SyncAssetChange,
   SyncAssetRecord,
+  SyncAssetView,
+  SyncCollection,
+  SyncLookChange,
+  SyncLookRecord,
   SyncRejection,
   SyncRequestBody,
   SyncResponseBody,
@@ -9,7 +13,7 @@ import type {
   SyncTemplateChange,
   SyncTombstone,
 } from '@image-playground/shared'
-import { isSyncTombstone } from '@image-playground/shared'
+import { isSyncTombstone, syncAssetImageIds, syncLookImageIds } from '@image-playground/shared'
 import { and, asc, eq, gt, inArray, or, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { db, schema } from '../db/client'
@@ -75,7 +79,7 @@ function dedupe<Change extends { id: string }>(changes: readonly Change[] | unde
 /** 合并只看元信息列，不必把提示词一起读回来。 */
 async function loadExistingMeta(
   tx: BffTransaction,
-  table: typeof schema.user_templates | typeof schema.user_assets,
+  table: typeof schema.user_templates | typeof schema.user_assets | typeof schema.user_looks,
   userId: string,
   ids: readonly string[],
 ): Promise<Map<string, ExistingMeta>> {
@@ -128,12 +132,40 @@ function templateChange(row: UserTemplateRow): SyncTemplateChange {
   }
 }
 
+/** `views` 之前写下的行没有视角，读回来仍是封面那一张视角。 */
+function assetViews(row: UserAssetRow): SyncAssetView[] {
+  if (row.views && row.views.length > 0) return row.views
+  return [{ imageId: row.image_id!, label: 'none', source: 'upload' }]
+}
+
 function assetChange(row: UserAssetRow): SyncAssetChange {
   if (row.deleted_at !== null) return tombstoneOf(row.id, row.updated_at, row.deleted_at)
   return {
     id: row.id,
     name: row.name!,
     imageId: row.image_id!,
+    ...(row.kind ? { kind: row.kind } : {}),
+    ...(row.background ? { background: row.background } : {}),
+    views: assetViews(row),
+    createdAt: row.created_at!,
+    updatedAt: row.updated_at,
+    lastUsedAt: row.last_used_at ?? row.updated_at,
+  }
+}
+
+function lookChange(row: UserLookRow): SyncLookChange {
+  if (row.deleted_at !== null) return tombstoneOf(row.id, row.updated_at, row.deleted_at)
+  return {
+    id: row.id,
+    name: row.name!,
+    description: row.description!,
+    purpose: row.purpose ?? 'hero',
+    body: row.body!,
+    model: row.model ?? '',
+    size: row.size ?? '',
+    slotCount: row.slot_count ?? 0,
+    referenceImageIds: row.reference_image_ids ?? [],
+    coverImageId: row.cover_image_id,
     createdAt: row.created_at!,
     updatedAt: row.updated_at,
     lastUsedAt: row.last_used_at ?? row.updated_at,
@@ -206,23 +238,28 @@ async function mergeTemplates(
   })
 }
 
-/** 素材记录只有在图片本体已上传后才算可同步；被拒的那条不影响同批其它记录。 */
-async function partitionAssets(
+/**
+ * 记录只有在它要的图片本体全部已上传后才算可同步；被拒的那条不影响同批其它记录。
+ * 素材数全部视角，模板数参考图与封面——两边用的是同一份台账。
+ */
+async function partitionByImages<Change extends { id: string }>(
   tx: BffTransaction,
   userId: string,
-  changes: readonly SyncAssetChange[],
-): Promise<{ accepted: SyncAssetChange[]; rejected: SyncRejection[] }> {
-  const live = changes.filter((change): change is SyncAssetRecord => !isSyncTombstone(change))
-  const uploaded = await uploadedImageIds(
-    tx,
-    userId,
-    live.map((change) => change.imageId),
-  )
-  const accepted: SyncAssetChange[] = []
+  collection: SyncCollection,
+  changes: readonly (Change | SyncTombstone)[],
+  imagesOf: (change: Change) => string[],
+): Promise<{ accepted: Array<Change | SyncTombstone>; rejected: SyncRejection[] }> {
+  const wanted = new Map<string, string[]>()
+  for (const change of changes) {
+    if (!isSyncTombstone(change)) wanted.set(change.id, imagesOf(change as Change))
+  }
+  const uploaded = await uploadedImageIds(tx, userId, [...wanted.values()].flat())
+  const accepted: Array<Change | SyncTombstone> = []
   const rejected: SyncRejection[] = []
   for (const change of changes) {
-    if (isSyncTombstone(change) || uploaded.has(change.imageId)) accepted.push(change)
-    else rejected.push({ collection: 'assets', id: change.id, reason: 'asset_image_missing' })
+    const images = wanted.get(change.id)
+    if (!images || images.every((imageId) => uploaded.has(imageId))) accepted.push(change)
+    else rejected.push({ collection, id: change.id, reason: 'asset_image_missing' })
   }
   return { accepted, rejected }
 }
@@ -245,8 +282,86 @@ async function mergeAssets(
       const values = {
         ...metaValues(userId, change, version, lastUsedAt),
         ...(isSyncTombstone(change)
-          ? { name: null, image_id: null, created_at: null }
-          : { name: change.name, image_id: change.imageId, created_at: change.createdAt }),
+          ? {
+              name: null,
+              image_id: null,
+              kind: null,
+              background: null,
+              views: null,
+              created_at: null,
+            }
+          : {
+              name: change.name,
+              // 封面这一列永远等于第一条视角，`views` 之前的客户端只读它。
+              image_id: change.imageId,
+              kind: change.kind ?? null,
+              background: change.background ?? null,
+              views: [...incomingViews(change)],
+              created_at: change.createdAt,
+            }),
+      }
+      await tx
+        .insert(table)
+        .values(values)
+        .onConflictDoUpdate({ target: [table.user_id, table.id], set: values })
+    },
+    async touch(id, version, lastUsedAt) {
+      await tx
+        .update(table)
+        .set({ last_used_at: lastUsedAt, version })
+        .where(and(eq(table.user_id, userId), eq(table.id, id)))
+    },
+  })
+}
+
+/** `views` 之前的客户端只推封面，落库时补成唯一那条视角。 */
+function incomingViews(change: SyncAssetRecord): readonly SyncAssetView[] {
+  if (change.views && change.views.length > 0) return change.views
+  return [{ imageId: change.imageId, label: 'none', source: 'upload' }]
+}
+
+async function mergeLooks(
+  tx: BffTransaction,
+  userId: string,
+  changes: readonly SyncLookChange[],
+  allocate: AllocateVersion,
+): Promise<string[]> {
+  const table = schema.user_looks
+  const existing = await loadExistingMeta(
+    tx,
+    table,
+    userId,
+    changes.map((change) => change.id),
+  )
+  return mergeChanges(changes, existing, allocate, {
+    async write(change, version, lastUsedAt) {
+      const values = {
+        ...metaValues(userId, change, version, lastUsedAt),
+        ...(isSyncTombstone(change)
+          ? {
+              name: null,
+              description: null,
+              purpose: null,
+              body: null,
+              model: null,
+              size: null,
+              slot_count: null,
+              reference_image_ids: null,
+              cover_image_id: null,
+              created_at: null,
+            }
+          : {
+              name: change.name,
+              description: change.description,
+              purpose: change.purpose,
+              body: change.body,
+              model: change.model,
+              size: change.size,
+              slot_count: change.slotCount,
+              reference_image_ids: [...change.referenceImageIds],
+              cover_image_id: change.coverImageId,
+              created_at: change.createdAt,
+            }),
       }
       await tx
         .insert(table)
@@ -295,6 +410,7 @@ export async function synchronize(
 ): Promise<SyncResponseBody> {
   const templates = dedupe(request.templates)
   const assets = dedupe(request.assets)
+  const looks = dedupe(request.looks)
 
   return db.transaction(async (tx) => {
     const startVersion = await lockSyncVersion(tx, userId)
@@ -304,8 +420,10 @@ export async function synchronize(
     const clientVersion = Math.min(Math.max(request.version, 0), startVersion)
 
     const staleTemplateIds = await mergeTemplates(tx, userId, templates, allocate)
-    const { accepted, rejected } = await partitionAssets(tx, userId, assets)
-    const staleAssetIds = await mergeAssets(tx, userId, accepted, allocate)
+    const acceptedAssets = await partitionByImages(tx, userId, 'assets', assets, syncAssetImageIds)
+    const acceptedLooks = await partitionByImages(tx, userId, 'looks', looks, syncLookImageIds)
+    const staleAssetIds = await mergeAssets(tx, userId, acceptedAssets.accepted, allocate)
+    const staleLookIds = await mergeLooks(tx, userId, acceptedLooks.accepted, allocate)
     const staleSettings = await mergeSettings(tx, userId, request.settings, allocate)
 
     if (version !== startVersion) {
@@ -345,6 +463,21 @@ export async function synchronize(
         ),
       )
       .orderBy(asc(schema.user_assets.version))
+    const lookRows = await tx
+      .select()
+      .from(schema.user_looks)
+      .where(
+        and(
+          eq(schema.user_looks.user_id, userId),
+          pullCondition(
+            schema.user_looks.version,
+            schema.user_looks.id,
+            clientVersion,
+            staleLookIds,
+          ),
+        ),
+      )
+      .orderBy(asc(schema.user_looks.version))
     const [settingsRow] = await tx
       .select()
       .from(schema.user_preferences)
@@ -354,11 +487,12 @@ export async function synchronize(
       version,
       templates: templateRows.map(templateChange),
       assets: assetRows.map(assetChange),
+      looks: lookRows.map(lookChange),
       settings:
         settingsRow && (settingsRow.version > clientVersion || staleSettings)
           ? { updatedAt: settingsRow.updated_at, document: settingsRow.document }
           : null,
-      rejected,
+      rejected: [...acceptedAssets.rejected, ...acceptedLooks.rejected],
     }
   })
 }

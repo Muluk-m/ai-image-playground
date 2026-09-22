@@ -2,6 +2,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
   AgentMode,
+  AgentSaveCard,
   AgentSkillOutcome,
   AgentTimelinePlan,
   AgentToolArtifact,
@@ -15,6 +16,16 @@ import type { AgentAutoSubmitBudget } from '../auto-submit'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
 import type { TurnAuthorizationText } from '../turn-authorization'
+
+/**
+ * 这一轮的工具清单要按谁来筛。不是每个工具都对所有人在场：存素材、存模板要写进这个人的
+ * 素材库，没登录就没有可写的地方，清单里也就不该出现它们。
+ *
+ * 只带 userId：能力开关是部署的事，各工具自己问（见 `lib/capabilities.ts`）。
+ */
+export interface AgentToolAudience {
+  readonly userId: string | null
+}
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
 export interface AgentToolContext {
@@ -73,6 +84,8 @@ export interface AgentToolDetails {
   readonly skill?: AgentSkillOutcome
   /** 排时间线的结果；只有那个工具会填。 */
   readonly timeline?: AgentTimelinePlan
+  /** 备好的保存卡片；只有存素材、存模板那两个工具会填。 */
+  readonly saveCard?: AgentSaveCard
 }
 
 /**
@@ -135,8 +148,11 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
    * 换成模型可以改参数重试的工具就填 `continue`。
    */
   readonly onError: 'abort' | 'continue'
-  /** 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。 */
-  available?(mode: AgentMode): boolean
+  /**
+   * 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。
+   * 起轮之前算清单 token 时没有 `audience`（那一刻还没定下是谁），按最小清单算。
+   */
+  available?(mode: AgentMode, audience?: AgentToolAudience): boolean
   /**
    * 提交生成任务的工具才有：这一轮的参数下要用哪个模型。有它，这次调用起跑时就记一份
    * 参数快照（{@link AgentToolCallSnapshot}），失败记录与重试都从那里取参数。
@@ -173,7 +189,7 @@ export interface AgentToolSpec {
   readonly confirms?: true
   /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
   declaration(): AgentToolDeclaration
-  available?(mode: AgentMode): boolean
+  available?(mode: AgentMode, audience?: AgentToolAudience): boolean
   call(args: unknown, mode: AgentMode): AgentToolCall
   /** 起跑时的参数快照，图片 id 由调用方翻译；缺席即这个工具不提交生成任务，不记快照。 */
   snapshot?(

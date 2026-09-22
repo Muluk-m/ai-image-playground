@@ -38,6 +38,7 @@ export const EXPECTED_TABLES = [
   'user_preferences',
   'user_sessions',
   'user_sync_state',
+  'user_looks',
   'user_templates',
   'users',
 ] as const
@@ -107,6 +108,7 @@ export const EXPECTED_INDEXES = [
   'idx_user_identities_user_id',
   'idx_user_sessions_expires_at',
   'idx_user_sessions_user_id',
+  'idx_user_looks_user_version',
   'idx_user_templates_user_version',
   'idx_users_username',
   'operator_audits_pkey',
@@ -118,11 +120,12 @@ export const EXPECTED_INDEXES = [
   'user_preferences_pkey',
   'user_sessions_pkey',
   'user_sync_state_pkey',
+  'user_looks_user_id_id_pk',
   'user_templates_user_id_id_pk',
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 34
+const EXPECTED_MIGRATION_COUNT = 39
 
 export interface SchemaVerificationResult {
   tables: number

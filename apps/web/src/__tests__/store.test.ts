@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssetRecord, TemplateRecord } from '../features/library/types'
+import type { AssetRecord, LookRecord, TemplateRecord } from '../features/library/types'
 import {
   createDefaultGeminiByokProfile,
   createDefaultOpenAIByokProfile,
@@ -93,6 +93,24 @@ vi.mock('../features/library/lib/templateStore', () => {
       },
       remove: async (id: string) => {
         templates.delete(id)
+      },
+    },
+  }
+})
+
+vi.mock('../features/library/lib/lookStore', () => {
+  const looks = new Map<string, LookRecord>()
+  return {
+    lookImageIds: (look: LookRecord) => [...look.referenceImageIds],
+    lookStore: {
+      list: async () => [...looks.values()],
+      listChanges: async () => [...looks.values()],
+      applyRemote: async () => {},
+      put: async (look: LookRecord) => {
+        looks.set(look.id, look)
+      },
+      remove: async (id: string) => {
+        looks.delete(id)
       },
     },
   }
@@ -1064,7 +1082,7 @@ describe('素材引用与模板套用后提交', () => {
     await useLibraryStore.getState().saveAsset(imageId, name)
     const asset = useLibraryStore
       .getState()
-      .assets.find((a) => a.imageId === imageId && a.name === name)
+      .assets.find((a) => a.views.some((view) => view.imageId === imageId) && a.name === name)
     if (!asset) throw new Error('asset not saved')
     return useLibraryStore.getState().attachAsset(asset.id)
   }

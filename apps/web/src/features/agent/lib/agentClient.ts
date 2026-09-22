@@ -14,6 +14,8 @@ import type {
   AgentQueueWithdrawResult,
   AgentRetryResponse,
   AgentReturnedQueuedMessage,
+  AgentSaveCardKind,
+  AgentSaveResponse,
   AgentSkillSummary,
   AgentToolErrorCode,
   AgentTurnAbortedBody,
@@ -493,6 +495,30 @@ export async function confirmToolPrompt(
   if (!response.ok) throw await requestError(response)
   // 端点的响应形状由协议定死，与这个文件里其它端点一样按它读。
   const body = (await response.json()) as AgentConfirmationResponse
+  return body.message
+}
+
+/**
+ * 用户按下了保存卡片上的保存：记录已经写进本机素材库，这里告诉服务端把卡改写成已保存，
+ * 并让智能体知道这件事。服务端就地改写同一条消息，返回保存之后它的样子。
+ * 重复提交是幂等的：已经保存过的那条原样返回，不会再排一条消息。
+ */
+export async function postSave(
+  conversationId: string,
+  save: {
+    readonly toolCallId: string
+    readonly kind: AgentSaveCardKind
+    readonly recordId: string
+    readonly name: string
+  },
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentMessageView> {
+  const response = await fetcher(url(`/conversations/${conversationId}/saves`), {
+    ...jsonInit({ deviceId: getDeviceId(), ...save }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  const body = (await response.json()) as AgentSaveResponse
   return body.message
 }
 

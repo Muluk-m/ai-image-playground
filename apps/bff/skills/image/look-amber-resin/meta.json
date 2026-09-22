@@ -1,0 +1,12 @@
+{
+  "icon": "flame",
+  "summary": "窄光束打出的暖调琥珀主图",
+  "template": {
+    "purpose": "hero",
+    "model": "gpt-image-2.5-sunburst",
+    "size": "3:4",
+    "slotCount": 1,
+    "cover": "cover.webp",
+    "references": ["cover.webp"]
+  }
+}
