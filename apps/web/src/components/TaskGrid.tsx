@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
+import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { i18next, useTranslation } from '../i18n'
 import {
   type LegacyProductJob,
@@ -29,7 +30,7 @@ function setFallbackName(task: TaskRecord | undefined): string {
  */
 export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boolean } = {}) {
   const { t } = useTranslation('task')
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
   const filterFavorite = useStore((s) => s.filterFavorite)
