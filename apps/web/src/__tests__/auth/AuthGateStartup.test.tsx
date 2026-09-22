@@ -131,3 +131,59 @@ describe('fallback startup', () => {
     expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
   })
 })
+
+describe('anonymous startup', () => {
+  /** 401 的 /api/auth/me 不再是拦路虎：访客照样进工作台，channel 清单也照拉。 */
+  async function bootAnonymously(): Promise<void> {
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/auth/me'))
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      return original(...args)
+    })
+    await boot()
+  }
+
+  it('mounts the workspace for a visitor without a session', async () => {
+    await bootAnonymously()
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(calls.some(([url]) => String(url).includes('/api/channels'))).toBe(true)
+    const { scopedStorageName } = await import('../../lib/authScope')
+    expect(scopedStorageName('image-playground')).toBe('image-playground')
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+  })
+
+  it('opens the login dialog when a gated action asks for an account', async () => {
+    await bootAnonymously()
+    const { requireAccount } = await import('../../auth/loginPrompt')
+
+    let allowed = true
+    await act(async () => {
+      allowed = requireAccount()
+    })
+
+    expect(allowed).toBe(false)
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  })
+
+  it('keeps the workspace up and offers a re-login when the session expires', async () => {
+    await boot()
+    const { AUTH_SESSION_EXPIRED_EVENT } = await import('../../lib/authClient')
+
+    await act(async () => window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT)))
+
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+    const card = host.textContent ?? ''
+    expect(card).toContain('登录状态已失效')
+
+    const relogin = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === '重新登录',
+    )
+    await act(async () => relogin?.click())
+
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+  })
+})

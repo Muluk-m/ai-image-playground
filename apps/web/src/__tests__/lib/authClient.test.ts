@@ -1,5 +1,6 @@
 import { BAKED_DEFAULTS } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setSignedIn } from '../../auth/loginPrompt'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   authenticatedBffFetch,
@@ -39,6 +40,7 @@ describe('auth client', () => {
     )
     await bootstrapClientCapabilities(true, 'https://bff.example.com')
     vi.unstubAllGlobals()
+    setSignedIn(false)
   })
 
   afterEach(async () => {
@@ -117,6 +119,7 @@ describe('auth client', () => {
     const expired = vi.fn()
     events.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
     vi.stubGlobal('window', events)
+    setSignedIn(true)
 
     const fetchSpy = vi.fn(async () => new Response(null, { status: 401 }))
     vi.stubGlobal('fetch', fetchSpy)
@@ -128,6 +131,22 @@ describe('auth client', () => {
       credentials: 'include',
     })
     expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('stays quiet on a 401 for a visitor who never signed in', async () => {
+    const events = new EventTarget()
+    const expired = vi.fn()
+    events.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+    vi.stubGlobal('window', events)
+    setSignedIn(false)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 401 })),
+    )
+
+    await authenticatedBffFetch('/v1/queue/requests/id/status')
+
+    expect(expired).not.toHaveBeenCalled()
   })
 
   it('points the OAuth start route at the configured BFF origin', () => {
