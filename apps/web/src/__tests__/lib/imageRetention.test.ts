@@ -7,6 +7,7 @@ import {
   putTask,
   STORE_ASSETS,
   STORE_BGSWAP_JOBS,
+  STORE_LOOKS,
   STORE_STORYBOARDS,
   STORE_VIDEO_TASKS,
 } from '../../lib/db'
@@ -81,6 +82,9 @@ describe('shared image ownership', () => {
       'workflow-source',
       'workflow-reference',
       'asset',
+      'asset-side',
+      'look-reference',
+      'look-cover',
       'first-frame',
       'last-frame',
       'story-reference',
@@ -90,10 +94,19 @@ describe('shared image ownership', () => {
     await images([...retained, 'orphan', 'deleted-asset'])
     await productJob()
     await dbTransaction(STORE_ASSETS, 'readwrite', (store) =>
-      store.put({ id: 'asset-record', imageId: 'asset' }),
+      store.put({
+        id: 'asset-record',
+        views: [
+          { imageId: 'asset', label: 'front', source: 'upload' },
+          { imageId: 'asset-side', label: 'side', source: 'generated' },
+        ],
+      }),
     )
     await dbTransaction(STORE_ASSETS, 'readwrite', (store) =>
-      store.put({ id: 'deleted', imageId: 'deleted-asset', deletedAt: 2 }),
+      store.put({ id: 'deleted', updatedAt: 2, deletedAt: 2 }),
+    )
+    await dbTransaction(STORE_LOOKS, 'readwrite', (store) =>
+      store.put({ id: 'look', referenceImageIds: ['look-reference'], coverImageId: 'look-cover' }),
     )
     await dbTransaction(STORE_VIDEO_TASKS, 'readwrite', (store) =>
       store.put({ id: 'video', firstFrameImageId: 'first-frame', lastFrameImageId: 'last-frame' }),

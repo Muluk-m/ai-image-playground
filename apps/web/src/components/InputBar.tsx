@@ -2,11 +2,13 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import AssetHint from '../features/library/components/AssetHint'
+import { applyLookToComposer, useActiveLook } from '../features/library/lib/activeLook'
 import {
   type AtMentionValue,
   buildAtMentionGroups,
   getAssetNamesByImageId,
 } from '../features/library/lib/assetMentions'
+import { checkLookSubmission, submitWithLook } from '../features/library/lib/lookSubmit'
 import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
 import { useLibraryStore } from '../features/library/store'
 import { useImageInputScope } from '../hooks/useImageInputScope'
@@ -56,6 +58,7 @@ import {
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { ChipIcons } from './chipIcons'
 import { BookmarkIcon, CloseIcon, LibraryIcon, LinkIcon, MaskBrushIcon } from './icons'
+import LookChips, { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
@@ -214,7 +217,20 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : t('common:action.generate')
   const submissionInput = { model: activeView.model, quantity: submitImageCount }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
+  // 生成模式挂着模板胶囊时：素材条数要与素材位对上，提交走模板组装。画布档不管它（那是智能体的事）。
+  const activeLook = useActiveLook((s) => s.look)
+  const libraryAssets = useLibraryStore((s) => s.assets)
+  const lookCheck = useMemo(
+    () => (activeLook ? checkLookSubmission(activeLook, inputImages, libraryAssets) : null),
+    [activeLook, inputImages, libraryAssets],
+  )
+  const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
+  const canSubmit = Boolean(
+    (prompt.trim() || activeLook) &&
+      hasSubmitApiConfig &&
+      !submissionGuard.blocked &&
+      (lookCheck?.ok ?? true),
+  )
   // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
   const createTarget = useStore((s) => s.createTarget)
   const toCanvas = inline && createTarget === 'canvas'
@@ -222,6 +238,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit
   const submit = () => {
     if (toCanvas) void startCanvasFromComposer()
+    else if (activeLook) void submitWithLook(activeLook, lookBody)
     else submitTask()
   }
   const submitLabel = toCanvas ? t('submit.startCanvas') : generateLabel
@@ -1407,6 +1424,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 ))}
 
               {/* 输入框 */}
+              {activeLook && !toCanvas && (
+                <LookCapsule
+                  look={activeLook}
+                  issue={lookCheck && !lookCheck.ok ? lookCheck : null}
+                  onRemove={() => useActiveLook.getState().set(null)}
+                />
+              )}
               <div className="relative">
                 {openSlot && (
                   <SlotValuePopover
@@ -1730,6 +1754,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   </div>
                 </div>
               </div>
+
+              {!toCanvas && <LookChips onPick={applyLookToComposer} />}
 
               <input
                 ref={fileInputRef}

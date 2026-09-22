@@ -1,0 +1,12 @@
+{
+  "icon": "waves",
+  "summary": "海景客房落地窗前的度假感",
+  "template": {
+    "purpose": "poster",
+    "model": "gpt-image-2.5-sunburst",
+    "size": "3:4",
+    "slotCount": 1,
+    "cover": "cover.webp",
+    "references": ["cover.webp"]
+  }
+}

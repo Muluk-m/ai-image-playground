@@ -24,9 +24,12 @@ import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
+import { saveAsset } from './saveAsset'
+import { saveLook } from './saveLook'
 import type {
   AgentReplayedSubmission,
   AgentSubmissionReplay,
+  AgentToolAudience,
   AgentToolContext,
   AgentToolDeclaration,
   AgentToolDetails,
@@ -40,6 +43,7 @@ export { createToolFailureLog, type ToolFailureLog } from './errors'
 export type {
   AgentReplayedSubmission,
   AgentSubmissionReplay,
+  AgentToolAudience,
   AgentToolContext,
   AgentToolDeclaration,
   AgentToolDetails,
@@ -54,6 +58,8 @@ const TOOLS: readonly AgentToolSpec[] = [
   generateVideo,
   arrangeTimeline,
   loadSkill,
+  saveAsset,
+  saveLook,
 ]
 
 function find(name: string): AgentToolSpec | undefined {
@@ -61,11 +67,13 @@ function find(name: string): AgentToolSpec | undefined {
 }
 
 /**
- * 这一轮模型看得见的工具：先按创作类型过滤，再按部署开关。两道筛子都只管「这一轮」，
- * 历史里已有的工具结果照样认得出来（`isAgentToolName` 与 `agentToolStart/End` 不过筛）。
+ * 这一轮模型看得见的工具：先按创作类型过滤，再按部署开关与「这一轮是谁」。三道筛子都只管
+ * 「这一轮」，历史里已有的工具结果照样认得出来（`isAgentToolName` 与 `agentToolStart/End` 不过筛）。
  */
-function present(mode: AgentMode): AgentToolSpec[] {
-  return TOOLS.filter((tool) => tool.modes.includes(mode) && (tool.available?.(mode) ?? true))
+function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
+  return TOOLS.filter(
+    (tool) => tool.modes.includes(mode) && (tool.available?.(mode, audience) ?? true),
+  )
 }
 
 /**
@@ -85,7 +93,7 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  */
 export function agentTurnTools(context: AgentToolContext, failures?: ToolFailureLog): AgentTool[] {
   return [
-    ...present(context.mode).map((spec) => {
+    ...present(context.mode, { userId: context.userId }).map((spec) => {
       const tool = spec.create(context)
       const execute = tool.execute
       return {
@@ -184,16 +192,22 @@ function replayedJob(
 
 /**
  * 同一份清单里随请求发出去的那部分声明，不需要运行期 context——预扣估算发生在起轮之前，
- * 拿不到 images / 事件这些东西，但清单的 token 照样得算进去。创作类型是例外：它在起轮前
- * 就定了，而且正是它决定清单里有哪几个工具。
+ * 拿不到 images / 事件这些东西，但清单的 token 照样得算进去。创作类型与「这一轮是谁」是例外：
+ * 两者都在起轮前就定了，而且正是它们决定清单里有哪几个工具。
  */
-export function agentToolDeclarations(mode: AgentMode): AgentToolDeclaration[] {
-  return [...present(mode).map((tool) => tool.declaration()), toolDeclaration(clarificationTool)]
+export function agentToolDeclarations(
+  mode: AgentMode,
+  audience?: AgentToolAudience,
+): AgentToolDeclaration[] {
+  return [
+    ...present(mode, audience).map((tool) => tool.declaration()),
+    toolDeclaration(clarificationTool),
+  ]
 }
 
 /** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */
-export function agentToolGuidance(mode: AgentMode): string[] {
-  return present(mode).map((tool) => tool.guidance())
+export function agentToolGuidance(mode: AgentMode, audience?: AgentToolAudience): string[] {
+  return present(mode, audience).map((tool) => tool.guidance())
 }
 
 export function isAgentToolName(name: string): name is AgentToolName {

@@ -9,6 +9,7 @@ import type {
   AgentQueueInterjectResult,
   AgentRetryRefusedBody,
   AgentRetryResponse,
+  AgentSaveResponse,
   AgentTurnAbortedBody,
   AuthUserView,
 } from '@image-playground/shared'
@@ -17,6 +18,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
@@ -80,6 +82,7 @@ import {
   runningTurn,
   turnStopping,
 } from '../lib/agent/runningTurns'
+import { markAgentSaveCardSaved } from '../lib/agent/saves'
 import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { drainConversationInbox } from '../lib/agent/start-turn'
@@ -462,6 +465,52 @@ export const agentRoutes = new Elysia()
     },
   )
   .post(
+    // 用户在保存卡片上按下了保存：记录已经落在他自己的浏览器里（素材库是本机的东西），
+    // 这里只把卡改写成已保存，并往收件箱里放一条话，智能体下一轮接着往下说。
+    // 那条话要进正在跑的那一轮的事件流与排队列表，所以与发消息走同一条转发。
+    '/api/agent/conversations/:id/saves',
+    async ({ params, body, authUser, status, request }) => {
+      const conversation = await findAgentConversation(params.id, ownerOf(authUser, body.deviceId))
+      if (!conversation) return status(404, NOT_FOUND)
+      const forwarded = await forwardActiveTurn(conversation.id, request, body)
+      if (forwarded) return forwarded
+      const outcome = await markAgentSaveCardSaved({
+        conversationId: conversation.id,
+        toolCallId: body.toolCallId,
+        kind: body.kind,
+        recordId: body.recordId,
+        name: body.name,
+        deviceId: body.deviceId,
+      })
+      if (outcome.kind === 'not_found') return status(404, { error: 'message_not_found' })
+      if (outcome.kind === 'not_savable') return status(422, { error: 'not_savable' })
+      if (outcome.kind === 'saved' && outcome.queued) {
+        // 排进去的那句话得有人取：会话闲着就当场开轮，忙着就等这一轮收尾（与发消息同一条路）。
+        if (runningTurn(conversation.id))
+          notifyConversation(conversation.id, { type: 'messageQueued', message: outcome.queued })
+        else
+          void drainConversationInbox(conversation.id).catch((err) =>
+            log.error(
+              { event: 'agent.inbox_drain_failed', conversationId: conversation.id, err },
+              'save notice could not start a turn',
+            ),
+          )
+      }
+      const response: AgentSaveResponse = { message: outcome.message }
+      return response
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        deviceId: deviceIdSchema(),
+        toolCallId: t.String({ minLength: 1, maxLength: 128 }),
+        kind: t.Union([t.Literal('asset'), t.Literal('look')]),
+        recordId: t.String({ minLength: 1, maxLength: 128 }),
+        name: t.String({ minLength: 1, maxLength: SYNC_NAME_MAX_LENGTH }),
+      }),
+    },
+  )
+  .post(
     '/api/agent/conversations/:id/turns',
     async ({ params, body, authUser, request, server, status }) => {
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
@@ -661,19 +710,53 @@ export const agentRoutes = new Elysia()
     },
   )
   .get(
-    // 输入框打 `/` 时的候选。只有名字与「何时用」：正文是给模型读的，不是给这个弹层读的。
+    // 输入框打 `/` 时的候选，也是模板页的清单。只有名字与「何时用」：正文是给模型读的，
+    // 不是给这个弹层读的；预置模板另带封面与钉死的参数，那几项只给界面。
     '/api/agent/skills',
-    async ({ query }) => {
+    async ({ query, authUser }) => {
       // 动态引入：`skills` 与 `tools` 静态依赖 pi，模块图不该因为一条清单端点被提到路由加载时。
-      const [{ agentSkillSummaries, ensureAgentSkills }, { resolveAgentMode }] = await Promise.all([
-        import('../lib/agent/skills'),
-        import('../lib/agent/tools'),
-      ])
+      const [{ listAgentSkillSummaries, ensureAgentSkills }, { resolveAgentMode }] =
+        await Promise.all([import('../lib/agent/skills'), import('../lib/agent/tools')])
       await ensureAgentSkills()
       // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
-      return { skills: agentSkillSummaries(resolveAgentMode(query.mode ?? 'image')) }
+      return {
+        skills: await listAgentSkillSummaries(
+          resolveAgentMode(query.mode ?? 'image'),
+          authUser?.id ?? null,
+        ),
+      }
     },
     { query: t.Object({ mode: modeSchema }) },
+  )
+  .get(
+    // 预置模板的封面与参考图。图片随技能目录发布，所以取法也跟着技能走：认技能名与文件名，
+    // 路径守卫与读正文那一路同一份。不认证——这些字节随镜像发给所有人，本来就不是谁的私物。
+    '/api/agent/skills/:name/files/:file',
+    async ({ params, query, status }) => {
+      const [{ readAgentSkillFileBytes, ensureAgentSkills }, { resolveAgentMode }] =
+        await Promise.all([import('../lib/agent/skills'), import('../lib/agent/tools')])
+      await ensureAgentSkills()
+      const result = await readAgentSkillFileBytes(
+        resolveAgentMode(query.mode ?? 'image'),
+        params.name,
+        params.file,
+      )
+      if (result.kind !== 'ok') return status(404, { error: 'skill_file_not_found' })
+      return new Response(result.bytes, {
+        headers: {
+          'content-type': result.contentType,
+          // 随镜像发的静态字节：同一个部署里它不会变，变了也是换了一版镜像。
+          'cache-control': 'public, max-age=3600, immutable',
+        },
+      })
+    },
+    {
+      params: t.Object({
+        name: t.String({ maxLength: 128 }),
+        file: t.String({ maxLength: 128 }),
+      }),
+      query: t.Object({ mode: modeSchema }),
+    },
   )
   .get(
     '/api/agent/conversations',

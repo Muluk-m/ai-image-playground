@@ -19,15 +19,16 @@ const IMAGE_A: InputImage = { id: 'image-a', dataUrl: 'data:,a' }
 const IMAGE_B: InputImage = { id: 'image-b', dataUrl: 'data:,b' }
 const IMAGE_C: InputImage = { id: 'image-c', dataUrl: 'data:,c' }
 
-function makeAsset(overrides: Partial<AssetRecord> = {}): AssetRecord {
+function makeAsset(overrides: Partial<AssetRecord> & { imageId?: string } = {}): AssetRecord {
+  const { imageId = 'image-a', ...rest } = overrides
   return {
     id: 'a1',
     name: '白底图',
-    imageId: 'image-a',
+    views: [{ imageId, label: 'none', source: 'upload' }],
     createdAt: 1,
     updatedAt: 1,
     lastUsedAt: 1,
-    ...overrides,
+    ...rest,
   }
 }
 

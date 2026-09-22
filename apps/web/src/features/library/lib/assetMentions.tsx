@@ -4,19 +4,24 @@ import { i18next } from '../../../i18n'
 import { getImageMentionLabel, imageMentionMatches } from '../../../lib/promptImageMentions'
 import type { InputImage } from '../../../types'
 import AssetThumb from '../components/AssetThumb'
-import type { AssetRecord } from '../types'
+import { type AssetRecord, assetCoverImageId } from '../types'
 
 /** `@` 候选选中后交还给 composer 的身份：本次参考图按序号，素材按记录 id。 */
 export type AtMentionValue = { type: 'image'; index: number } | { type: 'asset'; id: string }
 
-/** 同一张图有多条素材记录时取最近用过的那条，并列时取列表里的第一条。 */
+/**
+ * 每张视角图指向它所属的素材：胶囊的显示标签由这张图属于哪条素材决定。
+ * 同一张图被几条素材用到时取最近用过的那条，并列时取列表里的第一条。
+ */
 export function getAssetsByImageId(assets: AssetRecord[]): Record<string, AssetRecord> {
   const byImageId: Record<string, AssetRecord> = {}
 
   for (const asset of assets) {
-    const chosen = byImageId[asset.imageId]
-    if (chosen && chosen.lastUsedAt >= asset.lastUsedAt) continue
-    byImageId[asset.imageId] = asset
+    for (const view of asset.views) {
+      const chosen = byImageId[view.imageId]
+      if (chosen && chosen.lastUsedAt >= asset.lastUsedAt) continue
+      byImageId[view.imageId] = asset
+    }
   }
   return byImageId
 }
@@ -65,11 +70,11 @@ export function assetOptions<T>(
   exclude: ReadonlySet<string> = new Set(),
 ): SuggestionMenuOption<T>[] {
   return matchAssetsByName(assets, query)
-    .filter((asset) => !exclude.has(asset.imageId))
+    .filter((asset) => !exclude.has(assetCoverImageId(asset)))
     .map((asset) => ({
       key: `asset:${asset.id}`,
       label: asset.name,
-      thumbnail: <AssetThumb imageId={asset.imageId} alt="" />,
+      thumbnail: <AssetThumb imageId={assetCoverImageId(asset)} alt="" />,
       value: value(asset),
     }))
 }

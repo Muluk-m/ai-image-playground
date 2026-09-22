@@ -176,8 +176,17 @@ export const user_assets = pgTable(
   {
     ...syncRecordColumns,
     name: text('name'),
-    /** 图片本体的内容哈希，同时是对象键 `users/<user_id>/assets/<image_id>` 的末段。 */
+    /**
+     * 封面视角图片本体的内容哈希，同时是对象键 `users/<user_id>/assets/<image_id>` 的末段。
+     * `views` 之前的客户端只读这一列，所以它始终等于 `views[0].imageId`。
+     */
     image_id: text('image_id'),
+    /** 产品或人物；`views` 之前建的素材没有类别。 */
+    kind: text('kind'),
+    /** 透明或纯色。 */
+    background: text('background'),
+    /** 有序视角 `[{ imageId, label, source }]`，第一条是封面。旧行为 null，读路径按封面补一条。 */
+    views: bunJsonb('views').$type<Array<{ imageId: string; label: string; source: string }>>(),
     created_at: epochMs('created_at'),
   },
   (t) => [
@@ -186,6 +195,37 @@ export const user_assets = pgTable(
     check(
       'user_assets_live_payload_check',
       sql`${t.deleted_at} IS NOT NULL OR (${t.name} IS NOT NULL AND ${t.image_id} IS NOT NULL AND ${t.created_at} IS NOT NULL)`,
+    ),
+  ],
+)
+
+/**
+ * 模板（代码里叫 `look`，旧「模板」占着 `user_templates`）：一份技能正文加它钉死的模型、尺寸、
+ * 素材位数量与图片。参考图与封面走素材图同一条上传路径，计入同一项素材图配额。
+ */
+export const user_looks = pgTable(
+  'user_looks',
+  {
+    ...syncRecordColumns,
+    name: text('name'),
+    /** 一句话描述。它进这个用户每一轮的技能清单，必须是一行人话。 */
+    description: text('description'),
+    purpose: text('purpose'),
+    /** frontmatter 之后的分节正文，就是技能正文。 */
+    body: text('body'),
+    model: text('model'),
+    size: text('size'),
+    slot_count: integer('slot_count'),
+    reference_image_ids: bunJsonb('reference_image_ids').$type<string[]>(),
+    cover_image_id: text('cover_image_id'),
+    created_at: epochMs('created_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.id] }),
+    index('idx_user_looks_user_version').on(t.user_id, t.version),
+    check(
+      'user_looks_live_payload_check',
+      sql`${t.deleted_at} IS NOT NULL OR (${t.name} IS NOT NULL AND ${t.description} IS NOT NULL AND ${t.body} IS NOT NULL AND ${t.created_at} IS NOT NULL)`,
     ),
   ],
 )
@@ -753,6 +793,7 @@ export type OperatorAudit = typeof operator_audits.$inferSelect
 export type NewOperatorAudit = typeof operator_audits.$inferInsert
 export type UserTemplateRow = typeof user_templates.$inferSelect
 export type UserAssetRow = typeof user_assets.$inferSelect
+export type UserLookRow = typeof user_looks.$inferSelect
 export type UserPreferencesRow = typeof user_preferences.$inferSelect
 export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
 export type AgentConversationRow = typeof agent_conversations.$inferSelect

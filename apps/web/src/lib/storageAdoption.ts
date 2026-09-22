@@ -18,6 +18,7 @@ const BATCH_SIZE: Record<DbStoreName, number> = {
   thumbnails: 50,
   assets: 200,
   templates: 200,
+  looks: 200,
   remix_sets: 200,
   bgswap_jobs: 200,
   video_tasks: 200,
@@ -51,18 +52,21 @@ async function runAdoption(): Promise<number> {
   let adoptedTasks = 0
   let adoptedTemplates: string[] = []
   let adoptedAssets: string[] = []
+  let adoptedLooks: string[] = []
   try {
     target = await openNamedDb(scopedDbName)
     for (const storeName of DB_STORE_NAMES) {
       const copied = await copyStore(source, target, storeName)
       if (storeName === 'tasks') adoptedTasks = copied.length
       if (storeName === 'templates') adoptedTemplates = copied
+      if (storeName === 'looks') adoptedLooks = copied
       if (storeName === 'assets') adoptedAssets = copied
     }
     // 领养来的东西走同一条推送队列；标脏必须排在 localStorage 搬完之后，检查点本身也是搬的对象。
     markBulkDirty({
       templates: adoptedTemplates,
       assets: adoptedAssets,
+      looks: adoptedLooks,
       settingsUpdatedAt: adoptLocalStorage() ? Date.now() : null,
     })
   } finally {

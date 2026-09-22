@@ -29,6 +29,7 @@ import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentMessageQueue from './AgentMessageQueue'
 import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
+import AgentSaveCard from './AgentSaveCard'
 import AgentSkillStep from './AgentSkillStep'
 import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
@@ -55,6 +56,8 @@ function renderMessage(
   skills: readonly AgentSkillSummary[],
 ) {
   if (message.kind === 'tool') {
+    // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
+    if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
     // 读取技能只是一步，不是一件产出；它走不到结果卡那条路。
     return message.toolName === 'loadSkill' ? (
       <AgentSkillStep message={message} />
