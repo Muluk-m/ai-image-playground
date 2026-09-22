@@ -1,10 +1,20 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from '../../../i18n'
 import { applyInspiration } from '../lib/applyInspiration'
 import { openInspiration } from '../lib/navigate'
 import { useInspirationStore } from '../store'
 
 const COUNT = 4
+
+/** 每次进首屏随机换一批，不然永远是清单前四条。Fisher–Yates 取前 COUNT 个。 */
+function sample<T>(items: readonly T[], count: number): T[] {
+  const pool = [...items]
+  for (let at = pool.length - 1; at > 0; at--) {
+    const pick = Math.floor(Math.random() * (at + 1))
+    ;[pool[at], pool[pick]] = [pool[pick]!, pool[at]!]
+  }
+  return pool.slice(0, count)
+}
 
 /**
  * 输入框下面那排起手 chip：缩略图 + 标题，点一下把灵感的提示词与参数套进输入框。
@@ -13,6 +23,7 @@ const COUNT = 4
 export default function InspirationChips() {
   const items = useInspirationStore((state) => state.items)
   const { t } = useTranslation('inspiration')
+  const picked = useMemo(() => sample(items, COUNT), [items])
 
   useEffect(() => {
     void useInspirationStore.getState().loadRemote()
@@ -22,7 +33,7 @@ export default function InspirationChips() {
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2.5 pt-5">
-      {items.slice(0, COUNT).map((item) => (
+      {picked.map((item) => (
         <button
           key={item.id}
           type="button"

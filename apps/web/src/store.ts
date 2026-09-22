@@ -93,6 +93,7 @@ import {
 } from './lib/promptSlots'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
 import { taskErrorTypeOf } from './lib/taskError'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
@@ -889,12 +890,19 @@ export const useStore = create<AppState>()(
     {
       name: STORE_PERSIST_KEY,
       storage: createJSONStorage(() => scopedLocalStorage),
-      version: 1,
+      version: 2,
       // v0 → v1：防改写默认值翻转为开启。v0 里 no_rewrite=false 是只上线过数小时的
       // 旧默认值而非用户主动选择，一次性抬升为 true；之后的显式关闭会随 v1 持久化保留。
-      migrate: (persisted) => {
-        const p = persisted as { params?: TaskParams } | null
-        if (p?.params) p.params = { ...p.params, no_rewrite: true }
+      // v1 → v2：回车即发送翻转为默认开启。旧默认 enterSubmit=false 绝大多数人从没碰过，
+      // 和对话输入框（回车发送）不一致；一次性抬升，之后在设置里显式关掉的会随 v2 保留。
+      migrate: (persisted, version) => {
+        const p = persisted as { params?: TaskParams; settings?: { enterSubmit?: boolean } } | null
+        if (version < 1 && p?.params) p.params = { ...p.params, no_rewrite: true }
+        if (version < 2 && p?.settings) {
+          p.settings = { ...p.settings, enterSubmit: true }
+          // 设置跨设备整份 LWW：不标脏，服务端那份旧的 false 会在下一轮把它压回去。
+          writePendingChanges({ ...readPendingChanges(), settingsUpdatedAt: Date.now() })
+        }
         return p
       },
       partialize: getPersistedState,
