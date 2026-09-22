@@ -311,5 +311,49 @@
       "succeeded": "Done",
       "failed": "Did not finish"
     }
+  },
+  "save": {
+    "asset": "Save as asset",
+    "look": "Save as look",
+    "nameAria": "Name",
+    "namePlaceholder": "Give it a name",
+    "keep": "Keep this one",
+    "drop": "Drop this one",
+    "submit_one": "Save {{count}} image",
+    "submit_other": "Save {{count}} images",
+    "submitLook": "Save",
+    "saving": "Saving…",
+    "savedAsset": "Saved as asset: {{name}}",
+    "savedLook": "Saved as look: {{name}}",
+    "failed": "Couldn't save it, please retry",
+    "imageGone": "Some images are gone. Ask the assistant for a fresh pass.",
+    "assetMeta": "{{kind}} · {{background}}",
+    "lookMeta": "{{purpose}} · {{model}} · {{size}} · {{slots}} asset slots",
+    "kind": {
+      "product": "Product",
+      "person": "Person"
+    },
+    "background": {
+      "transparent": "Transparent",
+      "solid": "Solid"
+    },
+    "view": {
+      "front": "Front",
+      "side": "Side",
+      "back": "Back",
+      "detail": "Detail",
+      "sheet": "Sheet",
+      "none": "View"
+    },
+    "source": {
+      "upload": "Uploaded",
+      "generated": "Generated"
+    },
+    "purpose": {
+      "hero": "Hero",
+      "poster": "Poster",
+      "scene": "Scene",
+      "detail": "Detail"
+    }
   }
 }

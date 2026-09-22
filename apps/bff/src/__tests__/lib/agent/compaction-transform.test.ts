@@ -24,7 +24,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 )
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
-const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
+const { ChatTimeoutError, setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
   '../../../lib/chatCompletion'
 )
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
@@ -41,6 +41,9 @@ const NARRATIVE = {
   decisions: '主体不换',
   artifacts: 'img-1',
 }
+
+/** 与 `compaction-summary.ts` 的 deadline 同值：行为不看这个数，只为让错误如实。 */
+const SUMMARY_TIMEOUT_MS = 180_000
 
 const DEVICE = { kind: 'device', deviceId: 'device-abcdefgh' } as const
 
@@ -226,5 +229,49 @@ describe('createCompactionTransform', () => {
       })(MESSAGES)
 
     expect((await shapedWith(300)).length).toBeLessThan((await shapedWith(0)).length)
+  })
+
+  // 摘要超时与上游故障不是一回事：deadline 是我们自己切的，再问一遍只会把这一轮的等待翻倍
+  // （`chatCompletion.ts` 的分类器据此不重试）。所以这一刻就地降级：已存的摘要照常排在最前，
+  // 锚点不前移（这一段没摘到就不算已覆盖），失败只记进熔断器，轮照常推进。
+  it('摘要超时时复用已存摘要、不重问、也不前移锚点', async () => {
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
+    const id = await conversationId()
+    await createCompactionTransform({
+      conversationId: id,
+      turnId: 'turn-1',
+      historyIds: HISTORY_IDS,
+      userMessageId: 'm6',
+      compaction: FRESH,
+      foldedBefore: 0,
+      overheadTokens: 0,
+    })(MESSAGES)
+    const stored = (await loadAgentCompaction(id))!
+
+    let attempts = 0
+    setChatFetchForTesting(async () => {
+      attempts += 1
+      // 上游一直不答、被 deadline 切掉的那一刻，`requestContent` 抛的就是这个。
+      throw new ChatTimeoutError(SUMMARY_TIMEOUT_MS)
+    })
+
+    const shaped = await createCompactionTransform({
+      conversationId: id,
+      turnId: 'turn-2',
+      historyIds: ['m3', 'm4', 'm5', 'm6', 'm7'],
+      userMessageId: 'm8',
+      compaction: stored,
+      foldedBefore: 2,
+      overheadTokens: 0,
+    })([...MESSAGES.slice(2, 6), user('m7', body('g')).message, user('m8', body('h')).message])
+
+    expect(attempts).toBe(1)
+    expect(JSON.stringify(shaped[0])).toContain('出了三张马克杯图')
+    expect(JSON.stringify(shaped.at(-1))).toContain(body('h'))
+    expect(await loadAgentCompaction(id)).toMatchObject({
+      summary: NARRATIVE,
+      anchor: { lastMessageId: 'm2', coveredCount: 2 },
+      failureCount: 1,
+    })
   })
 })

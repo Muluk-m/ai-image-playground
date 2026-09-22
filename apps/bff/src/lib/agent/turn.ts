@@ -41,6 +41,7 @@ import {
   requestOverheadTokens,
 } from './request-budget'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
+import { type AgentTurnAudience, loadAgentTurnAudience } from './skills'
 import { agentThinking } from './thinking'
 import {
   type AgentSubmissionReplay,
@@ -93,6 +94,11 @@ export interface StartAgentTurnInput {
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
+  /**
+   * 这一轮谁在看：他的模板进技能清单，他看得见的工具才装配。起轮方已经取过一次就传进来，
+   * 缺席时这里自己取——两条路给出的清单必须是同一份，预扣才与真发的对得上。
+   */
+  readonly audience?: AgentTurnAudience
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
   /**
@@ -194,11 +200,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     input.wake?.plan,
   )
   const toolFailures = createToolFailureLog()
+  // 起轮方多半已经取过一次（预扣要按同一份清单算），没取过的自己取。
+  const audience = input.audience ?? (await loadAgentTurnAudience(input.userId))
   const initialState = turnInitialState(
     input.history.messages,
     input.mode,
     input.params?.autoSubmit === true,
     selectionHistoryStart,
+    audience,
   )
   const turnTools = agentTurnTools(
     {
@@ -524,7 +533,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (!acceptingInterjections || aborted) return reject()
       const active = references.length ? references : images.references
       const steered = turnModelPrompt(
-        turnPromptText(expandSkillInvocation(text, input.mode), active, references.length > 0),
+        turnPromptText(
+          expandSkillInvocation(text, input.mode, audience),
+          active,
+          references.length > 0,
+        ),
         evidence,
       )
       const pending = steeringReferences.get(steered.text) ?? []
@@ -568,7 +581,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (aborted) return
       // `/skill-name` 只改送给模型的这一份；落库与回显的用户消息仍是他打的原话。
       const asked = turnPromptText(
-        expandSkillInvocation(prompt, input.mode),
+        expandSkillInvocation(prompt, input.mode, audience),
         images.references,
         input.references.length > 0,
       )

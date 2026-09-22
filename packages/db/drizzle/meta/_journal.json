@@ -253,6 +253,20 @@
       "when": 1789802000000,
       "tag": "0036_agent_device_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789803000000,
+      "tag": "0037_asset_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789804000000,
+      "tag": "0038_user_looks",
+      "breakpoints": true
     }
   ]
 }

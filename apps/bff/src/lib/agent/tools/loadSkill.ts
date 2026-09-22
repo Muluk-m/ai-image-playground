@@ -1,4 +1,8 @@
-import type { AgentMode, AgentSkillOutcome } from '@image-playground/shared'
+import {
+  type AgentMode,
+  type AgentSkillOutcome,
+  LOOK_SKILL_NAME_PREFIX,
+} from '@image-playground/shared'
 import { Type } from 'typebox'
 import {
   agentSkillInvocation,
@@ -6,6 +10,7 @@ import {
   agentSkills,
   findAgentSkill,
   readAgentSkillFile,
+  resolveAgentSkill,
 } from '../skills'
 import { defineAgentTool } from './adapter'
 
@@ -40,12 +45,14 @@ export const loadSkill = defineAgentTool({
   available: (mode) => agentSkills(mode).length > 0,
   // 不落画布，所以没有 outputCount；也没有送进上游的提示词。
   call: ({ name, file }, mode) => {
-    const label = skillLabel(mode, name)
+    const asked = typeof name === 'string' ? name.trim() : ''
+    // 起跑那一刻只认得内置技能：用户模板要读库，那一步在 `execute` 里，结果卡照它落定。
+    const label = skillLabel(asked, findAgentSkill(mode, asked)?.title)
     const suffix = typeof file === 'string' && file.trim() ? ` · ${file.trim()}` : ''
     return { title: label ? `读取技能：${label}${suffix}` : '读取技能' }
   },
   execute: (context) => async (_toolCallId, params) => {
-    const loaded = await loadSkillText(context.mode, params)
+    const loaded = await loadSkillText(context.mode, context.userId, params)
     return {
       content: [{ type: 'text', text: loaded.text }],
       // 面板据 `found` 决定这一行说「读取技能」还是「没找到技能」，不靠匹配上面那段文案。
@@ -57,13 +64,12 @@ export const loadSkill = defineAgentTool({
 type LoadSkillParams = { readonly name?: string; readonly file?: string }
 
 /**
- * 面板上这一步的名字。**只认这一轮看得见的那份清单**：另一个 mode 里碰巧有同名技能，
- * 不代表这一轮读得到它，拿它的标题写在这里就是在报一件没发生的事。
+ * 面板上这一步的名字：读到了就用它的标题。没读到时退回模型写的那个名字——除非它是一条
+ * 模板的内部标识，那串 id 对用户没有任何意义，宁可只写「读取技能」。
  */
-function skillLabel(mode: AgentMode, name: unknown): string {
-  const asked = typeof name === 'string' ? name.trim() : ''
-  if (!asked) return ''
-  return findAgentSkill(mode, asked)?.title ?? asked
+function skillLabel(name: string, title: string | undefined): string {
+  if (title) return title
+  return name.startsWith(LOOK_SKILL_NAME_PREFIX) ? '' : name
 }
 
 interface LoadedSkillText {
@@ -71,10 +77,14 @@ interface LoadedSkillText {
   readonly outcome: AgentSkillOutcome
 }
 
-async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<LoadedSkillText> {
+async function loadSkillText(
+  mode: AgentMode,
+  userId: string | null,
+  params: LoadSkillParams,
+): Promise<LoadedSkillText> {
   const name = params.name?.trim() ?? ''
-  const label = skillLabel(mode, name)
-  const skill = name ? findAgentSkill(mode, name) : undefined
+  const skill = name ? await resolveAgentSkill(mode, name, userId) : undefined
+  const label = skillLabel(name, skill?.title)
   // 图标跟着这一轮真找到的那条技能走，与 `/` 菜单同一张白名单；没找到时不给，界面退回默认图标。
   const icon = skill ? { icon: skill.icon } : {}
   const miss = (text: string): LoadedSkillText => ({
@@ -82,6 +92,7 @@ async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<
     outcome: { label: label || name, found: false, ...icon },
   })
   if (!skill) {
+    // 只报内置技能：用户自建的模板不该在这里被一条条念出来，那是他的东西，也念不完。
     const known = agentSkills(mode).map((one) => one.name)
     return miss(
       known.length > 0

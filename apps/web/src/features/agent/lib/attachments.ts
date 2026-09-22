@@ -4,7 +4,12 @@ import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
 import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { ensureImageCached, useStore } from '../../../store'
 import { useLibraryStore } from '../../library/store'
-import type { AgentDraft, AgentReference } from './references'
+import {
+  type AgentDraft,
+  type AgentReference,
+  type AttachedReference,
+  attachReference,
+} from './references'
 
 // 文案按调用时取，不在模块加载时定死：切语言之后新出的提示要跟着换语言。
 const TOO_MANY = () =>
@@ -45,19 +50,34 @@ export async function filesToReferences(files: readonly File[]): Promise<AgentRe
 }
 
 /**
- * 素材 → 参考图。图可能还没下到本机，先取回来；取不到就没有这条引用（`@` 落空，
- * 用户看到的还是刚才那句话）。id 用素材的 `imageId`：同一张图从画布进来还是从素材库
- * 进来都是同一条引用。
+ * 素材 → 草稿。组里全部视角按序附加为参考图（按 `imageId` 去重，已在条里的复用原序号），
+ * 提示词里只插一个指向封面的引用——一条素材在提示词里就是一个胶囊。图可能还没下到本机，
+ * 先取回来；一张都取不到就什么都不做（`@` 落空，用户看到的还是刚才那句话）。
+ * 引用的 id 用素材的 `imageId`：同一张图从画布进来还是从素材库进来都是同一条引用。
  */
-export async function assetToReference(assetId: string): Promise<AgentReference | undefined> {
+export async function attachAssetToDraft(
+  draft: AgentDraft,
+  assetId: string,
+  start: number,
+  cursor: number,
+): Promise<AttachedReference | null> {
   const asset = useLibraryStore.getState().assets.find((one) => one.id === assetId)
-  if (!asset) return undefined
-  await ensureAssetImage(asset.imageId)
-  const dataUrl = await ensureImageCached(asset.imageId)
-  if (!dataUrl) return undefined
+  if (!asset) return null
+
+  const views: AgentReference[] = []
+  for (const imageId of new Set(asset.views.map((view) => view.imageId))) {
+    await ensureAssetImage(imageId)
+    const dataUrl = await ensureImageCached(imageId)
+    if (dataUrl) views.push({ id: imageId, dataUrl, name: asset.name })
+  }
+  const [cover, ...rest] = views
+  if (!cover) return null
+
   // 读素材库工具按「最近用过」排序，不记这一笔它就永远看不见智能体这边的使用。
   void useLibraryStore.getState().noteAssetUsed(asset.id)
-  return { id: asset.imageId, dataUrl, name: asset.name }
+  const attached = attachReference(draft, cover, start, cursor)
+  // 其余视角只进参考图条，不各占一个胶囊；超出上限的在这里被丢掉并提示一次。
+  return { ...attached, draft: attachReferences(attached.draft, rest) }
 }
 
 /** 附到草稿末尾；超出上限的丢掉并提示一次。 */

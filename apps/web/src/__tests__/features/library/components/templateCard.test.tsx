@@ -18,15 +18,16 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const mention = getSelectedImageMentionLabel
 
-function makeAsset(overrides: Partial<AssetRecord> = {}): AssetRecord {
+function makeAsset(overrides: Partial<AssetRecord> & { imageId?: string } = {}): AssetRecord {
+  const { imageId = 'image-a', ...rest } = overrides
   return {
     id: 'a1',
     name: '白底图',
-    imageId: 'image-a',
+    views: [{ imageId, label: 'none', source: 'upload' }],
     createdAt: 1,
     updatedAt: 1,
     lastUsedAt: 1,
-    ...overrides,
+    ...rest,
   }
 }
 

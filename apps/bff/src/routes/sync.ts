@@ -1,7 +1,17 @@
 import {
+  ASSET_BACKGROUNDS,
+  ASSET_KINDS,
+  ASSET_VIEW_LABELS,
+  ASSET_VIEW_SOURCES,
+  LOOK_PURPOSES,
   SYNC_ASSET_IMAGE_MIME_TYPES,
+  SYNC_ASSET_VIEWS_MAX,
   SYNC_ID_MAX_LENGTH,
   SYNC_IMAGE_ID_PATTERN,
+  SYNC_LOOK_BODY_MAX_LENGTH,
+  SYNC_LOOK_DESCRIPTION_MAX_LENGTH,
+  SYNC_LOOK_REFERENCE_IMAGES_MAX,
+  SYNC_LOOK_SLOT_COUNT_MAX,
   SYNC_MAX_CHANGES_PER_COLLECTION,
   SYNC_NAME_MAX_LENGTH,
   SYNC_PROMPT_MAX_LENGTH,
@@ -35,10 +45,36 @@ const templateSchema = t.Object({
   lastUsedAt: epochMs,
 })
 
+const assetViewSchema = t.Object({
+  imageId: syncId,
+  label: t.UnionEnum([...ASSET_VIEW_LABELS]),
+  source: t.UnionEnum([...ASSET_VIEW_SOURCES]),
+})
+
 const assetSchema = t.Object({
   id: syncId,
   name: t.String({ maxLength: SYNC_NAME_MAX_LENGTH }),
+  /** 封面。`views` 之前的客户端只推这一个字段，服务端据它补出唯一那条视角。 */
   imageId: syncId,
+  kind: t.Optional(t.UnionEnum([...ASSET_KINDS])),
+  background: t.Optional(t.UnionEnum([...ASSET_BACKGROUNDS])),
+  views: t.Optional(t.Array(assetViewSchema, { maxItems: SYNC_ASSET_VIEWS_MAX })),
+  createdAt: epochMs,
+  updatedAt: epochMs,
+  lastUsedAt: epochMs,
+})
+
+const lookSchema = t.Object({
+  id: syncId,
+  name: t.String({ maxLength: SYNC_NAME_MAX_LENGTH }),
+  description: t.String({ maxLength: SYNC_LOOK_DESCRIPTION_MAX_LENGTH }),
+  purpose: t.UnionEnum([...LOOK_PURPOSES]),
+  body: t.String({ maxLength: SYNC_LOOK_BODY_MAX_LENGTH }),
+  model: t.String({ maxLength: SYNC_NAME_MAX_LENGTH }),
+  size: t.String({ maxLength: SYNC_NAME_MAX_LENGTH }),
+  slotCount: t.Integer({ minimum: 0, maximum: SYNC_LOOK_SLOT_COUNT_MAX }),
+  referenceImageIds: t.Array(syncId, { maxItems: SYNC_LOOK_REFERENCE_IMAGES_MAX }),
+  coverImageId: t.Union([syncId, t.Null()]),
   createdAt: epochMs,
   updatedAt: epochMs,
   lastUsedAt: epochMs,
@@ -48,7 +84,7 @@ function overBudget(value: unknown, limit: number): boolean {
   return Buffer.byteLength(JSON.stringify(value)) > limit
 }
 
-// 这两个 union 会让 exact-mirror 打 "TypeCompiler is required" 警告（elysia 1.4 的上游缺陷）；
+// 这几个 union 会让 exact-mirror 打 "TypeCompiler is required" 警告（elysia 1.4 的上游缺陷）；
 // 拆掉 union 就没人再挡「半条记录」，警告留着。
 const syncBodySchema = t.Object({
   version: t.Integer({ minimum: 0 }),
@@ -59,6 +95,11 @@ const syncBodySchema = t.Object({
   ),
   assets: t.Optional(
     t.Array(t.Union([tombstoneSchema, assetSchema]), {
+      maxItems: SYNC_MAX_CHANGES_PER_COLLECTION,
+    }),
+  ),
+  looks: t.Optional(
+    t.Array(t.Union([tombstoneSchema, lookSchema]), {
       maxItems: SYNC_MAX_CHANGES_PER_COLLECTION,
     }),
   ),
