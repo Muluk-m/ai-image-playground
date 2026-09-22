@@ -14,7 +14,8 @@ const server = Bun.serve({
       if (!allowedOrigin.test(route.origin)) throw new Error('Invalid release origin')
       const incoming = new URL(request.url)
       const headers = new Headers(request.headers)
-      headers.delete('host')
+      // Route by the fixed upstream URL, but keep the public authority for domain-bound auth.
+      headers.set('host', incoming.host)
       return await fetch(`${route.origin}${incoming.pathname}${incoming.search}`, {
         method: request.method,
         headers,
