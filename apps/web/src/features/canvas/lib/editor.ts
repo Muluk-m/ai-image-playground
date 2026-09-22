@@ -50,10 +50,12 @@ export interface CanvasTaskMeta {
   /** 发起时的输入图数量：重试时判定「输入图已丢失」，拒绝静默退化成文生图。 */
   inputCount?: number
   /**
-   * 局部重绘的源图元素 id。有它即这条任务是局部重绘：重绘期间源图卡片上盖一层「局部重绘中」，
-   * 刷新后靠 meta 认回来（运行态会清空，这个不会）。
+   * 二次加工的源图元素 id。有它即这条任务是对某张已有图做的：处理期间源图卡片上盖一层
+   * 「处理中」，刷新后靠 meta 认回来（运行态会清空，这个不会）。
    */
-  inpaintSourceId?: string
+  editSourceId?: string
+  /** 二次加工的种类，决定卡片上那层写什么。旧占位框没有这个字段，按局部重绘处理。 */
+  editKind?: 'inpaint' | 'erase' | 'outpaint'
   /** 发起时的参数快照（已折叠 n=1），供重试 / 恢复 / 落历史保真复用。 */
   params?: TaskParams
   /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */

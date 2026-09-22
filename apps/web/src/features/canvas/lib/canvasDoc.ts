@@ -258,6 +258,23 @@ export class CanvasDoc {
     this.updateElements([{ id, patch: { fileId } }])
   }
 
+  /**
+   * 换掉一张图的位图，可同时改几何（裁切要连位置与显示尺寸一起变）。
+   * 与 `replaceVideoPoster` 不同，这是**用户操作**，默认进 undo 栈。
+   */
+  replaceImageBitmap(
+    id: string,
+    dataUrl: string,
+    patch: Partial<ImageEl>,
+    opts: { history?: boolean } = {},
+  ): void {
+    if (this.getElement(id)?.type !== 'image') return
+    if (opts.history !== false) this.captureHistory()
+    const fileId = newElementId()
+    this.files = { ...this.files, [fileId]: dataUrl }
+    this.updateElements([{ id, patch: { ...patch, fileId } }])
+  }
+
   /** history=false 用于手势内的回滚清理（过短的箭头 / 空文字），调用方已 capture。 */
   deleteElements(ids: string[], opts: { history?: boolean } = {}): void {
     const idSet = new Set(ids)

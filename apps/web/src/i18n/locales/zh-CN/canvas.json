@@ -333,5 +333,44 @@
     "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
     "sourceGone": "源图已不在画布上",
     "canvasAria": "局部重绘涂抹区"
+  },
+  "crop": {
+    "action": "裁切",
+    "title": "裁切",
+    "apply": "应用"
+  },
+  "outpaint": {
+    "action": "扩图",
+    "title": "扩图",
+    "running": "扩图中…",
+    "submit": "生成",
+    "promptAria": "扩展区域描述",
+    "promptPlaceholder": "可选：说明新区域画什么，例如：继续延伸夜空与星云",
+    "dragFirst": "拖动边框把画面往外扩",
+    "tooLarge": "扩得太大了，超出模型能处理的尺寸"
+  },
+  "erase": {
+    "action": "擦除",
+    "title": "擦除",
+    "submit": "完成擦除",
+    "paintFirst": "涂掉要去除的东西",
+    "continueHint": "继续涂抹，或点击完成",
+    "running": "擦除中…"
+  },
+  "regenerate": {
+    "action": "重新生成",
+    "unavailable": "这张图的生成参数已随页面关闭丢失，无法原样重出"
+  },
+  "rectEdit": {
+    "handle": {
+      "nw": "左上",
+      "n": "上边",
+      "ne": "右上",
+      "e": "右边",
+      "se": "右下",
+      "s": "下边",
+      "sw": "左下",
+      "w": "左边"
+    }
   }
 }

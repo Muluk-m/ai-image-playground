@@ -24,6 +24,7 @@ import {
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
 import { type CanvasEditor, type PlaceholderView, STATUS_ACCENT } from '../lib/editor'
+import { editProgressKey } from '../lib/editProgressLabel'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
 
 function actionStyle(accent: string): CSSProperties {
@@ -207,9 +208,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   {p.meta.agent ? (
                     <AgentPlaceholderLabel placeholder={p} />
                   ) : (
-                    <span>
-                      {t(p.meta.inpaintSourceId ? 'inpaint.running' : 'placeholder.generating')}
-                    </span>
+                    <span>{t(editProgressKey(p))}</span>
                   )}
                 </>
               ) : (
