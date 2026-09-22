@@ -8,7 +8,7 @@ export default function HeroCanvasProjects() {
   const openProjects = useLibraryStore((s) => s.openProjects)
   return (
     <>
-      <div className="flex items-center gap-4 pb-5 pt-10">
+      <div className="flex flex-wrap items-center gap-3 pb-5 pt-10 sm:gap-4">
         <h2 className="text-[15px] font-semibold">{t('shell:nav.canvases')}</h2>
         <button
           type="button"
