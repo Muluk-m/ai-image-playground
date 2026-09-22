@@ -101,6 +101,109 @@ function contentCjkChars(content: string | readonly (TextContent | ImageContent)
 }
 
 /**
+ * pi 把每个图片块按固定 4800 字符、也就是 1200 token 记，不看像素。
+ *
+ * 这一条在我们这儿不成立：同一张图按预览发（长边 1024）与按原件发（可以是 4K）真实视觉
+ * token 差好几倍，而 `viewImage` 现在正是靠这个区别省钱（#396）。固定值意味着省下来的
+ * token 在预扣口径里看不见，更要紧的是原件被系统性低估——出站硬闸会放行一份它以为装得下
+ * 的请求。
+ */
+const PI_IMAGE_TOKENS = 1200
+
+/**
+ * 视觉 token 按 512 见方的瓦片数算（OpenAI 口径：底价 85 + 每块 170）。上游是兼容网关后的
+ * 某个模型、切法未知，这里只求同量级，与 CJK 系数一样是「略偏保守的近似」而不是复刻。
+ *
+ * 先按模型自己的缩放规则折一次：长边超 2048 等比缩到 2048，再把短边压到 768 以内。
+ */
+function visionTokens(width: number, height: number): number {
+  const long = Math.max(width, height)
+  const first = long > 2048 ? 2048 / long : 1
+  const short = Math.min(width, height) * first
+  const scale = short > 768 ? first * (768 / short) : first
+  const tiles = Math.ceil((width * scale) / 512) * Math.ceil((height * scale) / 512)
+  return 85 + 170 * tiles
+}
+
+/**
+ * 从图片块的头几个字节读出尺寸，不解码整张图。估算这条路是纯同步的（压缩也用它），
+ * 不能为了量一张图去起 sharp。
+ *
+ * 认不出来就返回 null，调用方退回 pi 的固定值——量不准是小事，把整轮估炸是大事。
+ */
+const DIMENSION_PROBE_BYTES = 64 * 1024
+
+function imageDimensions(base64: string): { width: number; height: number } | null {
+  // base64 每 4 字符 3 字节；截到 4 的倍数，免得尾部半个组解不出来。
+  const head = base64.slice(0, Math.ceil((DIMENSION_PROBE_BYTES / 3) * 4))
+  let bytes: Buffer
+  try {
+    bytes = Buffer.from(head.slice(0, head.length - (head.length % 4)), 'base64')
+  } catch {
+    return null
+  }
+  if (bytes.length < 16) return null
+  // PNG：IHDR 固定在第 16 字节起。
+  if (bytes.subarray(0, 8).toString('binary') === '\x89PNG\r\n\x1a\n')
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
+  // GIF：逻辑屏幕尺寸，小端。
+  if (bytes.subarray(0, 3).toString('binary') === 'GIF')
+    return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) }
+  if (
+    bytes.subarray(0, 4).toString('binary') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('binary') === 'WEBP'
+  )
+    return webpDimensions(bytes)
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return jpegDimensions(bytes)
+  return null
+}
+
+/** WebP 三种封装（有损 VP8、无损 VP8L、扩展 VP8X）各把尺寸放在不同位置。 */
+function webpDimensions(bytes: Buffer): { width: number; height: number } | null {
+  const format = bytes.subarray(12, 16).toString('binary')
+  if (format === 'VP8 ' && bytes.length >= 30)
+    return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff }
+  if (format === 'VP8L' && bytes.length >= 25) {
+    const bits = bytes.readUInt32LE(21)
+    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 }
+  }
+  if (format === 'VP8X' && bytes.length >= 30)
+    return {
+      width: (bytes.readUIntLE(24, 3) & 0xffffff) + 1,
+      height: (bytes.readUIntLE(27, 3) & 0xffffff) + 1,
+    }
+  return null
+}
+
+/** JPEG：跳过各段找 SOFn（不含 DHT/DAC/RST 这些非帧头的 0xC4/0xC8/0xCC）。 */
+function jpegDimensions(bytes: Buffer): { width: number; height: number } | null {
+  let offset = 2
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      offset += 1
+      continue
+    }
+    const marker = bytes[offset + 1]!
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc)
+      return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) }
+    offset += 2 + bytes.readUInt16BE(offset + 2)
+  }
+  return null
+}
+
+/** 这条消息里的图片块与 pi 固定值的差额。认不出尺寸的块算 0，口径原样沿用 pi。 */
+function imageCorrection(content: string | readonly (TextContent | ImageContent)[]): number {
+  if (typeof content === 'string') return 0
+  let correction = 0
+  for (const block of content) {
+    if (block.type !== 'image') continue
+    const size = imageDimensions(block.data)
+    if (size) correction += visionTokens(size.width, size.height) - PI_IMAGE_TOKENS
+  }
+  return correction
+}
+
+/**
  * 逐 role 数 CJK，取的文本范围与 pi `estimateTokens` 数字符的范围一一对应
  * （pi-agent-core 0.85.1 `dist/harness/compaction/compaction.js:149-204`）：
  * 助手消息数 text / thinking / toolCall 的名称与参数，bash 数命令与输出，摘要消息数摘要正文。
@@ -131,13 +234,27 @@ function messageCjkChars(message: AgentMessage): number {
   return 0
 }
 
+/** 图片块只出现在带内容数组的这几个 role 里，与 pi 数图片块的范围一致。 */
+function messageImageCorrection(message: AgentMessage): number {
+  switch (message.role) {
+    case 'user':
+    case 'custom':
+    case 'toolResult':
+      return imageCorrection(message.content)
+    default:
+      return 0
+  }
+}
+
 /**
- * 与 pi 的 `estimateTokens(message)` 同签名同单位，只是把 CJK 文本按真实分词量级折算。
- * 预扣估算与上下文压缩共用它，两处的「一条消息值多少 token」才不会各说各的。
+ * 与 pi 的 `estimateTokens(message)` 同签名同单位，只是补两项校正：CJK 文本按真实分词量级
+ * 折算，图片块按像素而不是按固定值折算。预扣估算与上下文压缩共用它，两处的「一条消息值
+ * 多少 token」才不会各说各的。
  */
 export function estimateMessageTokens(message: AgentMessage): number {
   return (
     estimateTokens(message) +
-    Math.ceil((messageCjkChars(message) * CJK_CORRECTION_PER_MILLE) / 1000)
+    Math.ceil((messageCjkChars(message) * CJK_CORRECTION_PER_MILLE) / 1000) +
+    messageImageCorrection(message)
   )
 }
