@@ -3,6 +3,7 @@ import { and, eq, gt, or, sql } from 'drizzle-orm'
 import sharp, { type Metadata } from 'sharp'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { PREVIEW_RESIZE } from './agent/modelImage'
 import { durableMediaStore } from './durableMediaStore'
 import type { BffTransaction } from './private-overlay'
 
@@ -156,11 +157,7 @@ export async function completeMedia(userId: string, id: string) {
       if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
       if (`image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type)
         throw new Error('content_type_mismatch')
-      preview = await image
-        .rotate()
-        .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 75 })
-        .toBuffer()
+      preview = await image.rotate().resize(PREVIEW_RESIZE).webp({ quality: 75 }).toBuffer()
       if (!metadata.width || !metadata.height || preview.length > PREVIEW_BUDGET)
         throw new Error('invalid_preview')
     } catch {
