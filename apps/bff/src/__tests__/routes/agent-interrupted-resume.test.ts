@@ -9,6 +9,7 @@ import {
 } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import {
   type AgentCall,
   type ControlledCompletion,
@@ -41,6 +42,8 @@ const { finishTask } = await import('../../db/task-transitions')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { runningTurn } = await import('../../lib/agent/runningTurns')
 const { AGENT_EXECUTION_LEASE_MS } = await import('../../lib/agent/execution')
+const { hydrateInputImages } = await import('../../lib/imageArchive')
+const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -49,6 +52,42 @@ _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const RESUME_NOTICE = '上一轮回复被服务重启打断了'
+
+/** 一张纯色图；颜色不同，算出来的选区 ID 也就不同。 */
+async function solidPng(background: string): Promise<string> {
+  const image = await sharp({ create: { width: 1024, height: 1024, channels: 4, background } })
+    .png()
+    .toBuffer()
+  return `data:image/png;base64,${image.toString('base64')}`
+}
+
+const PORTRAIT = await solidPng('#ffffff')
+const SUNSET = await solidPng('#ff7a1a')
+/** 遮罩的透明处才是用户圈中的范围：整张透明就是整张选中。 */
+const PORTRAIT_MASK = await solidPng('#00000000')
+/** 只圈了上边那条天空。 */
+const SUNSET_MASK = `data:image/png;base64,${(
+  await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#000000' } })
+    .composite([
+      {
+        input: await sharp({
+          create: { width: 1024, height: 320, channels: 4, background: '#ffffff' },
+        })
+          .png()
+          .toBuffer(),
+        left: 0,
+        top: 0,
+        blend: 'dest-out',
+      },
+    ])
+    .png()
+    .toBuffer()
+).toString('base64')}`
+const PORTRAIT_SELECTION = (await imageSelection({
+  dataUrl: PORTRAIT,
+  maskDataUrl: PORTRAIT_MASK,
+}))!.id
+const SUNSET_SELECTION = (await imageSelection({ dataUrl: SUNSET, maskDataUrl: SUNSET_MASK }))!.id
 
 function request(path: string, init: { method?: string; body?: unknown } = {}) {
   return app.handle(
@@ -69,10 +108,14 @@ async function startConversation(): Promise<string> {
 }
 
 /** 发一句话开一轮，不跟着流读：轮独立于连接存活。 */
-async function send(conversationId: string, text: string): Promise<void> {
+async function send(
+  conversationId: string,
+  text: string,
+  references?: readonly unknown[],
+): Promise<void> {
   const response = await request(`/api/agent/conversations/${conversationId}/turns`, {
     method: 'POST',
-    body: { deviceId: DEVICE, text },
+    body: { deviceId: DEVICE, text, ...(references ? { references } : {}) },
   })
   if (!response.ok) throw new Error(`turn returned ${response.status}: ${await response.text()}`)
   await response.body?.cancel()
@@ -465,6 +508,72 @@ describe('中断续跑', () => {
       (message) => message.id === submitted.id,
     )
     expect(settled?.content[0]).toMatchObject({ status: 'succeeded' })
+  })
+
+  it.each([
+    false,
+    true,
+  ])('resumes a masked request without older selections (clarified: %s)', async (clarified) => {
+    const interrupted = controlledCompletion()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => completionStream('头发已经按你圈的位置改成栗色了。'),
+        ...(clarified
+          ? [
+              () =>
+                toolCallCompletion({
+                  id: 'clarify-sky',
+                  name: 'askClarification',
+                  args: { question: '星空要哪种色调？', options: ['参考人像', '冷色'] },
+                }),
+            ]
+          : []),
+        () => interrupted.responseFor(),
+        () =>
+          toolCallCompletion({
+            id: 'resumed-edit',
+            name: 'editImage',
+            args: {
+              prompt: '把选区里的天空换成星空',
+              imageIds: ['sunset', 'portrait'],
+              selectionBindings: [{ imageId: 'sunset', selectionId: SUNSET_SELECTION }],
+            },
+          }),
+        () => completionStream('星空的稿子拟好了，确认之后我再提交。'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    // 上一件事做完了：它有自己的选区，和接下来这一件没有关系。
+    await send(conversationId, '把这张人像的头发改成栗色', [
+      { imageId: 'portrait', dataUrl: PORTRAIT, maskDataUrl: PORTRAIT_MASK },
+    ])
+    await waitForTurns(conversationId, 1)
+
+    // 这一件事用户重新圈了一块，话说到一半执行者没了：一次改图都还没提交。
+    await send(conversationId, '这张日落图，把我圈出来的天空换成星空，色调参考刚才那张人像', [
+      { imageId: 'sunset', dataUrl: SUNSET, maskDataUrl: SUNSET_MASK },
+    ])
+    if (clarified) {
+      await waitForTurns(conversationId, 2)
+      await send(conversationId, '参考人像')
+    }
+    await crashMidReply(conversationId, interrupted, '好的，我先')
+    expect(await tasksOf(conversationId)).toEqual([])
+
+    expect(await pickUpStrandedInboxes()).toBe(1)
+    await waitForTurns(conversationId, clarified ? 4 : 3)
+
+    // 续跑接着做被打断的那一件事：用户圈的那块天空还在，稿子照样拟得下来。
+    expect(lastUserInput(calls[clarified ? 3 : 2]!)).toContain(RESUME_NOTICE)
+    const [confirmed] = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+    expect(confirmed).toMatchObject({ status: 'submitted', anchorObjectId: 'sunset' })
+    const [task] = await tasksOf(conversationId)
+    const submitted = await hydrateInputImages(task!.request_payload)
+    expect(submitted.mask).toBe(SUNSET_MASK)
+    expect(submitted.prompt).toContain(SUNSET_SELECTION)
+    // 做完那一件事的选区没跟着回来：那张人像整张进来当参考，不是它当初圈出来的那一块。
+    expect(submitted.input_images).toEqual([SUNSET, PORTRAIT])
+    expect(submitted.prompt).not.toContain(PORTRAIT_SELECTION)
   })
 
   it('resumes an interrupted wake turn with that batch, not the original request', async () => {

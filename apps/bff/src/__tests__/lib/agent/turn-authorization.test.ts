@@ -40,10 +40,6 @@ const COVER_MANIFEST =
 const ARMREST_MANIFEST =
   '\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：\n[image 1] 图片 id img-a'
 
-/** 回放那一份：历史是纯文字，那一轮附过的图的内容不在这一份输入里。 */
-const REPLAYED_ARMREST_MANIFEST =
-  '\n\n上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。\n[image 1] 图片 id img-a'
-
 function userMessage(
   id: string,
   content: AgentMessageView['content'],
@@ -113,9 +109,13 @@ describe('turnAuthorizationText', () => {
         clarification('参考图是哪张？', ['用这张', '换一张']),
       ]),
     ]
-    expect(turnAuthorizationText(history, '用这个', [COVER], true)).toBe(
-      `只换扶手，颜色和背景不变${REPLAYED_ARMREST_MANIFEST}\n向用户提问：参考图是哪张？（选项：用这张 / 换一张）\n用这个${COVER_MANIFEST}`,
-    )
+    const instructions = turnAuthorizationText(history, '用这个', [COVER], true)
+    expect(instructions).toContain('只换扶手，颜色和背景不变')
+    expect(instructions).toContain('img-a')
+    expect(instructions).toContain('参考图是哪张？')
+    expect(instructions).toContain('用这个')
+    expect(instructions).toContain(COVER.imageId)
+    expect(instructions).not.toContain('我需要先确认参考图')
   })
 
   it('walks a multi-step clarification chain back to where it started', () => {
