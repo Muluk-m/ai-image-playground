@@ -7,6 +7,7 @@ import {
   normalizeSettings,
 } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
+import { mergeHistory, type PlatformGenerationRow } from '../lib/platformGenerations'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { DEFAULT_PARAMS } from '../types'
@@ -15,8 +16,8 @@ vi.mock('../lib/db', () => {
   const tasks = new Map<string, TaskRecord>()
   const images = new Map<string, StoredImage>()
   const thumbnails = new Map<string, StoredImageThumbnail>()
+  const generations = new Map<string, PlatformGenerationRow>()
   let imageSeq = 0
-
   return {
     CURRENT_THUMBNAIL_VERSION: 2,
     getAllTasks: async () => [...tasks.values()],
@@ -55,6 +56,14 @@ vi.mock('../lib/db', () => {
       const id = `stored-image-${++imageSeq}`
       images.set(id, { id, dataUrl, source, createdAt: Date.now() })
       return id
+    },
+    getCachedGenerations: async () => [...generations.values()],
+    putCachedGeneration: async (row: PlatformGenerationRow) => {
+      generations.set(row.id, row)
+      return row.id
+    },
+    deleteCachedGeneration: async (id: string) => {
+      generations.delete(id)
     },
   }
 })
@@ -1367,27 +1376,35 @@ describe('展开平台记录的详情', () => {
       mask: null,
       outputs: [image('out-1')],
     })
+    const running = {
+      id: 'gen-1',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'in_progress',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: null,
+      revision: '1',
+      prompt: '一只猫',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+    } as const
     useStore.setState({
-      tasks: [
-        task({
-          id: 'gen-1',
-          bffRequestId: 'gen-1',
-          status: 'running',
-          finishedAt: null,
-          elapsed: null,
-          remoteOnly: true,
-        }),
-      ],
+      tasks: [],
+      platformGenerations: [{ id: 'gen-1', record: running, fetchedAt: 0 }],
       detailTaskId: null,
     })
 
     useStore.getState().setDetailTaskId('gen-1')
 
-    await waitUntil(
-      () => useStore.getState().tasks[0]?.status === 'done',
-      '详情已经读到 completed，卡片仍停在 running',
-    )
-    expect(useStore.getState().tasks[0]).toMatchObject({
+    const card = () => mergeHistory([], useStore.getState().platformGenerations)[0]
+    await waitUntil(() => card()?.status === 'done', '详情已经读到 completed，卡片仍停在 running')
+    expect(card()).toMatchObject({
       finishedAt: 62_000,
       elapsed: 60_000,
       outputImages: ['aip-media:out-1'],

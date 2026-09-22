@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { currentCanvasWorkspace, selectCanvasWorkspace } from '../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../lib/authScope'
-import { taskFromGeneration } from '../../lib/cloudMirror'
+import { taskFromGeneration } from '../../lib/platformGenerations'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 import { sendTaskToCanvas, useStore } from '../../store'
 
@@ -71,11 +71,7 @@ beforeEach(async () => {
           expiresAt: Date.now() + 600000,
         })
       if (input.startsWith('https://media.example/'))
-        return {
-          ok: true,
-          status: 200,
-          blob: async () => new Blob(['image'], { type: 'image/png' }),
-        } as Response
+        return new Response(new Blob(['image'], { type: 'image/png' }))
       if (input.includes('/api/generations/')) return Response.json(detail)
       return Response.json({ conversations: [] })
     }),

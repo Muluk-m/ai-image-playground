@@ -432,8 +432,9 @@ it('列表条目自带提示词和参数，卡片不用再逐条读详情', asyn
     parameters: { quality: 'high', size: 'auto', n: 1 },
     actualParameters: {},
   })
-  // 图片行仍然只在详情里：列表为了提示词多带一列，不能顺手把每条的原件也查出来。
+  // 产出原件仍然只在详情里：列表带的是卡片和复用要用的东西，不是每条的全部原件。
   expect(item.outputs).toBeUndefined()
+  expect(item).toMatchObject({ inputs: [], mask: null })
 })
 
 it('删除作品后列表和详情都读不到，任务随后完成也不会让它复活', async () => {
@@ -631,6 +632,11 @@ it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携�
   expect(detail.mask.mediaId).toBe(detail.inputs[0].mediaId)
   expect(detail.parameters).toMatchObject({ quality: 'high', size: 'auto', n: 1 })
   expect(detail.actualParameters).toMatchObject({ size: '8x6', quality: 'high' })
+  const [listed] = (await (await request('/api/generations', deviceB)).json()).items
+  // 复用要的参考图和遮罩跟着列表走：卡片上已经有提示词和参数了，点一下不该再等一次详情。
+  expect(listed.inputs).toMatchObject([{ mediaId: detail.inputs[0].mediaId }])
+  expect(listed.mask.mediaId).toBe(detail.mask.mediaId)
+  expect(listed.outputs).toBeUndefined()
   expect(JSON.stringify(detail)).not.toContain('must-not-sync')
   for (const mediaId of [detail.inputs[0].mediaId, detail.mask.mediaId]) {
     const { originalUrl } = await (await request(`/api/media/${mediaId}/access`, deviceB)).json()

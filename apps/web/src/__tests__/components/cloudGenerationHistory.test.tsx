@@ -37,7 +37,7 @@ beforeEach(async () => {
   )
   await bootstrapClientCapabilities(true, '')
   vi.unstubAllGlobals()
-  // 平台记录会被镜像成本机任务记录写进 IndexedDB，作品页的输入框也要读模板。
+  // 平台记录进的是可整体替换的缓存（`lib/platformGenerations`），作品页的输入框也要读模板。
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({
     prompt: '',
@@ -45,6 +45,7 @@ beforeEach(async () => {
     inputImages: [],
     maskDraft: null,
     tasks: [],
+    platformGenerations: [],
     searchQuery: '',
     filterStatus: 'all',
     filterFavorite: false,
@@ -55,7 +56,7 @@ beforeEach(async () => {
   root = createRoot(host)
 })
 afterEach(async () => {
-  // 上一条用例还在飞的镜像写入必须先落地，否则它会在下一条用例里凭空多出一张卡。
+  // 上一条用例还在飞的缓存写入必须先落地，否则它会在下一条用例里凭空多出一张卡。
   await settle()
   act(() => root.unmount())
   host.remove()
@@ -78,6 +79,8 @@ const item = {
   prompt: '一只在阳光下睡觉的猫',
   parameters: { size: '1536x1024', quality: 'high', n: 2, output_format: 'webp' },
   actualParameters: {},
+  inputs: [],
+  mask: null,
 } as const
 
 const page = (items: unknown[], nextCursor: string | null = null) =>
@@ -92,8 +95,17 @@ const button = (label: string) => {
   return found
 }
 const click = async (label: string) => {
+  // 按钮跟着异步状态出现（平台记录先落 IndexedDB，游标再进 state），等它来而不是数拍子。
+  for (let i = 0; i < 20; i++) {
+    if (document.body.querySelector('button') && findButton(label)) break
+    await settle(1)
+  }
   await act(async () => button(label).click())
 }
+const findButton = (label: string) =>
+  [...document.body.querySelectorAll('button')].some(
+    (node) => node.textContent?.includes(label) || node.title.includes(label),
+  )
 const cards = () => [...host.querySelectorAll('.task-card-wrapper')]
 
 /** 平台记录要先写进 IndexedDB 才会出现在列表里，IDB 事务落在 act 之后若干拍。 */
@@ -156,7 +168,7 @@ it('加载更多把下一页续在同一条列表后面，不替换已读到的�
   })
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" />))
-  await settle()
+  await waitCards(1)
   await click('加载更多')
   await waitCards(2)
   expect(host.textContent).toContain('第二页的记录')
@@ -263,14 +275,10 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
       models: [{ id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate'] }],
     },
   ])
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string) =>
-      url === '/api/generations?limit=50'
-        ? page([item])
-        : Response.json({ ...item, inputs: [], mask: null, outputs: [] }),
-    ),
+  const fetcher = vi.fn(async (url: string) =>
+    url === '/api/generations?limit=50' ? page([item]) : Response.json({}),
   )
+  vi.stubGlobal('fetch', fetcher)
   await act(async () => {
     root.render(
       <>
@@ -282,6 +290,8 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
   await waitCards(1)
   await click('复用配置')
   await settle()
+  // 提示词、参数和模型都已经画在卡上了，再为它们读一次详情就是让用户白等一个来回。
+  expect(fetcher.mock.calls.map(([url]) => url)).not.toContain(`/api/generations/${item.id}`)
   expect(useStore.getState().prompt).toBe('一只在阳光下睡觉的猫')
   expect(useStore.getState().params).toMatchObject({
     size: '1536x1024',
@@ -295,6 +305,64 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
   ).toMatchObject({ source: 'builtin-edge', selectedModelId: 'gpt-image-2' })
   expect(host.querySelector('[contenteditable]')?.textContent).toBe('一只在阳光下睡觉的猫')
   expect(useStore.getState().appMode).toBe('image')
+  // 复用是异步的（读详情 + 取回参考图），做完不说一声，用户看到的就是「点了没反应」。
+  expect(useStore.getState().toast).toMatchObject({
+    message: '已复用配置到输入框',
+    type: 'success',
+  })
+})
+
+it('复用平台记录并行取回参考图，不让后一张等待前一张下载', async () => {
+  setChannels([
+    {
+      id: 'openai-images',
+      kind: 'openai-queue',
+      label: 'Image',
+      defaults: {},
+      models: [{ id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate'] }],
+    },
+  ])
+  const firstId = '11111111-1111-4111-8111-111111111112'
+  const secondId = '11111111-1111-4111-8111-111111111113'
+  let finishFirst!: (response: Response) => void
+  const firstDownload = new Promise<Response>((resolve) => {
+    finishFirst = resolve
+  })
+  const withReferences = {
+    ...item,
+    inputs: [
+      { index: 0, mediaId: firstId, width: null, height: null, contentType: 'image/png' },
+      { index: 1, mediaId: secondId, width: null, height: null, contentType: 'image/png' },
+    ],
+  }
+  const fetcher = vi.fn(async (url: string) => {
+    if (url === '/api/generations?limit=50') return page([withReferences])
+    if (url.endsWith('/access'))
+      return Response.json({
+        originalUrl: `https://media.example/${url.includes(firstId) ? firstId : secondId}`,
+        previewUrl: '',
+        expiresAt: Date.now() + 60_000,
+      })
+    if (url.endsWith(firstId)) return firstDownload
+    if (url.endsWith(secondId)) return new Response(new Blob(['second'], { type: 'image/png' }))
+    throw new Error(`unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
+  await waitCards(1)
+  await click('复用配置')
+  await vi.waitFor(() =>
+    expect(fetcher.mock.calls.map(([url]) => url)).toContain(`https://media.example/${firstId}`),
+  )
+  await vi.waitFor(
+    () =>
+      expect(fetcher.mock.calls.map(([url]) => url)).toContain(`https://media.example/${secondId}`),
+    { timeout: 350 },
+  )
+  expect(useStore.getState().inputImages).toHaveLength(0)
+  finishFirst(new Response(new Blob(['first'], { type: 'image/png' })))
+  await vi.waitFor(() => expect(useStore.getState().inputImages).toHaveLength(2))
+  expect(useStore.getState().prompt).toBe(item.prompt)
 })
 
 it('删除平台记录要删到平台；平台没删掉时卡还在', async () => {

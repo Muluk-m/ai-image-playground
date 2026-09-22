@@ -1,21 +1,41 @@
-import { type GenerationDetail, PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
+import { PROMPT_REWRITE_GUARD_PREFIX } from '@image-playground/shared'
 import { useStore } from '../store'
-import {
-  DEFAULT_PARAMS,
-  GEMINI_ASPECT_RATIOS,
-  GEMINI_IMAGE_SIZES,
-  GEMINI_THINKING_LEVELS,
-  type InputImage,
-  type TaskParams,
-} from '../types'
+import type { InputImage, TaskParams, TaskRecord } from '../types'
 import { createBuiltinEdgeProfile, normalizeSettings } from './apiProfiles'
 import { scopedStorageName } from './authScope'
 import { getPublicChannels } from './channels/publicChannels'
 import { resolveMediaSource } from './cloudMedia'
 import { BASE_DB_NAME, hashDataUrl, openNamedDb } from './db'
 
+/**
+ * 复用一条平台记录所需的全部东西。作品页的卡片已经带着它们（见 `lib/cloudMirror`），
+ * 所以复用不再先读一次详情——提示词、参数和模型都已经画在用户眼前了，为它们多等一个来回说不过去。
+ */
+export interface CloudReuseSource {
+  provider: string
+  model: string
+  prompt: string
+  params: TaskParams
+  /** `aip-media:` 引用，像素仍在平台上。 */
+  inputs: readonly string[]
+  mask: string | null
+}
+
+/** 镜像卡自己就是投影，够不够复用只看 provider 在不在：早先版本镜下来的卡没有它。 */
+export function cloudReuseSourceFromTask(task: TaskRecord): CloudReuseSource | null {
+  if (!task.cloudProvider || !task.apiModel) return null
+  return {
+    provider: task.cloudProvider,
+    model: task.apiModel,
+    prompt: task.prompt,
+    params: task.params,
+    inputs: task.inputImageIds,
+    mask: task.maskImageId ?? null,
+  }
+}
+
 /** Prepare everything before replacing the draft; never submit a generation from history reuse. */
-export async function reuseCloudGeneration(detail: GenerationDetail, signal: AbortSignal) {
+export async function reuseCloudGeneration(source: CloudReuseSource, signal: AbortSignal) {
   const scope = scopedStorageName(BASE_DB_NAME)
   const current = () => {
     signal.throwIfAborted()
@@ -23,38 +43,26 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
   }
   const channel = getPublicChannels().find(
     (entry) =>
-      entry.kind === (detail.provider === 'gemini' ? 'gemini-queue' : 'openai-queue') &&
-      entry.models.some((model) => model.id === detail.model),
+      entry.kind === (source.provider === 'gemini' ? 'gemini-queue' : 'openai-queue') &&
+      entry.models.some((model) => model.id === source.model),
   )
   if (!channel) throw new Error('model_unavailable')
-  const p = detail.parameters
   const guard = `${PROMPT_REWRITE_GUARD_PREFIX}\n`
-  const guarded = detail.prompt.startsWith(guard)
-  const params: TaskParams = {
-    ...DEFAULT_PARAMS,
-    size: p.size ?? DEFAULT_PARAMS.size,
-    quality:
-      (['auto', 'low', 'medium', 'high'] as const).find((value) => value === p.quality) ??
-      DEFAULT_PARAMS.quality,
-    output_format:
-      (['png', 'jpeg', 'webp'] as const).find((value) => value === p.output_format) ??
-      DEFAULT_PARAMS.output_format,
-    output_compression: p.output_compression ?? null,
-    n: p.n ?? 1,
-    no_rewrite: guarded,
-    gemini_aspect_ratio: GEMINI_ASPECT_RATIOS.find((value) => value === p.aspect_ratio),
-    gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === p.image_size),
-    gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === p.thinking_level),
-  }
-  const inputs: InputImage[] = []
-  for (const image of detail.inputs) {
-    const dataUrl = await resolveMediaSource(`aip-media:${image.mediaId}`)
-    current()
-    inputs.push({ id: await hashDataUrl(dataUrl), dataUrl })
-  }
-  const maskDataUrl = detail.mask
-    ? await resolveMediaSource(`aip-media:${detail.mask.mediaId}`)
-    : null
+  const guarded = source.prompt.startsWith(guard)
+  const params: TaskParams = { ...source.params, no_rewrite: guarded }
+  // Each reference has its own signed URL and download. Restore them concurrently;
+  // preserve the recorded order, and only replace the draft once every image is ready.
+  // 用户站在那儿等，所以这几张插队到作品页正在铺的预览之前。
+  const [inputs, maskDataUrl] = await Promise.all([
+    Promise.all(
+      source.inputs.map(async (reference): Promise<InputImage> => {
+        const dataUrl = await resolveMediaSource(reference, 'original', true)
+        current()
+        return { id: await hashDataUrl(dataUrl), dataUrl }
+      }),
+    ),
+    source.mask ? resolveMediaSource(source.mask, 'original', true) : null,
+  ])
   current()
   if (maskDataUrl && !inputs.length) throw new Error('input_unavailable')
   if (inputs.length) {
@@ -84,10 +92,10 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
   const profile =
     settings.profiles.find(
       (item) => item.source === 'builtin-edge' && item.channelId === channel.id,
-    ) ?? createBuiltinEdgeProfile(channel.id, detail.model)
+    ) ?? createBuiltinEdgeProfile(channel.id, source.model)
   state.setSettings({
     profiles: settings.profiles.map((item) =>
-      item.id === profile.id ? { ...profile, selectedModelId: detail.model } : item,
+      item.id === profile.id ? { ...profile, selectedModelId: source.model } : item,
     ),
     activeProfileId: profile.id,
   })
@@ -97,7 +105,7 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
   state.setMaskDraft(
     maskDataUrl ? { targetImageId: inputs[0]!.id, maskDataUrl, updatedAt: Date.now() } : null,
   )
-  state.setPrompt(guarded ? detail.prompt.slice(guard.length) : detail.prompt)
+  state.setPrompt(guarded ? source.prompt.slice(guard.length) : source.prompt)
   // 复用参数是生图入口的输入框在接：切到生图，画布的草稿另算。
   state.setAppMode('image')
 }

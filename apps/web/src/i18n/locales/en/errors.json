@@ -19,6 +19,10 @@
     "rate_limited": "Too many sign-up attempts, please try again later",
     "invalid_referral_code": "That invite code is invalid or no longer usable, edit or clear it and retry",
     "registration_reward_unavailable": "The invite reward cannot be granted right now, retry later or clear the invite code",
+    "email_delivery_failed": "The verification code could not be sent, please try again later",
+    "email_verification_required": "Verify your email before creating the account",
+    "invalid_email_verification": "That verification code is not correct",
+    "email_verification_expired": "That verification code expired, request a new one",
     "fallback": "Cannot create the account right now, check your connection and retry"
   },
   "link": {
