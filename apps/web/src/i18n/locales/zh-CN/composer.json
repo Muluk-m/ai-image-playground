@@ -66,7 +66,8 @@
     "maskEditShortcut": "遮罩编辑 (Ctrl+Enter)",
     "generateShortcut": "生成 (Ctrl+Enter)",
     "configureApiFirst": "请先配置 API",
-    "apiNotConfigured": "请先在设置里配置 API"
+    "apiNotConfigured": "请先在设置里配置 API",
+    "startCanvas": "开始创作"
   },
   "search": {
     "favoriteOnly": "只看收藏",

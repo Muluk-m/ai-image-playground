@@ -79,5 +79,10 @@
     "subscribe": "开通会员",
     "upgrade": "升级会员",
     "expires": "到期 {{date}}"
+  },
+  "createTarget": {
+    "aria": "这句话交给谁",
+    "generate": "生成",
+    "canvas": "画布"
   }
 }
