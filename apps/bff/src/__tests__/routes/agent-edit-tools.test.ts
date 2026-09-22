@@ -756,6 +756,37 @@ describe('智能体改图工具', () => {
     }
   })
 
+  it('lets a later turn with no attachment regenerate the whole image after an earlier selection', async () => {
+    const conversationId = await startConversation()
+    setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('看到选区了')]))
+    await runTurn(conversationId, '把 [image 1] 圈里的部分改掉', {
+      references: [{ imageId: 'canvas-1', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '整张界面重做一版' },
+            }),
+          () => completionStream('已拟稿'),
+        ],
+      ),
+    )
+    // 用户这一轮什么都没附：上一轮的选区不该再把整轮锁在局部改图里。
+    const frames = await runTurn(conversationId, '别改局部了，整张重做一版')
+
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      toolName: 'generateImage',
+      status: 'awaiting_confirmation',
+    })
+    expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+  })
+
   it('names the anchor on toolStart so the canvas reserves next to the source image', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(
