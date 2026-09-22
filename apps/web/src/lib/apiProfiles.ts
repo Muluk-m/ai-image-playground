@@ -607,7 +607,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
         : false,
     alwaysShowRetryButton:
       typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
-    enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
+    enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : true,
     profiles: profilesWithFallback,
     activeProfileId,
   }
@@ -1087,5 +1087,6 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   persistInputOnRestart: true,
   reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
-  enterSubmit: false,
+  // 回车即发送：和对话输入框一致，换行用 Shift+Enter。老用户存过的值不动。
+  enterSubmit: true,
 })
