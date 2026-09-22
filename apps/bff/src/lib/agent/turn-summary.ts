@@ -3,7 +3,7 @@ import type {
   AgentTurnStopReason,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { agentResumeKey } from './inbox'
 
@@ -43,6 +43,25 @@ export async function recordAgentTurnSummary(
       target: [schema.agent_turns.conversation_id, schema.agent_turns.turn_id],
       set: { duration_ms: row.duration_ms, stop_reason: row.stop_reason, cost: row.cost },
     })
+}
+
+/**
+ * 这一轮落过页脚没有。页脚写在终帧之前（见 `turn.ts`），所以**客户端看见这一轮结束**就蕴含它为真；
+ * 反过来，租约行归还是收尾之后的一次异步写，落后于终帧。判断「会话还忙着吗」要问这张表，
+ * 不能问租约行——否则用户刚看到一轮跑完就删不掉会话。
+ */
+export async function agentTurnSettled(conversationId: string, turnId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ turnId: schema.agent_turns.turn_id })
+    .from(schema.agent_turns)
+    .where(
+      and(
+        eq(schema.agent_turns.conversation_id, conversationId),
+        eq(schema.agent_turns.turn_id, turnId),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
 }
 
 /** 翻历史时的每轮页脚。读这张表而不是轮事件，所以过了事件保留窗口的轮照样有页脚。 */
