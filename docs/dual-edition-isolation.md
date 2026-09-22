@@ -24,6 +24,19 @@
 **私有配置的落点**：一个 gitignored 的 operator 配置文件 + `*.example` committed + env 指向外部路径。
 这是 git 官方 man page 自己开的药方（见 §6.1），而且本仓库 `CHANNELS_FILE` 已经实现了一半。
 
+**两仓之间的耦合方向（2026-09-21 追记，事后补的教训）**：overlay 单向引用公开树，
+公开树只认一个入口（`privateOverlay.tsx` 的 `import.meta.glob` + 运行时契约校验）。
+这条约束本身是好的，坏在两点，都踩过：
+
+- **收费版独有的概念不许往公开树塞。** overlay 曾把 `TierBadge`、`PrivateMembership`、
+  `PrivateAdminUserSummary.tier` 当成公开树的东西来引；补在公开树就是收费版的死代码，
+  违反上表第 (i) 条。判据很简单：公开树里有没有人**消费**它。没有就留在 overlay。
+- **生产部署取 overlay 的 `verified` 分支，不是 `main`。** 那个指针只在 overlay 自己的
+  CI（公开树 main + 那份 overlay 一起 lint / typecheck / test / build）全绿之后才前移。
+  个人账号的免费私有仓开不了分支保护与 rulesets（两个接口都回 403），拦不住「红着也合」，
+  所以闸门放在消费侧：红的合并推不动指针，公开仓的部署链不会被 overlay 堵死。
+  代价是 overlay CI 一直红时生产会停在旧 overlay 上——版本号里带着私有 sha，看得出来。
+
 **动手之前必须先修两个已存在的坑**（§7.1、§7.2），否则任何隔离设计都会被静默绕过。
 
 ---
