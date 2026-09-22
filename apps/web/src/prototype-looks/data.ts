@@ -20,7 +20,9 @@ export interface ProtoLook {
   origin: '自建' | '预置'
   cover: string
   refs: string[]
+  /** 模板正文就是一份技能：frontmatter 之后的 markdown，按 `## N. 标题` 分节。 */
   prompt: string
+  description: string
   model: string
   size: string
   slots: number
@@ -81,8 +83,34 @@ export const LOOKS: ProtoLook[] = [
     origin: '预置',
     cover: '/prototype-looks/01.webp',
     refs: ['/prototype-looks/01.webp'],
-    prompt:
-      '【主体位】{素材} 置于画面中下部，斜 45° 俯拍。【环境】粗糙的灰褐岩石壁面，深灰哑光石板地面。【光线】左上方硬光，岩壁投下清晰阴影。【构图】主体占画面 60%，地面留白。【风格】高端卫浴电商，冷峻质感。【禁止】文字、水印、额外商品。',
+    description: '把素材放进粗糙岩壁 + 深灰石板的冷峻卫浴场景，斜 45° 俯拍，高端电商场景图。',
+    prompt: `## 1. 一句话目标
+把用户提供的产品素材放进「粗糙岩石壁面 + 深灰哑光石板地面」的冷峻卫浴场景里，出一张高端电商场景图。
+
+## 2. 适用场景
+- 卫浴、家居硬装类商品的详情页场景图
+- 品牌调性偏冷峻、材质感强的主视觉
+
+## 3. 需要用户提供的输入
+- **产品素材**（必填）：1 条，优先白底或透明底的拼图 / 正面视角。
+- **画面比例**（可选）：缺省 3:4。
+- **保留项**（可选）：不能变的细节，如 logo、排水口位置。
+
+## 4. 工作流程
+1. 读素材全部视角，认出主体外形、材质、颜色与不能变的细节。
+2. 按参考图组织画面：主体置于画面中下部，斜 45° 俯拍，占画面约 60%，地面留白。
+3. 调用出图：环境为粗糙的灰褐岩石壁面与深灰哑光石板地面；左上方硬光，岩壁投下清晰阴影；主体与地面接触处有自然投影。
+4. 检查主体是否被改动（外形、颜色、材质、logo），有改动回到素材重出。
+
+## 5. 输出要求
+- 数量：默认 1 张。
+- 比例：3:4。
+- 风格：高端卫浴电商，冷峻、克制、低饱和；不出现任何文字、水印、额外商品。
+
+## 6. 约束与禁忌
+- 主体一个像素级细节都不重画：不改颜色、不改 logo、不改比例。
+- 不加道具、不加人物、不加节日元素。
+- 岩壁纹理不得抢过主体。`,
     model: 'gpt-image-2.5-sunburst',
     size: '3:4',
     slots: 1,
@@ -95,7 +123,8 @@ export const LOOKS: ProtoLook[] = [
     origin: '预置',
     cover: '/prototype-looks/02.jpg',
     refs: ['/prototype-looks/02.jpg'],
-    prompt: '【主体位】{素材} 居中偏左……【环境】微水泥墙面、圆形落地窗外雪松林、壁龛陈设……',
+    description: '微水泥墙面、圆形落地窗外雪松林，素净的北欧卫浴场景。',
+    prompt: '## 4. 工作流程\n主体居中偏左……【环境】微水泥墙面、圆形落地窗外雪松林、壁龛陈设……',
     model: 'gpt-image-2.5-sunburst',
     size: '3:4',
     slots: 1,
@@ -108,7 +137,8 @@ export const LOOKS: ProtoLook[] = [
     origin: '预置',
     cover: '/prototype-looks/03.webp',
     refs: ['/prototype-looks/03.webp'],
-    prompt: '【主体位】{素材} 置于落地窗前……【环境】海景酒店客房、暖色灯带……',
+    description: '海景酒店客房落地窗前，暖色灯带，度假感场景图。',
+    prompt: '## 4. 工作流程\n主体置于落地窗前……【环境】海景酒店客房、暖色灯带……',
     model: 'gemini-3.1-flash-image',
     size: '3:4',
     slots: 1,
@@ -120,7 +150,8 @@ export const LOOKS: ProtoLook[] = [
     origin: '预置',
     cover: '/prototype-looks/04.webp',
     refs: ['/prototype-looks/04.webp'],
-    prompt: '【主体位】{素材} 置于石台上……【环境】暖灰墙面、干花、原木凳……',
+    description: '暖灰墙面、干花与原木凳，暖调琥珀色主图。',
+    prompt: '## 4. 工作流程\n主体置于石台上……【环境】暖灰墙面、干花、原木凳……',
     model: 'gpt-image-2.5-sunburst',
     size: '3:4',
     slots: 1,
@@ -132,7 +163,8 @@ export const LOOKS: ProtoLook[] = [
     origin: '自建',
     cover: ph('北欧客厅 · 金样', '#e9ede6', '#6d7a6b'),
     refs: [ph('参考海报', '#e9ede6', '#6d7a6b')],
-    prompt: '【主体位】{素材} ……【环境】浅色橡木地板、米白布艺沙发……',
+    description: '浅色橡木地板、米白布艺沙发的北欧客厅。',
+    prompt: '## 4. 工作流程\n主体放进北欧客厅【环境】浅色橡木地板、米白布艺沙发……',
     model: 'gpt-image-2.5-sunburst',
     size: '1:1',
     slots: 1,
@@ -144,7 +176,8 @@ export const LOOKS: ProtoLook[] = [
     origin: '自建',
     cover: ph('模特 + 商品', '#ede6e9', '#7a6b74'),
     refs: [],
-    prompt: '【主体位】{素材1} 穿着 {素材2} ……',
+    description: '模特穿着商品的上身图，两个素材位。',
+    prompt: '## 3. 需要用户提供的输入\n- 人物素材 1 条\n- 服装素材 1 条',
     model: 'grok-imagine-image-2.0',
     size: '3:4',
     slots: 2,

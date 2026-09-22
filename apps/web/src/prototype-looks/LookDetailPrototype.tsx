@@ -2,6 +2,7 @@
 import { Copy, Pencil, Sparkles, X } from 'lucide-react'
 import { useState } from 'react'
 import Overlay from '../components/Overlay'
+import AgentMarkdown from '../features/agent/components/AgentMarkdown'
 import { PURPOSE_TONE, type ProtoLook } from './data'
 
 const ACTION =
@@ -23,7 +24,13 @@ export default function LookDetailPrototype({
     ...look.refs.filter((r) => r !== look.cover).map((src, i) => ({ src, label: `参考图 ${i + 1}` })),
   ]
   const [index, setIndex] = useState(0)
-  const sections = look.prompt.split(/(?=【)/).filter(Boolean)
+  const sections = look.prompt
+    .split(/\n(?=## )/)
+    .map((block) => {
+      const [head, ...body] = block.split('\n')
+      const title = head.replace(/^## \d+\.\s*/, '').replace(/^## /, '')
+      return { title, body: body.join('\n').trim() }
+    })
 
   return (
     <Overlay onClose={onClose} layout="fill">
@@ -69,9 +76,7 @@ export default function LookDetailPrototype({
                   {look.origin}
                 </span>
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                {look.origin === '自建' ? '3 天前更新 · 用过 12 次' : '平台预置 · 用过 348 次'}
-              </div>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{look.description}</p>
             </div>
             <button type="button" onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-muted">
               <X className="h-4 w-4" />
@@ -84,26 +89,15 @@ export default function LookDetailPrototype({
                 钉死的模型 {look.model} 已下线，需重新调试后才能出图。
               </div>
             )}
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-medium">提示词</h3>
-              <button type="button" className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
-                <Copy className="h-3 w-3" /> 复制
-              </button>
-            </div>
-            <div className="space-y-2 text-[13px] leading-relaxed text-foreground">
-              {sections.map((s, i) => {
-                const m = s.match(/^【(.+?)】(.*)$/s)
-                if (!m) return <p key={i}>{s}</p>
-                const slot = m[1] === '主体位'
-                return (
-                  <p key={i}>
-                    <span className={`mr-1 rounded px-1 text-[11px] ${slot ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                      {m[1]}
-                    </span>
-                    {m[2]}
-                  </p>
-                )
-              })}
+            <div className="space-y-4 text-[13px] leading-relaxed text-foreground">
+              {sections.map((s) => (
+                <section key={s.title}>
+                  <h3 className={`mb-1 text-[12px] font-medium ${s.title.includes('输入') ? 'text-primary' : 'text-muted-foreground'}`}>
+                    {s.title}
+                  </h3>
+                  <AgentMarkdown text={s.body} />
+                </section>
+              ))}
             </div>
 
             <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
@@ -112,7 +106,7 @@ export default function LookDetailPrototype({
               <dt className="text-muted-foreground">尺寸</dt>
               <dd>{look.size}</dd>
               <dt className="text-muted-foreground">素材位</dt>
-              <dd>{look.slots} 个（出图时 @ 素材填入）</dd>
+              <dd>{look.slots} 个</dd>
               <dt className="text-muted-foreground">参考图</dt>
               <dd>{look.refs.length} 张</dd>
             </dl>

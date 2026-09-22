@@ -477,7 +477,7 @@ function LooksTab({
                   </span>
                 )}
               </div>
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{look.prompt}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{look.description}</p>
               <div className="mt-1.5 flex items-center gap-3 text-[11px] text-muted-foreground">
                 <span>
                   {look.model} · {look.size}
