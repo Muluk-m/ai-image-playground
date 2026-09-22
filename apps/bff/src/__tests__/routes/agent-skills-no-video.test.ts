@@ -112,6 +112,7 @@ describe('a deployment that cannot make video', () => {
       'askClarification',
       'editImage',
       'generateImage',
+      'readCanvas',
       'readLibrary',
       'viewImage',
     ])
