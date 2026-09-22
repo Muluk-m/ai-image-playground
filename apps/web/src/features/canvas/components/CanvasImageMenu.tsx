@@ -100,7 +100,7 @@ export default function CanvasImageMenu({
       />
       <ContextMenuItem
         icon={<Trash2 className="h-4 w-4" />}
-        label={t('toolbar.deleteSelected')}
+        label={t('imageMenu.delete')}
         onClick={() => {
           onClose()
           doc.deleteElements([menu.id])
