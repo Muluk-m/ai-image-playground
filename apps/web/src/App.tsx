@@ -21,6 +21,10 @@ import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
+// PROTOTYPE（#753）：`?proto=looks` 时换掉资产页并挂切换条；整目录不进 main。
+import LibraryPrototype from './prototype-looks/LibraryPrototype'
+import PrototypeSwitcher from './prototype-looks/PrototypeSwitcher'
+import { isProto } from './prototype-looks/proto'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import { i18next, useTranslation } from './i18n'
@@ -110,7 +114,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         ) : appMode === 'explore' ? (
           <ExplorePage />
         ) : appMode === 'library' ? (
-          <LibraryPage />
+          isProto() ? <LibraryPrototype /> : <LibraryPage />
         ) : (
           <>
             <main data-home-main data-drag-select-surface className="relative pb-24">
@@ -161,6 +165,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <UpdateBanner />
       <MaskEditorModal />
       <ImageContextMenu />
+      <PrototypeSwitcher />
     </>
   )
 }

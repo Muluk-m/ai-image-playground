@@ -33,6 +33,9 @@ import AgentSkillStep from './AgentSkillStep'
 import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
+// PROTOTYPE（#753）
+import SaveCardPrototype from '../../../prototype-looks/SaveCardPrototype'
+import { isProto } from '../../../prototype-looks/proto'
 import AgentUserMessage from './AgentUserMessage'
 
 const TABS = [
@@ -244,6 +247,7 @@ export default function AgentPanel({
                 </Fragment>
               )
             })}
+            {isProto() && <SaveCardPrototype />}
             <AgentActivity />
             <AgentHistoryStatus />
             {error && !historyFailed && <p className={`text-xs ${INK_3}`}>{error}</p>}

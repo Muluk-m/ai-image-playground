@@ -1,3 +1,5 @@
+// PROTOTYPE（#753）
+import ComposerChipsPrototype from '../prototype-looks/ComposerChipsPrototype'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
@@ -1730,6 +1732,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   </div>
                 </div>
               </div>
+
+              {/* PROTOTYPE（#753） */}
+              <ComposerChipsPrototype surface="generate" />
 
               <input
                 ref={fileInputRef}

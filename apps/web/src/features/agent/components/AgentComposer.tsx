@@ -1,3 +1,5 @@
+// PROTOTYPE（#753）
+import ComposerChipsPrototype from '../../../prototype-looks/ComposerChipsPrototype'
 import { Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
@@ -632,6 +634,8 @@ export default function AgentComposer({
           </ComposerActions>
         </ComposerToolbar>
       </ComposerBar>
+      {/* PROTOTYPE（#753） */}
+      <ComposerChipsPrototype surface="agent" />
     </Composer>
   )
 }
