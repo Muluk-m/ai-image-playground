@@ -203,9 +203,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <div className="studio-canvas-topbar">
                 <button
                   type="button"
-                  onClick={() => useStore.getState().setAppMode('projects')}
-                  aria-label={t('workspace.backToProjects')}
-                  title={t('workspace.backToProjects')}
+                  onClick={() => useStore.getState().setAppMode('image')}
+                  aria-label={t('workspace.backHome')}
+                  title={t('workspace.backHome')}
                   className="grid h-9 w-8 shrink-0 place-items-center"
                 >
                   <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
