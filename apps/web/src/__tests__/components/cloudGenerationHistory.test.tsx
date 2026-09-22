@@ -295,6 +295,11 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
   ).toMatchObject({ source: 'builtin-edge', selectedModelId: 'gpt-image-2' })
   expect(host.querySelector('[contenteditable]')?.textContent).toBe('一只在阳光下睡觉的猫')
   expect(useStore.getState().appMode).toBe('image')
+  // 复用是异步的（读详情 + 取回参考图），做完不说一声，用户看到的就是「点了没反应」。
+  expect(useStore.getState().toast).toMatchObject({
+    message: '已复用配置到输入框',
+    type: 'success',
+  })
 })
 
 it('删除平台记录要删到平台；平台没删掉时卡还在', async () => {
