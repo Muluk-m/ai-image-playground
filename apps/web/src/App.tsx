@@ -15,6 +15,7 @@ import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
 import ProjectsPage from './features/canvas/components/ProjectsPage'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
 import ExplorePage from './features/inspiration/components/ExplorePage'
@@ -37,6 +38,7 @@ import { initStore, useStore } from './store'
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
+  const createTarget = useStore((s) => s.createTarget)
   const user = useAuth().user
   const { t } = useTranslation('shell')
 
@@ -140,7 +142,11 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                   </div>
                 </div>
                 <InspirationChips />
-                <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
+                {createTarget === 'canvas' ? (
+                  <HeroCanvasProjects />
+                ) : (
+                  <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
+                )}
               </div>
             </main>
             <TaskBulkActions />

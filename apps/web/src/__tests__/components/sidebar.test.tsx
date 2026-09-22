@@ -53,12 +53,16 @@ it('顶部三项：创作 / 探索 / 资产，选中的那个自己标出来', (
   expect(useStore.getState().appMode).toBe('library')
 })
 
-it('画布不占导航位：它是下面那段列表，「全部」才去项目页', () => {
-  expect(() => entry('画布')).toThrow()
+it('画布不占顶部导航位：它是下面那段列表的标题，点它或「全部」去项目页，在项目页时点亮', () => {
   expect(() => entry('项目')).toThrow()
+  expect(entry('画布').getAttribute('aria-current')).toBeNull()
 
   act(() => entry('全部').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(useStore.getState().appMode).toBe('projects')
+  expect(entry('画布').getAttribute('aria-current')).toBe('page')
 
+  act(() => useStore.getState().setAppMode('image'))
+  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('projects')
 })
 
