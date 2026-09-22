@@ -98,8 +98,8 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           compact
           icon={<RotateCcw />}
           label={t('regenerate.action')}
-          reason={regenerateRefusal(element, settings) ?? undefined}
-          onClick={() => regenerateCanvasImage(editor, element)}
+          reason={regenerateRefusal(editor, element, settings) ?? undefined}
+          onClick={() => void regenerateCanvasImage(editor, element)}
         />
         <CanvasToolbarButton
           compact

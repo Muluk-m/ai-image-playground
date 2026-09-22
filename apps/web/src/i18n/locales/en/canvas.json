@@ -368,7 +368,8 @@
   },
   "regenerate": {
     "action": "Regenerate",
-    "unavailable": "The original settings were lost when the page closed, so this cannot be redone"
+    "unavailable": "The original settings were lost when the page closed, so this cannot be redone",
+    "sourceGone": "The images this was made from are no longer on the canvas"
   },
   "rectEdit": {
     "handle": {

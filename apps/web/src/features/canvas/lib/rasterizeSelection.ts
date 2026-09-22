@@ -20,6 +20,8 @@ export interface CanvasSelectionPlan {
 export interface RasterizedSelection {
   /** 喂给模型的参考图 dataUrl 列表——每个 entry 一个条目（决策 5：不把多图拼一张）。 */
   dataUrls: string[]
+  /** 这些图各自来自画布上的哪些元素。存 id 就能在刷新之后按当前画布重新造一遍输入。 */
+  entries: CanvasInputEntry[]
   /** 图片的联合包围盒（页面坐标），结果放置基准。 */
   bounds: Box
   annotated: boolean
@@ -127,5 +129,11 @@ export async function rasterizeSelection(
   const dataUrls = rasterized.filter((url): url is string => url !== null)
   if (dataUrls.length === 0) return null
 
-  return { dataUrls, bounds, annotated: plan.annotated, annotationText: plan.annotationText }
+  return {
+    dataUrls,
+    entries: plan.entries,
+    bounds,
+    annotated: plan.annotated,
+    annotationText: plan.annotationText,
+  }
 }
