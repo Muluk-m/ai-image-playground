@@ -16,6 +16,12 @@ const parameters = Type.Object({
     maxItems: MAX_IMAGES,
     description: `要看内容的图片 id，一次最多 ${MAX_IMAGES} 张；只填这一步真正要看的那几张。`,
   }),
+  detail: Type.Optional(
+    Type.Union([Type.Literal('preview'), Type.Literal('full')], {
+      description:
+        '默认 preview：缩略图足够认出画面里有什么。只有要照着写清细节（小字、纹理、精确配色）时才填 full——原图贵得多。',
+    }),
+  ),
 })
 
 interface Looked {
@@ -23,9 +29,16 @@ interface Looked {
   readonly missing: string[]
 }
 
-async function look(context: AgentToolContext, imageIds: readonly string[]): Promise<Looked> {
+async function look(
+  context: AgentToolContext,
+  imageIds: readonly string[],
+  detail: 'preview' | 'full' | undefined,
+): Promise<Looked> {
   const resolved = await Promise.all(
-    imageIds.map(async (id) => ({ id, image: await context.images.resolve(id) })),
+    imageIds.map(async (id) => ({
+      id,
+      image: await context.images.resolve(id, detail === 'full' ? 'original' : 'preview'),
+    })),
   )
   return {
     found: resolved.flatMap((one) => (one.image ? [one.image] : [])),
@@ -38,7 +51,7 @@ export const viewImage = defineAgentTool({
   modes: ['image', 'video'],
   label: '看图',
   description:
-    '把指定 id 的图片内容取进上下文看一眼。只有你必须看清图里有什么才能往下做时才调（比如要照它描述细节、要判断它和用户说的是不是一回事）。改图不需要先看图：editImage 拿着图片 id 就能改，先白看一次只是多花一次钱。',
+    '把指定 id 的图片内容取进上下文看一眼。只有你必须看清图里有什么才能往下做时才调（比如要照它描述细节、要判断它和用户说的是不是一回事）。默认给缩略图，够认出画面里有什么；要照着写清小字或纹理再用 detail=full 取原图。改图不需要先看图：editImage 拿着图片 id 就能改，先白看一次只是多花一次钱。',
   guidance:
     '需要看清某张图的内容才能往下做时，用看图工具按图片 id 取它的内容；改图不必先看，editImage 拿着 id 就能改。',
   parameters,
@@ -48,7 +61,7 @@ export const viewImage = defineAgentTool({
     title: Array.isArray(imageIds) ? `看图：${imageIds.length} 张` : '看图',
   }),
   execute: (context) => async (_toolCallId, params) => {
-    const { found, missing } = await look(context, params.imageIds)
+    const { found, missing } = await look(context, params.imageIds, params.detail)
     // 取不到只是 id 写错或那张图已经没了：把名单交回去让模型换 id，别把整轮停下。
     const missingLine = missing.length
       ? `这些 id 取不到图，请核对后重试：${missing.join('、')}。`
@@ -61,7 +74,7 @@ export const viewImage = defineAgentTool({
       content: [
         {
           type: 'text',
-          text: `已取到 ${found.length} 张图的内容。${missingLine}${evidence.manifest}`,
+          text: `已取到 ${found.length} 张图的${params.detail === 'full' ? '原图' : '缩略图'}。${missingLine}${evidence.manifest}`,
         },
         ...evidence.content,
       ],

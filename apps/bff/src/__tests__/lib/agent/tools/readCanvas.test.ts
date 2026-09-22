@@ -107,7 +107,9 @@ async function project(input: {
 /** 一张已经上传完的画布图片，挂在指定项目名下。 */
 async function media(projectId: string, userId: string, id = MEDIA): Promise<void> {
   const now = Date.now()
+  // 原件与预览给不同字节，这样断言能分清取回来的是哪一份。
   await durable.write(`media/${id}`, new TextEncoder().encode('hi'), 'image/png')
+  await durable.write(`preview/${id}`, new TextEncoder().encode('sm'), 'image/png')
   await db.insert(schema.media_objects).values({
     id,
     user_id: userId,
@@ -295,6 +297,22 @@ it('resolves a canvas image id straight into bytes', async () => {
   const resolved = await sourceFor('conv-1', USER).resolve(MEDIA)
 
   expect(resolved?.dataUrl).toBe('data:image/png;base64,aGk=')
+})
+
+// 看一眼判断「是不是那张图」用缩略图就够，原件一次几 MB 的 data URL 会直接把出站预算吃穿。
+it('hands back the preview by default and the original only when asked', async () => {
+  await conversation('conv-1', USER)
+  await project({
+    id: 'proj-1',
+    userId: USER,
+    conversationId: 'conv-1',
+    document: { version: 1, elements: [imageElement()] },
+  })
+  await media('proj-1', USER)
+  const source = sourceFor('conv-1', USER)
+
+  expect((await source.resolve(MEDIA, 'preview'))?.dataUrl).toBe('data:image/png;base64,c20=')
+  expect((await source.resolve(MEDIA, 'original'))?.dataUrl).toBe('data:image/png;base64,aGk=')
 })
 
 // 画布里存的来源写法是 `aip-media:<uuid>`，模型多半照抄。

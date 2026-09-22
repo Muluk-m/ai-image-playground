@@ -28,6 +28,13 @@ export interface ResolvedAgentImage {
   readonly maskDataUrl?: string
 }
 
+/**
+ * 要原件还是要预览。画布媒体两份都存着（`object_key` / `preview_key`），看一眼判断「这是不是
+ * 那张图」用预览就够，而原件一次就是几 MB 的 data URL——全都按原件发，长会话必然先撞出站硬闸。
+ * 其余来源（本轮附图、工具产物、素材）只有一份字节，`preview` 对它们无意义，照常给原件。
+ */
+export type AgentImageVariant = 'original' | 'preview'
+
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
@@ -42,7 +49,7 @@ export interface AgentImageSource {
    */
   attach(references: readonly AgentTurnReference[]): void
   identify(imageId: string): string
-  resolve(imageId: string): Promise<ResolvedAgentImage | null>
+  resolve(imageId: string, variant?: AgentImageVariant): Promise<ResolvedAgentImage | null>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
   note(artifacts: readonly AgentToolArtifact[]): void
 }
@@ -162,12 +169,14 @@ async function readCanvasMedia(
   imageId: string,
   conversationId: string,
   userId: string | null,
+  variant: AgentImageVariant,
 ): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
   const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
   if (!mediaId || !userId) return null
   const [row] = await db
     .select({
       objectKey: schema.media_objects.object_key,
+      previewKey: schema.media_objects.preview_key,
       contentType: schema.media_objects.content_type,
     })
     .from(schema.media_objects)
@@ -195,8 +204,15 @@ async function readCanvasMedia(
       ),
     )
     .limit(1)
-  if (!row?.objectKey) return null
-  return { dataUrl: dataUrl(await durableMediaStore().read(row.objectKey), row.contentType) }
+  // 预览是上传时一并生成的，理论上 ready 的行两份都在；缺了就退回原件，宁可贵一次也别取不到图。
+  const key = (variant === 'preview' ? row?.previewKey : null) ?? row?.objectKey
+  if (!key) return null
+  // 预览统一是 WebP/PNG，原件的 content type 未必对得上它，交给归一化按字节认。
+  return {
+    dataUrl: await toModelImageDataUrl(
+      dataUrl(await durableMediaStore().read(key), row.contentType),
+    ),
+  }
 }
 
 /** 历史里的工具结果块记着每张产出图的任务与下标，所以产物不必另立一张表。 */
@@ -383,7 +399,10 @@ export function createAgentImageSource(input: {
   // 缓存 promise 而不是值：模型连着改同一张图时，重复的那几次连 I/O 都不发。
   const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
 
-  const read = async (imageId: string): Promise<ResolvedAgentImage | null> => {
+  const read = async (
+    imageId: string,
+    variant: AgentImageVariant,
+  ): Promise<ResolvedAgentImage | null> => {
     const reference = references.get(imageId)
     if (reference) {
       const hydrated =
@@ -407,7 +426,7 @@ export function createAgentImageSource(input: {
     }
     const folded = await readFoldedOutput(imageId, input.conversationId, userId)
     if (folded) return { imageId, ...folded }
-    const canvas = await readCanvasMedia(imageId, input.conversationId, userId)
+    const canvas = await readCanvasMedia(imageId, input.conversationId, userId, variant)
     if (canvas) return { imageId, ...canvas }
     if (!userId) return null
     const asset = await readAssetImage(userId, imageId)
@@ -436,7 +455,9 @@ export function createAgentImageSource(input: {
       active = added
       for (const reference of added) {
         references.set(reference.imageId, reference)
-        resolving.delete(reference.imageId)
+        for (const variant of ['original', 'preview']) {
+          resolving.delete(`${variant}\u0000${reference.imageId}`)
+        }
       }
     },
     note(artifacts) {
@@ -445,12 +466,14 @@ export function createAgentImageSource(input: {
 
     identify,
 
-    resolve(imageId) {
+    resolve(imageId, variant = 'original') {
       const id = identify(imageId)
-      const running = resolving.get(id)
+      // 同一张图两种变体是两份字节，缓存不能共用一个键。
+      const key = `${variant}\u0000${id}`
+      const running = resolving.get(key)
       if (running) return running
-      const started = read(id).then(modelImage)
-      resolving.set(id, started)
+      const started = read(id, variant).then(modelImage)
+      resolving.set(key, started)
       return started
     },
   }
