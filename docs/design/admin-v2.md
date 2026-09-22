@@ -1,6 +1,6 @@
 # 后台 v2 — 拆到 Pages、重做布局、新增灵感库
 
-状态：**A「运营台」已定稿**（用户于 2026-09-22 确认）。原型保留在 `apps/admin/src/routes/prototype.admin-v2.tsx`；正式实现按下述已接受行为重写，不直接复制原型代码。
+状态：**已实现**（2026-09-23）。A「运营台」定稿后按下述已接受行为重写；三版交互稿（A/B/C）与假数据保留在提交 `9744ba9b`，紧接着的提交把它们从树里删掉。回看稿子：`git show 9744ba9b:apps/admin/src/prototype/admin-v2/VariantA.tsx`。
 
 三件事一起做，但分三张 ticket 落地，顺序见末尾：
 
@@ -86,14 +86,12 @@ flowchart LR
 - B 的无侧栏顶栏导航、灵感看板拖动和整页编辑。
 - C 的三栏收件箱作为全局信息架构。告警、待收款、待发布内容仍可在各模块内提供待办筛选，但不建立统一收件箱。
 
-原型启动：
+原型已从树里删除（提交号见文首）。跑真实后台：
 
 ```sh
-pnpm --filter @image-playground/admin dev
-# http://localhost:5174/prototype/admin-v2?variant=A
+pnpm --dir apps/admin dev            # 前端 :5174，/api 代理到 :37378
+pnpm --dir apps/admin dev:server     # API :37378，要 DATABASE_URL 与 BFF_INTERNAL_URL
 ```
-
-假数据在 `apps/admin/src/prototype/admin-v2/mock-data.ts`；不接 API、不进 `_authed`。正式实现完成后，全套原型从 main 删除，原型提交留在当前设计分支作为决策依据。
 
 不随变体变的约束：
 
@@ -165,17 +163,21 @@ inspiration_publications
 - hero seed：`gen:hero-seed` 继续读仓库里的快照文件（构建不依赖线上）；改成读 `featured` 的时机放到条目全部迁走之后，单独一张 ticket。
 - 清单体积：先维持整份下发（现状也是），条目 > 1000 时再分页 / 按分类分片。
 
-## 5. 需要拍板
+## 5. 拍板结果
 
-1. `admin.muvloom.online` 直接切到 Pages（推荐，用户只记一个域名），还是前端换新域名、旧域名保留一阵？
-2. 后台上 Cloudflare Access 吗？拆开后 API 只剩 cookie 一道；README 建议的是加 Access。
-3. 灵感库先做哪一档：只做 showcase（把静态 JSON 搬进后台）→ 加 template 槽位 → 加 skill 示例。三档都在稿子里，落地建议按这个顺序。
-4. 图片上传走 admin-api 中转（Cloudflare 代理 100 MB 上限，简单）还是预签名直传公开桶（要配桶 CORS）。
-5. ROADMAP 硬约束「Lane A 未清空不铺新能力」：灵感库是内容而非模型能力，但要不要在 ROADMAP 记一项并给个位置。
+1. `admin.muvloom.online` 直接切到 Pages，API 走新域名 `admin-api.muvloom.online`。切换与回滚步骤写进[部署手册](../deploy/image-release.md)「后台」一节。
+2. Cloudflare Access 保持开，两个域名都要覆盖——拆开后 API 只剩 cookie 一道。**这是上线前的人工步骤，代码里做不到。**
+3. 三档一次做齐：showcase / template / skill 的写入、发布校验与主站落地都在这一轮。存量 563 条按 showcase 导入。
+4. 上传走预签名直传公开桶（`POST /api/inspirations/uploads` 返回 PUT 地址）；后台存的是上传后的绝对地址，不是裸 key——`InspirationAdminItem` 不带桶基址，存 key 的话后台刷新就没图可渲染。桶要放开后台域名的 PUT CORS。
+5. ROADMAP 记一项「灵感库运营」在 Lane C（内容，不是模型能力，不占 Lane A）。
 
-## 6. 落地顺序
+## 6. 交付状态
 
-1. **T1 拆部署**（与 UI 无关，可先行）：admin 服务端 api-only + 前端基址层 + 脚本 / workflow + 文档；VPS / CF 手工步骤按第 2 节；验收 = 新域名登录、任务图、私有面板。
-2. **T2 灵感库后端**：迁移 + BFF 内部写接口 + 公开读接口 + 导入脚本 + 主站切清单源；先不做后台 UI，用现有后台加一个最小列表验证链路。
-3. **T3 后台 v2 前端**：交互稿选定后重写壳与七个模块，灵感库编辑器与主站预览在这一步；overlay 面板换皮。
-4. **T4 主站玩同款升级**：参考图 / 槽位 / 技能三条路。
+| | 状态 |
+| --- | --- |
+| T1 拆部署 | 代码与脚本已就绪；VPS / Cloudflare 侧的一次性切换仍待人工执行 |
+| T2 灵感库后端 | 已完成：迁移 0037、BFF 读写接口、导入脚本（563 条 / 22 分类，幂等）、主站改读 `${bffBaseUrl}/api/inspirations/manifest` |
+| T3 后台 v2 前端 | 已完成：分组导航 + ⌘K + 检视抽屉，概览 / 用户 / 任务与设备 / 灵感库 / 技能目录 / 分类 / 运维看板 / 审计 |
+| T4 主站玩同款升级 | 已完成：参考图随条目下发并进 composer，模板槽位走现有 chip，技能示例进画布以 `/技能` 起手 |
+
+仍未做（各自独立，不阻塞上线）：封面「重新托管」把 `cms-r2` 外链搬进公开桶；`gen:hero-seed` 改读 `featured`；条目级的玩同款统计。
