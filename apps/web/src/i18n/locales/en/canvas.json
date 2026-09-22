@@ -170,7 +170,8 @@
     "preview": "View original",
     "previewTouch": "View original / hold to save",
     "previewFailed": "Could not load the original. Close and try again.",
-    "loading": "Loading original…"
+    "loading": "Loading original…",
+    "delete": "Delete"
   },
   "grid": {
     "loadingCloud": "Loading projects…",

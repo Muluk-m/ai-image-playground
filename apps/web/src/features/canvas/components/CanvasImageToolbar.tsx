@@ -81,47 +81,41 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         onKeyDown={(event) => event.stopPropagation()}
       >
         <CanvasToolbarButton
+          compact
           icon={<Brush />}
           label={t('inpaint.action')}
           reason={refusal ?? undefined}
           onClick={() => openInpaint(element.id, 'inpaint')}
         />
         <CanvasToolbarButton
+          compact
           icon={<Eraser />}
           label={t('erase.action')}
           reason={refusal ?? undefined}
           onClick={() => openInpaint(element.id, 'erase')}
         />
         <CanvasToolbarButton
+          compact
           icon={<RotateCcw />}
           label={t('regenerate.action')}
           reason={regenerateRefusal(element, settings) ?? undefined}
           onClick={() => regenerateCanvasImage(editor, element)}
         />
         <CanvasToolbarButton
+          compact
           icon={<Crop />}
           label={t('crop.action')}
           onClick={() => openRect('crop', element.id, fullRect)}
         />
         <CanvasToolbarButton
+          compact
           icon={<Expand />}
           label={t('outpaint.action')}
           reason={outpaintRefusal(element, settings) ?? undefined}
           onClick={() => openRect('outpaint', element.id, fullRect)}
         />
         <CanvasToolbarButton
-          icon={<Copy />}
-          label={t('imageMenu.copy')}
-          reason={sourceMissing}
-          onClick={() => void copyCanvasImage(source ?? '')}
-        />
-        <CanvasToolbarButton
-          icon={<Download />}
-          label={t('imageMenu.download')}
-          reason={sourceMissing}
-          onClick={() => void downloadCanvasImage(source ?? '', element.id)}
-        />
-        <CanvasToolbarButton
+          compact
           icon={<MoreHorizontal />}
           label={t('imageToolbar.more')}
           onClick={(button) => {
