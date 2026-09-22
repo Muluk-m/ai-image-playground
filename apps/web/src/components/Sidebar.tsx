@@ -39,9 +39,6 @@ export default function Sidebar() {
   const expanded = useStore(
     (state) => !isWorkbenchMode(state.appMode) && (state.sidebarExpanded ?? true),
   )
-  // 画布对话展开时，顶栏自己有一颗无底板的标，和项目名排在一行。这里再盖一颗带圆角底板的，
-  // 两颗会叠在一起。
-  const chatOpen = useAgentStore((state) => state.open)
   const toggleSidebar = useStore((state) => state.toggleSidebar)
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
@@ -87,16 +84,12 @@ export default function Sidebar() {
 
   return (
     <>
-      {!expanded && !(workbench && chatOpen) && (
+      {!expanded && !workbench && (
         <button
           type="button"
-          onClick={() => (workbench ? setAppMode('projects') : toggleSidebar())}
-          aria-label={workbench ? t('nav.allCanvases') : t('header.nav')}
-          className={
-            workbench
-              ? 'fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center md:grid'
-              : 'fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid'
-          }
+          onClick={toggleSidebar}
+          aria-label={t('header.nav')}
+          className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
         </button>
