@@ -93,6 +93,7 @@ import {
 } from './lib/promptSlots'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
 import { taskErrorTypeOf } from './lib/taskError'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
@@ -581,6 +582,12 @@ interface AppState {
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
   /**
+   * 首屏输入框把这句话交给谁：`generate` 直接出图；`canvas` 新建一个画布项目、打开它，
+   * 把这句话和参考图作为第一轮发给智能体。只是首屏的一个开关，不落盘。
+   */
+  createTarget: 'generate' | 'canvas'
+  setCreateTarget: (target: 'generate' | 'canvas') => void
+  /**
    * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
    * 用户按折叠键就以他的选择为准，换入口时回到默认。
    */
@@ -822,6 +829,8 @@ export const useStore = create<AppState>()(
         pathAppMode(globalThis.location?.pathname ?? '/') ??
         (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
       setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
+      createTarget: 'generate',
+      setCreateTarget: (createTarget) => set({ createTarget }),
       sidebarExpanded: null,
       toggleSidebar: () =>
         set((s) => ({ sidebarExpanded: !(s.sidebarExpanded ?? !isWorkbenchMode(s.appMode)) })),
@@ -881,12 +890,19 @@ export const useStore = create<AppState>()(
     {
       name: STORE_PERSIST_KEY,
       storage: createJSONStorage(() => scopedLocalStorage),
-      version: 1,
+      version: 2,
       // v0 → v1：防改写默认值翻转为开启。v0 里 no_rewrite=false 是只上线过数小时的
       // 旧默认值而非用户主动选择，一次性抬升为 true；之后的显式关闭会随 v1 持久化保留。
-      migrate: (persisted) => {
-        const p = persisted as { params?: TaskParams } | null
-        if (p?.params) p.params = { ...p.params, no_rewrite: true }
+      // v1 → v2：回车即发送翻转为默认开启。旧默认 enterSubmit=false 绝大多数人从没碰过，
+      // 和对话输入框（回车发送）不一致；一次性抬升，之后在设置里显式关掉的会随 v2 保留。
+      migrate: (persisted, version) => {
+        const p = persisted as { params?: TaskParams; settings?: { enterSubmit?: boolean } } | null
+        if (version < 1 && p?.params) p.params = { ...p.params, no_rewrite: true }
+        if (version < 2 && p?.settings) {
+          p.settings = { ...p.settings, enterSubmit: true }
+          // 设置跨设备整份 LWW：不标脏，服务端那份旧的 false 会在下一轮把它压回去。
+          writePendingChanges({ ...readPendingChanges(), settingsUpdatedAt: Date.now() })
+        }
         return p
       },
       partialize: getPersistedState,

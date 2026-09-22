@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import AssetHint from '../features/library/components/AssetHint'
 import {
   type AtMentionValue,
@@ -214,6 +215,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submissionInput = { model: activeView.model, quantity: submitImageCount }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
+  // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
+  const createTarget = useStore((s) => s.createTarget)
+  const toCanvas = inline && createTarget === 'canvas'
+  const apiReady = toCanvas || hasSubmitApiConfig
+  const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit
+  const submit = () => {
+    if (toCanvas) void startCanvasFromComposer()
+    else submitTask()
+  }
+  const submitLabel = toCanvas ? t('submit.startCanvas') : generateLabel
   // null → 旧行为；有声明时按 capability 显隐参考图 / 遮罩 / 质量控件，
   // 避免「选了不支持的模型，控件还在，提交才在上游炸」。
   const modelCaps = useMemo(
@@ -588,11 +599,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         if (e.shiftKey) {
           insertPromptTextAtSelection('\n')
         } else if (!isModifier) {
-          if (canSubmit) submitTask()
+          if (submitReady) submit()
         }
       } else {
         if (isModifier) {
-          if (canSubmit) submitTask()
+          if (submitReady) submit()
         } else {
           insertPromptTextAtSelection('\n')
         }
@@ -1317,29 +1328,33 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   className="text-[11px]"
                 />
                 <ButtonTooltip
-                  visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
+                  visible={
+                    !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked) && submitHover
+                  }
                   text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
                 />
                 <button
                   type="button"
-                  onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
-                  disabled={hasSubmitApiConfig ? !canSubmit : false}
+                  onClick={() => (apiReady ? submit() : setShowSettings(true))}
+                  disabled={apiReady ? !submitReady : false}
                   className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
-                    !hasSubmitApiConfig
+                    !apiReady
                       ? 'bg-muted text-muted-foreground'
                       : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
                   }`}
                   title={
                     submissionGuard.disabledReason ??
-                    (hasSubmitApiConfig
-                      ? maskDraft
-                        ? t('submit.maskEditShortcut')
-                        : t('submit.generateShortcut')
-                      : t('submit.configureApiFirst'))
+                    (toCanvas
+                      ? t('submit.startCanvas')
+                      : hasSubmitApiConfig
+                        ? maskDraft
+                          ? t('submit.maskEditShortcut')
+                          : t('submit.generateShortcut')
+                        : t('submit.configureApiFirst'))
                   }
                 >
                   {ChipIcons.sparkles}
-                  <span>{maskDraft ? t('submit.maskEdit') : generateLabel}</span>
+                  <span>{maskDraft ? t('submit.maskEdit') : submitLabel}</span>
                 </button>
               </div>
             </div>
@@ -1571,27 +1586,31 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       className="text-xs"
                     />
                     <ButtonTooltip
-                      visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
+                      visible={
+                        !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked) && submitHover
+                      }
                       text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
                     />
                     <button
-                      onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
-                      disabled={hasSubmitApiConfig ? !canSubmit : false}
+                      onClick={() => (apiReady ? submit() : setShowSettings(true))}
+                      disabled={apiReady ? !submitReady : false}
                       className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-full pl-4 pr-6 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
-                        !hasSubmitApiConfig
+                        !apiReady
                           ? 'bg-muted text-muted-foreground'
                           : 'studio-generate-button disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
                       }`}
                       title={
                         submissionGuard.disabledReason ??
-                        (hasSubmitApiConfig
-                          ? maskDraft
-                            ? t('submit.maskEditShortcut')
-                            : t('submit.generateShortcut')
-                          : t('submit.configureApiFirst'))
+                        (toCanvas
+                          ? t('submit.startCanvas')
+                          : hasSubmitApiConfig
+                            ? maskDraft
+                              ? t('submit.maskEditShortcut')
+                              : t('submit.generateShortcut')
+                            : t('submit.configureApiFirst'))
                       }
                     >
-                      {hasSubmitApiConfig && (
+                      {apiReady && (
                         <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
                       )}
                       <svg
@@ -1607,7 +1626,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                           d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
                         />
                       </svg>
-                      <span>{maskDraft ? t('submit.maskEdit') : generateLabel}</span>
+                      <span>{maskDraft ? t('submit.maskEdit') : submitLabel}</span>
                     </button>
                   </div>
                 </div>
@@ -1680,25 +1699,31 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         className="text-[11px]"
                       />
                       <ButtonTooltip
-                        visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
+                        visible={
+                          !toCanvas &&
+                          (!hasSubmitApiConfig || submissionGuard.blocked) &&
+                          submitHover
+                        }
                         text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
                       />
                       <button
-                        onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
-                        disabled={hasSubmitApiConfig ? !canSubmit : false}
+                        onClick={() => (apiReady ? submit() : setShowSettings(true))}
+                        disabled={apiReady ? !submitReady : false}
                         className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
-                          !hasSubmitApiConfig
+                          !apiReady
                             ? 'bg-muted text-muted-foreground'
                             : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
                         }`}
                       >
                         {ChipIcons.sparkles}
                         <span>
-                          {maskDraft
-                            ? t('submit.maskEdit')
-                            : submitImageCount > 1
-                              ? generateLabel
-                              : t('submit.generateImage')}
+                          {toCanvas
+                            ? submitLabel
+                            : maskDraft
+                              ? t('submit.maskEdit')
+                              : submitImageCount > 1
+                                ? generateLabel
+                                : t('submit.generateImage')}
                         </span>
                       </button>
                     </div>

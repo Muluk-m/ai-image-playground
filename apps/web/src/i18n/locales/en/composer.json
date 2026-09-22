@@ -78,7 +78,8 @@
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
     "generateShortcut": "Generate (Ctrl+Enter)",
     "configureApiFirst": "Configure the API first",
-    "apiNotConfigured": "Configure the API in Settings first"
+    "apiNotConfigured": "Configure the API in Settings first",
+    "startCanvas": "Start creating"
   },
   "search": {
     "favoriteOnly": "Favorites only",
