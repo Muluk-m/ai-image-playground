@@ -13,8 +13,11 @@ export default function SearchBar({ compact = false }: { compact?: boolean } = {
   const setFilterFavorite = useStore((s) => s.setFilterFavorite)
 
   return (
-    <div data-no-drag-select className={`flex gap-3 ${compact ? '' : 'mb-4 mt-6'}`}>
-      <div className="flex gap-2 flex-shrink-0 z-20">
+    <div
+      data-no-drag-select
+      className={`flex items-center ${compact ? 'gap-4' : 'mb-4 mt-6 gap-3'}`}
+    >
+      <div className={`z-20 flex flex-shrink-0 ${compact ? 'gap-4' : 'gap-2'}`}>
         <button
           onClick={() => setFilterFavorite(!filterFavorite)}
           className={`p-2.5 rounded-xl border transition-all ${
