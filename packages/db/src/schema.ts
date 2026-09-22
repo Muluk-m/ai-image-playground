@@ -70,6 +70,7 @@ export const users = pgTable(
     username: text('username').notNull(),
     password_hash: text('password_hash').notNull(),
     status: text('status').$type<UserStatus>().notNull().default('active'),
+    email_verified_at: epochMs('email_verified_at'),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
     last_login_at: epochMs('last_login_at'),
@@ -77,6 +78,22 @@ export const users = pgTable(
   (t) => [
     uniqueIndex('idx_users_username').on(t.username),
     check('users_status_check', sql`${t.status} IN ('active', 'disabled')`),
+  ],
+)
+
+export const email_verification_codes = pgTable(
+  'email_verification_codes',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    code_hash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    expires_at: epochMs('expires_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_email_verification_codes_email').on(t.email),
+    index('idx_email_verification_codes_expires_at').on(t.expires_at),
   ],
 )
 

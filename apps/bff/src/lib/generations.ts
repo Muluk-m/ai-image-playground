@@ -47,10 +47,13 @@ export async function listGenerations(
     .orderBy(desc(table.created_at), desc(table.id))
     .limit(limit + 1)
   const selected = rows.slice(0, limit)
-  const covers = selected.length
+  // 封面、参考图与遮罩一趟查出来：卡片要封面，复用要参考图和遮罩，多一次往返用户就多等一次。
+  // 产出原件不在这里——那是展开详情才看的东西，整页查出来白花带宽。
+  const images = selected.length
     ? await db
         .select({
           generationId: schema.generation_images.generation_id,
+          role: schema.generation_images.role,
           index: schema.generation_images.position,
           mediaId: schema.media_objects.id,
           width: schema.media_objects.width,
@@ -68,19 +71,32 @@ export async function listGenerations(
               schema.generation_images.generation_id,
               selected.map((row) => row.id),
             ),
-            eq(schema.generation_images.role, 'output'),
-            eq(schema.generation_images.position, 0),
+            or(
+              and(
+                eq(schema.generation_images.role, 'output'),
+                eq(schema.generation_images.position, 0),
+              ),
+              inArray(schema.generation_images.role, ['input', 'mask']),
+            ),
             eq(schema.media_objects.user_id, userId),
           ),
         )
+        .orderBy(schema.generation_images.position)
     : []
-  const byId = new Map(
-    covers.map(({ generationId, ...cover }) => [
-      generationId,
-      { ...cover, artifactId: projectArtifactId(generationId, cover.index) },
-    ]),
-  )
-  const items = selected.map((row) => ({ ...row, cover: byId.get(row.id) ?? null }))
+  const items = selected.map((row) => {
+    const own = images.filter((image) => image.generationId === row.id)
+    const pick = (role: 'input' | 'mask' | 'output') =>
+      own
+        .filter((image) => image.role === role)
+        .map(({ generationId: _id, role: _role, ...image }) => image)
+    const [cover] = pick('output')
+    return {
+      ...row,
+      cover: cover ? { ...cover, artifactId: projectArtifactId(row.id, cover.index) } : null,
+      inputs: pick('input'),
+      mask: pick('mask')[0] ?? null,
+    }
+  })
   const last = items.at(-1)
   return {
     items,

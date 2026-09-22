@@ -1,9 +1,18 @@
 import type { GenerationSummary, TaskStatus as QueueStatus } from '@image-playground/shared'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { updateTaskInStore, useStore } from '../store'
-import { DEFAULT_PARAMS, type TaskParams, type TaskRecord, type TaskStatus } from '../types'
+import {
+  DEFAULT_PARAMS,
+  GEMINI_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_THINKING_LEVELS,
+  type TaskParams,
+  type TaskRecord,
+  type TaskStatus,
+} from '../types'
 import { getAllTasks, putTask } from './db'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
+import type { CloudReuseSource } from './reuseCloudGeneration'
 
 /**
  * 平台记录的本机镜像。
@@ -14,6 +23,8 @@ import { mediaRef, readRemoteGeneration } from './remoteGenerations'
  */
 export function taskFromGeneration(item: GenerationSummary): TaskRecord {
   const cover = item.cover ? [mediaRef(item.cover.mediaId)] : []
+  const inputs = item.inputs.map((image) => mediaRef(image.mediaId))
+  const mask = item.mask ? mediaRef(item.mask.mediaId) : null
   return {
     id: item.id,
     bffRequestId: item.id,
@@ -21,11 +32,30 @@ export function taskFromGeneration(item: GenerationSummary): TaskRecord {
     params: paramsFromGeneration(item),
     actualParams: pickActual(item),
     apiModel: item.model,
-    inputImageIds: [],
+    // 复用要认回内置 channel，认的是 provider + model 这一对，所以 provider 也得留在卡上。
+    cloudProvider: item.provider,
+    inputImageIds: inputs,
+    maskImageId: mask,
+    maskTargetImageId: mask ? (inputs[0] ?? null) : null,
     outputImages: cover,
     ...mirrorStatusPatch(item),
     createdAt: item.createdAt,
     remoteOnly: true,
+  }
+}
+
+/**
+ * 平台记录 → 复用所需材料。列表条目和详情是同一种投影，所以老卡回退读详情时走的也是这里，
+ * 两条路不会各算一套参数。
+ */
+export function cloudReuseSourceFromGeneration(item: GenerationSummary): CloudReuseSource {
+  return {
+    provider: item.provider,
+    model: item.model,
+    prompt: item.prompt,
+    params: paramsFromGeneration(item),
+    inputs: item.inputs.map((image) => mediaRef(image.mediaId)),
+    mask: item.mask ? mediaRef(item.mask.mediaId) : null,
   }
 }
 
@@ -52,8 +82,8 @@ export async function mirrorGenerations(items: readonly GenerationSummary[]): Pr
       writes.push(taskFromGeneration(item))
       continue
     }
-    const settled = settleMirror(existing, item)
-    if (settled) writes.push(settled)
+    const refreshed = refreshMirror(existing, item)
+    if (refreshed) writes.push(refreshed)
   }
   if (writes.length > 0) {
     await Promise.all(writes.map((task) => putTask(task)))
@@ -76,19 +106,18 @@ export async function mirrorGenerations(items: readonly GenerationSummary[]): Pr
 }
 
 /**
- * 这一页读到的状态能不能给本机那条镜像卡收尾。本机自己跑的任务由 `executeTask` 写终态，
- * 这里一概不碰；已经落终态的镜像也不重写（它可能已经被详情补齐过产出）。
+ * 用这一页的平台记录刷新本机那条镜像。本机自己跑的任务由 `executeTask` 写终态，这里一概不碰。
+ *
+ * 镜像是平台状态的投影，所以整条按列表重算，而不只是补状态：早先版本镜下来的卡没有参考图，
+ * 不重算它们就永远停在「复用前先读一次详情」。收藏是本机的，展开详情补齐的产出比封面全，两样都留着。
  */
-function settleMirror(existing: TaskRecord, item: GenerationSummary): TaskRecord | null {
-  if (!existing.remoteOnly || existing.status !== 'running') return null
-  const patch = mirrorStatusPatch(item)
-  if (patch.status === 'running') return null
-  const cover = item.cover ? [mediaRef(item.cover.mediaId)] : []
-  return {
-    ...existing,
-    ...patch,
-    outputImages: existing.outputImages.length > 0 ? existing.outputImages : cover,
+function refreshMirror(existing: TaskRecord, item: GenerationSummary): TaskRecord | null {
+  if (!existing.remoteOnly) return null
+  const next: TaskRecord = { ...taskFromGeneration(item), isFavorite: existing.isFavorite }
+  if (existing.outputImages.length > next.outputImages.length) {
+    next.outputImages = existing.outputImages
   }
+  return JSON.stringify(existing) === JSON.stringify(next) ? null : next
 }
 
 /**
@@ -154,8 +183,13 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
   return 'error'
 }
 
+/**
+ * 平台记录的参数投影。Gemini 那三项也照抄：这份参数同时是卡面显示和「复用配置」的来源，
+ * 漏掉它们，复用一条 Gemini 生成就会悄悄换掉画面比例、分辨率档位和思考级别。
+ */
 function paramsFromGeneration(item: GenerationSummary): TaskParams {
   const { size, quality, output_format, output_compression, n } = item.parameters
+  const { aspect_ratio, image_size, thinking_level } = item.parameters
   return {
     ...DEFAULT_PARAMS,
     ...(size ? { size } : {}),
@@ -163,6 +197,9 @@ function paramsFromGeneration(item: GenerationSummary): TaskParams {
     ...(output_format ? { output_format: output_format as TaskParams['output_format'] } : {}),
     ...(output_compression == null ? {} : { output_compression }),
     ...(typeof n === 'number' ? { n } : {}),
+    gemini_aspect_ratio: GEMINI_ASPECT_RATIOS.find((value) => value === aspect_ratio),
+    gemini_image_size: GEMINI_IMAGE_SIZES.find((value) => value === image_size),
+    gemini_thinking_level: GEMINI_THINKING_LEVELS.find((value) => value === thinking_level),
   }
 }
 
