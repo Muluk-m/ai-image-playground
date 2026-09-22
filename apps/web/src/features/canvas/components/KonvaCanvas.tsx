@@ -356,8 +356,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     }
     // select 工具：点在空白处 → marquee
     if (e.target === stage) {
-      if (!e.evt.shiftKey) doc.setSelection([])
-      gestureRef.current = { kind: 'marquee', startX: p.x, startY: p.y, additive: e.evt.shiftKey }
+      const additive = e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey
+      if (!additive) doc.setSelection([])
+      gestureRef.current = { kind: 'marquee', startX: p.x, startY: p.y, additive }
       setMarquee(new Box(p.x, p.y, 0, 0))
     }
   }
@@ -459,7 +460,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const onElementClick = (e: KonvaEventObject<PointerEvent>, id: string) => {
     if (!selectMode) return
     e.cancelBubble = true
-    if (e.evt.shiftKey) {
+    // Shift 与 ⌘/Ctrl 都是「加选」：桌面软件两种习惯并存，只认一种会让另一半人以为多选坏了。
+    if (e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey) {
       const next = new Set(doc.selection)
       next.has(id) ? next.delete(id) : next.add(id)
       doc.setSelection(next)

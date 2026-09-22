@@ -36,6 +36,7 @@ import { Box } from '../lib/geometry'
 import type { CanvasInputEntry } from '../lib/rasterizeSelection'
 import { referenceSelection } from '../lib/submitVideoFromCanvas'
 import { addSelectionToTimeline, isTimelineSource } from '../lib/timeline'
+import { useCanvasProjectStore } from '../projectStore'
 import { useTimelineEditor } from '../timelineEditorStore'
 import ReferenceVideoPopover from './ReferenceVideoPopover'
 import RegenerateVideoPopover from './RegenerateVideoPopover'
@@ -50,6 +51,9 @@ const TOOLBAR_OFFSET = 44
 export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation('canvas')
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.id === state.activeId),
+  )
   const [derive, setDerive] = useState<{
     node: CanvasVideoNode
     mode: VideoDeriveMode
@@ -191,8 +195,10 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
       )
     }
     // 多选了几张图（没有视频）且有模型带得了参考图：给「用 N 张图生成视频」，打开选中即参考的面板。
+    // 只在视频画布里：图片画布多选几张图是要改图、对齐，冒出「生成视频」是答非所问。
     const images =
       editor.doc.tool === 'select' &&
+      project?.kind === 'video' &&
       isVideoModeAvailable() &&
       videoModelOptions().some((one) => one.support.referenceImages)
         ? referenceSelection(editor)
