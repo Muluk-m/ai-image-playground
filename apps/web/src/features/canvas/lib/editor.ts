@@ -49,6 +49,11 @@ export interface CanvasTaskMeta {
   annotated?: boolean
   /** 发起时的输入图数量：重试时判定「输入图已丢失」，拒绝静默退化成文生图。 */
   inputCount?: number
+  /**
+   * 局部重绘的源图元素 id。有它即这条任务是局部重绘：重绘期间源图卡片上盖一层「局部重绘中」，
+   * 刷新后靠 meta 认回来（运行态会清空，这个不会）。
+   */
+  inpaintSourceId?: string
   /** 发起时的参数快照（已折叠 n=1），供重试 / 恢复 / 落历史保真复用。 */
   params?: TaskParams
   /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */

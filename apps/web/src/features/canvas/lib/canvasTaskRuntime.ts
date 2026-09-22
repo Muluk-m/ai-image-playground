@@ -20,6 +20,13 @@ export interface CanvasTaskSpec {
   /** 是否标注模式：发起时决定是否注入「按标注改、输出干净图」指令前缀。 */
   annotated: boolean
   inputImageDataUrls: string[]
+  /**
+   * 局部重绘的遮罩（不透明 = 保留、透明 = 可重绘），与 `inputImageDataUrls[0]` 逐像素同尺寸。
+   * 与输入图一样不持久化：它只为「同会话内重试」而留在内存运行态里。
+   */
+  maskDataUrl?: string
+  /** 局部重绘的源图元素 id：重绘期间那张卡片上盖「局部重绘中」，刷新后也要认得出来。 */
+  inpaintSourceId?: string
   /** 发起时的参数快照（n 已折叠为 1，fan-out 在上层展开为多任务）。 */
   params: TaskParams
   target: PlacementTarget

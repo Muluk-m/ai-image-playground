@@ -113,7 +113,7 @@ export type PersistedVideoRequest = VideoRequest & { source_video?: StoredImageR
 
 /** BFF-only database representation after input pixel bytes move to object storage. */
 export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask' | 'video'> & {
-  /** 服务端为 Agent 局部编辑设置；不接受模型或客户端决定是否保护选区外像素。 */
+  /** 服务端按请求里有没有选区单方面设置；不接受模型或客户端决定是否保护选区外像素。 */
   preserve_outside_mask?: true
   masked_original_size?: { width: number; height: number }
   input_images?: StoredImageRef[]

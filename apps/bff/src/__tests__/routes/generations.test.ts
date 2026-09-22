@@ -601,10 +601,25 @@ it('worker 重启遇到已发出但无结果凭据的生成不会盲目再次提
   expect(await status.json()).toMatchObject({ error: { type: 'upstream_result_unknown' } })
 })
 
-it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携带额外秘密字段', async () => {
-  const png = await sharp({ create: { width: 8, height: 6, channels: 4, background: '#779944' } })
+/**
+ * 带 mask 的提交现在一律走严格局部编辑，尺寸下限对非智能体路径同样生效：原图要过 minPixels，
+ * 选区必须真有透明像素，所以这里不能再拿 8x6 的玩具图。1024x768 是 16 的倍数、不触发补边，
+ * 原图与选区仍是同一份字节，媒体去重那一条断言才还成立。
+ */
+async function maskedEditPng(background: readonly [number, number, number]) {
+  const raw = Buffer.alloc(1024 * 768 * 4)
+  for (let offset = 0; offset < raw.length; offset += 4) {
+    raw.set(background, offset)
+    raw[offset + 3] = 255
+  }
+  raw[(384 * 1024 + 512) * 4 + 3] = 0
+  return sharp(raw, { raw: { width: 1024, height: 768, channels: 4 } })
     .png()
     .toBuffer()
+}
+
+it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携带额外秘密字段', async () => {
+  const png = await maskedEditPng([0x77, 0x99, 0x44])
   const source = `data:image/png;base64,${png.toString('base64')}`
   setUpstreamFetchForTesting((async () =>
     Response.json({
@@ -629,8 +644,13 @@ it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携�
   const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
   expect(detail.inputs).toHaveLength(1)
   expect(detail.mask.mediaId).toBe(detail.inputs[0].mediaId)
-  expect(detail.parameters).toMatchObject({ quality: 'high', size: 'auto', n: 1 })
-  expect(detail.actualParameters).toMatchObject({ size: '8x6', quality: 'high' })
+  expect(detail.parameters).toMatchObject({ quality: 'high', size: '1024x768', n: 1 })
+  // 局部编辑交付的是裁回原尺寸的 png，实际参数按交付结果记，不照抄上游回的那个尺寸。
+  expect(detail.actualParameters).toMatchObject({
+    size: '1024x768',
+    output_format: 'png',
+    quality: 'high',
+  })
   expect(JSON.stringify(detail)).not.toContain('must-not-sync')
   for (const mediaId of [detail.inputs[0].mediaId, detail.mask.mediaId]) {
     const { originalUrl } = await (await request(`/api/media/${mediaId}/access`, deviceB)).json()
@@ -678,9 +698,7 @@ it('归档重试下载成功后重启，即使原链接过期也能用已保存�
 })
 
 it('归档等待超过临时桶过期时间，生成原件、参考图和蒙版仍可恢复', async () => {
-  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#449977' } })
-    .png()
-    .toBuffer()
+  const png = await maskedEditPng([0x44, 0x99, 0x77])
   const source = `data:image/png;base64,${png.toString('base64')}`
   let calls = 0
   setUpstreamFetchForTesting((async () => {
