@@ -50,9 +50,9 @@
 
 - [ ] 目标：每次请求装入**有界**工作内容；长结果外置；按需读预览与高清局部；跑通一次长画布任务并记录真实总成本。
 - **这不是性能优化，是计费正确性问题。** 对话按 token 折算积分（裁决 E2）且已上线（`ModelPriceUnit` 含 `kilo_token`，私有迁移 `0008_chat_token_pricing`）。#400 的存在说明当前没有上下文上界——画布越长，用户为实现缺陷付的钱越多。
-- 现状（2026-09-21 复核 `origin/main` = `9a2e71a2`）：**画布读取层仍是零实现**（`queryCanvas` / `readCanvas` / `readContext` 全仓库零命中，工具注册表无画布工具）。但 #400 已从 1/7 推到 **5/7**：统一预算口径（`request-budget.ts` 的 `requestOverheadTokens` 把系统说明与工具清单折进来，实测 image 轮 3307 token）、出站硬闸（`turn.ts:236` 的 `assertRequestWithinBudget`，超了拒发而不是回退发更多）、有界历史查询（`listAgentHistoryWindow` 换掉三处 `listAgentMessages`，锚点改由存储层按 seq 与活着的前缀条数校验，逐字用户原话随压缩记录落库）都已上线。落地 PR：#707 / #716 / #718 / #719。
+- 现状（2026-09-22 复核）：**画布读取层已落地**——`readCanvas` 工具按需报出这一轮会话绑着的那张画布（元素类型、几何、图片 id），`images.ts` 新增画布 media 分支让报出来的 id 直接交得给 `viewImage` / `editImage`。两半缺一半就是鸡肋：只报不能用，或能用但看不见。**画布内容不进系统提示词也不进轮输入**，只在模型自己调用时读，与出站硬闸同一条取舍。#400 也已从 1/7 推到 **5/7**：统一预算口径（`request-budget.ts` 的 `requestOverheadTokens` 把系统说明与工具清单折进来，实测 image 轮 3307 token）、出站硬闸（`turn.ts:236` 的 `assertRequestWithinBudget`，超了拒发而不是回退发更多）、有界历史查询（`listAgentHistoryWindow` 换掉三处 `listAgentMessages`，锚点改由存储层按 seq 与活着的前缀条数校验，逐字用户原话随压缩记录落库）都已上线。落地 PR：#707 / #716 / #718 / #719。
 - #400 剩下的两格：**「不叠加无限摘要」现在明确不满足**——只有窗口在手时重做会抹掉锚点之前的摘要，`maxIncrementalFolds` 对折出过窗口的会话已失效，转为 #714 攒线上 `foldCount` 数据后再裁决（查证下来 pi 本身也没有重做机制）；测试还缺「带图片的历史在硬闸上的断言」与「摘要超时」两格。
-- 三片前提已作废，退回 `needs-triage` 等重写，不要照原文做：#394 / #395 要的「版本化只读投影」已经存在（`canvas_projects.document` 带 `revision` + owner 作用域 + 几何与 arrow / freedraw / text），缺的只是智能体读不到它；#408 的 100 / 1,000 / 10,000 对象轴不成立（`PROJECT_ELEMENT_MAX_COUNT = 1000`，且画布对象数根本不进上下文，唯一通道是 `AGENT_TURN_MAX_REFERENCES = 8`）。作废清单见 [画布上下文调研](research/agent-canvas-context.md) 开头的抢救说明。
+- 三片前提已作废，退回 `needs-triage` 等重写，不要照原文做：#394 / #395 要的「版本化只读投影」已经存在（`canvas_projects.document` 带 `revision` + owner 作用域 + 几何与 arrow / freedraw / text），智能体读不到它这一条已由 `readCanvas` 补上；#408 的 100 / 1,000 / 10,000 对象轴不成立（`PROJECT_ELEMENT_MAX_COUNT = 1000`，且画布对象数根本不进上下文，唯一通道是 `AGENT_TURN_MAX_REFERENCES = 8`）。作废清单见 [画布上下文调研](research/agent-canvas-context.md) 开头的抢救说明。
 - 涉及：BFF 智能体轮次输入组装、工具返回外置、画布观察刷新。
 - 验收：给定一张超过阈值的画布，单轮输入 token 有上界且可预测；一次完整长任务的总积分消耗被记录下来，与预扣口径对得上。真实轴是**会话消息数 M × 图片块**，数据从 `agent_model_calls.usage` / `input_image_count` 读；`token-estimate.ts` 的 CJK 系数 W 是单点反解且快照已失效，量之前先重校准。
 - **这一项不完成，Lane C 不开工。**
