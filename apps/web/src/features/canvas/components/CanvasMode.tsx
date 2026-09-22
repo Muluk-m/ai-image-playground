@@ -305,14 +305,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             {/* 后台任务入口贴画布右上角，但要让开浮在同一角的账号胶囊：胶囊是另一层
             叠放上下文，盖住任务卡时两张圆角会切在一起。窄屏画布本身已经下移，不用再让。 */}
             {hasAgent && (
-              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end sm:top-[var(--studio-account-cluster-clearance)]">
+              <div className="pointer-events-none absolute right-4 top-4 z-[420] flex justify-end md:top-[var(--studio-account-cluster-clearance)]">
                 <AgentJobInbox />
               </div>
             )}
             {saveFailed && (
               <div
                 role="alert"
-                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg sm:top-[calc(var(--studio-account-cluster-clearance)+2.75rem)]"
+                className="absolute right-4 top-16 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg md:top-[calc(var(--studio-account-cluster-clearance)+2.75rem)]"
               >
                 <p>{t('saveError.message')}</p>
                 <button
