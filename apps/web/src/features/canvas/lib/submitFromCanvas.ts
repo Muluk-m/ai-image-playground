@@ -1,3 +1,4 @@
+import { requireAccount } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
 import { callImageApi } from '../../../lib/api'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -138,6 +139,8 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
   const { showToast, params } = useStore.getState()
   const profile = getActiveApiProfile(useStore.getState().settings)
   const quantity = Math.max(1, params.n)
+  // 内置渠道要经 BFF 的队列：没账号就只弹登录框，不建占位框也不 toast。
+  if (profile.source === 'builtin-edge' && !requireAccount()) return
   const submissionGuard = getPrivateSubmissionGuard({
     model: clientProfileToApiProfile(profile).model,
     quantity,
@@ -208,6 +211,8 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
   if (meta.video) return retryCanvasVideo(editor, placeholder)
   const activeProfile = getActiveApiProfile(useStore.getState().settings)
   const retryQuantity = Math.max(1, meta.params?.n ?? 1)
+  // 重试同样要经队列，门槛与首次提交一致。
+  if (activeProfile.source === 'builtin-edge' && !requireAccount()) return
   const submissionGuard = getPrivateSubmissionGuard({
     model: clientProfileToApiProfile(activeProfile).model,
     quantity: retryQuantity,
