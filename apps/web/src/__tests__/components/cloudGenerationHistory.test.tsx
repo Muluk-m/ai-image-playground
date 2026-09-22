@@ -37,7 +37,7 @@ beforeEach(async () => {
   )
   await bootstrapClientCapabilities(true, '')
   vi.unstubAllGlobals()
-  // 平台记录会被镜像成本机任务记录写进 IndexedDB，作品页的输入框也要读模板。
+  // 平台记录进的是可整体替换的缓存（`lib/platformGenerations`），作品页的输入框也要读模板。
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({
     prompt: '',
@@ -45,6 +45,7 @@ beforeEach(async () => {
     inputImages: [],
     maskDraft: null,
     tasks: [],
+    platformGenerations: [],
     searchQuery: '',
     filterStatus: 'all',
     filterFavorite: false,
@@ -55,7 +56,7 @@ beforeEach(async () => {
   root = createRoot(host)
 })
 afterEach(async () => {
-  // 上一条用例还在飞的镜像写入必须先落地，否则它会在下一条用例里凭空多出一张卡。
+  // 上一条用例还在飞的缓存写入必须先落地，否则它会在下一条用例里凭空多出一张卡。
   await settle()
   act(() => root.unmount())
   host.remove()

@@ -5,10 +5,11 @@ import { i18next } from '../i18n'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
 import type { LegacyProductJob, LegacyStoryboardRecord } from './legacyProductHistory'
+import type { PlatformGenerationRow } from './platformGenerations'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 12
+const DB_VERSION = 13
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
@@ -19,6 +20,7 @@ export const STORE_BGSWAP_JOBS = 'bgswap_jobs'
 export const STORE_VIDEO_TASKS = 'video_tasks'
 export const STORE_STORYBOARDS = 'storyboards'
 export const STORE_MEDIA = 'media'
+export const STORE_PLATFORM_GENERATIONS = 'platform_generations'
 export const DB_STORE_NAMES = [
   STORE_TASKS,
   STORE_IMAGES,
@@ -30,6 +32,7 @@ export const DB_STORE_NAMES = [
   STORE_VIDEO_TASKS,
   STORE_STORYBOARDS,
   STORE_MEDIA,
+  STORE_PLATFORM_GENERATIONS,
 ] as const
 export type DbStoreName = (typeof DB_STORE_NAMES)[number]
 const THUMBNAIL_MAX_SIZE = 720
@@ -53,6 +56,7 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
       }
       if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
       if (e.oldVersion < 11 && request.transaction) upgradeStoryboards(request.transaction)
+      if (e.oldVersion < 13 && request.transaction) dropMirroredTasks(request.transaction)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -72,6 +76,22 @@ function backfillUpdatedAt(tx: IDBTransaction): void {
       }
       cursor.continue()
     }
+  }
+}
+
+/**
+ * v13：平台记录不再当本机任务存。
+ *
+ * 它们是平台状态的投影，权威在平台，现在由 `platform_generations` 这份可整体替换的缓存承载；
+ * 留在 `tasks` 里的旧镜像会变成平台删掉也删不掉的幽灵卡，直接清掉，下一次读列表即重新出现。
+ */
+function dropMirroredTasks(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_TASKS).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    if ((cursor.value as TaskRecord).remoteOnly) cursor.delete()
+    cursor.continue()
   }
 }
 
@@ -229,6 +249,20 @@ export async function pruneCachedMedia(budget: number): Promise<number> {
     tx.onerror = () => reject(tx.error)
     tx.onabort = () => reject(tx.error)
   })
+}
+
+// ===== 平台记录缓存 =====
+
+export function getCachedGenerations(): Promise<PlatformGenerationRow[]> {
+  return dbTransaction(STORE_PLATFORM_GENERATIONS, 'readonly', (s) => s.getAll())
+}
+
+export function putCachedGeneration(row: PlatformGenerationRow): Promise<IDBValidKey> {
+  return dbTransaction(STORE_PLATFORM_GENERATIONS, 'readwrite', (s) => s.put(row))
+}
+
+export function deleteCachedGeneration(id: string): Promise<undefined> {
+  return dbTransaction(STORE_PLATFORM_GENERATIONS, 'readwrite', (s) => s.delete(id))
 }
 
 // ===== Images =====
