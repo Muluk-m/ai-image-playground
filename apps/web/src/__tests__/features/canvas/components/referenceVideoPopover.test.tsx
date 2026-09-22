@@ -3,6 +3,7 @@ import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { chooseOption, pointer, stubPointerApis } from '../../../helpers/radix'
 
 const GROK = 'grok-imagine-video'
@@ -104,6 +105,23 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', () => {})
   useStore.setState({ showToast: mocks.showToast })
   useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, model: AGNES } })
+  // 「用 N 张图生成视频」只在视频画布里出现。
+  useCanvasProjectStore.setState({
+    projects: [
+      {
+        id: 'video-project',
+        name: '视频画布',
+        customName: false,
+        conversationId: null,
+        sceneKey: 'scene:video-project',
+        createdAt: 0,
+        updatedAt: 0,
+        hasContent: true,
+        kind: 'video',
+      },
+    ],
+    activeId: 'video-project',
+  })
   const doc = new CanvasDoc()
   doc.setViewport(800, 600)
   editor = new CanvasEditor(doc)
@@ -127,6 +145,15 @@ afterEach(() => {
 })
 
 describe('选中即参考', () => {
+  it('stays out of image canvases: several selected images there are for editing, not video', () => {
+    act(() =>
+      useCanvasProjectStore.setState((state) => ({
+        projects: state.projects.map((one) => ({ ...one, kind: 'image' as const })),
+      })),
+    )
+    expect(host.querySelector('[role=toolbar]')).toBeNull()
+  })
+
   it('opens from the selection toolbar with the images left to right, on a model that takes references', () => {
     act(() => button('用 3 张图生成视频').click())
 
