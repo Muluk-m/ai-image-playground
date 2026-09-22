@@ -1,0 +1,92 @@
+# overlay 的 `verified` 指针前移后，把 `private.lock` 抬到它，并触发一次生产部署。
+#
+# 为什么是公开仓来拉而不是 overlay 仓来推：推需要一枚能写公开仓的 PAT 存在私有仓里；拉只用
+# 现有的只读 deploy key。GITHUB_TOKEN 推的提交不会触发 `Web checks`（GitHub 规则），所以这里
+# 先自己把「候选公开树 + 新 overlay」lint / typecheck / build 一遍，通过才提交；然后显式
+# `workflow_dispatch` 生产部署——这是 GITHUB_TOKEN 能触发的两种事件之一。
+#
+# 只认 `verified`：那个指针只在 overlay CI 全绿后才前移（见 overlay 仓 `check.yml`），
+# 所以 lock 永远指向一份能和公开 main 一起构建的 overlay。
+name: Bump overlay lock
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: overlay-bump
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+env:
+  PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Require the overlay key
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+        run: |
+          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
+      - name: Check out the overlay at its verified pointer
+        id: overlay
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: verified
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - name: Compare with the lock
+        id: diff
+        run: |
+          pinned=$(tr -d '[:space:]' < private.lock)
+          latest=${{ steps.overlay.outputs.commit }}
+          echo "pinned=$pinned latest=$latest"
+          if [ "$pinned" = "$latest" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "overlay lock already at $latest" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "subject=$(git -C private log -1 --format=%s)" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.diff.outputs.changed == 'true'
+        uses: pnpm/action-setup@v4
+      - if: steps.diff.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - if: steps.diff.outputs.changed == 'true'
+        uses: oven-sh/setup-bun@v2
+      # 这一步替代 `Web checks`：GITHUB_TOKEN 推上去的提交不会再跑它。
+      - if: steps.diff.outputs.changed == 'true'
+        name: Build the pair before pinning it
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm typecheck
+          pnpm --dir apps/web build
+      - if: steps.diff.outputs.changed == 'true'
+        name: Commit the new lock and deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.overlay.outputs.commit }}
+          SUBJECT: ${{ steps.diff.outputs.subject }}
+        run: |
+          printf '%s\n' "$LATEST" > private.lock
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add private.lock
+          git commit -m "chore(overlay): pin $(printf %.12s "$LATEST")" -m "$SUBJECT"
+          git push origin HEAD:main
+          echo "overlay lock → $LATEST ($SUBJECT)" >> "$GITHUB_STEP_SUMMARY"
+          gh workflow run deploy.yml --ref main
