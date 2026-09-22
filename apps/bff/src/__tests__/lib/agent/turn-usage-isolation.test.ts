@@ -42,7 +42,6 @@ function window(messages: readonly AgentMessageView[]) {
       summary: null,
       anchor: null,
       verbatim: null,
-      foldCount: 0,
       failureCount: 0,
       openedAt: null,
     },

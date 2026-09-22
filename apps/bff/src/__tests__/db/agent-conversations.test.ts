@@ -50,7 +50,6 @@ async function fold(
     summary: NARRATIVE,
     anchor,
     verbatim: VERBATIM,
-    foldCount: 1,
     failureCount: 0,
     openedAt: null,
     ...rest,
@@ -216,7 +215,6 @@ describe('agent conversations', () => {
       summary: NARRATIVE,
       anchor: { lastMessageId: 'msg-9', coveredCount: 9 },
       verbatim: VERBATIM,
-      foldCount: 2,
       failureCount: 0,
       openedAt: null,
     }
@@ -239,7 +237,6 @@ describe('agent conversations', () => {
       summary: NARRATIVE,
       anchor: { lastMessageId: before[0]!.id, coveredCount: 1 },
       verbatim: VERBATIM,
-      foldCount: 0,
       failureCount: 0,
       openedAt: null,
     })
@@ -303,7 +300,6 @@ describe('agent conversations', () => {
       summary: null,
       anchor: null,
       verbatim: null,
-      foldCount: 0,
       failureCount: 2,
       openedAt: 1_700_000_000_000,
     })
@@ -317,7 +313,6 @@ describe('agent conversations', () => {
     const legacy: Omit<AgentCompactionRecord, 'verbatim'> = {
       summary: NARRATIVE,
       anchor: { lastMessageId: folded.id, coveredCount: 1 },
-      foldCount: 1,
       failureCount: 0,
       openedAt: null,
     }
@@ -350,7 +345,6 @@ describe('agent conversations', () => {
       summary: null,
       anchor: null,
       verbatim: null,
-      foldCount: 0,
       failureCount: 0,
       openedAt: null,
     })

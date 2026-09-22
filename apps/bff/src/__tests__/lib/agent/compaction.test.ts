@@ -32,7 +32,6 @@ const SETTINGS: CompactionSettings = {
   bufferTokens: 50,
   keepRecentTokens: 200,
   verbatimTokens: 87,
-  maxIncrementalFolds: 5,
   failureThreshold: 3,
   breakerCooldownMs: 6 * 60 * 60 * 1000,
 }
@@ -297,7 +296,6 @@ describe('shapeAgentContext', () => {
       // 这一条 400 字，逐字预算 87 token 装不下，所以只留条数与字数。
       verbatim: { omittedCount: 1, omittedChars: 400, kept: [] },
       foldedHere: 2,
-      foldCount: 0,
     })
     expect(textOf(result.messages[0]!)).toContain('已经出了三张图')
   })
@@ -446,7 +444,6 @@ describe('shapeAgentContext', () => {
       narrative: narrative(),
       verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
       foldedHere: 2,
-      foldCount: 1,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
@@ -481,7 +478,6 @@ describe('shapeAgentContext', () => {
       narrative: narrative(),
       verbatim: { omittedCount: 3, omittedChars: 42, kept: ['把主体换成白色马克杯'] },
       foldedHere: 2,
-      foldCount: 1,
     }
     const result = await shapeAgentContext({
       messages,
@@ -516,7 +512,6 @@ describe('shapeAgentContext', () => {
       narrative: narrative(),
       verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
       foldedHere: 2,
-      foldCount: 1,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
@@ -534,52 +529,12 @@ describe('shapeAgentContext', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]!.previousSummary).toEqual(narrative())
     expect(calls[0]!.messages.map((entry) => entry.id)).toEqual(['m3', 'm4'])
-    expect(result.state?.foldCount).toBe(2)
     expect(result.state?.foldedHere).toBe(4)
   })
 
-  it('forces a full rebuild once consecutive folds hit the cap', async () => {
-    const messages = [
-      user('m1', body('a')),
-      assistant('m2', body('b')),
-      user('m3', body('c')),
-      assistant('m4', body('d')),
-      user('m5', body('e')),
-      assistant('m6', body('f')),
-    ]
-    const state: CompactionState = {
-      narrative: narrative(),
-      verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
-      foldedHere: 2,
-      foldCount: 5,
-    }
-    const calls: SummaryRequest[] = []
-    const result = await shapeAgentContext({
-      messages,
-      state,
-      foldedBefore: 0,
-      breaker: CLOSED,
-      settings: SETTINGS,
-      now: 1_000,
-      overheadTokens: 0,
-      summarize: summarizerOf(calls),
-    })
-
-    expect(result.mode).toBe('rebuild')
-    expect(calls[0]!.previousSummary).toBeNull()
-    // 从 m1 起重折，不是接着锚点往下——这一段超预算所以分了段，合起来仍是整段前缀。
-    expect(calls.flatMap((call) => call.messages.map((entry) => entry.id))).toEqual([
-      'm1',
-      'm2',
-      'm3',
-      'm4',
-    ])
-    expect(result.state?.foldCount).toBe(0)
-  })
-
-  // 折叠满次数本来要丢开旧摘要重做，可锚点之前的原文已经读不回来了。那时重做等于把
-  // 它们的摘要一起抹掉——只能接着增量折，让失真也好过让整段上下文消失。
-  it('keeps folding incrementally past the cap once earlier messages are out of reach', async () => {
+  // 存档要跨折叠一路带下去：锚点之前的原文已经读不回来了，那几句用户原话只剩存档里这一份，
+  // 这一折把它丢了就再也补不回来。
+  it('carries the verbatim archive forward when earlier messages are out of reach', async () => {
     const messages = [
       user('m1', body('a')),
       assistant('m2', body('b')),
@@ -592,7 +547,6 @@ describe('shapeAgentContext', () => {
       narrative: narrative(),
       verbatim: { omittedCount: 0, omittedChars: 0, kept: ['更早那段里用户说的话'] },
       foldedHere: 2,
-      foldCount: 5,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({
@@ -672,7 +626,6 @@ describe('shapeAgentContext', () => {
       narrative: narrative(),
       verbatim: { omittedCount: 0, omittedChars: 0, kept: ['m2 的原话'] },
       foldedHere: 2,
-      foldCount: 1,
     }
     const calls: SummaryRequest[] = []
     const result = await shapeAgentContext({

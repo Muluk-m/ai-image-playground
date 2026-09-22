@@ -166,6 +166,21 @@ describe('operator config', () => {
     expect(() => loadOperatorConfig(unknown)).toThrow('unknown capability: made:up')
   })
 
+  // 配额退役时生产配置文件里那个键还在，跳不掉就是 BFF 起不来——这条路以前没有测试。
+  it('ignores retired quotas left in an older file but still rejects unknown ones', () => {
+    const retired = temporaryFile(
+      JSON.stringify({
+        quotas: { 'agent:compaction-max-folds': 5, 'agent:compaction-keep-tokens': 6_000 },
+      }),
+    )
+    const resolved = loadOperatorConfig(retired)
+    expect(resolved.quotas['agent:compaction-keep-tokens']).toBe(6_000)
+    expect(resolved.quotas).not.toHaveProperty('agent:compaction-max-folds')
+
+    const unknown = temporaryFile(JSON.stringify({ quotas: { 'made:up': 1 } }))
+    expect(() => loadOperatorConfig(unknown)).toThrow('unknown quota: made:up')
+  })
+
   it('keeps known keys typed while evaluating runtime unknown keys as false', () => {
     const known: CapabilityKey = 'accounts:login'
     const resolved = loadOperatorConfig(sampleFile)

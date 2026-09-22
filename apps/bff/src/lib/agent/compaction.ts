@@ -34,8 +34,6 @@ export interface CompactionState {
   readonly verbatim: CompactionVerbatim
   /** `messages` 里前多少条已经折进摘要。锚点之前那些不算在内，它们由 `foldedBefore` 记。 */
   readonly foldedHere: number
-  /** 自上次全量重做以来的连续增量折叠次数。 */
-  readonly foldCount: number
 }
 
 /** 熔断器：`openedAt` 非空表示熔断中，冷却期满自动归零。 */
@@ -54,7 +52,6 @@ export interface CompactionSettings {
   readonly keepRecentTokens: number
   /** 摘要里逐字保留用户原话的 token 上限，超出的最旧几条降级为占位。 */
   readonly verbatimTokens: number
-  readonly maxIncrementalFolds: number
   readonly failureThreshold: number
   readonly breakerCooldownMs: number
 }
@@ -472,17 +469,14 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   const cut = cutPoint(messages, input.settings.keepRecentTokens, covered)
   if (cut <= covered) return fallback(breaker)
 
-  // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。但这只在整段历史都还在
-  // 窗口里时办得到：锚点之前的原文已经读不回来了（#708），那时「重做」等于连同它们的
-  // 摘要一起丢掉——宁可让增量继续失真，也不能把用户早先说过的话整段抹了。
-  const rebuildable = input.foldedBefore === 0
-  const previous =
-    state && (!rebuildable || state.foldCount < input.settings.maxIncrementalFolds) ? state : null
+  // 增量摘要一路往下叠，不再周期性重做。曾经有过一道「折满次数就从头重做」的保险，可重做
+  // 要求整段历史都还在窗口里，而折得够多的会话必然已经有原文读不回来了（#708）——触发条件
+  // 与要保护的场景互斥，线上一次都没生效过，已随 #714 拆掉。
   // 摘要请求也是一次出站，按智能体那份请求的同一条上限量它：折叠区超了就分段，
   // 每一段带上一段的摘要往下传，内容不丢而每一次请求都有界。
-  const folded = messages.slice(previous ? covered : 0, cut)
+  const folded = messages.slice(state ? covered : 0, cut)
   const chunks = foldChunks(folded, compactionBudget(input.settings).threshold)
-  let narrative = previous ? previous.narrative : null
+  let narrative = state ? state.narrative : null
   for (const chunk of chunks) {
     const next = await input.summarize({ messages: chunk, previousSummary: narrative })
     // 中途哪一段没折成就整体作废：半截摘要盖不住整个折叠区，用它会把没摘到的内容丢掉。
@@ -493,9 +487,9 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   // 走到它说明前面的不变量破了——那不是摘要失败，不该记进熔断器。
   if (!narrative) return fallback(breaker)
 
-  // 重做时旧存档一并作废：它覆盖的那些消息这一次会从头折一遍，留着会把同一句记两遍。
+  // 第一次折叠没有旧存档可继承，从空的开始。
   const verbatim = extendVerbatim(
-    previous ? previous.verbatim : EMPTY_VERBATIM,
+    state ? state.verbatim : EMPTY_VERBATIM,
     folded,
     input.settings.verbatimTokens,
   )
@@ -506,9 +500,8 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
       narrative,
       verbatim,
       foldedHere: cut,
-      foldCount: previous ? previous.foldCount + 1 : 0,
     },
     breaker: CLOSED_BREAKER,
-    mode: previous ? 'incremental' : 'rebuild',
+    mode: state ? 'incremental' : 'rebuild',
   }
 }

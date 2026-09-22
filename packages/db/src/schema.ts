@@ -284,7 +284,7 @@ export const agent_conversations = pgTable(
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
     deleted_at: epochMs('deleted_at'),
-    /** 上下文压缩的私有状态：摘要、锚点、折叠次数与熔断计数。不下发前端。 */
+    /** 上下文压缩的私有状态：摘要、锚点与熔断计数。不下发前端。 */
     compaction: bunJsonb('compaction').$type<AgentCompactionRecord>(),
   },
   (t) => [
