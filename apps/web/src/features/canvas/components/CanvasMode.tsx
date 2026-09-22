@@ -198,20 +198,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               {t('mobileSwitch.canvas')}
             </button>
           </div>
-          {/* 顶行排在对话卡片**上方**、与卡片同左边界：logo（点它回项目页）右边跟项目名与切换。
-          智能体档与纯直出档共用这一行，同步状态不在这里出声——出错走 toast。 */}
+          {/* 顶行排在对话卡片上方、与卡片同左边界。标志在右上角积分胶囊左边，不占这一行。 */}
           {open || mobile ? (
             <div className="studio-chat-column">
               <div className="studio-canvas-topbar">
-                <button
-                  type="button"
-                  onClick={() => useStore.getState().setAppMode('projects')}
-                  aria-label={t('workspace.backToProjects')}
-                  title={t('workspace.backToProjects')}
-                  className="grid h-9 w-8 shrink-0 place-items-center self-center opacity-90 transition-opacity hover:opacity-100"
-                >
-                  <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
-                </button>
                 <ProjectNavigation />
               </div>
               {hasAgent ? (
