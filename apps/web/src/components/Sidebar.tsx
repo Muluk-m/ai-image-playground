@@ -3,17 +3,17 @@ import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
+import { useLibraryStore } from '../features/library/store'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
-import { AssetIcon, CanvasIcon, GalleryIcon, PromptImageIcon, SparkleIcon } from './icons'
+import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon } from './icons'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
   image: PromptImageIcon,
   canvas: CanvasIcon,
   explore: SparkleIcon,
-  projects: GalleryIcon,
   library: AssetIcon,
 }
 
@@ -60,6 +60,7 @@ export default function Sidebar() {
     if (immersive) useStore.setState({ sidebarExpanded: false })
   }
 
+  const openProjects = useLibraryStore((s) => s.openProjects)
   const newProject = async () => {
     if (await useAgentStore.getState().createProject()) setAppMode('canvas')
   }
@@ -115,26 +116,19 @@ export default function Sidebar() {
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
-          <div
-            className={`group/head mt-2 flex h-9 items-center gap-2 rounded-xl px-3 ${
-              appMode === 'projects' ? ACTIVE_ITEM : ''
-            }`}
-          >
-            {/* 标题本身就是「全部」的入口；在项目页时它就是当前位置，按导航项那样点亮。 */}
+          <div className="group/head mt-2 flex h-9 items-center gap-2 px-3">
+            {/* 画布项目是资产的一部分：标题和「全部」都去「资产 → 项目」，那时点亮的是「资产」。 */}
             <button
               type="button"
-              onClick={() => setAppMode('projects')}
-              aria-current={appMode === 'projects' ? 'page' : undefined}
-              className={`text-[13px] font-medium leading-none ${
-                appMode === 'projects' ? '' : 'text-muted-foreground hover:text-foreground'
-              }`}
+              onClick={openProjects}
+              className="text-[13px] font-medium leading-none text-muted-foreground hover:text-foreground"
             >
               {t('nav.canvases')}
             </button>
             <span className="ml-auto flex h-full items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
               <button
                 type="button"
-                onClick={() => setAppMode('projects')}
+                onClick={openProjects}
                 className="inline-flex h-7 items-center rounded-md px-1.5 text-[13px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 {t('nav.allCanvases')}

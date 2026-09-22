@@ -5,6 +5,7 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS } from '../../../store'
+import ProjectsTab from '../../canvas/components/ProjectsTab'
 import {
   type LibraryTab,
   selectVisibleAssets,
@@ -17,11 +18,11 @@ import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
-const TABS: readonly LibraryTab[] = ['assets', 'templates']
+const TABS: readonly LibraryTab[] = ['projects', 'assets', 'templates']
 
 /**
- * 「资产」入口：自己攒下的料——**素材**（用户自己上传的参考图，多是白底无背景的三视图、产品图）
- * 与**模板**。作品在创作页（那里能接着生成），项目另有一个入口，灵感在「探索」。
+ * 「资产」入口：自己攒下的料——**项目**（画布）、**素材**（用户自己上传的参考图，多是白底无背景的
+ * 三视图、产品图）与**模板**。作品在创作页（那里能接着生成），灵感在「探索」。
  */
 export default function LibraryPage() {
   const { t } = useTranslation('library')
@@ -52,7 +53,12 @@ export default function LibraryPage() {
 
   const openFilePicker = () => fileInputRef.current?.click()
 
-  const placeholder = tab === 'templates' ? t('panel.searchTemplates') : t('panel.searchAssets')
+  const placeholder =
+    tab === 'projects'
+      ? t('panel.searchProjects')
+      : tab === 'templates'
+        ? t('panel.searchTemplates')
+        : t('panel.searchAssets')
 
   return (
     <main className="flex min-h-[calc(100dvh-3.5rem)] flex-col">
@@ -102,7 +108,9 @@ export default function LibraryPage() {
         )}
       </div>
 
-      {tab === 'templates' ? (
+      {tab === 'projects' ? (
+        <ProjectsTab search={searchKeyword} />
+      ) : tab === 'templates' ? (
         <div className="min-h-0 flex-1 p-5">
           {templates.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

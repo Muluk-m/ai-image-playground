@@ -141,7 +141,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <button
             type="button"
             className="text-sm text-muted-foreground hover:text-foreground"
-            onClick={() => useStore.getState().setAppMode('projects')}
+            onClick={() => useLibraryStore.getState().openProjects()}
           >
             {t('welcome.allProjects')}
           </button>
