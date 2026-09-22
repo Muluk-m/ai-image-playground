@@ -17,7 +17,8 @@ defaults:
   run:
     shell: bash
 env:
-  PRIVATE_OVERLAY_REPO: git@github.com:Muluk-m/ai-image-playground-private.git
+  # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
+  PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
   checks:
     name: Checks
@@ -94,16 +95,17 @@ jobs:
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
       # The test site is the paid shape, so it needs the overlay. Its main HEAD: the test
       # environment exists to show what the next production release would look like.
+      #
+      # 与生产一样用 `actions/checkout`：它把 github.com 的 host key 硬编码在源码里，不像
+      # 手搓那版每次都去匿名调 `api.github.com/meta`（限额 60 次/小时且按发起 IP 计，runner
+      # 出口 IP 共享）。调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
       - name: Check out the private overlay at its main HEAD
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          umask 077
-          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
-          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
-          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
-            git clone --quiet "$PRIVATE_OVERLAY_REPO" private
-          rm -f "$RUNNER_TEMP/overlay-key"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -115,4 +117,4 @@ jobs:
       - run: ./scripts/pages-release.sh test
       - name: Remove secrets from the runner
         if: always()
-        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env" "$RUNNER_TEMP/overlay-key"
+        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
