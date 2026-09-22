@@ -59,6 +59,7 @@ if (violations.length > 0) {
  */
 const hostSurfaces: Record<string, true> = {
   'apps/admin/src/lib/private-host': true,
+  'apps/admin/src/lib/private-host-ui': true,
   'apps/admin/src/lib/private-overlay': true,
   'apps/bff/src/lib/private-host': true,
   'apps/bff/src/lib/private-overlay': true,
