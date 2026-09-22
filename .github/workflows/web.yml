@@ -70,23 +70,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PRIVATE_OVERLAY_REPO: git@github.com:Muluk-m/ai-image-playground-private.git
+      # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
+      PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check out the private overlay at its verified pointer
+      # 先自己报一句：`ssh-key` 为空时 checkout 会退回 token 认证，私有仓返回的是
+      # 「Repository not found」，看不出真因是密钥没配。
+      - name: Require the overlay key
         env:
           PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
         run: |
           [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
-          umask 077
-          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
-          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
-          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
-            git clone --quiet --branch verified --single-branch "$PRIVATE_OVERLAY_REPO" private
-          rm -f "$RUNNER_TEMP/overlay-key"
-          echo "overlay=$(git -C private rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      # 与 `deploy.yml` 同一条路子：`actions/checkout` 把 github.com 的 host key 硬编码在
+      # 源码里，这一步不碰任何网络接口。别改回手搓 `git clone` + 匿名调
+      # `api.github.com/meta` 取 known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而
+      # runner 出口 IP 是共享的，2026-09-22 生产部署就是这么被一个 403 整条挂掉的。
+      # 调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
+      - name: Check out the private overlay at its verified pointer
+        id: overlay
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: verified
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - name: Record the overlay commit
+        run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
