@@ -129,7 +129,6 @@ async function fold(
     },
     anchor,
     verbatim: { omittedCount: 2, omittedChars: 24, kept: ['把这只橘猫画得更亮一点'] },
-    foldCount: 1,
     failureCount: 0,
     openedAt: null,
   })

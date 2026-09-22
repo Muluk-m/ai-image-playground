@@ -45,7 +45,6 @@ function fromRecord(record: AgentCompactionRecord): Persisted {
       verbatim: record.verbatim,
       // 窗口从锚点之后起，所以读回来的这一刻，`messages` 里一条都还没被折。
       foldedHere: 0,
-      foldCount: record.foldCount,
     },
     breaker,
   }
@@ -65,7 +64,6 @@ function toRecord(current: Persisted, input: CompactionTransformInput, ids: read
     summary: current.state?.narrative ?? null,
     anchor: current.state ? anchor : null,
     verbatim: current.state?.verbatim ?? null,
-    foldCount: current.state?.foldCount ?? 0,
     failureCount: current.breaker.failureCount,
     openedAt: current.breaker.openedAt,
   } satisfies AgentCompactionRecord
@@ -154,10 +152,7 @@ export function createCompactionTransform(
             event: 'agent.compacted',
             mode: result.mode,
             conversationId: input.conversationId,
-            // 增量链有多深，以及这一刻摘要盖住了多少条。`maxIncrementalFolds` 对折出过
-            // 窗口的会话已经不生效（#708），是删掉它还是补回周期性重做要看这两个数在
-            // 线上长成什么样，不能凭直觉裁（#714）。
-            foldCount: result.state?.foldCount ?? 0,
+            // 这一刻摘要总共盖住了多少条。
             foldedCount: input.foldedBefore + (result.state?.foldedHere ?? 0),
           },
           'agent context compacted',

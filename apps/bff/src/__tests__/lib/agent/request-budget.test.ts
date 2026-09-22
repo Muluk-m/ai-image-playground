@@ -22,7 +22,6 @@ const SETTINGS: CompactionSettings = {
   bufferTokens: 500,
   keepRecentTokens: 200,
   verbatimTokens: 100,
-  maxIncrementalFolds: 3,
   failureThreshold: 3,
   breakerCooldownMs: 60_000,
 }

@@ -18,7 +18,6 @@ describe('compactionSettings', () => {
       bufferTokens: 13_000,
       keepRecentTokens: 20_000,
       verbatimTokens: 20_000,
-      maxIncrementalFolds: 5,
       failureThreshold: 3,
       breakerCooldownMs: 6 * 60 * 60 * 1000,
     })
@@ -35,7 +34,6 @@ describe('compactionSettings', () => {
       bufferTokens: 1_000,
       keepRecentTokens: 400,
       verbatimTokens: 300,
-      maxIncrementalFolds: 2,
       failureThreshold: 1,
       breakerCooldownMs: 30 * 60 * 1000,
     })

@@ -552,7 +552,6 @@ export interface AgentCompactionRecord {
    * 不能假装有，凭空少掉用户原话比多折一次贵得多。
    */
   readonly verbatim: AgentCompactionVerbatim | null
-  readonly foldCount: number
   readonly failureCount: number
   readonly openedAt: number | null
 }

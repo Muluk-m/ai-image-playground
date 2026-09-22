@@ -413,7 +413,6 @@ function withoutSummary(record: AgentCompactionRecord | null): AgentCompactionRe
     summary: null,
     anchor: null,
     verbatim: null,
-    foldCount: 0,
     failureCount: record?.failureCount ?? 0,
     openedAt: record?.openedAt ?? null,
   }

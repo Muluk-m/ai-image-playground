@@ -14,7 +14,6 @@ export function compactionSettings(
     bufferTokens: quotas['agent:compaction-buffer-tokens'],
     keepRecentTokens: quotas['agent:compaction-keep-tokens'],
     verbatimTokens: quotas['agent:compaction-verbatim-tokens'],
-    maxIncrementalFolds: quotas['agent:compaction-max-folds'],
     failureThreshold: quotas['agent:compaction-failure-threshold'],
     breakerCooldownMs: quotas['agent:compaction-cooldown-minutes'] * 60 * 1000,
   }

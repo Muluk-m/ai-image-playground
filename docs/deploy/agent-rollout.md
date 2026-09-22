@@ -114,7 +114,6 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 "agent:compaction-buffer-tokens": 8000,
 "agent:compaction-verbatim-tokens": 6000,
 "agent:compaction-keep-tokens": 6000,
-"agent:compaction-max-folds": 5,
 "agent:compaction-failure-threshold": 3,
 "agent:compaction-cooldown-minutes": 60,
 "agent:turns-per-device-minute": 10,
