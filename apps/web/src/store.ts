@@ -1,6 +1,7 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { requireAccount } from './auth/loginPrompt'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
@@ -1383,6 +1384,10 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []
 
+  // 内置渠道要经 BFF 的队列，没账号发不出去：先把登录框叫起来，这次提交原样丢掉——
+  // 不落任务行、也不 toast，弹窗本身就是反馈。BYOK 浏览器直连上游，不需要账号。
+  if (profile.source === 'builtin-edge' && !requireAccount()) return []
+
   const submissionGuard = getPrivateSubmissionGuard({
     model: submitView.model,
     quantity: prompts.length * Math.max(1, taskParams.n),
@@ -1930,6 +1935,8 @@ async function retryLocalTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
+  // 重试和首次提交同一条路：内置渠道没账号就只弹登录框，不再多一条失败任务行。
+  if (activeProfile.source === 'builtin-edge' && !requireAccount()) return
   const taskParams = deriveTaskParams(task.params, settings, task.inputImageIds.length > 0)
   const transparentMeta = taskParams.transparent_output
     ? createTransparentOutputMeta(task.prompt.trim())

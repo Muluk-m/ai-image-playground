@@ -2,7 +2,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LoginScreen } from '../../auth/LoginScreen'
+import { LoginDialog } from '../../auth/LoginDialog'
+import DisplaySettingsMenuItems from '../../components/DisplaySettingsMenuItems'
 import { type AppLocale, i18next, setLocale } from '../../i18n'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
@@ -15,10 +16,18 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 
-function languageSelect(): HTMLSelectElement {
-  const element = host.querySelector<HTMLSelectElement>('.auth-language select')
-  if (!element) throw new Error('missing language select')
+/**
+ * 语言开关在头像菜单里（登录框自己不带显示设置）。这里直接渲染那两行菜单项，
+ * 它按 SUPPORTED_LOCALES 顺序翻到下一个语言。
+ */
+function localeToggle(): HTMLButtonElement {
+  const element = host.querySelector<HTMLButtonElement>('[data-display-setting="locale"]')
+  if (!element) throw new Error('missing locale toggle')
   return element
+}
+
+function dialogText(): string {
+  return document.body.querySelector('.auth-dialog')?.textContent ?? ''
 }
 
 /** 切换是异步的（英文语料要先落地），等 i18next 自己宣布切完，别赌微任务轮数。 */
@@ -36,11 +45,19 @@ function whenLanguageChanged(target: AppLocale): Promise<void> {
 async function chooseLocale(value: AppLocale): Promise<void> {
   const changed = whenLanguageChanged(value)
   await act(async () => {
-    const select = languageSelect()
-    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
-    setter?.call(select, value)
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    localeToggle().click()
     await changed
+  })
+}
+
+async function renderLoginSurface(): Promise<void> {
+  await act(async () => {
+    root.render(
+      <>
+        <DisplaySettingsMenuItems itemClassName="" iconClassName="" />
+        <LoginDialog onClose={() => {}} />
+      </>,
+    )
   })
 }
 
@@ -67,26 +84,22 @@ afterEach(async () => {
 
 describe('locale switching', () => {
   it('renders Chinese by default and swaps the whole screen to English', async () => {
-    await act(async () => {
-      root.render(<LoginScreen />)
-    })
+    await renderLoginSurface()
 
-    expect(host.textContent).toContain('欢迎回来')
-    expect(host.textContent).toContain('登录即表示你同意我们的服务条款和隐私政策')
+    expect(dialogText()).toContain('欢迎回来')
+    expect(dialogText()).toContain('登录即表示你同意我们的服务条款和隐私政策')
 
     await chooseLocale('en')
 
-    expect(host.textContent).toContain('Welcome back')
-    expect(host.textContent).toContain('By signing in you agree to our terms of service')
-    expect(host.textContent).not.toContain('欢迎回来')
+    expect(dialogText()).toContain('Welcome back')
+    expect(dialogText()).toContain('By signing in you agree to our terms of service')
+    expect(dialogText()).not.toContain('欢迎回来')
     expect(document.documentElement.lang).toBe('en')
-    expect(languageSelect().value).toBe('en')
+    expect(localeToggle().textContent).toContain('English')
   })
 
   it('remembers the choice for the next visit', async () => {
-    await act(async () => {
-      root.render(<LoginScreen />)
-    })
+    await renderLoginSurface()
     await chooseLocale('en')
 
     expect(localStorage.getItem('aip.locale')).toBe('en')
@@ -94,15 +107,13 @@ describe('locale switching', () => {
 
   it('keeps a server error readable after the language changes', async () => {
     window.history.replaceState(null, '', '/?auth_error=account_disabled')
-    await act(async () => {
-      root.render(<LoginScreen />)
-    })
+    await renderLoginSurface()
 
-    expect(host.textContent).toContain('该账户已被停用')
+    expect(dialogText()).toContain('该账户已被停用')
 
     await chooseLocale('en')
 
-    expect(host.textContent).toContain('This account has been disabled')
+    expect(dialogText()).toContain('This account has been disabled')
   })
 })
 

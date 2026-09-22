@@ -21,6 +21,8 @@ const { config } = await import('../../config')
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { isCapabilityEnabled } = await import('../../lib/capabilities')
+const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/channels')
 let storage: InMemoryObjectStore
 
 beforeEach(() => {
@@ -30,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setObjectStoreForTesting()
+  _setChannelsForTesting([])
 })
 
 afterAll(async () => {
@@ -136,15 +139,50 @@ describe('BFF optional user auth', () => {
     process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
   })
 
-  it('rejects protected channel and queue routes without a session', async () => {
-    const channels = await jsonReq('GET', '/api/channels')
-    expect(channels.status).toBe(401)
-    expect(channels.json).toEqual({ error: 'unauthorized' })
-
+  it('rejects protected queue routes without a session', async () => {
     const submit = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', submitBody())
     expect(submit.status).toBe(401)
     const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
     expect(tasks).toHaveLength(0)
+  })
+
+  // 匿名访客得先看见模型列表才渲染得出工作台，所以 channel 发现在登录开着时也公开。
+  // 这份 payload 从此是全互联网可读的，sanitization 就成了硬约束，一起钉在这里。
+  it('serves the sanitized channel list to anonymous callers while login is enabled', async () => {
+    expect(isCapabilityEnabled('accounts:login')).toBe(true)
+    _setChannelsForTesting(
+      parseChannelsConfig(
+        {
+          channels: [
+            {
+              id: 'anon-openai',
+              kind: 'openai-queue',
+              label: 'Anon OpenAI',
+              baseUrl: 'https://channel-secret.example.com/v1',
+              auth: { type: 'bearer', secretRef: 'ANON_CHANNEL_KEY' },
+              models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+              allowedPaths: ['images/generations'],
+            },
+          ],
+        },
+        (key) => (key === 'ANON_CHANNEL_KEY' ? 'fixture-channel-credential' : undefined),
+      ).channels,
+    )
+
+    const res = await app.handle(new Request('http://localhost/api/channels'))
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(JSON.parse(text)).toMatchObject({
+      channels: [{ id: 'anon-openai', kind: 'openai-queue', label: 'Anon OpenAI' }],
+    })
+    for (const leaked of [
+      'channel-secret.example.com',
+      'fixture-channel-credential',
+      'ANON_CHANNEL_KEY',
+      'allowedPaths',
+    ]) {
+      expect(text).not.toContain(leaked)
+    }
   })
 
   it('lets the configured service identity fetch task and image reads only', async () => {
