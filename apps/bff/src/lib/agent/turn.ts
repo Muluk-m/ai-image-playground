@@ -52,7 +52,7 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
-import { createTurnAuthorization } from './turn-authorization'
+import { clarificationChainStart, createTurnAuthorization } from './turn-authorization'
 import {
   expandSkillInvocation,
   turnInitialState,
@@ -169,6 +169,9 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history.messages,
     conversationId: input.conversationId,
     userId: input.userId,
+    selectionHistoryStart: input.wake?.plan?.protected
+      ? 0
+      : clarificationChainStart(input.history.messages),
   })
   const authorization = createTurnAuthorization({
     history: input.history.messages,

@@ -88,7 +88,7 @@ const RICH_HISTORY: AgentMessageView[] = [
   userMessage('m4', [{ type: 'text', text: '保留' }], 4),
 ]
 
-/** 历史里带着上一批引用（存储形态，且有遮罩）；本轮不附图时编号仍指这一批。 */
+/** 历史里带着上一批引用（存储形态，且有遮罩）；本轮不附图时仍只上文字清单。 */
 const OLD_REFERENCE_HISTORY: AgentMessageView[] = [
   userMessage('o1', [
     {
@@ -173,15 +173,14 @@ describe('estimateTurnInputTokens', () => {
     expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5001)
   })
 
-  // 沿用下来的那批只上文字清单，字节一个都不发：135（回放这两条历史消息，带遮罩的那张在回放里
-  // 也写成「只给了 id」的清单）+ 129（本轮 prompt 末尾的同一份清单）。没有任何图片块。
-  it('carries the last batch of references as text only when this turn attaches none', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(264)
+  // 历史选区只写成「此前附过选区」，不再把本轮误算成局部编辑；仍不发送图片块。
+  it('carries historical references as text only when this turn attaches none', () => {
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(222)
   })
 
-  // 本轮自己带了图，历史那批不再编号：1200（1 个图片块）+ 135（回放）+ 68（普通引用的清单）。
+  // 本轮自己带图时，历史那批不再编号；历史回放和本轮普通清单仍计入。
   it('numbers only this turn references when the turn attaches its own', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1403)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1382)
   })
 
   it('caps a long history at the compaction threshold', () => {

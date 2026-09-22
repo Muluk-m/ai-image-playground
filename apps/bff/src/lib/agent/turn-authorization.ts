@@ -10,7 +10,7 @@ import { replayTurnText, turnPromptText } from './turn-input'
  */
 
 /** 未完成澄清链的起点：从历史末尾往回走，澄清与作答它的那条用户消息都还算本轮。 */
-function clarificationChainStart(history: readonly AgentMessageView[]): number {
+export function clarificationChainStart(history: readonly AgentMessageView[]): number {
   let start = history.length
   while (start > 0) {
     const tail = history.slice(0, start)

@@ -24,7 +24,7 @@ export type AgentImageReference = AgentTurnReference | AgentStoredReference
 export interface ResolvedAgentImage {
   readonly imageId: string
   readonly dataUrl: string
-  /** 用户在这张图上画的遮罩，只有输入框附上的参考图才可能有。 */
+  /** 本轮附图或系统续作计划中的遮罩；普通历史引用只有原图。 */
   readonly maskDataUrl?: string
 }
 
@@ -32,8 +32,8 @@ export interface ResolvedAgentImage {
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
   /**
-   * 本轮用户**亲手附上**的图里有没有他画的遮罩；「本轮存在用户选区」的判断只问这一处。
-   * 从历史沿用下来的引用不算：那是上一轮的意图，用它当门禁会把之后每一轮都锁在局部改图里。
+   * 当前请求作用域中是否有选区：本轮附图、未完成澄清链或已授权续作。
+   * 普通历史图片的选区不在作用域内，不能把之后的新请求锁在局部改图里。
    */
   readonly masked: boolean
   /**
@@ -191,7 +191,9 @@ export function referenceManifest(
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
     const mask = referenceHasMask(one)
-      ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+      ? attached
+        ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+        : '，此前附过选区；历史选区不代表本轮修改范围，以本轮附图或系统续作计划为准'
       : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
   })
@@ -284,21 +286,31 @@ export function createAgentImageSource(input: {
   readonly history: readonly AgentMessageView[]
   readonly conversationId: string
   readonly userId: string | null
+  /** 未完成澄清链从此处继承选区；系统续作传 0，新请求默认不继承。 */
+  readonly selectionHistoryStart?: number
 }): AgentImageSource {
   const { userId } = input
-  let active = activeAgentReferences(input.references, input.history)
-  // 选区只属于画它的那一轮：沿用下来的引用只进清单文字，不把旧遮罩变成本轮的门禁。
-  // 否则用户一旦圈过一次，之后每一轮都被判成遮罩轮，连「重做整张」都提交不了。
-  let attachedNow: readonly AgentImageReference[] = input.references
+  // 原图可跨请求复用，选区只在当前请求、澄清链或已授权续作中有效。
   const references = new Map<string, AgentImageReference>()
-  for (const message of input.history) {
+  for (const [index, message] of input.history.entries()) {
     if (message.role !== 'user') continue
     for (const block of message.content) {
       if (block.type !== 'text') continue
-      for (const reference of block.references ?? []) references.set(reference.imageId, reference)
+      for (const reference of block.references ?? []) {
+        if (reference.mask && index < (input.selectionHistoryStart ?? input.history.length)) {
+          const { mask: _mask, ...original } = reference
+          references.set(reference.imageId, original)
+        } else {
+          references.set(reference.imageId, reference)
+        }
+      }
     }
   }
   for (const reference of input.references) references.set(reference.imageId, reference)
+  let active: readonly AgentImageReference[] = activeAgentReferences(
+    input.references,
+    input.history,
+  ).map((reference) => references.get(reference.imageId)!)
   const outputs = outputsFromHistory(input.history)
   // 缓存 promise 而不是值：模型连着改同一张图时，重复的那几次连 I/O 都不发。
   const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
@@ -344,12 +356,14 @@ export function createAgentImageSource(input: {
       return active
     },
     get masked() {
-      return attachedNow.some(referenceHasMask)
+      for (const reference of references.values()) {
+        if (referenceHasMask(reference)) return true
+      }
+      return false
     },
     attach(added) {
       if (!added.length) return
       active = added
-      attachedNow = added
       for (const reference of added) {
         references.set(reference.imageId, reference)
         resolving.delete(reference.imageId)
