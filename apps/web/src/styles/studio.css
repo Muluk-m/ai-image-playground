@@ -1,10 +1,11 @@
-.studio-header { background: hsl(var(--sidebar)); border-color: hsl(var(--border)); }
-.studio-header nav { background: hsl(var(--muted)); }
-.studio-header nav button { color: hsl(var(--muted-foreground)); }
-.studio-header nav button[aria-pressed="true"] { color: hsl(var(--foreground)); background: hsl(var(--sidebar)); }
 .studio-shell { background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .studio-layout { display: flex; position: relative; height: 100%; width: 100%; }
-.studio-sidebar { position: relative; z-index: 400; display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; max-width: 50%; border-right: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); }
+.studio-sidebar {
+  position: relative; z-index: 400; display: flex; flex: 0 0 auto; flex-direction: column;
+  min-height: 0; max-width: 50%; background: hsl(var(--sidebar));
+  /* 对话是一张卡：上方留出空位给左上角那颗品牌按钮，四周脱开边缘。 */
+  margin: 52px 0 12px 12px; border: 1px solid hsl(var(--border)); border-radius: 18px; overflow: hidden;
+}
 .studio-sidebar-heading { padding: var(--studio-space-6) var(--studio-space-4) var(--studio-space-3); }
 .studio-kicker { color: hsl(var(--primary)); font-size: 10px; font-weight: 650; letter-spacing: .16em; }
 .studio-sidebar-heading h2 { margin-top: 8px; font-size: 18px; font-weight: 550; letter-spacing: -.04em; }
@@ -14,35 +15,64 @@
 .studio-chat-empty p { color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.9; margin-top: 10px; }
 .studio-agent-composer { position: relative; }
 .studio-canvas { position: relative; flex: 1; min-width: 0; height: 100%; background: hsl(var(--background)); }
+.studio-chat-column { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; min-width: 360px; margin: 10px 0 12px 12px; }
+.studio-chat-column > .studio-sidebar { margin: 0; flex: 1 1 auto; max-width: none; }
+.studio-canvas-topbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; }
+.studio-canvas-topbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
+.studio-canvas-topbar .studio-agent-project { border: 0; padding: 0; }
 .studio-canvas-heading { position: absolute; top: 18px; left: 22px; right: 20px; z-index: 100; pointer-events: none; display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: hsl(var(--foreground)); }
 .studio-canvas-heading span { color: hsl(var(--muted-foreground)); font-size: 11px; }
-.studio-open-chat { position: absolute; left: 16px; top: 54px; z-index: 410; border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); border-radius: var(--studio-radius); padding: 8px 12px; font-size: 12px; }
+.studio-open-chat {
+  position: absolute; left: 16px; bottom: 16px; z-index: 410; height: 48px;
+  display: inline-flex; align-items: center; gap: 10px; padding: 0 16px 0 8px;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card));
+  color: hsl(var(--foreground)); border-radius: 9999px;
+  font-size: 14px; font-weight: 500;
+  box-shadow: 0 18px 40px -20px rgb(0 0 0 / 0.9);
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+  animation: studio-pill-in .18s ease-out both;
+}
+.studio-open-chat:hover { background: hsl(var(--muted)); border-color: hsl(var(--primary) / .5); transform: translateY(-1px); }
+@keyframes studio-pill-in {
+  from { opacity: 0; transform: scale(.9); }
+  to { opacity: 1; transform: none; }
+}
+/* 展开时对话列从那颗胶囊的位置长出来，收起/展开不再是硬切。 */
+.studio-chat-column { animation: studio-column-in .22s cubic-bezier(.2,.7,.3,1) both; transform-origin: left top; }
+@keyframes studio-column-in {
+  from { opacity: 0; transform: translateX(-10px) scaleX(.94); }
+  to { opacity: 1; transform: none; }
+}
 .studio-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: min(360px,80%); text-align: center; pointer-events: none; }
 .studio-empty img { width: 44px; height: 44px; margin: 0 auto 22px; border-radius: 12px; }
 .studio-empty h2 { font-size: 25px; font-weight: 500; letter-spacing: -.05em; }
 .studio-empty p { margin: 12px 0 22px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.9; }
 .studio-empty button { pointer-events: auto; }
-.studio-secondary, .studio-primary { border-radius: 9px; padding: 10px 16px; font-size: 12px; transition: background .15s; }
-.studio-secondary { border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); }
+.studio-secondary { border-radius: 9px; padding: 10px 16px; font-size: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); transition: background .15s; }
 .studio-secondary:hover { background: hsl(var(--muted)); }
-.studio-primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font-weight: 600; }
-.studio-primary:hover { background: hsl(var(--primary)); }
-.studio-primary:disabled { opacity: .45; cursor: not-allowed; }
 .studio-shell button:focus-visible, .studio-shell textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
 .studio-toolbar { position: absolute; top: 104px; bottom: 16px; left: 16px; z-index: 400; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 .studio-tools { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; box-shadow: var(--studio-shadow); border-radius: var(--studio-radius); }
 .studio-tools::-webkit-scrollbar { display: none; }
 .studio-tools button { flex-shrink: 0; }
 .studio-direct-composer { margin-top: auto; padding: var(--studio-space-4); }
-.studio-direct-card { display: flex; flex-direction: column; gap: 14px; }
-.studio-direct-card textarea { background: hsl(var(--background)); border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); border-radius: var(--studio-radius); padding: 12px; margin-top: 12px; }
+.studio-direct-card { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); box-shadow: var(--studio-shadow); }
+.studio-direct-card:focus-within { border-color: hsl(var(--ring) / .5); }
+/* 卡内输入区不再单独描一圈：聚焦由卡片边框（:focus-within）表示。 */
+.studio-direct-card textarea { padding: 4px 6px; background: transparent; color: hsl(var(--foreground)); }
+.studio-direct-card textarea:focus-visible { outline: none; }
 .studio-direct-card textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .studio-canvas-status { position: absolute; inset: 0; z-index: 420; display: grid; place-items: center; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; }
 @media (max-width: 767px) {
   .studio-sidebar { position: absolute; inset: 0 auto 0 0; width: min(340px,100%) !important; max-width: 100%; box-shadow: var(--studio-shadow); }
   .studio-sidebar-heading { padding-top: 16px; }
   .studio-chat-empty { padding-top: 16px; }
-  .studio-canvas-heading { left: 16px; }
+  .studio-chat-column { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; min-width: 360px; margin: 10px 0 12px 12px; }
+.studio-chat-column > .studio-sidebar { margin: 0; flex: 1 1 auto; max-width: none; }
+.studio-canvas-topbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; }
+.studio-canvas-topbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
+.studio-canvas-topbar .studio-agent-project { border: 0; padding: 0; }
+.studio-canvas-heading { left: 16px; }
   .studio-canvas-heading span { display: none; }
   .studio-tools { gap: 0; padding: 4px; }
   .studio-tools button { width: 32px; }
@@ -57,18 +87,39 @@
 .studio-agent-composer [role="textbox"]:focus-visible { outline: none; box-shadow: none; }
 
 .studio-mobile-switch { display: none; }
+
+/* 右上角账号胶囊的几何：画布从顶上铺开，任务卡和样式面板得从胶囊下沿再让开一截。
+   数字和 .studio-header-float 的 padding、控件高度绑在一起，改一边要改另一边。 */
+:root {
+  --studio-account-cluster-top: 0.75rem;
+  --studio-account-cluster-pad: 3px;
+  --studio-account-cluster-control: 2rem;
+  --studio-account-cluster-clearance: calc(
+    var(--studio-account-cluster-top) + var(--studio-account-cluster-pad) * 2 +
+      var(--studio-account-cluster-control) + 0.75rem
+  );
+}
+/* 画布沉浸时这一簇直接压在画布内容上，没有底就像两层图叠在一起——给一层毛玻璃托底当 chrome 读。
+   托底与里面的 chip 都是胶囊，内圆角比外圆角正好小一个 padding，曲线才同心。
+   描边留一层极淡的内阴影，避免暗底上出现白边。
+   积分按钮自带 rounded-lg，和「> *」特异度相同且写在 Tailwind 层里更晚，会把胶囊切回 8px，
+   灰底拐角就和外层对不齐。这里只打第一层按钮，特异度压过实用类；再往下是账号菜单，不能被切成胶囊。 */
+.studio-header-float {
+  padding: var(--studio-account-cluster-pad);
+  border-radius: 9999px;
+  background: hsl(var(--background) / 0.55);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.06);
+}
+.studio-header-float > button,
+.studio-header-float > * > button {
+  border-radius: 9999px;
+}
 @media (max-width: 767px) {
   :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
-  .studio-header { top: var(--workspace-viewport-top, 0px); }
-  .studio-header h1 button { min-height: 44px; }
-  .studio-header .ml-auto > div > button { min-width: 44px; min-height: 44px; }
-  .studio-main-nav {
-    position: fixed; inset: auto 0 0; margin: 0; padding: 4px 16px calc(4px + env(safe-area-inset-bottom, 0px));
-    height: var(--mobile-nav-height); border-radius: 0; border-top: 1px solid hsl(var(--border));
-    background: hsl(var(--card)); justify-content: space-around;
-  }
-  .studio-main-nav button { flex: 1; min-height: 44px; font-size: 14px; }
-  .studio-header .studio-main-nav button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / .1); box-shadow: none; }
+  .studio-header-float { top: var(--workspace-viewport-top, 0px); }
+  .studio-header-float button { min-width: 40px; min-height: 40px; }
+  .studio-mobile-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .studio-shell {
     top: calc(var(--workspace-viewport-top, 0px) + var(--safe-area-top) + var(--header-height)) !important;
     bottom: auto; height: calc(var(--workspace-viewport-height, 100dvh) - var(--safe-area-top) - var(--header-height) - var(--mobile-nav-height));
@@ -97,7 +148,12 @@
   .studio-tools button { min-width: 44px; min-height: 44px; }
   .studio-canvas .studio-empty { padding-left: 68px; padding-right: 16px; }
   .studio-canvas .studio-empty h2 { font-size: 22px; }
-  .studio-canvas-heading { top: 16px; }
+  .studio-chat-column { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; min-width: 360px; margin: 10px 0 12px 12px; }
+.studio-chat-column > .studio-sidebar { margin: 0; flex: 1 1 auto; max-width: none; }
+.studio-canvas-topbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; }
+.studio-canvas-topbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
+.studio-canvas-topbar .studio-agent-project { border: 0; padding: 0; }
+.studio-canvas-heading { top: 16px; }
   html[data-workspace-keyboard="true"] { --mobile-nav-height: 0px; }
   html[data-workspace-keyboard="true"] .studio-main-nav,
   html[data-workspace-keyboard="true"] .studio-agent-tabs,
@@ -113,8 +169,49 @@
   [data-home-main] { padding-bottom: calc(12rem + var(--mobile-nav-height)); }
 }
 @media (max-width: 767px) {
-  .studio-header button[aria-haspopup="menu"],
-  .studio-header button[aria-label="打开应用菜单"],
-  .studio-header button[aria-label="打开个人账户"] { width: 44px; height: 44px; }
+  .studio-header-float button[aria-haspopup="menu"] { width: 40px; height: 40px; }
   .studio-direct-card textarea { font-size: 16px; }
 }
+
+/* 首屏标题的高亮半句：品牌绿渐变 + 柔光，暗底上才有「发光」的观感。 */
+.studio-hero-accent {
+  background: linear-gradient(100deg, #eaffd6, #a6ef7c 45%, #6fd36a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 38px hsl(var(--primary) / 0.32);
+}
+
+/* 模式切与主按钮的高亮态：亮绿渐变 + 内描边 + 外发光。 */
+.studio-mode-active {
+  font-weight: 500;
+  color: #0b1a08;
+  background: linear-gradient(135deg, #d6ffb4, #8fe06a 55%, #5fbf52);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    0 10px 30px -12px hsl(var(--primary) / 0.85);
+}
+
+/* 首屏那张输入卡：暗底上要「浮」起来，靠一层绿调外发光而不是硬阴影。 */
+.studio-hero-composer {
+  background: hsl(var(--card) / 0.86);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.14),
+    0 40px 90px -50px hsl(var(--primary) / 0.7);
+}
+
+/* 生成按钮：亮绿渐变 + 内描边 + 外发光，黑字。禁用态交回 Tailwind 的 disabled:*。 */
+.studio-generate-button {
+  color: #0b1a08;
+  background: linear-gradient(135deg, #d9ffba, #93e46f 55%, #63c455);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.28),
+    0 14px 40px -14px hsl(var(--primary) / 0.95);
+}
+.studio-generate-button:hover:not(:disabled) {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.35),
+    0 18px 48px -14px hsl(var(--primary));
+}
+
+/* `studio-page-head` 只做标记，右侧让位由 Tailwind 的 pr-16 / md:pr-60 出（它在层叠里压得过这里）。 */

@@ -61,18 +61,19 @@ export async function reserveProjectOutputs(
       ? { x: replaced.x, y: replaced.y, width: replaced.width, height: replaced.height }
       : { x: right + 24 + position * 384, y: 0, width: 360, height: 360 }),
   }))
-  // 接替的那一件就地换进原来的层级，其余照常叠在最上面。
-  const document = replaced
-    ? {
-        version: 1,
-        elements: [
+  // 接替的那一件就地换进原来的层级，其余照常叠在最上面。展开原文档：画布类型这类
+  // 不由服务端决定的字段要原样留住，重写元素不等于重写整份文档。
+  const document = {
+    ...project.document,
+    elements: replaced
+      ? [
           ...project.document.elements.map((element) =>
             element === replaced ? outputs[0]! : element,
           ),
           ...outputs.slice(1),
-        ],
-      }
-    : { version: 1, elements: [...project.document.elements, ...outputs] }
+        ]
+      : [...project.document.elements, ...outputs],
+  }
   if (
     !isProjectDocument(document) ||
     Buffer.byteLength(JSON.stringify(document)) > PROJECT_DOCUMENT_MAX_BYTES
@@ -198,9 +199,11 @@ export async function publishProjectOutputs(
     ]
   })
   if (!touched) return
+  // 重写的只有元素；画布类型这类不由服务端决定的字段跟着原文档走。
   if (
-    !isProjectDocument({ version: 1, elements }) ||
-    Buffer.byteLength(JSON.stringify({ version: 1, elements })) > PROJECT_DOCUMENT_MAX_BYTES
+    !isProjectDocument({ ...project.document, elements }) ||
+    Buffer.byteLength(JSON.stringify({ ...project.document, elements })) >
+      PROJECT_DOCUMENT_MAX_BYTES
   ) {
     // 画布装不下时原件仍归档到创作记录；只收掉本任务的预留位置。
     elements = project.document.elements.filter(
@@ -224,7 +227,7 @@ export async function publishProjectOutputs(
   await tx
     .update(schema.canvas_projects)
     .set({
-      document: { version: 1, elements },
+      document: { ...project.document, elements },
       revision: project.revision + 1,
       element_count: elements.length,
       cover_media_id:

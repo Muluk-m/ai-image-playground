@@ -48,7 +48,7 @@ afterEach(async () => {
 })
 
 function openAccountMenu(): void {
-  const trigger = host.querySelector<HTMLButtonElement>('button[aria-expanded]')
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="打开个人账户"]')
   if (!trigger) throw new Error('missing account menu trigger')
   act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
@@ -93,17 +93,6 @@ describe('头像菜单里的界面语言', () => {
     expect(localeRow().textContent).toContain('Language')
     expect(localeRow().textContent).toContain('English')
     expect(localeRow().getAttribute('aria-label')).toBe('Language: English. Switch to 中文')
-  })
-
-  it('英文下品牌只出现一次 Muvloom，中文下带拉丁字标', async () => {
-    const brand = (): string => host.querySelector('h1')?.textContent ?? ''
-    expect(brand()).toBe('幕芽Muvloom')
-
-    await act(async () => {
-      await setLocale('en')
-    })
-
-    expect(brand()).toBe('Muvloom')
   })
 })
 

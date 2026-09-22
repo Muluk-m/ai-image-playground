@@ -29,9 +29,35 @@ export interface PrivateHeaderActionsProps {
   onLogout(): void
 }
 
+/**
+ * 右上角账号簇里那一格会员位的**渲染契约**。公开树不认识「等级」这个概念——等级、配色、
+ * 徽标画法全是收费版独有的，按 `docs/dual-edition-isolation.md` 第 (i) 条它们得留在 overlay
+ * 里真删掉。所以这里只留展示所需的最小面：一个徽标组件、一个强调色、一句文案、一个动作。
+ */
+export interface PrivateMembershipView {
+  /** 有生效订阅时 false 走「开通会员」引导，true 走等级展示。 */
+  subscribed: boolean
+  /** 已订阅时是套餐名；未订阅时由 overlay 给引导文案。 */
+  label: string
+  /** 徽标与文字的强调色（overlay 传十六进制，公开树只往 style 里塞）。 */
+  accent: string
+  /** 徽标；由 overlay 提供，公开树不画。 */
+  Badge: ComponentType<{ size?: number }>
+  /** 鼠标悬停补充说明，例如到期日。 */
+  hint: string | null
+  /** 点这一格该干什么：已订阅去账户，未订阅去套餐页。 */
+  open(): void
+}
+
+export interface PrivateMembershipSlot {
+  useMembership(): PrivateMembershipView
+}
+
 export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
+  /** 会员等级与引导的数据源；缺 overlay 时右上角不渲染会员位。 */
+  membership?: PrivateMembershipSlot
   replacesAuthActions: boolean
   supportsReferrals: boolean
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
@@ -99,6 +125,7 @@ export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals
+export const PrivateWebMembership = overlay.membership ?? null
 /** 构建时带了收费 overlay；没有它，充值之类的信号没有人接。 */
 export const PrivateWebOverlayPresent = overlay !== EMPTY_OVERLAY
 

@@ -10,6 +10,7 @@ import type {
   AgentToolErrorCode,
   AgentTurnEvent,
   AgentTurnReference,
+  ProjectKind,
 } from '@image-playground/shared'
 import { AGENT_IMAGE_MAX_N, AGENT_QUEUE_MAX_PENDING } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -204,7 +205,8 @@ export interface AgentState {
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
   retryHistory(): Promise<void>
-  createProject(): Promise<boolean>
+  /** 画布类型建项目时定死：视频入口建视频画布，其余入口建图片画布。 */
+  createProject(kind?: ProjectKind): Promise<boolean>
   selectProject(projectId: string, isCurrent?: () => boolean): Promise<boolean>
   deleteProject(projectId: string): Promise<boolean>
   /** onAccepted 只在服务端接收后触发，输入框此时才清掉已提交草稿。 */
@@ -298,6 +300,18 @@ let wakePickupDelayMs = DEFAULT_WAKE_PICKUP_DELAY_MS
 /** 测试注入点；不传恢复真实节奏。 */
 export function setAgentWakePickupDelayForTesting(ms?: number): void {
   wakePickupDelayMs = ms ?? DEFAULT_WAKE_PICKUP_DELAY_MS
+}
+
+/**
+ * 服务端在起轮时把首句标题交给小模型改写，改完不另行通知。首轮收尾读到的多半还是首句，
+ * 所以隔这么久再补拉一次会话列表，项目名跟着一起更新。只补这一次，不轮询。
+ */
+const DEFAULT_TITLE_REWRITE_MS = 4_000
+let titleRewriteMs = DEFAULT_TITLE_REWRITE_MS
+
+/** 测试注入点；不传恢复真实节奏。 */
+export function setAgentTitleRewriteDelayForTesting(ms?: number): void {
+  titleRewriteMs = ms ?? DEFAULT_TITLE_REWRITE_MS
 }
 
 /**
@@ -1033,7 +1047,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }),
     open: (conversationId) => void openConversation(conversationId),
   }
-  const createProject = async (reuseEmpty = true) => {
+  const createProject = async (reuseEmpty = true, kind: ProjectKind = 'image') => {
     const saved = await saveCurrentProject(get().conversationId)
     if (!saved.ok) throw new Error(saved.reason)
     const current = currentCanvasProject()
@@ -1041,7 +1055,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     // 重复点击不制造空壳；有引用、草稿、画布或正在提交的内容都必须新建。
     if (
       reuseEmpty &&
-      current &&
+      current?.kind === kind &&
       !current.conversationId &&
       !current.hasContent &&
       !current.customName &&
@@ -1056,7 +1070,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       showProject(current, showPanel)
       return true
     }
-    const project = await useCanvasProjectStore.getState().create()
+    const project = await useCanvasProjectStore.getState().create(kind)
     showProject(project, showPanel)
     return true
   }
@@ -1207,10 +1221,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
     },
 
-    async createProject() {
+    async createProject(kind) {
       return changeProject(async () => {
         try {
-          return await createProject()
+          return await createProject(true, kind)
         } catch {
           useStore.getState().showToast(i18next.t('project.createFailed', { ns: 'agent' }), 'error')
           return false
@@ -1465,7 +1479,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
         await follow(target, { frames: outcome.frames }, trimmed, turnDelivery, async (turnId) => {
           if (submission.cancelled) await requestAbort(target, turnId)
         })
-        if (firstTurn) await get().refreshConversations()
+        if (firstTurn) {
+          await get().refreshConversations()
+          setTimeout(() => void get().refreshConversations(), titleRewriteMs)
+        }
       } finally {
         if (pendingStart === submission) pendingStart = null
       }

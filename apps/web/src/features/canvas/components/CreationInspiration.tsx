@@ -3,6 +3,7 @@ import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
 import { HERO_CARD_COUNT, rotateHeroItems } from '../../inspiration/lib/heroRotation'
+import { openInspiration } from '../../inspiration/lib/navigate'
 import { useInspirationStore } from '../../inspiration/store'
 import type { InspirationItem } from '../../inspiration/types'
 
@@ -15,7 +16,6 @@ const HERO_SEED = heroSeedData as InspirationItem[]
  * 只会和它打架（灵感库原本那条 `applyInspiration` 是给直接生成的输入框用的）。
  */
 export default function CreationInspiration() {
-  const openPanel = useInspirationStore((state) => state.openPanel)
   const available = useInspirationStore((state) => state.items)
   const status = useInspirationStore((state) => state.status)
   const loadRemote = useInspirationStore((state) => state.loadRemote)
@@ -45,7 +45,7 @@ export default function CreationInspiration() {
         </h2>
         <button
           type="button"
-          onClick={openPanel}
+          onClick={openInspiration}
           className="group inline-flex items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:text-foreground"
         >
           {t('inspiration:hero.viewAll')}

@@ -1,4 +1,5 @@
 import { useTranslation } from '../../../i18n'
+import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
 import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
@@ -39,7 +40,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
         className="mx-auto flex w-full max-w-3xl flex-col items-center gap-7 pb-10 pt-[9vh]"
         aria-label={t('welcome.aria')}
       >
-        <img src="/brand/muvloom-icon.svg" alt="Muvloom" className="h-14 w-14" />
+        <img src="/brand/muvloom-mark.svg" alt="Muvloom" className="h-14 w-14" />
         <div className="text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
             {video ? t('video:landing.title') : t('welcome.title')}
@@ -140,7 +141,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <button
             type="button"
             className="text-sm text-muted-foreground hover:text-foreground"
-            onClick={() => useLibraryStore.getState().openPanel('projects')}
+            onClick={() => useStore.getState().setAppMode('projects')}
           >
             {t('welcome.allProjects')}
           </button>

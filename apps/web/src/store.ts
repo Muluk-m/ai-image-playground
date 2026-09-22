@@ -1,6 +1,7 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
   clientProfileToApiProfile,
@@ -409,28 +410,38 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['create', 'browse', 'video'] as const
+/** 一级入口四个：创作、探索、项目、资产。画布是项目的实例，不是导航项。 */
+export const APP_MODES = ['image', 'canvas', 'explore', 'projects', 'library'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
  * 取值时才翻译：模块加载那一刻语言可能还没切完，而写死的字面量在切换后也不会跟着变。
- * 消费方（Header）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
+ * 消费方（侧栏）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
  */
 export const APP_MODE_LABELS: Record<AppMode, string> = {
-  get browse() {
-    return i18next.t('appMode.browse', { ns: 'store' })
+  get image() {
+    return i18next.t('appMode.image', { ns: 'store' })
   },
-  get create() {
-    return i18next.t('appMode.create', { ns: 'store' })
+  get canvas() {
+    return i18next.t('appMode.canvas', { ns: 'store' })
   },
-  get video() {
-    return i18next.t('appMode.video', { ns: 'store' })
+  get explore() {
+    return i18next.t('appMode.explore', { ns: 'store' })
+  },
+  get projects() {
+    return i18next.t('appMode.projects', { ns: 'store' })
+  },
+  get library() {
+    return i18next.t('appMode.library', { ns: 'store' })
   },
 }
 
-/** 分段控件与模式分发都只认这份列表。视频要 BFF 频道加能力开关，纯静态形态没有。 */
-export function visibleAppModes(): AppMode[] {
-  return APP_MODES.filter((mode) => mode !== 'video' || isVideoModeAvailable())
+/** 侧栏顶部列的三项。画布不在这里：它是下面那段列表，「全部」才去项目页。 */
+export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library']
+
+/** 工作台入口：主区本身就要吃掉整屏宽度，侧栏在这里不出现。 */
+export function isWorkbenchMode(mode: AppMode): boolean {
+  return mode === 'canvas'
 }
 
 export function getPersistedState(state: AppState) {
@@ -451,7 +462,6 @@ export function getPersistedState(state: AppState) {
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
         }
       : {}),
-    dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
     libraryCoachDismissed: state.libraryCoachDismissed,
     libraryPanelOpened: state.libraryPanelOpened,
@@ -512,8 +522,6 @@ interface AppState {
   // 设置
   settings: AppSettings
   setSettings: (s: Partial<AppSettings>) => void
-  dismissedCodexCliPrompts: string[]
-  dismissCodexCliPrompt: (key: string) => void
 
   // 输入
   prompt: string
@@ -572,6 +580,12 @@ interface AppState {
   /** 当前会话的顶层页面；每次打开应用从工作台开始，不持久化或跨设备同步。 */
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
+  /**
+   * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
+   * 用户按折叠键就以他的选择为准，换入口时回到默认。
+   */
+  sidebarExpanded: boolean | null
+  toggleSidebar: () => void
   /**
    * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
    * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
@@ -647,13 +661,6 @@ export const useStore = create<AppState>()(
               : {}),
           }
         }),
-      dismissedCodexCliPrompts: [],
-      dismissCodexCliPrompt: (key) =>
-        set((st) => ({
-          dismissedCodexCliPrompts: st.dismissedCodexCliPrompts.includes(key)
-            ? st.dismissedCodexCliPrompts
-            : [...st.dismissedCodexCliPrompts, key],
-        })),
 
       // Input
       prompt: '',
@@ -810,9 +817,14 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      // 刷新作品 / 视频地址时直接落在对应入口，不先闪一下画布。
-      appMode: pathAppMode(globalThis.location?.pathname ?? '/') ?? 'create',
-      setAppMode: (appMode) => set({ appMode }),
+      // 项目地址（`/p/<项目>`）由项目导航切到画布；其余地址与 `/` 都落在创作入口，不先闪一下画布。
+      appMode:
+        pathAppMode(globalThis.location?.pathname ?? '/') ??
+        (readProjectRoute(globalThis.location?.pathname ?? '/') !== null ? 'canvas' : 'image'),
+      setAppMode: (appMode) => set({ appMode, sidebarExpanded: null }),
+      sidebarExpanded: null,
+      toggleSidebar: () =>
+        set((s) => ({ sidebarExpanded: !(s.sidebarExpanded ?? !isWorkbenchMode(s.appMode)) })),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>
         set((s) => ({ pendingCanvasImages: [...s.pendingCanvasImages, ...dataUrls] })),
@@ -888,11 +900,6 @@ export const useStore = create<AppState>()(
 let uid = 0
 function genId(): string {
   return Date.now().toString(36) + (++uid).toString(36) + Math.random().toString(36).slice(2, 6)
-}
-
-export function getCodexCliPromptKey(settings: AppSettings): string {
-  const view = clientProfileToApiProfile(getActiveApiProfile(settings))
-  return `${view.baseUrl}\n${view.apiKey}`
 }
 
 function isOpenAITask(_task: TaskRecord) {
@@ -976,30 +983,6 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
       useStore.getState().showToast(i18next.t('toast.openaiTimeout', { ns: 'store' }), 'error')
   }, remainingMs)
   openAIWatchdogTimers.set(taskId, timer)
-}
-
-export function showCodexCliPrompt(reason: string) {
-  const state = useStore.getState()
-  const settings = state.settings
-  const promptKey = getCodexCliPromptKey(settings)
-
-  state.setConfirmDialog({
-    title: i18next.t('codexCli.title', { ns: 'store' }),
-    message: i18next.t('codexCli.message', { ns: 'store', reason }),
-    confirmText: i18next.t('codexCli.confirm', { ns: 'store' }),
-    action: () => {
-      const state = useStore.getState()
-      state.dismissCodexCliPrompt(promptKey)
-      const current = normalizeSettings(state.settings)
-      const profiles = current.profiles.map((p) =>
-        p.id === current.activeProfileId && p.source === 'user-byok'
-          ? { ...p, preferences: { ...p.preferences, codexCli: true } }
-          : p,
-      )
-      state.setSettings({ profiles })
-    },
-    cancelAction: () => useStore.getState().dismissCodexCliPrompt(promptKey),
-  })
 }
 
 function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
@@ -2066,6 +2049,8 @@ async function reuseLocalConfig(task: TaskRecord) {
     })
     return
   }
+  // 复用出来的提示词与参数落在生图入口的输入框里，作品入口没有它，不切过去就只剩一句 toast。
+  useStore.getState().setAppMode('image')
 
   showToast(
     shouldTemporarilyReuseProfile && matchedView
@@ -2178,7 +2163,7 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
     return
   }
   queueCanvasImages([dataUrl])
-  setAppMode('create')
+  setAppMode('canvas')
 }
 
 /** 平台记录的输出按序号对回详情里的那一张，再交给显式放置；失败按原因给话说清。 */
@@ -2315,7 +2300,6 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
   }
 
   if (options.clearConfig) {
-    useStore.setState({ dismissedCodexCliPrompts: [] })
     setSettings({ ...DEFAULT_SETTINGS })
     setParams({ ...DEFAULT_PARAMS })
   }

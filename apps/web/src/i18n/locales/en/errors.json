@@ -48,7 +48,7 @@
     "project_conflict": "This project was changed elsewhere, so saving is paused. Your current content is kept.",
     "project_document_too_large": "Storage or canvas size limit exceeded. Your current content is kept.",
     "fallback": "Save failed. Your current content is kept, please retry.",
-    "media_local": "The canvas has content that is not saved yet or cannot be saved, so it stays in this browser for now.",
+    "media_local": "Some canvas content could not be saved. Your current content is kept.",
     "unauthorized": "Your session expired. Your current content is kept. Sign in again.",
     "project_not_found": "This project is unavailable or you do not have access. Your current content is kept.",
     "invalid_project_document": "This canvas format is not supported. Your current content is kept. Update the page and retry.",

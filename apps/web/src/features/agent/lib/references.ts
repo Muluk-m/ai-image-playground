@@ -23,7 +23,10 @@ export interface AgentReference extends InputImage {
 export interface AgentDraft {
   readonly prompt: string
   readonly references: readonly AgentReference[]
-  /** 这份草稿发出去时要创作什么。老草稿里没有这一项，读回来按图片算。 */
+  /**
+   * 这份草稿上次停在什么创作类型。轮的类型现在由项目的画布类型定，这里只剩存储里的历史值，
+   * 草稿层自己原样保管（`withMode`），没有人再据它决定发什么。
+   */
   readonly mode?: AgentMode
 }
 
@@ -32,10 +35,6 @@ export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }
 /** 草稿里有没有用户自己写下或附上的东西；跟着画布选区自动带进来的图不算。 */
 export function hasDraftContent(draft: AgentDraft): boolean {
   return draft.prompt.trim() !== '' || draft.references.some((one) => one.origin !== 'selection')
-}
-
-export function draftMode(draft: AgentDraft): AgentMode {
-  return draft.mode === 'video' ? 'video' : 'image'
 }
 
 export function referenceLabels(references: readonly AgentReference[]): MentionLabelResolver {

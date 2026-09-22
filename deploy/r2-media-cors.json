@@ -4,6 +4,7 @@
       "allowed": {
         "origins": [
           "https://muvloom.online",
+          "https://test.muvloom.online",
           "https://image.nainma.online",
           "https://image-playground.qiliangjia.one",
           "https://ai-image-playground.pages.dev",

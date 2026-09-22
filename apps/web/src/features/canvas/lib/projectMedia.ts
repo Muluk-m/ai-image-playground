@@ -2,6 +2,7 @@ import {
   isProjectDocument,
   PROJECT_META_VALUE_MAX_CHARS,
   type ProjectDocument,
+  type ProjectKind,
 } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
@@ -46,6 +47,7 @@ export function isLocalAgentFailure(element: CanvasEl): boolean {
 export function projectDocument(
   doc: CanvasDoc,
   bindings: LoadedBindings = new Map(),
+  kind: ProjectKind = 'image',
 ): ProjectDocument | null {
   const elements = doc.elements.filter((element) => !isLocalAgentFailure(element))
   const mapped = elements.map((element) => {
@@ -74,7 +76,8 @@ export function projectDocument(
     const { fileId: _fileId, ...image } = element
     return { ...image, mediaId, ...(image.meta ? { meta: boundedMeta(image.meta) } : {}) }
   })
-  const document = { version: 1, elements: mapped }
+  // 只有视频项目写 `kind`：缺席即图片，老项目的文档因此不会平白变出一次改动要推。
+  const document = { version: 1, elements: mapped, ...(kind === 'video' ? { kind } : {}) }
   return isProjectDocument(document) ? document : null
 }
 

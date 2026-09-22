@@ -98,6 +98,6 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
     maskDataUrl ? { targetImageId: inputs[0]!.id, maskDataUrl, updatedAt: Date.now() } : null,
   )
   state.setPrompt(guarded ? detail.prompt.slice(guard.length) : detail.prompt)
-  // The works composer owns this prompt, reference list and mask; the canvas has a separate draft.
-  state.setAppMode('browse')
+  // 复用参数是生图入口的输入框在接：切到生图，画布的草稿另算。
+  state.setAppMode('image')
 }

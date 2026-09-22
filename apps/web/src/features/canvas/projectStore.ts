@@ -1,4 +1,9 @@
-import type { AgentConversationView, CloudProjectSummary } from '@image-playground/shared'
+import {
+  type AgentConversationView,
+  type CloudProjectSummary,
+  PROJECT_NAME_MAX_LENGTH,
+  type ProjectKind,
+} from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
 import { pathAppMode } from '../../lib/appPaths'
@@ -33,7 +38,8 @@ interface ProjectState {
   cloudCatalog: Record<string, CloudProjectSummary>
   refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
-  create(): Promise<CanvasProject>
+  /** 画布类型建出来就定死；除了视频入口，其余新建都是图片画布。 */
+  create(kind?: ProjectKind): Promise<CanvasProject>
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
@@ -170,13 +176,14 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     })()
     return loading
   },
-  async create() {
+  async create(kind = 'image' as ProjectKind) {
     await get().load()
     const project = await projectRepository.create(
       UNTITLED_PROJECT,
       undefined,
       cloudProjectsEnabled(),
       true,
+      kind,
     )
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)
@@ -196,12 +203,9 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
-    const pathname = globalThis.location?.pathname ?? '/'
-    // 正在作品 / 视频入口时（例如刷新 /works 后项目目录才加载完）不把地址改成项目地址。
-    // 在 `/` 上由目录加载挑出来的起手工作区也不改地址：首页就该停在首页，
-    // 地址等第一句话落下（见 CanvasMode 的 enterProjectRoute）或用户自己开项目时再换。
-    const landing = replaceRoute && pathname.replace(/\/+$/, '') === ''
-    if (!pathAppMode(pathname) && !landing) writeProjectRoute(id, replaceRoute)
+    // 只有人已经在画布上（项目地址）才改地址。根地址属于创作入口，活动项目不该把它劫持成 `/p/<项目>`。
+    if (readProjectRoute(globalThis.location?.pathname ?? '/') !== null)
+      writeProjectRoute(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)
@@ -209,18 +213,23 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   },
   async update(id, patch) {
     const current = get().projects.find((one) => one.id === id)
-    if (current?.cloud && patch.name !== undefined && cloudProjectsEnabled()) {
-      const { renameCloudProject } = await import('./lib/workspaces')
-      await renameCloudProject(current, patch.name)
-      return
-    }
+    if (
+      patch.name !== undefined &&
+      (!patch.name.trim() || patch.name.length > PROJECT_NAME_MAX_LENGTH)
+    )
+      throw new Error('invalid_project_name')
+    // 云端项目的名字也先落本机：改名不必等网络，`nameDirty` 保证它不被远端那份盖回去。
+    const renaming = patch.name === undefined ? undefined : current?.cloud
     const project = await projectRepository.update(id, {
       ...patch,
-      ...(current?.cloud && patch.name !== undefined
-        ? { cloud: { ...current.cloud, nameDirty: true } }
-        : {}),
+      ...(renaming ? { cloud: { ...renaming, nameDirty: true } } : {}),
     })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
+    if (renaming && cloudProjectsEnabled()) {
+      // workspaces 反过来依赖本模块，静态引入会成环。
+      const { pushCloudProjectName } = await import('./lib/workspaces')
+      await pushCloudProjectName(project)
+    }
   },
   async autoName(id, name) {
     const current = get().projects.find((one) => one.id === id)
@@ -287,8 +296,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       const existing = get().projects.find((one) => one.conversationId === conversation.id)
       if (existing) {
         if (existing.cloud?.deleted) continue
+        // 自动命名是顺带做的：一个项目改不动（本机没这条记录），后面的项目不该跟着没名字。
         if (!existing.customName && conversation.title && existing.name !== conversation.title)
-          await get().autoName(existing.id, conversation.title)
+          await get()
+            .autoName(existing.id, conversation.title)
+            .catch(() => {})
         continue
       }
       const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {

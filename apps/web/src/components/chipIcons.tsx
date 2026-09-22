@@ -143,6 +143,20 @@ export const ChipIcons = {
       <line x1="4" y1="16" x2="20" y2="16" />
     </svg>
   ),
+  more: (
+    <svg
+      className={CHIP_ICON_CLASS}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="5.5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="18.5" cy="12" r="1" />
+    </svg>
+  ),
   imageAttach: (
     <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <rect x="3.5" y="5" width="17" height="14" rx="2" strokeWidth={1.6} />

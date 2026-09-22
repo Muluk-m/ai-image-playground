@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import ProjectNavigation from '../../../components/ProjectNavigation'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -176,9 +175,8 @@ export default function AgentPanel({
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
-      <ProjectNavigation />
       <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
           {TABS.map((one) => (
             <button
               key={one.id}

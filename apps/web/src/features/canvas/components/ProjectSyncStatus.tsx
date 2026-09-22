@@ -101,7 +101,6 @@ export default function ProjectSyncStatus({
           </div>
         </div>
       )}
-      {state.status === 'saved' && <small>{t('sync.localOnly')}</small>}
     </div>
   )
 }

@@ -17,7 +17,7 @@ const IMAGE_B = 'data:image/png;base64,BBBB'
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({
-    appMode: 'browse',
+    appMode: 'image',
     inputImages: [],
     prompt: '',
     params: { ...DEFAULT_PARAMS },
@@ -28,7 +28,7 @@ beforeEach(() => {
     assets: [],
     templates: [],
     searchKeyword: '',
-    panelOpen: false,
+    onLibraryPage: false,
     tab: 'assets',
     detailTemplateId: null,
     pendingAssetNames: [],
@@ -44,7 +44,7 @@ describe('opening the panel', () => {
   it('records the first open so the coach card stops showing', () => {
     useStore.setState({ libraryPanelOpened: false })
 
-    useLibraryStore.getState().openPanel()
+    useLibraryStore.getState().enterLibraryPage('assets')
 
     expect(useStore.getState().libraryPanelOpened).toBe(true)
   })
@@ -128,14 +128,15 @@ describe('attaching an asset', () => {
     expect(useLibraryStore.getState().assets[0].lastUsedAt).toBe(5000)
   })
 
-  it('closes the panel and reports the attachment', async () => {
+  it('从素材入口加参考图后回到输入框那一页', async () => {
     const imageId = await storeImage(IMAGE_A)
     await useLibraryStore.getState().saveAsset(imageId, '白底图')
-    useLibraryStore.setState({ panelOpen: true })
+    useLibraryStore.setState({ onLibraryPage: true })
+    useStore.setState({ appMode: 'library' })
 
     await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id)
 
-    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useStore.getState().appMode).toBe('image')
     expect(useStore.getState().showToast).toHaveBeenCalledWith('已加入参考图', 'success')
   })
 
@@ -144,7 +145,7 @@ describe('attaching an asset', () => {
     await useLibraryStore.getState().saveAsset(imageId, '白底图')
     const [asset] = useLibraryStore.getState().assets
     await useLibraryStore.getState().attachAsset(asset.id)
-    useLibraryStore.setState({ panelOpen: true })
+    useLibraryStore.setState({ onLibraryPage: true })
 
     await useLibraryStore.getState().attachAsset(asset.id)
 
@@ -175,9 +176,9 @@ describe('attaching an asset', () => {
 
 describe('the panel', () => {
   it('drops the open detail when it closes, so reopening lands on the list', () => {
-    useLibraryStore.setState({ panelOpen: true, detailTemplateId: 't1' })
+    useLibraryStore.setState({ onLibraryPage: true, detailTemplateId: 't1' })
 
-    useLibraryStore.getState().closePanel()
+    useLibraryStore.getState().leaveLibraryPage()
 
     expect(useLibraryStore.getState().detailTemplateId).toBeNull()
   })
@@ -348,13 +349,14 @@ describe('applying a template', () => {
     expect(useLibraryStore.getState().templates[0].lastUsedAt).toBe(9000)
   })
 
-  it('leaves the panel and the detail behind', async () => {
+  it('套用模板后回到输入框那一页，详情收起', async () => {
     const { template } = await saveTemplateReferencingAsset()
-    useLibraryStore.setState({ panelOpen: true, detailTemplateId: template.id })
+    useLibraryStore.setState({ onLibraryPage: true, detailTemplateId: template.id })
+    useStore.setState({ appMode: 'library' })
 
     await useLibraryStore.getState().applyTemplate(template.id)
 
-    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useStore.getState().appMode).toBe('image')
     expect(useLibraryStore.getState().detailTemplateId).toBeNull()
   })
 })

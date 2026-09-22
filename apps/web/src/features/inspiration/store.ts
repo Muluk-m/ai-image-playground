@@ -15,7 +15,6 @@ export interface InspirationState {
   status: InspirationLoadStatus
   remoteError: string | null
 
-  panelOpen: boolean
   selectedProvider: InspirationProviderFilter
   selectedCategory: string | null
   searchKeyword: string
@@ -26,8 +25,6 @@ export interface InspirationState {
   setRemoteError: (msg: string | null) => void
   setStatus: (status: InspirationLoadStatus) => void
 
-  openPanel: () => void
-  closePanel: () => void
   setProvider: (provider: InspirationProviderFilter) => void
   setCategory: (category: string | null) => void
   setSearch: (keyword: string) => void
@@ -50,7 +47,6 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   status: 'idle',
   remoteError: null,
 
-  panelOpen: false,
   selectedProvider: 'all',
   selectedCategory: null,
   searchKeyword: '',
@@ -102,12 +98,6 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   setRemoteError: (remoteError) => set({ remoteError }),
   setStatus: (status) => set({ status }),
 
-  openPanel: () => {
-    set({ panelOpen: true })
-    // 首页或面板共用同一清单与缓存，已加载时不会重复下载。
-    void get().loadRemote()
-  },
-  closePanel: () => set({ panelOpen: false, detailItemId: null }),
   setProvider: (selectedProvider) => set({ selectedProvider, selectedCategory: null }),
   setCategory: (selectedCategory) => set({ selectedCategory }),
   setSearch: (searchKeyword) => set({ searchKeyword }),

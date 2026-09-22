@@ -9,16 +9,20 @@ import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
 import SettingsModal from './components/SettingsModal'
+import Sidebar from './components/Sidebar'
+import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
+import ProjectsPage from './features/canvas/components/ProjectsPage'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
-import InspirationPanel from './features/inspiration/components/InspirationPanel'
+import ExplorePage from './features/inspiration/components/ExplorePage'
+import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
-import LibraryPanel from './features/library/components/LibraryPanel'
+import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import { i18next } from './i18n'
+import { i18next, useTranslation } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
@@ -33,6 +37,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
+  const { t } = useTranslation('shell')
 
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
@@ -96,23 +101,52 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   return (
     <>
       <Header />
-      {appMode !== 'browse' ? (
-        <CanvasMode />
-      ) : (
-        <>
-          <main data-home-main data-drag-select-surface className="pb-48">
-            <div className="safe-area-x max-w-7xl mx-auto">
-              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
-            </div>
-          </main>
-          <InputBar />
-        </>
-      )}
+      <Sidebar />
+      <div style={{ paddingLeft: 'var(--app-sidebar-width)' }}>
+        {appMode === 'canvas' ? (
+          <CanvasMode />
+        ) : appMode === 'explore' ? (
+          <ExplorePage />
+        ) : appMode === 'projects' ? (
+          <ProjectsPage />
+        ) : appMode === 'library' ? (
+          <LibraryPage />
+        ) : (
+          <>
+            <main data-home-main data-drag-select-surface className="relative pb-24">
+              {/* 首屏氛围图：只铺顶部一段，下沿渐隐进背景色，内容压在它上面。 */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 top-0 h-[560px] bg-cover bg-top bg-no-repeat"
+                style={{
+                  backgroundImage:
+                    'linear-gradient(to bottom, transparent 52%, hsl(var(--background))), url(/hero/hero-8.webp)',
+                }}
+              />
+              <div className="safe-area-x relative mx-auto max-w-6xl">
+                <div className="pt-12 text-center">
+                  <h1 className="text-[30px] font-semibold leading-tight sm:text-[38px]">
+                    {t('hero.titleLead')}
+                    <span className="studio-hero-accent">{t('hero.titleAccent')}</span>
+                  </h1>
+                  <p className="pb-6 pt-2 text-sm text-muted-foreground">{t('hero.subtitle')}</p>
+                </div>
+                {/* 输入框是首屏的主角：跟着 hero 排在流里，不再吸底。 */}
+                <div className="pt-6">
+                  <InputBar inline />
+                </div>
+                <InspirationChips />
+                <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
+              </div>
+            </main>
+            <TaskBulkActions />
+          </>
+        )}
+      </div>
       <DetailModal />
       <Lightbox />
       <SettingsModal />
-      <InspirationPanel />
-      <LibraryPanel />
+
       <SaveAssetDialog />
       <SaveTemplateDialog />
       <ConfirmDialog />

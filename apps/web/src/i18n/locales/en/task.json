@@ -18,11 +18,11 @@
     "reuse": "Reuse config",
     "editOutput": "Edit output",
     "sendToCanvas": "Send to canvas",
-    "sendToCanvasTitle": "Send to create canvas",
+    "sendToCanvasTitle": "Send to canvas",
     "deleteRecord": "Delete record"
   },
   "confirm": {
-    "deleteMessage": "Delete this record? Only images that are no longer used get cleaned up."
+    "deleteMessage": "Delete this record?"
   },
   "prompt": {
     "empty": "(no prompt)"
@@ -101,7 +101,10 @@
   },
   "grid": {
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
-    "noMatches": "No matching records"
+    "recent": "Recent",
+    "noMatches": "No matching records",
+    "empty": "No works yet. Write a line on Create, or pick a starting point in Explore.",
+    "mine": "My works"
   },
   "set": {
     "storyboardFallback": "Storyboard",
@@ -136,7 +139,7 @@
     "reference": "Reference {{number}}",
     "mask": "Mask",
     "archiving": "Saving",
-    "unavailable": "Some originals could not be saved. Recoverable images are retained; generation will not restart automatically.",
+    "unavailable": "Some originals could not be saved.",
     "place": "Add to current project",
     "agentSource": "Agent generation",
     "studioSource": "Studio generation"

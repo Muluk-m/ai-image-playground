@@ -74,5 +74,7 @@ function doApply(item: InspirationItem) {
     )
   }
 
-  inspiration.closePanel()
+  // 套用完就回创作页：提示词与参数已经写进输入框，人要看的是那里。
+  inspiration.closeDetail()
+  main.setAppMode('image')
 }

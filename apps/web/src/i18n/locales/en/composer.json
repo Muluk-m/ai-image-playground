@@ -28,7 +28,7 @@
     "expand": "Expand input",
     "expandHint": "Click to expand input",
     "emptyPromptHint": "Click to expand and write a new prompt...",
-    "collapse": "Collapse into the mini bar",
+    "collapse": "Collapse the input box",
     "library": "Assets and templates",
     "saveTemplate": "Save as template"
   },
@@ -55,11 +55,11 @@
     "limitReached_other": "Limit reached: {{count}} images",
     "limitHint": "Remove a few reference images first",
     "dropToAdd": "Drop to add reference images",
-    "dropFormats": "JPG, PNG, WebP and similar formats",
+    "dropFormats": "Up to {{count}} images, ≤{{mb}}MB each - JPG, PNG, WebP",
     "discarded_one": "Limit of {{limit}} images reached, {{count}} image discarded",
     "discarded_other": "Limit of {{limit}} images reached, {{count}} images discarded",
     "addFailed": "Could not add the image: {{reason}}",
-    "attach": "Add reference image",
+    "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "summaryWithMask_one": "1 mask image · {{count}} reference image",
     "summaryWithMask_other": "1 mask image · {{count}} reference images",
     "summary_one": "{{count}} reference image",
@@ -78,7 +78,7 @@
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
     "generateShortcut": "Generate (Ctrl+Enter)",
     "configureApiFirst": "Configure the API first",
-    "apiNotConfigured": "The API is not set up yet. Open the top-right menu → Settings"
+    "apiNotConfigured": "Configure the API in Settings first"
   },
   "search": {
     "favoriteOnly": "Favorites only",
@@ -99,7 +99,8 @@
     "compression": "Compression",
     "moderation": "Moderation",
     "count": "Count",
-    "noModel": "Not selected"
+    "noModel": "Not selected",
+    "more": "More"
   },
   "size": {
     "titleRatio": "Set aspect ratio",
@@ -111,8 +112,7 @@
     "modeResolution": "Custom size",
     "autoTitle": "Auto size",
     "autoTitleRatio": "Smart ratio",
-    "autoLine1": "No resolution is sent to the model",
-    "autoLine2": "The model picks the output size",
+    "autoLine1": "The model decides the size",
     "baseResolution": "Base resolution",
     "imageRatio": "Aspect ratio",
     "customRatio": "Custom ratio",
