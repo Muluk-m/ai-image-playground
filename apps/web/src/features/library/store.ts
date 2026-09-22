@@ -15,7 +15,7 @@ import {
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
 /** 资产页的两个页签。作品在创作页、项目与灵感各自一个入口，都不在里面。 */
-export type LibraryTab = 'assets' | 'templates'
+export type LibraryTab = 'projects' | 'assets' | 'templates'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
@@ -36,6 +36,8 @@ export interface LibraryState {
   enterLibraryPage: (tab?: LibraryTab) => void
   /** 页签切换:搜索词跟着页签走,换一类料不带着上一类的关键词。 */
   setTab: (tab: LibraryTab) => void
+  /** 去「资产 → 项目」：画布项目是资产的一部分，不另占一个入口。 */
+  openProjects: () => void
   leaveLibraryPage: () => void
   setSearch: (keyword: string) => void
   openTemplateDetail: (id: string) => void
@@ -81,6 +83,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
   leaveLibraryPage: () => set({ onLibraryPage: false, detailTemplateId: null }),
   setTab: (tab) => set({ tab, searchKeyword: '', detailTemplateId: null }),
+  openProjects: () => {
+    set({ tab: 'projects', searchKeyword: '', detailTemplateId: null })
+    useStore.getState().setAppMode('library')
+  },
   setSearch: (searchKeyword) => set({ searchKeyword }),
   openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
   closeTemplateDetail: () => set({ detailTemplateId: null }),

@@ -37,7 +37,7 @@ export default function ProjectNavigation() {
     .slice(0, query ? 30 : 8)
   const allProjects = () => {
     setOpen(false)
-    useStore.getState().setAppMode('projects')
+    useLibraryStore.getState().openProjects()
   }
   const enter = async (id?: string) => {
     if (busy) return

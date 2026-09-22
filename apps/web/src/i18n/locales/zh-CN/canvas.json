@@ -103,7 +103,8 @@
   "workspace": {
     "canvasAria": "创作画布",
     "untitled": "我的画布",
-    "backToProjects": "返回项目"
+    "backToProjects": "返回项目",
+    "backHome": "回到主页"
   },
   "saveError": {
     "message": "画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。",

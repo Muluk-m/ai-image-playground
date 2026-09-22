@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { projectRouteSegment } from '../../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
+import { useLibraryStore } from '../../features/library/store'
 import { pathAppMode } from '../../lib/appPaths'
 import { installAppRouting } from '../../lib/appRoute'
 import { useStore } from '../../store'
@@ -22,10 +23,10 @@ function popTo(path: string) {
 }
 
 describe('pathAppMode', () => {
-  it('maps the image, projects and library addresses and leaves the rest to other routes', () => {
+  it('maps the image and library addresses, folds the legacy projects address into library, and leaves the rest to other routes', () => {
     expect(pathAppMode('/image')).toBe('image')
     expect(pathAppMode('/assets')).toBe('library')
-    expect(pathAppMode('/projects/')).toBe('projects')
+    expect(pathAppMode('/projects/')).toBe('library')
     expect(pathAppMode('/')).toBeNull()
     expect(pathAppMode('/p/abc')).toBeNull()
   })
@@ -40,8 +41,8 @@ describe('installAppRouting', () => {
 
     useStore.getState().setAppMode('image')
     expect(location.pathname).toBe('/image')
-    useStore.getState().setAppMode('projects')
-    expect(location.pathname).toBe('/projects')
+    useStore.getState().setAppMode('explore')
+    expect(location.pathname).toBe('/explore')
     useStore.getState().setAppMode('canvas')
     expect(location.pathname).toBe(`/p/${projectRouteSegment('project-1')}`)
     useStore.getState().setAppMode('library')
@@ -52,7 +53,8 @@ describe('installAppRouting', () => {
   it('follows back and forward to the page in the address', () => {
     cleanup = installAppRouting()
     popTo('/projects')
-    expect(useStore.getState().appMode).toBe('projects')
+    expect(useStore.getState().appMode).toBe('library')
+    expect(useLibraryStore.getState().tab).toBe('projects')
     popTo('/assets')
     expect(useStore.getState().appMode).toBe('library')
     popTo('/')
