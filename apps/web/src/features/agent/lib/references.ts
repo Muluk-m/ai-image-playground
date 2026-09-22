@@ -37,11 +37,34 @@ export function hasDraftContent(draft: AgentDraft): boolean {
   return draft.prompt.trim() !== '' || draft.references.some((one) => one.origin !== 'selection')
 }
 
+/**
+ * 每张参考图在胶囊与 @ 引用里显示的名字。同名的（连传三张都叫 image 的文件很常见）
+ * 按出现顺序编号成「image 1 / image 2」，否则用户分不清正文里的 @image 指哪一张。
+ * 没名字的不在这里管，仍走序号标签。
+ */
+export function referenceDisplayNames(
+  references: readonly { readonly name?: string }[],
+): (string | undefined)[] {
+  const total: Record<string, number> = {}
+  for (const reference of references) {
+    if (reference.name) total[reference.name] = (total[reference.name] ?? 0) + 1
+  }
+  const seen: Record<string, number> = {}
+  return references.map((reference) => {
+    if (!reference.name) return undefined
+    if ((total[reference.name] ?? 0) < 2) return reference.name
+    seen[reference.name] = (seen[reference.name] ?? 0) + 1
+    return `${reference.name} ${seen[reference.name]}`
+  })
+}
+
 export function referenceLabels(references: readonly AgentReference[]): MentionLabelResolver {
   const named: Record<string, string> = {}
-  for (const reference of references) {
-    if (reference.name) named[reference.id] = reference.name
-  }
+  const names = referenceDisplayNames(references)
+  references.forEach((reference, index) => {
+    const name = names[index]
+    if (name) named[reference.id] = name
+  })
   return createMentionLabels([...references], named)
 }
 
