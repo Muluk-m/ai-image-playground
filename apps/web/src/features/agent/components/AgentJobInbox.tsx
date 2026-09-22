@@ -184,7 +184,7 @@ export default function AgentJobInbox() {
   const finished = [...inbox.finished].reverse()
   const shown = tab === 'running' ? inbox.running.length : finished.length
   return (
-    <div ref={host} className="pointer-events-auto flex flex-col items-end">
+    <div ref={host} className="pointer-events-auto relative flex flex-col items-end">
       <button
         type="button"
         aria-expanded={open}
@@ -207,7 +207,7 @@ export default function AgentJobInbox() {
         <span className={`tabular-nums ${INK_3}`}>{count}</span>
       </button>
       {open && (
-        <div className="mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-xl">
+        <div className="absolute right-0 top-full z-10 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-xl">
           <p className={`text-xs font-semibold ${INK}`}>{t('job.inbox.title')}</p>
           <p className={`mt-0.5 text-[11px] ${INK_3}`}>{t('job.inbox.subtitle')}</p>
           <div className="mt-2 flex items-center gap-2">
