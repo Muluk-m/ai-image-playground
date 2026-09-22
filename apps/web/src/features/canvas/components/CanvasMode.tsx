@@ -32,7 +32,6 @@ import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
 import CanvasVideoToolbar from './CanvasVideoToolbar'
-import EditProgressOverlay from './EditProgressOverlay'
 import FilmExportStatus from './FilmExportStatus'
 import InpaintMaskLayer from './InpaintMaskLayer'
 import InpaintPanel from './InpaintPanel'
@@ -302,7 +301,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <CanvasVideoOverlay editor={editor} />
             <CanvasVideoToolbar editor={editor} />
             <CanvasImageToolbar editor={editor} />
-            <EditProgressOverlay editor={editor} />
             <InpaintMaskLayer editor={editor} />
             <CanvasRectEditLayer editor={editor} />
             <InpaintPanel editor={editor} />

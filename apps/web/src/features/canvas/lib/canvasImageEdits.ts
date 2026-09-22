@@ -13,6 +13,7 @@ import { type CanvasEditor, elementBounds } from './editor'
 import { buildOutpaintInputs, cropBitmap, localToPage, rectPixelSize } from './imageRectEdit'
 import { maskedEditSizeRefusal } from './maskedEditLimits'
 import { computePlaceholderTargets } from './placement'
+import { decodeRecipe, rebuildSpecFromRecipe, recipeSourcesPresent } from './regenRecipe'
 import { launchCanvasTask } from './submitFromCanvas'
 
 /** 画布上已有图片的二次加工：裁切（纯本地）、扩图（走遮罩链路）、重新生成（原样再发一次）。 */
@@ -115,8 +116,9 @@ export async function submitCanvasOutpaint(
       showToast(refusal, 'error')
       return false
     }
-    const target = computePlaceholderTargets(editor, elementBounds(image), 1)[0]
-    if (!target) return false
+    // 占位框就是那个扩出来的框：结果替换掉源图本身，几何按它来，所以框在哪结果就在哪。
+    const origin = localToPage(image, { x: rect.x, y: rect.y })
+    const target = { x: origin.x, y: origin.y, w: rect.w, h: rect.h }
     void launchCanvasTask(editor, {
       // 扩图没有「改什么」，只有「接着画」。用户不写字也能发，所以给一句默认指令。
       prompt: prompt.trim() || OUTPAINT_DEFAULT_INSTRUCTION,
@@ -126,6 +128,15 @@ export async function submitCanvasOutpaint(
       editSourceId: image.id,
       editKind: 'outpaint',
       params: { ...useStore.getState().params, n: 1 },
+      recipe: {
+        v: 1,
+        kind: 'outpaint',
+        prompt: prompt.trim() || OUTPAINT_DEFAULT_INSTRUCTION,
+        annotated: false,
+        params: { ...useStore.getState().params, n: 1 },
+        entries: [{ imageId: image.id, graphicIds: [] }],
+        rect,
+      },
       target,
     })
     return true
@@ -138,27 +149,45 @@ export async function submitCanvasOutpaint(
 // ===== 重新生成 =====
 
 /**
- * 能不能原样再出一张。判据是**内存运行态里还有没有那次提交的完整参数**：
- * 结果元素的 meta 只存了 prompt（`placeholderShapeOps.ts` 的溯源），
- * 输入图与遮罩刻意不持久化，刷新之后拿 prompt 重发就是把图生图静默退化成文生图。
+ * 能不能再出一张。两条路，按保真度排：
+ * 1. 同一次打开里，内存运行态还留着那次提交的原始输入 → 逐字节重放。
+ * 2. 刷新之后运行态空了，改读随画布持久化的**配方**（用了哪些元素、什么参数、涂了哪几笔），
+ *    按当前画布把输入重新造一遍。元素被删了、或者当时附过本地上传的参考图，就重出不了。
  */
-export function regenerateRefusal(image: ImageEl, settings: AppSettings): string | null {
+export function regenerateRefusal(
+  editor: CanvasEditor,
+  image: ImageEl,
+  settings: AppSettings,
+): string | null {
   const blocked = submissionBlocked(settings)
   if (blocked) return blocked
-  const taskId = image.meta?.taskId
-  if (!taskId || !getCanvasTask(taskId))
-    return i18next.t('regenerate.unavailable', { ns: 'canvas' })
+  if (image.meta?.taskId && getCanvasTask(image.meta.taskId)) return null
+  const recipe = decodeRecipe(image.meta?.regen)
+  if (!recipe || recipe.hadUpload) return i18next.t('regenerate.unavailable', { ns: 'canvas' })
+  if (!recipeSourcesPresent(editor, recipe))
+    return i18next.t('regenerate.sourceGone', { ns: 'canvas' })
   return null
 }
 
-/** 用原来那份 spec 再发一次，结果落在源图旁边的空位，源图不动。 */
-export function regenerateCanvasImage(editor: CanvasEditor, image: ImageEl): void {
-  const spec = image.meta?.taskId ? getCanvasTask(image.meta.taskId) : undefined
-  if (!spec) {
-    useStore.getState().showToast(i18next.t('regenerate.unavailable', { ns: 'canvas' }), 'error')
-    return
+/** 再发一次。结果对二次加工是就地替换源图，对普通生成是落在旁边的空位。 */
+export async function regenerateCanvasImage(editor: CanvasEditor, image: ImageEl): Promise<void> {
+  const { showToast } = useStore.getState()
+  const retained = image.meta?.taskId ? getCanvasTask(image.meta.taskId) : undefined
+  try {
+    const spec = retained ?? (await rebuiltSpec(editor, image))
+    const anchor = spec.editSourceId
+      ? { x: image.x, y: image.y, w: image.width, h: image.height }
+      : computePlaceholderTargets(editor, elementBounds(image), 1)[0]
+    if (!anchor) return
+    void launchCanvasTask(editor, { ...spec, target: anchor })
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), 'error')
   }
-  const target = computePlaceholderTargets(editor, elementBounds(image), 1)[0]
-  if (!target) return
-  void launchCanvasTask(editor, { ...spec, target })
+}
+
+async function rebuiltSpec(editor: CanvasEditor, image: ImageEl) {
+  const recipe = decodeRecipe(image.meta?.regen)
+  if (!recipe || recipe.hadUpload)
+    throw new Error(i18next.t('regenerate.unavailable', { ns: 'canvas' }))
+  return await rebuildSpecFromRecipe(editor, recipe)
 }

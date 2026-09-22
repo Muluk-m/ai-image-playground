@@ -360,7 +360,8 @@
   },
   "regenerate": {
     "action": "重新生成",
-    "unavailable": "这张图的生成参数已随页面关闭丢失，无法原样重出"
+    "unavailable": "这张图的生成参数已随页面关闭丢失，无法原样重出",
+    "sourceGone": "这张图用到的素材已不在画布上，无法重出"
   },
   "rectEdit": {
     "handle": {

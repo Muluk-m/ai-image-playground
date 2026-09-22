@@ -92,11 +92,8 @@ export async function submitCanvasInpaint(
       { width: prepared.width, height: prepared.height },
       input.strokes,
     )
-    const target = computePlaceholderTargets(editor, elementBounds(element), 1)[0]
-    if (!target) {
-      showToast(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }), 'error')
-      return false
-    }
+    // 占位框就盖在源图上：结果是就地替换这一张，旁边再开一个框只会出现两个「生成中」。
+    const target = { x: element.x, y: element.y, w: element.width, h: element.height }
     void launchCanvasTask(editor, {
       prompt: input.kind === 'erase' ? ERASE_INSTRUCTION : input.prompt.trim(),
       annotated: false,
@@ -108,6 +105,17 @@ export async function submitCanvasInpaint(
       editSourceId: element.id,
       editKind: input.kind,
       params: snapshotParams(),
+      recipe: {
+        v: 1,
+        kind: input.kind,
+        prompt: input.kind === 'erase' ? ERASE_INSTRUCTION : input.prompt.trim(),
+        annotated: false,
+        params: snapshotParams(),
+        entries: [{ imageId: element.id, graphicIds: [] }],
+        strokes: [...input.strokes],
+        // 本地上传的参考图没法随画布存，带着它的那次生成重出不了，如实标上。
+        ...(input.referenceDataUrl ? { hadUpload: true as const } : {}),
+      },
       target,
     })
     return true
