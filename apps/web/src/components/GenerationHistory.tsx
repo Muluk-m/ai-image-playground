@@ -18,9 +18,9 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
   return (
     <>
       {hero ? (
-        <div className="flex items-center gap-3 pb-1 pt-10">
+        <div className="flex items-center gap-4 pb-5 pt-10">
           <h2 className="text-[15px] font-semibold">{t('grid.mine')}</h2>
-          <div className="ml-auto w-full max-w-sm">
+          <div className="ml-auto w-full max-w-xl">
             <SearchBar compact />
           </div>
         </div>
