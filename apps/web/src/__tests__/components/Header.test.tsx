@@ -43,6 +43,7 @@ function renderLoggedIn(logout: (clearLocalData: boolean) => Promise<void>): voi
         value={{
           enabled: true,
           user: { id: 'u1', username: '小马' },
+          login: () => {},
           logout,
         }}
       >

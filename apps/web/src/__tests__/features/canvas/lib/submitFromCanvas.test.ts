@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { setSignedIn } from '../../../../auth/loginPrompt'
 import type { CanvasEditor, PlaceholderView } from '../../../../features/canvas/lib/editor'
 import { DEFAULT_PARAMS } from '../../../../types'
 
@@ -44,6 +45,8 @@ vi.mock('../../../../store', () => ({
 import { retryCanvasTask, submitFromCanvas } from '../../../../features/canvas/lib/submitFromCanvas'
 
 beforeEach(() => {
+  // 这里把所有能力都开着（含 accounts:login），测的是登录用户那条路。
+  setSignedIn(true)
   callImageApiMock.mockClear()
   guardMock.mockClear()
   showToastMock.mockClear()

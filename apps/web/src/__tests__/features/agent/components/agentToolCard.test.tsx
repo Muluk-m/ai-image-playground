@@ -3,9 +3,9 @@ import type { AgentToolErrorCode, DiscoveredChannel } from '@image-playground/sh
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import type { AgentToolMessage } from '../../../../features/agent/types'
-import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
 
@@ -389,21 +389,22 @@ describe('失败卡按错误码给出路', () => {
     }
   })
 
-  it('「去充值」打开充值入口，「去登录」回到登录', () => {
-    const expired = vi.fn()
-    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+  it('「去充值」打开充值入口，「去登录」叫出登录框', () => {
+    const prompted = vi.fn()
+    const unsubscribe = subscribeLoginPrompt(prompted)
     const recharge = render(failed('insufficient_credits'))
     const login = render(failed('authentication_required'))
     try {
       act(() => recharge.host.querySelector('button')!.click())
       expect(notifyPrivateSubmissionError).toHaveBeenCalledWith({ insufficientCredits: true })
       act(() => login.host.querySelector('button')!.click())
-      expect(expired).toHaveBeenCalledTimes(1)
+      // 弹登录框，不是把会话判失效——后者会把访客手上这段对话连同画布一起冲掉。
+      expect(prompted.mock.calls).toEqual([['gated-action']])
       expect(send).not.toHaveBeenCalled()
     } finally {
       recharge.unmount()
       login.unmount()
-      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+      unsubscribe()
     }
   })
 
