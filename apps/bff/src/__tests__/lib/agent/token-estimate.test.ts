@@ -49,6 +49,16 @@ function toolResult(content: (TextContent | ImageContent)[]): AgentMessage {
 
 const IMAGE: ImageContent = { type: 'image', data: '', mimeType: 'image/png' }
 
+/** 只要 IHDR 那几个字节就够：估算读的是文件头，不解码整张图。 */
+function png(width: number, height: number): ImageContent {
+  const bytes = Buffer.alloc(24)
+  bytes.write('\x89PNG\r\n\x1a\n', 0, 'binary')
+  bytes.write('IHDR', 12, 'binary')
+  bytes.writeUInt32BE(width, 16)
+  bytes.writeUInt32BE(height, 20)
+  return { type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' }
+}
+
 /** 只补 CJK 那一项，所以差额本身就是被校正的字符数 × 0.55 向上取整。 */
 const correction = (message: AgentMessage) =>
   estimateMessageTokens(message) - estimateTokens(message)
@@ -86,11 +96,25 @@ describe('estimateMessageTokens', () => {
     expect(correction(user([{ type: 'text', text: '안녕하세요' }]))).toBe(3)
   })
 
-  it('keeps pi fixed per-block value for images and never corrects them', () => {
+  it('falls back to pi fixed per-block value when the bytes carry no readable size', () => {
     const message = user([IMAGE])
-    // pi 按每块 4800 字符折算图片，没有文字可校正。
+    // 认不出尺寸就沿用 pi 的每块 4800 字符：量不准是小事，把整轮估炸是大事。
     expect(estimateTokens(message)).toBe(1_200)
     expect(estimateMessageTokens(message)).toBe(1_200)
+  })
+
+  // 预览与原件真实视觉成本差好几倍，而 `viewImage` 正是靠这个区别省钱（#396）。
+  // 固定值意味着省下的 token 在预扣口径里看不见，原件还会被系统性低估、蒙混过出站硬闸。
+  it('prices an image by its pixels, so a preview costs less than the original', () => {
+    const preview = estimateMessageTokens(user([png(1024, 614)]))
+    const original = estimateMessageTokens(user([png(2000, 1200)]))
+
+    // 1024×614 是一张 2×2 的瓦片：85 + 170×4。
+    expect(preview).toBe(765)
+    // 2000×1200 先把短边压到 768，落成 3×2 瓦片：85 + 170×6。
+    expect(original).toBe(1_105)
+    // pi 会把两张都记成 1200，看不出差别。
+    expect(estimateTokens(user([png(1024, 614)]))).toBe(1_200)
   })
 
   it('corrects the text that travels with an image block', () => {
