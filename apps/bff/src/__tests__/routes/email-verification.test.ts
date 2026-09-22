@@ -76,6 +76,15 @@ describe('registration email verification', () => {
       config.email.resendApiKey = apiKey
     }
   })
+  it('rejects quoted sender values copied into Docker env files', () => {
+    const from = config.email.from
+    try {
+      config.email.from = '"Muvloom <login@auth.example.com>"'
+      expect(() => config.assertValid()).toThrow('EMAIL_FROM must be an email')
+    } finally {
+      config.email.from = from
+    }
+  })
 
   it('requires a delivered code, counts failures, and consumes it with the account creation', async () => {
     const email = 'verified@example.com'
