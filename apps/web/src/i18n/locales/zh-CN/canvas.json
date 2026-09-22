@@ -168,7 +168,8 @@
     "preview": "查看原图",
     "previewTouch": "查看原图 / 长按保存",
     "previewFailed": "原图加载失败，请关闭后重试",
-    "loading": "正在加载原图…"
+    "loading": "正在加载原图…",
+    "delete": "删除"
   },
   "grid": {
     "loadingCloud": "正在读取项目…",

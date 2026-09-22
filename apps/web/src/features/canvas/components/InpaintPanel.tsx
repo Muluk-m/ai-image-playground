@@ -1,6 +1,5 @@
 import { Brush, Eraser, Undo2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
-import Credits from '../../../components/Credits'
 import {
   ACTIVE_SEGMENT,
   FIELD,
@@ -209,14 +208,7 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
           >
-            {guard.estimatedCredits === undefined ? (
-              t(erasing ? 'erase.submit' : 'inpaint.submit')
-            ) : (
-              <>
-                {t(erasing ? 'erase.submit' : 'inpaint.submit')} ·{' '}
-                <Credits credits={guard.estimatedCredits} />
-              </>
-            )}
+            {t(erasing ? 'erase.submit' : 'inpaint.submit')}
           </button>
         </div>
       </div>

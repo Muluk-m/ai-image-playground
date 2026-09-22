@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { Button } from '../../../components/ui/button'
+import ViewportTooltip from '../../../components/ViewportTooltip'
 import { useStore } from '../../../store'
 
 /**
@@ -11,12 +12,15 @@ import { useStore } from '../../../store'
 export default function CanvasToolbarButton({
   icon,
   label,
+  compact,
   disabled,
   reason,
   onClick,
 }: {
   icon: ReactNode
   label: string
+  /** 只留图标，说明文字移到悬停浮层里——动作一多，带文字的条会长到压住画布。 */
+  compact?: boolean
   /** 正在进行中，暂时不可点。 */
   disabled?: boolean
   /** 做不了的原因；有它就是不可用。 */
@@ -25,23 +29,33 @@ export default function CanvasToolbarButton({
   onClick: (button: HTMLButtonElement) => void
 }) {
   const unavailable = reason !== undefined
+  const [hovered, setHovered] = useState(false)
   return (
     <Button
       type="button"
       variant="ghost"
       size="sm"
-      className={`h-8 gap-1 px-2 text-xs ${unavailable ? 'opacity-50' : ''}`}
+      className={`h-8 gap-1 text-xs ${compact ? 'w-8 px-0' : 'px-2'} ${unavailable ? 'opacity-50' : ''}`}
       aria-label={label}
       aria-disabled={unavailable || undefined}
-      title={reason ?? label}
+      // compact 下自带浮层，再留 title 会和它叠在一起出两份说明。
+      title={compact ? undefined : (reason ?? label)}
       disabled={disabled}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
       onClick={(event) => {
         if (unavailable) useStore.getState().showToast(reason, 'error')
         else onClick(event.currentTarget)
       }}
     >
       {icon}
-      <span className="hidden sm:inline">{label}</span>
+      {compact ? (
+        <ViewportTooltip visible={hovered}>{reason ?? label}</ViewportTooltip>
+      ) : (
+        <span className="hidden sm:inline">{label}</span>
+      )}
     </Button>
   )
 }

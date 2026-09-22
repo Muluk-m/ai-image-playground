@@ -4,7 +4,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import Credits from '../../../components/Credits'
 import { FIELD, OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { useTranslation } from '../../../i18n'
@@ -217,13 +216,7 @@ export default function CanvasRectEditLayer({ editor }: { editor: CanvasEditor }
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void confirm()}
           >
-            {outpaint && guard.estimatedCredits !== undefined ? (
-              <>
-                {t('outpaint.submit')} · <Credits credits={guard.estimatedCredits} />
-              </>
-            ) : (
-              t(outpaint ? 'outpaint.submit' : 'crop.apply')
-            )}
+            {t(outpaint ? 'outpaint.submit' : 'crop.apply')}
           </button>
         </div>
       </div>
