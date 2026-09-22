@@ -1,28 +1,13 @@
 import type { AgentMessageView } from '@image-playground/shared'
 import { agentClarificationSummary } from '@image-playground/shared'
 import type { AgentImageReference } from './images'
-import { replayTurnText, turnPromptText } from './turn-input'
+import { clarificationChainStart, replayTurnText, turnPromptText } from './turn-input'
 
 /**
  * 「这一轮用户授权了什么」只由本模块回答：与 `turn-input.ts` 同一段历史，但只认末尾那条
  * 未完成的澄清链。这段文字要拿去校验 requestQuote 是不是它的子串（`masked-plan.ts` 与
  * `masked-edit.ts`），差一个字符就会把本该放行的改图拒掉，所以每一个分隔符都定在这一处。
  */
-
-/** 未完成澄清链的起点：从历史末尾往回走，澄清与作答它的那条用户消息都还算本轮。 */
-export function clarificationChainStart(history: readonly AgentMessageView[]): number {
-  let start = history.length
-  while (start > 0) {
-    const tail = history.slice(0, start)
-    const last = tail[tail.length - 1]!
-    if (!last.content.some((block) => block.type === 'clarification')) break
-    let userIndex = tail.length - 2
-    while (userIndex >= 0 && tail[userIndex]!.role !== 'user') userIndex--
-    if (userIndex < 0) break
-    start = userIndex
-  }
-  return start
-}
 
 /**
  * 起轮那一刻的授权原文：澄清链上的用户原话与澄清摘要，收尾是本轮 prompt 与引用清单。
@@ -39,7 +24,7 @@ export function turnAuthorizationText(
       .slice(clarificationChainStart(history))
       .flatMap((message) =>
         message.role === 'user'
-          ? [replayTurnText(message)]
+          ? [replayTurnText(message, 'retained')]
           : message.content.flatMap((block) =>
               block.type === 'clarification' ? [agentClarificationSummary(block)] : [],
             ),

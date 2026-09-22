@@ -141,15 +141,35 @@ function systemPrompt(mode: AgentMode, autoSubmit: boolean): string {
   ].join('\n')
 }
 
+/** 未完成澄清链的起点：澄清与作答它的那条用户消息都还属于当前请求作用域。 */
+export function clarificationChainStart(history: readonly AgentMessageView[]): number {
+  let start = history.length
+  while (start > 0) {
+    const tail = history.slice(0, start)
+    const last = tail[tail.length - 1]!
+    if (!last.content.some((block) => block.type === 'clarification')) break
+    let userIndex = tail.length - 2
+    while (userIndex >= 0 && tail[userIndex]!.role !== 'user') userIndex--
+    if (userIndex < 0) break
+    start = userIndex
+  }
+  return start
+}
+
 /** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
-export function replayTurnText(message: AgentMessageView): string {
+export function replayTurnText(
+  message: AgentMessageView,
+  maskScope: 'historical' | 'retained' = 'historical',
+): string {
   return message.content
     .map((block) => {
       if (block.type === 'text')
         return (
           block.text +
           // 回放是纯文字：那一轮附过的图，内容不在这一份输入里。
-          (message.role === 'user' ? referenceManifest(block.references ?? [], false) : '')
+          (message.role === 'user'
+            ? referenceManifest(block.references ?? [], false, maskScope)
+            : '')
         )
       if (block.type === 'clarification') return agentClarificationSummary(block)
       return agentToolResultSummary(block)
@@ -159,11 +179,14 @@ export function replayTurnText(message: AgentMessageView): string {
 }
 
 /** 历史消息回放成 pi 的形状；助手消息的用量与停因是回放占位，不进任何计费。 */
-function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
+function replayed(
+  history: readonly AgentMessageView[],
+  selectionHistoryStart = history.length,
+): AgentMessage[] {
   const model = agentModel()
   const messages: AgentMessage[] = []
-  for (const message of history) {
-    const text = replayTurnText(message)
+  for (const [index, message] of history.entries()) {
+    const text = replayTurnText(message, index >= selectionHistoryStart ? 'retained' : 'historical')
     if (!text) continue
     messages.push(
       message.role === 'user'
@@ -188,11 +211,15 @@ export function turnInitialState(
   history: readonly AgentMessageView[],
   mode: AgentMode,
   autoSubmit = false,
+  selectionHistoryStart = history.length,
 ): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
-  return { systemPrompt: systemPrompt(mode, autoSubmit), messages: replayed(history) }
+  return {
+    systemPrompt: systemPrompt(mode, autoSubmit),
+    messages: replayed(history, selectionHistoryStart),
+  }
 }
 
 /** `/skill-name` 后面跟着的其余文字：名字与正文之间只吃一个空白。 */
@@ -261,10 +288,12 @@ export function estimatedTurnInput(
   reviewImageIds: readonly string[] = [],
   /** 出图模式：系统提示词里生成流程那一句换成另一份，长度不同，预扣要按真发的那份算。 */
   autoSubmit = false,
+  /** 与实发路径相同的选区作用域；缺席表示普通新请求，不继承历史选区。 */
+  selectionHistoryStart = history.length,
 ): AgentMessage[] {
   const now = Date.now()
-  const active = activeAgentReferences(references, history)
-  const state = turnInitialState(history, mode, autoSubmit)
+  const active = activeAgentReferences(references, history, selectionHistoryStart)
+  const state = turnInitialState(history, mode, autoSubmit, selectionHistoryStart)
   return [
     { role: 'user', content: [{ type: 'text', text: state.systemPrompt }], timestamp: now },
     ...state.messages,
@@ -310,12 +339,18 @@ export function estimateTurnInputTokens(
   mode: AgentMode = 'image',
   reviewImageIds: readonly string[] = [],
   autoSubmit = false,
+  selectionHistoryStart = history.messages.length,
 ): number {
   const estimated =
-    estimatedTurnInput(history.messages, text, references, mode, reviewImageIds, autoSubmit).reduce(
-      (total, message) => total + estimateMessageTokens(message),
-      0,
-    ) +
+    estimatedTurnInput(
+      history.messages,
+      text,
+      references,
+      mode,
+      reviewImageIds,
+      autoSubmit,
+      selectionHistoryStart,
+    ).reduce((total, message) => total + estimateMessageTokens(message), 0) +
     estimateToolDeclarationTokens(mode) +
     storedSummaryTokens(history.compaction)
   return Math.min(estimated, reservationCeiling(compactionSettings()))

@@ -52,8 +52,9 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
-import { clarificationChainStart, createTurnAuthorization } from './turn-authorization'
+import { createTurnAuthorization } from './turn-authorization'
 import {
+  clarificationChainStart,
   expandSkillInvocation,
   turnInitialState,
   turnModelPrompt,
@@ -85,6 +86,8 @@ export interface StartAgentTurnInput {
   readonly text: string
   /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
   readonly references: readonly AgentTurnReference[]
+  /** 选区继承起点；普通新请求由澄清链推导，恢复轮可指向被打断轮。 */
+  readonly selectionHistoryStart?: number
   /** 这一轮要创作什么；缺席即图片。工具清单与技能清单都按它过滤。 */
   readonly mode: AgentMode
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
@@ -161,17 +164,18 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     deviceId: input.deviceId,
   })
   let modelCallId: string | null = null
-  const stream = agentStreamFn(input.params?.thinkingDepth)
   const startedAt = Date.now()
   const events = await openTurnEventLog(conversationId, turnId)
+  const stream = agentStreamFn(input.params?.thinkingDepth)
+  const selectionHistoryStart =
+    input.selectionHistoryStart ??
+    (input.wake?.plan?.protected ? 0 : clarificationChainStart(input.history.messages))
   const images = createAgentImageSource({
     references: input.references,
     history: input.history.messages,
     conversationId: input.conversationId,
     userId: input.userId,
-    selectionHistoryStart: input.wake?.plan?.protected
-      ? 0
-      : clarificationChainStart(input.history.messages),
+    selectionHistoryStart,
   })
   const authorization = createTurnAuthorization({
     history: input.history.messages,
@@ -194,6 +198,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     input.history.messages,
     input.mode,
     input.params?.autoSubmit === true,
+    selectionHistoryStart,
   )
   const turnTools = agentTurnTools(
     {

@@ -186,6 +186,7 @@ export function referenceHasMask(reference: AgentImageReference): boolean {
 export function referenceManifest(
   references: readonly AgentImageReference[],
   attached: boolean,
+  maskScope: 'historical' | 'retained' = 'retained',
 ): string {
   if (references.length === 0) return ''
   const lines = references.map((one, at) => {
@@ -193,13 +194,17 @@ export function referenceManifest(
     const mask = referenceHasMask(one)
       ? attached
         ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
-        : '，此前附过选区；历史选区不代表本轮修改范围，以本轮附图或系统续作计划为准'
+        : maskScope === 'retained'
+          ? '，这次续作仍沿用此前的选区；作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+          : '，此前附过选区；历史选区不代表本轮修改范围，以本轮附图或系统续作计划为准'
       : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
   })
   const head = attached
     ? '可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：'
-    : '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+    : maskScope === 'historical'
+      ? '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+      : '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
   return `\n\n${head}\n${lines.join('\n')}`
 }
 
@@ -211,6 +216,7 @@ export function referenceManifest(
 export function activeAgentReferences(
   current: readonly AgentTurnReference[],
   history: readonly AgentMessageView[],
+  selectionHistoryStart = history.length,
 ): readonly AgentImageReference[] {
   if (current.length) return current
   for (let at = history.length - 1; at >= 0; at--) {
@@ -218,7 +224,13 @@ export function activeAgentReferences(
     if (message.role !== 'user') continue
     for (let index = message.content.length - 1; index >= 0; index--) {
       const block = message.content[index]!
-      if (block.type === 'text' && block.references?.length) return block.references
+      if (block.type === 'text' && block.references?.length) {
+        return block.references.map((reference) => {
+          if (!reference.mask || at >= selectionHistoryStart) return reference
+          const { mask: _mask, ...original } = reference
+          return original
+        })
+      }
     }
   }
   return []
@@ -291,13 +303,14 @@ export function createAgentImageSource(input: {
 }): AgentImageSource {
   const { userId } = input
   // 原图可跨请求复用，选区只在当前请求、澄清链或已授权续作中有效。
+  const selectionHistoryStart = input.selectionHistoryStart ?? input.history.length
   const references = new Map<string, AgentImageReference>()
   for (const [index, message] of input.history.entries()) {
     if (message.role !== 'user') continue
     for (const block of message.content) {
       if (block.type !== 'text') continue
       for (const reference of block.references ?? []) {
-        if (reference.mask && index < (input.selectionHistoryStart ?? input.history.length)) {
+        if (reference.mask && index < selectionHistoryStart) {
           const { mask: _mask, ...original } = reference
           references.set(reference.imageId, original)
         } else {
@@ -310,6 +323,7 @@ export function createAgentImageSource(input: {
   let active: readonly AgentImageReference[] = activeAgentReferences(
     input.references,
     input.history,
+    selectionHistoryStart,
   ).map((reference) => references.get(reference.imageId)!)
   const outputs = outputsFromHistory(input.history)
   // 缓存 promise 而不是值：模型连着改同一张图时，重复的那几次连 I/O 都不发。

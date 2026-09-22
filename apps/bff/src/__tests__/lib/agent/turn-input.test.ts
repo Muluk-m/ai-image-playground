@@ -173,14 +173,14 @@ describe('estimateTurnInputTokens', () => {
     expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5001)
   })
 
-  // 历史选区只写成「此前附过选区」，不再把本轮误算成局部编辑；仍不发送图片块。
-  it('carries historical references as text only when this turn attaches none', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(222)
+  it('does not charge visual input blocks for historical selections', () => {
+    const current = estimatedTurnInput(OLD_REFERENCE_HISTORY, '再改一次', []).at(-1)!
+    expect(imageBlocks(current)).toBe(0)
   })
 
-  // 本轮自己带图时，历史那批不再编号；历史回放和本轮普通清单仍计入。
-  it('numbers only this turn references when the turn attaches its own', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1382)
+  it('counts only the current attachment as visual input after a masked request', () => {
+    const current = estimatedTurnInput(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN]).at(-1)!
+    expect(imageBlocks(current)).toBe(1)
   })
 
   it('caps a long history at the compaction threshold', () => {
