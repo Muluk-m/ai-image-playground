@@ -295,6 +295,64 @@ it('复用平台记录把提示词与参数放进作品输入框，不自动提�
   ).toMatchObject({ source: 'builtin-edge', selectedModelId: 'gpt-image-2' })
   expect(host.querySelector('[contenteditable]')?.textContent).toBe('一只在阳光下睡觉的猫')
   expect(useStore.getState().appMode).toBe('image')
+  // 复用是异步的（读详情 + 取回参考图），做完不说一声，用户看到的就是「点了没反应」。
+  expect(useStore.getState().toast).toMatchObject({
+    message: '已复用配置到输入框',
+    type: 'success',
+  })
+})
+
+it('复用平台记录并行取回参考图，不让后一张等待前一张下载', async () => {
+  setChannels([
+    {
+      id: 'openai-images',
+      kind: 'openai-queue',
+      label: 'Image',
+      defaults: {},
+      models: [{ id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate'] }],
+    },
+  ])
+  const firstId = '11111111-1111-4111-8111-111111111112'
+  const secondId = '11111111-1111-4111-8111-111111111113'
+  let finishFirst!: (response: Response) => void
+  const firstDownload = new Promise<Response>((resolve) => {
+    finishFirst = resolve
+  })
+  const fetcher = vi.fn(async (url: string) => {
+    if (url === '/api/generations?limit=50') return page([item])
+    if (url === `/api/generations/${item.id}`)
+      return Response.json({
+        ...item,
+        inputs: [{ mediaId: firstId }, { mediaId: secondId }],
+        mask: null,
+        outputs: [],
+      })
+    if (url.endsWith('/access'))
+      return Response.json({
+        originalUrl: `https://media.example/${url.includes(firstId) ? firstId : secondId}`,
+        previewUrl: '',
+        expiresAt: Date.now() + 60_000,
+      })
+    if (url.endsWith(firstId)) return firstDownload
+    if (url.endsWith(secondId)) return new Response(new Blob(['second'], { type: 'image/png' }))
+    throw new Error(`unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<GenerationHistory userId="owner" />))
+  await waitCards(1)
+  await click('复用配置')
+  await vi.waitFor(() =>
+    expect(fetcher.mock.calls.map(([url]) => url)).toContain(`https://media.example/${firstId}`),
+  )
+  await vi.waitFor(
+    () =>
+      expect(fetcher.mock.calls.map(([url]) => url)).toContain(`https://media.example/${secondId}`),
+    { timeout: 350 },
+  )
+  expect(useStore.getState().inputImages).toHaveLength(0)
+  finishFirst(new Response(new Blob(['first'], { type: 'image/png' })))
+  await vi.waitFor(() => expect(useStore.getState().inputImages).toHaveLength(2))
+  expect(useStore.getState().prompt).toBe(item.prompt)
 })
 
 it('删除平台记录要删到平台；平台没删掉时卡还在', async () => {

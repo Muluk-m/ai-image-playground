@@ -1961,6 +1961,9 @@ async function retryLocalTask(task: TaskRecord) {
 /**
  * 复用配置。平台记录走云端复用：它要按 provider+model 认回内置模型、把参考图和遮罩按引用取回来，
  * 而不是照本机 id 读图。
+ *
+ * 两条路都在做完之后说一声：云端那条要读详情再回源取参考图，两秒往上，输入框又常在视野之外，
+ * 不给回执用户看到的就是「点了没反应」。
  */
 export async function reuseConfig(task: TaskRecord) {
   if (task.remoteOnly) {
@@ -1973,7 +1976,9 @@ export async function reuseConfig(task: TaskRecord) {
       await reuseCloudGeneration(detail, new AbortController().signal)
     } catch {
       useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
+      return
     }
+    useStore.getState().showToast(i18next.t('toast.configReused', { ns: 'store' }), 'success')
     return
   }
   return reuseLocalConfig(task)
