@@ -77,7 +77,6 @@ const FRESH: AgentCompactionRecord = {
   summary: null,
   anchor: null,
   verbatim: null,
-  foldCount: 0,
   failureCount: 0,
   openedAt: null,
 }
@@ -103,7 +102,6 @@ describe('createCompactionTransform', () => {
       summary: NARRATIVE,
       anchor: { lastMessageId: 'm2', coveredCount: 2 },
       verbatim: { omittedCount: 0, omittedChars: 0, kept: [body('a')] },
-      foldCount: 0,
       failureCount: 0,
       openedAt: null,
     })
