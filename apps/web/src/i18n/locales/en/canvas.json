@@ -199,8 +199,7 @@
   "touch": {
     "hint": "Drag to pan · Pinch to zoom · Tap, then drag an element",
     "editText": "Edit text",
-    "edit": "Edit",
-    "imageActions": "Image actions"
+    "edit": "Edit"
   },
   "trash": {
     "title": "Recycle bin",
@@ -313,5 +312,34 @@
     "submit": "Generate video",
     "submitted": "Video generation submitted",
     "referenceLabel": "Image {{no}}"
+  },
+  "imageToolbar": {
+    "aria": "Image actions",
+    "more": "More",
+    "sourceMissing": "Image data unavailable"
+  },
+  "inpaint": {
+    "action": "Inpaint",
+    "title": "Inpaint",
+    "running": "Inpainting…",
+    "toolAria": "Mask tools",
+    "tool": {
+      "brush": "Brush",
+      "eraser": "Eraser"
+    },
+    "brushSize": "Brush",
+    "undo": "Undo stroke",
+    "promptAria": "Inpaint description",
+    "promptPlaceholder": "Describe what this area should become, e.g. make the faucet gold",
+    "paintFirst": "Paint the area you want changed first",
+    "uploadReference": "Upload image",
+    "removeReference": "Remove reference",
+    "submit": "Generate",
+    "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
+    "videoUnsupported": "Videos cannot be inpainted",
+    "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
+    "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
+    "sourceGone": "The source image is no longer on the canvas",
+    "canvasAria": "Inpaint mask canvas"
   }
 }

@@ -207,7 +207,9 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   {p.meta.agent ? (
                     <AgentPlaceholderLabel placeholder={p} />
                   ) : (
-                    <span>{t('placeholder.generating')}</span>
+                    <span>
+                      {t(p.meta.inpaintSourceId ? 'inpaint.running' : 'placeholder.generating')}
+                    </span>
                   )}
                 </>
               ) : (

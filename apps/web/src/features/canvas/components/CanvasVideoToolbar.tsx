@@ -11,8 +11,7 @@ import {
   RotateCcw,
   WandSparkles,
 } from 'lucide-react'
-import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
-import { Button } from '../../../components/ui/button'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
@@ -38,6 +37,7 @@ import { referenceSelection } from '../lib/submitVideoFromCanvas'
 import { addSelectionToTimeline, isTimelineSource } from '../lib/timeline'
 import { useCanvasProjectStore } from '../projectStore'
 import { useTimelineEditor } from '../timelineEditorStore'
+import CanvasToolbarButton from './CanvasToolbarButton'
 import ReferenceVideoPopover from './ReferenceVideoPopover'
 import RegenerateVideoPopover from './RegenerateVideoPopover'
 
@@ -183,7 +183,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
           >
-            <ToolbarButton
+            <CanvasToolbarButton
               icon={<Pencil />}
               label={t('timeline.edit')}
               onClick={() => useTimelineEditor.getState().open(lone.id)}
@@ -223,7 +223,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <ToolbarButton
+          <CanvasToolbarButton
             icon={<Images />}
             label={t('referenceVideo.open', { count: images.length })}
             onClick={() => setReferencing(images)}
@@ -256,7 +256,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <ToolbarButton
+          <CanvasToolbarButton
             icon={<Film />}
             label={
               timelines.length
@@ -297,13 +297,13 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
         // 空格、方向键在画布上是平移 / 移动的快捷键，按在工具条按钮上不该漏过去。
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <ToolbarButton
+        <CanvasToolbarButton
           icon={<Download />}
           label={t('videoToolbar.download')}
           disabled={busyHere}
           onClick={() => void run('download', node)}
         />
-        <ToolbarButton
+        <CanvasToolbarButton
           icon={<RotateCcw />}
           label={t('videoToolbar.regenerate')}
           reason={regenerateRefusal ?? undefined}
@@ -312,7 +312,7 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
         {(['extend', 'edit'] as const).map((mode) => {
           const check = checks[mode]
           return (
-            <ToolbarButton
+            <CanvasToolbarButton
               key={mode}
               icon={mode === 'extend' ? <FastForward /> : <WandSparkles />}
               label={videoDeriveLabel(mode)}
@@ -321,14 +321,14 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
             />
           )
         })}
-        <ToolbarButton icon={<Film />} label={t('timeline.add')} onClick={addToTimeline} />
-        <ToolbarButton
+        <CanvasToolbarButton icon={<Film />} label={t('timeline.add')} onClick={addToTimeline} />
+        <CanvasToolbarButton
           icon={<ArrowLeftToLine />}
           label={t('videoToolbar.firstFrame')}
           disabled={busyHere}
           onClick={() => void run('first', node)}
         />
-        <ToolbarButton
+        <CanvasToolbarButton
           icon={<ArrowRightToLine />}
           label={t('videoToolbar.lastFrame')}
           disabled={busyHere}
@@ -337,47 +337,6 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
       </div>
       {popover}
     </>
-  )
-}
-
-/**
- * 工具条按钮。做不了的动作不用原生 disabled：那样按钮拿不到焦点，键盘和读屏用户
- * 永远看不到原因。改成 aria-disabled，按下去说明为什么不行。
- */
-function ToolbarButton({
-  icon,
-  label,
-  disabled,
-  reason,
-  onClick,
-}: {
-  icon: ReactNode
-  label: string
-  /** 正在进行中，暂时不可点。 */
-  disabled?: boolean
-  /** 做不了的原因；有它就是不可用。 */
-  reason?: string
-  onClick: () => void
-}) {
-  const unavailable = reason !== undefined
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className={`h-8 gap-1 px-2 text-xs ${unavailable ? 'opacity-50' : ''}`}
-      aria-label={label}
-      aria-disabled={unavailable || undefined}
-      title={reason ?? label}
-      disabled={disabled}
-      onClick={() => {
-        if (unavailable) useStore.getState().showToast(reason, 'error')
-        else onClick()
-      }}
-    >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
-    </Button>
   )
 }
 
@@ -426,13 +385,13 @@ function FilmExportButtons({ editor, timelineId }: { editor: CanvasEditor; timel
     const zipPlan = planFilm(timeline.clips, (id) => editor.getElement(id), { limits: false })
     return (
       <>
-        <ToolbarButton
+        <CanvasToolbarButton
           icon={<Download />}
           label={t('film.export')}
           reason={t('film.unsupported')}
           onClick={() => {}}
         />
-        <ToolbarButton
+        <CanvasToolbarButton
           icon={<FolderDown />}
           label={exporting ? t('film.zipping') : t('film.downloadClips')}
           disabled={busy}
@@ -445,7 +404,7 @@ function FilmExportButtons({ editor, timelineId }: { editor: CanvasEditor; timel
     )
   }
   return (
-    <ToolbarButton
+    <CanvasToolbarButton
       icon={<Download />}
       label={exporting ? t('film.progress', { percent }) : t('film.export')}
       disabled={busy || supported === undefined}

@@ -197,8 +197,7 @@
   "touch": {
     "hint": "拖动画布 · 双指缩放 · 轻点选中后拖动元素",
     "editText": "编辑文字",
-    "edit": "编辑",
-    "imageActions": "图片操作"
+    "edit": "编辑"
   },
   "trash": {
     "title": "回收站",
@@ -305,5 +304,34 @@
     "submit": "生成视频",
     "submitted": "已提交生成视频",
     "referenceLabel": "图片{{no}}"
+  },
+  "imageToolbar": {
+    "aria": "图片操作",
+    "more": "更多",
+    "sourceMissing": "图片数据不可用"
+  },
+  "inpaint": {
+    "action": "局部重绘",
+    "title": "局部重绘",
+    "running": "局部重绘中…",
+    "toolAria": "涂抹工具",
+    "tool": {
+      "brush": "画笔",
+      "eraser": "橡皮擦"
+    },
+    "brushSize": "笔刷",
+    "undo": "撤销一笔",
+    "promptAria": "重绘描述",
+    "promptPlaceholder": "描述这块区域要改成什么，例如：把水龙头换成金色",
+    "paintFirst": "先在图上涂出要改的区域",
+    "uploadReference": "上传图片",
+    "removeReference": "移除参考图",
+    "submit": "生成",
+    "modelUnsupported": "当前模型不支持遮罩重绘，请切到 GPT Image 系列",
+    "videoUnsupported": "视频不支持局部重绘",
+    "tooSmall": "图片太小，局部重绘要求约 80 万像素以上",
+    "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
+    "sourceGone": "源图已不在画布上",
+    "canvasAria": "局部重绘涂抹区"
   }
 }

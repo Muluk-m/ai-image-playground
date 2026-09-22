@@ -55,7 +55,7 @@ function buildApiPrompt(annotated: boolean, requirement: string): string {
  * 保证占位 / 并发 / 恢复语义一致。底层复用 `callImageApi`（不改协议），全程不抛。
  * 成功后把结果落进工作台历史（addCompletedCanvasTask），画布生成同样可收藏 / 检索 / 复用。
  */
-async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Promise<void> {
+export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Promise<void> {
   // 发起时快照 profile 身份：生成可长达数分钟，完成时用户可能已切 profile，
   // 落历史用快照保真（与 params 快照同一决策）。
   const profile = getActiveApiProfile(useStore.getState().settings)
@@ -78,6 +78,7 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
     prompt: spec.prompt,
     annotated: spec.annotated,
     inputCount: spec.inputImageDataUrls.length,
+    ...(spec.inpaintSourceId ? { inpaintSourceId: spec.inpaintSourceId } : {}),
     params: spec.params,
     profileView,
   })
@@ -89,6 +90,7 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
       prompt: buildApiPrompt(spec.annotated, spec.prompt),
       params: spec.params,
       inputImageDataUrls: spec.inputImageDataUrls,
+      ...(spec.maskDataUrl ? { maskDataUrl: spec.maskDataUrl } : {}),
       clientRequestId,
       // submit 成功即回填 bffRequestId 到占位框 meta 并持久化，供刷新后 resume（决策 2 / 7）。
       onQueueSubmitted: (requestId) => {
@@ -234,6 +236,10 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
     prompt: meta.prompt,
     annotated: meta.annotated ?? false,
     inputImageDataUrls,
+    // 局部重绘重试必须把遮罩一起带回去：丢了它就是一次静默的整图重绘，
+    // 与 :228 那条守卫防的是同一类事故。遮罩与输入图同在运行态，刷新后一起没，也被同一条守卫拦住。
+    ...(runtime?.maskDataUrl ? { maskDataUrl: runtime.maskDataUrl } : {}),
+    ...(meta.inpaintSourceId ? { inpaintSourceId: meta.inpaintSourceId } : {}),
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
     // 几何一律读活占位框：用户可能已拖动 / 拉伸过错误态占位框，submit 时的 runtime.target 已过期。
