@@ -909,6 +909,7 @@ describe('智能体改图工具', () => {
       'editImage',
       'generateImage',
       'loadSkill',
+      'readCanvas',
       'readLibrary',
       'viewImage',
     ])

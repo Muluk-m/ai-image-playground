@@ -112,6 +112,7 @@ describe('tools filtered by creation mode', () => {
       'editImage',
       'generateImage',
       'loadSkill',
+      'readCanvas',
       'readLibrary',
       'viewImage',
     ])
@@ -124,6 +125,7 @@ describe('tools filtered by creation mode', () => {
       'generateImage',
       'generateVideo',
       'loadSkill',
+      'readCanvas',
       'readLibrary',
       'viewImage',
     ])

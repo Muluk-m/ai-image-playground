@@ -6,7 +6,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { parseProjectArtifactId } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
@@ -143,6 +143,60 @@ async function readFoldedOutput(
     .limit(1)
   if (!owned) return null
   return readTaskOutput({ taskId: parsed.generationId, outputIndex: parsed.position }, userId)
+}
+
+/** `aip-media:<uuid>` 是画布里存图片来源的写法，模型多半照抄过来，这里一并认。 */
+const CANVAS_MEDIA_ID = /^(?:aip-media:)?([0-9a-f-]{36})$/i
+
+/**
+ * 画布上用户自己放的图。
+ *
+ * 它们的 id 是 `media_objects.id`，与产物 id（`agent_<任务>_<下标>`）、素材 id 都不是一个
+ * 空间——不接这一路，`readCanvas` 报出来的图片 id 就交不给 `editImage`，读画布这件事等于白做。
+ *
+ * 越权边界同样由 SQL 写明，而且比「归本人所有」更紧一格：得经 `media_references` 落在**这一
+ * 轮会话绑着的那个项目**上。只按 user_id 放行的话，模型报一串 uuid 就能把这人别的项目里的图
+ * 读出来。
+ */
+async function readCanvasMedia(
+  imageId: string,
+  conversationId: string,
+  userId: string | null,
+): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
+  if (!mediaId || !userId) return null
+  const [row] = await db
+    .select({
+      objectKey: schema.media_objects.object_key,
+      contentType: schema.media_objects.content_type,
+    })
+    .from(schema.media_objects)
+    .innerJoin(
+      schema.media_references,
+      and(
+        eq(schema.media_references.media_id, schema.media_objects.id),
+        eq(schema.media_references.user_id, userId),
+        eq(schema.media_references.owner_kind, 'project'),
+      ),
+    )
+    .innerJoin(
+      schema.canvas_projects,
+      and(
+        eq(schema.canvas_projects.id, schema.media_references.owner_id),
+        eq(schema.canvas_projects.conversation_id, conversationId),
+        isNull(schema.canvas_projects.deleted_at),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.media_objects.id, mediaId),
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.media_objects.status, 'ready'),
+      ),
+    )
+    .limit(1)
+  if (!row?.objectKey) return null
+  return { dataUrl: dataUrl(await durableMediaStore().read(row.objectKey), row.contentType) }
 }
 
 /** 历史里的工具结果块记着每张产出图的任务与下标，所以产物不必另立一张表。 */
@@ -353,6 +407,8 @@ export function createAgentImageSource(input: {
     }
     const folded = await readFoldedOutput(imageId, input.conversationId, userId)
     if (folded) return { imageId, ...folded }
+    const canvas = await readCanvasMedia(imageId, input.conversationId, userId)
+    if (canvas) return { imageId, ...canvas }
     if (!userId) return null
     const asset = await readAssetImage(userId, imageId)
     return asset ? { imageId, dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
