@@ -45,7 +45,14 @@ describe('RegistrationPanel', () => {
     const onBack = vi.fn()
     act(() => {
       root.render(
-        <RegistrationPanel pending={false} error={null} onBack={onBack} onRegister={vi.fn()} />,
+        <RegistrationPanel
+          pending={false}
+          error={null}
+          verificationEnabled={false}
+          onBack={onBack}
+          onRequestVerification={vi.fn()}
+          onRegister={vi.fn()}
+        />,
       )
     })
 
@@ -65,7 +72,14 @@ describe('RegistrationPanel', () => {
     const onRegister = vi.fn()
     act(() => {
       root.render(
-        <RegistrationPanel pending={false} error="" onBack={vi.fn()} onRegister={onRegister} />,
+        <RegistrationPanel
+          pending={false}
+          error=""
+          verificationEnabled={false}
+          onBack={vi.fn()}
+          onRequestVerification={vi.fn()}
+          onRegister={onRegister}
+        />,
       )
     })
 
@@ -85,6 +99,43 @@ describe('RegistrationPanel', () => {
       password: 'fixture-phrase',
     })
   })
+  it('requests a code before submitting verified registration credentials', async () => {
+    const onRequestVerification = vi.fn(async () => ({
+      challengeId: 'challenge-1',
+      expiresInSeconds: 600,
+    }))
+    const onRegister = vi.fn()
+    act(() => {
+      root.render(
+        <RegistrationPanel
+          pending={false}
+          error={null}
+          verificationEnabled
+          onBack={vi.fn()}
+          onRequestVerification={onRequestVerification}
+          onRegister={onRegister}
+        />,
+      )
+    })
+    act(() => {
+      setInput(input('username'), 'Creator@Example.com')
+      setInput(input('password'), 'fixture-phrase')
+      setInput(input('confirmPassword'), 'fixture-phrase')
+    })
+    await act(async () => {
+      host.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true }))
+    })
+
+    expect(onRequestVerification).toHaveBeenCalledWith('Creator@Example.com')
+    expect(input('verificationCode').autocomplete).toBe('one-time-code')
+    act(() => setInput(input('verificationCode'), '123456'))
+    act(() => host.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true })))
+    expect(onRegister).toHaveBeenCalledWith({
+      username: 'Creator@Example.com',
+      password: 'fixture-phrase',
+      verification: { challengeId: 'challenge-1', code: '123456' },
+    })
+  })
 
   it('disables actions while pending and displays the server error', () => {
     act(() => {
@@ -92,7 +143,9 @@ describe('RegistrationPanel', () => {
         <RegistrationPanel
           pending
           error="该用户名已被使用"
+          verificationEnabled={false}
           onBack={vi.fn()}
+          onRequestVerification={vi.fn()}
           onRegister={vi.fn()}
         />,
       )

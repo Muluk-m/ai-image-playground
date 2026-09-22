@@ -253,6 +253,13 @@
       "when": 1789802000000,
       "tag": "0036_agent_device_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790118000000,
+      "tag": "0037_email_verification",
+      "breakpoints": true
     }
   ]
 }
