@@ -6,7 +6,6 @@ import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { retryTask, updateTaskInStore, useStore } from '../store'
 import type { TaskRecord } from '../types'
-import { CodeIcon } from './icons'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
@@ -421,16 +420,6 @@ export default function TaskCard({
                   >
                     <ModelLogo model={model} />
                     <span>{compactModelName(model, model)}</span>
-                  </span>
-                )}
-                {/* API Name */}
-                {(task.apiProfileName || task.apiProvider) && (
-                  <span
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs flex-shrink-0"
-                    title={task.apiProfileName || task.apiProvider}
-                  >
-                    <CodeIcon className="w-3 h-3 flex-shrink-0 text-muted-foreground" />
-                    <span>{task.apiProfileName || task.apiProvider}</span>
                   </span>
                 )}
                 {/* Mask */}
