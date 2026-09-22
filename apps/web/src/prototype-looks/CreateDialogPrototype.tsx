@@ -102,11 +102,6 @@ export default function CreateDialogPrototype({
         <textarea rows={3} placeholder={isAsset ? '这件商品的要点：材质、颜色、不能变的细节…' : '这个效果想用在哪、要保留什么…'} className={FIELD} />
 
         <div className="mt-5 flex items-center gap-3">
-          <p className="text-[11px] text-muted-foreground">
-            {isAsset
-              ? '手动保存只存你上传的图；要三视图、透明底交给智能体。'
-              : '手动保存只存参考图与描述，没有提示词；反推与试效果交给智能体。'}
-          </p>
           <button
             type="button"
             disabled={!name}

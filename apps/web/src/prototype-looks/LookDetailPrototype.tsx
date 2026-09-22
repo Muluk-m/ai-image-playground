@@ -136,9 +136,6 @@ export default function LookDetailPrototype({
                 <Pencil className="h-4 w-4" /> {look.origin === '自建' ? '继续调试' : '复制一份来改'}
               </button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              「用它出图」选素材批量提交；「继续调试」把 /create-look 放进创作输入框交给智能体。
-            </p>
           </div>
         </div>
       </div>

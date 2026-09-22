@@ -61,7 +61,6 @@ function AssetSaveCard() {
         <div className={`${CARD_TITLE} flex items-center gap-1.5`}>
           <Check className="h-3.5 w-3.5 text-success" /> 已存为素材：{name}（{count} 张视角，透明底）
         </div>
-        <div className={CARD_NOTE}>在「资产 › 素材」里可以改名、追加视角。</div>
       </div>
     )
 
@@ -127,7 +126,6 @@ function AssetSaveCard() {
           保存 {count} 张
         </button>
       </div>
-      <div className={CARD_NOTE}>点缩略图可以去掉不要的；保存后还能在素材页追加视角。</div>
     </div>
   )
 }
@@ -165,7 +163,6 @@ function LookSaveCard() {
           <div className={`${CARD_TITLE} flex items-center gap-1.5`}>
             <Check className="h-3.5 w-3.5 text-success" /> 已存为模板：{name}
           </div>
-          <div className={CARD_NOTE}>在「资产 › 模板」里可以继续调试或用它出图。</div>
         </div>
         <Reply text="要不要现在拿一条素材试试效果？在输入框里 @ 一条产品素材发给我就行；不满意我们接着改，改好后我会更新这条模板并把你认定的那张设为封面。" />
       </>
@@ -232,7 +229,7 @@ function LookSaveCard() {
       </div>
       {variant === 'B' ? meta : (
         <div className={CARD_NOTE}>
-          {look.purpose} · {look.model} · {look.size} · {look.slots} 个素材位 · 封面暂用参考图
+          {look.purpose} · {look.model} · {look.size} · {look.slots} 个素材位
         </div>
       )}
       <div className="flex items-center gap-2">
@@ -251,9 +248,6 @@ function LookSaveCard() {
 export default function SaveCardPrototype() {
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="my-2 text-center text-[10px] uppercase tracking-wider text-fuchsia-500">
-        ↓ prototype：保存卡片 ↓
-      </div>
       <Bubble text="/create-asset 这是我的浴缸，帮我做一套素材" />
       <Reply text="收到 1 张实拍图。我按它生成了一张正 / 侧 / 背拼图（透明底），又拆出正面和排水口细节两张。看一下，没问题就存：" />
       <AssetSaveCard />

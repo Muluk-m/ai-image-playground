@@ -6,7 +6,7 @@ import Overlay from '../components/Overlay'
 import { PANEL_SURFACE } from '../features/agent/agentStyles'
 import { APP_MODE_LABELS, useStore } from '../store'
 import BatchDialogPrototype from './BatchDialogPrototype'
-import ComposerChipsPrototype from './ComposerChipsPrototype'
+import ComposerChipsPrototype, { PickedLookCapsule } from './ComposerChipsPrototype'
 import CreateDialogPrototype from './CreateDialogPrototype'
 import { ASSETS, LOOKS, PURPOSE_TONE, type ProtoAsset, type ProtoLook, type Purpose } from './data'
 import LookDetailPrototype from './LookDetailPrototype'
@@ -26,7 +26,6 @@ function handoffToAgent(command: string) {
   store.setCreateTarget('canvas')
   store.setPrompt(command)
   store.setAppMode('image')
-  store.showToast(`已把 ${command.trim()} 放进创作输入框，补充说明后点发送`, 'info')
 }
 
 export default function LibraryPrototype() {
@@ -127,28 +126,20 @@ export default function LibraryPrototype() {
 
 /* ---------------- 对话假面板 ---------------- */
 
+// 本地没起 BFF 时画布里没有智能体面板；这个假面板承载保存卡片与输入框 chip。
+// 起了 BFF 时同样的东西挂在真实面板里（`/p/…?proto=looks`）。
 function ChatMock() {
   return (
-    <div className="flex gap-6">
-      <div className={`${PANEL_SURFACE} flex h-[calc(100dvh-9rem)] w-[380px] shrink-0 flex-col rounded-2xl`}>
-        <div className="border-b border-border px-3 py-2 text-xs font-medium">智能体面板（假）</div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-2">
-          <SaveCardPrototype />
-        </div>
-        <div className="border-t border-border px-2 py-2">
-          <div className="rounded-xl border border-border bg-muted px-2.5 py-2 text-xs text-muted-foreground">
-            描述你想要的图，或拖入参考…
-          </div>
-          <ComposerChipsPrototype surface="agent" />
-        </div>
+    <div className={`${PANEL_SURFACE} flex h-[calc(100dvh-9rem)] w-[380px] shrink-0 flex-col rounded-2xl`}>
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-2">
+        <SaveCardPrototype />
       </div>
-      <div className="max-w-md text-xs leading-relaxed text-muted-foreground">
-        <p>本地没起 BFF 时画布里没有智能体面板，这里用假面板承载两样东西：</p>
-        <ul className="mt-2 list-disc pl-4">
-          <li>保存卡片（素材变体 / 模板变体），随 ←→ 切 A / B / C</li>
-          <li>输入框下方的模板 chip 与点选后的模板胶囊</li>
-        </ul>
-        <p className="mt-2">起了 BFF 时同样的东西会出现在真正的画布面板里（`/p/…?proto=looks`）。</p>
+      <div className="border-t border-border px-2 py-2">
+        <div className="flex flex-col gap-1.5 rounded-xl border border-border bg-muted px-2.5 py-2 text-xs text-muted-foreground">
+          <PickedLookCapsule />
+          <span>描述你想要的图，或拖入参考…</span>
+        </div>
+        <ComposerChipsPrototype surface="agent" />
       </div>
     </div>
   )
@@ -339,9 +330,6 @@ function AssetDetail({ asset, onClose }: { asset: ProtoAsset; onClose: () => voi
             <Plus className="h-4 w-4" /> 追加视角
           </button>
         </div>
-        <p className="mt-3 text-[11px] text-muted-foreground">
-          @ 进输入框时全部 {asset.views.length} 张视角一起作为参考图；智能体拆视角会追加到这里。
-        </p>
       </div>
     </Overlay>
   )
@@ -366,9 +354,6 @@ function PromptsTab() {
           </div>
         </div>
       ))}
-      <p className="col-span-full text-[11px] text-muted-foreground">
-        原「模板」页签，功能不变只改名：存的是一段提示词，不带参考图与模型。
-      </p>
     </div>
   )
 }
