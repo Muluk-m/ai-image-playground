@@ -82,9 +82,26 @@ export const config = {
       return env(name, '')
     },
   },
+  email: {
+    resendApiKey: env('RESEND_API_KEY', ''),
+    from: env('EMAIL_FROM', ''),
+    codeSecret: env('EMAIL_CODE_SECRET', ''),
+  },
   assertValid(): void {
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
+    }
+    if (hasCapability(config.operator, 'accounts:email-verification')) {
+      if (!hasCapability(config.operator, 'accounts:self-register')) {
+        throw new Error(
+          'accounts:email-verification requires the accounts:self-register capability',
+        )
+      }
+      if (!config.email.resendApiKey) throw new Error('Missing env: RESEND_API_KEY')
+      if (!config.email.from) throw new Error('Missing env: EMAIL_FROM')
+      if (config.email.codeSecret.length < 32) {
+        throw new Error('EMAIL_CODE_SECRET must be at least 32 characters')
+      }
     }
     if (hasCapability(config.operator, 'agent:chat') && !config.agent.model) {
       throw new Error('Missing env: AGENT_CHAT_MODEL (required by agent:chat)')

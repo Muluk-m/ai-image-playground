@@ -9,6 +9,7 @@ import {
   loginUser,
   oauthStartUrl,
   registerUser,
+  requestRegistrationVerification,
 } from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
@@ -156,6 +157,10 @@ type LoginErrorKey =
   | 'registration.invalid_referral_code'
   | 'registration.registration_reward_unavailable'
   | 'registration.fallback'
+  | 'registration.email_delivery_failed'
+  | 'registration.email_verification_required'
+  | 'registration.invalid_email_verification'
+  | 'registration.email_verification_expired'
 
 function loginErrorKey(error: unknown): LoginErrorKey {
   if (error instanceof AuthRequestError) {
@@ -180,6 +185,16 @@ function registrationErrorKey(error: unknown): LoginErrorKey {
     if (error.code === 'invalid_username') return 'registration.invalid_username'
     if (error.code === 'invalid_password') return 'registration.invalid_password'
     if (error.code === 'rate_limited') return 'registration.rate_limited'
+    if (error.code === 'email_delivery_failed') return 'registration.email_delivery_failed'
+    if (error.code === 'email_verification_required') {
+      return 'registration.email_verification_required'
+    }
+    if (error.code === 'invalid_email_verification') {
+      return 'registration.invalid_email_verification'
+    }
+    if (error.code === 'email_verification_expired') {
+      return 'registration.email_verification_expired'
+    }
     if (error.code === 'invalid_referral_code') return 'registration.invalid_referral_code'
     if (error.code === 'registration_reward_unavailable') {
       return 'registration.registration_reward_unavailable'
@@ -216,6 +231,7 @@ export function LoginScreen() {
   const { t } = useTranslation('auth')
   const { t: tError } = useTranslation('errors')
   const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
+  const emailVerificationEnabled = isClientCapabilityEnabled('accounts:email-verification')
   const referralEnabled =
     PrivateWebSupportsReferrals &&
     registrationEnabled &&
@@ -279,16 +295,31 @@ export function LoginScreen() {
     }
   }
 
+  async function requestVerification(
+    email: string,
+  ): Promise<{ challengeId: string; expiresInSeconds: number } | null> {
+    if (pending) return null
+    setPending(true)
+    setErrorKey(null)
+    try {
+      return await requestRegistrationVerification(email)
+    } catch (err) {
+      setErrorKey(registrationErrorKey(err))
+      return null
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function submitRegistration(credentials: RegistrationCredentials): Promise<void> {
     if (pending) return
     setPending(true)
     setErrorKey(null)
     try {
-      await registerUser(
-        credentials.username,
-        credentials.password,
-        referralEnabled ? referralCode : undefined,
-      )
+      await registerUser(credentials.username, credentials.password, {
+        referralCode: referralEnabled ? referralCode : undefined,
+        verification: credentials.verification,
+      })
       window.location.reload()
     } catch (err) {
       setErrorKey(registrationErrorKey(err))
@@ -371,6 +402,8 @@ export function LoginScreen() {
               <RegistrationPanel
                 pending={pending}
                 error={error}
+                verificationEnabled={emailVerificationEnabled}
+                onRequestVerification={requestVerification}
                 onBack={() => {
                   setErrorKey(null)
                   setView('login')
