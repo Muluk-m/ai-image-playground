@@ -38,7 +38,7 @@ flowchart LR
 决策：
 
 - **前端** = `apps/admin` 的 Vite 产物，新 Pages 项目 `muvloom-admin`（付费 CF 账号，同 `ai-image-playground` / `muvloom-test`），生产分支 `main`，自定义域名 `admin.muvloom.online`。这是一次 **DNS 切换**（tunnel CNAME → Pages CNAME，并删 ingress 那一行），不是新增；切之前 API 域名先上线并验证。
-- **服务端** = 现有 `admin` compose 服务，去掉静态托管（`ADMIN_DIST_DIR` 留空，Dockerfile 删 `admin-build` stage 与 `COPY dist`），tunnel ingress 加 `admin-api.muvloom.online → http://admin:37378`。
+- **服务端** = 现有 `admin` compose 服务；`app.env` 把 `ADMIN_DIST_DIR` 设为空后只出 API，tunnel ingress 加 `admin-api.muvloom.online → http://admin:37378`。切换期镜像仍保留 `admin-build` 与 `dist`，仅作 DNS 回滚；验证完成后的后续改动再移除。
 - **Cookie 不改**：`admin.muvloom.online` 与 `admin-api.muvloom.online` 同站（eTLD+1 相同），`SameSite=Lax` 的 cookie 在 `fetch(credentials:'include')` 与 `<img>` 子资源上都会带。`*.pages.dev` 预览域登不上，与主站一致。
 - **CORS**：admin 服务端新增 `ADMIN_CORS_ALLOWED_ORIGINS`（默认取 `ADMIN_FRONTEND_ORIGIN`），不再共用 BFF 的 `CORS_ALLOWED_ORIGINS`——共用会把后台域名也放进 BFF 白名单，且首项还决定 `AUTH_FRONTEND_ORIGIN`。
 - **Google 登录**：`ADMIN_PUBLIC_ORIGIN` 保持「API 自己的 origin」语义（回调 `https://admin-api.muvloom.online/api/auth/google/callback`，Google 控制台要加）；新增 `ADMIN_FRONTEND_ORIGIN`，登录成功 / 失败的 302 一律拼到前端 origin，`sanitizeRedirect` 只接受路径。
@@ -49,7 +49,7 @@ flowchart LR
   - `deploy.yml` 的 `pages` job 在 `pages-release.sh paid` 之后跑 `pages-release.sh admin`（此时 `private/` 已就位，`PRIVATE_ADMIN_OVERLAY_ENTRY` 由 `pages-deploy.sh` 设置）。`web.yml` 与 `deploy-test.yml` 的 checks 加 `apps/admin build`。
   - 测试环境（`test` 分支）本轮不发后台。
 - **VPS 手工步骤**（一次性，按顺序）：`cloudflared tunnel route dns image-playground-paid admin-api.muvloom.online` → ingress 加行 → `docker restart image-playground-paid-cloudflared-1` → `app.env` 加 `ADMIN_FRONTEND_ORIGIN` / `ADMIN_CORS_ALLOWED_ORIGINS`，改 `ADMIN_PUBLIC_ORIGIN`，清空 `ADMIN_DIST_DIR` → `app-compose.sh compose image-playground-paid up --detach --no-deps admin` → 验证 `https://admin-api.muvloom.online/health` → Pages 项目建好并首发 → DNS 把 `admin.muvloom.online` 切到 Pages，删 ingress 旧行 → 浏览器验证登录、任务图片、私有计费面板。Cloudflare Access 两个域名都要覆盖。
-- **回滚**：DNS 切回 tunnel + 恢复 ingress 行即可（镜像里保留一版带 dist 的 admin 到切换验证完成再删 `admin-build`）。
+- **回滚**：DNS 切回 tunnel + 恢复 ingress 行，并删除 `app.env` 里的 `ADMIN_DIST_DIR`（不能留空，让镜像内 `/app/apps/admin/dist` 默认值生效）；镜像保留一版带 dist 的 admin 到切换验证完成。
 
 内部版（`image-playground-internal`）的后台域名不在仓库里，本轮只拆付费版；脚本按 edition 参数化，内部版随时可加。
 

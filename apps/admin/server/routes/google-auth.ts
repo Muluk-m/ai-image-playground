@@ -113,7 +113,7 @@ export const googleAuthRoutes = new Elysia()
       }
 
       loginLimiter.recordSuccess(key)
-      setSessionCookie(cookie)
+      setSessionCookie(cookie, identity.email.toLowerCase())
       logOutcome('ok')
       return redirectTo(frontendLocation(request, issued.redirect))
     },

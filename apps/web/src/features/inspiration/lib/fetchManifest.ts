@@ -56,6 +56,18 @@ export async function fetchRemoteManifest(
   return manifest
 }
 
+export async function fetchManifestWithFallback(
+  url: string,
+  signal?: AbortSignal,
+): Promise<InspirationManifest> {
+  try {
+    return await fetchRemoteManifest(url, signal)
+  } catch (error) {
+    if (url === DEFAULT_REMOTE_MANIFEST_URL || signal?.aborted) throw error
+    return fetchRemoteManifest(DEFAULT_REMOTE_MANIFEST_URL, signal)
+  }
+}
+
 function validateManifest(payload: unknown): InspirationManifest | null {
   if (!payload || typeof payload !== 'object') return null
   const record = payload as Record<string, unknown>
@@ -84,6 +96,7 @@ function validateManifest(payload: unknown): InspirationManifest | null {
       : 'showcase'
     return [{ ...(entry as InspirationManifest['items'][number]), kind }]
   })
+  if (items.length === 0) return null
 
   return {
     version: record.version,

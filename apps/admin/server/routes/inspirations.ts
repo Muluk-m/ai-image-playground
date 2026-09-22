@@ -30,71 +30,83 @@ export const inspirationsRoutes = new Elysia({ prefix: '/api' })
       forwardInternalBff({ path: `/internal/admin/inspirations/${encodeURIComponent(params.id)}` }),
     { params: idParams },
   )
-  .post('/inspirations', ({ body }) =>
-    forwardInternalBff({ method: 'POST', path: '/internal/admin/inspirations', body }),
+  .post('/inspirations', ({ admin, body }) =>
+    forwardInternalBff({
+      method: 'POST',
+      path: '/internal/admin/inspirations',
+      body,
+      operator: admin.operatorId,
+    }),
   )
   .put(
     '/inspirations/:id',
-    ({ body, params }) =>
+    ({ admin, body, params }) =>
       forwardInternalBff({
         method: 'PUT',
         path: `/internal/admin/inspirations/${encodeURIComponent(params.id)}`,
         body,
+        operator: admin.operatorId,
       }),
     { params: idParams },
   )
   .delete(
     '/inspirations/:id',
-    ({ params }) =>
+    ({ admin, params }) =>
       forwardInternalBff({
         method: 'DELETE',
         path: `/internal/admin/inspirations/${encodeURIComponent(params.id)}`,
+        operator: admin.operatorId,
       }),
     { params: idParams },
   )
   .post(
     '/inspirations/:id/status',
-    ({ body, params }) =>
+    ({ admin, body, params }) =>
       forwardInternalBff({
         method: 'POST',
         path: `/internal/admin/inspirations/${encodeURIComponent(params.id)}/status`,
         body,
+        operator: admin.operatorId,
       }),
     { params: idParams },
   )
-  .post('/inspirations/uploads', ({ body }) =>
+  .post('/inspirations/uploads', ({ admin, body }) =>
     forwardInternalBff({
       method: 'POST',
       path: '/internal/admin/inspirations/uploads',
       body,
+      operator: admin.operatorId,
     }),
   )
   .get('/inspiration-categories', () =>
     forwardInternalBff({ path: '/internal/admin/inspiration-categories' }),
   )
-  .post('/inspiration-categories', ({ body }) =>
+  .post('/inspiration-categories', ({ admin, body }) =>
     forwardInternalBff({
       method: 'POST',
       path: '/internal/admin/inspiration-categories',
       body,
+      operator: admin.operatorId,
     }),
   )
   .put(
     '/inspiration-categories/:id',
-    ({ body, params }) =>
+    ({ admin, body, params }) =>
       forwardInternalBff({
         method: 'PUT',
         path: `/internal/admin/inspiration-categories/${encodeURIComponent(params.id)}`,
         body,
+        operator: admin.operatorId,
       }),
     { params: idParams },
   )
   .delete(
     '/inspiration-categories/:id',
-    ({ params }) =>
+    ({ admin, params }) =>
       forwardInternalBff({
         method: 'DELETE',
         path: `/internal/admin/inspiration-categories/${encodeURIComponent(params.id)}`,
+        operator: admin.operatorId,
       }),
     { params: idParams },
   )

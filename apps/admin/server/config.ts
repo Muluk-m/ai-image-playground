@@ -57,7 +57,7 @@ export const config = {
   databasePool: databasePoolFromEnv('aip-admin'),
   corsOrigins: env(
     'ADMIN_CORS_ALLOWED_ORIGINS',
-    env('ADMIN_FRONTEND_ORIGIN', '').replace(/\/+$/, '') || '*',
+    env('ADMIN_FRONTEND_ORIGIN', '').replace(/\/+$/, ''),
   ),
   // admin 前端 dist 目录；为空时 server 不挂静态托管（dev 模式由 vite 跑前端）
   staticDir: env('ADMIN_DIST_DIR', ''),

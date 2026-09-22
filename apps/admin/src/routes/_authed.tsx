@@ -53,11 +53,11 @@ function AuthedLayout() {
 
 /**
  * 出事了就在内容区顶上挂一条窄横幅，点进运维看板看详情——不把运维数据混进当前这页。
- * 用的是运维看板那把 query（30 秒自己重拉一次），所以这里不额外发请求；
+ * 常驻壳五分钟取一次；进入运维看板后，同一把 query 会按看板自己的 30 秒间隔更新。
  * 还没取到或取失败时什么都不显示：横幅是「有事」的信号，不是「取数状态」的展示位。
  */
 function OpsAlertBanner() {
-  const { data } = useOps()
+  const { data } = useOps(5 * 60_000)
   const alerts = data ? opsAlerts(data) : []
   if (!alerts.length) return null
   return (

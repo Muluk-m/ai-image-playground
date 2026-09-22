@@ -87,10 +87,11 @@ cd /absolute/paid-checkout   # 必须带已验证的 private/
 1. `cloudflared tunnel route dns image-playground-paid admin-api.muvloom.online`，ingress 加 `admin-api.muvloom.online → http://admin:37378`，重启 cloudflared。
 2. `app.env` 加 `ADMIN_FRONTEND_ORIGIN=https://admin.muvloom.online`、`ADMIN_CORS_ALLOWED_ORIGINS=https://admin.muvloom.online`，把 `ADMIN_PUBLIC_ORIGIN` 改成 `https://admin-api.muvloom.online`（它是 API 自己的 origin，Google 控制台的回调地址跟着改成 `https://admin-api.muvloom.online/api/auth/google/callback`），删掉 `ADMIN_DIST_DIR` 那一行。
 3. `app-compose.sh compose image-playground-paid up --detach --no-deps admin`，验 `https://admin-api.muvloom.online/health` 的 `version`。
-4. 建 Pages 项目并首发，再把 `admin.muvloom.online` 的 DNS 从 tunnel 切到 Pages，删掉 ingress 里旧的 `admin.muvloom.online` 那行。Cloudflare Access 两个域名都要覆盖。
-5. 浏览器验收：登录、任务详情里的图片（跨域带 cookie）、私有计费面板、灵感库。
+4. 用付费账号凭证给公开素材桶应用浏览器直传 CORS：`npx wrangler r2 bucket cors set "$PUBLIC_ASSET_BUCKET" --file deploy/r2-public-assets-cors.json`，再用 `npx wrangler r2 bucket cors list "$PUBLIC_ASSET_BUCKET"` 确认只放行 `https://admin.muvloom.online` 的 `GET` / `HEAD` / `PUT`。
+5. 建 Pages 项目并首发，再把 `admin.muvloom.online` 的 DNS 从 tunnel 切到 Pages，删掉 ingress 里旧的 `admin.muvloom.online` 那行。Cloudflare Access 两个域名都要覆盖。
+6. 浏览器验收：登录、任务详情里的图片（跨域带 cookie）、私有计费面板、灵感库封面上传。
 
-回滚：DNS 切回 tunnel、恢复 ingress 那一行即可；镜像里保留了带 dist 的一版 admin，`ADMIN_DIST_DIR` 留空时用镜像内默认值仍能自托管前端。
+回滚：DNS 切回 tunnel、恢复 ingress 那一行，并从 `app.env` **删除** `ADMIN_DIST_DIR`（不能留空）；镜像内默认值 `/app/apps/admin/dist` 才会恢复自托管前端。
 
 灵感库首次上线还要跑一次导入（幂等，重跑只补新条目）：
 
@@ -99,7 +100,7 @@ DATABASE_URL=<迁移账号> bun run apps/bff/scripts/import-inspirations.ts
 ```
 
 它把 `apps/web/public/inspiration-manifest.json` 的 563 条导成已发布条目（22 个分类），封面先沿用原外链。
-后台上传封面要 `PUBLIC_ASSET_BUCKET` / `PUBLIC_ASSET_BASE_URL`（见 `deploy/app.*.env.example`）；两个都空时后台只能引用外链，已发布内容不受影响。
+后台上传封面要 `PUBLIC_ASSET_BUCKET` / `PUBLIC_ASSET_BASE_URL`（见 `deploy/app.*.env.example`），并先应用 `deploy/r2-public-assets-cors.json`；两个变量都空时后台只能引用外链，已发布内容不受影响。
 
 ## 测试环境（test 分支预览）
 

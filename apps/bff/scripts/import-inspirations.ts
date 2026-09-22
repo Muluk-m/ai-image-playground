@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { createDb, runMigrations, schema } from '@image-playground/db'
-import { max } from 'drizzle-orm'
+import { runMigrations, schema } from '@image-playground/db'
+import { close, db } from '../src/db/client'
+import { refreshPublication } from '../src/lib/inspirations'
 
 interface LegacyItem {
   id: string
@@ -93,9 +94,8 @@ const publishedAt = new Date(manifest.updatedAt).getTime()
 if (!Number.isFinite(publishedAt)) throw new Error('manifest.updatedAt must be an ISO timestamp')
 
 await runMigrations(databaseUrl)
-const connection = createDb(databaseUrl, { max: 1, applicationName: 'aip-inspiration-import' })
 try {
-  const inserted = await connection.db.transaction(async (tx) => {
+  const inserted = await db.transaction(async (tx) => {
     await tx
       .insert(schema.inspiration_categories)
       .values(
@@ -142,15 +142,7 @@ try {
       .returning({ id: schema.inspiration_items.id })
 
     if (created.length) {
-      const [latest] = await tx
-        .select({ version: max(schema.inspiration_publications.version) })
-        .from(schema.inspiration_publications)
-      await tx.insert(schema.inspiration_publications).values({
-        version: (latest?.version ?? 0) + 1,
-        published_at: Date.now(),
-        item_count: manifest.items.length,
-        manifest_hash: createHash('sha256').update(raw).digest('hex'),
-      })
+      await refreshPublication(tx)
       await tx.insert(schema.operator_audits).values({
         id: crypto.randomUUID(),
         operator_id: 'manifest-import',
@@ -165,5 +157,5 @@ try {
   })
   console.log(`Inspiration import complete: inserted ${inserted}, source ${manifest.items.length}`)
 } finally {
-  await connection.close()
+  await close()
 }

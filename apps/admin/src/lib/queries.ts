@@ -87,12 +87,12 @@ export function useOverview(range: Range) {
   })
 }
 
-/** 看板是开在一边盯着看的，所以自己定时重拉；切到后台标签页时停，回来立刻补一次。 */
-export function useOps() {
+/** 看板默认 30 秒重拉；常驻壳可传更慢的间隔，避免闲置页面持续打满只读池。 */
+export function useOps(refetchInterval = 30_000) {
   return useQuery({
     queryKey: ['ops'],
     queryFn: () => apiClient.get<OpsSnapshot>('/api/ops'),
-    refetchInterval: 30_000,
+    refetchInterval,
   })
 }
 

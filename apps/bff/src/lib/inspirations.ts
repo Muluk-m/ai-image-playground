@@ -121,7 +121,12 @@ async function publishedContent(executor: Pick<typeof db, 'select'>): Promise<{
   categories: string[]
 }> {
   const rows = await executor
-    .select({ item: schema.inspiration_items, category: schema.inspiration_categories.name })
+    .select({
+      item: schema.inspiration_items,
+      category: schema.inspiration_categories.name,
+      categoryId: schema.inspiration_categories.id,
+      categorySort: schema.inspiration_categories.sort,
+    })
     .from(schema.inspiration_items)
     .innerJoin(
       schema.inspiration_categories,
@@ -133,17 +138,23 @@ async function publishedContent(executor: Pick<typeof db, 'select'>): Promise<{
       asc(schema.inspiration_items.published_at),
       asc(schema.inspiration_items.id),
     )
-  const categories = await executor
-    .select({ name: schema.inspiration_categories.name })
-    .from(schema.inspiration_categories)
-    .orderBy(asc(schema.inspiration_categories.sort), asc(schema.inspiration_categories.name))
+  const categories = [
+    ...new Map(
+      rows.map(({ category, categoryId, categorySort }) => [
+        categoryId,
+        { name: category, sort: categorySort },
+      ]),
+    ).values(),
+  ]
+    .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
+    .map(({ name }) => name)
   return {
     items: rows.map(({ item, category }) => rowToManifest(item, category)),
-    categories: categories.map(({ name }) => name),
+    categories,
   }
 }
 
-async function refreshPublication(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
+export async function refreshPublication(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('inspiration-publication'))`)
   const content = await publishedContent(tx)
   const manifestHash = createHash('sha256').update(JSON.stringify(content)).digest('hex')
@@ -478,15 +489,18 @@ export async function setInspirationStatus(
 }
 
 export async function publicInspirationManifest(): Promise<InspirationManifest> {
-  const [publication] = await db
-    .select()
-    .from(schema.inspiration_publications)
-    .orderBy(desc(schema.inspiration_publications.version))
-    .limit(1)
-  const content = await publishedContent(db)
-  return {
-    version: publication?.version ?? 0,
-    updatedAt: new Date(publication?.published_at ?? 0).toISOString(),
-    ...content,
-  }
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('inspiration-publication'))`)
+    const [publication] = await tx
+      .select()
+      .from(schema.inspiration_publications)
+      .orderBy(desc(schema.inspiration_publications.version))
+      .limit(1)
+    const content = await publishedContent(tx)
+    return {
+      version: publication?.version ?? 0,
+      updatedAt: new Date(publication?.published_at ?? 0).toISOString(),
+      ...content,
+    }
+  })
 }

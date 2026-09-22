@@ -37,12 +37,19 @@ const ITEM = {
 }
 
 const service = { authorization: 'Bearer inspiration-test-service-token' }
-function request(path: string, method = 'GET', body?: unknown, authenticated = true) {
+function request(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  authenticated = true,
+  operator?: string,
+) {
   return app.handle(
     new Request(`http://localhost${path}`, {
       method,
       headers: {
         ...(authenticated ? service : {}),
+        ...(operator ? { 'x-admin-operator': operator } : {}),
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -78,15 +85,30 @@ describe('inspiration publication', () => {
     const before = await request('/api/inspirations/manifest', 'GET', undefined, false)
     const draftManifest = await before.json()
     expect(draftManifest.items).toEqual([])
+    expect(draftManifest.categories).toEqual([])
     expect(before.headers.get('cache-control')).toBe(
       'public, max-age=300, stale-while-revalidate=86400',
     )
 
     expect(
       (
-        await request(`/internal/admin/inspirations/${ITEM.id}/status`, 'POST', {
-          status: 'published',
+        await request('/internal/admin/inspiration-categories', 'POST', {
+          id: 'unused-category',
+          name: 'Unused',
+          sort: 2,
         })
+      ).status,
+    ).toBe(201)
+
+    expect(
+      (
+        await request(
+          `/internal/admin/inspirations/${ITEM.id}/status`,
+          'POST',
+          { status: 'published' },
+          true,
+          'operator@example.com',
+        )
       ).status,
     ).toBe(200)
     const published = await request('/api/inspirations/manifest', 'GET', undefined, false)
@@ -101,6 +123,7 @@ describe('inspiration publication', () => {
         thumbnailUrl: ITEM.coverKey,
       }),
     ])
+    expect(publishedManifest.categories).toEqual(['Products'])
     expect(publishedManifest.version).toBeGreaterThan(draftManifest.version)
 
     expect((await request(`/internal/admin/inspirations/${ITEM.id}`, 'DELETE')).status).toBe(409)
@@ -118,6 +141,12 @@ describe('inspiration publication', () => {
     expect(archivedManifest.version).toBeGreaterThan(publishedManifest.version)
     const audits = await db.select().from(schema.operator_audits)
     expect(audits.map(({ action }) => action)).toContain('inspiration.archived')
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: 'inspiration.published',
+        operator_id: 'operator@example.com',
+      }),
+    )
   })
 
   it('rejects model/provider mismatch and templates without fillable slots before publication', async () => {

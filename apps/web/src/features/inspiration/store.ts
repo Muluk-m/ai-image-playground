@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { readCache, writeCache } from './lib/cache'
-import { fetchRemoteManifest, resolveRemoteManifestUrl } from './lib/fetchManifest'
+import { fetchManifestWithFallback, resolveRemoteManifestUrl } from './lib/fetchManifest'
 import type { InspirationItem } from './types'
 
 const REMOTE_TTL_MS = 5 * 60 * 1000
@@ -73,7 +73,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
 
     set({ status: 'loading-remote' })
     try {
-      const manifest = await fetchRemoteManifest(url, signal)
+      const manifest = await fetchManifestWithFallback(url, signal)
       writeCache(manifest)
       get().setRemoteItems(manifest.items, manifest.categories)
       set({ status: 'ready', remoteError: null })
