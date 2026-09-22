@@ -151,6 +151,7 @@
 - **0.1 计费单元泛化**（原 Phase 0）：模型单价带 `unit`，预扣接缝收 `quantity × unitMultiplier`。图片 `image`、视频 `second`（公开树 c2de35d，私有树迁移 0006）、对话 `kilo_token`（私有迁移 `0008_chat_token_pricing`）三种单元全部落地。`PrivateTaskHooks.reserveTask` 签名里没有 unit 字段，单价由服务端按 model 查表，新增单元不改公开树。
 - **1.2 邀请注册奖励**（#414 / #418 / #419）：固定邀请码与邀请链接，双方默认各 200 分进可消费余额。
 - **1.3 付费返利与积分提现**（#414 / #417 / #420 / #421）：默认 5%、100 积分/元折算，返利进奖励余额，手动全额提现为消费积分。
+- **0.2 邮件基础设施 + 1.1 邮箱验证码注册**（#414，2026-09-22）：Resend 免费档发送，`auth.muvloom.online` 已验证；注册前先发 6 位验证码，服务端只存 HMAC、限制重发与尝试次数并原子消费，`users.email_verified_at` 记录验证状态。能力位 `accounts:email-verification` 可独立关闭。
 - **2.1 视频生成（部分）**：视频模式 composer、feed 与播放器（#189 / #190 / #191）；上游 Grok Imagine（含 `/videos/extensions` 续写与 `/videos/edits` 改视频）、Agnes `agnes-video`、火山方舟 Seedance 2.0（`doubao-seedance-2-0-mini-260615`，最长 15 秒、支持首尾帧，靠 `ARK_BASE_URL` / `ARK_API_KEY` 开关）。按秒计费已落地。
 - **2.2 智能体模式**：对话式工作台 + 工具注册表（`generateImage` / `editImage` / `readLibrary` / `generateVideo` / `arrangeTimeline` / `loadSkill`）+ 服务端会话（裁决 F1）+ token 折算积分（裁决 E2）。**收口项见 Lane A。**
 - **A1 智能体对话不被生成阻塞**（#600，2026-09-20）：会话收件箱、后台任务、唤醒、失败重试与面板交互全部落地，取舍见 [ADR 0012](adr/0012-agent-background-jobs-and-postgres-inbox.md)。
@@ -171,8 +172,6 @@
 
 ## 已搁置
 
-- **0.2 邮件基础设施**（2026-09-08 搁置）：Cloudflare Email Sending 免费计划只能发给已验证地址，发任意收件人要 Workers Paid，且对大陆邮箱送达无数据。调研见 [cloudflare-email-sending.md](research/cloudflare-email-sending.md)。解封时按 Resend 免费档起步。`users` 表目前只有 `username`，没有 `email` / `email_verified_at`。
-- **1.1 邮箱验证码注册**：依赖 0.2，随之顺延。1.2 / 1.3 已解除该前置依赖（#414）。
 - **1.4 拉新风控**：#414 已确认沿用现有注册资格并接受刷号风险，**不设排期**。规则起步（同设备 / 同 IP 段注册上限、一次性邮箱黑名单、奖励延迟 24h 可撤销、单邀请人日奖励封顶、异常账号冻结回收）留作日后独立规划。
 
 ## 候选方向（未排期）

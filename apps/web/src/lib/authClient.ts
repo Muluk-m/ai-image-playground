@@ -55,16 +55,46 @@ export async function loginUser(username: string, password: string): Promise<Aut
   })
   return result.user
 }
+export interface RegistrationVerificationChallenge {
+  challengeId: string
+  expiresInSeconds: number
+}
+
+export async function requestRegistrationVerification(
+  email: string,
+): Promise<RegistrationVerificationChallenge> {
+  const result = await authJson<{ challenge_id: string; expires_in_seconds: number }>(
+    '/api/auth/register/verification',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    },
+  )
+  return {
+    challengeId: result.challenge_id,
+    expiresInSeconds: result.expires_in_seconds,
+  }
+}
 
 export async function registerUser(
   username: string,
   password: string,
-  referralCode?: string,
+  options: {
+    referralCode?: string
+    verification?: { challengeId: string; code: string }
+  } = {},
 ): Promise<AuthUserView> {
   const result = await authJson<{ user: AuthUserView }>('/api/auth/register', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password, referral_code: referralCode?.trim() || undefined }),
+    body: JSON.stringify({
+      username,
+      password,
+      referral_code: options.referralCode?.trim() || undefined,
+      verification_id: options.verification?.challengeId,
+      verification_code: options.verification?.code,
+    }),
   })
   return result.user
 }

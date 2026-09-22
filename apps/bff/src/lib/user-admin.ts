@@ -7,8 +7,10 @@ import {
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { isCapabilityEnabled } from './capabilities'
 import { oauthUsernameCandidates } from './oauth/username'
 import { loadPrivateBffOverlay } from './private-overlay'
+import { consumeRegistrationVerification } from './registration-verification'
 import { createUserSession, hashSessionToken } from './user-session'
 
 export type UserOperationErrorCode =
@@ -22,6 +24,9 @@ export type UserOperationErrorCode =
   | 'invalid_credentials'
   | 'invalid_referral_code'
   | 'registration_reward_unavailable'
+  | 'email_verification_required'
+  | 'invalid_email_verification'
+  | 'email_verification_expired'
 
 export class UserOperationError extends Error {
   constructor(readonly code: UserOperationErrorCode) {
@@ -69,11 +74,16 @@ const operationalUserColumns = {
   last_login_at: schema.users.last_login_at,
 }
 
+interface ProvisionUserOptions {
+  source: 'operator' | 'self-registration'
+  referralCode?: string
+  verification?: { challengeId: string; code: string }
+}
+
 async function provisionUser(
   usernameInput: string,
   password: string,
-  source: 'operator' | 'self-registration',
-  referralCode?: string,
+  options: ProvisionUserOptions,
 ): Promise<{ user: OperationalUser; sessionToken: string | null }> {
   const username = normalizeUsername(usernameInput)
   if (!isValidUsername(username)) throw new UserOperationError('invalid_username')
@@ -85,12 +95,30 @@ async function provisionUser(
     .limit(1)
   if (existing) throw new UserOperationError('username_taken')
 
-  const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id' })
   const now = Date.now()
   const id = randomUUID()
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   try {
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
+      let emailVerifiedAt: number | null = null
+      if (
+        options.source === 'self-registration' &&
+        isCapabilityEnabled('accounts:email-verification')
+      ) {
+        if (!options.verification) {
+          return { ok: false as const, verificationError: 'email_verification_required' as const }
+        }
+        const verificationError = await consumeRegistrationVerification(tx, {
+          challengeId: options.verification.challengeId,
+          email: username,
+          code: options.verification.code,
+          now,
+        })
+        if (verificationError) return { ok: false as const, verificationError }
+        emailVerifiedAt = now
+      }
+      const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id' })
+
       const [created] = await tx
         .insert(schema.users)
         .values({
@@ -98,23 +126,32 @@ async function provisionUser(
           username,
           password_hash: passwordHash,
           status: 'active',
+          email_verified_at: emailVerifiedAt,
           created_at: now,
           updated_at: now,
         })
         .returning(operationalUserColumns)
       if (!created) throw new Error('created user missing')
       await tx.insert(schema.operator_audits).values(
-        source === 'operator'
+        options.source === 'operator'
           ? operatorAudit('user.create', id, { username })
           : {
               ...operatorAudit('user.register', id, { username }),
               operator_id: id,
             },
       )
-      await taskHooks.onUserCreated({ tx, userId: id, source, referralCode })
-      const sessionToken = source === 'self-registration' ? await createUserSession(id, tx) : null
-      return { user: created, sessionToken }
+      await taskHooks.onUserCreated({
+        tx,
+        userId: id,
+        source: options.source,
+        referralCode: options.referralCode,
+      })
+      const sessionToken =
+        options.source === 'self-registration' ? await createUserSession(id, tx) : null
+      return { ok: true as const, user: created, sessionToken }
     })
+    if (!result.ok) throw new UserOperationError(result.verificationError)
+    return { user: result.user, sessionToken: result.sessionToken }
   } catch (error) {
     if (isUniqueViolation(error)) throw new UserOperationError('username_taken')
     throw error
@@ -125,15 +162,21 @@ export async function createUser(
   usernameInput: string,
   password: string,
 ): Promise<OperationalUser> {
-  return (await provisionUser(usernameInput, password, 'operator')).user
+  return (await provisionUser(usernameInput, password, { source: 'operator' })).user
 }
 
 export async function registerUser(
   usernameInput: string,
   password: string,
-  referralCode?: string,
+  options: {
+    referralCode?: string
+    verification?: { challengeId: string; code: string }
+  } = {},
 ): Promise<{ user: OperationalUser; sessionToken: string }> {
-  const result = await provisionUser(usernameInput, password, 'self-registration', referralCode)
+  const result = await provisionUser(usernameInput, password, {
+    source: 'self-registration',
+    ...options,
+  })
   if (!result.sessionToken) throw new Error('registered user session missing')
   return { user: result.user, sessionToken: result.sessionToken }
 }
@@ -233,6 +276,7 @@ export async function loginWithOAuthIdentity(
             username,
             password_hash: OAUTH_PASSWORD_SENTINEL,
             status: 'active',
+            email_verified_at: email ? now : null,
             created_at: now,
             updated_at: now,
             last_login_at: now,

@@ -432,6 +432,13 @@
     background 160ms ease;
 }
 
+
+.auth-registration input[name='verificationCode'] {
+  text-align: center;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.28em;
+}
 .auth-field input::placeholder {
   color: hsl(var(--muted-foreground));
 }
