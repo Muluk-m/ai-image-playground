@@ -175,6 +175,16 @@ export default function Header() {
               ) : null}
             </div>
           ) : null}
+          {/* 未登录访客的入口。放在最右：它是这一簇里唯一一个「现在该点」的按钮。 */}
+          {auth.enabled && !auth.user ? (
+            <button
+              type="button"
+              onClick={auth.login}
+              className="h-8 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {t('header.login')}
+            </button>
+          ) : null}
         </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}

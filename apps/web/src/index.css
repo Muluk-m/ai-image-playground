@@ -7,36 +7,66 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== 经营部署登录页 ===== */
+/* ===== 经营部署登录框 ===== */
 
-.auth-shell {
+.auth-dialog {
   --auth-accent-blue: hsl(var(--primary));
   --auth-accent-purple: hsl(var(--primary));
-  min-height: 100svh;
-  overflow: auto;
-  padding: clamp(18px, 1.8vw, 30px);
-  color: hsl(var(--foreground));
-  background:
-    radial-gradient(circle at 82% 8%, hsl(var(--primary) / 0.08), transparent 26%),
-    hsl(var(--background));
-  font-family: var(--font-ui-sans);
-}
-
-.auth-frame {
-  min-height: calc(100svh - clamp(36px, 3.6vw, 60px));
+  position: relative;
+  z-index: 10;
+  width: min(100%, 980px);
+  height: min(620px, calc(100svh - 2rem));
   overflow: hidden;
   border: 1px solid hsl(var(--border));
   border-radius: 24px;
   display: grid;
-  grid-template-columns: minmax(0, 53.5fr) minmax(510px, 46.5fr);
+  grid-template-columns: minmax(0, 47fr) minmax(400px, 53fr);
+  color: hsl(var(--foreground));
   background: hsl(var(--background));
-  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+  font-family: var(--font-ui-sans);
+  animation: modal-in 0.18s ease-out;
 }
 
+.auth-dialog-close {
+  position: absolute;
+  z-index: 6;
+  top: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.6);
+  cursor: pointer;
+}
+
+.auth-dialog-close:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
+}
+
+.auth-dialog-close:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.auth-dialog-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 弹框里的高度是有限的：展示位按行排（品牌 / 拼图 / 文案 / 卖点），
+   拼图那一行吃掉剩余空间，文案与卖点永远压在它下面而不是叠上去。 */
 .auth-showcase {
   position: relative;
-  min-height: 760px;
+  min-height: 0;
   overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  padding: 26px 28px 22px;
   background:
     radial-gradient(circle at 54% 30%, hsl(var(--primary) / 0.12), transparent 38%),
     linear-gradient(145deg, hsl(var(--background)), hsl(var(--background)) 76%);
@@ -49,20 +79,18 @@
   content: '';
   pointer-events: none;
   background:
-    linear-gradient(180deg, transparent 52%, rgba(7, 8, 10, 0.18) 70%, hsl(var(--background)) 93%),
+    linear-gradient(180deg, transparent 42%, rgba(7, 8, 10, 0.22) 64%, hsl(var(--background)) 92%),
     linear-gradient(90deg, rgba(5, 6, 8, 0.12), transparent 32%, rgba(5, 6, 8, 0.08));
 }
 
 .auth-brand {
-  position: absolute;
+  position: relative;
   z-index: 5;
-  top: 27px;
-  left: 31px;
   display: flex;
   align-items: center;
   gap: 10px;
   color: hsl(var(--foreground));
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 720;
   letter-spacing: -0.02em;
 }
@@ -72,12 +100,10 @@
 }
 
 .auth-art-wall {
-  position: absolute;
+  position: relative;
   z-index: 1;
-  top: 72px;
-  right: 2%;
-  left: -2%;
-  height: 64%;
+  min-height: 0;
+  margin: 10px -30px 0 -32px;
   filter: saturate(1.08) brightness(1.18);
 }
 
@@ -131,38 +157,35 @@
 }
 
 .auth-showcase-copy {
-  position: absolute;
+  position: relative;
   z-index: 4;
-  bottom: 25%;
-  left: 5%;
-  width: min(420px, 60%);
+  margin-top: 14px;
 }
 
 .auth-showcase-copy h2 {
-  max-width: 400px;
+  max-width: 340px;
   margin: 0;
   color: transparent;
   background: linear-gradient(100deg, hsl(var(--primary)) 5%, hsl(var(--primary)) 48%, hsl(var(--primary)) 92%);
   background-clip: text;
-  font-size: clamp(34px, 2.85vw, 44px);
+  font-size: clamp(26px, 2.2vw, 32px);
   font-weight: 790;
-  line-height: 1.22;
+  line-height: 1.24;
   letter-spacing: -0.05em;
 }
 
 .auth-showcase-copy p {
-  margin: 14px 0 0;
+  max-width: 340px;
+  margin: 10px 0 0;
   color: hsl(var(--muted-foreground));
-  font-size: 14px;
-  line-height: 1.72;
+  font-size: 13px;
+  line-height: 1.66;
 }
 
 .auth-benefits {
-  position: absolute;
+  position: relative;
   z-index: 4;
-  right: 6%;
-  bottom: 5.5%;
-  left: 5%;
+  margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
 }
@@ -170,7 +193,7 @@
 .auth-benefits > div {
   position: relative;
   min-width: 0;
-  padding: 0 22px;
+  padding: 0 16px;
 }
 
 .auth-benefits > div:first-child {
@@ -188,8 +211,8 @@
 }
 
 .auth-benefit-icon {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   border: 1px solid hsl(var(--primary) / 0.18);
   border-radius: 50%;
   display: grid;
@@ -200,8 +223,8 @@
 }
 
 .auth-benefit-icon svg {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
 }
 
 .auth-benefits strong {
@@ -219,10 +242,12 @@
   line-height: 1.55;
 }
 
+/* 注册视图比登录高：让右栏自己滚，弹框高度不跟着内容变。 */
 .auth-panel {
   position: relative;
   min-width: 0;
-  min-height: 760px;
+  min-height: 0;
+  overflow-y: auto;
   border-left: 1px solid hsl(var(--border));
   display: grid;
   background:
@@ -230,75 +255,11 @@
     hsl(var(--card));
 }
 
-.auth-display {
-  position: absolute;
-  z-index: 2;
-  top: 22px;
-  right: 25px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.auth-theme {
-  width: 40px;
-  height: 40px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--card) / 0.9);
-  cursor: pointer;
-}
-
-.auth-theme:hover {
-  color: hsl(var(--foreground));
-}
-
-.auth-theme:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
-}
-
-.auth-theme svg {
-  width: 17px;
-  height: 17px;
-}
-
-.auth-language {
-  height: 40px;
-  padding: 0 13px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--card) / 0.9);
-}
-
-.auth-language svg {
-  width: 17px;
-  height: 17px;
-}
-
-.auth-language select {
-  border: 0;
-  outline: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  opacity: 1;
-  -webkit-text-fill-color: currentColor;
-}
-
 .auth-panel-content {
   min-width: 0;
   display: grid;
   place-items: center;
-  padding: 84px 50px 38px;
+  padding: 48px 46px 34px;
 }
 
 .auth-form-view {
@@ -761,35 +722,13 @@
   }
 }
 
-@media (max-width: 1100px) {
-  .auth-frame {
-    grid-template-columns: minmax(0, 47fr) minmax(500px, 53fr);
-  }
-
-  .auth-showcase-copy {
-    width: 60%;
-  }
-
-  .auth-benefits > div {
-    padding: 0 14px;
-  }
-}
-
-@media (max-width: 860px) {
-  .auth-shell {
-    padding: 0;
-  }
-
-  .auth-frame {
-    min-height: 100svh;
-    border: 0;
-    border-radius: 0;
+/* 窄屏放不下两栏：左侧展示位压成一条头图，表单占满弹框。 */
+@media (max-width: 900px) {
+  .auth-dialog {
+    width: 100%;
+    height: min(640px, calc(100svh - 2rem));
     grid-template-columns: 1fr;
-    grid-template-rows: 166px auto;
-  }
-
-  .auth-showcase {
-    min-height: 166px;
+    grid-template-rows: 150px auto;
   }
 
   .auth-showcase::after {
@@ -797,8 +736,8 @@
   }
 
   .auth-brand {
-    top: 22px;
-    left: 22px;
+    top: 20px;
+    left: 20px;
     font-size: 16px;
   }
 
@@ -806,7 +745,7 @@
     top: -70px;
     right: 0;
     left: 35%;
-    height: 260px;
+    height: 250px;
     opacity: 0.48;
   }
 
@@ -829,14 +768,14 @@
   }
 
   .auth-showcase-copy {
-    bottom: 20px;
-    left: 22px;
+    bottom: 18px;
+    left: 20px;
     width: 75%;
   }
 
   .auth-showcase-copy h2 {
     max-width: none;
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .auth-showcase-copy p,
@@ -845,73 +784,31 @@
   }
 
   .auth-panel {
-    min-height: calc(100svh - 166px);
     border-top: 1px solid hsl(var(--border));
     border-left: 0;
   }
 
-  .auth-display {
-    top: 18px;
-    right: 20px;
-  }
-
   .auth-panel-content {
-    padding: 76px 24px 38px;
+    padding: 32px 22px 28px;
   }
 }
 
 @media (max-width: 480px) {
-  .auth-frame {
-    grid-template-rows: 148px auto;
-  }
-
-  .auth-showcase {
-    min-height: 148px;
-  }
-
-  .auth-brand {
-    top: 18px;
-    left: 18px;
-  }
-
-  .auth-showcase-copy {
-    bottom: 16px;
-    left: 18px;
-  }
-
-  .auth-showcase-copy h2 {
-    font-size: 21px;
-  }
-
-  .auth-panel {
-    min-height: calc(100svh - 148px);
+  .auth-dialog {
+    border-radius: 18px;
+    grid-template-rows: 128px auto;
   }
 
   .auth-panel-content {
-    padding: 70px 20px 32px;
-  }
-
-  .auth-display {
-    top: 16px;
-    right: 17px;
-  }
-
-  .auth-language {
-    height: 36px;
-    padding: 0 10px;
-  }
-
-  .auth-theme {
-    width: 36px;
-    height: 36px;
+    padding: 28px 18px 24px;
   }
 
   .auth-form-heading {
-    margin-bottom: 24px;
+    margin-bottom: 22px;
   }
 
   .auth-form-heading h1 {
-    font-size: 25px;
+    font-size: 24px;
   }
 
   .auth-providers {
@@ -926,7 +823,7 @@
   }
 
   .auth-divider {
-    margin: 27px 0 24px;
+    margin: 22px 0 20px;
   }
 
   .auth-field {
@@ -934,38 +831,39 @@
   }
 
   .auth-field input {
-    height: 48px;
+    height: 46px;
   }
 
   .auth-submit {
-    height: 48px;
+    height: 46px;
   }
 
   .auth-switch {
-    margin-top: 25px;
+    margin-top: 22px;
   }
 
   .auth-terms {
-    margin-top: 27px;
+    margin-top: 20px;
   }
 
   .auth-registration .auth-terms {
-    margin-top: 18px;
+    margin-top: 16px;
   }
 }
 
-@media (max-height: 760px) and (min-width: 861px) {
+/* 矮屏：表单自己压行距，别把提交按钮顶出弹框。 */
+@media (max-height: 720px) {
   .auth-panel-content {
-    padding-top: 68px;
+    padding-top: 34px;
     padding-bottom: 24px;
   }
 
   .auth-form-heading {
-    margin-bottom: 21px;
+    margin-bottom: 20px;
   }
 
   .auth-divider {
-    margin: 23px 0 20px;
+    margin: 20px 0 18px;
   }
 
   .auth-field {
@@ -977,15 +875,15 @@
   }
 
   .auth-submit {
-    height: 47px;
+    height: 46px;
   }
 
   .auth-switch {
-    margin-top: 20px;
+    margin-top: 18px;
   }
 
   .auth-terms {
-    margin-top: 18px;
+    margin-top: 16px;
   }
 }
 

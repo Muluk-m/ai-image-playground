@@ -9,6 +9,7 @@
     "unsynced": "有待保存的改动",
     "settings": "设置",
     "loginMethods": "账户设置",
+    "login": "登录",
     "loggingOut": "退出中",
     "membership": {
       "subscribe": "开通会员"

@@ -4,6 +4,7 @@ import {
   videoPromptRejection,
   videoRateMultiplier,
 } from '@image-playground/shared'
+import { requireAccount } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../../lib/channels/queueClient'
@@ -292,7 +293,13 @@ export async function submitReferenceVideo(
   return true
 }
 
+/**
+ * 每条视频都要经 BFF 的队列（没有 BYOK 出视频这条路），所以视频侧的「能不能发」收在这里：
+ * 先看有没有账号，再看计费门禁。生成栏、参考图面板、重试、续写 / 改视频、重新生成都从这过。
+ */
 export function guardAllows(generation: VideoGenerationRecord): boolean {
+  // 弹出来的登录框本身就是反馈，不再叠一条 toast。
+  if (!requireAccount()) return false
   const guard = getPrivateSubmissionGuard({
     model: generation.model,
     quantity: generation.duration,

@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { accountRequired } from '../auth/loginPrompt'
 
 export interface PrivateSubmissionInput {
   model: string
@@ -129,12 +130,21 @@ export const PrivateWebMembership = overlay.membership ?? null
 /** 构建时带了收费 overlay；没有它，充值之类的信号没有人接。 */
 export const PrivateWebOverlayPresent = overlay !== EMPTY_OVERLAY
 
+/**
+ * 未登录访客没有积分账户可读，overlay 只会报「读不到积分」并把生成按钮禁掉——那不是
+ * 他该看到的答案，也挡住了本来要把他引去登录的那一次点击。所以这里先当成无门禁放行，
+ * 提交路径上的 requireAccount() 会把登录框叫起来；登录后 reload，再按真实余额判断。
+ */
+const ANONYMOUS_GUARD: PrivateSubmissionGuard = Object.freeze({ blocked: false })
+
 export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
-  return overlay.useSubmissionGuard(input)
+  // hook 不能有条件地调用：先照常问 overlay，再决定用不用它的答案。
+  const guard = overlay.useSubmissionGuard(input)
+  return accountRequired() ? ANONYMOUS_GUARD : guard
 }
 
 export function getPrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
-  return overlay.getSubmissionGuard(input)
+  return accountRequired() ? ANONYMOUS_GUARD : overlay.getSubmissionGuard(input)
 }
 
 export function notifyPrivateSubmissionAccepted(): void {
