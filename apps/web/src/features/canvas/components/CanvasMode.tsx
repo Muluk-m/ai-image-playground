@@ -27,14 +27,15 @@ import { useCanvasProjectStore } from '../projectStore'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasImageToolbar from './CanvasImageToolbar'
 import CanvasMinimap from './CanvasMinimap'
+import CanvasRectEditLayer from './CanvasRectEditLayer'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
 import CanvasVideoToolbar from './CanvasVideoToolbar'
+import EditProgressOverlay from './EditProgressOverlay'
 import FilmExportStatus from './FilmExportStatus'
 import InpaintMaskLayer from './InpaintMaskLayer'
 import InpaintPanel from './InpaintPanel'
-import InpaintProgressOverlay from './InpaintProgressOverlay'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectWelcome from './ProjectWelcome'
@@ -301,8 +302,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <CanvasVideoOverlay editor={editor} />
             <CanvasVideoToolbar editor={editor} />
             <CanvasImageToolbar editor={editor} />
-            <InpaintProgressOverlay editor={editor} />
+            <EditProgressOverlay editor={editor} />
             <InpaintMaskLayer editor={editor} />
+            <CanvasRectEditLayer editor={editor} />
             <InpaintPanel editor={editor} />
             <TimelineEditorHost editor={editor} />
             <FilmExportStatus />

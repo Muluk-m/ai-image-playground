@@ -12,19 +12,25 @@ const DEFAULT_BRUSH_PX = 48
 export const MIN_BRUSH_PX = 8
 export const MAX_BRUSH_PX = 160
 
+/** 涂抹会话干的是哪件事：按描述重画，还是把涂掉的东西抹干净。 */
+export type PaintEditKind = 'inpaint' | 'erase'
+
 /**
- * 一次局部重绘的涂抹会话。**不进 CanvasDoc**：doc 的快照就是 undo 栈，
+ * 一次涂抹会话。**不进 CanvasDoc**：doc 的快照就是 undo 栈，
  * 把涂抹中间态塞进去会让一次 ⌘Z 把用户正在画的东西撤回来，而且它也不该被持久化。
+ *
+ * 局部重绘与擦除共用它：两者都是「涂一块 + 送遮罩」，只差有没有描述与参考图。
  */
 export const useInpaintSession = create<{
   imageId: string | null
+  kind: PaintEditKind
   strokes: MaskStroke[]
   tool: 'brush' | 'eraser'
   brushPx: number
   prompt: string
   reference: InpaintReference | null
   submitting: boolean
-  open(imageId: string): void
+  open(imageId: string, kind: PaintEditKind): void
   close(): void
   setTool(tool: 'brush' | 'eraser'): void
   setBrushPx(px: number): void
@@ -36,6 +42,7 @@ export const useInpaintSession = create<{
   setSubmitting(submitting: boolean): void
 }>((set) => ({
   imageId: null,
+  kind: 'inpaint',
   strokes: [],
   tool: 'brush',
   brushPx: DEFAULT_BRUSH_PX,
@@ -43,8 +50,16 @@ export const useInpaintSession = create<{
   reference: null,
   submitting: false,
   // 每次打开都从零起：上一张图的笔画按上一张图的页面坐标算，套到新图上是乱的。
-  open: (imageId) =>
-    set({ imageId, strokes: [], tool: 'brush', prompt: '', reference: null, submitting: false }),
+  open: (imageId, kind) =>
+    set({
+      imageId,
+      kind,
+      strokes: [],
+      tool: 'brush',
+      prompt: '',
+      reference: null,
+      submitting: false,
+    }),
   close: () => set({ imageId: null, strokes: [], prompt: '', reference: null, submitting: false }),
   setTool: (tool) => set({ tool }),
   setBrushPx: (px) => set({ brushPx: Math.min(MAX_BRUSH_PX, Math.max(MIN_BRUSH_PX, px)) }),

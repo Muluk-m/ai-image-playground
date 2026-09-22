@@ -39,6 +39,8 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
 
   if (!session.imageId) return null
   const painted = session.strokes.length > 0
+  // 擦除没有「改成什么」：描述与参考图由固定指令代替，面板只剩画笔与完成。
+  const erasing = session.kind === 'erase'
 
   const submit = async () => {
     if (pending || !session.imageId) return
@@ -47,6 +49,7 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
       const started = await submitCanvasInpaint(editor, {
         imageId: session.imageId,
         strokes: session.strokes,
+        kind: session.kind,
         prompt: session.prompt,
         ...(session.reference ? { referenceDataUrl: session.reference.dataUrl } : {}),
       })
@@ -74,7 +77,7 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
       onKeyDown={(event) => event.stopPropagation()}
     >
       <div className="mb-2 flex items-center justify-between">
-        <h3 className={PANEL_TITLE}>{t('inpaint.title')}</h3>
+        <h3 className={PANEL_TITLE}>{t(erasing ? 'erase.title' : 'inpaint.title')}</h3>
         <button
           type="button"
           aria-label={t('common:action.close')}
@@ -132,49 +135,59 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
         </button>
       </div>
 
-      <div className="mb-2 flex items-start gap-2">
-        {session.reference && (
-          <div className="relative shrink-0">
-            <img
-              src={session.reference.dataUrl}
-              alt={session.reference.name}
-              className="h-16 w-16 rounded-lg object-cover"
-            />
-            <button
-              type="button"
-              aria-label={t('inpaint.removeReference')}
-              className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-foreground text-background"
-              onClick={() => session.setReference(null)}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )}
-        <textarea
-          rows={2}
-          value={session.prompt}
-          aria-label={t('inpaint.promptAria')}
-          placeholder={t('inpaint.promptPlaceholder')}
-          className={`${FIELD} flex-1 resize-none`}
-          onChange={(event) => session.setPrompt(event.target.value)}
-        />
-      </div>
-
-      {!painted && (
-        <p className="mb-2 text-[11px] text-muted-foreground">{t('inpaint.paintFirst')}</p>
+      {!erasing && (
+        <div className="mb-2 flex items-start gap-2">
+          {session.reference && (
+            <div className="relative shrink-0">
+              <img
+                src={session.reference.dataUrl}
+                alt={session.reference.name}
+                className="h-16 w-16 rounded-lg object-cover"
+              />
+              <button
+                type="button"
+                aria-label={t('inpaint.removeReference')}
+                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-foreground text-background"
+                onClick={() => session.setReference(null)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          <textarea
+            rows={2}
+            value={session.prompt}
+            aria-label={t('inpaint.promptAria')}
+            placeholder={t('inpaint.promptPlaceholder')}
+            className={`${FIELD} flex-1 resize-none`}
+            onChange={(event) => session.setPrompt(event.target.value)}
+          />
+        </div>
       )}
+
+      <p className="mb-2 text-[11px] text-muted-foreground">
+        {painted
+          ? erasing
+            ? t('erase.continueHint')
+            : ''
+          : t(erasing ? 'erase.paintFirst' : 'inpaint.paintFirst')}
+      </p>
       {guard.blocked && guard.disabledReason && (
         <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
       )}
       <SubmissionBillingAction blockedAction={guard.blockedAction} className="mb-1.5 text-[11px]" />
 
       <div className="flex items-center justify-between gap-2">
-        <button type="button" className={OUTLINE_BUTTON} onClick={() => fileRef.current?.click()}>
-          <span className="inline-flex items-center gap-1.5">
-            <Upload className="h-3.5 w-3.5" />
-            {t('inpaint.uploadReference')}
-          </span>
-        </button>
+        {erasing ? (
+          <span />
+        ) : (
+          <button type="button" className={OUTLINE_BUTTON} onClick={() => fileRef.current?.click()}>
+            <span className="inline-flex items-center gap-1.5">
+              <Upload className="h-3.5 w-3.5" />
+              {t('inpaint.uploadReference')}
+            </span>
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -191,16 +204,17 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
           </button>
           <button
             type="button"
-            disabled={pending || !painted || !session.prompt.trim() || guard.blocked}
+            disabled={pending || !painted || guard.blocked || (!erasing && !session.prompt.trim())}
             title={guard.disabledReason}
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
           >
             {guard.estimatedCredits === undefined ? (
-              t('inpaint.submit')
+              t(erasing ? 'erase.submit' : 'inpaint.submit')
             ) : (
               <>
-                {t('inpaint.submit')} · <Credits credits={guard.estimatedCredits} />
+                {t(erasing ? 'erase.submit' : 'inpaint.submit')} ·{' '}
+                <Credits credits={guard.estimatedCredits} />
               </>
             )}
           </button>

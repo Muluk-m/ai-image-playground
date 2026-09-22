@@ -1,12 +1,23 @@
-import { Brush, Copy, Download, MoreHorizontal } from 'lucide-react'
+import {
+  Brush,
+  Copy,
+  Crop,
+  Download,
+  Eraser,
+  Expand,
+  MoreHorizontal,
+  RotateCcw,
+} from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useInpaintSession } from '../inpaintStore'
 import { canvasImageSource, copyCanvasImage, downloadCanvasImage } from '../lib/canvasImageActions'
+import { outpaintRefusal, regenerateCanvasImage, regenerateRefusal } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
 import { inpaintRefusal } from '../lib/submitInpaint'
+import { useRectEdit } from '../rectEditStore'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
 
@@ -27,17 +38,19 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const settings = useStore((state) => state.settings)
   const inpaintImageId = useInpaintSession((state) => state.imageId)
   const openInpaint = useInpaintSession((state) => state.open)
+  const rectMode = useRectEdit((state) => state.mode)
+  const openRect = useRectEdit((state) => state.open)
   const [menu, setMenu] = useState<CanvasImageMenuState | null>(null)
 
   const doc = editor.doc
   // 涂抹进行时让位给面板：这条工具条的动作这会儿都不该被点到。
-  if (inpaintImageId) return null
+  if (inpaintImageId || rectMode) return null
   if (doc.tool !== 'select' || doc.selection.size !== 1) return null
   const element = doc.getElement([...doc.selection][0] ?? '')
   // 画布上的视频也是 image 元素（位图当封面），它归 CanvasVideoToolbar 管。
   if (element?.type !== 'image' || element.video) return null
   // 这张图正在被重绘：卡片上盖着「局部重绘中」，别在遮罩上再浮一条能点的工具条。
-  if (editor.getPlaceholders().some((one) => one.meta.inpaintSourceId === element.id)) return null
+  if (editor.getPlaceholders().some((one) => one.meta.editSourceId === element.id)) return null
 
   const bounds = editor.getElementPageBounds(element.id)
   if (!bounds) return null
@@ -46,7 +59,9 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const bottom = (bounds.y + bounds.h - camera.y) * camera.zoom
   const source = canvasImageSource(doc, element.id)
   const sourceMissing = source ? undefined : t('imageToolbar.sourceMissing')
-  const refusal = inpaintRefusal(element, canvasImageDimensions(element, doc), settings)
+  const natural = canvasImageDimensions(element, doc)
+  const refusal = inpaintRefusal(element, natural, settings)
+  const fullRect = { x: 0, y: 0, w: element.width, h: element.height }
 
   return (
     <>
@@ -69,7 +84,30 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           icon={<Brush />}
           label={t('inpaint.action')}
           reason={refusal ?? undefined}
-          onClick={() => openInpaint(element.id)}
+          onClick={() => openInpaint(element.id, 'inpaint')}
+        />
+        <CanvasToolbarButton
+          icon={<Eraser />}
+          label={t('erase.action')}
+          reason={refusal ?? undefined}
+          onClick={() => openInpaint(element.id, 'erase')}
+        />
+        <CanvasToolbarButton
+          icon={<RotateCcw />}
+          label={t('regenerate.action')}
+          reason={regenerateRefusal(element, settings) ?? undefined}
+          onClick={() => regenerateCanvasImage(editor, element)}
+        />
+        <CanvasToolbarButton
+          icon={<Crop />}
+          label={t('crop.action')}
+          onClick={() => openRect('crop', element.id, fullRect)}
+        />
+        <CanvasToolbarButton
+          icon={<Expand />}
+          label={t('outpaint.action')}
+          reason={outpaintRefusal(element, settings) ?? undefined}
+          onClick={() => openRect('outpaint', element.id, fullRect)}
         />
         <CanvasToolbarButton
           icon={<Copy />}

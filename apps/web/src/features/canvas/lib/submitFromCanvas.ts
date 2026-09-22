@@ -78,7 +78,8 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
     prompt: spec.prompt,
     annotated: spec.annotated,
     inputCount: spec.inputImageDataUrls.length,
-    ...(spec.inpaintSourceId ? { inpaintSourceId: spec.inpaintSourceId } : {}),
+    ...(spec.editSourceId ? { editSourceId: spec.editSourceId } : {}),
+    ...(spec.editKind ? { editKind: spec.editKind } : {}),
     params: spec.params,
     profileView,
   })
@@ -99,8 +100,8 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
       },
     })
     const placed = await settleGeneration(editor, placeholderId, spec.target, result)
-    // 输入图只在落图成功后释放：失败态的占位框在同一次打开里还要能原样重试。
-    if (placed) removeCanvasTask(taskId)
+    // 落图成功也**不释放**运行态：结果元素上的 `meta.taskId` 指着它，「重新生成」靠它原样再发。
+    // 内存由 canvasTaskRuntime 的有界 LRU 兜住；失败态的占位框同样还留着它用于重试。
     // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
     if (placed) {
       void addCompletedCanvasTask({
@@ -239,7 +240,8 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
     // 局部重绘重试必须把遮罩一起带回去：丢了它就是一次静默的整图重绘，
     // 与 :228 那条守卫防的是同一类事故。遮罩与输入图同在运行态，刷新后一起没，也被同一条守卫拦住。
     ...(runtime?.maskDataUrl ? { maskDataUrl: runtime.maskDataUrl } : {}),
-    ...(meta.inpaintSourceId ? { inpaintSourceId: meta.inpaintSourceId } : {}),
+    ...(meta.editSourceId ? { editSourceId: meta.editSourceId } : {}),
+    ...(meta.editKind ? { editKind: meta.editKind } : {}),
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
     // 几何一律读活占位框：用户可能已拖动 / 拉伸过错误态占位框，submit 时的 runtime.target 已过期。
