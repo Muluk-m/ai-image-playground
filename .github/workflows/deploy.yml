@@ -20,7 +20,8 @@ defaults:
   run:
     shell: bash
 env:
-  PRIVATE_OVERLAY_REPO: git@github.com:Muluk-m/ai-image-playground-private.git
+  # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
+  PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
   target:
     name: Pick the commit
@@ -71,7 +72,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      private_sha: ${{ steps.overlay.outputs.sha }}
+      private_sha: ${{ steps.overlay.outputs.commit }}
     steps:
       - name: Require secrets
         env:
@@ -96,18 +97,21 @@ jobs:
       #
       # 闸门放在消费侧而不是合并侧，是因为个人账号的免费私有仓开不了分支保护与 rulesets
       # （两个接口都回 403），拦不住「CI 红着也合」。
+      #
+      # 用 `actions/checkout` 而不是手搓 `git clone`：它把 github.com 的 host key 硬编码在
+      # 源码里，这一步因此不碰任何网络接口。原先那版每次都匿名调 `api.github.com/meta` 取
+      # known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而 runner 的出口 IP 是共享的，
+      # 2026-09-22 就因为它回 403 把整条部署挂掉。调研见
+      # `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
       - name: Check out the private overlay at its verified HEAD
         id: overlay
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          umask 077
-          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
-          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
-          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
-            git clone --quiet --branch verified "$PRIVATE_OVERLAY_REPO" private
-          rm -f "$RUNNER_TEMP/overlay-key"
-          echo "sha=$(git -C private rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: verified
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -117,7 +121,7 @@ jobs:
         id: build
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
-          PRIVATE_SHA: ${{ steps.overlay.outputs.sha }}
+          PRIVATE_SHA: ${{ steps.overlay.outputs.commit }}
         run: |
           release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
           ./scripts/build-vps-release.sh all "$RUNNER_TEMP/$release_id"
@@ -216,18 +220,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Release the internal site (no private overlay)
         run: ./scripts/pages-release.sh internal
+      # 与 backend 同一份 overlay：那边已经把 `verified` 解成了具体 sha，这里照它取，
+      # 两个 job 之间不会因为指针中途前移而错开。
       - name: Check out the private overlay at the backend's commit
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ needs.backend.outputs.private_sha }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - name: Require the paid site assets
         run: |
-          umask 077
-          printf '%s\n' "$PRIVATE_OVERLAY_SSH_KEY" > "$RUNNER_TEMP/overlay-key"
-          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$RUNNER_TEMP/github-known-hosts"
-          GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/overlay-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/github-known-hosts" \
-            git clone --quiet "$PRIVATE_OVERLAY_REPO" private
-          rm -f "$RUNNER_TEMP/overlay-key"
-          git -C private checkout --quiet --detach "$PRIVATE_SHA"
           [ -d private/pages-assets ] ||
             { echo "::error::private/pages-assets is missing; the paid site publishes its QR codes from there."; exit 1; }
       # The overlay packages are workspace members; install their dependencies too.
@@ -236,4 +240,4 @@ jobs:
         run: ./scripts/pages-release.sh paid
       - name: Remove secrets from the runner
         if: always()
-        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env" "$RUNNER_TEMP/overlay-key"
+        run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
