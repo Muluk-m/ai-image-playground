@@ -1863,7 +1863,8 @@ async function localizeRef(
 ): Promise<string | null> {
   if (!ref.startsWith('aip-media:')) return ref
   try {
-    const dataUrl = await resolveMediaSource(ref, 'original')
+    // 搬回本机都是点了编辑 / 送画布 / 重试才发生的，插到背景预览之前。
+    const dataUrl = await resolveMediaSource(ref, 'original', true)
     const id = await hashDataUrl(dataUrl)
     await putImage({ id, dataUrl, createdAt: Date.now(), source })
     return id
