@@ -115,10 +115,22 @@ export default function Sidebar() {
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
-          <div className="group/head mt-2 flex h-9 items-center gap-2 px-3">
-            <span className="text-[13px] font-medium leading-none text-muted-foreground">
+          <div
+            className={`group/head mt-2 flex h-9 items-center gap-2 rounded-xl px-3 ${
+              appMode === 'projects' ? ACTIVE_ITEM : ''
+            }`}
+          >
+            {/* 标题本身就是「全部」的入口；在项目页时它就是当前位置，按导航项那样点亮。 */}
+            <button
+              type="button"
+              onClick={() => setAppMode('projects')}
+              aria-current={appMode === 'projects' ? 'page' : undefined}
+              className={`text-[13px] font-medium leading-none ${
+                appMode === 'projects' ? '' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
               {t('nav.canvases')}
-            </span>
+            </button>
             <span className="ml-auto flex h-full items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
               <button
                 type="button"
