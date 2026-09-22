@@ -14,7 +14,7 @@ import {
 } from '../lib/privateOverlay'
 import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
-import { useStore } from '../store'
+import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
 import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import HeaderMembershipChip from './HeaderMembershipChip'
@@ -24,8 +24,11 @@ import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
   const { t } = useTranslation('shell')
+  const { t: tCanvas } = useTranslation('canvas')
   useWorkspaceViewport()
   const setShowSettings = useStore((s) => s.setShowSettings)
+  const workbench = useStore((s) => isWorkbenchMode(s.appMode))
+  const setAppMode = useStore((s) => s.setAppMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
@@ -79,97 +82,110 @@ export default function Header() {
       */}
       <div
         data-no-drag-select
-        className="studio-header-float fixed right-3 z-40 flex items-center gap-2 sm:right-4"
+        className="fixed right-3 z-40 flex items-center gap-3 sm:right-4"
         style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
       >
-        <PrivateWebHeaderCreditAction />
-        {auth.user ? <HeaderMembershipChip /> : null}
-        <PrivateWebHeaderAccountActions
-          username={auth.user?.username ?? null}
-          loggingOut={loggingOut}
-          syncPending={syncPending}
-          onOpenSettings={openSettings}
-          onLogout={() => setLogoutOpen(true)}
-        />
-        {!PrivateWebReplacesAuthActions ? (
-          <div ref={accountMenuRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setAccountMenuOpen((open) => !open)}
-              aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
-              aria-haspopup="menu"
-              aria-expanded={accountMenuOpen}
-              className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <BrandAvatar />
-              {syncPending ? (
-                <span
-                  role="img"
-                  aria-label={t('header.unsynced')}
-                  className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-white dark:ring-border"
-                />
-              ) : null}
-            </button>
-            {accountMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl"
-              >
-                <div className="truncate px-3 py-2 font-medium text-foreground">
-                  {auth.user?.username ??
-                    `${t('header.brandName')}${brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}`}
-                </div>
-                <DisplaySettingsMenuItems
-                  itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
-                  iconClassName="h-[18px] w-[18px]"
-                />
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={openSettings}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
-                >
-                  <SettingsIcon className="h-[18px] w-[18px]" aria-hidden="true" />
-                  <span>{t('header.settings')}</span>
-                  {syncPending ? (
-                    <span
-                      role="img"
-                      aria-label={t('header.unsynced')}
-                      className="ml-auto h-1.5 w-1.5 rounded-full bg-warning"
-                    />
-                  ) : null}
-                </button>
-                {auth.enabled && auth.user ? (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setAccountMenuOpen(false)
-                        setLoginMethodsOpen(true)
-                      }}
-                      className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
-                    >
-                      {t('header.loginMethods')}
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={loggingOut}
-                      onClick={() => {
-                        setAccountMenuOpen(false)
-                        setLogoutOpen(true)
-                      }}
-                      className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-50"
-                    >
-                      {loggingOut ? t('header.loggingOut') : t('logout.title')}
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+        {workbench ? (
+          <button
+            type="button"
+            onClick={() => setAppMode('projects')}
+            aria-label={tCanvas('workspace.backToProjects')}
+            title={tCanvas('workspace.backToProjects')}
+            className="grid h-8 w-8 shrink-0 place-items-center"
+          >
+            <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
+          </button>
         ) : null}
+        <div className="studio-header-float flex items-center gap-2">
+          <PrivateWebHeaderCreditAction />
+          {auth.user ? <HeaderMembershipChip /> : null}
+          <PrivateWebHeaderAccountActions
+            username={auth.user?.username ?? null}
+            loggingOut={loggingOut}
+            syncPending={syncPending}
+            onOpenSettings={openSettings}
+            onLogout={() => setLogoutOpen(true)}
+          />
+          {!PrivateWebReplacesAuthActions ? (
+            <div ref={accountMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setAccountMenuOpen((open) => !open)}
+                aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
+                className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <BrandAvatar />
+                {syncPending ? (
+                  <span
+                    role="img"
+                    aria-label={t('header.unsynced')}
+                    className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-white dark:ring-border"
+                  />
+                ) : null}
+              </button>
+              {accountMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl"
+                >
+                  <div className="truncate px-3 py-2 font-medium text-foreground">
+                    {auth.user?.username ??
+                      `${t('header.brandName')}${brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}`}
+                  </div>
+                  <DisplaySettingsMenuItems
+                    itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                    iconClassName="h-[18px] w-[18px]"
+                  />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openSettings}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                  >
+                    <SettingsIcon className="h-[18px] w-[18px]" aria-hidden="true" />
+                    <span>{t('header.settings')}</span>
+                    {syncPending ? (
+                      <span
+                        role="img"
+                        aria-label={t('header.unsynced')}
+                        className="ml-auto h-1.5 w-1.5 rounded-full bg-warning"
+                      />
+                    ) : null}
+                  </button>
+                  {auth.enabled && auth.user ? (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false)
+                          setLoginMethodsOpen(true)
+                        }}
+                        className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                      >
+                        {t('header.loginMethods')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={loggingOut}
+                        onClick={() => {
+                          setAccountMenuOpen(false)
+                          setLogoutOpen(true)
+                        }}
+                        className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-50"
+                      >
+                        {loggingOut ? t('header.loggingOut') : t('logout.title')}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
       {logoutOpen && (

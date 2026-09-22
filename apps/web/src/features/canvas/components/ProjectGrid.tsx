@@ -150,7 +150,8 @@ export default function ProjectGrid({
               onClick={() => void enter(project)}
               className="block w-full text-left disabled:opacity-50"
             >
-              <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-muted/50">
+              {/* 外框是 1rem 圆角加 1px 边。封面若用直角，圆角处会露出卡片底色，像多了一道边。 */}
+              <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted/50">
                 {project.cover ? (
                   <MediaImage
                     src={project.cover}

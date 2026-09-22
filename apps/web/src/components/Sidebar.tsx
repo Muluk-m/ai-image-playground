@@ -39,9 +39,6 @@ export default function Sidebar() {
   const expanded = useStore(
     (state) => !isWorkbenchMode(state.appMode) && (state.sidebarExpanded ?? true),
   )
-  // 画布对话展开时，顶栏自己有一颗无底板的标，和项目名排在一行。这里再盖一颗带圆角底板的，
-  // 两颗会叠在一起。
-  const chatOpen = useAgentStore((state) => state.open)
   const toggleSidebar = useStore((state) => state.toggleSidebar)
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
@@ -87,16 +84,12 @@ export default function Sidebar() {
 
   return (
     <>
-      {!expanded && !(workbench && chatOpen) && (
+      {!expanded && !workbench && (
         <button
           type="button"
-          onClick={() => (workbench ? setAppMode('projects') : toggleSidebar())}
-          aria-label={workbench ? t('nav.allCanvases') : t('header.nav')}
-          className={
-            workbench
-              ? 'fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center md:grid'
-              : 'fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid'
-          }
+          onClick={toggleSidebar}
+          aria-label={t('header.nav')}
+          className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
         </button>
@@ -119,28 +112,18 @@ export default function Sidebar() {
                 {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
               </span>
             </button>
-            {/* 画布要整屏：这里收起侧栏，收起后左上角留一颗品牌按钮把它叫回来。 */}
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              aria-label={t('nav.collapse')}
-              title={t('nav.collapse')}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              ‹
-            </button>
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
-          <div className="group/head flex items-center gap-1 px-3 pb-1 pt-4">
-            <span className="text-[11px] font-medium text-muted-foreground">
+          <div className="group/head mt-2 flex h-9 items-center gap-2 px-3">
+            <span className="text-[13px] font-medium leading-none text-muted-foreground">
               {t('nav.canvases')}
             </span>
-            <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
+            <span className="ml-auto flex h-full items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/head:opacity-100">
               <button
                 type="button"
                 onClick={() => setAppMode('projects')}
-                className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="inline-flex h-7 items-center rounded-md px-1.5 text-[13px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 {t('nav.allCanvases')}
               </button>
@@ -149,7 +132,7 @@ export default function Sidebar() {
                 onClick={() => void newProject()}
                 aria-label={t('nav.newCanvas')}
                 title={t('nav.newCanvas')}
-                className="grid h-5 w-5 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="grid h-7 w-7 place-items-center rounded-md text-[15px] leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 +
               </button>
