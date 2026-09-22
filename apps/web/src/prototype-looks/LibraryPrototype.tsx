@@ -4,10 +4,12 @@ import { Layers, Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import Overlay from '../components/Overlay'
 import { PANEL_SURFACE } from '../features/agent/agentStyles'
-import { APP_MODE_LABELS } from '../store'
+import { APP_MODE_LABELS, useStore } from '../store'
 import BatchDialogPrototype from './BatchDialogPrototype'
 import ComposerChipsPrototype from './ComposerChipsPrototype'
+import CreateDialogPrototype from './CreateDialogPrototype'
 import { ASSETS, LOOKS, PURPOSE_TONE, type ProtoAsset, type ProtoLook, type Purpose } from './data'
+import LookDetailPrototype from './LookDetailPrototype'
 import { useVariant } from './proto'
 import SaveCardPrototype from './SaveCardPrototype'
 
@@ -18,11 +20,22 @@ const AGENT_BUTTON =
 const GHOST_BUTTON =
   'inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] text-foreground transition hover:bg-muted'
 
+/** 「用智能体创建」：跳到创作页、目标切成画布、把斜杠命令放进输入框，等用户自己点发送。 */
+function handoffToAgent(command: string) {
+  const store = useStore.getState()
+  store.setCreateTarget('canvas')
+  store.setPrompt(command)
+  store.setAppMode('image')
+  store.showToast(`已把 ${command.trim()} 放进创作输入框，补充说明后点发送`, 'info')
+}
+
 export default function LibraryPrototype() {
   const variant = useVariant()
   const [tab, setTab] = useState<Tab>('looks')
   const [batchLook, setBatchLook] = useState<ProtoLook | null>(null)
   const [detail, setDetail] = useState<ProtoAsset | null>(null)
+  const [lookDetail, setLookDetail] = useState<ProtoLook | null>(null)
+  const [creating, setCreating] = useState<'asset' | 'look' | null>(null)
 
   return (
     <main className="flex min-h-[calc(100dvh-3.5rem)] flex-col">
@@ -54,30 +67,58 @@ export default function LibraryPrototype() {
         </label>
         {tab === 'assets' && (
           <>
-            <button type="button" className={GHOST_BUTTON}>
-              <Plus className="h-4 w-4" /> 上传图片
+            <button type="button" onClick={() => setCreating('asset')} className={GHOST_BUTTON}>
+              <Plus className="h-4 w-4" /> 新建素材
             </button>
-            <button type="button" className={AGENT_BUTTON}>
+            <button type="button" onClick={() => handoffToAgent('/create-asset ')} className={AGENT_BUTTON}>
               <Sparkles className="h-4 w-4" /> 用智能体创建素材
             </button>
           </>
         )}
         {tab === 'looks' && (
-          <button type="button" className={AGENT_BUTTON}>
-            <Wand2 className="h-4 w-4" /> 用智能体创建模板
-          </button>
+          <>
+            <button type="button" onClick={() => setCreating('look')} className={GHOST_BUTTON}>
+              <Plus className="h-4 w-4" /> 新建模板
+            </button>
+            <button type="button" onClick={() => handoffToAgent('/create-look ')} className={AGENT_BUTTON}>
+              <Wand2 className="h-4 w-4" /> 用智能体创建模板
+            </button>
+          </>
         )}
       </div>
 
       <div className="min-h-0 flex-1 p-5">
-        {tab === 'assets' && <AssetsTab variant={variant} onOpen={setDetail} />}
+        {tab === 'assets' && (
+          <AssetsTab variant={variant} onOpen={setDetail} onCreate={() => setCreating('asset')} />
+        )}
         {tab === 'prompts' && <PromptsTab />}
-        {tab === 'looks' && <LooksTab variant={variant} onBatch={setBatchLook} />}
+        {tab === 'looks' && (
+          <LooksTab
+            variant={variant}
+            onBatch={setBatchLook}
+            onOpen={setLookDetail}
+            onCreate={() => setCreating('look')}
+          />
+        )}
         {tab === 'chat' && <ChatMock />}
       </div>
 
       {batchLook && <BatchDialogPrototype look={batchLook} onClose={() => setBatchLook(null)} />}
       {detail && <AssetDetail asset={detail} onClose={() => setDetail(null)} />}
+      {lookDetail && (
+        <LookDetailPrototype
+          look={lookDetail}
+          onClose={() => setLookDetail(null)}
+          onBatch={(l) => {
+            setLookDetail(null)
+            setBatchLook(l)
+          }}
+          onAgent={handoffToAgent}
+        />
+      )}
+      {creating && (
+        <CreateDialogPrototype kind={creating} onClose={() => setCreating(null)} onAgent={handoffToAgent} />
+      )}
     </main>
   )
 }
@@ -133,11 +174,16 @@ function BgTag({ asset }: { asset: ProtoAsset }) {
   )
 }
 
-function AssetsTab({ variant, onOpen }: { variant: string; onOpen: (a: ProtoAsset) => void }) {
+function AssetsTab({
+  variant,
+  onOpen,
+  onCreate,
+}: { variant: string; onOpen: (a: ProtoAsset) => void; onCreate: () => void }) {
   if (variant === 'B') {
     // B：卡片下方带视角缩略条，一眼看全组。
     return (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <NewTile label="新建素材" onClick={onCreate} />
         {ASSETS.map((asset) => (
           <button
             key={asset.id}
@@ -228,6 +274,7 @@ function AssetsTab({ variant, onOpen }: { variant: string; onOpen: (a: ProtoAsse
   // A：沿用现有 5 列方格，封面 + 叠层角标。
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+      <NewTile label="新建素材" onClick={onCreate} />
       {ASSETS.map((asset) => (
         <button
           key={asset.id}
@@ -356,10 +403,29 @@ function LookActions({ look, onBatch }: { look: ProtoLook; onBatch: (l: ProtoLoo
   )
 }
 
-function LookCard({ look, onBatch }: { look: ProtoLook; onBatch: (l: ProtoLook) => void }) {
+type LookHandlers = {
+  onBatch: (l: ProtoLook) => void
+  onOpen: (l: ProtoLook) => void
+}
+
+/** 网格里的第一格：新建。 */
+function NewTile({ label, onClick, tall }: { label: string; onClick: () => void; tall?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex ${tall ? 'aspect-[4/5]' : 'aspect-square'} flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/40 text-[13px] text-muted-foreground transition hover:border-primary hover:text-foreground`}
+    >
+      <Plus className="h-7 w-7" />
+      {label}
+    </button>
+  )
+}
+
+function LookCard({ look, onBatch, onOpen }: { look: ProtoLook } & LookHandlers) {
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card transition hover:border-primary">
-      <div className="relative aspect-[4/5] bg-muted">
+      <button type="button" onClick={() => onOpen(look)} className="relative aspect-[4/5] bg-muted text-left">
         <img src={look.cover} alt="" className="h-full w-full object-cover" />
         <div className="absolute left-1.5 top-1.5 flex gap-1">
           <PurposeTag purpose={look.purpose} />
@@ -372,10 +438,12 @@ function LookCard({ look, onBatch }: { look: ProtoLook; onBatch: (l: ProtoLook) 
             需重新调试
           </span>
         )}
-      </div>
+      </button>
       <div className="flex flex-col gap-1.5 p-2.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[13px] font-medium">{look.name}</span>
+          <button type="button" onClick={() => onOpen(look)} className="truncate text-left text-[13px] font-medium hover:text-primary">
+            {look.name}
+          </button>
           <span className="shrink-0 text-[10px] text-muted-foreground">
             {look.slots} 个素材位
           </span>
@@ -389,21 +457,33 @@ function LookCard({ look, onBatch }: { look: ProtoLook; onBatch: (l: ProtoLook) 
   )
 }
 
-function LooksTab({ variant, onBatch }: { variant: string; onBatch: (l: ProtoLook) => void }) {
+function LooksTab({
+  variant,
+  onBatch,
+  onOpen,
+  onCreate,
+}: { variant: string; onCreate: () => void } & LookHandlers) {
   if (variant === 'B') {
     // B：列表，提示词摘要可见，适合「找那条改过的」。
     return (
       <div className="divide-y divide-border rounded-xl border border-border">
+        <button type="button" onClick={onCreate} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] text-muted-foreground hover:bg-muted">
+          <Plus className="h-4 w-4" /> 新建模板
+        </button>
         {LOOKS.map((look) => (
           <div key={look.id} className="flex items-start gap-3 px-3 py-2.5">
-            <img
-              src={look.cover}
-              alt=""
-              className="h-20 w-16 shrink-0 rounded-lg border border-border object-cover"
-            />
+            <button type="button" onClick={() => onOpen(look)} className="shrink-0">
+              <img
+                src={look.cover}
+                alt=""
+                className="h-20 w-16 rounded-lg border border-border object-cover"
+              />
+            </button>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-[13px] font-medium">{look.name}</span>
+                <button type="button" onClick={() => onOpen(look)} className="text-[13px] font-medium hover:text-primary">
+                  {look.name}
+                </button>
                 <PurposeTag purpose={look.purpose} />
                 <span className="text-[10px] text-muted-foreground">{look.origin}</span>
                 {look.needsRetune && (
@@ -432,6 +512,9 @@ function LooksTab({ variant, onBatch }: { variant: string; onBatch: (l: ProtoLoo
     const purposes: Purpose[] = ['主图', '海报', '场景图', '详情图']
     return (
       <div className="flex flex-col gap-6">
+        <div className="w-44">
+          <NewTile label="新建模板" onClick={onCreate} tall />
+        </div>
         {purposes.map((purpose) => {
           const list = LOOKS.filter((l) => l.purpose === purpose).sort((a) =>
             a.origin === '自建' ? -1 : 1,
@@ -446,7 +529,7 @@ function LooksTab({ variant, onBatch }: { variant: string; onBatch: (l: ProtoLoo
               <div className="flex gap-3 overflow-x-auto pb-1">
                 {list.map((look) => (
                   <div key={look.id} className="w-44 shrink-0">
-                    <LookCard look={look} onBatch={onBatch} />
+                    <LookCard look={look} onBatch={onBatch} onOpen={onOpen} />
                   </div>
                 ))}
               </div>
@@ -464,8 +547,9 @@ function LooksTab({ variant, onBatch }: { variant: string; onBatch: (l: ProtoLoo
       <section>
         <h2 className="mb-2 text-xs font-medium text-muted-foreground">我的模板 · {mine.length}</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <NewTile label="新建模板" onClick={onCreate} tall />
           {mine.map((look) => (
-            <LookCard key={look.id} look={look} onBatch={onBatch} />
+            <LookCard key={look.id} look={look} onBatch={onBatch} onOpen={onOpen} />
           ))}
         </div>
       </section>
@@ -473,7 +557,7 @@ function LooksTab({ variant, onBatch }: { variant: string; onBatch: (l: ProtoLoo
         <h2 className="mb-2 text-xs font-medium text-muted-foreground">预置模板 · {builtin.length}</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {builtin.map((look) => (
-            <LookCard key={look.id} look={look} onBatch={onBatch} />
+            <LookCard key={look.id} look={look} onBatch={onBatch} onOpen={onOpen} />
           ))}
         </div>
       </section>
