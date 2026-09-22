@@ -111,8 +111,8 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
             </button>
           ))}
         </div>
-        <label className="flex flex-1 items-center gap-2">
-          <span className={LABEL}>{t('inpaint.brushSize')}</span>
+        <label className="flex min-w-0 flex-1 items-center gap-2">
+          <span className={`${LABEL} shrink-0 whitespace-nowrap`}>{t('inpaint.brushSize')}</span>
           <input
             type="range"
             min={MIN_BRUSH_PX}
@@ -153,12 +153,14 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
               </button>
             </div>
           )}
+          {/* FIELD 的 focus 态同时变边框色和加焦点环，两道同色线中间夹一条底色，
+              在这种深底小面板上看着像框了三层。把边框也染成环色，两者并成一道。 */}
           <textarea
             rows={2}
             value={session.prompt}
             aria-label={t('inpaint.promptAria')}
             placeholder={t('inpaint.promptPlaceholder')}
-            className={`${FIELD} flex-1 resize-none`}
+            className={`${FIELD} flex-1 resize-none focus:border-ring focus:ring-offset-0`}
             onChange={(event) => session.setPrompt(event.target.value)}
           />
         </div>

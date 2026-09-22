@@ -32,9 +32,13 @@ export function markPlaceholderStatus(
 }
 
 /**
- * 任务终局的单一收口（submit 与 recover 共用）：空结果 → 错误态；有结果 → 替换占位框。
+ * 任务终局的单一收口（submit 与 recover 共用）：空结果 → 错误态；有结果 → 收掉占位框。
  * 调用方只负责「怎么拿到 result」，终局态判定统一在这里，避免两条路径各写一份。
  * 返回是否成功落图，供调用方决定是否落工作台历史（历史写入属任务层，不在本层做）。
+ *
+ * **二次加工（局部重绘 / 擦除 / 扩图）就地替换源图**，不另起一张：用户改的就是这一张，
+ * 旁边再多一张等于每改一次画布就多一份垃圾。判据读占位框自己的 meta（随画布持久化），
+ * 所以刷新后由恢复路径收尾时行为一致。
  */
 export async function settleGeneration(
   editor: CanvasEditor,
@@ -50,6 +54,31 @@ export async function settleGeneration(
       i18next.t('placeholder.noImages', { ns: 'canvas' }),
     )
     return false
+  }
+  const placeholder = editor.getPlaceholder(placeholderId)
+  const sourceId = placeholder?.meta.editSourceId
+  const source = sourceId ? editor.getElement(sourceId) : undefined
+  if (placeholder && source?.type === 'image' && result.images[0]) {
+    const dimensions = await getImageDimensions(result.images[0])
+    // 几何取占位框自己的：局部重绘时它与源图重合，扩图时它就是那个扩出来的框。
+    editor.doc.replaceImageBitmap(source.id, result.images[0], {
+      x: placeholder.x,
+      y: placeholder.y,
+      width: placeholder.w,
+      height: placeholder.h,
+      naturalWidth: dimensions.width,
+      naturalHeight: dimensions.height,
+      // 溯源跟着新位图走：重出、详情都按这一份查，留着旧的会指向一张已经不存在的图。
+      meta: {
+        ...source.meta,
+        prompt: placeholder.meta.prompt,
+        taskId: placeholder.meta.taskId,
+        ...(placeholder.meta.regen ? { regen: placeholder.meta.regen } : {}),
+      },
+    })
+    editor.deleteElement(placeholderId, { history: false })
+    editor.setSelectedElements([source.id])
+    return true
   }
   await placeResults(editor, placeholderId, target, result.images)
   return true
@@ -147,7 +176,11 @@ async function placeResults(
   const placeholder = editor.getPlaceholder(placeholderId)
   const anchor = placeholder ? targetFromShape(placeholder) : target
   const provenance = placeholder
-    ? { prompt: placeholder.meta.prompt, taskId: placeholder.meta.taskId }
+    ? {
+        prompt: placeholder.meta.prompt,
+        taskId: placeholder.meta.taskId,
+        ...(placeholder.meta.regen ? { regen: placeholder.meta.regen } : {}),
+      }
     : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
   await placeImagesOnCanvas(

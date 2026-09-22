@@ -1,4 +1,4 @@
-import { type CSSProperties, useState, useSyncExternalStore } from 'react'
+import { type CSSProperties, useEffect, useState, useSyncExternalStore } from 'react'
 import Credits from '../../../components/Credits'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -24,7 +24,7 @@ import {
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
 import { type CanvasEditor, type PlaceholderView, STATUS_ACCENT } from '../lib/editor'
-import { editProgressKey } from '../lib/editProgressLabel'
+import { editProgressText } from '../lib/editProgressLabel'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
 
 function actionStyle(accent: string): CSSProperties {
@@ -113,6 +113,17 @@ function AgentPlaceholderLabel({ placeholder }: { placeholder: PlaceholderView }
   )
 }
 
+/** 每秒走一针，让占位框上的已用时间会动——静止的秒数与卡死一个样。 */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [active])
+  return now
+}
+
 /**
  * 占位框内容浮层：虚线边框由画布上的占位框元素本体绘制（Konva Rect），
  * spinner / 错误文案 / 重试按钮走 DOM 浮层——容器保持指针穿透
@@ -130,6 +141,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
   const retryRefusals = useAgentStore((state) => state.retryRefusals)
   const { camera } = editor.doc
   const placeholders = editor.getPlaceholders()
+  const now = useNow(placeholders.some((one) => one.status === 'loading'))
 
   if (placeholders.length === 0) return null
 
@@ -208,7 +220,9 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   {p.meta.agent ? (
                     <AgentPlaceholderLabel placeholder={p} />
                   ) : (
-                    <span>{t(editProgressKey(p))}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {editProgressText(p, now)}
+                    </span>
                   )}
                 </>
               ) : (

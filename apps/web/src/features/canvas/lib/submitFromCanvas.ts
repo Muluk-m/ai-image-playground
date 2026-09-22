@@ -27,6 +27,7 @@ import {
 } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
 import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
+import { encodeRecipe, type RegenRecipe } from './regenRecipe'
 import { retryCanvasVideo } from './submitVideoFromCanvas'
 
 /**
@@ -72,6 +73,8 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
   const startedAt = Date.now()
 
   // 决策 2：恢复元数据（含参数 / profile 快照）存元素 customData，随画布持久化；不含输入图。
+  // 配方超长（涂了几百笔）就不写：半份配方会让重出拿着残缺的输入去生成，用户看不出来。
+  const recipe = spec.recipe ? encodeRecipe(spec.recipe) : undefined
   const placeholderId = editor.createPlaceholder(spec.target, {
     taskId,
     clientRequestId,
@@ -81,6 +84,7 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
     inputCount: spec.inputImageDataUrls.length,
     ...(spec.editSourceId ? { editSourceId: spec.editSourceId } : {}),
     ...(spec.editKind ? { editKind: spec.editKind } : {}),
+    ...(recipe ? { regen: recipe } : {}),
     params: spec.params,
     profileView,
   })
@@ -99,6 +103,9 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
         editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
         notifyPrivateSubmissionAccepted()
       },
+      // 队列阶段写回占位框：长任务只写「生成中」会让人以为卡死了。
+      onQueueStatus: (queuePhase) =>
+        editor.updatePlaceholder(placeholderId, { meta: { queuePhase } }),
     })
     const placed = await settleGeneration(editor, placeholderId, spec.target, result)
     // 落图成功也**不释放**运行态：结果元素上的 `meta.taskId` 指着它，「重新生成」靠它原样再发。
@@ -173,6 +180,18 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
 
   // BYOK 保持一图一任务。计费内置渠道必须用一个 n=N 的 BFF 任务，让积分预留覆盖整批。
   const specParams = snapshotParams()
+  // 重出配方：存「用了画布上哪几个元素」，不存那几 MB 位图。刷新后按当前画布重新栅格化。
+  const recipe: RegenRecipe = {
+    v: 1,
+    kind: 'generate',
+    prompt,
+    annotated: selection?.annotated ?? false,
+    params: specParams,
+    entries: (selection?.entries ?? []).map((entry) => ({
+      imageId: entry.imageId,
+      graphicIds: entry.graphicIds,
+    })),
+  }
   // 空位搜索与智能体那条路同一个入口：目标彼此不重叠，也不压住画布上已有的元素。
   const targets = computePlaceholderTargets(editor, selection?.bounds ?? null, quantity)
   if (
@@ -185,6 +204,7 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
       annotated: selection?.annotated ?? false,
       inputImageDataUrls,
       params: { ...specParams, n: quantity },
+      recipe: { ...recipe, params: { ...specParams, n: quantity } },
       target: targets[0]!,
     })
     return
@@ -196,6 +216,7 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
       annotated: selection?.annotated ?? false,
       inputImageDataUrls,
       params: specParams,
+      recipe,
       target,
     })
   }
