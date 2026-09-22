@@ -241,6 +241,12 @@ export interface TaskRecord {
    * 删除要走平台接口，本机删掉不算删。
    */
   remoteOnly?: true
+  /**
+   * 平台记录里的 provider（`openai-compat` / `gemini` …），只有镜像卡有。
+   * 它和 `apiModel` 一起认回内置 channel，复用不必为这一个字段再读一次详情。
+   * 缺席的是更早版本镜下来的卡，那些仍走详情。
+   */
+  cloudProvider?: string
 }
 
 // ===== IndexedDB 存储的图片 =====

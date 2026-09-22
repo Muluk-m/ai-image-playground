@@ -50,7 +50,11 @@ import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { resolveMediaSource } from './lib/cloudMedia'
-import { mirrorStatusPatch, watchMirroredGeneration } from './lib/cloudMirror'
+import {
+  cloudReuseSourceFromGeneration,
+  mirrorStatusPatch,
+  watchMirroredGeneration,
+} from './lib/cloudMirror'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
@@ -92,7 +96,7 @@ import {
   type SlotValues,
 } from './lib/promptSlots'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
-import { reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
 import { taskErrorTypeOf } from './lib/taskError'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
@@ -1962,18 +1966,26 @@ async function retryLocalTask(task: TaskRecord) {
  * 复用配置。平台记录走云端复用：它要按 provider+model 认回内置模型、把参考图和遮罩按引用取回来，
  * 而不是照本机 id 读图。
  *
- * 两条路都在做完之后说一声：云端那条要读详情再回源取参考图，两秒往上，输入框又常在视野之外，
+ * 卡片本身就带着提示词、参数、模型和参考图引用（`lib/cloudMirror`），所以不再先读一遍详情——
+ * 那一个来回在生产上要一秒，而它取回来的东西用户已经看着了。只有早先版本镜下来、还没被列表刷新过的
+ * 卡才回退去读详情。
+ *
+ * 两条路都在做完之后说一声：云端那条要回源取参考图，两秒往上，输入框又常在视野之外，
  * 不给回执用户看到的就是「点了没反应」。
  */
 export async function reuseConfig(task: TaskRecord) {
   if (task.remoteOnly) {
-    const detail = await readRemoteGeneration(task.id)
-    if (!detail) {
+    let source = cloudReuseSourceFromTask(task)
+    if (!source) {
+      const detail = await readRemoteGeneration(task.id)
+      source = detail ? cloudReuseSourceFromGeneration(detail) : null
+    }
+    if (!source) {
       useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
       return
     }
     try {
-      await reuseCloudGeneration(detail, new AbortController().signal)
+      await reuseCloudGeneration(source, new AbortController().signal)
     } catch {
       useStore.getState().showToast(i18next.t('toast.configReuseFailed', { ns: 'store' }), 'error')
       return
