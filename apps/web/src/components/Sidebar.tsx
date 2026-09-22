@@ -91,7 +91,7 @@ export default function Sidebar() {
           aria-label={workbench ? t('nav.allCanvases') : t('header.nav')}
           className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
-          <img src="/brand/icon-512.png" alt="" className="h-6 w-6 rounded-lg" />
+          <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
         </button>
       )}
       {expanded ? (
@@ -106,7 +106,7 @@ export default function Sidebar() {
               onClick={() => setAppMode('image')}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-muted"
             >
-              <img src="/brand/icon-512.png" alt="" className="h-7 w-7 rounded-lg" />
+              <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
               <span className="truncate text-[15px] font-semibold">
                 {t('header.brandName')}
                 {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}

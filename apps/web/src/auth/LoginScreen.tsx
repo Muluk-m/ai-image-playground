@@ -58,7 +58,7 @@ function AuthShowcase() {
   return (
     <section className="auth-showcase">
       <header className="auth-brand">
-        <img src="/brand/muvloom-icon.svg" alt="" width="30" height="30" />
+        <img src="/brand/muvloom-mark.svg" alt="" width="30" height="30" />
         <span>{t('brand.name')}</span>
       </header>
 
