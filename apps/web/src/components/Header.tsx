@@ -87,16 +87,18 @@ export default function Header() {
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
-          <PrivateWebHeaderCreditAction />
+          {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
-          <PrivateWebHeaderAccountActions
-            username={auth.user?.username ?? null}
-            loggingOut={loggingOut}
-            syncPending={syncPending}
-            onOpenSettings={openSettings}
-            onLogout={() => setLogoutOpen(true)}
-          />
-          {!PrivateWebReplacesAuthActions ? (
+          {auth.user ? (
+            <PrivateWebHeaderAccountActions
+              username={auth.user.username}
+              loggingOut={loggingOut}
+              syncPending={syncPending}
+              onOpenSettings={openSettings}
+              onLogout={() => setLogoutOpen(true)}
+            />
+          ) : null}
+          {!PrivateWebReplacesAuthActions && (!auth.enabled || auth.user) ? (
             <div ref={accountMenuRef} className="relative">
               <button
                 type="button"
