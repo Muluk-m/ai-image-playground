@@ -16,7 +16,7 @@ import { objectStore } from '../objectStore'
 import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
-import { toModelImageDataUrl } from './modelImage'
+import { toModelImageDataUrl, toPreviewDataUrl } from './modelImage'
 import { AgentToolError } from './tools/errors'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
@@ -77,16 +77,34 @@ interface TaskOutput {
   readonly outputIndex: number
 }
 
+/**
+ * 解析链内部的一份字节。`reduced` 表示它已经是预览规格——只有画布媒体有预留的预览，
+ * 其余来源只存一份原件，要预览得读时现缩。
+ */
+type ReadImage = Omit<ResolvedAgentImage, 'imageId'> & { readonly reduced?: boolean }
+
 function dataUrl(bytes: Uint8Array, mime: string): string {
   const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   return `data:${mime};base64,${view.toString('base64')}`
 }
 
-/** 画布可存 SVG、用户能拖进 AVIF，但对话和生图上游只接收几种位图；读取时转换也能修复历史会话。 */
-async function modelImage(image: ResolvedAgentImage | null): Promise<ResolvedAgentImage | null> {
+/**
+ * 出解析链前的最后一道：格式归一（画布可存 SVG、用户能拖进 AVIF，上游只认几种位图），
+ * 外加按需降采样。
+ *
+ * 降采样放在这里而不是各个来源里，是因为只有画布媒体有预留的预览；工具产物、素材、本轮
+ * 附图都只存一份原件，而画布上被反复查看的恰恰是产物。放在各来源里就会漏掉它们。
+ */
+async function modelImage(
+  image: (ReadImage & { readonly imageId: string }) | null,
+  variant: AgentImageVariant,
+): Promise<ResolvedAgentImage | null> {
   if (!image) return image
-  const normalized = await toModelImageDataUrl(image.dataUrl)
-  return normalized === image.dataUrl ? image : { ...image, dataUrl: normalized }
+  const { reduced, ...rest } = image
+  const normalized = await toModelImageDataUrl(rest.dataUrl)
+  const dataUrl =
+    variant === 'preview' && !reduced ? await toPreviewDataUrl(normalized) : normalized
+  return dataUrl === rest.dataUrl ? rest : { ...rest, dataUrl }
 }
 
 async function readTaskOutput(
@@ -170,7 +188,7 @@ async function readCanvasMedia(
   conversationId: string,
   userId: string | null,
   variant: AgentImageVariant,
-): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+): Promise<ReadImage | null> {
   const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
   if (!mediaId || !userId) return null
   const [row] = await db
@@ -205,10 +223,12 @@ async function readCanvasMedia(
     )
     .limit(1)
   // 预览是上传时一并生成的，理论上 ready 的行两份都在；缺了就退回原件，宁可贵一次也别取不到图。
-  const key = (variant === 'preview' ? row?.previewKey : null) ?? row?.objectKey
+  const previewKey = variant === 'preview' ? row?.previewKey : null
+  const key = previewKey ?? row?.objectKey
   if (!key) return null
-  // 预览统一是 WebP/PNG，原件的 content type 未必对得上它，交给归一化按字节认。
+  // 预留的预览已经是这条规格缩过的，别再缩第二次；原件的 content type 也对不上它，按字节认。
   return {
+    reduced: previewKey !== null,
     dataUrl: await toModelImageDataUrl(
       dataUrl(await durableMediaStore().read(key), row.contentType),
     ),
@@ -472,7 +492,7 @@ export function createAgentImageSource(input: {
       const key = `${variant}\u0000${id}`
       const running = resolving.get(key)
       if (running) return running
-      const started = read(id, variant).then(modelImage)
+      const started = read(id, variant).then((image) => modelImage(image, variant))
       resolving.set(key, started)
       return started
     },
