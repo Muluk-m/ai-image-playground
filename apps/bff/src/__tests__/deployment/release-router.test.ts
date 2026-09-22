@@ -40,6 +40,11 @@ describe('release router', () => {
       port: 0,
       hostname: '127.0.0.1',
       async fetch(request) {
+        if (new URL(request.url).pathname === '/domain-check') {
+          return new Response(null, {
+            status: new URL(request.url).host === 'api.new.example' ? 204 : 404,
+          })
+        }
         if (new URL(request.url).pathname !== '/slow') return new Response('ok')
         await new Promise<void>((done) => {
           release = done
@@ -66,6 +71,14 @@ describe('release router', () => {
     })
     cleanups.push(() => child.kill('SIGKILL'))
     await waitUntilListening(port)
+    const recognized = await fetch(`http://127.0.0.1:${port}/domain-check`, {
+      headers: { host: 'api.new.example' },
+    })
+    expect(recognized.status).toBe(204)
+    const rejected = await fetch(`http://127.0.0.1:${port}/domain-check`, {
+      headers: { host: 'untrusted.example', 'x-forwarded-host': 'api.new.example' },
+    })
+    expect(rejected.status).toBe(404)
 
     const inFlight = fetch(`http://127.0.0.1:${port}/slow`)
     await Bun.sleep(100)
