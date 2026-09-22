@@ -722,7 +722,7 @@ describe('智能体改图工具', () => {
 
       const old = await edit(conversationId, 'original-a')
       const oldResult = eventsOfType(old, 'toolEnd')[0]!
-      // 旧图带着选区：局部改图同样只拟稿，遮罩要等确认才随任务出去。
+      // 新轮仍能取回旧图，但旧选区不能跟着原图变成这次修改的约束。
       expect(oldResult).toMatchObject({
         status: 'awaiting_confirmation',
         anchorObjectId: 'original-a',
@@ -732,9 +732,11 @@ describe('智能体改图工具', () => {
         .select()
         .from(schema.tasks)
         .where(eq(schema.tasks.id, confirmedOld!.job!.taskId))
-      expect((await hydrateInputImages(oldTask!.request_payload)).mask).toBe(MASK)
+      const oldRequest = await hydrateInputImages(oldTask!.request_payload)
+      expect(oldRequest.input_images).toEqual([PIXEL])
+      expect(oldRequest.mask).toBeUndefined()
 
-      // 局部改图结束会唤醒这个会话再起一轮；等它跑完，免得它抢走下面脚本里的那次调用。
+      // 等后台任务结束，避免它干扰下面的会话隔离检查。
       await waitFor(
         async () =>
           (await db.select().from(schema.tasks).where(eq(schema.tasks.id, oldTask!.id)))[0]
@@ -785,6 +787,42 @@ describe('智能体改图工具', () => {
       status: 'awaiting_confirmation',
     })
     expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+  })
+
+  it('lets a later turn redraw an archived masked image without uploading it again', async () => {
+    const conversationId = await startConversation()
+    setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('看到选区了')]))
+    await runTurn(conversationId, '把 [image 1] 圈里的部分改掉', {
+      references: [{ imageId: 'canvas-1', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'redraw',
+              name: 'editImage',
+              args: { prompt: '整张界面重做一版', imageIds: ['image 1'] },
+            }),
+          () => completionStream('已拟稿'),
+        ],
+      ),
+    )
+    const frames = await runTurn(conversationId, '整张重做')
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      toolName: 'editImage',
+      status: 'awaiting_confirmation',
+      anchorObjectId: 'canvas-1',
+    })
+    const [confirmed] = await confirmDrafts(conversationId)
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, confirmed!.job!.taskId))
+    const submitted = await hydrateInputImages(task!.request_payload)
+    expect(submitted.input_images).toEqual([PIXEL])
+    expect(submitted.mask).toBeUndefined()
   })
 
   it('names the anchor on toolStart so the canvas reserves next to the source image', async () => {

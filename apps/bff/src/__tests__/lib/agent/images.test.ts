@@ -28,12 +28,16 @@ function userMessage(references: readonly AgentStoredReference[]): AgentMessageV
 function source(input: {
   references?: readonly AgentTurnReference[]
   history?: readonly AgentMessageView[]
+  selectionHistoryStart?: number
 }) {
   return createAgentImageSource({
     references: input.references ?? [],
     history: input.history ?? [],
     conversationId: 'conv-test',
     userId: null,
+    ...(input.selectionHistoryStart === undefined
+      ? {}
+      : { selectionHistoryStart: input.selectionHistoryStart }),
   })
 }
 
@@ -74,9 +78,21 @@ it('keeps a selection drawn in an earlier turn from gating this one', () => {
   // 沿用下来的引用只进清单文字：用户这一轮没有圈选，就该能改口重做整张，
   // 否则圈过一次之后每一轮都被判成遮罩轮，连一次整图重做都提交不了。
   expect(source({ history: [masked] }).masked).toBe(false)
+
   expect(
     source({ references: [{ imageId: 'now', dataUrl: PIXEL }], history: [masked] }).masked,
   ).toBe(false)
+})
+
+it('keeps a selection when an interrupted turn is explicitly resumed', () => {
+  const masked = userMessage([
+    {
+      imageId: 'old',
+      image: { object: 'agent/c/t/0/in/0', mime: 'image/png' },
+      mask: { object: 'agent/c/t/0/in/mask', mime: 'image/png' },
+    },
+  ])
+  expect(source({ history: [masked], selectionHistoryStart: 0 }).masked).toBe(true)
 })
 
 it('follows the references an interjection attached mid-turn', () => {
