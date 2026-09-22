@@ -1,0 +1,10 @@
+# Cloudflare Pages cache policy for the standalone Admin frontend.
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/runtime-config.json
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
+
+/version.json
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0

@@ -71,6 +71,21 @@ vi.mock('../../lib/api-client', () => {
       }
     }
     if (url.startsWith('/api/devices')) return { devices: [], truncated: false }
+    // 横幅读的是完整快照：每一栏都取不到时它什么都不显示。
+    if (url.startsWith('/api/ops')) {
+      const unavailable = { ok: false, error: 'unavailable' }
+      return {
+        generated_at: Date.now(),
+        host: unavailable,
+        services: unavailable,
+        queue: unavailable,
+        database: unavailable,
+        backup: unavailable,
+        containers: unavailable,
+        api: unavailable,
+        deployments: unavailable,
+      }
+    }
     throw new Error(`unexpected request: ${url}`)
   }
 
@@ -99,25 +114,42 @@ beforeEach(() => {
   document.cookie = 'sidebar_state=; path=/; max-age=0'
 })
 
-async function sidebarNav() {
-  return within(await screen.findByRole('list', { name: '后台导航' }))
+async function navGroup(label: string) {
+  return within(await screen.findByRole('list', { name: label }))
 }
 
 describe('sidebar navigation', () => {
   it('shows the user entry when accounts:login is enabled', async () => {
     renderAt('/overview')
-    const nav = await sidebarNav()
-    expect(await nav.findByRole('link', { name: '用户' })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: '概览' })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: '设备' })).toBeInTheDocument()
+    const business = await navGroup('经营')
+    expect(await business.findByRole('link', { name: '用户' })).toBeInTheDocument()
+    expect(business.getByRole('link', { name: '概览' })).toBeInTheDocument()
+    expect(business.getByRole('link', { name: '任务与设备' })).toBeInTheDocument()
   })
 
   it('hides the user entry when accounts:login is disabled', async () => {
     session.accountsLogin = false
     renderAt('/overview')
-    const nav = await sidebarNav()
-    expect(nav.getByRole('link', { name: '概览' })).toBeInTheDocument()
-    expect(nav.queryByRole('link', { name: '用户' })).not.toBeInTheDocument()
+    const business = await navGroup('经营')
+    expect(business.getByRole('link', { name: '概览' })).toBeInTheDocument()
+    expect(business.queryByRole('link', { name: '用户' })).not.toBeInTheDocument()
+  })
+
+  it('groups the operational content and settings modules', async () => {
+    renderAt('/overview')
+    const content = await navGroup('运营内容')
+    expect(content.getByRole('link', { name: '灵感库' })).toBeInTheDocument()
+    expect(content.getByRole('link', { name: '技能目录' })).toBeInTheDocument()
+    expect(content.getByRole('link', { name: '分类' })).toBeInTheDocument()
+    const settings = await navGroup('设置')
+    expect(settings.getByRole('link', { name: '审计' })).toBeInTheDocument()
+  })
+
+  it('marks only the exact inspiration module as active', async () => {
+    renderAt('/inspirations/categories')
+    const content = await navGroup('运营内容')
+    expect(content.getByRole('link', { name: '分类' })).toHaveAttribute('data-active', 'true')
+    expect(content.getByRole('link', { name: '灵感库' })).toHaveAttribute('data-active', 'false')
   })
 
   it('keeps 刷新 and 退出登录 in the sidebar footer', async () => {
@@ -129,13 +161,13 @@ describe('sidebar navigation', () => {
   it('restores the collapsed state from the sidebar cookie', async () => {
     document.cookie = 'sidebar_state=false; path=/'
     renderAt('/overview')
-    await screen.findByRole('list', { name: '后台导航' })
+    await navGroup('经营')
     expect(document.querySelector('[data-state="collapsed"]')).not.toBeNull()
   })
 
   it('defaults to an expanded sidebar without a cookie', async () => {
     renderAt('/overview')
-    await screen.findByRole('list', { name: '后台导航' })
+    await navGroup('经营')
     expect(document.querySelector('[data-state="collapsed"]')).toBeNull()
   })
 })

@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { apiClient } from './api-client'
 import type {
   DeviceDetailResult,
+  ListAuditsResult,
   ListDevicesResult,
   ListUsersResult,
   OpsSnapshot,
@@ -92,5 +93,28 @@ export function useOps() {
     queryKey: ['ops'],
     queryFn: () => apiClient.get<OpsSnapshot>('/api/ops'),
     refetchInterval: 30_000,
+  })
+}
+
+export interface AuditFilters {
+  /** 精确匹配 `operator_audits.action`；空串表示不筛。 */
+  action?: string
+  targetId?: string
+}
+
+/** 审计流按 (created_at, id) keyset 翻页，跟用户任务列表同一套游标约定。 */
+export function useAudits(filters: AuditFilters) {
+  const params = new URLSearchParams()
+  if (filters.action) params.set('action', filters.action)
+  if (filters.targetId) params.set('targetId', filters.targetId)
+  return useInfiniteQuery({
+    queryKey: ['audits', filters],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams(params)
+      if (pageParam) search.set('cursor', pageParam)
+      return apiClient.get<ListAuditsResult>(`/api/audits?${search.toString()}`)
+    },
+    initialPageParam: '',
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   })
 }

@@ -153,6 +153,73 @@ export const operator_audits = pgTable(
   ],
 )
 
+export type InspirationKind = 'showcase' | 'template' | 'skill'
+export type InspirationStatus = 'draft' | 'published' | 'archived'
+export interface InspirationParams {
+  size: string
+  quality?: 'auto' | 'low' | 'medium' | 'high'
+  n?: number
+}
+export interface InspirationReferenceImage {
+  key: string
+  name: string
+}
+
+export const inspiration_categories = pgTable('inspiration_categories', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  sort: integer('sort').notNull().default(0),
+  created_at: epochMs('created_at').notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
+export const inspiration_items = pgTable(
+  'inspiration_items',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<InspirationKind>().notNull(),
+    status: text('status').$type<InspirationStatus>().notNull().default('draft'),
+    featured: boolean('featured').notNull().default(false),
+    title: text('title').notNull(),
+    description: text('description'),
+    category_id: text('category_id')
+      .notNull()
+      .references(() => inspiration_categories.id),
+    prompt: text('prompt').notNull(),
+    recommended_provider: text('recommended_provider').notNull(),
+    recommended_model: text('recommended_model').notNull(),
+    params: bunJsonb('params').$type<InspirationParams>().notNull(),
+    tags: bunJsonb('tags').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    cover_key: text('cover_key').notNull(),
+    image_key: text('image_key'),
+    reference_images: bunJsonb('reference_images')
+      .$type<InspirationReferenceImage[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    skill_name: text('skill_name'),
+    source_url: text('source_url'),
+    author: text('author'),
+    sort: integer('sort').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+    updated_by: text('updated_by').notNull(),
+    published_at: epochMs('published_at'),
+  },
+  (t) => [
+    index('idx_inspiration_items_public').on(t.status, t.sort, t.id),
+    index('idx_inspiration_items_category').on(t.category_id, t.sort, t.id),
+    check('inspiration_items_kind_check', sql`${t.kind} IN ('showcase', 'template', 'skill')`),
+    check('inspiration_items_status_check', sql`${t.status} IN ('draft', 'published', 'archived')`),
+  ],
+)
+
+export const inspiration_publications = pgTable('inspiration_publications', {
+  version: integer('version').primaryKey(),
+  published_at: epochMs('published_at').notNull(),
+  item_count: integer('item_count').notNull(),
+  manifest_hash: text('manifest_hash').notNull(),
+})
+
 /**
  * 同步记录的通用列。删除以墓碑传播：`deleted_at` 非空的行内容列全为空，客户端读路径按它过滤。
  * `version` 是落库那一刻的每用户版本号，拉取即「取版本号大于客户端持有值的行」。

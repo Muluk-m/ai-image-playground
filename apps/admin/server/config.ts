@@ -38,6 +38,8 @@ export const config = {
   },
   // Origin the Google redirect URI is built from; empty falls back to the request's own origin.
   publicOrigin: env('ADMIN_PUBLIC_ORIGIN', '').replace(/\/+$/, ''),
+  // Origin the browser lives on. OAuth completion redirects here after the API sets its cookie.
+  frontendOrigin: env('ADMIN_FRONTEND_ORIGIN', '').replace(/\/+$/, ''),
   cookieSecret,
   bffInternalUrl: env('BFF_INTERNAL_URL', 'http://127.0.0.1:37377').replace(/\/+$/, ''),
   auth: {
@@ -53,7 +55,10 @@ export const config = {
   databaseUrl: env('DATABASE_URL'),
   /** Pool size and idle release from env, shown as aip-admin in pg_stat_activity. */
   databasePool: databasePoolFromEnv('aip-admin'),
-  corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
+  corsOrigins: env(
+    'ADMIN_CORS_ALLOWED_ORIGINS',
+    env('ADMIN_FRONTEND_ORIGIN', '').replace(/\/+$/, '') || '*',
+  ),
   // admin 前端 dist 目录；为空时 server 不挂静态托管（dev 模式由 vite 跑前端）
   staticDir: env('ADMIN_DIST_DIR', ''),
   /** 运维看板读部署记录的文件；compose 把宿主机上的部署日志只读挂到这里。 */

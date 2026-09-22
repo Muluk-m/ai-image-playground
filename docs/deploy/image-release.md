@@ -9,7 +9,7 @@
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
 2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则跳过；两套 API 都已是该提交时自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
 3. `backend`：检出该提交，用 deploy key 克隆私有仓库 main HEAD 到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
-4. `pages`：先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒），再无 `private/` 发布内部版、克隆同一私有提交后发布付费版（`pages-release.sh`，含域名 `version.json` 校验）。
+4. `pages`：先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒），再无 `private/` 发布内部版、克隆同一私有提交后发布付费版，最后发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。
 5. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
 ### Secrets（仓库 `Muluk-m/ai-image-playground`）
@@ -42,6 +42,7 @@ command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-ac
 | 内部版 | `ai-image-playground-internal` | `image-playground.qiliangjia.one` / `image-api.qiliangjia.one` |
 | 付费版 | `ai-image-playground` | `muvloom.online` / `api.muvloom.online` |
 | 付费旧域名 | 同一付费项目 | `image.nainma.online` / `api.nainma.online` |
+| 后台 | `muvloom-admin` | `admin.muvloom.online` / `admin-api.muvloom.online` |
 
 1. 准备两个独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交。付费检出包含已验证提交的 `private/`；内部检出不含 overlay。不要移动其他会话的 `private/` 或重写锁文件。
 2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写两套 `*_PAGES_PROJECT`、`*_BFF_BASE_URL`、`*_PUBLIC_ORIGIN`、`*_CLOUDFLARE_ACCOUNT_ID`；令牌通过 `*_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。两套账号分别验证权限。
@@ -66,6 +67,39 @@ macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260
 验收三个网页域名的 `version.json`、`runtime-config.json`：公开提交一致，付费含预期私有提交，API 映射正确；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
 
 前端回滚：在独立检出恢复上一已验证公开/私有提交，使用相同生产配置重跑对应 `pages-release.sh`，按上述步骤验收。
+
+## 后台：前端在 Pages、API 在 VPS
+
+后台前端是 `apps/admin` 的 Vite 产物，跟付费站同一个 Cloudflare 账号、同一份 `private/` overlay，发到独立项目 `muvloom-admin`；
+后台服务端还是 compose 里的 `admin` 容器，只出 API，经 tunnel 暴露成 `admin-api.muvloom.online`。
+两个域名同站（eTLD+1 相同），所以 `SameSite=Lax` 的 `admin_session` cookie 在 `fetch(credentials:'include')` 和 `<img>` 上都带得过去；`*.pages.dev` 预览域登不上，与主站一致。
+
+日常发布不用管它：`deploy.yml` 的 `pages` job 在付费站之后自动跑 `pages-release.sh admin`。应急手动发布：
+
+```sh
+export PAGES_ENV_FILE=/absolute/protected/pages.env
+cd /absolute/paid-checkout   # 必须带已验证的 private/
+./scripts/pages-release.sh admin
+```
+
+一次性切换（已执行过就不用再来）按顺序：
+
+1. `cloudflared tunnel route dns image-playground-paid admin-api.muvloom.online`，ingress 加 `admin-api.muvloom.online → http://admin:37378`，重启 cloudflared。
+2. `app.env` 加 `ADMIN_FRONTEND_ORIGIN=https://admin.muvloom.online`、`ADMIN_CORS_ALLOWED_ORIGINS=https://admin.muvloom.online`，把 `ADMIN_PUBLIC_ORIGIN` 改成 `https://admin-api.muvloom.online`（它是 API 自己的 origin，Google 控制台的回调地址跟着改成 `https://admin-api.muvloom.online/api/auth/google/callback`），删掉 `ADMIN_DIST_DIR` 那一行。
+3. `app-compose.sh compose image-playground-paid up --detach --no-deps admin`，验 `https://admin-api.muvloom.online/health` 的 `version`。
+4. 建 Pages 项目并首发，再把 `admin.muvloom.online` 的 DNS 从 tunnel 切到 Pages，删掉 ingress 里旧的 `admin.muvloom.online` 那行。Cloudflare Access 两个域名都要覆盖。
+5. 浏览器验收：登录、任务详情里的图片（跨域带 cookie）、私有计费面板、灵感库。
+
+回滚：DNS 切回 tunnel、恢复 ingress 那一行即可；镜像里保留了带 dist 的一版 admin，`ADMIN_DIST_DIR` 留空时用镜像内默认值仍能自托管前端。
+
+灵感库首次上线还要跑一次导入（幂等，重跑只补新条目）：
+
+```sh
+DATABASE_URL=<迁移账号> bun run apps/bff/scripts/import-inspirations.ts
+```
+
+它把 `apps/web/public/inspiration-manifest.json` 的 563 条导成已发布条目（22 个分类），封面先沿用原外链。
+后台上传封面要 `PUBLIC_ASSET_BUCKET` / `PUBLIC_ASSET_BASE_URL`（见 `deploy/app.*.env.example`）；两个都空时后台只能引用外链，已发布内容不受影响。
 
 ## 测试环境（test 分支预览）
 

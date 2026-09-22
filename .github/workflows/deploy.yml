@@ -150,7 +150,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/vps-key"
 
   pages:
-    name: Pages (internal, then paid)
+    name: Pages (internal, paid, then admin)
     needs: [target, backend]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -190,10 +190,11 @@ jobs:
             printf '%s\n' "$PAGES_ENV"
             echo "INTERNAL_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/INTERNAL-cloudflare.env"
             echo "PAID_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
             echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      - name: Wait for both APIs to serve the deployed commit
+      - name: Wait for all APIs to serve the deployed commit
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
           PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
@@ -213,6 +214,7 @@ jobs:
           }
           check "$INTERNAL_BFF_BASE_URL" "$PUBLIC_SHA"
           check "$PAID_BFF_BASE_URL" "$PUBLIC_SHA+$PRIVATE_SHA"
+          check "$ADMIN_BFF_BASE_URL" "$PUBLIC_SHA+$PRIVATE_SHA"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -240,6 +242,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Release the paid site (with private overlay)
         run: ./scripts/pages-release.sh paid
+      - name: Release the paid Admin site (with private overlay)
+        run: ./scripts/pages-release.sh admin
       - name: Remove secrets from the runner
         if: always()
         run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"
