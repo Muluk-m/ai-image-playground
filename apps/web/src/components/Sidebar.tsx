@@ -119,16 +119,6 @@ export default function Sidebar() {
                 {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
               </span>
             </button>
-            {/* 画布要整屏：这里收起侧栏，收起后左上角留一颗品牌按钮把它叫回来。 */}
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              aria-label={t('nav.collapse')}
-              title={t('nav.collapse')}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              ‹
-            </button>
           </div>
           {NAV_APP_MODES.map(item)}
           {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
