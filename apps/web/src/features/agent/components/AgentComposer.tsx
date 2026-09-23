@@ -83,6 +83,7 @@ import {
 import { setAgentComposerFill } from '../lib/composerFill'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
+import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
 import {
   type AgentReference,
   type AttachedReference,
@@ -437,6 +438,7 @@ export default function AgentComposer({
     session.accept(snapshot)
     selection.sent()
     setCursor(0)
+    browsingRef.current = null
     const releaseSubmission = session.beginSubmission()
     let accepted = false
     const restore = (cancelled = false) => {
@@ -458,6 +460,7 @@ export default function AgentComposer({
         submission.references,
         () => {
           accepted = true
+          rememberAgentPrompt(snapshot.prompt)
           releaseSubmission()
         },
         mode,
@@ -471,8 +474,68 @@ export default function AgentComposer({
       .finally(releaseSubmission)
   }
 
+  /**
+   * shell 式的上下翻：`index` 是从用户自己打的那份往回数的步数，0 就是那份本身。
+   * 一路带着 `typed`，翻过头再往前走要把它原样放回去。一开始翻就把历史定住：
+   * 翻的过程中这个会话又发出去一句（排队的那种），脚下的清单不该跟着变。
+   */
+  const browsingRef = useRef<{
+    entries: readonly string[]
+    index: number
+    typed: string
+  } | null>(null)
+
+  const recall = (step: 1 | -1): boolean => {
+    const browsing = browsingRef.current ?? {
+      entries: agentPromptHistory(),
+      index: 0,
+      typed: draft.prompt,
+    }
+    const index = browsing.index + step
+    // 翻到最旧的那条就停住，别绕回最新的：绕回去看着像刚才那几下没生效。
+    if (index < 0 || index > browsing.entries.length) return false
+    const prompt = index === 0 ? browsing.typed : browsing.entries[browsing.entries.length - index]
+    browsingRef.current = { ...browsing, index }
+    // 这一笔不是用户打进去的，要让编辑器照常重画（胶囊、技能徽标都得跟着回来）。
+    typedRef.current = null
+    setDraft((current) => ({ ...current, prompt }))
+    const end = getVisiblePrompt(prompt, labels).length
+    setCursor(end)
+    window.setTimeout(() => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      setContentEditableCursor(el, end)
+    }, 0)
+    return true
+  }
+
+  /** 候选菜单没开着时上下键翻历史：光标在首行往回翻、在末行往前翻，中间几行照常移动光标。 */
+  const recallKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
+    const back = event.key === 'ArrowUp'
+    if (!back && event.key !== 'ArrowDown') return false
+    if (
+      loading ||
+      event.nativeEvent.isComposing ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    )
+      return false
+    const range = getContentEditableSelection(event.currentTarget)
+    if (range.start !== range.end) return false
+    const edge = back
+      ? range.start === 0 || visible.lastIndexOf('\n', range.start - 1) === -1
+      : visible.indexOf('\n', range.start) === -1
+    if (!edge || !recall(back ? 1 : -1)) return false
+    event.preventDefault()
+    return true
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (menu.handleKeyDown(event)) return
+    if (recallKeyDown(event)) return
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
     submit()
@@ -613,6 +676,8 @@ export default function AgentComposer({
               syncMentionTagSelection(el)
               const text = getContentEditablePlainText(el)
               typedRef.current = text
+              // 动过一个字就不再是在翻历史：下一次上键从最新那条重新数起。
+              browsingRef.current = null
               setDraft((current) => ({ ...current, prompt: text }))
               menu.open()
             }}
