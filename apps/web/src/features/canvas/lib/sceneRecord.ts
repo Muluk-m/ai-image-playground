@@ -30,6 +30,8 @@ export interface CloudSceneStrategy {
   save(write: (checkpoint: CloudSceneCheckpoint) => Promise<boolean>): Promise<boolean>
   /** 文档结构变了。 */
   markChanged(): void
+  /** 本机这一份已经安全落盘，去把它推上去。 */
+  requestSync(): void
 }
 
 /**
@@ -141,6 +143,9 @@ export class SceneRecord {
         this.savedStructureRevision = structureRevision
       }
       this.update({ saveFailed: !saved })
+      // 「本机写成功了就去推云端」只在这一处成文：防抖那次落盘与手动 flush 走的是同一条路。
+      // `persist()` 不走这里——它是同步会话自己要求的那次写，再回头请求同步会绕回自己。
+      if (saved) this.cloud?.requestSync()
       return saved
     })
   }

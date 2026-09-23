@@ -137,3 +137,61 @@ it('真实工作区断网自动保存，联网无需手动点击即可续传', a
     vi.unstubAllGlobals()
   }
 })
+
+it('编辑之后不用手动推：防抖落盘顺手把这份文档送上去', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const writes: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+      const body = JSON.parse(init!.body as string)
+      writes.push(body)
+      return Response.json({
+        id: project.id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: body.document.elements.length,
+      })
+    }),
+  )
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create('自动上传', undefined, true)
+  useCanvasProjectStore.setState({ projects: [project] })
+
+  const workspace = new CanvasWorkspace(project.sceneKey)
+  try {
+    await workspace.ready
+    // 新项目起步那次推送先落定，后面的写入只可能来自这次编辑。
+    await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'), {
+      timeout: 3000,
+    })
+    const before = writes.length
+    workspace.doc.addElements([
+      {
+        id: 'note',
+        type: 'text',
+        text: '防抖之后自己上去',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 30,
+        fontSize: 24,
+        fill: '#000',
+      },
+    ])
+    // 谁都不碰 flush / requestSync / sync：推上去必须是防抖那次落盘自己带出来的。
+    // 500ms 防抖落盘 + 1000ms 排下的推送，给一倍余量。
+    await vi.waitFor(() => expect(writes).toHaveLength(before + 1), { timeout: 3000 })
+    expect(writes[before]).toMatchObject({ document: { elements: [{ text: '防抖之后自己上去' }] } })
+  } finally {
+    workspace.dispose()
+    useCanvasProjectStore.setState({ projects: [] })
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    await bootstrapClientCapabilities(false, '')
+    vi.unstubAllGlobals()
+  }
+})

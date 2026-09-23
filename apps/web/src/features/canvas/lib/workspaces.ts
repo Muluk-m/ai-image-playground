@@ -88,11 +88,8 @@ export class CanvasWorkspace {
     })
     void this.ready.catch(() => {})
   }
-  flush = async (): Promise<boolean> => {
-    const saved = await this.record.flush()
-    if (saved) this.cloud?.requestSync()
-    return saved
-  }
+  /** 落盘归存档；写成功之后推不推云端也归它（`SceneRecord.flush`）。 */
+  flush = (): Promise<boolean> => this.record.flush()
   /**
    * 从别处送进来的图（工作台、灯箱的「生成视频」）：画布开着就把队列里的放下去。
    * 读盘没完或读失败时不动——那时候画布还不是可写的那一份。
