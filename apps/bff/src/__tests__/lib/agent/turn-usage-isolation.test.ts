@@ -18,9 +18,9 @@ process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 // 固定开销 + 1500。**每加一个工具，这一条都要跟着抬**：
 // 2026-09-22 saveAsset / saveLook / viewImage.region 把开销抬到约 4000（窗口 5750）；
 // 2026-09-23 editCanvasObject 抬到 4127，带随之上移到约 5630–6030，取中；
-// 2026-09-23 生图美术指导与取网图的描述再抬约 150（联网工具默认关，不在这份清单里）；
-// 逐档实测可用带 5980–6390，取中。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '6180'
+// 2026-09-23 生图美术指导（含「直出」判断）与取网图的描述再抬约 250（联网工具默认关，
+// 不在这份清单里）；逐档实测可用带 6120–6500，取中。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '6310'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
