@@ -5,7 +5,10 @@ import { createRoot } from 'react-dom/client'
 
 import './index.css'
 import { setApiClientRefs } from './lib/api-client'
+import { loadAdminRuntimeConfig } from './lib/runtime-config'
 import { routeTree } from './routeTree.gen'
+
+await loadAdminRuntimeConfig()
 
 const queryClient = new QueryClient({
   defaultOptions: {

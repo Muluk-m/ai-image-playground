@@ -144,7 +144,9 @@ services:
       PORT: "37378"
       # Operator traffic only; the operations board fans out a dozen short reads per load.
       DATABASE_POOL_MAX: "3"
-      ADMIN_DIST_DIR: /app/apps/admin/dist
+      # ADMIN_DIST_DIR is deliberately absent: app.env owns it. Empty there makes Admin
+      # API-only (the frontend is its own Pages project); unset falls back to the image
+      # default that still serves dist, which is the rollback path.
       BFF_INTERNAL_URL: ${BFF_INTERNAL_URL:-http://bff:37377}
       OPS_DEPLOYMENTS_LOG: /host/deployments.log
     command:
