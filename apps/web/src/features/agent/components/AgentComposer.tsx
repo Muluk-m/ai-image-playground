@@ -1,4 +1,8 @@
-import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
+import {
+  AGENT_TURN_ATTACHED_MEDIA_MAX,
+  AGENT_TURN_MAX_INLINE_REFERENCES,
+  AGENT_TURN_MAX_REFERENCES,
+} from '@image-playground/shared'
 import { Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
@@ -55,6 +59,7 @@ import {
 } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
@@ -85,9 +90,11 @@ import {
   clearReferenceMask,
   draftForSubmit,
   hasDraftContent,
+  type ReferenceTransport,
   referenceDisplayNames,
   referenceLabels,
   removeReference,
+  removeSelectionReferences,
   setReferenceMask,
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
@@ -161,9 +168,13 @@ export default function AgentComposer({
     const images = acceptImageFiles(files)
     if (images.length === 0) return
     void filesToReferences(images).then((added) => {
-      setDraft((current) => attachReferences(current, added))
+      setDraft((current) => attachReferences(current, added, transportRef.current))
     })
   }
+  // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
+  // 收成一条「已选 N 张画布图」。手动附上的照旧逐张显示。
+  const selected = draft.references.filter((one) => one.origin === 'selection')
+  const selectionSummary = selected.length > AGENT_TURN_ATTACHED_MEDIA_MAX ? selected : []
   const referenceNames = referenceDisplayNames(draft.references)
   const { dragging, dropZoneProps } = useImageDropZone(attachFiles)
   // 面板把落在对话记录上的文件递过来。
@@ -241,13 +252,34 @@ export default function AgentComposer({
   // 哪些是这么带进来的归 selection 自己记，输入框只管把画布和草稿的入口交给它。
   const [selection] = useState(createSelectionReferences)
   const selectionKey = useMemo(() => selection.key(doc), [selection, doc, version])
-  const tooManyReferences = () =>
-    useStore
-      .getState()
-      .showToast(t('composer.tooManyReferences', { count: AGENT_TURN_MAX_REFERENCES }), 'error')
+  // 哪些参考图发送时能按 id 走（见 `sendsById`）：决定放得下多少。选区同步的 effect 只在选区
+  // 变化时跑，所以经 ref 取最新一份，别把画布内容列进它的依赖。
+  const cloudProject =
+    useCanvasProjectStore((state) =>
+      Boolean(state.projects.find((one) => one.id === state.activeId)?.cloud),
+    ) && cloudProjectsEnabled()
+  const transport = useMemo<ReferenceTransport>(
+    () => ({ cloud: cloudProject, canvasSources: new Set(Object.values(doc.files)) }),
+    [cloudProject, doc, version],
+  )
+  const transportRef = useRef(transport)
+  transportRef.current = transport
+  // 撞的是哪道上限就说哪道：圈选撞总数，拖文件、`@` 素材撞只能内联的那几张。
+  const tooManyReferences = (inline: boolean) =>
+    useStore.getState().showToast(
+      inline
+        ? t('composer.tooManyUploads', { count: AGENT_TURN_MAX_INLINE_REFERENCES })
+        : t('composer.tooManyReferences', {
+            count: transportRef.current.cloud
+              ? AGENT_TURN_MAX_REFERENCES
+              : AGENT_TURN_MAX_INLINE_REFERENCES,
+          }),
+      'error',
+    )
   useEffect(() => {
     if (loading) return
-    if (selection.follow(doc, setDraft, editor, session.key) > 0) tooManyReferences()
+    if (selection.follow(doc, setDraft, editor, session.key, transportRef.current) > 0)
+      tooManyReferences(false)
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
   }, [selection, selectionKey, loading, session])
 
@@ -304,10 +336,10 @@ export default function AgentComposer({
         }))
       : []
 
-  const applyAttach = (next: AttachedReference) => {
+  const applyAttach = (next: AttachedReference, inline = false) => {
     typedRef.current = null
     if (next.overflow) {
-      tooManyReferences()
+      tooManyReferences(inline)
       return
     }
     setDraft(next.draft)
@@ -343,15 +375,22 @@ export default function AgentComposer({
 
     // 只有素材要等图取回来；另外两支就在手边，别让它们也隔一个微任务才插胶囊。
     if (value.type === 'asset') {
-      const attached = await attachAssetToDraft(draft, value.id, active.start, at)
-      if (attached) applyAttach(attached)
+      const attached = await attachAssetToDraft(
+        draft,
+        value.id,
+        active.start,
+        at,
+        transportRef.current,
+      )
+      if (attached) applyAttach(attached, true)
       return
     }
     const reference =
       value.type === 'reference'
         ? draft.references[value.index]
         : canvasReference(canvas, value.imageId)
-    if (reference) applyAttach(attachReference(draft, reference, active.start, at))
+    if (reference)
+      applyAttach(attachReference(draft, reference, active.start, at, transportRef.current))
   }
 
   const menu = useSuggestionMenu({
@@ -472,7 +511,33 @@ export default function AgentComposer({
       <ComposerBar dragActive={dragging}>
         {draft.references.length > 0 && (
           <ComposerAttachments>
+            {selectionSummary.length > 0 && (
+              <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
+                <div className="flex -space-x-3">
+                  {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
+                    <MediaImage
+                      key={one.id}
+                      src={one.dataUrl}
+                      className={`${STRIP_THUMB} ring-2 ring-muted`}
+                      alt=""
+                    />
+                  ))}
+                </div>
+                <span className="whitespace-nowrap text-xs text-foreground">
+                  {t('composer.selectionSummary', { count: selectionSummary.length })}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t('composer.clearSelectionAria')}
+                  className={`shrink-0 ${ICON_BUTTON}`}
+                  onClick={() => setDraft(removeSelectionReferences(draft))}
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             {draft.references.map((reference, index) => {
+              if (selectionSummary.length > 0 && reference.origin === 'selection') return null
               const label = referenceNames[index] ?? getImageMentionLabel(index)
               const masked = Boolean(reference.maskDataUrl)
               return (
