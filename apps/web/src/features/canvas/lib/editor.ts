@@ -59,7 +59,7 @@ export interface CanvasTaskMeta {
    */
   editSourceId?: string
   /** 二次加工的种类，决定卡片上那层写什么。旧占位框没有这个字段，按局部重绘处理。 */
-  editKind?: 'inpaint' | 'erase' | 'outpaint'
+  editKind?: 'inpaint' | 'erase' | 'outpaint' | 'cutout'
   /** 序列化后的重出配方（`regenRecipe.ts`）。占位框与结果元素上都有一份。 */
   regen?: string
   /**

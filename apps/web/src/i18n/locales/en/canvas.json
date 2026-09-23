@@ -406,5 +406,11 @@
       "sw": "Bottom left",
       "w": "Left edge"
     }
+  },
+  "cutout": {
+    "action": "Cut out",
+    "running": "Cutting out…",
+    "videoUnsupported": "Video cannot be cut out",
+    "keyFailed": "The background could not be keyed out; kept the raw image — try again"
   }
 }

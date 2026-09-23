@@ -10,6 +10,7 @@ import {
   notifyPrivateSubmissionSettled,
 } from '../../../lib/privateOverlay'
 import { taskErrorTypeOf } from '../../../lib/taskError'
+import { removeKeyedBackgroundFromDataUrl } from '../../../lib/transparentImage'
 import { addCompletedCanvasTask, useStore } from '../../../store'
 import {
   type CanvasTaskSpec,
@@ -55,6 +56,30 @@ function buildApiPrompt(annotated: boolean, requirement: string): string {
   return requirement
     ? `${CANVAS_ANNOTATION_INSTRUCTION}\n修改要求：${requirement}`
     : CANVAS_ANNOTATION_INSTRUCTION
+}
+
+/**
+ * 抠图的后半程：模型只负责把背景换成纯色，真正的透明是在本地键出来的。
+ *
+ * 键失败（拿回来的背景不够纯、或者画布读不出像素）就**留着那张原图**并说一句：
+ * 这一次已经花掉了积分，把它当失败扔掉比给一张还带背景的图更坏——用户至少能看到
+ * 发生了什么，再决定重不重来。与工作台那条路的口径一致（store.ts `storeGeneratedImages`）。
+ */
+async function keyOutBackground(images: string[]): Promise<string[]> {
+  let failed = false
+  const out = await Promise.all(
+    images.map(async (dataUrl) => {
+      try {
+        return await removeKeyedBackgroundFromDataUrl(dataUrl)
+      } catch {
+        failed = true
+        return dataUrl
+      }
+    }),
+  )
+  if (failed)
+    useStore.getState().showToast(i18next.t('cutout.keyFailed', { ns: 'canvas' }), 'error')
+  return out
 }
 
 /**
@@ -113,7 +138,12 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
       onQueueStatus: (queuePhase) =>
         editor.updatePlaceholder(placeholderId, { meta: { queuePhase } }),
     })
-    const placed = await settleGeneration(editor, placeholderId, spec.target, result)
+    const images =
+      spec.editKind === 'cutout' ? await keyOutBackground(result.images) : result.images
+    const placed = await settleGeneration(editor, placeholderId, spec.target, {
+      ...result,
+      images,
+    })
     // 落图成功也**不释放**运行态：结果元素上的 `meta.taskId` 指着它，「重新生成」靠它原样再发。
     // 内存由 canvasTaskRuntime 的有界 LRU 兜住；失败态的占位框同样还留着它用于重试。
     // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
@@ -121,7 +151,7 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
       void addCompletedCanvasTask({
         prompt: spec.prompt,
         params: spec.params,
-        images: result.images,
+        images,
         elapsed: Date.now() - startedAt,
         profile: profileView,
       })

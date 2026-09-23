@@ -1,6 +1,10 @@
 import { i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
+import {
+  modelSupportsEdit,
+  modelSupportsNativeMask,
+  NO_EDIT_SUPPORT_MESSAGE,
+} from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -16,7 +20,10 @@ import { computePlaceholderTargets } from './placement'
 import { decodeRecipe, rebuildSpecFromRecipe, recipeSourcesPresent } from './regenRecipe'
 import { launchCanvasTask } from './submitFromCanvas'
 
-/** 画布上已有图片的二次加工：裁切（纯本地）、扩图（走遮罩链路）、重新生成（原样再发一次）。 */
+/**
+ * 画布上已有图片的二次加工：裁切（纯本地）、抠图（绿幕 + 本地去背）、扩图（走遮罩链路）、
+ * 重新生成（原样再发一次）。
+ */
 
 /**
  * 用户没写描述时扩图发给模型的那句。**这段中文是数据不是文案**，不进语料、
@@ -60,6 +67,75 @@ export async function applyCanvasCrop(
       height: rect.h,
       naturalWidth: size.width,
       naturalHeight: size.height,
+    })
+    return true
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), 'error')
+    return false
+  }
+}
+
+// ===== 抠图 =====
+
+/**
+ * 抠图发给模型的那句。**这段中文是数据不是文案**，不进语料、不随界面语言变。
+ *
+ * gpt-image 系列不产出 alpha 通道，也没有分割能力：直接说「去掉背景」拿回来的是一张
+ * 背景画成白色的**重绘图**，主体会被一起重画。所以这里走既有的绿幕路子——让它只换背景、
+ * 主体逐像素保留，回来之后在本地把那块纯色键掉（`removeKeyedBackgroundFromDataUrl`），
+ * 透明边缘由本地算法给。代价是主体本身仍可能被模型轻微重绘，这是这条上游能做到的上限。
+ */
+const CUTOUT_INSTRUCTION =
+  '只替换背景，主体保持逐像素不变：不要重画、不要改动主体的轮廓、颜色、细节、姿态与位置。' +
+  '把主体之外的全部区域换成纯绿色 #00FF00 的纯色背景，不要渐变、阴影、地面、倒影、纹理或光照变化；' +
+  '若主体本身含有绿色/青色/荧光绿，改用纯品红 #FF00FF。' +
+  '主体的轮廓、描边、辉光、反射与阴影里都不得出现所选的那个纯色。'
+
+/** 能不能抠图。与「参考图」同一道闸：模型接不住输入图就谈不上在原图上换背景。 */
+export function cutoutRefusal(image: ImageEl, settings: AppSettings): string | null {
+  if (image.video) return i18next.t('cutout.videoUnsupported', { ns: 'canvas' })
+  if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels()))
+    return NO_EDIT_SUPPORT_MESSAGE
+  return null
+}
+
+/**
+ * 发起一次抠图：整图重画一遍、不带遮罩，结果就地替换源图。
+ * 输出强制 png 且不压缩——键掉背景之后要存的是带 alpha 的图，jpeg / webp 有损会把边缘糊掉。
+ */
+export async function submitCanvasCutout(editor: CanvasEditor, image: ImageEl): Promise<boolean> {
+  const { showToast, settings } = useStore.getState()
+  const blocked = submissionBlocked(settings)
+  if (blocked) {
+    showToast(blocked, 'error')
+    return false
+  }
+  try {
+    const source = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
+    const params = {
+      ...useStore.getState().params,
+      n: 1,
+      output_format: 'png' as const,
+      output_compression: null,
+    }
+    // 占位框盖在源图上：抠完是同一张图的另一版，不该在旁边多出一张。
+    const target = { x: image.x, y: image.y, w: image.width, h: image.height }
+    void launchCanvasTask(editor, {
+      prompt: CUTOUT_INSTRUCTION,
+      annotated: false,
+      inputImageDataUrls: [source],
+      editSourceId: image.id,
+      editKind: 'cutout',
+      params,
+      recipe: {
+        v: 1,
+        kind: 'cutout',
+        prompt: CUTOUT_INSTRUCTION,
+        annotated: false,
+        params,
+        entries: [{ imageId: image.id, graphicIds: [] }],
+      },
+      target,
     })
     return true
   } catch (err) {
