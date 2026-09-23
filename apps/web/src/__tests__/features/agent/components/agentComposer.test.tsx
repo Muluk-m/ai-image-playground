@@ -479,4 +479,19 @@ describe('发送与中止共用一颗按钮', () => {
     expect(trailing().getAttribute('aria-label')).toBe('正在中止…')
     expect(trailing().disabled).toBe(true)
   })
+
+  it('写着字时 Esc 仍能中止，不必先清空输入框', () => {
+    const abort = vi.fn(async () => {})
+    useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' }, abort })
+    render()
+    type('再来一张竖版的')
+
+    act(() => {
+      editor().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      )
+    })
+    expect(abort).toHaveBeenCalledTimes(1)
+    expect(send).not.toHaveBeenCalled()
+  })
 })
