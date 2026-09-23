@@ -103,7 +103,7 @@ describe('routing a pasted image to one place at a time', () => {
 
   it('leaves the mode behind in charge while the panel shows templates', () => {
     act(() => {
-      useLibraryStore.setState({ onLibraryPage: true, tab: 'templates' })
+      useLibraryStore.setState({ onLibraryPage: true, tab: 'prompts' })
     })
 
     paste([image()])

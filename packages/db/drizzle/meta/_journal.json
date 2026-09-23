@@ -260,6 +260,27 @@
       "when": 1790118000000,
       "tag": "0037_email_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790118001000,
+      "tag": "0038_inspiration_library",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790119000000,
+      "tag": "0039_asset_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790120000000,
+      "tag": "0040_user_looks",
+      "breakpoints": true
     }
   ]
 }

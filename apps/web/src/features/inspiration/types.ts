@@ -1,3 +1,7 @@
+import type {
+  InspirationItem as SharedInspirationItem,
+  InspirationManifest as SharedInspirationManifest,
+} from '@image-playground/shared'
 import type { ProviderKind } from '../../lib/channels/types'
 
 /**
@@ -7,30 +11,10 @@ import type { ProviderKind } from '../../lib/channels/types'
  * - `recommendedProvider` + `recommendedModel` 用于「应用」时定位 ClientProfile
  * - `params` 仅覆盖 InputBar 用户可控字段；output_format / moderation 等不在此范围
  */
-export interface InspirationItem {
-  id: string
-  title: string
-  description?: string
-  prompt: string
-  thumbnailUrl: string
-  imageUrl?: string
-  params: {
-    size: string
-    quality?: 'auto' | 'low' | 'medium' | 'high'
-    n?: number
-  }
-  recommendedModel: string
+export interface InspirationItem extends Omit<SharedInspirationItem, 'recommendedProvider'> {
   recommendedProvider: ProviderKind
-  category: string
-  tags?: string[]
-  author?: string
-  /** 原 prompt 出处链接（如推文 URL）；仅用于致谢展示，不参与逻辑 */
-  sourceUrl?: string
 }
 
-export interface InspirationManifest {
-  version: number
-  updatedAt: string
+export interface InspirationManifest extends Omit<SharedInspirationManifest, 'items'> {
   items: InspirationItem[]
-  categories?: string[]
 }

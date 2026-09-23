@@ -13,8 +13,13 @@ export interface RecordStore<T> {
   applyRemote(changes: Array<T | Tombstone>): Promise<void>
 }
 
+/**
+ * `imageIds` 报告这条记录要占的素材图。同步引擎据此决定先传哪几张，
+ * 以及这条记录这一轮推不推得动——图片本体没上去的记录服务端不收。
+ */
 export function createRecordStore<T extends { id: string }>(
   storeName: SyncCollection,
+  imageIds: (record: T) => string[] = () => [],
 ): RecordStore<T> {
   const write = (record: T | Tombstone) =>
     dbTransaction(storeName, 'readwrite', (store) => store.put(record)).then(() => {})
@@ -28,7 +33,7 @@ export function createRecordStore<T extends { id: string }>(
 
     put: async (record) => {
       await write(record)
-      markRecordDirty(storeName, record)
+      markRecordDirty(storeName, { id: record.id, imageIds: imageIds(record) })
     },
 
     // 删除写墓碑而不是抹掉行，否则另一台设备推来的旧版本会让它复活。

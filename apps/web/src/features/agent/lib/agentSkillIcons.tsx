@@ -1,6 +1,8 @@
 import { DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
 import {
+  Aperture,
   Clapperboard,
+  Flame,
   ImagePlay,
   ImagePlus,
   Images,
@@ -8,13 +10,18 @@ import {
   LayoutTemplate,
   type LucideIcon,
   Megaphone,
+  Mountain,
+  PackagePlus,
   Palette,
   PersonStanding,
   Replace,
+  ScanSearch,
   ShoppingBag,
   ShoppingCart,
   Sparkles,
   Sprout,
+  WandSparkles,
+  Waves,
 } from 'lucide-react'
 
 /**
@@ -27,20 +34,27 @@ import {
  * 直接读 `apps/bff/skills/**\/meta.json`，漏了就会红。
  */
 const AGENT_SKILL_ICONS: Readonly<Record<string, LucideIcon>> = {
+  aperture: Aperture,
   clapperboard: Clapperboard,
+  flame: Flame,
   'image-play': ImagePlay,
   'image-plus': ImagePlus,
   images: Images,
   languages: Languages,
   'layout-template': LayoutTemplate,
   megaphone: Megaphone,
+  mountain: Mountain,
+  'package-plus': PackagePlus,
   palette: Palette,
   'person-standing': PersonStanding,
   replace: Replace,
+  'scan-search': ScanSearch,
   'shopping-bag': ShoppingBag,
   'shopping-cart': ShoppingCart,
   sparkles: Sparkles,
   sprout: Sprout,
+  'wand-sparkles': WandSparkles,
+  waves: Waves,
 }
 
 /** 白名单里认得的全部图标名，给测试对着技能目录点名。 */

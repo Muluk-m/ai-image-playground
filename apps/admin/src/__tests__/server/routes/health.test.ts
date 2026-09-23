@@ -9,10 +9,10 @@ process.env.PORT = '0'
 const { app } = await import('../../../../server/app')
 
 describe('GET /health', () => {
-  it('returns ok', async () => {
+  it('reports the immutable release version', async () => {
+    process.env.APP_VERSION = 'public-sha+private-sha'
     const res = await app.handle(new Request('http://localhost/health'))
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { ok: boolean }
-    expect(body.ok).toBe(true)
+    expect(await res.json()).toEqual({ ok: true, version: 'public-sha+private-sha' })
   })
 })

@@ -17,7 +17,10 @@ const {
   agentSkills,
   ensureAgentSkills,
   findAgentSkill,
+  lookSkillContent,
   readAgentSkillFile,
+  readAgentSkillFileBytes,
+  resolveAgentSkill,
   setAgentSkillsRootForTesting,
 } = await import('../../../lib/agent/skills')
 const { log } = await import('../../../lib/logger')
@@ -50,6 +53,28 @@ beforeAll(async () => {
   await skill('image', 'mismatch', 'name: other-name\ndescription: 何时用：随便。', '正文')
   await skill('image', 'no-description', 'name: no-description', '正文')
 
+  // 预置模板：带模板标记的技能目录，图片随目录走。
+  await skill(
+    'image',
+    'scene-look',
+    'name: scene-look\ndescription: 何时用：场景图。不处理：白底图。',
+    '# 岩壁场景\n\n## 1. 一句话目标\n把素材放进岩壁场景。',
+  )
+  await writeFile(join(root, 'image', 'scene-look', 'cover.webp'), 'webp-bytes', 'utf8')
+  // 图片不给模型读，所以不受那份给模型读的散文上限约束。
+  await writeFile(
+    join(root, 'image', 'scene-look', 'big.webp'),
+    'x'.repeat(AGENT_SKILL_FILE_MAX_BYTES + 1),
+    'utf8',
+  )
+  // 标记写坏的那条：封面文件压根不在。标记该被丢掉，技能本身留下。
+  await skill(
+    'image',
+    'broken-look',
+    'name: broken-look\ndescription: 何时用：坏模板。',
+    '# 坏模板\n\n正文',
+  )
+
   // 界面元数据走旁路文件：写对的一条、写坏的一条、压根没写的一条，三种都要有。
   await writeFile(
     join(root, 'video', 'storyboard', 'meta.json'),
@@ -60,6 +85,38 @@ beforeAll(async () => {
   await writeFile(
     join(root, 'shared', 'palette', 'meta.json'),
     JSON.stringify({ icon: 'Palette', summary: '   ' }),
+    'utf8',
+  )
+  await writeFile(
+    join(root, 'image', 'scene-look', 'meta.json'),
+    JSON.stringify({
+      icon: 'mountain',
+      summary: '岩壁场景',
+      template: {
+        purpose: 'scene',
+        model: 'gpt-image-2.5-sunburst',
+        size: '3:4',
+        slotCount: 1,
+        cover: 'cover.webp',
+        references: ['cover.webp'],
+      },
+    }),
+    'utf8',
+  )
+  await writeFile(
+    join(root, 'image', 'broken-look', 'meta.json'),
+    JSON.stringify({
+      icon: 'flame',
+      summary: '坏模板',
+      template: {
+        purpose: 'scene',
+        model: 'gpt-image-2.5-sunburst',
+        size: '3:4',
+        slotCount: 1,
+        cover: 'missing.webp',
+        references: [],
+      },
+    }),
     'utf8',
   )
 
@@ -86,7 +143,7 @@ describe('agent skills loading', () => {
       agentSkills('image')
         .map((one) => one.name)
         .sort(),
-    ).toEqual(['main-image', 'other-name', 'palette'])
+    ).toEqual(['broken-look', 'main-image', 'other-name', 'palette', 'scene-look'])
     expect(
       agentSkills('video')
         .map((one) => one.name)
@@ -186,6 +243,108 @@ describe('reading a skill attachment', () => {
     expect(await readAgentSkillFile('video', 'storyboard', 'references/nope.md')).toEqual({
       kind: 'unreadable',
     })
+  })
+})
+
+describe('预置模板标记', () => {
+  it('把 meta.json 里的模板标记读成技能的一部分', () => {
+    expect(findAgentSkill('image', 'scene-look')?.template).toEqual({
+      purpose: 'scene',
+      model: 'gpt-image-2.5-sunburst',
+      size: '3:4',
+      slotCount: 1,
+      cover: 'cover.webp',
+      references: ['cover.webp'],
+    })
+  })
+
+  it('发给界面的那一份把图片换成地址，并带上正文', () => {
+    const summary = agentSkillSummaries('image').find((one) => one.name === 'scene-look')
+    expect(summary?.template?.coverUrl).toBe('/api/agent/skills/scene-look/files/cover.webp')
+    expect(summary?.template?.referenceUrls).toEqual([
+      '/api/agent/skills/scene-look/files/cover.webp',
+    ])
+    // 出图模式在本机按正文装配请求，所以预置模板的正文要跟着清单发。
+    expect(summary?.template?.body).toContain('## 1. 一句话目标')
+  })
+
+  it('标记写坏时只丢标记，技能照常在', () => {
+    // 封面文件不在：这条模板出现在模板页上就是一张取不到的图。
+    expect(findAgentSkill('image', 'broken-look')?.template).toBeUndefined()
+    expect(findAgentSkill('image', 'broken-look')?.title).toBe('坏模板')
+  })
+
+  it('没写标记的技能不是模板', () => {
+    expect(findAgentSkill('image', 'main-image')?.template).toBeUndefined()
+    expect(agentSkillSummaries('image').find((one) => one.name === 'main-image')?.template).toBe(
+      undefined,
+    )
+  })
+})
+
+describe('reading a skill image', () => {
+  it('serves the bytes with a content type', async () => {
+    const result = await readAgentSkillFileBytes('image', 'scene-look', 'cover.webp')
+    expect(result.kind === 'ok' && new TextDecoder().decode(result.bytes)).toBe('webp-bytes')
+    expect(result.kind === 'ok' && result.contentType).toBe('image/webp')
+  })
+
+  it('does not apply the prose size cap to images', async () => {
+    // 那 64 KB 是「给模型读的散文」的上限；封面是发给浏览器的字节，与它无关。
+    expect((await readAgentSkillFileBytes('image', 'scene-look', 'big.webp')).kind).toBe('ok')
+  })
+
+  it('refuses anything that is not an image', async () => {
+    expect(await readAgentSkillFileBytes('image', 'scene-look', 'SKILL.md')).toEqual({
+      kind: 'not-an-image',
+    })
+  })
+
+  it('guards the path the same way reading text does', async () => {
+    expect(await readAgentSkillFileBytes('video', 'storyboard', '../../outside.png')).toEqual({
+      kind: 'escapes-skill',
+    })
+  })
+})
+
+describe('用户自建的模板当成技能', () => {
+  const look = {
+    id: 'l1',
+    name: '岩壁大理石',
+    description: '给素材出冷峻岩壁场景图。',
+    body: '## 1. 一句话目标\n把素材放进岩壁场景。',
+    model: 'gpt-image-2.5-sunburst',
+    size: '3:4',
+    slotCount: 1,
+  }
+
+  it('合成出来的 SKILL.md 带 frontmatter、标题与钉死的参数', () => {
+    const content = lookSkillContent(look)
+    expect(
+      content.startsWith('---\nname: look-l1\ndescription: 给素材出冷峻岩壁场景图。\n---'),
+    ).toBe(true)
+    expect(content).toContain('# 岩壁大理石')
+    // 钉死的参数与正文必须在同一段文字里，否则模型会自己挑一套参数去写。
+    expect(content).toContain('模型：gpt-image-2.5-sunburst · 尺寸：3:4 · 素材位：1')
+    expect(content).toContain('把素材放进岩壁场景。')
+  })
+
+  it('描述里的换行不许把 frontmatter 撑破', () => {
+    expect(lookSkillContent({ ...look, description: '第一行\n第二行' })).toContain(
+      'description: 第一行 第二行',
+    )
+  })
+
+  it('没钉死模型的那条不编造参数行', () => {
+    expect(lookSkillContent({ ...look, model: null, size: null, slotCount: null })).not.toContain(
+      '模型：',
+    )
+  })
+
+  it('按名字找技能时先认内置的，认不出的名字不去猜', async () => {
+    expect((await resolveAgentSkill('image', 'main-image', null))?.name).toBe('main-image')
+    // 没有登录用户就没有模板可认：这一句一条 SQL 都不该发。
+    expect(await resolveAgentSkill('image', 'look-nope', null)).toBeUndefined()
   })
 })
 

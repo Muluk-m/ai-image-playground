@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { AnyRouter } from '@tanstack/react-router'
+import { adminApiUrl } from './runtime-config'
 
 // admin api client: 同源 fetch，自动带 cookie（HttpOnly session）。
 // - 200 → 解 JSON 返回
@@ -80,7 +81,7 @@ async function sendJson<T>(
   body?: unknown,
   options?: RequestOptions,
 ): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(adminApiUrl(url), {
     method,
     credentials: 'include',
     headers: {
@@ -94,7 +95,7 @@ async function sendJson<T>(
 
 export const apiClient = {
   async get<T>(url: string, options?: RequestOptions): Promise<T> {
-    const res = await fetch(url, {
+    const res = await fetch(adminApiUrl(url), {
       method: 'GET',
       credentials: 'include',
       headers: { accept: 'application/json' },
@@ -109,5 +110,14 @@ export const apiClient = {
   },
   patch<T>(url: string, body: unknown): Promise<T> {
     return sendJson('PATCH', url, body)
+  },
+  // DELETE 不带 body：删除目标一律写在路径里，发 body 只会多一层没人用的 schema 分支。
+  async del<T>(url: string, options?: RequestOptions): Promise<T> {
+    const res = await fetch(adminApiUrl(url), {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+    })
+    return handleResponse<T>(res, options)
   },
 }

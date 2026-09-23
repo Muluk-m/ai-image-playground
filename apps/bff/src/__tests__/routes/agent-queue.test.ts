@@ -20,6 +20,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -36,6 +37,8 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { appendAgentMessage } = await import('../../lib/agent/conversations')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 

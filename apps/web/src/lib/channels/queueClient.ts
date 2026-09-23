@@ -11,6 +11,7 @@ import {
 } from '@image-playground/shared'
 import { describeError, i18next } from '../../i18n'
 import type { TaskParams } from '../../types'
+import { normalizeApiTimeout } from '../apiProfiles'
 import { authenticatedBffFetch } from '../authClient'
 import { getDeviceId } from '../deviceId'
 import {
@@ -110,7 +111,7 @@ async function pollAndFetch(
   const downloadController = new AbortController()
   const timer = setTimeout(
     () => downloadController.abort(),
-    (channel.defaults.timeout ?? 600) * 1000,
+    normalizeApiTimeout(channel.defaults.timeout) * 1000,
   )
   try {
     const images = await Promise.all(

@@ -1,6 +1,12 @@
 // admin URL 状态约定 —— 详见 design.md "URL 状态约定"。
 // 解析手写，不引 zod（admin 跟 BFF 一样保持轻量）。
 import {
+  INSPIRATION_KINDS,
+  INSPIRATION_STATUSES,
+  type InspirationKind,
+  type InspirationStatus,
+} from '@image-playground/shared'
+import {
   DEFAULT_RANGE,
   DEFAULT_SORT,
   parseRange,
@@ -138,5 +144,44 @@ export function clearTaskView<T extends TaskViewSearch>(
     imgKind: _kind,
     ...rest
   } = previous ?? ({} as T)
+  return rest
+}
+
+/** 灵感库列表：筛选进 URL，刷新和后退都还原；`item` 让 ⌘K 能直达某一条。 */
+export interface InspirationsSearch {
+  status?: InspirationStatus
+  kind?: InspirationKind
+  q?: string
+  item?: string
+}
+
+export function parseInspirationsSearch(input: Record<string, unknown>): InspirationsSearch {
+  const out: InspirationsSearch = {}
+  if (INSPIRATION_STATUSES.some((status) => status === input.status)) {
+    out.status = input.status as InspirationStatus
+  }
+  if (INSPIRATION_KINDS.some((kind) => kind === input.kind)) {
+    out.kind = input.kind as InspirationKind
+  }
+  if (typeof input.q === 'string') {
+    const q = input.q.trim().slice(0, 128)
+    if (q) out.q = q
+  }
+  if (typeof input.item === 'string') {
+    const item = input.item.trim().slice(0, 128)
+    if (item) out.item = item
+  }
+  return out
+}
+
+/**
+ * 关抽屉：只摘掉 `item`，筛选原样留在 URL 里。
+ * 约束写成 `{ item?: string }` 而不是 InspirationsSearch：router 传进来的是全站
+ * search 字段的并集（`status` 在那里是宽的 string），收窄的约束会对不上。
+ */
+export function clearInspirationItem<T extends { item?: string }>(
+  previous: T | undefined,
+): Omit<T, 'item'> {
+  const { item: _item, ...rest } = previous ?? ({} as T)
   return rest
 }

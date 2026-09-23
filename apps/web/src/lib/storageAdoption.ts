@@ -5,19 +5,29 @@ import {
   safeLocalStorage,
   scopedStorageName,
 } from './authScope'
-import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from './db'
+import {
+  BASE_DB_NAME,
+  DB_STORE_NAMES,
+  type DbStoreName,
+  openNamedDb,
+  STORE_MEDIA,
+  STORE_PLATFORM_GENERATIONS,
+} from './db'
 import { markBulkDirty } from './sync/pending'
 
 /** 认领完成的标记，跨 scope 共用。不支持 indexedDB.databases() 的浏览器靠它避免每次启动重扫。 */
 const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
 // 图片是整张 data URL，一次全读进内存会在大库上炸掉标签页；任务行小得多，不必切这么碎。
-const BATCH_SIZE: Record<DbStoreName, number> = {
+// 云媒体与平台记录这两张缓存表不在这里：它们是可再取的派生数据，认领只搬用户真正拥有的东西。
+type OwnedStore = Exclude<DbStoreName, typeof STORE_MEDIA | typeof STORE_PLATFORM_GENERATIONS>
+const BATCH_SIZE: Record<OwnedStore, number> = {
   tasks: 200,
   images: 10,
   thumbnails: 50,
   assets: 200,
   templates: 200,
+  looks: 200,
   remix_sets: 200,
   bgswap_jobs: 200,
   video_tasks: 200,
@@ -51,18 +61,22 @@ async function runAdoption(): Promise<number> {
   let adoptedTasks = 0
   let adoptedTemplates: string[] = []
   let adoptedAssets: string[] = []
+  let adoptedLooks: string[] = []
   try {
     target = await openNamedDb(scopedDbName)
     for (const storeName of DB_STORE_NAMES) {
+      if (storeName === STORE_MEDIA || storeName === STORE_PLATFORM_GENERATIONS) continue
       const copied = await copyStore(source, target, storeName)
       if (storeName === 'tasks') adoptedTasks = copied.length
       if (storeName === 'templates') adoptedTemplates = copied
+      if (storeName === 'looks') adoptedLooks = copied
       if (storeName === 'assets') adoptedAssets = copied
     }
     // 领养来的东西走同一条推送队列；标脏必须排在 localStorage 搬完之后，检查点本身也是搬的对象。
     markBulkDirty({
       templates: adoptedTemplates,
       assets: adoptedAssets,
+      looks: adoptedLooks,
       settingsUpdatedAt: adoptLocalStorage() ? Date.now() : null,
     })
   } finally {
@@ -92,7 +106,7 @@ async function anonymousDbMayExist(): Promise<boolean> {
 async function copyStore(
   source: IDBDatabase,
   target: IDBDatabase,
-  storeName: DbStoreName,
+  storeName: OwnedStore,
 ): Promise<string[]> {
   const sourceKeys = await getAllKeys(source, storeName)
   if (sourceKeys.length === 0) return []

@@ -5,6 +5,7 @@ import { projectArtifactId } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentRetryRefusal } from '../../../../features/agent/store'
@@ -14,7 +15,6 @@ import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanv
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { projectScene } from '../../../../features/canvas/lib/projectMedia'
-import { AUTH_SESSION_EXPIRED_EVENT } from '../../../../lib/authClient'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import {
   notifyPrivateSubmissionError,
@@ -203,16 +203,17 @@ it('云端项目积分不够被拒：失败占位给去充值', async () => {
   expect(notifyPrivateSubmissionError).toHaveBeenCalledWith({ insufficientCredits: true })
 })
 
-it('云端项目没登录被拒：失败占位给去登录', async () => {
+it('云端项目没登录被拒：失败占位叫出登录框', async () => {
   await cloudRefusedPlaceholder('authentication_required')
 
   const button = host.querySelector('button')!
   expect(button.textContent).toBe('去登录')
-  const expired = vi.fn()
-  window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
+  const prompted = vi.fn()
+  const unsubscribe = subscribeLoginPrompt(prompted)
   act(() => button.click())
-  window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
-  expect(expired).toHaveBeenCalledTimes(1)
+  unsubscribe()
+  // 弹登录框，不是把会话判失效——后者会把访客手上这张画布一起冲掉。
+  expect(prompted.mock.calls).toEqual([['gated-action']])
 })
 
 it('云端项目模型不可用被拒：失败占位给让助手重新处理，发回项目的会话', async () => {

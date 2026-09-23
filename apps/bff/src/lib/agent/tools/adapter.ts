@@ -175,5 +175,6 @@ export function toolResultBlock(
     ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
     ...(details?.skill ? { skill: details.skill } : {}),
     ...(details?.timeline ? { timeline: details.timeline } : {}),
+    ...(details?.saveCard ? { saveCard: details.saveCard } : {}),
   }
 }

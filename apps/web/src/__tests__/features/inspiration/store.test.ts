@@ -5,6 +5,7 @@ import type { InspirationItem } from '../../../features/inspiration/types'
 function makeItem(id: string, title: string, category = '头像'): InspirationItem {
   return {
     id,
+    kind: 'showcase',
     title,
     prompt: `prompt for ${id}`,
     thumbnailUrl: `https://example.com/${id}.jpg`,

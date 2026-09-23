@@ -14,17 +14,17 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/deploy-common.sh"
 
 pages_env=${PAGES_ENV_FILE:-$config_root/pages.env}
-dist_manifest=$repo_root/apps/web/dist/version.json
+dist_manifest=
 
 usage() {
   cat >&2 <<'EOF'
-Usage: scripts/pages-release.sh <internal|paid|test>
+Usage: scripts/pages-release.sh <internal|paid|test|admin>
 
-Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed INTERNAL_, PAID_
-or TEST_ (see deploy/pages.env.example).
+Reads $XDG_CONFIG_HOME/ai-image-playground/pages.env, whose keys are prefixed INTERNAL_, PAID_,
+TEST_, or ADMIN_ (see deploy/pages.env.example).
 
-The edition is asserted against the working copy: `paid` and `test` need ./private, `internal`
-needs it absent, because the overlay is compiled in by mere file presence.
+Paid, test, and admin need ./private; internal needs it absent. The overlay is compiled in by
+mere file presence.
 EOF
   exit 2
 }
@@ -35,18 +35,31 @@ case "$edition" in
   internal)
     prefix=INTERNAL
     bundle=public
+    app=web
+    deployment_name=internal-web
     ;;
   paid)
     prefix=PAID
     bundle=private
+    app=web
+    deployment_name=paid-web
     ;;
   # The test site mirrors what ships to muvloom.online, so it is the paid shape.
   test)
     prefix=TEST
     bundle=private
+    app=web
+    deployment_name=test-web
+    ;;
+  admin)
+    prefix=ADMIN
+    bundle=private
+    app=admin
+    deployment_name=paid-admin
     ;;
   *) usage ;;
 esac
+dist_manifest=$repo_root/apps/$app/dist/version.json
 
 if [ ! -f "$pages_env" ]; then
   echo "Pages environment file not found: $pages_env" >&2
@@ -87,6 +100,7 @@ BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
 LOCAL_COMPATIBILITY=$(edition_var "$prefix" LOCAL_COMPATIBILITY)
 export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID LOCAL_COMPATIBILITY
+unset EXTRA_ASSETS_DIR NOTIFY_UPDATE
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)
 if [ -n "$extra_assets_dir" ]; then
   EXTRA_ASSETS_DIR=$extra_assets_dir
@@ -103,12 +117,12 @@ private_sha=-
 released=false
 on_exit() {
   if [ "$?" -ne 0 ] && [ "$released" = false ]; then
-    append_deploy_log "$edition-web" "pages:$pages_project" failed || true
+    append_deploy_log "$deployment_name" "pages:$pages_project" failed || true
   fi
 }
 trap on_exit EXIT
 
-stage "Build and upload the $bundle bundle to Pages project $pages_project"
+stage "Build and upload the $bundle $app bundle to Pages project $pages_project"
 if [ -n "$token_file" ] && [ ! -f "$token_file" ]; then
   echo "${prefix}_CLOUDFLARE_TOKEN_FILE points at a missing file: $token_file" >&2
   exit 1
@@ -123,7 +137,7 @@ fi
   fi
   # `main` is passed explicitly: this is the production entry point, and an omitted branch
   # resolves to a preview alias.
-  "$repo_root/scripts/pages-deploy.sh" "$bundle" "$pages_project" main
+  "$repo_root/scripts/pages-deploy.sh" "$app" "$bundle" "$pages_project" main
 )
 
 built_version=$(version_of <"$dist_manifest")
@@ -165,6 +179,6 @@ while :; do
 done
 
 released=true
-append_deploy_log "$edition-web" "pages:$pages_project" ok
+append_deploy_log "$deployment_name" "pages:$pages_project" ok
 printf '\nReleased %s: version=%s\n' "$pages_project" "$built_version"
 echo "recorded in $deployments_log"

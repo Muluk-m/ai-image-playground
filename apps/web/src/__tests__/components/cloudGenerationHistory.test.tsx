@@ -37,7 +37,7 @@ beforeEach(async () => {
   )
   await bootstrapClientCapabilities(true, '')
   vi.unstubAllGlobals()
-  // 平台记录会被镜像成本机任务记录写进 IndexedDB，作品页的输入框也要读模板。
+  // 平台记录进的是可整体替换的缓存（`lib/platformGenerations`），作品页的输入框也要读模板。
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({
     prompt: '',
@@ -45,6 +45,7 @@ beforeEach(async () => {
     inputImages: [],
     maskDraft: null,
     tasks: [],
+    platformGenerations: [],
     searchQuery: '',
     filterStatus: 'all',
     filterFavorite: false,
@@ -55,7 +56,7 @@ beforeEach(async () => {
   root = createRoot(host)
 })
 afterEach(async () => {
-  // 上一条用例还在飞的镜像写入必须先落地，否则它会在下一条用例里凭空多出一张卡。
+  // 上一条用例还在飞的缓存写入必须先落地，否则它会在下一条用例里凭空多出一张卡。
   await settle()
   act(() => root.unmount())
   host.remove()
@@ -94,8 +95,17 @@ const button = (label: string) => {
   return found
 }
 const click = async (label: string) => {
+  // 按钮跟着异步状态出现（平台记录先落 IndexedDB，游标再进 state），等它来而不是数拍子。
+  for (let i = 0; i < 20; i++) {
+    if (document.body.querySelector('button') && findButton(label)) break
+    await settle(1)
+  }
   await act(async () => button(label).click())
 }
+const findButton = (label: string) =>
+  [...document.body.querySelectorAll('button')].some(
+    (node) => node.textContent?.includes(label) || node.title.includes(label),
+  )
 const cards = () => [...host.querySelectorAll('.task-card-wrapper')]
 
 /** 平台记录要先写进 IndexedDB 才会出现在列表里，IDB 事务落在 act 之后若干拍。 */
@@ -158,7 +168,7 @@ it('加载更多把下一页续在同一条列表后面，不替换已读到的�
   })
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" />))
-  await settle()
+  await waitCards(1)
   await click('加载更多')
   await waitCards(2)
   expect(host.textContent).toContain('第二页的记录')

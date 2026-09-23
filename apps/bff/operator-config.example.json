@@ -13,6 +13,7 @@
     "accounts:sync": false,
     "agent:chat": false,
     "billing:credits": false,
+    "billing:chat-free": false,
     "generation:byok": false,
     "generation:video": false,
     "operator:console": false,

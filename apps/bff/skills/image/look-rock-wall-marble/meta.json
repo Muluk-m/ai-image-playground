@@ -1,0 +1,12 @@
+{
+  "icon": "mountain",
+  "summary": "岩壁与石板的冷峻卫浴场景",
+  "template": {
+    "purpose": "scene",
+    "model": "gpt-image-2.5-sunburst",
+    "size": "3:4",
+    "slotCount": 1,
+    "cover": "cover.webp",
+    "references": ["cover.webp"]
+  }
+}

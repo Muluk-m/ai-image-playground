@@ -1,5 +1,6 @@
 import { authenticatedBffFetch } from './authClient'
 import { scopedStorageName } from './authScope'
+import { type CachedMedia, getCachedMedia, pruneCachedMedia, putCachedMedia } from './db'
 import { bffBaseUrl } from './runtimeConfig'
 
 export function mediaIdentity(source: string | undefined): string | undefined {
@@ -15,6 +16,16 @@ const loaded = new Map<string, string>()
 const loading = new Map<string, Promise<string>>()
 let cacheSize = 0
 const CACHE_BYTES = 32 * 1024 * 1024
+/**
+ * 落盘的云媒体上限。媒体身份不可变，所以缓存不失效，只按最久未用腾地方。
+ * 省的是 R2 出口带宽与用户的等待：同一张图看第二次不该再下一次。
+ */
+let diskBudget = 512 * 1024 * 1024
+
+/** 浏览器存储被清空或配额收紧时，缓存只是退化成回源，不该让取图失败。 */
+export function setMediaDiskBudgetForTesting(bytes: number): void {
+  diskBudget = bytes
+}
 let active = 0
 interface Waiting {
   /** 用户点出来的取图排在前面。 */
@@ -79,10 +90,33 @@ export function blobDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+/** 会话内的热表：落盘的是 Blob，这里存换算好的 data URL，省掉重复解码。 */
+function remember(key: string, data: string): void {
+  if (data.length > CACHE_BYTES) return
+  while (cacheSize + data.length > CACHE_BYTES && loaded.size) {
+    const oldest = loaded.keys().next().value!
+    cacheSize -= loaded.get(oldest)!.length
+    loaded.delete(oldest)
+  }
+  loaded.set(key, data)
+  cacheSize += data.length
+}
+
+/** 缓存是尽力而为：配额满、隐私模式、库被清掉都只该退化成回源，不该让取图失败。 */
+async function persist(media: CachedMedia): Promise<void> {
+  try {
+    await pruneCachedMedia(Math.max(diskBudget - media.bytes, 0))
+    await putCachedMedia(media)
+  } catch {
+    // best effort
+  }
+}
+
 /**
  * Stable media identities remain in documents; expiring URLs only live for this request.
  *
- * `urgent` 留给用户当场点出来的取图：它要插在正在铺的背景预览之前。
+ * 三级：会话热表 → 本机缓存（`media` 表）→ 回源。媒体身份不可变，所以本机命中不必校验新鲜度；
+ * 只有真回源才占限流名额，`urgent` 是用户当场点出来的那几张，插在正在铺的背景预览之前。
  */
 export async function resolveMediaSource(
   source: string,
@@ -95,7 +129,8 @@ export async function resolveMediaSource(
   const assertScope = () => {
     if (scope !== scopedStorageName('media')) throw new Error('media_scope_changed')
   }
-  const key = `${scope}:${id}:${variant}`
+  const cacheId = `${id}:${variant}`
+  const key = `${scope}:${cacheId}`
   const hit = loaded.get(key)
   if (hit) {
     loaded.delete(key)
@@ -104,41 +139,53 @@ export async function resolveMediaSource(
   }
   const pending = loading.get(key)
   if (pending) return pending
-  const operation = bounded(async () => {
+  const operation = (async () => {
+    const cached = await getCachedMedia(cacheId).catch(() => undefined)
     assertScope()
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const access = await mediaJson<Access>(`/${id}/access`)
+    if (cached) {
+      const data = await blobDataUrl(new Blob([cached.data], { type: cached.contentType }))
       assertScope()
-      let response: Response
-      try {
-        response = await fetch(variant === 'preview' ? access.previewUrl : access.originalUrl, {
-          credentials: 'omit',
-          signal: AbortSignal.timeout(30000),
-        })
-      } catch (error) {
-        assertScope()
-        // R2 omits CORS headers on expired signatures, so browsers expose a network error.
-        if (error instanceof TypeError && attempt === 0) continue
-        throw error
-      }
-      assertScope()
-      if (response.status === 403 && attempt === 0) continue
-      if (!response.ok) throw new MediaRequestError(response.status, 'media_download_failed')
-      const data = await blobDataUrl(await response.blob())
-      assertScope()
-      if (data.length <= CACHE_BYTES) {
-        while (cacheSize + data.length > CACHE_BYTES && loaded.size) {
-          const oldest = loaded.keys().next().value!
-          cacheSize -= loaded.get(oldest)!.length
-          loaded.delete(oldest)
-        }
-        loaded.set(key, data)
-        cacheSize += data.length
-      }
+      remember(key, data)
       return data
     }
-    throw new Error('media_download_failed')
-  }, urgent)
+    return bounded(async () => {
+      assertScope()
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const access = await mediaJson<Access>(`/${id}/access`)
+        assertScope()
+        let response: Response
+        try {
+          response = await fetch(variant === 'preview' ? access.previewUrl : access.originalUrl, {
+            credentials: 'omit',
+            signal: AbortSignal.timeout(30000),
+          })
+        } catch (error) {
+          assertScope()
+          // R2 omits CORS headers on expired signatures, so browsers expose a network error.
+          if (error instanceof TypeError && attempt === 0) continue
+          throw error
+        }
+        assertScope()
+        if (response.status === 403 && attempt === 0) continue
+        if (!response.ok) throw new MediaRequestError(response.status, 'media_download_failed')
+        // 取字节而不是 Blob：落盘存的就是字节，data URL 也由同一份字节换算，只解码一次。
+        const bytes = await response.arrayBuffer()
+        const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+        const data = await blobDataUrl(new Blob([bytes], { type: contentType }))
+        assertScope()
+        remember(key, data)
+        await persist({
+          id: cacheId,
+          data: bytes,
+          contentType,
+          bytes: bytes.byteLength,
+          lastUsedAt: Date.now(),
+        })
+        return data
+      }
+      throw new Error('media_download_failed')
+    }, urgent)
+  })()
   loading.set(key, operation)
   try {
     return await operation

@@ -14,9 +14,11 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_IMAGE_MAX_N, AGENT_QUEUE_MAX_PENDING } from '@image-playground/shared'
 import { create } from 'zustand'
+import { requireAccount } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
+import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
@@ -1292,6 +1294,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
       const trimmed = text.trim()
       if (!trimmed) return
+      // 计费部署的起轮要账号（BFF 在 `/api/agent/turns` 上直接 401）：先弹登录框，
+      // 别把这句话上屏再被打回。没开积分计费的部署照旧按 deviceId 放匿名设备对话过。
+      if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
 
       const active = get().activeTurn
       const conversationId = get().conversationId

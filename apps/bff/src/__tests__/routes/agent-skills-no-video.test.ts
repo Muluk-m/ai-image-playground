@@ -11,6 +11,7 @@ import {
   parseFrames,
   scriptedAgentFetch,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 
 // 这个部署做不了视频：没开 generation:video，也没有视频 channel。
 process.env.DATABASE_URL = await resetTestDatabase('agent_skills_novideo_a298')
@@ -30,6 +31,8 @@ const { close: closeDb } = await import('../../db/client')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
+
+await silenceChatUpstream()
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const app = new Elysia().use(agentRoutes)

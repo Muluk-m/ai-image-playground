@@ -4,6 +4,7 @@ import {
   BASE_DB_NAME,
   openNamedDb,
   STORE_ASSETS,
+  STORE_LOOKS,
   STORE_STORYBOARDS,
   STORE_TEMPLATES,
 } from '../../lib/db'
@@ -88,7 +89,7 @@ describe('upgrading a database written before updatedAt existed', () => {
       {
         id: 'a1',
         name: '白底图',
-        imageId: 'i1',
+        views: [{ imageId: 'i1', label: 'none', source: 'upload' }],
         createdAt: 1000,
         updatedAt: 1000,
         lastUsedAt: 2000,
@@ -112,6 +113,61 @@ describe('upgrading a database written before updatedAt existed', () => {
     })
 
     expect((await readAll(STORE_ASSETS))[0].updatedAt).toBe(5000)
+  })
+})
+
+describe('upgrading a database written before an asset was a group of views', () => {
+  it('turns the one image into a single view, leaving the name and last use alone', async () => {
+    await seedLegacyDb({
+      [STORE_ASSETS]: [
+        {
+          id: 'a1',
+          name: '橘猫玩偶',
+          imageId: 'i1',
+          createdAt: 1000,
+          updatedAt: 4000,
+          lastUsedAt: 9000,
+        },
+      ],
+    })
+
+    expect(await readAll(STORE_ASSETS)).toEqual([
+      {
+        id: 'a1',
+        name: '橘猫玩偶',
+        views: [{ imageId: 'i1', label: 'none', source: 'upload' }],
+        createdAt: 1000,
+        updatedAt: 4000,
+        lastUsedAt: 9000,
+      },
+    ])
+  })
+
+  it('leaves a tombstone alone and keeps already-grouped records untouched', async () => {
+    const views = [
+      { imageId: 'front', label: 'front', source: 'upload' },
+      { imageId: 'side', label: 'side', source: 'generated' },
+    ]
+    await seedLegacyDb({
+      [STORE_ASSETS]: [
+        { id: 'gone', updatedAt: 2000, deletedAt: 2000 },
+        { id: 'a1', name: '橘猫玩偶', views, createdAt: 1, updatedAt: 1, lastUsedAt: 1 },
+      ],
+    })
+
+    const rows = await readAll(STORE_ASSETS)
+    expect(rows.find((row) => row.id === 'gone')).toEqual({
+      id: 'gone',
+      updatedAt: 2000,
+      deletedAt: 2000,
+    })
+    expect(rows.find((row) => row.id === 'a1')?.views).toEqual(views)
+  })
+
+  it('opens the new looks store on an upgraded database', async () => {
+    await seedLegacyDb({ [STORE_ASSETS]: [] })
+
+    expect(await readAll(STORE_LOOKS)).toEqual([])
   })
 })
 

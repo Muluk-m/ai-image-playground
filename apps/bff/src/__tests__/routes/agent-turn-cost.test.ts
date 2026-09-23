@@ -15,6 +15,7 @@ import {
   TEST_IMAGE_CHANNEL,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
@@ -37,6 +38,8 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { purgeOldAgentTurnEvents } = await import('../../lib/agent/events')
+
+await silenceChatUpstream()
 
 type InternalChannel = import('../../lib/channels').InternalChannel
 

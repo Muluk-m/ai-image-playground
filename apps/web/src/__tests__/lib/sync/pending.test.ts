@@ -13,7 +13,14 @@ import {
 } from '../../../lib/sync/pending'
 
 function asset(id: string): AssetRecord {
-  return { id, name: id, imageId: `image-${id}`, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
+  return {
+    id,
+    name: id,
+    views: [{ imageId: `image-${id}`, label: 'none', source: 'upload' }],
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+  }
 }
 
 let stopTracking: (() => void) | null = null
@@ -105,6 +112,7 @@ describe('the checkpoint', () => {
       version: 0,
       templates: [],
       assets: [],
+      looks: [],
       settingsUpdatedAt: null,
       lastSyncedAt: null,
       unsyncedImages: [],

@@ -10,6 +10,7 @@ import { DEVICE_ID_HEADER } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import { completionStream, parseFrames, recordingAgentFetch } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_billing_a288_off')
@@ -27,6 +28,8 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { purgeOldAgentTurnEvents } = await import('../../lib/agent/events')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'

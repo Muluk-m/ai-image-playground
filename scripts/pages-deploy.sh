@@ -5,8 +5,9 @@ set -eu
 # (README options 3 and 4).
 #
 # Usage:
-#   scripts/pages-deploy.sh public <pages-project> [branch]
-#   scripts/pages-deploy.sh private <pages-project> [branch]
+#   scripts/pages-deploy.sh web public <pages-project> [branch]
+#   scripts/pages-deploy.sh web private <pages-project> [branch]
+#   scripts/pages-deploy.sh admin private <pages-project> [branch]
 #
 # The branch selects the Pages alias. Production is `main`, and it has to be passed explicitly:
 # an omitted branch always resolves to a preview alias, never to production.
@@ -24,18 +25,23 @@ set -eu
 # ../../private/apps/web/index.tsx).
 
 usage() {
-  echo "Usage: $0 <public|private> <pages-project> [branch]" >&2
+  echo "Usage: $0 <web|admin> <public|private> <pages-project> [branch]" >&2
   exit 1
 }
 
-edition=${1:-}
-project=${2:-}
+app=${1:-}
+edition=${2:-}
+project=${3:-}
+case "$app" in web|admin) ;; *) usage ;; esac
 [ -n "$edition" ] || usage
 [ -n "$project" ] || usage
-[ "$#" -le 3 ] || usage
+[ "$#" -le 4 ] || usage
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-overlay_entry="$repo_root/private/apps/web/index.tsx"
+case "$app" in
+  web) overlay_entry="$repo_root/private/apps/web/index.tsx" ;;
+  admin) overlay_entry="$repo_root/private/apps/admin/index.tsx" ;;
+esac
 
 # A forgotten third argument used to default to `main`, which published an unmerged branch to
 # production. The default now names a preview alias even when the checkout sits on main.
@@ -49,7 +55,7 @@ default_branch() {
   esac
 }
 
-branch=${3:-$(default_branch)}
+branch=${4:-$(default_branch)}
 if [ "$branch" = main ]; then
   echo "target: production (main)"
 else
@@ -60,18 +66,21 @@ fi
 case "$edition" in
   public)
     if [ -f "$overlay_entry" ]; then
-      echo "Refusing to build a public bundle: the private overlay is present at $overlay_entry." >&2
+      echo "Refusing to build a public $app bundle: the private overlay is present at $overlay_entry." >&2
       echo "Build the public bundle from a checkout without ./private, or move that tree aside." >&2
       exit 1
     fi
+    [ "$app" = web ] || { echo "Admin has no public edition." >&2; exit 1; }
     ;;
   private)
     if [ ! -f "$overlay_entry" ]; then
-      echo "Missing private overlay at $overlay_entry; a private bundle needs it." >&2
+      echo "Missing private overlay at $overlay_entry; a private $app bundle needs it." >&2
       exit 1
     fi
-    PRIVATE_WEB_OVERLAY_ENTRY="$overlay_entry"
-    export PRIVATE_WEB_OVERLAY_ENTRY
+    case "$app" in
+      web) PRIVATE_WEB_OVERLAY_ENTRY="$overlay_entry"; export PRIVATE_WEB_OVERLAY_ENTRY ;;
+      admin) PRIVATE_ADMIN_OVERLAY_ENTRY="$overlay_entry"; export PRIVATE_ADMIN_OVERLAY_ENTRY ;;
+    esac
     ;;
   *)
     usage
@@ -84,19 +93,24 @@ if [ "${BFF_ENABLED:-false}" = true ] && [ -z "${BFF_BASE_URL:-}" ]; then
 fi
 
 # Checked before the build so a typo does not cost a full build first.
+if [ -n "${EXTRA_ASSETS_DIR:-}" ] && [ "$app" != web ]; then
+  echo "EXTRA_ASSETS_DIR is only supported by the web bundle." >&2
+  exit 1
+fi
 if [ -n "${EXTRA_ASSETS_DIR:-}" ] && [ ! -d "$EXTRA_ASSETS_DIR" ]; then
   echo "EXTRA_ASSETS_DIR=$EXTRA_ASSETS_DIR is not a directory." >&2
   exit 1
 fi
 
 cd "$repo_root"
-pnpm --filter @image-playground/web build:static-host
+pnpm --filter "@image-playground/$app" build:static-host
 
+dist_dir="$repo_root/apps/$app/dist"
 if [ -n "${EXTRA_ASSETS_DIR:-}" ]; then
-  mkdir -p "$repo_root/apps/web/dist/op"
-  cp -R "$EXTRA_ASSETS_DIR"/. "$repo_root/apps/web/dist/op/"
-  echo "Copied $EXTRA_ASSETS_DIR into dist/op/ (published at /op/<file>)."
+  mkdir -p "$dist_dir/op"
+  cp -R "$EXTRA_ASSETS_DIR"/. "$dist_dir/op/"
+  echo "Copied $EXTRA_ASSETS_DIR into $app dist/op/ (published at /op/<file>)."
 fi
 
-cd "$repo_root/apps/web"
-pnpm exec wrangler pages deploy --project-name "$project" --branch "$branch"
+cd "$repo_root/apps/$app"
+pnpm exec wrangler pages deploy "$dist_dir" --project-name "$project" --branch "$branch"

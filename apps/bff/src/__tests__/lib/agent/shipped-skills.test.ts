@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { readdirSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
-import { type AgentMode, DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
+import { type AgentMode, DEFAULT_AGENT_SKILL_ICON, LOOK_PURPOSES } from '@image-playground/shared'
 
 // 只读磁盘上随仓库发的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/shipped-agent-skills'
@@ -15,7 +15,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../agent-video-operator-config.json',
 )
 
-const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } = await import(
+const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills, findAgentSkill } = await import(
   '../../../lib/agent/skills'
 )
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
@@ -63,9 +63,21 @@ log.warn = ((first: unknown, ...rest: unknown[]) => {
 await ensureAgentSkills()
 log.warn = warn
 
+/**
+ * 只有登录且开了同步的用户才看得见的工具：不带观众问 `agentToolDeclarations` 时它们不在清单里，
+ * 但建素材、建模板那几条技能的正文本来就该引用它们。
+ */
+const AUDIENCE_TOOL_NAMES: Readonly<Record<AgentMode, readonly string[]>> = {
+  image: ['saveAsset', 'saveLook'],
+  video: [],
+}
+
 /** 这个 mode 这一轮真的能调到的工具名。技能正文引用别的工具，模型只会照着编。 */
 function toolNames(mode: AgentMode): Set<string> {
-  return new Set(agentToolDeclarations(mode).map((tool) => tool.name))
+  return new Set([
+    ...agentToolDeclarations(mode).map((tool) => tool.name),
+    ...AUDIENCE_TOOL_NAMES[mode],
+  ])
 }
 
 const ALL_TOOL_NAMES = new Set([...toolNames('image'), ...toolNames('video')])
@@ -161,6 +173,59 @@ describe('随仓库发的技能', () => {
         .map((skill) => skill.name)
         .sort()
       expect(loaded).toEqual(onDisk)
+    }
+  })
+})
+
+/** 模板正文的固定分节，顺序也是固定的（见 CONTEXT.md「模板」）。 */
+const LOOK_SECTIONS = [
+  '## 1. 一句话目标',
+  '## 2. 适用场景',
+  '## 3. 需要用户提供的输入',
+  '## 4. 工作流程',
+  '## 5. 输出要求',
+  '## 6. 约束与禁忌',
+  '## 7. 示例',
+]
+
+/** 磁盘上自称模板的那些目录。写坏的标记会被加载器丢掉，所以判据取磁盘，不取加载结果。 */
+const TEMPLATE_DIRS = readdirSync(join(defaultAgentSkillsRoot(), 'image')).filter((name) => {
+  const meta: unknown = JSON.parse(
+    readFileSync(join(defaultAgentSkillsRoot(), 'image', name, 'meta.json'), 'utf8'),
+  )
+  return typeof meta === 'object' && meta !== null && 'template' in meta
+})
+
+describe('随仓库发的预置模板', () => {
+  it('首批预置模板都在', () => {
+    expect(TEMPLATE_DIRS.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it.each(TEMPLATE_DIRS)('%s 的模板标记过了校验', (name) => {
+    // 标记写坏时加载器只丢标记、留技能：那样这条模板会从模板页上静默消失，只有这里拦得住。
+    const template = findAgentSkill('image', name)?.template
+    expect(template).toBeDefined()
+    expect(LOOK_PURPOSES).toContain(template!.purpose)
+    expect(template!.model).not.toBe('')
+    expect(template!.size).not.toBe('')
+    expect(template!.slotCount).toBeGreaterThanOrEqual(1)
+  })
+
+  it.each(TEMPLATE_DIRS)('%s 的封面与参考图在目录里', (name) => {
+    const template = findAgentSkill('image', name)!.template!
+    const directory = join(defaultAgentSkillsRoot(), 'image', name)
+    for (const file of [template.cover, ...template.references]) {
+      expect(existsSync(join(directory, file))).toBe(true)
+    }
+  })
+
+  it.each(TEMPLATE_DIRS)('%s 的正文按固定七节依次写全', (name) => {
+    const { content } = findAgentSkill('image', name)!
+    let previous = -1
+    for (const heading of LOOK_SECTIONS) {
+      const at = content.indexOf(`\n${heading}\n`)
+      expect([name, heading, at > previous]).toEqual([name, heading, true])
+      previous = at
     }
   })
 })

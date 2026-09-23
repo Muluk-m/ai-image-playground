@@ -2,6 +2,12 @@ import { create } from 'zustand'
 
 export type SyncStatus = 'idle' | 'syncing' | 'error'
 
+/**
+ * 失败到底是哪一类。只写两个字「保存失败」时用户无从下手：会话过期要重新登录、
+ * 链路不通要等网络、服务端拒绝要看内容，三件事的处置完全不同。
+ */
+export type SyncFailure = 'unauthorized' | 'network' | 'rejected'
+
 /** 一轮里要上传的素材图张数与已传张数。 */
 export interface AssetUploadProgress {
   done: number
@@ -18,6 +24,8 @@ interface SyncStatusState {
   unsyncedImages: string[]
   /** null = 这一轮没有图要传。 */
   uploads: AssetUploadProgress | null
+  /** 只有 `status === 'error'` 时有值。 */
+  failure: SyncFailure | null
 }
 
 export const useSyncStatus = create<SyncStatusState>(() => ({
@@ -27,6 +35,7 @@ export const useSyncStatus = create<SyncStatusState>(() => ({
   lastSyncedAt: null,
   unsyncedImages: [],
   uploads: null,
+  failure: null,
 }))
 
 export function reportAssetUploads(done: number, total: number): void {

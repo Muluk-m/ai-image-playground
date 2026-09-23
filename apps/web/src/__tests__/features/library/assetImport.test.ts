@@ -55,13 +55,16 @@ describe('importing local image files as assets', () => {
     useLibraryStore.setState({ assets: [] })
     await useLibraryStore.getState().loadAssets()
     expect(useLibraryStore.getState().assets).toEqual([
-      expect.objectContaining({ name: '白底图', imageId: pending.imageId }),
+      expect.objectContaining({
+        name: '白底图',
+        views: [{ imageId: pending.imageId, label: 'none', source: 'upload' }],
+      }),
     ])
   })
 
   it('hands the saved asset back to whoever asked for the import', async () => {
     const onSaved = vi.fn()
-    await useLibraryStore.getState().importAssetFiles([imageFile('白底图.png')], onSaved)
+    await useLibraryStore.getState().importAssetFiles([imageFile('白底图.png')], { onSaved })
     const [pending] = useLibraryStore.getState().pendingAssetNames
 
     await useLibraryStore.getState().saveAsset(pending.imageId, '白底图')
@@ -80,5 +83,31 @@ describe('importing local image files as assets', () => {
     expect(useLibraryStore.getState().pendingAssetNames.map((p) => p.defaultName)).toEqual([
       '第二张',
     ])
+  })
+
+  it('makes one multi-view asset out of a grouped import instead of a naming queue', async () => {
+    await useLibraryStore
+      .getState()
+      .importAssetFiles([imageFile('正面.png'), imageFile('侧面.png')], {
+        group: true,
+        kind: 'product',
+        name: '橘猫玩偶',
+      })
+
+    expect(useLibraryStore.getState().pendingAssetNames).toEqual([])
+    const [asset] = useLibraryStore.getState().assets
+    expect(asset).toMatchObject({ name: '橘猫玩偶', kind: 'product' })
+    expect(asset?.views).toHaveLength(2)
+    expect(asset?.views.every((view) => view.label === 'none' && view.source === 'upload')).toBe(
+      true,
+    )
+  })
+
+  it('falls back to the first file name when a grouped import has no name', async () => {
+    await useLibraryStore
+      .getState()
+      .importAssetFiles([imageFile('第一张.png'), imageFile('第二张.png')], { group: true })
+
+    expect(useLibraryStore.getState().assets[0]?.name).toBe('第一张')
   })
 })

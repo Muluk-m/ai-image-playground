@@ -2,16 +2,17 @@
  * 待推集合与同步检查点：本机改过、还没被服务端收下的东西。持久化在 localStorage 的
  * 用户 scope 下，重启后仍在，所以断网期间的改动不会丢。
  */
+import type { SyncCollection } from '@image-playground/shared'
 import { SYNC_CHECKPOINT_KEY, safeLocalStorage, scopedStorageName } from '../authScope'
 import { isClientCapabilityEnabled } from '../clientCapabilities'
 import { useSyncStatus } from './status'
 
-export type SyncCollection = 'templates' | 'assets'
+export type { SyncCollection }
 
-/** 标脏时随通知带上的记录；`imageId` 只有素材有，引擎靠它决定先传哪张图。 */
+/** 标脏时随通知带上的记录；`imageIds` 是它要占的素材图，引擎靠它决定先传哪几张。 */
 export interface DirtyRecord {
   readonly id: string
-  readonly imageId?: string
+  readonly imageIds?: readonly string[]
 }
 
 export interface SyncCheckpoint {
@@ -19,13 +20,14 @@ export interface SyncCheckpoint {
   version: number
   templates: string[]
   assets: string[]
+  looks: string[]
   /** 用户设置最后一次本机改动的时间；null = 没有待推的设置。 */
   settingsUpdatedAt: number | null
   /** 非 null = 这个 scope 完整跑完过一轮；引擎据此判断要不要把本机已有的记录全部标脏。 */
   lastSyncedAt: number | null
   /** 服务端不会再收的素材图；引用它们的素材在本机照常可用，只标「未同步」。 */
   unsyncedImages: string[]
-  /** 本机没有图片本体、这一轮推不动的素材记录；不算待推，取回图片后再入待推集合。 */
+  /** 本机没有图片本体、这一轮推不动的素材与模板记录；不算待推，取回图片后再入。 */
   imagelessAssets: string[]
 }
 
@@ -33,6 +35,7 @@ const EMPTY: SyncCheckpoint = {
   version: 0,
   templates: [],
   assets: [],
+  looks: [],
   settingsUpdatedAt: null,
   lastSyncedAt: null,
   unsyncedImages: [],
@@ -73,6 +76,7 @@ export function markRecordDirty(collection: SyncCollection, record: DirtyRecord)
 export function markBulkDirty(dirty: {
   templates: readonly string[]
   assets: readonly string[]
+  looks: readonly string[]
   /** 用户设置这份文档要带的时间戳；null = 这一批不含用户设置。 */
   settingsUpdatedAt: number | null
 }): void {
@@ -82,6 +86,7 @@ export function markBulkDirty(dirty: {
     ...checkpoint,
     templates: union(checkpoint.templates, dirty.templates),
     assets: union(checkpoint.assets, dirty.assets),
+    looks: union(checkpoint.looks, dirty.looks),
     // 已在待推的那个时间戳一定不比这一批旧，压低它会让本机改动输给服务端。
     settingsUpdatedAt: checkpoint.settingsUpdatedAt ?? dirty.settingsUpdatedAt,
   }
@@ -89,6 +94,7 @@ export function markBulkDirty(dirty: {
   if (
     next.templates.length === checkpoint.templates.length &&
     next.assets.length === checkpoint.assets.length &&
+    next.looks.length === checkpoint.looks.length &&
     next.settingsUpdatedAt === checkpoint.settingsUpdatedAt
   ) {
     return
@@ -109,27 +115,32 @@ export function dropPendingRecords(collection: SyncCollection, ids: readonly str
   writePendingChanges({ ...checkpoint, [collection]: kept })
 }
 
-/** 本机没有图片本体的素材记录撤出待推集合：只可能是别的设备建的，图还没惰性取回来。 */
-export function withholdImagelessAssets(ids: readonly string[]): void {
+/**
+ * 本机没有图片本体的记录撤出待推集合：只可能是别的设备建的，图还没惰性取回来。
+ * 素材与模板共用同一份名单——两边的图走的是同一条上下行路径。
+ */
+export function withholdImagelessRecords(collection: SyncCollection, ids: readonly string[]): void {
   if (ids.length === 0) return
   const checkpoint = readPendingChanges()
   const withheld = new Set(ids)
   writePendingChanges({
     ...checkpoint,
-    assets: checkpoint.assets.filter((id) => !withheld.has(id)),
+    [collection]: checkpoint[collection].filter((id) => !withheld.has(id)),
     imagelessAssets: union(checkpoint.imagelessAssets, ids),
   })
 }
 
-/** 取图路径取回图片本体后，之前因缺图撤下的素材记录重新入待推集合。 */
-export function restoreImagelessAssets(ids: readonly string[]): void {
+/** 取图路径取回图片本体后，之前因缺图撤下的记录重新入待推集合。 */
+export function restoreImagelessRecords(
+  restored: ReadonlyArray<{ collection: SyncCollection; id: string }>,
+): void {
   if (!notify) return
   const checkpoint = readPendingChanges()
   const withheld = new Set(checkpoint.imagelessAssets)
-  const restored = ids.filter((id) => withheld.delete(id))
-  if (restored.length === 0) return
+  const back = restored.filter((one) => withheld.delete(one.id))
+  if (back.length === 0) return
   writePendingChanges({ ...checkpoint, imagelessAssets: [...withheld] })
-  for (const id of restored) markRecordDirty('assets', { id })
+  for (const one of back) markRecordDirty(one.collection, { id: one.id })
 }
 
 export function markImageUnsynced(imageId: string): void {
@@ -165,6 +176,7 @@ export function readPendingChanges(): SyncCheckpoint {
       version: typeof parsed.version === 'number' ? parsed.version : 0,
       templates: stringArray(parsed.templates),
       assets: stringArray(parsed.assets),
+      looks: stringArray(parsed.looks),
       settingsUpdatedAt:
         typeof parsed.settingsUpdatedAt === 'number' ? parsed.settingsUpdatedAt : null,
       lastSyncedAt: typeof parsed.lastSyncedAt === 'number' ? parsed.lastSyncedAt : null,
@@ -198,6 +210,7 @@ export function pendingCount(checkpoint: SyncCheckpoint): number {
   return (
     checkpoint.templates.length +
     checkpoint.assets.length +
+    checkpoint.looks.length +
     (checkpoint.settingsUpdatedAt === null ? 0 : 1)
   )
 }

@@ -321,6 +321,7 @@ async function executeWakeTurn(
     historyWindow,
     submittingTurn,
     plan,
+    audience,
   ] = await Promise.all([
     import('./turn-input'),
     import('./turn'),
@@ -334,7 +335,11 @@ async function executeWakeTurn(
     listAgentTurnMessages(conversationId, owner, [wake.turnId]),
     // 提交这一批时的改图计划：唤醒轮接着它走，不另起一份。
     wakePlan(wake.taskIds),
-    import('./skills').then((it) => it.ensureAgentSkills()),
+    // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
+    import('./skills').then(async (skills) => {
+      await skills.ensureAgentSkills()
+      return skills.loadAgentTurnAudience(userId)
+    }),
   ])
   const jobs = wakeJobs(submittingTurn, wake.taskIds)
   if (jobs.length === 0) {
@@ -376,6 +381,7 @@ async function executeWakeTurn(
             reviewImageIds,
             params?.autoSubmit === true,
             selectionHistoryStart,
+            audience,
           ),
           pricing,
         }
@@ -416,6 +422,7 @@ async function executeWakeTurn(
       mode,
       userId,
       deviceId,
+      audience,
       ...(params ? { params } : {}),
       wake: {
         authorizationPrompt: wakeAuthorizationPrompt(submittingTurn, wake.turnId),
@@ -521,6 +528,7 @@ async function executeResumeTurn(
     historyWindow,
     authorizedTurn,
     interruptedJobs,
+    audience,
   ] = await Promise.all([
     import('./turn-input'),
     import('./turn'),
@@ -530,7 +538,10 @@ async function executeResumeTurn(
     listAgentHistoryWindow(conversationId, owner),
     listAgentTurnMessages(conversationId, owner, [authorizedTurnId]),
     turnJobs(conversationId, resume.interruptedTurnId),
-    import('./skills').then((it) => it.ensureAgentSkills()),
+    import('./skills').then(async (skills) => {
+      await skills.ensureAgentSkills()
+      return skills.loadAgentTurnAudience(userId)
+    }),
   ])
   const [plan, submissions] = await Promise.all([
     // 改图计划接着最近的一次提交走：被打断的是唤醒轮时，先是提交那一批时的，再是它自己提交的。
@@ -572,6 +583,7 @@ async function executeResumeTurn(
             reviewImageIds,
             params?.autoSubmit === true,
             selectionHistoryStart,
+            audience,
           ),
           pricing,
         }
@@ -609,6 +621,7 @@ async function executeResumeTurn(
       mode,
       userId,
       deviceId,
+      audience,
       ...(params ? { params } : {}),
       wake: {
         // 授权原文仍是用户的原话：被打断那一轮的，唤醒轮则是提交那一批的那一轮的。
@@ -726,6 +739,7 @@ async function executeConversationTurn(
     historyWindow,
     pricing,
     wakes,
+    audience,
   ] = await Promise.all([
     import('./turn-input'),
     import('./turn'),
@@ -737,7 +751,11 @@ async function executeConversationTurn(
     billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
     // 恰好排着的唤醒并进这一轮，不再单独起轮。
     pendingAgentWakes(conversationId),
-    import('./skills').then((it) => it.ensureAgentSkills()),
+    // 这个用户自建的模板与内置技能排在同一份清单里，所以跟着技能一起读完再估算。
+    import('./skills').then(async (skills) => {
+      await skills.ensureAgentSkills()
+      return skills.loadAgentTurnAudience(userId)
+    }),
   ])
   // 点名了哪几轮要等唤醒回来才知道，这一次查询只能串在后面；那几轮可能比历史窗口更老，一次全取回来。
   const merged = mergeWakes(
@@ -770,6 +788,7 @@ async function executeConversationTurn(
             [],
             params?.autoSubmit === true,
             selectionHistoryStart,
+            audience,
           ),
           pricing,
         }
@@ -785,6 +804,7 @@ async function executeConversationTurn(
           merged.note.reviewImageIds,
           params?.autoSubmit === true,
           selectionHistoryStart,
+          audience,
         )
       : null
   const storedReferences = await archiveAgentReferences(conversationId, turnId, references)
@@ -859,6 +879,7 @@ async function executeConversationTurn(
       mode,
       userId,
       deviceId,
+      audience,
       ...(params ? { params } : {}),
       ...(written.wakeNote ? { wakeNote: written.wakeNote } : {}),
       reservedCredits: written.reserved?.reservedCredits,
