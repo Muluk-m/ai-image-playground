@@ -3,7 +3,7 @@ import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
 import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
 import { Box } from './geometry'
-import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
+import { fitToTarget, type PlacementTarget, spreadTargets } from './placement'
 
 /** 要放的一项。`id` 与 `video` 只属于这一项，`opts.meta` 是整批共用的溯源。 */
 export type PlaceItem = Pick<
@@ -141,29 +141,8 @@ export async function placeImagesIntoTargets(
 }
 
 /**
- * 单个目标框里放一批结果：多张按框宽分格沿水平排开，彼此留 PLACEMENT_GAP 间距。
- * 「一个占位框收一条 n>1 的任务」时用它（计费内置渠道的整批预留）。
- */
-export function spreadTargets(target: PlacementTarget, count: number): PlacementTarget[] {
-  return Array.from({ length: count }, (_, i) => ({
-    ...target,
-    x: target.x + i * (target.w + PLACEMENT_GAP),
-  }))
-}
-
-/** 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。 */
-export async function placeImagesOnCanvas(
-  editor: CanvasEditor,
-  placing: readonly PlaceItem[],
-  target: PlacementTarget,
-  opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
-): Promise<void> {
-  await placeImagesIntoTargets(editor, placing, spreadTargets(target, placing.length), opts)
-}
-
-/**
  * 把生成结果放到画布并**删除**占位框：占位框还在就放在它的位置（选区右侧、垂直居中），
- * 已被用户删除则按 target 兜底放置，不抛错（决策 7 末行 / spec 占位框缺失）。
+ * 已被用户删除则从 target 起找个空位兜底，不抛错（决策 7 末行 / spec 占位框缺失）。
  * 结果元素的 meta 记录生成溯源（prompt），画布上事后可查这张图是怎么来的。
  */
 async function placeResults(
@@ -181,10 +160,12 @@ async function placeResults(
       }
     : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
-  await placeImagesOnCanvas(
+  await placeImagesIntoTargets(
     editor,
     dataUrls.map((dataUrl) => ({ dataUrl })),
-    anchor,
+    // 上游可能给回不止一张（原生 n / 计费整批只预留了一个框）：多出来的自己找空位，
+    // 占位框自己不算障碍，所以第一张仍落回它那个框。
+    spreadTargets(editor, anchor, dataUrls.length, placeholder ? [placeholder.id] : []),
     { meta: provenance },
   )
   if (placeholder) editor.deleteElement(placeholderId)

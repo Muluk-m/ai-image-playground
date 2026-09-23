@@ -1,19 +1,15 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentCanvasSink } from '../../../../features/agent/lib/canvasSink'
-import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
-import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
-import {
-  bindNewCanvasWorkspace,
-  CanvasWorkspace,
-  canvasSceneKey,
-  currentCanvasWorkspace,
-  selectCanvasWorkspace,
-  showCanvasWorkspace,
-} from '../../../../features/canvas/lib/workspaces'
+import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
+import { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
+import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { abortNextPut, freshSceneKey, saveSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../features/canvas/lib/recoverCanvasTasks', () => ({
   recoverCanvasTasks: vi.fn(),
@@ -24,91 +20,42 @@ afterEach(() => {
   vi.restoreAllMocks()
   setClientStorageScope(null)
 })
-const freshKey = () => `test:${crypto.randomUUID()}`
-const editor = () => new CanvasEditor(new CanvasDoc())
 
-function abortNextPut() {
-  const put = IDBObjectStore.prototype.put
-  vi.spyOn(console, 'warn').mockImplementation(() => {})
-  return vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(function (
-    this: IDBObjectStore,
-    ...args: Parameters<IDBObjectStore['put']>
-  ) {
-    const result = put.apply(this, args)
-    this.transaction.abort()
-    return result
-  })
-}
-
-describe('会话画布', () => {
-  it('新会话与历史会话独立，首次发送保留同一个文档，后台完成仍写原存档', async () => {
-    const draft = currentCanvasWorkspace()
-    await draft.ready
-    showCanvasWorkspace(true)
-    draft.doc.setCamera({ x: 17 })
-    const sink = agentCanvasSink()
-    expect(await bindNewCanvasWorkspace('first')).toBe(true)
-    expect(currentCanvasWorkspace()).toBe(draft)
-    expect(agentCanvasSink()).toBe(sink)
-    selectCanvasWorkspace(null)
-    const next = currentCanvasWorkspace()
-    await next.ready
-    expect(next.doc.camera.x).toBe(0)
-    expect(next.editor).not.toBe(draft.editor)
-    draft.doc.setCamera({ x: 28 })
-    await draft.flush()
-    selectCanvasWorkspace('first')
-    expect(currentCanvasWorkspace()).toBe(draft)
-    const restored = editor()
-    await loadScene(restored, canvasSceneKey('first'))
-    expect(restored.doc.camera.x).toBe(28)
-    showCanvasWorkspace(false)
-  })
-
+describe('画布工作区', () => {
   it('未编辑的旧标签页不覆盖其它标签页的新存档', async () => {
-    const key = freshKey()
+    const key = freshSceneKey()
     const stale = new CanvasWorkspace(key)
     await stale.ready
-    const newer = editor()
-    newer.doc.setCamera({ x: 99 })
-    await saveScene(newer, key)
+    await saveSceneRecord(key, 99)
     stale.doc.setViewport(900, 600)
     stale.doc.setSelection([])
     stale.doc.setTool('pen')
     stale.doc.notifyAssetLoaded()
     await stale.flush()
-    const restored = editor()
-    await loadScene(restored, key)
-    expect(restored.doc.camera.x).toBe(99)
+    expect((await readPersistedScene(key))?.camera.x).toBe(99)
   })
 
   it('绑定事务失败保留草稿，重试原子转存后后续编辑只写新会话', async () => {
-    const source = freshKey(),
-      target = freshKey()
+    const source = freshSceneKey(),
+      target = freshSceneKey()
     const draft = new CanvasWorkspace(source)
     await draft.ready
     draft.doc.setCamera({ x: 42 })
     await draft.flush()
     const spy = abortNextPut()
     expect(await draft.bind(target)).toBe(false)
-    const backup = editor()
-    expect(await loadScene(backup, source)).toBe(true)
-    expect(backup.doc.camera.x).toBe(42)
+    expect((await readPersistedScene(source))?.camera.x).toBe(42)
     spy.mockRestore()
     expect(await draft.bind(target)).toBe(true)
-    expect(await loadScene(editor(), source)).toBe(false)
+    expect(await readPersistedScene(source)).toBeUndefined()
     draft.doc.setCamera({ x: 43 })
     await draft.flush()
-    const restored = editor()
-    await loadScene(restored, target)
-    expect(restored.doc.camera.x).toBe(43)
+    expect((await readPersistedScene(target))?.camera.x).toBe(43)
   })
 
   it('读失败不写空场景，重试读取恢复原内容', async () => {
-    const key = freshKey()
-    const source = editor()
-    source.doc.setCamera({ x: 81 })
-    await saveScene(source, key)
+    const key = freshSceneKey()
+    await saveSceneRecord(key, 81)
     vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementationOnce(() => {
       throw new Error('offline storage')
     })
@@ -119,20 +66,6 @@ describe('会话画布', () => {
     workspace.retryLoad()
     await workspace.ready
     expect(workspace.doc.camera.x).toBe(81)
-  })
-
-  it('页面被藏起来时把没落盘的画布冲掉', async () => {
-    currentCanvasWorkspace()
-    selectCanvasWorkspace('page-hide')
-    const workspace = currentCanvasWorkspace()
-    await workspace.ready
-    workspace.doc.setCamera({ x: 64 })
-    window.dispatchEvent(new Event('pagehide'))
-    // 让冲盘排下的写事务先进队；此刻 500ms 的 debounce 还没到，落盘只可能来自它。
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const restored = editor()
-    await loadScene(restored, canvasSceneKey('page-hide'))
-    expect(restored.doc.camera.x).toBe(64)
   })
 
   it('账号与匿名画布键互不相同', () => {
@@ -147,10 +80,6 @@ describe('会话画布', () => {
 })
 
 it('真实工作区断网自动保存，联网无需手动点击即可续传', async () => {
-  const { _setRuntimeConfigForTesting } = await import('../../../../lib/runtimeConfig')
-  const { bootstrapClientCapabilities } = await import('../../../../lib/clientCapabilities')
-  const { projectRepository } = await import('../../../../features/canvas/lib/projectRepository')
-  const { useCanvasProjectStore } = await import('../../../../features/canvas/projectStore')
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
@@ -209,108 +138,58 @@ it('真实工作区断网自动保存，联网无需手动点击即可续传', a
   }
 })
 
-it('持续前台的当前项目定期发现远端变更，隐藏后停止检查', async () => {
-  const { _setRuntimeConfigForTesting } = await import('../../../../lib/runtimeConfig')
-  const { bootstrapClientCapabilities } = await import('../../../../lib/clientCapabilities')
-  const { projectRepository } = await import('../../../../features/canvas/lib/projectRepository')
-  const { useCanvasProjectStore } = await import('../../../../features/canvas/projectStore')
-  const { forgetCanvasWorkspace } = await import('../../../../features/canvas/lib/workspaces')
+it('编辑之后不用手动推：防抖落盘顺手把这份文档送上去', async () => {
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
-  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
-  let reads = 0
-  let finishRead: (() => void) | undefined
+  const writes: unknown[] = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
-      if (url.endsWith('/api/projects'))
-        return Response.json({ projects: [], deletedIds: [], nextCursor: null })
-      if (init?.method === 'PUT')
-        return Response.json({
-          id: project.id,
-          name: project.name,
-          revision: 1,
-          createdAt: 1,
-          updatedAt: 2,
-          elementCount: 0,
-        })
-      reads++
-      return new Promise<Response>((resolve) => {
-        finishRead = () =>
-          resolve(
-            Response.json({
-              id: project.id,
-              name: project.name,
-              revision: 2,
-              createdAt: 1,
-              updatedAt: 3,
-              elementCount: 1,
-              document: {
-                version: 1,
-                elements: [
-                  {
-                    id: 'remote',
-                    type: 'text',
-                    text: '另一台设备的新稿',
-                    x: 0,
-                    y: 0,
-                    width: 100,
-                    height: 30,
-                    fontSize: 24,
-                    fill: '#000',
-                  },
-                ],
-              },
-            }),
-          )
+      const body = JSON.parse(init!.body as string)
+      writes.push(body)
+      return Response.json({
+        id: project.id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: body.document.elements.length,
       })
     }),
   )
   await bootstrapClientCapabilities(true, 'http://bff.test')
-  let project = await projectRepository.create('持续前台', undefined, true)
-  useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
-  currentCanvasWorkspace()
-  selectCanvasWorkspace(null)
-  const workspace = currentCanvasWorkspace()
-  await workspace.ready
-  showCanvasWorkspace(false)
-  vi.useFakeTimers({
-    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
-  })
+  const project = await projectRepository.create('自动上传', undefined, true)
+  useCanvasProjectStore.setState({ projects: [project] })
+
+  const workspace = new CanvasWorkspace(project.sceneKey)
   try {
-    showCanvasWorkspace(true)
     await workspace.ready
-    await vi.advanceTimersByTimeAsync(15000)
-    await vi.waitFor(() => expect(reads).toBe(1))
-    expect(workspace.getSnapshot().loading).toBe(false)
-    finishRead!()
-    await vi.waitFor(() =>
-      expect(workspace.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }),
-    )
-    expect(reads).toBe(1)
-    await workspace.ready
-    setClientStorageScope(crypto.randomUUID())
-    project = await projectRepository.create('切账号后仍检查', undefined, true)
-    useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
-    const next = currentCanvasWorkspace()
-    await next.ready
-    await vi.advanceTimersByTimeAsync(15000)
-    await vi.waitFor(() => expect(reads).toBe(2))
-    finishRead!()
-    await next.ready
-    expect(next.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' })
-    visibility.mockReturnValue('hidden')
-    document.dispatchEvent(new Event('visibilitychange'))
-    await vi.advanceTimersByTimeAsync(60000)
-    expect(reads).toBe(2)
+    // 新项目起步那次推送先落定，后面的写入只可能来自这次编辑。
+    await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'), {
+      timeout: 3000,
+    })
+    const before = writes.length
+    workspace.doc.addElements([
+      {
+        id: 'note',
+        type: 'text',
+        text: '防抖之后自己上去',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 30,
+        fontSize: 24,
+        fill: '#000',
+      },
+    ])
+    // 谁都不碰 flush / requestSync / sync：推上去必须是防抖那次落盘自己带出来的。
+    // 500ms 防抖落盘 + 1000ms 排下的推送，给一倍余量。
+    await vi.waitFor(() => expect(writes).toHaveLength(before + 1), { timeout: 3000 })
+    expect(writes[before]).toMatchObject({ document: { elements: [{ text: '防抖之后自己上去' }] } })
   } finally {
-    finishRead?.()
-    await workspace.ready
-    showCanvasWorkspace(false)
-    forgetCanvasWorkspace(project.sceneKey)
-    vi.useRealTimers()
-    useCanvasProjectStore.setState({ projects: [], activeId: null })
+    workspace.dispose()
+    useCanvasProjectStore.setState({ projects: [] })
     _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
     await bootstrapClientCapabilities(false, '')
     vi.unstubAllGlobals()

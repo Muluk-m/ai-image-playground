@@ -13,6 +13,14 @@
 
 **Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`** — 浏览器 CORS preflight 对常见中转网关只放行前者；后端代理通常两个 header 都接受。
 
+**提交路径一律经 [`src/lib/generationJob.ts`](./src/lib/generationJob.ts)**，不要在调用方自己拼
+生命周期。`startGeneration(spec, sink)` / `resumeGeneration(input, handle, report)` 里收着
+提交门禁（账号 + 计费）、扇出规则（计费整批一条 / 原生 `n` / 按份拆）、幂等键、受理回填、
+overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人话（ADR-0006：按码判，不糊上游原文）。
+宿主只实现 `GenerationSink`：工作台是任务行（`store.ts`），画布是占位框
+（`features/canvas/lib/canvasGenerationSink.ts`）。画布视频走自己的队列协议，
+复用 `admitGeneration` 与 `superviseGeneration`（文档化的第三个调用方）。
+
 ## 多语言（i18n）
 
 运行时是 **react-i18next + 结构化 key**，语料是每个 locale 一份 JSON，业务代码只认 key。
@@ -148,14 +156,15 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 
 ## 登录与匿名访客
 
-**开着 `accounts:login` 的部署也不拦人**：`/api/auth/me` 答 401 时 `AuthGate` 照常挂载工作台，
-storage scope 留在匿名（`setClientStorageScope(null)`），只有真需要账号的那一次动作才弹
-[`LoginDialog`](./src/auth/LoginDialog.tsx)。登录成功仍是 `window.location.reload()`：地址栏不动，
-重启时 `adoptAnonymousStorage()` 把匿名期间的本地历史认领进账号，channel 与同步引擎按新身份重来。
+**开着 `accounts:login` 的部署照常挂载工作台**：`/api/auth/me` 答 401 时 `AuthGate`
+保持匿名 scope，只有需要账号的动作才弹 [`LoginDialog`](./src/auth/LoginDialog.tsx)。
+成功登录仍 reload 当前地址：重启时先 `adoptAnonymousStorage()`，再挂工作台与恢复待发请求。
 
-- 唯一接缝是 [`src/auth/loginPrompt.ts`](./src/auth/loginPrompt.ts)：它不依赖 React 与 store（调用方
-  多是模块级函数）。要账号的动作在**发请求之前**调 `requireAccount()`，返回 false 就安静地放弃这次
-  操作——不落任务行、不 toast，弹出来的登录框本身就是反馈。
+- [`loginPrompt.ts`](./src/auth/loginPrompt.ts) 是统一弹框接缝。需要账号的动作在发请求前走
+  `requireAccount()`；单次动作默认停下，不落任务行或 toast。生成提交与首屏画布发送例外：
+  先用 [`pendingSubmission.ts`](./src/auth/pendingSubmission.ts) 在 IndexedDB 保存本次原始输入
+  （包括附图），用 sessionStorage 限定发起的标签页，再叫出登录框。登录成功重启且初始化完成后
+  消费一次并发送；关闭弹框丢弃，OAuth 失败返回时继续显示登录框。
 - 被动请求（启动拉取、轮询、云端历史）**不准**调 `requireAccount()`：页面自己弹登录框是 bug。
 - `authenticatedBffFetch` 的 401 只在 `isSignedIn()` 为真时才算「会话失效」，那条路走
   [`SessionExpiredCard`](./src/auth/SessionExpiredCard.tsx)（非模态，工作台不卸载）。访客的 401 是
@@ -175,12 +184,15 @@ storage scope 留在匿名（`setClientStorageScope(null)`），只有真需要�
 
 ## 使用指南与 SEO
 
-- `/guide/`（中文）与 `/guide/en/`（英文）是**构建期渲染的静态页**，不是 SPA 路由：
-  [`src/seo/vitePlugin.ts`](./src/seo/vitePlugin.ts) 在 `transformIndexHtml` 里把
-  `guide/**/index.html` 整页替换成 [`features/guide/render.ts`](./src/features/guide/render.ts) 的输出，
-  浏览器端只跑目录高亮（`features/guide/client.ts`）。正文、结构化数据都在 HTML 里，爬虫不必执行脚本。
-- 内容是纯数据：`features/guide/content/zh-CN.ts` 与 `en.ts`，**两份结构必须一致**（同样的锚点、区块、
-  截图与编号，`render.test.ts` 守着）。`[[标签]]` 写的是界面原文，改了按钮文案要同步改指南。
+- 使用指南是**构建期渲染的静态页**，不是 SPA 路由：每种语言一个首页（`/guide/`、`/guide/en/`）加每章
+  一页（`/guide/<章节 id>/`）。[`src/seo/vitePlugin.ts`](./src/seo/vitePlugin.ts) 在 `transformIndexHtml`
+  里把 `guide/**/index.html` 占位文件整页替换成 [`features/guide/render.ts`](./src/features/guide/render.ts)
+  的输出，并产出站内搜索索引 `<root>search.json`；浏览器端（`features/guide/client.ts`）只做目录高亮、
+  搜索弹窗与复制按钮。正文、结构化数据都在 HTML 里，爬虫不必执行脚本。
+- 内容是纯数据：`features/guide/content/zh-CN.ts` 与 `en.ts`，**两份结构必须一致**（同样的章节、锚点、
+  区块、截图与编号，`render.test.ts` 守着，站内链接失效也会让它红）。`[[标签]]` 写的是界面原文，改了
+  按钮文案要同步改指南。**新增章节**要同时加两种语言的内容、`render.ts` 里的章节图标，以及
+  `guide/<id>/index.html`、`guide/en/<id>/index.html` 两个占位文件（Vite 入口由内容推导，缺文件构建即失败）。
 - 截图在 `public/guide-assets/<zh|en>/`，只收 WebP（构建期读尺寸写进 width/height）。截图上的编号圆点
   坐标是百分比，重新截图后要一起更新。
 - `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 由 `scripts/pages-release.sh` 按版本传给构建：有源才写 canonical、

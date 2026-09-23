@@ -15,7 +15,7 @@ vi.mock('../../../lib/privateOverlay', () => ({
 }))
 
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
-import { setAgentJobPollIntervalForTesting, useAgentStore } from '../../../features/agent/store'
+import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -117,6 +117,9 @@ const jobRequests = () =>
   fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/jobs')).length
 
 beforeEach(() => {
+  // 后台任务的守候按真实节奏（3s）问服务端：用假时钟把那一跳推过去，不去改模块的构造参数。
+  // 只假掉模块用的那一个定时器：fake-indexeddb 与 fetch 的内部还靠 setImmediate 推进。
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
@@ -130,7 +133,6 @@ beforeEach(() => {
   confirmResponse = () => Response.json({ message: confirmed })
   jobsResponse = () => []
   history = (conversationId) => (conversationId === CONVERSATION ? [draftMessage] : [])
-  setAgentJobPollIntervalForTesting(5)
   setAgentCanvasSink({
     has: (objectId) => onCanvas.has(objectId),
     async reserve(request) {
@@ -172,7 +174,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useAgentStore.setState({ conversationId: null, messages: [] })
-  setAgentJobPollIntervalForTesting()
+  vi.useRealTimers()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()
@@ -265,5 +267,6 @@ it('确认之后重读历史：慢一步的草稿不把已提交的卡拉回拟�
 
   expect(toolCard()).toMatchObject({ status: 'submitted', prompt: CORRECTED })
   jobsResponse = () => [finishedJob]
-  await vi.waitFor(() => expect(toolCard().status).toBe('succeeded'))
+  await vi.advanceTimersByTimeAsync(3_000)
+  expect(toolCard().status).toBe('succeeded')
 })

@@ -3,10 +3,10 @@ import {
   type GenerationImage,
   projectArtifactId,
 } from '@image-playground/shared'
-import { currentCanvasWorkspace } from '../features/canvas/lib/workspaces'
+import { currentCanvasWorkspace } from '../features/canvas/lib/activeProject'
 import { currentCanvasProject } from '../features/canvas/projectStore'
 import { useStore } from '../store'
-import { scopedStorageName } from './authScope'
+import { accountScope } from './authScope'
 
 /** Explicit history placement targets the project selected at the click, never a later project. */
 export async function placeCloudGeneration(
@@ -14,12 +14,12 @@ export async function placeCloudGeneration(
   image: GenerationImage,
   signal: AbortSignal,
 ) {
-  const scope = scopedStorageName('canvas')
+  const sameAccount = accountScope()
   const workspace = currentCanvasWorkspace()
   const projectId = currentCanvasProject()?.id
   const isCurrent = () =>
     !signal.aborted &&
-    scope === scopedStorageName('canvas') &&
+    sameAccount() &&
     currentCanvasWorkspace() === workspace &&
     currentCanvasProject()?.id === projectId
   const artifactId = image.artifactId ?? projectArtifactId(detail.id, image.index)

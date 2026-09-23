@@ -9,7 +9,7 @@ import {
   projectArtifactId,
   type TaskErrorType,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
@@ -40,6 +40,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { settleQueuedTasks } = await import('../helpers/taskWorker')
 const { config } = await import('../../config')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -92,7 +93,7 @@ function types(frames: { event: AgentTurnEvent }[]): string[] {
   return frames.map((frame) => frame.event.type)
 }
 
-/** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
+/** 测试里的迷你 worker：认领工具刚提交的任务并按真实路径收尾，让工具循环能往下跑。 */
 function settleSubmittedTasks(
   outcome: 'completed' | 'failed' | 'empty',
   errorType: TaskErrorType = 'upstream_error',
@@ -100,32 +101,21 @@ function settleSubmittedTasks(
   let stopped = false
   void (async () => {
     while (!stopped) {
-      const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
-      for (const task of queued) {
-        await db
-          .update(schema.tasks)
-          .set(
-            outcome === 'completed'
-              ? {
-                  status: 'completed',
-                  result_payload: {
-                    data: Array.from(
-                      { length: task.request_payload.n ?? 1 },
-                      () => TEST_RESULT_PAYLOAD.data[0]!,
-                    ),
-                  },
-                  completed_at: Date.now(),
-                }
-              : outcome === 'empty'
-                ? { status: 'completed', result_payload: { data: [] }, completed_at: Date.now() }
-                : {
-                    status: 'failed',
-                    error_message: '上游拒绝了这张图',
-                    error_type: errorType,
-                  },
-          )
-          .where(eq(schema.tasks.id, task.id))
-      }
+      await settleQueuedTasks((task) =>
+        outcome === 'completed'
+          ? {
+              status: 'completed',
+              resultPayload: {
+                data: Array.from(
+                  { length: task.request_payload.n ?? 1 },
+                  () => TEST_RESULT_PAYLOAD.data[0]!,
+                ),
+              },
+            }
+          : outcome === 'empty'
+            ? { status: 'completed', resultPayload: { data: [] } }
+            : { status: 'failed', errorMessage: '上游拒绝了这张图', errorType },
+      )
       await Bun.sleep(2)
     }
   })()
@@ -140,7 +130,7 @@ async function readSettledMessages(conversationId: string): Promise<AgentMessage
     const pending = await db
       .select({ id: schema.tasks.id })
       .from(schema.tasks)
-      .where(eq(schema.tasks.status, 'queued'))
+      .where(inArray(schema.tasks.status, ['queued', 'in_progress']))
     if (pending.length === 0) break
     await Bun.sleep(5)
   }
@@ -464,6 +454,8 @@ describe('智能体生图工具', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'webFetch',
+      'webSearch',
     ])
   })
 

@@ -8,7 +8,7 @@ import {
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import {
@@ -47,7 +47,7 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
-const { finishTask } = await import('../../db/task-transitions')
+const { settleQueuedTasks, workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { conversationsWithEndedJobs } = await import('../../lib/agent/wake')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
@@ -123,35 +123,24 @@ async function runTurn(conversationId: string, text: string, options: TurnOption
   return parseFrames(body)
 }
 
-/** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
+/** 测试里的迷你 worker：认领工具刚提交的任务并按真实路径收尾，让工具循环能往下跑。 */
 function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
-      const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
-      for (const task of queued) {
-        await db
-          .update(schema.tasks)
-          .set(
-            outcome === 'completed'
-              ? {
-                  status: 'completed',
-                  result_payload: {
-                    data: Array.from(
-                      { length: task.request_payload.n ?? 1 },
-                      () => TEST_RESULT_PAYLOAD.data[0]!,
-                    ),
-                  },
-                  completed_at: Date.now(),
-                }
-              : {
-                  status: 'failed',
-                  error_message: '上游拒绝了这张图',
-                  error_type: 'upstream_error',
-                },
-          )
-          .where(eq(schema.tasks.id, task.id))
-      }
+      await settleQueuedTasks((task) =>
+        outcome === 'completed'
+          ? {
+              status: 'completed',
+              resultPayload: {
+                data: Array.from(
+                  { length: task.request_payload.n ?? 1 },
+                  () => TEST_RESULT_PAYLOAD.data[0]!,
+                ),
+              },
+            }
+          : { status: 'failed', errorMessage: '上游拒绝了这张图', errorType: 'upstream_error' },
+      )
       await Bun.sleep(2)
     }
   })()
@@ -160,13 +149,11 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   }
 }
 
-/** 用 worker 写终态的那个函数把一条任务跑成功：唤醒判断发生在它的事务里。 */
+/** 走 worker 那条路把一条任务跑成功：唤醒判断发生在收尾的同一个事务里。 */
 async function completeWithWorker(taskId: string): Promise<void> {
-  await db.update(schema.tasks).set({ status: 'in_progress' }).where(eq(schema.tasks.id, taskId))
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
-  await finishTask(taskId, {
+  await workerSettles(taskId, {
     status: 'completed',
-    completedAt: Date.now(),
     resultPayload: {
       data: Array.from(
         { length: task!.request_payload.n ?? 1 },
@@ -182,7 +169,7 @@ async function settledResults(conversationId: string): Promise<AgentToolResultBl
     const queued = await db
       .select({ id: schema.tasks.id })
       .from(schema.tasks)
-      .where(eq(schema.tasks.status, 'queued'))
+      .where(inArray(schema.tasks.status, ['queued', 'in_progress']))
     if (queued.length === 0) break
     await Bun.sleep(5)
   }
@@ -432,20 +419,15 @@ describe('智能体改图工具', () => {
       expect(request.input_images).toEqual([reference.dataUrl])
       expect(request.prompt).toBe(submittedPrompt(prompts[index]!))
       expect(request.n).toBe(1)
-      await db
-        .update(schema.tasks)
-        .set({ status: 'in_progress' })
-        .where(eq(schema.tasks.id, task!.id))
-      await finishTask(
+      await workerSettles(
         task!.id,
         index === 1
           ? {
               status: 'failed',
-              completedAt: Date.now(),
               errorType: 'upstream_error',
               errorMessage: 'one image failed',
             }
-          : { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD, completedAt: Date.now() },
+          : { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD },
       )
     }
     const results = await settledResults(conversationId)
@@ -916,6 +898,9 @@ describe('智能体改图工具', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      // 联网里只有这两个不要求登录，所以匿名轮的清单里就这两条。
+      'webFetch',
+      'webSearch',
     ])
   })
 

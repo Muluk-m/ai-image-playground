@@ -4,7 +4,8 @@
     "canvas": "Canvas",
     "explore": "Explore",
     "projects": "Projects",
-    "library": "Assets"
+    "library": "Assets",
+    "tools": "Toolbox"
   },
   "task": {
     "interrupted": "Request interrupted",

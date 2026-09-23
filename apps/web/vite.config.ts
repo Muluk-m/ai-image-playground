@@ -5,7 +5,7 @@ import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
-import { seoPlugin } from './src/seo/vitePlugin'
+import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -93,6 +93,9 @@ export default defineConfig(({ command }) => {
       host: true,
       proxy: Object.keys(proxy).length ? proxy : undefined,
     },
+    // jSquash 用 `new URL('*.wasm', import.meta.url)` 找自己的 wasm；预打包会把路径改坏。
+    optimizeDeps: { exclude: ['@jsquash/webp', '@jsquash/avif', '@jsquash/oxipng'] },
+    worker: { format: 'es' as const },
     test: {
       // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
       // 所有断言中文文案的历史用例打红。
@@ -107,8 +110,7 @@ export default defineConfig(({ command }) => {
         input: {
           main: resolve(__dirname, 'index.html'),
           localCompatibility: resolve(__dirname, 'local-compat.html'),
-          guide: resolve(__dirname, 'guide/index.html'),
-          guideEn: resolve(__dirname, 'guide/en/index.html'),
+          ...guideHtmlEntries(__dirname),
         },
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor
