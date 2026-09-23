@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { ProjectDocument } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../../../helpers/inMemoryObjectStore'
 
 /**
@@ -16,7 +17,12 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const {
+  archiveAgentReferences,
+  claimConversationMedia,
+  createAgentImageSource,
+  removeAgentConversationReferences,
+} = await import('../../../../lib/agent/images')
 const { setDurableMediaStoreForTesting } = await import('../../../../lib/durableMediaStore')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
 type AgentToolContext = Parameters<typeof readCanvas.create>[0]
@@ -109,7 +115,7 @@ async function media(projectId: string, userId: string, id = MEDIA): Promise<voi
   const now = Date.now()
   // 原件与预览给不同字节，这样断言能分清取回来的是哪一份。
   await durable.write(`media/${id}`, new TextEncoder().encode('hi'), 'image/png')
-  await durable.write(`preview/${id}`, new TextEncoder().encode('sm'), 'image/png')
+  await durable.write(`preview/${id}`, new TextEncoder().encode('sm'), 'image/webp')
   await db.insert(schema.media_objects).values({
     id,
     user_id: userId,
@@ -311,7 +317,7 @@ it('hands back the preview by default and the original only when asked', async (
   await media('proj-1', USER)
   const source = sourceFor('conv-1', USER)
 
-  expect((await source.resolve(MEDIA, 'preview'))?.dataUrl).toBe('data:image/png;base64,c20=')
+  expect((await source.resolve(MEDIA, 'preview'))?.dataUrl).toBe('data:image/webp;base64,c20=')
   expect((await source.resolve(MEDIA, 'original'))?.dataUrl).toBe('data:image/png;base64,aGk=')
 })
 
@@ -350,4 +356,101 @@ it('refuses a media id from the same account but another project', async () => {
   await media('proj-2', USER)
 
   expect(await sourceFor('conv-1', USER).resolve(MEDIA)).toBeNull()
+})
+
+/**
+ * 用户在画布上选中图片附给这一轮：字节已经在 R2 里，请求只带 id。八张原图内联一次就是
+ * 几十 MB 的请求体，传几分钟还白占一遍出站带宽——那条路 2026-09-23 把一轮拖到 400 打回。
+ */
+it('claims a user-attached media id for the conversation and reads it back', async () => {
+  await conversation('conv-1', USER)
+  await project({
+    id: 'proj-1',
+    userId: USER,
+    conversationId: 'conv-1',
+    document: { version: 1, elements: [imageElement()] },
+  })
+  await media('proj-1', USER)
+
+  expect(
+    await claimConversationMedia('conv-1', USER, [{ imageId: 'el-image', mediaId: MEDIA }]),
+  ).toBe(true)
+  const stored = await archiveAgentReferences('conv-1', 'turn-1', [
+    { imageId: 'el-image', mediaId: MEDIA, name: '橘猫实拍' },
+  ])
+
+  // 字节不复制第二遍：快照里只有 id。
+  expect(stored).toEqual([{ imageId: 'el-image', mediaId: MEDIA, name: '橘猫实拍' }])
+  const source = createAgentImageSource({
+    references: [{ imageId: 'el-image', mediaId: MEDIA }],
+    history: [],
+    conversationId: 'conv-1',
+    userId: USER,
+  })
+  expect((await source.resolve('el-image'))?.dataUrl).toBe('data:image/png;base64,aGk=')
+})
+
+// 会话自己那条认领是历史的锚：用户后来把这张图从画布上删了，历史里的引用还得读得出来。
+it('keeps an attached media id readable after the canvas drops it', async () => {
+  await conversation('conv-1', USER)
+  await project({
+    id: 'proj-1',
+    userId: USER,
+    conversationId: 'conv-1',
+    document: { version: 1, elements: [imageElement()] },
+  })
+  await media('proj-1', USER)
+  await claimConversationMedia('conv-1', USER, [{ imageId: 'el-image', mediaId: MEDIA }])
+
+  // 项目写入会把自己那批认领整批换掉；这张图不在画布上了，项目那条就没了。
+  await db.delete(schema.media_references).where(eq(schema.media_references.owner_kind, 'project'))
+
+  expect((await sourceFor('conv-1', USER).resolve(`aip-media:${MEDIA}`))?.dataUrl).toBe(
+    'data:image/png;base64,aGk=',
+  )
+})
+
+// id 来自请求体，谁都能编一个：认领这一步就是越权边界，挡在起轮之前。
+it('refuses to claim media that another account owns, or any media for a signed-out device', async () => {
+  await conversation('conv-1', USER)
+  await project({
+    id: 'proj-1',
+    userId: OTHER,
+    conversationId: 'conv-1',
+    document: { version: 1, elements: [imageElement()] },
+  })
+  await media('proj-1', OTHER)
+
+  expect(await claimConversationMedia('conv-1', USER, [{ imageId: 'el', mediaId: MEDIA }])).toBe(
+    false,
+  )
+  expect(await claimConversationMedia('conv-1', null, [{ imageId: 'el', mediaId: MEDIA }])).toBe(
+    false,
+  )
+  // 已经不在的 id 同样认领不上，那一轮不会开出去再失败。
+  expect(
+    await claimConversationMedia('conv-1', OTHER, [
+      { imageId: 'el', mediaId: '00000000-2222-4333-8444-555555555555' },
+    ]),
+  ).toBe(false)
+})
+
+// 删会话要把认领一起清掉，否则 `media_references` 的 restrict 会把那几张图永远钉在配额里。
+it('drops the conversation claim when the conversation goes', async () => {
+  await conversation('conv-1', USER)
+  await project({
+    id: 'proj-1',
+    userId: USER,
+    conversationId: 'conv-1',
+    document: { version: 1, elements: [imageElement()] },
+  })
+  await media('proj-1', USER)
+  await claimConversationMedia('conv-1', USER, [{ imageId: 'el-image', mediaId: MEDIA }])
+
+  await removeAgentConversationReferences('conv-1')
+
+  const remaining = await db
+    .select({ ownerKind: schema.media_references.owner_kind })
+    .from(schema.media_references)
+  expect(remaining.map((one) => one.ownerKind)).toEqual(['project'])
 })
