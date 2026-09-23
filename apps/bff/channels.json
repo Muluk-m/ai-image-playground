@@ -5,6 +5,7 @@
       "kind": "openai-queue",
       "label": "OpenAI",
       "baseUrl": "https://api.openai.com/v1",
+      "requiresSecret": true,
       "auth": {
         "type": "bearer",
         "secretRef": "OPENAI_API_KEY"
@@ -32,6 +33,7 @@
       "kind": "gemini-queue",
       "label": "Gemini",
       "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "requiresSecret": true,
       "auth": {
         "type": "query-key",
         "secretRef": "GEMINI_API_KEY",
@@ -55,6 +57,7 @@
       "kind": "openai-queue",
       "label": "Agnes AI",
       "baseUrl": "https://apihub.agnes-ai.com/v1",
+      "requiresSecret": true,
       "auth": {
         "type": "bearer",
         "secretRef": "AGNES_API_KEY"
@@ -77,6 +80,7 @@
       "kind": "openai-queue",
       "label": "Grok Imagine Image",
       "baseUrlRef": "GROK_BASE_URL",
+      "requiresSecret": true,
       "auth": {
         "type": "bearer",
         "secretRef": "GROK_API_KEY"
@@ -101,6 +105,7 @@
       "kind": "openai-queue",
       "label": "Grok Imagine Video",
       "baseUrlRef": "GROK_BASE_URL",
+      "requiresSecret": true,
       "auth": {
         "type": "bearer",
         "secretRef": "GROK_API_KEY"
@@ -124,6 +129,7 @@
       "kind": "openai-queue",
       "label": "Agnes AI Video",
       "baseUrl": "https://apihub.agnes-ai.com/v1",
+      "requiresSecret": true,
       "auth": {
         "type": "bearer",
         "secretRef": "AGNES_API_KEY"
@@ -154,6 +160,7 @@
       "kind": "openai-queue",
       "label": "Seedance Video",
       "baseUrlRef": "ARK_BASE_URL",
+      "requiresSecret": true,
       "auth": {
         "type": "bearer",
         "secretRef": "ARK_API_KEY"

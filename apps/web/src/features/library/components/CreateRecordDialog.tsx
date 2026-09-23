@@ -1,8 +1,13 @@
 import { ASSET_KINDS, LOOK_PURPOSES } from '@image-playground/shared'
 import { useRef, useState } from 'react'
-import { CloseIcon, PlusIcon, SparkleIcon } from '../../../components/icons'
+import { CloseIcon, FolderIcon, PlusIcon, SparkleIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
+import {
+  acceptImageFiles,
+  collectDroppedFiles,
+  filesFromFolderInput,
+} from '../../../lib/imageFiles'
 import { useStore } from '../../../store'
 import type { AssetKind, LookPurpose } from '../types'
 
@@ -50,16 +55,19 @@ export default function CreateRecordDialog(props: Props) {
   const [saving, setSaving] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const isAsset = props.kind === 'asset'
   const ns = isAsset ? 'createAsset' : 'createLook'
   const command = isAsset ? '/create-asset ' : '/create-look '
   const previews = useObjectUrls(files)
   const canSave = name.trim().length > 0 && files.length > 0 && !saving
 
-  const addFiles = (incoming: FileList | File[] | null) => {
-    const images = [...(incoming ?? [])].filter((file) => file.type.startsWith('image/'))
+  /** 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。 */
+  const addFiles = (incoming: readonly File[], folder: string | null = null) => {
+    const images = acceptImageFiles(incoming)
     if (images.length === 0) return
     setFiles((current) => (isAsset ? [...current, ...images] : images.slice(0, 1)))
+    if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
   }
 
   const submit = async () => {
@@ -121,7 +129,9 @@ export default function CreateRecordDialog(props: Props) {
           onDrop={(e) => {
             e.preventDefault()
             setDragging(false)
-            addFiles(e.dataTransfer.files)
+            void collectDroppedFiles(e.dataTransfer).then(({ files: dropped, folder }) =>
+              addFiles(dropped, folder),
+            )
           }}
           className={`flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed px-6 py-8 text-center transition ${
             dragging ? 'border-primary bg-primary/5' : 'border-border bg-muted/40'
@@ -150,14 +160,26 @@ export default function CreateRecordDialog(props: Props) {
           ) : (
             <p className="text-sm text-muted-foreground">{t(`${ns}.dropHint`)}</p>
           )}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-[13px] text-foreground transition hover:bg-muted"
-          >
-            <PlusIcon className="h-4 w-4" />
-            {t(`${ns}.fromLocal`)}
-          </button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-[13px] text-foreground transition hover:bg-muted"
+            >
+              <PlusIcon className="h-4 w-4" />
+              {t(`${ns}.fromLocal`)}
+            </button>
+            {isAsset && (
+              <button
+                type="button"
+                onClick={() => folderInputRef.current?.click()}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-[13px] text-foreground transition hover:bg-muted"
+              >
+                <FolderIcon className="h-4 w-4" />
+                {t('createAsset.fromFolder')}
+              </button>
+            )}
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -165,10 +187,25 @@ export default function CreateRecordDialog(props: Props) {
             multiple={isAsset}
             className="hidden"
             onChange={(e) => {
-              addFiles(e.target.files)
+              addFiles([...(e.target.files ?? [])])
               e.target.value = ''
             }}
           />
+          {isAsset && (
+            <input
+              ref={folderInputRef}
+              type="file"
+              // React 的类型里没有这个非标准属性，但 Chrome / Edge / Safari / Firefox 都支持。
+              {...{ webkitdirectory: '' }}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const { files: picked, folder } = filesFromFolderInput(e.target.files)
+                addFiles(picked, folder)
+                e.target.value = ''
+              }}
+            />
+          )}
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">

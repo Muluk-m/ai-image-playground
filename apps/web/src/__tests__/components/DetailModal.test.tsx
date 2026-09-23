@@ -118,3 +118,16 @@ it('认不出分类的失败照旧显示上游原文', async () => {
 
   expect(document.body.textContent).toContain('HTTP 502 bad gateway')
 })
+
+it('云端镜下来的卡：来源写 provider 与模型，不拿「未知」凑数', async () => {
+  useStore.setState({
+    tasks: [{ ...task, apiModel: 'gpt-image-2.5-flare', cloudProvider: 'openai-compat' }],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('OpenAI · gpt-image-2.5-flare')
+  expect(text).not.toContain('未知')
+})

@@ -1,0 +1,13 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "agent:chat": true,
+    "billing:credits": true,
+    "billing:chat-free": true,
+    "generation:byok": false
+  },
+  "quotas": {
+    "agent:turns-per-device-minute": 0,
+    "agent:turns-per-ip-hour": 0
+  }
+}

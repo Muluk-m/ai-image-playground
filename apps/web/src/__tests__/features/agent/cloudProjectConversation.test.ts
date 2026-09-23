@@ -180,6 +180,70 @@ it('重新打开项目读取另一设备绑定的会话，历史加载失败重�
   expect(requests.every((request) => request.startsWith('GET '))).toBe(true)
 })
 
+it('云端详情半天不回也立刻打开项目：本机那份就够开', async () => {
+  history.replaceState(null, '', '/')
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const project = {
+    id: crypto.randomUUID(),
+    name: '云端很慢的项目',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    elementCount: 0,
+    conversationId,
+  }
+  let detailAsked = false
+  vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    if (url.endsWith('/capabilities'))
+      return Response.json({ 'accounts:sync': true, 'agent:chat': true })
+    if (url.endsWith('/projects')) return Response.json({ projects: [project], nextCursor: null })
+    // 项目详情永不回。这正是生产上那 1.5s 的极端形态：它不该挡住切换。
+    // 只挂住读；写是保存旧画布那一路，挂住它测的就不是这件事了。
+    if (url.includes('/projects/')) {
+      if (method !== 'GET') return Response.json({ ...project, elementCount: 0 })
+      detailAsked = true
+      return new Promise<Response>(() => {})
+    }
+    if (url.endsWith('/messages'))
+      return Response.json({ messages: [], turns: [], activeTurn: null })
+    return Response.json({ conversations: [] })
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useCanvasProjectStore.setState({
+    projects: [],
+    activeId: null,
+    loaded: false,
+    error: null,
+    cloudLoading: false,
+    cloudCatalog: {},
+  })
+  await useCanvasProjectStore.getState().load()
+  selectCanvasWorkspace(null)
+  await currentCanvasWorkspace().ready
+  useAgentStore.setState({
+    loaded: true,
+    conversationId: null,
+    messages: [],
+    turns: {},
+    turn: 'idle',
+    stopping: false,
+    activeTurn: null,
+    error: null,
+    historyFailed: false,
+    historyLoading: false,
+  })
+
+  expect(await useAgentStore.getState().selectProject(project.id)).toBe(true)
+
+  expect(useCanvasProjectStore.getState().activeId).toBe(project.id)
+  // 列表里就带着会话绑定，所以对话也当场挂上，不用等详情。
+  expect(useAgentStore.getState().conversationId).toBe(conversationId)
+  expect(detailAsked).toBe(true)
+})
+
 it.each([
   200, 409,
 ])('升级认领已有会话，返回 %s 时保留关联或显示冲突，不另建上下文', async (status) => {

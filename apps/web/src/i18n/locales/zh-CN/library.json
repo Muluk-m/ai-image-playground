@@ -45,8 +45,9 @@
   "createAsset": {
     "title": "新建素材",
     "images": "参考图",
-    "dropHint": "拖入同一主体的一张或多张图",
+    "dropHint": "拖入同一主体的一张或多张图，也可以直接拖入文件夹",
     "fromLocal": "从本地添加",
+    "fromFolder": "从文件夹添加",
     "name": "名称",
     "namePlaceholder": "请输入名称",
     "kind": "类别",

@@ -172,3 +172,17 @@ storage scope 留在匿名（`setClientStorageScope(null)`），只有真需要�
 - builtin-edge channel 的 model 可改（用户可在 InputBar 切换），变化通过 `builtinChannelModelSelections` 字段持久化
 - `channelStore` 是全量 channel；`publicChannels` 是它的**图片视图**（滤掉 `media: 'video'` 的模型），图片侧一律走后者，视频侧直接读 store
 - 灵感库 (`public/inspiration-manifest.json`) 是同源静态资源，跟着部署走；可通过 `VITE_INSPIRATION_MANIFEST_URL` 覆盖为外部 CDN
+
+## 使用指南与 SEO
+
+- `/guide/`（中文）与 `/guide/en/`（英文）是**构建期渲染的静态页**，不是 SPA 路由：
+  [`src/seo/vitePlugin.ts`](./src/seo/vitePlugin.ts) 在 `transformIndexHtml` 里把
+  `guide/**/index.html` 整页替换成 [`features/guide/render.ts`](./src/features/guide/render.ts) 的输出，
+  浏览器端只跑目录高亮（`features/guide/client.ts`）。正文、结构化数据都在 HTML 里，爬虫不必执行脚本。
+- 内容是纯数据：`features/guide/content/zh-CN.ts` 与 `en.ts`，**两份结构必须一致**（同样的锚点、区块、
+  截图与编号，`render.test.ts` 守着）。`[[标签]]` 写的是界面原文，改了按钮文案要同步改指南。
+- 截图在 `public/guide-assets/<zh|en>/`，只收 WebP（构建期读尺寸写进 width/height）。截图上的编号圆点
+  坐标是百分比，重新截图后要一起更新。
+- `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 由 `scripts/pages-release.sh` 按版本传给构建：有源才写 canonical、
+  hreflang、JSON-LD 与 `sitemap.xml`；`SEARCH_INDEXING=false`（内部站、测试站）时 `robots.txt` 整站
+  Disallow 并给页面加 noindex。首页仍是 SPA，只在 head 里补元信息，社交分享图是 `public/og/muvloom-og.jpg`。

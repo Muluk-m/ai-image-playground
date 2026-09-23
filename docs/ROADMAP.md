@@ -163,6 +163,21 @@
 - [x] 发布版本与操作审计写进 PostgreSQL；整份清单先维持现状，条目超过 1000 再分页或按分类分片。
 - 定位：获客内容运营，不新增模型能力；不改变 Lane A 的收口优先级。
 
+### C5 图片工具箱：本地即时处理（非 AI）
+
+- [ ] 目标：独立一级页面 `/tools`，拖入、粘贴或选文件夹批量处理，全程在浏览器本地完成：不上传、不登录、不扣费。
+- 定位：获客工具，与 C4 同类——不新增模型能力、不碰计费单元与画布，不改变 Lane A 的收口优先级。本道开头并入的 AI 工具（超分、抠图、去水印、扩图）仍归电商三件套，不在这里。
+- 调研：[image-toolbox.md](research/image-toolbox.md)（17 家功能矩阵、浏览器编解码能力、库选型与许可、本仓库接缝）。
+- 已裁决（2026-09-23）：
+  - 入口：一级页面 `/tools`，侧栏第四项。
+  - 首期范围：压缩（质量与目标体积两种）、格式转换、改尺寸、裁剪、旋转 / 翻转；拼图、长图拼接、九宫格切图。水印、隐私清理、转 PDF、GIF 不在首期。
+  - 编码：Canvas 原生出 JPG / PNG 与浏览器支持时的 WebP；Safari 的 WebP 与全平台的 AVIF 由 `@jsquash/*` 单线程 wasm 按需懒加载。不上 `wasm-vips`：它要整站开 COOP / COEP。
+  - HEIC：只靠 Safari 17+ 原生解码，其余浏览器报不支持；不引入 LGPL 的 libheif。
+  - 有损 PNG 量化首期不做：libimagequant 是 GPL-3.0 或商业许可。
+  - 门禁：全免费、免登录，免费版与收费版都有，不设能力位。
+- 下一步：`/prototype` 对齐页面形态 → `/to-spec` → `/to-tickets`。
+- 验收：Tier 1 纯静态部署与匿名访客可用；处理过程不发任何网络请求（按需加载 wasm 除外）；Safari 上选 WebP 不会静默产出 PNG；超出画布面积上限时报错而不是崩溃。
+
 ## 已交付
 
 - **0.1 计费单元泛化**（原 Phase 0）：模型单价带 `unit`，预扣接缝收 `quantity × unitMultiplier`。图片 `image`、视频 `second`（公开树 c2de35d，私有树迁移 0006）、对话 `kilo_token`（私有迁移 `0008_chat_token_pricing`）三种单元全部落地。`PrivateTaskHooks.reserveTask` 签名里没有 unit 字段，单价由服务端按 model 查表，新增单元不改公开树。

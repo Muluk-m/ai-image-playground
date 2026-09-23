@@ -46,8 +46,9 @@
   "createAsset": {
     "title": "New asset",
     "images": "Images",
-    "dropHint": "Drop one or more images of the same subject",
+    "dropHint": "Drop one or more images of the same subject, or a whole folder",
     "fromLocal": "Add from device",
+    "fromFolder": "Add a folder",
     "name": "Name",
     "namePlaceholder": "Enter a name",
     "kind": "Kind",

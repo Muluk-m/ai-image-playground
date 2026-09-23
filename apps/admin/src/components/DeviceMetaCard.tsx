@@ -26,14 +26,16 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
   }
 
   return (
-    <div className="rounded-lg border bg-card p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+    <div className="rounded-lg border bg-card p-4 sm:p-6">
+      <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             设备
           </h2>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="font-mono text-base">{device.device_id}</span>
+          <div className="mt-1 flex min-w-0 items-start gap-2">
+            <span className="min-w-0 break-all font-mono text-sm sm:text-base">
+              {device.device_id}
+            </span>
             <Button
               size="icon"
               variant="ghost"
@@ -58,7 +60,7 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
           </div>
         </div>
 
-        <div className="min-w-[180px]">
+        <div className="sm:min-w-[180px]">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             今日任务
           </h3>

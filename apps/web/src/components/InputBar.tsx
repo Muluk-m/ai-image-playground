@@ -1608,7 +1608,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   >
                     <BookmarkIcon className="h-5 w-5" />
                   </button>
-                  <ParamControls showCount collapsible />
+                  <ParamControls showCount collapsible agentManaged={toCanvas} />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <div
                     className="relative ml-auto flex flex-shrink-0 items-center gap-2"
@@ -1672,7 +1672,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
                     <div className="collapse-inner">
                       <div className="flex flex-wrap items-center gap-2">
-                        <ParamControls showCount collapsible />
+                        <ParamControls showCount collapsible agentManaged={toCanvas} />
                       </div>
                     </div>
                   </div>
