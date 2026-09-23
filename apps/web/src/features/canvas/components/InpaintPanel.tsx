@@ -2,7 +2,6 @@ import { Brush, Eraser, Undo2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import {
   ACTIVE_SEGMENT,
-  FIELD,
   IDLE_SEGMENT,
   LABEL,
   OUTLINE_BUTTON,
@@ -20,6 +19,7 @@ import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { fileToDataUrl } from '../lib/importImages'
 import { submitCanvasInpaint } from '../lib/submitInpaint'
+import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 
 /**
  * 局部重绘的操作面板。**不是模态**（不走 Overlay）：用户要一边看着画布涂抹一边写描述，
@@ -153,14 +153,12 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
               </button>
             </div>
           )}
-          {/* FIELD 的 focus 态同时变边框色和加焦点环，两道同色线中间夹一条底色，
-              在这种深底小面板上看着像框了三层。把边框也染成环色，两者并成一道。 */}
           <textarea
             rows={2}
             value={session.prompt}
             aria-label={t('inpaint.promptAria')}
             placeholder={t('inpaint.promptPlaceholder')}
-            className={`${FIELD} flex-1 resize-none focus:border-ring focus:ring-offset-0`}
+            className={`${CANVAS_PANEL_FIELD} flex-1 resize-none`}
             onChange={(event) => session.setPrompt(event.target.value)}
           />
         </div>
