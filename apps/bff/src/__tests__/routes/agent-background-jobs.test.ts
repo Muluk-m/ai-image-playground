@@ -25,6 +25,7 @@ import {
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_background_jobs_a612')
@@ -383,6 +384,8 @@ describe('生成改为后台任务', () => {
     await finishTask(task.id, 'in_progress')
 
     const { purgeOldTasks } = await import('../../db/maintenance')
+
+    await silenceChatUpstream()
     expect(await purgeOldTasks(-1)).toBe(0)
     expect((await readJobs(conversationId))[0]!.result.status).toBe('submitted')
   })

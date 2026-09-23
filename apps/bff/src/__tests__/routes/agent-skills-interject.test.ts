@@ -12,6 +12,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -30,6 +31,8 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { ensureAgentSkills, setAgentSkillsRootForTesting } = await import('../../lib/agent/skills')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
+
+await silenceChatUpstream()
 
 type InternalChannel = import('../../lib/channels').InternalChannel
 

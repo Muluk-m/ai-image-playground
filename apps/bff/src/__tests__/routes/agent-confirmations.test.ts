@@ -19,6 +19,7 @@ import {
   TEST_IMAGE_CHANNEL,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
@@ -42,18 +43,8 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
-const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
-  '../../lib/chatCompletion'
-)
 
-/**
- * 会话自动命名走 chatCompletion（`lib/agent/start-turn.ts` 的 `nameConversation`），而测试里没有上游：
- * 不断掉它，每一轮都要做一次真 DNS 解析，失败后还按 500ms、1000ms 退避重试两次。那些计时器只会
- * 把每一轮的收尾窗口撑宽，2026-09-22 CI 这一份红（删会话撞上 409，根因已由 #775 修在服务端）就是
- * 在这种拖慢下暴露的。命名失败不影响这些用例：首句标题在事务里就落库了。
- */
-setChatRetryBackoffForTesting(0)
-setChatFetchForTesting(async () => new Response('no chat upstream in tests', { status: 503 }))
+await silenceChatUpstream()
 
 type InternalChannel = import('../../lib/channels').InternalChannel
 
@@ -269,8 +260,6 @@ afterEach(() => {
 })
 
 afterAll(async () => {
-  setChatFetchForTesting()
-  setChatRetryBackoffForTesting()
   _setPrivateBffOverlayForTesting()
   await closeDb()
 })

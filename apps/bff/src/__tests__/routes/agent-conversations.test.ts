@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -29,6 +30,8 @@ const { appendAgentMessage, adoptDeviceConversations } = await import(
   '../../lib/agent/conversations'
 )
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
