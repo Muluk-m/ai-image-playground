@@ -5,7 +5,7 @@ import type { TaskErrorType } from '@image-playground/shared'
  *
  * 生成这条链路上失败一律以 `throw` 收场（BFF 轮询、BYOK 直连、自定义服务商共用同一个
  * catch），而 `Error` 只有一句 message。界面要按分类出文案与出路（ADR 0006），就得让分类
- * 跟着错误走到 `store.executeTask` 的 catch 里；`rawResponsePayload` 早就是这么带的，
+ * 跟着错误走到 `generationJob.superviseGeneration` 的 catch 里；`rawResponsePayload` 早就是这么带的，
  * 这里沿用同一种挂法，只是把读取收进一个带收窄的函数，省得每处再写一遍 `in` 判断。
  */
 export function taskFailure(message: string, errorType?: TaskErrorType): Error {
