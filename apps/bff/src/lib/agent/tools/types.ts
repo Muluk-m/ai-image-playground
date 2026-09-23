@@ -2,6 +2,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
   AgentCanvasEditPlan,
+  AgentFetchedImage,
   AgentMode,
   AgentSaveCard,
   AgentSkillOutcome,
@@ -11,8 +12,10 @@ import type {
   AgentToolName,
   AgentToolStage,
   AgentTurnParams,
+  AgentWebSource,
 } from '@image-playground/shared'
 import type { Static, TSchema } from 'typebox'
+import type { ChatAttempt } from '../../chatCompletion'
 import type { AgentAutoSubmitBudget } from '../auto-submit'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
@@ -53,6 +56,12 @@ export interface AgentToolContext {
   readonly autoSubmit?: AgentAutoSubmitBudget
   /** 续跑轮里已经提交的后台调用，用于提交去重。 */
   readonly replay?: AgentSubmissionReplay
+  /**
+   * 搜索网页那一次额外模型调用的记账口：一次搜索就是一次上游调用，花的钱要落进这一轮的
+   * 调用记录（`agent_model_calls`，`purpose: 'web_search'`）。它由平台承担，不进结算，
+   * 但没有它运营就看不见这笔成本。缺席即这一轮没有账本可记。
+   */
+  readonly recordWebSearch?: (attempt: ChatAttempt) => Promise<void>
 }
 
 /** 被打断那一轮已经提交的一次调用：按调用内容算出的幂等键，与它提交出的后台任务。 */
@@ -89,6 +98,10 @@ export interface AgentToolDetails {
   readonly canvasEdit?: AgentCanvasEditPlan
   /** 备好的保存卡片；只有存素材、存模板那两个工具会填。 */
   readonly saveCard?: AgentSaveCard
+  /** 联网工具读到的来源；只有搜索与抓取网页会填。 */
+  readonly sources?: readonly AgentWebSource[]
+  /** 取图工具存下的网图；只有它会填。 */
+  readonly fetchedImages?: readonly AgentFetchedImage[]
 }
 
 /**

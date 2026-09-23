@@ -221,6 +221,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: input.assertExecution,
+      recordWebSearch: (attempt) => ledger.recordSideCall('web_search', attempt),
       ...(input.params ? { params: input.params } : {}),
       // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
       ...(input.params?.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
@@ -292,7 +293,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       compaction: input.history.compaction,
       foldedBefore: input.history.coveredCount,
       overheadTokens,
-      onSummaryAttempt: ledger.recordSummary,
+      onSummaryAttempt: (attempt) => ledger.recordSideCall('compaction', attempt),
     }),
   })
 

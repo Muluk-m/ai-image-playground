@@ -448,6 +448,33 @@ export async function removeAgentConversationReferences(conversationId: string):
 }
 
 /**
+ * 把几张云媒体挂到这个会话名下。
+ *
+ * 会话自己那条认领是历史的锚：它在，`readConversationMedia` 就读得到这张图，与画布后来
+ * 怎么改无关。重复认领是常事（同一张图附两轮、取图两次取到同一个地址），所以忽略主键冲突。
+ */
+export async function addConversationMediaClaims(
+  conversationId: string,
+  userId: string,
+  mediaIds: readonly string[],
+): Promise<void> {
+  if (mediaIds.length === 0) return
+  const now = Date.now()
+  await db
+    .insert(schema.media_references)
+    .values(
+      mediaIds.map((mediaId) => ({
+        user_id: userId,
+        media_id: mediaId,
+        owner_kind: 'conversation' as const,
+        owner_id: conversationId,
+        created_at: now,
+      })),
+    )
+    .onConflictDoNothing()
+}
+
+/**
  * 让这个会话认领用户按 id 附过来的那几张云媒体，并顺带把越权挡在起轮之前。
  *
  * 两件事一次做完是刻意的：能认领就说明这张图确实是这个人的、确实还在（`ready`），
@@ -476,19 +503,7 @@ export async function claimConversationMedia(
       ),
     )
   if (owned.length !== mediaIds.length) return false
-  const now = Date.now()
-  await db
-    .insert(schema.media_references)
-    .values(
-      mediaIds.map((mediaId) => ({
-        user_id: userId,
-        media_id: mediaId,
-        owner_kind: 'conversation' as const,
-        owner_id: conversationId,
-        created_at: now,
-      })),
-    )
-    .onConflictDoNothing()
+  await addConversationMediaClaims(conversationId, userId, mediaIds)
   return true
 }
 

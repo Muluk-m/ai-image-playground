@@ -1,3 +1,5 @@
+import type { AgentToolName, AgentWebSource } from '@image-playground/shared'
+import { Globe, type LucideIcon, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
@@ -14,9 +16,25 @@ const WINDOW = ROW * VISIBLE + GAP * (VISIBLE - 1)
 const COLLAPSE_MS = 420
 
 /**
+ * 一行里最多挂几条来源。这一行的高度是固定的（见下面那段），挂多了只会把标题挤没；
+ * 搜索本来就只让模型带回少数几条，挑头几条给用户一个「它读的是哪儿」的落点就够。
+ */
+const MAX_SOURCES = 3
+
+/** 有自己图标的那几步。没登记的仍是那个小圆点——认不出的新工具不该冒充某个已知图标。 */
+const STEP_ICON: Partial<Record<AgentToolName, LucideIcon>> = {
+  webSearch: Search,
+  webFetch: Globe,
+}
+
+/**
  * 一行过程。读技能这一步要按结果说话：**没读到的那次不能显示成读到了**——
  * 判据是结果里机器可读的 `skill.found`，不去匹配工具返回的那段文案。还没跑完时没有这一位，
  * 先照起跑标题显示。行首图标与 `/` 菜单同一张白名单映射表，一条技能两处长得一样。
+ *
+ * 联网那两步把读到的来源挂在同一行的右边：它们不另起结果卡（见 `activityTrail.ts`），
+ * 这一行就是用户唯一能点回原文的地方。挂在行内而不是另起一行，是因为这个窗口的高度是
+ * 固定的——任何会长高的东西都会把用户正读着的正文往下推。
  */
 function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
   const { t } = useTranslation('agent')
@@ -24,6 +42,8 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
   const elapsed = useElapsed(active ? (startedAt ?? null) : null)
   const skill = step.toolName === 'loadSkill' ? step.skill : undefined
   const text = skill && !skill.found ? t('tool.skillNotFound', { name: skill.label }) : step.title
+  const Icon = step.toolName ? STEP_ICON[step.toolName] : undefined
+  const sources = step.sources?.slice(0, MAX_SOURCES) ?? []
   return (
     <div
       {...(step.toolName === 'loadSkill' ? { 'data-tool': 'loadSkill' } : {})}
@@ -31,6 +51,8 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
     >
       {step.toolName === 'loadSkill' ? (
         <AgentSkillIcon name={skill?.icon} className="h-3 w-3 shrink-0" />
+      ) : Icon ? (
+        <Icon aria-hidden="true" className="h-3 w-3 shrink-0" />
       ) : (
         <span
           aria-hidden="true"
@@ -38,6 +60,25 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
         />
       )}
       <span className={`min-w-0 truncate ${active ? 'agent-shimmer relative' : ''}`}>{text}</span>
+      {sources.length > 0 && (
+        <span
+          aria-label={t('trail.sources')}
+          className="ml-auto flex shrink-0 items-center gap-2 overflow-hidden"
+        >
+          {sources.map((source) => (
+            <a
+              className="max-w-[9rem] truncate text-[11px] underline decoration-dotted underline-offset-2 hover:text-foreground"
+              href={source.url}
+              key={source.url}
+              rel="noreferrer noopener"
+              target="_blank"
+              title={source.title}
+            >
+              {sourceLabel(source)}
+            </a>
+          ))}
+        </span>
+      )}
       {active && elapsed !== null && elapsed >= 1000 && (
         <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70">
           {formatElapsed(elapsed)}
@@ -45,6 +86,15 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
       )}
     </div>
   )
+}
+
+/**
+ * 一条来源在这一行上的样子：主机名。标题多半是一整句，挂在这么窄的一行里只会被截成半句；
+ * 主机名一眼认得出是哪家站点，完整标题留给 `title` 提示。解析不出来就退回原样。
+ */
+function sourceLabel(source: AgentWebSource): string {
+  if (!URL.canParse(source.url)) return source.title || source.url
+  return new URL(source.url).host.replace(/^www\./, '')
 }
 
 /**
@@ -88,7 +138,9 @@ export default function AgentActivityTrail({
     <output
       aria-live="polite"
       aria-label={last.title}
-      className="overflow-hidden transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
+      // `shrink-0` 不能省：对话列表是纵向 flex，内容一溢出，带 overflow-hidden 的它会被压到 0 高，
+      // 步骤照常排版却一个像素也画不出来——长对话里活动轨与来源链接就是这么「消失」的。
+      className="shrink-0 overflow-hidden transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
       style={{
         height: spent ? 0 : WINDOW,
         opacity: spent ? 0 : 1,

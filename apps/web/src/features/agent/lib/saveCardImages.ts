@@ -1,4 +1,5 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { hasImage, storeImage } from '../../../lib/db'
 import { blobToDataUrl, ensureImageCached, ensureImageThumbnailCached } from '../../../store'
 import type { AgentPanelMessage } from '../types'
@@ -21,6 +22,8 @@ type AgentImageLocation =
   | { readonly kind: 'local'; readonly imageId: string }
   /** 这一轮某次工具调用的产出。 */
   | { readonly kind: 'artifact'; readonly artifact: AgentToolArtifact }
+  /** 取网图存下来的那一张：模型说的图片 id 就是这个人媒体库里的媒体 id。 */
+  | { readonly kind: 'media'; readonly mediaId: string }
   /** 用户某条消息附的参考图；`dataUrl` 只有直播那一轮的手上还有。 */
   | {
       readonly kind: 'reference'
@@ -64,9 +67,12 @@ async function locate(
   for (const message of messages) {
     if (message.kind === 'tool') {
       const artifact = message.artifacts?.find((one) => one.artifactId === imageId)
-      if (!artifact) continue
       // 视频产物取不出可编辑的位图，素材与模板都只收图片。
-      return artifact.media === 'video' ? null : { kind: 'artifact', artifact }
+      if (artifact) return artifact.media === 'video' ? null : { kind: 'artifact', artifact }
+      // 取回来的网图已经在这个人的媒体库里，媒体 id 就是模型说的那个图片 id。
+      if (message.fetchedImages?.some((one) => one.imageId === imageId))
+        return { kind: 'media', mediaId: imageId }
+      continue
     }
     if (message.kind !== 'text' || message.role !== 'user') continue
     const index = message.references?.findIndex((one) => one.imageId === imageId) ?? -1
@@ -94,6 +100,8 @@ export async function agentImagePreview(
     return thumbnail?.dataUrl ?? (await ensureImageCached(imageId)) ?? null
   }
   if (found.kind === 'artifact') return previewArtifactBitmap(found.artifact)
+  if (found.kind === 'media')
+    return resolveMediaSource(`aip-media:${found.mediaId}`, 'preview').catch(() => null)
   if (found.dataUrl) return found.dataUrl
   if (!context.conversationId) return null
   const blob = await fetchMessageReference(context.conversationId, found.messageId, found.index, {
@@ -109,6 +117,8 @@ async function originalDataUrl(
 ): Promise<string | null> {
   if (found.kind === 'local') return (await ensureImageCached(found.imageId)) ?? null
   if (found.kind === 'artifact') return artifactBitmap(found.artifact)
+  if (found.kind === 'media')
+    return resolveMediaSource(`aip-media:${found.mediaId}`, 'original', true)
   if (found.dataUrl) return found.dataUrl
   if (!context.conversationId) return null
   const blob = await fetchMessageReference(context.conversationId, found.messageId, found.index, {
