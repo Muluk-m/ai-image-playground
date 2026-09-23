@@ -1,6 +1,5 @@
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { isCapabilityEnabled } from '../../capabilities'
 import { type SafeFetchResponse, safeFetch } from '../../safeFetch'
 import { htmlToMarkdown, imageCandidateList } from '../html-to-markdown'
 import { defineAgentTool } from './adapter'
@@ -53,7 +52,7 @@ export const webFetch = defineAgentTool({
   parameters,
   // 抓不到多半是网址写错或对方不给抓：把原因交回模型换一个，别把整轮停下。
   onError: 'continue',
-  available: () => isCapabilityEnabled('agent:web'),
+  // 抓的是公网页面、不花钱也不写任何东西，所以到处都在；安全由 `safeFetch` 那一层兜。
   // 不落画布，也没有送进上游的提示词，所以起跑时只有一行标题。
   call: ({ url }) => {
     const asked = typeof url === 'string' ? url.trim() : ''
