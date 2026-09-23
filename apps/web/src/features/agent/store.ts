@@ -999,20 +999,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       resetDelivery()
       selectCanvasWorkspace(null)
       safeLocalStorage.removeItem(conversationKey())
-      set({
-        conversationId: null,
-        messages: [],
-        turns: {},
-        queue: [],
-        promptDrafts: {},
-        error: null,
-        turn: 'idle',
-        stopping: false,
-        reconnecting: false,
-        activeTurn: null,
-        historyLoading: false,
-        historyFailed: false,
-      })
+      set(sessionReset(null))
     },
 
     async retryHistory() {
