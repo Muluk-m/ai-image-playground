@@ -39,7 +39,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask } = await import('../../db/task-transitions')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { runningTurn } = await import('../../lib/agent/runningTurns')
 const { AGENT_EXECUTION_LEASE_MS } = await import('../../lib/agent/execution')
@@ -308,18 +308,10 @@ async function turnEndOf(conversationId: string, turnId: string) {
   return row?.event
 }
 
-/** 测试里的迷你 worker：用 worker 真正写终态的那个函数把任务推到成功，唤醒判断就在这一步。 */
+/** 测试里的迷你 worker：认领任务再按真实路径推到成功，唤醒判断就在收尾的那个事务里。 */
 async function completeTask(taskId: string): Promise<void> {
-  await db
-    .update(schema.tasks)
-    .set({ status: 'in_progress', started_at: Date.now() })
-    .where(eq(schema.tasks.id, taskId))
   expect(
-    await finishTask(taskId, {
-      status: 'completed',
-      completedAt: Date.now(),
-      resultPayload: TEST_RESULT_PAYLOAD,
-    }),
+    await workerSettles(taskId, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
   ).toBe(true)
 }
 
@@ -496,17 +488,7 @@ describe('中断续跑', () => {
     })
     // 后台登记也只有确认出来的那一条：续跑没有再交一次。
     expect(await jobsOf(conversationId)).toHaveLength(1)
-    await db
-      .update(schema.tasks)
-      .set({ status: 'in_progress', started_at: Date.now() })
-      .where(eq(schema.tasks.id, task!.id))
-    expect(
-      await finishTask(task!.id, {
-        status: 'completed',
-        completedAt: Date.now(),
-        resultPayload: TEST_RESULT_PAYLOAD,
-      }),
-    ).toBe(true)
+    await completeTask(task!.id)
     const settled = (await snapshot(conversationId)).messages.find(
       (message) => message.id === submitted.id,
     )

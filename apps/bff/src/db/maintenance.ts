@@ -125,12 +125,13 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   let requeued = 0
   let failed = 0
   for (const candidate of candidates) {
+    // 回收扫描的归属范围：它接手的就是扫到的那个令牌（或者压根没有令牌的那一行）。
     const guard = and(
       recoverable,
       candidate.executionToken
         ? eq(schema.tasks.execution_token, candidate.executionToken)
         : isNull(schema.tasks.execution_token),
-    )
+    )!
     if (candidate.archivePayload) {
       if (await requeueTaskArchive(candidate.id, now, candidate.archivePayload, guard)) requeued++
       continue

@@ -110,6 +110,47 @@ export async function drainConversationInbox(
   return { kind: 'idle' }
 }
 
+export interface KickConversationInboxOptions {
+  /**
+   * 刚放手一轮之后的那一次接力：顺带看看它提交的后台任务是不是此刻才凑齐一批，是就投递唤醒。
+   */
+  readonly deliverDueWakes?: boolean
+}
+
+/**
+ * 即发即忘地接着取下一条：发起方不等它，也不因它失败而改变自己的响应，所以失败只记一条日志。
+ * 排队消息的每一处「这里该有人接着开轮」都走它，错误码与日志只此一份。
+ */
+export function kickConversationInbox(
+  conversationId: string,
+  options: KickConversationInboxOptions = {},
+): void {
+  void pickUpNextTurn(conversationId, options).catch((err) =>
+    log.error(
+      { event: 'agent.inbox_drain_failed', conversationId, err },
+      'queued agent message could not start a turn',
+    ),
+  )
+}
+
+async function pickUpNextTurn(
+  conversationId: string,
+  options: KickConversationInboxOptions,
+): Promise<void> {
+  if (options.deliverDueWakes) {
+    // 这一轮放手了：排着的下一条接着开轮。队里没有待处理的，再看它提交的后台任务是不是已经
+    // 全部结束、此刻才凑齐一批，是就投递唤醒接着开轮。先看队列再投递：投递要开一个事务，
+    // 放手之后才进来的那条若在这期间入队，会被这里抢去开轮，它自己的请求反倒拿不到流。
+    // 都没有就不再领租约——空领一次也会让刚收尾的会话在那一瞬间显得还忙，删会话之类的操作
+    // 会撞上 409。
+    // 队里已经有排着的，也先投递这一轮凑齐的唤醒：它并进下一条消息的轮，不再单独起一轮。
+    const waiting = await nextAgentInboxEntry(conversationId)
+    const delivered = await deliverDueAgentWakes([conversationId])
+    if (!waiting && (delivered === 0 || !(await nextAgentInboxEntry(conversationId)))) return
+  }
+  await drainConversationInbox(conversationId)
+}
+
 async function drainOnce(
   conversationId: string,
   options: DrainConversationOptions,
@@ -189,30 +230,7 @@ async function drainOnce(
     }
     if (result.kind === 'started' && result.turn.completed) {
       void result.turn.completed.then(finish).then(
-        // 这一轮放手了：排着的下一条接着开轮。队里没有待处理的，再看它提交的后台任务是不是已经
-        // 全部结束、此刻才凑齐一批，是就投递唤醒接着开轮。先看队列再投递：投递要开一个事务，
-        // 放手之后才进来的那条若在这期间入队，会被这里抢去开轮，它自己的请求反倒拿不到流。
-        // 都没有就不再领租约——空领一次也会让刚收尾的会话在那一瞬间显得还忙，删会话之类的操作
-        // 会撞上 409。
-        // 队里已经有排着的，也先投递这一轮凑齐的唤醒：它并进下一条消息的轮，不再单独起一轮。
-        () =>
-          void nextAgentInboxEntry(conversationId)
-            .then(async (waiting) => {
-              if (waiting) {
-                await deliverDueAgentWakes([conversationId])
-                return waiting
-              }
-              return (await deliverDueAgentWakes([conversationId])) > 0
-                ? nextAgentInboxEntry(conversationId)
-                : null
-            })
-            .then((waiting) => (waiting ? drainConversationInbox(conversationId) : undefined))
-            .catch((err) =>
-              log.error(
-                { event: 'agent.inbox_drain_failed', conversationId, err },
-                'queued agent message could not start a turn',
-              ),
-            ),
+        () => kickConversationInbox(conversationId, { deliverDueWakes: true }),
         () => bffDrain.failed(),
       )
     } else {
