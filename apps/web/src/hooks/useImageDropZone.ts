@@ -5,11 +5,26 @@ function carriesFiles(event: DragEvent) {
   return [...event.dataTransfer.types].includes('Files')
 }
 
+export interface ImageDropZoneProps {
+  'data-image-dropzone': true
+  onDragEnter: (event: DragEvent) => void
+  onDragOver: (event: DragEvent) => void
+  onDragLeave: (event: DragEvent) => void
+  onDrop: (event: DragEvent) => void
+}
+
+export interface ImageDropZone {
+  dragging: boolean
+  dropZoneProps: ImageDropZoneProps
+}
+
 /**
  * 把一块区域变成图片落点。停传播是必须的：工作台在 document 上另有一套全屏拖拽接管，
  * 不拦住它就会同时点亮两个落点。拖进来的文件夹递归展开，非图片丢掉并提示。
  */
-export function useImageDropZone(onFiles: (files: File[], folder: string | null) => void) {
+export function useImageDropZone(
+  onFiles: (files: File[], folder: string | null) => void,
+): ImageDropZone {
   const [dragging, setDragging] = useState(false)
   // 拖过子元素时 dragenter / dragleave 成对乱序触发，只有计数才不会中途熄灭。
   const depth = useRef(0)
