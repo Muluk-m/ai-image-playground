@@ -3,6 +3,7 @@ import { LoginCard } from '@/components/LoginCard'
 import { LoginForm } from '@/components/LoginForm'
 import { Button } from '@/components/ui/button'
 import { loginMethodsQueryOptions } from '@/lib/admin-session'
+import { adminApiUrl } from '@/lib/runtime-config'
 import type { LoginErrorCode } from '../../contracts'
 
 export interface LoginPanelProps {
@@ -23,9 +24,9 @@ export function LoginPanel({ redirectTo, error, onSuccess }: LoginPanelProps) {
   // An unreachable endpoint falls back to the password form the deployment had before.
   if (!methods.data?.google_login) return <LoginForm onSuccess={onSuccess} />
 
-  const href = redirectTo
-    ? `/api/auth/google?redirect=${encodeURIComponent(redirectTo)}`
-    : '/api/auth/google'
+  const href = adminApiUrl(
+    redirectTo ? `/api/auth/google?redirect=${encodeURIComponent(redirectTo)}` : '/api/auth/google',
+  )
 
   return (
     <LoginCard error={error ? ERROR_TEXT[error] : null}>

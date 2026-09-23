@@ -1,23 +1,27 @@
 import { storyboardShotLabel } from '@image-playground/shared'
-import type { AssetRecord, Tombstone } from '../features/library/types'
+import type { AssetRecord, LookRecord, Tombstone } from '../features/library/types'
 import type { VideoTask } from '../features/video/types'
 import { i18next } from '../i18n'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
 import type { LegacyProductJob, LegacyStoryboardRecord } from './legacyProductHistory'
+import type { PlatformGenerationRow } from './platformGenerations'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 11
+const DB_VERSION = 14
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
 export const STORE_ASSETS = 'assets'
 export const STORE_TEMPLATES = 'templates'
+export const STORE_LOOKS = 'looks'
 export const STORE_REMIX_SETS = 'remix_sets'
 export const STORE_BGSWAP_JOBS = 'bgswap_jobs'
 export const STORE_VIDEO_TASKS = 'video_tasks'
 export const STORE_STORYBOARDS = 'storyboards'
+export const STORE_MEDIA = 'media'
+export const STORE_PLATFORM_GENERATIONS = 'platform_generations'
 export const DB_STORE_NAMES = [
   STORE_TASKS,
   STORE_IMAGES,
@@ -28,6 +32,9 @@ export const DB_STORE_NAMES = [
   STORE_BGSWAP_JOBS,
   STORE_VIDEO_TASKS,
   STORE_STORYBOARDS,
+  STORE_MEDIA,
+  STORE_PLATFORM_GENERATIONS,
+  STORE_LOOKS,
 ] as const
 export type DbStoreName = (typeof DB_STORE_NAMES)[number]
 const THUMBNAIL_MAX_SIZE = 720
@@ -44,30 +51,82 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
       const db = request.result
       for (const storeName of DB_STORE_NAMES) {
         if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName, { keyPath: 'id' })
+          const store = db.createObjectStore(storeName, { keyPath: 'id' })
+          // 云媒体缓存按最久未用逐出，得有这条索引才不用把整库读出来排序。
+          if (storeName === STORE_MEDIA) store.createIndex('lastUsedAt', 'lastUsedAt')
         }
       }
-      if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
+      if (e.oldVersion < 8 && request.transaction) backfillTemplateUpdatedAt(request.transaction)
       if (e.oldVersion < 11 && request.transaction) upgradeStoryboards(request.transaction)
+      if (e.oldVersion < 13 && request.transaction) dropMirroredTasks(request.transaction)
+      if (e.oldVersion < 14 && request.transaction) upgradeAssets(request.transaction)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
 }
 
-/** v8：素材与模板记录新增 updatedAt，旧记录取 createdAt。 */
-function backfillUpdatedAt(tx: IDBTransaction): void {
-  for (const storeName of [STORE_ASSETS, STORE_TEMPLATES]) {
-    const cursorRequest = tx.objectStore(storeName).openCursor()
-    cursorRequest.onsuccess = () => {
-      const cursor = cursorRequest.result
-      if (!cursor) return
-      const record = cursor.value as { createdAt?: number; updatedAt?: number }
-      if (record.updatedAt === undefined) {
-        cursor.update({ ...record, updatedAt: record.createdAt ?? Date.now() })
-      }
-      cursor.continue()
+/** v8：模板记录新增 updatedAt，旧记录取 createdAt。素材的这一步并进 `upgradeAssets`。 */
+function backfillTemplateUpdatedAt(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_TEMPLATES).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    const record = cursor.value as { createdAt?: number; updatedAt?: number }
+    if (record.updatedAt === undefined) {
+      cursor.update({ ...record, updatedAt: record.createdAt ?? Date.now() })
     }
+    cursor.continue()
+  }
+}
+
+/**
+ * 素材记录的历次改形，共用一趟游标：两趟并行游标读的是同一条旧记录，后写的那趟会整条盖掉
+ * 前一趟的结果。每一步认形状不认版本号，所以补过的记录会跳过。
+ * v8 补 `updatedAt`；v14 把「一张图的名字」迁成「同一主体的一组视角」，旧记录成一张视角。
+ */
+function upgradeAssets(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_ASSETS).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    let record = cursor.value as {
+      createdAt?: number
+      updatedAt?: number
+      imageId?: string
+      views?: unknown
+      deletedAt?: number
+    }
+    let changed = false
+    if (record.updatedAt === undefined) {
+      record = { ...record, updatedAt: record.createdAt ?? Date.now() }
+      changed = true
+    }
+    // 墓碑只有 id 与时间戳，没有视角可迁；实体记录一律带上 `views`，读路径不必再判它在不在。
+    if (record.deletedAt === undefined && record.views === undefined) {
+      const { imageId, ...rest } = record
+      const views = imageId ? [{ imageId, label: 'none', source: 'upload' }] : []
+      record = { ...rest, views }
+      changed = true
+    }
+    if (changed) cursor.update(record)
+    cursor.continue()
+  }
+}
+
+/**
+ * v13：平台记录不再当本机任务存。
+ *
+ * 它们是平台状态的投影，权威在平台，现在由 `platform_generations` 这份可整体替换的缓存承载；
+ * 留在 `tasks` 里的旧镜像会变成平台删掉也删不掉的幽灵卡，直接清掉，下一次读列表即重新出现。
+ */
+function dropMirroredTasks(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_TASKS).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    if ((cursor.value as TaskRecord).remoteOnly) cursor.delete()
+    cursor.continue()
   }
 }
 
@@ -169,6 +228,78 @@ export function clearTasks(): Promise<undefined> {
   return dbTransaction(STORE_TASKS, 'readwrite', (s) => s.clear())
 }
 
+// ===== 云媒体缓存 =====
+
+/**
+ * 平台像素的本机副本。媒体身份是不可变的，所以这里不做失效，只按「最久未用」腾地方；
+ * 命中就不必回源——本机生成读 IndexedDB 是瞬时的，云端生成没有理由慢一个数量级。
+ *
+ * 存字节而不是 `Blob`：结构化克隆跨实现地还原 `Blob` 并不可靠，字节加类型是无歧义的那一份。
+ */
+export interface CachedMedia {
+  /** `<mediaId>:<variant>` */
+  id: string
+  data: ArrayBuffer
+  contentType: string
+  bytes: number
+  lastUsedAt: number
+}
+
+export async function getCachedMedia(id: string): Promise<CachedMedia | undefined> {
+  const cached = await dbTransaction<CachedMedia | undefined>(STORE_MEDIA, 'readonly', (s) =>
+    s.get(id),
+  )
+  if (cached)
+    void dbTransaction(STORE_MEDIA, 'readwrite', (s) =>
+      s.put({ ...cached, lastUsedAt: Date.now() }),
+    )
+  return cached
+}
+
+export function putCachedMedia(media: CachedMedia): Promise<IDBValidKey> {
+  return dbTransaction(STORE_MEDIA, 'readwrite', (s) => s.put(media))
+}
+
+/** 把缓存压到 `budget` 字节以内，先删最久没用过的。返回删掉的字节数。 */
+export async function pruneCachedMedia(budget: number): Promise<number> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_MEDIA, 'readwrite')
+    const store = tx.objectStore(STORE_MEDIA)
+    const totalRequest = store.getAll()
+    let removed = 0
+    totalRequest.onsuccess = () => {
+      const rows = (totalRequest.result as CachedMedia[]).sort(
+        (a, b) => a.lastUsedAt - b.lastUsedAt,
+      )
+      let total = rows.reduce((sum, row) => sum + row.bytes, 0)
+      for (const row of rows) {
+        if (total <= budget) break
+        store.delete(row.id)
+        total -= row.bytes
+        removed += row.bytes
+      }
+    }
+    tx.oncomplete = () => resolve(removed)
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
+// ===== 平台记录缓存 =====
+
+export function getCachedGenerations(): Promise<PlatformGenerationRow[]> {
+  return dbTransaction(STORE_PLATFORM_GENERATIONS, 'readonly', (s) => s.getAll())
+}
+
+export function putCachedGeneration(row: PlatformGenerationRow): Promise<IDBValidKey> {
+  return dbTransaction(STORE_PLATFORM_GENERATIONS, 'readwrite', (s) => s.put(row))
+}
+
+export function deleteCachedGeneration(id: string): Promise<undefined> {
+  return dbTransaction(STORE_PLATFORM_GENERATIONS, 'readwrite', (s) => s.delete(id))
+}
+
 // ===== Images =====
 
 export function getImage(id: string): Promise<StoredImage | undefined> {
@@ -262,8 +393,9 @@ export function getAllImageIds(): Promise<string[]> {
 
 /** 图片由各功能的持久化记录共同持有，不能只凭生成历史判成孤立图片。只读元数据，不读图片本体。 */
 export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promise<Set<string>> {
-  const [assets, jobs, videos, storyboards] = await Promise.all([
+  const [assets, looks, jobs, videos, storyboards] = await Promise.all([
     dbTransaction<Array<AssetRecord | Tombstone>>(STORE_ASSETS, 'readonly', (s) => s.getAll()),
+    dbTransaction<Array<LookRecord | Tombstone>>(STORE_LOOKS, 'readonly', (s) => s.getAll()),
     dbTransaction<LegacyProductJob[]>(STORE_BGSWAP_JOBS, 'readonly', (s) => s.getAll()),
     dbTransaction<VideoTask[]>(STORE_VIDEO_TASKS, 'readonly', (s) => s.getAll()),
     dbTransaction<LegacyStoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (s) => s.getAll()),
@@ -280,7 +412,13 @@ export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promi
     for (const id of task.transparentOriginalImages || []) add(id)
   }
   for (const asset of assets) {
-    if (!('deletedAt' in asset)) add(asset.imageId)
+    if ('deletedAt' in asset) continue
+    for (const view of asset.views) add(view.imageId)
+  }
+  for (const look of looks) {
+    if ('deletedAt' in look) continue
+    for (const imageId of look.referenceImageIds) add(imageId)
+    add(look.coverImageId)
   }
   for (const job of jobs) {
     for (const image of job.images) {

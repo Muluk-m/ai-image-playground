@@ -21,6 +21,7 @@ import {
   importCustomProviderSettingsFromJson,
   isBuiltinProfile,
   mergeImportedSettings,
+  normalizeApiTimeout,
   normalizeCustomProviderDefinition,
   normalizeSettings,
   switchByokProfileKind,
@@ -667,7 +668,7 @@ export default function SettingsModal() {
             : profileSeedNames().newProfile),
         baseUrl: normalizedBaseUrl,
         model: profile.model.trim() || defaultModel,
-        timeout: Number(profile.timeout) || DEFAULT_API_TIMEOUT,
+        timeout: normalizeApiTimeout(Number(profile.timeout)),
         apiProxy: profile.provider === 'openai' && apiProxyAvailable ? profile.apiProxy : false,
         codexCli: profile.provider === 'openai' ? profile.codexCli : false,
       }
@@ -797,9 +798,7 @@ export default function SettingsModal() {
   }
 
   const handleClose = () => {
-    const nextTimeout = Number(timeoutInput)
-    const normalizedTimeout =
-      timeoutInput.trim() === '' || Number.isNaN(nextTimeout) ? DEFAULT_API_TIMEOUT : nextTimeout
+    const normalizedTimeout = normalizeApiTimeout(Number(timeoutInput))
     const nextDraft = {
       ...draft,
       profiles: activeProviderIsOpenAICompatible
@@ -815,12 +814,12 @@ export default function SettingsModal() {
   const commitTimeout = useCallback(() => {
     if (!isOpenAICompatibleProvider(draft, activeProfile.provider)) return
     const nextTimeout = Number(timeoutInput)
+    // 输入框里是乱码时保持上一次的值，别把用户正在改的数字悄悄换掉；
+    // 空 / 0 / 负数都退回默认超时（0 会让请求在发出的瞬间被 abort）。
     const normalizedTimeout =
-      timeoutInput.trim() === ''
-        ? DEFAULT_API_TIMEOUT
-        : Number.isNaN(nextTimeout)
-          ? activeProfile.timeout
-          : nextTimeout
+      timeoutInput.trim() !== '' && Number.isNaN(nextTimeout)
+        ? activeProfile.timeout
+        : normalizeApiTimeout(nextTimeout)
     setTimeoutInput(String(normalizedTimeout))
     updateActiveProfile({ timeout: normalizedTimeout }, true)
   }, [draft, activeProfile.id, activeProfile.provider, activeProfile.timeout, timeoutInput])

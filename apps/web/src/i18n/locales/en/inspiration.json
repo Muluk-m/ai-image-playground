@@ -36,7 +36,9 @@
     "confirmMessage": "The unsubmitted prompt in the input box will be lost. Continuing overwrites it with this item's prompt, parameters and suggested model.",
     "confirmAction": "Replace and apply",
     "succeeded": "Inspiration example applied",
-    "noProfile": "No usable configuration for {{provider}} / {{model}}. Add one in settings first."
+    "noProfile": "No usable configuration for {{provider}} / {{model}}. Add one in settings first.",
+    "referenceFailed": "Could not download the reference image. Current input was not replaced.",
+    "canvasFailed": "Could not start the canvas. The prompt and references remain in the input."
   },
   "manifest": {
     "loadFailed": "Could not load the remote inspiration manifest: {{reason}}",

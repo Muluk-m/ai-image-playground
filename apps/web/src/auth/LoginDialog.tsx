@@ -1,8 +1,7 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import ThemeToggleButton from '../components/ThemeToggleButton'
-import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
-import { useLocalePicker } from '../i18n/useLocalePicker'
+import Overlay from '../components/Overlay'
+import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
   fetchOAuthProviders,
@@ -13,6 +12,7 @@ import {
 } from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
+import type { LoginPromptReason } from './loginPrompt'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -50,6 +50,14 @@ function FeatureIcon({ kind }: { kind: 'model' | 'speed' | 'security' }) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
       <path d="M12 3 5 6v5c0 4.6 2.7 8.1 7 10 4.3-1.9 7-5.4 7-10V6l-7-3Z" />
       <path d="m9 12 2 2 4-4" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden>
+      <path d="m6 6 12 12M18 6 6 18" />
     </svg>
   )
 }
@@ -203,31 +211,20 @@ function registrationErrorKey(error: unknown): LoginErrorKey {
   return 'registration.fallback'
 }
 
-function LanguagePicker() {
-  const { t } = useTranslation('common')
-  const { locale, change } = useLocalePicker()
-  return (
-    <label className="auth-language">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M3 12h18M12 3c2.2 2.5 3.3 5.5 3.3 9S14.2 18.5 12 21c-2.2-2.5-3.3-5.5-3.3-9S9.8 5.5 12 3Z" />
-      </svg>
-      <select
-        aria-label={t('locale.label')}
-        value={locale}
-        onChange={(event) => change(event.currentTarget.value as AppLocale)}
-      >
-        {SUPPORTED_LOCALES.map((locale) => (
-          <option key={locale} value={locale}>
-            {t(`locale.${locale}` as const)}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
+interface LoginDialogProps {
+  onClose: () => void
+  /** 为什么弹出来：决定副标题那一句，其余流程完全一样。 */
+  reason?: LoginPromptReason
 }
 
-export function LoginScreen() {
+/**
+ * 登录框。访客不登录也能用工作台，这个框只在他按下需要账号的动作时出现，
+ * 所以它是浮层而不是整页——身后那半张草稿、那条提示词都还在。
+ *
+ * 登录成功后整页 reload：地址栏不动，重新启动时 AuthGate 会把匿名期间攒下的
+ * 本地历史认领进账号，channel 与同步引擎也一并按新身份重来。
+ */
+export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogProps) {
   const { t } = useTranslation('auth')
   const { t: tError } = useTranslation('errors')
   const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
@@ -386,17 +383,20 @@ export function LoginScreen() {
     ) : null
 
   return (
-    <main className={`auth-shell${view === 'registration' ? ' auth-shell--registration' : ''}`}>
-      <div className="auth-frame">
+    <Overlay onClose={onClose} tier="raised">
+      <div role="dialog" aria-modal="true" aria-label={t('dialog.label')} className="auth-dialog">
+        <button
+          type="button"
+          className="auth-dialog-close"
+          onClick={onClose}
+          aria-label={t('dialog.close')}
+        >
+          <CloseIcon />
+        </button>
+
         <AuthShowcase />
 
         <section className="auth-panel">
-          {/* 显示设置在登录前就要能改：这里没有头像菜单，所以语言与主题各放一个控件。 */}
-          <div className="auth-display">
-            <LanguagePicker />
-            <ThemeToggleButton className="auth-theme" />
-          </div>
-
           <div className="auth-panel-content" ref={panelRef}>
             {view === 'registration' ? (
               <RegistrationPanel
@@ -417,7 +417,11 @@ export function LoginScreen() {
               <div className="auth-form-view auth-login">
                 <div className="auth-form-heading">
                   <h1 tabIndex={-1}>{t('login.title')}</h1>
-                  <p>{t('login.subtitle')}</p>
+                  <p>
+                    {reason === 'session-expired'
+                      ? t('dialog.expiredSubtitle')
+                      : t('dialog.gatedSubtitle')}
+                  </p>
                 </div>
 
                 {providerButtons}
@@ -512,6 +516,6 @@ export function LoginScreen() {
           </div>
         </section>
       </div>
-    </main>
+    </Overlay>
   )
 }

@@ -278,7 +278,7 @@ function mergeCheckpoint(sourceText: string, targetText: string): string {
   const source = JSON.parse(sourceText),
     target = JSON.parse(targetText)
   const merged = { ...target, version: 0, lastSyncedAt: null }
-  for (const key of ['assets', 'templates', 'unsyncedImages', 'imagelessAssets']) {
+  for (const key of ['assets', 'templates', 'looks', 'unsyncedImages', 'imagelessAssets']) {
     merged[key] = [
       ...new Set([
         ...(Array.isArray(target[key]) ? target[key] : []),

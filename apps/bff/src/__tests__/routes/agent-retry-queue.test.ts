@@ -22,6 +22,7 @@ import {
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
@@ -44,6 +45,8 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { pickUpRetryQueues } = await import('../../lib/agent/retry')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'

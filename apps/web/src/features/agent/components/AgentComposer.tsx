@@ -18,6 +18,7 @@ import {
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
+import LookChips from '../../../components/LookChips'
 import MediaImage from '../../../components/MediaImage'
 import SuggestionMenu, {
   type SuggestionMenuGroup,
@@ -68,7 +69,7 @@ import {
   getSlashSkillQuery,
 } from '../lib/agentSkillMentions'
 import {
-  assetToReference,
+  attachAssetToDraft,
   attachReferences,
   filesToReferences,
   setAgentComposerAttach,
@@ -78,6 +79,7 @@ import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import {
   type AgentReference,
+  type AttachedReference,
   attachReference,
   clearReferenceMask,
   draftForSubmit,
@@ -297,8 +299,7 @@ export default function AgentComposer({
         }))
       : []
 
-  const applyAttach = (reference: AgentReference, start: number, at: number) => {
-    const next = attachReference(draft, reference, start, at)
+  const applyAttach = (next: AttachedReference) => {
     typedRef.current = null
     setDraft(next.draft)
     setCursor(next.cursor)
@@ -332,13 +333,16 @@ export default function AgentComposer({
     if (!active) return
 
     // 只有素材要等图取回来；另外两支就在手边，别让它们也隔一个微任务才插胶囊。
+    if (value.type === 'asset') {
+      const attached = await attachAssetToDraft(draft, value.id, active.start, at)
+      if (attached) applyAttach(attached)
+      return
+    }
     const reference =
-      value.type === 'asset'
-        ? await assetToReference(value.id)
-        : value.type === 'reference'
-          ? draft.references[value.index]
-          : canvasReference(canvas, value.imageId)
-    if (reference) applyAttach(reference, active.start, at)
+      value.type === 'reference'
+        ? draft.references[value.index]
+        : canvasReference(canvas, value.imageId)
+    if (reference) applyAttach(attachReference(draft, reference, active.start, at))
   }
 
   const menu = useSuggestionMenu({
@@ -632,6 +636,7 @@ export default function AgentComposer({
           </ComposerActions>
         </ComposerToolbar>
       </ComposerBar>
+      {mode === 'image' && <LookChips onPick={(look) => selectSkill(look.skillName)} />}
     </Composer>
   )
 }

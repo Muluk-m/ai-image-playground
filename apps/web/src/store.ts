@@ -1,6 +1,7 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { requireAccount } from './auth/loginPrompt'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
@@ -50,11 +51,6 @@ import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { resolveMediaSource } from './lib/cloudMedia'
-import {
-  cloudReuseSourceFromGeneration,
-  mirrorStatusPatch,
-  watchMirroredGeneration,
-} from './lib/cloudMirror'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
@@ -81,6 +77,16 @@ import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { placeCloudGeneration } from './lib/placeCloudGeneration'
+import {
+  cloudReuseSourceFromGeneration,
+  dropPlatformGeneration,
+  isPlatformGeneration,
+  loadPlatformGenerations,
+  type PlatformGenerationRow,
+  refreshPlatformGeneration,
+  setPlatformFavorite,
+  watchPlatformGeneration,
+} from './lib/platformGenerations'
 import {
   getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
@@ -560,9 +566,11 @@ interface AppState {
     profileName?: string | null,
   ) => void
 
-  // 任务列表
+  // 任务列表：只有本机自己跑的那些。平台记录是缓存，见 `lib/platformGenerations`。
   tasks: TaskRecord[]
   setTasks: (t: TaskRecord[]) => void
+  platformGenerations: PlatformGenerationRow[]
+  setPlatformGenerations: (rows: PlatformGenerationRow[]) => void
 
   // 搜索和筛选
   searchQuery: string
@@ -781,6 +789,8 @@ export const useStore = create<AppState>()(
       // Tasks
       tasks: [],
       setTasks: (tasks) => set(() => ({ tasks })),
+      platformGenerations: [],
+      setPlatformGenerations: (platformGenerations) => set(() => ({ platformGenerations })),
 
       // Search & Filter
       searchQuery: '',
@@ -814,7 +824,7 @@ export const useStore = create<AppState>()(
       setDetailTaskId: (detailTaskId) => {
         if (detailTaskId) dismissAllTooltips()
         set({ detailTaskId })
-        if (detailTaskId) void hydrateRemoteTask(detailTaskId)
+        if (detailTaskId) void hydratePlatformGeneration(detailTaskId)
       },
       lightboxImageId: null,
       lightboxImageList: [],
@@ -1090,6 +1100,20 @@ function isConnectionRecoverableError(err: unknown) {
   )
 }
 
+/**
+ * 到得了任务卡的 abort 只可能是我们自己挂的超时（BYOK 的 profile.timeout、
+ * builtin-edge 下载的 channel timeout）——没有取消按钮能中断在跑的任务。
+ * 浏览器给的是 `The user aborted a request.`，照抄等于告诉用户「你取消了」，
+ * 所以换成 watchdog 同款超时文案。
+ */
+function isOwnTimeoutAbortError(err: unknown) {
+  return (
+    typeof DOMException !== 'undefined' &&
+    err instanceof DOMException &&
+    (err.name === 'AbortError' || err.name === 'TimeoutError')
+  )
+}
+
 function isApiRequestNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) {
     const message = err.message.toLowerCase()
@@ -1243,19 +1267,15 @@ async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>>
   return ids
 }
 
-/** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
+/** 初始化：从 IndexedDB 加载任务与平台记录缓存，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
   const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
   await Promise.all(interruptedTasks.map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
+  // 平台记录的权威在平台，本机只留一份可整体替换的缓存，作品页第一帧靠它有东西可看。
+  void loadPlatformGenerations()
   for (const task of tasks) {
-    // 镜像卡（像素只在平台上）不走 executeTask：那条路会把产出下成本机图片，留下一条
-    // 半本机半镜像的记录。它的终态只从平台记录读。
-    if (task.remoteOnly) {
-      if (task.status === 'running') watchMirroredGeneration(task.id)
-      continue
-    }
     if (task.customTaskId && (task.status === 'running' || task.customRecoverable)) {
       scheduleCustomRecovery(task.id, 0)
     }
@@ -1382,6 +1402,10 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const submitView = clientProfileToApiProfile(profile)
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []
+
+  // 内置渠道要经 BFF 的队列，没账号发不出去：先把登录框叫起来，这次提交原样丢掉——
+  // 不落任务行、也不 toast，弹窗本身就是反馈。BYOK 浏览器直连上游，不需要账号。
+  if (profile.source === 'builtin-edge' && !requireAccount()) return []
 
   const submissionGuard = getPrivateSubmissionGuard({
     model: submitView.model,
@@ -1751,7 +1775,11 @@ async function executeTask(taskId: string) {
       })
       scheduleCustomRecovery(taskId)
     } else {
-      let errorMessage = err instanceof Error ? err.message : String(err)
+      let errorMessage = isOwnTimeoutAbortError(err)
+        ? createOpenAITimeoutError(activeView.timeout)
+        : err instanceof Error
+          ? err.message
+          : String(err)
       const networkErrorHint = getApiRequestNetworkErrorHint(
         err,
         latestTask,
@@ -1788,30 +1816,22 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   if (task) putTask(task)
 }
 
-/** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出、参考图与遮罩。 */
-const hydratedRemoteTasks = new Set<string>()
-async function hydrateRemoteTask(taskId: string) {
-  const task = useStore.getState().tasks.find((t) => t.id === taskId)
-  if (!task?.remoteOnly || hydratedRemoteTasks.has(taskId)) return
-  hydratedRemoteTasks.add(taskId)
-  const detail = await readRemoteGeneration(taskId)
+/** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出。补到的写回缓存，不写进本机任务。 */
+const hydratedGenerations = new Set<string>()
+async function hydratePlatformGeneration(id: string) {
+  if (!isPlatformGeneration(id) || hydratedGenerations.has(id)) return
+  hydratedGenerations.add(id)
+  const detail = await readRemoteGeneration(id)
   if (!detail) {
-    hydratedRemoteTasks.delete(taskId)
+    hydratedGenerations.delete(id)
     return
   }
-  const patch = mirrorStatusPatch(detail)
+  await refreshPlatformGeneration(detail)
   // 平台还在跑：这一份补不齐，交给轮询收尾，下次展开也要重读。
-  if (patch.status === 'running') {
-    hydratedRemoteTasks.delete(taskId)
-    watchMirroredGeneration(taskId)
+  if (detail.status === 'queued' || detail.status === 'in_progress') {
+    hydratedGenerations.delete(id)
+    watchPlatformGeneration(id)
   }
-  updateTaskInStore(taskId, {
-    ...patch,
-    prompt: detail.prompt,
-    outputImages: detail.outputs.map((output) => mediaRef(output.mediaId)),
-    inputImageIds: detail.inputs.map((input) => mediaRef(input.mediaId)),
-    maskImageId: detail.mask ? mediaRef(detail.mask.mediaId) : null,
-  })
 }
 /**
  * 把一条只在平台留有记录的生成搬到本机：产出、参考图、遮罩都下原图存进本机图库，id 换成本机 id，
@@ -1842,8 +1862,11 @@ export async function materializeRemoteTask(task: TaskRecord): Promise<TaskRecor
     remoteOnly: undefined,
   }
   await putTask(localized)
+  // 平台那条留在缓存里：本机这条 id 相同，合并时压住它，下一次读列表也不会多出一张卡。
   useStore.setState((state) => ({
-    tasks: state.tasks.map((item) => (item.id === localized.id ? localized : item)),
+    tasks: state.tasks.some((item) => item.id === localized.id)
+      ? state.tasks.map((item) => (item.id === localized.id ? localized : item))
+      : [localized, ...state.tasks],
   }))
   return localized
 }
@@ -1930,6 +1953,8 @@ async function retryLocalTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
+  // 重试和首次提交同一条路：内置渠道没账号就只弹登录框，不再多一条失败任务行。
+  if (activeProfile.source === 'builtin-edge' && !requireAccount()) return
   const taskParams = deriveTaskParams(task.params, settings, task.inputImageIds.length > 0)
   const transparentMeta = taskParams.transparent_output
     ? createTransparentOutputMeta(task.prompt.trim())
@@ -2223,15 +2248,27 @@ async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
   }
 }
 
-/** 删除多条任务 */
+/** 删除多条记录：平台那些先删平台，本机那些连带清掉孤立图片。 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, showToast, clearSelection, selectedTaskIds } = useStore.getState()
+  const { tasks, setTasks, showToast, clearSelection, selectedTaskIds, platformGenerations } =
+    useStore.getState()
 
   if (!taskIds.length) return
 
-  const toDelete = new Set(taskIds)
-  const remaining = tasks.filter((t) => !toDelete.has(t.id))
+  const owned = new Set(tasks.map((task) => task.id))
+  const platformIds = taskIds.filter(
+    (id) => !owned.has(id) && platformGenerations.some((row) => row.id === id),
+  )
+  let deleted = 0
+  for (const id of platformIds) {
+    if (!(await deleteRemoteGeneration(id))) continue
+    await dropPlatformGeneration(id)
+    deleted += 1
+  }
 
+  const toDelete = new Set(taskIds.filter((id) => owned.has(id)))
+  deleted += toDelete.size
+  const remaining = tasks.filter((t) => !toDelete.has(t.id))
   // 收集所有被删除任务的关联图片
   const deletedImageIds = new Set<string>()
   for (const t of tasks) {
@@ -2246,7 +2283,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
   }
 
   setTasks(remaining)
-  for (const id of taskIds) {
+  for (const id of toDelete) {
     await dbDeleteTask(id)
   }
 
@@ -2262,22 +2299,45 @@ export async function removeMultipleTasks(taskIds: string[]) {
   }
 
   // 如果删除的任务在选中列表中，则移除
-  const newSelection = selectedTaskIds.filter((id) => !toDelete.has(id))
+  const removed = new Set([...toDelete, ...platformIds])
+  const newSelection = selectedTaskIds.filter((id) => !removed.has(id))
   if (newSelection.length !== selectedTaskIds.length) {
     useStore.getState().setSelectedTaskIds(newSelection)
   }
 
-  showToast(i18next.t('toast.tasksDeleted', { ns: 'store', count: taskIds.length }), 'success')
+  if (deleted < taskIds.length) {
+    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+  }
+  if (deleted > 0) {
+    showToast(i18next.t('toast.tasksDeleted', { ns: 'store', count: deleted }), 'success')
+  }
 }
 
 /**
- * 删除单条任务。像素只在平台上的那条（`remoteOnly`）先删平台记录：本机删掉不算删，刷新就回来了。
+ * 收藏是本机对一条记录的标注。本机记录写在记录本身上；平台记录写在它的缓存行上——
+ * 平台不知道也不该知道谁收藏了什么，缓存刷新时这个标注留着。
+ */
+export async function setTaskFavorite(task: TaskRecord, favorite: boolean): Promise<void> {
+  if (task.remoteOnly) {
+    await setPlatformFavorite(task.id, favorite)
+    return
+  }
+  updateTaskInStore(task.id, { isFavorite: favorite })
+}
+
+/**
+ * 删除单条记录。平台那条先删平台：本机丢掉不算删，刷新就回来了——删除的权威在平台。
  * 平台删不掉时整件事不做，免得列表和平台各说一套。
  */
 export async function removeTask(task: TaskRecord) {
   const { tasks, setTasks, showToast } = useStore.getState()
-  if (task.remoteOnly && !(await deleteRemoteGeneration(task.id))) {
-    showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+  if (task.remoteOnly) {
+    if (!(await deleteRemoteGeneration(task.id))) {
+      showToast(i18next.t('toast.taskDeleteFailed', { ns: 'store' }), 'error')
+      return
+    }
+    await dropPlatformGeneration(task.id)
+    showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
     return
   }
 
@@ -2436,7 +2496,11 @@ async function recoverCustomTask(taskId: string) {
     clearCustomRecoveryTimer(taskId)
     updateTaskInStore(taskId, {
       status: 'error',
-      error: err instanceof Error ? err.message : String(err),
+      error: isOwnTimeoutAbortError(err)
+        ? createOpenAITimeoutError(view.timeout)
+        : err instanceof Error
+          ? err.message
+          : String(err),
       errorCode: taskErrorTypeOf(err),
       ...getRawErrorPayload(err),
       customRecoverable: false,

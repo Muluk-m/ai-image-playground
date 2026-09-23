@@ -5,6 +5,7 @@ import {
   type ProjectKind,
 } from '@image-playground/shared'
 import { create } from 'zustand'
+import { accountRequired, promptLogin } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
 import { pathAppMode } from '../../lib/appPaths'
 import {
@@ -20,6 +21,8 @@ import {
   ensureCloudProjectConversation,
   getCloudProject,
   listCloudProjects,
+  PROJECT_REQUEST_TIMEOUT_MS,
+  ProjectRequestError,
   restoreDeletedCloudProject,
 } from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
@@ -56,6 +59,16 @@ interface ProjectState {
 }
 
 let loading: Promise<void> | undefined
+
+/**
+ * 深链接指向的云端项目在这台机器上取不到。原因是「这个部署有账号体系而访客还没登录」时，
+ * 先把登录框叫起来——顺着分享链接进来的人要的是登录后接着看这个项目，
+ * 而不是一句「本机没有这个项目」。其余原因照旧只报错。
+ */
+function cloudProjectUnavailable(): Error {
+  if (accountRequired()) promptLogin('gated-action')
+  return new Error('Project not available on this device')
+}
 
 function coverImage(doc: CanvasDoc): string | undefined {
   const element = [...doc.elements].reverse().find((one) => one.type === 'image')
@@ -132,10 +145,19 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         const route = readProjectRoute()
         const routeId = route ? resolveProjectRoute(route, projects) : null
         if (routeId && !projects.some((one) => one.id === routeId)) {
-          if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
-          projects.push(
-            await restoreCloudProject(await getCloudProject(routeId, AbortSignal.timeout(10000))),
-          )
+          if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
+          // 云端那份取不回来（链路抖、超时）不该把整个目录判死：本机项目照常列出来，
+          // 只标一句云端列表没刷上，用户还能接着用离线的那些。
+          try {
+            projects.push(
+              await restoreCloudProject(
+                await getCloudProject(routeId, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS)),
+              ),
+            )
+          } catch (error) {
+            if (error instanceof ProjectRequestError && error.status === 404) throw error
+            set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
+          }
         }
         const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
         // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
@@ -194,8 +216,10 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     id = resolveProjectRoute(id, get().projects)
     const existing = get().projects.find((one) => one.id === id)
     if (existing) return existing
-    if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
-    const project = await restoreCloudProject(await getCloudProject(id, AbortSignal.timeout(10000)))
+    if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
+    const project = await restoreCloudProject(
+      await getCloudProject(id, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS)),
+    )
     set((state) => ({ projects: [...state.projects, project] }))
     return project
   },
@@ -250,7 +274,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const scope = scopedStorageName(CANVAS_PROJECT_KEY)
     await restoreDeletedCloudProject(id)
     if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
-    const summary = await getCloudProject(id, AbortSignal.timeout(15000))
+    const summary = await getCloudProject(id, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS))
     if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
     const project = await restoreCloudProject(summary)
     if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return

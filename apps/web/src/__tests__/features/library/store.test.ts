@@ -2,9 +2,11 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   selectVisibleAssets,
+  selectVisibleLooks,
   selectVisibleTemplates,
   useLibraryStore,
 } from '../../../features/library/store'
+import { assetCoverImageId } from '../../../features/library/types'
 import { storeImage } from '../../../lib/db'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getSelectedImageMentionLabel } from '../../../lib/promptImageMentions'
@@ -27,6 +29,7 @@ beforeEach(() => {
   useLibraryStore.setState({
     assets: [],
     templates: [],
+    looks: [],
     searchKeyword: '',
     onLibraryPage: false,
     tab: 'assets',
@@ -60,7 +63,7 @@ describe('saving an asset', () => {
     await useLibraryStore.getState().loadAssets()
     const [asset] = useLibraryStore.getState().assets
     expect(asset.name).toBe('产品白底图')
-    expect(asset.imageId).toBe(imageId)
+    expect(assetCoverImageId(asset)).toBe(imageId)
   })
 
   it('refuses a blank name', async () => {
@@ -79,7 +82,32 @@ describe('saving an asset', () => {
 
     const assets = useLibraryStore.getState().assets
     expect(assets.map((asset) => asset.name).sort()).toEqual(['主图', '白底图'])
-    expect(assets.every((asset) => asset.imageId === imageId)).toBe(true)
+    expect(assets.every((asset) => assetCoverImageId(asset) === imageId)).toBe(true)
+  })
+
+  it('updates the record in place on the same id, keeping createdAt', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    const created = await useLibraryStore.getState().saveAssetRecord({
+      name: '橘猫玩偶',
+      kind: 'product',
+      views: [{ imageId: 'front', label: 'front', source: 'upload' }],
+    })
+
+    now.mockReturnValue(9000)
+    const updated = await useLibraryStore.getState().saveAssetRecord({
+      id: created.id,
+      name: '橘猫玩偶',
+      kind: 'product',
+      views: [
+        { imageId: 'front', label: 'front', source: 'upload' },
+        { imageId: 'side', label: 'side', source: 'generated' },
+      ],
+    })
+
+    expect(useLibraryStore.getState().assets).toHaveLength(1)
+    expect(updated).toMatchObject({ createdAt: 1000, updatedAt: 9000, lastUsedAt: 1000 })
+    expect(updated.views.map((view) => view.imageId)).toEqual(['front', 'side'])
   })
 })
 
@@ -92,6 +120,22 @@ describe('attaching an asset', () => {
     await useLibraryStore.getState().attachAsset(asset.id)
 
     expect(useStore.getState().inputImages).toEqual([{ id: imageId, dataUrl: IMAGE_A }])
+  })
+
+  it('attaches every view in order and points the reference at the cover', async () => {
+    const cover = await storeImage(IMAGE_A)
+    const side = await storeImage(IMAGE_B)
+    useStore.getState().addInputImage({ id: 'other', dataUrl: IMAGE_B })
+    const asset = await useLibraryStore.getState().saveAssetRecord({
+      name: '橘猫玩偶',
+      views: [
+        { imageId: cover, label: 'front', source: 'upload' },
+        { imageId: side, label: 'side', source: 'generated' },
+      ],
+    })
+
+    expect(await useLibraryStore.getState().attachAsset(asset.id)).toBe(1)
+    expect(useStore.getState().inputImages.map((image) => image.id)).toEqual(['other', cover, side])
   })
 
   it('does not add the same image twice and reuses its position', async () => {
@@ -280,7 +324,7 @@ describe('applying a template', () => {
 
     expect(useStore.getState().inputImages.map((image) => image.id)).toEqual([
       'other',
-      asset.imageId,
+      assetCoverImageId(asset),
     ])
     expect(useStore.getState().prompt).toBe(`${mention(1)} 换背景`)
     expect(useStore.getState().params).toMatchObject({
@@ -292,7 +336,7 @@ describe('applying a template', () => {
 
   it('reuses a reference image that is already attached', async () => {
     const { asset, template } = await saveTemplateReferencingAsset()
-    useStore.setState({ inputImages: [{ id: asset.imageId, dataUrl: IMAGE_A }] })
+    useStore.setState({ inputImages: [{ id: assetCoverImageId(asset), dataUrl: IMAGE_A }] })
 
     await useLibraryStore.getState().applyTemplate(template.id)
 
@@ -499,6 +543,67 @@ describe('record timestamps', () => {
     expect(selectVisibleTemplates(useLibraryStore.getState())).toEqual([])
     await useLibraryStore.getState().applyTemplate(template.id)
     expect(useStore.getState().prompt).toBe('')
+  })
+})
+
+describe('looks', () => {
+  const draft = {
+    name: '白底三视图',
+    description: '给一组产品图出白底三视图',
+    purpose: 'hero' as const,
+    body: '## 1. 一句话目标\n出白底三视图',
+    model: 'gpt-image-1',
+    size: '1024x1024',
+    slotCount: 1,
+    referenceImageIds: ['ref-1'],
+    coverImageId: 'cover-1',
+  }
+
+  it('survives a reload and updates the same record in place', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    const created = await useLibraryStore.getState().saveLookRecord(draft)
+
+    now.mockReturnValue(4000)
+    await useLibraryStore.getState().saveLookRecord({ ...draft, id: created.id, slotCount: 2 })
+
+    useLibraryStore.setState({ looks: [] })
+    await useLibraryStore.getState().loadLooks()
+    expect(useLibraryStore.getState().looks).toEqual([
+      {
+        ...draft,
+        id: created.id,
+        slotCount: 2,
+        createdAt: 1000,
+        updatedAt: 4000,
+        lastUsedAt: 1000,
+      },
+    ])
+  })
+
+  it('moves lastUsedAt without touching updatedAt when it is used', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    const look = await useLibraryStore.getState().saveLookRecord(draft)
+
+    now.mockReturnValue(7000)
+    await useLibraryStore.getState().noteLookUsed(look.id)
+
+    expect(useLibraryStore.getState().looks[0]).toMatchObject({
+      updatedAt: 1000,
+      lastUsedAt: 7000,
+    })
+  })
+
+  it('keeps a deleted look out of every read path', async () => {
+    const look = await useLibraryStore.getState().saveLookRecord(draft)
+
+    await useLibraryStore.getState().deleteLook(look.id)
+
+    useLibraryStore.setState({ looks: [] })
+    await useLibraryStore.getState().loadLooks()
+    expect(useLibraryStore.getState().looks).toEqual([])
+    expect(selectVisibleLooks(useLibraryStore.getState())).toEqual([])
   })
 })
 

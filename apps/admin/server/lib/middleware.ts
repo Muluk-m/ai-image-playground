@@ -10,11 +10,11 @@ export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
   { as: 'scoped' },
   ({ cookie, set }) => {
     const cookieVal = cookie[SESSION_COOKIE_NAME]?.value
-    const { valid } = verifySession(typeof cookieVal === 'string' ? cookieVal : '')
-    if (!valid) {
+    const session = verifySession(typeof cookieVal === 'string' ? cookieVal : '')
+    if (!session.valid || !session.operatorId) {
       set.status = 401
       throw new Error('unauthorized')
     }
-    return { admin: true as const }
+    return { admin: { operatorId: session.operatorId } as const }
   },
 )

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssetRecord, TemplateRecord } from '../features/library/types'
+import type { AssetRecord, LookRecord, TemplateRecord } from '../features/library/types'
 import {
   createDefaultGeminiByokProfile,
   createDefaultOpenAIByokProfile,
@@ -7,6 +7,7 @@ import {
   normalizeSettings,
 } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
+import { mergeHistory, type PlatformGenerationRow } from '../lib/platformGenerations'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { DEFAULT_PARAMS } from '../types'
@@ -15,8 +16,8 @@ vi.mock('../lib/db', () => {
   const tasks = new Map<string, TaskRecord>()
   const images = new Map<string, StoredImage>()
   const thumbnails = new Map<string, StoredImageThumbnail>()
+  const generations = new Map<string, PlatformGenerationRow>()
   let imageSeq = 0
-
   return {
     CURRENT_THUMBNAIL_VERSION: 2,
     getAllTasks: async () => [...tasks.values()],
@@ -56,6 +57,14 @@ vi.mock('../lib/db', () => {
       images.set(id, { id, dataUrl, source, createdAt: Date.now() })
       return id
     },
+    getCachedGenerations: async () => [...generations.values()],
+    putCachedGeneration: async (row: PlatformGenerationRow) => {
+      generations.set(row.id, row)
+      return row.id
+    },
+    deleteCachedGeneration: async (id: string) => {
+      generations.delete(id)
+    },
   }
 })
 
@@ -84,6 +93,24 @@ vi.mock('../features/library/lib/templateStore', () => {
       },
       remove: async (id: string) => {
         templates.delete(id)
+      },
+    },
+  }
+})
+
+vi.mock('../features/library/lib/lookStore', () => {
+  const looks = new Map<string, LookRecord>()
+  return {
+    lookImageIds: (look: LookRecord) => [...look.referenceImageIds],
+    lookStore: {
+      list: async () => [...looks.values()],
+      listChanges: async () => [...looks.values()],
+      applyRemote: async () => {},
+      put: async (look: LookRecord) => {
+        looks.set(look.id, look)
+      },
+      remove: async (id: string) => {
+        looks.delete(id)
       },
     },
   }
@@ -119,6 +146,7 @@ vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
   readRemoteGeneration,
 }))
 
+import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
 import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
@@ -171,6 +199,8 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
 describe('mask draft lifecycle in store actions', () => {
   beforeEach(async () => {
     await bootstrapClientCapabilities(false, '')
+    // 登录态是模块级的，逐用例归零。
+    setSignedIn(false)
     setChannels([])
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
@@ -298,6 +328,8 @@ describe('mask draft lifecycle in store actions', () => {
     )
     await bootstrapClientCapabilities(true, '')
     fetchMock.mockRestore()
+    // 计费部署上提交要账号：这条用例测的是登录用户那条路。
+    setSignedIn(true)
     vi.mocked(callImageApi).mockResolvedValue({
       images: [
         'data:image/png;base64,one',
@@ -337,6 +369,55 @@ describe('mask draft lifecycle in store actions', () => {
     expect(useStore.getState().tasks[0]?.outputImages).toHaveLength(3)
   })
 
+  it('未登录访客提交内置渠道：只弹一次登录框，不落任务行', async () => {
+    const channel: PublicChannel = {
+      id: 'paid-openai',
+      kind: 'openai-queue',
+      label: 'Paid OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ ...allCapabilitiesOff(), 'accounts:login': true }))
+    await bootstrapClientCapabilities(true, '')
+    fetchMock.mockRestore()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS },
+    })
+    // 这个文件跑在 node 环境里，登录框事件要有个 window 才发得出去。
+    vi.stubGlobal('window', new EventTarget())
+    const prompted = vi.fn()
+    const unsubscribe = subscribeLoginPrompt(prompted)
+
+    try {
+      await submitTask()
+    } finally {
+      unsubscribe()
+      vi.unstubAllGlobals()
+    }
+
+    expect(prompted.mock.calls).toEqual([['gated-action']])
+    expect(callImageApi).not.toHaveBeenCalled()
+    expect(useStore.getState().tasks).toEqual([])
+    // 弹窗就是反馈，不再叠一条报错。
+    expect(useStore.getState().showToast).not.toHaveBeenCalled()
+  })
+
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
     const replacement = { id: 'image-a-replacement', dataUrl: imageA.dataUrl }
     const prompt = `参考 ${getSelectedImageMentionLabel(0)} 生成`
@@ -352,6 +433,23 @@ describe('mask draft lifecycle in store actions', () => {
     const state = useStore.getState()
     expect(state.inputImages.map((img) => img.id)).toEqual([replacement.id, imageB.id])
     expect(state.prompt).toBe(prompt)
+  })
+
+  it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {
+    vi.mocked(callImageApi).mockRejectedValue(
+      new DOMException('The user aborted a request.', 'AbortError'),
+    )
+    useStore.setState({ prompt: 'a red cat', params: { ...DEFAULT_PARAMS } })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'error',
+      'aborted task did not fail',
+    )
+
+    const failed = useStore.getState().tasks[0]
+    expect(failed?.error).toContain('请求超时')
+    expect(failed?.error).not.toContain('aborted')
   })
 })
 
@@ -1001,7 +1099,7 @@ describe('素材引用与模板套用后提交', () => {
     await useLibraryStore.getState().saveAsset(imageId, name)
     const asset = useLibraryStore
       .getState()
-      .assets.find((a) => a.imageId === imageId && a.name === name)
+      .assets.find((a) => a.views.some((view) => view.imageId === imageId) && a.name === name)
     if (!asset) throw new Error('asset not saved')
     return useLibraryStore.getState().attachAsset(asset.id)
   }
@@ -1349,27 +1447,35 @@ describe('展开平台记录的详情', () => {
       mask: null,
       outputs: [image('out-1')],
     })
+    const running = {
+      id: 'gen-1',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'in_progress',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: null,
+      revision: '1',
+      prompt: '一只猫',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+    } as const
     useStore.setState({
-      tasks: [
-        task({
-          id: 'gen-1',
-          bffRequestId: 'gen-1',
-          status: 'running',
-          finishedAt: null,
-          elapsed: null,
-          remoteOnly: true,
-        }),
-      ],
+      tasks: [],
+      platformGenerations: [{ id: 'gen-1', record: running, fetchedAt: 0 }],
       detailTaskId: null,
     })
 
     useStore.getState().setDetailTaskId('gen-1')
 
-    await waitUntil(
-      () => useStore.getState().tasks[0]?.status === 'done',
-      '详情已经读到 completed，卡片仍停在 running',
-    )
-    expect(useStore.getState().tasks[0]).toMatchObject({
+    const card = () => mergeHistory([], useStore.getState().platformGenerations)[0]
+    await waitUntil(() => card()?.status === 'done', '详情已经读到 completed，卡片仍停在 running')
+    expect(card()).toMatchObject({
       finishedAt: 62_000,
       elapsed: 60_000,
       outputImages: ['aip-media:out-1'],

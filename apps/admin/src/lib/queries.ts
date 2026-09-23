@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { apiClient } from './api-client'
 import type {
   DeviceDetailResult,
+  ListAuditsResult,
   ListDevicesResult,
   ListUsersResult,
   OpsSnapshot,
@@ -86,11 +87,34 @@ export function useOverview(range: Range) {
   })
 }
 
-/** 看板是开在一边盯着看的，所以自己定时重拉；切到后台标签页时停，回来立刻补一次。 */
-export function useOps() {
+/** 看板默认 30 秒重拉；常驻壳可传更慢的间隔，避免闲置页面持续打满只读池。 */
+export function useOps(refetchInterval = 30_000) {
   return useQuery({
     queryKey: ['ops'],
     queryFn: () => apiClient.get<OpsSnapshot>('/api/ops'),
-    refetchInterval: 30_000,
+    refetchInterval,
+  })
+}
+
+export interface AuditFilters {
+  /** 精确匹配 `operator_audits.action`；空串表示不筛。 */
+  action?: string
+  targetId?: string
+}
+
+/** 审计流按 (created_at, id) keyset 翻页，跟用户任务列表同一套游标约定。 */
+export function useAudits(filters: AuditFilters) {
+  const params = new URLSearchParams()
+  if (filters.action) params.set('action', filters.action)
+  if (filters.targetId) params.set('targetId', filters.targetId)
+  return useInfiniteQuery({
+    queryKey: ['audits', filters],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams(params)
+      if (pageParam) search.set('cursor', pageParam)
+      return apiClient.get<ListAuditsResult>(`/api/audits?${search.toString()}`)
+    },
+    initialPageParam: '',
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   })
 }

@@ -15,9 +15,11 @@ import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabil
 import { channelsRoutes } from './routes/channels'
 import { domainHandoffRoutes } from './routes/domain-handoff'
 import { generationRoutes } from './routes/generations'
+import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalUserRoutes } from './routes/internal-users'
+import { lookRoutes } from './routes/looks'
 import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
 import { projectRoutes } from './routes/projects'
@@ -177,10 +179,13 @@ export const app = new Elysia()
   .use(agentRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
+  .use(lookRoutes)
   .use(mediaRoutes)
+  .use(publicInspirationRoutes)
   .use(generationRoutes)
   .use(internalUserRoutes)
   .use(internalOpsRoutes)
+  .use(internalInspirationRoutes)
   .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)
   .use(privateBffOverlay.routes)

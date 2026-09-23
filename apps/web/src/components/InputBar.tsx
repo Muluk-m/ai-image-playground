@@ -1,12 +1,18 @@
+import type { AgentSkillSummary } from '@image-playground/shared'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
+import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
+import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
 import AssetHint from '../features/library/components/AssetHint'
+import { applyLookToComposer, useActiveLook } from '../features/library/lib/activeLook'
 import {
   type AtMentionValue,
   buildAtMentionGroups,
   getAssetNamesByImageId,
 } from '../features/library/lib/assetMentions'
+import { checkLookSubmission, submitWithLook } from '../features/library/lib/lookSubmit'
 import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
 import { useLibraryStore } from '../features/library/store'
 import { useImageInputScope } from '../hooks/useImageInputScope'
@@ -31,6 +37,7 @@ import {
   getContentEditablePlainText,
   getContentEditableSelection,
   setContentEditableCursor,
+  setContentEditableSelection,
   syncMentionTagSelection,
 } from '../lib/promptEditorDom'
 import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
@@ -56,6 +63,7 @@ import {
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { ChipIcons } from './chipIcons'
 import { BookmarkIcon, CloseIcon, LibraryIcon, LinkIcon, MaskBrushIcon } from './icons'
+import LookChips, { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
 import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
@@ -214,7 +222,20 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : t('common:action.generate')
   const submissionInput = { model: activeView.model, quantity: submitImageCount }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
+  // 生成模式挂着模板胶囊时：素材条数要与素材位对上，提交走模板组装。画布档不管它（那是智能体的事）。
+  const activeLook = useActiveLook((s) => s.look)
+  const libraryAssets = useLibraryStore((s) => s.assets)
+  const lookCheck = useMemo(
+    () => (activeLook ? checkLookSubmission(activeLook, inputImages, libraryAssets) : null),
+    [activeLook, inputImages, libraryAssets],
+  )
+  const lookBody = activeLook?.record?.body ?? activeLook?.skill?.template?.body ?? ''
+  const canSubmit = Boolean(
+    (prompt.trim() || activeLook) &&
+      hasSubmitApiConfig &&
+      !submissionGuard.blocked &&
+      (lookCheck?.ok ?? true),
+  )
   // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
   const createTarget = useStore((s) => s.createTarget)
   const toCanvas = inline && createTarget === 'canvas'
@@ -222,6 +243,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit
   const submit = () => {
     if (toCanvas) void startCanvasFromComposer()
+    else if (activeLook) void submitWithLook(activeLook, lookBody)
     else submitTask()
   }
   const submitLabel = toCanvas ? t('submit.startCanvas') : generateLabel
@@ -731,18 +753,42 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     prevHeightRef.current = targetH
   }, [])
 
-  // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
+  // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）。开头的 `/技能` 命令要变成带图标的胶囊，
+  // 与画布输入框同一种呈现——用户从资产页「用智能体创建」跳过来看到的不该是一行裸文本。
+  const skills = useAgentSkills('image')
+  const [skillChip, setSkillChip] = useState<{
+    element: HTMLElement
+    skill: AgentSkillSummary
+  } | null>(null)
   useEffect(() => {
     // 只跳过用户刚打进去的那个值，避免光标跳动；粘性布尔会把外部设置的 prompt 一起吞掉。
     const typed = lastTypedRef.current
     lastTypedRef.current = null
     const el = textareaRef.current
-    if (!el || prompt === typed) return
+    if (!el) return
+    const invocation = getLeadingAgentSkill(prompt, skills)
+    const chipMissing = Boolean(invocation) && !el.querySelector('[data-skill-command]')
+    if (prompt === typed && !chipMissing) return
     const html = buildPromptEditorHtml(prompt, mentionLabels, slotValues)
-    if (el.innerHTML !== html) {
-      el.innerHTML = html
+    const selection = document.activeElement === el ? getContentEditableSelection(el) : null
+    if (el.innerHTML !== html) el.innerHTML = html
+    const first = el.firstChild
+    if (invocation && first instanceof Text && first.data.startsWith(invocation.command)) {
+      first.splitText(invocation.command.length)
+      const element = document.createElement('span')
+      element.contentEditable = 'false'
+      element.className = 'mention-tag agent-skill-mention'
+      element.dataset.mentionText = invocation.command
+      element.dataset.mentionLabel = invocation.command
+      element.dataset.skillCommand = invocation.skill.name
+      element.setAttribute('aria-label', invocation.skill.title)
+      first.replaceWith(element)
+      setSkillChip({ element, skill: invocation.skill })
+      if (selection) setContentEditableSelection(el, selection)
+    } else {
+      setSkillChip(null)
     }
-  }, [prompt, mentionLabels, slotValues])
+  }, [prompt, mentionLabels, slotValues, skills])
 
   useEffect(() => {
     adjustTextareaHeight()
@@ -1206,6 +1252,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   return (
     <>
+      {skillChip && createPortal(<AgentSkillBadge skill={skillChip.skill} />, skillChip.element)}
       {/* 全屏拖拽遮罩 */}
       {isDragging && (
         <div className="fixed inset-0 z-[100] bg-card/60 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
@@ -1407,6 +1454,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 ))}
 
               {/* 输入框 */}
+              {activeLook && !toCanvas && (
+                <LookCapsule
+                  look={activeLook}
+                  issue={lookCheck && !lookCheck.ok ? lookCheck : null}
+                  onRemove={() => useActiveLook.getState().set(null)}
+                />
+              )}
               <div className="relative">
                 {openSlot && (
                   <SlotValuePopover
@@ -1730,6 +1784,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   </div>
                 </div>
               </div>
+
+              {!toCanvas && <LookChips onPick={applyLookToComposer} />}
 
               <input
                 ref={fileInputRef}

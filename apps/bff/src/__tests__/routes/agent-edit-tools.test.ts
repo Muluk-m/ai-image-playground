@@ -25,6 +25,7 @@ import {
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -52,6 +53,8 @@ const { conversationsWithEndedJobs } = await import('../../lib/agent/wake')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
+
+await silenceChatUpstream()
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const app = new Elysia().use(agentRoutes)

@@ -5,10 +5,18 @@ process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.BFF_INTERNAL_URL = 'http://bff.test:37377'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+delete process.env.ADMIN_CORS_ALLOWED_ORIGINS
+delete process.env.ADMIN_FRONTEND_ORIGIN
 
 const { config, getAdminCapabilities, loadAdminCapabilities } = await import(
   '../../../server/config'
 )
+
+describe('admin CORS config', () => {
+  it('does not open credentialed CORS when the frontend origin is missing', () => {
+    expect(config.corsOrigins).toBe('')
+  })
+})
 
 describe('loadAdminCapabilities', () => {
   it('starts the read-only skeleton without a service credential when login is disabled', async () => {

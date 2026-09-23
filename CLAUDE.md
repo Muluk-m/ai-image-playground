@@ -161,6 +161,8 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 - 不要 `git add -A`，工作区常有未追踪的本地配置（`.env.local`、`out.png` 等），容易夹带。**只 add 明确改动的文件**。
 - Commit message 用 Conventional Commits（`feat:` / `fix(scope):` / `docs:` …）。
 - 在 monorepo 内通常用 scope 指 app，如 `feat(web): ...` / `feat(bff): ...` / `feat(admin): ...`。
+- **一个模块/一件事做完就立刻 commit，不要把多件事堆在工作区或暂存区。** 一次会话里改了四处不相干的东西，就是四个 commit；堆成一坨之后既没法单独 review，也没法单独 revert，冲突时更难挑拣。
+- 提交的时机是「这件事自己能跑通且验证过」，不是「全部功能都做完」。后续还要改的部分另起 commit。
 
 ## Spec / Plan 流程（ask-matt）
 

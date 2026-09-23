@@ -5,6 +5,7 @@ import {
   createBuiltinEdgeProfile,
   createDefaultGeminiByokProfile,
   createDefaultOpenAIByokProfile,
+  DEFAULT_API_TIMEOUT,
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
   DEFAULT_IMAGES_MODEL,
@@ -16,6 +17,7 @@ import {
   importCustomProviderSettingsFromJson,
   isBuiltinProfile,
   mergeImportedSettings,
+  normalizeApiTimeout,
   normalizeClientProfile,
   normalizeSettings,
   switchByokProfileKind,
@@ -32,6 +34,26 @@ describe('createDefaultOpenAIByokProfile', () => {
     expect(p.models).toEqual([DEFAULT_IMAGES_MODEL])
     expect(p.selectedModelId).toBe(DEFAULT_IMAGES_MODEL)
     expect(p.preferences.apiMode).toBe('images')
+  })
+})
+
+describe('normalizeApiTimeout', () => {
+  // 0 会让 `setTimeout(() => controller.abort(), 0)` 在请求发出的同一 tick 掐断它，
+  // 卡片上只剩浏览器那句 "The user aborted a request."，看着像用户点了取消。
+  it('把 0 / 负数 / 非数字的超时退回默认值，正数原样保留', () => {
+    expect(normalizeApiTimeout(0)).toBe(DEFAULT_API_TIMEOUT)
+    expect(normalizeApiTimeout(-30)).toBe(DEFAULT_API_TIMEOUT)
+    expect(normalizeApiTimeout(Number.NaN)).toBe(DEFAULT_API_TIMEOUT)
+    expect(normalizeApiTimeout(undefined)).toBe(DEFAULT_API_TIMEOUT)
+    expect(normalizeApiTimeout(90)).toBe(90)
+  })
+
+  it('存量 profile 里的 0 超时在读出来时就被挡住', () => {
+    const stored = normalizeClientProfile({
+      ...createDefaultOpenAIByokProfile({ apiKey: 'k' }),
+      preferences: { apiMode: 'images', timeout: 0, codexCli: false, apiProxy: false },
+    })
+    expect(clientProfileToApiProfile(stored!).timeout).toBe(DEFAULT_API_TIMEOUT)
   })
 })
 

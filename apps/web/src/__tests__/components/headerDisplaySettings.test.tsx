@@ -31,7 +31,12 @@ beforeEach(() => {
   act(() =>
     root.render(
       <AuthContextProvider
-        value={{ enabled: true, user: { id: 'u1', username: '小马' }, logout: async () => {} }}
+        value={{
+          enabled: true,
+          user: { id: 'u1', username: '小马' },
+          login: () => {},
+          logout: async () => {},
+        }}
       >
         <Header />
       </AuthContextProvider>,

@@ -31,6 +31,7 @@ import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentMessageQueue from './AgentMessageQueue'
 import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
+import AgentSaveCard from './AgentSaveCard'
 import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
@@ -55,8 +56,12 @@ function renderMessage(
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
 ) {
-  // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
-  if (message.kind === 'tool') return <AgentToolCard message={message} />
+  if (message.kind === 'tool') {
+    // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
+    if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
+    // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
+    return <AgentToolCard message={message} />
+  }
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }

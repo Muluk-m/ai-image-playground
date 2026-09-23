@@ -16,6 +16,8 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   generateImage: undefined,
   editImage: undefined,
   generateVideo: undefined,
+  saveAsset: undefined,
+  saveLook: undefined,
   arrangeTimeline: undefined,
 }
 
@@ -30,6 +32,8 @@ export function isProcessStep(message: AgentPanelMessage): message is AgentToolM
   if (!message.toolName || !READ_ONLY_TOOLS[message.toolName]) return false
   if (message.artifacts?.length) return false
   if (message.job || message.timeline || message.retryOf || message.delivery) return false
+  // 保存卡片是一张要用户点的卡，折进一行就没人点得到了。
+  if (message.saveCard) return false
   if (message.errorCode || message.status === 'failed') return false
   // 等确认的那一步要露出提示词草稿，不能折进一行。
   return message.status !== 'awaiting_confirmation'

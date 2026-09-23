@@ -71,12 +71,13 @@
   暗色由 `<html>` 上的 `.dark` 决定，Tailwind 是 `darkMode: 'class'`，手写样式用 `.dark …` 选择器，
   **不要再写 `@media (prefers-color-scheme)`**，也不要在 JS 里读系统明暗，要重画就 `subscribeTheme`。
   首帧脚本 `bootScript.ts` 由 Vite 插件内联进 head，它与 `resolveTheme` 是同一条规则的两份实现，
-  `theme.test.ts` 逐格比对；改一边必须改另一边。头像菜单与登录页只做亮暗翻转，
+  `theme.test.ts` 逐格比对；改一边必须改另一边。头像菜单只做亮暗翻转，
   「跟随系统」只在设置面板里。 `theme-color` 由首帧脚本创建并随主题更新；PWA 清单里的颜色改不了，
   安装态的启动画面固定是暗色，不是 bug。
-- 界面语言（以及主题）是**显示设置**：只存本机、登录前生效、不进同步。登录后的入口在头像菜单的
+- 界面语言（以及主题）是**显示设置**：只存本机、登录前生效、不进同步。入口在头像菜单的
   [`DisplaySettingsMenuItems`](./src/components/DisplaySettingsMenuItems.tsx)，公开树与私有 overlay
-  的两个头像菜单渲染同一个组件；登录页与设置面板另有入口。标签页标题随语言变，静态 meta 不变。
+  的两个头像菜单渲染同一个组件；设置面板另有一处。未登录访客也有这个菜单，所以登录框自己
+  不再带语言与主题控件。标签页标题随语言变，静态 meta 不变。
 - `lib/localCompatibility/` 刻意零依赖（它在 App 与 store 之前跑，还单独打进旧域名的入口），
   里面的两条中文报错不迁移。
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
@@ -128,6 +129,38 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 (0,1,1)，压得过 `.h-5`、`.flex` 这类 (0,1,0) 的 utility，容器里所有复用组件会被一起压散
 （2026-09 已下线的导演台出过这事故：勾选框被拉成全宽长条）。必须写成 `:where(.panel) button`，
 把 class 那一位让出去：(0,0,1) 仍然压得过 preflight，但任何一个 utility 都能覆盖它。
+
+**界面上不解释系统行为。** 「点这个会把命令放进输入框交给智能体」「保存后可以在素材页改名」
+「手动保存只存上传图」这类描述能力与流程的句子，是代码注释，不是界面文案：用户看到的必须是
+干净的控件与结果。表达方式只有三种——控件本身的标签（按钮写清动作）、动作发生后的即时反馈
+（toast、卡片状态翻转）、空态里最多一句话说「这里放什么、怎么开始」。原型也遵守同一条，
+原型的说明写在代码注释或 issue 里。需要长解释的功能是设计问题，回去改设计，不要加脚注。
+
+**结构化的东西不能长成裸文本。** 输入框里的 `/技能`、`@图N`、`{槽位}`、模板，列表里的
+类别 / 用途 / 状态，全都是有身份的对象，不是一串字符：一律渲染成带图标或缩略图的胶囊 / 角标，
+图标来自技能的 `meta.json`、素材的封面、既有的 `icons.tsx`。判据：把它从界面上抠出来单独看，
+用户能不能认出它是什么——`/create-asset` 认不出，「✦ 创建素材」认得出。两处输入框（画布智能体、
+创作页生成）对同一种对象必须长得一样，胶囊渲染走同一个组件（`AgentSkillBadge`、`MediaImage`），
+不得各写一份。新加一种对象先给它图标再给它文案。
+
+## 登录与匿名访客
+
+**开着 `accounts:login` 的部署也不拦人**：`/api/auth/me` 答 401 时 `AuthGate` 照常挂载工作台，
+storage scope 留在匿名（`setClientStorageScope(null)`），只有真需要账号的那一次动作才弹
+[`LoginDialog`](./src/auth/LoginDialog.tsx)。登录成功仍是 `window.location.reload()`：地址栏不动，
+重启时 `adoptAnonymousStorage()` 把匿名期间的本地历史认领进账号，channel 与同步引擎按新身份重来。
+
+- 唯一接缝是 [`src/auth/loginPrompt.ts`](./src/auth/loginPrompt.ts)：它不依赖 React 与 store（调用方
+  多是模块级函数）。要账号的动作在**发请求之前**调 `requireAccount()`，返回 false 就安静地放弃这次
+  操作——不落任务行、不 toast，弹出来的登录框本身就是反馈。
+- 被动请求（启动拉取、轮询、云端历史）**不准**调 `requireAccount()`：页面自己弹登录框是 bug。
+- `authenticatedBffFetch` 的 401 只在 `isSignedIn()` 为真时才算「会话失效」，那条路走
+  [`SessionExpiredCard`](./src/auth/SessionExpiredCard.tsx)（非模态，工作台不卸载）。访客的 401 是
+  正常权限边界，不发任何全局事件。
+- 私有 overlay 的积分门禁对匿名访客没有意义（它只会报「读不到积分」并禁用生成按钮），
+  所以 `usePrivateSubmissionGuard` / `getPrivateSubmissionGuard` 在 `accountRequired()` 为真时
+  直接返回不拦截，把那一次点击让给登录框。
+- `/api/channels` 是公开端点：匿名工作台要靠它渲染模型选择器，返回的清单不含任何凭据面字段。
 
 ## 其它要点
 

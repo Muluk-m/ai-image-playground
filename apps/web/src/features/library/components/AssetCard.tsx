@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useMemo, useState } from 'react'
-import { EditIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
+import Badge from '../../../components/Badge'
+import { EditIcon, LayersIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
@@ -7,12 +8,19 @@ import { useStore } from '../../../store'
 import { startVideoFromImage } from '../../canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
+import { assetCoverImageId } from '../types'
 import AssetThumb from './AssetThumb'
 
 const ICON_BUTTON =
   'shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground'
 
-export default function AssetCard({ asset }: { asset: AssetRecord }) {
+export default function AssetCard({
+  asset,
+  onOpen,
+}: {
+  asset: AssetRecord
+  onOpen: (asset: AssetRecord) => void
+}) {
   const { t } = useTranslation(['library', 'common'])
   const attachAsset = useLibraryStore((s) => s.attachAsset)
   const renameAsset = useLibraryStore((s) => s.renameAsset)
@@ -20,7 +28,10 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
-  const unsynced = useSyncStatus((s) => s.enabled && s.unsyncedImages.includes(asset.imageId))
+  const coverImageId = assetCoverImageId(asset)
+  const unsynced = useSyncStatus(
+    (s) => s.enabled && asset.views.some((view) => s.unsyncedImages.includes(view.imageId)),
+  )
   const [draftName, setDraftName] = useState<string | null>(null)
 
   const commitRename = () => {
@@ -46,27 +57,45 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         title={asset.name}
         className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
       >
-        <AssetThumb imageId={asset.imageId} alt={asset.name} />
-        {unsynced && (
-          <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium text-white">
-            {t('asset.unsynced')}
-          </span>
-        )}
+        <AssetThumb imageId={coverImageId} alt={asset.name} />
+        <div className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">
+          {asset.kind && <Badge tone="overlay">{t(`asset.kind.${asset.kind}`)}</Badge>}
+          {unsynced && <Badge tone="overlay">{t('asset.unsynced')}</Badge>}
+        </div>
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
-          {t('asset.addAsReference')}
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
+          <span>{t('asset.addAsReference')}</span>
+          {asset.background && (
+            <Badge tone={asset.background === 'transparent' ? 'success' : 'overlay'}>
+              {t(`asset.background.${asset.background}`)}
+            </Badge>
+          )}
         </span>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setLightboxImageId(asset.imageId)}
-        aria-label={t('asset.zoom')}
-        title={t('asset.zoom')}
-        className="absolute right-1.5 top-1.5 rounded-lg bg-black/45 p-1.5 text-white transition hover:bg-black/65"
-      >
-        <ZoomIcon className="h-3.5 w-3.5" />
-      </button>
+      <div className="absolute right-1.5 top-1.5 flex gap-1">
+        {asset.views.length > 1 && (
+          <button
+            type="button"
+            onClick={() => onOpen(asset)}
+            aria-label={t('asset.views')}
+            title={t('asset.views')}
+            className="inline-flex items-center gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-[10px] font-medium text-white transition hover:bg-black/65"
+          >
+            <LayersIcon className="h-3 w-3" />
+            {t('asset.viewCount', { count: asset.views.length })}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setLightboxImageId(coverImageId)}
+          aria-label={t('asset.zoom')}
+          title={t('asset.zoom')}
+          className="rounded-lg bg-black/45 p-1.5 text-white transition hover:bg-black/65"
+        >
+          <ZoomIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
 
       <div className="flex items-center gap-1 px-2.5 py-2">
         {draftName === null ? (
@@ -90,7 +119,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         {videoAvailable && (
           <button
             type="button"
-            onClick={() => void startVideoFromImage(asset.imageId)}
+            onClick={() => void startVideoFromImage(coverImageId)}
             aria-label={t('asset.makeVideo')}
             title={t('asset.makeVideo')}
             className={ICON_BUTTON}
@@ -98,6 +127,14 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
             <VideoIcon className="h-3.5 w-3.5" />
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => onOpen(asset)}
+          aria-label={t('asset.views')}
+          className={ICON_BUTTON}
+        >
+          <LayersIcon className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           onClick={() => setDraftName(asset.name)}

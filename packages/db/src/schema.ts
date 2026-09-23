@@ -153,6 +153,73 @@ export const operator_audits = pgTable(
   ],
 )
 
+export type InspirationKind = 'showcase' | 'template' | 'skill'
+export type InspirationStatus = 'draft' | 'published' | 'archived'
+export interface InspirationParams {
+  size: string
+  quality?: 'auto' | 'low' | 'medium' | 'high'
+  n?: number
+}
+export interface InspirationReferenceImage {
+  key: string
+  name: string
+}
+
+export const inspiration_categories = pgTable('inspiration_categories', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  sort: integer('sort').notNull().default(0),
+  created_at: epochMs('created_at').notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
+export const inspiration_items = pgTable(
+  'inspiration_items',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<InspirationKind>().notNull(),
+    status: text('status').$type<InspirationStatus>().notNull().default('draft'),
+    featured: boolean('featured').notNull().default(false),
+    title: text('title').notNull(),
+    description: text('description'),
+    category_id: text('category_id')
+      .notNull()
+      .references(() => inspiration_categories.id),
+    prompt: text('prompt').notNull(),
+    recommended_provider: text('recommended_provider').notNull(),
+    recommended_model: text('recommended_model').notNull(),
+    params: bunJsonb('params').$type<InspirationParams>().notNull(),
+    tags: bunJsonb('tags').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    cover_key: text('cover_key').notNull(),
+    image_key: text('image_key'),
+    reference_images: bunJsonb('reference_images')
+      .$type<InspirationReferenceImage[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    skill_name: text('skill_name'),
+    source_url: text('source_url'),
+    author: text('author'),
+    sort: integer('sort').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+    updated_by: text('updated_by').notNull(),
+    published_at: epochMs('published_at'),
+  },
+  (t) => [
+    index('idx_inspiration_items_public').on(t.status, t.sort, t.id),
+    index('idx_inspiration_items_category').on(t.category_id, t.sort, t.id),
+    check('inspiration_items_kind_check', sql`${t.kind} IN ('showcase', 'template', 'skill')`),
+    check('inspiration_items_status_check', sql`${t.status} IN ('draft', 'published', 'archived')`),
+  ],
+)
+
+export const inspiration_publications = pgTable('inspiration_publications', {
+  version: integer('version').primaryKey(),
+  published_at: epochMs('published_at').notNull(),
+  item_count: integer('item_count').notNull(),
+  manifest_hash: text('manifest_hash').notNull(),
+})
+
 /**
  * 同步记录的通用列。删除以墓碑传播：`deleted_at` 非空的行内容列全为空，客户端读路径按它过滤。
  * `version` 是落库那一刻的每用户版本号，拉取即「取版本号大于客户端持有值的行」。
@@ -193,8 +260,17 @@ export const user_assets = pgTable(
   {
     ...syncRecordColumns,
     name: text('name'),
-    /** 图片本体的内容哈希，同时是对象键 `users/<user_id>/assets/<image_id>` 的末段。 */
+    /**
+     * 封面视角图片本体的内容哈希，同时是对象键 `users/<user_id>/assets/<image_id>` 的末段。
+     * `views` 之前的客户端只读这一列，所以它始终等于 `views[0].imageId`。
+     */
     image_id: text('image_id'),
+    /** 产品或人物；`views` 之前建的素材没有类别。 */
+    kind: text('kind'),
+    /** 透明或纯色。 */
+    background: text('background'),
+    /** 有序视角 `[{ imageId, label, source }]`，第一条是封面。旧行为 null，读路径按封面补一条。 */
+    views: bunJsonb('views').$type<Array<{ imageId: string; label: string; source: string }>>(),
     created_at: epochMs('created_at'),
   },
   (t) => [
@@ -203,6 +279,37 @@ export const user_assets = pgTable(
     check(
       'user_assets_live_payload_check',
       sql`${t.deleted_at} IS NOT NULL OR (${t.name} IS NOT NULL AND ${t.image_id} IS NOT NULL AND ${t.created_at} IS NOT NULL)`,
+    ),
+  ],
+)
+
+/**
+ * 模板（代码里叫 `look`，旧「模板」占着 `user_templates`）：一份技能正文加它钉死的模型、尺寸、
+ * 素材位数量与图片。参考图与封面走素材图同一条上传路径，计入同一项素材图配额。
+ */
+export const user_looks = pgTable(
+  'user_looks',
+  {
+    ...syncRecordColumns,
+    name: text('name'),
+    /** 一句话描述。它进这个用户每一轮的技能清单，必须是一行人话。 */
+    description: text('description'),
+    purpose: text('purpose'),
+    /** frontmatter 之后的分节正文，就是技能正文。 */
+    body: text('body'),
+    model: text('model'),
+    size: text('size'),
+    slot_count: integer('slot_count'),
+    reference_image_ids: bunJsonb('reference_image_ids').$type<string[]>(),
+    cover_image_id: text('cover_image_id'),
+    created_at: epochMs('created_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.id] }),
+    index('idx_user_looks_user_version').on(t.user_id, t.version),
+    check(
+      'user_looks_live_payload_check',
+      sql`${t.deleted_at} IS NOT NULL OR (${t.name} IS NOT NULL AND ${t.description} IS NOT NULL AND ${t.body} IS NOT NULL AND ${t.created_at} IS NOT NULL)`,
     ),
   ],
 )
@@ -770,6 +877,7 @@ export type OperatorAudit = typeof operator_audits.$inferSelect
 export type NewOperatorAudit = typeof operator_audits.$inferInsert
 export type UserTemplateRow = typeof user_templates.$inferSelect
 export type UserAssetRow = typeof user_assets.$inferSelect
+export type UserLookRow = typeof user_looks.$inferSelect
 export type UserPreferencesRow = typeof user_preferences.$inferSelect
 export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
 export type AgentConversationRow = typeof agent_conversations.$inferSelect

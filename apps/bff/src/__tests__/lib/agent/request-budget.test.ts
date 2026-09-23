@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import type { Context } from '@earendil-works/pi-ai'
+import type { Context, ImageContent } from '@earendil-works/pi-ai'
 import { type CompactionSettings, compactionBudget } from '../../../lib/agent/compaction'
 import {
   AgentContextOverflow,
@@ -28,6 +28,32 @@ const SETTINGS: CompactionSettings = {
 
 function text(role: 'user' | 'assistant', value: string): AgentMessage {
   return { role, content: [{ type: 'text', text: value }], timestamp: 0 } as AgentMessage
+}
+
+/** 只要 IHDR 那几个字节：折算读的是文件头，不解码整张图（见 `token-estimate.ts`）。 */
+function png(width: number, height: number): ImageContent {
+  const bytes = Buffer.alloc(24)
+  bytes.write('\x89PNG\r\n\x1a\n', 0, 'binary')
+  bytes.write('IHDR', 12, 'binary')
+  bytes.writeUInt32BE(width, 16)
+  bytes.writeUInt32BE(height, 20)
+  return { type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' }
+}
+
+/** 一段来回看图的历史：每条一句话加一张图，真正占地方的是图片块。 */
+function gallery(image: ImageContent, count: number): Context {
+  return {
+    systemPrompt: '短',
+    messages: Array.from(
+      { length: count },
+      () =>
+        ({
+          role: 'user',
+          content: [{ type: 'text', text: '再亮一点' }, image],
+          timestamp: 0,
+        }) as AgentMessage,
+    ),
+  } as unknown as Context
 }
 
 const TOOL = {
@@ -115,5 +141,23 @@ describe('出站硬闸', () => {
     } as unknown as Context
 
     expect(() => assertRequestWithinBudget(overhead, SETTINGS)).toThrow(AgentContextOverflow)
+  })
+
+  // 图片块也要过闸，而且是按像素过：同样八张图，按预览发装得下、按原件发装不下——
+  // `viewImage` 省下来的正是这个差额（#396）。换成 pi 的每块固定值，两者一样大，
+  // 这道闸就再也分不出预览和原件。
+  it('图片按像素进闸：同样八张，预览放行、原件拒发', () => {
+    expect(() => assertRequestWithinBudget(gallery(png(1024, 614), 8), SETTINGS)).not.toThrow()
+
+    let thrown: unknown
+    try {
+      assertRequestWithinBudget(gallery(png(2000, 1200), 8), SETTINGS)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(AgentContextOverflow)
+    expect((thrown as AgentContextOverflow).inputTokens).toBeGreaterThan(
+      compactionBudget(SETTINGS).threshold,
+    )
   })
 })
