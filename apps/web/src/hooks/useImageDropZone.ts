@@ -1,4 +1,5 @@
 import { type DragEvent, useRef, useState } from 'react'
+import { dropEntries, expandDroppedFiles } from '../lib/dropFiles'
 import { acceptImageFiles } from '../lib/imageFiles'
 
 function carriesFiles(event: DragEvent) {
@@ -47,8 +48,12 @@ export function useImageDropZone(onFiles: (files: File[]) => void) {
         event.preventDefault()
         event.stopPropagation()
         stop()
-        const images = acceptImageFiles([...event.dataTransfer.files])
-        if (images.length > 0) onFiles(images)
+        // entry 必须在这一拍同步取完：await 之后 DataTransfer 就空了。
+        const dropped = dropEntries(event.dataTransfer)
+        void expandDroppedFiles(dropped).then((files) => {
+          const images = acceptImageFiles(files)
+          if (images.length > 0) onFiles(images)
+        })
       },
     },
   }
