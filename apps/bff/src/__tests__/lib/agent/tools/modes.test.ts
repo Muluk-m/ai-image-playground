@@ -22,9 +22,7 @@ const {
   agentTurnTools,
   isAgentToolName,
 } = await import('../../../../lib/agent/tools')
-const { turnInitialState, expandSkillInvocation, estimatedTurnInput } = await import(
-  '../../../../lib/agent/turn-input'
-)
+const { turnInitialState, expandSkillInvocation } = await import('../../../../lib/agent/turn-input')
 const { ensureAgentSkills, setAgentSkillsRootForTesting } = await import(
   '../../../../lib/agent/skills'
 )
@@ -198,22 +196,6 @@ describe('the skills block in the system prompt', () => {
     expect(prompt).toContain('skill://storyboard/SKILL.md')
     expect(prompt).not.toContain(root)
     expect(prompt).not.toContain(tmpdir())
-  })
-})
-
-describe('a turn that never says which mode it is', () => {
-  it('is an image turn', () => {
-    // 老客户端不发 mode；它们要的从来都是图，也不该突然拿到生视频工具。
-    // 只比文字：两次调用各带自己的时间戳，比整条消息会随机变红。
-    const text = (messages: ReturnType<typeof estimatedTurnInput>) =>
-      messages.map((message) => {
-        const content = 'content' in message ? message.content : ''
-        if (typeof content === 'string') return content
-        return content.map((block) => (block.type === 'text' ? block.text : '')).join('')
-      })
-    expect(text(estimatedTurnInput([], '画一只猫', []))).toEqual(
-      text(estimatedTurnInput([], '画一只猫', [], 'image')),
-    )
   })
 })
 

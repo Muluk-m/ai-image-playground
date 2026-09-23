@@ -297,50 +297,104 @@ export function turnModelPrompt(
 }
 
 /**
+ * 这一轮送给模型的输入。**只有这一份**：预扣的估算与真正发出去的提示词都从它派生，
+ * 不在两个文件里各拼一遍。起轮准备（`turn-preparation.ts`）负责把三种来源折成它。
+ */
+export interface AgentTurnInput {
+  /**
+   * 起轮时读到的那一段历史：锚点之后的消息、已折进摘要的条数、压缩记录三件一套
+   * （见 `listAgentHistoryWindow`）。整份带着走，不在沿途拆开重组。
+   */
+  readonly history: AgentHistoryWindow
+  /** 用户原话，或唤醒 / 续跑那段系统说明。`/skill-name` 由两条路共用的拼法展开。 */
+  readonly text: string
+  /** 本轮附上的参考图，序号就是提示词里的 `[image N]`。 */
+  readonly references: readonly AgentTurnReference[]
+  readonly mode: AgentMode
+  /** 作为视觉证据随这一轮发出的产物：唤醒要复核的那些，每张一块原图。 */
+  readonly reviewImageIds: readonly string[]
+  /**
+   * 跟在引用清单后面的附注：并进这一轮的唤醒说明。它不是用户的话，不落库、不算授权原文。
+   * 位置在清单之后——实发与估算都照这一条，两边才对得上。
+   */
+  readonly note?: string
+  /** 出图模式：系统提示词里生成流程那一句换成另一份，长度不同。 */
+  readonly autoSubmit: boolean
+  /** 选区继承起点：澄清链推导，或改图计划保护时的 0。 */
+  readonly selectionHistoryStart: number
+  /** 这一轮谁在看：他的模板进技能清单，他看得见的工具才装配。 */
+  readonly audience: AgentTurnAudience
+}
+
+/** 这一份轮输入给 pi 的 initialState；估算与实发从同一处取，免得两边各挑一遍字段。 */
+export function turnInitialStateOf(input: AgentTurnInput): {
+  readonly systemPrompt: string
+  readonly messages: AgentMessage[]
+} {
+  return turnInitialState(
+    input.history.messages,
+    input.mode,
+    input.autoSubmit,
+    input.selectionHistoryStart,
+    input.audience,
+  )
+}
+
+/**
+ * 本轮 prompt 的正文：展开技能命令、接上引用清单，最后附上并进来的唤醒说明。
+ * 估算与实发都走这一份，两边因此不会在展开范围或附注位置上各说各的
+ * （附注若参与展开，`/skill-name …` 会把它一起吞进技能正文）。
+ *
+ * 实发路径传它自己解析好的那一批引用：同一批图，只是带着字节。
+ */
+export function turnPromptBody(
+  input: AgentTurnInput,
+  references: readonly AgentImageReference[] = activeAgentReferences(
+    input.references,
+    input.history.messages,
+    input.selectionHistoryStart,
+  ),
+): string {
+  const asked = turnPromptText(
+    expandSkillInvocation(input.text, input.mode, input.audience),
+    references,
+    input.references.length > 0,
+  )
+  return input.note ? `${asked}\n\n${input.note}` : asked
+}
+
+/**
  * 预扣估算看到的那一份本轮输入：系统提示词、历史回放、本轮 prompt（连同视觉证据清单）与图片块，
  * 形状与实发同源，只是图片块与清单里的选区值是占位——预扣定额要在起轮之前算完，读不起字节。
  * 不进这里的只有工具清单：它不是消息，单独由 `estimateToolDeclarationTokens` 折算。
  *
  * 视觉证据只数**本轮真的附上的**那几张：沿用下来的引用只上文字清单，实发路径也不发它们的字节。
  */
-export function estimatedTurnInput(
-  history: readonly AgentMessageView[],
-  text: string,
-  references: readonly AgentTurnReference[],
-  mode: AgentMode = 'image',
-  /** 唤醒轮要复核的产物：跟在参考图后面作为视觉证据发出去，每张一块原图。 */
-  reviewImageIds: readonly string[] = [],
-  /** 出图模式：系统提示词里生成流程那一句换成另一份，长度不同，预扣要按真发的那份算。 */
-  autoSubmit = false,
-  /** 与实发路径相同的选区作用域；缺席表示普通新请求，不继承历史选区。 */
-  selectionHistoryStart = history.length,
-  /** 这一轮谁在看：他的模板进清单，他看得见的工具才折算。缺席即按匿名算。 */
-  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
-): AgentMessage[] {
+export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
   const now = Date.now()
-  const active = activeAgentReferences(references, history, selectionHistoryStart)
-  const state = turnInitialState(history, mode, autoSubmit, selectionHistoryStart, audience)
+  const active = activeAgentReferences(
+    input.references,
+    input.history.messages,
+    input.selectionHistoryStart,
+  )
+  const state = turnInitialStateOf(input)
   return [
     { role: 'user', content: [{ type: 'text', text: state.systemPrompt }], timestamp: now },
     ...state.messages,
     {
       role: 'user',
       content: [
-        // 实发的那一份也是文字后面接清单（`turnModelPrompt`），这里照同一条规则拼。
+        // 实发的那一份也是正文后面接清单（`turnModelPrompt`），这里照同一条规则拼。
         {
           type: 'text',
           text:
-            turnPromptText(
-              expandSkillInvocation(text, mode, audience),
-              active,
-              references.length > 0,
-            ) +
+            turnPromptBody(input, active) +
             evidenceManifest([
-              ...estimatedListings(references),
-              ...reviewImageIds.map((imageId) => ({ imageId })),
+              ...estimatedListings(input.references),
+              ...input.reviewImageIds.map((imageId) => ({ imageId })),
             ]),
         },
-        ...references.flatMap((reference) =>
+        ...input.references.flatMap((reference) =>
           evidenceBlocks(
             PLACEHOLDER_IMAGE,
             referenceHasMask(reference)
@@ -348,7 +402,7 @@ export function estimatedTurnInput(
               : undefined,
           ),
         ),
-        ...reviewImageIds.map(() => PLACEHOLDER_IMAGE),
+        ...input.reviewImageIds.map(() => PLACEHOLDER_IMAGE),
       ],
       timestamp: now,
     },
@@ -362,28 +416,13 @@ export function estimatedTurnInput(
  * 吃整个窗口而不只是消息：折进摘要的那些不在 `messages` 里，可摘要本身每一轮都发出去
  * （见 `shapeAgentContext`），漏掉它压缩过的会话就会一路少扣。
  */
-export function estimateTurnInputTokens(
-  history: AgentHistoryWindow,
-  text: string,
-  references: readonly AgentTurnReference[],
-  mode: AgentMode = 'image',
-  reviewImageIds: readonly string[] = [],
-  autoSubmit = false,
-  selectionHistoryStart = history.messages.length,
-  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
-): number {
+export function estimateTurnInputTokens(input: AgentTurnInput): number {
   const estimated =
-    estimatedTurnInput(
-      history.messages,
-      text,
-      references,
-      mode,
-      reviewImageIds,
-      autoSubmit,
-      selectionHistoryStart,
-      audience,
-    ).reduce((total, message) => total + estimateMessageTokens(message), 0) +
-    estimateToolDeclarationTokens(mode, audience) +
-    storedSummaryTokens(history.compaction)
+    estimatedTurnInput(input).reduce(
+      (total, message) => total + estimateMessageTokens(message),
+      0,
+    ) +
+    estimateToolDeclarationTokens(input.mode, input.audience) +
+    storedSummaryTokens(input.history.compaction)
   return Math.min(estimated, reservationCeiling(compactionSettings()))
 }
