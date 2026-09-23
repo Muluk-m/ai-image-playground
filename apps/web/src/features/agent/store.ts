@@ -26,6 +26,7 @@ import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
+import type { CanvasProject } from '../canvas/lib/projectRepository'
 import {
   bindNewCanvasWorkspace,
   currentCanvasWorkspace,
@@ -1099,6 +1100,38 @@ export const useAgentStore = create<AgentState>((set, get) => {
     showProject(project, showPanel)
     return true
   }
+
+  /**
+   * 项目已经在屏幕上了，再去把云端那份对一遍。
+   *
+   * 名字与 revision 换上去就行，画布不归这里管（它自己回源）。只有一种情况要重开面板：
+   * 别的设备给这个项目换过会话绑定——那时本机开着的是一段已经不属于它的历史。
+   * 取不回来不算失败：画布与草稿都在本机，用户照常能用，一句提示足够。
+   */
+  const refreshOpenedProject = async (
+    project: CanvasProject,
+    scope: string,
+    isCurrent: () => boolean,
+  ) => {
+    if (!project.cloud?.revision || !cloudProjectsEnabled() || navigator.onLine === false) return
+    const settled = () =>
+      isCurrent() &&
+      scopedStorageName('canvas') === scope &&
+      useCanvasProjectStore.getState().activeId === project.id
+    try {
+      const remote = await getCloudProject(project.id, AbortSignal.timeout(10000))
+      if (!settled()) return
+      const refreshed = await restoreCloudProject(remote)
+      if (!settled()) return
+      useCanvasProjectStore.setState((state) => ({
+        projects: state.projects.map((one) => (one.id === refreshed.id ? refreshed : one)),
+      }))
+      if (refreshed.conversationId !== project.conversationId) showProject(refreshed, showPanel)
+    } catch {
+      if (settled())
+        useStore.getState().showToast(i18next.t('project.openFailed', { ns: 'agent' }), 'error')
+    }
+  }
   /** 删除时属于面板的那两步，外加它此刻的两件事实。 */
   const deletePanel: DeleteProjectPanel = {
     get conversationId() {
@@ -1260,40 +1293,28 @@ export const useAgentStore = create<AgentState>((set, get) => {
     async selectProject(projectId, isCurrent = () => true) {
       return changeProject(async () => {
         const scope = scopedStorageName('canvas')
-        let project = useCanvasProjectStore.getState().projects.find((one) => one.id === projectId)
+        const project = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.id === projectId)
         if (!project) return false
-        // 存旧项目与取新项目彼此无关，串起来就是把两段等待相加：生产实测点击到画面切换
-        // 2.9s，其中 0.8s 落盘、1.5s 取云端，期间界面没有任何反馈。这里让它们一起跑。
-        const remote =
-          project.cloud?.revision && cloudProjectsEnabled() && navigator.onLine !== false
-            ? getCloudProject(project.id, AbortSignal.timeout(10000))
-            : null
-        // 保存失败这一路不会去 await 它，挂一个空 catch 只为不留下未处理的 rejection；
-        // 真正的失败仍由下面那次 await 抛进 try。
-        remote?.catch(() => {})
         if (!(await saveCurrentProject(get().conversationId)).ok) {
           useStore.getState().showToast(i18next.t('project.saveFailed', { ns: 'agent' }), 'error')
           return false
         }
         if (!isCurrent()) return false
         try {
-          if (remote) {
-            const fetched = await remote
-            if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
-            project = await restoreCloudProject(fetched)
-            if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
-            const refreshed = project
-            useCanvasProjectStore.setState((state) => ({
-              projects: state.projects.map((one) => (one.id === refreshed.id ? refreshed : one)),
-            }))
-          }
           await useCanvasProjectStore.getState().update(project.id, { workspaceOpened: true })
         } catch {
           useStore.getState().showToast(i18next.t('project.openFailed', { ns: 'agent' }), 'error')
           return false
         }
         if (!isCurrent()) return false
+        // 本机这份就足够开：画布自己回源（`selectCanvasWorkspace` 里的 `refreshCloud`），
+        // 会话历史另有一条请求，面板有它自己的加载态。云端那份只用来纠正名字、revision
+        // 与会话绑定——生产实测它要 1.5s，压在点击与画面之间就是纯粹的干等，
+        // 所以放到后台，顺带让离线时也能打开项目。
         showProject(project, showPanel)
+        void refreshOpenedProject(project, scope, isCurrent)
         return true
       })
     },
