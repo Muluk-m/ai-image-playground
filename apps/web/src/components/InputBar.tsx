@@ -1,6 +1,10 @@
+import type { AgentSkillSummary } from '@image-playground/shared'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
+import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
+import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
 import AssetHint from '../features/library/components/AssetHint'
 import { applyLookToComposer, useActiveLook } from '../features/library/lib/activeLook'
 import {
@@ -33,6 +37,7 @@ import {
   getContentEditablePlainText,
   getContentEditableSelection,
   setContentEditableCursor,
+  setContentEditableSelection,
   syncMentionTagSelection,
 } from '../lib/promptEditorDom'
 import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
@@ -748,18 +753,42 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     prevHeightRef.current = targetH
   }, [])
 
-  // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
+  // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）。开头的 `/技能` 命令要变成带图标的胶囊，
+  // 与画布输入框同一种呈现——用户从资产页「用智能体创建」跳过来看到的不该是一行裸文本。
+  const skills = useAgentSkills('image')
+  const [skillChip, setSkillChip] = useState<{
+    element: HTMLElement
+    skill: AgentSkillSummary
+  } | null>(null)
   useEffect(() => {
     // 只跳过用户刚打进去的那个值，避免光标跳动；粘性布尔会把外部设置的 prompt 一起吞掉。
     const typed = lastTypedRef.current
     lastTypedRef.current = null
     const el = textareaRef.current
-    if (!el || prompt === typed) return
+    if (!el) return
+    const invocation = getLeadingAgentSkill(prompt, skills)
+    const chipMissing = Boolean(invocation) && !el.querySelector('[data-skill-command]')
+    if (prompt === typed && !chipMissing) return
     const html = buildPromptEditorHtml(prompt, mentionLabels, slotValues)
-    if (el.innerHTML !== html) {
-      el.innerHTML = html
+    const selection = document.activeElement === el ? getContentEditableSelection(el) : null
+    if (el.innerHTML !== html) el.innerHTML = html
+    const first = el.firstChild
+    if (invocation && first instanceof Text && first.data.startsWith(invocation.command)) {
+      first.splitText(invocation.command.length)
+      const element = document.createElement('span')
+      element.contentEditable = 'false'
+      element.className = 'mention-tag agent-skill-mention'
+      element.dataset.mentionText = invocation.command
+      element.dataset.mentionLabel = invocation.command
+      element.dataset.skillCommand = invocation.skill.name
+      element.setAttribute('aria-label', invocation.skill.title)
+      first.replaceWith(element)
+      setSkillChip({ element, skill: invocation.skill })
+      if (selection) setContentEditableSelection(el, selection)
+    } else {
+      setSkillChip(null)
     }
-  }, [prompt, mentionLabels, slotValues])
+  }, [prompt, mentionLabels, slotValues, skills])
 
   useEffect(() => {
     adjustTextareaHeight()
@@ -1223,6 +1252,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   return (
     <>
+      {skillChip && createPortal(<AgentSkillBadge skill={skillChip.skill} />, skillChip.element)}
       {/* 全屏拖拽遮罩 */}
       {isDragging && (
         <div className="fixed inset-0 z-[100] bg-card/60 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
