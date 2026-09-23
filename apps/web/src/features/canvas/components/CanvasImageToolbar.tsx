@@ -7,13 +7,20 @@ import {
   Expand,
   MoreHorizontal,
   RotateCcw,
+  Scissors,
 } from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useInpaintSession } from '../inpaintStore'
 import { canvasImageSource, copyCanvasImage, downloadCanvasImage } from '../lib/canvasImageActions'
-import { outpaintRefusal, regenerateCanvasImage, regenerateRefusal } from '../lib/canvasImageEdits'
+import {
+  cutoutRefusal,
+  outpaintRefusal,
+  regenerateCanvasImage,
+  regenerateRefusal,
+  submitCanvasCutout,
+} from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
 import { inpaintRefusal } from '../lib/submitInpaint'
@@ -93,6 +100,13 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           label={t('erase.action')}
           reason={refusal ?? undefined}
           onClick={() => openInpaint(element.id, 'erase')}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Scissors />}
+          label={t('cutout.action')}
+          reason={cutoutRefusal(element, settings) ?? undefined}
+          onClick={() => void submitCanvasCutout(editor, element)}
         />
         <CanvasToolbarButton
           compact

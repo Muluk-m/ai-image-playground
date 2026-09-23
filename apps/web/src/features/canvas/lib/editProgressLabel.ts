@@ -7,13 +7,20 @@ import type { PlaceholderView } from './editor'
  */
 function actionKey(
   placeholder: PlaceholderView,
-): 'placeholder.generating' | 'inpaint.running' | 'erase.running' | 'outpaint.running' {
+):
+  | 'placeholder.generating'
+  | 'inpaint.running'
+  | 'erase.running'
+  | 'outpaint.running'
+  | 'cutout.running' {
   if (!placeholder.meta.editSourceId) return 'placeholder.generating'
   switch (placeholder.meta.editKind) {
     case 'erase':
       return 'erase.running'
     case 'outpaint':
       return 'outpaint.running'
+    case 'cutout':
+      return 'cutout.running'
     default:
       return 'inpaint.running'
   }

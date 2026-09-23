@@ -22,7 +22,7 @@ import { rasterizeEntry } from './rasterizeSelection'
  */
 export interface RegenRecipe {
   v: 1
-  kind: 'generate' | 'inpaint' | 'erase' | 'outpaint'
+  kind: 'generate' | 'inpaint' | 'erase' | 'outpaint' | 'cutout'
   /** 人话需求，不含发起时才注入的指令样板。 */
   prompt: string
   annotated: boolean
@@ -119,6 +119,16 @@ export async function rebuildSpecFromRecipe(
       maskDataUrl: built.mask,
       editSourceId: element.id,
       editKind: 'outpaint',
+    }
+  }
+
+  // 抠图整图重画，没有遮罩也没有笔画：源图还在就能原样再做一次。
+  if (recipe.kind === 'cutout') {
+    return {
+      ...base,
+      inputImageDataUrls: [source],
+      editSourceId: element.id,
+      editKind: 'cutout',
     }
   }
 
