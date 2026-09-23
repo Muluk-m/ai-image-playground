@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { describeError, i18next } from '../../i18n'
+import type { ReferenceAdmission } from '../../lib/referenceDraft'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { DEFAULT_PARAMS, type InputImage } from '../../types'
@@ -98,8 +99,9 @@ export interface LibraryState {
   /**
    * 附上该素材取得回来的全部视角，返回引用该落在哪一位——封面那一位，封面取不回来时是
    * 第一张取到的视角；已在条里的复用原序号。一张都取不回来、或整组放不下时返回 null。
+   * 准入默认按当前生图模型算；图不是给它用的（首屏「画布」档交给第一轮）由调用方给一份。
    */
-  attachAsset: (id: string) => Promise<number | null>
+  attachAsset: (id: string, admission?: ReferenceAdmission) => Promise<number | null>
   /** 记一次使用。「最近用过」的排序是唯一读者，所以每条附加路径都要过它。 */
   noteAssetUsed: (id: string) => Promise<void>
 
@@ -202,7 +204,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }))
   },
 
-  attachAsset: async (id) => {
+  attachAsset: async (id, admission) => {
     const asset = get().assets.find((a) => a.id === id)
     if (!asset) return null
     const main = useStore.getState()
@@ -214,7 +216,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     const before = main.inputImages.length
     // 组里全部视角是一组：整组落地或整组不落，准入与去重都归参考图草稿管。
-    const indexes = main.attachInputImages(views)
+    const indexes = main.attachInputImages(views, admission)
     if (!indexes) return null
 
     await writeAsset(set, { ...asset, lastUsedAt: Date.now() })

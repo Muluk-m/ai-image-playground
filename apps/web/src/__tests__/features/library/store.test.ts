@@ -7,9 +7,12 @@ import {
   useLibraryStore,
 } from '../../../features/library/store'
 import { assetCoverImageId } from '../../../features/library/types'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../../lib/apiProfiles'
+import { setChannels } from '../../../lib/channels/channelStore'
 import { storeImage } from '../../../lib/db'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getSelectedImageMentionLabel } from '../../../lib/promptImageMentions'
+import { CANVAS_HANDOFF_ADMISSION } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import { DEFAULT_PARAMS } from '../../../types'
 
@@ -18,11 +21,14 @@ const IMAGE_B = 'data:image/png;base64,BBBB'
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
+  // 渠道与当前 profile 决定参考图准入，逐用例归零，免得一个用例的无改图能力模型漏给下一个。
+  setChannels([])
   useStore.setState({
     appMode: 'image',
     inputImages: [],
     prompt: '',
     params: { ...DEFAULT_PARAMS },
+    settings: normalizeSettings({ ...DEFAULT_SETTINGS }),
     showToast: vi.fn(),
     setConfirmDialog: vi.fn(),
   })
@@ -161,6 +167,41 @@ describe('attaching an asset', () => {
     expect(await useLibraryStore.getState().attachAsset(asset.id)).toBeNull()
     expect(useStore.getState().inputImages).toEqual([])
     expect(useLibraryStore.getState().assets[0].lastUsedAt).toBe(asset.lastUsedAt)
+  })
+
+  it('交给画布第一轮的素材不看生图模型认不认参考图，生图入口仍然拦', async () => {
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    const [asset] = useLibraryStore.getState().assets
+    setChannels([
+      {
+        id: 'no-edit',
+        kind: 'openai-queue',
+        label: 'NoEdit',
+        models: [{ id: 'gen-only', label: 'Gen only', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: 'builtin-no-edit',
+            source: 'builtin-edge',
+            channelId: 'no-edit',
+            selectedModelId: 'gen-only',
+          },
+        ],
+        activeProfileId: 'builtin-no-edit',
+      }),
+    })
+
+    expect(await useLibraryStore.getState().attachAsset(asset.id)).toBeNull()
+    expect(useStore.getState().inputImages).toEqual([])
+
+    expect(await useLibraryStore.getState().attachAsset(asset.id, CANVAS_HANDOFF_ADMISSION)).toBe(0)
+    expect(useStore.getState().inputImages.map((image) => image.id)).toEqual([imageId])
   })
 
   it('records the last use', async () => {

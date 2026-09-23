@@ -47,7 +47,11 @@ import {
   type MentionLabelResolver,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
-import { referenceAdmission, referenceRefusalMessage } from '../lib/referenceDraft'
+import {
+  CANVAS_HANDOFF_ADMISSION,
+  referenceAdmission,
+  referenceRefusalMessage,
+} from '../lib/referenceDraft'
 import {
   removeMultipleTasks,
   storeImageFromFile,
@@ -227,13 +231,17 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     else submitTask()
   }
   const submitLabel = toCanvas ? t('submit.startCanvas') : generateLabel
-  // 参考图入口按附图那条准入规则显隐：同一个模型认不认参考图、条还放不放得下，
-  // 由 `lib/referenceDraft` 判一次，附图与禁用态不会各说各话。
-  const admission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
-  const supportsEdit = admission.supportsEdit
+  // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
+  // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
+  // 模型由服务端定，所以只剩条的上限管着。
+  const modelAdmission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
+  const admission = toCanvas ? CANVAS_HANDOFF_ADMISSION : modelAdmission
+  const acceptsReferences = admission.supportsEdit
+  // 遮罩是出图那一刻的事，始终归生图模型：画布档把图交出去时不带遮罩。
+  const supportsMask = modelAdmission.supportsEdit
   const atImageLimit = inputImages.length >= admission.limit
-  const attachDisabled = atImageLimit || !supportsEdit
-  const attachDisabledReason = referenceRefusalMessage(supportsEdit ? 'overflow' : 'noEdit')
+  const attachDisabled = atImageLimit || !acceptsReferences
+  const attachDisabledReason = referenceRefusalMessage(acceptsReferences ? 'overflow' : 'noEdit')
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
@@ -255,7 +263,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         query: atImageQuery.query,
         inputImages,
         assets,
-        canAttachAssets: supportsEdit,
+        canAttachAssets: acceptsReferences,
       })
     : []
   const slashQuery = isCursorInSelectedImageMention(prompt, cursorPosition, mentionLabels)
@@ -306,7 +314,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         return
       }
 
-      const imageIndex = await attachAsset(value.id)
+      const imageIndex = await attachAsset(value.id, admission)
       if (imageIndex == null) return
       // 附加后参考图与素材的最近使用都变了，胶囊标签得按新状态算，否则光标落错位置。
       const nextLabels = createMentionLabels(
@@ -315,7 +323,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       )
       replaceRangeWithImageMention(query.start, cursor, imageIndex, nextLabels)
     },
-    [attachAsset, mentionLabels, prompt, replaceRangeWithImageMention],
+    [admission, attachAsset, mentionLabels, prompt, replaceRangeWithImageMention],
   )
 
   const atImageMenu = useSuggestionMenu({
@@ -552,7 +560,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       for (const file of accepted) images.push(await storeImageFromFile(file))
       // 这一把文件是一组：先全部落进 image store，再整组过准入——放不下就一张都不落，
       // 免得用户拖进去十张只见前几张、还得自己数少了哪几张。
-      useStore.getState().attachInputImages(images)
+      useStore.getState().attachInputImages(images, admission)
     } catch (err) {
       useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
     }
@@ -1099,7 +1107,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           </span>
           {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
               images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
-          {canEdit && supportsEdit && (
+          {canEdit && supportsMask && (
             <button
               className="absolute inset-0 w-full h-full bg-black/40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-20 focus:outline-none border-none"
               onClick={(e) => {
