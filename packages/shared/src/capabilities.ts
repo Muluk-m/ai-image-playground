@@ -25,6 +25,8 @@ export const CAPABILITIES = {
  * 不要复用这些名字表示新能力。
  */
 export const RETIRED_CAPABILITIES: readonly string[] = [
+  // 联网工具（搜索 / 抓网页 / 取网图 / 抓商品图）不再由能力开关控制，随部署默认在场。
+  'agent:web',
   'generation:storyboard',
   'matte:server',
   'remix:analyze',

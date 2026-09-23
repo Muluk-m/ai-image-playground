@@ -33,6 +33,7 @@ import {
   removeAgentTurnReferences,
   requireAgentImages,
   resolveTurnReferences,
+  shownImageRequests,
 } from './images'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
@@ -221,6 +222,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: input.assertExecution,
+      recordWebSearch: (attempt) => ledger.recordSideCall('web_search', attempt),
       ...(input.params ? { params: input.params } : {}),
       // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
       ...(input.params?.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
@@ -292,7 +294,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       compaction: input.history.compaction,
       foldedBefore: input.history.coveredCount,
       overheadTokens,
-      onSummaryAttempt: ledger.recordSummary,
+      onSummaryAttempt: (attempt) => ledger.recordSideCall('compaction', attempt),
     }),
   })
 
@@ -565,11 +567,9 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   }
   const unregister = registerRunningTurn(turn)
 
-  // 视觉证据只带本轮真的附上的那几张：沿用下来的引用只上清单文字，模型要看内容自己调 viewImage。
-  void requireAgentImages(
-    images,
-    input.references.map((reference) => reference.imageId),
-  )
+  // 视觉证据只带本轮真的附上的那几张：沿用下来的引用、以及张数多到只上清单的那批都不发字节，
+  // 模型要看内容自己调 viewImage（规则见 `shownTurnReferences`）。
+  void requireAgentImages(images, shownImageRequests(input.references))
     .then(async (references) => {
       if (aborted) return
       // 唤醒轮要复核的产物跟在参考图后面；取不到的那张（任务行已清掉）就不附，模型照结果文字说。

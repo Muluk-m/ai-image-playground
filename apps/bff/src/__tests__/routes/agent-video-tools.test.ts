@@ -250,6 +250,8 @@ describe('智能体生视频工具', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'webFetch',
+      'webSearch',
     ])
   })
 

@@ -63,6 +63,27 @@
 .studio-direct-card textarea:focus-visible { outline: none; }
 .studio-direct-card textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .studio-canvas-status { position: absolute; inset: 0; z-index: 420; display: grid; place-items: center; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; }
+/* 打开画布的等待：点阵底 + 呼吸的品牌标。整层延迟淡入，缓存命中时根本不出现。 */
+.studio-canvas-loading {
+  position: absolute; inset: 0; z-index: 420; display: grid; place-items: center;
+  background-color: hsl(var(--background));
+  background-image: radial-gradient(hsl(var(--foreground) / .12) 1px, transparent 1px);
+  background-size: 22px 22px;
+  animation: studio-loading-in .3s ease-out .2s both;
+}
+.studio-canvas-loading-mark { position: relative; display: grid; place-items: center; width: 64px; height: 64px; }
+.studio-canvas-loading-mark::before {
+  content: ""; position: absolute; inset: -48px; border-radius: 9999px;
+  background: radial-gradient(circle, hsl(var(--primary) / .45), transparent 62%);
+  animation: studio-loading-glow 1.8s ease-in-out infinite;
+}
+.studio-canvas-loading-mark img { position: relative; width: 44px; height: 44px; animation: studio-loading-breathe 1.8s ease-in-out infinite; }
+@keyframes studio-loading-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes studio-loading-breathe { 0%, 100% { transform: scale(.94); opacity: .75; } 50% { transform: scale(1.04); opacity: 1; } }
+@keyframes studio-loading-glow { 0%, 100% { transform: scale(.8); opacity: .35; } 50% { transform: scale(1.15); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .studio-canvas-loading-mark::before, .studio-canvas-loading-mark img { animation: none; }
+}
 @media (max-width: 767px) {
   .studio-sidebar { position: absolute; inset: 0 auto 0 0; width: min(340px,100%) !important; max-width: 100%; box-shadow: var(--studio-shadow); }
   .studio-sidebar-heading { padding-top: 16px; }
