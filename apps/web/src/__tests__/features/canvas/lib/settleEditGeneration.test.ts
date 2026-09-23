@@ -39,7 +39,7 @@ describe('settleGeneration', () => {
     const before = doc.getElement(imageId)
     const placeholderId = editor.createPlaceholder(
       { x: 0, y: 0, w: 400, h: 300 },
-      meta({ editSourceId: imageId, editKind: 'inpaint', regen: '{"v":1}' }),
+      meta({ editSourceId: imageId, editKind: 'inpaint' }),
     )
 
     const placed = await settleGeneration(editor, placeholderId, { x: 0, y: 0, w: 400, h: 300 }, {
@@ -56,8 +56,8 @@ describe('settleGeneration', () => {
       before?.type === 'image' && before.fileId,
     )
     expect(after?.type === 'image' && doc.files[after.fileId]).toBe(RESULT)
-    // 溯源跟着新位图走，否则「重新生成」会照着上一张图的配方重出。
-    expect(after?.type === 'image' && after.meta?.regen).toBe('{"v":1}')
+    // 溯源跟着新位图走：prompt 与 taskId 指的是造出这张图的那次任务。
+    expect(after?.type === 'image' && after.meta?.prompt).toBe('换成绿色')
   })
 
   it('still places a new element when the task is a plain generation', async () => {

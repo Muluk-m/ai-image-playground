@@ -390,11 +390,6 @@
     "continueHint": "Keep painting, or finish",
     "running": "Erasing…"
   },
-  "regenerate": {
-    "action": "Regenerate",
-    "unavailable": "The original settings were lost when the page closed, so this cannot be redone",
-    "sourceGone": "The images this was made from are no longer on the canvas"
-  },
   "rectEdit": {
     "handle": {
       "nw": "Top left",
@@ -412,5 +407,26 @@
     "running": "Cutting out…",
     "videoUnsupported": "Video cannot be cut out",
     "keyFailed": "The background could not be keyed out; kept the raw image — try again"
+  },
+  "imageEdit": {
+    "action": "Edit image",
+    "title": "Edit image",
+    "hint": "Rewrite the whole image from one instruction; the result replaces this one. To change only a spot, use inpaint.",
+    "promptLabel": "Describe the edit",
+    "placeholder": "e.g. put it on a light wooden desk, keep the product itself unchanged",
+    "submit": "Edit",
+    "running": "Editing…",
+    "videoUnsupported": "Video cannot be edited this way"
+  },
+  "resize": {
+    "action": "Resize",
+    "hint": "Generate this image at another aspect ratio",
+    "ratio": {
+      "square": "Square",
+      "portrait": "Portrait",
+      "story": "Story",
+      "landscape": "Landscape",
+      "wide": "Wide"
+    }
   }
 }
