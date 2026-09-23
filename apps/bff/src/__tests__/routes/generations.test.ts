@@ -159,9 +159,9 @@ it('升级前的带参考图任务也校验原参数并保留永久重试回执'
   ).json()
   // Simulate a task written before command receipts existed.
   await db.delete(schema.generation_commands)
-  const { settleTaskAsWorker } = await import('../helpers/taskWorker')
+  const { workerSettles } = await import('../helpers/taskWorker')
   const { purgeOldTasks } = await import('../../db/maintenance')
-  expect(await settleTaskAsWorker(original.request_id, { status: 'failed' })).toBe(true)
+  expect(await workerSettles(original.request_id, { status: 'failed' })).toBe(true)
   expect(await purgeOldTasks(-1)).toBe(0)
   const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
     ...legacyInput,

@@ -8,6 +8,7 @@ import {
   type AgentToolResultBlock,
   DEVICE_ID_HEADER,
   projectArtifactId,
+  type TaskErrorType,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -42,6 +43,7 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { appendAgentMessage } = await import('../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -108,28 +110,28 @@ function toolBlock(message: AgentMessageView | undefined): AgentToolResultBlock 
   return block
 }
 
-/** 测试里的迷你 worker：把任务推到终态，就像它在轮结束之后才跑完。 */
+/** 测试里的迷你 worker：走真实的认领 → 收尾，就像它在轮结束之后才跑完。 */
 async function finishTask(
   taskId: string,
-  outcome: 'completed' | { errorType: string; message?: string },
+  outcome: 'completed' | { errorType: TaskErrorType; message?: string },
 ) {
-  await db
-    .update(schema.tasks)
-    .set(
-      outcome === 'completed'
-        ? { status: 'completed', result_payload: TEST_RESULT_PAYLOAD, completed_at: Date.now() }
-        : {
-            status: 'failed',
-            error_message: outcome.message ?? '上游出错了',
-            error_type: outcome.errorType,
-            completed_at: Date.now(),
-          },
-    )
-    .where(eq(schema.tasks.id, taskId))
+  await workerSettles(
+    taskId,
+    outcome === 'completed'
+      ? { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }
+      : {
+          status: 'failed',
+          errorMessage: outcome.message ?? '上游出错了',
+          errorType: outcome.errorType,
+        },
+  )
 }
 
 /** 一次两张的生图调用，任务按给定的失败类型失败；返回那张失败卡。 */
-async function failedCall(errorType = 'upstream_timeout', calls: AgentCall[] = []) {
+async function failedCall(
+  errorType: TaskErrorType = 'upstream_timeout',
+  calls: AgentCall[] = [],
+) {
   setAgentFetchForTesting(
     scriptedAgentFetch(calls, [
       () =>
@@ -399,7 +401,7 @@ describe('单张重试', () => {
   it.each([
     ['interrupted', 'result_unknown'],
     ['upstream_result_unknown', 'result_unknown'],
-  ])('refuses a failure of type %s (%s)', async (errorType, code) => {
+  ] as const)('refuses a failure of type %s (%s)', async (errorType, code) => {
     const { conversationId, failed } = await failedCall(errorType)
     expect(toolBlock(failed).errorCode).toBe(code as AgentToolResultBlock['errorCode'])
 

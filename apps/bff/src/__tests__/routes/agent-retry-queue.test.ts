@@ -44,6 +44,9 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { pickUpRetryQueues } = await import('../../lib/agent/retry')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { releaseWorkerClaims, workerClaims, workerSettles } = await import(
+  '../helpers/taskWorker'
+)
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 
 await silenceChatUpstream()
@@ -122,21 +125,14 @@ async function taskCount(): Promise<number> {
   return (await db.select({ id: schema.tasks.id }).from(schema.tasks)).length
 }
 
-/** 测试里的迷你 worker：把任务推到终态，就像它在轮结束之后才跑完。 */
+/** 测试里的迷你 worker：走真实的认领 → 收尾，就像它在轮结束之后才跑完。 */
 async function finishTask(taskId: string, outcome: 'completed' | 'failed') {
-  await db
-    .update(schema.tasks)
-    .set(
-      outcome === 'completed'
-        ? { status: 'completed', result_payload: TEST_RESULT_PAYLOAD, completed_at: Date.now() }
-        : {
-            status: 'failed',
-            error_message: '上游出错了',
-            error_type: 'upstream_error',
-            completed_at: Date.now(),
-          },
-    )
-    .where(eq(schema.tasks.id, taskId))
+  await workerSettles(
+    taskId,
+    outcome === 'completed'
+      ? { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }
+      : { status: 'failed', errorMessage: '上游出错了', errorType: 'upstream_error' },
+  )
 }
 
 /** 一次三张的生图调用，任务超时失败；返回会话与那张失败卡。 */
@@ -176,15 +172,11 @@ async function failedCall() {
     .update(schema.agent_jobs)
     .set({ delivered_at: Date.now() })
     .where(eq(schema.agent_jobs.task_id, task!.id))
-  await db
-    .update(schema.tasks)
-    .set({
-      status: 'failed',
-      error_message: '上游超时',
-      error_type: 'upstream_timeout',
-      completed_at: Date.now(),
-    })
-    .where(eq(schema.tasks.id, task!.id))
+  await workerSettles(task!.id, {
+    status: 'failed',
+    errorMessage: '上游超时',
+    errorType: 'upstream_timeout',
+  })
   const failed = (await readMessages(conversationId)).find((one) => one.id === end!.messageId)!
   expect(toolBlock(failed)).toMatchObject({ status: 'failed', errorCode: 'timeout' })
   return { conversationId, failed }
@@ -212,6 +204,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  releaseWorkerClaims()
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
   setObjectStoreForTesting()
@@ -445,13 +438,17 @@ describe('重试排队', () => {
     const first = await retry(conversationId, failed.id, 'placeholder-1')
     await retry(conversationId, failed.id, 'placeholder-2')
     const tasksBefore = await taskCount()
+    const running = await workerClaims(toolBlock(first).job!.taskId)
 
     const deleted = await request(`/api/agent/conversations/${conversationId}`, {
       method: 'DELETE',
       body: { deviceId: DEVICE },
     })
     expect(deleted.status).toBe(200)
-    await finishTask(toolBlock(first).job!.taskId, 'completed')
+    // 删会话时任务已被撤回：worker 再收尾也落不下，队列不会因此续提交。
+    expect(
+      await running.finish({ status: 'completed', completedAt: Date.now() }),
+    ).toBe(false)
     await pickUpRetryQueues(true)
 
     expect(await taskCount()).toBe(tasksBefore)

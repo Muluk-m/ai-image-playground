@@ -43,6 +43,7 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { workerSettles } = await import('../helpers/taskWorker')
 
 await silenceChatUpstream()
 
@@ -168,19 +169,21 @@ function modelReport(calls: AgentCall[]): string {
   return JSON.stringify(calls.at(-1)!.messages)
 }
 
-/** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
+/** 测试里的迷你 worker：认领工具刚提交的任务并按真实路径收尾，让工具循环能往下跑。 */
 function settleSubmittedTasks(): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
-      await db
-        .update(schema.tasks)
-        .set({
-          status: 'completed',
-          result_payload: VIDEO_RESULT_PAYLOAD,
-          completed_at: Date.now(),
-        })
+      const queued = await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
         .where(eq(schema.tasks.status, 'queued'))
+      for (const task of queued) {
+        await workerSettles(task.id, {
+          status: 'completed',
+          resultPayload: VIDEO_RESULT_PAYLOAD,
+        })
+      }
       await Bun.sleep(2)
     }
   })()

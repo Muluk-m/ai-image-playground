@@ -40,7 +40,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask } = await import('../../db/task-transitions')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -133,16 +133,10 @@ async function wakes(conversationId: string) {
     .orderBy(schema.agent_inbox.seq)
 }
 
-/** 测试里的迷你 worker：用 worker 真正写终态的那个函数把任务推到失败，唤醒判断就在这一步。 */
+/** 测试里的迷你 worker：认领任务再按真实路径推到失败，唤醒判断就在收尾的那个事务里。 */
 async function fail(taskId: string) {
-  const now = Date.now()
-  await db
-    .update(schema.tasks)
-    .set({ status: 'in_progress', started_at: now })
-    .where(eq(schema.tasks.id, taskId))
-  const finished = await finishTask(taskId, {
+  const finished = await workerSettles(taskId, {
     status: 'failed',
-    completedAt: now,
     errorMessage: '上游超时',
     errorType: 'upstream_timeout',
   })

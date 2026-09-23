@@ -1,5 +1,21 @@
 import type { TerminalTaskUpdate } from '../../db/task-transitions'
-import { claimTaskExecution } from '../../workers/task-execution'
+import { claimTaskExecution, type TaskExecution } from '../../workers/task-execution'
+
+/** 夹具里那个 worker 手上攥着的认领：一条任务一次，收尾时还回来。 */
+const claims = new Map<string, TaskExecution>()
+
+/**
+ * 夹具里的「worker 领走了这条任务」：行进到 in_progress，租约在，还没收尾。
+ * 同一条任务重复领拿到的是同一个句柄——一条任务只有一个执行者。
+ */
+export async function workerClaims(taskId: string): Promise<TaskExecution> {
+  const held = claims.get(taskId)
+  if (held) return held
+  const execution = await claimTaskExecution(taskId)
+  if (!execution) throw new Error(`task ${taskId} 排队中才认领得到，当前认领不到`)
+  claims.set(taskId, execution)
+  return execution
+}
 
 /**
  * 夹具里的「worker 把这条任务跑完了」：走真实的认领 → 执行句柄 → 收尾，
@@ -8,15 +24,21 @@ import { claimTaskExecution } from '../../workers/task-execution'
  * 只有**故意**要一个半路状态的夹具才该自己写任务行：租约过期、强停回收、
  * scheduler 的替身执行器。那些地方写的是「没人收尾」，不是「worker 收尾了」。
  */
-export async function settleTaskAsWorker(
+export async function workerSettles(
   taskId: string,
   update: Omit<TerminalTaskUpdate, 'completedAt'> & { completedAt?: number },
 ): Promise<boolean> {
-  const execution = await claimTaskExecution(taskId)
-  if (!execution) throw new Error(`task ${taskId} 排队中才认领得到，当前认领不到`)
+  const execution = await workerClaims(taskId)
   try {
     return await execution.finish({ completedAt: Date.now(), ...update })
   } finally {
     execution.release()
+    claims.delete(taskId)
   }
+}
+
+/** 放掉还攥在手里的认领（停心跳）。领了不收尾的用例放进 afterEach。 */
+export function releaseWorkerClaims(): void {
+  for (const execution of claims.values()) execution.release()
+  claims.clear()
 }
