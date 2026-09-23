@@ -24,13 +24,11 @@ export function heldBy(token: string): SQL {
 }
 
 /**
- * 每个状态写入都带 `status='in_progress'` 守卫：cancel route 已经把 status 写成
- * 'cancelled' 时，worker 这边一律 no-op，不会反悔覆盖。
- *
- * `fence` 是这次写入的归属范围：worker 传执行句柄的 fence，回收扫描传它扫到的那个令牌，
- * 缺席即「不问归属」——只有明确要跨执行者写的调用方才可以不给。
+ * 每个状态写入都带 `status='in_progress'` 与调用方的归属守卫：cancel route 已经
+ * 把 status 写成 'cancelled' 时，worker 一律 no-op；旧执行者也不能写新执行者的行。
+ * worker 经执行句柄传入令牌与租约守卫，回收扫描传入它扫到的令牌守卫。
  */
-const stillRunning = (id: string, fence?: SQL) =>
+const stillRunning = (id: string, fence: SQL) =>
   and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'), fence)
 
 /** 回队时一律抹掉的上一次尝试痕迹。新增「每次尝试」列时改这里，别只加进某一个 requeue。 */
@@ -54,7 +52,7 @@ export async function requeueTask(
   id: string,
   attemptJustFailed: number,
   nextRetryAt: number,
-  fence?: SQL,
+  fence: SQL,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
     const updated = await tx
@@ -74,7 +72,7 @@ export async function requeueTask(
  * 把中断的异步任务退回 queued 以**继续轮询**：保留 upstream_task_ids 与 attempt_count。
  * 上游任务还活着且已计费，这不是一次失败的尝试，不进重试预算。返回真的改到的行数。
  */
-export async function requeueTasksForPolling(ids: readonly string[], fence?: SQL): Promise<number> {
+export async function requeueTasksForPolling(ids: readonly string[], fence: SQL): Promise<number> {
   if (ids.length === 0) return 0
   return db.transaction(async (tx) => {
     const updated = await tx
@@ -93,7 +91,7 @@ export async function requeueTasksForPolling(ids: readonly string[], fence?: SQL
 export async function saveArchiveCheckpoint(
   id: string,
   payload: (typeof schema.tasks.$inferInsert)['archive_payload'],
-  fence?: SQL,
+  fence: SQL,
 ) {
   return db.transaction(async (tx) => {
     const updated = await tx
@@ -112,9 +110,9 @@ export async function saveArchiveCheckpoint(
 /** Archive retries keep the successful result and never consume model attempts. */
 export async function requeueTaskArchive(
   id: string,
-  nextRetryAt = Date.now() + 60_000,
-  payload?: (typeof schema.tasks.$inferInsert)['archive_payload'],
-  fence?: SQL,
+  nextRetryAt: number,
+  payload: (typeof schema.tasks.$inferInsert)['archive_payload'] | undefined,
+  fence: SQL,
 ) {
   return db.transaction(async (tx) => {
     const updated = await tx
@@ -158,7 +156,7 @@ export type TerminalTaskUpdate = {
 export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
-  fence?: SQL,
+  fence: SQL,
 ): Promise<boolean> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {

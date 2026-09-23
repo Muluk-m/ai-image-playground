@@ -13,13 +13,14 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-c
 
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask } = await import('../../db/task-transitions')
+const { finishTask, heldBy } = await import('../../db/task-transitions')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
 type PrivateBffOverlay = import('../../lib/private-overlay').PrivateBffOverlay
 type PrivateTaskHooks = import('../../lib/private-overlay').PrivateTaskHooks
 type TaskStatus = (typeof schema.tasks.$inferInsert)['status']
+const SETTLEMENT_TOKEN = 'settlement-test-worker'
 
 type SettlementCall = {
   taskId: string
@@ -58,6 +59,9 @@ async function insertTask(id: string, status: TaskStatus, upstreamInvocationCoun
     provider: 'openai-compat',
     model: 'gpt-image-2',
     status,
+    ...(status === 'in_progress'
+      ? { execution_token: SETTLEMENT_TOKEN, lease_expires_at: Date.now() + 60_000 }
+      : {}),
     request_payload: { prompt: 'settlement fixture', device_id: 'settle-device' },
     submitted_at: Date.now(),
     upstream_invocation_count: upstreamInvocationCount,
@@ -82,11 +86,15 @@ describe('task settlement hook', () => {
   it('reports a completed outcome for a task that delivered images', async () => {
     await insertTask('settle-completed', 'in_progress', 1)
 
-    const written = await finishTask('settle-completed', {
-      status: 'completed',
-      resultPayload: { data: [{ url: 'https://example.invalid/image.png' }] },
-      completedAt: Date.now(),
-    })
+    const written = await finishTask(
+      'settle-completed',
+      {
+        status: 'completed',
+        resultPayload: { data: [{ url: 'https://example.invalid/image.png' }] },
+        completedAt: Date.now(),
+      },
+      heldBy(SETTLEMENT_TOKEN),
+    )
 
     expect(written).toBe(true)
     expect(settlements).toEqual([
@@ -104,14 +112,18 @@ describe('task settlement hook', () => {
   it('reports a failed outcome with the failure summary even after upstream ran', async () => {
     await insertTask('settle-failed', 'in_progress', 2)
 
-    const written = await finishTask('settle-failed', {
-      status: 'failed',
-      errorMessage: 'upstream rejected the prompt',
-      errorType: 'upstream_error',
-      upstreamStatus: 403,
-      upstreamBody: '{"error":"content policy"}',
-      completedAt: Date.now(),
-    })
+    const written = await finishTask(
+      'settle-failed',
+      {
+        status: 'failed',
+        errorMessage: 'upstream rejected the prompt',
+        errorType: 'upstream_error',
+        upstreamStatus: 403,
+        upstreamBody: '{\"error\":\"content policy\"}',
+        completedAt: Date.now(),
+      },
+      heldBy(SETTLEMENT_TOKEN),
+    )
 
     expect(written).toBe(true)
     expect(settlements).toEqual([
@@ -149,12 +161,16 @@ describe('task settlement hook', () => {
   it('hands the settlement hook the actual usage a task reported', async () => {
     await insertTask('settle-metered', 'in_progress', 1)
 
-    const written = await finishTask('settle-metered', {
-      status: 'completed',
-      resultPayload: { data: [{ url: 'https://example.invalid/image.png' }] },
-      completedAt: Date.now(),
-      actualUsage: { quantity: 1, unitMultiplier: 3.5 },
-    })
+    const written = await finishTask(
+      'settle-metered',
+      {
+        status: 'completed',
+        resultPayload: { data: [{ url: 'https://example.invalid/image.png' }] },
+        completedAt: Date.now(),
+        actualUsage: { quantity: 1, unitMultiplier: 3.5 },
+      },
+      heldBy(SETTLEMENT_TOKEN),
+    )
 
     expect(written).toBe(true)
     expect(settlements).toEqual([

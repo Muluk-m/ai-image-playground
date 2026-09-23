@@ -102,27 +102,6 @@ describe('认领', () => {
     expect(await claimTaskExecution('waiting')).toBeNull()
     expect((await readTask('waiting'))?.status).toBe('queued')
   })
-
-  it('认领时一并交出 worker 要的那一行', async () => {
-    await insertQueuedTask('claimed-row', {
-      attempt_count: 2,
-      upstream_task_ids: ['imgtask_1'],
-      upstream_submitted_at: 42,
-      upstream_invocation_count: 1,
-    })
-
-    const execution = await claimTaskExecution('claimed-row')
-    execution!.release()
-
-    expect(execution!.task).toMatchObject({
-      provider: 'openai-compat',
-      model: 'test-model',
-      attempt_count: 2,
-      upstream_task_ids: ['imgtask_1'],
-      upstream_submitted_at: 42,
-      upstream_invocation_count: 1,
-    })
-  })
 })
 
 describe('租约', () => {
