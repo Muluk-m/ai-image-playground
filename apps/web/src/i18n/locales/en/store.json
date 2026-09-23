@@ -33,12 +33,6 @@
     "slotUnfilled": "Slot {{slot}} has no value",
     "batchLimit": "At most {{max}} images per submission"
   },
-  "reuseProfile": {
-    "missingTitle": "API profile not found",
-    "missingMessage": "The API profile “{{taskProfile}}” this task used is gone. Submit with the current API profile “{{currentProfile}}” instead?",
-    "confirm": "Use current profile",
-    "cancel": "Discard"
-  },
   "mask": {
     "fullTitle": "Edit the whole image?",
     "fullMessage": "The mask covers the whole image, so submitting may repaint all of it. Continue?",
@@ -54,7 +48,6 @@
     "generateDone_other": "Generated {{count}} images",
     "customTaskRecovered_one": "Custom async task recovered with {{count}} image",
     "customTaskRecovered_other": "Custom async task recovered with {{count}} images",
-    "profileReused": "Temporarily reusing this task's API profile “{{profile}}”",
     "configReused": "Settings reused in the input bar",
     "imageMissingForEdit": "That image no longer exists, so it cannot be edited",
     "imageMissingForCanvas": "That image no longer exists, so it cannot go to the canvas",

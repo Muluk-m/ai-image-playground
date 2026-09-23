@@ -4,12 +4,9 @@
     "label": "Theme",
     "light": "Light",
     "dark": "Dark",
-    "system": "System",
-    "toDark": "Switch to dark",
-    "toLight": "Switch to light"
+    "system": "System"
   },
   "locale": {
-    "switchAria": "Language: {{current}}. Switch to {{next}}",
     "label": "Language",
     "zh-CN": "中文",
     "en": "English"

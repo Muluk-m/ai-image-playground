@@ -27,4 +27,5 @@ export {
 export { formatCount, formatDate, formatDateMinute } from '../i18n/format'
 export { authenticatedBffFetch } from './authClient'
 export { bootstrapClientCapabilities, isClientCapabilityEnabled } from './clientCapabilities'
+export { isInFloatingLayer } from './dropdown'
 export { bffBaseUrl, getRuntimeConfig } from './runtimeConfig'
