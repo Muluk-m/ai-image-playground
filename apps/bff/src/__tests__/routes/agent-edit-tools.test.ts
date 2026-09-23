@@ -47,7 +47,7 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
-const { workerSettles } = await import('../helpers/taskWorker')
+const { settleQueuedTasks, workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { conversationsWithEndedJobs } = await import('../../lib/agent/wake')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
@@ -128,23 +128,19 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
-      const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
-      for (const task of queued) {
-        await workerSettles(
-          task.id,
-          outcome === 'completed'
-            ? {
-                status: 'completed',
-                resultPayload: {
-                  data: Array.from(
-                    { length: task.request_payload.n ?? 1 },
-                    () => TEST_RESULT_PAYLOAD.data[0]!,
-                  ),
-                },
-              }
-            : { status: 'failed', errorMessage: '上游拒绝了这张图', errorType: 'upstream_error' },
-        )
-      }
+      await settleQueuedTasks((task) =>
+        outcome === 'completed'
+          ? {
+              status: 'completed',
+              resultPayload: {
+                data: Array.from(
+                  { length: task.request_payload.n ?? 1 },
+                  () => TEST_RESULT_PAYLOAD.data[0]!,
+                ),
+              },
+            }
+          : { status: 'failed', errorMessage: '上游拒绝了这张图', errorType: 'upstream_error' },
+      )
       await Bun.sleep(2)
     }
   })()

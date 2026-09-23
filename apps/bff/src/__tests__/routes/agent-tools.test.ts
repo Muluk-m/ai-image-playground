@@ -40,7 +40,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { workerSettles } = await import('../helpers/taskWorker')
+const { settleQueuedTasks } = await import('../helpers/taskWorker')
 const { config } = await import('../../config')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -101,25 +101,21 @@ function settleSubmittedTasks(
   let stopped = false
   void (async () => {
     while (!stopped) {
-      const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
-      for (const task of queued) {
-        await workerSettles(
-          task.id,
-          outcome === 'completed'
-            ? {
-                status: 'completed',
-                resultPayload: {
-                  data: Array.from(
-                    { length: task.request_payload.n ?? 1 },
-                    () => TEST_RESULT_PAYLOAD.data[0]!,
-                  ),
-                },
-              }
-            : outcome === 'empty'
-              ? { status: 'completed', resultPayload: { data: [] } }
-              : { status: 'failed', errorMessage: '上游拒绝了这张图', errorType },
-        )
-      }
+      await settleQueuedTasks((task) =>
+        outcome === 'completed'
+          ? {
+              status: 'completed',
+              resultPayload: {
+                data: Array.from(
+                  { length: task.request_payload.n ?? 1 },
+                  () => TEST_RESULT_PAYLOAD.data[0]!,
+                ),
+              },
+            }
+          : outcome === 'empty'
+            ? { status: 'completed', resultPayload: { data: [] } }
+            : { status: 'failed', errorMessage: '上游拒绝了这张图', errorType },
+      )
       await Bun.sleep(2)
     }
   })()

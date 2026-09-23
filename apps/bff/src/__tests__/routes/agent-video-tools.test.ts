@@ -43,7 +43,7 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { workerSettles } = await import('../helpers/taskWorker')
+const { settleQueuedTasks } = await import('../helpers/taskWorker')
 
 await silenceChatUpstream()
 
@@ -174,16 +174,10 @@ function settleSubmittedTasks(): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
-      const queued = await db
-        .select({ id: schema.tasks.id })
-        .from(schema.tasks)
-        .where(eq(schema.tasks.status, 'queued'))
-      for (const task of queued) {
-        await workerSettles(task.id, {
-          status: 'completed',
-          resultPayload: VIDEO_RESULT_PAYLOAD,
-        })
-      }
+      await settleQueuedTasks(() => ({
+        status: 'completed',
+        resultPayload: VIDEO_RESULT_PAYLOAD,
+      }))
       await Bun.sleep(2)
     }
   })()
