@@ -85,12 +85,15 @@ const GEMINI_FIELDS: ReadonlyArray<{
   options: ReadonlyArray<{ label: string; value: string }>
   /** 只有 Gemini 图像模型认的项；别的模型下走 capabilities.geminiImageTuning 收起来。 */
   tuningOnly?: boolean
+  /** 画幅（比例 / 分辨率）：智能体那条路上唯一保留的一类参数。 */
+  framing?: boolean
 }> = [
   {
     labelKey: 'param.aspectRatio',
     field: 'gemini_aspect_ratio',
     icon: ChipIcons.aspect,
     options: buildAutoOptions(GEMINI_ASPECT_RATIOS),
+    framing: true,
   },
   {
     labelKey: 'param.resolution',
@@ -98,6 +101,7 @@ const GEMINI_FIELDS: ReadonlyArray<{
     icon: ChipIcons.imageSize,
     options: buildAutoOptions(GEMINI_IMAGE_SIZES),
     tuningOnly: true,
+    framing: true,
   },
   {
     labelKey: 'param.thinking',
@@ -124,6 +128,7 @@ type SecondaryControl = { key: string; label: string; icon: ReactNode } & (
 /**
  * 参数控制条：自包含的 chip 列表（模型 / 尺寸 / Gemini 三件套 / 质量 / 格式 / 压缩 / 数量）。
  * 全部读写全局 store。数量 n 仅在 showCount 时出现：直接生成可手选，智能体由工具调用决定。
+ * 整条交给智能体时（`agentManaged`）只剩模型与画幅。
  */
 /** 某条提交路径做不到的参数。chip 直接不出现——显示了却不生效，比没有这个开关更糟。 */
 export type UnsupportedParam = 'transparent' | 'noRewrite'
@@ -131,11 +136,17 @@ export type UnsupportedParam = 'transparent' | 'noRewrite'
 export default function ParamControls({
   showCount = false,
   collapsible = false,
+  agentManaged = false,
   unsupported,
 }: {
   showCount?: boolean
   /** 输入框里的那一条：默认只露模型、尺寸与数量，其余收在「更多」后面。 */
   collapsible?: boolean
+  /**
+   * 这句话交给智能体：张数、质量、格式、压缩、思考强度都由它按需求定，chip 只留
+   * 模型与画幅（比例 / 分辨率）。摆着一排它不认的开关，比没有更误导。
+   */
+  agentManaged?: boolean
   unsupported?: ReadonlySet<UnsupportedParam>
 }) {
   const { t } = useTranslation('composer')
@@ -150,7 +161,10 @@ export default function ParamControls({
   const isGeminiProvider = activeView.provider === 'gemini'
   const capabilities = getParamCapabilities(activeProfile, params.output_format)
   const geminiFields = isGeminiProvider
-    ? GEMINI_FIELDS.filter(({ tuningOnly }) => !tuningOnly || capabilities.geminiImageTuning)
+    ? GEMINI_FIELDS.filter(
+        ({ tuningOnly, framing }) =>
+          (!tuningOnly || capabilities.geminiImageTuning) && (!agentManaged || framing),
+      )
     : []
   const outputImageLimit = getOutputImageLimitForSettings(settings)
   const displaySize = normalizeImageSize(params.size) || DEFAULT_PARAMS.size
@@ -342,7 +356,7 @@ export default function ParamControls({
         setParams({ [field]: val === 'auto' ? undefined : val } as Partial<TaskParams>),
     }),
   )
-  if (!isGeminiProvider) {
+  if (!isGeminiProvider && !agentManaged) {
     // 不可用的质量、压缩参数直接不进列表，免得浮层里摆着不生效的控件。
     if (capabilities.quality) {
       secondaryControls.push({
@@ -429,7 +443,8 @@ export default function ParamControls({
           }}
         />
       )}
-      {!collapsible &&
+      {/* 智能体档没有「更多」浮层：剩下的都是画幅 chip，直接摆在行里。 */}
+      {(!collapsible || agentManaged) &&
         secondaryControls.map((control) =>
           control.kind === 'select' ? (
             <ParamChip
@@ -453,7 +468,7 @@ export default function ParamControls({
             </ParamChip>
           ),
         )}
-      {showCount && (
+      {showCount && !agentManaged && (
         <ParamChip icon={ChipIcons.count} label={t('param.count')}>
           <input
             value={nInput}
@@ -480,7 +495,7 @@ export default function ParamControls({
           />
         </ParamChip>
       )}
-      {collapsible && secondaryControls.length > 0 && (
+      {collapsible && !agentManaged && secondaryControls.length > 0 && (
         <Popover>
           <PopoverTrigger asChild>
             <ParamChip
