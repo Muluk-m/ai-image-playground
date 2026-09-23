@@ -1,7 +1,6 @@
 import { useStore } from '../../../store'
 import type { TaskParams } from '../../../types'
 import type { PlacementTarget } from './placement'
-import type { RegenRecipe } from './regenRecipe'
 
 /**
  * 当前全局参数的画布任务快照：n 折叠为 1（上游不支持 n，fan-out 在发起层拆成多任务）。
@@ -29,12 +28,7 @@ export interface CanvasTaskSpec {
   /** 二次加工的源图元素 id：处理期间那张卡片上盖遮罩，刷新后也要认得出来。 */
   editSourceId?: string
   /** 二次加工的种类，决定卡片与占位框上写什么。 */
-  editKind?: 'inpaint' | 'erase' | 'outpaint' | 'cutout'
-  /**
-   * 「这张图是怎么来的」的配方，会随结果元素持久化。刷新后运行态没了，靠它重出。
-   * 见 `regenRecipe.ts`。
-   */
-  recipe?: RegenRecipe
+  editKind?: 'inpaint' | 'erase' | 'outpaint' | 'cutout' | 'edit'
   /** 发起时的参数快照（n 已折叠为 1，fan-out 在上层展开为多任务）。 */
   params: TaskParams
   target: PlacementTarget

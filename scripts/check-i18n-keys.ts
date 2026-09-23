@@ -28,6 +28,8 @@ const DYNAMIC_PREFIXES = [
   'canvas:inpaint.tool.',
   // features/canvas/components/CanvasRectEditLayer.tsx：八个手柄按方位名拼 key。
   'canvas:rectEdit.handle.',
+  // features/canvas/components/CanvasResizeMenu.tsx：按 RESIZE_RATIOS 里的比例拼 key。
+  'canvas:resize.ratio.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/
