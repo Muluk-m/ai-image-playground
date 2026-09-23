@@ -20,14 +20,13 @@ import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import { describeError, useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
-import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
-import { API_MAX_IMAGES, MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../lib/inputImageLimit'
+import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
+import { referenceAdmission, referenceRefusalMessage } from '../lib/referenceDraft'
 import {
   getContentEditableCursor,
   getContentEditablePlainText,
@@ -50,12 +49,13 @@ import {
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
-  addImageFromFile,
   removeMultipleTasks,
+  storeImageFromFile,
   submitTask,
   updateTaskInStore,
   useStore,
 } from '../store'
+import type { InputImage } from '../types'
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { ChipIcons } from './chipIcons'
 import { BookmarkIcon, CloseIcon, LibraryIcon, LinkIcon, MaskBrushIcon } from './icons'
@@ -227,18 +227,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     else submitTask()
   }
   const submitLabel = toCanvas ? t('submit.startCanvas') : generateLabel
-  // null → 旧行为；有声明时按 capability 显隐参考图 / 遮罩 / 质量控件，
-  // 避免「选了不支持的模型，控件还在，提交才在上游炸」。
-  const modelCaps = useMemo(
-    () => getModelCapabilities(activeProfile, getPublicChannels()),
-    [activeProfile],
-  )
-  const supportsEdit = !modelCaps || modelCaps.has('edit')
-  const atImageLimit = inputImages.length >= API_MAX_IMAGES
-  // 参考图入口：模型不支持 edit（如 Agnes 之前只声明 generate）则禁用附图，
-  // 否则会让用户附了图提交、到上游才报错。达上限同样禁用。
+  // 参考图入口按附图那条准入规则显隐：同一个模型认不认参考图、条还放不放得下，
+  // 由 `lib/referenceDraft` 判一次，附图与禁用态不会各说各话。
+  const admission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
+  const supportsEdit = admission.supportsEdit
+  const atImageLimit = inputImages.length >= admission.limit
   const attachDisabled = atImageLimit || !supportsEdit
-  const attachDisabledReason = !supportsEdit ? NO_EDIT_SUPPORT_MESSAGE : MAX_INPUT_IMAGES_MESSAGE
+  const attachDisabledReason = referenceRefusalMessage(supportsEdit ? 'overflow' : 'noEdit')
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
@@ -550,31 +545,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }
 
   const handleFiles = async (files: FileList | File[]) => {
+    const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (accepted.length === 0) return
     try {
-      if (!supportsEdit) {
-        useStore.getState().showToast(NO_EDIT_SUPPORT_MESSAGE, 'error')
-        return
-      }
-      const currentCount = useStore.getState().inputImages.length
-      if (currentCount >= API_MAX_IMAGES) {
-        useStore.getState().showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
-        return
-      }
-
-      const remaining = API_MAX_IMAGES - currentCount
-      const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
-      const toAdd = accepted.slice(0, remaining)
-      const discarded = accepted.length - toAdd.length
-
-      for (const file of toAdd) {
-        await addImageFromFile(file)
-      }
-
-      if (discarded > 0) {
-        useStore
-          .getState()
-          .showToast(t('image.discarded', { limit: API_MAX_IMAGES, count: discarded }), 'error')
-      }
+      const images: InputImage[] = []
+      for (const file of accepted) images.push(await storeImageFromFile(file))
+      // 这一把文件是一组：先全部落进 image store，再整组过准入——放不下就一张都不落，
+      // 免得用户拖进去十张只见前几张、还得自己数少了哪几张。
+      useStore.getState().attachInputImages(images)
     } catch (err) {
       useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
     }

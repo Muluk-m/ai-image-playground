@@ -125,7 +125,7 @@ describe('attaching an asset', () => {
   it('attaches every view in order and points the reference at the cover', async () => {
     const cover = await storeImage(IMAGE_A)
     const side = await storeImage(IMAGE_B)
-    useStore.getState().addInputImage({ id: 'other', dataUrl: IMAGE_B })
+    useStore.getState().attachInputImages([{ id: 'other', dataUrl: IMAGE_B }])
     const asset = await useLibraryStore.getState().saveAssetRecord({
       name: '橘猫玩偶',
       views: [
@@ -138,26 +138,29 @@ describe('attaching an asset', () => {
     expect(useStore.getState().inputImages.map((image) => image.id)).toEqual(['other', cover, side])
   })
 
-  it('does not add the same image twice and reuses its position', async () => {
-    const imageId = await storeImage(IMAGE_A)
-    await useLibraryStore.getState().saveAsset(imageId, '白底图')
-    await useLibraryStore.getState().saveAsset(imageId, '主图')
-    const [first, second] = useLibraryStore.getState().assets
+  it('取不回来的那张视角跳过，其余照常进条', async () => {
+    const cover = await storeImage(IMAGE_A)
+    const asset = await useLibraryStore.getState().saveAssetRecord({
+      name: '橘猫玩偶',
+      views: [
+        { imageId: cover, label: 'front', source: 'upload' },
+        { imageId: 'never-stored', label: 'side', source: 'upload' },
+      ],
+    })
 
-    expect(await useLibraryStore.getState().attachAsset(first.id)).toBe(0)
-    expect(await useLibraryStore.getState().attachAsset(second.id)).toBe(0)
-    expect(useStore.getState().inputImages).toHaveLength(1)
+    expect(await useLibraryStore.getState().attachAsset(asset.id)).toBe(0)
+    expect(useStore.getState().inputImages.map((image) => image.id)).toEqual([cover])
   })
 
-  it('returns the position it landed at behind existing reference images', async () => {
-    const idA = await storeImage(IMAGE_A)
-    const idB = await storeImage(IMAGE_B)
-    useStore.getState().addInputImage({ id: idA, dataUrl: IMAGE_A })
-    await useLibraryStore.getState().saveAsset(idB, '场景图')
+  it('一张视角都取不回来就什么都不做', async () => {
+    const asset = await useLibraryStore.getState().saveAssetRecord({
+      name: '橘猫玩偶',
+      views: [{ imageId: 'never-stored', label: 'front', source: 'upload' }],
+    })
 
-    expect(
-      await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id),
-    ).toBe(1)
+    expect(await useLibraryStore.getState().attachAsset(asset.id)).toBeNull()
+    expect(useStore.getState().inputImages).toEqual([])
+    expect(useLibraryStore.getState().assets[0].lastUsedAt).toBe(asset.lastUsedAt)
   })
 
   it('records the last use', async () => {

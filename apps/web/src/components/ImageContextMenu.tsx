@@ -3,12 +3,9 @@ import { useEffect, useState } from 'react'
 import { startVideoFromImage } from '../features/canvas/lib/startVideoFromImage'
 import { useLibraryStore } from '../features/library/store'
 import { describeError, useTranslation } from '../i18n'
-import { getActiveApiProfile } from '../lib/apiProfiles'
-import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
-import { getPublicChannels } from '../lib/channels/publicChannels'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
-import { addImageFromUrl, ensureImageCached, storeImageFromUrl, useStore } from '../store'
+import { ensureImageCached, storeImageFromUrl, useStore } from '../store'
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon, VideoIcon } from './icons'
 
@@ -21,8 +18,7 @@ export default function ImageContextMenu() {
     y: number
   } | null>(null)
   const showToast = useStore((s) => s.showToast)
-  const inputImages = useStore((s) => s.inputImages)
-  const settings = useStore((s) => s.settings)
+  const attachInputImages = useStore((s) => s.attachInputImages)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
@@ -110,18 +106,11 @@ export default function ImageContextMenu() {
   const handleEdit = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuInfo(null)
-    if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels())) {
-      showToast(NO_EDIT_SUPPORT_MESSAGE, 'error')
-      return
-    }
-    if (inputImages.length >= 16) {
-      showToast(t('menu.referenceLimit'), 'error')
-      return
-    }
-
     try {
       const src = await getOriginalImageSrc()
-      const id = await addImageFromUrl(src)
+      const { id, dataUrl } = await storeImageFromUrl(src)
+      // 上限、去重与「模型认不认参考图」都归参考图草稿判，被拒的理由它自己提示。
+      if (!attachInputImages([{ id, dataUrl }])) return
       setDetailTaskId(null)
       setLightboxImageId(null)
       // 加入参考图后直接打开遮罩编辑器对这张图局部编辑

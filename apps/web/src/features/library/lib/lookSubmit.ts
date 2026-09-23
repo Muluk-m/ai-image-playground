@@ -73,8 +73,10 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
     const dataUrl = await ensureImageCached(id)
     if (dataUrl) images.push({ id, dataUrl })
   }
-  store.setInputImages(images)
-  store.setPrompt(typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt)
+  // 组装好的正文按新这条参考图的序号写成，所以条与提示词一起换，不能分两步。
+  store.replaceInputImages(images, {
+    prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
+  })
   await submitTask()
   const after = useStore.getState()
   if (after.prompt !== '') after.setPrompt(typed)
