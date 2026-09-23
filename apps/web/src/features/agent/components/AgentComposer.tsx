@@ -1,8 +1,4 @@
-import {
-  AGENT_TURN_ATTACHED_MEDIA_MAX,
-  AGENT_TURN_MAX_INLINE_REFERENCES,
-  AGENT_TURN_MAX_REFERENCES,
-} from '@image-playground/shared'
+import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
 import { Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
@@ -66,6 +62,7 @@ import {
   attachAssetToDraft,
   attachReferences,
   filesToReferences,
+  referenceLimitMessage,
   setAgentComposerAttach,
 } from '../lib/attachments'
 import { setAgentComposerFill } from '../lib/composerFill'
@@ -220,22 +217,14 @@ export default function AgentComposer({
   )
   const transportRef = useRef(transport)
   transportRef.current = transport
-  // 撞的是哪道上限就说哪道：圈选撞总数，拖文件、`@` 素材撞只能内联的那几张。
-  const tooManyReferences = (inline: boolean) =>
-    useStore.getState().showToast(
-      inline
-        ? t('composer.tooManyUploads', { count: AGENT_TURN_MAX_INLINE_REFERENCES })
-        : t('composer.tooManyReferences', {
-            count: transportRef.current.cloud
-              ? AGENT_TURN_MAX_REFERENCES
-              : AGENT_TURN_MAX_INLINE_REFERENCES,
-          }),
-      'error',
-    )
   useEffect(() => {
     if (loading) return
-    if (selection.follow(doc, setDraft, editor, session.key, transportRef.current) > 0)
-      tooManyReferences(false)
+    // 撞的是哪道上限由准入定夺，文案跟着它走——输入框不再自己数一遍两道上限。
+    const overflow = selection.follow(doc, setDraft, editor, session.key, transportRef.current)
+    if (overflow.refusal)
+      useStore
+        .getState()
+        .showToast(referenceLimitMessage(overflow.refusal, transportRef.current), 'error')
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
   }, [selection, selectionKey, loading, session])
 
@@ -326,9 +315,11 @@ export default function AgentComposer({
           }))
         : []
 
-  const applyAttach = (next: AttachedReference, inline = false) => {
-    if (next.overflow) {
-      tooManyReferences(inline)
+  const applyAttach = (next: AttachedReference) => {
+    if (next.refusal) {
+      useStore
+        .getState()
+        .showToast(referenceLimitMessage(next.refusal, transportRef.current), 'error')
       return
     }
     setDraft(next.draft)
@@ -357,7 +348,7 @@ export default function AgentComposer({
         at,
         transportRef.current,
       )
-      if (attached) applyAttach(attached, true)
+      if (attached) applyAttach(attached)
       return
     }
     const reference =

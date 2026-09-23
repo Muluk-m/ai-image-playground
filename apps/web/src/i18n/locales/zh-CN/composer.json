@@ -48,7 +48,6 @@
     "limitHint": "请先移除部分参考图后再添加",
     "dropToAdd": "释放以添加参考图",
     "dropFormats": "最多 {{count}} 张，单张 ≤{{mb}}MB，JPG、PNG、WebP",
-    "discarded_other": "已达上限 {{limit}} 张，{{count}} 张图片被丢弃",
     "addFailed": "图片添加失败：{{reason}}",
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
     "summaryWithMask_other": "1 张遮罩主图 · {{count}} 张参考图",

@@ -85,7 +85,6 @@
   },
   "menu": {
     "imageCopied": "图片已复制",
-    "referenceLimit": "参考图数量已达上限（16 张），无法继续添加",
     "addReferenceFailed": "加入参考图失败：{{reason}}",
     "saveAsAsset": "存为素材",
     "saveAsAssetFailed": "存为素材失败：{{reason}}",

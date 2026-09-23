@@ -100,11 +100,13 @@ export async function reuseCloudGeneration(source: CloudReuseSource, signal: Abo
     activeProfileId: profile.id,
   })
   state.setParams(params)
-  state.setInputImages(inputs)
+  // 条与提示词一起换：这句话按这条记录自己的参考图序号写成，分两步写会按旧条把它重排坏。
+  state.replaceInputImages(inputs, {
+    prompt: guarded ? source.prompt.slice(guard.length) : source.prompt,
+  })
   state.setMaskDraft(
     maskDataUrl ? { targetImageId: inputs[0]!.id, maskDataUrl, updatedAt: Date.now() } : null,
   )
-  state.setPrompt(guarded ? source.prompt.slice(guard.length) : source.prompt)
   // 复用参数是生图入口的输入框在接：切到生图，画布的草稿另算。
   state.setAppMode('image')
 }

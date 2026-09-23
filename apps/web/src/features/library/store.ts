@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import { describeError, i18next } from '../../i18n'
-import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
+import type { ReferenceAdmission } from '../../lib/referenceDraft'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
-import { DEFAULT_PARAMS } from '../../types'
+import { DEFAULT_PARAMS, type InputImage } from '../../types'
 import { assetStore } from './lib/assetStore'
 import { lookStore } from './lib/lookStore'
 import { templateStore } from './lib/templateStore'
@@ -96,8 +96,12 @@ export interface LibraryState {
    * `group` 让这一批落成一条多视角素材，第一张是封面。
    */
   importAssetFiles: (files: File[], options?: ImportAssetOptions) => Promise<void>
-  /** 附上该素材的全部视角，返回封面在参考图条里的序号；已在条里则复用原序号，失败返回 null。 */
-  attachAsset: (id: string) => Promise<number | null>
+  /**
+   * 附上该素材取得回来的全部视角，返回引用该落在哪一位——封面那一位，封面取不回来时是
+   * 第一张取到的视角；已在条里的复用原序号。一张都取不回来、或整组放不下时返回 null。
+   * 准入默认按当前生图模型算；图不是给它用的（首屏「画布」档交给第一轮）由调用方给一份。
+   */
+  attachAsset: (id: string, admission?: ReferenceAdmission) => Promise<number | null>
   /** 记一次使用。「最近用过」的排序是唯一读者，所以每条附加路径都要过它。 */
   noteAssetUsed: (id: string) => Promise<void>
 
@@ -200,43 +204,35 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }))
   },
 
-  attachAsset: async (id) => {
+  attachAsset: async (id, admission) => {
     const asset = get().assets.find((a) => a.id === id)
     if (!asset) return null
     const main = useStore.getState()
 
-    // 组里全部视角按序进参考图条，按 imageId 去重；已在条里的复用原序号。
-    const imageIds = [...new Set(asset.views.map((view) => view.imageId))]
-    const missing = imageIds.filter((imageId) => !main.inputImages.some((i) => i.id === imageId))
-    if (missing.length > 0 && !hasRoomForImages(main.inputImages, missing)) {
-      main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
+    const views = await assetViewImages(asset)
+    if (views.length === 0) {
+      main.showToast(i18next.t('library:toast.assetImageMissing'), 'error')
       return null
     }
-    for (const imageId of missing) {
-      await ensureAssetImage(imageId)
-      const dataUrl = await ensureImageCached(imageId)
-      if (!dataUrl) {
-        main.showToast(i18next.t('library:toast.assetImageMissing'), 'error')
-        return null
-      }
-      main.addInputImage({ id: imageId, dataUrl })
-    }
+    const before = main.inputImages.length
+    // 组里全部视角是一组：整组落地或整组不落，准入与去重都归参考图草稿管。
+    const indexes = main.attachInputImages(views, admission)
+    if (!indexes) return null
 
     await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
     // 面板外（composer 的 `@` 菜单）插入的引用胶囊本身就是反馈，再 toast 是噪音。
     if (get().onLibraryPage) {
+      const added = useStore.getState().inputImages.length > before
       useStore.getState().setAppMode('image')
       main.showToast(
-        missing.length === 0
-          ? i18next.t('library:toast.alreadyInReferences')
-          : i18next.t('library:toast.addedToReferences'),
-        missing.length === 0 ? 'info' : 'success',
+        added
+          ? i18next.t('library:toast.addedToReferences')
+          : i18next.t('library:toast.alreadyInReferences'),
+        added ? 'success' : 'info',
       )
     }
-    // 引用指向封面：一条素材在提示词里只占一个胶囊。
-    const cover = assetCoverImageId(asset)
-    const index = useStore.getState().inputImages.findIndex((img) => img.id === cover)
-    return index >= 0 ? index : null
+    // 引用指向封面：一条素材在提示词里只占一个胶囊。封面取不回来时落在第一张取到的视角上。
+    return indexes[0] ?? null
   },
 
   noteAssetUsed: async (id) => {
@@ -419,17 +415,26 @@ async function writeLook(set: LibrarySet, look: LookRecord): Promise<void> {
   set((s) => ({ looks: s.looks.map((one) => (one.id === look.id ? look : one)) }))
 }
 
-function hasRoomForImages(
-  inputImages: Array<{ id: string }>,
-  imageIds: Array<string | null>,
-): boolean {
-  const missing = new Set(
-    imageIds.filter(
-      (imageId): imageId is string =>
-        Boolean(imageId) && !inputImages.some((image) => image.id === imageId),
-    ),
-  )
-  return inputImages.length + missing.size <= API_MAX_IMAGES
+/**
+ * 一串 `imageId` 取成参考图：按 id 去重、保持给的顺序。别的设备建的素材图这时才取回来；
+ * 取不回来的那张跳过——为一张还没同步到的图把整条素材、整条模板都附不上说不过去。
+ */
+async function referencesForImageIds(imageIds: Iterable<string>): Promise<InputImage[]> {
+  const images: InputImage[] = []
+  for (const imageId of new Set(imageIds)) {
+    await ensureAssetImage(imageId)
+    const dataUrl = await ensureImageCached(imageId)
+    if (dataUrl) images.push({ id: imageId, dataUrl })
+  }
+  return images
+}
+
+/**
+ * 一条素材的全部视角取成参考图，第一张是封面。生成与智能体两边共用这一条，
+ * 素材附加只有一种行为。
+ */
+export function assetViewImages(asset: AssetRecord): Promise<InputImage[]> {
+  return referencesForImageIds(asset.views.map((view) => view.imageId))
 }
 
 async function writeTemplateIntoComposer(
@@ -445,18 +450,10 @@ async function writeTemplateIntoComposer(
     return asset ? assetCoverImageId(asset) : null
   })
 
-  if (!hasRoomForImages(main.inputImages, imageIdsByOldIndex)) {
-    main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
-    return
-  }
-
-  for (const imageId of new Set(imageIdsByOldIndex.filter((id) => id !== null))) {
-    if (useStore.getState().inputImages.some((image) => image.id === imageId)) continue
-    // 别的设备建的素材图这时才取回来，取不到才让那一处引用降级为「已移除」。
-    await ensureAssetImage(imageId)
-    const dataUrl = await ensureImageCached(imageId)
-    if (dataUrl) main.addInputImage({ id: imageId, dataUrl })
-  }
+  // 取不到图的那一位跟素材被删掉一样：引用降级为「已移除」，套用照旧。
+  const covers = await referencesForImageIds(imageIdsByOldIndex.filter((id) => id !== null))
+  // 模板要的素材是一组：放不下就整条不套用，免得留下半条参考图配一句改过的提示词。
+  if (!main.attachInputImages(covers)) return
 
   main.setPrompt(
     remapTemplateMentions(template.prompt, imageIdsByOldIndex, useStore.getState().inputImages),

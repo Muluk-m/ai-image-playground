@@ -56,8 +56,6 @@
     "limitHint": "Remove a few reference images first",
     "dropToAdd": "Drop to add reference images",
     "dropFormats": "Up to {{count}} images, ≤{{mb}}MB each - JPG, PNG, WebP",
-    "discarded_one": "Limit of {{limit}} images reached, {{count}} image discarded",
-    "discarded_other": "Limit of {{limit}} images reached, {{count}} images discarded",
     "addFailed": "Could not add the image: {{reason}}",
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
     "summaryWithMask_one": "1 mask image · {{count}} reference image",

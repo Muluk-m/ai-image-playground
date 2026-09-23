@@ -4,6 +4,12 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import InputBar from '../../components/InputBar'
+import { useLibraryStore } from '../../features/library/store'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
+import { setChannels } from '../../lib/channels/channelStore'
+import type { PublicChannel } from '../../lib/channels/types'
+import { getAllImageIds, putImage } from '../../lib/db'
+import { getContentEditablePlainText, setContentEditableCursor } from '../../lib/promptEditorDom'
 import { useStore } from '../../store'
 
 declare global {
@@ -48,13 +54,23 @@ function editor(): HTMLElement {
   return el
 }
 
-/** 模拟一次真实输入：浏览器先改 DOM，再派发 input。 */
+/** 模拟一次真实输入：浏览器先改 DOM、把光标留在打完的位置，再派发 input。 */
 function type(html: string): void {
   const el = editor()
   act(() => {
     el.innerHTML = html
+    el.focus()
+    setContentEditableCursor(el, getContentEditablePlainText(el).length)
     el.dispatchEvent(new Event('input', { bubbles: true }))
   })
+}
+
+/** 换一版 InputBar 挂上：beforeEach 已经挂了直出那一版。 */
+function remount(target: 'generate' | 'canvas'): void {
+  act(() => root.unmount())
+  host.remove()
+  useStore.setState({ createTarget: target })
+  mount(<InputBar inline />)
 }
 
 /** 编辑器本身（提示词↔DOM、回显跳过、胶囊提升）由 `promptEditor.test.tsx` 在接缝上守着。 */
@@ -86,14 +102,6 @@ describe('生成输入框的回车', () => {
 })
 
 describe('首屏「画布」档的参数 chip', () => {
-  /** 换一版 InputBar 挂上：beforeEach 已经挂了直出那一版。 */
-  function remount(target: 'generate' | 'canvas'): void {
-    act(() => root.unmount())
-    host.remove()
-    useStore.setState({ createTarget: target })
-    mount(<InputBar inline />)
-  }
-
   it('直出档摆着张数与「更多」', () => {
     remount('generate')
     expect(chip('数量')).not.toBeNull()
@@ -137,5 +145,100 @@ describe('首屏「画布」档的参数 chip', () => {
     expect(chip('思考')).toBeNull()
     expect(chip('更多')).toBeNull()
     expect(chip('数量')).toBeNull()
+  })
+})
+
+describe('首屏「画布」档的参考图', () => {
+  const PIXEL = 'data:image/png;base64,AAAA'
+  const noEditChannel: PublicChannel = {
+    id: 'no-edit',
+    kind: 'openai-queue',
+    label: 'NoEdit',
+    models: [{ id: 'gen-only', label: 'Gen only', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(() => {
+    setChannels([noEditChannel])
+    useStore.setState({
+      inputImages: [],
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: 'builtin-no-edit',
+            source: 'builtin-edge',
+            channelId: 'no-edit',
+            selectedModelId: 'gen-only',
+          },
+        ],
+        activeProfileId: 'builtin-no-edit',
+      }),
+    })
+  })
+
+  afterEach(() => {
+    setChannels([])
+    useLibraryStore.setState({ assets: [] })
+  })
+
+  /** 附图入口：能点时标题是「添加参考图……」，被拒时标题换成拒绝的理由。 */
+  function attachButton(): HTMLButtonElement {
+    const found = Array.from(host.querySelectorAll('button')).find(
+      (button) => button.title.startsWith('添加参考图') || button.title.includes('不支持参考图'),
+    )
+    if (!found) throw new Error('没找到附图入口')
+    return found
+  }
+
+  /** 素材从 IndexedDB 取回来再进条，等它落定。 */
+  async function settleAttach(): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (useStore.getState().inputImages.length > 0) return
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+  }
+
+  it('模型不认参考图也附得上 `@` 素材：那几张是交给画布第一轮的，不归生图模型', async () => {
+    const imageId = 'asset-image'
+    await putImage({ id: imageId, dataUrl: PIXEL, source: 'upload', createdAt: 1 })
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    remount('canvas')
+
+    type('@白')
+    const option = host.querySelector('[role="option"]')
+    if (!option) throw new Error('`@` 菜单里没有素材可选')
+    await act(async () => {
+      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    await settleAttach()
+
+    expect(useStore.getState().inputImages.map((image) => image.id)).toEqual([imageId])
+  })
+
+  it('直出档同一个模型仍然拦着：附图入口自己说明为什么点不了', () => {
+    remount('generate')
+
+    expect(attachButton().title).toContain('不支持参考图')
+  })
+
+  it('这一把文件进不去就一张都不落盘：写进去的图谁也不会再用，只占地方', async () => {
+    remount('generate')
+    const before = await getAllImageIds()
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error('没找到文件输入')
+    Object.defineProperty(input, 'files', {
+      value: [new File(['x'], 'a.png', { type: 'image/png' })],
+      configurable: true,
+    })
+
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(useStore.getState().toast?.message).toContain('不支持参考图')
+    expect(await getAllImageIds()).toEqual(before)
   })
 })
