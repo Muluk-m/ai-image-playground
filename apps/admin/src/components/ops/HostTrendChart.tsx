@@ -13,6 +13,8 @@ import type { OpsHostPoint } from '@/lib/types'
 
 export interface HostTrendChartProps {
   series: OpsHostPoint[]
+  /** 服务端降采样桶宽；相邻点超过 1.5 桶时曲线必须断开。 */
+  stepMs: number
   /** 磁盘告警线，0 到 1。画出来，运营者才看得出这条曲线离它还有多远。 */
   diskAlertRatio: number
   label: string
@@ -23,9 +25,6 @@ const CHART_CONFIG = {
   memory: { label: '内存已用', color: 'hsl(var(--success))' },
   cpu: { label: 'CPU', color: 'hsl(var(--primary))' },
 } satisfies ChartConfig
-
-/** 后台按半小时取平均；两点之间隔了不止一格，就是那段时间一条采样都没有。 */
-const STEP_MS = 30 * 60 * 1000
 
 interface TrendRow {
   at: number
@@ -38,13 +37,13 @@ interface TrendRow {
  * 相邻两点之间缺了格子，就在中间补一个全空的点，曲线在那里断开。
  * 不补的话，机器卡死的那九个小时会被画成一条平滑的斜线，看起来像内存在慢慢变化。
  */
-export function trendRows(series: OpsHostPoint[]): TrendRow[] {
+export function trendRows(series: OpsHostPoint[], stepMs = 30 * 60 * 1000): TrendRow[] {
   const percent = (ratio: number | null) => (ratio === null ? null : Math.round(ratio * 1000) / 10)
   const rows: TrendRow[] = []
   for (const point of series) {
     const previous = rows[rows.length - 1]
-    if (previous && point.at - previous.at > STEP_MS * 1.5) {
-      rows.push({ at: previous.at + STEP_MS, disk: null, memory: null, cpu: null })
+    if (previous && point.at - previous.at > stepMs * 1.5) {
+      rows.push({ at: previous.at + stepMs, disk: null, memory: null, cpu: null })
     }
     rows.push({
       at: point.at,
@@ -75,8 +74,8 @@ export function trendTick(at: number, spanMs: number): string {
   return day
 }
 
-function HostTrendChartImpl({ series, diskAlertRatio, label }: HostTrendChartProps) {
-  const data = trendRows(series)
+function HostTrendChartImpl({ series, stepMs, diskAlertRatio, label }: HostTrendChartProps) {
+  const data = trendRows(series, stepMs)
   const hasCpu = data.some((row) => row.cpu !== null)
   const spanMs = data.length > 1 ? data[data.length - 1].at - data[0].at : 0
   return (

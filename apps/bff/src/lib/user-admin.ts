@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import {
   isValidPassword,
   isValidUsername,
@@ -181,12 +182,6 @@ export async function registerUser(
   return { user: result.user, sessionToken: result.sessionToken }
 }
 
-/**
- * Never usable with `Bun.password.verify`, so an OAuth-only account cannot be reached
- * through the password login route.
- */
-const OAUTH_PASSWORD_SENTINEL = 'oauth-only-account'
-
 export interface OAuthIdentityInput {
   readonly provider: string
   readonly subject: string
@@ -274,7 +269,7 @@ export async function loginWithOAuthIdentity(
           .values({
             id: userId,
             username,
-            password_hash: OAUTH_PASSWORD_SENTINEL,
+            password_hash: OAUTH_ONLY_PASSWORD_HASH,
             status: 'active',
             email_verified_at: email ? now : null,
             created_at: now,
@@ -336,7 +331,7 @@ export async function listLoginMethods(userId: string): Promise<LoginMethodsView
     .where(eq(schema.user_identities.user_id, userId))
     .orderBy(asc(schema.user_identities.created_at))
 
-  return { password: user.password_hash !== OAUTH_PASSWORD_SENTINEL, identities }
+  return { password: user.password_hash !== OAUTH_ONLY_PASSWORD_HASH, identities }
 }
 
 /** Self-service counterpart of resetUserPassword: the caller's own session must survive. */
@@ -353,7 +348,7 @@ export async function setOwnPassword(
     .limit(1)
   if (!user) throw new UserOperationError('user_not_found')
 
-  if (user.password_hash !== OAUTH_PASSWORD_SENTINEL) {
+  if (user.password_hash !== OAUTH_ONLY_PASSWORD_HASH) {
     if (!input.currentPassword) throw new UserOperationError('current_password_required')
     const matches = await Bun.password
       .verify(input.currentPassword, user.password_hash)
@@ -445,7 +440,7 @@ export async function unlinkOAuthIdentity(
       .where(eq(schema.user_identities.user_id, userId))
     const target = identities.find((row) => row.provider === provider)
     if (!target) return 'not_linked'
-    if (user.password_hash === OAUTH_PASSWORD_SENTINEL && identities.length === 1) {
+    if (user.password_hash === OAUTH_ONLY_PASSWORD_HASH && identities.length === 1) {
       return 'last_login_method'
     }
 

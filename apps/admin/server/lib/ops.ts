@@ -1,19 +1,21 @@
 import { readFile } from 'node:fs/promises'
 import { OPS_THRESHOLDS, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
-import type {
-  HostSample,
-  OpsApi,
-  OpsBackups,
-  OpsBlock,
-  OpsContainers,
-  OpsDatabase,
-  OpsDeployment,
-  OpsDeployments,
-  OpsHost,
-  OpsQueue,
-  OpsServices,
-  OpsSnapshot,
+import {
+  DEFAULT_OPS_RANGE,
+  type HostSample,
+  type OpsApi,
+  type OpsBackups,
+  type OpsBlock,
+  type OpsContainers,
+  type OpsDatabase,
+  type OpsDeployment,
+  type OpsDeployments,
+  type OpsHost,
+  type OpsQueue,
+  type OpsRange,
+  type OpsServices,
+  type OpsSnapshot,
 } from '../../contracts'
 import { config } from '../config'
 import { getDbHandle } from './db'
@@ -29,7 +31,9 @@ type OpsData = {
 }
 
 /** 每一块的取数函数。测试注入会抛错的那一个，来验证其余几块不受牵连。 */
-export type OpsSources = { [K in keyof OpsData]: () => Promise<OpsData[K]> }
+export type OpsSources = Omit<{ [K in keyof OpsData]: () => Promise<OpsData[K]> }, 'host'> & {
+  host: (range: OpsRange) => Promise<OpsHost>
+}
 
 /** 任何一块最多等这么久。数据库挂起时查询不会自己回来，而那正是最需要看其余几块的时候。 */
 const BLOCK_TIMEOUT_MS = 8_000
@@ -72,6 +76,7 @@ async function settle<T>(
 export async function buildOpsSnapshot(
   sources: OpsSources = defaultSources,
   timeoutMs: number = BLOCK_TIMEOUT_MS,
+  range: OpsRange = DEFAULT_OPS_RANGE,
 ): Promise<OpsSnapshot> {
   const [queue, database, backup, services, host, containers, api, deployments] = await Promise.all(
     [
@@ -79,7 +84,7 @@ export async function buildOpsSnapshot(
       settle('database', sources.database, timeoutMs),
       settle('backup', sources.backup, timeoutMs),
       settle('services', sources.services, timeoutMs),
-      settle('host', sources.host, timeoutMs),
+      settle('host', () => sources.host(range), timeoutMs),
       settle('containers', sources.containers, timeoutMs),
       settle('api', sources.api, timeoutMs),
       settle('deployments', sources.deployments, timeoutMs),
@@ -148,8 +153,16 @@ function optionalNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null
 }
 
-/** 每分钟一条、留 7 天，原样给前端是一万个点；按半小时取平均后三百多个，趋势一点不少。 */
-async function readHost(): Promise<OpsHost> {
+const HOST_RANGE_QUERY: Record<OpsRange, { windowSeconds: number; bucketSeconds: number }> = {
+  '1h': { windowSeconds: 60 * 60, bucketSeconds: 60 },
+  '6h': { windowSeconds: 6 * 60 * 60, bucketSeconds: 5 * 60 },
+  '24h': { windowSeconds: 24 * 60 * 60, bucketSeconds: 15 * 60 },
+  '7d': { windowSeconds: 7 * 24 * 60 * 60, bucketSeconds: 30 * 60 },
+}
+
+/** 短窗保留分钟级变化，长窗逐级降采样，避免一次看板刷新返回上万点。 */
+async function readHost(range: OpsRange): Promise<OpsHost> {
+  const { windowSeconds, bucketSeconds } = HOST_RANGE_QUERY[range]
   const { db } = getDbHandle()
   const [latestRaw, seriesRaw] = await Promise.all([
     db.execute(sql`
@@ -164,12 +177,12 @@ async function readHost(): Promise<OpsHost> {
     `),
     db.execute(sql`
       SELECT
-        EXTRACT(EPOCH FROM date_bin('30 minutes', sampled_at, TIMESTAMPTZ '2000-01-01')) * 1000 AS at,
+        EXTRACT(EPOCH FROM date_bin(make_interval(secs => ${bucketSeconds}), sampled_at, TIMESTAMPTZ '2000-01-01')) * 1000 AS at,
         AVG(1 - disk_available_bytes::double precision / disk_total_bytes) AS disk_used_ratio,
         AVG(mem_available_bytes::double precision / mem_total_bytes) AS mem_available_ratio,
         AVG(cpu_busy_ratio) AS cpu_busy_ratio
       FROM host_samples
-      WHERE sampled_at >= NOW() - INTERVAL '7 days'
+      WHERE sampled_at >= NOW() - make_interval(secs => ${windowSeconds})
       GROUP BY 1
       ORDER BY 1 ASC
     `),
@@ -194,6 +207,7 @@ async function readHost(): Promise<OpsHost> {
     : null
   return {
     latest,
+    bucket_ms: bucketSeconds * 1000,
     series: (seriesRaw as unknown as Array<Record<string, unknown>>).map((point) => ({
       at: Math.round(Number(point.at)),
       disk_used_ratio: Number(point.disk_used_ratio),

@@ -17,6 +17,27 @@ export function SettingsIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** 礼物盒：限时免费这类「这次不收钱」的标记。 */
+export function GiftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.8}
+      {...props}
+    >
+      <path d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8" />
+      <path d="M3 8h18v4H3z" />
+      <path d="M12 8v13" />
+      <path d="M12 8H7.5a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8z" />
+      <path d="M12 8h4.5a2.5 2.5 0 0 0 0-5C13 3 12 8 12 8z" />
+    </svg>
+  )
+}
+
 export function StarIcon({
   filled = false,
   ...props

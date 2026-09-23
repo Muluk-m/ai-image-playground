@@ -7,8 +7,13 @@ import {
   type InspirationStatus,
 } from '@image-playground/shared'
 import {
+  DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
+  OPS_RANGE_LABEL,
+  OPS_RANGES,
+  type OpsRange,
+  parseOpsRange,
   parseRange,
   parseSort,
   RANGE_LABEL,
@@ -19,10 +24,14 @@ import {
   type SortKey,
 } from '../../contracts'
 
-export type { Range, SortKey }
+export type { OpsRange, Range, SortKey }
 export {
+  DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
+  OPS_RANGE_LABEL,
+  OPS_RANGES,
+  parseOpsRange,
   parseRange,
   parseSort,
   RANGE_LABEL,
@@ -77,6 +86,14 @@ export interface OverviewSearch {
 
 export function parseOverviewSearch(input: Record<string, unknown>): OverviewSearch {
   return input.range === undefined ? {} : { range: parseRange(input.range) }
+}
+
+export interface OpsSearch {
+  range?: OpsRange
+}
+
+export function parseOpsSearch(input: Record<string, unknown>): OpsSearch {
+  return input.range === undefined ? {} : { range: parseOpsRange(input.range) }
 }
 
 export interface UsersSearch {

@@ -38,11 +38,15 @@ export function returnQueuedToDraft(
   for (const reference of returned.flatMap((one) => one.references)) {
     if (references.length >= AGENT_TURN_MAX_REFERENCES) break
     if (references.some((one) => one.id === reference.imageId)) continue
+    // 按 id 发出去的那几张退回来仍然只有 id：写成画布里的那句 `aip-media:`，
+    // 胶囊与遮罩编辑器照旧按同一条路取图。
     references.push({
       id: reference.imageId,
-      dataUrl: reference.dataUrl,
+      dataUrl: 'dataUrl' in reference ? reference.dataUrl : `aip-media:${reference.mediaId}`,
       ...(reference.name ? { name: reference.name } : {}),
-      ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+      ...('maskDataUrl' in reference && reference.maskDataUrl
+        ? { maskDataUrl: reference.maskDataUrl }
+        : {}),
     })
   }
   return { ...draft, prompt, references }

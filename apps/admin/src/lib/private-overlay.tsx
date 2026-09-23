@@ -8,7 +8,9 @@ export interface PrivateAdminUserSummary {
   primary: string
   secondary: string
   tone?: 'default' | 'warning'
-  /** 会员档位，用来在列表里画等级徽标；缺省当没有订阅。 */
+  /** 会员视觉由收费 overlay 提供，公开 Admin 只负责排版，避免复制档位配色与图标。 */
+  accent?: string
+  badge?: ReactNode
 }
 
 export interface PrivateAdminOverlay {

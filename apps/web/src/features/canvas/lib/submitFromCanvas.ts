@@ -19,6 +19,7 @@ import {
   snapshotParams,
 } from './canvasTaskRuntime'
 import type { CanvasEditor, PlaceholderView } from './editor'
+import type { Box } from './geometry'
 import {
   errorMessage,
   markPlaceholderStatus,
@@ -26,7 +27,12 @@ import {
   targetFromShape,
 } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
-import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
+import {
+  analyzeSelection,
+  type CanvasInputEntry,
+  rasterizeEntry,
+  rasterizeSelection,
+} from './rasterizeSelection'
 import { retryCanvasVideo } from './submitVideoFromCanvas'
 
 /**
@@ -126,21 +132,60 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
   }
 }
 
+/** 一批任务要发的东西（目标位置由 launchBatch 现算）。 */
+type BatchSpec = Omit<CanvasTaskSpec, 'target'>
+
+/**
+ * 发起一批：计费内置渠道把 n>1 合成一个 BFF 任务，让积分预留覆盖整批；其余按张 fan-out。
+ * 目标位置在每次发起前现算——占位框是同步建的，后一张自然避开前一张。
+ */
+function launchBatch(
+  editor: CanvasEditor,
+  spec: BatchSpec,
+  anchor: Box | null,
+  quantity: number,
+  billed: boolean,
+): void {
+  if (billed && quantity > 1) {
+    const [target] = computePlaceholderTargets(editor, anchor, 1)
+    void launchCanvasTask(editor, {
+      ...spec,
+      params: { ...spec.params, n: quantity },
+      target: target!,
+    })
+    return
+  }
+  for (const target of computePlaceholderTargets(editor, anchor, quantity))
+    void launchCanvasTask(editor, { ...spec, target })
+}
+
 /**
  * 创作模式统一生成入口（决策 4）：把选区内**每张图片各自**栅格化为独立参考图，
  * 凭数量决定文生图（空数组）或多图迭代（非空）——单一调用路径。发起即返回、支持并发。
  * BYOK 按图片 fan-out；计费内置渠道把完整数量作为一个 BFF 任务提交，确保服务端原子预留。
+ *
+ * `perImage`：选中的每张图各起一个任务（同一句提示词逐张跑），而不是把它们并成一次多图迭代。
+ * 这是「把这 12 张都改成 3:4」这类批量活的入口；结果各自落在源图附近，失败也只失败那一张。
  * 全程通过占位框 + toast 反馈，不抛出。
  */
-export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string): Promise<void> {
+export async function submitFromCanvas(
+  editor: CanvasEditor,
+  userPrompt: string,
+  opts: { perImage?: boolean } = {},
+): Promise<void> {
   const { showToast, params } = useStore.getState()
   const profile = getActiveApiProfile(useStore.getState().settings)
   const quantity = Math.max(1, params.n)
+  const plan = analyzeSelection(editor)
+  // 逐张模式只有在真有两张以上时才成立，一张图逐张就是普通的一次生成。
+  const perImageEntries = opts.perImage && plan && plan.entries.length > 1 ? plan.entries : null
+  const batches = perImageEntries?.length ?? 1
   // 内置渠道要经 BFF 的队列：没账号就只弹登录框，不建占位框也不 toast。
   if (profile.source === 'builtin-edge' && !requireAccount()) return
   const submissionGuard = getPrivateSubmissionGuard({
     model: clientProfileToApiProfile(profile).model,
-    quantity,
+    // 逐张模式一次要跑 张数 × n 张图，门禁要按整批的量判，否则积分不够时先发一半再报错。
+    quantity: quantity * batches,
   })
   if (submissionGuard.blocked) {
     showToast(
@@ -150,10 +195,44 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
     return
   }
   const trimmed = userPrompt.trim()
+  const billed = profile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
+  const specParams = snapshotParams()
+
+  if (perImageEntries && plan) {
+    const rasterized = await Promise.all(
+      perImageEntries.map(async (entry) => ({
+        entry,
+        dataUrl: await rasterizeEntry(editor, entry),
+      })),
+    )
+    const usable = rasterized.filter(
+      (one): one is { entry: CanvasInputEntry; dataUrl: string } => one.dataUrl !== null,
+    )
+    if (usable.length === 0) {
+      showToast(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }), 'error')
+      return
+    }
+    // 人话需求：画布文字标注与输入框合并（与合并模式同一条规则）。
+    const prompt = plan.annotated
+      ? [plan.annotationText, trimmed].filter(Boolean).join('\n')
+      : trimmed
+    for (const { entry, dataUrl } of usable)
+      launchBatch(
+        editor,
+        { prompt, annotated: plan.annotated, inputImageDataUrls: [dataUrl], params: specParams },
+        entry.box,
+        quantity,
+        billed,
+      )
+    // 少数几张栅格化不了：已发的照发，漏掉的说清楚，不假装整批都发了。
+    if (usable.length < perImageEntries.length)
+      showToast(i18next.t('submit.rasterizePartial', { ns: 'canvas' }), 'info')
+    return
+  }
 
   const selection = await rasterizeSelection(editor)
   // 守卫：选中了图片但栅格化全部失败 → 明确报错，绝不静默降级成文生图。
-  if (!selection && analyzeSelection(editor)) {
+  if (!selection && plan) {
     showToast(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }), 'error')
     return
   }
@@ -168,34 +247,18 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
     ? [selection.annotationText, trimmed].filter(Boolean).join('\n')
     : trimmed
 
-  // BYOK 保持一图一任务。计费内置渠道必须用一个 n=N 的 BFF 任务，让积分预留覆盖整批。
-  const specParams = snapshotParams()
-  // 空位搜索与智能体那条路同一个入口：目标彼此不重叠，也不压住画布上已有的元素。
-  const targets = computePlaceholderTargets(editor, selection?.bounds ?? null, quantity)
-  if (
-    profile.source === 'builtin-edge' &&
-    isClientCapabilityEnabled('billing:credits') &&
-    quantity > 1
-  ) {
-    void launchCanvasTask(editor, {
-      prompt,
-      annotated: selection?.annotated ?? false,
-      inputImageDataUrls,
-      params: { ...specParams, n: quantity },
-      target: targets[0]!,
-    })
-    return
-  }
-
-  for (const target of targets) {
-    void launchCanvasTask(editor, {
+  launchBatch(
+    editor,
+    {
       prompt,
       annotated: selection?.annotated ?? false,
       inputImageDataUrls,
       params: specParams,
-      target,
-    })
-  }
+    },
+    selection?.bounds ?? null,
+    quantity,
+    billed,
+  )
 }
 
 /**
