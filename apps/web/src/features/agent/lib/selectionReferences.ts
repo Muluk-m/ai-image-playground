@@ -1,7 +1,13 @@
-import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { type MarkRenderer, renderMarkedImage, selectedMarkIds } from './markedReferences'
-import { type AgentDraft, removeReference } from './references'
+import {
+  type AgentDraft,
+  type AgentReference,
+  hasRoomFor,
+  INLINE_ONLY,
+  type ReferenceTransport,
+  removeReference,
+} from './references'
 
 /** 画布上选中的一张图，连同压在它上面、也被选中的批注。 */
 interface SelectedImage {
@@ -43,14 +49,15 @@ interface Synced {
  * 「自动带的」除了本模块记下的，还认草稿里标着 `origin: 'selection'` 的：输入框重挂、
  * 发送失败放回来的草稿，本模块的记账已经归零，只有草稿自己还记得。
  *
- * 一轮最多带 `AGENT_TURN_MAX_REFERENCES` 张：服务端对这个数量是硬校验，超出去的那几张
- * 会让整轮起轮以 400 被打回。放不下的既不进草稿也不记账——腾出位置后下一次同步再带进来。
+ * 放得下多少由 `hasRoomFor` 定：按 id 发的圈选图可以很多，只能内联的仍然有限；服务端对两个数
+ * 都是硬校验。放不下的既不进草稿也不记账——腾出位置后下一次同步再带进来。
  */
 function syncSelected(
   draft: AgentDraft,
   selected: readonly SelectedImage[],
   remembered: ReadonlySet<string>,
   dismissed: ReadonlySet<string>,
+  transport: ReferenceTransport,
 ): Synced {
   const ids = new Set(selected.map((one) => one.imageId))
   const auto = new Set(remembered)
@@ -80,18 +87,17 @@ function syncSelected(
       result = withDataUrl(result, image.imageId, image.dataUrl)
       continue
     }
-    if (result.references.length >= AGENT_TURN_MAX_REFERENCES) {
+    const reference: AgentReference = {
+      id: image.imageId,
+      dataUrl: image.dataUrl,
+      origin: 'selection',
+    }
+    if (!hasRoomFor(result.references, reference, transport)) {
       overflow += 1
       continue
     }
     next.add(image.imageId)
-    result = {
-      ...result,
-      references: [
-        ...result.references,
-        { id: image.imageId, dataUrl: image.dataUrl, origin: 'selection' },
-      ],
-    }
+    result = { ...result, references: [...result.references, reference] }
   }
   return { draft: result, auto: next, dismissed: refused, overflow }
 }
@@ -118,6 +124,8 @@ export interface SelectionReferences {
    * `scope` 是这份草稿的身份。这套记账只对当初那份草稿成立，`scope` 一变先全部归零再同步：
    * 换了草稿还拿旧账去对，同一个 id 在新草稿里被手动 `@` 过就会被当成自动引用撤走。
    *
+   * `transport` 决定放得下多少（见 `hasRoomFor`）；不给就一律按内联算，与从前一样紧。
+   *
    * 返回这次因为满了没带进去的张数，调用方据此告诉用户；0 表示选区整个带上了。
    */
   follow(
@@ -125,6 +133,7 @@ export interface SelectionReferences {
     update: (change: (draft: AgentDraft) => AgentDraft) => void,
     renderer?: MarkRenderer,
     scope?: string,
+    transport?: ReferenceTransport,
   ): number
   /**
    * 草稿整份被发送收走了。引用区跟着空掉不是用户在拒绝，所以只作废 auto 记账，
@@ -154,7 +163,7 @@ export function createSelectionReferences(): SelectionReferences {
       auto = new Set()
     },
 
-    follow(doc, update, renderer, scope) {
+    follow(doc, update, renderer, scope, transport = INLINE_ONLY) {
       if (scope !== scoped) {
         scoped = scope
         auto = new Set()
@@ -165,7 +174,7 @@ export function createSelectionReferences(): SelectionReferences {
       current = key
       let overflow = 0
       update((draft) => {
-        const synced = syncSelected(draft, selected, auto, dismissed)
+        const synced = syncSelected(draft, selected, auto, dismissed, transport)
         auto = synced.auto
         dismissed = synced.dismissed
         overflow = synced.overflow
