@@ -129,17 +129,20 @@ afterEach(() => {
 })
 
 describe('提示词编辑器 · 提示词与 DOM 同步', () => {
-  it('在句中打字，字落在光标处，光标跟着走到它后面', () => {
+  it('在句中打字：字落在光标处，光标跟着走，浏览器建的节点原样留着', () => {
     mount(<Harness initial="你好" />)
     const el = editor()
     el.focus()
+    // 输入法的组字就挂在这个节点上：编辑器要是重画一次，节点换了对象，组字会当场断掉。
+    const typing = el.firstChild as Text
     typeInto((target) => {
-      target.textContent = '你在好'
+      typing.data = '你在好'
       setContentEditableCursor(target, 2)
     })
 
     expect(editor().textContent).toBe('你在好')
     expect(getContentEditableSelection(editor())).toEqual({ start: 2, end: 2 })
+    expect(editor().firstChild).toBe(typing)
   })
 
   it('外部写进来的提示词在一次空转输入之后仍会渲染', () => {
@@ -276,6 +279,23 @@ describe('提示词编辑器 · 复制粘贴', () => {
     const chip = editor().querySelector<HTMLElement>('.mention-tag')
     expect(chip?.dataset.mentionText).toBe(MENTION_1)
     expect(editor().textContent).toBe('前@图1后')
+  })
+
+  it('只选中一个胶囊时复制胶囊本身，两边的空白不跟着走', () => {
+    const clipboard = stubClipboard()
+    mount(<Harness initial={`前 ${MENTION_1} 后`} labels={oneImage} referenceIds={['img-a']} />)
+    const source = editor()
+    source.focus()
+    // 双击胶囊或拖过它的边缘就是这个选区：胶囊连着两边的空格。
+    act(() => setContentEditableSelection(source, { start: 1, end: '前 @图1 '.length }))
+    fire(source, 'copy', clipboard)
+
+    expect(clipboard.getData('text/plain')).toBe('@图1')
+
+    mount(<Harness key="target" initial="" labels={oneImage} referenceIds={['img-a']} />)
+    fire(editor(), 'paste', clipboard)
+
+    expect(editor().textContent).toBe('@图1')
   })
 
   it('粘到另一个输入框时按图片身份重挂序号，不照搬序号', () => {

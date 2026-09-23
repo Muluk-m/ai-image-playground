@@ -87,8 +87,6 @@ export interface PromptEditorQuery {
   /** 触发字符在可见文本里的下标 */
   readonly start: number
   readonly query: string
-  /** 可见文本坐标系里的光标 */
-  readonly cursor: number
   /** 光标相对输入框左边缘的像素偏移，用来吊菜单 */
   readonly left: number
 }
@@ -285,7 +283,8 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
       first.splitText(command.length)
       const element = document.createElement('span')
       element.contentEditable = 'false'
-      element.className = 'mention-tag agent-skill-mention'
+      // 胶囊里放的是调用方的组件，样式与查找都认 `data-prompt-command` 这一个钩子。
+      element.className = 'mention-tag'
       element.dataset.mentionText = command
       element.dataset.mentionLabel = command
       element.dataset.promptCommand = command
@@ -441,15 +440,21 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     const from = getPromptIndexFromVisibleIndex(prompt, selection.start, labelFor)
     const to = getPromptIndexFromVisibleIndex(prompt, selection.end, labelFor)
     const canonical = prompt.slice(from, to)
+    const selected = getPromptMentionParts(canonical, labelFor)
+    // 双击或拖过胶囊边缘会把两边的空白一起选上：只选中一个胶囊时复制胶囊本身，
+    // 别把空白也带走——两份负载都按这一份算，否则粘回来又多出那两个空格。
+    const meaningful = selected.filter((part) => part.type === 'mention' || part.text.trim())
+    const copied =
+      meaningful.length === 1 && meaningful[0]?.type === 'mention' ? meaningful : selected
     // 序号换成图片身份：粘到别的输入框才认得出是同一张图，认不出就留下这一刻的显示文字。
-    const parts = getPromptMentionParts(canonical, labelFor).map<PromptClipboardPart>((part) => {
+    const parts = copied.map<PromptClipboardPart>((part) => {
       const imageId = part.type === 'mention' ? referenceIds[part.imageIndex] : undefined
       return imageId
         ? { type: 'mention', imageId, label: part.text }
         : { type: 'text', text: part.text }
     })
     event.clipboardData.setData(PROMPT_CLIPBOARD_TYPE, JSON.stringify({ parts }))
-    event.clipboardData.setData('text/plain', getVisiblePrompt(canonical, labelFor))
+    event.clipboardData.setData('text/plain', copied.map((part) => part.text).join(''))
     event.preventDefault()
     return selection
   }
@@ -481,12 +486,12 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     if (isCursorInSelectedImageMention(value, caret.start, labels)) return null
     const mention = getAtImageQuery(visible, caret.start)
     if (mention) {
-      return { kind: 'mention', ...mention, cursor: caret.start, left: caret.left }
+      return { kind: 'mention', ...mention, left: caret.left }
     }
     // 已经提升成胶囊的命令是一个整体：光标停在它里面才不开菜单，句中后面的 `/` 照常查询。
     if (command && caret.start > 0 && caret.start <= command.length) return null
     const parsed = options.parseCommand?.(visible, caret.start)
-    return parsed ? { kind: 'command', ...parsed, cursor: caret.start, left: caret.left } : null
+    return parsed ? { kind: 'command', ...parsed, left: caret.left } : null
   })()
 
   const portals = chips.map((chip) =>
@@ -531,7 +536,16 @@ type PromptEditorProps = {
   disabled?: boolean
 } & Omit<
   ComponentPropsWithoutRef<'div'>,
-  'children' | 'contentEditable' | 'onInput' | 'onSelect' | 'onKeyDown' | 'onPaste' | 'onCopy'
+  | 'children'
+  | 'contentEditable'
+  | 'onInput'
+  | 'onSelect'
+  | 'onKeyDown'
+  | 'onPaste'
+  | 'onCopy'
+  | 'onCut'
+  | 'onCompositionStart'
+  | 'onCompositionEnd'
 >
 
 export default function PromptEditor({
