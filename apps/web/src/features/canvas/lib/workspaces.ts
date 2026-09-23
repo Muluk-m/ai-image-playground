@@ -325,6 +325,15 @@ function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
   return value
 }
 
+/**
+ * 已经打开的那个工作区的云同步会话；还没打开任何工作区时是 undefined。
+ * 只读：不像 `currentCanvasWorkspace()` 那样顺手建一个——在发送路径上建工作区会抢在
+ * 首条消息绑定画布之前占住 `current`，绑定随之失败。
+ */
+export function openCanvasCloudSession(): CloudProjectSession | undefined {
+  return current?.cloud
+}
+
 export function currentCanvasWorkspace(): CanvasWorkspace {
   ensureWorkspaceScope()
   if (!current) {

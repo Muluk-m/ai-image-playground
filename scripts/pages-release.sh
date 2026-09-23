@@ -37,12 +37,15 @@ case "$edition" in
     bundle=public
     app=web
     deployment_name=internal-web
+    search_indexing=false
     ;;
+  # Only the public product site is meant to show up in search results.
   paid)
     prefix=PAID
     bundle=private
     app=web
     deployment_name=paid-web
+    search_indexing=true
     ;;
   # The test site mirrors what ships to muvloom.online, so it is the paid shape.
   test)
@@ -50,12 +53,14 @@ case "$edition" in
     bundle=private
     app=web
     deployment_name=test-web
+    search_indexing=false
     ;;
   admin)
     prefix=ADMIN
     bundle=private
     app=admin
     deployment_name=paid-admin
+    search_indexing=false
     ;;
   *) usage ;;
 esac
@@ -99,7 +104,11 @@ esac
 BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
 LOCAL_COMPATIBILITY=$(edition_var "$prefix" LOCAL_COMPATIBILITY)
-export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID LOCAL_COMPATIBILITY
+# The web build writes canonical URLs, hreflang, sitemap.xml and robots.txt from these two.
+PUBLIC_ORIGIN=$public_origin
+SEARCH_INDEXING=$search_indexing
+export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID LOCAL_COMPATIBILITY \
+  PUBLIC_ORIGIN SEARCH_INDEXING
 unset EXTRA_ASSETS_DIR NOTIFY_UPDATE
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)
 if [ -n "$extra_assets_dir" ]; then

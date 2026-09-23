@@ -1,6 +1,8 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { accountRequired, requireAccount } from './auth/loginPrompt'
+import { queuePendingSubmission } from './auth/pendingSubmission'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
@@ -421,7 +423,7 @@ function orderImagesWithMaskFirst(
 }
 
 /** 一级入口四个：创作、探索、项目、资产。画布是项目的实例，不是导航项。 */
-export const APP_MODES = ['image', 'canvas', 'explore', 'library'] as const
+export const APP_MODES = ['image', 'canvas', 'explore', 'library', 'tools'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
@@ -441,10 +443,13 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   get library() {
     return i18next.t('appMode.library', { ns: 'store' })
   },
+  get tools() {
+    return i18next.t('appMode.tools', { ns: 'store' })
+  },
 }
 
 /** 侧栏顶部列的三项。画布不在这里：它是下面那段列表，「全部」才去项目页。 */
-export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library']
+export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library', 'tools']
 
 /** 工作台入口：主区本身就要吃掉整屏宽度，侧栏在这里不出现。 */
 export function isWorkbenchMode(mode: AppMode): boolean {
@@ -1354,6 +1359,14 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const submitView = clientProfileToApiProfile(profile)
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []
+
+  // Login reloads the workspace after adopting anonymous data. Keep the exact attempted request,
+  // including references and parameters, so the original click is sent once in the new scope.
+  if (profile.source === 'builtin-edge' && accountRequired()) {
+    await queuePendingSubmission({ kind: 'image', input })
+    requireAccount()
+    return []
+  }
 
   // 持久化输入图片到 IndexedDB（此前只在内存缓存中）
   for (const img of input.inputImages) {

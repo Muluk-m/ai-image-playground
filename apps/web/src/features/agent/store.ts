@@ -33,6 +33,7 @@ import type { CanvasProject } from '../canvas/lib/projectRepository'
 import {
   bindNewCanvasWorkspace,
   currentCanvasWorkspace,
+  openCanvasCloudSession,
   selectCanvasWorkspace,
 } from '../canvas/lib/workspaces'
 import {
@@ -74,6 +75,13 @@ import {
   removeQueuedMessage,
   returnQueuedToDraft,
 } from './lib/messageQueue'
+import {
+  bindOutgoingConversation,
+  forgetOutgoing,
+  type OutgoingMessage,
+  outgoingMessages,
+  rememberOutgoing,
+} from './lib/outgoingJournal'
 import {
   answerableClarificationId,
   dropUnsettledMessages,
@@ -226,6 +234,11 @@ export interface AgentState {
     onAccepted?: () => void,
     /** 这一轮要创作什么；缺席即沿用会话此刻的那个。插话不带它——mode 是起轮时定下的。 */
     mode?: AgentMode,
+    /**
+     * 这条消息的客户端 id。刷新后重发本机存着的那条时带上原来的那个：服务端按它认出是
+     * 同一条，不会排第二次，也不会重复扣费。缺席即新生成一个。
+     */
+    clientMessageId?: string,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -273,6 +286,29 @@ const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   messages: dropUnsettledMessages(state.messages),
 })
 
+/**
+ * 画布上的图换成云端媒体引用（`aip-media:`），`agentClient` 发送时就只带 id。
+ *
+ * 本机画布存的是原图 data URL——用户传的图、智能体产物落画布时都是整张原图——上传之后 id 只在
+ * 同步会话的绑定表里。不换的话一轮十张主图就是几十 MB 的请求体，慢，然后失败。
+ * 画过遮罩、烧过批注的那张是新像素，云端没有它，照旧内联；认不出的（没开云项目、同步失败）也照旧。
+ */
+async function withCloudMedia(
+  references: readonly AgentTurnReference[],
+): Promise<readonly AgentTurnReference[]> {
+  const cloud = openCanvasCloudSession()
+  const local = references.flatMap((one) =>
+    'dataUrl' in one && !one.maskDataUrl && one.dataUrl.startsWith('data:image/')
+      ? [one.dataUrl]
+      : [],
+  )
+  if (!cloud || local.length === 0) return references
+  const ids = await cloud.mediaIdsFor(local)
+  return references.map((one) => {
+    const id = 'dataUrl' in one && !one.maskDataUrl ? ids.get(one.dataUrl) : undefined
+    return id ? { ...one, dataUrl: `aip-media:${id}` } : one
+  })
+}
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
 
@@ -907,7 +943,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
     void delivery.restore(get().messages)
     if (hasPendingJobs(get().messages)) watchJobs(conversationId)
     const active = state.activeTurn?.turnId ?? turnId
-    if (!active) return
+    if (!active) {
+      // 历史读回来了、也没有在跑的轮：发送途中丢掉的那几条现在补发。
+      const project = currentCanvasProject()
+      if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
+      return
+    }
     set({ turn: 'running', error: null, activeTurn: { turnId: active } })
     const turnDelivery = delivery.beginTurn()
     // 快照先行、增量接在它的游标之后。游标只对快照里那一轮成立：409 兜底给的轮可能已经跑完，
@@ -919,6 +960,46 @@ export const useAgentStore = create<AgentState>((set, get) => {
       null,
       turnDelivery,
     )
+  }
+
+  /**
+   * 服务端历史里已经有这一句了。文本与带图张数都对得上就算同一条：本机那份是交出去
+   * 之后、确认之前留下的备份，服务端收下了就不必再留。
+   */
+  const deliveredAlready = (message: OutgoingMessage) =>
+    get().messages.some(
+      (one) =>
+        one.kind === 'text' &&
+        one.role === 'user' &&
+        !one.pending &&
+        one.text === message.text &&
+        (one.references?.length ?? 0) === message.references.length,
+    )
+
+  const resuming = new Set<string>()
+  /**
+   * 交出去却没等到服务端应答的那几条（发送途中刷新、断网）：本机存着，回来时原样重发。
+   * 带的是原来那个 `clientMessageId`，服务端按它认出是同一条——真收下过就不会排第二次。
+   */
+  const resumeOutgoing = async (projectId: string) => {
+    if (resuming.has(projectId)) return
+    resuming.add(projectId)
+    try {
+      for (const message of await outgoingMessages(projectId)) {
+        // 项目换了就停：这几条属于刚才那个项目，发到别处去就串了。
+        if (currentCanvasProject()?.id !== projectId) return
+        if (deliveredAlready(message)) {
+          await forgetOutgoing(projectId, message.id)
+          continue
+        }
+        // 这个会话正跑着一轮：跑的可能就是它。等这一轮收尾后的下一次打开再说，
+        // 本机这份留着，丢不了。
+        if (get().turn === 'running') return
+        await get().send(message.text, message.references, undefined, message.mode, message.id)
+      }
+    } finally {
+      resuming.delete(projectId)
+    }
   }
 
   /**
@@ -1002,17 +1083,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
     onAccepted: (() => void) | undefined,
     mode: AgentMode,
     clarificationAnswer: boolean,
+    clientMessageId: string,
   ) => {
     const current = () => get().conversationId === conversationId
     try {
+      const sent = await withCloudMedia(references)
       const outcome = await startTurn(
         conversationId,
         text,
-        references,
+        sent,
         currentTurnParams(),
         mode,
         undefined,
-        undefined,
+        clientMessageId,
         clarificationAnswer,
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
@@ -1022,7 +1105,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       if (outcome.kind === 'alreadyRunning') {
         // 老服务端没有排队：忙时照旧是插话。
-        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, references)
+        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, sent)
       } else if (
         outcome.kind === 'frames' ||
         (outcome.kind === 'queued' && outcome.body.state === 'consumed')
@@ -1070,7 +1153,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
   /** 展示项目时属于面板自己的那几步；次序归 `projectLifecycle`。 */
   const showPanel: ShowProjectPanel = {
     resetDelivery: () => void resetDelivery(),
-    reset: (project) =>
+    reset: (project) => {
       set({
         conversationId: project.conversationId,
         messages: [],
@@ -1087,7 +1170,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
         loaded: true,
         tab: 'chat',
         open: true,
-      }),
+      })
+      // 会话都还没建起来就断在半路的那几条：这里没有历史要等，直接补发。
+      if (!project.conversationId) void resumeOutgoing(project.id)
+    },
     open: (conversationId) => void openConversation(conversationId),
   }
   const createProject = async (reuseEmpty = true, kind: ProjectKind = 'image') => {
@@ -1216,6 +1302,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
         get().refreshConversations(),
         ...(conversationId ? [openConversation(conversationId)] : []),
       ])
+      // 还没有会话的项目不会走 `openConversation`，补发的入口在这里。
+      const project = currentCanvasProject()
+      if (project && !project.conversationId) await resumeOutgoing(project.id)
     },
 
     async refreshConversations() {
@@ -1360,7 +1449,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     },
 
-    async send(text, references = [], onAccepted, mode = get().mode) {
+    async send(text, references = [], onAccepted, mode = get().mode, clientMessageId) {
       if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
       const trimmed = text.trim()
       if (!trimmed) return
@@ -1372,22 +1461,48 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const conversationId = get().conversationId
       // 末尾还有没作答的澄清：这句话就是在回答它（卡片与输入框同一个口径），服务端把它排在队首。
       const clarificationAnswer = answerableClarificationId(get().messages) !== null
-      if (get().turn === 'running' && conversationId) {
-        await queueMessage(
+      const sourceProject = currentCanvasProject()
+      const messageId = clientMessageId ?? crypto.randomUUID()
+      // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
+      // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
+      const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
+      if (journaled)
+        await rememberOutgoing({
+          id: messageId,
+          projectId: journaled.projectId,
           conversationId,
-          active,
-          trimmed,
-          references,
-          onAccepted,
+          text: trimmed,
+          references: [...references],
           mode,
           clarificationAnswer,
-        )
+          createdAt: Date.now(),
+        })
+      const settleJournal = () => {
+        if (journaled) void forgetOutgoing(journaled.projectId, journaled.id)
+      }
+      if (get().turn === 'running' && conversationId) {
+        try {
+          await queueMessage(
+            conversationId,
+            active,
+            trimmed,
+            references,
+            onAccepted,
+            mode,
+            clarificationAnswer,
+            messageId,
+          )
+        } finally {
+          settleJournal()
+        }
         return
       }
-      if (get().turn === 'running') return
+      if (get().turn === 'running') {
+        settleJournal()
+        return
+      }
 
       // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
-      const sourceProject = currentCanvasProject()
       const firstTurn = get().messages.length === 0
       // 敲下回车这一刻消息就上屏，不等服务端：起轮要过网络，空着几秒像没反应。
       pendingSeq += 1
@@ -1460,6 +1575,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
             safeLocalStorage.setItem(conversationKey(), target)
             bindNewAgentDraft(target, currentCanvasProject()?.id)
             set({ conversationId: target })
+            // 会话是刚刚建出来的：本机那份补上它，重发时才知道发去哪个会话。
+            if (journaled) await bindOutgoingConversation(journaled.projectId, journaled.id, target)
             if (sourceProject?.cloud && cloudProjectsEnabled()) {
               let history: Awaited<ReturnType<typeof fetchMessages>>
               try {
@@ -1496,11 +1613,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
           outcome = await startTurn(
             target,
             trimmed,
-            references,
+            await withCloudMedia(references),
             turnParams,
             mode,
             undefined,
-            undefined,
+            messageId,
             clarificationAnswer,
           )
         } catch (thrown) {
@@ -1571,6 +1688,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           setTimeout(() => void get().refreshConversations(), titleRewriteMs)
         }
       } finally {
+        settleJournal()
         if (pendingStart === submission) pendingStart = null
       }
     },

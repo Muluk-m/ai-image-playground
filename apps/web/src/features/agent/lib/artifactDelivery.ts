@@ -6,6 +6,7 @@ import {
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
 import { artifactBitmap } from './artifactSource'
 import {
@@ -68,9 +69,25 @@ async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact
   return placedArtifact(artifact, await artifactBitmap(artifact))
 }
 
-/** 这张卡有东西要落画布：产物、一条排好的时间线，或者一批对已有对象的改动。 */
+/**
+ * 取回来的那张网图在画布上的对象 id。
+ *
+ * 不能直接用媒体 id：同一个地址取两次是同一张媒体，而画布对象 id 必须只属于这一次调用，
+ * 否则第二次取图会被当成「已经在画布上」而整张丢掉。按调用编号就没有这个问题，重放同一条
+ * 结果卡也仍然算出同一个 id，不会落第二遍。
+ */
+export function fetchedCanvasId(toolCallId: string, index: number): string {
+  return `fetched_${toolCallId}_${index}`
+}
+
+/** 这张卡有东西要落画布：产物、取回来的网图、一条排好的时间线，或者一批对已有对象的改动。 */
 export function deliverable(message: AgentToolMessage): boolean {
-  return Boolean(message.artifacts?.length || message.timeline || message.canvasEdit)
+  return Boolean(
+    message.artifacts?.length ||
+      message.fetchedImages?.length ||
+      message.timeline ||
+      message.canvasEdit,
+  )
 }
 
 /** 落完之后镜头要带去的画布对象。 */
@@ -79,6 +96,8 @@ function deliveredIds(message: AgentToolMessage): string[] {
   // 改属性不产新对象，镜头带去被改的那几个。
   if (message.canvasEdit)
     return message.canvasEdit.edits.map((one: AgentCanvasEdit) => one.elementId)
+  if (message.fetchedImages?.length)
+    return message.fetchedImages.map((_, index) => fetchedCanvasId(message.toolCallId, index))
   return (message.artifacts ?? []).map((artifact) => artifact.artifactId)
 }
 
@@ -141,6 +160,29 @@ export function createArtifactDelivery(
       if (!canvas.editElements) return 'unavailable'
       const outcome = await canvas.editElements(message.canvasEdit)
       return current(origin) ? outcome : 'unavailable'
+    }
+    // 取回来的网图不经队列产物那条路：字节已经在这个人的媒体里，按 id 取回来直接落画布。
+    // 也不问 `syncArtifacts`——服务端那条只认生成任务的产出，这张图不属于任何任务。
+    if (message.fetchedImages?.length) {
+      const items = message.fetchedImages.map((image, index) => ({
+        image,
+        artifactId: fetchedCanvasId(message.toolCallId, index),
+      }))
+      // 重放同一条结果卡（续播、切回画布）不落第二遍：id 是算出来的，已经在画布上就认得出。
+      const missing = items.filter((one) => !canvas.has(one.artifactId))
+      if (!missing.length) return 'placed'
+      const placing = await Promise.all(
+        missing.map(async ({ image, artifactId }) => ({
+          artifactId,
+          dataUrl: await resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
+          name: image.name || i18next.t('fetchedImage.canvasName', { ns: 'agent' }),
+        })),
+      )
+      if (!current(origin)) return 'unavailable'
+      return await canvas.place(placing, {
+        anchorObjectId: message.anchorObjectId,
+        isCurrent: () => current(origin),
+      })
     }
     // 起跑时占的位先认领回来：它决定产物落在哪，也决定这一轮结束时谁该被收掉。
     const placeholderIds = (await claim(origin, message.id)) ?? []
@@ -302,15 +344,14 @@ export function createArtifactDelivery(
         if (
           message.kind !== 'tool' ||
           message.status !== 'succeeded' ||
-          !message.artifacts?.length ||
+          !(message.artifacts?.length || message.fetchedImages?.length) ||
           records.has(message.id)
         )
           continue
+        const placed = deliveredIds(message)
         changed(
           message.id,
-          target && message.artifacts.every((artifact) => target.has(artifact.artifactId))
-            ? 'placed'
-            : 'unavailable',
+          target && placed.every((objectId) => target.has(objectId)) ? 'placed' : 'unavailable',
         )
       }
     },
