@@ -99,7 +99,6 @@ export async function reuseCloudGeneration(source: CloudReuseSource, signal: Abo
     ),
     activeProfileId: profile.id,
   })
-  state.setReusedTaskApiProfile(null)
   state.setParams(params)
   state.setInputImages(inputs)
   state.setMaskDraft(

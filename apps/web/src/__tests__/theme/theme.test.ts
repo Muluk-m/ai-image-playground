@@ -10,7 +10,6 @@ import {
   setThemeChoice,
   subscribeTheme,
   THEME_STORAGE_KEY,
-  toggleTheme,
 } from '../../theme'
 import { THEME_BOOT_SCRIPT, THEME_COLORS } from '../../theme/bootScript'
 import { themeBootPlugin } from '../../theme/vitePlugin'
@@ -94,11 +93,11 @@ describe('没选过：跟随系统', () => {
 })
 
 describe('选过：固定在这台设备上', () => {
-  it('翻转固定为当前看到的相反一套，写进本机，之后不理会系统变化', () => {
+  it('选定一套就写进本机，之后不理会系统变化', () => {
     const system = stubSystem(false)
     dispose = initTheme()
 
-    toggleTheme()
+    setThemeChoice('dark')
 
     expect(getThemeChoice()).toBe('dark')
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
