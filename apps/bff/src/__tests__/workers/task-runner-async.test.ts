@@ -122,11 +122,11 @@ describe('async submit phase', () => {
 
     await runTask('flare-multi')
 
-    expect(await readTask('flare-multi')).toMatchObject({
-      status: 'completed',
-      invocations: 2,
-      taskIds: ['imgtask_1', 'imgtask_2'],
-    })
+    const row = await readTask('flare-multi')
+    expect(row).toMatchObject({ status: 'completed', invocations: 2 })
+    // 两次提交是并发发出去的，谁先回来落哪一位由网络决定：这一条要钉的是「两个上游任务号都记下了」，
+    // 不是它们的先后。钉顺序会让这条用例在 CI 上随机变红。
+    expect([...(row?.taskIds ?? [])].sort()).toEqual(['imgtask_1', 'imgtask_2'])
     const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'flare-multi'))
     expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
   })
