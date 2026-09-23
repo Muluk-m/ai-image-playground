@@ -10,7 +10,7 @@ import type { TaskParams } from '../../../types'
 import type { CanvasEditor, CanvasTaskMeta, PlaceholderView } from './editor'
 import type { Box } from './geometry'
 import { markPlaceholderStatus, settleGeneration, targetFromShape } from './placeholderShapeOps'
-import { computePlaceholderTargets, type PlacementTarget } from './placement'
+import { computePlaceholderTargets, type PlacementTarget, spreadTargets } from './placement'
 
 /**
  * 画布这一侧的生成宿主：占位框。`generationJob` 定好发几条、带什么幂等键、什么时候通知
@@ -109,6 +109,22 @@ export function resumedCanvasJob(
 }
 
 /**
+ * 这一条落在画布哪儿。预留框只够第一条用：重试要回到用户点的那个框、二次加工的框必须
+ * 压在源图上，所以扇出的第一条原样落进预留框；同一次提交扇出的第二条起再落在那儿就是
+ * 一摞互相挡着的占位框，改从预留框右侧依次找空位——与出片落图同一条规则（`spreadTargets`）。
+ * 没有预留框（生成栏）就按锚点现算一个。
+ */
+function placementTarget(
+  editor: CanvasEditor,
+  placement: CanvasPlacement,
+  index: number,
+): PlacementTarget {
+  if (!('target' in placement)) return computePlaceholderTargets(editor, placement.anchor, 1)[0]!
+  if (index === 0) return placement.target
+  return spreadTargets(editor, placement.target, 1)[0]!
+}
+
+/**
  * 抠图的后半程：模型只负责把背景换成纯色，真正的透明是在本地键出来的。
  *
  * 键失败（拿回来的背景不够纯、或者画布读不出像素）就**留着那张原图**并说一句：
@@ -142,10 +158,7 @@ export function canvasGenerationSink(
      */
     open(unit: GenerationUnit<CanvasJobContext>): CanvasJobHandle {
       const { placement, ...context } = unit.context
-      const target =
-        'target' in placement
-          ? placement.target
-          : computePlaceholderTargets(editor, placement.anchor, 1)[0]!
+      const target = placementTarget(editor, placement, unit.index)
       const taskId = crypto.randomUUID()
       const placeholderId = editor.createPlaceholder(target, {
         taskId,

@@ -78,19 +78,37 @@ export interface GenerationUnit<C> {
   inputImageDataUrls: string[]
   maskDataUrl?: string
   clientRequestId: string
+  /**
+   * 这一条是同一份变体扇出的第几条（0 起）。宿主按条开记录时要用它排开：画布只为整批
+   * 预留了一个框，第二条起再落在同一处就是一摞互相挡着的占位框。
+   */
+  index: number
   context: C
+}
+
+/** 重发要带的东西。工作台的输入图只存 id，位图得现从 IndexedDB 读回来。 */
+export interface GenerationResend {
+  /** 送给上游的那句：输入图的张数会改写 `@图N`，所以与输入图一起给。 */
+  prompt: string
+  inputImageDataUrls: string[]
+  maskDataUrl?: string
 }
 
 /** 一条已经有宿主记录的任务要接着跑什么。 */
 export interface GenerationResumption {
   settings: AppSettings
+  /** 续 poll 那条路送给上游的那句。重发那条路由 `resend` 一并给。 */
   prompt: string
   params: TaskParams
   /** 有它就跳过 submit 直接续 poll（不重传输入图）。 */
   requestId?: string
-  /** 没有 requestId 时重提交要带的东西：BFF 按幂等键去重，不会双份消耗上游配额。 */
-  inputImageDataUrls?: string[]
-  maskDataUrl?: string
+  /**
+   * 没有 requestId 时重提交要带的东西（BFF 按幂等键去重，不会双份消耗上游配额）。
+   * **现取这件事放在 module 里**：取不到也是这一次提交失败，要与请求失败走同一条
+   * 标错 + 结算通知，调用方自己 await 再 catch 就会漏掉那两个通知。
+   * 不给就是照原样重发一条文生图。
+   */
+  resend?: () => Promise<GenerationResend>
   clientRequestId?: string
 }
 
@@ -196,6 +214,7 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
         inputImageDataUrls: variant.inputImageDataUrls,
         ...(variant.maskDataUrl ? { maskDataUrl: variant.maskDataUrl } : {}),
         clientRequestId: reusable ?? crypto.randomUUID(),
+        index,
         context: variant.context,
       }
       const handle = sink.open(unit)
@@ -216,15 +235,21 @@ export function resumeGeneration<H>(
   report: GenerationReport<H>,
 ): Promise<void> {
   if (!input.requestId) {
+    const clientRequestId = input.clientRequestId ?? crypto.randomUUID()
+    const resend = input.resend
     return runUnit(
       input.settings,
-      {
-        prompt: input.prompt,
-        params: input.params,
-        inputImageDataUrls: input.inputImageDataUrls ?? [],
-        ...(input.maskDataUrl ? { maskDataUrl: input.maskDataUrl } : {}),
-        clientRequestId: input.clientRequestId ?? crypto.randomUUID(),
-        context: undefined,
+      async () => {
+        const sent = await resend?.()
+        return {
+          prompt: sent?.prompt ?? input.prompt,
+          params: input.params,
+          inputImageDataUrls: sent?.inputImageDataUrls ?? [],
+          ...(sent?.maskDataUrl ? { maskDataUrl: sent.maskDataUrl } : {}),
+          clientRequestId,
+          index: 0,
+          context: undefined,
+        }
       },
       handle,
       report,
@@ -248,11 +273,14 @@ export function resumeGeneration<H>(
 
 async function runUnit<H>(
   settings: AppSettings,
-  unit: GenerationUnit<unknown>,
+  source: GenerationUnit<unknown> | (() => Promise<GenerationUnit<unknown>>),
   handle: H,
   report: GenerationReport<H>,
 ): Promise<void> {
   await superviseGeneration(handle, report, async () => {
+    // 要发的东西可能得现取（续跑时输入图只存了 id，位图在 IndexedDB 里）：取不到也是
+    // 本次提交失败，与请求失败同一条标错和结算通知路径。
+    const unit = typeof source === 'function' ? await source() : source
     // 落盘失败也是本次提交失败：必须走同一条标错和结算通知路径，不能留一条永久 running 的任务。
     await report.persisted?.(handle)
     return callImageApi({

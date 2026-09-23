@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSignedIn } from '../../../../auth/loginPrompt'
+import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { retainCanvasInputs } from '../../../../features/canvas/lib/canvasGenerationSink'
-import type { CanvasEditor, PlaceholderView } from '../../../../features/canvas/lib/editor'
+import { CanvasEditor, type PlaceholderView } from '../../../../features/canvas/lib/editor'
 import { Box } from '../../../../features/canvas/lib/geometry'
 import { retryCanvasTask, submitFromCanvas } from '../../../../features/canvas/lib/submitFromCanvas'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../../../lib/apiProfiles'
@@ -162,5 +163,32 @@ describe('失败占位框的重试', () => {
     expect(store.showToast).toHaveBeenCalledWith(expect.stringContaining('输入图'), 'error')
     expect(createPlaceholder).not.toHaveBeenCalled()
     expect(deleteElement).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 计费整批的占位框持久化的是整批的 n；换到不计费 / 不支持原生 n 的口径再重试，
+   * 同一份参数会扇出成 n 条任务。n 个占位框不能全压在那一个预留框上——那样谁也收不回
+   * 自己的结果，用户看到的是一摞重叠的转圈框。
+   */
+  it('重试扇成多条：每条各占各的位，只有第一条落回预留框', async () => {
+    retainCanvasInputs('task-3', { inputImageDataUrls: ['data:image/png;base64,kept'] })
+    const doc = new CanvasDoc()
+    const editor = new CanvasEditor(doc)
+    doc.setViewport(4000, 3000)
+    const id = editor.createPlaceholder(
+      { x: 0, y: 0, w: 360, h: 360 },
+      { ...placeholder.meta, taskId: 'task-3', params: { ...DEFAULT_PARAMS, n: 3 } },
+    )
+
+    retryCanvasTask(editor, editor.getPlaceholder(id)!)
+
+    await vi.waitFor(() => expect(submitted).toHaveLength(3))
+    const boxes = editor.getPlaceholders().map((one) => new Box(one.x, one.y, one.w, one.h))
+    expect(boxes).toHaveLength(3)
+    for (const [index, box] of boxes.entries()) {
+      for (const other of boxes.slice(index + 1)) expect(box.collides(other)).toBe(false)
+    }
+    // 用户点重试的那个框仍然是这一批的落点。
+    expect(boxes.some((box) => box.x === 0 && box.y === 0)).toBe(true)
   })
 })
