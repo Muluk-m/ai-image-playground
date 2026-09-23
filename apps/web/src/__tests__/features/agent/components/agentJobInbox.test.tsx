@@ -5,20 +5,11 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentJobInbox from '../../../../features/agent/components/AgentJobInbox'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
 
-const store = vi.hoisted(() => ({
-  messages: [] as AgentPanelMessage[],
-  cancelJob: vi.fn(async (_messageId: string) => {}),
-  jobProgress: {} as Record<string, AgentBackgroundJobProgress>,
-  toolStartedAt: {} as Record<string, number>,
-}))
-
-vi.mock('../../../../features/agent/store', () => ({
-  useAgentStore: Object.assign((select: (state: typeof store) => unknown) => select(store), {
-    getState: () => store,
-  }),
-}))
+/** 取消走 store 的那个动作；这里只要看见它被叫到，真去取消是后台任务 module 的事。 */
+const cancelJob = vi.fn(async (_messageId: string) => {})
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -49,10 +40,8 @@ let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
 
 beforeEach(() => {
-  store.messages = []
-  store.jobProgress = {}
-  store.toolStartedAt = {}
-  store.cancelJob.mockClear()
+  useAgentStore.setState({ messages: [], jobProgress: {}, toolStartedAt: {}, cancelJob })
+  cancelJob.mockClear()
   focus.mockClear()
   focusPending.mockClear()
   focusPending.mockImplementation(() => true)
@@ -77,18 +66,20 @@ function rowButton(title: string): HTMLButtonElement {
 }
 
 it('stays out of the way when the conversation has no background jobs', () => {
-  store.messages = [
-    {
-      kind: 'text',
-      id: 'u',
-      turnId: 'turn-1',
-      role: 'user',
-      text: '你好',
-      streaming: false,
-    },
-    // 同步的调用（局部改图等）没有后台任务，不进收件箱。
-    job('sync', { status: 'succeeded', job: undefined }),
-  ]
+  useAgentStore.setState({
+    messages: [
+      {
+        kind: 'text',
+        id: 'u',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '你好',
+        streaming: false,
+      },
+      // 同步的调用（局部改图等）没有后台任务，不进收件箱。
+      job('sync', { status: 'succeeded', job: undefined }),
+    ],
+  })
   render()
   expect(host.textContent).toBe('')
 })
@@ -104,13 +95,17 @@ function tabButton(label: string): HTMLButtonElement {
 }
 
 it('shows how far the batch got and groups the running jobs by what they are doing', () => {
-  store.messages = [
-    job('1', {}),
-    job('2', { status: 'succeeded', artifacts: [IMAGE] }),
-    job('3', { status: 'failed', errorCode: 'cancelled' }),
-    job('4', {}),
-  ]
-  store.jobProgress = { '1': { stage: 'running', submittedAt: Date.now() - 5_000 } }
+  useAgentStore.setState({
+    messages: [
+      job('1', {}),
+      job('2', { status: 'succeeded', artifacts: [IMAGE] }),
+      job('3', { status: 'failed', errorCode: 'cancelled' }),
+      job('4', {}),
+    ],
+  })
+  useAgentStore.setState({
+    jobProgress: { '1': { stage: 'running', submittedAt: Date.now() - 5_000 } },
+  })
   render()
 
   const summary = host.querySelector('button[aria-expanded]')!
@@ -150,7 +145,7 @@ it('shows how far the batch got and groups the running jobs by what they are doi
 })
 
 it('collapses a group in place', () => {
-  store.messages = [job('1', {}), job('2', {})]
+  useAgentStore.setState({ messages: [job('1', {}), job('2', {})] })
   render()
   openInbox()
   expect(host.querySelectorAll('li')).toHaveLength(2)
@@ -164,10 +159,12 @@ it('collapses a group in place', () => {
 
 it('counts a job still waiting in the retry queue as running, not as finished', () => {
   // 重试队列里排着的那张还没拿到任务 id；算成已结束，顶上就会在还有活儿时说全干完了。
-  store.messages = [
-    job('1', { status: 'succeeded', artifacts: [IMAGE] }),
-    job('2', { status: 'queued', job: undefined }),
-  ]
+  useAgentStore.setState({
+    messages: [
+      job('1', { status: 'succeeded', artifacts: [IMAGE] }),
+      job('2', { status: 'queued', job: undefined }),
+    ],
+  })
   render()
 
   const summary = host.querySelector('button[aria-expanded]')!
@@ -179,7 +176,9 @@ it('counts a job still waiting in the retry queue as running, not as finished', 
 })
 
 it('locates a running job by its placeholder and a finished one by its artifacts', () => {
-  store.messages = [job('1', {}), job('2', { status: 'succeeded', artifacts: [IMAGE] })]
+  useAgentStore.setState({
+    messages: [job('1', {}), job('2', { status: 'succeeded', artifacts: [IMAGE] })],
+  })
   render()
   openInbox()
 
@@ -198,11 +197,13 @@ it('locates a running job by its placeholder and a finished one by its artifacts
 it('falls back to the anchor object when a running job has no placeholder after a refresh', () => {
   // 本地项目刷新或换设备后，在跑的任务要等交付才重新占位。
   focusPending.mockImplementation(() => false)
-  store.messages = [job('1', { anchorObjectId: 'source-image' }), job('2', {})]
+  useAgentStore.setState({ messages: [job('1', { anchorObjectId: 'source-image' }), job('2', {})] })
   // 服务端刚重启，执行器在重新接上上游：行里说的是重连，不是排队。
-  store.jobProgress = {
-    '1': { stage: 'submitted', submittedAt: Date.now(), phase: 'reconnecting' },
-  }
+  useAgentStore.setState({
+    jobProgress: {
+      '1': { stage: 'submitted', submittedAt: Date.now(), phase: 'reconnecting' },
+    },
+  })
   render()
   openInbox()
   expect(rowButton('任务 1').textContent).toContain('重新连接中')
@@ -219,7 +220,9 @@ it('falls back to the anchor object when a running job has no placeholder after 
 })
 
 it('cancels a single running job from its row', async () => {
-  store.messages = [job('1', {}), job('2', { status: 'succeeded', artifacts: [IMAGE] })]
+  useAgentStore.setState({
+    messages: [job('1', {}), job('2', { status: 'succeeded', artifacts: [IMAGE] })],
+  })
   render()
   act(() => (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click())
 
@@ -229,5 +232,5 @@ it('cancels a single running job from its row', async () => {
   // 只有在跑的那一个能取消。
   expect(cancels).toHaveLength(1)
   await act(async () => cancels[0]!.click())
-  expect(store.cancelJob).toHaveBeenCalledWith('1')
+  expect(cancelJob).toHaveBeenCalledWith('1')
 })

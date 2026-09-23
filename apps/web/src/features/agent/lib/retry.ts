@@ -10,6 +10,7 @@ import { getStoredChannels } from '../../../lib/channels/channelStore'
 import type { PrivateSubmissionInput } from '../../../lib/privateOverlay'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 import type { AgentFailedPlaceholder } from './canvasSink'
+import { agentJobUnsettled } from './jobProgress'
 
 /**
  * 单张重试的前端判据。能不能重试只按结构化的几位判（ADR 0006）：失败占位此刻的错误码、
@@ -22,6 +23,12 @@ export interface AgentRetryPlaceholder {
   readonly agentMessageId?: string
   /** 云端项目的占位：服务端预留它的那个任务。 */
   readonly cloudGeneration?: { readonly id: string }
+}
+
+/** 重试被拒时盖在失败占位上的那一层：新的码，以及它盖的是哪一次云端生成。 */
+export interface AgentRetryRefusal {
+  readonly code: AgentToolErrorCode
+  readonly generationId?: string
 }
 
 /**
@@ -110,8 +117,7 @@ export function agentLiveRetry(
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!
     if (message.kind !== 'tool' || message.retryOf?.placeholderId !== placeholderId) continue
-    if (message.status === 'queued' || message.status === 'submitted') return message
-    if (message.status === 'succeeded') return message
+    if (agentJobUnsettled(message) || message.status === 'succeeded') return message
   }
   return null
 }
@@ -119,7 +125,7 @@ export function agentLiveRetry(
 /** 占位的码以重试被拒后盖上的那一层为准（云端占位本机改不了），它只对被拒时那次生成作数。 */
 function placeholderCode(
   placeholder: AgentFailedPlaceholder,
-  refusals: Readonly<Record<string, { code: AgentToolErrorCode; generationId?: string }>>,
+  refusals: Readonly<Record<string, AgentRetryRefusal>>,
 ): AgentToolErrorCode | undefined {
   const refusal = refusals[placeholder.id]
   if (refusal && refusal.generationId === placeholder.generationId) return refusal.code
@@ -134,7 +140,7 @@ export function agentRetryRemaining(
   messages: readonly AgentPanelMessage[],
   origin: AgentToolMessage,
   placeholders: readonly AgentFailedPlaceholder[],
-  refusals: Readonly<Record<string, { code: AgentToolErrorCode; generationId?: string }>>,
+  refusals: Readonly<Record<string, AgentRetryRefusal>>,
 ): readonly AgentFailedPlaceholder[] {
   if (!agentRetryAvailable(origin.errorCode, origin)) return []
   return placeholders.filter((placeholder) => {
