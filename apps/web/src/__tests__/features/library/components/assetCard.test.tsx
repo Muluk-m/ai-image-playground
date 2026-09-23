@@ -19,7 +19,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const ASSET: AssetRecord = {
   id: 'a1',
   name: '产品白底图',
-  imageId: 'image-1',
+  views: [{ imageId: 'image-1', label: 'none', source: 'upload' }],
   createdAt: 1,
   updatedAt: 1,
   lastUsedAt: 1,
@@ -30,7 +30,7 @@ let root: Root
 
 function render(): void {
   act(() => {
-    root.render(<AssetCard asset={ASSET} />)
+    root.render(<AssetCard asset={ASSET} onOpen={() => {}} />)
   })
 }
 

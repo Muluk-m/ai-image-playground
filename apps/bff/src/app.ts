@@ -19,6 +19,7 @@ import { internalInspirationRoutes, publicInspirationRoutes } from './routes/ins
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalUserRoutes } from './routes/internal-users'
+import { lookRoutes } from './routes/looks'
 import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
 import { projectRoutes } from './routes/projects'
@@ -178,6 +179,7 @@ export const app = new Elysia()
   .use(agentRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
+  .use(lookRoutes)
   .use(mediaRoutes)
   .use(publicInspirationRoutes)
   .use(generationRoutes)

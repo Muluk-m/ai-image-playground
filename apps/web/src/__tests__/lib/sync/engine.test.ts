@@ -48,11 +48,26 @@ function template(id: string, name: string, updatedAt = 10) {
 }
 
 function asset(id: string, updatedAt = 10) {
-  return { id, name: id, imageId: `image-${id}`, createdAt: 1, updatedAt, lastUsedAt: 1 }
+  return {
+    id,
+    name: id,
+    views: [{ imageId: `image-${id}`, label: 'none' as const, source: 'upload' as const }],
+    createdAt: 1,
+    updatedAt,
+    lastUsedAt: 1,
+  }
 }
 
 function response(overrides: Partial<SyncResponseBody> = {}): SyncResponseBody {
-  return { version: 1, templates: [], assets: [], settings: null, rejected: [], ...overrides }
+  return {
+    version: 1,
+    templates: [],
+    assets: [],
+    looks: [],
+    settings: null,
+    rejected: [],
+    ...overrides,
+  }
 }
 
 async function setCapabilities(sync: boolean): Promise<void> {
@@ -225,6 +240,7 @@ describe('pushing local changes', () => {
       version: 0,
       templates: ids,
       assets: [],
+      looks: [],
       settingsUpdatedAt: null,
       lastSyncedAt: null,
       unsyncedImages: [],

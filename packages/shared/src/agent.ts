@@ -2,6 +2,13 @@
 
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
+import type {
+  ASSET_BACKGROUNDS,
+  ASSET_KINDS,
+  ASSET_VIEW_LABELS,
+  ASSET_VIEW_SOURCES,
+  LOOK_PURPOSES,
+} from './sync-protocol'
 import type { VideoGenerationRecord } from './video-generation'
 
 /**
@@ -45,12 +52,48 @@ export type AgentToolName =
   | 'generateVideo'
   | 'loadSkill'
   | 'arrangeTimeline'
+  | 'saveAsset'
+  | 'saveLook'
 
 /**
  * 技能没写 `meta.json`、或写坏了时用的图标。技能不会因此被丢掉，只是长得一样。
  * 前端的白名单映射表必须收着它，否则回退还得再回退一次。
  */
 export const DEFAULT_AGENT_SKILL_ICON = 'sparkles'
+
+/** 模板（look）的用途。取值表只在同步协议里存一份，这里派生成联合类型。 */
+export type LookPurpose = (typeof LOOK_PURPOSES)[number]
+
+/** 用户自建模板在技能体系里的名字前缀：一条模板就是一条名叫 `look-<id>` 的技能。 */
+export const LOOK_SKILL_NAME_PREFIX = 'look-'
+
+/** 模板 id 与技能标识之间只有这一条换算，浏览器端与服务端共用它，`/look-<id>` 才对得上。 */
+export function lookSkillName(id: string): string {
+  return `${LOOK_SKILL_NAME_PREFIX}${id}`
+}
+
+/**
+ * 这条技能同时是一条**预置模板**时随清单一起发的那几项（见 CONTEXT.md「预置模板」）。
+ * 缺席即这条技能只是流程指引，不是模板。
+ *
+ * 模型不从这里读正文：它照常调 `loadSkill`。这一份是给界面的——模板页排卡片，
+ * 出图模式在本地按 `body` 装配请求（用户自建的模板正文本来就在本机，只有预置的要跟着发）。
+ */
+export interface AgentSkillTemplate {
+  readonly purpose: LookPurpose
+  /** 钉死的模型；不在当前 channel 清单里时界面标「需重新调试」。 */
+  readonly model: string
+  /** 钉死的尺寸，与出图参数同一套写法。 */
+  readonly size: string
+  /** 需要几条素材填进去。 */
+  readonly slotCount: number
+  /** 技能正文（frontmatter 之后的 markdown，按 `## N.` 分节）。 */
+  readonly body: string
+  /** 封面图地址，直接 GET 取字节。 */
+  readonly coverUrl: string
+  /** 参考图地址，顺序与技能目录里写的一致。 */
+  readonly referenceUrls: readonly string[]
+}
 
 /**
  * 技能清单端点给前端的那一份：标识、标题、「何时用」，外加界面用的图标与一句话简介。
@@ -67,6 +110,8 @@ export interface AgentSkillSummary {
   readonly icon: string
   /** 写给用户的一句话简介；空串表示这条技能没写，界面回退到去掉「何时用：」的 description。 */
   readonly summary: string
+  /** 这条技能同时是一条预置模板时才有；缺席即它只是流程指引。 */
+  readonly template?: AgentSkillTemplate
 }
 
 /**
@@ -294,6 +339,79 @@ export interface AgentBackgroundJob {
   readonly review?: true
 }
 
+/**
+ * 保存卡片：智能体备好一条素材或一条模板，**落库这件事归用户按那一下**。卡片的内容随工具结果
+ * 落库，所以刷新、换设备后它还在原处，还能按下保存；已经保存过的那张不再是入口（`saved`）。
+ *
+ * 图片没有跟着卡片走：卡上只有图片 id，字节由浏览器按自己那套解析链取（工具产物、本轮附图、
+ * 画布对象），再写进本机记录——记录是本机的东西，服务端不替它保管一份。
+ */
+export type AgentSaveCardStatus = 'pending' | 'saved'
+
+/** 卡上的一张视角：素材里的一张图，连同它的视角标签与来源。 */
+export interface AgentSaveCardView {
+  readonly imageId: string
+  readonly label: (typeof ASSET_VIEW_LABELS)[number]
+  readonly source: (typeof ASSET_VIEW_SOURCES)[number]
+}
+
+/** 存素材的那张卡。`assetKind` 是素材的类别（产品 / 人物）——`kind` 这个名字被卡的类型占着。 */
+export interface AgentAssetSaveCard {
+  readonly kind: 'asset'
+  readonly status: AgentSaveCardStatus
+  /** 保存后落成的本机素材 id；`pending` 时缺席。 */
+  readonly recordId?: string
+  readonly name: string
+  readonly assetKind: (typeof ASSET_KINDS)[number]
+  readonly background: (typeof ASSET_BACKGROUNDS)[number]
+  /** 有序，第一条是封面。用户可以在卡上去掉几张，真正存下的以他按下保存时留着的那几张为准。 */
+  readonly views: readonly AgentSaveCardView[]
+}
+
+/** 存模板的那张卡：一份技能正文加它钉死的模型、尺寸、素材位与图片。 */
+export interface AgentLookSaveCard {
+  readonly kind: 'look'
+  readonly status: AgentSaveCardStatus
+  readonly recordId?: string
+  /** 要改写的那条模板；缺席即新建一条。 */
+  readonly lookId?: string
+  readonly name: string
+  readonly description: string
+  readonly purpose: LookPurpose
+  /** frontmatter 之后的分节正文。 */
+  readonly body: string
+  readonly model: string
+  readonly size: string
+  readonly slotCount: number
+  readonly referenceImageIds: readonly string[]
+  readonly coverImageId?: string
+}
+
+export type AgentSaveCard = AgentAssetSaveCard | AgentLookSaveCard
+
+export type AgentSaveCardKind = AgentSaveCard['kind']
+
+/**
+ * `POST .../saves`：用户按下了保存，记录已经落在本机。服务端据此把卡片就地改写成已保存，
+ * 并往收件箱里放一条「已保存」的用户消息，智能体下一轮接着往下说。
+ *
+ * 按 `toolCallId` 认卡（一条消息只装一个结果块），重复提交是幂等的：同一张卡只改写一次、
+ * 只排一条消息。
+ */
+export interface AgentSaveRequest {
+  readonly toolCallId: string
+  readonly kind: AgentSaveCardKind
+  /** 本机记录的 id。它是本机的东西，服务端只当标识转述给模型，不据它读任何内容。 */
+  readonly recordId: string
+  /** 用户在卡上最后定下的名字：模型拟的那个可能被他改过。 */
+  readonly name: string
+}
+
+/** 保存之后那张卡此刻的样子（就地改写，消息 id 不变）。 */
+export interface AgentSaveResponse {
+  readonly message: AgentMessageView
+}
+
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
 export interface AgentToolResultBlock {
   readonly type: 'toolResult'
@@ -326,6 +444,11 @@ export interface AgentToolResultBlock {
   readonly wakeSkipped?: AgentWakeSkipReason
   /** 排时间线这一步的结果：画布照它建时间线。缺席即这条不是排时间线，或者没有可排的视频。 */
   readonly timeline?: AgentTimelinePlan
+  /**
+   * 这次调用备好的保存卡片，连同它此刻存没存过。缺席即这条不是保存工具。
+   * 用户按下保存后由 `POST .../saves` 就地改写成 `saved`，所以它是这张卡的唯一真相。
+   */
+  readonly saveCard?: AgentSaveCard
 }
 
 /**
@@ -924,6 +1047,12 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return `${title}：失败（${block.message ?? '未知原因'}）${executed}`
   if (block.status === 'submitted') return `${title}：已提交后台任务，结果尚未就绪${executed}`
   if (block.status === 'queued') return `${title}：排队等待重试，尚未提交`
+  // 保存卡片：调用本身成功只说明卡片备好了。存没存下由用户那一下决定，翻历史时模型照这一位
+  // 判断该不该接着往下说（催一句、还是开始试效果），而不是看见「完成」就当已经存进了素材库。
+  if (block.saveCard)
+    return block.saveCard.status === 'saved'
+      ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
+      : `${title}：卡片已经给到用户，他还没按下保存`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')

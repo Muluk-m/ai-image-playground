@@ -105,6 +105,26 @@ function asset(overrides: Record<string, unknown> = {}) {
     id: 'asset-1',
     name: 'Blue mug',
     imageId: 'image-hash-1',
+    views: [{ imageId: 'image-hash-1', label: 'none', source: 'upload' }],
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    lastUsedAt: 1_000,
+    ...overrides,
+  }
+}
+
+function look(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'look-1',
+    name: '白底三视图',
+    description: '给一组产品图出白底三视图',
+    purpose: 'hero',
+    body: '## 1. 一句话目标\n出白底三视图',
+    model: 'gpt-image-1',
+    size: '1024x1024',
+    slotCount: 1,
+    referenceImageIds: ['image-hash-1'],
+    coverImageId: 'image-hash-2',
     createdAt: 1_000,
     updatedAt: 1_000,
     lastUsedAt: 1_000,
@@ -286,6 +306,117 @@ describe('POST /api/sync', () => {
     ] as never)
   })
 
+  it('carries every view of a multi-view asset across devices', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+    await uploadImage(deviceA, 'image-hash-2')
+    const grouped = asset({
+      kind: 'product',
+      background: 'transparent',
+      views: [
+        { imageId: 'image-hash-1', label: 'front', source: 'upload' },
+        { imageId: 'image-hash-2', label: 'side', source: 'generated' },
+      ],
+    })
+
+    await sync(deviceA, { version: 0, assets: [grouped] })
+
+    const pulled = await sync(deviceB, { version: 0 })
+    expect(pulled.body.assets).toEqual([grouped] as never)
+  })
+
+  it('holds an asset back until every view image is uploaded', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+    const pushed = await sync(deviceA, {
+      version: 0,
+      assets: [
+        asset({
+          views: [
+            { imageId: 'image-hash-1', label: 'front', source: 'upload' },
+            { imageId: 'image-hash-2', label: 'side', source: 'generated' },
+          ],
+        }),
+      ],
+    })
+
+    expect(pushed.body.rejected).toEqual([
+      { collection: 'assets', id: 'asset-1', reason: 'asset_image_missing' },
+    ])
+    expect(pushed.body.assets).toEqual([])
+  })
+
+  it('reads a row written before views existed back as one view', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+    await db.insert(schema.user_assets).values({
+      user_id: 'sync-user',
+      id: 'legacy-1',
+      name: 'Legacy mug',
+      image_id: 'image-hash-1',
+      created_at: 1_000,
+      updated_at: 1_000,
+      last_used_at: 1_000,
+      version: 1,
+    })
+
+    const pulled = await sync(deviceB, { version: 0 })
+    expect(pulled.body.assets).toEqual([
+      {
+        id: 'legacy-1',
+        name: 'Legacy mug',
+        imageId: 'image-hash-1',
+        views: [{ imageId: 'image-hash-1', label: 'none', source: 'upload' }],
+        createdAt: 1_000,
+        updatedAt: 1_000,
+        lastUsedAt: 1_000,
+      },
+    ] as never)
+  })
+
+  it('syncs looks and their tombstones', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+    await uploadImage(deviceA, 'image-hash-2')
+    await sync(deviceA, { version: 0, looks: [look()] })
+
+    const pulled = await sync(deviceB, { version: 0 })
+    expect(pulled.body.looks).toEqual([look()] as never)
+
+    await sync(deviceA, {
+      version: pulled.body.version,
+      looks: [{ id: 'look-1', updatedAt: 4_000, deletedAt: 4_000 }],
+    })
+    const afterDelete = await sync(deviceB, { version: pulled.body.version })
+    expect(afterDelete.body.looks).toEqual([
+      { id: 'look-1', updatedAt: 4_000, deletedAt: 4_000 },
+    ] as never)
+  })
+
+  it('holds a look back until its references and cover are uploaded', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+
+    const pushed = await sync(deviceA, { version: 0, looks: [look()] })
+    expect(pushed.body.rejected).toEqual([
+      { collection: 'looks', id: 'look-1', reason: 'asset_image_missing' },
+    ])
+    expect(pushed.body.looks).toEqual([])
+
+    // 封面传上去之后同一条就推得动了。
+    await uploadImage(deviceA, 'image-hash-2')
+    const again = await sync(deviceA, { version: 0, looks: [look()] })
+    expect(again.body.rejected).toEqual([])
+    expect(again.body.looks).toEqual([look()] as never)
+  })
+
+  it('counts look images against the same asset image ledger', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
+    await uploadImage(deviceA, 'image-hash-2')
+    await sync(deviceA, { version: 0, looks: [look()] })
+
+    const ledger = await db
+      .select()
+      .from(schema.user_asset_objects)
+      .where(eq(schema.user_asset_objects.user_id, 'sync-user'))
+    expect(ledger.map((row) => row.image_id).sort()).toEqual(['image-hash-1', 'image-hash-2'])
+  })
+
   it('rejects a malformed body and half-written records', async () => {
     const negativeVersion = await app.handle(
       new Request('http://localhost/api/sync', {
@@ -326,6 +457,7 @@ describe('POST /api/sync', () => {
 
     expect(await db.select().from(schema.user_templates)).toEqual([])
     expect(await db.select().from(schema.user_assets)).toEqual([])
+    expect(await db.select().from(schema.user_looks)).toEqual([])
     expect(await db.select().from(schema.user_preferences)).toEqual([])
     expect(await db.select().from(schema.user_sync_state)).toEqual([])
   })

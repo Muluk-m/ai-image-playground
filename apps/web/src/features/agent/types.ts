@@ -1,5 +1,6 @@
 import type {
   AgentBackgroundJob,
+  AgentSaveCard,
   AgentSkillOutcome,
   AgentStoredReference,
   AgentTimelinePlan,
@@ -73,6 +74,8 @@ export interface AgentToolMessage {
   readonly wakeSkipped?: AgentWakeSkipReason
   /** 排时间线这一步排出的时间线；画布照它建一条。 */
   readonly timeline?: AgentTimelinePlan
+  /** 这次调用备好的保存卡片，连同它存没存过；缺席即这条不是保存工具。 */
+  readonly saveCard?: AgentSaveCard
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */

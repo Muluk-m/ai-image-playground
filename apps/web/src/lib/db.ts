@@ -1,5 +1,5 @@
 import { storyboardShotLabel } from '@image-playground/shared'
-import type { AssetRecord, Tombstone } from '../features/library/types'
+import type { AssetRecord, LookRecord, Tombstone } from '../features/library/types'
 import type { VideoTask } from '../features/video/types'
 import { i18next } from '../i18n'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
@@ -9,12 +9,13 @@ import type { PlatformGenerationRow } from './platformGenerations'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 13
+const DB_VERSION = 14
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
 export const STORE_ASSETS = 'assets'
 export const STORE_TEMPLATES = 'templates'
+export const STORE_LOOKS = 'looks'
 export const STORE_REMIX_SETS = 'remix_sets'
 export const STORE_BGSWAP_JOBS = 'bgswap_jobs'
 export const STORE_VIDEO_TASKS = 'video_tasks'
@@ -33,6 +34,7 @@ export const DB_STORE_NAMES = [
   STORE_STORYBOARDS,
   STORE_MEDIA,
   STORE_PLATFORM_GENERATIONS,
+  STORE_LOOKS,
 ] as const
 export type DbStoreName = (typeof DB_STORE_NAMES)[number]
 const THUMBNAIL_MAX_SIZE = 720
@@ -54,28 +56,61 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
           if (storeName === STORE_MEDIA) store.createIndex('lastUsedAt', 'lastUsedAt')
         }
       }
-      if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
+      if (e.oldVersion < 8 && request.transaction) backfillTemplateUpdatedAt(request.transaction)
       if (e.oldVersion < 11 && request.transaction) upgradeStoryboards(request.transaction)
       if (e.oldVersion < 13 && request.transaction) dropMirroredTasks(request.transaction)
+      if (e.oldVersion < 14 && request.transaction) upgradeAssets(request.transaction)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
 }
 
-/** v8：素材与模板记录新增 updatedAt，旧记录取 createdAt。 */
-function backfillUpdatedAt(tx: IDBTransaction): void {
-  for (const storeName of [STORE_ASSETS, STORE_TEMPLATES]) {
-    const cursorRequest = tx.objectStore(storeName).openCursor()
-    cursorRequest.onsuccess = () => {
-      const cursor = cursorRequest.result
-      if (!cursor) return
-      const record = cursor.value as { createdAt?: number; updatedAt?: number }
-      if (record.updatedAt === undefined) {
-        cursor.update({ ...record, updatedAt: record.createdAt ?? Date.now() })
-      }
-      cursor.continue()
+/** v8：模板记录新增 updatedAt，旧记录取 createdAt。素材的这一步并进 `upgradeAssets`。 */
+function backfillTemplateUpdatedAt(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_TEMPLATES).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    const record = cursor.value as { createdAt?: number; updatedAt?: number }
+    if (record.updatedAt === undefined) {
+      cursor.update({ ...record, updatedAt: record.createdAt ?? Date.now() })
     }
+    cursor.continue()
+  }
+}
+
+/**
+ * 素材记录的历次改形，共用一趟游标：两趟并行游标读的是同一条旧记录，后写的那趟会整条盖掉
+ * 前一趟的结果。每一步认形状不认版本号，所以补过的记录会跳过。
+ * v8 补 `updatedAt`；v14 把「一张图的名字」迁成「同一主体的一组视角」，旧记录成一张视角。
+ */
+function upgradeAssets(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_ASSETS).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    let record = cursor.value as {
+      createdAt?: number
+      updatedAt?: number
+      imageId?: string
+      views?: unknown
+      deletedAt?: number
+    }
+    let changed = false
+    if (record.updatedAt === undefined) {
+      record = { ...record, updatedAt: record.createdAt ?? Date.now() }
+      changed = true
+    }
+    // 墓碑只有 id 与时间戳，没有视角可迁；实体记录一律带上 `views`，读路径不必再判它在不在。
+    if (record.deletedAt === undefined && record.views === undefined) {
+      const { imageId, ...rest } = record
+      const views = imageId ? [{ imageId, label: 'none', source: 'upload' }] : []
+      record = { ...rest, views }
+      changed = true
+    }
+    if (changed) cursor.update(record)
+    cursor.continue()
   }
 }
 
@@ -358,8 +393,9 @@ export function getAllImageIds(): Promise<string[]> {
 
 /** 图片由各功能的持久化记录共同持有，不能只凭生成历史判成孤立图片。只读元数据，不读图片本体。 */
 export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promise<Set<string>> {
-  const [assets, jobs, videos, storyboards] = await Promise.all([
+  const [assets, looks, jobs, videos, storyboards] = await Promise.all([
     dbTransaction<Array<AssetRecord | Tombstone>>(STORE_ASSETS, 'readonly', (s) => s.getAll()),
+    dbTransaction<Array<LookRecord | Tombstone>>(STORE_LOOKS, 'readonly', (s) => s.getAll()),
     dbTransaction<LegacyProductJob[]>(STORE_BGSWAP_JOBS, 'readonly', (s) => s.getAll()),
     dbTransaction<VideoTask[]>(STORE_VIDEO_TASKS, 'readonly', (s) => s.getAll()),
     dbTransaction<LegacyStoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (s) => s.getAll()),
@@ -376,7 +412,13 @@ export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promi
     for (const id of task.transparentOriginalImages || []) add(id)
   }
   for (const asset of assets) {
-    if (!('deletedAt' in asset)) add(asset.imageId)
+    if ('deletedAt' in asset) continue
+    for (const view of asset.views) add(view.imageId)
+  }
+  for (const look of looks) {
+    if ('deletedAt' in look) continue
+    for (const imageId of look.referenceImageIds) add(imageId)
+    add(look.coverImageId)
   }
   for (const job of jobs) {
     for (const image of job.images) {
