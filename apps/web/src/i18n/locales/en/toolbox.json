@@ -1,0 +1,79 @@
+{
+  "catalog": {
+    "process": "Single & batch",
+    "compose": "Combine images"
+  },
+  "tool": {
+    "compress": {
+      "name": "Compress",
+      "options": "Quality · Target size"
+    },
+    "convert": {
+      "name": "Convert",
+      "options": "JPG · PNG · WebP · AVIF"
+    },
+    "resize": {
+      "name": "Resize",
+      "options": "Long edge · Width · Percent"
+    },
+    "crop": {
+      "name": "Crop",
+      "options": "Ratio · Store & social sizes"
+    },
+    "rotate": {
+      "name": "Rotate & flip",
+      "options": "90° · Horizontal · Vertical"
+    },
+    "collage": {
+      "name": "Collage",
+      "options": "Grid · Gap · Background"
+    },
+    "stitch": {
+      "name": "Stitch",
+      "options": "Vertical · Horizontal"
+    },
+    "slice": {
+      "name": "Grid split",
+      "options": "3×3 · 2×2 · 1×3"
+    }
+  },
+  "intake": {
+    "imported_one": "{{count}} image",
+    "imported_other": "{{count}} images",
+    "clear": "Clear",
+    "addImages": "Add images",
+    "addFolder": "Folder",
+    "hint": "Drop images or a folder, or paste",
+    "chooseImages": "Choose images",
+    "chooseFolder": "Choose folder"
+  },
+  "page": {
+    "back": "Toolbox"
+  },
+  "params": {
+    "format": "Output format",
+    "keepFormat": "Keep format",
+    "quality": "Quality"
+  },
+  "result": {
+    "processing": "Processing…",
+    "remove": "Remove",
+    "fellBack": "Fell back to {{format}}",
+    "canvasLimit": "Output {{width}}×{{height}} exceeds the browser canvas limit",
+    "undecodable": "This browser can't decode it",
+    "failed": "Processing failed"
+  },
+  "footer": {
+    "summary_one": "{{count}} image · {{before}} → {{after}} ({{delta}})",
+    "summary_other": "{{count}} images · {{before}} → {{after}} ({{delta}})",
+    "processing": "Processing…",
+    "sendToComposer": "Add to prompt box",
+    "download": "Download",
+    "downloadAll_one": "Download ({{count}})",
+    "downloadAll_other": "Download all ({{count}})"
+  },
+  "composer": {
+    "sent_one": "Added {{count}} image to the prompt box",
+    "sent_other": "Added {{count}} images to the prompt box"
+  }
+}
