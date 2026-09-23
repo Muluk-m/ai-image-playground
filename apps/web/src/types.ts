@@ -59,10 +59,8 @@ import type { ClientProfile } from './lib/channels/types'
 
 export interface AppSettings {
   customProviders: CustomProviderDefinition[]
-  providerOrder?: string[]
   clearInputAfterSubmit: boolean
   persistInputOnRestart: boolean
-  reuseTaskApiProfileTemporarily: boolean
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
   profiles: ClientProfile[]

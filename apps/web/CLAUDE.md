@@ -71,13 +71,16 @@
   暗色由 `<html>` 上的 `.dark` 决定，Tailwind 是 `darkMode: 'class'`，手写样式用 `.dark …` 选择器，
   **不要再写 `@media (prefers-color-scheme)`**，也不要在 JS 里读系统明暗，要重画就 `subscribeTheme`。
   首帧脚本 `bootScript.ts` 由 Vite 插件内联进 head，它与 `resolveTheme` 是同一条规则的两份实现，
-  `theme.test.ts` 逐格比对；改一边必须改另一边。头像菜单只做亮暗翻转，
-  「跟随系统」只在设置面板里。 `theme-color` 由首帧脚本创建并随主题更新；PWA 清单里的颜色改不了，
-  安装态的启动画面固定是暗色，不是 bug。
-- 界面语言（以及主题）是**显示设置**：只存本机、登录前生效、不进同步。入口在头像菜单的
-  [`DisplaySettingsMenuItems`](./src/components/DisplaySettingsMenuItems.tsx)，公开树与私有 overlay
-  的两个头像菜单渲染同一个组件；设置面板另有一处。未登录访客也有这个菜单，所以登录框自己
-  不再带语言与主题控件。标签页标题随语言变，静态 meta 不变。
+  `theme.test.ts` 逐格比对；改一边必须改另一边。`theme-color` 由首帧脚本创建并随主题更新；
+  PWA 清单里的颜色改不了，安装态的启动画面固定是暗色，不是 bug。
+- 界面语言与主题是**显示设置**：只存本机、登录前生效、不进同步。控件只有一份——
+  [`DisplaySettingsFields`](./src/components/DisplaySettingsFields.tsx) 的两个 shadcn 下拉
+  （主题含「跟随系统」）。设置面板「通用」页直接用它；公开树与私有 overlay 的两个头像菜单经
+  [`DisplaySettingsMenuItems`](./src/components/DisplaySettingsMenuItems.tsx) 用同一份，
+  行样式由宿主菜单给。未登录访客也有这个菜单，所以登录框自己不再带语言与主题控件。
+  **宿主菜单的「点外面就关」必须放行 portal 出去的浮层**（`isInFloatingLayer`）：下拉内容挂在
+  body 上，不放行的话 pointerdown 先把菜单连同下拉一起卸载，随后的 pointerup 落在脱离文档的
+  选项上，选择根本不会提交。标签页标题随语言变，静态 meta 不变。
 - `lib/localCompatibility/` 刻意零依赖（它在 App 与 store 之前跑，还单独打进旧域名的入口），
   里面的两条中文报错不迁移。
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
