@@ -149,10 +149,10 @@ export async function sendToConversationInbox(
   const enqueued = await enqueueAgentUserMessage(conversationId, message)
   if (enqueued.kind === 'full') return { kind: 'full' }
   const { entry } = enqueued
+  const local = runningTurn(conversationId)
   // 网络重发的同一条：交回它此刻的状态，不排第二次、不开第二轮，也不再通知一遍。
   if (enqueued.kind === 'duplicate')
-    return { kind: 'queued', entry, ...runningTurnIdOf(conversationId) }
-  const local = runningTurn(conversationId)
+    return { kind: 'queued', entry, ...(local ? { runningTurnId: local.turnId } : {}) }
   if (local) {
     notifyQueued(conversationId, entry.view)
     return { kind: 'queued', entry, runningTurnId: local.turnId }
@@ -176,11 +176,6 @@ export async function sendToConversationInbox(
   // 开不了轮：这一条不留在队里，照旧把原因交回去。
   await withdrawAgentMessage(conversationId, entry.view.id)
   return { kind: 'not_started', failure: drained.failure }
-}
-
-function runningTurnIdOf(conversationId: string): { runningTurnId?: string } {
-  const local = runningTurn(conversationId)
-  return local ? { runningTurnId: local.turnId } : {}
 }
 
 /**

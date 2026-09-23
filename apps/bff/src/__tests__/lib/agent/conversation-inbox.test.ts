@@ -21,6 +21,7 @@ process.env.UPSTREAM_OPENAI_API_KEY = ''
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../agent-operator-config.json')
 
+// 动态 import：下面这些模块一加载就把上面那几行 env 绑成库连接与运营配置，静态 import 会抢在前面。
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../db/client')
