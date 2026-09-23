@@ -542,6 +542,12 @@ export default function AgentComposer({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (menu.handleKeyDown(event)) return
     if (recallKeyDown(event)) return
+    // 写着字时按钮是发送，中止没有可点的入口；Esc 补上它，不必先清空输入框。
+    if (event.key === 'Escape' && running && !stopping) {
+      event.preventDefault()
+      void useAgentStore.getState().abort()
+      return
+    }
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
     submit()
