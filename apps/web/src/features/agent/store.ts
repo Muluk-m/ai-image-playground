@@ -1262,16 +1262,25 @@ export const useAgentStore = create<AgentState>((set, get) => {
         const scope = scopedStorageName('canvas')
         let project = useCanvasProjectStore.getState().projects.find((one) => one.id === projectId)
         if (!project) return false
+        // 存旧项目与取新项目彼此无关，串起来就是把两段等待相加：生产实测点击到画面切换
+        // 2.9s，其中 0.8s 落盘、1.5s 取云端，期间界面没有任何反馈。这里让它们一起跑。
+        const remote =
+          project.cloud?.revision && cloudProjectsEnabled() && navigator.onLine !== false
+            ? getCloudProject(project.id, AbortSignal.timeout(10000))
+            : null
+        // 保存失败这一路不会去 await 它，挂一个空 catch 只为不留下未处理的 rejection；
+        // 真正的失败仍由下面那次 await 抛进 try。
+        remote?.catch(() => {})
         if (!(await saveCurrentProject(get().conversationId)).ok) {
           useStore.getState().showToast(i18next.t('project.saveFailed', { ns: 'agent' }), 'error')
           return false
         }
         if (!isCurrent()) return false
         try {
-          if (project.cloud?.revision && cloudProjectsEnabled() && navigator.onLine !== false) {
-            const remote = await getCloudProject(project.id, AbortSignal.timeout(10000))
+          if (remote) {
+            const fetched = await remote
             if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
-            project = await restoreCloudProject(remote)
+            project = await restoreCloudProject(fetched)
             if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
             const refreshed = project
             useCanvasProjectStore.setState((state) => ({
