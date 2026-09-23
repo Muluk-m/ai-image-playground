@@ -30,7 +30,8 @@
     "canvases": "画布",
     "allCanvases": "全部",
     "newCanvas": "新建画布",
-    "immersive": "沉浸式打开"
+    "immersive": "沉浸式打开",
+    "guide": "使用指南"
   },
   "logout": {
     "title": "退出登录",
