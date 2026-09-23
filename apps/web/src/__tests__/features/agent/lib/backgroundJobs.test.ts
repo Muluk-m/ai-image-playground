@@ -177,8 +177,7 @@ function jobModule(session: AgentJobSession) {
         reads.snapshots += 1
         return messages()
       },
-      pollIntervalMs: 5,
-      wakePickupDelayMs: 5,
+      timing: { pollIntervalMs: 5, wakePickupDelayMs: 5 },
     }),
   }
 }

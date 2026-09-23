@@ -15,12 +15,9 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
   blankVideoPoster: () => POSTER,
 }))
 
+import { setAgentJobTimingForTesting } from '../../../features/agent/lib/backgroundJobs'
 import { agentCanvasSink, setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
-import {
-  setAgentJobPollIntervalForTesting,
-  setAgentWakePickupDelayForTesting,
-  useAgentStore,
-} from '../../../features/agent/store'
+import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -221,8 +218,7 @@ beforeEach(() => {
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   jobsResponse = () => []
   cancelResponse = () => Response.json({ error: 'not_found' }, { status: 404 })
-  setAgentJobPollIntervalForTesting(5)
-  setAgentWakePickupDelayForTesting(5)
+  setAgentJobTimingForTesting({ pollIntervalMs: 5, wakePickupDelayMs: 5 })
   useAgentStore.setState({
     conversationId: null,
     messages: [],
@@ -237,8 +233,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  setAgentJobPollIntervalForTesting()
-  setAgentWakePickupDelayForTesting()
+  setAgentJobTimingForTesting()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()

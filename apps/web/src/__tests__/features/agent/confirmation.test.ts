@@ -14,8 +14,9 @@ vi.mock('../../../lib/privateOverlay', () => ({
   PrivateWebOverlayPresent: false,
 }))
 
+import { setAgentJobTimingForTesting } from '../../../features/agent/lib/backgroundJobs'
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
-import { setAgentJobPollIntervalForTesting, useAgentStore } from '../../../features/agent/store'
+import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -130,7 +131,7 @@ beforeEach(() => {
   confirmResponse = () => Response.json({ message: confirmed })
   jobsResponse = () => []
   history = (conversationId) => (conversationId === CONVERSATION ? [draftMessage] : [])
-  setAgentJobPollIntervalForTesting(5)
+  setAgentJobTimingForTesting({ pollIntervalMs: 5 })
   setAgentCanvasSink({
     has: (objectId) => onCanvas.has(objectId),
     async reserve(request) {
@@ -172,7 +173,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useAgentStore.setState({ conversationId: null, messages: [] })
-  setAgentJobPollIntervalForTesting()
+  setAgentJobTimingForTesting()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()

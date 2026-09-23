@@ -3,10 +3,7 @@ import type {
   AgentBackgroundJobView,
   AgentMessageView,
 } from '@image-playground/shared'
-import {
-  notifyPrivateSubmissionError,
-  notifyPrivateSubmissionSettled,
-} from '../../../lib/privateOverlay'
+import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 import {
   type AgentConversationState,
@@ -26,16 +23,31 @@ import { agentJobUnsettled } from './jobProgress'
 import { panelMessage } from './panelMessages'
 import { agentDraftReservation } from './promptDraft'
 import type { AgentRetryRefusal } from './retry'
+import { promptAgentRecharge } from './toolFailure'
 
-/** 有没结束的后台任务时隔多久问一次结果。任务是分钟级的，几秒的延迟看不出来。 */
-const DEFAULT_POLL_MS = 3_000
+/** 后台任务问服务端的节奏。每次用时现读，所以测试调快它对已经建好的模块也作数。 */
+export interface AgentJobTiming {
+  /** 有没结束的后台任务时隔多久问一次结果。任务是分钟级的，几秒的延迟看不出来。 */
+  pollIntervalMs: number
+  /**
+   * 服务端唤醒智能体起的那一轮还没登记上时，隔多久再看一次。
+   * 头一次读快照就会让服务端当场起轮，所以通常第二次就看得到。
+   */
+  wakePickupDelayMs: number
+}
 
-/**
- * 后台任务结束、服务端会唤醒智能体再起一轮时，去找那一轮：最多看这么多次，每次隔这么久。
- * 头一次读快照就会让服务端当场起轮，所以通常第二次就看得到。
- */
+const REAL_TIMING: AgentJobTiming = { pollIntervalMs: 3_000, wakePickupDelayMs: 500 }
+
+/** 不另说时的那一份节奏。 */
+export const AGENT_JOB_TIMING: AgentJobTiming = { ...REAL_TIMING }
+
+/** 测试注入点：面板那一条只有一份 store，调不了构造参数，所以就地改这一份。不传恢复真实节奏。 */
+export function setAgentJobTimingForTesting(timing?: Partial<AgentJobTiming>): void {
+  Object.assign(AGENT_JOB_TIMING, REAL_TIMING, timing)
+}
+
+/** 找唤醒轮最多看这么多次。 */
 const WAKE_PICKUP_ATTEMPTS = 8
-const DEFAULT_WAKE_PICKUP_MS = 500
 
 /**
  * 交出一张卡时，它的产出落在画布哪里。三种交接点各说一种，交出之后占位就归这个模块，
@@ -82,8 +94,7 @@ export interface AgentBackgroundJobsOptions {
   readonly session: AgentJobSession
   readonly fetchJobs?: (conversationId: string) => Promise<readonly AgentBackgroundJobView[]>
   readonly fetchSnapshot?: (conversationId: string) => Promise<AgentConversationState>
-  readonly pollIntervalMs?: number
-  readonly wakePickupDelayMs?: number
+  readonly timing?: AgentJobTiming
 }
 
 /**
@@ -146,8 +157,7 @@ export function createAgentBackgroundJobs({
   session,
   fetchJobs = requestJobs,
   fetchSnapshot = requestSnapshot,
-  pollIntervalMs = DEFAULT_POLL_MS,
-  wakePickupDelayMs = DEFAULT_WAKE_PICKUP_MS,
+  timing = AGENT_JOB_TIMING,
 }: AgentBackgroundJobsOptions): AgentBackgroundJobs {
   /**
    * 后台任务的交付把手，按结果卡的 messageId 索引。工具在轮里收尾时占的位移交到这里，
@@ -205,18 +215,6 @@ export function createAgentBackgroundJobs({
     )
   }
 
-  /**
-   * 钱不够导致的失败当场把开通/充值面板叫出来。
-   *
-   * 失败卡片上本来就有「去充值」，但那要用户先看见那张卡、再看懂那句话、再去点。
-   * 余额见底不是这一次生成的问题，是账户的问题：不当场说清，用户只会当成又一次
-   * 生成失败，接着一遍遍重试，每次都失败。没有计费 overlay 的部署里这是空操作。
-   */
-  const promptRechargeIfBroke = (code: string | undefined) => {
-    if (code === 'insufficient_credits' || code === 'quota_exceeded')
-      notifyPrivateSubmissionError({ insufficientCredits: true })
-  }
-
   /** 一个任务的终局卡落画布：交出去的占位还在就落进占位，否则按锚点或视野落。 */
   const deliver = (card: AgentToolMessage) => {
     // 任务的结算（成功扣费、失败退回）此刻已经发生，顶栏余额跟着刷新。
@@ -230,7 +228,7 @@ export function createAgentBackgroundJobs({
     else if (card.status === 'failed') {
       const code = failureCodeOf(card)
       handle.failed(card.id, card.message, code)
-      promptRechargeIfBroke(code)
+      promptAgentRecharge(code)
       coverRefusedSlot(card)
     } else if (deliverable(card)) handle.enqueue(card)
     else handle.discard(card.id)
@@ -307,7 +305,7 @@ export function createAgentBackgroundJobs({
           adoptRetryRecords(jobs)
           for (const job of jobs) settle(job, conversationId)
           if (!pending()) return
-          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+          await new Promise((resolve) => setTimeout(resolve, timing.pollIntervalMs))
         }
       } finally {
         if (watch === token) watch = null
@@ -327,7 +325,9 @@ export function createAgentBackgroundJobs({
     const idle = () => session.isIdle(conversationId) && wakeWatch === token
     try {
       for (let attempt = 0; attempt < WAKE_PICKUP_ATTEMPTS; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 0 : wakePickupDelayMs))
+        await new Promise((resolve) =>
+          setTimeout(resolve, attempt === 0 ? 0 : timing.wakePickupDelayMs),
+        )
         if (!idle()) return
         let snapshot: AgentConversationState
         try {

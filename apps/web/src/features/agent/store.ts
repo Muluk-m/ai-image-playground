@@ -1,7 +1,6 @@
 import type {
   AgentActiveTurnView,
   AgentBackgroundJobProgress,
-  AgentBackgroundJobView,
   AgentConversationView,
   AgentMessageView,
   AgentMode,
@@ -23,10 +22,7 @@ import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
-import {
-  notifyPrivateSubmissionError,
-  notifyPrivateSubmissionSettled,
-} from '../../lib/privateOverlay'
+import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import type { CanvasProject } from '../canvas/lib/projectRepository'
@@ -42,19 +38,17 @@ import {
 } from '../canvas/projectStore'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
+  type AgentConversationState,
   AgentRequestError,
   type AgentTurnSource,
   abortTurn,
-  cancelRetry as cancelRetryRequest,
   confirmToolPrompt,
   fetchConversations,
-  fetchJobs,
   fetchMessages,
   followTurn,
   interjectQueuedMessage,
   interjectTurn,
   removeConversation,
-  cancelJob as requestJobCancel,
   retryToolCall,
   type StartTurnOutcome,
   startTurn,
@@ -65,8 +59,10 @@ import {
   deliverable,
   type TurnArtifactDelivery,
 } from './lib/artifactDelivery'
+import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { bindNewAgentDraft } from './lib/drafts'
+import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
   hasWaitingMessages,
@@ -91,9 +87,8 @@ import {
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
-import { agentDraftReservation } from './lib/promptDraft'
-import { agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
-import { agentToolFailureText } from './lib/toolFailure'
+import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
+import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
 import type {
   AgentPanelMessage,
@@ -123,12 +118,6 @@ function readThinkingDepth(): AgentThinkingDepth {
  * 它换掉的是用户那道花钱闸门，跨会话记住才不用每批都重开，但也绝不跟着账号同步。
  */
 const AUTO_SUBMIT_KEY = 'image-playground-agent-auto-submit'
-
-/** 重试被拒时盖在失败占位上的那一层：新的码，以及它盖的是哪一次云端生成。 */
-export interface AgentRetryRefusal {
-  readonly code: AgentToolErrorCode
-  readonly generationId?: string
-}
 
 /**
  * 确认一张草稿卡的结局。界面只按它在卡上说一句话、给一个出路（ADR 0006），不读服务端文字：
@@ -295,39 +284,11 @@ function firstMessageTitle(text: string): string {
     .slice(0, PROJECT_NAME_MAX_LENGTH)
 }
 
-/** 有没结束的后台任务时隔多久问一次结果。任务是分钟级的，几秒的延迟看不出来。 */
-const DEFAULT_JOB_POLL_MS = 3_000
-let jobPollMs = DEFAULT_JOB_POLL_MS
-
-/** 测试注入点；不传恢复真实节奏。 */
-export function setAgentJobPollIntervalForTesting(ms?: number): void {
-  jobPollMs = ms ?? DEFAULT_JOB_POLL_MS
-}
-
-/** 还在跑的后台任务，或还在重试队列里排着的重试：两者都要接着问服务端。 */
-const unsettled = (message: AgentPanelMessage) =>
-  message.kind === 'tool' && (message.status === 'submitted' || message.status === 'queued')
-
-const hasPendingJobs = (messages: readonly AgentPanelMessage[]) => messages.some(unsettled)
-
 /** 上一轮收尾后找服务端接着开的那一轮：最多看这么多次，每次隔这么久。 */
 const QUEUE_PICKUP_ATTEMPTS = 8
 const QUEUE_PICKUP_DELAY_MS = 250
 /** 停止请求没拿到响应时，连同第一次一共发这么多次。 */
 const STOP_ATTEMPTS = 3
-
-/**
- * 后台任务结束、服务端会唤醒智能体再起一轮时，去找那一轮：最多看这么多次，每次隔这么久。
- * 头一次读快照就会让服务端当场起轮，所以通常第二次就看得到。
- */
-const WAKE_PICKUP_ATTEMPTS = 8
-const DEFAULT_WAKE_PICKUP_DELAY_MS = 500
-let wakePickupDelayMs = DEFAULT_WAKE_PICKUP_DELAY_MS
-
-/** 测试注入点；不传恢复真实节奏。 */
-export function setAgentWakePickupDelayForTesting(ms?: number): void {
-  wakePickupDelayMs = ms ?? DEFAULT_WAKE_PICKUP_DELAY_MS
-}
 
 /**
  * 服务端在起轮时把首句标题交给小模型改写，改完不另行通知。首轮收尾读到的多半还是首句，
@@ -342,33 +303,36 @@ export function setAgentTitleRewriteDelayForTesting(ms?: number): void {
 }
 
 /**
- * 这个任务结束后服务端会不会唤醒智能体：失败一律唤醒（被取消的不算），成功只在提交时要求了
- * 复核。只按错误码与复核标记判断，不读服务端文字。
+ * 挂上快照里那一轮：快照先行、增量接在它的游标之后。游标只对快照里那一轮成立——409 兜底给的
+ * 轮可能已经跑完，它在游标之前，只能按轮从头重放。
  */
-const wakesAgent = (result: AgentBackgroundJobView['result']) =>
-  result.status === 'failed'
-    ? result.errorCode !== 'cancelled'
-    : result.status === 'succeeded' && result.job?.review === true
+const turnSource = (taken: AgentConversationState, turnId: string): AgentTurnSource =>
+  taken.activeTurn?.turnId === turnId && taken.cursor !== undefined
+    ? { turnId, cursor: taken.cursor }
+    : { turnId }
 
 /**
- * 快照里有结果卡记下了「没有唤醒智能体」，面板上的那张还没有：服务端没起唤醒轮，而是跳过了它
- * （积分不足、连续唤醒到了上限）。面板据此换上快照，卡上才说得出智能体为什么没回来。
+ * 换会话时要清掉的一切：属于上一个会话的消息、页脚、排队、草稿卡上改过的字、任务进度、
+ * 工具起跑时刻、重试被拒盖在占位上的那一层，连同断线提示与上一次的报错。
+ * 返回的是一份补丁，调用方一次 `set` 下去：任何一次渲染都不能看见「消息已清、会话还是旧的」。
  */
-function wakeSkipNews(
-  snapshot: readonly AgentMessageView[],
-  shown: readonly AgentPanelMessage[],
-): boolean {
-  const skipped = new Set(
-    snapshot.flatMap((message) =>
-      message.content.some((block) => block.type === 'toolResult' && block.wakeSkipped)
-        ? [message.id]
-        : [],
-    ),
-  )
-  return shown.some(
-    (message) => message.kind === 'tool' && skipped.has(message.id) && !message.wakeSkipped,
-  )
-}
+const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
+  conversationId,
+  messages: [],
+  turns: {},
+  queue: [],
+  promptDrafts: {},
+  jobProgress: {},
+  toolStartedAt: {},
+  retryRefusals: {},
+  turn: 'idle',
+  stopping: false,
+  reconnecting: false,
+  activeTurn: null,
+  error: null,
+  historyLoading: false,
+  historyFailed: false,
+})
 
 function readPanelWidth(): number {
   const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
@@ -390,187 +354,38 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (sink) void delivery.redeliverUnavailable(get().messages)
   })
 
-  /**
-   * 后台任务的交付把手，按结果卡的 messageId 索引。工具在轮里收尾时占的位移交到这里，
-   * 任务结束时由它落图；刷新后读回的任务没有把手，结束时现开一个（占位已随刷新收掉，产物就近落）。
-   */
-  const jobDeliveries = new Map<string, TurnArtifactDelivery>()
-  /** 正在等结果的那一次守候；换一次就是一个新对象，旧的循环看见不是自己就退出。 */
-  let jobWatch: { readonly conversationId: string } | null = null
+  /** 后台任务经这几个口子读写面板；别的都在 `lib/backgroundJobs` 里面。 */
+  const jobSession: AgentJobSession = {
+    messages: () => get().messages,
+    isCurrent: (conversationId) => get().conversationId === conversationId,
+    isIdle: (conversationId) => get().conversationId === conversationId && get().turn !== 'running',
+    replaceCard: (card) =>
+      set((state) => ({
+        messages: state.messages.map((message) => (message.id === card.id ? card : message)),
+      })),
+    appendCards: (cards) => set((state) => ({ messages: [...state.messages, ...cards] })),
+    reportProgress: (messageId, progress) =>
+      set((state) => ({ jobProgress: { ...state.jobProgress, [messageId]: progress } })),
+    coverRefusal: (placeholderId, refusal) =>
+      set((state) => ({ retryRefusals: { ...state.retryRefusals, [placeholderId]: refusal } })),
+    adopt: async (conversationId, taken, options) => {
+      if (options?.join) {
+        await joinQueuedTurn(conversationId, taken, options.join)
+        return
+      }
+      adoptSnapshot(conversationId, taken)
+    },
+  }
+  const jobs = createAgentBackgroundJobs({ delivery, session: jobSession })
 
   /**
-   * 交付换代（切会话、新建会话、停止撞上 404 后按历史重来）时，移交出去的把手全部作废：它们
-   * 占的位就地收掉，守候也停下。之后再结算的任务按当时的画布现开把手，不会拿着旧一代的来源
-   * 落成「画布已离开」。
+   * 交付换代（切会话、新建会话、停止撞上 404 后按历史重来）：移交给后台任务的把手全部作废，
+   * 本轮的交付也换一代。之后再结算的任务按当时的画布现开把手，不会拿着旧一代的来源落成
+   * 「画布已离开」。
    */
   const resetDelivery = () => {
-    for (const [messageId, handle] of jobDeliveries) {
-      handle.discard(messageId)
-      void handle.settled()
-    }
-    jobDeliveries.clear()
-    jobWatch = null
+    jobs.reset()
     return delivery.reset()
-  }
-
-  /**
-   * 重试记录的交付把手：它不占新位，结果落回用户点重试的那个失败占位。刷新之后读回来的重试
-   * 没有把手，凭记录上的占位 id 现开一个。
-   */
-  const retryDelivery = (card: AgentToolMessage): TurnArtifactDelivery | undefined => {
-    const placeholderId = card.retryOf?.placeholderId
-    if (!placeholderId) return undefined
-    const handle = delivery.beginTurn()
-    handle.adopt(card.id, [placeholderId])
-    return handle
-  }
-
-  /** 重试被中止：失败占位回到原来那次失败，用户还能再点。 */
-  const failureCodeOf = (card: AgentToolMessage) => {
-    if (!card.retryOf || card.errorCode !== 'cancelled') return card.errorCode
-    const origin = get().messages.find((message) => message.id === card.retryOf?.messageId)
-    return origin?.kind === 'tool' ? origin.errorCode : card.errorCode
-  }
-
-  /**
-   * 排着的重试轮到时被拒（积分不够、没登录……）：本机占位由 `markFailed` 写上新的码；云端占位
-   * 本机改不了，照点重试当场被拒时那样盖一层，压在它此刻挂着的那次生成上——之前有过提交了的
-   * 重试就是最近那一条的任务，否则是原失败卡的任务。
-   */
-  const coverRefusedSlot = (card: AgentToolMessage) => {
-    const placeholderId = card.retryOf?.placeholderId
-    const code = card.errorCode
-    if (!placeholderId || card.job || !code || code === 'cancelled') return
-    const { messages } = get()
-    const slot = [...messages]
-      .reverse()
-      .find(
-        (message): message is AgentToolMessage =>
-          message.kind === 'tool' &&
-          message.job !== undefined &&
-          (message.retryOf
-            ? message.retryOf.placeholderId === placeholderId
-            : message.id === card.retryOf?.messageId),
-      )
-    const refusal: AgentRetryRefusal = slot?.job
-      ? { code, generationId: slot.job.taskId }
-      : { code }
-    set((state) => ({ retryRefusals: { ...state.retryRefusals, [placeholderId]: refusal } }))
-  }
-
-  /**
-   * 别的设备（或别的标签页）在这个会话里点的重试：面板上还没有它的记录，照服务端给的样子补在
-   * 末尾。还在跑的接着等，结束时照常落回它指着的那个占位；已经结束的只补记录，产物由点重试的
-   * 那台设备落过了。
-   */
-  const adoptRetryRecords = (jobs: readonly AgentBackgroundJobView[]) => {
-    const shown = new Set(get().messages.map((message) => message.id))
-    const records = jobs.flatMap((job) => {
-      if (!job.result.retryOf || shown.has(job.messageId)) return []
-      const card = panelMessage(job.messageId, job.turnId, 'assistant', [job.result])
-      return card.kind === 'tool' ? [card] : []
-    })
-    if (records.length) set((state) => ({ messages: [...state.messages, ...records] }))
-  }
-
-  /**
-   * 排着的重试轮到了：服务端已经提交它的任务。卡换成在跑，失败占位重新转圈，任务结束时结果落回
-   * 那个占位。预扣此刻发生，顶栏余额跟着刷新。
-   */
-  const startQueuedRetry = (card: AgentToolMessage) => {
-    set((state) => ({
-      messages: state.messages.map((message) => (message.id === card.id ? card : message)),
-    }))
-    notifyPrivateSubmissionSettled()
-    const placeholderId = card.retryOf?.placeholderId
-    if (!placeholderId || jobDeliveries.has(card.id)) return
-    void agentCanvasSink()?.revive?.([placeholderId])
-    const handle = delivery.beginTurn()
-    handle.adopt(card.id, [placeholderId])
-    jobDeliveries.set(card.id, handle)
-  }
-
-  /**
-   * 钱不够导致的失败当场把开通/充值面板叫出来。
-   *
-   * 失败卡片上本来就有「去充值」，但那要用户先看见那张卡、再看懂那句话、再去点。
-   * 余额见底不是这一次生成的问题，是账户的问题：不当场说清，用户只会当成又一次
-   * 生成失败，接着一遍遍重试，每次都失败。没有计费 overlay 的部署里这是空操作。
-   */
-  const promptRechargeIfBroke = (code: string | undefined) => {
-    if (code === 'insufficient_credits' || code === 'quota_exceeded')
-      notifyPrivateSubmissionError({ insufficientCredits: true })
-  }
-
-  /** 一个后台任务到了终局：结果卡换成终局，产物按产物交付落画布，失败就在占位上标错。 */
-  const settleJob = (job: AgentBackgroundJobView, conversationId: string) => {
-    const shown = get().messages.find((message) => message.id === job.messageId)
-    if (shown?.kind !== 'tool' || !unsettled(shown)) return
-    const { progress } = job
-    if (progress)
-      set((state) => ({ jobProgress: { ...state.jobProgress, [job.messageId]: progress } }))
-    if (job.result.status === shown.status) return
-    const card = panelMessage(job.messageId, job.turnId, 'assistant', [job.result])
-    if (card.kind !== 'tool') return
-    if (card.status === 'submitted' || card.status === 'queued') {
-      startQueuedRetry(card)
-      return
-    }
-    set((state) => ({
-      messages: state.messages.map((message) => (message.id === card.id ? card : message)),
-    }))
-    deliverJob(card)
-    if (wakesAgent(job.result)) void followWakeTurn(conversationId)
-  }
-
-  /** 后台任务的终局卡落画布：交出去的占位还在就落进占位，否则按锚点或视野落。 */
-  const deliverJob = (card: AgentToolMessage) => {
-    // 任务的结算（成功扣费、失败退回）此刻已经发生，顶栏余额跟着刷新。
-    notifyPrivateSubmissionSettled()
-    const handle = jobDeliveries.get(card.id) ?? retryDelivery(card) ?? delivery.beginTurn()
-    jobDeliveries.delete(card.id)
-    // 取消是用户自己的决定，不留失败占位：云端项目在取消时同样收掉预留的位置。重试记录例外：
-    // 中止一次重试，失败占位回到原来那次失败，用户还能再点。
-    if (card.status === 'failed' && card.errorCode === 'cancelled' && !card.retryOf)
-      handle.discard(card.id)
-    else if (card.status === 'failed') {
-      handle.failed(card.id, card.message, failureCodeOf(card))
-      promptRechargeIfBroke(failureCodeOf(card))
-      coverRefusedSlot(card)
-    } else if (deliverable(card)) handle.enqueue(card)
-    else handle.discard(card.id)
-    void handle.settled()
-  }
-
-  /**
-   * 这个会话还有没结束的后台任务就一直等它们的结果，直到都结束或者切走。不跟轮：轮早已收尾，
-   * 结果要等任务自己跑完；刷新、换设备、服务重启之后读回来的也走这一条。
-   */
-  const watchJobs = (conversationId: string) => {
-    if (jobWatch?.conversationId === conversationId) return
-    const token = { conversationId }
-    jobWatch = token
-    const watching = () => get().conversationId === conversationId && jobWatch === token
-    void (async () => {
-      try {
-        // 先问一次再等：刷新后读回的卡立刻就有阶段与已用时间，不必空等一个间隔。
-        while (watching() && hasPendingJobs(get().messages)) {
-          let jobs: readonly AgentBackgroundJobView[] = []
-          try {
-            jobs = await fetchJobs(conversationId)
-          } catch {
-            // 一次没问到不要紧，下一次接着问。
-          }
-          if (!watching()) return
-          adoptRetryRecords(jobs)
-          for (const job of jobs) settleJob(job, conversationId)
-          if (!hasPendingJobs(get().messages)) return
-          await new Promise((resolve) => setTimeout(resolve, jobPollMs))
-        }
-      } finally {
-        if (jobWatch === token) jobWatch = null
-      }
-    })()
   }
 
   /**
@@ -630,21 +445,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const card = panelMessage(event.messageId, turnId, 'assistant', [
         { ...event, type: 'toolResult' },
       ])
+      if (card.kind !== 'tool') turnDelivery.discard(event.messageId)
       // 后台任务：占的位不随这一轮收掉，交给任务，等它结束再落。
-      if (event.status === 'submitted') {
-        if (!jobDeliveries.has(event.messageId)) {
-          // 出图模式下生成工具当场提交，起跑那一刻还不知道会不会真提交（额度、余额都可能
-          // 让它退回拟稿），所以 `toolStart` 不带张数、没占位，位要在这里补上。
-          // `reserve` 按 messageId 幂等：起跑时已经占过的调用走到这里是空操作。
-          if (card.kind === 'tool')
-            turnDelivery.reserve(event.messageId, agentDraftReservation(card, conversationId))
-          jobDeliveries.set(event.messageId, turnDelivery.handOff(event.messageId))
-        }
-        watchJobs(conversationId)
-      } else if (event.status === 'failed' && card.kind === 'tool') {
+      else if (event.status === 'submitted')
+        jobs.track(conversationId, card, { kind: 'handOff', turn: turnDelivery })
+      else if (event.status === 'failed') {
         turnDelivery.failed(event.messageId, event.message, card.errorCode)
-        promptRechargeIfBroke(card.errorCode)
-      } else if (card.kind === 'tool' && deliverable(card)) turnDelivery.enqueue(card)
+        promptAgentRecharge(card.errorCode)
+      } else if (deliverable(card)) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }
   }
@@ -723,7 +531,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const idle = () => get().conversationId === conversationId && get().turn !== 'running'
     for (let attempt = 0; attempt < QUEUE_PICKUP_ATTEMPTS; attempt += 1) {
       if (!idle()) return
-      let snapshot: Awaited<ReturnType<typeof fetchMessages>>
+      let snapshot: AgentConversationState
       try {
         snapshot = await fetchMessages(conversationId)
       } catch {
@@ -745,91 +553,58 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
 
   /**
-   * 后台任务结束后服务端唤醒智能体起的那一轮：面板空着就挂上去。一直没看到进行中的轮、快照里
-   * 却多了面板没有的消息，说明那一轮在两次查看之间已经跑完，照快照摆出来。同一批里还有没结束的
-   * 任务时服务端先不唤醒，看不到就作罢：下一个结束的任务还会再来找一次。
+   * 换上这份快照，面板与后台任务一起接管。
+   *
+   * 已经确认提交的那次生成只往前走（`reconcileToolCard`）：慢一步的历史里它还是草稿，盖回去
+   * 就再没人等这个后台任务；交付状态是本机的，跟着面板上那张走。排队列表以快照为准。
+   * 快照里已经结算的后台任务当场交付，还没结束的接着等——轮询只认没结束的卡，这一步不做，
+   * 交出去的占位会一直转圈。
+   *
+   * `join` 是要挂上的那一轮；`keepPending` 留住本机那条还没上轮的用户气泡（新建会话读云端
+   * 历史时用），其余情况下服务端那份就是全部。
    */
-  let wakeWatch: { readonly conversationId: string } | null = null
-  const followWakeTurn = async (conversationId: string) => {
-    if (wakeWatch?.conversationId === conversationId) return
-    const token = { conversationId }
-    wakeWatch = token
-    const idle = () =>
-      get().conversationId === conversationId && get().turn !== 'running' && wakeWatch === token
-    try {
-      for (let attempt = 0; attempt < WAKE_PICKUP_ATTEMPTS; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 0 : wakePickupDelayMs))
-        if (!idle()) return
-        let snapshot: Awaited<ReturnType<typeof fetchMessages>>
-        try {
-          snapshot = await fetchMessages(conversationId)
-        } catch {
-          return
-        }
-        if (!idle()) return
-        const next = snapshot.activeTurn?.turnId
-        if (next) {
-          wakeWatch = null
-          await joinQueuedTurn(conversationId, snapshot, next)
-          return
-        }
-        const shown = new Set(get().messages.map((message) => message.id))
-        if (
-          snapshot.messages.some((message) => !shown.has(message.id)) ||
-          wakeSkipNews(snapshot.messages, get().messages)
-        ) {
-          const history = panelStateFromHistory(snapshot)
-          const before = new Map(get().messages.map((message) => [message.id, message]))
-          set({
-            ...history,
-            messages: history.messages.map((message) =>
-              reconcileToolCard(before.get(message.id), message),
-            ),
-          })
-          return
-        }
-      }
-    } finally {
-      if (wakeWatch === token) wakeWatch = null
-    }
+  const adoptSnapshot = (
+    conversationId: string,
+    taken: AgentConversationState,
+    options: { readonly join?: string; readonly keepPending?: boolean } = {},
+  ) => {
+    const shown = new Map(get().messages.map((message) => [message.id, message]))
+    const history = panelStateFromHistory(taken)
+    const pending = options.keepPending
+      ? get().messages.filter((message) => message.kind === 'text' && message.pending)
+      : []
+    set({
+      ...history,
+      messages: [
+        ...history.messages.map((message) => reconcileToolCard(shown.get(message.id), message)),
+        ...pending,
+      ],
+      queue: [...(taken.queue ?? [])],
+      ...(options.join
+        ? {
+            turn: 'running' as const,
+            stopping: false,
+            reconnecting: false,
+            error: null,
+            activeTurn: { turnId: options.join },
+          }
+        : {}),
+    })
+    void delivery.restore(get().messages)
+    jobs.resume(conversationId, get().messages)
   }
 
   /**
    * 挂上服务端从队里接着开的那一轮。同一个会话不走 `openConversation`：它会重置交付，把上一轮
-   * 交给后台任务的占位一起收掉。历史照快照换上，已经落过的产物保留交付状态；快照里已经结算的
-   * 后台任务当场交付，还没结束的继续轮询。
+   * 交给后台任务的占位一起收掉。
    */
   const joinQueuedTurn = async (
     conversationId: string,
-    snapshot: Awaited<ReturnType<typeof fetchMessages>>,
+    taken: AgentConversationState,
     turnId: string,
   ) => {
-    const shown = new Map(get().messages.map((message) => [message.id, message]))
-    const history = panelStateFromHistory(snapshot)
-    const messages = history.messages.map((message) =>
-      reconcileToolCard(shown.get(message.id), message),
-    )
-    set({
-      ...history,
-      messages,
-      queue: [...(snapshot.queue ?? [])],
-      turn: 'running',
-      stopping: false,
-      reconnecting: false,
-      error: null,
-      activeTurn: { turnId },
-    })
-    for (const message of messages)
-      if (message.kind === 'tool' && !unsettled(message) && jobDeliveries.has(message.id))
-        deliverJob(message)
-    if (hasPendingJobs(messages)) watchJobs(conversationId)
-    const cursor = snapshot.activeTurn?.turnId === turnId ? snapshot.cursor : undefined
-    await follow(
-      conversationId,
-      cursor === undefined ? { turnId } : { turnId, cursor },
-      null,
-      delivery.beginTurn(),
-    )
+    adoptSnapshot(conversationId, taken, { join: turnId })
+    await follow(conversationId, turnSource(taken, turnId), null, delivery.beginTurn())
   }
 
   /**
@@ -841,9 +616,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const isCurrent = resetDelivery()
     const same = get().conversationId === conversationId
     set({
-      conversationId,
-      // 换会话：草稿卡上改过的字跟着那个会话走，不带进新的。
-      ...(!same ? { messages: [], turns: {}, queue: [], promptDrafts: {} } : {}),
+      // 换会话：草稿卡上改过的字、任务进度这些都跟着那个会话走，不带进新的。
+      ...(same ? { conversationId } : sessionReset(conversationId)),
       error: null,
       turn: 'idle',
       stopping: false,
@@ -853,7 +627,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       historyFailed: false,
     })
     selectCanvasWorkspace(conversationId)
-    let state: Awaited<ReturnType<typeof fetchMessages>>
+    let state: AgentConversationState
     try {
       state = await fetchMessages(conversationId)
       if (!isCurrent()) return
@@ -870,18 +644,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
           if (!isCurrent()) return
           useCanvasProjectStore.getState().activate(project.id)
-          set({
-            historyLoading: false,
-            historyFailed: false,
-            conversationId: null,
-            messages: [],
-            turns: {},
-            queue: [],
-            turn: 'idle',
-            stopping: false,
-            activeTurn: null,
-            error: CONVERSATION_GONE(),
-          })
+          set({ ...sessionReset(null), error: CONVERSATION_GONE() })
         } catch {
           if (isCurrent()) {
             set({ historyLoading: false, historyFailed: true })
@@ -892,33 +655,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
       else fail(CONVERSATION_UNREADABLE())
       return
     }
-    const shown = new Map(get().messages.map((message) => [message.id, message]))
-    const history = panelStateFromHistory(state)
-    set({
-      historyLoading: false,
-      historyFailed: false,
-      ...history,
-      // 重读同一个会话（重试读取、409 兜底）时慢一步的历史里草稿还没改写：确认过的那张不回退。
-      messages: history.messages.map((message) =>
-        reconcileToolCard(shown.get(message.id), message),
-      ),
-      queue: [...(state.queue ?? [])],
-    })
-    void delivery.restore(get().messages)
-    if (hasPendingJobs(get().messages)) watchJobs(conversationId)
+    set({ historyLoading: false, historyFailed: false })
+    adoptSnapshot(conversationId, state)
     const active = state.activeTurn?.turnId ?? turnId
     if (!active) return
     set({ turn: 'running', error: null, activeTurn: { turnId: active } })
-    const turnDelivery = delivery.beginTurn()
-    // 快照先行、增量接在它的游标之后。游标只对快照里那一轮成立：409 兜底给的轮可能已经跑完，
-    // 它在游标之前，只能按轮从头重放。
-    const cursor = state.activeTurn?.turnId === active ? state.cursor : undefined
-    await follow(
-      conversationId,
-      cursor === undefined ? { turnId: active } : { turnId: active, cursor },
-      null,
-      turnDelivery,
-    )
+    await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
   }
 
   /**
@@ -969,10 +711,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
               reconnecting: false,
               activeTurn: null,
               error: null,
-              ...panelStateFromHistory(history),
             })
-            void delivery.restore(get().messages)
-            if (hasPendingJobs(get().messages)) watchJobs(conversationId)
+            adoptSnapshot(conversationId, history)
             return
           }
         } catch {
@@ -1072,18 +812,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     resetDelivery: () => void resetDelivery(),
     reset: (project) =>
       set({
-        conversationId: project.conversationId,
-        messages: [],
-        turns: {},
-        queue: [],
-        promptDrafts: {},
-        turn: 'idle',
-        stopping: false,
-        reconnecting: false,
-        activeTurn: null,
-        error: null,
-        historyFailed: false,
-        historyLoading: false,
+        ...sessionReset(project.conversationId),
         loaded: true,
         tab: 'chat',
         open: true,
@@ -1461,7 +1190,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             bindNewAgentDraft(target, currentCanvasProject()?.id)
             set({ conversationId: target })
             if (sourceProject?.cloud && cloudProjectsEnabled()) {
-              let history: Awaited<ReturnType<typeof fetchMessages>>
+              let history: AgentConversationState
               try {
                 history = await fetchMessages(target)
               } catch (error) {
@@ -1469,14 +1198,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
                 throw error
               }
               if (!turnDelivery.isCurrent()) return
-              const restored = panelStateFromHistory(history)
-              set((state) => ({
-                turns: restored.turns,
-                messages: [
-                  ...restored.messages,
-                  ...state.messages.filter((one) => one.kind === 'text' && one.pending),
-                ],
-              }))
+              // 云端项目原来那段历史先摆上，敲下回车那条先上屏的消息留在末尾等这一轮。
+              adoptSnapshot(target, history, { keepPending: true })
               if (history.activeTurn) {
                 await openConversation(target, history.activeTurn.turnId)
                 return
@@ -1643,33 +1366,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     async cancelJob(messageId) {
-      const { conversationId, messages } = get()
-      const message = messages.find((one) => one.id === messageId)
-      if (!conversationId || message?.kind !== 'tool' || !unsettled(message)) return
-      if (!message.job && !(message.retryOf && message.status === 'queued')) return
-      if (message.retryOf) {
-        // 重试记录走重试自己的中止：按原桶退回，云端占位回到原来那次失败，用户还能再点。
-        try {
-          await cancelRetryRequest(conversationId, message.id)
-        } catch (thrown) {
-          // 409：它恰好已经结束，下面照常读回终局。
-          if (!(thrown instanceof AgentRequestError && thrown.status === 409)) throw thrown
-        }
-        const jobs = await fetchJobs(conversationId)
-        if (get().conversationId !== conversationId) return
-        for (const one of jobs) settleJob(one, conversationId)
-        return
-      }
-      if (!message.job) return
-      const job = await requestJobCancel(conversationId, message.job.taskId)
-      if (get().conversationId !== conversationId) return
-      settleJob(job, conversationId)
+      const conversationId = get().conversationId
+      if (conversationId) await jobs.cancel(conversationId, messageId)
     },
 
     async retry(messageId, placeholderId, generationId) {
       const conversationId = get().conversationId
       if (!conversationId) return false
-      let view: Awaited<ReturnType<typeof retryToolCall>>
+      let view: AgentMessageView
       try {
         view = await retryToolCall(conversationId, messageId, placeholderId)
       } catch (thrown) {
@@ -1707,22 +1411,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       if (card.status === 'queued') {
         // 排在别的重试后面：还没提交、没扣费，占位保持失败并标着排队中，轮到时再转圈。
-        watchJobs(conversationId)
+        jobs.track(conversationId, card, { kind: 'adopt', placeholderId })
         return true
       }
       // 重试有自己的消耗：预扣已经发生，顶栏余额跟着刷新。
       notifyPrivateSubmissionSettled()
       if (placeholderId) await agentCanvasSink()?.revive?.([placeholderId])
       if (get().conversationId !== conversationId) return true
-      if (card.status !== 'submitted') {
-        // 给回的那一条已经结束（别的设备点的重试已经补上）：照后台任务的终局落一次。
-        deliverJob(card)
-        return true
-      }
-      const handle = delivery.beginTurn()
-      if (placeholderId) handle.adopt(card.id, [placeholderId])
-      jobDeliveries.set(card.id, handle)
-      watchJobs(conversationId)
+      // 给回的那一条已经结束（别的设备点的重试已经补上）时，`track` 照后台任务的终局落一次。
+      jobs.track(conversationId, card, { kind: 'adopt', placeholderId })
       return true
     },
 
@@ -1784,7 +1481,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // 更不能再占一次位——那些位没有人会来认领，只会在画布上一直转圈。
       if (
         shown?.kind === 'tool' &&
-        unsettled(card) &&
+        agentJobUnsettled(card) &&
         (shown.status === 'succeeded' || shown.status === 'failed')
       )
         return { ok: true }
@@ -1797,19 +1494,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           messages: state.messages.map((one) => (one.id === card.id ? card : one)),
         }
       })
-      if (unsettled(card)) {
-        // 双击、多标签页重复确认：这台设备已经在等它，不再占第二次位。
-        if (jobDeliveries.has(card.id)) return { ok: true }
-        // 拟稿那一步没有占位（`toolStart` 不带张数），位要在这里占：画布随即转圈，产物落进这些位。
-        const handle = delivery.beginTurn()
-        handle.reserve(card.id, agentDraftReservation(card, conversationId))
-        jobDeliveries.set(card.id, handle)
-        watchJobs(conversationId)
-        return { ok: true }
-      }
-      // 回来的已经是终局（重复确认时那个任务已经跑完）：交给交付收场，它认领这次调用占的位。
-      // 轮询只认没结束的卡，这一步不做就没有第二次机会，占的位会一直转圈。
-      deliverJob(card)
+      jobs.track(conversationId, card, { kind: 'reserve' })
       return { ok: true }
     },
 

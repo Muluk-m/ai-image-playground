@@ -4,7 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentPendingDrafts from '../../../../features/agent/components/AgentPendingDrafts'
-import { setAgentJobPollIntervalForTesting, useAgentStore } from '../../../../features/agent/store'
+import { setAgentJobTimingForTesting } from '../../../../features/agent/lib/backgroundJobs'
+import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
@@ -72,7 +73,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
-  setAgentJobPollIntervalForTesting(5)
+  setAgentJobTimingForTesting({ pollIntervalMs: 5 })
   posted.length = 0
   refuseAt = null
   host = document.createElement('div')
@@ -85,7 +86,7 @@ afterEach(() => {
   host.remove()
   // 守候循环按会话退出：别让它跨用例继续问服务端。
   useAgentStore.setState({ conversationId: null, messages: [], promptDrafts: {} })
-  setAgentJobPollIntervalForTesting()
+  setAgentJobTimingForTesting()
   vi.unstubAllGlobals()
   fetchMock.mockClear()
 })
