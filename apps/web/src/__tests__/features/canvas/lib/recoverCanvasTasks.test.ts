@@ -4,15 +4,31 @@ import type {
   CanvasTaskMeta,
   PlaceholderView,
 } from '../../../../features/canvas/lib/editor'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../../../lib/apiProfiles'
+import { setChannels } from '../../../../lib/channels/channelStore'
+import type { PublicChannel } from '../../../../lib/channels/types'
+import type * as PrivateOverlay from '../../../../lib/privateOverlay'
 
-// resume 用永不 resolve 的 promise：只断言「是否被调用」，不驱动后续异步。
-const { resumeMock } = vi.hoisted(() => ({
-  resumeMock: vi.fn((_opts: unknown, _requestId: string) => new Promise<never>(() => {})),
-}))
-vi.mock('../../../../lib/api', () => ({ resumeQueueImageApi: resumeMock }))
+const QUEUE_CHANNEL: PublicChannel = {
+  id: 'queue-channel',
+  kind: 'openai-queue',
+  label: 'Queue',
+  models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+  defaults: { apiMode: 'images', timeout: 600 },
+}
+
+const settings = vi.hoisted(() => ({ value: {} as unknown }))
 vi.mock('../../../../store', () => ({
-  useStore: { getState: () => ({ settings: {}, params: {} }) },
+  useStore: { getState: () => ({ settings: settings.value, params: {}, showToast: vi.fn() }) },
   addCompletedCanvasTask: vi.fn(async () => {}),
+}))
+
+// 结算通知是出站口：续跑落地有没有发它，就是「顶栏余额刷不刷新」本身。门禁保持真的。
+const overlay = vi.hoisted(() => ({ errored: vi.fn(), settled: vi.fn() }))
+vi.mock('../../../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof PrivateOverlay>()),
+  notifyPrivateSubmissionError: overlay.errored,
+  notifyPrivateSubmissionSettled: overlay.settled,
 }))
 
 import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
@@ -33,13 +49,37 @@ function makeEditor(placeholders: PlaceholderView[]) {
   return { editor, updatePlaceholder, deleteElement }
 }
 
+/** 续跑只打 status：请求出没出去就是「有没有接着跑」本身。 */
+function stubQueue() {
+  return vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async () =>
+      Response.json({ request_id: 'req-1', status: 'in_progress', submitted_at: 0 }),
+    )
+}
+
 beforeEach(() => {
-  resumeMock.mockClear()
+  vi.restoreAllMocks()
+  overlay.errored.mockClear()
+  overlay.settled.mockClear()
+  setChannels([QUEUE_CHANNEL])
+  settings.value = normalizeSettings({
+    ...DEFAULT_SETTINGS,
+    profiles: [
+      {
+        id: QUEUE_CHANNEL.id,
+        source: 'builtin-edge',
+        channelId: QUEUE_CHANNEL.id,
+        selectedModelId: 'gpt-image-2',
+      },
+    ],
+    activeProfileId: QUEUE_CHANNEL.id,
+  })
 })
 
 describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
-  it('builtin-edge + bffRequestId → resume 续 poll（用 meta 参数快照），不标失效', () => {
-    const snapshot = { size: '1536x1024', n: 1 } as CanvasTaskMeta['params']
+  it('builtin-edge + bffRequestId → 接着续 poll，不标失效', async () => {
+    const fetchMock = stubQueue()
     const { editor, updatePlaceholder } = makeEditor([
       ph('el:a', 'loading', {
         taskId: 't1',
@@ -47,20 +87,51 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
         bffRequestId: 'req-1',
         source: 'builtin-edge',
         prompt: 'hi',
-        params: snapshot,
+        params: { size: '1536x1024', n: 1 } as CanvasTaskMeta['params'],
       }),
     ])
 
     recoverCanvasTasks(editor)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
 
-    expect(resumeMock).toHaveBeenCalledTimes(1)
-    expect(resumeMock.mock.calls[0][1]).toBe('req-1')
-    // 恢复用发起时的参数快照，而非当前 store 参数
-    expect((resumeMock.mock.calls[0][0] as { params: unknown }).params).toEqual(snapshot)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/req-1/status')
     expect(updatePlaceholder).not.toHaveBeenCalled()
   })
 
+  // 刷新后的续跑原先既不刷新余额、也不把内容安全拒绝翻成可行动的那句：两件事都归生命周期。
+  it('续跑被内容安全拒了：占位上写可行动的那句，并把结算通知发出去', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      Response.json({
+        request_id: 'req-1',
+        status: 'failed',
+        submitted_at: 0,
+        error: { message: 'rejected by our safety system', type: 'content_policy' },
+      }),
+    )
+    const { editor, updatePlaceholder } = makeEditor([
+      ph('el:policy', 'loading', {
+        taskId: 't5',
+        clientRequestId: 'c5',
+        bffRequestId: 'req-1',
+        source: 'builtin-edge',
+        prompt: 'hi',
+        params: { size: '1536x1024', n: 1 } as CanvasTaskMeta['params'],
+      }),
+    ])
+
+    recoverCanvasTasks(editor)
+    await vi.waitFor(() => expect(updatePlaceholder).toHaveBeenCalled())
+
+    const patch = updatePlaceholder.mock.calls[0][1] as { status: string; message: string }
+    expect(patch.status).toBe('error')
+    expect(patch.message).toContain('内容审核')
+    expect(patch.message).not.toContain('safety system')
+    expect(overlay.errored).toHaveBeenCalledTimes(1)
+    expect(overlay.settled).toHaveBeenCalledTimes(1)
+  })
+
   it('builtin-edge 仅 clientRequestId（未确认窗口）→ 标记手动重试，不自动重提交', () => {
+    const fetchMock = stubQueue()
     const { editor, updatePlaceholder } = makeEditor([
       ph('el:b', 'loading', {
         taskId: 't2',
@@ -72,7 +143,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
 
     recoverCanvasTasks(editor)
 
-    expect(resumeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(updatePlaceholder).toHaveBeenCalledTimes(1)
     const [id, patch] = updatePlaceholder.mock.calls[0] as [
       string,
@@ -84,6 +155,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
   })
 
   it('user-byok（无恢复能力）→ 标记失效', () => {
+    const fetchMock = stubQueue()
     const { editor, updatePlaceholder } = makeEditor([
       ph('el:c', 'loading', {
         taskId: 't3',
@@ -95,7 +167,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
 
     recoverCanvasTasks(editor)
 
-    expect(resumeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(updatePlaceholder).toHaveBeenCalledTimes(1)
     const patch = updatePlaceholder.mock.calls[0][1] as { status: string; message: string }
     expect(patch.status).toBe('stale')
@@ -103,6 +175,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
   })
 
   it('智能体占的位 → 直接删掉，不当成可续的画布任务', () => {
+    const fetchMock = stubQueue()
     const { editor, updatePlaceholder, deleteElement } = makeEditor([
       ph('el:agent', 'loading', {
         taskId: '',
@@ -115,12 +188,13 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
 
     recoverCanvasTasks(editor)
 
-    expect(resumeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(updatePlaceholder).not.toHaveBeenCalled()
     expect(deleteElement).toHaveBeenCalledWith('el:agent', { history: false })
   })
 
   it('非运行态占位框（error）→ 跳过，不动它', () => {
+    const fetchMock = stubQueue()
     const { editor, updatePlaceholder } = makeEditor([
       ph('el:d', 'error', {
         taskId: 't4',
@@ -132,7 +206,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
 
     recoverCanvasTasks(editor)
 
-    expect(resumeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(updatePlaceholder).not.toHaveBeenCalled()
   })
 })

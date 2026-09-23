@@ -194,7 +194,7 @@ export function mergeHistory(
 const watched = new Set<string>()
 
 /**
- * 盯着平台上还在跑的那条生成，直到它落终态。它不是本机发起的，没有 `executeTask` 那条连接可以等；
+ * 盯着平台上还在跑的那条生成，直到它落终态。它不是本机发起的，没有 `superviseGeneration` 那条连接可以等；
  * 不盯着它，卡片只能等下一次重读列表或展开详情才收尾。
  *
  * 轮询梯度与本机队列任务共用一份（最长 30 min）。超时仍未落终态就停手：平台侧的无主扫描会把它

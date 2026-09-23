@@ -96,27 +96,42 @@ export function findFreeTarget(
 }
 
 /**
- * 一次生成要占的 n 个目标位置：从锚点右侧（无锚点则视口中心）起，依次找互不重叠、
- * 也不压住画布上任何已有元素的空位。直接生成与智能体两条路共用这一个入口，
- * 所以「多张排开」与「避让已有元素」两边行为一致。
+ * 「一批同尺寸目标位置」的唯一规则：从 `start` 起沿水平方向依次排开，每一个都用
+ * `findFreeTarget` 避开画布上已有的元素与前面已排定的位置——预留占位框（一次生成占 n 个位）
+ * 与出片落图（一个占位框收 n 张结果）都从这里走，两边的排布与避让因此必然一致。
+ *
+ * `held` 是这一批自己的占位框：它占的就是让给这批结果的位置，不算障碍，所以第一张精确
+ * 落回用户看着转圈的那个框；占位框已被用户删掉时 `held` 为空，第一张也照样避让——那块地
+ * 已经不属于这条任务了。
+ */
+export function spreadTargets(
+  editor: CanvasEditor,
+  start: PlacementTarget,
+  count: number,
+  held: readonly string[] = [],
+): PlacementTarget[] {
+  const row: PlacementRow = { x: start.x, width: editor.getViewportPageBounds().w }
+  const obstacles = editor.getOccupiedBounds(held)
+  const targets: PlacementTarget[] = []
+  let from = start
+  for (let index = 0; index < Math.max(1, count); index += 1) {
+    const target = findFreeTarget(from, obstacles, row)
+    targets.push(target)
+    obstacles.push(boxOfTarget(target))
+    // 下一个从上一个右边一个间距处起步：画布空时退化成一排等距占位框。
+    from = { ...start, x: target.x + target.w + PLACEMENT_GAP, y: target.y }
+  }
+  return targets
+}
+
+/**
+ * 一次生成要占的 n 个目标位置：从锚点右侧（无锚点则视口中心）起排开。直接生成与智能体
+ * 两条路共用这一个入口，所以「多张排开」与「避让已有元素」两边行为一致。
  */
 export function computePlaceholderTargets(
   editor: CanvasEditor,
   anchorBounds: Box | null,
   count: number,
 ): PlacementTarget[] {
-  const base = computePlaceholderTarget(editor, anchorBounds)
-  const viewport = editor.getViewportPageBounds()
-  const row: PlacementRow = { x: base.x, width: viewport.w }
-  const obstacles = editor.getOccupiedBounds()
-  const targets: PlacementTarget[] = []
-  let start = base
-  for (let index = 0; index < Math.max(1, count); index += 1) {
-    const target = findFreeTarget(start, obstacles, row)
-    targets.push(target)
-    obstacles.push(boxOfTarget(target))
-    // 下一个从上一个右边一个间距处起步：画布空时退化成一排等距占位框。
-    start = { ...base, x: target.x + target.w + PLACEMENT_GAP, y: target.y }
-  }
-  return targets
+  return spreadTargets(editor, computePlaceholderTarget(editor, anchorBounds), count)
 }
