@@ -1,7 +1,6 @@
 @import './styles/theme.css';
+@import './styles/fonts.css';
 @import './styles/studio.css';
-@import url('https://fontsapi.zeoseven.com/442/main/result.css');
-@import url('https://cdn.jsdelivr.net/npm/@lobehub/webfont-harmony-sans-sc@1.0.0/css/index.css');
 
 @tailwind base;
 @tailwind components;
@@ -895,9 +894,6 @@
 }
 
 :root {
-  --font-ui-sans: 'HarmonyOS Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', 'Inter', 'Helvetica Neue', system-ui, sans-serif;
-  --font-mono: 'Maple Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);

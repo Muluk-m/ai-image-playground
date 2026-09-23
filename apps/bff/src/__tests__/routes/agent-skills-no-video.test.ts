@@ -119,6 +119,8 @@ describe('a deployment that cannot make video', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'webFetch',
+      'webSearch',
     ])
     const prompt = systemPromptOf(calls[0]!)
     expect(prompt).not.toContain('<available_skills>')

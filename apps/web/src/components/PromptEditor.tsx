@@ -140,8 +140,13 @@ export interface PromptEditorApi {
   readonly query: PromptEditorQuery | null
   /** 布局与命中测试归宿主（量高度、算胶囊位置），改内容一律走下面几个方法。 */
   readonly ref: RefObject<HTMLDivElement | null>
-  /** 可见文本坐标系里的当前光标。 */
+  /** 可见文本坐标系里的当前光标；选区落在输入框外面（点菜单、点缩略图）时按末尾算。 */
   cursor(): number
+  /**
+   * 可见文本坐标系里的选区两端，`start === end` 即只有光标、没选中东西。
+   * `cursor()` 只答得出「在哪」，答不出「有没有选中一段」——按键要按这个分流时用它。
+   */
+  selection(): { readonly start: number; readonly end: number }
   /** 聚焦并把光标放到可见文本的某一位；DOM 写完才落实，不需要调用方自己排定时器。 */
   focusAt(offset: number): void
   /** 在当前选区插入一段文字。 */
@@ -355,15 +360,19 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     setRevision((current) => current + 1)
   }, [])
 
+  const selection = useCallback(() => {
+    const el = ref.current
+    if (el) return getContentEditableSelection(el)
+    const end = optionsRef.current.value.length
+    return { start: end, end }
+  }, [])
+
   const insertText = useCallback(
     (text: string) => {
-      const el = ref.current
-      const selection = el
-        ? getContentEditableSelection(el)
-        : { start: optionsRef.current.value.length, end: optionsRef.current.value.length }
-      replaceRange(selection.start, selection.end, text)
+      const { start, end } = selection()
+      replaceRange(start, end, text)
     },
-    [replaceRange],
+    [replaceRange, selection],
   )
 
   const cursor = useCallback(() => {
@@ -509,6 +518,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     query,
     ref,
     cursor,
+    selection,
     focusAt,
     insertText,
     replaceRange,
