@@ -150,7 +150,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/vps-key"
 
   pages:
-    name: Pages (internal, then paid)
+    name: Pages (internal, paid, then admin)
     needs: [target, backend]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -190,10 +190,11 @@ jobs:
             printf '%s\n' "$PAGES_ENV"
             echo "INTERNAL_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/INTERNAL-cloudflare.env"
             echo "PAID_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
             echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      - name: Wait for both APIs to serve the deployed commit
+      - name: Wait for all APIs to serve the deployed commit
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
           PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
@@ -240,6 +241,35 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Release the paid site (with private overlay)
         run: ./scripts/pages-release.sh paid
+      - name: Wait for the Admin API when cut over
+        env:
+          PUBLIC_SHA: ${{ needs.target.outputs.sha }}
+          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
+        run: |
+          # shellcheck source=/dev/null
+          . "$PAGES_ENV_FILE"
+          if [ -z "${ADMIN_BFF_BASE_URL:-}" ]; then
+            echo "::notice::Admin Pages cutover is not configured; skipping the Admin API check."
+            exit 0
+          fi
+          deadline=$(( $(date +%s) + 300 ))
+          while :; do
+            version=$(curl -fsS --max-time 10 "${ADMIN_BFF_BASE_URL%/}/health" 2>/dev/null |
+              sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
+            [ "$version" = "$PUBLIC_SHA+$PRIVATE_SHA" ] && exit 0
+            [ "$(date +%s)" -lt "$deadline" ] ||
+              { echo "::error::$ADMIN_BFF_BASE_URL/health reports '${version}', expected $PUBLIC_SHA+$PRIVATE_SHA"; exit 1; }
+            sleep 10
+          done
+      - name: Release the paid Admin site when cut over
+        run: |
+          # shellcheck source=/dev/null
+          . "$PAGES_ENV_FILE"
+          if [ -z "${ADMIN_PAGES_PROJECT:-}" ]; then
+            echo "::notice::Admin Pages cutover is not configured; skipping the Admin release."
+            exit 0
+          fi
+          ./scripts/pages-release.sh admin
       - name: Remove secrets from the runner
         if: always()
         run: rm -f "$RUNNER_TEMP"/*-cloudflare.env "$RUNNER_TEMP/pages.env"

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useTask } from '@/lib/queries'
 import { countInputImages, inputImageMaxIdx } from '@/lib/request-helpers'
+import { adminApiUrl } from '@/lib/runtime-config'
 
 interface LightboxDialogProps {
   taskId: string | undefined
@@ -61,7 +62,7 @@ export function LightboxDialog({ taskId, imgIdx, imgKind, fullscreen }: Lightbox
   if (!open || imgIdx === undefined || imgKind === undefined || !taskId) return null
 
   const path = imgKind === 'output' ? 'image' : 'input-image'
-  const src = `/api/tasks/${encodeURIComponent(taskId)}/${path}?idx=${imgIdx}`
+  const src = adminApiUrl(`/api/tasks/${encodeURIComponent(taskId)}/${path}?idx=${imgIdx}`)
 
   return (
     <Dialog open={open} onOpenChange={(o) => (!o ? close() : null)}>

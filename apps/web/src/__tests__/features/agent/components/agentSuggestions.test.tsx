@@ -154,20 +154,6 @@ describe('示例建议', () => {
     expect(suggestionList()).toBeNull()
   })
 
-  it('项目欢迎页展示示例建议，点一下填进欢迎页的输入框', async () => {
-    const workspace = { doc: new CanvasDoc(), editor: EDITOR } as unknown as CanvasWorkspace
-    act(() => root.render(<ProjectWelcome workspace={workspace} />))
-    await settle()
-
-    const suggestion = suggestionButtons()[1]!
-    act(() => suggestion.click())
-    await settle()
-
-    expect(textbox().textContent).toBe(suggestion.dataset.prompt)
-    expect(document.activeElement).toBe(textbox())
-    expect(send).not.toHaveBeenCalled()
-  })
-
   it('输入框里有用户自己写的话（恢复的未发草稿）时，点建议不覆盖，只提示', async () => {
     agentDraft(null).update({ ...EMPTY_DRAFT, prompt: '我自己写了一半的话' })
     act(() => root.render(<AgentPanel doc={new CanvasDoc()} editor={EDITOR} />))

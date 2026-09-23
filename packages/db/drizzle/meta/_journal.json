@@ -260,6 +260,13 @@
       "when": 1790118000000,
       "tag": "0037_email_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790118001000,
+      "tag": "0038_inspiration_library",
+      "breakpoints": true
     }
   ]
 }

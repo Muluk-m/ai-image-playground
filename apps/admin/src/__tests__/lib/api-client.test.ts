@@ -8,6 +8,7 @@ import {
   setApiClientRefs,
   UnauthorizedError,
 } from '../../lib/api-client'
+import { _setAdminRuntimeConfigForTesting } from '../../lib/runtime-config'
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -27,6 +28,7 @@ describe('api-client', () => {
     queryClient = new QueryClient()
     clearSpy = vi.spyOn(queryClient, 'clear')
     setApiClientRefs({ router: fakeRouter, queryClient })
+    _setAdminRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
   })
 
   afterEach(() => {
@@ -43,6 +45,21 @@ describe('api-client', () => {
     expect(out).toEqual({ ok: true, value: 42 })
     expect(clearSpy).not.toHaveBeenCalled()
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('targets the configured Admin API origin and keeps credentials attached', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    _setAdminRuntimeConfigForTesting({
+      bff: { enabled: true, baseUrl: 'https://admin-api.example.com/' },
+    })
+
+    await apiClient.get('/api/me')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://admin-api.example.com/api/me',
+      expect.objectContaining({ credentials: 'include' }),
+    )
   })
 
   it('401 throws UnauthorizedError + clears query cache + navigates /login', async () => {

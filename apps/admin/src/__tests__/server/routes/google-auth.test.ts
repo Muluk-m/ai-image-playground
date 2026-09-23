@@ -5,6 +5,7 @@ process.env.ADMIN_GOOGLE_CLIENT_ID = 'admin-client-fixture'
 process.env.ADMIN_GOOGLE_CLIENT_SECRET = 'admin-secret-fixture'
 process.env.ADMIN_GOOGLE_ALLOWED_EMAILS = ' Owner@Example.com , second@example.com '
 process.env.ADMIN_PUBLIC_ORIGIN = 'https://admin.example.com'
+process.env.ADMIN_FRONTEND_ORIGIN = 'https://console.example.com'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
 process.env.PORT = '0'
@@ -133,7 +134,7 @@ describe('GET /api/auth/google/callback', () => {
     const response = await callback({ code: 'code-alpha', state }, cookie, '10.1.1.1')
 
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('/tasks')
+    expect(response.headers.get('location')).toBe('https://console.example.com/tasks')
     expect(readCookie(response, 'admin_session')).toBeTruthy()
 
     const exchange = new URLSearchParams(calls[0]?.body ?? '')
@@ -150,7 +151,7 @@ describe('GET /api/auth/google/callback', () => {
     const { state, cookie } = await startFlow(undefined, '10.1.1.2')
     const response = await callback({ code: 'code-beta', state }, cookie, '10.1.1.2')
 
-    expect(response.headers.get('location')).toBe('/')
+    expect(response.headers.get('location')).toBe('https://console.example.com/')
     expect(readCookie(response, 'admin_session')).toBeTruthy()
   })
 
@@ -160,7 +161,9 @@ describe('GET /api/auth/google/callback', () => {
     const response = await callback({ code: 'code-gamma', state }, cookie, '10.1.2.1')
 
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('/login?error=not_allowed')
+    expect(response.headers.get('location')).toBe(
+      'https://console.example.com/login?error=not_allowed',
+    )
     expect(readCookie(response, 'admin_session')).toBeNull()
   })
 
@@ -169,7 +172,9 @@ describe('GET /api/auth/google/callback', () => {
     const { state, cookie } = await startFlow('/tasks', '10.1.2.2')
     const response = await callback({ code: 'code-delta', state }, cookie, '10.1.2.2')
 
-    expect(response.headers.get('location')).toBe('/login?error=not_allowed')
+    expect(response.headers.get('location')).toBe(
+      'https://console.example.com/login?error=not_allowed',
+    )
     expect(readCookie(response, 'admin_session')).toBeNull()
   })
 
@@ -178,7 +183,9 @@ describe('GET /api/auth/google/callback', () => {
     const { cookie } = await startFlow('/tasks', '10.1.3.1')
     const response = await callback({ code: 'code-eps', state: 'forged' }, cookie, '10.1.3.1')
 
-    expect(response.headers.get('location')).toBe('/login?error=oauth_failed')
+    expect(response.headers.get('location')).toBe(
+      'https://console.example.com/login?error=oauth_failed',
+    )
     expect(readCookie(response, 'admin_session')).toBeNull()
   })
 
@@ -186,7 +193,9 @@ describe('GET /api/auth/google/callback', () => {
     stubGoogle({ email: 'owner@example.com', email_verified: true })
     const response = await callback({ code: 'code-zeta', state: 'orphan' }, undefined, '10.1.3.2')
 
-    expect(response.headers.get('location')).toBe('/login?error=oauth_failed')
+    expect(response.headers.get('location')).toBe(
+      'https://console.example.com/login?error=oauth_failed',
+    )
     expect(readCookie(response, 'admin_session')).toBeNull()
   })
 
@@ -195,7 +204,9 @@ describe('GET /api/auth/google/callback', () => {
     const { state, cookie } = await startFlow('/tasks', '10.1.4.1')
     const response = await callback({ code: 'code-eta', state }, cookie, '10.1.4.1')
 
-    expect(response.headers.get('location')).toBe('/login?error=oauth_failed')
+    expect(response.headers.get('location')).toBe(
+      'https://console.example.com/login?error=oauth_failed',
+    )
     expect(readCookie(response, 'admin_session')).toBeNull()
   })
 

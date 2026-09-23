@@ -12,6 +12,7 @@ import {
   scriptedAgentFetch,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_skills_a297')
 process.env.PORT = '0'
@@ -32,6 +33,8 @@ const { close: closeDb } = await import('../../db/client')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
+
+await silenceChatUpstream()
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const app = new Elysia().use(agentRoutes)

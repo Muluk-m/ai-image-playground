@@ -1,15 +1,15 @@
+import { INSPIRATION_KINDS, type InspirationKind } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { getApiErrorMessage } from '../../../lib/imageApiShared'
+import { bffBaseUrl, getRuntimeConfig } from '../../../lib/runtimeConfig'
 import type { InspirationManifest } from '../types'
 
 /**
- * 默认走同源静态资源 `./inspiration-manifest.json`（部署时由 Vite 把 public/ 目录复制到 dist 根）。
- * 跟 CF Pages 一起发版；改 manifest 不需要改源码，重新部署 dist 即可。
- * 若团队希望脱离部署单独维护清单，可在 .env 设 `VITE_INSPIRATION_MANIFEST_URL` 指向 CDN / 公开 repo raw / gist。
+ * Paid deployments read the BFF's published manifest; the static file remains an offline/BYOK
+ * seed for builds with no BFF. A build-time URL may still point a staging build at another API.
  */
 export const DEFAULT_REMOTE_MANIFEST_URL = '/inspiration-manifest.json'
 
-/** 解析构建期注入的 URL；空字符串视为「禁用远程」。 */
 export function resolveRemoteManifestUrl(): string | null {
   const envUrl = import.meta.env.VITE_INSPIRATION_MANIFEST_URL
   if (typeof envUrl === 'string') {
@@ -17,7 +17,9 @@ export function resolveRemoteManifestUrl(): string | null {
     if (!trimmed) return null
     return trimmed
   }
-  return DEFAULT_REMOTE_MANIFEST_URL
+  return getRuntimeConfig().bff.enabled
+    ? `${bffBaseUrl()}/api/inspirations/manifest`
+    : DEFAULT_REMOTE_MANIFEST_URL
 }
 
 /**
@@ -54,6 +56,18 @@ export async function fetchRemoteManifest(
   return manifest
 }
 
+export async function fetchManifestWithFallback(
+  url: string,
+  signal?: AbortSignal,
+): Promise<InspirationManifest> {
+  try {
+    return await fetchRemoteManifest(url, signal)
+  } catch (error) {
+    if (url === DEFAULT_REMOTE_MANIFEST_URL || signal?.aborted) throw error
+    return fetchRemoteManifest(DEFAULT_REMOTE_MANIFEST_URL, signal)
+  }
+}
+
 function validateManifest(payload: unknown): InspirationManifest | null {
   if (!payload || typeof payload !== 'object') return null
   const record = payload as Record<string, unknown>
@@ -61,10 +75,11 @@ function validateManifest(payload: unknown): InspirationManifest | null {
   if (typeof record.updatedAt !== 'string') return null
   if (!Array.isArray(record.items)) return null
 
-  const items = record.items.filter((it) => {
-    if (!it || typeof it !== 'object') return false
-    const r = it as Record<string, unknown>
-    return (
+  // 旧的静态 manifest（BYOK / 离线种子）没有 kind：按效果图收下，别整份判无效。
+  const items = record.items.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const r = entry as Record<string, unknown>
+    const valid =
       typeof r.id === 'string' &&
       typeof r.title === 'string' &&
       typeof r.prompt === 'string' &&
@@ -75,13 +90,18 @@ function validateManifest(payload: unknown): InspirationManifest | null {
       typeof r.recommendedModel === 'string' &&
       typeof r.recommendedProvider === 'string' &&
       typeof r.category === 'string'
-    )
+    if (!valid) return []
+    const kind = INSPIRATION_KINDS.includes(r.kind as InspirationKind)
+      ? (r.kind as InspirationKind)
+      : 'showcase'
+    return [{ ...(entry as InspirationManifest['items'][number]), kind }]
   })
+  if (items.length === 0) return null
 
   return {
     version: record.version,
     updatedAt: record.updatedAt,
-    items: items as InspirationManifest['items'],
+    items,
     categories: Array.isArray(record.categories) ? record.categories.map(String) : undefined,
   }
 }
