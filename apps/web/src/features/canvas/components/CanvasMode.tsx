@@ -92,19 +92,34 @@ export default function CanvasMode() {
       </div>
     )
   if (!projectsLoaded)
-    return (
-      <div className="studio-canvas-status" role={projectError ? 'alert' : 'status'}>
+    return projectError ? (
+      <div className="studio-canvas-status" role="alert">
         <div>
-          {projectError || t('project.restoring')}
-          {projectError && (
-            <button type="button" className="ml-3 underline" onClick={() => void initialize()}>
-              {t('project.reload')}
-            </button>
-          )}
+          {projectError}
+          <button type="button" className="ml-3 underline" onClick={() => void initialize()}>
+            {t('project.reload')}
+          </button>
         </div>
       </div>
+    ) : (
+      <CanvasLoading label={t('project.restoring')} />
     )
   return <CanvasWorkspaceView key={workspace.id} workspace={workspace} />
+}
+
+/**
+ * 打开画布时的等待：和画布同一张点阵底，中间只有呼吸的品牌标。文字留给读屏，不摆在面上。
+ * 淡入有延迟——本机缓存命中时几十毫秒就读完，一闪而过的遮罩比没有更扎眼。
+ */
+function CanvasLoading({ label }: { label: string }) {
+  return (
+    <div role="status" aria-label={label} className="studio-canvas-loading">
+      <div className="studio-canvas-loading-mark">
+        <img src="/brand/muvloom-mark.svg" alt="" />
+      </div>
+      <span className="sr-only">{label}</span>
+    </div>
+  )
 }
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
@@ -368,19 +383,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
           </section>
         </div>
       )}
-      {(loading || loadFailed) && (
-        <div role={loadFailed ? 'alert' : 'status'} className="studio-canvas-status">
-          {loadFailed ? (
-            <div>
-              <p>{t('loadError.message')}</p>
-              <button type="button" className="mt-2 underline" onClick={workspace.retryLoad}>
-                {t('loadError.retry')}
-              </button>
-            </div>
-          ) : (
-            t('loading.restoring')
-          )}
+      {loadFailed ? (
+        <div role="alert" className="studio-canvas-status">
+          <div>
+            <p>{t('loadError.message')}</p>
+            <button type="button" className="mt-2 underline" onClick={workspace.retryLoad}>
+              {t('loadError.retry')}
+            </button>
+          </div>
         </div>
+      ) : (
+        loading && <CanvasLoading label={t('loading.restoring')} />
       )}
     </div>
   )
