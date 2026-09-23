@@ -41,7 +41,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { _setPrivateBffOverlayForTesting } = await import('../../lib/private-overlay')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask } = await import('../../db/task-transitions')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { recoverAbandonedTasks } = await import('../../db/maintenance')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { runningTurn } = await import('../../lib/agent/runningTurns')
@@ -278,18 +278,10 @@ describe('forced stop after the drain deadline', () => {
       [...chats.map((task) => task.id), jobId!].sort(),
     )
 
-    // The new worker finishes polling the stored id; the job settles once, and later scans by
-    // either generation add nothing.
-    await db
-      .update(schema.tasks)
-      .set({ status: 'in_progress', started_at: Date.now(), execution_token: 'new-worker' })
-      .where(eq(schema.tasks.id, jobId!))
+    // The new worker claims the requeued job, finishes polling the stored id, and settles once;
+    // later scans by either generation add nothing.
     expect(
-      await finishTask(jobId!, {
-        status: 'completed',
-        completedAt: Date.now(),
-        resultPayload: TEST_RESULT_PAYLOAD,
-      }),
+      await workerSettles(jobId!, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
     ).toBe(true)
     await recoverAbandonedTasks()
     await pickUpStrandedInboxes()

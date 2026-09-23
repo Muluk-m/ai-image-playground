@@ -36,7 +36,7 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { _setPrivateBffOverlayForTesting } = await import('../../lib/private-overlay')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask } = await import('../../db/task-transitions')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -179,15 +179,9 @@ describe('积分不足时不唤醒', () => {
 
     // 这一轮之后余额见底：任务失败本该唤醒智能体，但再起一轮的预扣会被拒。
     billing.answer = { kind: 'insufficient_credits', required: 50, available: 3 }
-    const now = Date.now()
-    await db
-      .update(schema.tasks)
-      .set({ status: 'in_progress', started_at: now })
-      .where(eq(schema.tasks.id, task!.id))
     expect(
-      await finishTask(task!.id, {
+      await workerSettles(task!.id, {
         status: 'failed',
-        completedAt: now,
         errorMessage: '上游超时',
         errorType: 'upstream_timeout',
       }),
@@ -240,15 +234,9 @@ describe('积分不足时不唤醒', () => {
     await runTurn(conversationId, '画一只橘猫')
     await confirmDrafts(conversationId)
     const task = await generationTask(conversationId)
-    const now = Date.now()
-    await db
-      .update(schema.tasks)
-      .set({ status: 'in_progress', started_at: now })
-      .where(eq(schema.tasks.id, task!.id))
     expect(
-      await finishTask(task!.id, {
+      await workerSettles(task!.id, {
         status: 'failed',
-        completedAt: now,
         errorMessage: '上游超时',
         errorType: 'upstream_timeout',
       }),
