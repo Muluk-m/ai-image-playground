@@ -38,6 +38,17 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-image'
 export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
 export const DEFAULT_API_TIMEOUT = 600
 
+/**
+ * 超时必须是正数：`setTimeout(() => controller.abort(), 0)` 会在请求发出的同一个 tick
+ * 把它掐断，浏览器只丢下一句 `The user aborted a request.`，看着像用户点了取消。
+ * 手输的 0/负数、导入的 profile、渠道下发的 defaults 都走这里退回默认值。
+ */
+export function normalizeApiTimeout(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : DEFAULT_API_TIMEOUT
+}
+
 const BUILT_IN_PROVIDER_IDS = new Set<string>(['openai', 'gemini', 'openai-compat'])
 
 const DEFAULT_CUSTOM_PROVIDER_PATHS = {
@@ -425,10 +436,7 @@ function normalizeByokPreferences(
 ): UserByokPreferences {
   return {
     apiMode: record.apiMode === 'responses' ? 'responses' : 'images',
-    timeout:
-      typeof record.timeout === 'number' && Number.isFinite(record.timeout)
-        ? record.timeout
-        : DEFAULT_API_TIMEOUT,
+    timeout: normalizeApiTimeout(record.timeout),
     codexCli: kind === 'gemini' ? false : Boolean(record.codexCli),
     apiProxy:
       kind === 'gemini'
@@ -1012,7 +1020,7 @@ export function clientProfileToApiProfile(profile: ClientProfile): ApiProfile {
       baseUrl: `channel:${profile.channelId}`,
       apiKey: '',
       model: profile.selectedModelId,
-      timeout: channel?.defaults.timeout ?? DEFAULT_API_TIMEOUT,
+      timeout: normalizeApiTimeout(channel?.defaults.timeout),
       apiMode: channel?.defaults.apiMode ?? 'images',
       codexCli: channel?.defaults.codexCli ?? false,
       apiProxy: false,
@@ -1027,7 +1035,7 @@ export function clientProfileToApiProfile(profile: ClientProfile): ApiProfile {
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey,
     model: profile.selectedModelId,
-    timeout: profile.preferences.timeout,
+    timeout: normalizeApiTimeout(profile.preferences.timeout),
     apiMode: profile.preferences.apiMode,
     codexCli: profile.preferences.codexCli,
     apiProxy: profile.preferences.apiProxy,
@@ -1063,7 +1071,7 @@ export function apiProfileToClientProfile(profile: ApiProfile): ClientProfile {
     selectedModelId: models.includes(profile.model) ? profile.model : models[0],
     preferences: {
       apiMode: profile.apiMode,
-      timeout: profile.timeout,
+      timeout: normalizeApiTimeout(profile.timeout),
       codexCli: profile.codexCli,
       apiProxy: profile.apiProxy,
       responseFormatB64Json: profile.responseFormatB64Json,
