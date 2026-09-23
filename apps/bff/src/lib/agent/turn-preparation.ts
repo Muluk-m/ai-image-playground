@@ -177,34 +177,36 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   ])
   if ('kind' in content) return content
 
-  const window = await history
-  const selectedModel = agentThinking(content.params?.thinkingDepth).model
-  const pricing =
-    chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
+  // 这之后每一步都可能抛，而这一来源可能已经把参考图落进了对象存储：统一在这里收尾，
+  // 不让失败的准备留下孤儿对象。
+  try {
+    const window = await history
+    const selectedModel = agentThinking(content.params?.thinkingDepth).model
+    const pricing =
+      chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
 
-  // 一份轮输入，两个读者：这里的估算，与 `startAgentTurn` 发出去的那一份。估算在事务之外算完，
-  // 取件与预扣那一笔才只有数据库往返。
-  const withNote = turnInputOf(window, content, audience)
-  const withoutNote = content.wakes?.note
-    ? turnInputOf(window, { ...content, wakes: { ids: content.wakes.ids } }, audience)
-    : null
-  const estimated = estimateTurnInputTokens(withNote)
-  const estimatedWithoutNote = withoutNote ? estimateTurnInputTokens(withoutNote) : null
-  const chatTask =
-    pricing && userId
-      ? {
-          taskHooks: overlay.taskHooks,
-          conversationId,
-          turnId,
-          userId,
-          deviceId: content.deviceId,
-          model: selectedModel,
-          pricing,
-        }
+    // 一份轮输入，两个读者：这里的估算，与 `startAgentTurn` 发出去的那一份。估算在事务之外
+    // 算完，取件与预扣那一笔才只有数据库往返。
+    const withNote = turnInputOf(window, content, audience)
+    const withoutNote = content.wakes?.note
+      ? turnInputOf(window, { ...content, wakes: { ids: content.wakes.ids } }, audience)
       : null
+    const estimated = estimateTurnInputTokens(withNote)
+    const estimatedWithoutNote = withoutNote ? estimateTurnInputTokens(withoutNote) : null
+    const chatTask =
+      pricing && userId
+        ? {
+            taskHooks: overlay.taskHooks,
+            conversationId,
+            turnId,
+            userId,
+            deviceId: content.deviceId,
+            model: selectedModel,
+            pricing,
+          }
+        : null
 
-  const written = await execution
-    .write(async (tx) => {
+    const written = await execution.write(async (tx) => {
       // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
       if (!(await consumeAgentMessage(tx, conversationId, sourceId(source), turnId)))
         throw new TurnStartRollback({ kind: 'withdrawn' })
@@ -236,37 +238,32 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
       await content.write?.(tx)
-      return {
-        kind: 'reserved' as const,
-        reserved,
-        input: keptNote ? withNote : (withoutNote ?? withNote),
-      }
+      return { reserved, input: keptNote ? withNote : (withoutNote ?? withNote) }
     })
-    .catch(async (error) => {
-      await content.rollback?.()
-      if (error instanceof TurnStartRollback) return error.result
-      throw error
-    })
-  if (written.kind !== 'reserved') return written
 
-  await execution.assert()
-  content.settled?.()
-  return {
-    kind: 'prepared',
-    turn: {
-      execution,
-      conversationId,
-      turnId,
-      userMessageId: content.userMessageId,
-      ...(content.queueId ? { queueId: content.queueId } : {}),
-      input: written.input,
-      userId,
-      deviceId: content.deviceId,
-      ...(content.params ? { params: content.params } : {}),
-      ...(content.wake ? { wake: content.wake } : {}),
-      reservedCredits: written.reserved?.reservedCredits,
-      settle: chatTurnSettle(conversationId, turnId, written.reserved),
-    },
+    await execution.assert()
+    content.settled?.()
+    return {
+      kind: 'prepared',
+      turn: {
+        execution,
+        conversationId,
+        turnId,
+        userMessageId: content.userMessageId,
+        ...(content.queueId ? { queueId: content.queueId } : {}),
+        input: written.input,
+        userId,
+        deviceId: content.deviceId,
+        ...(content.params ? { params: content.params } : {}),
+        ...(content.wake ? { wake: content.wake } : {}),
+        reservedCredits: written.reserved?.reservedCredits,
+        settle: chatTurnSettle(conversationId, turnId, written.reserved),
+      },
+    }
+  } catch (error) {
+    await content.rollback?.()
+    if (error instanceof TurnStartRollback) return error.result
+    throw error
   }
 }
 
