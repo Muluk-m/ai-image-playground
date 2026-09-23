@@ -428,5 +428,8 @@
       "landscape": "Landscape",
       "wide": "Wide"
     }
+  },
+  "drop": {
+    "hint": "Drop images here — folders work too"
   }
 }

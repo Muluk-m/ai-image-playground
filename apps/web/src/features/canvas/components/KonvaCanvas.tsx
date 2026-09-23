@@ -5,6 +5,8 @@ import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } f
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { mediaIdentity } from '../../../lib/cloudMedia'
+import { dropEntries, expandDroppedFiles } from '../../../lib/dropFiles'
+import { acceptImageFiles } from '../../../lib/imageFiles'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
@@ -96,6 +98,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const [imageMenu, setImageMenu] = useState<CanvasImageMenuState | null>(null)
   // 拖拽中隐藏虚线选中框：它按模型位置画，而节点位移在 dragend 才落模型，中途会滞留原地
   const [dragging, setDragging] = useState(false)
+  // 拖文件进画布时点亮落点。dragenter / dragleave 跨子元素成对乱序触发，只有计数不会中途熄灭。
+  const [fileOver, setFileOver] = useState(false)
+  const fileDepth = useRef(0)
 
   const { camera, viewport, tool, selection, editingTextId } = doc
   const selectMode = tool === 'select' && !spaceDown
@@ -652,21 +657,48 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         if (el?.type !== 'image') return
         setImageMenu({ id: el.id, x: e.clientX, y: e.clientY })
       }}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        fileDepth.current += 1
+        setFileOver(true)
+      }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) e.preventDefault()
       }}
+      // 离开事件不问带的是什么：有的浏览器这时已经不给 types，问了高亮就熄不掉。
+      onDragLeave={() => {
+        if (fileDepth.current === 0) return
+        fileDepth.current -= 1
+        if (fileDepth.current <= 0) setFileOver(false)
+      }}
       onDrop={(e) => {
         e.preventDefault()
+        fileDepth.current = 0
+        setFileOver(false)
         const rect = containerRef.current?.getBoundingClientRect()
         if (!rect) return
         const drop = {
           x: camera.x + (e.clientX - rect.left) / camera.zoom,
           y: camera.y + (e.clientY - rect.top) / camera.zoom,
         }
-        void importImageFiles(editor, [...e.dataTransfer.files], drop)
+        // entry 必须在这一拍同步取完：await 之后 DataTransfer 就空了。
+        const dropped = dropEntries(e.dataTransfer)
+        void expandDroppedFiles(dropped).then((files) => {
+          // 与输入框那块落点同一道闸：只留图片、太大的丢掉，各提示一次。
+          void importImageFiles(editor, acceptImageFiles(files), drop)
+        })
       }}
     >
       {!dragging && !panning && <SelectionInfo doc={doc} />}
+      {/* 拖到画布上的落点提示：与输入框那块落点同一套说法，不然「能不能往这儿拖」全靠猜。 */}
+      {fileOver && (
+        <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-primary border-dashed bg-background/70 backdrop-blur-[2px]">
+          <span className="rounded-lg bg-card px-3 py-1.5 text-sm font-medium shadow-md">
+            {t('drop.hint')}
+          </span>
+        </div>
+      )}
       <Stage
         ref={stageRef}
         width={viewport.width}

@@ -67,21 +67,44 @@ export async function importImageFiles(
     .map((r) => r.value)
   if (entries.length === 0) return 0
 
-  const totalW = entries.reduce((sum, e) => sum + e.width, 0) + PLACEMENT_GAP * (entries.length - 1)
-  let x = center.x - totalW / 2
-  const items = entries.map((e) => {
-    const item = {
-      dataUrl: e.dataUrl,
-      x,
-      y: center.y - e.height / 2,
-      width: e.width,
-      height: e.height,
-      name: e.name,
-      naturalWidth: e.naturalWidth,
-      naturalHeight: e.naturalHeight,
+  // 拖一个文件夹进来可能是几十张：排成一行会拉出一条几万像素长的带子，谁都看不过来。
+  // 按接近正方形的网格铺，行高取该行最高的一张。
+  const columns = Math.max(1, Math.ceil(Math.sqrt(entries.length)))
+  const rows: (typeof entries)[] = []
+  for (let i = 0; i < entries.length; i += columns) rows.push(entries.slice(i, i + columns))
+  const rowHeights = rows.map((row) => Math.max(...row.map((e) => e.height)))
+  const totalH = rowHeights.reduce((sum, h) => sum + h, 0) + PLACEMENT_GAP * (rowHeights.length - 1)
+
+  const items: Array<{
+    dataUrl: string
+    x: number
+    y: number
+    width: number
+    height: number
+    name: string
+    naturalWidth: number
+    naturalHeight: number
+  }> = []
+  let y = center.y - totalH / 2
+  rows.forEach((row, rowIndex) => {
+    const rowWidth = row.reduce((sum, e) => sum + e.width, 0) + PLACEMENT_GAP * (row.length - 1)
+    let x = center.x - rowWidth / 2
+    const rowHeight = rowHeights[rowIndex]!
+    for (const e of row) {
+      items.push({
+        dataUrl: e.dataUrl,
+        x,
+        // 同一行按中线对齐：高矮不一的图顶着上沿排会像被踢乱了。
+        y: y + (rowHeight - e.height) / 2,
+        width: e.width,
+        height: e.height,
+        name: e.name,
+        naturalWidth: e.naturalWidth,
+        naturalHeight: e.naturalHeight,
+      })
+      x += e.width + PLACEMENT_GAP
     }
-    x += e.width + PLACEMENT_GAP
-    return item
+    y += rowHeight + PLACEMENT_GAP
   })
 
   const ids = editor.placeImages(items)
