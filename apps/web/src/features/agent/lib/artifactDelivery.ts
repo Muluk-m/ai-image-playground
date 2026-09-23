@@ -50,6 +50,22 @@ export interface TurnArtifactDelivery {
   settled(): Promise<void>
 }
 
+/** 一个会话的产物交付：每一轮、每一个后台任务都从它这里领一个把手。 */
+export interface AgentArtifactDelivery {
+  /** 只恢复交付展示，不下载历史产物；文字与进行中的轮不等场景恢复。 */
+  restore(messages: readonly AgentPanelMessage[]): Promise<void>
+  beginTurn(): TurnArtifactDelivery
+  /** 产物没能落下去时由用户点「放入画布」：按当时的画布再落一次。 */
+  placeOnCanvas(message: AgentToolMessage): Promise<void>
+  /**
+   * 画布回来了：这个会话里因为画布不在（切去了别的模式、画布正在重挂）而没落下去的
+   * 产物，现在补落。只补本会话交付过的那些——历史里被用户删掉的不在此列，那是他的决定。
+   */
+  redeliverUnavailable(messages: readonly AgentPanelMessage[]): Promise<void>
+  /** 交付换代：上一代的把手全部作废，返回的判定说这一代还是不是当前这一代。 */
+  reset(): () => boolean
+}
+
 /**
  * 产物到画布对象：视频落的是封面加播放来源（mp4 不下载到本地）和它实际的生成参数。
  * 参数是服务端写的，但结果块会原样存进会话历史；形状不对就不带，片子照样能播。
@@ -104,7 +120,7 @@ function deliveredIds(message: AgentToolMessage): string[] {
 /** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
 export function createArtifactDelivery(
   changed: (messageId: string, status: AgentDeliveryStatus) => void,
-) {
+): AgentArtifactDelivery {
   let generation = 0
   let queue = Promise.resolve()
   const origins = new Set<DeliveryOrigin>()
@@ -327,7 +343,6 @@ export function createArtifactDelivery(
   })
 
   return {
-    /** 只恢复交付展示，不下载历史产物；文字与进行中的轮不等场景恢复。 */
     async restore(messages: readonly AgentPanelMessage[]) {
       const owner = generation
       const ownerScope = scope()
@@ -366,10 +381,6 @@ export function createArtifactDelivery(
         origins.delete(origin)
       }
     },
-    /**
-     * 画布回来了：这个会话里因为画布不在（切去了别的模式、画布正在重挂）而没落下去的
-     * 产物，现在补落。只补本会话交付过的那些——历史里被用户删掉的不在此列，那是他的决定。
-     */
     async redeliverUnavailable(messages: readonly AgentPanelMessage[]) {
       for (const message of messages) {
         if (message.kind !== 'tool' || !deliverable(message)) continue

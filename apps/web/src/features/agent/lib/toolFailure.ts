@@ -19,6 +19,18 @@ function canRecharge(): boolean {
   return PrivateWebOverlayPresent && isClientCapabilityEnabled('billing:credits')
 }
 
+/**
+ * 钱不够导致的失败当场把开通/充值面板叫出来。
+ *
+ * 失败卡片上本来就有「去充值」，但那要用户先看见那张卡、再看懂那句话、再去点。
+ * 余额见底不是这一次生成的问题，是账户的问题：不当场说清，用户只会当成又一次
+ * 生成失败，接着一遍遍重试，每次都失败。没有计费 overlay 的部署里这是空操作。
+ */
+export function promptAgentRecharge(code: AgentToolErrorCode | undefined): void {
+  if (code === 'insufficient_credits' || code === 'quota_exceeded')
+    notifyPrivateSubmissionError({ insufficientCredits: true })
+}
+
 export function agentToolFailureAction(
   code: AgentToolErrorCode | undefined,
   /**

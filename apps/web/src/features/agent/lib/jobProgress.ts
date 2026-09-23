@@ -20,6 +20,14 @@ export function agentJobStep(phase: AgentJobPhase): AgentJobStep {
   return phase === 'reconnecting' || phase === 'confirming' ? 'generating' : phase
 }
 
+/**
+ * 这张卡的后台任务还没走到终局：任务还在跑，或者它是一条还在重试队列里排着、服务端还没提交的
+ * 重试。两者都要接着问服务端，界面上也都还在等结果——「还在跑」只有这一条判定。
+ */
+export function agentJobUnsettled(message: AgentPanelMessage): boolean {
+  return message.kind === 'tool' && (message.status === 'submitted' || message.status === 'queued')
+}
+
 /** 会走「提交、排队、生成、交付」这几步的工具。 */
 const GENERATION_TOOLS: ReadonlySet<AgentToolName> = new Set([
   'generateImage',
@@ -108,9 +116,9 @@ export interface AgentJobInbox {
 /**
  * 这个会话的后台任务，按在跑与已结束分开。
  *
- * 「在跑」按终局的反面数，不是只数 `submitted`：重试队列里排着的那张卡（`queued`）还没提交、
- * 手上没有任务 id，可它确实在等着跑。只认 `submitted` 会把它算进已结束，顶上于是说「0 个进行中」，
- * 而用户刚放进去的几个还在排队。
+ * 「在跑」按 `agentJobUnsettled` 数，不是只数 `submitted`：重试队列里排着的那张卡（`queued`）
+ * 还没提交、手上没有任务 id，可它确实在等着跑。只认 `submitted` 会把它算进已结束，顶上于是说
+ * 「0 个进行中」，而用户刚放进去的几个还在排队。
  */
 export function agentJobInbox(messages: readonly AgentPanelMessage[]): AgentJobInbox {
   const running: AgentToolMessage[] = []
@@ -120,11 +128,11 @@ export function agentJobInbox(messages: readonly AgentPanelMessage[]): AgentJobI
     if (message.kind !== 'tool') continue
     // 提交过后台任务的，加上重试队列里排着、还没拿到任务 id 的那张。
     if (message.job === undefined && message.status !== 'queued') continue
-    if (message.status === 'succeeded') {
+    if (agentJobUnsettled(message)) running.push(message)
+    else if (message.status === 'succeeded') {
       finished.push(message)
       completed += 1
-    } else if (message.status === 'failed') finished.push(message)
-    else running.push(message)
+    } else finished.push(message)
   }
   return { running, finished, completed, failed: finished.length - completed }
 }
