@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
+import {
+  AGENT_TURN_ATTACHED_MEDIA_MAX,
+  type AgentMessageView,
+  type AgentTurnReference,
+} from '@image-playground/shared'
 import sharp from 'sharp'
 import { estimateMessageTokens } from '../../../lib/agent/token-estimate'
 import type { AgentToolDeclaration } from '../../../lib/agent/tools'
@@ -22,11 +26,35 @@ const {
   expandSkillInvocation,
   turnInitialState,
   turnModelPrompt,
+  turnPromptBody,
   turnPromptText,
   turnVisualEvidence,
 } = await import('../../../lib/agent/turn-input')
-const { lookSkillContent } = await import('../../../lib/agent/skills')
+const { ANONYMOUS_AUDIENCE, lookSkillContent } = await import('../../../lib/agent/skills')
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { shownImageRequests } = await import('../../../lib/agent/images')
+
+type AgentTurnInput = import('../../../lib/agent/turn-input').AgentTurnInput
+
+/** 一份轮输入：估算与实发都从它派生，所以每条用例只写它和默认值的差。 */
+function input(
+  history: readonly AgentMessageView[],
+  text: string,
+  references: readonly AgentTurnReference[] = [],
+  extra: Partial<AgentTurnInput> = {},
+): AgentTurnInput {
+  return {
+    history: unfolded(history),
+    text,
+    references,
+    mode: 'image',
+    reviewImageIds: [],
+    autoSubmit: false,
+    selectionHistoryStart: history.length,
+    audience: ANONYMOUS_AUDIENCE,
+    ...extra,
+  }
+}
 const { generateVideo } = await import('../../../lib/agent/tools/generateVideo')
 
 function userMessage(
@@ -141,12 +169,12 @@ function unfolded(messages: readonly AgentMessageView[]) {
 
 describe('estimateTurnInputTokens', () => {
   const bare = (history: readonly AgentMessageView[], text: string) =>
-    estimateTurnInputTokens(unfolded(history), text, [])
+    estimateTurnInputTokens(input(history, text))
   const added = (
     history: readonly AgentMessageView[],
     text: string,
     references: readonly AgentTurnReference[],
-  ) => estimateTurnInputTokens(unfolded(history), text, references) - bare([], text)
+  ) => estimateTurnInputTokens(input(history, text, references)) - bare([], text)
 
   // 8 个汉字：ceil(8 / 4) = 2，再补 ceil(8 × 0.55) = 5。
   it('counts this turn text on top of the system prompt', () => {
@@ -175,17 +203,17 @@ describe('estimateTurnInputTokens', () => {
   })
 
   it('does not charge visual input blocks for historical selections', () => {
-    const current = estimatedTurnInput(OLD_REFERENCE_HISTORY, '再改一次', []).at(-1)!
+    const current = estimatedTurnInput(input(OLD_REFERENCE_HISTORY, '再改一次')).at(-1)!
     expect(imageBlocks(current)).toBe(0)
   })
 
   it('counts only the current attachment as visual input after a masked request', () => {
-    const current = estimatedTurnInput(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN]).at(-1)!
+    const current = estimatedTurnInput(input(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).at(-1)!
     expect(imageBlocks(current)).toBe(1)
   })
 
   it('caps a long history at the compaction threshold', () => {
-    expect(estimateTurnInputTokens(unfolded(LONG_HISTORY), '继续', [])).toBe(26_500)
+    expect(estimateTurnInputTokens(input(LONG_HISTORY, '继续'))).toBe(26_500)
   })
 })
 
@@ -200,11 +228,11 @@ describe('tool declarations in the estimate', () => {
     })
 
   it('counts the tool declarations on top of the messages', () => {
-    const messages = estimatedTurnInput([], '你好', []).reduce(
+    const messages = estimatedTurnInput(input([], '你好')).reduce(
       (total, message) => total + estimateMessageTokens(message),
       0,
     )
-    expect(estimateTurnInputTokens(unfolded([]), '你好', []) - messages).toBe(
+    expect(estimateTurnInputTokens(input([], '你好')) - messages).toBe(
       estimateToolDeclarationTokens('image'),
     )
     expect(declarationTokens(agentToolDeclarations('image'))).toBe(
@@ -274,17 +302,17 @@ const REAL_MASKED = {
 /** 估算路径与实发路径必须同形；不同形的地方要在这里写明白，别等它悄悄变成漂移。 */
 describe('estimated and sent turn input', () => {
   it('opens with the same system prompt the agent starts from', () => {
-    const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
+    const estimated = estimatedTurnInput(input(RICH_HISTORY, '再来一张'))
     expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY, 'image').systemPrompt)
   })
 
   it('replays history exactly as the agent initial state does', () => {
-    const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
+    const estimated = estimatedTurnInput(input(RICH_HISTORY, '再来一张'))
     expect(estimated.slice(1, -1)).toEqual(turnInitialState(RICH_HISTORY, 'image').messages)
   })
 
   it('writes this turn prompt text the same way on both paths', () => {
-    const estimated = estimatedTurnInput([], '换成夜景', [PLAIN, MASKED])
+    const estimated = estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED]))
     // 实发那一份是 `turnPromptText` 再接视觉证据清单，估算照同一条规则拼，所以只能是前缀。
     expect(
       textOf(estimated.at(-1)!).startsWith(turnPromptText('换成夜景', [PLAIN, MASKED], true)),
@@ -293,9 +321,43 @@ describe('estimated and sent turn input', () => {
 
   it('charges the same number of image blocks the sent evidence carries', async () => {
     const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
-    const estimated = estimatedTurnInput([], '换成夜景', [PLAIN, MASKED])
+    const estimated = estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED]))
     expect(imageBlocks(estimated.at(-1)!)).toBe(evidence.content.length)
     expect(evidence.content).toHaveLength(4)
+  })
+
+  /**
+   * 按 id 附的图一多，两条路就都只上清单：实发那一路解哪几张由 `shownImageRequests` 说了算，
+   * 预扣照同一条规则数图片块。两边各数各的时，圈了一大片的每一轮都会照没发出去的字节预扣。
+   */
+  it('stops charging canvas selections once they are listing-only', () => {
+    // 画布上圈选的图按 id 发，字节不在请求体里；多一张就越过只上清单的那道线。
+    const canvas = Array.from(
+      { length: AGENT_TURN_ATTACHED_MEDIA_MAX + 1 },
+      (_, at): AgentTurnReference => ({ imageId: `canvas-${at}`, mediaId: `media-${at}` }),
+    )
+    const listed = [PLAIN, ...canvas]
+    const shown = [PLAIN, ...canvas.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX)]
+    const blocks = (references: readonly AgentTurnReference[]) =>
+      imageBlocks(estimatedTurnInput(input([], '都换成夜景', references)).at(-1)!)
+
+    // 这几张都没有遮罩，一张一块：实发要解的那份清单有多长，预扣就数几块。
+    expect(blocks(listed)).toBe(shownImageRequests(listed).length)
+    expect(blocks(shown)).toBe(shownImageRequests(shown).length)
+    expect(blocks(listed)).toBe(1)
+    expect(blocks(shown)).toBe(1 + AGENT_TURN_ATTACHED_MEDIA_MAX)
+
+    // 清单措辞也是本轮输入的一部分：哪几张随这一轮发出逐条标注，估算从 `turnPromptText` 照收。
+    const promptText = turnPromptText('都换成夜景', listed, true)
+    expect(promptText).toContain('（内容已附在本轮输入里）')
+    expect(
+      textOf(estimatedTurnInput(input([], '都换成夜景', listed)).at(-1)!).startsWith(promptText),
+    ).toBe(true)
+
+    // 一张内联的也没有时整批只上清单，预扣连一块图片都不数。
+    expect(blocks(canvas)).toBe(shownImageRequests(canvas).length)
+    expect(blocks(canvas)).toBe(0)
+    expect(turnPromptText('都换成夜景', canvas, true)).toContain('张数较多')
   })
 
   /**
@@ -306,7 +368,7 @@ describe('estimated and sent turn input', () => {
     const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
     const promptText = turnPromptText('换成夜景', [PLAIN, MASKED], true)
     const sent = turnModelPrompt(promptText, evidence)
-    const estimatedText = textOf(estimatedTurnInput([], '换成夜景', [PLAIN, MASKED]).at(-1)!)
+    const estimatedText = textOf(estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED])).at(-1)!)
     const estimatedManifest = estimatedText.slice(promptText.length)
 
     expect(sent.text).toBe(promptText + evidence.manifest)
@@ -327,13 +389,24 @@ describe('estimated and sent turn input', () => {
   it('charges the artifacts a wake turn reviews like the evidence it sends', async () => {
     const reviewed = { ...REAL_PLAIN, imageId: 'agent_task-1_0' }
     const evidence = await turnVisualEvidence([reviewed])
-    const estimated = estimatedTurnInput([], '复核', [], 'image', [reviewed.imageId]).at(-1)!
+    const reviewing = input([], '复核', [], { reviewImageIds: [reviewed.imageId] })
+    const estimated = estimatedTurnInput(reviewing).at(-1)!
     expect(imageBlocks(estimated)).toBe(evidence.content.length)
     expect(textOf(estimated)).toBe(turnPromptText('复核', [], false) + evidence.manifest)
     expect(
-      estimateTurnInputTokens(unfolded([]), '复核', [], 'image', [reviewed.imageId]) -
-        estimateTurnInputTokens(unfolded([]), '复核', []),
+      estimateTurnInputTokens(reviewing) - estimateTurnInputTokens(input([], '复核')),
     ).toBeGreaterThanOrEqual(1200)
+  })
+
+  /**
+   * 并进来的唤醒说明排在引用清单之后，且**不参与** `/skill-name` 的展开——两条路都从
+   * `turnPromptBody` 拼，所以这一条同时钉住实发那一份。
+   */
+  it('appends a merged wake note after the reference manifest, outside the skill command', () => {
+    const merged = input([], '换成夜景', [PLAIN], { note: '顺带：任务已完成。' })
+    const body = turnPromptBody(merged)
+    expect(body).toBe(`${turnPromptText('换成夜景', [PLAIN], true)}\n\n顺带：任务已完成。`)
+    expect(textOf(estimatedTurnInput(merged).at(-1)!).startsWith(body)).toBe(true)
   })
 })
 
@@ -397,15 +470,8 @@ describe('这一轮的观众', () => {
 
   it('预扣把模板清单也算进去', () => {
     const withLook = estimateTurnInputTokens(
-      unfolded([]),
-      '出一张',
-      [],
-      'image',
-      [],
-      false,
-      0,
-      audience,
+      input([], '出一张', [], { selectionHistoryStart: 0, audience }),
     )
-    expect(withLook).toBeGreaterThan(estimateTurnInputTokens(unfolded([]), '出一张', []))
+    expect(withLook).toBeGreaterThan(estimateTurnInputTokens(input([], '出一张')))
   })
 })

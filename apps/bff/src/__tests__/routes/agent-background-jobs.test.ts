@@ -43,6 +43,7 @@ const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { releaseWorkerClaims, workerClaims, workerSettles } = await import('../helpers/taskWorker')
 // 与上面同一个理由：config 在模块求值时读环境，必须排在 env 设置之后。
 const { config } = await import('../../config')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
@@ -119,33 +120,27 @@ async function onlyTask() {
   return tasks[0]!
 }
 
-/** 测试里的迷你 worker：一次性把排着的任务推到终态，就像它在轮结束之后才跑完。 */
+/** 测试里的迷你 worker：认领任务、按真实路径收尾，就像它在轮结束之后才跑完。 */
 async function finishTask(taskId: string, outcome: 'completed' | 'failed' | 'in_progress') {
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
-  await db
-    .update(schema.tasks)
-    .set(
-      outcome === 'completed'
-        ? {
-            status: 'completed',
-            result_payload: {
-              data: Array.from(
-                { length: task!.request_payload.n ?? 1 },
-                () => TEST_RESULT_PAYLOAD.data[0]!,
-              ),
-            },
-            completed_at: Date.now(),
-          }
-        : outcome === 'failed'
-          ? {
-              status: 'failed',
-              error_message: '上游超时',
-              error_type: 'upstream_timeout',
-              completed_at: Date.now(),
-            }
-          : { status: 'in_progress', started_at: Date.now() },
-    )
-    .where(eq(schema.tasks.id, taskId))
+  if (outcome === 'in_progress') {
+    await workerClaims(taskId)
+    return
+  }
+  await workerSettles(
+    taskId,
+    outcome === 'completed'
+      ? {
+          status: 'completed',
+          resultPayload: {
+            data: Array.from(
+              { length: task!.request_payload.n ?? 1 },
+              () => TEST_RESULT_PAYLOAD.data[0]!,
+            ),
+          },
+        }
+      : { status: 'failed', errorMessage: '上游超时', errorType: 'upstream_timeout' },
+  )
 }
 
 function generateCall(n = 1) {
@@ -172,6 +167,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  releaseWorkerClaims()
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
   setObjectStoreForTesting()
@@ -618,7 +614,8 @@ describe('后台任务的进度与取消', () => {
     expect(response.status).toBe(200)
     const { job } = (await response.json()) as AgentBackgroundJobCancelResponse
     expect(job.result.status).toBe('succeeded')
-    expect(finalized).toEqual([])
+    // 收尾早已由 worker 结算过一次；晚到的取消不再结算，也不把它改成取消。
+    expect(finalized).toEqual([{ taskId: task.id, outcome: 'completed' }])
   })
 
   it('refuses to cancel tasks that are not a job of this conversation', async () => {
