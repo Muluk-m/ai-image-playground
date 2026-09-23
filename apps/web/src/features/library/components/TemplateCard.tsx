@@ -6,7 +6,7 @@ import {
   getTemplatePreviewText,
 } from '../lib/templates'
 import { useLibraryStore } from '../store'
-import type { TemplateRecord } from '../types'
+import { assetCoverImageId, type TemplateRecord } from '../types'
 import AssetThumb from './AssetThumb'
 
 const STRIP_LIMIT = 4
@@ -54,7 +54,7 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
                   className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border bg-muted"
                 >
                   {ref.asset ? (
-                    <AssetThumb imageId={ref.asset.imageId} alt={ref.asset.name} />
+                    <AssetThumb imageId={assetCoverImageId(ref.asset)} alt={ref.asset.name} />
                   ) : (
                     <span
                       title={t('asset.deleted')}

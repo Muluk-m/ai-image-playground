@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { SyncRequestBody, SyncResponseBody } from '@image-playground/shared'
+import type { SyncAssetRecord, SyncRequestBody, SyncResponseBody } from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assetStore } from '../../../features/library/lib/assetStore'
@@ -38,11 +38,31 @@ function storeLocalImage(): Promise<unknown> {
 }
 
 function response(overrides: Partial<SyncResponseBody> = {}): SyncResponseBody {
-  return { version: 1, templates: [], assets: [], settings: null, rejected: [], ...overrides }
+  return {
+    version: 1,
+    templates: [],
+    assets: [],
+    looks: [],
+    settings: null,
+    rejected: [],
+    ...overrides,
+  }
 }
 
 function asset(id: string, imageId: string): AssetRecord {
-  return { id, name: id, imageId, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
+  return {
+    id,
+    name: id,
+    views: [{ imageId, label: 'none', source: 'upload' }],
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+  }
+}
+
+/** 服务端回传的样子：封面另在 `imageId` 一列，给 `views` 之前的客户端读。 */
+function wireAsset(id: string, imageId: string): SyncAssetRecord {
+  return { ...asset(id, imageId), imageId }
 }
 
 function pushedAssetIds(call: number): string[] {
@@ -185,7 +205,7 @@ describe('uploading an asset image', () => {
 
 describe('fetching an asset image another device uploaded', () => {
   it('downloads nothing while the app starts up', async () => {
-    postSyncMock.mockResolvedValue(response({ assets: [asset('a1', 'image-remote')] }))
+    postSyncMock.mockResolvedValue(response({ assets: [wireAsset('a1', 'image-remote')] }))
 
     await startEngine()
     await vi.waitFor(async () => expect(await assetStore.list()).toHaveLength(1))
@@ -264,7 +284,7 @@ describe('an asset whose image body is not on this device', () => {
   })
 
   it('leaves the pending set when the server rejects it as missing its image', async () => {
-    postSyncMock.mockResolvedValueOnce(response({ assets: [asset('a1', 'image-remote')] }))
+    postSyncMock.mockResolvedValueOnce(response({ assets: [wireAsset('a1', 'image-remote')] }))
     await startEngine()
     postSyncMock.mockResolvedValue(
       response({ rejected: [{ collection: 'assets', id: 'a1', reason: 'asset_image_missing' }] }),

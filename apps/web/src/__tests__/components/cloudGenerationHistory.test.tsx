@@ -95,8 +95,17 @@ const button = (label: string) => {
   return found
 }
 const click = async (label: string) => {
+  // 按钮跟着异步状态出现（平台记录先落 IndexedDB，游标再进 state），等它来而不是数拍子。
+  for (let i = 0; i < 20; i++) {
+    if (document.body.querySelector('button') && findButton(label)) break
+    await settle(1)
+  }
   await act(async () => button(label).click())
 }
+const findButton = (label: string) =>
+  [...document.body.querySelectorAll('button')].some(
+    (node) => node.textContent?.includes(label) || node.title.includes(label),
+  )
 const cards = () => [...host.querySelectorAll('.task-card-wrapper')]
 
 /** 平台记录要先写进 IndexedDB 才会出现在列表里，IDB 事务落在 act 之后若干拍。 */
@@ -159,7 +168,7 @@ it('加载更多把下一页续在同一条列表后面，不替换已读到的�
   })
   vi.stubGlobal('fetch', fetcher)
   await act(async () => root.render(<GenerationHistory userId="owner" />))
-  await settle()
+  await waitCards(1)
   await click('加载更多')
   await waitCards(2)
   expect(host.textContent).toContain('第二页的记录')

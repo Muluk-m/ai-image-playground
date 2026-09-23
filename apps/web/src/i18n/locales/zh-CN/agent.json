@@ -300,5 +300,48 @@
       "succeeded": "已完成",
       "failed": "没有完成"
     }
+  },
+  "save": {
+    "asset": "存为素材",
+    "look": "存为模板",
+    "nameAria": "名字",
+    "namePlaceholder": "起个名字",
+    "keep": "保留这张",
+    "drop": "去掉这张",
+    "submit_other": "保存 {{count}} 张",
+    "submitLook": "保存",
+    "saving": "保存中…",
+    "savedAsset": "已存为素材：{{name}}",
+    "savedLook": "已存为模板：{{name}}",
+    "failed": "没能保存，请重试",
+    "imageGone": "有图片已经取不到了，让助手重新出一版",
+    "assetMeta": "{{kind}} · {{background}}",
+    "lookMeta": "{{purpose}} · {{model}} · {{size}} · {{slots}} 个素材位",
+    "kind": {
+      "product": "产品",
+      "person": "人物"
+    },
+    "background": {
+      "transparent": "透明底",
+      "solid": "实底"
+    },
+    "view": {
+      "front": "正面",
+      "side": "侧面",
+      "back": "背面",
+      "detail": "细节",
+      "sheet": "拼图",
+      "none": "视角"
+    },
+    "source": {
+      "upload": "上传",
+      "generated": "生成"
+    },
+    "purpose": {
+      "hero": "主图",
+      "poster": "海报",
+      "scene": "场景图",
+      "detail": "详情图"
+    }
   }
 }

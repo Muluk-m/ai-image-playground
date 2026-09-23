@@ -4,9 +4,15 @@
  */
 
 import { assetStore } from '../../features/library/lib/assetStore'
+import { lookImageIds, lookStore } from '../../features/library/lib/lookStore'
 import { blobToDataUrl, refreshImageThumbnail } from '../../store'
 import { getImage, hasImage, putImage } from '../db'
-import { clearImageUnsynced, markImageUnsynced, restoreImagelessAssets } from './pending'
+import {
+  clearImageUnsynced,
+  markImageUnsynced,
+  restoreImagelessRecords,
+  type SyncCollection,
+} from './pending'
 import { useSyncStatus } from './status'
 import { getAssetImage, putAssetImage } from './syncClient'
 
@@ -75,8 +81,8 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
   try {
     if (await hasImage(imageId)) return true
     if (!useSyncStatus.getState().enabled) return false
-    // 服务端只存素材图；任务结果、商品图这些本机数据的缺图不该去问它。
-    const named = await assetIdsUsing(imageId)
+    // 服务端只存素材图与模板图；任务结果、商品图这些本机数据的缺图不该去问它。
+    const named = await recordsUsing(imageId)
     if (named.length === 0) return false
 
     const blob = await getAssetImage(imageId)
@@ -89,16 +95,26 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
     })
     refreshImageThumbnail(imageId)
     noteAssetImageOnServer(imageId)
-    restoreImagelessAssets(named)
+    restoreImagelessRecords(named)
     return true
   } catch {
     return false
   }
 }
 
-async function assetIdsUsing(imageId: string): Promise<string[]> {
-  const assets = await assetStore.list()
-  return assets.filter((asset) => asset.imageId === imageId).map((asset) => asset.id)
+/** 哪些记录要这张图。素材看全部视角，模板看参考图与封面。 */
+async function recordsUsing(
+  imageId: string,
+): Promise<Array<{ collection: SyncCollection; id: string }>> {
+  const [assets, looks] = await Promise.all([assetStore.list(), lookStore.list()])
+  return [
+    ...assets
+      .filter((asset) => asset.views.some((view) => view.imageId === imageId))
+      .map((asset) => ({ collection: 'assets' as const, id: asset.id })),
+    ...looks
+      .filter((look) => lookImageIds(look).includes(imageId))
+      .map((look) => ({ collection: 'looks' as const, id: look.id })),
+  ]
 }
 
 function toBlob(dataUrl: string): Blob | null {

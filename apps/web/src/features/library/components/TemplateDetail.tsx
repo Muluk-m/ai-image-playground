@@ -10,6 +10,7 @@ import {
   getTemplatePromptParts,
 } from '../lib/templates'
 import { useLibraryStore } from '../store'
+import { assetCoverImageId } from '../types'
 import AssetThumb from './AssetThumb'
 
 export default function TemplateDetail() {
@@ -111,7 +112,9 @@ export default function TemplateDetail() {
                     className="flex items-center gap-2 rounded-xl border border-border/60 p-2"
                   >
                     <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
-                      {ref.asset && <AssetThumb imageId={ref.asset.imageId} alt={ref.asset.name} />}
+                      {ref.asset && (
+                        <AssetThumb imageId={assetCoverImageId(ref.asset)} alt={ref.asset.name} />
+                      )}
                     </div>
                     <span
                       className={`min-w-0 flex-1 truncate text-xs ${

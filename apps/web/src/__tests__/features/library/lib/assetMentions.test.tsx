@@ -28,8 +28,17 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-function asset(partial: Partial<AssetRecord> & { id: string; name: string }): AssetRecord {
-  return { imageId: 'image-a', createdAt: 0, updatedAt: 0, lastUsedAt: 0, ...partial }
+function asset(
+  partial: Partial<AssetRecord> & { id: string; name: string; imageId?: string },
+): AssetRecord {
+  const { imageId = 'image-a', ...rest } = partial
+  return {
+    views: [{ imageId, label: 'none', source: 'upload' }],
+    createdAt: 0,
+    updatedAt: 0,
+    lastUsedAt: 0,
+    ...rest,
+  }
 }
 
 const inputImages: InputImage[] = [
@@ -55,6 +64,24 @@ describe('getAssetNamesByImageId', () => {
     ])
 
     expect(names).toEqual({ 'image-a': '白底图' })
+  })
+
+  it('names every view of one asset, not just the cover', () => {
+    const names = getAssetNamesByImageId([
+      {
+        id: '1',
+        name: '橘猫玩偶',
+        views: [
+          { imageId: 'front', label: 'front', source: 'upload' },
+          { imageId: 'side', label: 'side', source: 'generated' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+        lastUsedAt: 0,
+      },
+    ])
+
+    expect(names).toEqual({ front: '橘猫玩偶', side: '橘猫玩偶' })
   })
 })
 

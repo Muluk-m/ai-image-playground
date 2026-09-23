@@ -20,7 +20,14 @@ import {
   evidenceManifest,
   referenceEvidence,
 } from './selection-preview'
-import { type AgentSkill, agentSkillInvocation, agentSkillLocation, agentSkills } from './skills'
+import {
+  type AgentSkill,
+  type AgentTurnAudience,
+  ANONYMOUS_AUDIENCE,
+  agentSkillInvocation,
+  agentSkillLocation,
+  visibleAgentSkills,
+} from './skills'
 import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations, agentToolGuidance } from './tools'
 
@@ -63,9 +70,14 @@ function estimatedListings(references: readonly AgentImageReference[]): Evidence
 /**
  * 每次模型请求都带着整份工具清单（名称、说明、参数 schema），它是本轮输入里最大的一块固定开销。
  * 折算规则与出站硬闸同一份（`request-budget.ts`），预扣与闸门才不会各说各的。
+ *
+ * 观众决定清单长什么样：只有登录用户才看得见存素材与存模板那两个工具。
  */
-export function estimateToolDeclarationTokens(mode: AgentMode): number {
-  return requestOverheadTokens({ tools: agentToolDeclarations(mode) })
+export function estimateToolDeclarationTokens(
+  mode: AgentMode,
+  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
+): number {
+  return requestOverheadTokens({ tools: agentToolDeclarations(mode, audience) })
 }
 
 function escapeXml(value: string): string {
@@ -117,14 +129,15 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
   auto: '这一轮是出图模式：生图、生视频与改图工具拟好提示词就当场提交并计费，用户不再逐张确认，所以一次调用就是一次真实花费——想清楚再调，不要试探性地多调。任务在后台执行，产物自动放入画布；失败时系统唤醒你说明情况，成功时按复核要求唤醒。工具回执会说清这一次到底提交了没有：说「等待确认」就是没提交（额度用完或余额不足退回了待确认），这时照对话模式的规矩说话，不要声称已经在生成。复核后若需要新的生成，重新调用一次即可，但不自行付费重试同一件事。',
 }
 
-function systemPrompt(mode: AgentMode, autoSubmit: boolean): string {
+function systemPrompt(mode: AgentMode, autoSubmit: boolean, audience: AgentTurnAudience): string {
   return [
     '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
     '用中文回答，简短、具体，不要复述用户的话。',
     MODE_LINE[mode],
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
-    ...agentToolGuidance(mode),
-    ...skillsBlock(agentSkills(mode)),
+    ...agentToolGuidance(mode, audience),
+    // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
+    ...skillsBlock(visibleAgentSkills(mode, audience)),
     '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     SUBMIT_LINE[autoSubmit ? 'auto' : 'draft'],
     '按用户原话及已确认补充执行编辑。区分修改对象、允许变化范围和参考来源；选区限定范围，不表示其中所有内容都要改变。只修改指定实例与属性，保留其余内容；用户明确委托的自由设计应在其授权范围内执行。',
@@ -206,18 +219,23 @@ function replayed(
   return messages
 }
 
-/** pi 起轮时的 initialState 里属于「输入长什么样」的那两项。 */
+/**
+ * pi 起轮时的 initialState 里属于「输入长什么样」的那两项。
+ *
+ * `audience` 缺席即按匿名算：没有用户模板，也没有只有登录用户才有的工具。
+ */
 export function turnInitialState(
   history: readonly AgentMessageView[],
   mode: AgentMode,
   autoSubmit = false,
   selectionHistoryStart = history.length,
+  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
 ): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
   return {
-    systemPrompt: systemPrompt(mode, autoSubmit),
+    systemPrompt: systemPrompt(mode, autoSubmit, audience),
     messages: replayed(history, selectionHistoryStart),
   }
 }
@@ -229,11 +247,17 @@ const SKILL_COMMAND_RE = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/
  * 用户打 `/skill-name …` 时把该技能全文注入给模型。**只改送给模型的那一份**：落库与回显
  * 的用户消息保持原文，否则对话记录里会突然多出一大段他没写过的指引。
  * 认不出的名字按普通文字处理——用户本来就可能拿斜杠开头写正经话。
+ *
+ * `/look-<id>` 走的是同一条路：用户自建的模板在这一轮里就是一条技能。
  */
-export function expandSkillInvocation(text: string, mode: AgentMode): string {
+export function expandSkillInvocation(
+  text: string,
+  mode: AgentMode,
+  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
+): string {
   const match = SKILL_COMMAND_RE.exec(text.trim())
   if (!match) return text
-  const skill = agentSkills(mode).find((one) => one.name === match[1])
+  const skill = visibleAgentSkills(mode, audience).find((one) => one.name === match[1])
   return skill ? agentSkillInvocation(skill, match[2]) : text
 }
 
@@ -290,10 +314,12 @@ export function estimatedTurnInput(
   autoSubmit = false,
   /** 与实发路径相同的选区作用域；缺席表示普通新请求，不继承历史选区。 */
   selectionHistoryStart = history.length,
+  /** 这一轮谁在看：他的模板进清单，他看得见的工具才折算。缺席即按匿名算。 */
+  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
 ): AgentMessage[] {
   const now = Date.now()
   const active = activeAgentReferences(references, history, selectionHistoryStart)
-  const state = turnInitialState(history, mode, autoSubmit, selectionHistoryStart)
+  const state = turnInitialState(history, mode, autoSubmit, selectionHistoryStart, audience)
   return [
     { role: 'user', content: [{ type: 'text', text: state.systemPrompt }], timestamp: now },
     ...state.messages,
@@ -304,7 +330,11 @@ export function estimatedTurnInput(
         {
           type: 'text',
           text:
-            turnPromptText(expandSkillInvocation(text, mode), active, references.length > 0) +
+            turnPromptText(
+              expandSkillInvocation(text, mode, audience),
+              active,
+              references.length > 0,
+            ) +
             evidenceManifest([
               ...estimatedListings(references),
               ...reviewImageIds.map((imageId) => ({ imageId })),
@@ -340,6 +370,7 @@ export function estimateTurnInputTokens(
   reviewImageIds: readonly string[] = [],
   autoSubmit = false,
   selectionHistoryStart = history.messages.length,
+  audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
 ): number {
   const estimated =
     estimatedTurnInput(
@@ -350,8 +381,9 @@ export function estimateTurnInputTokens(
       reviewImageIds,
       autoSubmit,
       selectionHistoryStart,
+      audience,
     ).reduce((total, message) => total + estimateMessageTokens(message), 0) +
-    estimateToolDeclarationTokens(mode) +
+    estimateToolDeclarationTokens(mode, audience) +
     storedSummaryTokens(history.compaction)
   return Math.min(estimated, reservationCeiling(compactionSettings()))
 }
