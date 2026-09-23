@@ -27,9 +27,12 @@ function BoltIcon() {
 export default function Credits({
   credits,
   className = '',
+  struck = false,
 }: {
   credits: number
   className?: string
+  /** 划掉的是数字本身，不是闪电：图标是「这是积分」的标识，划它只会让人以为积分没了。 */
+  struck?: boolean
 }) {
   const { t } = useTranslation('shell')
   const amount = formatCredits(credits)
@@ -40,7 +43,13 @@ export default function Credits({
       className={`inline-flex items-center gap-0.5 tabular-nums ${className}`}
     >
       <BoltIcon />
-      <span aria-hidden="true">{amount}</span>
+      {struck ? (
+        <del aria-hidden="true" className="decoration-1">
+          {amount}
+        </del>
+      ) : (
+        <span aria-hidden="true">{amount}</span>
+      )}
     </span>
   )
 }

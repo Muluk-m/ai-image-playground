@@ -8,6 +8,12 @@ export const CAPABILITIES = {
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'agent:chat': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
+  /**
+   * 对话限时免费的运营期。**只管展示**：轮页脚把这一轮的对话积分画成划掉的原价，
+   * 旁边标一句限时免费。真正的不扣费由计价侧决定，所以只有账上确实不收对话积分时
+   * 才允许开它——开着却照扣，用户看到的就是一句谎。
+   */
+  'billing:chat-free': { defaultValue: false, clientExposed: true },
   'generation:byok': { defaultValue: false, clientExposed: true },
   'generation:video': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },

@@ -144,8 +144,10 @@ function parseDefaults(v: unknown, ctx: string): ChannelDefaults {
     out.codexCli = v.codexCli
   }
   if (v.timeout !== undefined) {
-    if (typeof v.timeout !== 'number' || !Number.isFinite(v.timeout))
-      throw new ChannelsLoadError(`${ctx}.defaults.timeout must be number`)
+    // <= 0 会让前端 `setTimeout(abort, 0)` 在请求发出的同一 tick 掐断它，
+    // 用户只看到一句 "The user aborted a request."——配置期就挡住。
+    if (typeof v.timeout !== 'number' || !Number.isFinite(v.timeout) || v.timeout <= 0)
+      throw new ChannelsLoadError(`${ctx}.defaults.timeout must be a positive number`)
     out.timeout = v.timeout
   }
   if (v.responseFormatB64Json !== undefined) {

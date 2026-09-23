@@ -21,6 +21,8 @@ import {
   ensureCloudProjectConversation,
   getCloudProject,
   listCloudProjects,
+  PROJECT_REQUEST_TIMEOUT_MS,
+  ProjectRequestError,
   restoreDeletedCloudProject,
 } from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
@@ -144,9 +146,18 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         const routeId = route ? resolveProjectRoute(route, projects) : null
         if (routeId && !projects.some((one) => one.id === routeId)) {
           if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
-          projects.push(
-            await restoreCloudProject(await getCloudProject(routeId, AbortSignal.timeout(10000))),
-          )
+          // 云端那份取不回来（链路抖、超时）不该把整个目录判死：本机项目照常列出来，
+          // 只标一句云端列表没刷上，用户还能接着用离线的那些。
+          try {
+            projects.push(
+              await restoreCloudProject(
+                await getCloudProject(routeId, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS)),
+              ),
+            )
+          } catch (error) {
+            if (error instanceof ProjectRequestError && error.status === 404) throw error
+            set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
+          }
         }
         const available = projects.filter((one) => !one.cloud?.deleted || one.id === routeId)
         // `/` 是首页，不是「上次那个项目」：既不恢复 remembered，也不接上次那条对话，
@@ -206,7 +217,9 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const existing = get().projects.find((one) => one.id === id)
     if (existing) return existing
     if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
-    const project = await restoreCloudProject(await getCloudProject(id, AbortSignal.timeout(10000)))
+    const project = await restoreCloudProject(
+      await getCloudProject(id, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS)),
+    )
     set((state) => ({ projects: [...state.projects, project] }))
     return project
   },
@@ -261,7 +274,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const scope = scopedStorageName(CANVAS_PROJECT_KEY)
     await restoreDeletedCloudProject(id)
     if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
-    const summary = await getCloudProject(id, AbortSignal.timeout(15000))
+    const summary = await getCloudProject(id, AbortSignal.timeout(PROJECT_REQUEST_TIMEOUT_MS))
     if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
     const project = await restoreCloudProject(summary)
     if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return

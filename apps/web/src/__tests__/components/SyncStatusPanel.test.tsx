@@ -32,6 +32,7 @@ beforeEach(() => {
     pending: 0,
     lastSyncedAt: null,
     uploads: null,
+    failure: null,
   })
 })
 
@@ -44,6 +45,7 @@ afterEach(() => {
     pending: 0,
     lastSyncedAt: null,
     uploads: null,
+    failure: null,
   })
 })
 
@@ -66,6 +68,18 @@ describe('the sync status panel', () => {
       useSyncStatus.setState({ status: 'idle', lastSyncedAt: Date.now() })
     })
     expect(host.querySelector('button')).toBeNull()
+  })
+
+  it('失败时写清是哪一类，用户知道该做什么', () => {
+    useSyncStatus.setState({ status: 'error', failure: 'unauthorized' })
+    render()
+    expect(host.textContent).toContain('登录已过期')
+
+    act(() => useSyncStatus.setState({ failure: 'network' }))
+    expect(host.textContent).toContain('连不上服务器')
+
+    act(() => useSyncStatus.setState({ failure: 'rejected' }))
+    expect(host.textContent).toContain('服务器拒绝了这次保存')
   })
 
   it('shows the bulk upload progress while it runs', () => {

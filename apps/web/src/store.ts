@@ -1100,6 +1100,20 @@ function isConnectionRecoverableError(err: unknown) {
   )
 }
 
+/**
+ * 到得了任务卡的 abort 只可能是我们自己挂的超时（BYOK 的 profile.timeout、
+ * builtin-edge 下载的 channel timeout）——没有取消按钮能中断在跑的任务。
+ * 浏览器给的是 `The user aborted a request.`，照抄等于告诉用户「你取消了」，
+ * 所以换成 watchdog 同款超时文案。
+ */
+function isOwnTimeoutAbortError(err: unknown) {
+  return (
+    typeof DOMException !== 'undefined' &&
+    err instanceof DOMException &&
+    (err.name === 'AbortError' || err.name === 'TimeoutError')
+  )
+}
+
 function isApiRequestNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) {
     const message = err.message.toLowerCase()
@@ -1761,7 +1775,11 @@ async function executeTask(taskId: string) {
       })
       scheduleCustomRecovery(taskId)
     } else {
-      let errorMessage = err instanceof Error ? err.message : String(err)
+      let errorMessage = isOwnTimeoutAbortError(err)
+        ? createOpenAITimeoutError(activeView.timeout)
+        : err instanceof Error
+          ? err.message
+          : String(err)
       const networkErrorHint = getApiRequestNetworkErrorHint(
         err,
         latestTask,
@@ -2478,7 +2496,11 @@ async function recoverCustomTask(taskId: string) {
     clearCustomRecoveryTimer(taskId)
     updateTaskInStore(taskId, {
       status: 'error',
-      error: err instanceof Error ? err.message : String(err),
+      error: isOwnTimeoutAbortError(err)
+        ? createOpenAITimeoutError(view.timeout)
+        : err instanceof Error
+          ? err.message
+          : String(err),
       errorCode: taskErrorTypeOf(err),
       ...getRawErrorPayload(err),
       customRecoverable: false,

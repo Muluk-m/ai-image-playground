@@ -35,8 +35,8 @@ import {
   withholdImagelessAssets,
   writePendingChanges,
 } from './pending'
-import { reportAssetUploads, useSyncStatus } from './status'
-import { postSync } from './syncClient'
+import { reportAssetUploads, type SyncFailure, useSyncStatus } from './status'
+import { postSync, SyncRequestError } from './syncClient'
 import { applyUserSettingsDocument, readUserSettingsDocument } from './userSettings'
 
 const PUSH_DEBOUNCE_MS = 2000
@@ -90,10 +90,14 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
     const response = await postSync(request, options)
     await applyResponse(response)
     settle(request, response)
-    useSyncStatus.setState({ status: 'idle' })
+    useSyncStatus.setState({ status: 'idle', failure: null })
     again = filledOneRequest(request)
-  } catch {
-    useSyncStatus.setState({ status: 'error' })
+  } catch (error) {
+    // 分三类：会话过期要重新登录；没到达服务端是链路问题；带状态码的是服务端拒了这份内容。
+    const status = error instanceof SyncRequestError ? error.status : 0
+    const failure: SyncFailure =
+      status === 401 || status === 403 ? 'unauthorized' : status === 0 ? 'network' : 'rejected'
+    useSyncStatus.setState({ status: 'error', failure })
     // 失败不自排重试，否则断网时会变成每 2 秒一次的空转；补推交给 `online` 与下一次本机改动。
   } finally {
     changedInFlight = null

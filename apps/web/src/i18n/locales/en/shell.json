@@ -41,6 +41,11 @@
     "title": "Save status",
     "retryNow": "Retry now",
     "failed": "Save failed",
+    "failure": {
+      "unauthorized": "Your session expired. Sign in again and saving resumes. Local data is intact.",
+      "network": "Cannot reach the server. Saving resumes once the network is back. Local data is intact.",
+      "rejected": "The server rejected this save. Retry, and export a backup if it keeps failing."
+    },
     "syncing": "Saving",
     "uploading": "Uploading assets {{done}}/{{total}}",
     "pending_one": "{{count}} item waiting to save",
