@@ -1,5 +1,5 @@
 import { type DragEvent, useRef, useState } from 'react'
-import { acceptImageFiles } from '../lib/imageFiles'
+import { acceptImageFiles, collectDroppedFiles } from '../lib/imageFiles'
 
 function carriesFiles(event: DragEvent) {
   return [...event.dataTransfer.types].includes('Files')
@@ -7,9 +7,9 @@ function carriesFiles(event: DragEvent) {
 
 /**
  * 把一块区域变成图片落点。停传播是必须的：工作台在 document 上另有一套全屏拖拽接管，
- * 不拦住它就会同时点亮两个落点。
+ * 不拦住它就会同时点亮两个落点。拖进来的文件夹递归展开，非图片丢掉并提示。
  */
-export function useImageDropZone(onFiles: (files: File[]) => void) {
+export function useImageDropZone(onFiles: (files: File[], folder: string | null) => void) {
   const [dragging, setDragging] = useState(false)
   // 拖过子元素时 dragenter / dragleave 成对乱序触发，只有计数才不会中途熄灭。
   const depth = useRef(0)
@@ -47,8 +47,10 @@ export function useImageDropZone(onFiles: (files: File[]) => void) {
         event.preventDefault()
         event.stopPropagation()
         stop()
-        const images = acceptImageFiles([...event.dataTransfer.files])
-        if (images.length > 0) onFiles(images)
+        void collectDroppedFiles(event.dataTransfer).then(({ files, folder }) => {
+          const images = acceptImageFiles(files)
+          if (images.length > 0) onFiles(images, folder)
+        })
       },
     },
   }

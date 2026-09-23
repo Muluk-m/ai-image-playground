@@ -181,7 +181,7 @@ describe('智能体输入框', () => {
     })
 
     expect(await attached()).toHaveLength(1)
-    expect(useStore.getState().toast?.message).toBe('只支持图片文件')
+    expect(useStore.getState().toast?.message).toBe('已跳过 1 个非图片文件')
   })
 
   it('输入框卸载再挂载后保留文字、引用和遮罩', async () => {
