@@ -175,6 +175,10 @@ function assertCapabilityCompatibility(capabilities: CapabilityValues): void {
   if (capabilities['accounts:self-register'] && !capabilities['accounts:login']) {
     throw new Error('accounts:self-register requires accounts:login')
   }
+  // 没有积分体系就没有「免积分」可言：开着只会在页脚挂一句没有对照物的营销话术。
+  if (capabilities['billing:chat-free'] && !capabilities['billing:credits']) {
+    throw new Error('billing:chat-free requires billing:credits')
+  }
   if (!capabilities['billing:credits']) return
   if (!capabilities['accounts:login']) {
     throw new Error('billing:credits requires accounts:login')
