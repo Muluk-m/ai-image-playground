@@ -1,25 +1,43 @@
-import { AGENT_TURN_MAX_INLINE_REFERENCES } from '@image-playground/shared'
+import {
+  AGENT_TURN_MAX_INLINE_REFERENCES,
+  AGENT_TURN_MAX_REFERENCES,
+} from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
-import { ensureAssetImage } from '../../../lib/sync/assetImages'
-import { ensureImageCached, useStore } from '../../../store'
-import { useLibraryStore } from '../../library/store'
+import {
+  attachReferences as admitReferences,
+  type ReferenceRefusal,
+} from '../../../lib/referenceDraft'
+import { useStore } from '../../../store'
+import { assetViewImages, useLibraryStore } from '../../library/store'
 import {
   type AgentDraft,
   type AgentReference,
   type AttachedReference,
+  agentAdmission,
   attachReference,
-  hasRoomFor,
   INLINE_ONLY,
   type ReferenceTransport,
 } from './references'
 
-// 文案按调用时取，不在模块加载时定死：切语言之后新出的提示要跟着换语言。
-const TOO_MANY = () =>
-  i18next.t('composer.tooManyUploads', {
-    ns: 'agent',
-    count: AGENT_TURN_MAX_INLINE_REFERENCES,
-  })
+/**
+ * 撞的是哪道上限就说哪道。本机项目里没有「按 id 发」那一档——画布上的图也只能内联——
+ * 两道上限拦的是同一批图，对用户就只有「一轮最多带 N 张」这一句；云项目里圈选的图按 id 发、
+ * 不占内联名额，内联那道才需要单独说清楚。文案按调用时取：切语言之后新出的提示要跟着换。
+ */
+export function referenceLimitMessage(
+  refusal: ReferenceRefusal,
+  transport: ReferenceTransport,
+): string {
+  if (!transport.cloud)
+    return i18next.t('composer.tooManyReferences', {
+      ns: 'agent',
+      count: AGENT_TURN_MAX_INLINE_REFERENCES,
+    })
+  return refusal === 'inlineOverflow'
+    ? i18next.t('composer.tooManyUploads', { ns: 'agent', count: AGENT_TURN_MAX_INLINE_REFERENCES })
+    : i18next.t('composer.tooManyReferences', { ns: 'agent', count: AGENT_TURN_MAX_REFERENCES })
+}
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -68,40 +86,28 @@ export async function attachAssetToDraft(
   const asset = useLibraryStore.getState().assets.find((one) => one.id === assetId)
   if (!asset) return null
 
-  const views: AgentReference[] = []
-  for (const imageId of new Set(asset.views.map((view) => view.imageId))) {
-    await ensureAssetImage(imageId)
-    const dataUrl = await ensureImageCached(imageId)
-    if (dataUrl) views.push({ id: imageId, dataUrl, name: asset.name })
-  }
+  const views = (await assetViewImages(asset)).map((image) => ({ ...image, name: asset.name }))
   const [cover, ...rest] = views
   if (!cover) return null
 
   // 读素材库工具按「最近用过」排序，不记这一笔它就永远看不见智能体这边的使用。
   void useLibraryStore.getState().noteAssetUsed(asset.id)
-  const attached = attachReference(draft, cover, start, cursor, transport)
-  // 其余视角只进参考图条，不各占一个胶囊；超出上限的在这里被丢掉并提示一次。
-  return { ...attached, draft: attachReferences(attached.draft, rest, transport) }
+  return attachReference(draft, cover, start, cursor, transport, rest)
 }
 
 /**
- * 附到草稿末尾；放不下的丢掉并提示一次。拖进来的文件、素材都只能内联字节，受内联那道上限管；
- * 已经在草稿里、会按 id 发的圈选图不占这个名额（见 `hasRoomFor`）。
+ * 附到草稿末尾；这一把整组放不下就一张都不附，并提示一次。拖进来的文件、素材只能内联字节，
+ * 受内联那道上限管；已经在草稿里、会按 id 发的圈选图不占这个名额（见 `agentAdmission`）。
  */
 export function attachReferences(
   draft: AgentDraft,
   added: readonly AgentReference[],
   transport: ReferenceTransport = INLINE_ONLY,
 ): AgentDraft {
-  let references = draft.references
-  for (const reference of added) {
-    if (!hasRoomFor(references, reference, transport)) {
-      useStore.getState().showToast(TOO_MANY(), 'error')
-      break
-    }
-    references = [...references, reference]
-  }
-  return references === draft.references ? draft : { ...draft, references }
+  const attached = admitReferences(draft, added, agentAdmission(transport))
+  if (attached.ok) return attached.draft
+  useStore.getState().showToast(referenceLimitMessage(attached.reason, transport), 'error')
+  return draft
 }
 
 /**

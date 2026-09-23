@@ -17,12 +17,7 @@ import {
   validateClientProfile,
 } from './lib/apiProfiles'
 import { pathAppMode } from './lib/appPaths'
-import {
-  getProfileModels,
-  modelSupportsEdit,
-  NO_EDIT_SUPPORT_MESSAGE,
-  updateSelectedModel,
-} from './lib/channels/profileSelectors'
+import { getProfileModels, updateSelectedModel } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import { isVideoModeAvailable } from './lib/channels/videoChannels'
@@ -93,7 +88,7 @@ import {
   setPlatformFavorite,
   watchPlatformGeneration,
 } from './lib/platformGenerations'
-import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
+import { replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   expandPromptSlots,
   getSubmissionImageCount,
@@ -101,6 +96,16 @@ import {
   MAX_BATCH_IMAGES,
   type SlotValues,
 } from './lib/promptSlots'
+import {
+  attachReferences,
+  moveReference,
+  type ReferenceAdmission,
+  type ReplaceOptions,
+  referenceAdmission,
+  referenceRefusalMessage,
+  removeReference,
+  replaceReferences,
+} from './lib/referenceDraft'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
@@ -541,13 +546,20 @@ interface AppState {
   slotValues: SlotValues
   setSlotValues: (name: string, values: string[]) => void
   inputImages: InputImage[]
-  addInputImage: (img: InputImage) => void
+  /**
+   * 往参考图条里附一组图：整组落地或整组不落，被拒的理由已经提示过。返回每张图在条里的
+   * 序号（按入参顺序，已在条里的复用原序号），被拒时返回 null。
+   * 准入默认按当前模型算、意图按「附图」算；图不是给当前模型用的（首屏交给画布第一轮）、
+   * 或者这一次是拿图去改（`intent: 'edit'`），由调用方自己给一份。
+   */
+  attachInputImages: (
+    images: readonly InputImage[],
+    admission?: ReferenceAdmission,
+  ) => number[] | null
   removeInputImage: (idx: number) => void
   clearInputImages: () => void
-  setInputImages: (
-    imgs: InputImage[],
-    options?: { equivalentImageIds?: Record<string, string> },
-  ) => void
+  /** 整条换掉。带上 `prompt` 就是连提示词一起换，两件事在同一次写入里完成。 */
+  replaceInputImages: (imgs: InputImage[], options?: ReplaceOptions) => void
   moveInputImage: (fromIdx: number, toIdx: number) => void
   maskDraft: MaskDraft | null
   setMaskDraft: (draft: MaskDraft | null) => void
@@ -666,19 +678,27 @@ export const useStore = create<AppState>()(
       setSlotValues: (name, values) =>
         set((s) => ({ slotValues: { ...s.slotValues, [name]: values } })),
       inputImages: [],
-      addInputImage: (img) =>
-        set((s) => {
-          if (s.inputImages.find((i) => i.id === img.id)) return s
-          return { inputImages: [...s.inputImages, img] }
-        }),
+      attachInputImages: (images, admission) => {
+        const { prompt, inputImages, settings, showToast } = get()
+        const result = attachReferences(
+          { prompt, references: inputImages },
+          images,
+          admission ?? referenceAdmission(getActiveApiProfile(settings)),
+        )
+        if (!result.ok) {
+          showToast(referenceRefusalMessage(result.reason), 'error')
+          return null
+        }
+        set({ inputImages: [...result.draft.references] })
+        return [...result.indexes]
+      },
       removeInputImage: (idx) =>
         set((s) => {
-          const removed = s.inputImages[idx]
-          const inputImages = s.inputImages.filter((_, i) => i !== idx)
-          const shouldClearMask = removed?.id === s.maskDraft?.targetImageId
+          const shouldClearMask = s.inputImages[idx]?.id === s.maskDraft?.targetImageId
+          const draft = removeReference({ prompt: s.prompt, references: s.inputImages }, idx)
           return {
-            inputImages,
-            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages),
+            inputImages: [...draft.references],
+            prompt: draft.prompt,
             ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
@@ -687,55 +707,52 @@ export const useStore = create<AppState>()(
           for (const img of s.inputImages) imageCache.delete(img.id)
           return {
             inputImages: [],
-            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, []),
+            prompt: replaceReferences({ prompt: s.prompt, references: s.inputImages }, []).prompt,
             maskDraft: null,
             maskEditorImageId: null,
           }
         }),
-      setInputImages: (imgs, options) =>
+      replaceInputImages: (imgs, options) =>
         set((s) => {
-          const inputImages = orderImagesWithMaskFirst(imgs, s.maskDraft?.targetImageId)
-          const shouldClearMask =
-            Boolean(s.maskDraft) &&
-            !inputImages.some((img) => img.id === s.maskDraft?.targetImageId)
+          const keepsMask =
+            Boolean(s.maskDraft) && imgs.some((img) => img.id === s.maskDraft?.targetImageId)
+          const references = keepsMask
+            ? orderImagesWithMaskFirst(imgs, s.maskDraft?.targetImageId)
+            : imgs
+          const draft = replaceReferences(
+            { prompt: s.prompt, references: s.inputImages },
+            references,
+            options,
+          )
           return {
-            inputImages,
-            prompt: remapImageMentionsForOrder(
-              s.prompt,
-              s.inputImages,
-              inputImages,
-              options?.equivalentImageIds,
-            ),
-            ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
+            inputImages: [...draft.references],
+            prompt: draft.prompt,
+            ...(s.maskDraft && !keepsMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
       moveInputImage: (fromIdx, toIdx) =>
         set((s) => {
-          const images = [...s.inputImages]
-          if (fromIdx < 0 || fromIdx >= images.length) return s
           const maskTargetImageId = s.maskDraft?.targetImageId
-          if (maskTargetImageId && images[fromIdx]?.id === maskTargetImageId) return s
-          const minTargetIdx =
-            maskTargetImageId && images.some((img) => img.id === maskTargetImageId) ? 1 : 0
-          const targetIdx = Math.max(minTargetIdx, Math.min(images.length, toIdx))
-          const insertIdx = fromIdx < targetIdx ? targetIdx - 1 : targetIdx
-          if (insertIdx === fromIdx) return s
-          const [moved] = images.splice(fromIdx, 1)
-          images.splice(insertIdx, 0, moved)
-          return {
-            inputImages: images,
-            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, images),
-          }
+          // 被遮的那张钉在第一位：它自己不能挪，别的也插不到它前面去。
+          if (maskTargetImageId && s.inputImages[fromIdx]?.id === maskTargetImageId) return s
+          const pinned =
+            maskTargetImageId && s.inputImages.some((img) => img.id === maskTargetImageId) ? 1 : 0
+          const draft = moveReference(
+            { prompt: s.prompt, references: s.inputImages },
+            fromIdx,
+            Math.max(pinned, toIdx),
+          )
+          if (draft.references === s.inputImages) return s
+          return { inputImages: [...draft.references], prompt: draft.prompt }
         }),
       maskDraft: null,
       setMaskDraft: (maskDraft) =>
         set((s) => {
-          const inputImages = orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId)
-          return {
-            maskDraft,
-            inputImages,
-            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages),
-          }
+          const draft = replaceReferences(
+            { prompt: s.prompt, references: s.inputImages },
+            orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId),
+          )
+          return { maskDraft, inputImages: [...draft.references], prompt: draft.prompt }
         }),
       clearMaskDraft: () => set({ maskDraft: null }),
       maskEditorImageId: null,
@@ -1282,7 +1299,7 @@ export async function initStore() {
     restoredInputImages.length !== persistedInputImages.length ||
     restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)
   ) {
-    useStore.getState().setInputImages(restoredInputImages)
+    useStore.getState().replaceInputImages(restoredInputImages)
   }
 }
 
@@ -2060,15 +2077,8 @@ export async function reuseConfig(task: TaskRecord) {
 }
 
 async function reuseLocalConfig(task: TaskRecord) {
-  const {
-    settings,
-    setPrompt,
-    setParams,
-    setInputImages,
-    setMaskDraft,
-    clearMaskDraft,
-    showToast,
-  } = useStore.getState()
+  const { settings, setParams, replaceInputImages, setMaskDraft, clearMaskDraft, showToast } =
+    useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
 
   setParams(
@@ -2086,8 +2096,8 @@ async function reuseLocalConfig(task: TaskRecord) {
       imgs.push({ id: imgId, dataUrl })
     }
   }
-  setInputImages(imgs)
-  setPrompt(task.prompt)
+  // 条与提示词一起换：这句话是按这条记录自己的参考图序号写的，分两步写会按旧条重排坏。
+  replaceInputImages(imgs, { prompt: task.prompt })
   const maskTargetImageId =
     task.maskTargetImageId ?? (task.maskImageId ? task.inputImageIds[0] : null)
   if (maskTargetImageId && task.maskImageId && imgs.some((img) => img.id === maskTargetImageId)) {
@@ -2111,31 +2121,33 @@ async function reuseLocalConfig(task: TaskRecord) {
 }
 
 /**
- * 对任务的某张输出图开启遮罩编辑（局部重绘）：先确保该图在参考图框里
- * （遮罩编辑器保存时按 inputImages 替换 target，不在框里遮罩会丢），
- * 再打开遮罩编辑器。不传 imageId 时默认取首张输出图。
+ * 把一张图设成改图目标：先确保它在参考图条里（遮罩编辑器保存时按 inputImages 替换 target，
+ * 不在条里遮罩会丢），再打开遮罩编辑器。右键菜单的「编辑」与历史里的「改这张」都走这一条。
+ *
+ * 这一次的意图是改图，不是附图：哪怕这张图早就在条里、一张都不用加，模型不认参考图也开不了
+ * 遮罩——那条规则写在 `lib/referenceDraft` 的准入里，被拒的理由由附图那一步提示。
  */
+export function editImageInComposer(image: InputImage): boolean {
+  const { settings, attachInputImages, setMaskEditorImageId } = useStore.getState()
+  if (!attachInputImages([image], referenceAdmission(getActiveApiProfile(settings), 'edit'))) {
+    return false
+  }
+  setMaskEditorImageId(image.id)
+  return true
+}
+
+/** 对任务的某张输出图开启遮罩编辑（局部重绘）。不传 imageId 时默认取首张输出图。 */
 export async function editOutputImage(task: TaskRecord, imageId?: string) {
   const local = await materializeRemoteTask(task)
-  const { inputImages, addInputImage, setMaskEditorImageId, showToast, settings } =
-    useStore.getState()
   const targetId = resolveOutputId(task, local, imageId)
   if (!targetId) return
 
-  if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels())) {
-    showToast(NO_EDIT_SUPPORT_MESSAGE, 'error')
-    return
-  }
-
   const dataUrl = await ensureImageCached(targetId)
   if (!dataUrl) {
-    showToast(i18next.t('toast.imageMissingForEdit', { ns: 'store' }), 'error')
+    useStore.getState().showToast(i18next.t('toast.imageMissingForEdit', { ns: 'store' }), 'error')
     return
   }
-  if (!inputImages.find((i) => i.id === targetId)) {
-    addInputImage({ id: targetId, dataUrl })
-  }
-  setMaskEditorImageId(targetId)
+  editImageInComposer({ id: targetId, dataUrl })
 }
 
 /** 画布任务发起时快照的 profile 身份（落历史保真，避免完成时用户已切 profile 而失真）。 */
@@ -2730,12 +2742,6 @@ export async function storeImageFromFile(
   return { id, dataUrl }
 }
 
-/** 添加图片到输入（文件上传） */
-export async function addImageFromFile(file: File): Promise<void> {
-  if (!file.type.startsWith('image/')) return
-  useStore.getState().addInputImage(await storeImageFromFile(file))
-}
-
 /** 把一张图片存进 image store —— 支持 data/blob/http URL */
 export async function storeImageFromUrl(
   src: string,
@@ -2749,13 +2755,6 @@ export async function storeImageFromUrl(
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
   return { id, dataUrl }
-}
-
-/** 添加图片到输入（右键菜单） */
-export async function addImageFromUrl(src: string): Promise<string> {
-  const { id, dataUrl } = await storeImageFromUrl(src)
-  useStore.getState().addInputImage({ id, dataUrl })
-  return id
 }
 
 function fileToDataUrl(file: File): Promise<string> {

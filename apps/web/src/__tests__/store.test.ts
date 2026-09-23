@@ -7,6 +7,7 @@ import {
   normalizeSettings,
 } from '../lib/apiProfiles'
 import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
+import { API_MAX_IMAGES } from '../lib/inputImageLimit'
 import { mergeHistory, type PlatformGenerationRow } from '../lib/platformGenerations'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
@@ -263,6 +264,60 @@ describe('mask draft lifecycle in store actions', () => {
     expect(useStore.getState().maskDraft).toEqual(maskDraft)
   })
 
+  it('模型不认参考图时，条里已有的那张输出图也不给开遮罩编辑器', async () => {
+    const channel: PublicChannel = {
+      id: 'no-edit',
+      kind: 'openai-queue',
+      label: 'NoEdit',
+      models: [{ id: 'gen-only', label: 'Gen only', capabilities: ['generate'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    await putImage({ id: imageA.id, dataUrl: imageA.dataUrl, source: 'generated', createdAt: 1 })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: 'builtin-no-edit',
+            source: 'builtin-edge',
+            channelId: 'no-edit',
+            selectedModelId: 'gen-only',
+          },
+        ],
+        activeProfileId: 'builtin-no-edit',
+      }),
+      inputImages: [imageA],
+    })
+
+    await editOutputImage(task({ outputImages: [imageA.id] }))
+
+    expect(useStore.getState().maskEditorImageId).toBeNull()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      expect.stringContaining('不支持参考图'),
+      'error',
+    )
+  })
+
+  it('参考图条满了就不让改图，也不往条里塞第 17 张', async () => {
+    await putImage({ id: 'output-x', dataUrl: imageA.dataUrl, source: 'generated', createdAt: 1 })
+    useStore.setState({
+      inputImages: Array.from({ length: API_MAX_IMAGES }, (_, index) => ({
+        id: `filler-${index}`,
+        dataUrl: imageA.dataUrl,
+      })),
+    })
+
+    await editOutputImage(task({ outputImages: ['output-x'] }))
+
+    expect(useStore.getState().inputImages).toHaveLength(API_MAX_IMAGES)
+    expect(useStore.getState().maskEditorImageId).toBeNull()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      expect.stringContaining('已达上限'),
+      'error',
+    )
+  })
+
   it('clears an invalid mask draft when submit cannot find the mask target image', async () => {
     useStore.setState({
       inputImages: [imageA],
@@ -486,23 +541,6 @@ describe('mask draft lifecycle in store actions', () => {
     }
   })
 
-  it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
-    const replacement = { id: 'image-a-replacement', dataUrl: imageA.dataUrl }
-    const prompt = `参考 ${getSelectedImageMentionLabel(0)} 生成`
-    useStore.setState({
-      prompt,
-      inputImages: [imageA, imageB],
-    })
-
-    useStore.getState().setInputImages([replacement, imageB], {
-      equivalentImageIds: { [imageA.id]: replacement.id },
-    })
-
-    const state = useStore.getState()
-    expect(state.inputImages.map((img) => img.id)).toEqual([replacement.id, imageB.id])
-    expect(state.prompt).toBe(prompt)
-  })
-
   it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {
     vi.mocked(callImageApi).mockRejectedValue(
       new DOMException('The user aborted a request.', 'AbortError'),
@@ -518,6 +556,88 @@ describe('mask draft lifecycle in store actions', () => {
     const failed = useStore.getState().tasks[0]
     expect(failed?.error).toContain('请求超时')
     expect(failed?.error).not.toContain('aborted')
+  })
+})
+
+describe('参考图条的挪动、删除与整条换掉', () => {
+  const imageC = { id: 'image-c', dataUrl: 'data:image/png;base64,c' }
+  const maskOn = (targetImageId: string) => ({
+    targetImageId,
+    maskDataUrl: 'data:image/png;base64,mask',
+    updatedAt: 1,
+  })
+
+  beforeEach(() => {
+    useStore.setState({
+      prompt: '',
+      inputImages: [],
+      maskDraft: null,
+      maskEditorImageId: null,
+      showToast: vi.fn(),
+    })
+  })
+
+  it('挪动一张图，提示词里的引用跟着图走', () => {
+    useStore.setState({
+      inputImages: [imageA, imageB, imageC],
+      prompt: `${getSelectedImageMentionLabel(0)} 与 ${getSelectedImageMentionLabel(2)}`,
+    })
+
+    useStore.getState().moveInputImage(2, 0)
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([
+      imageC.id,
+      imageA.id,
+      imageB.id,
+    ])
+    expect(useStore.getState().prompt).toBe(
+      `${getSelectedImageMentionLabel(1)} 与 ${getSelectedImageMentionLabel(0)}`,
+    )
+  })
+
+  it('遮罩主图钉在第一位：它自己挪不动，别的图也插不到它前面', () => {
+    useStore.setState({ inputImages: [imageA, imageB], maskDraft: maskOn(imageA.id) })
+
+    useStore.getState().moveInputImage(0, 2)
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
+
+    useStore.getState().moveInputImage(1, 0)
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
+  })
+
+  it('删掉遮罩主图：遮罩草稿与编辑器一起收走，指向它的引用降级为一段文字', () => {
+    useStore.setState({
+      inputImages: [imageA, imageB],
+      maskDraft: maskOn(imageA.id),
+      maskEditorImageId: imageA.id,
+      prompt: `${getSelectedImageMentionLabel(0)} 与 ${getSelectedImageMentionLabel(1)}`,
+    })
+
+    useStore.getState().removeInputImage(0)
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageB.id])
+    expect(useStore.getState().prompt).toBe(`@已移除图片 与 ${getSelectedImageMentionLabel(0)}`)
+    expect(useStore.getState().maskDraft).toBeNull()
+    expect(useStore.getState().maskEditorImageId).toBeNull()
+  })
+
+  it('整条换掉：遮罩主图还在就钉回第一位，不在就把遮罩一起丢掉', () => {
+    useStore.setState({
+      inputImages: [imageA, imageB],
+      maskDraft: maskOn(imageB.id),
+      maskEditorImageId: imageB.id,
+    })
+
+    useStore.getState().replaceInputImages([imageA, imageB])
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageB.id, imageA.id])
+    expect(useStore.getState().maskDraft?.targetImageId).toBe(imageB.id)
+
+    useStore.getState().replaceInputImages([imageC])
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageC.id])
+    expect(useStore.getState().maskDraft).toBeNull()
+    expect(useStore.getState().maskEditorImageId).toBeNull()
   })
 })
 
@@ -1188,48 +1308,14 @@ describe('素材引用与模板套用后提交', () => {
     expect(await submittedPrompt()).toBe('把[image 1]放大')
   })
 
-  it('同一张图的第二个素材复用原序号，不重复附图', async () => {
-    await attachNewAsset('img-panda', PANDA, '熊猫')
-    const second = await attachNewAsset('img-panda', PANDA, '白底熊猫')
-    useStore.setState({ prompt: `${getSelectedImageMentionLabel(second ?? 0)} 再来一张` })
-
-    await submitTask()
-
-    expect(second).toBe(0)
-    expect(useStore.getState().inputImages).toHaveLength(1)
-    expect(await submittedPrompt()).toBe('[image 1] 再来一张')
-  })
-
-  it('重排参考图后素材引用跟着图走', async () => {
-    const panda = await attachNewAsset('img-panda', PANDA, '熊猫')
-    const hall = await attachNewAsset('img-hall', HALL, '正义盟大殿')
-    useStore.setState({
-      prompt: `${getSelectedImageMentionLabel(panda ?? 0)} 站在 ${getSelectedImageMentionLabel(hall ?? 1)} 前`,
-    })
-
-    useStore.getState().moveInputImage(1, 0)
-    await submitTask()
-
-    expect(await submittedPrompt()).toBe('[image 2] 站在 [image 1] 前')
-  })
-
-  it('删除参考图后素材引用降级为已移除', async () => {
-    await attachNewAsset('img-panda', PANDA, '熊猫')
-    const hall = await attachNewAsset('img-hall', HALL, '正义盟大殿')
-    useStore.setState({ prompt: `放进 ${getSelectedImageMentionLabel(hall ?? 1)}` })
-
-    useStore.getState().removeInputImage(1)
-    await submitTask()
-
-    expect(await submittedPrompt()).toBe('放进 @已移除图片')
-  })
-
   it('套用模板后引用按落位后的新序号发送', async () => {
     const panda = await attachNewAsset('img-panda', PANDA, '熊猫')
     useStore.setState({ prompt: `把${getSelectedImageMentionLabel(panda ?? 0)}放大` })
     await useLibraryStore.getState().saveTemplate('熊猫模板')
     const [template] = useLibraryStore.getState().templates
 
+    // 这一张不经素材库进条，得自己先落进 image store，提交时才取得到字节。
+    await putImage({ id: 'img-hall', dataUrl: HALL, source: 'upload', createdAt: 0 })
     useStore.setState({ inputImages: [{ id: 'img-hall', dataUrl: HALL }], prompt: '' })
     await useLibraryStore.getState().applyTemplate(template.id)
     await submitTask()

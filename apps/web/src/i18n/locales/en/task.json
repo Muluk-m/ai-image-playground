@@ -87,7 +87,6 @@
   },
   "menu": {
     "imageCopied": "Image copied",
-    "referenceLimit": "Reference image limit reached (16), can't add more",
     "addReferenceFailed": "Could not add the reference image: {{reason}}",
     "saveAsAsset": "Save as asset",
     "saveAsAssetFailed": "Could not save as asset: {{reason}}",

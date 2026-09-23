@@ -85,14 +85,14 @@ describe('跟着画布选区走的引用', () => {
     const draft = drafts()
 
     doc.setSelection(many.map((one) => one.id))
-    expect(selection.follow(doc, draft.update)).toBe(3)
+    expect(selection.follow(doc, draft.update).dropped).toBe(3)
     expect(draft.ids).toHaveLength(AGENT_TURN_MAX_INLINE_REFERENCES)
 
     // 腾出位置之后，此前放不下的那几张下一次同步照常带进来。
     const last = many[many.length - 1]!
     const secondLast = many[many.length - 2]!
     doc.setSelection([secondLast.id, last.id])
-    expect(selection.follow(doc, draft.update)).toBe(0)
+    expect(selection.follow(doc, draft.update).dropped).toBe(0)
     expect(draft.ids).toEqual([last.id, secondLast.id])
   })
 
@@ -109,7 +109,10 @@ describe('跟着画布选区走的引用', () => {
 
     doc.setSelection(many.map((one) => one.id))
 
-    expect(selection.follow(doc, draft.update, undefined, undefined, cloud)).toBe(2)
+    const overflow = selection.follow(doc, draft.update, undefined, undefined, cloud)
+
+    // 撞的是一轮总数那一道，不是内联那一道——调用方据此说对是哪一句。
+    expect(overflow).toEqual({ dropped: 2, refusal: 'overflow' })
     expect(draft.ids).toHaveLength(AGENT_TURN_MAX_REFERENCES)
   })
 
@@ -124,10 +127,10 @@ describe('跟着画布选区走的引用', () => {
     const end = visible(draft).length
 
     expect(
-      attachReference(draft, { id: 'canvas-1', dataUrl: PIXEL }, end, end, cloud).overflow,
-    ).toBe(false)
+      attachReference(draft, { id: 'canvas-1', dataUrl: PIXEL }, end, end, cloud).refusal,
+    ).toBeNull()
     const file = attachReference(draft, { id: 'file_more', dataUrl: DROPPED }, end, end, cloud)
-    expect(file.overflow).toBe(true)
+    expect(file.refusal).toBe('inlineOverflow')
     expect(file.draft).toBe(draft)
     expect(file.cursor).toBe(end)
   })

@@ -9,9 +9,16 @@ import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
   type MentionLabelResolver,
-  remapImageMentionsForOrder,
   replaceImageMentionsForApi,
 } from '../../../lib/promptImageMentions'
+import {
+  attachReferences,
+  type ReferenceAdmission,
+  type ReferenceDraft,
+  type ReferenceRefusal,
+  removeReference as removeDraftReference,
+  replaceReferences,
+} from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
 
 /** 输入框附上的一张参考图。`id` 是画布对象 id 或素材的图片 id，模型据此指认要改哪一张。 */
@@ -26,9 +33,7 @@ export interface AgentReference extends InputImage {
   readonly origin?: 'selection'
 }
 
-export interface AgentDraft {
-  readonly prompt: string
-  readonly references: readonly AgentReference[]
+export interface AgentDraft extends ReferenceDraft<AgentReference> {
   /**
    * 这份草稿上次停在什么创作类型。轮的类型现在由项目的画布类型定，这里只剩存储里的历史值，
    * 草稿层自己原样保管（`withMode`），没有人再据它决定发什么。
@@ -96,33 +101,41 @@ export function sendsById(reference: AgentReference, transport: ReferenceTranspo
 }
 
 /**
- * 草稿里还放不放得下这一张。两道上限：一轮总张数（按 id 的不进请求体，可以很多），
- * 以及只能内联字节的那几张——服务端对这两个数都是硬校验，超了整轮以 4xx 打回。
+ * 一轮的参考图准入。两道上限都是服务端的硬校验，超出去的那一份会让整轮起轮以 4xx 被打回，
+ * 用户的话连同图一起白等；改图能力不在这里判——轮用哪个模型由服务端定，输入框看不到。
+ *
+ * 按 id 发的那几张字节不进请求体，只占一轮总数（张数因此能与画布批量操作对齐）；只能内联的
+ * （拖进来的文件、素材、批注合成图、本机项目的画布图）仍限 {@link AGENT_TURN_MAX_INLINE_REFERENCES}
+ * 张。两档在这里写一遍，每个写入方——手动 `@`、拖文件、跟着选区带进来的——都从这里取。
  */
-export function hasRoomFor(
-  references: readonly AgentReference[],
-  reference: AgentReference,
-  transport: ReferenceTransport,
-): boolean {
-  if (references.length >= AGENT_TURN_MAX_REFERENCES) return false
-  if (sendsById(reference, transport)) return true
-  const inline = references.filter((one) => !sendsById(one, transport)).length
-  return inline < AGENT_TURN_MAX_INLINE_REFERENCES
+export function agentAdmission(
+  transport: ReferenceTransport = INLINE_ONLY,
+): ReferenceAdmission<AgentReference> {
+  return {
+    limit: AGENT_TURN_MAX_REFERENCES,
+    acceptsReferences: true,
+    inline: {
+      limit: AGENT_TURN_MAX_INLINE_REFERENCES,
+      sendsById: (reference) => sendsById(reference, transport),
+    },
+  }
 }
 
 export interface AttachedReference {
   readonly draft: AgentDraft
   /** 可见文本坐标系里的光标落点。 */
   readonly cursor: number
-  /** 这一张没放进去：本轮的参考图已经满了。草稿与光标原样返回。 */
-  readonly overflow: boolean
+  /** 这一组没放进去，撞的是哪道上限；草稿与光标原样返回。整组都进去了是 null。 */
+  readonly refusal: ReferenceRefusal | null
 }
 
 /**
- * 在可见文本的 `[start, cursor)` 上插一条引用。同一张图按 `id` 复用原序号，
- * 不重复附加——画布对象与素材走的是同一条路。
+ * 在可见文本的 `[start, cursor)` 上插一条引用。附图那一步走 `lib/referenceDraft`：
+ * 同一张图按 `id` 复用原序号、不重复附加，画布对象与素材走的是同一条路。
+ * 一起附上的 `rest`（素材的其余视角）只进条、不各占一个胶囊。
  *
- * 满了就不附（见 `hasRoomFor`）：超出去的那一份会让整轮起轮被打回，用户的话连同图一起白等。
+ * 放不下就整组都不附（见 `agentAdmission` 的两档上限）：超出去的那一份会让整轮起轮被打回，
+ * 用户的话连同图一起白等。撞的是哪道由 `refusal` 交代，调用方据它决定说哪一句。
  */
 export function attachReference(
   draft: AgentDraft,
@@ -130,34 +143,28 @@ export function attachReference(
   start: number,
   cursor: number,
   transport: ReferenceTransport = INLINE_ONLY,
+  rest: readonly AgentReference[] = [],
 ): AttachedReference {
-  const at = draft.references.findIndex((one) => one.id === reference.id)
-  if (at < 0 && !hasRoomFor(draft.references, reference, transport))
-    return { draft, cursor, overflow: true }
-  const references = at >= 0 ? draft.references : [...draft.references, reference]
-  const index = at >= 0 ? at : references.length - 1
+  const attached = attachReferences(draft, [reference, ...rest], agentAdmission(transport))
+  if (!attached.ok) return { draft, cursor, refusal: attached.reason }
   const inserted = insertImageMentionAtVisibleRange(
     draft.prompt,
     start,
     cursor,
-    index,
+    attached.indexes[0]!,
     referenceLabels(draft.references),
-    referenceLabels(references),
+    referenceLabels(attached.draft.references),
   )
   return {
-    draft: { prompt: inserted.prompt, references },
+    draft: { ...attached.draft, prompt: inserted.prompt },
     cursor: inserted.cursor,
-    overflow: false,
+    refusal: null,
   }
 }
 
 /** 拿掉一张参考图，指向它的引用降级为「已移除」，其余的跟着新序号走。 */
 export function removeReference(draft: AgentDraft, index: number): AgentDraft {
-  const references = draft.references.filter((_, at) => at !== index)
-  return {
-    prompt: remapImageMentionsForOrder(draft.prompt, [...draft.references], [...references]),
-    references,
-  }
+  return removeDraftReference(draft, index)
 }
 
 /**
@@ -167,11 +174,7 @@ export function removeReference(draft: AgentDraft, index: number): AgentDraft {
 export function removeSelectionReferences(draft: AgentDraft): AgentDraft {
   const references = draft.references.filter((one) => one.origin !== 'selection')
   if (references.length === draft.references.length) return draft
-  return {
-    ...draft,
-    prompt: remapImageMentionsForOrder(draft.prompt, [...draft.references], [...references]),
-    references,
-  }
+  return replaceReferences(draft, references)
 }
 
 /**

@@ -17,7 +17,7 @@ export function composerMaskSession(imageId: string): MaskEditorSession {
     ...(existing ? { onRemove: () => useStore.getState().clearMaskDraft() } : {}),
     onSave: ({ maskDataUrl, targetImageId, targetDataUrl }) => {
       const store = useStore.getState()
-      store.setInputImages(
+      store.replaceInputImages(
         replaceMaskTargetImage(store.inputImages, imageId, {
           id: targetImageId,
           dataUrl: targetDataUrl,

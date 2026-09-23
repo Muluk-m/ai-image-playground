@@ -1,8 +1,9 @@
 import { i18next } from '../../../i18n'
+import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
-import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
+import { CANVAS_HANDOFF_ADMISSION, referenceAdmission } from '../../../lib/referenceDraft'
 import { storeImageFromUrl, useStore } from '../../../store'
 import type { InputImage } from '../../../types'
 import { startCanvasFromComposer } from '../../agent/lib/heroHandoff'
@@ -41,10 +42,6 @@ async function doApply(item: InspirationItem): Promise<void> {
   const main = useStore.getState()
   const inspiration = useInspirationStore.getState()
   const references = item.referenceImages ?? []
-  if (main.inputImages.length + references.length > API_MAX_IMAGES) {
-    main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
-    return
-  }
 
   // Stage downloads before touching the composer: a bad public asset must not leave half an
   // applied prompt behind. IndexedDB may retain a successful staged image for later reuse.
@@ -56,13 +53,10 @@ async function doApply(item: InspirationItem): Promise<void> {
     return
   }
   const current = useStore.getState()
-  if (current.inputImages.length + images.length > API_MAX_IMAGES) {
-    current.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
-    return
-  }
-  for (const image of images) current.addInputImage(image)
 
   if (item.kind === 'skill' && item.skill) {
+    // 这几张图是交给画布第一轮的，改图能力归那一轮的模型管，不看生图模型认不认参考图。
+    if (!current.attachInputImages(images, CANVAS_HANDOFF_ADMISSION)) return
     // BFF's explicit skill syntax is /skill-name, not /skill name. Handoff transfers the
     // already-staged reference IDs to the first agent turn.
     current.setPrompt(`/${item.skill} ${item.prompt}`)
@@ -73,13 +67,6 @@ async function doApply(item: InspirationItem): Promise<void> {
     return
   }
 
-  current.setPrompt(item.prompt)
-  current.setParams({
-    size: item.params.size,
-    ...(item.params.quality ? { quality: item.params.quality } : {}),
-    ...(typeof item.params.n === 'number' ? { n: item.params.n } : {}),
-  })
-
   const publicChannels = getPublicChannels()
   const matched = matchProfile({
     profiles: current.settings.profiles,
@@ -88,10 +75,16 @@ async function doApply(item: InspirationItem): Promise<void> {
     provider: item.recommendedProvider,
     model: item.recommendedModel,
   })
+  // 「玩同款」先换模型再附图，所以准入按换上之后那个模型算；换不到就按当前这个。
+  // 判定用的是还没写下去的那份 profile：附不上就整条不套用，模型也不该已经被换掉。
+  const nextProfile = matched
+    ? updateSelectedModel(matched.profile, matched.model, publicChannels)
+    : getActiveApiProfile(current.settings)
+  if (!current.attachInputImages(images, referenceAdmission(nextProfile))) return
 
   if (matched) {
     const nextProfiles: ClientProfile[] = current.settings.profiles.map((p) =>
-      p.id === matched.profile.id ? updateSelectedModel(p, matched.model, publicChannels) : p,
+      p.id === matched.profile.id ? nextProfile : p,
     )
     current.setSettings({
       profiles: nextProfiles,
@@ -108,6 +101,12 @@ async function doApply(item: InspirationItem): Promise<void> {
       'info',
     )
   }
+  current.setPrompt(item.prompt)
+  current.setParams({
+    size: item.params.size,
+    ...(item.params.quality ? { quality: item.params.quality } : {}),
+    ...(typeof item.params.n === 'number' ? { n: item.params.n } : {}),
+  })
   inspiration.closeDetail()
   current.setAppMode('image')
 }
