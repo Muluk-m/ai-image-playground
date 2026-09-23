@@ -138,7 +138,10 @@
   "import": {
     "inputAria": "导入画布图片",
     "noneImported": "未能导入图片，请选择有效的图片文件",
-    "failed": "图片导入失败，请重试"
+    "failed": "图片导入失败，请重试",
+    "openMenu": "导入到画布",
+    "images": "导入图片",
+    "folder": "导入文件夹"
   },
   "loadError": {
     "message": "画布读取失败，原内容已保留，请重试。",
