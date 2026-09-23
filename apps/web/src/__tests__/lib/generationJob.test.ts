@@ -209,6 +209,30 @@ describe('受理与结算通知', () => {
     expect(overlay.accepted).toHaveBeenCalledTimes(1)
     expect(overlay.settled).toHaveBeenCalledTimes(1)
   })
+  it('任务行落盘失败：不发请求，标错并发出结算通知', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { sink, failures } = recordingSink()
+    sink.persisted = async () => {
+      throw new Error('IndexedDB is full')
+    }
+
+    startGeneration(
+      {
+        settings,
+        profile: getActiveApiProfile(settings),
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        variants: [{ prompt: '一只猫', inputImageDataUrls: [], context: 'a' }],
+      },
+      sink,
+    )
+    await vi.waitFor(() => expect(failures).toHaveLength(1))
+
+    expect(failures[0]!.text).toBe('IndexedDB is full')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(overlay.errored).toHaveBeenCalledTimes(1)
+    expect(overlay.settled).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('刷新后续跑与首次提交同一套收尾', () => {

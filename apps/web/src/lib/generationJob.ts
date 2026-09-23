@@ -252,9 +252,10 @@ async function runUnit<H>(
   handle: H,
   report: GenerationReport<H>,
 ): Promise<void> {
-  await report.persisted?.(handle)
-  await superviseGeneration(handle, report, () =>
-    callImageApi({
+  await superviseGeneration(handle, report, async () => {
+    // 落盘失败也是本次提交失败：必须走同一条标错和结算通知路径，不能留一条永久 running 的任务。
+    await report.persisted?.(handle)
+    return callImageApi({
       settings,
       prompt: unit.prompt,
       params: unit.params,
@@ -267,8 +268,8 @@ async function runUnit<H>(
       },
       onCustomTaskEnqueued: (task) => report.accepted(handle, { kind: 'custom', ...task }),
       onQueueStatus: (phase) => report.progress(handle, phase),
-    }),
-  )
+    })
+  })
 }
 
 /**
