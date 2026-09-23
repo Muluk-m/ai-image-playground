@@ -25,7 +25,10 @@ export type AgentMessageRole = 'user' | 'assistant'
 export interface AgentTextBlock {
   readonly type: 'text'
   readonly text: string
-  /** 用户消息的参考图快照；字节存对象存储，跨轮与重开会话仍可用。 */
+  /**
+   * 用户消息的参考图快照。内联那一路把字节复制进对象存储，跨轮与重开会话仍可用；
+   * 云媒体那一路只记 id，字节仍在 R2 里的那一份，不再复制第二遍。
+   */
   readonly references?: readonly AgentStoredReference[]
 }
 
@@ -117,8 +120,15 @@ export interface AgentSkillSummary {
 /**
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
  * 所以顺序不能在传输途中被重排。
+ *
+ * 两种形态由字节在哪儿决定，不由来源决定：像素只在这台浏览器里（拖进来的文件、
+ * 烧了批注的合成图、遮罩编辑器的产出）就内联；字节已经在云媒体里（画布上选中的原图）
+ * 就只带 id。后者曾经也内联：一次把八张原图下回浏览器再 base64 传上去，
+ * 请求体几十 MB、要传几分钟，还白占一遍出站带宽。
  */
-export interface AgentTurnReference {
+export type AgentTurnReference = AgentInlineReference | AgentMediaReference
+
+export interface AgentInlineReference {
   /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
   readonly imageId: string
   readonly dataUrl: string
@@ -128,11 +138,31 @@ export interface AgentTurnReference {
   readonly maskDataUrl?: string
 }
 
-export interface AgentStoredReference {
+/**
+ * 字节在云媒体里的参考图（`media_objects.id`）。
+ *
+ * 它没有遮罩：画遮罩与烧批注都产出新像素，那张图在 R2 里并不存在，只能内联。
+ */
+export interface AgentMediaReference {
+  readonly imageId: string
+  readonly mediaId: string
+  readonly name?: string
+}
+
+export type AgentStoredReference = AgentStoredInlineReference | AgentStoredMediaReference
+
+export interface AgentStoredInlineReference {
   readonly imageId: string
   readonly name?: string
   readonly image: StoredImageRef
   readonly mask?: StoredImageRef
+}
+
+/** 云媒体那一路的快照：字节留在 R2，会话只按 id 认领它（见 `media_references`）。 */
+export interface AgentStoredMediaReference {
+  readonly imageId: string
+  readonly name?: string
+  readonly mediaId: string
 }
 
 /**

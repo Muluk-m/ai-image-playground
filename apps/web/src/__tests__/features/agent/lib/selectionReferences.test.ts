@@ -1,3 +1,4 @@
+import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type AgentDraft,
@@ -67,6 +68,42 @@ describe('跟着画布选区走的引用', () => {
 
     expect(draft.ids).toEqual(['canvas-2', 'canvas-1'])
     expect(draft.sources).toEqual([OTHER, PIXEL])
+  })
+
+  it('选区超过一轮上限时只带前几张，多出来的报给调用方', () => {
+    const many = Array.from({ length: AGENT_TURN_MAX_REFERENCES + 3 }, (_, at) =>
+      image(`canvas-${at}`, 'file-1'),
+    )
+    const doc = canvas(many)
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(many.map((one) => one.id))
+    // 服务端对张数是硬校验：多发一张整轮以 400 打回，用户等几分钟才看到一句失败。
+    expect(selection.follow(doc, draft.update)).toBe(3)
+    expect(draft.ids).toHaveLength(AGENT_TURN_MAX_REFERENCES)
+
+    // 腾出位置之后，此前放不下的那几张下一次同步照常带进来。
+    const last = many[many.length - 1]!
+    const secondLast = many[many.length - 2]!
+    doc.setSelection([secondLast.id, last.id])
+    expect(selection.follow(doc, draft.update)).toBe(0)
+    expect(draft.ids).toEqual([last.id, secondLast.id])
+  })
+
+  it('手动 @ 到满之后不再附图，草稿与光标原样留着', () => {
+    let draft = EMPTY_DRAFT
+    for (let at = 0; at < AGENT_TURN_MAX_REFERENCES; at++) {
+      const end = visible(draft).length
+      draft = attachReference(draft, { id: `img-${at}`, dataUrl: PIXEL }, end, end).draft
+    }
+
+    const end = visible(draft).length
+    const overflowing = attachReference(draft, { id: 'one-too-many', dataUrl: OTHER }, end, end)
+
+    expect(overflowing.overflow).toBe(true)
+    expect(overflowing.draft).toBe(draft)
+    expect(overflowing.cursor).toBe(end)
   })
 
   it('取消选中就撤走，指向它的引用降级为已移除', () => {

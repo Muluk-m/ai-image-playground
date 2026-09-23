@@ -53,9 +53,27 @@
     "modeImage": "图片",
     "modeVideo": "视频"
   },
+  "batch": {
+    "aria": "批量操作",
+    "selected_other": "已选 {{count}} 项",
+    "export_other": "导出 {{count}} 项",
+    "exporting": "导出中 {{done}}/{{total}}",
+    "exportDone_other": "已导出 {{count}} 项",
+    "exportPartial": "已导出 {{count}} 项，{{failed}} 项取不到内容",
+    "exportFailed": "导出失败，内容都没能取到",
+    "nothingToExport": "选中的内容里没有可导出的图片或视频",
+    "generate_other": "批量生成 {{count}} 张",
+    "generateTitle": "批量生成",
+    "generateHint_other": "同一句描述对选中的 {{count}} 张各生成一次，每张 {{each}} 份，结果落在各自旁边。",
+    "generatePromptLabel": "改成什么样",
+    "generatePlaceholder": "例如：改成 3:4 竖构图，主体不变",
+    "generateSubmit_other": "对 {{count}} 张各生成一次",
+    "clear": "取消选择"
+  },
   "submit": {
     "blocked": "当前无法生成",
     "rasterizeFailed": "选中图片处理失败，请重试",
+    "rasterizePartial": "部分图片处理失败，已跳过，其余照常发起",
     "emptyInput": "请输入提示词，或先在画布上选中图片",
     "inputsLost": "原任务的输入图已随页面关闭丢失，请重新选中图片后发起生成"
   },

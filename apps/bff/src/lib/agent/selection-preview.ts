@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ImageContent } from '@earendil-works/pi-ai'
+import type { AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
 import { toModelImageDataUrl } from './modelImage'
 import { selectionSettings as settings } from './selection-settings'
@@ -175,7 +176,15 @@ export async function selectionPreview(reference: Reference): Promise<ImageConte
   )
 }
 
-/** 入口仅校验，不制作大图；逐张处理避免同轮多张图同时占用 raw 缓冲。 */
-export async function validateSelections(references: readonly Reference[]): Promise<void> {
-  for (const reference of references) await imageSelection(reference, false)
+/**
+ * 入口仅校验，不制作大图；逐张处理避免同轮多张图同时占用 raw 缓冲。
+ * 按 id 附来的那一路没有字节也没有遮罩，本来就没有选区可校验。
+ */
+export async function validateSelections(references: readonly AgentTurnReference[]): Promise<void> {
+  for (const reference of references)
+    if ('dataUrl' in reference && reference.maskDataUrl)
+      await imageSelection(
+        { dataUrl: reference.dataUrl, maskDataUrl: reference.maskDataUrl },
+        false,
+      )
 }

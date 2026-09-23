@@ -61,6 +61,7 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
           mem_total_bytes: 4 * GB,
           mem_available_bytes: 1.5 * GB,
         },
+        bucket_ms: 30 * minute,
         series: [
           {
             at: NOW - 2 * hour,
@@ -193,7 +194,7 @@ function block(name: string): HTMLElement {
 
 describe('运维看板', () => {
   it('没事的时候一眼看得出没事：没有任何一块在报警', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
 
     expect(screen.queryAllByRole('list', { name: '需要处理' })).toEqual([])
     expect(within(block('队列')).getByText('2')).toBeTruthy()
@@ -217,6 +218,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('队列')).getByText('没有在等的任务')).toBeTruthy()
@@ -237,6 +239,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     const alert = within(block('队列')).getByRole('list', { name: '需要处理' })
@@ -261,6 +264,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     const queue = block('队列')
@@ -273,7 +277,10 @@ describe('运维看板', () => {
 
   it('某一块取不到时只有那一块显示取不到，其余照常', () => {
     render(
-      <OpsBoard snapshot={snapshot({ database: { ok: false, error: 'permission denied' } })} />,
+      <OpsBoard
+        snapshot={snapshot({ database: { ok: false, error: 'permission denied' } })}
+        range="7d"
+      />,
     )
 
     expect(within(block('数据库')).getByText('取不到')).toBeTruthy()
@@ -282,7 +289,7 @@ describe('运维看板', () => {
   })
 
   it('备份一栏说清最新一份是哪天的、多大、多久之前', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
     const backup = block('备份')
     expect(within(backup).getByText('2026-09-17')).toBeTruthy()
     expect(within(backup).getByText('42.0 MB')).toBeTruthy()
@@ -306,6 +313,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('备份')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -329,6 +337,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('备份')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -340,6 +349,7 @@ describe('运维看板', () => {
     render(
       <OpsBoard
         snapshot={snapshot({ backup: { ok: true, data: { latest: null, previous: null } } })}
+        range="7d"
       />,
     )
     expect(within(block('备份')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -348,7 +358,7 @@ describe('运维看板', () => {
   })
 
   it('服务一栏说清谁活着、跑的是哪个版本、worker 是不是真的在干活', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
     const services = block('服务')
     expect(within(services).getAllByText('58630254+79fc8056')).toHaveLength(2)
     expect(within(services).getAllByText('当前版本')).toHaveLength(2)
@@ -376,6 +386,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     const alert = within(block('服务')).getByRole('list', { name: '需要处理' }).textContent ?? ''
@@ -407,6 +418,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     const services = block('服务')
@@ -441,6 +453,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     const alert = within(block('服务')).getByRole('list', { name: '需要处理' }).textContent ?? ''
@@ -449,7 +462,7 @@ describe('运维看板', () => {
   })
 
   it('宿主机一栏给出磁盘和内存的现状与趋势', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
     const host = block('宿主机')
     expect(within(host).getByText('64%')).toBeTruthy()
     expect(within(host).getByText(/剩 18\.0 GB/)).toBeTruthy()
@@ -473,9 +486,11 @@ describe('运维看板', () => {
                 mem_available_bytes: 1.5 * GB,
               },
               series: [],
+              bucket_ms: 30 * minute,
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('宿主机')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -498,9 +513,11 @@ describe('运维看板', () => {
                 mem_available_bytes: 1.5 * GB,
               },
               series: [],
+              bucket_ms: 30 * minute,
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('宿主机')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -510,7 +527,12 @@ describe('运维看板', () => {
 
   it('没启用采集容器时照实说未启用，不算出事', () => {
     render(
-      <OpsBoard snapshot={snapshot({ host: { ok: true, data: { latest: null, series: [] } } })} />,
+      <OpsBoard
+        snapshot={snapshot({
+          host: { ok: true, data: { latest: null, series: [], bucket_ms: 30 * minute } },
+        })}
+        range="7d"
+      />,
     )
     const host = block('宿主机')
     expect(within(host).getByText('未启用')).toBeTruthy()
@@ -532,6 +554,7 @@ describe('运维看板', () => {
             booted_at: NOW - 3 * 24 * hour,
           }),
         })}
+        range="7d"
       />,
     )
     const host = block('宿主机')
@@ -548,6 +571,7 @@ describe('运维看板', () => {
         snapshot={snapshot({
           host: hostLatest({ mem_available_bytes: 0.04 * GB, booted_at: NOW - 10 * minute }),
         })}
+        range="7d"
       />,
     )
     const alert = within(block('宿主机')).getByRole('list', { name: '需要处理' }).textContent ?? ''
@@ -556,7 +580,7 @@ describe('运维看板', () => {
   })
 
   it('容器一栏列出整台机器上的容器，没名字的用 ID 前 12 位', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
     const containers = block('容器')
     expect(within(containers).getByText('infra-postgres-1')).toBeTruthy()
     expect(within(containers).getByText('b'.repeat(12))).toBeTruthy()
@@ -578,6 +602,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('容器')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -586,7 +611,7 @@ describe('运维看板', () => {
   })
 
   it('接口一栏给出最近的请求量、5xx 和延迟，并点名出错的接口', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
     const api = block('接口')
     expect(within(api).getByText('300')).toBeTruthy()
     expect(within(api).getByText('420 ms')).toBeTruthy()
@@ -609,6 +634,7 @@ describe('运维看板', () => {
             },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('接口')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -623,13 +649,14 @@ describe('运维看板', () => {
             data: { ...base.data, recent: { ...base.data.recent, requests: 5, server_errors: 2 } },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('接口')).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
   it('部署记录标出本套，别套的失败不算本套出事', () => {
-    render(<OpsBoard snapshot={snapshot()} />)
+    render(<OpsBoard snapshot={snapshot()} range="7d" />)
     const deployments = block('部署记录')
     expect(within(deployments).getByText('（本套）')).toBeTruthy()
     expect(within(deployments).getByText('58630254+79fc8056')).toBeTruthy()
@@ -648,6 +675,7 @@ describe('运维看板', () => {
             data: { ...base.data, entries: [{ ...base.data.entries[0]!, ok: false }] },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('部署记录')).getByRole('list', { name: '需要处理' }).textContent).toContain(
@@ -668,6 +696,7 @@ describe('运维看板', () => {
             data: { services: base.data.services.map((one) => ({ ...one, version })) },
           },
         })}
+        range="7d"
       />,
     )
     expect(within(block('服务')).getAllByText('58630254+79fc8056')).toHaveLength(2)
