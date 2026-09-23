@@ -491,6 +491,88 @@ describe('mask draft lifecycle in store actions', () => {
   })
 })
 
+describe('参考图条的挪动、删除与整条换掉', () => {
+  const imageC = { id: 'image-c', dataUrl: 'data:image/png;base64,c' }
+  const maskOn = (targetImageId: string) => ({
+    targetImageId,
+    maskDataUrl: 'data:image/png;base64,mask',
+    updatedAt: 1,
+  })
+
+  beforeEach(() => {
+    useStore.setState({
+      prompt: '',
+      inputImages: [],
+      maskDraft: null,
+      maskEditorImageId: null,
+      showToast: vi.fn(),
+    })
+  })
+
+  it('挪动一张图，提示词里的引用跟着图走', () => {
+    useStore.setState({
+      inputImages: [imageA, imageB, imageC],
+      prompt: `${getSelectedImageMentionLabel(0)} 与 ${getSelectedImageMentionLabel(2)}`,
+    })
+
+    useStore.getState().moveInputImage(2, 0)
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([
+      imageC.id,
+      imageA.id,
+      imageB.id,
+    ])
+    expect(useStore.getState().prompt).toBe(
+      `${getSelectedImageMentionLabel(1)} 与 ${getSelectedImageMentionLabel(0)}`,
+    )
+  })
+
+  it('遮罩主图钉在第一位：它自己挪不动，别的图也插不到它前面', () => {
+    useStore.setState({ inputImages: [imageA, imageB], maskDraft: maskOn(imageA.id) })
+
+    useStore.getState().moveInputImage(0, 2)
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
+
+    useStore.getState().moveInputImage(1, 0)
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
+  })
+
+  it('删掉遮罩主图：遮罩草稿与编辑器一起收走，指向它的引用降级为一段文字', () => {
+    useStore.setState({
+      inputImages: [imageA, imageB],
+      maskDraft: maskOn(imageA.id),
+      maskEditorImageId: imageA.id,
+      prompt: `${getSelectedImageMentionLabel(0)} 与 ${getSelectedImageMentionLabel(1)}`,
+    })
+
+    useStore.getState().removeInputImage(0)
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageB.id])
+    expect(useStore.getState().prompt).toBe(`@已移除图片 与 ${getSelectedImageMentionLabel(0)}`)
+    expect(useStore.getState().maskDraft).toBeNull()
+    expect(useStore.getState().maskEditorImageId).toBeNull()
+  })
+
+  it('整条换掉：遮罩主图还在就钉回第一位，不在就把遮罩一起丢掉', () => {
+    useStore.setState({
+      inputImages: [imageA, imageB],
+      maskDraft: maskOn(imageB.id),
+      maskEditorImageId: imageB.id,
+    })
+
+    useStore.getState().replaceInputImages([imageA, imageB])
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageB.id, imageA.id])
+    expect(useStore.getState().maskDraft?.targetImageId).toBe(imageB.id)
+
+    useStore.getState().replaceInputImages([imageC])
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageC.id])
+    expect(useStore.getState().maskDraft).toBeNull()
+    expect(useStore.getState().maskEditorImageId).toBeNull()
+  })
+})
+
 describe('interrupted OpenAI running tasks', () => {
   it('marks legacy and OpenAI running tasks as interrupted', () => {
     const now = 10_000

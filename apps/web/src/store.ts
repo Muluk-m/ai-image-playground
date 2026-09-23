@@ -18,8 +18,6 @@ import { pathAppMode } from './lib/appPaths'
 import {
   getModelCapabilities,
   getProfileModels,
-  modelSupportsEdit,
-  NO_EDIT_SUPPORT_MESSAGE,
   updateSelectedModel,
 } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
