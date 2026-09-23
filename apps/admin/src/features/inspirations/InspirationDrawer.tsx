@@ -81,7 +81,7 @@ export function InspirationDrawer({
       }}
     >
       <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
-        <SheetHeader className="border-b px-6 py-4">
+        <SheetHeader className="border-b px-4 py-4 sm:px-6">
           <SheetTitle>
             {creating ? '新建灵感条目' : (detail.data?.title ?? '编辑灵感条目')}
           </SheetTitle>
@@ -235,16 +235,16 @@ function InspirationEditor({
   return (
     <>
       <Tabs defaultValue="content" className="flex min-h-0 flex-1 flex-col">
-        <TabsList className="mx-6 mt-4 grid grid-cols-4">
+        <TabsList className="mx-4 mt-4 grid h-auto grid-cols-2 gap-1 sm:mx-6 sm:grid-cols-4">
           <TabsTrigger value="content">内容</TabsTrigger>
           <TabsTrigger value="params">参数与参考图</TabsTrigger>
           <TabsTrigger value="preview">主站预览</TabsTrigger>
           <TabsTrigger value="history">发布历史</TabsTrigger>
         </TabsList>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <TabsContent value="content" className="mt-0 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="id" hint={savedId ? '已创建，不可改' : '主站置顶用的稳定 key'}>
                 <Input
                   value={draft.id}
@@ -529,9 +529,9 @@ function InspirationEditor({
         </div>
       </Tabs>
 
-      <div className="border-t px-6 py-3">
+      <div className="border-t px-4 py-3 sm:px-6">
         {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Button
             variant="ghost"
             size="sm"
@@ -542,7 +542,7 @@ function InspirationEditor({
             <Trash2 className="mr-1 size-4" />
             删除
           </Button>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {busy ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
             <Button variant="outline" size="sm" disabled={busy} onClick={() => void saveAsDraft()}>
               存草稿

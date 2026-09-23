@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { useAudits } from '@/lib/queries'
 import type { OperatorAuditRow } from '@/lib/types'
 
@@ -50,9 +51,14 @@ const ACTION_LABEL: Record<string, string> = {
 }
 
 const ALL_ACTIONS = 'all'
+/** 未登记中文名的动作直接显示原始 action，避免用「—」伪装成漏数据。 */
+function actionTitle(action: string): string {
+  return ACTION_LABEL[action] ?? action
+}
 
 function AuditPage() {
   const [action, setAction] = useState(ALL_ACTIONS)
+  const isMobile = useIsMobile()
   const query = useAudits({ action: action === ALL_ACTIONS ? undefined : action })
   const audits = query.data?.pages.flatMap((page) => page.audits) ?? []
 
@@ -86,53 +92,58 @@ function AuditPage() {
         <EmptyState label="没有匹配的审计记录" />
       ) : (
         <>
-          <div className="overflow-hidden rounded-xl border bg-card/70 shadow-sm">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[120px] pl-4">时间</TableHead>
-                  <TableHead className="w-[140px]">操作者</TableHead>
-                  <TableHead className="w-[200px]">动作</TableHead>
-                  <TableHead className="w-[220px]">对象</TableHead>
-                  <TableHead className="pr-4">详情</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {audits.map((audit) => (
-                  <TableRow key={audit.id}>
-                    <TableCell className="pl-4">
-                      <FuzzyTime ts={audit.created_at} />
-                    </TableCell>
-                    <TableCell>
-                      <ShortId value={audit.operator_id} len={12} />
-                    </TableCell>
-                    <TableCell>
-                      {/* 没登记中文名的动作直接拿原始 action 当主标题，别留一行「—」让人以为漏数据。 */}
-                      <span className="block text-sm">
-                        {ACTION_LABEL[audit.action] ?? audit.action}
-                      </span>
-                      {ACTION_LABEL[audit.action] ? (
-                        <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
-                          {audit.action}
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <span className="block text-xs text-muted-foreground">
-                        {audit.target_type}
-                      </span>
-                      <ShortId value={audit.target_id} len={16} />
-                    </TableCell>
-                    <TableCell className="pr-4">
-                      <span className="block max-w-[420px] truncate font-mono text-[11px] text-muted-foreground">
-                        {detailText(audit.details)}
-                      </span>
-                    </TableCell>
+          {isMobile ? (
+            <div className="space-y-3">
+              {audits.map((audit) => (
+                <AuditCard key={audit.id} audit={audit} />
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border bg-card/70 shadow-sm">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[120px] pl-4">时间</TableHead>
+                    <TableHead className="w-[140px]">操作者</TableHead>
+                    <TableHead className="w-[200px]">动作</TableHead>
+                    <TableHead className="w-[220px]">对象</TableHead>
+                    <TableHead className="pr-4">详情</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {audits.map((audit) => (
+                    <TableRow key={audit.id}>
+                      <TableCell className="pl-4">
+                        <FuzzyTime ts={audit.created_at} />
+                      </TableCell>
+                      <TableCell>
+                        <ShortId value={audit.operator_id} len={12} />
+                      </TableCell>
+                      <TableCell>
+                        <span className="block text-sm">{actionTitle(audit.action)}</span>
+                        {ACTION_LABEL[audit.action] ? (
+                          <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
+                            {audit.action}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <span className="block text-xs text-muted-foreground">
+                          {audit.target_type}
+                        </span>
+                        <ShortId value={audit.target_id} len={16} />
+                      </TableCell>
+                      <TableCell className="pr-4">
+                        <span className="block max-w-[420px] truncate font-mono text-[11px] text-muted-foreground">
+                          {detailText(audit.details)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
           {query.hasNextPage ? (
             <div className="flex justify-center">
@@ -153,6 +164,49 @@ function AuditPage() {
         </>
       )}
     </Page>
+  )
+}
+function AuditCard({ audit }: { audit: OperatorAuditRow }) {
+  return (
+    <article className="min-w-0 rounded-xl border bg-card/70 p-4 shadow-sm">
+      <header className="flex min-w-0 items-start justify-between gap-3">
+        <span className="min-w-0">
+          <strong className="block truncate text-sm font-medium">
+            {actionTitle(audit.action)}
+          </strong>
+          {ACTION_LABEL[audit.action] ? (
+            <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
+              {audit.action}
+            </span>
+          ) : null}
+        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          <FuzzyTime ts={audit.created_at} />
+        </span>
+      </header>
+      <dl className="mt-3 grid min-w-0 grid-cols-2 gap-3 border-t pt-3 text-xs">
+        <div className="min-w-0">
+          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            操作者
+          </dt>
+          <dd className="mt-1 min-w-0">
+            <ShortId value={audit.operator_id} len={12} />
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            对象
+          </dt>
+          <dd className="mt-1 min-w-0">
+            <span className="mr-1 text-muted-foreground">{audit.target_type}</span>
+            <ShortId value={audit.target_id} len={12} />
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-3 break-words rounded-md bg-muted/40 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+        {detailText(audit.details)}
+      </p>
+    </article>
   )
 }
 
