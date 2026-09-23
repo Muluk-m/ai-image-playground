@@ -12,9 +12,10 @@ import { useLibraryStore } from '../../../features/library/store'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { putImage } from '../../../lib/db'
-import { startSyncEngine } from '../../../lib/sync/engine'
+import { startSyncEngine, syncNow } from '../../../lib/sync/engine'
 import { readPendingChanges, writePendingChanges } from '../../../lib/sync/pending'
-import { postSync } from '../../../lib/sync/syncClient'
+import { useSyncStatus } from '../../../lib/sync/status'
+import { postSync, SyncRequestError } from '../../../lib/sync/syncClient'
 import { useStore } from '../../../store'
 import { DEFAULT_PARAMS } from '../../../types'
 import { allCapabilitiesOff } from '../../fixtures/capabilities'
@@ -23,7 +24,11 @@ vi.mock('../../../lib/sync/syncClient', () => ({
   postSync: vi.fn(),
   putAssetImage: vi.fn(async () => 'uploaded'),
   getAssetImage: vi.fn(async () => null),
-  SyncRequestError: class extends Error {},
+  SyncRequestError: class SyncRequestError extends Error {
+    constructor(readonly status: number) {
+      super(`sync_http_${status}`)
+    }
+  },
 }))
 
 const postSyncMock = vi.mocked(postSync)
@@ -335,5 +340,33 @@ describe('first start on a scope that has never synced', () => {
     await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
     const pushed = postSyncMock.mock.calls[0]?.[0] as SyncRequestBody
     expect(pushed.templates?.map((change) => change.id)).toEqual(['t1'])
+  })
+})
+
+describe('保存失败的原因', () => {
+  let stopEngine = () => {}
+  afterEach(() => stopEngine())
+
+  it('会话过期与连不上服务器分成两类，成功后清掉', async () => {
+    postSyncMock.mockRejectedValue(new SyncRequestError(401))
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(useSyncStatus.getState().failure).toBe('unauthorized'))
+    expect(useSyncStatus.getState().status).toBe('error')
+
+    postSyncMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await syncNow()
+    expect(useSyncStatus.getState().failure).toBe('network')
+
+    postSyncMock.mockResolvedValue(response({ version: 2 }))
+    await syncNow()
+    expect(useSyncStatus.getState()).toMatchObject({ status: 'idle', failure: null })
+  })
+
+  it('服务端带状态码拒绝算「拒了这份内容」，不是链路问题', async () => {
+    postSyncMock.mockRejectedValue(new SyncRequestError(400))
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(useSyncStatus.getState().failure).toBe('rejected'))
   })
 })

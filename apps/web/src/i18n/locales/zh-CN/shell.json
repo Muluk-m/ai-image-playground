@@ -41,6 +41,11 @@
     "title": "保存状态",
     "retryNow": "立即重试",
     "failed": "保存失败",
+    "failure": {
+      "unauthorized": "登录已过期，重新登录后会继续保存。本机数据没有丢。",
+      "network": "连不上服务器，网络恢复后会自动补上。本机数据没有丢。",
+      "rejected": "服务器拒绝了这次保存，请重试；仍失败请先导出备份。"
+    },
     "syncing": "保存中",
     "uploading": "上传素材图 {{done}}/{{total}}",
     "pending_other": "{{count}} 项待保存",
