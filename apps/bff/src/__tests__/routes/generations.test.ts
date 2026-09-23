@@ -159,13 +159,9 @@ it('升级前的带参考图任务也校验原参数并保留永久重试回执'
   ).json()
   // Simulate a task written before command receipts existed.
   await db.delete(schema.generation_commands)
-  const { finishTask } = await import('../../db/task-transitions')
-  const { claimQueuedTask } = await import('../../db/claim-task')
+  const { settleTaskAsWorker } = await import('../helpers/taskWorker')
   const { purgeOldTasks } = await import('../../db/maintenance')
-  await claimQueuedTask(db, original.request_id, Date.now())
-  expect(await finishTask(original.request_id, { status: 'failed', completedAt: Date.now() })).toBe(
-    true,
-  )
+  expect(await settleTaskAsWorker(original.request_id, { status: 'failed' })).toBe(true)
   expect(await purgeOldTasks(-1)).toBe(0)
   const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
     ...legacyInput,
@@ -300,11 +296,12 @@ it('暂时失败回队后，其他设备看到可重试状态', async () => {
 
 it('worker 意外退出后，云端历史也结束任务', async () => {
   const { TaskScheduler } = await import('../../workers/task-scheduler')
-  const { claimQueuedTask } = await import('../../db/claim-task')
+  const { claimTaskExecution } = await import('../../workers/task-execution')
   const entered = Promise.withResolvers<void>()
   const scheduler = new TaskScheduler({
+    // 认领了才崩：这一行归本进程这次认领，scheduler 兜底收尾的正是它。
     executeTask: async (id) => {
-      await claimQueuedTask(db, id, Date.now())
+      await claimTaskExecution(id)
       entered.resolve()
       throw new Error('fixture worker crash')
     },
@@ -821,7 +818,7 @@ it('原件已写入但完成凭据尚未提交时重启，按原任务找回而�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
-  const { abortRunningTask } = await import('../../workers/task-runner')
+  const { abortRunningTask } = await import('../../workers/task-execution')
   durable.afterWrite = (key) => {
     if (key === `${id}/out/0`) {
       abortRunningTask(id)
@@ -853,7 +850,7 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
-  const { abortRunningTask } = await import('../../workers/task-runner')
+  const { abortRunningTask } = await import('../../workers/task-execution')
   durable.afterWrite = (key) => {
     if (key === `${id}/out/0`) {
       abortRunningTask(id)
@@ -899,7 +896,7 @@ it('混合内联和 URL 多图中断后恢复，第二张不会覆盖已经保�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
-  const { abortRunningTask } = await import('../../workers/task-runner')
+  const { abortRunningTask } = await import('../../workers/task-execution')
   durable.afterWrite = (key) => {
     if (key === `${id}/out/0`) {
       abortRunningTask(id)
@@ -959,7 +956,7 @@ it('URL 原件已落盘后链接过期，恢复直接使用已保存原件', asy
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
-  const { abortRunningTask } = await import('../../workers/task-runner')
+  const { abortRunningTask } = await import('../../workers/task-execution')
   durable.afterWrite = (key) => {
     if (key === `${id}/out/0`) {
       abortRunningTask(id)

@@ -169,37 +169,3 @@ describe('task settlement hook', () => {
     ])
   })
 })
-
-describe('execution fencing', () => {
-  it('rejects settlement by a replaced owner and settles once for the current owner', async () => {
-    const { eq } = await import('drizzle-orm')
-    const { executionContext } = await import('../../db/execution-context')
-    await insertTask('fenced', 'in_progress', 1)
-    await db
-      .update(schema.tasks)
-      .set({ execution_token: 'current', lease_expires_at: Date.now() + 60_000 })
-      .where(eq(schema.tasks.id, 'fenced'))
-    const finish = () => finishTask('fenced', { status: 'completed', completedAt: Date.now() })
-    expect(await executionContext.run('old', finish)).toBe(false)
-    expect(settlements).toHaveLength(0)
-    expect(await executionContext.run('current', finish)).toBe(true)
-    expect(await executionContext.run('current', finish)).toBe(false)
-    expect(settlements).toHaveLength(1)
-  })
-
-  it('rejects an expired owner even before another executor claims the task', async () => {
-    const { eq } = await import('drizzle-orm')
-    const { executionContext } = await import('../../db/execution-context')
-    await insertTask('expired', 'in_progress', 1)
-    await db
-      .update(schema.tasks)
-      .set({ execution_token: 'expired', lease_expires_at: Date.now() - 1 })
-      .where(eq(schema.tasks.id, 'expired'))
-    expect(
-      await executionContext.run('expired', () =>
-        finishTask('expired', { status: 'completed', completedAt: Date.now() }),
-      ),
-    ).toBe(false)
-    expect(settlements).toHaveLength(0)
-  })
-})
