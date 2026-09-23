@@ -57,28 +57,31 @@ function type(html: string): void {
   })
 }
 
-describe('InputBar 编辑器与 prompt 的同步', () => {
-  it('外部设置的 prompt 在一次空转输入之后仍会写进编辑器', () => {
-    type('旧提示词')
-    expect(useStore.getState().prompt).toBe('旧提示词')
+/** 编辑器本身（提示词↔DOM、回显跳过、胶囊提升）由 `promptEditor.test.tsx` 在接缝上守着。 */
+describe('生成输入框的回车', () => {
+  function pressEnter({ composing }: { composing: boolean }): void {
+    const el = editor()
+    act(() => {
+      if (composing) el.dispatchEvent(new Event('compositionstart', { bubbles: true }))
+      el.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+  }
 
-    // 中文输入法、删了再打同一个字、粘贴同样的文本都会走到这一步：input 派发了，但纯文本没变。
-    type('旧提示词')
-
-    act(() => useStore.getState().setPrompt('新提示词'))
-    expect(editor().textContent).toBe('新提示词')
+  beforeEach(() => {
+    useStore.getState().setSettings({ enterSubmit: false })
+    type('你好')
   })
 
-  it('打字时不重写光标底下的 DOM', () => {
-    type('<span data-browser-node="1">你好</span>')
+  it('组字中的回车什么都不做：既不发送也不换行', () => {
+    pressEnter({ composing: true })
     expect(useStore.getState().prompt).toBe('你好')
-    expect(editor().querySelector('[data-browser-node]')).toBeTruthy()
   })
 
-  it('打出一个完整槽位仍会渲染成 chip', () => {
-    type('画一只{颜色}猫')
-    const chip = editor().querySelector('.slot-tag')
-    expect(chip?.getAttribute('data-slot-name')).toBe('颜色')
+  it('组字结束后的回车照常换行', () => {
+    pressEnter({ composing: false })
+    expect(useStore.getState().prompt).toBe('你好\n')
   })
 })
 
