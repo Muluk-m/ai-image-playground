@@ -4,7 +4,8 @@
     "canvas": "画布",
     "explore": "探索",
     "projects": "项目",
-    "library": "资产"
+    "library": "资产",
+    "tools": "工具箱"
   },
   "task": {
     "interrupted": "请求中断",

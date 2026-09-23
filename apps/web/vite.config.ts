@@ -93,6 +93,9 @@ export default defineConfig(({ command }) => {
       host: true,
       proxy: Object.keys(proxy).length ? proxy : undefined,
     },
+    // jSquash 用 `new URL('*.wasm', import.meta.url)` 找自己的 wasm；预打包会把路径改坏。
+    optimizeDeps: { exclude: ['@jsquash/webp', '@jsquash/avif', '@jsquash/oxipng'] },
+    worker: { format: 'es' as const },
     test: {
       // i18n 初始化跟着 locale 走，测试里必须钉死，否则 jsdom 的 en-US 会把
       // 所有断言中文文案的历史用例打红。

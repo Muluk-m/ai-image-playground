@@ -11,6 +11,7 @@ import settings from './settings.json'
 import shell from './shell.json'
 import store from './store.json'
 import task from './task.json'
+import toolbox from './toolbox.json'
 import video from './video.json'
 
 /**
@@ -32,6 +33,7 @@ export const zhCN = {
   canvas,
   agent,
   inspiration,
+  toolbox,
 }
 
 export default zhCN
