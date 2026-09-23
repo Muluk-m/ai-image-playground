@@ -15,6 +15,12 @@ interface TurnIdentity {
 
 type CallPurpose = typeof schema.agent_model_calls.$inferInsert.purpose
 
+/**
+ * 平台自己掏钱的那几次调用：压缩摘要与联网搜索。它们与对话调用同表同轮，靠 `purpose` 分开，
+ * 谁都不是用户这一轮的账。
+ */
+type AgentSideCallPurpose = Extract<CallPurpose, 'compaction' | 'web_search'>
+
 /** 调用事实不保存消息对象：上下文可以被替换，结算只读取这一轮的独立记录。 */
 export function createAgentUsageLedger(identity: TurnIdentity) {
   let upstreamInvocationCount = 0
@@ -121,7 +127,15 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
       }
     },
 
-    async recordSummary(attempt: ChatAttempt): Promise<void> {
+    /**
+     * 平台承担的那一次调用记一条事实。**用途由调用方指明**：摘要与联网搜索同表同轮，
+     * 只靠这一位分得开，运营才能把两种成本各归各的。
+     *
+     * 它们都不进结算：累加只认 `purpose === 'conversation'`（见 `begin` 与 `finish`），
+     * 所以多记一条不会动用户这一轮的账。一次真实请求一条，重试的每一次各记各的；
+     * `onConflictDoNothing` 让同一次的重复上报无害。
+     */
+    async recordSideCall(purpose: AgentSideCallPurpose, attempt: ChatAttempt): Promise<void> {
       await db
         .insert(calls)
         .values({
@@ -130,7 +144,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
           turn_id: identity.turnId,
           user_id: identity.userId,
           device_id: identity.deviceId,
-          purpose: 'compaction',
+          purpose,
           model: attempt.model,
           status: attempt.status,
           usage: attempt.usage,

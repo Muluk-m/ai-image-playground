@@ -177,5 +177,7 @@ export function toolResultBlock(
     ...(details?.timeline ? { timeline: details.timeline } : {}),
     ...(details?.canvasEdit ? { canvasEdit: details.canvasEdit } : {}),
     ...(details?.saveCard ? { saveCard: details.saveCard } : {}),
+    ...(details?.sources?.length ? { sources: details.sources } : {}),
+    ...(details?.fetchedImages?.length ? { fetchedImages: details.fetchedImages } : {}),
   }
 }
