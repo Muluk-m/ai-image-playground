@@ -7,6 +7,7 @@ import type {
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../../../lib/apiProfiles'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import type { PublicChannel } from '../../../../lib/channels/types'
+import type * as PrivateOverlay from '../../../../lib/privateOverlay'
 
 const QUEUE_CHANNEL: PublicChannel = {
   id: 'queue-channel',
@@ -20,6 +21,14 @@ const settings = vi.hoisted(() => ({ value: {} as unknown }))
 vi.mock('../../../../store', () => ({
   useStore: { getState: () => ({ settings: settings.value, params: {}, showToast: vi.fn() }) },
   addCompletedCanvasTask: vi.fn(async () => {}),
+}))
+
+// 结算通知是出站口：续跑落地有没有发它，就是「顶栏余额刷不刷新」本身。门禁保持真的。
+const overlay = vi.hoisted(() => ({ errored: vi.fn(), settled: vi.fn() }))
+vi.mock('../../../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof PrivateOverlay>()),
+  notifyPrivateSubmissionError: overlay.errored,
+  notifyPrivateSubmissionSettled: overlay.settled,
 }))
 
 import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
@@ -51,6 +60,8 @@ function stubQueue() {
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  overlay.errored.mockClear()
+  overlay.settled.mockClear()
   setChannels([QUEUE_CHANNEL])
   settings.value = normalizeSettings({
     ...DEFAULT_SETTINGS,
@@ -85,6 +96,38 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/req-1/status')
     expect(updatePlaceholder).not.toHaveBeenCalled()
+  })
+
+  // 刷新后的续跑原先既不刷新余额、也不把内容安全拒绝翻成可行动的那句：两件事都归生命周期。
+  it('续跑被内容安全拒了：占位上写可行动的那句，并把结算通知发出去', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      Response.json({
+        request_id: 'req-1',
+        status: 'failed',
+        submitted_at: 0,
+        error: { message: 'rejected by our safety system', type: 'content_policy' },
+      }),
+    )
+    const { editor, updatePlaceholder } = makeEditor([
+      ph('el:policy', 'loading', {
+        taskId: 't5',
+        clientRequestId: 'c5',
+        bffRequestId: 'req-1',
+        source: 'builtin-edge',
+        prompt: 'hi',
+        params: { size: '1536x1024', n: 1 } as CanvasTaskMeta['params'],
+      }),
+    ])
+
+    recoverCanvasTasks(editor)
+    await vi.waitFor(() => expect(updatePlaceholder).toHaveBeenCalled())
+
+    const patch = updatePlaceholder.mock.calls[0][1] as { status: string; message: string }
+    expect(patch.status).toBe('error')
+    expect(patch.message).toContain('内容审核')
+    expect(patch.message).not.toContain('safety system')
+    expect(overlay.errored).toHaveBeenCalledTimes(1)
+    expect(overlay.settled).toHaveBeenCalledTimes(1)
   })
 
   it('builtin-edge 仅 clientRequestId（未确认窗口）→ 标记手动重试，不自动重提交', () => {
