@@ -44,6 +44,9 @@ import {
 
 export type UserStatus = 'active' | 'disabled'
 
+/** Stored in users.password_hash until an OAuth-only account sets a password. */
+export const OAUTH_ONLY_PASSWORD_HASH = 'oauth-only-account'
+
 /**
  * HTTP and queue contracts use Unix epoch milliseconds. PostgreSQL stores timestamptz so expiry,
  * retention, and operational queries remain timezone-safe.

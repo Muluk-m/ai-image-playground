@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test'
-import { createDb } from '@image-playground/db'
+import { createDb, OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 
 const databaseUrl = await resetTestDatabase('admin_users_route')
@@ -50,10 +50,30 @@ await writer.db.insert(writer.schema.users).values([
   {
     id: 'user-idle',
     username: 'idle-user',
-    password_hash: 'hash',
+    password_hash: OAUTH_ONLY_PASSWORD_HASH,
     status: 'disabled',
     created_at: now - 40 * 24 * 3600_000,
     updated_at: now - 30 * 24 * 3600_000,
+  },
+])
+await writer.db.insert(writer.schema.user_identities).values([
+  {
+    id: 'identity-existing-google',
+    user_id: 'user-existing',
+    provider: 'google',
+    subject: 'google-existing',
+    email: 'existing@example.com',
+    display_name: 'Existing User',
+    created_at: now - 7 * 24 * 3600_000,
+  },
+  {
+    id: 'identity-idle-google',
+    user_id: 'user-idle',
+    provider: 'google',
+    subject: 'google-idle',
+    email: 'idle@example.com',
+    display_name: 'Idle User',
+    created_at: now - 39 * 24 * 3600_000,
   },
 ])
 await writer.db.insert(writer.schema.user_sessions).values({
@@ -210,7 +230,18 @@ describe('admin user routes', () => {
     }
     expect(body.users).toHaveLength(1)
     expect(body.users[0]?.username).toBe('existing')
-    expect(body.users[0]).toMatchObject({ active_sessions: 1, task_count: 2 })
+    expect(body.users[0]).toMatchObject({
+      active_sessions: 1,
+      task_count: 2,
+      created_at: now - 8 * 24 * 3600_000,
+      login_methods: ['password', 'google'],
+    })
+    const allUsers = (await (await call('/api/users')).json()) as {
+      users: Array<{ id: string; login_methods: string[] }>
+    }
+    expect(allUsers.users.find((user) => user.id === 'user-idle')?.login_methods).toEqual([
+      'google',
+    ])
     expect(body.users[0]).not.toHaveProperty('password_hash')
     expect(body.kpis).toMatchObject({ total_users: 2, active_users_7d: 1, submissions_24h: 2 })
     expect(body.kpis.failure_rate_24h).toBe(0.5)

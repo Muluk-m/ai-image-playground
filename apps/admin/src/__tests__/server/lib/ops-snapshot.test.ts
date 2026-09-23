@@ -23,7 +23,7 @@ const healthy = {
   database: async () => ({ size_bytes: 42, tables: [] }),
   backup: async () => ({ latest: null, previous: null }),
   services: async () => ({ services: [] }),
-  host: async () => ({ latest: null, series: [] }),
+  host: async () => ({ latest: null, series: [], bucket_ms: 30 * 60_000 }),
   containers: async () => ({ sampled_at: null, containers: [] }),
   api: async () => ({
     recent: { requests: 0, client_errors: 0, server_errors: 0, p95_ms: null },
@@ -94,7 +94,7 @@ describe('buildOpsSnapshot', () => {
       database: track('database', { size_bytes: 1, tables: [] }),
       backup: track('backup', { latest: null, previous: null }),
       services: track('services', { services: [] }),
-      host: track('host', { latest: null, series: [] }),
+      host: track('host', { latest: null, series: [], bucket_ms: 30 * 60_000 }),
       containers: track('containers', { sampled_at: null, containers: [] }),
       api: track('api', await healthy.api()),
       deployments: track('deployments', { own: null, available: false, entries: [] }),
