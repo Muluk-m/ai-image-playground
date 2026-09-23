@@ -40,11 +40,6 @@ import {
 } from './videoInputs'
 import { videoOptionRejection } from './videoRejection'
 
-/**
- * 画布视频任务的首尾帧走与图片任务同一张有界 LRU（`canvasGenerationSink` 的运行态表）：
- * 两者本来就是同一个概念——「不可持久化、只够同一次打开里重试用的输入」。
- */
-
 export interface CanvasVideoLaunch {
   prompt: string
   /** 输入框原话（不含文字标注）。续写 / 改视频就是弹窗里写的那句。 */

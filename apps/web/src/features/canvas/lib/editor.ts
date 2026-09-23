@@ -231,10 +231,7 @@ export class CanvasEditor {
    * `exclude` 里的元素马上要让位（结果落图时那个占位框），不算障碍。
    */
   getOccupiedBounds(exclude: readonly string[] = []): Box[] {
-    const elements = exclude.length
-      ? this.doc.elements.filter((el) => !exclude.includes(el.id))
-      : this.doc.elements
-    return elements.map(elementBounds)
+    return this.doc.elements.filter((el) => !exclude.includes(el.id)).map(elementBounds)
   }
 
   isPlaceholder(el: CanvasEl): boolean {
