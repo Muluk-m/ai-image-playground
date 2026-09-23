@@ -87,16 +87,18 @@ export default function Header() {
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
-          <PrivateWebHeaderCreditAction />
+          {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
-          <PrivateWebHeaderAccountActions
-            username={auth.user?.username ?? null}
-            loggingOut={loggingOut}
-            syncPending={syncPending}
-            onOpenSettings={openSettings}
-            onLogout={() => setLogoutOpen(true)}
-          />
-          {!PrivateWebReplacesAuthActions ? (
+          {auth.user ? (
+            <PrivateWebHeaderAccountActions
+              username={auth.user.username}
+              loggingOut={loggingOut}
+              syncPending={syncPending}
+              onOpenSettings={openSettings}
+              onLogout={() => setLogoutOpen(true)}
+            />
+          ) : null}
+          {!PrivateWebReplacesAuthActions && (!auth.enabled || auth.user) ? (
             <div ref={accountMenuRef} className="relative">
               <button
                 type="button"
@@ -174,6 +176,16 @@ export default function Header() {
                 </div>
               ) : null}
             </div>
+          ) : null}
+          {/* 未登录访客的入口。放在最右：它是这一簇里唯一一个「现在该点」的按钮。 */}
+          {auth.enabled && !auth.user ? (
+            <button
+              type="button"
+              onClick={auth.login}
+              className="h-8 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {t('header.login')}
+            </button>
           ) : null}
         </div>
       </div>

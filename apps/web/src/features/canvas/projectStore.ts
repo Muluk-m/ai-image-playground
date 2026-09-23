@@ -5,6 +5,7 @@ import {
   type ProjectKind,
 } from '@image-playground/shared'
 import { create } from 'zustand'
+import { accountRequired, promptLogin } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
 import { pathAppMode } from '../../lib/appPaths'
 import {
@@ -56,6 +57,16 @@ interface ProjectState {
 }
 
 let loading: Promise<void> | undefined
+
+/**
+ * 深链接指向的云端项目在这台机器上取不到。原因是「这个部署有账号体系而访客还没登录」时，
+ * 先把登录框叫起来——顺着分享链接进来的人要的是登录后接着看这个项目，
+ * 而不是一句「本机没有这个项目」。其余原因照旧只报错。
+ */
+function cloudProjectUnavailable(): Error {
+  if (accountRequired()) promptLogin('gated-action')
+  return new Error('Project not available on this device')
+}
 
 function coverImage(doc: CanvasDoc): string | undefined {
   const element = [...doc.elements].reverse().find((one) => one.type === 'image')
@@ -132,7 +143,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         const route = readProjectRoute()
         const routeId = route ? resolveProjectRoute(route, projects) : null
         if (routeId && !projects.some((one) => one.id === routeId)) {
-          if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
+          if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
           projects.push(
             await restoreCloudProject(await getCloudProject(routeId, AbortSignal.timeout(10000))),
           )
@@ -194,7 +205,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     id = resolveProjectRoute(id, get().projects)
     const existing = get().projects.find((one) => one.id === id)
     if (existing) return existing
-    if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
+    if (!cloudProjectsEnabled()) throw cloudProjectUnavailable()
     const project = await restoreCloudProject(await getCloudProject(id, AbortSignal.timeout(10000)))
     set((state) => ({ projects: [...state.projects, project] }))
     return project

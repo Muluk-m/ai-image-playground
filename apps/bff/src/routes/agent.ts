@@ -87,7 +87,7 @@ import { InvalidSelectionError, validateSelections } from '../lib/agent/selectio
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { drainConversationInbox } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
-import { listAgentTurnSummaries } from '../lib/agent/turn-summary'
+import { agentTurnSettled, listAgentTurnSummaries } from '../lib/agent/turn-summary'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { bffDrain } from '../lib/drain'
 import { durableMediaStore } from '../lib/durableMediaStore'
@@ -191,6 +191,21 @@ async function settledQueuedBody(
 function lastEventId(raw: string | undefined): number {
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+/**
+ * 这个会话此刻是不是真有一轮在跑。
+ *
+ * 不能只看租约行：轮收尾时**先**落页脚、发终帧、关流，**再**异步把租约还回去，所以客户端看见
+ * 这一轮结束之后的那一小段时间里，租约行仍然是 running。把它当「忙」，用户刚看完一轮就删不掉
+ * 会话——2026-09-22 main 上 `agent-confirmations` 那格红灯正是撞进了这个窗口。
+ * 落过页脚的那一轮按定义已经结束；没落页脚的（崩掉的执行者、封印租约）仍然算忙，由恢复扫描收尾。
+ */
+async function conversationBusy(conversationId: string): Promise<boolean> {
+  if (runningTurn(conversationId)) return true
+  const execution = await conversationExecution(conversationId)
+  if (!execution) return false
+  return !(await agentTurnSettled(conversationId, execution.turn_id))
 }
 
 export const agentRoutes = new Elysia()
@@ -774,7 +789,7 @@ export const agentRoutes = new Elysia()
       const forwarded = await forwardActiveTurn(conversation.id, request, body)
       if (forwarded) return forwarded
       return withAgentLifecycle(owner, async () => {
-        if (runningTurn(conversation.id) || (await conversationExecution(conversation.id)))
+        if (await conversationBusy(conversation.id))
           return status(409, { error: 'conversation_busy' })
         if (owner.kind === 'user') {
           const [project] = await db

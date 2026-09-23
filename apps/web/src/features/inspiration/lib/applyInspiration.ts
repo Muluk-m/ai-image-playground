@@ -2,7 +2,10 @@ import { i18next } from '../../../i18n'
 import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
-import { useStore } from '../../../store'
+import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../../lib/inputImageLimit'
+import { storeImageFromUrl, useStore } from '../../../store'
+import type { InputImage } from '../../../types'
+import { startCanvasFromComposer } from '../../agent/lib/heroHandoff'
 import { useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import { matchProfile } from './matchProfile'
@@ -26,20 +29,52 @@ export function applyInspiration(item: InspirationItem) {
       cancelText: i18next.t('action.cancel'),
       showCancel: true,
       tone: 'warning',
-      action: () => doApply(item),
+      action: () => void doApply(item),
     })
     return
   }
 
-  doApply(item)
+  void doApply(item)
 }
 
-function doApply(item: InspirationItem) {
+async function doApply(item: InspirationItem): Promise<void> {
   const main = useStore.getState()
   const inspiration = useInspirationStore.getState()
+  const references = item.referenceImages ?? []
+  if (main.inputImages.length + references.length > API_MAX_IMAGES) {
+    main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
+    return
+  }
 
-  main.setPrompt(item.prompt)
-  main.setParams({
+  // Stage downloads before touching the composer: a bad public asset must not leave half an
+  // applied prompt behind. IndexedDB may retain a successful staged image for later reuse.
+  let images: InputImage[]
+  try {
+    images = await Promise.all(references.map(({ url }) => storeImageFromUrl(url)))
+  } catch {
+    main.showToast(i18next.t('apply.referenceFailed', { ns: 'inspiration' }), 'error')
+    return
+  }
+  const current = useStore.getState()
+  if (current.inputImages.length + images.length > API_MAX_IMAGES) {
+    current.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
+    return
+  }
+  for (const image of images) current.addInputImage(image)
+
+  if (item.kind === 'skill' && item.skill) {
+    // BFF's explicit skill syntax is /skill-name, not /skill name. Handoff transfers the
+    // already-staged reference IDs to the first agent turn.
+    current.setPrompt(`/${item.skill} ${item.prompt}`)
+    inspiration.closeDetail()
+    if (!(await startCanvasFromComposer())) {
+      current.showToast(i18next.t('apply.canvasFailed', { ns: 'inspiration' }), 'error')
+    }
+    return
+  }
+
+  current.setPrompt(item.prompt)
+  current.setParams({
     size: item.params.size,
     ...(item.params.quality ? { quality: item.params.quality } : {}),
     ...(typeof item.params.n === 'number' ? { n: item.params.n } : {}),
@@ -47,24 +82,24 @@ function doApply(item: InspirationItem) {
 
   const publicChannels = getPublicChannels()
   const matched = matchProfile({
-    profiles: main.settings.profiles,
+    profiles: current.settings.profiles,
     publicChannels,
-    activeProfileId: main.settings.activeProfileId,
+    activeProfileId: current.settings.activeProfileId,
     provider: item.recommendedProvider,
     model: item.recommendedModel,
   })
 
   if (matched) {
-    const nextProfiles: ClientProfile[] = main.settings.profiles.map((p) =>
+    const nextProfiles: ClientProfile[] = current.settings.profiles.map((p) =>
       p.id === matched.profile.id ? updateSelectedModel(p, matched.model, publicChannels) : p,
     )
-    main.setSettings({
+    current.setSettings({
       profiles: nextProfiles,
       activeProfileId: matched.profile.id,
     })
-    main.showToast(i18next.t('apply.succeeded', { ns: 'inspiration' }), 'success')
+    current.showToast(i18next.t('apply.succeeded', { ns: 'inspiration' }), 'success')
   } else {
-    main.showToast(
+    current.showToast(
       i18next.t('apply.noProfile', {
         ns: 'inspiration',
         provider: item.recommendedProvider,
@@ -73,8 +108,6 @@ function doApply(item: InspirationItem) {
       'info',
     )
   }
-
-  // 套用完就回创作页：提示词与参数已经写进输入框，人要看的是那里。
   inspiration.closeDetail()
-  main.setAppMode('image')
+  current.setAppMode('image')
 }

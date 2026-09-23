@@ -15,6 +15,7 @@ import {
   recordingAgentFetch,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_clarify_a296')
 process.env.PORT = '0'
@@ -30,6 +31,8 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'

@@ -1,28 +1,31 @@
-import { signToken, verifyToken } from '@image-playground/node-kit'
+import { signPayload, verifyPayload } from '@image-playground/node-kit'
 import type { Cookie } from 'elysia'
 import { config } from '../config'
 import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from './constants'
 
-/**
- * Cookie 格式：`<expires_at_iso>.<hmac-sha256-base64url>`，payload 明文入 token（`text` 编码），
- * 换掉它会让在外流通的 cookie 全部失效。
- * 零持久化：cookie 自带过期时间 + 签名，admin server 重启不丢登录。
- */
-
-export function signSession(ttlMs: number = SESSION_TTL_MS): string {
-  return signToken(config.cookieSecret, new Date(Date.now() + ttlMs).toISOString(), 'text')
-}
-
-export function verifySession(cookieVal: string): {
+interface AdminSessionPayload {
   valid: boolean
   expiresAt?: Date
-} {
-  const iso = verifyToken(config.cookieSecret, cookieVal, 'text')
-  if (iso === null) return { valid: false }
+  operatorId?: string
+}
 
-  const expiresAt = new Date(iso)
-  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) return { valid: false }
-  return { valid: true, expiresAt }
+export function signSession(operatorId: string, ttlMs: number = SESSION_TTL_MS): string {
+  return signPayload(config.cookieSecret, { operatorId }, { ttlMs })
+}
+
+export function verifySession(cookieVal: string): AdminSessionPayload {
+  const payload = verifyPayload(config.cookieSecret, cookieVal)
+  if (!payload) return { valid: false }
+  const { exp, operatorId } = payload
+  if (
+    typeof exp !== 'number' ||
+    typeof operatorId !== 'string' ||
+    !operatorId.trim() ||
+    operatorId.length > 320
+  ) {
+    return { valid: false }
+  }
+  return { valid: true, expiresAt: new Date(exp), operatorId }
 }
 
 const SESSION_COOKIE_OPTIONS = {
@@ -34,10 +37,10 @@ const SESSION_COOKIE_OPTIONS = {
 
 type CookieJar = Record<string, Cookie<unknown>>
 
-export function setSessionCookie(cookie: CookieJar): void {
+export function setSessionCookie(cookie: CookieJar, operatorId: string): void {
   cookie[SESSION_COOKIE_NAME]!.set({
     ...SESSION_COOKIE_OPTIONS,
-    value: signSession(),
+    value: signSession(operatorId),
     maxAge: SESSION_TTL_MS / 1000,
   })
 }

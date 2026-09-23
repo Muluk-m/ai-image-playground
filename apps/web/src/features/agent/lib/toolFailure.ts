@@ -1,7 +1,7 @@
 import type { AgentToolErrorCode } from '@image-playground/shared'
 import { AGENT_RETRYABLE_ERROR_CODES } from '@image-playground/shared'
+import { promptLogin } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
-import { AUTH_SESSION_EXPIRED_EVENT } from '../../../lib/authClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { notifyPrivateSubmissionError, PrivateWebOverlayPresent } from '../../../lib/privateOverlay'
 import type { AgentRerunBlock } from './retry'
@@ -134,7 +134,8 @@ export function runAgentToolFailureAction(
     return
   }
   if (action === 'login') {
-    window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT))
+    // 未登录访客照常留在工作台，只把登录框叫起来；整页跳登录会把他手上这段对话连同画布一起冲掉。
+    promptLogin('gated-action')
     return
   }
   context.send(agentReprocessMessage(context.title, context.code, context.block ?? null))

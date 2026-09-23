@@ -146,6 +146,7 @@ vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
   readRemoteGeneration,
 }))
 
+import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
 import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
@@ -198,6 +199,8 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
 describe('mask draft lifecycle in store actions', () => {
   beforeEach(async () => {
     await bootstrapClientCapabilities(false, '')
+    // 登录态是模块级的，逐用例归零。
+    setSignedIn(false)
     setChannels([])
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
@@ -325,6 +328,8 @@ describe('mask draft lifecycle in store actions', () => {
     )
     await bootstrapClientCapabilities(true, '')
     fetchMock.mockRestore()
+    // 计费部署上提交要账号：这条用例测的是登录用户那条路。
+    setSignedIn(true)
     vi.mocked(callImageApi).mockResolvedValue({
       images: [
         'data:image/png;base64,one',
@@ -362,6 +367,55 @@ describe('mask draft lifecycle in store actions', () => {
     )
     expect(useStore.getState().tasks).toHaveLength(1)
     expect(useStore.getState().tasks[0]?.outputImages).toHaveLength(3)
+  })
+
+  it('未登录访客提交内置渠道：只弹一次登录框，不落任务行', async () => {
+    const channel: PublicChannel = {
+      id: 'paid-openai',
+      kind: 'openai-queue',
+      label: 'Paid OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ ...allCapabilitiesOff(), 'accounts:login': true }))
+    await bootstrapClientCapabilities(true, '')
+    fetchMock.mockRestore()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS },
+    })
+    // 这个文件跑在 node 环境里，登录框事件要有个 window 才发得出去。
+    vi.stubGlobal('window', new EventTarget())
+    const prompted = vi.fn()
+    const unsubscribe = subscribeLoginPrompt(prompted)
+
+    try {
+      await submitTask()
+    } finally {
+      unsubscribe()
+      vi.unstubAllGlobals()
+    }
+
+    expect(prompted.mock.calls).toEqual([['gated-action']])
+    expect(callImageApi).not.toHaveBeenCalled()
+    expect(useStore.getState().tasks).toEqual([])
+    // 弹窗就是反馈，不再叠一条报错。
+    expect(useStore.getState().showToast).not.toHaveBeenCalled()
   })
 
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
