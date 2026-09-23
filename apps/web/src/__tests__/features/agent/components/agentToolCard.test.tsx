@@ -40,6 +40,12 @@ vi.mock('../../../../lib/clientCapabilities', () => ({
   isClientCapabilityEnabled: (key: string) => deployment.capabilities.has(key),
 }))
 
+// 取回来的网图按媒体 id 回源；这里只关心「按什么 id 取、卡上长什么样」。
+vi.mock('../../../../lib/cloudMedia', () => ({
+  mediaIdentity: (source: string) => source.match(/^aip-media:([0-9a-f-]{36})$/i)?.[1],
+  resolveMediaSource: async (source: string, variant = 'original') => `${variant}:${source}`,
+}))
+
 beforeEach(() => {
   send.mockClear()
   store.cancelJob.mockClear()
@@ -519,4 +525,50 @@ describe('重试记录', () => {
       view.unmount()
     }
   })
+})
+
+/**
+ * 取回来的网图版权在对方那里：卡上必须看得见它长什么样，也必须点得回它的来源。
+ * 少了来源那一条，用户手上就只剩一张不知道从哪来的图。
+ */
+it('shows the fetched image and a link back to where it came from', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'm',
+            turnId: 't',
+            toolCallId: 'call-1',
+            toolName: 'fetchImage',
+            title: '获取图片：example.com',
+            status: 'succeeded',
+            delivery: 'unavailable',
+            fetchedImages: [
+              {
+                imageId: '11111111-2222-4333-8444-555555555555',
+                sourceUrl: 'https://example.com/photos/cat.png',
+                mime: 'image/png',
+              },
+            ],
+          }}
+        />,
+      )
+    })
+
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(
+      'preview:aip-media:11111111-2222-4333-8444-555555555555',
+    )
+    const link = host.querySelector('a')
+    expect(link?.getAttribute('href')).toBe('https://example.com/photos/cat.png')
+    // 地址常常很长，卡上一行放不下；用户要认的是站点。
+    expect(link?.textContent).toBe('example.com')
+    // 画布上还没有它，所以给得出「放入画布」那一下。
+    expect(host.textContent).toContain('放入画布')
+  } finally {
+    act(() => root.unmount())
+  }
 })

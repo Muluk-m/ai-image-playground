@@ -15,6 +15,7 @@ import type {
 } from '@image-playground/shared'
 import {
   AGENT_QUEUE_MAX_PENDING,
+  AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
@@ -155,23 +156,31 @@ const referencesSchema = t.Optional(
 
 type ReferenceBody = NonNullable<(typeof referencesSchema)['static']>[number]
 
-/** 两路只能二选一：都给或都不给都是坏请求，分不清该拿哪一份字节。 */
+/**
+ * 两路只能二选一：都给或都不给都是坏请求，分不清该拿哪一份字节。
+ *
+ * 内联那一路另有硬上限（{@link AGENT_TURN_MAX_INLINE_REFERENCES}）：一轮的总张数放宽到几十张
+ * 靠的是「按 id 发、字节不进请求体」，真带字节的那几张一多，请求体还是几十 MB，传几分钟
+ * 再白占一遍出站带宽。超了当坏请求打回，用户的话还在输入框里。
+ */
 function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | null {
   const references: AgentTurnReference[] = []
+  let inline = 0
   for (const one of raw) {
     const name = one.name ? { name: one.name } : {}
     if (one.mediaId && !one.dataUrl)
       references.push({ imageId: one.imageId, ...name, mediaId: one.mediaId })
-    else if (one.dataUrl && !one.mediaId)
+    else if (one.dataUrl && !one.mediaId) {
+      inline += 1
       references.push({
         imageId: one.imageId,
         ...name,
         dataUrl: one.dataUrl,
         ...(one.maskDataUrl ? { maskDataUrl: one.maskDataUrl } : {}),
       })
-    else return null
+    } else return null
   }
-  return references
+  return inline > AGENT_TURN_MAX_INLINE_REFERENCES ? null : references
 }
 
 /** 创作类型。缺席即图片：老客户端不发这一项，它们要的从来都是图。 */

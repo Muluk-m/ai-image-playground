@@ -197,13 +197,13 @@ export default function DetailModal() {
   const showRevisedPrompt = Boolean(
     currentRevisedPrompt && currentRevisedPrompt !== task.prompt.trim(),
   )
-  const taskProvider = task.apiProvider
-  const taskProviderName = taskProvider
-    ? getApiProviderLabel(settings, taskProvider)
-    : t('common:state.unknown')
-  const taskProfileName = task.apiProfileName || t('common:state.unknown')
-  const taskModel = task.apiModel || t('common:state.unknown')
-  const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
+  // 云端镜下来的卡没有本机 profile，只有 provider + model：缺的那段不写，不拿「未知」凑数。
+  const taskProvider = task.apiProvider || task.cloudProvider
+  const sourceParts = [
+    taskProvider ? getApiProviderLabel(settings, taskProvider) : '',
+    task.apiProfileName ?? '',
+    task.apiModel ?? '',
+  ].filter(Boolean)
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const rawImageUrls = task.rawImageUrls ?? []
 
@@ -740,15 +740,17 @@ export default function DetailModal() {
               <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
                 {t('detail.paramsSection')}
               </h3>
-              {showSourceInfo && (
+              {sourceParts.length > 0 && (
                 <div className="mb-2 rounded-lg bg-card px-3 py-2 text-xs">
                   <span className="text-muted-foreground">{t('detail.source')}</span>
                   <br />
-                  <span className="font-medium text-foreground">{taskProviderName}</span>
-                  <span className="text-muted-foreground">
-                    {' '}
-                    · {taskProfileName} · {taskModel}
-                  </span>
+                  <span className="font-medium text-foreground">{sourceParts[0]}</span>
+                  {sourceParts.length > 1 && (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      · {sourceParts.slice(1).join(' · ')}
+                    </span>
+                  )}
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2 text-xs mb-4">
