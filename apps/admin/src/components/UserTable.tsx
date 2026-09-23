@@ -50,6 +50,40 @@ function LoginMethods({
     </div>
   )
 }
+function RegistrationOrigin({
+  summary,
+  align = 'start',
+}: {
+  summary: PrivateAdminUserSummary | undefined
+  align?: 'start' | 'end'
+}) {
+  if (!summary?.registrationSource)
+    return <span className="text-[10px] text-muted-foreground">读取中</span>
+  if (summary.registrationSource === 'invited') {
+    return (
+      <span
+        className={`block min-w-0 text-[10px] text-muted-foreground ${
+          align === 'end' ? 'text-right' : ''
+        }`}
+        title={summary.inviter ? `邀请人 ID：${summary.inviter.userId}` : undefined}
+      >
+        邀请注册
+        <span className="mx-1 text-border">·</span>
+        <span className="font-medium text-foreground">
+          {summary.inviter?.username ?? '邀请人不可用'}
+        </span>
+      </span>
+    )
+  }
+  return (
+    <span
+      className={`block text-[10px] text-muted-foreground ${align === 'end' ? 'text-right' : ''}`}
+      title="没有邀请关系记录；邀请功能上线前的历史用户未回填"
+    >
+      自主注册
+    </span>
+  )
+}
 
 function SummaryValue({ summary }: { summary: PrivateAdminUserSummary | undefined }) {
   return (
@@ -88,7 +122,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
     users.map((user) => user.id),
   )
   const gridColumns = privateAdminOverlayEnabled
-    ? 'grid-cols-[minmax(190px,1.4fr)_90px_105px_115px_165px_170px_28px]'
+    ? 'grid-cols-[minmax(190px,1.4fr)_90px_105px_115px_190px_170px_28px]'
     : 'grid-cols-[minmax(190px,1.4fr)_90px_105px_115px_165px_28px]'
   if (!users.length) return <EmptyState label="没有匹配的用户" />
 
@@ -134,6 +168,9 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
               <span className="mb-1 block text-xs tabular-nums">
                 {USER_DATE_FORMAT.format(user.created_at)}
               </span>
+              {privateAdminOverlayEnabled ? (
+                <RegistrationOrigin summary={summaries[user.id]} align="end" />
+              ) : null}
               <LoginMethods methods={user.login_methods} align="end" />
             </span>
             {privateAdminOverlayEnabled ? <SummaryValue summary={summaries[user.id]} /> : null}
@@ -175,10 +212,13 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
                   <FuzzyTime ts={user.last_activity_at} />
                 </span>
               </MobileMetric>
-              <MobileMetric label="注册日期">
-                <span className="text-xs tabular-nums">
+              <MobileMetric label="注册信息">
+                <span className="block text-xs tabular-nums">
                   {USER_DATE_FORMAT.format(user.created_at)}
                 </span>
+                {privateAdminOverlayEnabled ? (
+                  <RegistrationOrigin summary={summaries[user.id]} />
+                ) : null}
               </MobileMetric>
               <MobileMetric label="登录方式">
                 <LoginMethods methods={user.login_methods} />

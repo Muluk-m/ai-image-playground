@@ -11,6 +11,11 @@ export interface PrivateAdminUserSummary {
   /** 会员视觉由收费 overlay 提供，公开 Admin 只负责排版，避免复制档位配色与图标。 */
   accent?: string
   badge?: ReactNode
+  registrationSource?: 'invited' | 'direct_or_unknown'
+  inviter?: {
+    userId: string
+    username: string
+  } | null
 }
 
 export interface PrivateAdminOverlay {
