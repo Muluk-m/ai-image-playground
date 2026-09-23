@@ -27,6 +27,7 @@ function shape(content: GuideContent) {
     chapters: content.chapters.map((chapter) => ({
       id: chapter.id,
       intro: chapter.intro?.map((block) => block.type),
+      faq: chapter.faq?.length,
       subsections: chapter.subsections.map((sub) => ({
         id: sub.id,
         blocks: sub.blocks.map((block) =>
@@ -75,12 +76,17 @@ describe('guide content', () => {
       expect(existsSync(file), file).toBe(true)
   })
 
-  it('indexes every subsection for search with a link back to it', () => {
+  it('indexes every subsection and question for search with a link back to it', () => {
     const index = buildSearchIndex(guideZhCN)
-    const subsections = guideZhCN.chapters.flatMap((c) => c.subsections)
-    expect(
-      index.filter((entry) => entry.url.includes('/guide/') && !entry.url.endsWith('#faq')),
-    ).toHaveLength(subsections.length)
+    const questions = [
+      ...guideZhCN.chapters.flatMap((chapter) => chapter.faq ?? []),
+      ...guideZhCN.faq.items,
+    ]
+    const subsections = guideZhCN.chapters.flatMap((chapter) => chapter.subsections)
+    expect(index).toHaveLength(subsections.length + questions.length)
+    expect(index.filter((entry) => entry.url === '/guide/getting-started/#faq')).toHaveLength(
+      guideZhCN.chapters[0]!.faq!.length,
+    )
     const mask = index.find((entry) => entry.url === '/guide/create/#mask-edit')
     expect(mask?.text).toContain('遮罩编辑')
     expect(mask?.text).not.toMatch(/\[\[|\]\]|\*\*|\{\{/)

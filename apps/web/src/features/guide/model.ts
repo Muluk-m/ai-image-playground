@@ -44,6 +44,8 @@ export interface GuideChapter {
   meta: { title: string; description: string }
   intro?: Block[]
   subsections: GuideSubsection[]
+  /** 本章末尾的常见问题；与首页那组一起构成全站问答。 */
+  faq?: GuideFaq[]
 }
 
 export interface GuideFaq {

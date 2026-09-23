@@ -275,6 +275,20 @@ function structuredData(
         { '@type': 'ListItem', position: 3, name: chapter.title, item: url },
       ],
     },
+    ...(chapter.faq
+      ? [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            inLanguage: content.lang,
+            mainEntity: chapter.faq.map((item) => ({
+              '@type': 'Question',
+              name: item.q,
+              acceptedAnswer: { '@type': 'Answer', text: item.a },
+            })),
+          },
+        ]
+      : []),
   ]
 }
 
@@ -441,10 +455,14 @@ function renderChapterNav(content: GuideContent, current: GuideChapter): string 
   const chapters = content.chapters
     .map((chapter) => {
       const here = chapter.id === current.id
-      const subsections = chapter.subsections
+      const entries = [
+        ...chapter.subsections.map((sub) => ({ id: sub.id, title: sub.title })),
+        ...(chapter.faq ? [{ id: content.faq.id, title: content.faq.title }] : []),
+      ]
+      const subsections = entries
         .map(
-          (sub) =>
-            `<li><a href="${here ? '' : guidePagePath(content, chapter.id)}#${sub.id}" ${here ? `data-toc="${sub.id}"` : ''} class="-ml-px block border-l border-transparent py-[5px] pl-4 text-[13.5px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground aria-[current=true]:border-primary aria-[current=true]:font-medium aria-[current=true]:text-foreground">${escapeHtml(sub.title)}</a></li>`,
+          (entry) =>
+            `<li><a href="${here ? '' : guidePagePath(content, chapter.id)}#${entry.id}" ${here ? `data-toc="${entry.id}"` : ''} class="-ml-px block border-l border-transparent py-[5px] pl-4 text-[13.5px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground aria-[current=true]:border-primary aria-[current=true]:font-medium aria-[current=true]:text-foreground">${escapeHtml(entry.title)}</a></li>`,
         )
         .join('')
       return `<div class="mb-7"><a href="${guidePagePath(content, chapter.id)}" ${here ? 'aria-current="page"' : ''} class="mb-2 flex items-center gap-2 text-[13px] font-semibold text-foreground/80 transition-colors hover:text-foreground aria-[current=page]:text-foreground">${chapterIcon(chapter, `h-4 w-4 ${here ? 'text-primary' : 'text-muted-foreground'}`)}${escapeHtml(chapter.title)}</a><ul class="ml-2 border-l border-border">${subsections}</ul></div>`
@@ -471,10 +489,14 @@ function renderChapter(
   const { chrome } = content
   const index = content.chapters.indexOf(chapter)
   const nav = renderChapterNav(content, chapter)
-  const rail = chapter.subsections
+  const railEntries = [
+    ...chapter.subsections.map((sub) => ({ id: sub.id, title: sub.title })),
+    ...(chapter.faq ? [{ id: content.faq.id, title: content.faq.title }] : []),
+  ]
+  const rail = railEntries
     .map(
-      (sub) =>
-        `<li><a href="#${sub.id}" data-toc="${sub.id}" class="block py-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground aria-[current=true]:text-primary">${escapeHtml(sub.title)}</a></li>`,
+      (entry) =>
+        `<li><a href="#${entry.id}" data-toc="${entry.id}" class="block py-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground aria-[current=true]:text-primary">${escapeHtml(entry.title)}</a></li>`,
     )
     .join('')
   const subsections = chapter.subsections
@@ -483,6 +505,14 @@ function renderChapter(
         `<h2 id="${sub.id}" data-heading class="group mt-16 flex scroll-mt-24 items-center gap-2 text-[22px] font-semibold tracking-tight text-foreground">${escapeHtml(sub.title)}<a href="#${sub.id}" aria-hidden="true" tabindex="-1" class="text-border opacity-0 transition-opacity group-hover:opacity-100">#</a></h2>${renderBlocks(sub.blocks, content, options)}`,
     )
     .join('')
+  const faq = chapter.faq
+    ? `<h2 id="${content.faq.id}" data-heading class="mt-16 scroll-mt-24 text-[22px] font-semibold tracking-tight text-foreground">${escapeHtml(content.faq.title)}</h2><div class="mt-6 divide-y divide-border border-y border-border">${chapter.faq
+        .map(
+          (item) =>
+            `<details class="group py-4"><summary class="flex cursor-pointer list-none items-center justify-between gap-6 text-[15.5px] font-medium text-foreground [&::-webkit-details-marker]:hidden">${escapeHtml(item.q)}${icon(ChevronDown, 'h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180')}</summary><p class="mt-2.5 pr-10 text-[14.5px] leading-7 text-muted-foreground">${escapeHtml(item.a)}</p></details>`,
+        )
+        .join('')}</div>`
+    : ''
   return `<div class="mx-auto flex max-w-[1400px] pt-[76px]">
       <aside class="sticky top-[76px] hidden h-[calc(100vh-76px)] w-[272px] shrink-0 overflow-y-auto border-r border-border px-6 pb-10 pt-8 lg:block">
         <nav aria-label="${escapeHtml(chrome.toc)}">${nav}</nav>
@@ -500,6 +530,7 @@ function renderChapter(
           <div class="mt-8 h-px bg-border"></div>
           ${renderBlocks(chapter.intro ?? [], content, options)}
           ${subsections}
+          ${faq}
           ${renderPager(content, index)}
         </article>
       </main>
@@ -543,14 +574,20 @@ export function buildSearchIndex(content: GuideContent) {
     }
   }
   return [
-    ...content.chapters.flatMap((chapter) =>
-      chapter.subsections.map((sub) => ({
+    ...content.chapters.flatMap((chapter) => [
+      ...chapter.subsections.map((sub) => ({
         chapter: chapter.title,
         title: sub.title,
         url: `${guidePagePath(content, chapter.id)}#${sub.id}`,
         text: sub.blocks.flatMap(blockText).map(plainInline).join(' '),
       })),
-    ),
+      ...(chapter.faq ?? []).map((item) => ({
+        chapter: `${chapter.title} · ${content.faq.title}`,
+        title: item.q,
+        url: `${guidePagePath(content, chapter.id)}#${content.faq.id}`,
+        text: item.a,
+      })),
+    ]),
     ...content.faq.items.map((item) => ({
       chapter: content.faq.title,
       title: item.q,
