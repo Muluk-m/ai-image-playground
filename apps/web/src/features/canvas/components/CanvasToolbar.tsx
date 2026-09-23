@@ -196,10 +196,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
           />
         </svg>
       </ToolButton>
-      <ToolButton
-        title={t('toolbar.deleteSelected')}
-        onClick={() => doc.deleteElements([...doc.selection])}
-      >
+      <ToolButton title={t('toolbar.deleteSelected')} onClick={() => doc.deleteSelection()}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
             d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"

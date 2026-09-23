@@ -1031,7 +1031,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
-  it('对话限时免费：整轮只花在对话上时划掉总额并挂上免费徽章', async () => {
+  it('对话限时免费：整轮只花在对话上时划掉原价，免费标记 hover 才出文案', async () => {
     await enableChatFree()
     useAgentStore.setState({
       messages: [
@@ -1058,10 +1058,16 @@ describe('AgentPanel', () => {
     const toggle = [...host.querySelectorAll('button')].find((button) =>
       button.textContent?.startsWith('消耗'),
     )!
-    // 划掉的是数字本身，闪电图标留着；原价还看得见，否则用户不知道免掉的是多少。
+    // 整块 ⚡12 划掉，那道线才够长；原价还看得见，否则用户不知道免掉的是多少。
     expect(toggle.textContent).toBe('消耗 12')
     expect(toggle.querySelector('del')?.textContent).toBe('12')
-    expect(host.textContent).toContain('对话限时免费')
+    // 页脚只放一个图标位，文案挂在 hover 上。
+    const mark = host.querySelector('[role="img"][aria-label="对话限时免费"]') as HTMLElement
+    expect(mark).not.toBeNull()
+    expect(host.textContent).not.toContain('对话限时免费')
+
+    act(() => mark.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.body.textContent).toContain('对话限时免费')
   })
 
   it('掺了生图的轮实付不为零：总额不划，只在明细里划掉对话那项', async () => {
@@ -1092,7 +1098,7 @@ describe('AgentPanel', () => {
       button.textContent?.startsWith('消耗'),
     )!
     expect(toggle.querySelector('del')).toBeNull()
-    expect(host.textContent).not.toContain('对话限时免费')
+    expect(host.querySelector('[aria-label="对话限时免费"]')).toBeNull()
     act(() => toggle.click())
     expect(host.querySelector('del')?.textContent).toBe('42')
   })
