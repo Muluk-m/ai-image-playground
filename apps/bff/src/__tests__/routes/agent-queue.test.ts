@@ -42,6 +42,29 @@ await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 
+/** 写对象存储时停在门口，直到测试放行：插话归档参考图的那几秒由测试掌控。 */
+class GatedObjectStore extends InMemoryObjectStore {
+  private gate: Promise<void> | null = null
+  private release: () => void = () => {}
+
+  hold(): void {
+    this.gate = new Promise((resolve) => {
+      this.release = resolve
+    })
+  }
+
+  letThrough(): void {
+    this.gate = null
+    this.release()
+  }
+
+  override async write(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    this.events.push(`waiting:${key}`)
+    if (this.gate) await this.gate
+    return super.write(key, bytes, contentType)
+  }
+}
+
 async function referenceImage(imageId: string) {
   const png = await sharp({
     create: { width: 2, height: 2, channels: 4, background: '#ffffff' },
@@ -67,6 +90,12 @@ function sendWithReference(
 
 function abortTurn(conversationId: string, turnId: string): Promise<Response> {
   return post(`/api/agent/conversations/${conversationId}/turns/${turnId}/abort`, {
+    deviceId: DEVICE,
+  })
+}
+
+function interjectQueued(conversationId: string, queueId: string): Promise<Response> {
+  return post(`/api/agent/conversations/${conversationId}/queue/${queueId}/interject`, {
     deviceId: DEVICE,
   })
 }
@@ -500,6 +529,60 @@ describe('升级为插话', () => {
     first.finish()
     await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
     expect(calls).toHaveLength(1)
+  })
+
+  it('插话归档参考图期间按了停止：那条仍由停止退回，不再开新轮', async () => {
+    const store = new GatedObjectStore()
+    setObjectStoreForTesting(store)
+    const { conversationId, turnId } = await busyConversation()
+    const reference = await referenceImage('ref-stop')
+    const target = await queued(await sendWithReference(conversationId, '带图的一句', reference))
+
+    store.hold()
+    const interjecting = interjectQueued(conversationId, target.queued.id)
+    await waitFor(() => store.events.some((event) => event.startsWith('waiting:')), 3_000)
+
+    const stopped = await abortTurn(conversationId, turnId)
+    expect(stopped.status).toBe(200)
+    expect(await stopped.json()).toEqual({
+      aborted: true,
+      returned: [{ id: target.queued.id, text: '带图的一句', references: [reference] }],
+    })
+
+    store.letThrough()
+    expect(await (await interjecting).json()).toEqual({ result: 'cancelled' })
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    await Bun.sleep(100)
+    expect(calls).toHaveLength(1)
+    expect(await queueList(conversationId)).toEqual([])
+    const users = (await snapshot(conversationId)).messages.filter((one) => one.role === 'user')
+    expect(users.map((one) => one.id)).not.toContain(target.queued.id)
+  })
+
+  it('插话归档参考图期间这一轮刚好收尾：那条照旧排着，由下一轮处理且只处理一次', async () => {
+    const store = new GatedObjectStore()
+    setObjectStoreForTesting(store)
+    const { conversationId, turnId, first } = await busyConversation()
+    const reference = await referenceImage('ref-late')
+    const target = await queued(await sendWithReference(conversationId, '来晚的一句', reference))
+
+    store.hold()
+    const interjecting = interjectQueued(conversationId, target.queued.id)
+    await waitFor(() => store.events.some((event) => event.startsWith('waiting:')), 3_000)
+    first.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn?.turnId !== turnId, 3_000)
+    store.letThrough()
+
+    const { result } = (await (await interjecting).json()) as { result: string }
+    expect(['not_running', 'already_consumed']).toContain(result)
+    const next = await upstreamCall(1)
+    expect(lastUserText(calls[1]!)).toContain('来晚的一句')
+    next.finish()
+    await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+    await Bun.sleep(100)
+    expect(calls).toHaveLength(2)
+    const users = (await snapshot(conversationId)).messages.filter((one) => one.role === 'user')
+    expect(users.filter((one) => one.id === target.queued.id)).toHaveLength(1)
   })
 })
 
