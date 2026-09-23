@@ -18,6 +18,7 @@ import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
 import { LoginDialog } from './LoginDialog'
 import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './loginPrompt'
+import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
 import { SessionExpiredCard } from './SessionExpiredCard'
 
 const App = lazy(() => import('../App'))
@@ -108,7 +109,9 @@ export function AuthGate() {
         if (!currentUser) {
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。
           await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, false)
+          const pendingSend = await hasPendingSubmission().catch(() => false)
           if (cancelled) return
+          if (pendingSend) setLoginReason('gated-action')
           rememberStorageUser(null)
           setUser(null)
           setPhase('ready')
@@ -201,7 +204,13 @@ export function AuthGate() {
         />
       ) : null}
       {loginReason ? (
-        <LoginDialog reason={loginReason} onClose={() => setLoginReason(null)} />
+        <LoginDialog
+          reason={loginReason}
+          onClose={() => {
+            setLoginReason(null)
+            void discardPendingSubmission()
+          }}
+        />
       ) : null}
     </AuthContextProvider>
   )

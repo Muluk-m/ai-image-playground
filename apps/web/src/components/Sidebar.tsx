@@ -1,14 +1,15 @@
-import { LoaderCircle } from 'lucide-react'
+import { BookOpen, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
+import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
-import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
+import { BRAND_WORDMARK, brandNeedsWordmark, currentLocale, useTranslation } from '../i18n'
 
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
-import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon } from './icons'
+import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon, ToolboxIcon } from './icons'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
@@ -16,6 +17,7 @@ const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
   canvas: CanvasIcon,
   explore: SparkleIcon,
   library: AssetIcon,
+  tools: ToolboxIcon,
 }
 
 const ITEM =
@@ -191,6 +193,16 @@ export default function Sidebar() {
               </div>
             )
           })}
+          {/* 指南是独立的静态页，新标签打开，工作台原地不动。 */}
+          <a
+            href={GUIDE_PATHS[currentLocale()]}
+            target="_blank"
+            rel="noopener"
+            className={`${ITEM} ${IDLE_ITEM} mt-auto`}
+          >
+            <BookOpen className="h-4 w-4" aria-hidden="true" />
+            {t('nav.guide')}
+          </a>
         </nav>
       ) : null}
 
