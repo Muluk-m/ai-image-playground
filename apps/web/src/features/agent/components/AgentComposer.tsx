@@ -230,6 +230,7 @@ export default function AgentComposer({
   const promptEditor = usePromptEditor({
     value: draft.prompt,
     labels,
+    referenceIds: draft.references.map((reference) => reference.id),
     onChange: (prompt) => setDraft((current) => ({ ...current, prompt })),
     command: skillInvocation?.rest ? skillInvocation.command : null,
     commandLabel: skillInvocation?.skill.title,

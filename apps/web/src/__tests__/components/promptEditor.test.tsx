@@ -9,6 +9,7 @@ import PromptEditor, {
   usePromptEditor,
 } from '../../components/PromptEditor'
 import { getSlashSkillQuery } from '../../features/agent/lib/agentSkillMentions'
+import { getSlashTemplateQuery } from '../../features/library/lib/templates'
 import {
   getContentEditableSelection,
   setContentEditableCursor,
@@ -35,6 +36,8 @@ let host: HTMLDivElement
 let root: Root
 /** 最近一次渲染交出来的编辑器把手。 */
 let api: PromptEditorApi
+/** 调用方那一侧的写入口：外部改提示词不经过编辑器。 */
+let setPrompt: (prompt: string) => void
 
 function Harness({
   initial,
@@ -42,12 +45,16 @@ function Harness({
   parseCommand,
   onKeyDown,
   slotValues,
+  command,
+  referenceIds,
 }: {
   initial: string
   labels?: MentionLabelResolver
   parseCommand?: PromptEditorOptions['parseCommand']
   onKeyDown?: PromptEditorOptions['onKeyDown']
   slotValues?: PromptEditorOptions['slotValues']
+  command?: PromptEditorOptions['command']
+  referenceIds?: PromptEditorOptions['referenceIds']
 }) {
   const [value, setValue] = useState(initial)
   const editor = usePromptEditor({
@@ -57,19 +64,27 @@ function Harness({
     parseCommand,
     onKeyDown,
     slotValues,
+    command,
+    referenceIds,
   })
   api = editor
+  setPrompt = setValue
   return <PromptEditor editor={editor} aria-label="提示词" />
 }
 
+interface StubClipboard {
+  setData(type: string, value: string): void
+  getData(type: string): string
+}
+
 /** 剪贴板只记按 MIME 分开的几份，正好够看清哪一份带了存储形态。 */
-function stubClipboard() {
+function stubClipboard(): StubClipboard {
   const data: Record<string, string> = {}
   return {
-    setData: (type: string, value: string) => {
+    setData: (type, value) => {
       data[type] = value
     },
-    getData: (type: string) => data[type] ?? '',
+    getData: (type) => data[type] ?? '',
   }
 }
 
@@ -114,14 +129,17 @@ afterEach(() => {
 })
 
 describe('提示词编辑器 · 提示词与 DOM 同步', () => {
-  it('打字时不重写光标底下的 DOM', () => {
-    mount(<Harness initial="" />)
-
-    typeInto((el) => {
-      el.innerHTML = '<span data-browser-node="1">你好</span>'
+  it('在句中打字，字落在光标处，光标跟着走到它后面', () => {
+    mount(<Harness initial="你好" />)
+    const el = editor()
+    el.focus()
+    typeInto((target) => {
+      target.textContent = '你在好'
+      setContentEditableCursor(target, 2)
     })
 
-    expect(editor().querySelector('[data-browser-node]')).not.toBeNull()
+    expect(editor().textContent).toBe('你在好')
+    expect(getContentEditableSelection(editor())).toEqual({ start: 2, end: 2 })
   })
 
   it('外部写进来的提示词在一次空转输入之后仍会渲染', () => {
@@ -134,7 +152,8 @@ describe('提示词编辑器 · 提示词与 DOM 同步', () => {
       el.textContent = '旧提示词'
     })
 
-    act(() => api.replaceRange(0, '旧提示词'.length, '新提示词'))
+    // 调用方那一侧换了值，跟编辑器自己的回写无关。
+    act(() => setPrompt('新提示词'))
     expect(editor().textContent).toBe('新提示词')
   })
 
@@ -215,25 +234,81 @@ describe('提示词编辑器 · 查询', () => {
 
     expect(api.query).toMatchObject({ kind: 'mention', query: '' })
   })
+
+  it('光标停在命令胶囊里不查询，句中的第二个 `/` 照常查询', () => {
+    const prompt = '/skill 画 /portrait'
+    mount(<Harness initial={prompt} command="/skill" parseCommand={getSlashTemplateQuery} />)
+
+    caretAt(3)
+    expect(api.query).toBeNull()
+
+    caretAt(prompt.length)
+    expect(api.query).toMatchObject({ kind: 'command', start: 9, query: 'portrait' })
+  })
 })
 
 describe('提示词编辑器 · 复制粘贴', () => {
-  it('应用内复制再粘贴，引用还是引用；外部应用拿到的是可见标签', () => {
+  /** 目标输入框条里有两张图。 */
+  const twoImages: MentionLabelResolver = (index) => ['@图1', '@图2'][index] ?? null
+
+  /** 把整段选中复制出来。 */
+  function copyAll(): StubClipboard {
     const clipboard = stubClipboard()
-    mount(<Harness initial={`前${MENTION_1}后`} labels={oneImage} />)
     const source = editor()
     source.focus()
-    act(() => setContentEditableSelection(source, { start: 0, end: '前@图1后'.length }))
+    act(() => setContentEditableSelection(source, { start: 0, end: api.visible.length }))
     fire(source, 'copy', clipboard)
+    return clipboard
+  }
 
+  function copyOneMention(): StubClipboard {
+    mount(<Harness initial={`前${MENTION_1}后`} labels={oneImage} referenceIds={['img-a']} />)
+    return copyAll()
+  }
+
+  it('同一个输入框里复制再粘贴，引用还是引用；外部应用拿到的是可见标签', () => {
+    const clipboard = copyOneMention()
     expect(clipboard.getData('text/plain')).toBe('前@图1后')
-    expect(clipboard.getData(PROMPT_CLIPBOARD_TYPE)).toBe(`前${MENTION_1}后`)
 
-    mount(<Harness key="target" initial="" labels={oneImage} />)
+    mount(<Harness key="target" initial="" labels={oneImage} referenceIds={['img-a']} />)
     fire(editor(), 'paste', clipboard)
 
     const chip = editor().querySelector<HTMLElement>('.mention-tag')
     expect(chip?.dataset.mentionText).toBe(MENTION_1)
+    expect(editor().textContent).toBe('前@图1后')
+  })
+
+  it('粘到另一个输入框时按图片身份重挂序号，不照搬序号', () => {
+    const clipboard = copyOneMention()
+
+    // 目标输入框的 1 号位是另一张图，复制走的那张排在 2 号位。
+    mount(<Harness key="target" initial="" labels={twoImages} referenceIds={['img-b', 'img-a']} />)
+    fire(editor(), 'paste', clipboard)
+
+    const chip = editor().querySelector<HTMLElement>('.mention-tag')
+    expect(chip?.dataset.mentionText).toBe(getSelectedImageMentionLabel(1))
+    expect(editor().textContent).toBe('前@图2后')
+  })
+
+  it('目标输入框没有这张图时，引用降级成它复制时的文字', () => {
+    const clipboard = copyOneMention()
+
+    mount(<Harness key="target" initial="" labels={oneImage} referenceIds={['img-b']} />)
+    fire(editor(), 'paste', clipboard)
+
+    expect(editor().querySelector('.mention-tag')).toBeNull()
+    expect(editor().textContent).toBe('前@图1后')
+  })
+
+  it('认不出的那一份应用内负载按纯文本粘', () => {
+    const clipboard = stubClipboard()
+    // 旧版本页面写的是哨兵原文，不是这一版的负载；认不出就得退回可见标签，不能把整次粘贴丢掉。
+    clipboard.setData(PROMPT_CLIPBOARD_TYPE, `前${MENTION_1}后`)
+    clipboard.setData('text/plain', '前@图1后')
+    mount(<Harness initial="" labels={oneImage} referenceIds={['img-a']} />)
+    fire(editor(), 'paste', clipboard)
+
+    expect(editor().querySelector('.mention-tag')).toBeNull()
     expect(editor().textContent).toBe('前@图1后')
   })
 
@@ -279,5 +354,46 @@ describe('提示词编辑器 · 输入法', () => {
     })
 
     expect(keys).toEqual(['Enter'])
+  })
+
+  it('整段上屏的 input 排在组字结束前：槽位在组字结束后变成胶囊，光标不动', () => {
+    const typed = '画一只{颜色}'
+    mount(<Harness initial="画一只" slotValues={{ 颜色: ['红'] }} />)
+    const el = editor()
+    el.focus()
+    act(() => {
+      el.dispatchEvent(new Event('compositionstart', { bubbles: true }))
+    })
+    // 有些输入法把整段上屏的 input 排在 compositionend 前面，那一次还带着组字标记。
+    typeInto((target) => {
+      target.textContent = typed
+      setContentEditableCursor(target, typed.length)
+    })
+    act(() => {
+      el.dispatchEvent(new Event('compositionend', { bubbles: true }))
+    })
+
+    expect(editor().querySelector<HTMLElement>('.slot-tag')?.dataset.slotName).toBe('颜色')
+    expect(getContentEditableSelection(editor()).start).toBe(typed.length)
+  })
+
+  it('整段上屏的 input 排在组字结束后：上屏的字不会被旧提示词盖掉', () => {
+    const typed = '画一只{颜色}'
+    mount(<Harness initial="画一只" slotValues={{ 颜色: ['红'] }} />)
+    const el = editor()
+    el.focus()
+    // 另一种顺序：浏览器先把上屏的字写进 DOM 再发 compositionend，input 最后才到。
+    act(() => {
+      el.dispatchEvent(new Event('compositionstart', { bubbles: true }))
+      el.textContent = typed
+      setContentEditableCursor(el, typed.length)
+      el.dispatchEvent(new Event('compositionend', { bubbles: true }))
+    })
+    // 浏览器最后补发的那一次 input：DOM 已经是上屏后的样子。
+    typeInto(() => {})
+
+    expect(editor().textContent).toBe(typed)
+    expect(editor().querySelector<HTMLElement>('.slot-tag')?.dataset.slotName).toBe('颜色')
+    expect(getContentEditableSelection(editor()).start).toBe(typed.length)
   })
 })

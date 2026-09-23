@@ -247,6 +247,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const promptEditor = usePromptEditor({
     value: prompt,
     labels: mentionLabels,
+    referenceIds: inputImages.map((image) => image.id),
     onChange: setPrompt,
     slotValues,
     command: skillCommand,

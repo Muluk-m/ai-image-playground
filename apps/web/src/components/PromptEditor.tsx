@@ -25,6 +25,8 @@ import {
   getAtImageQuery,
   getMentionedImageIndexes,
   getPromptIndexFromVisibleIndex,
+  getPromptMentionParts,
+  getSelectedImageMentionLabel,
   getVisiblePrompt,
   isCursorInSelectedImageMention,
   type MentionLabelResolver,
@@ -32,12 +34,52 @@ import {
 import { getPromptSlotNames, type SlotValues } from '../lib/promptSlots'
 
 /**
- * 应用内的复制粘贴带的是**存储形态**（哨兵），粘回来引用还是引用；`text/plain` 只放可见标签，
- * 给外部应用看。粘贴优先认这一种，没有才退回纯文本。
+ * 应用内复制粘贴自带的那一份：引用按**图片身份**记，粘到别处按目标输入框的序号重挂，
+ * 认不出的那张降级成复制时的显示文字。`text/plain` 只放可见标签，给外部应用看。
+ * 粘贴优先认这一种，没有才退回纯文本。
  */
 export const PROMPT_CLIPBOARD_TYPE = 'application/x-aip-prompt'
 
+type PromptClipboardPart =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'mention'; readonly imageId: string; readonly label: string }
+
+/** 剪贴板里的这一段可能来自任何页面，逐项验过再用。 */
+function readClipboardParts(raw: string): readonly PromptClipboardPart[] | null {
+  if (!raw) return null
+  let parts: unknown
+  try {
+    parts = (JSON.parse(raw) as { parts?: unknown } | null)?.parts
+  } catch {
+    return null
+  }
+  if (!Array.isArray(parts)) return null
+  const valid = parts.every((part: Partial<PromptClipboardPart> | null) =>
+    part?.type === 'text'
+      ? typeof part.text === 'string'
+      : part?.type === 'mention' &&
+        typeof part.imageId === 'string' &&
+        typeof part.label === 'string',
+  )
+  return valid ? (parts as PromptClipboardPart[]) : null
+}
+
+/** 引用按图片身份重挂到本输入框的序号；这里没有这张图就退回它复制时的文字。 */
+function promptFromClipboard(
+  parts: readonly PromptClipboardPart[],
+  referenceIds: readonly string[],
+): string {
+  return parts
+    .map((part) => {
+      if (part.type === 'text') return part.text
+      const index = referenceIds.indexOf(part.imageId)
+      return index >= 0 ? getSelectedImageMentionLabel(index) : part.label
+    })
+    .join('')
+}
+
 const NO_SLOT_VALUES: SlotValues = {}
+const NO_REFERENCE_IDS: readonly string[] = []
 
 /** 光标处正在打的 `@` 引用或 `/` 命令；菜单装什么归调用方。 */
 export interface PromptEditorQuery {
@@ -56,6 +98,11 @@ export interface PromptEditorOptions {
   readonly value: string
   readonly labels: MentionLabelResolver
   readonly onChange: (prompt: string) => void
+  /**
+   * 按引用序号排列的参考图身份。复制时随引用一起进剪贴板，粘贴时按它把序号重挂到本输入框——
+   * 序号只在一个输入框里成立，照搬会悄悄指到另一张图上。
+   */
+  readonly referenceIds?: readonly string[]
   /** 槽位胶囊的 ×k 角标；不用槽位的输入框不必传。 */
   readonly slotValues?: SlotValues
   /** 开头要提升成胶囊的命令原文；什么算一条完整命令由调用方判断。 */
@@ -352,6 +399,22 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     optionsRef.current.onEdit?.()
   }
 
+  /**
+   * 组字结束时以 DOM 里落下的那一段为准：组字期间的 input 都按回显跳过了，DOM 没重画过，
+   * 而整段上屏的字未必已经进了提示词（有的输入法把那次 input 排在 compositionend 后面），
+   * 按 value 重画会把刚上屏的字盖掉。重画这一次，刚上屏的槽位与命令才会变成胶囊。
+   */
+  const onCompositionEnd = () => {
+    composingRef.current = false
+    const el = ref.current
+    if (!el) return
+    const text = getContentEditablePlainText(el)
+    typedRef.current = null
+    caretRef.current = getContentEditableSelection(el).start
+    setRevision((current) => current + 1)
+    if (text !== optionsRef.current.value) optionsRef.current.onChange(text)
+  }
+
   const onSelect = () => {
     const el = ref.current
     if (!el) return
@@ -372,13 +435,20 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
   }
 
   const writeClipboard = (event: ClipboardEvent<HTMLDivElement>) => {
-    const { value: prompt, labels: labelFor } = optionsRef.current
+    const { value: prompt, labels: labelFor, referenceIds = NO_REFERENCE_IDS } = optionsRef.current
     const selection = getContentEditableSelection(event.currentTarget)
     if (selection.start === selection.end) return null
     const from = getPromptIndexFromVisibleIndex(prompt, selection.start, labelFor)
     const to = getPromptIndexFromVisibleIndex(prompt, selection.end, labelFor)
     const canonical = prompt.slice(from, to)
-    event.clipboardData.setData(PROMPT_CLIPBOARD_TYPE, canonical)
+    // 序号换成图片身份：粘到别的输入框才认得出是同一张图，认不出就留下这一刻的显示文字。
+    const parts = getPromptMentionParts(canonical, labelFor).map<PromptClipboardPart>((part) => {
+      const imageId = part.type === 'mention' ? referenceIds[part.imageIndex] : undefined
+      return imageId
+        ? { type: 'mention', imageId, label: part.text }
+        : { type: 'text', text: part.text }
+    })
+    event.clipboardData.setData(PROMPT_CLIPBOARD_TYPE, JSON.stringify({ parts }))
     event.clipboardData.setData('text/plain', getVisiblePrompt(canonical, labelFor))
     event.preventDefault()
     return selection
@@ -397,9 +467,10 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     optionsRef.current.onPaste?.(event)
     if (event.defaultPrevented) return
     event.preventDefault()
-    const canonical = clipboardText(event.clipboardData, PROMPT_CLIPBOARD_TYPE)
-    const text =
-      canonical || clipboardText(event.clipboardData, 'text/plain').replace(/\r\n?/g, '\n')
+    const parts = readClipboardParts(clipboardText(event.clipboardData, PROMPT_CLIPBOARD_TYPE))
+    const text = parts
+      ? promptFromClipboard(parts, optionsRef.current.referenceIds ?? NO_REFERENCE_IDS)
+      : clipboardText(event.clipboardData, 'text/plain').replace(/\r\n?/g, '\n')
     if (!text) return
     const selection = getContentEditableSelection(event.currentTarget)
     replaceRange(selection.start, selection.end, text)
@@ -412,8 +483,8 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     if (mention) {
       return { kind: 'mention', ...mention, cursor: caret.start, left: caret.left }
     }
-    // 已经提升成胶囊的命令是一个整体，光标停在它里面不再开菜单。
-    if (command) return null
+    // 已经提升成胶囊的命令是一个整体：光标停在它里面才不开菜单，句中后面的 `/` 照常查询。
+    if (command && caret.start > 0 && caret.start <= command.length) return null
     const parsed = options.parseCommand?.(visible, caret.start)
     return parsed ? { kind: 'command', ...parsed, cursor: caret.start, left: caret.left } : null
   })()
@@ -448,9 +519,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
       onCompositionStart: () => {
         composingRef.current = true
       },
-      onCompositionEnd: () => {
-        composingRef.current = false
-      },
+      onCompositionEnd,
     },
   }
 }
