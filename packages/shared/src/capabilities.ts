@@ -7,11 +7,6 @@ export const CAPABILITIES = {
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'agent:chat': { defaultValue: false, clientExposed: true },
-  /**
-   * 智能体的联网工具：搜索（经上游网关 Responses 的 `web_search`）、抓取网页、取网图。
-   * 服务端代用户访问外网，所以默认关；取网图另需登录与 `accounts:sync`（存进用户媒体）。
-   */
-  'agent:web': { defaultValue: false, clientExposed: false },
   'billing:credits': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
@@ -30,6 +25,8 @@ export const CAPABILITIES = {
  * 不要复用这些名字表示新能力。
  */
 export const RETIRED_CAPABILITIES: readonly string[] = [
+  // 联网工具（搜索 / 抓网页 / 取网图 / 抓商品图）不再由能力开关控制，随部署默认在场。
+  'agent:web',
   'generation:storyboard',
   'matte:server',
   'remix:analyze',
