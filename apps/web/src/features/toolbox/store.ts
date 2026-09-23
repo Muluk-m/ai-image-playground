@@ -23,6 +23,7 @@ export interface ToolboxItem {
 const bitmaps = new Map<string, ImageBitmap>()
 /** 原文件：处理后反而更大时，交出去的就是它本身。 */
 const originals = new Map<string, File>()
+let intakeVersion = 0
 
 export function toolSource(item: ToolboxItem): ToolSource | null {
   const bitmap = bitmaps.get(item.id)
@@ -58,6 +59,7 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
   // 逐张解码：一次 Promise.all 几十张 4000px 的图会把内存峰值顶上去。
   // `createImageBitmap` 默认按 EXIF 摆正，后面的工具拿到的都是已经正过来的像素。
   add: async (files) => {
+    const version = intakeVersion
     for (const file of files) {
       const id = crypto.randomUUID()
       const base = {
@@ -75,6 +77,13 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
         item = { ...base, width: bitmap.width, height: bitmap.height, decodable: true }
       } catch {
         item = { ...base, width: 0, height: 0, decodable: false }
+      }
+      if (version !== intakeVersion) {
+        bitmaps.get(id)?.close()
+        bitmaps.delete(id)
+        originals.delete(id)
+        URL.revokeObjectURL(base.url)
+        return
       }
       set((state) => ({ items: [...state.items, item] }))
     }
@@ -94,6 +103,7 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
       return { items }
     }),
   clear: () => {
+    intakeVersion++
     for (const item of get().items) releaseItem(item)
     set({ items: [] })
   },

@@ -37,13 +37,13 @@ export interface EncodedImage {
   blob: Blob
   /** 真实出来的格式，不是请求的那个。 */
   type: string
-  /** 浏览器编不出所选格式，给了别的。 */
+  /** 兼容性角标用；选择的格式编不出时本模块会报错，不返回错误格式。 */
   fellBack: boolean
 }
 
 /**
- * 编码一张画布。先让 canvas 原生编（快、不下载任何东西）；拿回来的格式不对——Safari 的 WebP、
- * 全平台的 AVIF——就交给 wasm 编码器，真实格式与所选一致。wasm 也失败时才照实标「已回退」。
+ * 先用浏览器编码；Safari 的 WebP、全平台的 AVIF 由按需加载的 wasm 补齐。
+ * 两个编码器都失败时必须报错，不能把 PNG 伪装成所选格式交给用户。
  */
 export async function encodeCanvas(
   canvas: HTMLCanvasElement,
@@ -51,15 +51,10 @@ export async function encodeCanvas(
   quality?: number,
 ): Promise<EncodedImage> {
   const blob = await canvasToBlob(canvas, type, quality)
-  // 老浏览器偶尔给回空 type；那种情况按请求的算，别在卡片上凭空标一个回退。
-  const actual = blob.type || type
+  const actual = blob.type
   if (actual === type) return { blob, type, fellBack: false }
   if (type === 'image/webp' || type === 'image/avif') {
-    try {
-      return { blob: await encodeWithWasm(canvas, type, quality ?? 0.8), type, fellBack: false }
-    } catch {
-      // 编码器没下载下来：给用户 canvas 那一份，并照实标出来。
-    }
+    return { blob: await encodeWithWasm(canvas, type, quality ?? 0.8), type, fellBack: false }
   }
-  return { blob, type: actual, fellBack: true }
+  throw new Error(`Unsupported image encoder: ${type}`)
 }

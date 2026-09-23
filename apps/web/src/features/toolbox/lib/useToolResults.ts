@@ -27,12 +27,19 @@ export function useToolResults(
   items: readonly ToolboxItem[],
   run: (source: ToolSource) => Promise<ToolOutput>,
 ): { results: Map<string, ToolResult>; busy: boolean } {
-  const [results, setResults] = useState<Map<string, ToolResult>>(new Map())
+  const [snapshot, setSnapshot] = useState<{
+    items: readonly ToolboxItem[]
+    run: typeof run
+    results: Map<string, ToolResult>
+  }>(() => ({ items, run, results: new Map() }))
   const [busy, setBusy] = useState(false)
   const urls = useRef(new Map<string, string>())
 
   useEffect(() => {
     let cancelled = false
+    // The previous recipe's blobs must never become exportable for the new one.
+    setSnapshot({ items, run, results: new Map() })
+    setBusy(items.length > 0)
     const timer = setTimeout(async () => {
       setBusy(true)
       for (const item of items) {
@@ -51,10 +58,19 @@ export function useToolResults(
             urls.current.set(item.id, url)
             next = { status: 'done', output, url }
           } catch (error) {
+            if (cancelled) return
             next = { status: 'failed', failure: toFailure(error) }
           }
         }
-        setResults((prev) => new Map(prev).set(item.id, next))
+        if (cancelled) return
+        setSnapshot((prev) => ({
+          items,
+          run,
+          results: new Map(prev.items === items && prev.run === run ? prev.results : []).set(
+            item.id,
+            next,
+          ),
+        }))
       }
       if (!cancelled) setBusy(false)
     }, DEBOUNCE_MS)
@@ -73,5 +89,8 @@ export function useToolResults(
     }
   }, [])
 
-  return { results, busy }
+  return {
+    results: snapshot.items === items && snapshot.run === run ? snapshot.results : new Map(),
+    busy: busy || snapshot.items !== items || snapshot.run !== run,
+  }
 }

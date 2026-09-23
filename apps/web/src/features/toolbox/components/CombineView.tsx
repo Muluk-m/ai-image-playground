@@ -24,10 +24,15 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
     () => items.filter((item) => item.decodable).slice(0, sourceLimit ?? items.length),
     [items, sourceLimit],
   )
-  const [state, setState] = useState<CombineState>({ status: 'pending' })
+  const [snapshot, setSnapshot] = useState<{
+    used: typeof used
+    combine: typeof combine
+    value: CombineState
+  }>(() => ({ used, combine, value: { status: 'pending' } }))
   const urls = useRef<string[]>([])
 
   useEffect(() => {
+    setSnapshot({ used, combine, value: { status: 'pending' } })
     const sources = used.flatMap((item) => toolSource(item) ?? [])
     if (sources.length === 0) return
     let cancelled = false
@@ -38,15 +43,19 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
         for (const url of urls.current) URL.revokeObjectURL(url)
         const withUrls = outputs.map((out) => ({ ...out, url: URL.createObjectURL(out.blob) }))
         urls.current = withUrls.map((out) => out.url)
-        setState({ status: 'done', outputs: withUrls })
+        setSnapshot({ used, combine, value: { status: 'done', outputs: withUrls } })
       } catch (error) {
         if (cancelled) return
-        setState({
-          status: 'failed',
-          failure:
-            error instanceof CanvasLimitError
-              ? { code: 'canvasLimit', width: error.width, height: error.height }
-              : { code: 'failed' },
+        setSnapshot({
+          used,
+          combine,
+          value: {
+            status: 'failed',
+            failure:
+              error instanceof CanvasLimitError
+                ? { code: 'canvasLimit', width: error.width, height: error.height }
+                : { code: 'failed' },
+          },
         })
       }
     }, 250)
@@ -63,7 +72,10 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
     }
   }, [])
 
-  // 图都被移走后，上一次的合成结果不能还挂在下载按钮上。
+  const state =
+    snapshot.used === used && snapshot.combine === combine
+      ? snapshot.value
+      : ({ status: 'pending' } as const)
   const outputs = state.status === 'done' && used.length > 0 ? state.outputs : []
   const name = t(`tool.${tool.id}.name`)
   const deliverables = outputs.map((out, index) => ({
