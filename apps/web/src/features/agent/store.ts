@@ -23,7 +23,10 @@ import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
-import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
+import {
+  notifyPrivateSubmissionError,
+  notifyPrivateSubmissionSettled,
+} from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import type { CanvasProject } from '../canvas/lib/projectRepository'
@@ -487,6 +490,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
     jobDeliveries.set(card.id, handle)
   }
 
+  /**
+   * 钱不够导致的失败当场把开通/充值面板叫出来。
+   *
+   * 失败卡片上本来就有「去充值」，但那要用户先看见那张卡、再看懂那句话、再去点。
+   * 余额见底不是这一次生成的问题，是账户的问题：不当场说清，用户只会当成又一次
+   * 生成失败，接着一遍遍重试，每次都失败。没有计费 overlay 的部署里这是空操作。
+   */
+  const promptRechargeIfBroke = (code: string | undefined) => {
+    if (code === 'insufficient_credits' || code === 'quota_exceeded')
+      notifyPrivateSubmissionError({ insufficientCredits: true })
+  }
+
   /** 一个后台任务到了终局：结果卡换成终局，产物按产物交付落画布，失败就在占位上标错。 */
   const settleJob = (job: AgentBackgroundJobView, conversationId: string) => {
     const shown = get().messages.find((message) => message.id === job.messageId)
@@ -520,6 +535,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       handle.discard(card.id)
     else if (card.status === 'failed') {
       handle.failed(card.id, card.message, failureCodeOf(card))
+      promptRechargeIfBroke(failureCodeOf(card))
       coverRefusedSlot(card)
     } else if (deliverable(card)) handle.enqueue(card)
     else handle.discard(card.id)
@@ -625,9 +641,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
           jobDeliveries.set(event.messageId, turnDelivery.handOff(event.messageId))
         }
         watchJobs(conversationId)
-      } else if (event.status === 'failed' && card.kind === 'tool')
+      } else if (event.status === 'failed' && card.kind === 'tool') {
         turnDelivery.failed(event.messageId, event.message, card.errorCode)
-      else if (card.kind === 'tool' && deliverable(card)) turnDelivery.enqueue(card)
+        promptRechargeIfBroke(card.errorCode)
+      } else if (card.kind === 'tool' && deliverable(card)) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }
   }

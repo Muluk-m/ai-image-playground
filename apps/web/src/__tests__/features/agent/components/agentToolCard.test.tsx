@@ -300,7 +300,7 @@ describe('失败卡按错误码给出路', () => {
     Array.from(host.querySelectorAll('button')).map((button) => button.textContent)
 
   it.each([
-    ['insufficient_credits', '积分不够，这次没有提交', '去充值'],
+    ['insufficient_credits', '积分不够，这次没有生成', '去充值'],
     ['quota_exceeded', '今天的生成额度已经用完', '去充值'],
     ['authentication_required', '需要先登录才能生成', '去登录'],
     ['invalid_params', '这次的参数不成立，没有提交', '让助手重新处理'],
