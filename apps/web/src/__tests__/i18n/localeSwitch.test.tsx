@@ -6,6 +6,7 @@ import { LoginDialog } from '../../auth/LoginDialog'
 import DisplaySettingsMenuItems from '../../components/DisplaySettingsMenuItems'
 import { type AppLocale, i18next, setLocale } from '../../i18n'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
+import { pointer, stubPointerApis } from '../helpers/radix'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -17,12 +18,11 @@ let host: HTMLDivElement
 let root: Root
 
 /**
- * 语言开关在头像菜单里（登录框自己不带显示设置）。这里直接渲染那两行菜单项，
- * 它按 SUPPORTED_LOCALES 顺序翻到下一个语言。
+ * 语言下拉在头像菜单里（登录框自己不带显示设置）。这里直接渲染那两行，
  */
-function localeToggle(): HTMLButtonElement {
-  const element = host.querySelector<HTMLButtonElement>('[data-display-setting="locale"]')
-  if (!element) throw new Error('missing locale toggle')
+function localeTrigger(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-display-setting="locale"]')
+  if (!element) throw new Error('missing locale control')
   return element
 }
 
@@ -32,6 +32,7 @@ function dialogText(): string {
 
 /** 切换是异步的（英文语料要先落地），等 i18next 自己宣布切完，别赌微任务轮数。 */
 function whenLanguageChanged(target: AppLocale): Promise<void> {
+  // tsconfig 的 lib 是 ES2020，没有 Promise.withResolvers。
   return new Promise((resolve) => {
     const onChanged = (language: string): void => {
       if (language !== target) return
@@ -42,10 +43,19 @@ function whenLanguageChanged(target: AppLocale): Promise<void> {
   })
 }
 
+/** 选项 portal 到 body 上，所以从 document 找。 */
 async function chooseLocale(value: AppLocale): Promise<void> {
   const changed = whenLanguageChanged(value)
+  act(() => {
+    localeTrigger().dispatchEvent(pointer('pointerdown'))
+  })
+  const option = document.querySelector(`[role="option"][data-locale="${value}"]`)
+  if (!option) throw new Error(`missing option ${value}`)
+  act(() => {
+    option.dispatchEvent(pointer('pointermove'))
+    option.dispatchEvent(pointer('pointerup'))
+  })
   await act(async () => {
-    localeToggle().click()
     await changed
   })
 }
@@ -62,6 +72,7 @@ async function renderLoginSurface(): Promise<void> {
 }
 
 beforeEach(() => {
+  stubPointerApis()
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://api.example.com' } })
   window.history.replaceState(null, '', '/')
   localStorage.clear()
@@ -95,7 +106,7 @@ describe('locale switching', () => {
     expect(dialogText()).toContain('By signing in you agree to our terms of service')
     expect(dialogText()).not.toContain('欢迎回来')
     expect(document.documentElement.lang).toBe('en')
-    expect(localeToggle().textContent).toContain('English')
+    expect(localeTrigger().textContent).toContain('English')
   })
 
   it('remembers the choice for the next visit', async () => {

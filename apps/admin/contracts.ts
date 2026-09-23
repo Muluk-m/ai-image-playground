@@ -20,6 +20,23 @@ export const RANGE_LABEL: Record<Range, string> = {
   '30d': '30 天',
 }
 
+export const OPS_RANGES = ['1h', '6h', '24h', '7d'] as const
+export type OpsRange = (typeof OPS_RANGES)[number]
+export const DEFAULT_OPS_RANGE: OpsRange = '7d'
+
+export function parseOpsRange(value: unknown): OpsRange {
+  return typeof value === 'string' && (OPS_RANGES as readonly string[]).includes(value)
+    ? (value as OpsRange)
+    : DEFAULT_OPS_RANGE
+}
+
+export const OPS_RANGE_LABEL: Record<OpsRange, string> = {
+  '1h': '1 小时',
+  '6h': '6 小时',
+  '24h': '24 小时',
+  '7d': '7 天',
+}
+
 export const SORT_LABEL: Record<SortKey, string> = {
   last_seen: '最近活跃',
   today_count: '今日任务',
@@ -109,6 +126,7 @@ export interface AdminUserRow {
   created_at: number
   updated_at: number
   last_login_at: number | null
+  login_methods: string[]
   last_task_at: number | null
   last_activity_at: number | null
   active_sessions: number
@@ -306,8 +324,10 @@ export interface OpsDeployments {
 export interface OpsHost {
   /** 最近一次读数；一条采样都没有（采集容器没启用）时是 null。 */
   latest: HostSample | null
-  /** 近 7 天，按半小时取平均，从旧到新。看的是趋势：一直这么高，还是一天涨了十几个 G。 */
+  /** 选定时间窗内的降采样趋势，从旧到新。 */
   series: OpsHostPoint[]
+  /** 服务端降采样桶宽；前端据此识别真正断采样的空档。 */
+  bucket_ms: number
 }
 
 export interface OpsSnapshot {

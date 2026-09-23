@@ -557,14 +557,6 @@ interface AppState {
   // 参数
   params: TaskParams
   setParams: (p: Partial<TaskParams>) => void
-  reusedTaskApiProfileId: string | null
-  reusedTaskApiProfileName: string | null
-  reusedTaskApiProfileMissing: boolean
-  setReusedTaskApiProfile: (
-    profileId: string | null,
-    missing?: boolean,
-    profileName?: string | null,
-  ) => void
 
   // 任务列表：只有本机自己跑的那些。平台记录是缓存，见 `lib/platformGenerations`。
   tasks: TaskRecord[]
@@ -661,22 +653,7 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       // Settings
       settings: { ...DEFAULT_SETTINGS },
-      setSettings: (s) =>
-        set((st) => {
-          const settings = normalizeSettings({ ...st.settings, ...s })
-          const shouldClearReusedProfile =
-            st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
-          return {
-            settings,
-            ...(shouldClearReusedProfile
-              ? {
-                  reusedTaskApiProfileId: null,
-                  reusedTaskApiProfileName: null,
-                  reusedTaskApiProfileMissing: false,
-                }
-              : {}),
-          }
-        }),
+      setSettings: (s) => set((st) => ({ settings: normalizeSettings({ ...st.settings, ...s }) })),
 
       // Input
       prompt: '',
@@ -776,15 +753,6 @@ export const useStore = create<AppState>()(
       params: { ...DEFAULT_PARAMS },
       setParams: (p) =>
         set((s) => ({ params: { ...s.params, ...p, moderation: DEFAULT_PARAMS.moderation } })),
-      reusedTaskApiProfileId: null,
-      reusedTaskApiProfileName: null,
-      reusedTaskApiProfileMissing: false,
-      setReusedTaskApiProfile: (profileId, missing = false, profileName = null) =>
-        set({
-          reusedTaskApiProfileId: profileId,
-          reusedTaskApiProfileName: profileName,
-          reusedTaskApiProfileMissing: missing,
-        }),
 
       // Tasks
       tasks: [],
@@ -1073,18 +1041,6 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ClientProfi
     profiles: nextProfiles,
     activeProfileId: profile.id,
   })
-}
-
-function getReusedTaskApiProfile(
-  settings: AppSettings,
-  profileId: string | null,
-): ClientProfile | null {
-  if (!profileId) return null
-  return normalizeSettings(settings).profiles.find((profile) => profile.id === profileId) ?? null
-}
-
-function getTaskApiProfileName(task: TaskRecord) {
-  return task.apiProfileName || task.apiModel || i18next.t('profile.unknown', { ns: 'store' })
 }
 
 function isConnectionRecoverableError(err: unknown) {
@@ -1474,9 +1430,7 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
 }
 
 /** 提交新任务 */
-export async function submitTask(
-  options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {},
-) {
+export async function submitTask(options: { allowFullMask?: boolean } = {}) {
   const {
     settings,
     prompt,
@@ -1484,45 +1438,13 @@ export async function submitTask(
     inputImages,
     maskDraft,
     params,
-    reusedTaskApiProfileId,
-    reusedTaskApiProfileName,
-    reusedTaskApiProfileMissing,
     showToast,
     setConfirmDialog,
   } = useStore.getState()
 
   const normalizedSettings = normalizeSettings(settings)
-  let activeProfile = getActiveApiProfile(settings)
-  let requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
-  if (
-    normalizedSettings.reuseTaskApiProfileTemporarily &&
-    (reusedTaskApiProfileId || reusedTaskApiProfileMissing)
-  ) {
-    const reusedProfile = getReusedTaskApiProfile(normalizedSettings, reusedTaskApiProfileId)
-    if (!reusedProfile) {
-      if (options.useCurrentApiProfileWhenReusedMissing) {
-        useStore.getState().setReusedTaskApiProfile(null)
-      } else {
-        setConfirmDialog({
-          title: i18next.t('reuseProfile.missingTitle', { ns: 'store' }),
-          message: i18next.t('reuseProfile.missingMessage', {
-            ns: 'store',
-            taskProfile: reusedTaskApiProfileName || i18next.t('profile.unknown', { ns: 'store' }),
-            currentProfile: clientProfileToApiProfile(activeProfile).name,
-          }),
-          confirmText: i18next.t('reuseProfile.confirm', { ns: 'store' }),
-          cancelText: i18next.t('reuseProfile.cancel', { ns: 'store' }),
-          action: () => {
-            void submitTask({ ...options, useCurrentApiProfileWhenReusedMissing: true })
-          },
-        })
-        return
-      }
-    } else {
-      activeProfile = reusedProfile
-      requestSettings = createSettingsForApiProfile(normalizedSettings, reusedProfile)
-    }
-  }
+  const activeProfile = getActiveApiProfile(settings)
+  const requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
 
   const unfilledSlots = getUnfilledPromptSlots(prompt, slotValues)
   if (unfilledSlots.length > 0) {
@@ -1596,7 +1518,6 @@ export async function submitTask(
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
   }
-  useStore.getState().setReusedTaskApiProfile(null)
 
   // 滚出顶部时把视口平滑滚回，让新卡片即刻可见。已在顶部时无需动。
   if (typeof window !== 'undefined' && window.scrollY > SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX) {
@@ -2031,35 +1952,13 @@ async function reuseLocalConfig(task: TaskRecord) {
     setMaskDraft,
     clearMaskDraft,
     showToast,
-    setConfirmDialog,
-    setReusedTaskApiProfile,
   } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
-  const currentProfile = getActiveApiProfile(settings)
-  const currentView = clientProfileToApiProfile(currentProfile)
-  const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily
-    ? getTaskApiProfile(normalizedSettings, task)
-    : null
-  const matchedView = matchedProfile ? clientProfileToApiProfile(matchedProfile) : null
-  const shouldTemporarilyReuseProfile = Boolean(
-    matchedProfile && matchedProfile.id !== currentProfile.id,
-  )
-  const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
-  const taskProfileName = matchedView?.name ?? getTaskApiProfileName(task)
-  const paramsSettings =
-    shouldTemporarilyReuseProfile && matchedProfile
-      ? createSettingsForApiProfile(normalizedSettings, matchedProfile)
-      : normalizedSettings
 
   setParams(
-    normalizeParamsForSettings(task.params, paramsSettings, {
+    normalizeParamsForSettings(task.params, normalizedSettings, {
       hasInputImages: task.inputImageIds.length > 0,
     }),
-  )
-  setReusedTaskApiProfile(
-    shouldTemporarilyReuseProfile && matchedProfile ? matchedProfile.id : null,
-    missingReusedProfile,
-    taskProfileName,
   )
   clearMaskDraft()
 
@@ -2089,31 +1988,10 @@ async function reuseLocalConfig(task: TaskRecord) {
   } else {
     clearMaskDraft()
   }
-  if (missingReusedProfile) {
-    setConfirmDialog({
-      title: i18next.t('reuseProfile.missingTitle', { ns: 'store' }),
-      message: i18next.t('reuseProfile.missingMessage', {
-        ns: 'store',
-        taskProfile: taskProfileName,
-        currentProfile: currentView.name,
-      }),
-      confirmText: i18next.t('reuseProfile.confirm', { ns: 'store' }),
-      cancelText: i18next.t('reuseProfile.cancel', { ns: 'store' }),
-      action: () => {
-        void submitTask({ useCurrentApiProfileWhenReusedMissing: true })
-      },
-    })
-    return
-  }
   // 复用出来的提示词与参数落在生图入口的输入框里，作品入口没有它，不切过去就只剩一句 toast。
   useStore.getState().setAppMode('image')
 
-  showToast(
-    shouldTemporarilyReuseProfile && matchedView
-      ? i18next.t('toast.profileReused', { ns: 'store', profile: matchedView.name })
-      : i18next.t('toast.configReused', { ns: 'store' }),
-    'success',
-  )
+  showToast(i18next.t('toast.configReused', { ns: 'store' }), 'success')
 }
 
 /**

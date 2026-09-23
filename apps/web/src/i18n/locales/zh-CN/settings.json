@@ -3,21 +3,21 @@
     "title": "设置"
   },
   "tab": {
-    "general": "习惯配置",
-    "api": "API 配置",
-    "data": "数据管理"
+    "general": "通用",
+    "api": "API",
+    "data": "数据"
+  },
+  "section": {
+    "behavior": "使用习惯",
+    "account": "账号"
   },
   "general": {
     "submitShortcut": "任务提交方式",
-    "submitShortcutHint": "选择 Enter 提交时，使用 Shift + Enter 换行；否则直接 Enter 换行。",
+    "newlineWithShift": "Shift + Enter 换行",
+    "newlineWithEnter": "Enter 换行",
     "clearInputAfterSubmit": "提交任务后清空输入框",
-    "clearInputAfterSubmitHint": "开启后，提交成功创建任务时会清空提示词和参考图。",
-    "persistInput": "重启后加载上次的输入框",
-    "persistInputHint": "关闭后，不再持久化提示词和参考图，下次启动会使用空输入框。",
-    "reuseTaskProfile": "复用配置时临时复用该任务的 API 配置",
-    "reuseTaskProfileHint": "开启后，复用历史任务时会临时使用该任务的 API 配置，找不到该配置时提交会提示；关闭后，会继续使用当前的 API 配置。",
-    "alwaysShowRetry": "成功任务仍然展示重试按钮",
-    "alwaysShowRetryHint": "开启后，即使任务成功生成，也会在任务卡片和详情页显示重试按钮。"
+    "persistInput": "重启后恢复上次的输入",
+    "alwaysShowRetry": "成功任务仍然展示重试按钮"
   },
   "profile": {
     "current": "当前配置",
@@ -27,7 +27,6 @@
     "duplicateAria": "复制一份配置「{{name}}」",
     "copyImportUrl": "复制导入 URL",
     "copyImportUrlFor": "复制导入配置「{{name}}」的 URL",
-    "dragToReorder": "拖拽排序",
     "builtinBadge": "内置",
     "builtinModel": "内置模型",
     "delete": "删除配置",
@@ -94,7 +93,6 @@
     "createAndUse": "创建并使用"
   },
   "data": {
-    "notice": "所有的配置、任务记录和生成的图片均仅保存在您的浏览器本地（除非您使用的服务商存储了它们）。如果您需要清理浏览器站点数据、重置浏览器或使用其他设备，请先导出备份。",
     "exportTitle": "导出数据",
     "importTitle": "导入数据",
     "clearTitle": "清除数据",

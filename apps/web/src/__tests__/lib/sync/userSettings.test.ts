@@ -22,7 +22,6 @@ beforeEach(() => {
       customProviders: [],
       clearInputAfterSubmit: false,
       persistInputOnRestart: true,
-      reuseTaskApiProfileTemporarily: false,
       alwaysShowRetryButton: false,
       enterSubmit: false,
       profiles: [
@@ -91,7 +90,6 @@ describe('the user settings document', () => {
       'params',
       'persistInputOnRestart',
       'pinnedInspirationIds',
-      'reuseTaskApiProfileTemporarily',
     ])
     expect(JSON.stringify(document)).not.toContain('sk-secret-value')
   })

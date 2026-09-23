@@ -593,7 +593,7 @@ describe('input persistence setting', () => {
   })
 })
 
-describe('reused task API profile', () => {
+describe('reusing a task', () => {
   const openaiProfile = createDefaultOpenAIByokProfile({
     id: 'openai-profile',
     apiKey: 'openai-key',
@@ -610,7 +610,6 @@ describe('reused task API profile', () => {
         ...DEFAULT_SETTINGS,
         profiles: [openaiProfile, geminiProfile],
         activeProfileId: openaiProfile.id,
-        reuseTaskApiProfileTemporarily: true,
       }),
       prompt: '',
       inputImages: [],
@@ -619,9 +618,6 @@ describe('reused task API profile', () => {
       tasks: [],
       showSettings: false,
       toast: null,
-      reusedTaskApiProfileId: null,
-      reusedTaskApiProfileName: null,
-      reusedTaskApiProfileMissing: false,
       showToast: vi.fn(),
       setConfirmDialog: vi.fn(),
     })
@@ -636,26 +632,7 @@ describe('reused task API profile', () => {
     expect(resolved?.id).toBe(geminiProfile.id)
   })
 
-  it('reuses the task API profile temporarily without switching the active profile', async () => {
-    await reuseConfig(
-      task({
-        apiProvider: 'gemini',
-        apiProfileId: geminiProfile.id,
-        params: { ...DEFAULT_PARAMS, n: 1, size: 'auto', quality: 'auto' },
-      }),
-    )
-
-    const state = useStore.getState()
-    expect(state.settings.activeProfileId).toBe(openaiProfile.id)
-    expect(state.reusedTaskApiProfileId).toBe(geminiProfile.id)
-    expect(state.params).toMatchObject({ n: 1, size: 'auto', quality: 'auto' })
-    expect(state.showToast).toHaveBeenCalledWith(
-      '已临时复用该任务的 API 配置「Gemini 配置」',
-      'success',
-    )
-  })
-
-  it('keeps selected image mentions when reusing a task with different current input images', async () => {
+  it('restores params, prompt and input images under the current API profile', async () => {
     await clearImages()
     await putImage(imageA)
     await putImage(imageB)
@@ -671,66 +648,35 @@ describe('reused task API profile', () => {
 
     await reuseConfig(
       task({
-        apiProvider: 'openai',
-        apiProfileId: openaiProfile.id,
-        prompt: taskPrompt,
-        inputImageIds: [imageA.id, imageB.id],
-      }),
-    )
-
-    const state = useStore.getState()
-    expect(state.inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
-    expect(state.prompt).toBe(taskPrompt)
-  })
-
-  it('clears temporary reuse when switching current settings to the reused API profile', async () => {
-    await reuseConfig(task({ apiProvider: 'gemini', apiProfileId: geminiProfile.id }))
-
-    useStore.getState().setSettings({ activeProfileId: geminiProfile.id })
-
-    const state = useStore.getState()
-    expect(state.settings.activeProfileId).toBe(geminiProfile.id)
-    expect(state.reusedTaskApiProfileId).toBeNull()
-    expect(state.reusedTaskApiProfileMissing).toBe(false)
-  })
-
-  it('normalizes reused params to the current API profile when temporary reuse is disabled', async () => {
-    useStore.setState({
-      settings: normalizeSettings({
-        ...useStore.getState().settings,
-        reuseTaskApiProfileTemporarily: false,
-      }),
-    })
-
-    await reuseConfig(
-      task({
         apiProvider: 'gemini',
         apiProfileId: geminiProfile.id,
+        prompt: taskPrompt,
+        inputImageIds: [imageA.id, imageB.id],
         params: { ...DEFAULT_PARAMS, n: 8, size: 'auto', quality: 'auto' },
       }),
     )
 
     const state = useStore.getState()
     expect(state.settings.activeProfileId).toBe(openaiProfile.id)
-    expect(state.reusedTaskApiProfileId).toBeNull()
     expect(state.params).toMatchObject({ n: 8, size: 'auto', quality: 'auto' })
+    expect(state.prompt).toBe(taskPrompt)
+    expect(state.inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
+    expect(state.showToast).toHaveBeenCalledWith('已复用配置到输入框', 'success')
   })
 
-  it('asks whether to submit with current API profile when the reused API profile is missing', async () => {
-    await reuseConfig(task({ apiProvider: 'gemini', apiProfileId: 'missing-profile' }))
-
-    const state = useStore.getState()
-    expect(state.tasks).toEqual([])
-    expect(state.setConfirmDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: '找不到 API 配置',
-        message:
-          '找不到复用任务所使用的 API 配置「未知配置」，要使用当前的 API 配置「默认」提交任务吗？',
-        confirmText: '使用当前配置提交',
-        cancelText: '放弃提交',
+  it('reuses a task whose API profile is gone without prompting', async () => {
+    await reuseConfig(
+      task({
+        apiProvider: 'gemini',
+        apiProfileId: 'missing-profile',
+        params: { ...DEFAULT_PARAMS, n: 8, size: 'auto', quality: 'auto' },
       }),
     )
-    expect(state.showSettings).toBe(false)
+
+    const state = useStore.getState()
+    expect(state.setConfirmDialog).not.toHaveBeenCalled()
+    expect(state.settings.activeProfileId).toBe(openaiProfile.id)
+    expect(state.params).toMatchObject({ n: 8, size: 'auto', quality: 'auto' })
   })
 })
 
