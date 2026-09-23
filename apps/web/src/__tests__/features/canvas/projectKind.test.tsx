@@ -8,17 +8,18 @@ vi.mock('../../../lib/channels/videoChannels', () => ({ isVideoModeAvailable: ()
 
 import { useAgentStore } from '../../../features/agent/store'
 import ProjectsTab from '../../../features/canvas/components/ProjectsTab'
+import {
+  currentCanvasWorkspace,
+  selectCanvasWorkspace,
+} from '../../../features/canvas/lib/activeProject'
 import { CanvasDoc } from '../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../features/canvas/lib/editor'
 import { openCanvasDatabase } from '../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../features/canvas/lib/projectRepository'
-import {
-  currentCanvasWorkspace,
-  selectCanvasWorkspace,
-} from '../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
+import { openCanvas } from '../../helpers/activeProject'
 import { openSceneRecord } from '../../helpers/sceneRecord'
 
 declare global {
@@ -40,9 +41,7 @@ beforeEach(async () => {
     error: null,
     cloudCatalog: {},
   })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   useAgentStore.setState({ loaded: true, conversationId: null, messages: [], turn: 'idle' })
   host = document.createElement('div')
   document.body.appendChild(host)

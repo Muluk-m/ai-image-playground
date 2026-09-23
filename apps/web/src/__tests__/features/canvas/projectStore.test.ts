@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
+import { importConversationProjects } from '../../../features/canvas/lib/activeProject'
 import { projectRepository, UNTITLED_PROJECT } from '../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../lib/authScope'
@@ -46,13 +47,11 @@ it('会话有了标题就给还叫未命名的项目改名，云端来的那份�
     conversationId: 'conversation-mine',
   })
 
-  await useCanvasProjectStore
-    .getState()
-    .importConversations([
-      conversation('conversation-auto', '浴缸多视角'),
-      conversation('conversation-cloud', '客厅灯光'),
-      conversation('conversation-mine', '别改我'),
-    ])
+  await importConversationProjects([
+    conversation('conversation-auto', '浴缸多视角'),
+    conversation('conversation-cloud', '客厅灯光'),
+    conversation('conversation-mine', '别改我'),
+  ])
 
   const named = (id: string) =>
     useCanvasProjectStore.getState().projects.find((one) => one.id === id)

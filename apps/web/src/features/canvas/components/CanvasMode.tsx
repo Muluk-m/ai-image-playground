@@ -9,20 +9,17 @@ import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
-import { useCanvasComposer } from '../composerStore'
-import type { CanvasEditor } from '../lib/editor'
-import { importImageFiles } from '../lib/importImages'
-import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
-import { computePlaceholderTargets } from '../lib/placement'
-import { projectDisplayName } from '../lib/projectRepository'
-import { writeProjectRoute } from '../lib/projectRoute'
 import {
-  type CanvasWorkspace,
+  backToCurrentProject,
   currentCanvasWorkspace,
-  selectCanvasWorkspace,
+  openCurrentProject,
   showCanvasWorkspace,
   subscribeCanvasWorkspace,
-} from '../lib/workspaces'
+} from '../lib/activeProject'
+import type { CanvasEditor } from '../lib/editor'
+import { importImageFiles } from '../lib/importImages'
+import { writeProjectRoute } from '../lib/projectRoute'
+import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
 import CanvasBatchBar from './CanvasBatchBar'
 import CanvasGenerateBar from './CanvasGenerateBar'
@@ -53,18 +50,8 @@ export default function CanvasMode() {
   const projectsLoaded = useCanvasProjectStore((state) => state.loaded)
   const routeError = useCanvasProjectStore((state) => state.routeError)
   const projectError = useCanvasProjectStore((state) => state.error)
-  const initialize = () =>
-    useCanvasProjectStore
-      .getState()
-      .load()
-      .then(() => {
-        const state = useCanvasProjectStore.getState()
-        const project = state.projects.find((one) => one.id === state.activeId)
-        selectCanvasWorkspace(project?.conversationId ?? null)
-      })
-      .catch(() => {})
   useEffect(() => {
-    void initialize()
+    void openCurrentProject()
   }, [])
   useEffect(() => {
     showCanvasWorkspace(true)
@@ -75,17 +62,7 @@ export default function CanvasMode() {
       <div className="studio-canvas-status" role="alert">
         <div>
           {routeError}
-          <button
-            type="button"
-            className="ml-3 underline"
-            onClick={() => {
-              const active = useCanvasProjectStore.getState().activeId
-              if (active) {
-                writeProjectRoute(active, true)
-                useCanvasProjectStore.setState({ routeError: null })
-              } else location.assign('/')
-            }}
-          >
+          <button type="button" className="ml-3 underline" onClick={backToCurrentProject}>
             {t('project.backToProjects')}
           </button>
         </div>
@@ -97,7 +74,11 @@ export default function CanvasMode() {
         <div>
           {projectError || t('project.restoring')}
           {projectError && (
-            <button type="button" className="ml-3 underline" onClick={() => void initialize()}>
+            <button
+              type="button"
+              className="ml-3 underline"
+              onClick={() => void openCurrentProject()}
+            >
               {t('project.reload')}
             </button>
           )}
@@ -148,34 +129,13 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     ;(window as unknown as { __canvasEditor?: CanvasEditor }).__canvasEditor = editor
   }, [editor])
 
-  useEffect(() => {
-    if (!workspace.needsInitialFit) return
-    const fit = () => {
-      if (doc.viewport.width <= 1 || doc.viewport.height <= 1) return
-      workspace.needsInitialFit = false
-      unsubscribe()
-      editor.scrollToElements(doc.elements.map((one) => one.id))
-    }
-    const unsubscribe = doc.subscribe(fit)
-    fit()
-    return unsubscribe
-  }, [doc, editor, workspace, loading])
+  useEffect(() => workspace.fitInitialView(), [workspace, loading])
 
   // 画布已经开着时也可能有图送进来（素材库、灯箱里的「生成视频」），所以跟着队列长度重跑。
   const pendingImages = useStore((state) => state.pendingCanvasImages.length)
   useEffect(() => {
-    if (loading || loadFailed || pendingImages === 0) return
-    const pending = useStore.getState().consumeCanvasImages()
-    if (!pending.length) return
-    void placeImagesIntoTargets(
-      editor,
-      pending.map((dataUrl) => ({ dataUrl })),
-      computePlaceholderTargets(editor, null, pending.length),
-    ).then(
-      () => workspace.flush(),
-      (error) => console.warn('[canvas] 工作台图片放置失败', error),
-    )
-  }, [editor, workspace, loading, loadFailed, pendingImages])
+    if (pendingImages > 0) workspace.placePendingImages()
+  }, [workspace, loading, loadFailed, pendingImages])
 
   return (
     <div

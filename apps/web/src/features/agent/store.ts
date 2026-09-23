@@ -21,20 +21,30 @@ import { create } from 'zustand'
 import { requireAccount } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
-import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
+import {
+  AGENT_CONVERSATION_KEY,
+  accountScope,
+  safeLocalStorage,
+  scopedStorageName,
+} from '../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import {
   notifyPrivateSubmissionError,
   notifyPrivateSubmissionSettled,
 } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
+import {
+  autoNameProject,
+  bindNewCanvasWorkspace,
+  conversationSceneKey,
+  currentCanvasWorkspace,
+  importConversationProjects,
+  openProject,
+  selectCanvasWorkspace,
+} from '../canvas/lib/activeProject'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import type { CanvasProject } from '../canvas/lib/projectRepository'
-import {
-  bindNewCanvasWorkspace,
-  currentCanvasWorkspace,
-  selectCanvasWorkspace,
-} from '../canvas/lib/workspaces'
+import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
 import {
   currentCanvasProject,
   restoreCloudProject,
@@ -852,7 +862,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       historyLoading: true,
       historyFailed: false,
     })
-    selectCanvasWorkspace(conversationId)
+    selectCanvasWorkspace(conversationSceneKey(conversationId))
     let state: Awaited<ReturnType<typeof fetchMessages>>
     try {
       state = await fetchMessages(conversationId)
@@ -869,7 +879,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         try {
           await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
           if (!isCurrent()) return
-          useCanvasProjectStore.getState().activate(project.id)
+          openProject(project.id)
           set({
             historyLoading: false,
             historyFailed: false,
@@ -1056,6 +1066,13 @@ export const useAgentStore = create<AgentState>((set, get) => {
     }
   }
 
+  /**
+   * 当前会话正跑着一轮。ADR-0005 决策「运行中禁止切换、新建或删除当前会话」在这一处成文：
+   * 换走它、删掉它都要等这一轮结束。规则只管「轮」——生成早已是后台任务（ADR-0012），
+   * 产物按项目交付，画布上还没落回来的那些由 `prepareCanvasRemoval` 单独拦。
+   */
+  const currentTurnRunning = () => get().turn === 'running'
+
   let conversationListRevision = 0
   let changingProject = false
   const changeProject = async (action: () => Promise<boolean>) => {
@@ -1127,22 +1144,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
    */
   const refreshOpenedProject = async (
     project: CanvasProject,
-    scope: string,
+    sameAccount: () => boolean,
     isCurrent: () => boolean,
   ) => {
     if (!project.cloud?.revision || !cloudProjectsEnabled() || navigator.onLine === false) return
     const settled = () =>
-      isCurrent() &&
-      scopedStorageName('canvas') === scope &&
-      useCanvasProjectStore.getState().activeId === project.id
+      isCurrent() && sameAccount() && useCanvasProjectStore.getState().activeId === project.id
     try {
       const remote = await getCloudProject(project.id, AbortSignal.timeout(10000))
       if (!settled()) return
       const refreshed = await restoreCloudProject(remote)
       if (!settled()) return
-      useCanvasProjectStore.setState((state) => ({
-        projects: state.projects.map((one) => (one.id === refreshed.id ? refreshed : one)),
-      }))
+      useCanvasProjectStore.getState().updateListed(refreshed)
       if (refreshed.conversationId !== project.conversationId) showProject(refreshed, showPanel)
     } catch {
       if (settled())
@@ -1155,7 +1168,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       return get().conversationId
     },
     get running() {
-      return get().turn === 'running'
+      return currentTurnRunning()
     },
     replaceCurrent: async () => void (await createProject(false)),
     forgetConversation: (conversationId) =>
@@ -1225,19 +1238,17 @@ export const useAgentStore = create<AgentState>((set, get) => {
         if (changingProject || revision !== conversationListRevision) return
         set({ conversations })
         if (useCanvasProjectStore.getState().loaded)
-          await useCanvasProjectStore
-            .getState()
-            .importConversations(
-              conversations,
-              () => !changingProject && revision === conversationListRevision,
-            )
+          await importConversationProjects(
+            conversations,
+            () => !changingProject && revision === conversationListRevision,
+          )
       } catch {
         // 列表读不回来不该拖垮面板，留着上一份。
       }
     },
 
     async selectConversation(conversationId) {
-      if (get().turn === 'running') return
+      if (currentTurnRunning()) return
       const project = useCanvasProjectStore
         .getState()
         .projects.find((one) => one.conversationId === conversationId)
@@ -1250,7 +1261,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     async deleteConversation(conversationId) {
-      if (get().turn === 'running' && get().conversationId === conversationId) return
+      if (currentTurnRunning() && get().conversationId === conversationId) return
       try {
         await removeConversation(conversationId)
       } catch {
@@ -1268,7 +1279,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         return
       }
       resetDelivery()
-      selectCanvasWorkspace(null)
+      selectCanvasWorkspace(canvasSceneKey(null))
       safeLocalStorage.removeItem(conversationKey())
       set({
         conversationId: null,
@@ -1309,7 +1320,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async selectProject(projectId, isCurrent = () => true) {
       return changeProject(async () => {
-        const scope = scopedStorageName('canvas')
+        const sameAccount = accountScope()
         const project = useCanvasProjectStore
           .getState()
           .projects.find((one) => one.id === projectId)
@@ -1326,12 +1337,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return false
         }
         if (!isCurrent()) return false
-        // 本机这份就足够开：画布自己回源（`selectCanvasWorkspace` 里的 `refreshCloud`），
+        // 本机这份就足够开：画布自己回源（`openProject` 选中时的 `refreshCloud`），
         // 会话历史另有一条请求，面板有它自己的加载态。云端那份只用来纠正名字、revision
         // 与会话绑定——生产实测它要 1.5s，压在点击与画面之间就是纯粹的干等，
         // 所以放到后台，顺带让离线时也能打开项目。
         showProject(project, showPanel)
-        void refreshOpenedProject(project, scope, isCurrent)
+        void refreshOpenedProject(project, sameAccount, isCurrent)
         return true
       })
     },
@@ -1417,10 +1428,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (firstTurn && sourceProject && !sourceProject.customName) {
         const titled = firstMessageTitle(trimmed)
         if (titled && titled !== sourceProject.name)
-          void useCanvasProjectStore
-            .getState()
-            .autoName(sourceProject.id, titled)
-            .catch(() => {})
+          void autoNameProject(sourceProject.id, titled).catch(() => {})
       }
       const turnDelivery = delivery.beginTurn()
       const submission = { cancelled: false, delivery: turnDelivery }

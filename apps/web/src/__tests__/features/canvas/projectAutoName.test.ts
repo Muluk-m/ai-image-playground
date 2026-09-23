@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
-import { projectRepository, UNTITLED_PROJECT } from '../../../features/canvas/lib/projectRepository'
 import {
   currentCanvasWorkspace,
   forgetCanvasWorkspace,
-} from '../../../features/canvas/lib/workspaces'
+  importConversationProjects,
+} from '../../../features/canvas/lib/activeProject'
+import { projectRepository, UNTITLED_PROJECT } from '../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
@@ -64,7 +65,7 @@ it('本机与云端项目都按会话标题自动命名，改过名的不动，�
     cloudCatalog: {},
   })
 
-  await useCanvasProjectStore.getState().importConversations([
+  await importConversationProjects([
     { id: 'conversation-gone', title: '改不动的项目', createdAt: 1, updatedAt: 1 },
     { id: 'conversation-untitled', title: '水彩猫咪', createdAt: 1, updatedAt: 1 },
     { id: 'conversation-renamed', title: '服务端给的名字', createdAt: 1, updatedAt: 1 },
@@ -118,11 +119,9 @@ it('打开着的云端项目自动命名后把新名字推上服务端', async (
   })
   await currentCanvasWorkspace().ready
 
-  await useCanvasProjectStore
-    .getState()
-    .importConversations([
-      { id: 'conversation-open', title: '水彩猫咪', createdAt: 1, updatedAt: 1 },
-    ])
+  await importConversationProjects([
+    { id: 'conversation-open', title: '水彩猫咪', createdAt: 1, updatedAt: 1 },
+  ])
 
   expect(written).toEqual(['水彩猫咪'])
   expect((await projectRepository.list()).find((one) => one.id === id)).toMatchObject({

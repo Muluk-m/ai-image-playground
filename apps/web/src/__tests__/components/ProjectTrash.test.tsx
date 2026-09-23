@@ -77,9 +77,8 @@ it('实际项目列表回收站把过期项目的本机编辑存为新身份，�
   const { CanvasDoc } = await import('../../features/canvas/lib/canvasDoc')
   const { CanvasEditor } = await import('../../features/canvas/lib/editor')
   const { openSceneRecord } = await import('../helpers/sceneRecord')
-  const { currentCanvasWorkspace, selectCanvasWorkspace } = await import(
-    '../../features/canvas/lib/workspaces'
-  )
+  const { currentCanvasWorkspace } = await import('../../features/canvas/lib/activeProject')
+  const { openCanvas } = await import('../helpers/activeProject')
   const { useAgentStore } = await import('../../features/agent/store')
   vi.stubGlobal('crypto', webcrypto)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -152,8 +151,7 @@ it('实际项目列表回收站把过期项目的本机编辑存为新身份，�
     historyLoading: false,
     historyFailed: false,
   })
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)

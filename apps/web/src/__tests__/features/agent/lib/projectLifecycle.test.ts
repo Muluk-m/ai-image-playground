@@ -8,19 +8,20 @@ import {
   saveCurrentProject,
   showProject,
 } from '../../../../features/agent/lib/projectLifecycle'
-import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
-import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import {
-  canvasSceneKey,
   currentCanvasWorkspace,
   selectCanvasWorkspace,
-} from '../../../../features/canvas/lib/workspaces'
+} from '../../../../features/canvas/lib/activeProject'
+import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import {
   currentCanvasProject,
   useCanvasProjectStore,
 } from '../../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { openCanvas } from '../../../helpers/activeProject'
 
 const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) =>
   Response.json({ conversations: [] }),
@@ -63,9 +64,7 @@ beforeEach(async () => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   useCanvasProjectStore.setState({ projects: [], activeId: null, loaded: false, error: null })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
 })
 
 afterEach(async () => {

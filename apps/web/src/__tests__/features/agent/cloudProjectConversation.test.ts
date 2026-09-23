@@ -5,11 +5,12 @@ import { useAgentStore } from '../../../features/agent/store'
 import {
   currentCanvasWorkspace,
   selectCanvasWorkspace,
-} from '../../../features/canvas/lib/workspaces'
+} from '../../../features/canvas/lib/activeProject'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
+import { openCanvas } from '../../helpers/activeProject'
 
 const conversationId = '163f0e81-1295-4d5c-bf87-0dca82631420'
 afterEach(async () => {
@@ -80,9 +81,7 @@ it('云端项目首次发送先保存项目并使用服务端绑定的会话，�
     cloudLoading: false,
     cloudCatalog: {},
   })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   useAgentStore.setState({
     loaded: true,
     conversationId: null,
@@ -155,9 +154,7 @@ it('重新打开项目读取另一设备绑定的会话，历史加载失败重�
     cloudLoading: false,
     cloudCatalog: {},
   })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   useAgentStore.setState({
     loaded: true,
     conversationId: null,
@@ -220,9 +217,7 @@ it('云端详情半天不回也立刻打开项目：本机那份就够开', asyn
     cloudLoading: false,
     cloudCatalog: {},
   })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   useAgentStore.setState({
     loaded: true,
     conversationId: null,

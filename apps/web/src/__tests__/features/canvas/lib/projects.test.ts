@@ -6,6 +6,7 @@ import {
   projectRepository,
   UNTITLED_PROJECT,
 } from '../../../../features/canvas/lib/projectRepository'
+import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { saveSceneRecord } from '../../../helpers/sceneRecord'
 
@@ -46,7 +47,6 @@ describe('项目持久化', () => {
 
 it('旧场景按原 key 导入，重复导入不会复制项目', async () => {
   setClientStorageScope(crypto.randomUUID())
-  const { canvasSceneKey } = await import('../../../../features/canvas/lib/workspaces')
   const sceneKey = canvasSceneKey('legacy-conversation')
   await saveSceneRecord(sceneKey, 123)
   expect(await projectRepository.legacyScenes()).toEqual([
