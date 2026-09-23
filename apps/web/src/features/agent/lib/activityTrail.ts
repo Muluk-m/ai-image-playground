@@ -43,10 +43,10 @@ export interface ActivityTrail {
   /** 这串过程步；渲染在第一步原来的位置。 */
   readonly steps: readonly AgentToolMessage[]
   /**
-   * 这串已经翻篇了：模型开始给结论，或者话题已经翻到下一轮。过程是过程，说完就该让位。
+   * 这串已经翻篇了：里面每一步都跑完了，而且模型开始给结论、或者话题翻到了下一轮。
    *
-   * 判据不是「后面还有消息」——后面要是一张还在跑的工具卡，这一轮显然没完，
-   * 这时候把过程收掉，用户就只剩一张孤零零的卡，不知道它前面发生过什么。
+   * 「还在跑的不收」这一条不能省。工具起跑与后续事件常常落在同一次 React 批处理里，
+   * 只看「后面还有没有消息」的话，活动轨第一次渲染就已经是翻篇态，整段过程一帧都不会出现。
    */
   readonly spent: boolean
 }
@@ -77,12 +77,13 @@ export function groupPanelMessages(messages: readonly AgentPanelMessage[]): Pane
       absorbed.add(index)
       index += 1
     }
-    const spent = messages
+    const settled = steps.every((one) => one.status !== 'running' && one.status !== 'submitted')
+    const movedOn = messages
       .slice(index)
       .some(
         (one) => one.turnId !== message.turnId || (one.kind === 'text' && one.role === 'assistant'),
       )
-    trails.set(start, { steps, spent })
+    trails.set(start, { steps, spent: settled && movedOn })
   }
   return { trails, absorbed }
 }

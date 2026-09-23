@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import AgentSkillIcon from '../lib/agentSkillIcons'
@@ -64,17 +64,21 @@ export default function AgentActivityTrail({
   steps: readonly AgentToolMessage[]
   spent: boolean
 }) {
-  // 历史里早就翻篇的那些直接不渲染；只有这一轮当场翻篇的才走收起动画。
-  const [mounted, setMounted] = useState(() => !spent)
-  const everLive = useRef(!spent)
-  if (!spent) everLive.current = true
+  // 历史里早就翻篇的那些一上来就不渲染，不放收起动画；这一轮当场翻篇的才收。
+  // `collapsed` 必须能回到 false：翻篇态不是单调的，同一条活动轨在下一次渲染里
+  // 完全可能又变回「还在跑」（批处理里先看到后续消息、再看到工具起跑）。只往一个方向锁，
+  // 那一整段过程就再也不出现了。
+  const [collapsed, setCollapsed] = useState(spent)
   useEffect(() => {
-    if (!spent || !everLive.current) return
-    const timer = setTimeout(() => setMounted(false), COLLAPSE_MS)
+    if (!spent) {
+      setCollapsed(false)
+      return
+    }
+    const timer = setTimeout(() => setCollapsed(true), COLLAPSE_MS)
     return () => clearTimeout(timer)
   }, [spent])
 
-  if (!mounted || steps.length === 0) return null
+  if (collapsed || steps.length === 0) return null
   // 最后一步还没结束才算「正在做」；都做完了就全是历史，等着收起。
   const last = steps[steps.length - 1]!
   const running = !spent && (last.status === 'running' || last.status === 'submitted')
