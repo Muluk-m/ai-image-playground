@@ -11,6 +11,7 @@ import type {
   AgentRetryResponse,
   AgentSaveResponse,
   AgentTurnAbortedBody,
+  AgentTurnReference,
   AuthUserView,
 } from '@image-playground/shared'
 import {
@@ -54,7 +55,11 @@ import {
   sealAbandonedTurns,
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
-import { removeAgentConversationReferences } from '../lib/agent/images'
+import {
+  claimConversationMedia,
+  readConversationMedia,
+  removeAgentConversationReferences,
+} from '../lib/agent/images'
 import {
   agentInboxEntry,
   claimAgentMessageForInterjection,
@@ -111,7 +116,17 @@ function ownerOf(authUser: AuthUserView | null, deviceId: string): AgentOwner {
 const NOT_FOUND = { error: 'conversation_not_found' }
 const TURN_NOT_FOUND = { error: 'turn_not_found' }
 
-/** 参考图按数组顺序编号，提示词里的 `[image N]` 就是这里的第 N 项。 */
+/** 历史引用的回显字节。它按 id 不可变，可以长缓存；但只对这一个人成立，所以是 private。 */
+function referenceHeaders(contentType: string): Record<string, string> {
+  return {
+    'content-type': contentType,
+    'cache-control': 'private, max-age=31536000, immutable',
+    'content-security-policy': "default-src 'none'; sandbox",
+    'x-content-type-options': 'nosniff',
+    vary: `Cookie, ${DEVICE_ID_HEADER}`,
+  }
+}
+
 /**
  * 参数浮层里选的生成参数。全部可选：没选的项由部署默认补齐，选了坏值也不该让整轮失败——
  * 映射那一步会把认不得的值丢掉（见 `lib/agent/tools/queueParams.ts`）。
@@ -132,17 +147,47 @@ const paramsSchema = t.Optional(
   }),
 )
 
+/**
+ * 一张参考图。字节只在浏览器里的内联发过来；已经在云媒体里的（画布上选中的原图）
+ * 只发 id——八张原图内联一次就是几十 MB 的请求体，传几分钟还白占一遍出站带宽。
+ *
+ * 两路合成一个对象、由 `turnReferences` 分辨，而不是写成 `t.Union`：exact-mirror 没有
+ * TypeCompiler 时不支持 Union，路由一编译就是一条启动期告警，而且那条路由从此不再做
+ * 请求体裁剪。云媒体那一路没有遮罩：画遮罩、烧批注都产出新像素，那张图在 R2 里并不存在。
+ */
 const referencesSchema = t.Optional(
   t.Array(
     t.Object({
       imageId: t.String({ minLength: 1, maxLength: 128 }),
-      dataUrl: imageDataUrlSchema(),
+      dataUrl: t.Optional(imageDataUrlSchema()),
+      mediaId: t.Optional(t.String({ format: 'uuid' })),
       name: t.Optional(t.String({ maxLength: 200 })),
       maskDataUrl: t.Optional(imageDataUrlSchema()),
     }),
     { maxItems: AGENT_TURN_MAX_REFERENCES },
   ),
 )
+
+type ReferenceBody = NonNullable<(typeof referencesSchema)['static']>[number]
+
+/** 两路只能二选一：都给或都不给都是坏请求，分不清该拿哪一份字节。 */
+function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | null {
+  const references: AgentTurnReference[] = []
+  for (const one of raw) {
+    const name = one.name ? { name: one.name } : {}
+    if (one.mediaId && !one.dataUrl)
+      references.push({ imageId: one.imageId, ...name, mediaId: one.mediaId })
+    else if (one.dataUrl && !one.mediaId)
+      references.push({
+        imageId: one.imageId,
+        ...name,
+        dataUrl: one.dataUrl,
+        ...(one.maskDataUrl ? { maskDataUrl: one.maskDataUrl } : {}),
+      })
+    else return null
+  }
+  return references
+}
 
 /** 创作类型。缺席即图片：老客户端不发这一项，它们要的从来都是图。 */
 const modeSchema = t.Optional(t.Union([t.Literal('image'), t.Literal('video')]))
@@ -311,9 +356,22 @@ export const agentRoutes = new Elysia()
       )
       const reference = references?.[params.index]
       if (!reference) return status(404, { error: 'reference_not_found' })
+      const original = query.variant === 'original'
       try {
+        // 云媒体那一路没有副本：缩略图直接用上传时就备好的预览，别把原件拉回来再缩一遍。
+        if ('mediaId' in reference) {
+          const media = await readConversationMedia(
+            reference.mediaId,
+            conversation.id,
+            authUser?.id ?? null,
+            original ? 'original' : 'preview',
+          )
+          if (!media) return status(404, { error: 'reference_not_found' })
+          return new Response(media.bytes as Uint8Array<ArrayBuffer>, {
+            headers: referenceHeaders(media.contentType),
+          })
+        }
         const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
-        const original = query.variant === 'original'
         const bytes = await store.read(reference.image.object)
         const image = original
           ? bytes
@@ -323,13 +381,7 @@ export const agentRoutes = new Elysia()
               .webp({ quality: 80 })
               .toBuffer()
         return new Response(image, {
-          headers: {
-            'content-type': original ? reference.image.mime : 'image/webp',
-            'cache-control': 'private, max-age=31536000, immutable',
-            'content-security-policy': "default-src 'none'; sandbox",
-            'x-content-type-options': 'nosniff',
-            vary: `Cookie, ${DEVICE_ID_HEADER}`,
-          },
+          headers: referenceHeaders(original ? reference.image.mime : 'image/webp'),
         })
       } catch {
         return status(502, { error: 'object_storage_error' })
@@ -541,13 +593,18 @@ export const agentRoutes = new Elysia()
         const forwarded = await forwardActiveTurn(conversation.id, request, body)
         if (forwarded) return forwarded
 
+        const references = turnReferences(body.references ?? [])
+        if (!references) return status(422, { error: 'invalid_reference' })
         try {
-          await validateSelections(body.references ?? [])
+          await validateSelections(references)
         } catch (error) {
           if (error instanceof InvalidSelectionError)
             return status(422, { error: 'invalid_selection' })
           throw error
         }
+        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
+        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
+          return status(422, { error: 'invalid_reference' })
         // 开不了轮的请求不进收件箱：排进去也没有哪一轮能取走它。
         if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
           return status(401, { error: 'unauthorized' })
@@ -557,7 +614,7 @@ export const agentRoutes = new Elysia()
         const enqueued = await enqueueAgentUserMessage(conversation.id, {
           clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
           text: body.text,
-          references: body.references ?? [],
+          references,
           deviceId: body.deviceId,
           ...(body.mode ? { mode: body.mode } : {}),
           ...(body.params ? { params: body.params } : {}),
@@ -921,9 +978,13 @@ export const agentRoutes = new Elysia()
       if (forwarded) return forwarded
       const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
+      const references = turnReferences(body.references ?? [])
+      if (!references) return status(422, { error: 'invalid_reference' })
+      if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
+        return status(422, { error: 'invalid_reference' })
       let messageId: string | null
       try {
-        messageId = await activeTurn.interject(body.text, body.references)
+        messageId = await activeTurn.interject(body.text, references)
       } catch (error) {
         if (error instanceof InvalidSelectionError)
           return status(422, { error: 'invalid_selection' })

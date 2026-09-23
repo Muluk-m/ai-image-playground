@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
+import LookImage from '../features/library/components/LookImage'
 import { availableImageModels } from '../features/library/lib/activeLook'
 import { type LookItem, lookNeedsRetune, mergeLookItems } from '../features/library/lib/looks'
 import { useLibraryStore } from '../features/library/store'
@@ -10,7 +11,7 @@ import Badge from './Badge'
 import { ChevronRightIcon, CloseIcon } from './icons'
 
 const PILL =
-  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-xs text-foreground transition hover:border-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background py-0.5 pl-1 pr-3 text-xs text-foreground transition hover:border-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40'
 
 const COLLAPSED_LIMIT = 5
 
@@ -46,10 +47,12 @@ export default function LookChips({ onPick }: { onPick: (look: LookItem) => void
             title={look.description}
             className={PILL}
           >
-            <span className="text-muted-foreground">/</span>
-            {look.origin === 'user' && (
-              <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-            )}
+            <span
+              className={`h-6 w-6 shrink-0 overflow-hidden rounded-full bg-muted ${look.origin === 'user' ? 'ring-1 ring-primary/70' : ''}`}
+              aria-hidden="true"
+            >
+              <LookImage source={look.cover} alt="" />
+            </span>
             {look.name}
             {retune && <Badge tone="warning">{t('look.needsRetune')}</Badge>}
           </button>
@@ -89,25 +92,27 @@ export function LookCapsule({
 }) {
   const { t } = useTranslation(['library', 'common'])
   return (
-    <div
-      data-look-capsule
-      className={`mb-2 flex items-center gap-2 rounded-lg border px-2 py-1 text-xs ${
-        issue ? 'border-warning/60 bg-warning/10' : 'border-primary/40 bg-primary/5'
-      }`}
-    >
-      <span className="font-medium text-foreground">/{look.name}</span>
-      <span className="text-muted-foreground">
-        {look.model} · {look.size}
+    <div data-look-capsule className="mb-2 flex items-center gap-2">
+      <span
+        className={`inline-flex max-w-full items-center gap-1.5 rounded-md border py-0.5 pl-0.5 pr-2 text-sm font-medium leading-5 text-foreground ${
+          issue ? 'border-warning/60 bg-warning/10' : 'border-border/70 bg-muted/80'
+        }`}
+        title={look.description}
+      >
+        <span className="h-5 w-5 shrink-0 overflow-hidden rounded bg-muted" aria-hidden="true">
+          <LookImage source={look.cover} alt="" />
+        </span>
+        <span className="truncate">{look.name}</span>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={t('common:action.close')}
+          className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        >
+          <CloseIcon className="h-3 w-3" />
+        </button>
       </span>
       {issue && <Badge tone="warning">{t('look.slotMismatch', { count: issue.expected })}</Badge>}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={t('common:action.close')}
-        className="ml-auto rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-      >
-        <CloseIcon className="h-3.5 w-3.5" />
-      </button>
     </div>
   )
 }
