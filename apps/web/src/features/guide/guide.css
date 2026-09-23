@@ -1,0 +1,17 @@
+/* 指南页只要主题 token、字体与 Tailwind；工作台的 studio / 登录框样式与它无关。 */
+@import '../../styles/theme.css';
+@import '../../styles/fonts.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

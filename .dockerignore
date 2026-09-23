@@ -31,6 +31,8 @@
 # 每个 vite 入口一个 html：除了 index.html 还有 local-compat.html，漏一个 rollup 直接
 # 报 "Could not resolve entry module"。按后缀放行，加入口时不用再回来改这里。
 !apps/*/*.html
+# 使用指南的入口在子目录（构建产物 /guide/、/guide/en/ 按目录索引访问）。
+!apps/web/guide
 !apps/*/vite.config.ts
 # tailwind.config.js / postcss.config.js
 !apps/*/*.config.js
