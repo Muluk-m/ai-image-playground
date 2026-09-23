@@ -90,8 +90,8 @@
     "withdrawing": "Withdrawing…",
     "withdrawFailed": "Couldn't withdraw. Please try again shortly.",
     "withdrawn": "Retry withdrawn",
-    "retryRemaining_one": "Retry the {{count}} remaining failed placeholder",
-    "retryRemaining_other": "Retry the remaining {{count}} failed placeholders"
+    "retryRemaining_one": "Retry the remaining {{count}} image",
+    "retryRemaining_other": "Retry the remaining {{count}} images"
   },
   "cost": {
     "duration": "Took {{duration}}",

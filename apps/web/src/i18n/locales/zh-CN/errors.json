@@ -73,7 +73,7 @@
     "timeout": "生成超时，这次没有出来",
     "no_output": "生成完成了，但没有拿到结果",
     "result_unknown": "这次的结果没能确认，可能已经生成；请先看看画布与历史",
-    "insufficient_credits": "积分不够，这次没有提交",
+    "insufficient_credits": "积分不够，这次没有生成",
     "quota_exceeded": "今天的生成额度已经用完",
     "authentication_required": "需要先登录才能生成",
     "invalid_params": "这次的参数不成立，没有提交",
