@@ -84,7 +84,8 @@ export interface CanvasJobHandle {
   /** 人话需求，落工作台历史用。 */
   prompt: string
   params: TaskParams
-  profileView: CanvasProfileSnapshot
+  /** 发起时的 profile 快照；早先版本的占位框没有，落历史时由当前活动配置兜底。 */
+  profileView?: CanvasProfileSnapshot
   editKind?: CanvasEditKind
   /** 发起时刻；续跑的占位框没有（跨会话算不出真实耗时），历史里就不写耗时。 */
   startedAt?: number
@@ -102,7 +103,7 @@ export function resumedCanvasJob(
     target: targetFromShape(placeholder),
     prompt: meta.prompt,
     params,
-    profileView: meta.profileView as CanvasProfileSnapshot,
+    ...(meta.profileView ? { profileView: meta.profileView } : {}),
     ...(meta.editKind ? { editKind: meta.editKind } : {}),
   }
 }
@@ -203,7 +204,7 @@ export function canvasGenerationSink(
           params: handle.params,
           images,
           ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
-          profile: handle.profileView,
+          ...(handle.profileView ? { profile: handle.profileView } : {}),
         })
       }
     },

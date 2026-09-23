@@ -13,6 +13,14 @@
 
 **Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`** — 浏览器 CORS preflight 对常见中转网关只放行前者；后端代理通常两个 header 都接受。
 
+**提交路径一律经 [`src/lib/generationJob.ts`](./src/lib/generationJob.ts)**，不要在调用方自己拼
+生命周期。`startGeneration(spec, sink)` / `resumeGeneration(input, handle, report)` 里收着
+提交门禁（账号 + 计费）、扇出规则（计费整批一条 / 原生 `n` / 按份拆）、幂等键、受理回填、
+overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人话（ADR-0006：按码判，不糊上游原文）。
+宿主只实现 `GenerationSink`：工作台是任务行（`store.ts`），画布是占位框
+（`features/canvas/lib/canvasGenerationSink.ts`）。画布视频走自己的队列协议，
+复用 `admitGeneration` 与 `superviseGeneration`（文档化的第三个调用方）。
+
 ## 多语言（i18n）
 
 运行时是 **react-i18next + 结构化 key**，语料是每个 locale 一份 JSON，业务代码只认 key。
