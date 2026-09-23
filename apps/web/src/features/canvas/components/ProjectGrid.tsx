@@ -11,6 +11,7 @@ import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
+import { renameProject } from '../lib/activeProject'
 import { projectCatalog } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
@@ -254,13 +255,10 @@ export default function ProjectGrid({
           defaultName={projectDisplayName(renaming.name)}
           onCancel={() => setRenaming(null)}
           onSave={(name) => {
-            void useCanvasProjectStore
-              .getState()
-              .update(renaming.id, { name, customName: true })
-              .then(
-                () => setRenaming(null),
-                () => useStore.getState().showToast(t('grid.renameFailed'), 'error'),
-              )
+            void renameProject(renaming.id, name).then(
+              () => setRenaming(null),
+              () => useStore.getState().showToast(t('grid.renameFailed'), 'error'),
+            )
           }}
         />
       )}

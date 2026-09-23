@@ -1,8 +1,7 @@
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { executionContext } from '../../db/execution-context'
-import { finishTask } from '../../db/task-transitions'
+import { finishTask, heldBy } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
 import type {
   BffTransaction,
@@ -194,14 +193,17 @@ function chatTaskSettle(
   pricing: ChatTaskPricing,
 ): ChatTaskSettle {
   return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
-    const finished = await executionContext.run(agentExecutionToken(turnId), () =>
-      finishTask(turnId, {
+    // 对话轮的租约与生图任务同一套：令牌对得上、租约没过，这一轮才结算得了自己。
+    const finished = await finishTask(
+      turnId,
+      {
         status: settlement.outcome,
         completedAt: Date.now(),
         upstreamInvocationCount: settlement.upstreamInvocationCount,
         // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
         ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
-      }),
+      },
+      heldBy(agentExecutionToken(turnId)),
     )
     if (!finished) {
       const [task] = await db

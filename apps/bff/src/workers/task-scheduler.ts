@@ -1,12 +1,10 @@
-import { hostname } from 'node:os'
 import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { executionContext } from '../db/execution-context'
-import { finishTask } from '../db/task-transitions'
 import { log } from '../lib/logger'
-import { abortRunningTask, runningTaskIds, runTask } from './task-runner'
+import { abortRunningTask, failCrashedExecution, runningTaskIds } from './task-execution'
+import { runTask } from './task-runner'
 
 type ExecuteTask = (id: string) => Promise<void>
 
@@ -146,21 +144,15 @@ export class TaskScheduler {
     const active = this.active.get(provider)!
     if (active.has(id)) return
 
-    const promise = executionContext.run(`${hostname()}:${crypto.randomUUID()}`, () =>
-      Promise.resolve()
-        .then(() => this.executeTask(id))
-        .catch(async (err) => {
-          const message = err instanceof Error ? err.message : String(err)
-          log.error({ event: 'task.crashed', taskId: id, err: message }, 'task-runner crashed')
-          await finishTask(id, {
-            status: 'failed',
-            errorType: 'interrupted',
-            errorMessage: `Worker 执行异常：${message}`,
-            completedAt: Date.now(),
-          })
-        })
-        .finally(() => active.delete(id)),
-    )
+    const promise = Promise.resolve()
+      .then(() => this.executeTask(id))
+      .catch(async (err) => {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error({ event: 'task.crashed', taskId: id, err: message }, 'task-runner crashed')
+        // 崩在认领之后就由本进程那次认领收尾；认领之前崩的行没人写，留给回收扫描。
+        await failCrashedExecution(id, `Worker 执行异常：${message}`)
+      })
+      .finally(() => active.delete(id))
     active.set(id, promise)
   }
 

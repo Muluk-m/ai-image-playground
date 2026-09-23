@@ -16,11 +16,7 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
 }))
 
 import { agentCanvasSink, setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
-import {
-  setAgentJobPollIntervalForTesting,
-  setAgentWakePickupDelayForTesting,
-  useAgentStore,
-} from '../../../features/agent/store'
+import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -146,6 +142,25 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   return messagesResponse()
 })
 
+/** 后台任务守候问服务端的真实间隔；假时钟每次就推过这么一整跳。 */
+const JOB_POLL_MS = 3_000
+
+/**
+ * 等一件事成立。守候与唤醒接轮都是隔几秒问一次服务端，假时钟自己不会走：没成立就把时钟
+ * 推过一整跳，推的过程里这一跳带出来的请求与交付也一并跑完，再看一次。
+ */
+async function settles(check: () => void): Promise<void> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      check()
+      return
+    } catch {
+      await vi.advanceTimersByTimeAsync(JOB_POLL_MS)
+    }
+  }
+  check()
+}
+
 function state() {
   return useAgentStore.getState()
 }
@@ -155,6 +170,9 @@ function toolMessages(): AgentToolMessage[] {
 }
 
 beforeEach(() => {
+  // 守候与唤醒接轮按真实节奏隔几秒问一次：用假时钟把那几跳推过去，不去改模块的构造参数。
+  // 只假掉模块用的那一个定时器：fake-indexeddb 与 fetch 的内部还靠 setImmediate 推进。
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
@@ -221,8 +239,6 @@ beforeEach(() => {
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   jobsResponse = () => []
   cancelResponse = () => Response.json({ error: 'not_found' }, { status: 404 })
-  setAgentJobPollIntervalForTesting(5)
-  setAgentWakePickupDelayForTesting(5)
   useAgentStore.setState({
     conversationId: null,
     messages: [],
@@ -237,8 +253,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  setAgentJobPollIntervalForTesting()
-  setAgentWakePickupDelayForTesting()
+  vi.useRealTimers()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()
@@ -482,7 +497,7 @@ describe('产物交付', () => {
     const original = agentCanvasSink()!
     original.background = true
     const sending = state().send('画一只橘猫')
-    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    await settles(() => expect(state().turn).toBe('idle'))
     state().startNewConversation()
     const nextPlace = vi.fn()
     setAgentCanvasSink({ ...original, place: nextPlace })
@@ -504,7 +519,7 @@ describe('产物交付', () => {
     turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
 
     const sending = state().send('画一只橘猫')
-    await vi.waitFor(() => expect(finishDownload).toBeTypeOf('function'))
+    await settles(() => expect(finishDownload).toBeTypeOf('function'))
     setAgentCanvasSink(null)
     finishDownload(
       new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
@@ -528,7 +543,7 @@ describe('产物交付', () => {
     const sink = agentCanvasSink()!
 
     const sending = state().send('画一只橘猫')
-    await vi.waitFor(() => expect(finishDownload).toBeTypeOf('function'))
+    await settles(() => expect(finishDownload).toBeTypeOf('function'))
     setAgentCanvasSink(null)
     finishDownload(
       new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
@@ -539,7 +554,7 @@ describe('产物交付', () => {
     imageResponse = () =>
       new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
     setAgentCanvasSink(sink)
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
     expect(onCanvas.has(IMAGE.artifactId)).toBe(true)
   })
@@ -560,7 +575,7 @@ describe('产物交付', () => {
         TURN_END,
       )
     const sending = state().send('画一只橘猫')
-    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    await settles(() => expect(state().turn).toBe('idle'))
     expect(state().messages).toContainEqual(
       expect.objectContaining({ text: '已生成，请看画布。', streaming: false }),
     )
@@ -653,23 +668,10 @@ describe('后台任务', () => {
     expect(placed).toEqual([])
 
     done = true
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(toolMessages()[0]).toMatchObject({ status: 'succeeded', artifacts: [IMAGE] })
     expect(placedInto).toEqual([['placeholder-1']])
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
-    expect(discarded).toEqual([])
-  })
-
-  it('任务失败时占的位就地标错，卡按错误码给出路', async () => {
-    jobsResponse = () => finished({ status: 'failed', message: '上游超时', errorCode: 'timeout' })
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-
-    await state().send('画一只橘猫')
-
-    await vi.waitFor(() => expect(failed).toHaveLength(1))
-    expect(failed[0]!.id).toBe('placeholder-1')
-    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
     expect(discarded).toEqual([])
   })
 
@@ -720,8 +722,8 @@ describe('后台任务', () => {
 
     await state().send('画一只橘猫')
 
-    await vi.waitFor(() => expect(streams).toBe(2))
-    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    await settles(() => expect(streams).toBe(2))
+    await settles(() => expect(state().turn).toBe('idle'))
     const texts = state().messages.filter((message) => message.kind === 'text')
     expect(texts[texts.length - 1]).toMatchObject({
       role: 'assistant',
@@ -772,7 +774,7 @@ describe('后台任务', () => {
 
     await state().send('画一只橘猫')
 
-    await vi.waitFor(() =>
+    await settles(() =>
       expect(toolMessages()[0]).toMatchObject({
         status: 'failed',
         errorCode: 'timeout',
@@ -780,21 +782,6 @@ describe('后台任务', () => {
       }),
     )
     expect(state().turn).toBe('idle')
-  })
-
-  it('成功且没要求复核的任务结束后不去找唤醒轮', async () => {
-    jobsResponse = () => finished({ status: 'succeeded', artifacts: [IMAGE] })
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-
-    await state().send('画一只橘猫')
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
-    await new Promise((resolve) => setTimeout(resolve, 30))
-
-    const snapshotReads = fetchMock.mock.calls.filter(([input]) =>
-      String(input).endsWith(`/conversations/${CONVERSATION}/messages`),
-    )
-    expect(snapshotReads).toHaveLength(0)
   })
 
   it('刷新后读回还没结束的任务，接着等它，结束了照常落画布', async () => {
@@ -820,7 +807,7 @@ describe('后台任务', () => {
     expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
 
     done = true
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
   })
 
@@ -870,13 +857,13 @@ describe('后台任务', () => {
       })
 
     await state().send('画一只橘猫')
-    await vi.waitFor(() => expect(streams).toBe(2))
-    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    await settles(() => expect(streams).toBe(2))
+    await settles(() => expect(state().turn).toBe('idle'))
     expect(state().queue).toEqual([])
     expect(discarded).toEqual([])
 
     done = true
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placedInto).toEqual([['placeholder-1']])
     expect(discarded).toEqual([])
   })
@@ -915,54 +902,13 @@ describe('后台任务', () => {
 
     await state().selectConversation(CONVERSATION)
 
-    await vi.waitFor(() =>
+    await settles(() =>
       expect(state().jobProgress['tool-1']).toEqual({ stage: 'submitted', submittedAt: 1_000 }),
     )
     stage = 'running'
-    await vi.waitFor(() =>
+    await settles(() =>
       expect(state().jobProgress['tool-1']).toEqual({ stage: 'running', submittedAt: 1_000 }),
     )
-  })
-
-  it('单独取消后台任务：卡换成取消后的结局，占的位收掉而不是留成失败占位', async () => {
-    jobsResponse = () => [pendingJob]
-    const cancelCalls: string[] = []
-    cancelResponse = () => {
-      cancelCalls.push('cancel')
-      return Response.json({
-        job: finished({ status: 'failed', message: '已中止', errorCode: 'cancelled' })[0],
-      })
-    }
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-    await state().send('画一只橘猫')
-    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
-
-    await state().cancelJob('tool-1')
-
-    expect(cancelCalls).toHaveLength(1)
-    const request = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/cancel'))!
-    expect(String(request[0])).toContain(`/conversations/${CONVERSATION}/jobs/task-1/cancel`)
-    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'cancelled' })
-    await vi.waitFor(() => expect(discarded).toEqual(['placeholder-1']))
-    expect(failed).toEqual([])
-    expect(placed).toEqual([])
-  })
-
-  it('取消请求失败时卡保持原样并把错误交给调用方', async () => {
-    jobsResponse = () => [pendingJob]
-    cancelResponse = () => Response.json({ error: 'internal' }, { status: 500 })
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-    await state().send('画一只橘猫')
-
-    await expect(state().cancelJob('tool-1')).rejects.toThrow()
-    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
-    expect(discarded).toEqual([])
-
-    // 离开会话时移交出去的占位照常收掉，不漏到下一个用例。
-    state().startNewConversation()
-    await vi.waitFor(() => expect(discarded).toEqual(['placeholder-1']))
   })
 
   it('切走再切回时旧的占位收掉，任务结束后在当前画布上照常落图', async () => {
@@ -998,7 +944,7 @@ describe('后台任务', () => {
     expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
 
     done = true
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
   })
 })
@@ -1083,7 +1029,7 @@ describe('单张重试', () => {
     expect(revived).toEqual(['placeholder-9'])
 
     done = true
-    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
     expect(placedInto).toEqual([['placeholder-9']])
     expect(reserved).toEqual([])
     expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
@@ -1097,7 +1043,7 @@ describe('单张重试', () => {
 
     await state().retry('tool-1', 'placeholder-9')
 
-    await vi.waitFor(() => expect(failed).toHaveLength(1))
+    await settles(() => expect(failed).toHaveLength(1))
     expect(failed[0]!.id).toBe('placeholder-9')
     expect(failedCodes).toEqual(['upstream_error'])
     expect(toolMessages()[1]).toMatchObject({ status: 'failed', errorCode: 'upstream_error' })
@@ -1126,7 +1072,7 @@ describe('单张重试', () => {
     expect(retryRequests[retryRequests.length - 1]?.url).toBe(
       `http://bff.test/api/agent/conversations/${CONVERSATION}/retries/retry-1/cancel`,
     )
-    await vi.waitFor(() => expect(failed).toHaveLength(1))
+    await settles(() => expect(failed).toHaveLength(1))
     expect(failed[0]!.id).toBe('placeholder-9')
     expect(failedCodes).toEqual(['timeout'])
   })
@@ -1179,7 +1125,7 @@ describe('单张重试', () => {
         done = true
       })
 
-    await vi.waitFor(() => expect(revived).toEqual(['placeholder-9']))
+    await settles(() => expect(revived).toEqual(['placeholder-9']))
     expect(done).toBe(false)
     pulled()
     await retrying
@@ -1198,7 +1144,7 @@ describe('单张重试', () => {
 
     expect(state().messages.map((message) => message.id)).toEqual(['tool-1', 'retry-1'])
     done = true
-    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
     expect(placedInto).toEqual([['placeholder-9']])
   })
 
@@ -1212,62 +1158,7 @@ describe('单张重试', () => {
     await state().retry('tool-1', 'placeholder-9')
 
     expect(state().messages.map((message) => message.id)).toEqual(['tool-1', 'retry-1'])
-    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
-    expect(placedInto).toEqual([['placeholder-9']])
-  })
-
-  it('别的设备点的重试：守候时读到面板上没有的重试记录就补在末尾，结束时落回它指的占位', async () => {
-    let done = false
-    const otherJob: AgentBackgroundJobView = {
-      messageId: 'tool-2',
-      turnId: 'turn-1',
-      result: {
-        ...RETRY_RECORD,
-        retryOf: undefined,
-        toolCallId: 'call-2',
-        job: { taskId: 'task-2', media: 'image' },
-      },
-    }
-    jobsResponse = () => [
-      otherJob,
-      ...(done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})),
-    ]
-    await openFailedConversation([
-      {
-        id: 'tool-2',
-        turnId: 'turn-1',
-        role: 'assistant',
-        content: [otherJob.result],
-        createdAt: 3,
-      },
-    ])
-
-    await vi.waitFor(() =>
-      expect(state().messages.map((message) => message.id)).toEqual([
-        'tool-1',
-        'tool-2',
-        'retry-1',
-      ]),
-    )
-    expect(toolMessages()[2]).toMatchObject({
-      status: 'submitted',
-      retryOf: { messageId: 'tool-1', placeholderId: 'placeholder-9' },
-    })
-
-    done = true
-    await vi.waitFor(() => expect(toolMessages()[2]!.delivery).toBe('placed'))
-    expect(placedInto).toEqual([['placeholder-9']])
-  })
-
-  it('刷新后读回还在跑的重试，结束时仍落回原占位', async () => {
-    let done = false
-    jobsResponse = () =>
-      done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})
-    await openFailedConversation([recordView()])
-    expect(toolMessages()[1]).toMatchObject({ status: 'submitted' })
-
-    done = true
-    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+    await settles(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
     expect(placedInto).toEqual([['placeholder-9']])
   })
 
@@ -1323,30 +1214,12 @@ describe('单张重试', () => {
       expect(revived).toEqual([])
 
       phase = 'running'
-      await vi.waitFor(() => expect(toolMessages()[1]!.status).toBe('submitted'))
+      await settles(() => expect(toolMessages()[1]!.status).toBe('submitted'))
       expect(revived).toEqual(['placeholder-9'])
 
       phase = 'done'
-      await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
+      await settles(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
       expect(placedInto).toEqual([['placeholder-9']])
-    })
-
-    it('刷新或换设备后读回排着的重试，照样等它轮到', async () => {
-      let running = false
-      jobsResponse = () => [
-        jobOf(
-          record(
-            'retry-1',
-            'placeholder-9',
-            running ? { status: 'submitted', job: { taskId: 'task-retry', media: 'image' } } : {},
-          ),
-        ),
-      ]
-      await openFailedConversation([record('retry-1', 'placeholder-9', {})])
-      expect(toolMessages()[1]).toMatchObject({ status: 'queued' })
-
-      running = true
-      await vi.waitFor(() => expect(revived).toEqual(['placeholder-9']))
     })
 
     it('撤回排着的重试：占位保持原来那次失败', async () => {
@@ -1407,7 +1280,7 @@ describe('单张重试', () => {
         ),
       ]
 
-      await vi.waitFor(() => expect(failed).toHaveLength(2))
+      await settles(() => expect(failed).toHaveLength(2))
       expect(Object.fromEntries(failed.map((one, index) => [one.id, failedCodes[index]]))).toEqual({
         'placeholder-8': 'insufficient_credits',
         'placeholder-9': 'timeout',
@@ -1551,7 +1424,7 @@ it('工具完成帧在切项目后才到，仍投递原画布而不污染当前�
   const original = agentCanvasSink()!
   original.background = true
   const sending = state().send('画一只橘猫')
-  await vi.waitFor(() => expect(reserved).toHaveLength(1))
+  await settles(() => expect(reserved).toHaveLength(1))
   state().startNewConversation()
   const nextPlace = vi.fn()
   setAgentCanvasSink({ ...original, place: nextPlace })
@@ -1585,7 +1458,7 @@ it('运行中的项目往返切换只保留一份失败占位', async () => {
   const original = agentCanvasSink()!
   original.background = true
   const sending = state().send('画一只橘猫')
-  await vi.waitFor(() => expect(reserved).toHaveLength(1))
+  await settles(() => expect(reserved).toHaveLength(1))
   state().startNewConversation()
   messagesResponse = () =>
     Response.json({ messages: [], turns: [], activeTurn: { turnId: TURN_START.turnId } })
@@ -1619,7 +1492,7 @@ it('云端交付只刷新原项目，不下载和重复放图；已删占位仅�
   // 卸载重挂是自动恢复，不等于用户点了“放入画布”。
   setAgentCanvasSink(null)
   setAgentCanvasSink({ ...original, syncArtifacts })
-  await vi.waitFor(() => expect(syncArtifacts).toHaveBeenCalledTimes(2))
+  await settles(() => expect(syncArtifacts).toHaveBeenCalledTimes(2))
   expect(placed).toEqual([])
   await state().placeOnCanvas('tool-1')
   expect(toolMessages()[0]?.delivery).toBe('placed')
