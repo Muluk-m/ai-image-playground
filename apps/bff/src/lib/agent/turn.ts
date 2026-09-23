@@ -32,6 +32,7 @@ import {
   createAgentImageSource,
   removeAgentTurnReferences,
   requireAgentImages,
+  resolveTurnReferences,
 } from './images'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
@@ -515,7 +516,9 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     read: (afterSeq) => events.read(afterSeq),
     async interject(text, references = [], options = {}) {
       if (!acceptingInterjections || aborted) return null
-      const evidence = await turnVisualEvidence(references)
+      const evidence = await turnVisualEvidence(
+        await resolveTurnReferences(references, conversationId, input.userId),
+      )
       if (!acceptingInterjections || aborted) return null
       await input.assertExecution?.()
       const messageId = options.messageId ?? crypto.randomUUID()
