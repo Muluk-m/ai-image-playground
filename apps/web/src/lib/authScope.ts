@@ -58,6 +58,15 @@ export function isUserStorageScope(): boolean {
   return currentScope !== ANONYMOUS_SCOPE
 }
 
+/**
+ * 此刻这个账号。跨 await 的操作拿着它问「还是不是同一个账号」，
+ * 换过账号就一律作废——旧账号的回调不许写进新账号的数据里。
+ */
+export function accountScope(): () => boolean {
+  const scope = currentScope
+  return () => currentScope === scope
+}
+
 interface SyncStorage {
   getItem(name: string): string | null
   setItem(name: string, value: string): void

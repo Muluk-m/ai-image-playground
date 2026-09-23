@@ -2,6 +2,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useAgentStore } from '../../../../features/agent/store'
+import { currentCanvasWorkspace } from '../../../../features/canvas/lib/activeProject'
 import { installProjectNavigation } from '../../../../features/canvas/lib/projectNavigation'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import {
@@ -10,7 +11,6 @@ import {
   resolveProjectRoute,
   writeProjectRoute,
 } from '../../../../features/canvas/lib/projectRoute'
-import { currentCanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import {
   CANVAS_PROJECT_KEY,

@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
+import { copyDeletedProjectLocally, restoreProject } from '../lib/activeProject'
 import { listRecycledCloudProjects } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
-import { copyDeletedProjectLocally } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
 
 export default function ProjectTrash({
@@ -26,11 +26,12 @@ export default function ProjectTrash({
   const scope = scopedStorageName('canvas')
   useEffect(() => {
     let cancelled = false
+    const isCurrent = accountScope()
     setLoading(true)
     void listRecycledCloudProjects()
       .then(
         (page) => {
-          if (cancelled || scopedStorageName('canvas') !== scope) return
+          if (cancelled || !isCurrent()) return
           setProjects(page.projects)
           setCursor(page.nextCursor)
         },
@@ -47,37 +48,40 @@ export default function ProjectTrash({
   }, [scope])
   const copy = async (id: string) => {
     if (busy) return
+    const isCurrent = accountScope()
     setBusy(true)
     setError(false)
     try {
       const project = await copyDeletedProjectLocally(id)
-      if (scopedStorageName('canvas') === scope) await onOpen(project)
+      if (isCurrent()) await onOpen(project)
     } catch {
-      if (scopedStorageName('canvas') === scope) setError(true)
+      if (isCurrent()) setError(true)
     } finally {
       setBusy(false)
     }
   }
   const restore = async (id: string) => {
     if (busy) return
+    const isCurrent = accountScope()
     setBusy(true)
     setError(false)
     try {
-      await useCanvasProjectStore.getState().restore(id)
-      if (scopedStorageName('canvas') !== scope) return
+      await restoreProject(id)
+      if (!isCurrent()) return
       setProjects((all) => all.filter((one) => one.id !== id))
     } catch {
-      if (scopedStorageName('canvas') === scope) setError(true)
+      if (isCurrent()) setError(true)
     } finally {
       setBusy(false)
     }
   }
   const more = async () => {
     if (busy) return
+    const isCurrent = accountScope()
     setBusy(true)
     try {
       const page = await listRecycledCloudProjects(cursor ?? undefined)
-      if (scopedStorageName('canvas') !== scope) return
+      if (!isCurrent()) return
       setProjects((all) => [
         ...all.filter((one) => !page.projects.some((next) => next.id === one.id)),
         ...page.projects,
@@ -85,7 +89,7 @@ export default function ProjectTrash({
       setCursor(page.nextCursor)
       setError(false)
     } catch {
-      if (scopedStorageName('canvas') === scope) setError(true)
+      if (isCurrent()) setError(true)
     } finally {
       setBusy(false)
     }

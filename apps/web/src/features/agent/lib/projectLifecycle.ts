@@ -1,17 +1,17 @@
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope } from '../../../lib/authScope'
+import {
+  currentCanvasWorkspace,
+  forgetCanvasWorkspace,
+  openProject,
+  prepareCanvasRemoval,
+} from '../../canvas/lib/activeProject'
 import {
   cloudProjectsEnabled,
   deleteCloudProject,
   ensureCloudProjectConversation,
   ProjectRequestError,
 } from '../../canvas/lib/projectClient'
-import {
-  canvasSceneKey,
-  currentCanvasWorkspace,
-  forgetCanvasWorkspace,
-  prepareCanvasRemoval,
-  selectCanvasWorkspace,
-} from '../../canvas/lib/workspaces'
+import { canvasSceneKey } from '../../canvas/lib/workspaceKeys'
 import { currentCanvasProject, useCanvasProjectStore } from '../../canvas/projectStore'
 import {
   AgentRequestError,
@@ -76,9 +76,7 @@ export interface ShowProjectPanel {
  */
 export function showProject(project: ShownProject, panel: ShowProjectPanel): void {
   panel.resetDelivery()
-  useCanvasProjectStore.getState().activate(project.id)
-  panel.reset(project)
-  selectCanvasWorkspace(project.conversationId)
+  openProject(project.id, () => panel.reset(project))
   if (project.conversationId) panel.open(project.conversationId)
 }
 
@@ -110,7 +108,7 @@ export async function deleteProject(
   const project = projects.projects.find((one) => one.id === projectId)
   if (!project) return { ok: false, reason: 'not_found' }
   if (project.cloud && !cloudProjectsEnabled()) return { ok: false, reason: 'cloud_project' }
-  const scope = scopedStorageName('canvas')
+  const isCurrent = accountScope()
   // 正在跑的那一轮还在往这张画布上落东西，连它一起删等于半路抽走目标
   //（ADR-0005 决策「运行中禁止切换、新建或删除当前会话」）。
   if (project.id === projects.activeId && panel.running) return { ok: false, reason: 'busy' }
@@ -121,13 +119,13 @@ export async function deleteProject(
     // 画布那边只会抛，这里是把它翻成判别值的唯一一处；同样只停在 `prepareCanvasRemoval` 这一层。
     await prepareCanvasRemoval(project.sceneKey)
     if (project.cloud) {
-      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      if (!isCurrent()) return { ok: false, reason: 'failed' }
       await deleteCloudProject(project.id)
-      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      if (!isCurrent()) return { ok: false, reason: 'failed' }
       await useCanvasProjectStore.getState().markDeleted([project.id])
-      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      if (!isCurrent()) return { ok: false, reason: 'failed' }
       if (project.id === useCanvasProjectStore.getState().activeId) await panel.replaceCurrent()
-      if (scopedStorageName('canvas') !== scope) return { ok: false, reason: 'failed' }
+      if (!isCurrent()) return { ok: false, reason: 'failed' }
       forgetCanvasWorkspace(project.sceneKey)
       panel.forgetConversation(project.conversationId)
       return { ok: true }
@@ -171,16 +169,16 @@ function failureReason(error: unknown): 'busy' | 'save_failed' | 'failed' {
 export async function createProjectConversation(): Promise<string> {
   const project = currentCanvasProject()
   if (!project?.cloud || !cloudProjectsEnabled()) return (await createConversation()).id
-  const scope = scopedStorageName('canvas')
+  const sameAccount = accountScope()
   const workspace = currentCanvasWorkspace()
   await workspace.ready
   if (!(await workspace.flush())) throw new Error('local_save_failed')
   await workspace.cloud?.sync()
-  if (currentCanvasProject()?.id !== project.id || scopedStorageName('canvas') !== scope)
+  if (currentCanvasProject()?.id !== project.id || !sameAccount())
     throw new Error('project_changed')
   if (!currentCanvasProject()?.cloud?.revision) throw new Error('project_not_synced')
   const result = await ensureCloudProjectConversation(project.id)
-  if (currentCanvasProject()?.id !== project.id || scopedStorageName('canvas') !== scope)
+  if (currentCanvasProject()?.id !== project.id || !sameAccount())
     throw new Error('project_changed')
   return result.conversation.id
 }

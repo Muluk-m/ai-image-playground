@@ -8,21 +8,20 @@ import {
   saveCurrentProject,
   showProject,
 } from '../../../../features/agent/lib/projectLifecycle'
-import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
-import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene } from '../../../../features/canvas/lib/persistence'
-import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import {
-  canvasSceneKey,
   currentCanvasWorkspace,
   selectCanvasWorkspace,
-} from '../../../../features/canvas/lib/workspaces'
+} from '../../../../features/canvas/lib/activeProject'
+import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import {
   currentCanvasProject,
   useCanvasProjectStore,
 } from '../../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { openCanvas } from '../../../helpers/activeProject'
 
 const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) =>
   Response.json({ conversations: [] }),
@@ -41,10 +40,8 @@ async function storedPrompt(key: string): Promise<string> {
   return (unsent ?? draft).prompt
 }
 
-async function persistedCamera(sceneKey: string): Promise<number> {
-  const editor = new CanvasEditor(new CanvasDoc())
-  await loadScene(editor, sceneKey)
-  return editor.doc.camera.x
+async function persistedCamera(sceneKey: string): Promise<number | undefined> {
+  return (await readPersistedScene(sceneKey))?.camera.x
 }
 
 /** 下一次 IndexedDB 写入中止，模拟落盘失败。 */
@@ -67,9 +64,7 @@ beforeEach(async () => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   useCanvasProjectStore.setState({ projects: [], activeId: null, loaded: false, error: null })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
 })
 
 afterEach(async () => {
@@ -238,7 +233,7 @@ it('删除项目：草稿、项目记录与画布存档一起消失', async () =
 
   expect((await projectRepository.list()).map((one) => one.id)).not.toContain(target.id)
   expect(await storedPrompt(projectDraftKey(target.id))).toBe('')
-  expect(await persistedCamera(target.sceneKey)).toBe(0)
+  expect(await readPersistedScene(target.sceneKey)).toBeUndefined()
   expect(seen).toEqual(['forgetConversation:null'])
   expect(currentCanvasProject()?.id).toBe(current.id)
 })

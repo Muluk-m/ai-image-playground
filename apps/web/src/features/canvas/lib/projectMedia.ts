@@ -4,7 +4,7 @@ import {
   type ProjectDocument,
   type ProjectKind,
 } from '@image-playground/shared'
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope } from '../../../lib/authScope'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
 
@@ -94,10 +94,10 @@ export async function prepareProjectMedia(
   signal: AbortSignal,
   uploadMissing = true,
 ): Promise<void> {
-  const scope = scopedStorageName('media')
+  const sameAccount = accountScope()
   const current = () => {
     signal.throwIfAborted()
-    if (scope !== scopedStorageName('media')) throw new Error('media_scope_changed')
+    if (!sameAccount()) throw new Error('media_scope_changed')
   }
   const files = doc.files
   for (const element of doc.elements) {
