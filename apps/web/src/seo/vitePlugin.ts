@@ -3,7 +3,12 @@ import { join } from 'node:path'
 import { guideEn } from '../features/guide/content/en'
 import { guideZhCN } from '../features/guide/content/zh-CN'
 import type { GuideContent } from '../features/guide/model'
-import { escapeHtml, renderGuideDocument } from '../features/guide/render'
+import {
+  buildSearchIndex,
+  escapeHtml,
+  guidePagePath,
+  renderGuidePage,
+} from '../features/guide/render'
 
 /**
  * 搜索引擎相关的构建产物，全部由构建环境决定：
@@ -12,21 +17,61 @@ import { escapeHtml, renderGuideDocument } from '../features/guide/render'
  * - `SEARCH_INDEXING=false`：测试站与内部站。robots.txt 整站 Disallow，页面再加 noindex。
  *   未设置时按允许收录处理，自托管的默认行为与普通网站一致。
  *
- * 使用指南在这里整页渲染成静态 HTML（见 `features/guide/render.ts`）；首页仍是 SPA，
- * 只补 head 里的元信息。形状是 Vite 的 Plugin，这里不 import vite 以免把它带进应用的类型图。
+ * 使用指南在这里整页渲染成静态 HTML（见 `features/guide/render.ts`），每种语言一个首页加每章
+ * 一页，另出一份站内搜索索引；应用首页仍是 SPA，只补 head 里的元信息。
+ * 形状是 Vite 的 Plugin，这里不 import vite 以免把它带进应用的类型图。
  */
 
-const GUIDES: Record<string, GuideContent> = {
-  '/guide/index.html': guideZhCN,
-  '/guide/en/index.html': guideEn,
-}
-const ALTERNATES = Object.values(GUIDES).map(({ lang, path }) => ({ lang, path }))
+/** 第一份是 x-default。 */
+const EDITIONS: GuideContent[] = [guideZhCN, guideEn]
 
-/** 收进 sitemap 的公开页面。`/image` 与 `/` 是同一个入口，只列根地址。 */
+interface GuidePageRef {
+  content: GuideContent
+  chapterId: string | null
+}
+
+/** 每个指南页面：站内地址 → 内容。Vite 入口 `apps/web<path>index.html` 与它一一对应。 */
+const GUIDE_PAGES: Record<string, GuidePageRef> = Object.fromEntries(
+  EDITIONS.flatMap((content) =>
+    [null, ...content.chapters.map((chapter) => chapter.id)].map((chapterId) => [
+      guidePagePath(content, chapterId),
+      { content, chapterId },
+    ]),
+  ),
+)
+
+/**
+ * Vite 的 HTML 入口：每页一个占位文件（`apps/web/guide/**\/index.html`），内容在 transform 时整页替换。
+ * 加章节要补两种语言的占位文件，漏了构建会报 "Could not resolve entry module"。
+ */
+export function guideHtmlEntries(webRoot: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.keys(GUIDE_PAGES).map((path) => [
+      `guide${path.replace(/^\/guide/, '').replace(/\/+/g, '-')}`.replace(/-$/, ''),
+      join(webRoot, path, 'index.html'),
+    ]),
+  )
+}
+
+const searchIndexPath = (content: GuideContent) => `${content.root}search.json`
+
+/** 收进 sitemap 的应用公开页面。`/image` 与 `/` 是同一个入口，只列根地址。 */
 const SITEMAP_PATHS = ['/', '/explore']
 
 interface EmitContext {
   emitFile(file: { type: 'asset'; fileName: string; source: string }): string
+}
+
+interface DevServer {
+  middlewares: {
+    use(
+      handler: (
+        req: { url?: string },
+        res: { setHeader(name: string, value: string): void; end(body: string): void },
+        next: () => void,
+      ) => void,
+    ): void
+  }
 }
 
 /** 截图只收 WebP：读 RIFF 头里的画布尺寸（VP8X / VP8 / VP8L 三种编码各有写法）。 */
@@ -89,15 +134,16 @@ function homeTags(origin: string | null, indexing: boolean) {
 }
 
 function sitemap(origin: string): string {
-  const alternates = ALTERNATES.map(
-    (alt) =>
-      `<xhtml:link rel="alternate" hreflang="${alt.lang}" href="${escapeHtml(origin + alt.path)}"/>`,
-  ).join('')
+  const guidePages = Object.values(GUIDE_PAGES).map(({ content, chapterId }) => {
+    const alternates = EDITIONS.map(
+      (edition) =>
+        `<xhtml:link rel="alternate" hreflang="${edition.lang}" href="${escapeHtml(origin + guidePagePath(edition, chapterId))}"/>`,
+    ).join('')
+    return `<url><loc>${escapeHtml(origin + guidePagePath(content, chapterId))}</loc>${alternates}</url>`
+  })
   const pages = [
     ...SITEMAP_PATHS.map((path) => `<url><loc>${escapeHtml(origin + path)}</loc></url>`),
-    ...ALTERNATES.map(
-      (alt) => `<url><loc>${escapeHtml(origin + alt.path)}</loc>${alternates}</url>`,
-    ),
+    ...guidePages,
   ]
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
@@ -123,23 +169,40 @@ export function seoPlugin({ publicDir }: { publicDir: string }) {
       // 指南整页替换，必须赶在 Vite 解析脚本与样式之前。
       order: 'pre' as const,
       handler(html: string, ctx: { path: string }) {
-        const guide = GUIDES[ctx.path]
-        if (guide)
-          return renderGuideDocument(guide, {
+        if (ctx.path.startsWith('/guide/')) {
+          const page = GUIDE_PAGES[ctx.path.replace(/index\.html$/, '')]
+          if (!page)
+            throw new Error(`guide: ${ctx.path} has no content; remove the entry or add a chapter`)
+          return renderGuidePage(page.content, page.chapterId, {
             origin,
             indexing,
-            alternates: ALTERNATES,
+            editions: EDITIONS,
             updated,
             imageSize: (src) => webpSize(join(publicDir, src)),
           })
+        }
         if (ctx.path === '/index.html') return { html, tags: homeTags(origin, indexing) }
         return html
       },
+    },
+    configureServer(server: DevServer) {
+      server.middlewares.use((req, res, next) => {
+        const content = EDITIONS.find((edition) => req.url === searchIndexPath(edition))
+        if (!content) return next()
+        res.setHeader('content-type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify(buildSearchIndex(content)))
+      })
     },
     generateBundle(this: EmitContext) {
       this.emitFile({ type: 'asset', fileName: 'robots.txt', source: robots(origin, indexing) })
       if (origin && indexing)
         this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemap(origin) })
+      for (const content of EDITIONS)
+        this.emitFile({
+          type: 'asset',
+          fileName: searchIndexPath(content).slice(1),
+          source: JSON.stringify(buildSearchIndex(content)),
+        })
     },
   }
 }

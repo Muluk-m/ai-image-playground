@@ -175,12 +175,15 @@ storage scope 留在匿名（`setClientStorageScope(null)`），只有真需要�
 
 ## 使用指南与 SEO
 
-- `/guide/`（中文）与 `/guide/en/`（英文）是**构建期渲染的静态页**，不是 SPA 路由：
-  [`src/seo/vitePlugin.ts`](./src/seo/vitePlugin.ts) 在 `transformIndexHtml` 里把
-  `guide/**/index.html` 整页替换成 [`features/guide/render.ts`](./src/features/guide/render.ts) 的输出，
-  浏览器端只跑目录高亮（`features/guide/client.ts`）。正文、结构化数据都在 HTML 里，爬虫不必执行脚本。
-- 内容是纯数据：`features/guide/content/zh-CN.ts` 与 `en.ts`，**两份结构必须一致**（同样的锚点、区块、
-  截图与编号，`render.test.ts` 守着）。`[[标签]]` 写的是界面原文，改了按钮文案要同步改指南。
+- 使用指南是**构建期渲染的静态页**，不是 SPA 路由：每种语言一个首页（`/guide/`、`/guide/en/`）加每章
+  一页（`/guide/<章节 id>/`）。[`src/seo/vitePlugin.ts`](./src/seo/vitePlugin.ts) 在 `transformIndexHtml`
+  里把 `guide/**/index.html` 占位文件整页替换成 [`features/guide/render.ts`](./src/features/guide/render.ts)
+  的输出，并产出站内搜索索引 `<root>search.json`；浏览器端（`features/guide/client.ts`）只做目录高亮、
+  搜索弹窗与复制按钮。正文、结构化数据都在 HTML 里，爬虫不必执行脚本。
+- 内容是纯数据：`features/guide/content/zh-CN.ts` 与 `en.ts`，**两份结构必须一致**（同样的章节、锚点、
+  区块、截图与编号，`render.test.ts` 守着，站内链接失效也会让它红）。`[[标签]]` 写的是界面原文，改了
+  按钮文案要同步改指南。**新增章节**要同时加两种语言的内容、`render.ts` 里的章节图标，以及
+  `guide/<id>/index.html`、`guide/en/<id>/index.html` 两个占位文件（Vite 入口由内容推导，缺文件构建即失败）。
 - 截图在 `public/guide-assets/<zh|en>/`，只收 WebP（构建期读尺寸写进 width/height）。截图上的编号圆点
   坐标是百分比，重新截图后要一起更新。
 - `PUBLIC_ORIGIN` 与 `SEARCH_INDEXING` 由 `scripts/pages-release.sh` 按版本传给构建：有源才写 canonical、
