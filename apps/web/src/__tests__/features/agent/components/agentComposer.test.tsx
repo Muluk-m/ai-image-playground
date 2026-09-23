@@ -44,12 +44,18 @@ function editor(): HTMLElement {
 }
 
 /**
- * jsdom 里没有真实光标，`getContentEditableSelection` 回落到文本末尾——正好是打字的位置。
+ * 模拟一次真实输入：浏览器把字符插在光标处、把光标推到它后面，再派发 input。
  * 追加文本节点而不是重设 textContent：后者会把已经插好的胶囊 DOM 一起抹掉。
  */
 function type(text: string): void {
   const el = editor()
-  el.appendChild(document.createTextNode(text))
+  const node = el.appendChild(document.createTextNode(text))
+  const range = document.createRange()
+  range.setStart(node, node.length)
+  range.collapse(true)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
   act(() => {
     el.dispatchEvent(new Event('input', { bubbles: true }))
   })

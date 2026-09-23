@@ -41,14 +41,23 @@ function Harness({
   labels = noImages,
   parseCommand,
   onKeyDown,
+  slotValues,
 }: {
   initial: string
   labels?: MentionLabelResolver
   parseCommand?: PromptEditorOptions['parseCommand']
   onKeyDown?: PromptEditorOptions['onKeyDown']
+  slotValues?: PromptEditorOptions['slotValues']
 }) {
   const [value, setValue] = useState(initial)
-  const editor = usePromptEditor({ value, labels, onChange: setValue, parseCommand, onKeyDown })
+  const editor = usePromptEditor({
+    value,
+    labels,
+    onChange: setValue,
+    parseCommand,
+    onKeyDown,
+    slotValues,
+  })
   api = editor
   return <PromptEditor editor={editor} aria-label="提示词" />
 }
@@ -136,6 +145,20 @@ describe('提示词编辑器 · 提示词与 DOM 同步', () => {
     expect(chip?.textContent).toBe('@图1')
     expect(chip?.dataset.mentionText).toBe(MENTION_1)
     expect(editor().textContent).toBe('前@图1后')
+  })
+
+  it('手打出一个完整槽位就地变成胶囊，光标留在原处', () => {
+    mount(<Harness initial="" slotValues={{ 颜色: ['红', '蓝'] }} />)
+    editor().focus()
+    typeInto((el) => {
+      el.textContent = '画一只{颜色}猫'
+      setContentEditableCursor(el, '画一只{颜色}'.length)
+    })
+
+    const chip = editor().querySelector<HTMLElement>('.slot-tag')
+    expect(chip?.dataset.slotName).toBe('颜色')
+    expect(chip?.dataset.slotCount).toBe('×2')
+    expect(getContentEditableSelection(editor()).start).toBe('画一只{颜色}'.length)
   })
 })
 
