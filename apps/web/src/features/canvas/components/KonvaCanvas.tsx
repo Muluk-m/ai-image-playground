@@ -149,14 +149,6 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         t?.isContentEditable
       )
     }
-    // loading 占位框是进行中任务的身份，全选误删会丢结果；error/stale 可删（清除失败任务的入口）
-    const deleteSelection = () => {
-      const ids = [...doc.selection].filter((id) => {
-        const el = doc.getElement(id)
-        return !(el?.type === 'placeholder' && el.status === 'loading')
-      })
-      if (ids.length > 0) doc.deleteElements(ids)
-    }
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return
       if (e.key === ' ') {
@@ -185,7 +177,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           case 'backspace':
           case 'delete':
             e.preventDefault()
-            deleteSelection()
+            doc.deleteSelection()
             break
         }
         return
@@ -220,7 +212,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           break
         case 'Delete':
         case 'Backspace':
-          deleteSelection()
+          doc.deleteSelection()
           break
         case 'Escape':
           doc.setSelection([])
