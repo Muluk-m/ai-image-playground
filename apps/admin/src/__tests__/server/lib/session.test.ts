@@ -8,30 +8,31 @@ process.env.PORT = '0'
 const { signSession, verifySession } = await import('../../../../server/lib/session')
 
 describe('signSession / verifySession', () => {
-  it('签发的 cookie 立即能验证', () => {
-    const cookie = signSession()
-    const { valid, expiresAt } = verifySession(cookie)
+  it('签发的 cookie 立即能验证并保留运营者身份', () => {
+    const cookie = signSession('operator@example.com')
+    const { valid, expiresAt, operatorId } = verifySession(cookie)
     expect(valid).toBe(true)
+    expect(operatorId).toBe('operator@example.com')
     expect(expiresAt).toBeInstanceOf(Date)
     expect(expiresAt!.getTime()).toBeGreaterThan(Date.now())
   })
 
   it('过期的 cookie 验证失败', () => {
-    const cookie = signSession(-1)
+    const cookie = signSession('operator@example.com', -1)
     const { valid } = verifySession(cookie)
     expect(valid).toBe(false)
   })
 
-  it('篡改 expires_at 验证失败', () => {
-    const cookie = signSession()
-    const [_iso, hmac] = cookie.split('.')
-    const tampered = `2099-01-01T00:00:00.000Z.${hmac}`
-    const { valid } = verifySession(tampered)
+  it('篡改 payload 验证失败', () => {
+    const cookie = signSession('operator@example.com')
+    const [payload, hmac] = cookie.split('.')
+    const tamperedPayload = `${payload?.startsWith('A') ? 'B' : 'A'}${payload?.slice(1)}`
+    const { valid } = verifySession(`${tamperedPayload}.${hmac}`)
     expect(valid).toBe(false)
   })
 
   it('篡改 hmac 验证失败', () => {
-    const cookie = signSession()
+    const cookie = signSession('operator@example.com')
     const [iso] = cookie.split('.')
     const tampered = `${iso}.evil-hmac-aaaaaa`
     const { valid } = verifySession(tampered)

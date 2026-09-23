@@ -60,7 +60,26 @@ export default {
           foreground: 'hsl(var(--card-foreground))',
         },
         success: 'hsl(var(--success))',
+        warning: 'hsl(var(--warning))',
         danger: 'hsl(var(--danger))',
+        private: 'hsl(var(--private))',
+        brand: {
+          DEFAULT: 'hsl(var(--brand-action))',
+          hover: 'hsl(var(--brand-action-hover))',
+          foreground: 'hsl(var(--brand-action-foreground))',
+          ink: 'hsl(var(--brand-ink))',
+          'ink-raised': 'hsl(var(--brand-ink-raised))',
+          mint: 'hsl(var(--brand-mint))',
+        },
+        shell: {
+          nav: 'hsl(var(--shell-nav-bg))',
+          'nav-foreground': 'hsl(var(--shell-nav-fg))',
+          'nav-border': 'hsl(var(--shell-nav-border))',
+          'nav-label': 'hsl(var(--shell-nav-group-label))',
+          'nav-hover': 'hsl(var(--shell-nav-item-hover-bg))',
+          'nav-active': 'hsl(var(--shell-nav-item-active-bg))',
+          'nav-active-foreground': 'hsl(var(--shell-nav-item-active-fg))',
+        },
         sidebar: {
           DEFAULT: 'hsl(var(--sidebar-background))',
           foreground: 'hsl(var(--sidebar-foreground))',
@@ -76,6 +95,19 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      spacing: {
+        'page-x': 'var(--spacing-page-x)',
+        'page-y': 'var(--spacing-page-y)',
+        section: 'var(--spacing-section)',
+        stack: 'var(--spacing-stack)',
+        'shell-header': 'var(--shell-header-height)',
+        'shell-nav': 'var(--shell-nav-width)',
+        'shell-nav-icon': 'var(--shell-nav-width-icon)',
+      },
+      transitionDuration: {
+        fast: 'var(--duration-fast)',
+        normal: 'var(--duration-normal)',
       },
       fontFamily: {
         sans: [

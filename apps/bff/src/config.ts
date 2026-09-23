@@ -184,6 +184,15 @@ export const config = {
       return normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
     },
   },
+  publicAssets: {
+    /** Public inspiration assets use the same R2 account credentials but a separate bucket. */
+    get bucket(): string {
+      return env('PUBLIC_ASSET_BUCKET', '')
+    },
+    get baseUrl(): string {
+      return env('PUBLIC_ASSET_BASE_URL', '').replace(/\/+$/, '')
+    },
+  },
   execution: {
     legacyOrigin: legacyExecutorOrigin,
     origin: executorOrigin,

@@ -37,12 +37,16 @@ function callbackUri(request: Request): string {
   return `${config.publicOrigin || new URL(request.url).origin}/api/auth/google/callback`
 }
 
+function frontendLocation(request: Request, path: string): string {
+  return `${config.frontendOrigin || new URL(request.url).origin}${path}`
+}
+
 function redirectTo(target: string): Response {
   return new Response(null, { status: 302, headers: { location: target } })
 }
 
-function loginFailure(code: 'not_allowed' | 'oauth_failed'): Response {
-  return redirectTo(`/login?error=${code}`)
+function loginFailure(request: Request, code: 'not_allowed' | 'oauth_failed'): Response {
+  return redirectTo(frontendLocation(request, `/login?error=${code}`))
 }
 
 function readFlowState(raw: unknown): FlowState | null {
@@ -93,7 +97,7 @@ export const googleAuthRoutes = new Elysia()
       if (!issued || !query.state || query.state !== issued.state || !query.code) {
         loginLimiter.recordFailure(key)
         logOutcome('oauth_failed')
-        return loginFailure('oauth_failed')
+        return loginFailure(request, 'oauth_failed')
       }
 
       const identity = await resolveGoogleEmail({
@@ -105,13 +109,13 @@ export const googleAuthRoutes = new Elysia()
         loginLimiter.recordFailure(key)
         const outcome = identity.ok ? 'not_allowed' : identity.reason
         logOutcome(outcome)
-        return loginFailure(outcome)
+        return loginFailure(request, outcome)
       }
 
       loginLimiter.recordSuccess(key)
-      setSessionCookie(cookie)
+      setSessionCookie(cookie, identity.email.toLowerCase())
       logOutcome('ok')
-      return redirectTo(issued.redirect)
+      return redirectTo(frontendLocation(request, issued.redirect))
     },
     {
       query: t.Object({

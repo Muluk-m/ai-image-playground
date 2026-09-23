@@ -65,7 +65,8 @@ if (missing.length > 0) {
   process.exit(1)
 }
 
-const seed = HERO_SEED_IDS.map((id) => idMap.get(id))
+// 旧 manifest 没有 kind：种子按效果图落盘，类型与线上清单一致。
+const seed = HERO_SEED_IDS.map((id) => ({ kind: 'showcase', ...idMap.get(id) }))
 
 const validationErrors = seed.flatMap((item, i) => validateSeedItem(item, i))
 if (validationErrors.length > 0) {
