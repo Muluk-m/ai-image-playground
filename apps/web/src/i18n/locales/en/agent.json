@@ -116,6 +116,7 @@
     "selectionSummary_other": "{{count}} canvas images selected",
     "clearSelectionAria": "Don't include the selected canvas images",
     "abort": "Stop",
+    "abortTitle": "Stop: ends this reply only; generations already running keep going",
     "interject": "Interject",
     "send": "Send",
     "dropHint": "Drop to add as a reference image",

@@ -109,6 +109,7 @@
     "selectionSummary_other": "已选 {{count}} 张画布图",
     "clearSelectionAria": "不带画布上选中的这些图",
     "abort": "中止",
+    "abortTitle": "中止：只停这段回复，已经开始的出图继续跑",
     "interject": "插话",
     "send": "发送",
     "dropHint": "松开即作为参考图",
