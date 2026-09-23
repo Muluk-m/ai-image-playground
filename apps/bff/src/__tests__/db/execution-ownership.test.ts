@@ -10,8 +10,7 @@ const { runPrivateMigrations } = await import('../../lib/private-overlay')
 await runPrivateMigrations(process.env.DATABASE_URL)
 const { db, schema, close } = await import('../../db/client')
 const { recoverAbandonedTasks } = await import('../../db/maintenance')
-const { executionContext } = await import('../../db/execution-context')
-const { claimQueuedTask } = await import('../../db/claim-task')
+const { claimTaskExecution } = await import('../../workers/task-execution')
 const {
   AGENT_EXECUTION_LEASE_MS,
   ConversationExecutionLost,
@@ -150,9 +149,9 @@ describe('durable execution ownership', () => {
       .where(eq(schema.tasks.id, 'waiting'))
       .returning()
     expect(oldClaim).toHaveLength(0)
-    expect(
-      await executionContext.run('new-worker', () => claimQueuedTask(db, 'waiting', Date.now())),
-    ).toBe(true)
+    const fenced = await claimTaskExecution('waiting')
+    expect(fenced).not.toBeNull()
+    fenced!.release()
     const [oldTask] = await db
       .select()
       .from(schema.tasks)

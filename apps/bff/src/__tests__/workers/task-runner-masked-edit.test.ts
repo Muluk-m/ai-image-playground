@@ -21,7 +21,7 @@ const { runTask } = await import('../../workers/task-runner')
 const { archiveInputImages, hydrateInputImages } = await import('../../lib/imageArchive')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
-const { abortRunningTask } = await import('../../workers/task-runner')
+const { abortRunningTask } = await import('../../workers/task-execution')
 class DurableFixture extends InMemoryObjectStore {
   stopAfterCandidate: string | null = null
   sign(key: string) {

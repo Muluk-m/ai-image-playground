@@ -17,9 +17,10 @@ process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { abortAllRunningTasks, abortRunningTask, runningTaskIds, runTask } = await import(
-  '../../workers/task-runner'
+const { abortAllRunningTasks, abortRunningTask, runningTaskIds } = await import(
+  '../../workers/task-execution'
 )
+const { runTask } = await import('../../workers/task-runner')
 const { recoverTasksByIds } = await import('../../db/maintenance')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
