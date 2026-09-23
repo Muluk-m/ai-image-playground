@@ -1,14 +1,56 @@
 import { Check, Download, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Checkbox } from '../../../components/Checkbox'
 import { VideoIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { exportCanvasSelection } from '../../canvas/lib/exportImages'
 import { canvasImageName } from '../../canvas/lib/imageInfo'
 import { projectDisplayName } from '../../canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
+
+/**
+ * 弹窗里的图按原生比例铺到三四百像素宽，而侧栏那份缩略图是 0.25 倍栅格化的，放这么大就是一团糊。
+ * 所以这里读画布的位图单源：本地位图就是它自己，云端媒体取 `preview` 变体
+ * （`resolveMediaSource` 自带会话热表 + 本机缓存 + 并发限流，反复开弹窗不会反复回源）。
+ * 表里没有这个键 = 还在取，值为 `null` = 取不到。
+ */
+function useWorkPreviews(
+  doc: CanvasDoc,
+  works: readonly ImageEl[],
+): ReadonlyMap<string, string | null> {
+  const [previews, setPreviews] = useState<ReadonlyMap<string, string | null>>(new Map())
+  // works 每次渲染都是新数组，用「对象 + 位图」的身份当依赖。
+  const signature = works.map(previewKey).join(' ')
+  const files = doc.files
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      for (const work of works) {
+        const key = previewKey(work)
+        if (previews.has(key)) continue
+        const source = files[work.fileId]
+        const resolved = source
+          ? await resolveMediaSource(source, 'preview').catch(() => null)
+          : null
+        if (!alive) return
+        setPreviews((prev) => new Map(prev).set(key, resolved))
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [signature, files])
+
+  return previews
+}
+
+function previewKey(work: ImageEl): string {
+  return `${work.id}:${work.fileId}`
+}
 
 /**
  * 「全部产物」弹窗：把创作记录里分散在各任务下的图片与视频铺成一张网格，
@@ -18,13 +60,10 @@ import { useCanvasProjectStore } from '../../canvas/projectStore'
 export default function AgentCreationsGallery({
   doc,
   works,
-  srcOf,
   onClose,
 }: {
   doc: CanvasDoc
   works: readonly ImageEl[]
-  /** `undefined` 表示缩略图还在取，`null` 表示取不到。 */
-  srcOf: (element: ImageEl) => string | null | undefined
   onClose: () => void
 }) {
   const { t } = useTranslation(['agent', 'common'])
@@ -35,6 +74,7 @@ export default function AgentCreationsGallery({
     () => new Set(works.map((work) => work.id)),
   )
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const previews = useWorkPreviews(doc, works)
 
   const live = works.filter((work) => selected.has(work.id))
   const allSelected = live.length === works.length && works.length > 0
@@ -98,7 +138,7 @@ export default function AgentCreationsGallery({
           // 方格 + object-cover 会把竖图裁成一条，人物直接被切掉头。
           <div className="columns-2 flex-1 gap-3 overflow-y-auto p-4 sm:columns-3 lg:columns-4">
             {works.map((work) => {
-              const src = srcOf(work)
+              const src = previews.get(previewKey(work))
               const name = canvasImageName(work)
               const isSelected = selected.has(work.id)
               return (
