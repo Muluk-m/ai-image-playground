@@ -65,6 +65,14 @@ export default function ToolResultCard({
               >
                 {sizeDeltaLabel(item.size, done.output.blob.size)}
               </span>
+              {done.output.notes?.map((note) => (
+                <span
+                  key={note}
+                  className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-400"
+                >
+                  {t(`result.note.${note}`)}
+                </span>
+              ))}
               {done.output.fellBack && (
                 <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
                   {t('result.fellBack', { format: formatLabel(done.output.type) })}
