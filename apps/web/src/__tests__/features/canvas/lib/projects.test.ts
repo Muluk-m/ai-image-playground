@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
-import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
+import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
 import {
   projectRepository,
   UNTITLED_PROJECT,
 } from '../../../../features/canvas/lib/projectRepository'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { saveSceneRecord } from '../../../helpers/sceneRecord'
 
 afterEach(() => setClientStorageScope(null))
 
@@ -17,17 +16,13 @@ describe('项目持久化', () => {
     setClientStorageScope(crypto.randomUUID())
     const first = await projectRepository.create('产品海报')
     const second = await projectRepository.create('参考收集')
-    const editor = new CanvasEditor(new CanvasDoc())
-    editor.doc.setCamera({ x: 42 })
-    await saveScene(editor, first.sceneKey)
+    await saveSceneRecord(first.sceneKey, 42)
     await projectRepository.update(first.id, { conversationId: 'conversation-a' })
     const projects = await projectRepository.list()
     expect(projects).toHaveLength(2)
     expect(projects.find((one) => one.id === first.id)?.conversationId).toBe('conversation-a')
-    const restored = new CanvasEditor(new CanvasDoc())
-    await loadScene(restored, first.sceneKey)
-    expect(restored.doc.camera.x).toBe(42)
-    expect(await loadScene(new CanvasEditor(new CanvasDoc()), second.sceneKey)).toBe(false)
+    expect((await readPersistedScene(first.sceneKey))?.camera.x).toBe(42)
+    expect(await readPersistedScene(second.sceneKey)).toBeUndefined()
   })
 
   it('重命名和删除只影响目标项目，删除后刷新不重新导入', async () => {
@@ -35,10 +30,10 @@ describe('项目持久化', () => {
     const first = await projectRepository.create('A')
     const second = await projectRepository.create('B')
     await projectRepository.update(first.id, { name: '新的名字', customName: true })
-    await saveScene(new CanvasEditor(new CanvasDoc()), first.sceneKey)
+    await saveSceneRecord(first.sceneKey)
     await projectRepository.remove(first.id)
     expect((await projectRepository.list()).map((one) => one.id)).toEqual([second.id])
-    expect(await loadScene(new CanvasEditor(new CanvasDoc()), first.sceneKey)).toBe(false)
+    expect(await readPersistedScene(first.sceneKey)).toBeUndefined()
   })
 
   it('账号之间不能看到对方的项目', async () => {
@@ -53,9 +48,7 @@ it('旧场景按原 key 导入，重复导入不会复制项目', async () => {
   setClientStorageScope(crypto.randomUUID())
   const { canvasSceneKey } = await import('../../../../features/canvas/lib/workspaces')
   const sceneKey = canvasSceneKey('legacy-conversation')
-  const editor = new CanvasEditor(new CanvasDoc())
-  editor.doc.setCamera({ x: 123 })
-  await saveScene(editor, sceneKey)
+  await saveSceneRecord(sceneKey, 123)
   expect(await projectRepository.legacyScenes()).toEqual([
     { sceneKey, conversationId: 'legacy-conversation' },
   ])
@@ -66,9 +59,7 @@ it('旧场景按原 key 导入，重复导入不会复制项目', async () => {
   ])
   expect(a.id).toBe(b.id)
   expect(await projectRepository.list()).toHaveLength(1)
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, a.sceneKey)
-  expect(restored.doc.camera.x).toBe(123)
+  expect((await readPersistedScene(a.sceneKey))?.camera.x).toBe(123)
 })
 
 it('云端会话关联在另一设备恢复，刷新关联不覆盖本机未同步的项目内容', async () => {

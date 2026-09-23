@@ -19,6 +19,7 @@ import {
 } from '../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
+import { openSceneRecord } from '../../helpers/sceneRecord'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -154,7 +155,7 @@ it('云端文档带着画布类型往返：推上去带，另一台设备读回�
       })
     }),
   )
-  const session = new CloudProjectSession(local, editor)
+  const session = new CloudProjectSession(local, await openSceneRecord(local.sceneKey, editor))
   await session.load()
   expect(writes).toHaveLength(1)
   expect(writes[0]?.document.kind).toBe('video')
@@ -176,7 +177,7 @@ it('云端文档带着画布类型往返：推上去带，另一台设备读回�
     'fetch',
     vi.fn(async () => Response.json({ ...summary, document: writes[0]!.document })),
   )
-  const other = new CloudProjectSession(imported, new CanvasEditor(new CanvasDoc()))
+  const other = new CloudProjectSession(imported, await openSceneRecord(imported.sceneKey))
   await other.load()
   expect((await projectRepository.list())[0]?.kind).toBe('video')
 })

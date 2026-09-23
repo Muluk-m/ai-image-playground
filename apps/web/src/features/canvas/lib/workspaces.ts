@@ -8,15 +8,11 @@ import { createAgentCanvasSink } from './agentCanvasSink'
 import { CanvasDoc } from './canvasDoc'
 import { CloudProjectSession } from './cloudProjects'
 import { CanvasEditor } from './editor'
-import {
-  type CloudSceneCheckpoint,
-  PERSIST_DEBOUNCE_MS,
-  readPersistedScene,
-  saveScene,
-} from './persistence'
+import { readPersistedScene } from './persistence'
 import { cloudProjectsEnabled } from './projectClient'
 import { type CanvasProject, projectRepository } from './projectRepository'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
+import { SceneRecord, type SceneRecordStatus } from './sceneRecord'
 
 import { canvasSceneKey } from './workspaceKeys'
 
@@ -25,9 +21,10 @@ export { canvasSceneKey } from './workspaceKeys'
 /** 生命周期属于会话，切模式/切会话只换视图，异步任务仍写原文档并自动保存。 */
 export class CanvasWorkspace {
   readonly id = crypto.randomUUID()
-  private readonly scope = scopedStorageName('canvas')
   readonly doc = new CanvasDoc()
   readonly editor = new CanvasEditor(this.doc)
+  /** 盘上那条存档只有一个主人：读、恢复、检查点与落盘都归它。 */
+  readonly record: SceneRecord
   readonly sink = createAgentCanvasSink(this.editor, () => this.ready, {
     enabled: () => Boolean(this.cloud),
     refresh: async () => {
@@ -38,60 +35,27 @@ export class CanvasWorkspace {
   cloud: CloudProjectSession | undefined
   needsInitialFit = false
   ready: Promise<unknown>
-  private state = { loading: true, loadFailed: false, saveFailed: false }
-  private listeners = new Set<() => void>()
-  private timer: ReturnType<typeof setTimeout> | undefined
-  private writes: Promise<unknown> = Promise.resolve()
   private disposed = false
   private refreshing = false
-  private revision = 0
-  private savedRevision = 0
-  private structureRevision = 0
-  private savedStructureRevision = 0
-  private localCloudCheckpoint: CloudSceneCheckpoint | undefined
-  private stopChanges: (() => void) | undefined
 
-  constructor(
-    private key: string,
-    private migrateLegacy = false,
-  ) {
+  constructor(key: string, migrateLegacy = false) {
+    this.record = new SceneRecord(this.editor, key, migrateLegacy)
     this.sink.background = true
     this.ready = this.load()
   }
 
-  getSnapshot = () => this.state
-  subscribe = (listener: () => void) => {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
-  }
-  private update(patch: Partial<typeof this.state>) {
-    if (patch.saveFailed && !this.state.saveFailed)
-      useStore
-        .getState()
-        .showToast(i18next.t('saveError.messageDetailed', { ns: 'canvas' }), 'error')
-    this.state = { ...this.state, ...patch }
-    for (const listener of this.listeners) listener()
-  }
-  private async load() {
-    this.update({ loading: true, loadFailed: false })
-    try {
-      let hasLocal = true
-      // 已打开的云端会话持有完整快照；读取重试不能只恢复磁盘场景而留下旧内存基线。
-      if (!this.cloud) {
-        const stored = await readPersistedScene(this.key, this.migrateLegacy)
-        hasLocal = Boolean(stored)
-        this.localCloudCheckpoint = stored?.cloud
-        if (stored) this.doc.restore([...stored.elements], stored.files ?? {}, stored.camera)
-      }
+  getSnapshot = (): SceneRecordStatus => this.record.getSnapshot()
+  subscribe = (listener: () => void): (() => void) => this.record.subscribe(listener)
+
+  private load(): Promise<void> {
+    return this.record.open(async (hasLocal) => {
       const project = useCanvasProjectStore
         .getState()
-        .projects.find((one) => one.sceneKey === this.key)
+        .projects.find((one) => one.sceneKey === this.record.key)
       if (project?.cloud && cloudProjectsEnabled()) {
         this.cloud ??= new CloudProjectSession(
           project,
-          this.editor,
+          this.record,
           (updated) => {
             useCanvasProjectStore.setState((state) => ({
               projects: state.projects.some((one) => one.id === updated.id)
@@ -123,45 +87,16 @@ export class CanvasWorkspace {
         this.cloud.start()
         this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
       }
-      let { elements, files, camera } = this.doc
-      this.stopChanges?.()
-      this.stopChanges = this.editor.onChange(() => {
-        if (this.state.loading) return
-        if (
-          elements === this.doc.elements &&
-          files === this.doc.files &&
-          camera === this.doc.camera
-        )
-          return
-        if (elements !== this.doc.elements || files !== this.doc.files) {
-          this.structureRevision += 1
-          this.cloud?.markChanged()
-        }
-        ;({ elements, files, camera } = this.doc)
-        this.revision += 1
-        clearTimeout(this.timer)
-        this.timer = setTimeout(() => void this.flush(), PERSIST_DEBOUNCE_MS)
-      })
       recoverCanvasTasks(this.editor)
-      this.update({ loading: false })
-    } catch (error) {
-      this.update({ loading: false, loadFailed: true })
-      throw error
-    }
+    })
   }
   retryLoad = () => {
     this.ready = this.load()
     void this.ready.catch(() => {})
   }
   refreshCloud() {
-    if (
-      this.disposed ||
-      this.refreshing ||
-      !this.cloud ||
-      this.state.loading ||
-      this.state.loadFailed
-    )
-      return
+    const { loading, loadFailed } = this.record.getSnapshot()
+    if (this.disposed || this.refreshing || !this.cloud || loading || loadFailed) return
     this.refreshing = true
     this.ready = this.ready.then(async () => {
       try {
@@ -175,84 +110,20 @@ export class CanvasWorkspace {
     })
     void this.ready.catch(() => {})
   }
-  flush = (): Promise<boolean> => {
-    clearTimeout(this.timer)
-    const save = this.writes
-      .then(async () => {
-        if (
-          this.disposed ||
-          this.scope !== scopedStorageName('canvas') ||
-          this.state.loading ||
-          this.state.loadFailed
-        )
-          return false
-        if (this.savedRevision === this.revision && !this.state.saveFailed) return true
-        const revision = this.revision
-        const structureRevision = this.structureRevision
-        const preserveStructure = structureRevision === this.savedStructureRevision
-        const localProject = useCanvasProjectStore
-          .getState()
-          .projects.find((one) => one.sceneKey === this.key)
-        const cloud = this.localCloudCheckpoint
-          ? {
-              ...this.localCloudCheckpoint,
-              name: localProject?.name ?? this.localCloudCheckpoint.name,
-            }
-          : undefined
-        let saved = this.cloud
-          ? await this.cloud.saveLocal(preserveStructure)
-          : await saveScene(this.editor, this.key, undefined, { preserveStructure, cloud })
-        if (this.disposed || this.scope !== scopedStorageName('canvas')) return false
-        if (saved) {
-          try {
-            await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
-          } catch {
-            saved = false
-          }
-        }
-        if (saved) {
-          this.savedRevision = revision
-          this.savedStructureRevision = structureRevision
-        }
-        this.update({ saveFailed: !saved })
-        if (saved) this.cloud?.requestSync()
-        return saved
-      })
-      .catch(() => {
-        if (!this.disposed && this.scope === scopedStorageName('canvas'))
-          this.update({ saveFailed: true })
-        return false
-      })
-    this.writes = save
-    return save
+  flush = async (): Promise<boolean> => {
+    const saved = await this.record.flush()
+    if (saved) this.cloud?.requestSync()
+    return saved
   }
   dispose() {
     this.disposed = true
-    clearTimeout(this.timer)
+    this.record.dispose()
     this.sink.background = false
-    this.listeners.clear()
-    this.stopChanges?.()
     this.cloud?.dispose()
   }
-  /** 先原子提交新会话存档并移走草稿，再改内存键；失败时继续保留原草稿。 */
+  /** 草稿转成会话存档：新键落成之前，原草稿一直留着。 */
   bind(key: string): Promise<boolean> {
-    const bind = this.writes.then(async () => {
-      try {
-        await this.ready
-      } catch {
-        return false
-      }
-      const revision = this.revision
-      const saved = await saveScene(this.editor, key, this.key)
-      if (saved) {
-        this.key = key
-        this.savedRevision = revision
-      }
-      this.update({ saveFailed: !saved })
-      return saved
-    })
-    this.writes = bind
-    return bind
+    return this.record.rebind(key)
   }
 }
 

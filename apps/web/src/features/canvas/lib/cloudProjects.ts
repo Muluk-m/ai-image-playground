@@ -2,7 +2,7 @@ import { isProjectDocument, type ProjectDocument, projectKind } from '@image-pla
 import { scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
-import { type CloudSceneCheckpoint, readPersistedScene, saveScene } from './persistence'
+import type { CloudSceneCheckpoint } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
   isLocalAgentFailure,
@@ -12,6 +12,7 @@ import {
   projectScene,
 } from './projectMedia'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './projectRepository'
+import type { CloudSceneStrategy, SceneRecord } from './sceneRecord'
 
 type Checkpoint = Omit<CloudSceneCheckpoint, 'version' | 'name'>
 const RETRY_DELAYS = [1000, 2000, 5000, 15000, 30000]
@@ -110,7 +111,8 @@ function content(name: string, document: ProjectDocument): string {
 }
 
 /** 一个已打开项目的同步会话持有自己的基线，不能借用另一标签页的新修订覆盖旧文档。 */
-export class CloudProjectSession {
+export class CloudProjectSession implements CloudSceneStrategy {
+  private readonly editor: CanvasEditor
   private baseline: Checkpoint = { revision: 0, savedContent: null, pending: null, conflict: false }
   private readonly mediaBindings: LoadedBindings = new Map()
   private initialized = false
@@ -171,11 +173,15 @@ export class CloudProjectSession {
 
   constructor(
     private project: CanvasProject,
-    private readonly editor: CanvasEditor,
+    /** 这个项目的画布存档；同步会话在自己活着的这段时间里给它出检查点。 */
+    private readonly record: SceneRecord,
     private readonly publish: (project: CanvasProject) => void = () => {},
     /** 冲突自动分叉出的副本；调用方负责把用户带到副本上。空实现表示只走手动按钮。 */
     private readonly onFork: (copy: CanvasProject) => void = () => {},
-  ) {}
+  ) {
+    this.editor = record.editor
+    record.useCloud(this)
+  }
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -230,15 +236,21 @@ export class CloudProjectSession {
     this.publish(this.project)
   }
   private async persist() {
-    if (!(await this.saveLocal())) throw new Error('local_save_failed')
+    if (!(await this.record.persist())) throw new Error('local_save_failed')
   }
-  async saveLocal(preserveStructure = false): Promise<boolean> {
+  /** 落盘时跟文档一起写下去的检查点：基线加此刻的名字。 */
+  checkpoint = (): CloudSceneCheckpoint => ({
+    version: 1,
+    ...this.baseline,
+    name: this.project.name,
+  })
+  /** 存档把这一次落盘交给同步会话：写进去的是它的检查点，同步状态也跟着这次结果走。 */
+  save = async (
+    write: (checkpoint: CloudSceneCheckpoint) => Promise<boolean>,
+  ): Promise<boolean> => {
     this.current()
     const version = this.editVersion
-    const saved = await saveScene(this.editor, this.project.sceneKey, undefined, {
-      cloud: { version: 1, ...this.baseline, name: this.project.name },
-      preserveStructure,
-    })
+    const saved = await write(this.checkpoint())
     this.current()
     if (!saved) this.update('local-error', 'errors:projectSync.local_save_failed')
     else if (
@@ -271,18 +283,17 @@ export class CloudProjectSession {
     this.current()
     const retryingRead = this.readRequired && !this.writable
     if (!this.initialized) {
-      const cached = await readPersistedScene(this.project.sceneKey)
-      this.current()
-      if (cached?.cloud) {
-        if (cached.cloud.version !== 1 || !Number.isSafeInteger(cached.cloud.revision))
+      // 盘上那份已经由存档读过一次并恢复进文档，这里只接手它带着的检查点。
+      const cached = this.record.checkpoint
+      if (cached) {
+        if (cached.version !== 1 || !Number.isSafeInteger(cached.revision))
           throw new Error('unsupported_cloud_cache')
-        const { version: _version, name, ...baseline } = cached.cloud
+        const { version: _version, name, ...baseline } = cached
         this.baseline = baseline
         this.project = {
           ...this.project,
           name: this.project.cloud?.nameDirty ? this.project.name : name,
         }
-        this.editor.doc.restore([...cached.elements], cached.files, cached.camera)
         hasLocalScene = true
       }
       this.initialized = true
@@ -599,18 +610,8 @@ export class CloudProjectSession {
         throw new Error('unsupported_project')
       if (remote) await this.adoptKind(remote.document)
       const version = this.editVersion
-      const { elements, files, camera } = this.editor.doc
       copy = await projectRepository
-        .createRecoveryCopy(
-          this.project,
-          structuredClone({
-            version: 2,
-            elements,
-            files,
-            camera,
-            cloud: { version: 1, ...this.baseline, name: this.project.name },
-          }),
-        )
+        .createRecoveryCopy(this.project, structuredClone(this.record.contents()))
         .catch((error: unknown) => {
           this.update('conflict', 'errors:projectSync.recovery_copy_failed')
           throw error

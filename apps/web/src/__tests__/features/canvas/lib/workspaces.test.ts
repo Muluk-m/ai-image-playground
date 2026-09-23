@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
+import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
 import {
   bindNewCanvasWorkspace,
   CanvasWorkspace,
@@ -14,6 +14,7 @@ import {
   showCanvasWorkspace,
 } from '../../../../features/canvas/lib/workspaces'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { saveSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../features/canvas/lib/recoverCanvasTasks', () => ({
   recoverCanvasTasks: vi.fn(),
@@ -59,9 +60,7 @@ describe('会话画布', () => {
     await draft.flush()
     selectCanvasWorkspace('first')
     expect(currentCanvasWorkspace()).toBe(draft)
-    const restored = editor()
-    await loadScene(restored, canvasSceneKey('first'))
-    expect(restored.doc.camera.x).toBe(28)
+    expect((await readPersistedScene(canvasSceneKey('first')))?.camera.x).toBe(28)
     showCanvasWorkspace(false)
   })
 
@@ -69,17 +68,13 @@ describe('会话画布', () => {
     const key = freshKey()
     const stale = new CanvasWorkspace(key)
     await stale.ready
-    const newer = editor()
-    newer.doc.setCamera({ x: 99 })
-    await saveScene(newer, key)
+    await saveSceneRecord(key, 99)
     stale.doc.setViewport(900, 600)
     stale.doc.setSelection([])
     stale.doc.setTool('pen')
     stale.doc.notifyAssetLoaded()
     await stale.flush()
-    const restored = editor()
-    await loadScene(restored, key)
-    expect(restored.doc.camera.x).toBe(99)
+    expect((await readPersistedScene(key))?.camera.x).toBe(99)
   })
 
   it('绑定事务失败保留草稿，重试原子转存后后续编辑只写新会话', async () => {
@@ -91,24 +86,18 @@ describe('会话画布', () => {
     await draft.flush()
     const spy = abortNextPut()
     expect(await draft.bind(target)).toBe(false)
-    const backup = editor()
-    expect(await loadScene(backup, source)).toBe(true)
-    expect(backup.doc.camera.x).toBe(42)
+    expect((await readPersistedScene(source))?.camera.x).toBe(42)
     spy.mockRestore()
     expect(await draft.bind(target)).toBe(true)
-    expect(await loadScene(editor(), source)).toBe(false)
+    expect(await readPersistedScene(source)).toBeUndefined()
     draft.doc.setCamera({ x: 43 })
     await draft.flush()
-    const restored = editor()
-    await loadScene(restored, target)
-    expect(restored.doc.camera.x).toBe(43)
+    expect((await readPersistedScene(target))?.camera.x).toBe(43)
   })
 
   it('读失败不写空场景，重试读取恢复原内容', async () => {
     const key = freshKey()
-    const source = editor()
-    source.doc.setCamera({ x: 81 })
-    await saveScene(source, key)
+    await saveSceneRecord(key, 81)
     vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementationOnce(() => {
       throw new Error('offline storage')
     })
@@ -130,9 +119,7 @@ describe('会话画布', () => {
     window.dispatchEvent(new Event('pagehide'))
     // 让冲盘排下的写事务先进队；此刻 500ms 的 debounce 还没到，落盘只可能来自它。
     await new Promise((resolve) => setTimeout(resolve, 0))
-    const restored = editor()
-    await loadScene(restored, canvasSceneKey('page-hide'))
-    expect(restored.doc.camera.x).toBe(64)
+    expect((await readPersistedScene(canvasSceneKey('page-hide')))?.camera.x).toBe(64)
   })
 
   it('账号与匿名画布键互不相同', () => {
