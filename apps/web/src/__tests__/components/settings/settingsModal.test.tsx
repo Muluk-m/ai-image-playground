@@ -138,13 +138,10 @@ describe('通用页', () => {
     expect(settings.persistInputOnRestart).toBe(!DEFAULT_SETTINGS.persistInputOnRestart)
   })
 
-  it('显示设置就是头像菜单里那两个下拉', () => {
+  it('语言与主题不在设置里——它们只在头像菜单', () => {
     render()
 
-    expect(document.querySelector('[data-display-setting="locale"]')?.textContent).toContain('中文')
-    expect(document.querySelector('[data-display-setting="theme"]')?.textContent).toContain(
-      '跟随系统',
-    )
+    expect(document.querySelector('[data-display-setting]')).toBeNull()
   })
 })
 
