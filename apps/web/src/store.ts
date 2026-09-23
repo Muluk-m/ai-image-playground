@@ -1,7 +1,8 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { requireAccount } from './auth/loginPrompt'
+import { accountRequired, requireAccount } from './auth/loginPrompt'
+import { queuePendingSubmission } from './auth/pendingSubmission'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
@@ -1362,9 +1363,13 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []
 
-  // 内置渠道要经 BFF 的队列，没账号发不出去：先把登录框叫起来，这次提交原样丢掉——
-  // 不落任务行、也不 toast，弹窗本身就是反馈。BYOK 浏览器直连上游，不需要账号。
-  if (profile.source === 'builtin-edge' && !requireAccount()) return []
+  // Login reloads the workspace after adopting anonymous data. Keep the exact attempted request,
+  // including references and parameters, so the original click is sent once in the new scope.
+  if (profile.source === 'builtin-edge' && accountRequired()) {
+    await queuePendingSubmission({ kind: 'image', input })
+    requireAccount()
+    return []
+  }
 
   const submissionGuard = getPrivateSubmissionGuard({
     model: submitView.model,
