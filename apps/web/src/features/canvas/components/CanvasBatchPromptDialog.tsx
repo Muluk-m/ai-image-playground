@@ -46,7 +46,9 @@ export default function CanvasBatchPromptDialog({
   }
 
   return (
-    <Overlay onClose={onClose} tier="raised">
+    // modal 档（z-50）：「更多」和模型下拉是 Radix 的 portal，自身也是 z-50，
+    // 放进 raised(z-100) 的浮层里会被整片盖住，点开什么都看不见。
+    <Overlay onClose={onClose}>
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
         <h3 className={`${PANEL_TITLE} mb-1.5`}>{t('batch.generateTitle')}</h3>
         <p className="mb-3 text-xs text-muted-foreground">
@@ -70,11 +72,12 @@ export default function CanvasBatchPromptDialog({
           className={`${FIELD} resize-none`}
         />
 
-        <div className="mt-3">
+        {/* ParamControls 只给一串 chip，行布局由调用方出（与输入框那条同一套）。 */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <ParamControls showCount collapsible />
         </div>
 
-        <div className={`${PANEL_SECTION} mt-4`}>
+        <div className={`${PANEL_SECTION} mt-3`}>
           {guard.blocked && guard.disabledReason && (
             <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
           )}
