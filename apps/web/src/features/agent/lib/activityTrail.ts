@@ -19,6 +19,8 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   saveAsset: undefined,
   saveLook: undefined,
   arrangeTimeline: undefined,
+  // 改画布对象改的是用户看得见的东西，得留一张卡说清楚改了什么，不能折成一行。
+  editCanvasObject: undefined,
 }
 
 /**
