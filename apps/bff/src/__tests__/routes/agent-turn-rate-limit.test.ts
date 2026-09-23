@@ -4,6 +4,7 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import { type AgentConversationView, DEVICE_ID_HEADER } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_turn_rate_limit_a297')
 process.env.PORT = '0'
@@ -21,6 +22,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { close: closeDb, db, schema } = await import('../../db/client')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 

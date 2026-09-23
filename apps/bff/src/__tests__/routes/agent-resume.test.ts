@@ -18,6 +18,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -34,6 +35,8 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createAgentImageSource } = await import('../../lib/agent/images')
 const { close: closeDb, db, schema } = await import('../../db/client')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'

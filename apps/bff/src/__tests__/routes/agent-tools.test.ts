@@ -24,6 +24,7 @@ import {
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_tools_a289')
 process.env.PORT = '0'
@@ -43,6 +44,8 @@ const { config } = await import('../../config')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
+
+await silenceChatUpstream()
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const app = new Elysia().use(agentRoutes)

@@ -15,6 +15,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../../helpers/agentStubs'
+import { silenceChatUpstream } from '../../helpers/chatStubs'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 import { waitFor } from '../../helpers/upstreamStubs'
 
@@ -36,6 +37,8 @@ const { pickUpStrandedInboxes, strandedInboxConversations } = await import(
   '../../../lib/agent/inbox-pickup'
 )
 const { bffDrain } = await import('../../../lib/drain')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
