@@ -30,7 +30,8 @@
     "canvases": "Canvases",
     "allCanvases": "All",
     "newCanvas": "New canvas",
-    "immersive": "Open immersive"
+    "immersive": "Open immersive",
+    "guide": "User guide"
   },
   "logout": {
     "title": "Sign out",

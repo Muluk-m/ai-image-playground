@@ -6,7 +6,7 @@
 
 **Imagine it, make it real.**
 
-English | [简体中文](./README.zh.md) · [Open Muvloom](https://muvloom.online/)
+English | [简体中文](./README.zh.md) · [Open Muvloom](https://muvloom.online/) · [User guide](https://muvloom.online/guide/en/)
 
 </div>
 
