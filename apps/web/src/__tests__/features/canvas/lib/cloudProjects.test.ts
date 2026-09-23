@@ -250,6 +250,48 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
   expect(next.getSnapshot().status).toBe('saved')
 })
 
+// 本机画布上的图一直是原图 data URL，上传后 id 只记在绑定表里。发给智能体时靠这里换成按 id 发，
+// 否则一轮十张主图就是几十 MB 的请求体。还没上传的那张要先同步再认，不能直接放弃按 id 发。
+it('本机原图认得出云端媒体 id；还没上传的先同步再认，不在画布上的认不出', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const mediaId = crypto.randomUUID()
+  const source = 'data:image/png;base64,AQID'
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === source)
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+      if (url.endsWith('/uploads')) return Response.json({ id: mediaId, status: 'ready' })
+      return Response.json(receipt(project.id, JSON.parse(init!.body as string)))
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  // 图是在同步之后才放上来的：绑定表里还没有它。
+  editor.doc.addElements(
+    [
+      {
+        id: 'photo',
+        type: 'image',
+        fileId: 'original',
+        x: 10,
+        y: 20,
+        width: 30,
+        height: 40,
+        rotation: 0,
+      },
+    ],
+    { files: { original: source } },
+  )
+  session.markChanged()
+
+  const ids = await session.mediaIdsFor([source, 'data:image/png;base64,bm90LW9uLWNhbnZhcw=='])
+
+  expect([...ids]).toEqual([[source, mediaId]])
+  session.dispose()
+})
+
 it('读取错误保留原画布，重试成功前不发送空文档', async () => {
   const { project, editor } = await fresh()
   const fetcher = vi.fn(() =>
