@@ -6,7 +6,7 @@
 
 **用想象，创造更多可能。**
 
-[English](./README.md) | 简体中文 · [打开幕芽](https://muvloom.online/)
+[English](./README.md) | 简体中文 · [打开幕芽](https://muvloom.online/) · [使用指南](https://muvloom.online/guide/)
 
 </div>
 
