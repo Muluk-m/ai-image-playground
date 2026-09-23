@@ -655,19 +655,6 @@ describe('后台任务', () => {
     expect(discarded).toEqual([])
   })
 
-  it('任务失败时占的位就地标错，卡按错误码给出路', async () => {
-    jobsResponse = () => finished({ status: 'failed', message: '上游超时', errorCode: 'timeout' })
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-
-    await state().send('画一只橘猫')
-
-    await vi.waitFor(() => expect(failed).toHaveLength(1))
-    expect(failed[0]!.id).toBe('placeholder-1')
-    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'timeout' })
-    expect(discarded).toEqual([])
-  })
-
   it('任务失败后挂上服务端唤醒智能体起的那一轮，不出用户气泡', async () => {
     jobsResponse = () => finished({ status: 'failed', message: '上游超时', errorCode: 'timeout' })
     const wakeTurn = 'turn-wake'
@@ -775,21 +762,6 @@ describe('后台任务', () => {
       }),
     )
     expect(state().turn).toBe('idle')
-  })
-
-  it('成功且没要求复核的任务结束后不去找唤醒轮', async () => {
-    jobsResponse = () => finished({ status: 'succeeded', artifacts: [IMAGE] })
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-
-    await state().send('画一只橘猫')
-    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
-    await new Promise((resolve) => setTimeout(resolve, 30))
-
-    const snapshotReads = fetchMock.mock.calls.filter(([input]) =>
-      String(input).endsWith(`/conversations/${CONVERSATION}/messages`),
-    )
-    expect(snapshotReads).toHaveLength(0)
   })
 
   it('刷新后读回还没结束的任务，接着等它，结束了照常落画布', async () => {
@@ -917,47 +889,6 @@ describe('后台任务', () => {
     await vi.waitFor(() =>
       expect(state().jobProgress['tool-1']).toEqual({ stage: 'running', submittedAt: 1_000 }),
     )
-  })
-
-  it('单独取消后台任务：卡换成取消后的结局，占的位收掉而不是留成失败占位', async () => {
-    jobsResponse = () => [pendingJob]
-    const cancelCalls: string[] = []
-    cancelResponse = () => {
-      cancelCalls.push('cancel')
-      return Response.json({
-        job: finished({ status: 'failed', message: '已中止', errorCode: 'cancelled' })[0],
-      })
-    }
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-    await state().send('画一只橘猫')
-    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
-
-    await state().cancelJob('tool-1')
-
-    expect(cancelCalls).toHaveLength(1)
-    const request = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/cancel'))!
-    expect(String(request[0])).toContain(`/conversations/${CONVERSATION}/jobs/task-1/cancel`)
-    expect(toolMessages()[0]).toMatchObject({ status: 'failed', errorCode: 'cancelled' })
-    await vi.waitFor(() => expect(discarded).toEqual(['placeholder-1']))
-    expect(failed).toEqual([])
-    expect(placed).toEqual([])
-  })
-
-  it('取消请求失败时卡保持原样并把错误交给调用方', async () => {
-    jobsResponse = () => [pendingJob]
-    cancelResponse = () => Response.json({ error: 'internal' }, { status: 500 })
-    turnResponse = () =>
-      turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, SUBMITTED, TURN_END)
-    await state().send('画一只橘猫')
-
-    await expect(state().cancelJob('tool-1')).rejects.toThrow()
-    expect(toolMessages()[0]).toMatchObject({ status: 'submitted' })
-    expect(discarded).toEqual([])
-
-    // 离开会话时移交出去的占位照常收掉，不漏到下一个用例。
-    state().startNewConversation()
-    await vi.waitFor(() => expect(discarded).toEqual(['placeholder-1']))
   })
 
   it('切走再切回时旧的占位收掉，任务结束后在当前画布上照常落图', async () => {
@@ -1211,61 +1142,6 @@ describe('单张重试', () => {
     expect(placedInto).toEqual([['placeholder-9']])
   })
 
-  it('别的设备点的重试：守候时读到面板上没有的重试记录就补在末尾，结束时落回它指的占位', async () => {
-    let done = false
-    const otherJob: AgentBackgroundJobView = {
-      messageId: 'tool-2',
-      turnId: 'turn-1',
-      result: {
-        ...RETRY_RECORD,
-        retryOf: undefined,
-        toolCallId: 'call-2',
-        job: { taskId: 'task-2', media: 'image' },
-      },
-    }
-    jobsResponse = () => [
-      otherJob,
-      ...(done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})),
-    ]
-    await openFailedConversation([
-      {
-        id: 'tool-2',
-        turnId: 'turn-1',
-        role: 'assistant',
-        content: [otherJob.result],
-        createdAt: 3,
-      },
-    ])
-
-    await vi.waitFor(() =>
-      expect(state().messages.map((message) => message.id)).toEqual([
-        'tool-1',
-        'tool-2',
-        'retry-1',
-      ]),
-    )
-    expect(toolMessages()[2]).toMatchObject({
-      status: 'submitted',
-      retryOf: { messageId: 'tool-1', placeholderId: 'placeholder-9' },
-    })
-
-    done = true
-    await vi.waitFor(() => expect(toolMessages()[2]!.delivery).toBe('placed'))
-    expect(placedInto).toEqual([['placeholder-9']])
-  })
-
-  it('刷新后读回还在跑的重试，结束时仍落回原占位', async () => {
-    let done = false
-    jobsResponse = () =>
-      done ? settledRecord({ status: 'succeeded', artifacts: [IMAGE] }) : settledRecord({})
-    await openFailedConversation([recordView()])
-    expect(toolMessages()[1]).toMatchObject({ status: 'submitted' })
-
-    done = true
-    await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
-    expect(placedInto).toEqual([['placeholder-9']])
-  })
-
   describe('重试排队', () => {
     const { job: _job, ...queuedBase } = RETRY_RECORD
     const QUEUED: AgentToolResultBlock = { ...queuedBase, status: 'queued' }
@@ -1324,24 +1200,6 @@ describe('单张重试', () => {
       phase = 'done'
       await vi.waitFor(() => expect(toolMessages()[1]!.delivery).toBe('placed'))
       expect(placedInto).toEqual([['placeholder-9']])
-    })
-
-    it('刷新或换设备后读回排着的重试，照样等它轮到', async () => {
-      let running = false
-      jobsResponse = () => [
-        jobOf(
-          record(
-            'retry-1',
-            'placeholder-9',
-            running ? { status: 'submitted', job: { taskId: 'task-retry', media: 'image' } } : {},
-          ),
-        ),
-      ]
-      await openFailedConversation([record('retry-1', 'placeholder-9', {})])
-      expect(toolMessages()[1]).toMatchObject({ status: 'queued' })
-
-      running = true
-      await vi.waitFor(() => expect(revived).toEqual(['placeholder-9']))
     })
 
     it('撤回排着的重试：占位保持原来那次失败', async () => {

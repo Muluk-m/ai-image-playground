@@ -152,6 +152,9 @@ let messages: () => AgentConversationState
 let cancelResponse: (url: string) => Response
 let deliveries: Record<string, AgentDeliveryStatus>
 
+/** 模块自己发出去的请求：取消走的是哪条路径由它作证。 */
+const requests: string[] = []
+
 /** 这一个模块问过服务端几次：计数按模块算，别的用例漏下的守候数不进来。 */
 interface ServerReads {
   jobs: number
@@ -188,10 +191,12 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (input: string | URL | Request) => {
       const url = String(input)
+      requests.push(url)
       if (url.endsWith('/cancel')) return cancelResponse(url)
       return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
     }),
   )
+  requests.length = 0
   reserved.length = 0
   placedInto.length = 0
   placed.length = 0
@@ -462,6 +467,9 @@ it('单独取消：卡换成取消后的结局，占的位收掉而不是留成�
   background.track(CONVERSATION, submitted, { kind: 'reserve' })
   await background.cancel(CONVERSATION, 'tool-1')
 
+  expect(requests).toContain(
+    `http://bff.test/api/agent/conversations/${CONVERSATION}/jobs/task-1/cancel`,
+  )
   expect(toolCard(state.messages, 'tool-1')).toMatchObject({
     status: 'failed',
     errorCode: 'cancelled',
@@ -507,4 +515,22 @@ it('换上一段历史之后：已经结算的当场交付，还没结束的接�
   expect(placedInto).toEqual([['placeholder-1']])
   // 还没结束的那个接着问服务端。
   await vi.waitFor(() => expect(reads.jobs).toBeGreaterThan(0))
+})
+
+it('刷新后读回还在跑的重试：手上没有把手，也落回记录上的那个占位', async () => {
+  const { state, port } = fakeSession()
+  const { jobs: background } = jobModule(port)
+  state.messages = [card({ status: 'failed', errorCode: 'timeout' }), card(RETRY, 'retry-1')]
+  let done = false
+  jobs = () => [
+    jobView(done ? { ...RETRY, status: 'succeeded', artifacts: [IMAGE] } : RETRY, 'retry-1'),
+  ]
+
+  // 刷新之后读回来的那条重试没有把手，凭记录上的占位 id 现开一个。
+  background.resume(CONVERSATION, state.messages)
+
+  done = true
+  await vi.waitFor(() => expect(deliveries['retry-1']).toBe('placed'))
+  expect(placedInto).toEqual([['placeholder-9']])
+  expect(reserved).toEqual([])
 })
