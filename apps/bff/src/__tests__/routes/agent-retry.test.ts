@@ -128,10 +128,7 @@ async function finishTask(
 }
 
 /** 一次两张的生图调用，任务按给定的失败类型失败；返回那张失败卡。 */
-async function failedCall(
-  errorType: TaskErrorType = 'upstream_timeout',
-  calls: AgentCall[] = [],
-) {
+async function failedCall(errorType: TaskErrorType = 'upstream_timeout', calls: AgentCall[] = []) {
   setAgentFetchForTesting(
     scriptedAgentFetch(calls, [
       () =>

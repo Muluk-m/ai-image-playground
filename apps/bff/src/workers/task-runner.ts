@@ -176,7 +176,8 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       request: hydratedRequest,
       signal,
       resume,
-      onUpstreamTaskIds: (taskIds) => execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
+      onUpstreamTaskIds: (taskIds) =>
+        execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
       beforeRequest: async () => {
         if (resume && task.upstream_invocation_count > resume.taskIds.length) {
           throw new UpstreamResultUnknownError('上次提交的部分结果未知，未重复生成')

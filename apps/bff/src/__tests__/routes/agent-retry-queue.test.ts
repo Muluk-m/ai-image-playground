@@ -44,9 +44,7 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { pickUpRetryQueues } = await import('../../lib/agent/retry')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { releaseWorkerClaims, workerClaims, workerSettles } = await import(
-  '../helpers/taskWorker'
-)
+const { releaseWorkerClaims, workerClaims, workerSettles } = await import('../helpers/taskWorker')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 
 await silenceChatUpstream()
@@ -446,9 +444,7 @@ describe('重试排队', () => {
     })
     expect(deleted.status).toBe(200)
     // 删会话时任务已被撤回：worker 再收尾也落不下，队列不会因此续提交。
-    expect(
-      await running.finish({ status: 'completed', completedAt: Date.now() }),
-    ).toBe(false)
+    expect(await running.finish({ status: 'completed', completedAt: Date.now() })).toBe(false)
     await pickUpRetryQueues(true)
 
     expect(await taskCount()).toBe(tasksBefore)
