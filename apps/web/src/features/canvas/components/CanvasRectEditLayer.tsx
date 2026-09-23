@@ -4,7 +4,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { FIELD, OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -20,6 +20,7 @@ import {
   type RectHandle,
 } from '../lib/imageRectEdit'
 import { useRectEdit } from '../rectEditStore'
+import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 
 const HANDLES: readonly RectHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
@@ -198,7 +199,7 @@ export default function CanvasRectEditLayer({ editor }: { editor: CanvasEditor }
             value={prompt}
             aria-label={t('outpaint.promptAria')}
             placeholder={t('outpaint.promptPlaceholder')}
-            className={FIELD}
+            className={CANVAS_PANEL_FIELD}
             onChange={(event) => setPrompt(event.target.value)}
           />
         )}
