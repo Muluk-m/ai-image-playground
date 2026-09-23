@@ -602,17 +602,10 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
 
   const result: AppSettings = {
     customProviders,
-    providerOrder: Array.isArray(record.providerOrder)
-      ? record.providerOrder.map(String)
-      : undefined,
     clearInputAfterSubmit:
       typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
     persistInputOnRestart:
       typeof record.persistInputOnRestart === 'boolean' ? record.persistInputOnRestart : true,
-    reuseTaskApiProfileTemporarily:
-      typeof record.reuseTaskApiProfileTemporarily === 'boolean'
-        ? record.reuseTaskApiProfileTemporarily
-        : false,
     alwaysShowRetryButton:
       typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : true,
@@ -1093,7 +1086,6 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   activeProfileId: '',
   clearInputAfterSubmit: false,
   persistInputOnRestart: true,
-  reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
   // 回车即发送：和对话输入框一致，换行用 Shift+Enter。老用户存过的值不动。
   enterSubmit: true,

@@ -18,11 +18,7 @@ import { useLibraryStore } from '../features/library/store'
 import { useImageInputScope } from '../hooks/useImageInputScope'
 import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import { describeError, useTranslation } from '../i18n'
-import {
-  clientProfileToApiProfile,
-  getActiveApiProfile,
-  normalizeSettings,
-} from '../lib/apiProfiles'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
@@ -108,7 +104,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
-  const reusedTaskApiProfileId = useStore((s) => s.reusedTaskApiProfileId)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
@@ -197,22 +192,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const dragCounter = useRef(0)
   const isMobile = useIsMobile()
 
-  const currentActiveProfile = useMemo(() => getActiveApiProfile(settings), [settings])
-  const activeProfile = useMemo(
-    () =>
-      settings.reuseTaskApiProfileTemporarily && reusedTaskApiProfileId
-        ? (settings.profiles.find((profile) => profile.id === reusedTaskApiProfileId) ??
-          currentActiveProfile)
-        : currentActiveProfile,
-    [currentActiveProfile, reusedTaskApiProfileId, settings],
-  )
-  const effectiveSettings = useMemo(
-    () =>
-      activeProfile.id === currentActiveProfile.id
-        ? settings
-        : normalizeSettings({ ...settings, activeProfileId: activeProfile.id }),
-    [activeProfile.id, currentActiveProfile.id, settings],
-  )
+  const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeView = clientProfileToApiProfile(activeProfile)
   const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
   const submitImageCount = getSubmissionImageCount(prompt, slotValues, params.n)
@@ -409,14 +389,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }, [atImageMenu.dismiss, templateMenu.dismiss, setPrompt])
 
   useEffect(() => {
-    const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, {
+    const normalizedParams = normalizeParamsForSettings(params, settings, {
       hasInputImages: inputImages.length > 0,
     })
     const patch = getChangedParams(params, normalizedParams)
     if (Object.keys(patch).length) {
       setParams(patch)
     }
-  }, [inputImages.length, params, effectiveSettings, setParams])
+  }, [inputImages.length, params, settings, setParams])
 
   useEffect(
     () => () => {
