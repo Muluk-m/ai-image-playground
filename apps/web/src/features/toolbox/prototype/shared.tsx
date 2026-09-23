@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select'
-import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { type ImageDropZoneProps, useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { filesFromFolderInput } from '../../../lib/imageFiles'
 import { addImageFromFile, useStore } from '../../../store'
@@ -24,8 +24,16 @@ import {
 } from './ops'
 import { useProto } from './state'
 
+export interface ImageIntake {
+  dragging: boolean
+  dropZoneProps: ImageDropZoneProps
+  inputs: ReactNode
+  openFiles: () => void
+  openFolder: () => void
+}
+
 /** 拖入、粘贴、选文件、选文件夹四条路都进同一个 `add`。 */
-export function useIntake() {
+export function useIntake(): ImageIntake {
   const add = useProto((s) => s.add)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
