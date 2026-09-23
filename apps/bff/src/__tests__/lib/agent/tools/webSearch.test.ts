@@ -170,6 +170,29 @@ it('把引用标注读成来源，并按编号列表交回模型', async () => {
   ])
 })
 
+it('网关没给引用标注时，从正文逐行读出来源', async () => {
+  // 2026-09-23 实测约三次一次：`annotations: []`，结果只以「**标题** — 网址 — 说明」写在正文里。
+  const text =
+    '- **PANTONE 11-4201 Cloud Dancer | Color of the Year 2026** — https://www.pantone.com/color-of-the-year/2026 — Pantone names Cloud Dancer, a soft white.\n' +
+    '- **Pantone Chooses White** — `https://time.com/7338176/pantone-2026/?utm_source=openai` — TIME on the first white pick.'
+  respond({
+    output: [{ type: 'message', content: [{ type: 'output_text', text, annotations: [] }] }],
+    usage: { input_tokens: 8_817, output_tokens: 395 },
+  })
+
+  const result = await run({ query: 'Pantone 2026' })
+
+  expect(result.details?.sources).toEqual([
+    {
+      title: 'PANTONE 11-4201 Cloud Dancer | Color of the Year 2026',
+      url: 'https://www.pantone.com/color-of-the-year/2026',
+    },
+    { title: 'Pantone Chooses White', url: 'https://time.com/7338176/pantone-2026/' },
+  ])
+  const body = result.content[0]?.type === 'text' ? result.content[0].text : ''
+  expect(body).toContain('   Pantone names Cloud Dancer, a soft white.')
+})
+
 it('按 count 截断结果条数', async () => {
   respond(responsesPayload())
 

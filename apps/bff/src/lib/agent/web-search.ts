@@ -138,27 +138,57 @@ function parseOutcome(raw: string): AgentWebSearchOutcome | null {
         hits.push({
           title: named,
           url,
-          description: typeof start === 'number' ? citedLine(text, start, named) : '',
+          description:
+            typeof start === 'number' && start > 0 && start <= text.length
+              ? describe(text.slice(text.lastIndexOf('\n', start - 1) + 1, start), named)
+              : '',
         })
       }
     }
   }
   // 一条来源都没有、正文也是空的，就是这次搜索什么也没搜到，按读不出结果处理。
   if (texts.length === 0 && hits.length === 0) return null
-  return { text: texts.join('\n').trim(), hits }
+  const text = texts.join('\n').trim()
+  // 网关大约三次里有一次不给引用标注，结果却照样按「标题 — 网址 — 说明」逐行写在正文里：
+  // 那时从正文里把它们读出来，否则面板上没有来源、回放里也只剩一句「完成」。
+  return { text, hits: hits.length > 0 ? hits : listedHits(text) }
+}
+
+/** 正文一行里的第一个网址；行尾的标点与反引号、括号不算网址的一部分。 */
+const LINE_URL = /https?:\/\/[^\s<>()[\]`"']+/
+
+/** 没有标注时，按行读出正文里列着的结果：有网址的那一行就是一条。 */
+function listedHits(text: string): AgentWebSearchHit[] {
+  const hits: AgentWebSearchHit[] = []
+  const seen = new Set<string>()
+  for (const line of text.split('\n')) {
+    const found = LINE_URL.exec(line)?.[0]?.replace(/[.,;:!?]+$/, '')
+    const url = found ? withoutTracking(found) : ''
+    if (!url || seen.has(url)) continue
+    let host: string
+    try {
+      host = new URL(url).hostname
+    } catch {
+      continue
+    }
+    seen.add(url)
+    const title =
+      /\*\*(.+?)\*\*/.exec(line)?.[1]?.trim() || /\[([^\]]+)\]\(/.exec(line)?.[1]?.trim() || host
+    hits.push({ title, url, description: describe(line, title) })
+  }
+  return hits
 }
 
 /**
- * 一条结果在说什么。标注本身圈住的只是行尾那个「([站点](网址))」引用链接，真正的说明是
- * 它前面那一行：取那一行，去掉加粗、网址与重复的标题，剩下的就是上游替这条结果写的那句话。
- * 标注越界或那一行什么也不剩时留空，不编。
+ * 一条结果在说什么：它所在那一行去掉列表记号、加粗、网址、行尾的「([站点](网址))」引用与
+ * 重复的标题，剩下的就是上游替这条结果写的那句话。什么也不剩时留空，不编。
  */
-function citedLine(text: string, start: number, title: string): string {
-  if (start <= 0 || start > text.length) return ''
-  const line = text.slice(text.lastIndexOf('\n', start - 1) + 1, start)
+function describe(line: string, title: string): string {
   return line
+    .replace(/\(\[[^\]]*\]\([^)]*\)\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\*\*/g, '')
-    .replace(/https?:\/\/\S+/g, '')
+    .replace(/`?https?:\/\/\S+/g, '')
     .replace(title, '')
     .replace(/^[\s\-*\d.]+/, '')
     .replace(/^[\s—–:|-]+|[\s—–:|(-]+$/g, '')
