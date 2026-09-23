@@ -47,14 +47,18 @@ cp -a $d/operator-config.json  $d/operator-config.json.bak-agent-$ts
 
 顺序不能反：能力开着而单价缺失，每一轮都会在预扣这步被拒。反过来先写单价是惰性的，不影响现网。
 
-`billing_model_prices` 的主键是**真实模型名**，不是伪模型 `agent-chat`——`start-turn.ts` 传的是
-`config.agent.model`。`updated_at` 在库里是 `timestamptz`，用 `now()`，不要塞 epoch 毫秒。
+`billing_model_prices` 的主键是**真实模型名**，不是伪模型 `agent-chat`。带思考档位的轮次按
+`apps/bff/src/lib/agent/thinking.config.json` 里的模型计费（`gpt-6-luna`、`gpt-6-sol`、
+`claude-opus-5-5`）；没带档位才用 `AGENT_CHAT_MODEL`。三档各要一行，缺一行这档起轮会被拒。
+`updated_at` 在库里是 `timestamptz`，用 `now()`，不要塞 epoch 毫秒。
 
 ```sql
 insert into billing_model_prices
   (model, credits_per_image, unit, output_credits_per_unit, output_reserve_tokens, active, updated_at)
 values
-  ('<对话模型>', 2, 'kilo_token', 10, 1500, true, now())
+  ('gpt-6-luna', 2, 'kilo_token', 10, 1500, true, now()),
+  ('gpt-6-sol', 2, 'kilo_token', 10, 1500, true, now()),
+  ('claude-opus-5-5', 2, 'kilo_token', 10, 1500, true, now())
 on conflict (model) do update set
   credits_per_image       = excluded.credits_per_image,
   unit                    = excluded.unit,
@@ -84,10 +88,10 @@ C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才�
 追加进 `$d/app.env`。重复执行前先 `sed -i '/^AGENT_[A-Z_]*=/d'` 保证幂等。
 
 ```sh
-AGENT_CHAT_MODEL=gpt-5.6-luna
+AGENT_CHAT_MODEL=gpt-6-luna
 AGENT_CHAT_CONTEXT_WINDOW=40000
 AGENT_CHAT_MAX_TOKENS=8000
-AGENT_SUMMARY_MODEL=gpt-5.6-luna
+AGENT_SUMMARY_MODEL=gpt-6-luna
 AGENT_IMAGE_MODEL=gpt-image-2.5-flare
 AGENT_VIDEO_MODEL=grok-imagine-video
 ```

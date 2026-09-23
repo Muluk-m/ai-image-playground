@@ -1172,9 +1172,9 @@ describe('智能体读素材库工具', () => {
 })
 
 for (const [depth, model, effort] of [
-  ['fast', 'gpt-5.6-luna', 'low'],
-  ['medium', 'gpt-5.6-sol', 'medium'],
-  ['deep', 'gpt-6-astra', 'high'],
+  ['fast', 'gpt-6-luna', 'low'],
+  ['medium', 'gpt-6-sol', 'medium'],
+  ['deep', 'claude-opus-5-5', 'high'],
 ] as const) {
   it(`sends the ${depth} model and reasoning effort to the gateway`, async () => {
     const calls: AgentCall[] = []
