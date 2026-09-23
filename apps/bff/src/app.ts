@@ -88,12 +88,21 @@ const MIME_BY_EXT: Record<string, string> = {
 }
 const GZIP_MIN_BYTES = 1024
 
+/**
+ * 静态文件，或目录下的 `index.html`（使用指南 `/guide/` 是构建期渲染好的独立页面，
+ * 与 Pages、nginx 的目录索引行为一致）。都没有时交给 SPA 回退。
+ */
 async function serveStatic(pathname: string, request: Request): Promise<Response | null> {
   if (!STATIC_DIR) return null
-  const file = Bun.file(join(STATIC_DIR, pathname))
-  if (!(await file.exists())) return null
+  let file = Bun.file(join(STATIC_DIR, pathname))
+  let ext = extname(pathname).toLowerCase()
+  if (!(await file.exists())) {
+    if (ext) return null
+    file = Bun.file(join(STATIC_DIR, pathname, 'index.html'))
+    if (!(await file.exists())) return null
+    ext = '.html'
+  }
 
-  const ext = extname(pathname).toLowerCase()
   const compressible = COMPRESSIBLE_EXTS.has(ext)
   const acceptEnc = (request.headers.get('accept-encoding') ?? '').toLowerCase()
   const wantsGzip = acceptEnc.includes('gzip')
