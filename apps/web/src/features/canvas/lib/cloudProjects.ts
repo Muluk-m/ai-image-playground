@@ -1,5 +1,5 @@
 import { isProjectDocument, type ProjectDocument, projectKind } from '@image-playground/shared'
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope } from '../../../lib/authScope'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
@@ -120,7 +120,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   private readRequired = false
   private readVersion = 0
   private queue: Promise<unknown> = Promise.resolve()
-  private readonly scope = scopedStorageName('canvas-cloud')
+  private readonly sameAccount = accountScope()
   private readonly controller = new AbortController()
   private state: { status: ProjectSyncStatus; message: SyncMessage | null } = {
     status: 'loading',
@@ -190,7 +190,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
     }
   }
   private current() {
-    if (this.controller.signal.aborted || scopedStorageName('canvas-cloud') !== this.scope)
+    if (this.controller.signal.aborted || !this.sameAccount())
       throw new Error('project_scope_changed')
   }
   private update(status: ProjectSyncStatus, message: SyncMessage | null = null) {

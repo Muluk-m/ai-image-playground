@@ -1,5 +1,5 @@
 import { i18next } from '../../../i18n'
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope } from '../../../lib/authScope'
 import { useStore } from '../../../store'
 import { useCanvasProjectStore } from '../projectStore'
 import type { CanvasEditor } from './editor'
@@ -54,7 +54,7 @@ export class SceneRecord {
   private savedRevision = 0
   private structureRevision = 0
   private savedStructureRevision = 0
-  private readonly scope = scopedStorageName('canvas')
+  private readonly sameAccount = accountScope()
 
   constructor(
     readonly editor: CanvasEditor,
@@ -187,7 +187,7 @@ export class SceneRecord {
   }
 
   private gone(): boolean {
-    return this.disposed || this.scope !== scopedStorageName('canvas')
+    return this.disposed || !this.sameAccount()
   }
 
   private write(preserveStructure: boolean): Promise<boolean> {
