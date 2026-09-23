@@ -283,6 +283,36 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
     expect(overlay.errored).toHaveBeenCalledTimes(1)
     expect(overlay.settled).toHaveBeenCalledTimes(1)
   })
+
+  /**
+   * 重发要带的输入图不在记录里（工作台只存 id，位图在 IndexedDB），刷新后那一行可能已经没了。
+   * 取不到也是这一次提交失败：必须与请求失败走同一条标错 + 结算通知，
+   * 在 module 外面自己 catch 掉就会留下一条永远 running 的任务、余额也停在发起之前那一份。
+   */
+  it('重发要现取的输入图取不到：不发请求，标错并发出结算通知', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const { sink, failures } = recordingSink()
+
+    await resumeGeneration(
+      {
+        settings,
+        prompt: '一只猫',
+        params: { ...DEFAULT_PARAMS },
+        clientRequestId: 'request-1',
+        resend: async () => {
+          throw new Error('输入图已丢失')
+        },
+      },
+      0,
+      sink,
+    )
+
+    expect(failures[0]!.text).toBe('输入图已丢失')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(overlay.errored).toHaveBeenCalledTimes(1)
+    expect(overlay.settled).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('门禁', () => {

@@ -73,7 +73,6 @@ import {
 import {
   type GenerationReport,
   type GenerationSink,
-  generationFailure,
   resumeGeneration,
   startGeneration,
 } from './lib/generationJob'
@@ -1797,23 +1796,26 @@ async function resumeStoredTask(task: TaskRecord): Promise<void> {
     !isAsyncCustomProviderTask(requestSettings, job.provider, task.inputImageIds.length > 0)
   )
     scheduleOpenAIWatchdog(task.id, view.timeout)
-  let inputs: { inputDataUrls: string[]; maskDataUrl?: string }
-  try {
-    inputs = await loadTaskInputs(task)
-  } catch (err) {
-    report.failed(job, generationFailure(err))
-    return
-  }
   return resumeGeneration(
     {
       settings: requestSettings,
-      prompt: requestPromptOf(task, inputs.inputDataUrls.length),
+      prompt: task.prompt,
       params: task.params,
-      inputImageDataUrls: inputs.inputDataUrls,
-      ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
       ...(task.clientRequestId ? { clientRequestId: task.clientRequestId } : {}),
+      // 输入图只存了 id，位图现从 IndexedDB 读回来。**交给 module 在受监管的范围内读**：
+      // 读不回来也是这一次提交失败，要与请求失败一样标错、一样发结算通知。
+      resend: async () => {
+        const inputs = await loadTaskInputs(task)
+        // 遮罩位图记到句柄上：出片后据它判断草稿还是不是这次用的那张。
+        if (inputs.maskDataUrl) job.maskDataUrl = inputs.maskDataUrl
+        return {
+          prompt: requestPromptOf(task, inputs.inputDataUrls.length),
+          inputImageDataUrls: inputs.inputDataUrls,
+          ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+        }
+      },
     },
-    { ...job, ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}) },
+    job,
     report,
   )
 }
