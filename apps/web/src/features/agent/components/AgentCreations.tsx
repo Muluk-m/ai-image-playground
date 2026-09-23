@@ -12,6 +12,7 @@ import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
 import { canvasElementCreatedAt, canvasImageName } from '../../canvas/lib/imageInfo'
 import { type AgentCanvasSink, agentCanvasSink, onAgentCanvasSinkChange } from '../lib/canvasSink'
+import AgentCreationsGallery from './AgentCreationsGallery'
 
 type Work = ImageEl | PlaceholderEl
 interface CreationGroup {
@@ -225,6 +226,7 @@ export default function AgentCreations({
 }) {
   const { t, i18n } = useTranslation('agent')
   useSyncExternalStore(doc.subscribe, () => doc.version)
+  const [gallery, setGallery] = useState(false)
   // 分组标题里的兜底文案是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const groups = useMemo(() => groupsFor(doc.elements), [doc.elements, i18n.language])
   const works = useMemo(
@@ -259,6 +261,28 @@ export default function AgentCreations({
     )
   return (
     <div className="space-y-6 px-3 py-3">
+      {works.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-muted-foreground">
+            {t('creations.itemCount', { count: works.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => setGallery(true)}
+            className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:border-primary/60 hover:bg-muted"
+          >
+            {t('creations.viewAll')}
+          </button>
+        </div>
+      )}
+      {gallery && (
+        <AgentCreationsGallery
+          doc={doc}
+          works={works}
+          srcOf={(element) => thumbnails.get(bitmapKey(element))}
+          onClose={() => setGallery(false)}
+        />
+      )}
       {groups.map((group) => (
         <section key={group.id} aria-label={group.title}>
           <div className="mb-2.5 flex items-start justify-between gap-2">
