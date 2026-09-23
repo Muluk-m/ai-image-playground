@@ -1,7 +1,10 @@
 import { agentTurnCostTotal } from '@image-playground/shared'
 import { Fragment, type ReactNode, useState } from 'react'
 import Credits from '../../../components/Credits'
+import { GiftIcon } from '../../../components/icons'
+import ViewportTooltip from '../../../components/ViewportTooltip'
 import { formatElapsed } from '../../../hooks/useElapsed'
+import { useTooltip } from '../../../hooks/useTooltip'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -58,11 +61,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
         >
           {t('cost.spent')} <Credits credits={total} struck={freeChat} />
         </button>
-        {freeChat && (
-          <span className="rounded-full border border-primary/30 bg-primary/10 px-1.5 py-px font-medium text-primary">
-            {t('cost.chatFree')}
-          </span>
-        )}
+        {freeChat && <ChatFreeMark />}
       </span>,
     )
   }
@@ -95,5 +94,27 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
         </span>
       )}
     </div>
+  )
+}
+
+/** 限时免费只占一个图标位：页脚是给人扫一眼的，一行里塞不下第二段文字。 */
+function ChatFreeMark() {
+  const { t } = useTranslation('agent')
+  const tooltip = useTooltip()
+  return (
+    <span className="relative inline-flex">
+      <span
+        {...tooltip.handlers}
+        tabIndex={0}
+        role="img"
+        aria-label={t('cost.chatFree')}
+        className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 p-1 text-primary"
+      >
+        <GiftIcon className="h-3 w-3" />
+      </span>
+      <ViewportTooltip visible={tooltip.visible} className="whitespace-nowrap">
+        {t('cost.chatFree')}
+      </ViewportTooltip>
+    </span>
   )
 }

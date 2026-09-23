@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSignedIn } from '../../../../auth/loginPrompt'
 import type { CanvasEditor, PlaceholderView } from '../../../../features/canvas/lib/editor'
+import { Box } from '../../../../features/canvas/lib/geometry'
 import { DEFAULT_PARAMS } from '../../../../types'
 
 const { callImageApiMock, createPlaceholderMock, guardMock, showToastMock } = vi.hoisted(() => ({
@@ -127,5 +128,57 @@ describe('failed canvas image task', () => {
 
     expect(meta).toBeDefined()
     expect(getCanvasTask(meta!.taskId)).toBeDefined()
+  })
+})
+
+describe('per-image batch submit', () => {
+  /** 两张并排的图各自成为一个输入条目（没有标注跟随）。 */
+  function selectionEditor() {
+    const boxes: Record<string, Box> = {
+      a: new Box(0, 0, 100, 100),
+      b: new Box(400, 0, 100, 100),
+    }
+    return {
+      createPlaceholder: createPlaceholderMock,
+      updatePlaceholder: vi.fn(),
+      getSelectedIds: () => ['a', 'b'],
+      getElement: (id: string) => (boxes[id] ? { id, type: 'image' } : undefined),
+      getElements: () => [
+        { id: 'a', type: 'image' },
+        { id: 'b', type: 'image' },
+      ],
+      getElementPageBounds: (id: string) => boxes[id],
+      isPlaceholder: () => false,
+      getViewportPageBounds: () => new Box(0, 0, 4000, 4000),
+      getOccupiedBounds: () => [],
+      toImage: vi.fn(async (ids: string[]) => `data:image/png;base64,${ids[0]}`),
+    } as unknown as CanvasEditor
+  }
+
+  it('gives every selected image its own task with only that image as input', async () => {
+    guardMock.mockReturnValue({ blocked: false })
+    callImageApiMock.mockResolvedValue({ images: [] })
+
+    await submitFromCanvas(selectionEditor(), 'crop to 3:4', { perImage: true })
+
+    // 门禁按整批的量判：两张 × 每张 4 份。
+    expect(guardMock).toHaveBeenCalledWith({ model: 'current-model', quantity: 8 })
+    expect(callImageApiMock).toHaveBeenCalledTimes(2)
+    expect(callImageApiMock.mock.calls.map((call) => call[0].inputImageDataUrls)).toEqual([
+      ['data:image/png;base64,a'],
+      ['data:image/png;base64,b'],
+    ])
+    expect(callImageApiMock.mock.calls.every((call) => call[0].params.n === 4)).toBe(true)
+  })
+
+  it('still merges the selection into one multi-reference task when batching is off', async () => {
+    guardMock.mockReturnValue({ blocked: false })
+    callImageApiMock.mockResolvedValue({ images: [] })
+
+    await submitFromCanvas(selectionEditor(), 'blend these')
+
+    expect(guardMock).toHaveBeenCalledWith({ model: 'current-model', quantity: 4 })
+    expect(callImageApiMock).toHaveBeenCalledTimes(1)
+    expect(callImageApiMock.mock.calls[0]?.[0].inputImageDataUrls).toHaveLength(2)
   })
 })

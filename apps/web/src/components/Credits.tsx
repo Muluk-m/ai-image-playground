@@ -31,24 +31,29 @@ export default function Credits({
 }: {
   credits: number
   className?: string
-  /** 划掉的是数字本身，不是闪电：图标是「这是积分」的标识，划它只会让人以为积分没了。 */
+  /** 划掉整块（闪电 + 数字）：只划数字时那道线太短，扫一眼看不出来。 */
   struck?: boolean
 }) {
   const { t } = useTranslation('shell')
   const amount = formatCredits(credits)
+  const content = (
+    <>
+      <BoltIcon />
+      <span aria-hidden="true">{amount}</span>
+    </>
+  )
   return (
     <span
       role="img"
       aria-label={t('credits.ariaLabel', { amount })}
       className={`inline-flex items-center gap-0.5 tabular-nums ${className}`}
     >
-      <BoltIcon />
       {struck ? (
-        <del aria-hidden="true" className="decoration-1">
-          {amount}
+        <del className="inline-flex items-center gap-0.5 decoration-[1.5px] opacity-70">
+          {content}
         </del>
       ) : (
-        <span aria-hidden="true">{amount}</span>
+        content
       )}
     </span>
   )
