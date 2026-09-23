@@ -1,6 +1,6 @@
 /**
  * 用户设置：从持久化 blob 里划出的、可跨设备携带的那一份文档。整份存取、整份 LWW。
- * 密钥类数据（BYOK profile、customProviders、providerOrder、profileModelCache）与本机数据
+ * 密钥类数据（BYOK profile、customProviders、profileModelCache）与本机数据
  * （草稿、槽位值、任务记录、商品图任务、画布）都不在这里，加字段前先对照 CONTEXT.md。
  */
 import { useStore } from '../../store'
@@ -13,7 +13,6 @@ import { getPublicChannels } from '../channels/publicChannels'
 export type UserSettingsDocument = {
   clearInputAfterSubmit: boolean
   persistInputOnRestart: boolean
-  reuseTaskApiProfileTemporarily: boolean
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
   params: TaskParams
@@ -33,7 +32,6 @@ export function readUserSettingsDocument(): UserSettingsDocument {
   return {
     clearInputAfterSubmit: settings.clearInputAfterSubmit,
     persistInputOnRestart: settings.persistInputOnRestart,
-    reuseTaskApiProfileTemporarily: settings.reuseTaskApiProfileTemporarily,
     alwaysShowRetryButton: settings.alwaysShowRetryButton,
     enterSubmit: settings.enterSubmit,
     params: { ...state.params },
@@ -58,10 +56,6 @@ export function applyUserSettingsDocument(document: unknown): void {
   state.setSettings({
     clearInputAfterSubmit: boolean(document.clearInputAfterSubmit, settings.clearInputAfterSubmit),
     persistInputOnRestart: boolean(document.persistInputOnRestart, settings.persistInputOnRestart),
-    reuseTaskApiProfileTemporarily: boolean(
-      document.reuseTaskApiProfileTemporarily,
-      settings.reuseTaskApiProfileTemporarily,
-    ),
     alwaysShowRetryButton: boolean(document.alwaysShowRetryButton, settings.alwaysShowRetryButton),
     enterSubmit: boolean(document.enterSubmit, settings.enterSubmit),
     ...selectedBuiltinChannel(document.builtinChannel, settings),

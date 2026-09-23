@@ -77,11 +77,6 @@ export function setThemeChoice(next: ThemeChoice): void {
   apply()
 }
 
-/** 一键翻转：固定为当前看到的相反一套。 */
-export function toggleTheme(): void {
-  setThemeChoice(theme === 'dark' ? 'light' : 'dark')
-}
-
 /**
  * 读出本机的选择并开始盯系统明暗。首帧的样子已经由内联脚本定好，这里接手之后的变化。
  * 返回的函数停止监听，只有测试需要。

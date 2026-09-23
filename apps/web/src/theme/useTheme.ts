@@ -6,7 +6,6 @@ import {
   subscribeTheme,
   type Theme,
   type ThemeChoice,
-  toggleTheme,
 } from './index'
 
 export interface ThemeControls {
@@ -15,13 +14,11 @@ export interface ThemeControls {
   /** 用户的选择。`system` 表示没选过或选回了跟随系统。 */
   choice: ThemeChoice
   setChoice: (next: ThemeChoice) => void
-  /** 固定为当前看到的相反一套。 */
-  toggle: () => void
 }
 
-/** 头像菜单、登录页与设置面板三处主题控件共用。 */
+/** 主题下拉的状态。头像菜单与设置面板渲染的是同一个 `DisplaySettingsFields`。 */
 export function useTheme(): ThemeControls {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const)
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice, () => 'system' as const)
-  return { theme, choice, setChoice: setThemeChoice, toggle: toggleTheme }
+  return { theme, choice, setChoice: setThemeChoice }
 }

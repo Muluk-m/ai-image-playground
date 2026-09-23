@@ -9,11 +9,7 @@ import {
   useState,
 } from 'react'
 import { useTranslation } from '../i18n'
-import {
-  clientProfileToApiProfile,
-  getActiveApiProfile,
-  normalizeSettings,
-} from '../lib/apiProfiles'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { isByokGenerationEnabled } from '../lib/clientCapabilities'
@@ -147,32 +143,16 @@ export default function ParamControls({
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
-  const reusedTaskApiProfileId = useStore((s) => s.reusedTaskApiProfileId)
   const profileModelCache = useStore((s) => s.profileModelCache)
 
-  const currentActiveProfile = useMemo(() => getActiveApiProfile(settings), [settings])
-  const activeProfile = useMemo(
-    () =>
-      settings.reuseTaskApiProfileTemporarily && reusedTaskApiProfileId
-        ? (settings.profiles.find((profile) => profile.id === reusedTaskApiProfileId) ??
-          currentActiveProfile)
-        : currentActiveProfile,
-    [currentActiveProfile, reusedTaskApiProfileId, settings],
-  )
-  const effectiveSettings = useMemo(
-    () =>
-      activeProfile.id === currentActiveProfile.id
-        ? settings
-        : normalizeSettings({ ...settings, activeProfileId: activeProfile.id }),
-    [activeProfile.id, currentActiveProfile.id, settings],
-  )
+  const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeView = clientProfileToApiProfile(activeProfile)
   const isGeminiProvider = activeView.provider === 'gemini'
   const capabilities = getParamCapabilities(activeProfile, params.output_format)
   const geminiFields = isGeminiProvider
     ? GEMINI_FIELDS.filter(({ tuningOnly }) => !tuningOnly || capabilities.geminiImageTuning)
     : []
-  const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
+  const outputImageLimit = getOutputImageLimitForSettings(settings)
   const displaySize = normalizeImageSize(params.size) || DEFAULT_PARAMS.size
   const qualityOptions = [
     { label: 'auto', value: 'auto' },

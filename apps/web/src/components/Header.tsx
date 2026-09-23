@@ -9,6 +9,7 @@ import { useLibraryStore } from '../features/library/store'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { useTooltip } from '../hooks/useTooltip'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
+import { isInFloatingLayer } from '../lib/dropdown'
 import {
   PrivateWebHeaderAccountActions,
   PrivateWebHeaderCreditAction,
@@ -53,6 +54,7 @@ export default function Header() {
   useEffect(() => {
     if (!accountMenuOpen) return
     const closeOutside = (event: PointerEvent) => {
+      if (isInFloatingLayer(event.target)) return
       if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {

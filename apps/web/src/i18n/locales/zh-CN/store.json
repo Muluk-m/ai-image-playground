@@ -33,12 +33,6 @@
     "slotUnfilled": "槽位 {{slot}} 未填值",
     "batchLimit": "单次最多 {{max}} 张"
   },
-  "reuseProfile": {
-    "missingTitle": "找不到 API 配置",
-    "missingMessage": "找不到复用任务所使用的 API 配置「{{taskProfile}}」，要使用当前的 API 配置「{{currentProfile}}」提交任务吗？",
-    "confirm": "使用当前配置提交",
-    "cancel": "放弃提交"
-  },
   "mask": {
     "fullTitle": "确认编辑整张图片？",
     "fullMessage": "当前遮罩覆盖了整张图片，提交后可能会重绘全部内容。是否继续？",
@@ -52,7 +46,6 @@
     "openaiTimeout": "OpenAI 任务请求超时",
     "generateDone_other": "生成完成，共 {{count}} 张图片",
     "customTaskRecovered_other": "自定义异步任务已恢复，共 {{count}} 张图片",
-    "profileReused": "已临时复用该任务的 API 配置「{{profile}}」",
     "configReused": "已复用配置到输入框",
     "imageMissingForEdit": "图片已不存在，无法编辑",
     "imageMissingForCanvas": "图片已不存在，无法送入画布",
