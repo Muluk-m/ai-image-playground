@@ -1,8 +1,10 @@
 import {
+  AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_TURN_MAX_REFERENCES,
   type AgentInlineReference,
   type AgentMode,
 } from '@image-playground/shared'
+import { mediaIdentity } from '../../../lib/cloudMedia'
 import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
@@ -72,6 +74,42 @@ export function referenceLabels(references: readonly AgentReference[]): MentionL
   return createMentionLabels([...references], named)
 }
 
+/**
+ * 这张参考图发送时能不能按 id 走——判据与发送前 `withCloudMedia` 能换成 id 的条件一致：
+ * 没画遮罩，并且它本来就是云媒体（`aip-media:`），或者是云项目画布上某张图的原件。
+ * 批注合成图、拖进来的文件、素材都不在其列，只能内联字节。
+ */
+export interface ReferenceTransport {
+  /** 当前是不是云项目：本机项目的画布图没有云端那份，只能内联。 */
+  readonly cloud: boolean
+  /** 画布上各张图此刻的来源；不是原件（例如烧了批注）的认不出。 */
+  readonly canvasSources: ReadonlySet<string>
+}
+
+/** 什么都认不出的时候：一律按内联算。 */
+export const INLINE_ONLY: ReferenceTransport = { cloud: false, canvasSources: new Set() }
+
+export function sendsById(reference: AgentReference, transport: ReferenceTransport): boolean {
+  if (reference.maskDataUrl) return false
+  if (mediaIdentity(reference.dataUrl)) return true
+  return transport.cloud && transport.canvasSources.has(reference.dataUrl)
+}
+
+/**
+ * 草稿里还放不放得下这一张。两道上限：一轮总张数（按 id 的不进请求体，可以很多），
+ * 以及只能内联字节的那几张——服务端对这两个数都是硬校验，超了整轮以 4xx 打回。
+ */
+export function hasRoomFor(
+  references: readonly AgentReference[],
+  reference: AgentReference,
+  transport: ReferenceTransport,
+): boolean {
+  if (references.length >= AGENT_TURN_MAX_REFERENCES) return false
+  if (sendsById(reference, transport)) return true
+  const inline = references.filter((one) => !sendsById(one, transport)).length
+  return inline < AGENT_TURN_MAX_INLINE_REFERENCES
+}
+
 export interface AttachedReference {
   readonly draft: AgentDraft
   /** 可见文本坐标系里的光标落点。 */
@@ -84,17 +122,17 @@ export interface AttachedReference {
  * 在可见文本的 `[start, cursor)` 上插一条引用。同一张图按 `id` 复用原序号，
  * 不重复附加——画布对象与素材走的是同一条路。
  *
- * 满了就不附：服务端对一轮的参考图数量有硬上限（`AGENT_TURN_MAX_REFERENCES`），
- * 超出去的那一份会让整轮起轮以 400 被打回，用户的话连同图一起白等。
+ * 满了就不附（见 `hasRoomFor`）：超出去的那一份会让整轮起轮被打回，用户的话连同图一起白等。
  */
 export function attachReference(
   draft: AgentDraft,
   reference: AgentReference,
   start: number,
   cursor: number,
+  transport: ReferenceTransport = INLINE_ONLY,
 ): AttachedReference {
   const at = draft.references.findIndex((one) => one.id === reference.id)
-  if (at < 0 && draft.references.length >= AGENT_TURN_MAX_REFERENCES)
+  if (at < 0 && !hasRoomFor(draft.references, reference, transport))
     return { draft, cursor, overflow: true }
   const references = at >= 0 ? draft.references : [...draft.references, reference]
   const index = at >= 0 ? at : references.length - 1
@@ -117,6 +155,20 @@ export function attachReference(
 export function removeReference(draft: AgentDraft, index: number): AgentDraft {
   const references = draft.references.filter((_, at) => at !== index)
   return {
+    prompt: remapImageMentionsForOrder(draft.prompt, [...draft.references], [...references]),
+    references,
+  }
+}
+
+/**
+ * 一次拿掉所有跟着画布选区带进来的参考图。指向它们的引用降级为「已移除」，手动附上的跟着新序号走。
+ * 选区模块会把仍选着、草稿里却没了的认成用户拒绝过，不会立刻再塞回来。
+ */
+export function removeSelectionReferences(draft: AgentDraft): AgentDraft {
+  const references = draft.references.filter((one) => one.origin !== 'selection')
+  if (references.length === draft.references.length) return draft
+  return {
+    ...draft,
     prompt: remapImageMentionsForOrder(draft.prompt, [...draft.references], [...references]),
     references,
   }
