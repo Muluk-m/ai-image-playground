@@ -113,6 +113,7 @@ describe('a deployment that cannot make video', () => {
     const names = calls[0]!.tools?.map((tool) => tool.function.name).sort() ?? []
     expect(names).toEqual([
       'askClarification',
+      'editCanvasObject',
       'editImage',
       'generateImage',
       'readCanvas',

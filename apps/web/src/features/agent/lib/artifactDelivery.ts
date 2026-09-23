@@ -1,4 +1,5 @@
 import {
+  type AgentCanvasEdit,
   type AgentToolArtifact,
   type AgentToolErrorCode,
   isVideoGenerationRecord,
@@ -67,16 +68,18 @@ async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact
   return placedArtifact(artifact, await artifactBitmap(artifact))
 }
 
-/** 这张卡有东西要落画布：产物，或者一条排好的时间线。 */
+/** 这张卡有东西要落画布：产物、一条排好的时间线，或者一批对已有对象的改动。 */
 export function deliverable(message: AgentToolMessage): boolean {
-  return Boolean(message.artifacts?.length || message.timeline)
+  return Boolean(message.artifacts?.length || message.timeline || message.canvasEdit)
 }
 
 /** 落完之后镜头要带去的画布对象。 */
 function deliveredIds(message: AgentToolMessage): string[] {
-  return message.timeline
-    ? [message.timeline.timelineId]
-    : (message.artifacts ?? []).map((artifact) => artifact.artifactId)
+  if (message.timeline) return [message.timeline.timelineId]
+  // 改属性不产新对象，镜头带去被改的那几个。
+  if (message.canvasEdit)
+    return message.canvasEdit.edits.map((one: AgentCanvasEdit) => one.elementId)
+  return (message.artifacts ?? []).map((artifact) => artifact.artifactId)
 }
 
 /** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
@@ -131,6 +134,12 @@ export function createArtifactDelivery(
     if (message.timeline) {
       if (!canvas.placeTimeline) return 'unavailable'
       const outcome = await canvas.placeTimeline(message.timeline)
+      return current(origin) ? outcome : 'unavailable'
+    }
+    // 改画布对象同样不产新媒体，只是给已有的打补丁。
+    if (message.canvasEdit) {
+      if (!canvas.editElements) return 'unavailable'
+      const outcome = await canvas.editElements(message.canvasEdit)
       return current(origin) ? outcome : 'unavailable'
     }
     // 起跑时占的位先认领回来：它决定产物落在哪，也决定这一轮结束时谁该被收掉。
