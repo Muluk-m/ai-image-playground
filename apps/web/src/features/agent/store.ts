@@ -12,7 +12,11 @@ import type {
   AgentTurnReference,
   ProjectKind,
 } from '@image-playground/shared'
-import { AGENT_IMAGE_MAX_N, AGENT_QUEUE_MAX_PENDING } from '@image-playground/shared'
+import {
+  AGENT_IMAGE_MAX_N,
+  AGENT_QUEUE_MAX_PENDING,
+  PROJECT_NAME_MAX_LENGTH,
+} from '@image-playground/shared'
 import { create } from 'zustand'
 import { requireAccount } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
@@ -269,6 +273,23 @@ let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
 
 const PANEL_WIDTH_KEY = 'image-playground.agent_panel_width'
+
+/**
+ * 用第一句话给项目起的名字。
+ *
+ * 附图的哨兵（`[image N]`）是发给模型的坐标，不是用户写的字，留在标题里只会变成
+ * 「把[image 1]改成」这种半截话。全是附图、一个字没写的那条返回空串，标题仍等 Agent 取。
+ *
+ * 直接删而不是换成空格：中文句子里哨兵两侧没有空格，换成空格会留下「把 和 换成」；
+ * 英文句子里它本来就被空格夹着，删掉多出来的那个由后面的合并收掉。
+ */
+function firstMessageTitle(text: string): string {
+  return text
+    .replace(/\[image\s+\d+\]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, PROJECT_NAME_MAX_LENGTH)
+}
 
 /** 有没结束的后台任务时隔多久问一次结果。任务是分钟级的，几秒的延迟看不出来。 */
 const DEFAULT_JOB_POLL_MS = 3_000
@@ -1344,6 +1365,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
           },
         ],
       }))
+      // 标题这一刻就跟上：Agent 也会取名，但那是一轮跑完之后的事，中间几十秒顶栏挂着
+      // 「未命名项目」，项目列表里连着几条也分不出谁是谁。用户自己改过名的不动。
+      if (firstTurn && sourceProject && !sourceProject.customName) {
+        const titled = firstMessageTitle(trimmed)
+        if (titled && titled !== sourceProject.name)
+          void useCanvasProjectStore
+            .getState()
+            .autoName(sourceProject.id, titled)
+            .catch(() => {})
+      }
       const turnDelivery = delivery.beginTurn()
       const submission = { cancelled: false, delivery: turnDelivery }
       pendingStart = submission
