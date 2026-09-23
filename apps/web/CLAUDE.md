@@ -148,14 +148,15 @@ CLI 覆盖更新；`src/components/` 下是项目自己的组合层（如 `Check
 
 ## 登录与匿名访客
 
-**开着 `accounts:login` 的部署也不拦人**：`/api/auth/me` 答 401 时 `AuthGate` 照常挂载工作台，
-storage scope 留在匿名（`setClientStorageScope(null)`），只有真需要账号的那一次动作才弹
-[`LoginDialog`](./src/auth/LoginDialog.tsx)。登录成功仍是 `window.location.reload()`：地址栏不动，
-重启时 `adoptAnonymousStorage()` 把匿名期间的本地历史认领进账号，channel 与同步引擎按新身份重来。
+**开着 `accounts:login` 的部署照常挂载工作台**：`/api/auth/me` 答 401 时 `AuthGate`
+保持匿名 scope，只有需要账号的动作才弹 [`LoginDialog`](./src/auth/LoginDialog.tsx)。
+成功登录仍 reload 当前地址：重启时先 `adoptAnonymousStorage()`，再挂工作台与恢复待发请求。
 
-- 唯一接缝是 [`src/auth/loginPrompt.ts`](./src/auth/loginPrompt.ts)：它不依赖 React 与 store（调用方
-  多是模块级函数）。要账号的动作在**发请求之前**调 `requireAccount()`，返回 false 就安静地放弃这次
-  操作——不落任务行、不 toast，弹出来的登录框本身就是反馈。
+- [`loginPrompt.ts`](./src/auth/loginPrompt.ts) 是统一弹框接缝。需要账号的动作在发请求前走
+  `requireAccount()`；单次动作默认停下，不落任务行或 toast。生成提交与首屏画布发送例外：
+  先用 [`pendingSubmission.ts`](./src/auth/pendingSubmission.ts) 在 IndexedDB 保存本次原始输入
+  （包括附图），用 sessionStorage 限定发起的标签页，再叫出登录框。登录成功重启且初始化完成后
+  消费一次并发送；关闭弹框丢弃，OAuth 失败返回时继续显示登录框。
 - 被动请求（启动拉取、轮询、云端历史）**不准**调 `requireAccount()`：页面自己弹登录框是 bug。
 - `authenticatedBffFetch` 的 401 只在 `isSignedIn()` 为真时才算「会话失效」，那条路走
   [`SessionExpiredCard`](./src/auth/SessionExpiredCard.tsx)（非模态，工作台不卸载）。访客的 401 是

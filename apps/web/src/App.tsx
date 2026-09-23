@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
+import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import ConfirmDialog from './components/ConfirmDialog'
 import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
@@ -66,7 +67,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       window.history.replaceState(null, '', nextUrl)
     }
 
-    initStore()
+    void initStore().then(() => {
+      if (user) return resumePendingSubmission()
+    })
     initHashRoute()
 
     if (adoptedTaskCount > 0) {
@@ -77,7 +80,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           'success',
         )
     }
-  }, [setSettings, adoptedTaskCount])
+  }, [setSettings, adoptedTaskCount, user])
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
