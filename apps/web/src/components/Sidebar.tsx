@@ -8,7 +8,7 @@ import { useLibraryStore } from '../features/library/store'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
-import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon } from './icons'
+import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon, ToolboxIcon } from './icons'
 
 /** 侧栏里每个入口的图标；标签与顺序由 `NAV_APP_MODES` 与语料决定。 */
 const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
@@ -16,6 +16,7 @@ const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
   canvas: CanvasIcon,
   explore: SparkleIcon,
   library: AssetIcon,
+  tools: ToolboxIcon,
 }
 
 const ITEM =
