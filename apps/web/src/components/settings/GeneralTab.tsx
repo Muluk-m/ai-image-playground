@@ -1,7 +1,6 @@
 import { CornerDownLeft, Eraser, RefreshCw, RotateCcw } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useStore } from '../../store'
-import DisplaySettingsFields from '../DisplaySettingsFields'
 import { SettingRow } from '../SettingRow'
 import { Switch } from '../Switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -13,7 +12,7 @@ const ROW_ICON = 'h-[18px] w-[18px]'
 const SECTION_CARD =
   'divide-y divide-border/60 rounded-2xl border border-border bg-card px-4 shadow-sm'
 
-/** 通用：显示设置（只在本机）与使用习惯（随账号走）。 */
+/** 通用：使用习惯（随账号走）。显示设置（语言 / 主题）在头像菜单里，登录前就要能改，不进这里。 */
 export default function GeneralTab() {
   const { t } = useTranslation('settings')
   const settings = useStore((s) => s.settings)
@@ -21,10 +20,6 @@ export default function GeneralTab() {
 
   return (
     <div className="space-y-6">
-      <SettingsSection title={t('section.display')} className={SECTION_CARD}>
-        <DisplaySettingsFields />
-      </SettingsSection>
-
       <SettingsSection title={t('section.behavior')} className={SECTION_CARD}>
         {/* 移动端没有第二种提交键可选。 */}
         <SettingRow
