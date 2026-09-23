@@ -22,14 +22,16 @@ import { log } from '../lib/logger'
  * 令牌、租约续期、失租即中止都是实现，调用方只看见 `signal` 与几个带 fence 的操作。
  *
  * 一次认领的一生：`claimTaskExecution` 登记进程内的在跑表 → 句柄按心跳续租 → `release()`
- * 停表并摘掉登记。摘掉之后这个句柄不再能写：租约到期后由回收扫描（`db/maintenance`）接手。
+ * 停表并摘掉登记。没人续的租约到点之后，这一行交给回收扫描（`db/maintenance`）接手。
  *
  * 非 worker 的写入方（cancel route、回收扫描、对话轮结算）不经句柄，它们各自在
  * `db/task-transitions` 上显式给出归属范围，见那边的说明。
  */
 
-export const TASK_LEASE_MS = 60_000
-export const TASK_HEARTBEAT_MS = 10_000
+/** 租约窗口：失去它的执行者写不动这一行，回收扫描过了它才接手。 */
+const TASK_LEASE_MS = 60_000
+/** 续租间隔，必须远小于租约窗口：一次续不上还有下一次。 */
+const TASK_HEARTBEAT_MS = 10_000
 
 let heartbeatMs = TASK_HEARTBEAT_MS
 
