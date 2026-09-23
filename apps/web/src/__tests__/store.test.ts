@@ -1117,6 +1117,49 @@ describe('submitTask 数量分发（capability n 门控）', () => {
 
     expectFanOutFour()
   })
+
+  // 重试原本绕过了提交门禁、扇出与幂等键——三件事都归提交那条路，重试也得走同一条。
+  it('重试按扇出规则拆：未声明 n 的渠道，n=4 的失败任务重试出四条 n=1', async () => {
+    setChannels([geminiChannel])
+    setupCountState(builtinProfile('gemini-flash-image', 'gemini-3.1-flash-image'))
+    const failed = task({
+      id: 'fanout-failed',
+      status: 'error',
+      params: { ...DEFAULT_PARAMS, n: 4 },
+      apiProfileId: 'builtin-gemini-flash-image',
+    })
+    useStore.setState({ tasks: [failed] })
+
+    await retryTask(failed)
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 4, 'retry did not fan out')
+
+    const retried = useStore.getState().tasks.filter((t) => t.id !== failed.id)
+    expect(retried).toHaveLength(4)
+    expect(retried.every((t) => t.params.n === 1)).toBe(true)
+    // 幂等键逐条唯一：共用一个键会被 BFF 去重折叠成一次生成。
+    expect(new Set(retried.map((t) => t.clientRequestId)).size).toBe(4)
+  })
+
+  it('重试过提交门禁：门禁拦下就一条也不落，也不发请求', async () => {
+    setChannels([gptImageChannel])
+    setupCountState(builtinProfile('openai-images', 'gpt-image-2'))
+    const failed = task({
+      id: 'blocked-retry',
+      status: 'error',
+      apiProfileId: 'builtin-openai-images',
+    })
+    useStore.setState({ tasks: [failed] })
+    getPrivateSubmissionGuard.mockReturnValueOnce({
+      blocked: true,
+      disabledReason: '积分不够了',
+    } as never)
+
+    await retryTask(failed)
+
+    expect(useStore.getState().tasks).toEqual([failed])
+    expect(callImageApi).not.toHaveBeenCalled()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('积分不够了', 'error')
+  })
 })
 
 describe('submitTask 槽位批量展开', () => {
@@ -1505,6 +1548,12 @@ describe('submitPrepared 显式参数提交接缝', () => {
   })
 
   it('遮罩按显式参数写进任务记录', async () => {
+    await putImage({
+      id: 'mask-image',
+      dataUrl: 'data:image/png;base64,mask',
+      source: 'mask',
+      createdAt: 0,
+    })
     await submitPrepared({
       prompt: 'p',
       inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
