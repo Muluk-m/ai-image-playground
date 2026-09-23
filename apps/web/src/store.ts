@@ -102,13 +102,13 @@ import {
   type SlotValues,
 } from './lib/promptSlots'
 import {
-  type ReferenceAdmission,
   attachReferences,
   moveReference,
+  type ReferenceAdmission,
+  type ReplaceOptions,
   referenceAdmission,
   referenceRefusalMessage,
   removeReference,
-  type ReplaceOptions,
   replaceReferences,
 } from './lib/referenceDraft'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'

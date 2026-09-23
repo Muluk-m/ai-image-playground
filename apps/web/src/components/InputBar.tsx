@@ -26,7 +26,6 @@ import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
-import { referenceAdmission, referenceRefusalMessage } from '../lib/referenceDraft'
 import {
   getContentEditableCursor,
   getContentEditablePlainText,
@@ -48,6 +47,7 @@ import {
   type MentionLabelResolver,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
+import { referenceAdmission, referenceRefusalMessage } from '../lib/referenceDraft'
 import {
   removeMultipleTasks,
   storeImageFromFile,

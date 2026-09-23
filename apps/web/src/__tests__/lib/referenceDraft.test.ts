@@ -58,6 +58,14 @@ describe('往参考图草稿里附图', () => {
     expect(result.ok && result.indexes).toEqual([0])
     expect(result.ok && result.draft).toBe(before)
   })
+
+  it('草稿自己带的别的东西原样留着：智能体草稿的创作类型不能在附图时掉了', () => {
+    const before = { ...draft([]), mode: 'image' as const }
+
+    const result = attachReferences(before, [image('a')], OK)
+
+    expect(result.ok && result.draft.mode).toBe('image')
+  })
 })
 
 describe('整条换掉参考图草稿', () => {

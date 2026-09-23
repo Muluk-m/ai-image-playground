@@ -95,7 +95,10 @@ export interface LibraryState {
    * `group` 让这一批落成一条多视角素材，第一张是封面。
    */
   importAssetFiles: (files: File[], options?: ImportAssetOptions) => Promise<void>
-  /** 附上该素材的全部视角，返回封面在参考图条里的序号；已在条里则复用原序号，失败返回 null。 */
+  /**
+   * 附上该素材取得回来的全部视角，返回引用该落在哪一位——封面那一位，封面取不回来时是
+   * 第一张取到的视角；已在条里的复用原序号。一张都取不回来、或整组放不下时返回 null。
+   */
   attachAsset: (id: string) => Promise<number | null>
   /** 记一次使用。「最近用过」的排序是唯一读者，所以每条附加路径都要过它。 */
   noteAssetUsed: (id: string) => Promise<void>
