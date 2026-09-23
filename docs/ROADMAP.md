@@ -175,7 +175,7 @@
   - HEIC：只靠 Safari 17+ 原生解码，其余浏览器报不支持；不引入 LGPL 的 libheif。
   - 有损 PNG 量化首期不做：libimagequant 是 GPL-3.0 或商业许可。
   - 门禁：全免费、免登录，免费版与收费版都有，不设能力位。
-- 下一步：`/prototype` 对齐页面形态 → `/to-spec` → `/to-tickets`。
+- 进度：交互原型选定 A「工具目录」，规格 [#805](https://github.com/Muluk-m/ai-image-playground/issues/805)，实现票 #806–#812 汇入 [PR #815](https://github.com/Muluk-m/ai-image-playground/pull/815)；上线核验后勾目标。
 - 验收：Tier 1 纯静态部署与匿名访客可用；处理过程不发任何网络请求（按需加载 wasm 除外）；Safari 上选 WebP 不会静默产出 PNG；超出画布面积上限时报错而不是崩溃。
 
 ## 已交付
