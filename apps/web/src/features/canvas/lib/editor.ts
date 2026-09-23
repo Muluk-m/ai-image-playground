@@ -59,9 +59,7 @@ export interface CanvasTaskMeta {
    */
   editSourceId?: string
   /** 二次加工的种类，决定卡片上那层写什么。旧占位框没有这个字段，按局部重绘处理。 */
-  editKind?: 'inpaint' | 'erase' | 'outpaint' | 'cutout'
-  /** 序列化后的重出配方（`regenRecipe.ts`）。占位框与结果元素上都有一份。 */
-  regen?: string
+  editKind?: 'inpaint' | 'erase' | 'outpaint' | 'cutout' | 'edit'
   /**
    * BFF 队列报上来的阶段。占位框上只写「生成中」而不说排到哪了，长任务看起来就像卡死；
    * 它随 meta 持久化，刷新后续 poll 也能接着说。

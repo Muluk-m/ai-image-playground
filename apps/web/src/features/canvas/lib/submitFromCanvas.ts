@@ -34,7 +34,6 @@ import {
   rasterizeEntry,
   rasterizeSelection,
 } from './rasterizeSelection'
-import { encodeRecipe, type RegenRecipe } from './regenRecipe'
 import { retryCanvasVideo } from './submitVideoFromCanvas'
 
 /**
@@ -104,8 +103,6 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
   const startedAt = Date.now()
 
   // 决策 2：恢复元数据（含参数 / profile 快照）存元素 customData，随画布持久化；不含输入图。
-  // 配方超长（涂了几百笔）就不写：半份配方会让重出拿着残缺的输入去生成，用户看不出来。
-  const recipe = spec.recipe ? encodeRecipe(spec.recipe) : undefined
   const placeholderId = editor.createPlaceholder(spec.target, {
     taskId,
     clientRequestId,
@@ -115,7 +112,6 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
     inputCount: spec.inputImageDataUrls.length,
     ...(spec.editSourceId ? { editSourceId: spec.editSourceId } : {}),
     ...(spec.editKind ? { editKind: spec.editKind } : {}),
-    ...(recipe ? { regen: recipe } : {}),
     params: spec.params,
     profileView,
   })
@@ -192,8 +188,6 @@ function launchBatch(
     void launchCanvasTask(editor, {
       ...spec,
       params,
-      // 配方里的参数必须跟着这一批实际发的走，否则重出会变成另一个张数。
-      ...(spec.recipe ? { recipe: { ...spec.recipe, params } } : {}),
       target: target!,
     })
     return
@@ -267,15 +261,6 @@ export async function submitFromCanvas(
           annotated: plan.annotated,
           inputImageDataUrls: [dataUrl],
           params: specParams,
-          // 逐张模式每张各有自己的配方：重出时只重新栅格化它那一张源图。
-          recipe: {
-            v: 1,
-            kind: 'generate',
-            prompt,
-            annotated: plan.annotated,
-            params: specParams,
-            entries: [{ imageId: entry.imageId, graphicIds: entry.graphicIds }],
-          },
         },
         entry.box,
         quantity,
@@ -304,22 +289,9 @@ export async function submitFromCanvas(
     ? [selection.annotationText, trimmed].filter(Boolean).join('\n')
     : trimmed
 
-  // 重出配方：存「用了画布上哪几个元素」，不存那几 MB 位图。刷新后按当前画布重新栅格化。
-  const recipe: RegenRecipe = {
-    v: 1,
-    kind: 'generate',
-    prompt,
-    annotated: selection?.annotated ?? false,
-    params: specParams,
-    entries: (selection?.entries ?? []).map((entry) => ({
-      imageId: entry.imageId,
-      graphicIds: entry.graphicIds,
-    })),
-  }
   launchBatch(
     editor,
     {
-      recipe,
       prompt,
       annotated: selection?.annotated ?? false,
       inputImageDataUrls,

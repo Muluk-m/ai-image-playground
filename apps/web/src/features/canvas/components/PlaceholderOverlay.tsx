@@ -188,8 +188,21 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
               transformOrigin: 'top left',
             }}
           >
+            {/* 就地改图的占位盖在原图上，原图什么颜色都有：没有这层底，白字落到浅色照片上就没了。
+                用 background 而不是纯黑，亮暗两套主题下与 foreground 的对比度都成立。 */}
             <div
               style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'hsl(var(--background) / 0.72)',
+                backdropFilter: 'blur(3px)',
+                WebkitBackdropFilter: 'blur(3px)',
+                borderRadius: 6,
+              }}
+            />
+            <div
+              style={{
+                position: 'relative',
                 width: '100%',
                 height: '100%',
                 display: 'flex',

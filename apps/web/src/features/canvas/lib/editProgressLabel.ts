@@ -12,7 +12,8 @@ function actionKey(
   | 'inpaint.running'
   | 'erase.running'
   | 'outpaint.running'
-  | 'cutout.running' {
+  | 'cutout.running'
+  | 'imageEdit.running' {
   if (!placeholder.meta.editSourceId) return 'placeholder.generating'
   switch (placeholder.meta.editKind) {
     case 'erase':
@@ -21,6 +22,8 @@ function actionKey(
       return 'outpaint.running'
     case 'cutout':
       return 'cutout.running'
+    case 'edit':
+      return 'imageEdit.running'
     default:
       return 'inpaint.running'
   }
