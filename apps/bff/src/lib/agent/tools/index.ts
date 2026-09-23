@@ -21,6 +21,7 @@ import { editCanvasObject } from './editCanvasObject'
 import { editImage } from './editImage'
 import type { ToolFailureLog } from './errors'
 import { fetchImage } from './fetchImage'
+import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
@@ -66,6 +67,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   saveAsset,
   saveLook,
   fetchImage,
+  fetchListingImages,
   webSearch,
   webFetch,
 ]
