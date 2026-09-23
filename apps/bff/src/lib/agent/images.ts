@@ -6,7 +6,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { parseProjectArtifactId } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
@@ -70,6 +70,38 @@ export async function requireAgentImages(
     }
     return image
   })
+}
+
+/**
+ * 把这一批刚到的引用解成字节。按 id 附来的那几张从云媒体读回来，内联的原样用。
+ *
+ * 它不经 `AgentImageSource`：插话在被收下之前就要做视觉证据，这时把它们登记进图源
+ * 会让一条可能被拒收的插话提前改掉本轮的活动引用。
+ */
+export async function resolveTurnReferences(
+  references: readonly AgentTurnReference[],
+  conversationId: string,
+  userId: string | null,
+): Promise<ResolvedAgentImage[]> {
+  const resolved: ResolvedAgentImage[] = []
+  for (const reference of references) {
+    if (!('mediaId' in reference)) {
+      resolved.push({
+        imageId: reference.imageId,
+        dataUrl: reference.dataUrl,
+        ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+      })
+      continue
+    }
+    const media = await readConversationMedia(reference.mediaId, conversationId, userId, 'original')
+    // 认领是起轮前落下的，读不到只能是这中间媒体被删了；那张图这一轮就当没附。
+    if (media)
+      resolved.push({
+        imageId: reference.imageId,
+        dataUrl: dataUrl(media.bytes, media.contentType),
+      })
+  }
+  return resolved
 }
 
 interface TaskOutput {
@@ -174,23 +206,27 @@ async function readFoldedOutput(
 const CANVAS_MEDIA_ID = /^(?:aip-media:)?([0-9a-f-]{36})$/i
 
 /**
- * 画布上用户自己放的图。
+ * 这个会话读得到的那张云媒体的字节。
  *
- * 它们的 id 是 `media_objects.id`，与产物 id（`agent_<任务>_<下标>`）、素材 id 都不是一个
- * 空间——不接这一路，`readCanvas` 报出来的图片 id 就交不给 `editImage`，读画布这件事等于白做。
+ * 越权边界由 SQL 写明，比「归本人所有」更紧一格：只按 user_id 放行的话，模型报一串 uuid
+ * 就能把这人别的项目里的图读出来。放行的只有两种认领关系：
  *
- * 越权边界同样由 SQL 写明，而且比「归本人所有」更紧一格：得经 `media_references` 落在**这一
- * 轮会话绑着的那个项目**上。只按 user_id 放行的话，模型报一串 uuid 就能把这人别的项目里的图
- * 读出来。
+ * - **这一轮会话绑着的那个项目**认领着它：模型读画布报出来的 id 走这条。
+ * - **这个会话自己**认领着它：用户按 id 附过来的参考图走这条（见 `claimConversationMedia`）。
+ *   会话自己那一份是历史的锚：用户后来把这张图从画布上删了，项目那条认领会随下一次项目
+ *   写入消失，历史里的引用不该跟着变成一张读不出来的图。
  */
-async function readCanvasMedia(
-  imageId: string,
+export async function readConversationMedia(
+  mediaId: string,
   conversationId: string,
   userId: string | null,
   variant: AgentImageVariant,
-): Promise<ReadImage | null> {
-  const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
-  if (!mediaId || !userId) return null
+): Promise<{
+  readonly bytes: Uint8Array
+  readonly contentType: string
+  readonly reduced: boolean
+} | null> {
+  if (!userId) return null
   const [row] = await db
     .select({
       objectKey: schema.media_objects.object_key,
@@ -203,15 +239,27 @@ async function readCanvasMedia(
       and(
         eq(schema.media_references.media_id, schema.media_objects.id),
         eq(schema.media_references.user_id, userId),
-        eq(schema.media_references.owner_kind, 'project'),
-      ),
-    )
-    .innerJoin(
-      schema.canvas_projects,
-      and(
-        eq(schema.canvas_projects.id, schema.media_references.owner_id),
-        eq(schema.canvas_projects.conversation_id, conversationId),
-        isNull(schema.canvas_projects.deleted_at),
+        or(
+          and(
+            eq(schema.media_references.owner_kind, 'conversation'),
+            eq(schema.media_references.owner_id, conversationId),
+          ),
+          and(
+            eq(schema.media_references.owner_kind, 'project'),
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(schema.canvas_projects)
+                .where(
+                  and(
+                    eq(schema.canvas_projects.id, schema.media_references.owner_id),
+                    eq(schema.canvas_projects.conversation_id, conversationId),
+                    isNull(schema.canvas_projects.deleted_at),
+                  ),
+                ),
+            ),
+          ),
+        ),
       ),
     )
     .where(
@@ -226,12 +274,34 @@ async function readCanvasMedia(
   const previewKey = variant === 'preview' ? row?.previewKey : null
   const key = previewKey ?? row?.objectKey
   if (!key) return null
-  // 预留的预览已经是这条规格缩过的，别再缩第二次；原件的 content type 也对不上它，按字节认。
   return {
+    bytes: await durableMediaStore().read(key),
+    // 预留的预览是 webp，原件那一行的 content type 对不上它，按字节认。
+    contentType: previewKey ? 'image/webp' : row.contentType,
     reduced: previewKey !== null,
-    dataUrl: await toModelImageDataUrl(
-      dataUrl(await durableMediaStore().read(key), row.contentType),
-    ),
+  }
+}
+
+/**
+ * 画布上用户自己放的图。
+ *
+ * 它们的 id 是 `media_objects.id`，与产物 id（`agent_<任务>_<下标>`）、素材 id 都不是一个
+ * 空间——不接这一路，`readCanvas` 报出来的图片 id 就交不给 `editImage`，读画布这件事等于白做。
+ */
+async function readCanvasMedia(
+  imageId: string,
+  conversationId: string,
+  userId: string | null,
+  variant: AgentImageVariant,
+): Promise<ReadImage | null> {
+  const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
+  if (!mediaId) return null
+  const media = await readConversationMedia(mediaId, conversationId, userId, variant)
+  if (!media) return null
+  // 预留的预览已经是这条规格缩过的，别再缩第二次。
+  return {
+    reduced: media.reduced,
+    dataUrl: await toModelImageDataUrl(dataUrl(media.bytes, media.contentType)),
   }
 }
 
@@ -261,9 +331,13 @@ function rememberImages(
   }
 }
 
-/** 用户在这张图上画没画遮罩。新旧两种引用形态各把它存在不同字段里，问法只此一处。 */
+/**
+ * 用户在这张图上画没画遮罩。三种引用形态各把它存在不同字段里，问法只此一处。
+ * 云媒体那一路永远没有遮罩：画过遮罩的图是新像素，只能内联。
+ */
 export function referenceHasMask(reference: AgentImageReference): boolean {
-  return Boolean('dataUrl' in reference ? reference.maskDataUrl : reference.mask)
+  if ('maskDataUrl' in reference) return Boolean(reference.maskDataUrl)
+  return 'mask' in reference && Boolean(reference.mask)
 }
 
 /**
@@ -316,7 +390,8 @@ export function activeAgentReferences(
       const block = message.content[index]!
       if (block.type === 'text' && block.references?.length) {
         return block.references.map((reference) => {
-          if (!reference.mask || at >= selectionHistoryStart) return reference
+          if (!('mask' in reference) || !reference.mask || at >= selectionHistoryStart)
+            return reference
           const { mask: _mask, ...original } = reference
           return original
         })
@@ -343,8 +418,25 @@ export async function removeAgentTurnReferences(
 /**
  * 会话删掉之后，它历轮的参考图就没有任何读路径了。逐轮前缀在正常跑完的轮上不会被清
  * （`removeAgentTurnReferences` 只在起轮失败的回滚路径上调），所以删会话时按会话前缀一次清掉。
+ * 云媒体那一路没有副本，清的是这个会话对那些媒体的认领——不清的话，那几张图会被
+ * `media_references` 的 `restrict` 永远钉在用户的配额里。
  */
 export async function removeAgentConversationReferences(conversationId: string): Promise<void> {
+  try {
+    await db
+      .delete(schema.media_references)
+      .where(
+        and(
+          eq(schema.media_references.owner_kind, 'conversation'),
+          eq(schema.media_references.owner_id, conversationId),
+        ),
+      )
+  } catch (err) {
+    log.warn(
+      { event: 'agent.reference_cleanup_failed', conversationId, err },
+      'conversation media claim cleanup failed',
+    )
+  }
   try {
     await objectStore().deletePrefix(`agent/${conversationId}/`)
   } catch (err) {
@@ -355,6 +447,56 @@ export async function removeAgentConversationReferences(conversationId: string):
   }
 }
 
+/**
+ * 让这个会话认领用户按 id 附过来的那几张云媒体，并顺带把越权挡在起轮之前。
+ *
+ * 两件事一次做完是刻意的：能认领就说明这张图确实是这个人的、确实还在（`ready`），
+ * 认领落下之后 `readCanvasMedia` 才读得到它，而且读得到与画布后来怎么改无关。
+ * 认领不上就是越权或图已经不在，调用方按 422 打回——那一轮还没开始，用户的话还在输入框里。
+ */
+export async function claimConversationMedia(
+  conversationId: string,
+  userId: string | null,
+  references: readonly AgentTurnReference[],
+): Promise<boolean> {
+  const mediaIds = [
+    ...new Set(references.flatMap((one) => ('mediaId' in one ? [one.mediaId] : []))),
+  ]
+  if (mediaIds.length === 0) return true
+  // 匿名设备没有云媒体，按 id 附图对它无从成立。
+  if (!userId) return false
+  const owned = await db
+    .select({ id: schema.media_objects.id })
+    .from(schema.media_objects)
+    .where(
+      and(
+        inArray(schema.media_objects.id, mediaIds),
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.media_objects.status, 'ready'),
+      ),
+    )
+  if (owned.length !== mediaIds.length) return false
+  const now = Date.now()
+  await db
+    .insert(schema.media_references)
+    .values(
+      mediaIds.map((mediaId) => ({
+        user_id: userId,
+        media_id: mediaId,
+        owner_kind: 'conversation' as const,
+        owner_id: conversationId,
+        created_at: now,
+      })),
+    )
+    .onConflictDoNothing()
+  return true
+}
+
+/**
+ * 把这一轮的参考图存成跨轮可读的快照。内联那一路把字节复制进对象存储；云媒体那一路
+ * 只记 id——字节已经在 R2 里，复制第二遍既费出站带宽又白占一份配额，认领由
+ * `claimConversationMedia` 在起轮之前落好。
+ */
 export async function archiveAgentReferences(
   conversationId: string,
   turnId: string,
@@ -363,6 +505,14 @@ export async function archiveAgentReferences(
   const stored: AgentStoredReference[] = []
   try {
     for (const [index, reference] of references.entries()) {
+      if ('mediaId' in reference) {
+        stored.push({
+          imageId: reference.imageId,
+          ...(reference.name ? { name: reference.name } : {}),
+          mediaId: reference.mediaId,
+        })
+        continue
+      }
       const archived = await archiveInputImages(`agent/${conversationId}/${turnId}/${index}`, {
         prompt: '',
         input_images: [reference.dataUrl],
@@ -400,7 +550,7 @@ export function createAgentImageSource(input: {
     for (const block of message.content) {
       if (block.type !== 'text') continue
       for (const reference of block.references ?? []) {
-        if (reference.mask && index < selectionHistoryStart) {
+        if ('mask' in reference && reference.mask && index < selectionHistoryStart) {
           const { mask: _mask, ...original } = reference
           references.set(reference.imageId, original)
         } else {
@@ -425,6 +575,16 @@ export function createAgentImageSource(input: {
   ): Promise<ResolvedAgentImage | null> => {
     const reference = references.get(imageId)
     if (reference) {
+      // 云媒体那一路没有副本，字节仍在 R2 的原件里；认领是起轮时落下的，所以读得到。
+      if ('mediaId' in reference) {
+        const media = await readCanvasMedia(
+          reference.mediaId,
+          input.conversationId,
+          userId,
+          variant,
+        )
+        return media ? { imageId, ...media } : null
+      }
       const hydrated =
         'dataUrl' in reference
           ? { input_images: [reference.dataUrl], mask: reference.maskDataUrl }
