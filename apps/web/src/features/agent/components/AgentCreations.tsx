@@ -276,12 +276,7 @@ export default function AgentCreations({
         </div>
       )}
       {gallery && (
-        <AgentCreationsGallery
-          doc={doc}
-          works={works}
-          srcOf={(element) => thumbnails.get(bitmapKey(element))}
-          onClose={() => setGallery(false)}
-        />
+        <AgentCreationsGallery doc={doc} works={works} onClose={() => setGallery(false)} />
       )}
       {groups.map((group) => (
         <section key={group.id} aria-label={group.title}>
