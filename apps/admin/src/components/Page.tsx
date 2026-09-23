@@ -33,15 +33,15 @@ export function Page({ crumbs, title, description, actions, children }: PageProp
   return (
     <>
       <header className="sticky top-0 z-30 border-b bg-background/85 px-4 py-3 backdrop-blur md:px-6">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 h-4" />
-          <Breadcrumb>
-            <BreadcrumbList>
+        <div className="flex min-w-0 items-center gap-2">
+          <SidebarTrigger className="-ml-1 shrink-0" />
+          <Separator orientation="vertical" className="mr-1 h-4 shrink-0" />
+          <Breadcrumb className="min-w-0 flex-1 overflow-hidden">
+            <BreadcrumbList className="flex-nowrap overflow-hidden">
               {crumbs.map((crumb, index) => (
                 <Fragment key={crumb.label}>
                   {index > 0 ? <BreadcrumbSeparator /> : null}
-                  <BreadcrumbItem className="max-w-[240px] truncate">
+                  <BreadcrumbItem className="min-w-0 max-w-[min(240px,65vw)] shrink truncate">
                     {crumb.to ? (
                       <BreadcrumbLink asChild>
                         <Link to={crumb.to}>{crumb.label}</Link>
@@ -56,14 +56,20 @@ export function Page({ crumbs, title, description, actions, children }: PageProp
           </Breadcrumb>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+        <div className="mt-2 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold tracking-tight">{heading}</h1>
             {description ? (
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:truncate">
+                {description}
+              </p>
             ) : null}
           </div>
-          {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              {actions}
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -96,7 +102,7 @@ export function ErrorState({ label, error }: { label: string; error: unknown }) 
 
 export function EmptyState({ label }: { label: string }) {
   return (
-    <div className="rounded-lg border border-dashed bg-card/40 p-12 text-center text-sm text-muted-foreground">
+    <div className="rounded-lg border border-dashed bg-card/40 p-8 text-center text-sm text-muted-foreground sm:p-12">
       {label}
     </div>
   )
