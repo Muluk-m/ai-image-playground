@@ -187,6 +187,13 @@
     "generateFailed": "生成失败",
     "artifactName": "生成作品"
   },
+  "fetchedImage": {
+    "canvasName": "网图",
+    "sourceTitle": "打开来源"
+  },
+  "trail": {
+    "sources": "来源"
+  },
   "error": {
     "turnFailed": "这一轮没有跑完",
     "rateLimited": "发送太频繁，稍后再试",

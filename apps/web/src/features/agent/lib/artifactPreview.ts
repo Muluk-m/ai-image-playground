@@ -1,4 +1,5 @@
-import type { AgentToolArtifact } from '@image-playground/shared'
+import type { AgentFetchedImage, AgentToolArtifact } from '@image-playground/shared'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { previewArtifactBitmap } from './artifactSource'
 import { agentCanvasSink } from './canvasSink'
 
@@ -24,4 +25,31 @@ export async function artifactPreview(artifact: AgentToolArtifact): Promise<Agen
       return { artifact, source: thumbnail, onCanvas: true }
   }
   return { artifact, source: await previewArtifactBitmap(artifact), onCanvas: false }
+}
+
+/** 结果卡上一张取回来的网图此刻的样子。 */
+export interface AgentFetchedPreview {
+  readonly image: AgentFetchedImage
+  /** 它在画布上的对象 id；点缩略图定位到它。 */
+  readonly objectId: string
+  readonly source: string | null
+  readonly onCanvas: boolean
+}
+
+/**
+ * 与产出同一条规矩：画布上有就以画布为单源，没有就回媒体库取一张预览——所以画布上被删掉
+ * 之后，卡上仍看得见这张图，也还能把它放回画布。
+ */
+export async function fetchedImagePreview(
+  image: AgentFetchedImage,
+  objectId: string,
+): Promise<AgentFetchedPreview> {
+  const canvas = agentCanvasSink()
+  if (canvas?.has(objectId)) {
+    const thumbnail = await canvas.thumbnail(objectId)
+    if (thumbnail && agentCanvasSink() === canvas && canvas.has(objectId))
+      return { image, objectId, source: thumbnail, onCanvas: true }
+  }
+  const source = await resolveMediaSource(`aip-media:${image.imageId}`, 'preview').catch(() => null)
+  return { image, objectId, source, onCanvas: false }
 }
