@@ -18,9 +18,10 @@ process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 // 固定开销 + 1500。**每加一个工具，这一条都要跟着抬**：
 // 2026-09-22 saveAsset / saveLook / viewImage.region 把开销抬到约 4000（窗口 5750）；
 // 2026-09-23 editCanvasObject 抬到 4127，带随之上移到约 5630–6030，取中；
-// 2026-09-23 生图美术指导（含「直出」判断）与取网图的描述再抬约 250（联网工具默认关，
-// 不在这份清单里）；逐档实测可用带 6120–6500，取中。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '6310'
+// 2026-09-23 生图美术指导（含「直出」判断）与取网图的描述再抬约 250；
+// 2026-09-24 搜索网页与读取网页不再由能力开关控制，它们随每一轮发出去，开销再抬约 550；
+// 逐档实测可用带 6700–7050，取中。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '6880'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
@@ -35,21 +36,53 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
 const { startAgentTurn } = await import('../../../lib/agent/turn')
+const { turnExecution } = await import('../../../lib/agent/execution')
+const { ANONYMOUS_AUDIENCE } = await import('../../../lib/agent/skills')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
-/** 没有折叠过的会话：起轮时存储层给出的就是这一份（见 `listAgentHistoryWindow`）。 */
-function window(messages: readonly AgentMessageView[]) {
+type PreparedAgentTurn = import('../../../lib/agent/turn').PreparedAgentTurn
+
+/**
+ * 一份准备好的轮，只填这几条用例关心的：会话、轮 id、那一段历史与这一句话。起轮准备在
+ * 真路径上给出的就是这个形状（见 `turn-preparation.ts`）。
+ */
+function prepared(
+  conversationId: string,
+  turnId: string,
+  messages: readonly AgentMessageView[],
+  text: string,
+  settle?: PreparedAgentTurn['settle'],
+): PreparedAgentTurn {
   return {
-    messages,
-    coveredCount: 0,
-    compaction: {
-      summary: null,
-      anchor: null,
-      verbatim: null,
-      failureCount: 0,
-      openedAt: null,
+    // 这几条用例不领租约：断言的是用量与结算，写库走 db 自己的事务就够。
+    execution: { assert: async () => {}, write: (callback) => db.transaction(callback) },
+    conversationId,
+    turnId,
+    userMessageId: 'next',
+    input: {
+      history: {
+        messages,
+        coveredCount: 0,
+        compaction: {
+          summary: null,
+          anchor: null,
+          verbatim: null,
+          failureCount: 0,
+          openedAt: null,
+        },
+      },
+      text,
+      references: [],
+      mode: 'image',
+      reviewImageIds: [],
+      autoSubmit: false,
+      selectionHistoryStart: messages.length,
+      audience: ANONYMOUS_AUDIENCE,
     },
+    userId: null,
+    deviceId: 'device-abcdefgh',
+    ...(settle ? { settle } : {}),
   }
 }
 
@@ -87,17 +120,9 @@ async function usageOfTurnAfter(history: AgentMessageView[]): Promise<AgentTurnU
     { kind: 'device', deviceId: 'device-abcdefgh' },
     '第一句',
   )
-  const turn = await startAgentTurn({
-    conversationId: conversation.id,
-    turnId: `turn-${history.length}`,
-    userMessageId: 'next',
-    history: window(history),
-    text: '再来一张',
-    references: [],
-    mode: 'image',
-    userId: null,
-    deviceId: 'device-abcdefgh',
-  })
+  const turn = await startAgentTurn(
+    prepared(conversation.id, `turn-${history.length}`, history, '再来一张'),
+  )
   let usage: AgentTurnUsage | null = null
   for await (const stored of turn.read(0)) {
     if (stored.event.type === 'turnEnd') usage = stored.event.usage
@@ -126,22 +151,13 @@ describe('startAgentTurn usage', () => {
       '第一句',
     )
     let attempts = 0
-    const turn = await startAgentTurn({
-      conversationId: conversation.id,
-      turnId: 'turn-settlement-retry',
-      userMessageId: 'retry-message',
-      history: window([]),
-      references: [],
-      text: '继续',
-      mode: 'image',
-      userId: null,
-      deviceId: 'device-abcdefgh',
-      settle: async () => {
+    const turn = await startAgentTurn(
+      prepared(conversation.id, 'turn-settlement-retry', [], '继续', async () => {
         attempts++
         if (attempts === 1) throw new Error('temporary ledger outage')
         return { chat: 0, image: 0, video: 0 }
-      },
-    })
+      }),
+    )
 
     for await (const _stored of turn.read(0)) {
       // Drain the turn through its durable terminal event.
@@ -170,21 +186,12 @@ describe('startAgentTurn usage', () => {
     )
 
     const settlements: AgentTurnSettlement[] = []
-    const turn = await startAgentTurn({
-      conversationId: conversation.id,
-      turnId: 'turn-new',
-      userMessageId: 'm7',
-      history: window(HISTORY),
-      references: [],
-      text: '再来一张',
-      mode: 'image',
-      userId: null,
-      deviceId: 'device-abcdefgh',
-      settle: async (settlement) => {
+    const turn = await startAgentTurn(
+      prepared(conversation.id, 'turn-new', HISTORY, '再来一张', async (settlement) => {
         settlements.push(settlement)
         return { chat: 0, image: 0, video: 0 }
-      },
-    })
+      }),
+    )
 
     const events: AgentTurnEvent[] = []
     for await (const stored of turn.read(0)) events.push(stored.event)

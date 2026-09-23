@@ -4,7 +4,7 @@ import {
   type ProjectKind,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
-import { getRecoveryBackend, scopedStorageName } from '../../../lib/authScope'
+import { accountScope, getRecoveryBackend, scopedStorageName } from '../../../lib/authScope'
 import { openCanvasDatabase, type PersistedScene } from './persistence'
 
 /**
@@ -145,7 +145,7 @@ export const projectRepository = {
   },
 
   async createRecoveryCopy(source: CanvasProject, scene: PersistedScene): Promise<CanvasProject> {
-    const scope = scopedStorageName('canvas')
+    const isCurrent = accountScope()
     const elements = scene.elements.map((element) =>
       element.type === 'placeholder'
         ? {
@@ -163,7 +163,7 @@ export const projectRepository = {
     )
     const signature = JSON.stringify([source.name, elements, scene.files])
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signature))
-    if (scope !== scopedStorageName('canvas')) throw new Error('project_scope_changed')
+    if (!isCurrent()) throw new Error('project_scope_changed')
     const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
       byte.toString(16).padStart(2, '0'),
     ).join('')

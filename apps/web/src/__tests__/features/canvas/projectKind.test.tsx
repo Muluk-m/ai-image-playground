@@ -8,17 +8,19 @@ vi.mock('../../../lib/channels/videoChannels', () => ({ isVideoModeAvailable: ()
 
 import { useAgentStore } from '../../../features/agent/store'
 import ProjectsTab from '../../../features/canvas/components/ProjectsTab'
+import {
+  currentCanvasWorkspace,
+  selectCanvasWorkspace,
+} from '../../../features/canvas/lib/activeProject'
 import { CanvasDoc } from '../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../features/canvas/lib/editor'
 import { openCanvasDatabase } from '../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../features/canvas/lib/projectRepository'
-import {
-  currentCanvasWorkspace,
-  selectCanvasWorkspace,
-} from '../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
+import { openCanvas } from '../../helpers/activeProject'
+import { openSceneRecord } from '../../helpers/sceneRecord'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -39,9 +41,7 @@ beforeEach(async () => {
     error: null,
     cloudCatalog: {},
   })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   useAgentStore.setState({ loaded: true, conversationId: null, messages: [], turn: 'idle' })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -154,7 +154,7 @@ it('云端文档带着画布类型往返：推上去带，另一台设备读回�
       })
     }),
   )
-  const session = new CloudProjectSession(local, editor)
+  const session = new CloudProjectSession(local, await openSceneRecord(local.sceneKey, { editor }))
   await session.load()
   expect(writes).toHaveLength(1)
   expect(writes[0]?.document.kind).toBe('video')
@@ -176,7 +176,7 @@ it('云端文档带着画布类型往返：推上去带，另一台设备读回�
     'fetch',
     vi.fn(async () => Response.json({ ...summary, document: writes[0]!.document })),
   )
-  const other = new CloudProjectSession(imported, new CanvasEditor(new CanvasDoc()))
+  const other = new CloudProjectSession(imported, await openSceneRecord(imported.sceneKey))
   await other.load()
   expect((await projectRepository.list())[0]?.kind).toBe('video')
 })

@@ -8,8 +8,8 @@ import ProjectSyncStatus from '../../../../features/canvas/components/ProjectSyn
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene } from '../../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { SceneRecord } from '../../../../features/canvas/lib/sceneRecord'
 import { setClientStorageScope } from '../../../../lib/authScope'
 
 it('冲突自动把当前修改另存为副本并换上云端稿，手动按钮仍是兜底', async () => {
@@ -48,7 +48,9 @@ it('冲突自动把当前修改另存为副本并换上云端稿，手动按钮�
     ),
   )
   const forked: string[] = []
-  const session = new CloudProjectSession(project, editor, undefined, (copy) => {
+  const record = new SceneRecord(editor, project.sceneKey)
+  await record.open()
+  const session = new CloudProjectSession(project, record, undefined, (copy) => {
     forked.push(copy.id)
   })
   await session.load(true)
@@ -57,9 +59,12 @@ it('冲突自动把当前修改另存为副本并换上云端稿，手动按钮�
   await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
   const copies = await projectRepository.list()
   expect(copies).toHaveLength(2)
-  const copied = new CanvasEditor(new CanvasDoc())
-  await loadScene(copied, copies.find((one) => one.id === forked[0])!.sceneKey)
-  expect(copied.doc.elements[0]).toMatchObject({ text: '本机原稿' })
+  const copied = new SceneRecord(
+    new CanvasEditor(new CanvasDoc()),
+    copies.find((one) => one.id === forked[0])!.sceneKey,
+  )
+  await copied.open()
+  expect(copied.editor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(editor.doc.elements).toEqual([])
   const host = document.createElement('div')
   document.body.append(host)

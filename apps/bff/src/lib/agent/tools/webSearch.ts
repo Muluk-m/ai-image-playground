@@ -1,7 +1,6 @@
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { config } from '../../../config'
-import { isCapabilityEnabled } from '../../capabilities'
 import {
   AgentWebSearchError,
   type AgentWebSearchHit,
@@ -45,7 +44,7 @@ export const webSearch = defineAgentTool({
   // 搜不到只是少了一份材料：模型换个词再搜、或者按已知的直接做，都比把整轮停下强。
   onError: 'continue',
   // 没配搜索模型时这个工具在这个部署里根本不成立，不挂进清单——挂了每次调用都必然失败。
-  available: () => isCapabilityEnabled('agent:web') && Boolean(config.agent.searchModel),
+  available: () => Boolean(config.agent.searchModel),
   // 不落画布，也没有送进上游的提示词，所以起跑时只有一行标题。
   call: ({ query }) => {
     const asked = typeof query === 'string' ? agentTitleLine(query, TITLE_MAX_CHARS) : ''

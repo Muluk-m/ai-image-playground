@@ -1,20 +1,18 @@
 import { i18next } from '../../../i18n'
-import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { calculateMaskWorkingSize, prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
-import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { AppSettings } from '../../../types'
 import type { PaintEditKind } from '../inpaintStore'
 import type { ImageEl } from './canvasDoc'
-import { snapshotParams } from './canvasTaskRuntime'
 import { type CanvasEditor, elementBounds } from './editor'
 import { exportMaskDataUrl, type MaskStroke } from './inpaintMask'
 import { maskedEditSizeRefusal } from './maskedEditLimits'
 import { computePlaceholderTargets } from './placement'
-import { launchCanvasTask } from './submitFromCanvas'
+import { launchCanvasTask, snapshotParams } from './submitFromCanvas'
 
 /**
  * 这张图能不能局部重绘。返回原因即不能——按钮据此置灰并说明，不做静默隐藏。
@@ -73,15 +71,6 @@ export async function submitCanvasInpaint(
     showToast(i18next.t('inpaint.sourceGone', { ns: 'canvas' }), 'error')
     return false
   }
-  const profile = getActiveApiProfile(useStore.getState().settings)
-  const guard = getPrivateSubmissionGuard({
-    model: clientProfileToApiProfile(profile).model,
-    quantity: 1,
-  })
-  if (guard.blocked) {
-    showToast(guard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' }), 'error')
-    return false
-  }
 
   try {
     // 云端项目的 files 里放的是 aip-media 标识，不是位图；交给 canvas 之前必须解析。
@@ -94,7 +83,7 @@ export async function submitCanvasInpaint(
     )
     // 占位框就盖在源图上：结果是就地替换这一张，旁边再开一个框只会出现两个「生成中」。
     const target = { x: element.x, y: element.y, w: element.width, h: element.height }
-    void launchCanvasTask(editor, {
+    const started = launchCanvasTask(editor, {
       prompt: input.kind === 'erase' ? ERASE_INSTRUCTION : input.prompt.trim(),
       annotated: false,
       inputImageDataUrls: [
@@ -107,7 +96,7 @@ export async function submitCanvasInpaint(
       params: snapshotParams(),
       target,
     })
-    return true
+    return started
   } catch (err) {
     // 空选区与尺寸不合规都在这里收口：原样转述那句可行动的话，不糊成「生成失败」。
     showToast(err instanceof Error ? err.message : String(err), 'error')

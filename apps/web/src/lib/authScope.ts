@@ -22,6 +22,9 @@ export const SYNC_CHECKPOINT_KEY = 'image-playground-sync'
 export const AGENT_CONVERSATION_KEY = 'image-playground.agent_conversation_id'
 export const CANVAS_PROJECT_KEY = 'image-playground.canvas_project_id'
 
+/** 智能体输入框里发出去过的那些提示词，按浏览器留一份。 */
+export const AGENT_PROMPT_HISTORY_KEY = 'image-playground.agent_prompt_history'
+
 /**
  * 走 scopedLocalStorage 的全部 key。登录后认领匿名历史要照着它搬，
  * 新增按 scope 隔离的 key 必须登记进来。
@@ -31,6 +34,7 @@ export const SCOPED_LOCAL_STORAGE_KEYS = [
   SYNC_CHECKPOINT_KEY,
   AGENT_CONVERSATION_KEY,
   CANVAS_PROJECT_KEY,
+  AGENT_PROMPT_HISTORY_KEY,
 ]
 
 /**
@@ -52,6 +56,15 @@ export function scopedStorageName(baseName: string): string {
 
 export function isUserStorageScope(): boolean {
   return currentScope !== ANONYMOUS_SCOPE
+}
+
+/**
+ * 此刻这个账号。跨 await 的操作拿着它问「还是不是同一个账号」，
+ * 换过账号就一律作废——旧账号的回调不许写进新账号的数据里。
+ */
+export function accountScope(): () => boolean {
+  const scope = currentScope
+  return () => currentScope === scope
 }
 
 interface SyncStorage {

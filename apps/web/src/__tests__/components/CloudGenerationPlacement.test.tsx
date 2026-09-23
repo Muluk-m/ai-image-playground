@@ -4,12 +4,13 @@ import type { GenerationDetail } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { currentCanvasWorkspace, selectCanvasWorkspace } from '../../features/canvas/lib/workspaces'
+import { currentCanvasWorkspace, openProject } from '../../features/canvas/lib/activeProject'
 import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../lib/authScope'
 import { taskFromGeneration } from '../../lib/platformGenerations'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 import { sendTaskToCanvas, useStore } from '../../store'
+import { openCanvas } from '../helpers/activeProject'
 
 let root: Root
 let host: HTMLDivElement
@@ -89,9 +90,7 @@ beforeEach(async () => {
     },
   )
   useCanvasProjectStore.setState({ projects: [], activeId: null, loaded: false, error: null })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   toasts.length = 0
   useStore.setState({
     appMode: 'image',
@@ -146,8 +145,7 @@ it('读取原图期间切换项目，迟到的手动放置不污染任何项目'
   const original = currentCanvasWorkspace()
   const placing = place()
   await vi.waitFor(() => expect(releaseDecode).toBeDefined())
-  await useCanvasProjectStore.getState().create()
-  selectCanvasWorkspace(null)
+  openProject((await useCanvasProjectStore.getState().create()).id)
   const next = currentCanvasWorkspace()
   await next.ready
   expect(next).not.toBe(original)

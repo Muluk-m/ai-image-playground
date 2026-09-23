@@ -44,12 +44,18 @@ function editor(): HTMLElement {
 }
 
 /**
- * jsdom 里没有真实光标，`getContentEditableSelection` 回落到文本末尾——正好是打字的位置。
+ * 模拟一次真实输入：浏览器把字符插在光标处、把光标推到它后面，再派发 input。
  * 追加文本节点而不是重设 textContent：后者会把已经插好的胶囊 DOM 一起抹掉。
  */
 function type(text: string): void {
   const el = editor()
-  el.appendChild(document.createTextNode(text))
+  const node = el.appendChild(document.createTextNode(text))
+  const range = document.createRange()
+  range.setStart(node, node.length)
+  range.collapse(true)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
   act(() => {
     el.dispatchEvent(new Event('input', { bubbles: true }))
   })
@@ -98,6 +104,8 @@ beforeEach(async () => {
   )
   useAgentStore.setState({
     turn: 'idle',
+    stopping: false,
+    activeTurn: null,
     conversationId: null,
     send: async (text, references, accepted) => {
       await send(text, references)
@@ -429,5 +437,67 @@ describe('未发送的草稿', () => {
       editor().dispatchEvent(new Event('input', { bubbles: true }))
     })
     expect(host.textContent).toContain('你有一条未发送的草稿')
+  })
+})
+
+describe('发送与中止共用一颗按钮', () => {
+  function trailing(): HTMLButtonElement {
+    return host.querySelector<HTMLButtonElement>('button[data-slot="composer-send"]')!
+  }
+
+  it('忙时输入框空着，这颗按钮就是中止，点了停当前这轮', () => {
+    const abort = vi.fn(async () => {})
+    useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' }, abort })
+    render()
+
+    expect(trailing().getAttribute('aria-label')).toBe('中止')
+    expect(trailing().disabled).toBe(false)
+    act(() => {
+      trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(abort).toHaveBeenCalledTimes(1)
+  })
+
+  it('忙时写了字，同一颗按钮变成加入排队，点了发出去而不是中止', () => {
+    const abort = vi.fn(async () => {})
+    useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' }, abort })
+    render()
+    type('再来一张竖版的')
+
+    expect(trailing().getAttribute('aria-label')).toBe('加入排队')
+    act(() => {
+      trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(send).toHaveBeenCalledWith('再来一张竖版的', [])
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it('中止请求还没回来时按钮停用，不会重复发出中止', () => {
+    const abort = vi.fn(async () => {})
+    useAgentStore.setState({
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+      stopping: true,
+      abort,
+    })
+    render()
+
+    expect(trailing().getAttribute('aria-label')).toBe('正在中止…')
+    expect(trailing().disabled).toBe(true)
+  })
+
+  it('写着字时 Esc 仍能中止，不必先清空输入框', () => {
+    const abort = vi.fn(async () => {})
+    useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'turn-1' }, abort })
+    render()
+    type('再来一张竖版的')
+
+    act(() => {
+      editor().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      )
+    })
+    expect(abort).toHaveBeenCalledTimes(1)
+    expect(send).not.toHaveBeenCalled()
   })
 })

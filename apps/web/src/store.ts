@@ -1,10 +1,12 @@
 import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { requireAccount } from './auth/loginPrompt'
+import { accountRequired, requireAccount } from './auth/loginPrompt'
+import { queuePendingSubmission } from './auth/pendingSubmission'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
+  type ApiProfile,
   clientProfileToApiProfile,
   createBuiltinEdgeProfile,
   DEFAULT_SETTINGS,
@@ -16,7 +18,6 @@ import {
 } from './lib/apiProfiles'
 import { pathAppMode } from './lib/appPaths'
 import {
-  getModelCapabilities,
   getProfileModels,
   modelSupportsEdit,
   NO_EDIT_SUPPORT_MESSAGE,
@@ -46,10 +47,9 @@ function filterUserProfileCache(
 }
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
-import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
@@ -72,6 +72,12 @@ import {
   putTask,
   storeImage,
 } from './lib/db'
+import {
+  type GenerationReport,
+  type GenerationSink,
+  resumeGeneration,
+  startGeneration,
+} from './lib/generationJob'
 import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from './lib/imageApiShared'
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
@@ -87,12 +93,6 @@ import {
   setPlatformFavorite,
   watchPlatformGeneration,
 } from './lib/platformGenerations'
-import {
-  getPrivateSubmissionGuard,
-  notifyPrivateSubmissionAccepted,
-  notifyPrivateSubmissionError,
-  notifyPrivateSubmissionSettled,
-} from './lib/privateOverlay'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   expandPromptSlots,
@@ -110,6 +110,7 @@ import {
   createTransparentOutputMeta,
   getTransparentRequestParams,
   removeKeyedBackgroundFromDataUrl,
+  type TransparentOutputMeta,
 } from './lib/transparentImage'
 
 // ===== Image cache =====
@@ -422,7 +423,7 @@ function orderImagesWithMaskFirst(
 }
 
 /** 一级入口四个：创作、探索、项目、资产。画布是项目的实例，不是导航项。 */
-export const APP_MODES = ['image', 'canvas', 'explore', 'library'] as const
+export const APP_MODES = ['image', 'canvas', 'explore', 'library', 'tools'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
@@ -442,10 +443,13 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   get library() {
     return i18next.t('appMode.library', { ns: 'store' })
   },
+  get tools() {
+    return i18next.t('appMode.tools', { ns: 'store' })
+  },
 }
 
 /** 侧栏顶部列的三项。画布不在这里：它是下面那段列表，「全部」才去项目页。 */
-export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library']
+export const NAV_APP_MODES: readonly AppMode[] = ['image', 'explore', 'library', 'tools']
 
 /** 工作台入口：主区本身就要吃掉整屏宽度，侧栏在这里不出现。 */
 export function isWorkbenchMode(mode: AppMode): boolean {
@@ -1235,18 +1239,15 @@ export async function initStore() {
     if (task.customTaskId && (task.status === 'running' || task.customRecoverable)) {
       scheduleCustomRecovery(task.id, 0)
     }
-    // BFF queue 任务：仍在 running 且持有 request_id → 重新接管轮询。
-    // markInterruptedOpenAIRunningTasks 已经放行这类 task，所以这里
-    // 看到的 status 还是 'running'。
-    if (task.bffRequestId && task.status === 'running') {
-      executeTask(task.id)
-      continue
-    }
-    // 提交期间页面刷新：task 已落盘但 submit 还没返回 request_id。
-    // 用 clientRequestId 重提交，BFF 端去重，不会重复消耗上游配额。
-    if (task.clientRequestId && !task.customTaskId && task.status === 'running') {
-      executeTask(task.id)
-    }
+    // 刷新前没跑完的任务：持有 request_id 就续 poll；只有幂等键（submit 还没返回就刷新了）
+    // 就照原样重提交，BFF 端去重，不会重复消耗上游配额。
+    // markInterruptedOpenAIRunningTasks 已经放行这类 task，所以这里看到的 status 还是 'running'。
+    if (
+      task.status === 'running' &&
+      !task.customTaskId &&
+      (task.bffRequestId || task.clientRequestId)
+    )
+      void resumeStoredTask(task)
   }
 
   const referencedIds = await imageIdsInUse(tasks)
@@ -1359,19 +1360,11 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []
 
-  // 内置渠道要经 BFF 的队列，没账号发不出去：先把登录框叫起来，这次提交原样丢掉——
-  // 不落任务行、也不 toast，弹窗本身就是反馈。BYOK 浏览器直连上游，不需要账号。
-  if (profile.source === 'builtin-edge' && !requireAccount()) return []
-
-  const submissionGuard = getPrivateSubmissionGuard({
-    model: submitView.model,
-    quantity: prompts.length * Math.max(1, taskParams.n),
-  })
-  if (submissionGuard.blocked) {
-    showToast(
-      submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'store' }),
-      'error',
-    )
+  // Login reloads the workspace after adopting anonymous data. Keep the exact attempted request,
+  // including references and parameters, so the original click is sent once in the new scope.
+  if (profile.source === 'builtin-edge' && accountRequired()) {
+    await queuePendingSubmission({ kind: 'image', input })
+    requireAccount()
     return []
   }
 
@@ -1379,54 +1372,48 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   for (const img of input.inputImages) {
     await storeImage(img.dataUrl)
   }
-
-  // Billed submissions must stay in one BFF task so credit reservation is atomic. Otherwise,
-  // only channels that explicitly declare native count support receive n in one request.
-  const billedBuiltinSubmission =
-    profile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
-  const supportsNativeCount = getModelCapabilities(profile, getPublicChannels())?.has('n') === true
-  const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
-  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
-  // 幂等键逐任务唯一：多条任务共用一个键会被 BFF 去重折叠成一次生成。
-  const reusableRequestId = prompts.length * fanOut === 1 ? input.clientRequestId : undefined
-  const createdAt = Date.now()
-  const newTasks: TaskRecord[] = prompts.flatMap((taskPrompt) => {
-    const transparentMeta = taskParams.transparent_output
-      ? createTransparentOutputMeta(taskPrompt)
-      : null
-    return Array.from({ length: fanOut }, () => ({
-      id: genId(),
-      prompt: taskPrompt,
-      params: singleParams,
-      apiProvider: submitView.provider,
-      apiProfileId: profile.id,
-      apiProfileName: submitView.name,
-      apiModel: submitView.model,
-      inputImageIds: input.inputImages.map((i) => i.id),
-      maskTargetImageId: input.mask?.targetImageId ?? null,
-      maskImageId: input.mask?.imageId ?? null,
-      transparentOutput: transparentMeta?.transparentOutput,
-      transparentPrompt: transparentMeta?.effectivePrompt,
-      origin: input.origin,
-      outputImages: [],
-      status: 'running' as const,
-      error: null,
-      createdAt,
-      finishedAt: null,
-      elapsed: null,
-      clientRequestId: reusableRequestId ?? crypto.randomUUID(),
-    }))
-  })
-
-  const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([...newTasks, ...latestTasks])
-  await Promise.all(newTasks.map((t) => putTask(t)))
-
-  for (const t of newTasks) {
-    void executeTask(t.id)
+  const maskDataUrl = input.mask ? await ensureImageCached(input.mask.imageId) : undefined
+  if (input.mask && !maskDataUrl) {
+    showToast(i18next.t('task.maskImageMissing', { ns: 'store' }), 'error')
+    return []
   }
 
-  return newTasks.map((t) => t.id)
+  const inputImageDataUrls = input.inputImages.map((img) => img.dataUrl)
+  const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
+    {
+      settings: requestSettings,
+      profile,
+      params: taskParams,
+      ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
+      variants: prompts.map((taskPrompt) => {
+        const transparent = taskParams.transparent_output
+          ? createTransparentOutputMeta(taskPrompt)
+          : null
+        return {
+          prompt: replaceImageMentionsForApi(
+            transparent?.effectivePrompt ?? taskPrompt,
+            inputImageDataUrls.length,
+          ),
+          inputImageDataUrls,
+          ...(maskDataUrl ? { maskDataUrl } : {}),
+          context: { prompt: taskPrompt, transparent },
+        }
+      }),
+    },
+    workbenchSink({
+      profile,
+      view: submitView,
+      requestSettings,
+      createdAt: Date.now(),
+      inputImageIds: input.inputImages.map((img) => img.id),
+      maskImageId: input.mask?.imageId ?? null,
+      maskTargetImageId: input.mask?.targetImageId ?? null,
+      ...(maskDataUrl ? { maskDataUrl } : {}),
+      ...(input.origin ? { origin: input.origin } : {}),
+    }),
+  )
+
+  return jobs.map((job) => job.taskId)
 }
 
 /** 提交新任务 */
@@ -1525,13 +1512,262 @@ export async function submitTask(options: { allowFullMask?: boolean } = {}) {
   }
 }
 
-async function executeTask(taskId: string) {
+/**
+ * 工作台这一侧的生成宿主：任务行。发几条、带什么幂等键、什么时候通知 overlay 由
+ * `generationJob` 定；这里只管「一条任务在工作台长什么样」——建行落盘、回填恢复句柄、
+ * 出片写图、失败分类。提交、重试、刷新后续跑都走这一份。
+ */
+interface WorkbenchSubmission {
+  profile: ClientProfile
+  view: ApiProfile
+  /** 按这条配置档案改写过的设置：分发与「是不是异步自定义服务商」都按它判。 */
+  requestSettings: AppSettings
+  createdAt: number
+  inputImageIds: string[]
+  maskImageId: string | null
+  maskTargetImageId: string | null
+  maskDataUrl?: string
+  origin?: TaskOrigin
+}
+
+/** 一次提交里这一份变体独有的：记进任务行的人话提示词，以及透明输出的改写本。 */
+interface WorkbenchVariant {
+  prompt: string
+  transparent: TransparentOutputMeta | null
+}
+
+/** 一条任务行在工作台的身份。终局只认它，不必再把 task 对象带一路。 */
+interface WorkbenchJob {
+  taskId: string
+  createdAt: number
+  inputImageIds: string[]
+  provider: string
+  /** 这条任务自挂的超时（秒）：自己 abort 掉的那次要按它写超时文案。 */
+  timeoutSeconds: number
+  /** 遮罩位图：出片后据它判断草稿还是不是这次用的那张。 */
+  maskDataUrl?: string
+  /** 自定义服务商给的任务号：失败时决定这条还能不能续。 */
+  customTaskId: string | null
+  /** 任务行落盘。先有行再有请求，中途刷新才恢复得回来。 */
+  stored: Promise<unknown>
+}
+
+/** 任务行只存图片 id：真要发的时候才把 data URL 读回来（发完即释放）。 */
+async function loadTaskInputs(
+  task: TaskRecord,
+): Promise<{ inputDataUrls: string[]; maskDataUrl?: string }> {
+  const inputDataUrls: string[] = []
+  for (const imgId of task.inputImageIds) {
+    const dataUrl = await ensureImageCached(imgId)
+    if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
+    inputDataUrls.push(dataUrl)
+  }
+  if (!task.maskImageId) return { inputDataUrls }
+  const maskDataUrl = await ensureImageCached(task.maskImageId)
+  if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+  return { inputDataUrls, maskDataUrl }
+}
+
+/** 送给上游的那句：透明输出有自己的改写本，`@图N` 要还原成上游认识的说法。 */
+function requestPromptOf(task: TaskRecord, inputCount: number): string {
+  const written =
+    task.transparentOutput && task.transparentPrompt ? task.transparentPrompt : task.prompt
+  return replaceImageMentionsForApi(written, inputCount)
+}
+
+function workbenchReport(): GenerationReport<WorkbenchJob> {
+  return {
+    persisted: (job) => job.stored.then(() => undefined),
+
+    accepted(job, reference) {
+      if (reference.kind === 'custom') {
+        job.customTaskId = reference.taskId
+        updateTaskInStore(job.taskId, { customTaskId: reference.taskId, customRecoverable: false })
+        return
+      }
+      updateTaskInStore(job.taskId, { bffRequestId: reference.requestId })
+    },
+
+    progress(job, queuePhase) {
+      updateTaskInStore(job.taskId, { queuePhase })
+    },
+
+    async delivered(job, result) {
+      // 输入图已持久化到 IndexedDB，内存里这份可以放了（后续按需从 DB 加载）。
+      for (const imgId of job.inputImageIds) imageCache.delete(imgId)
+      const task = useStore.getState().tasks.find((t) => t.id === job.taskId)
+      if (!task || task.status !== 'running') return
+
+      const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeGeneratedImages(
+        result.images,
+        task,
+      )
+      const isAsyncCustomTask = job.provider !== 'openai' && Boolean(job.customTaskId)
+      const actualParamsList = isAsyncCustomTask
+        ? await readImageSizeParamsList(outputDataUrls)
+        : result.actualParamsList
+      const actualParams = isAsyncCustomTask
+        ? firstActualParams(actualParamsList)
+        : { ...result.actualParams, n: outputIds.length }
+      const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
+      const revisedPromptByImage = isAsyncCustomTask
+        ? undefined
+        : result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
+            const imgId = outputIds[index]
+            if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
+            return acc
+          }, {})
+
+      // 写图那段里用户可能已经把这条任务删了 / 中止了：再确认一次才写终局。
+      const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
+      if (!latest || latest.status !== 'running') return
+      clearOpenAIWatchdogTimer(job.taskId)
+      updateTaskInStore(job.taskId, {
+        outputImages: outputIds,
+        transparentOriginalImages: transparentOriginalImageIds,
+        rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
+        actualParams,
+        actualParamsByImage,
+        revisedPromptByImage:
+          revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0
+            ? revisedPromptByImage
+            : undefined,
+        status: 'done',
+        finishedAt: Date.now(),
+        elapsed: Date.now() - job.createdAt,
+        customRecoverable: false,
+      })
+
+      useStore
+        .getState()
+        .showToast(
+          i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
+          'success',
+        )
+      const currentMask = useStore.getState().maskDraft
+      if (
+        job.maskDataUrl &&
+        currentMask &&
+        currentMask.targetImageId === task.maskTargetImageId &&
+        currentMask.maskDataUrl === job.maskDataUrl
+      ) {
+        useStore.getState().clearMaskDraft()
+      }
+    },
+
+    failed(job, failure) {
+      for (const imgId of job.inputImageIds) imageCache.delete(imgId)
+      clearOpenAIWatchdogTimer(job.taskId)
+      const latestTask = useStore.getState().tasks.find((t) => t.id === job.taskId)
+      if (!latestTask || latestTask.status !== 'running') return
+      const customTaskId = job.customTaskId ?? latestTask.customTaskId ?? null
+      if (customTaskId && isConnectionRecoverableError(failure.error)) {
+        updateTaskInStore(job.taskId, {
+          status: 'error',
+          error: i18next.t('task.customDisconnected', { ns: 'store' }),
+          customTaskId,
+          customRecoverable: true,
+          finishedAt: Date.now(),
+          elapsed: Date.now() - job.createdAt,
+        })
+        scheduleCustomRecovery(job.taskId)
+        return
+      }
+      // 自己挂的超时 abort 只有这里知道秒数；其余照 module 按错误码映射好的那句。
+      let errorMessage = isOwnTimeoutAbortError(failure.error)
+        ? createOpenAITimeoutError(job.timeoutSeconds)
+        : failure.text
+      const networkErrorHint = getApiRequestNetworkErrorHint(
+        failure.error,
+        latestTask,
+        useStore.getState().settings,
+      )
+      if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
+        errorMessage += `\n${networkErrorHint}`
+      }
+      updateTaskInStore(job.taskId, {
+        status: 'error',
+        error: errorMessage,
+        errorCode: failure.code,
+        ...getRawErrorPayload(failure.error),
+        customRecoverable: false,
+        finishedAt: Date.now(),
+        elapsed: Date.now() - job.createdAt,
+      })
+      useStore.getState().setDetailTaskId(job.taskId)
+    },
+  }
+}
+
+function workbenchSink(
+  submission: WorkbenchSubmission,
+): GenerationSink<WorkbenchJob, WorkbenchVariant> {
+  // 一批任务按发起顺序排在列表最前：后开的插在前一条之后，而不是再压到最上面。
+  let inserted = 0
+  return {
+    ...workbenchReport(),
+    open(unit) {
+      const { prompt, transparent } = unit.context
+      const task: TaskRecord = {
+        id: genId(),
+        prompt,
+        params: unit.params,
+        apiProvider: submission.view.provider,
+        apiProfileId: submission.profile.id,
+        apiProfileName: submission.view.name,
+        apiModel: submission.view.model,
+        inputImageIds: submission.inputImageIds,
+        maskTargetImageId: submission.maskTargetImageId,
+        maskImageId: submission.maskImageId,
+        transparentOutput: transparent?.transparentOutput,
+        transparentPrompt: transparent?.effectivePrompt,
+        origin: submission.origin,
+        outputImages: [],
+        status: 'running',
+        error: null,
+        createdAt: submission.createdAt,
+        finishedAt: null,
+        elapsed: null,
+        clientRequestId: unit.clientRequestId,
+      }
+      const tasks = useStore.getState().tasks
+      useStore.getState().setTasks([...tasks.slice(0, inserted), task, ...tasks.slice(inserted)])
+      inserted++
+      // builtin-edge queue 路径由 queueClient 的 POLL_MAX_MS (30 min) 兜底超时，不走 watchdog；
+      // 否则 BFF 端 retry（Bun socket idle ~300s × 2 + backoff > 600s）会被 watchdog 提前在前端
+      // 单方面标 failed，BFF 还在后台继续跑。
+      if (
+        submission.profile.source !== 'builtin-edge' &&
+        !isAsyncCustomProviderTask(
+          submission.requestSettings,
+          submission.view.provider,
+          submission.inputImageIds.length > 0,
+        )
+      )
+        scheduleOpenAIWatchdog(task.id, submission.view.timeout)
+      return {
+        taskId: task.id,
+        createdAt: task.createdAt,
+        inputImageIds: submission.inputImageIds,
+        provider: submission.view.provider,
+        timeoutSeconds: submission.view.timeout,
+        ...(submission.maskDataUrl ? { maskDataUrl: submission.maskDataUrl } : {}),
+        customTaskId: null,
+        stored: putTask(task),
+      }
+    },
+  }
+}
+
+/**
+ * 接着跑一条刷新前没跑完的任务：有队列号就跳过 submit 续 poll（不重传输入图），
+ * 只有幂等键就照原样重提交，BFF 按键去重、不会双份消耗上游配额。
+ */
+async function resumeStoredTask(task: TaskRecord): Promise<void> {
   const { settings } = useStore.getState()
-  const task = useStore.getState().tasks.find((t) => t.id === taskId)
-  if (!task) return
   const taskProfile = getTaskApiProfile(settings, task)
   if (!taskProfile && task.apiProfileId) {
-    updateTaskInStore(taskId, {
+    updateTaskInStore(task.id, {
       status: 'error',
       error: i18next.t('task.profileMissing', { ns: 'store' }),
       customRecoverable: false,
@@ -1541,192 +1777,60 @@ async function executeTask(taskId: string) {
     return
   }
   const savedProfile = taskProfile ?? getActiveApiProfile(settings)
-  const activeProfile = task.apiModel
-    ? { ...savedProfile, selectedModelId: task.apiModel }
-    : savedProfile
-  const activeView = clientProfileToApiProfile(activeProfile)
-  const requestSettings = createSettingsForApiProfile(settings, activeProfile)
-  const taskProvider = task.apiProvider ?? activeView.provider
-  let customTaskInfo: { taskId: string } | null = task.customTaskId
-    ? { taskId: task.customTaskId }
-    : null
-
-  // 刷新页面后恢复 BFF queue 任务：跳过 submit / 输入图片加载 / OpenAI watchdog，
-  // 用持久化的 bffRequestId 直接 poll → fetchResult。BFF 自己有 30 min 轮询硬上限。
-  const isResume = task.status === 'running' && Boolean(task.bffRequestId)
-
-  // builtin-edge queue 路径由 queueClient.ts 的 POLL_MAX_MS (30 min) 兜底超时，
-  // 不走 watchdog；否则 BFF 端 retry（Bun socket idle ~300s × 2 + backoff > 600s）
-  // 会被 watchdog 提前在前端单方面标 failed，BFF 还在后台继续跑。
-  if (
-    !isResume &&
-    activeProfile.source !== 'builtin-edge' &&
-    !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)
-  ) {
-    scheduleOpenAIWatchdog(taskId, activeView.timeout)
+  const profile = task.apiModel ? { ...savedProfile, selectedModelId: task.apiModel } : savedProfile
+  const view = clientProfileToApiProfile(profile)
+  const requestSettings = createSettingsForApiProfile(settings, profile)
+  const report = workbenchReport()
+  const job: WorkbenchJob = {
+    taskId: task.id,
+    createdAt: task.createdAt,
+    inputImageIds: task.inputImageIds,
+    provider: task.apiProvider ?? view.provider,
+    timeoutSeconds: view.timeout,
+    customTaskId: task.customTaskId ?? null,
+    stored: Promise.resolve(),
   }
 
-  try {
-    let result
-    let maskDataUrl: string | undefined
-    if (isResume) {
-      result = await resumeQueueImageApi(
-        {
-          settings: requestSettings,
-          prompt: task.prompt,
-          params: task.params,
-          inputImageDataUrls: [],
-          onQueueStatus: (queuePhase) => updateTaskInStore(taskId, { queuePhase }),
-        },
-        task.bffRequestId!,
-      )
-    } else {
-      // 获取输入图片 data URLs
-      const inputDataUrls: string[] = []
-      for (const imgId of task.inputImageIds) {
-        const dataUrl = await ensureImageCached(imgId)
-        if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
-        inputDataUrls.push(dataUrl)
-      }
-      if (task.maskImageId) {
-        maskDataUrl = await ensureImageCached(task.maskImageId)
-        if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
-      }
-
-      const requestPrompt =
-        task.transparentOutput && task.transparentPrompt ? task.transparentPrompt : task.prompt
-
-      result = await callImageApi({
+  if (task.bffRequestId) {
+    return resumeGeneration(
+      {
         settings: requestSettings,
-        prompt: replaceImageMentionsForApi(requestPrompt, inputDataUrls.length),
+        prompt: task.prompt,
         params: task.params,
-        inputImageDataUrls: inputDataUrls,
-        maskDataUrl,
-        clientRequestId: task.clientRequestId,
-        onCustomTaskEnqueued: (request) => {
-          customTaskInfo = request
-          updateTaskInStore(taskId, {
-            customTaskId: request.taskId,
-            customRecoverable: false,
-          })
-        },
-        onQueueSubmitted: (requestId) => {
-          updateTaskInStore(taskId, { bffRequestId: requestId })
-          notifyPrivateSubmissionAccepted()
-        },
-        onQueueStatus: (queuePhase) => updateTaskInStore(taskId, { queuePhase }),
-      })
-    }
-
-    const latestBeforeSuccess = useStore.getState().tasks.find((t) => t.id === taskId)
-    if (!latestBeforeSuccess || latestBeforeSuccess.status !== 'running') return
-
-    // 存储输出图片
-    const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeGeneratedImages(
-      result.images,
-      task,
+        requestId: task.bffRequestId,
+      },
+      job,
+      report,
     )
-    const isAsyncCustomTask = taskProvider !== 'openai' && Boolean(customTaskInfo)
-    const actualParamsList = isAsyncCustomTask
-      ? await readImageSizeParamsList(outputDataUrls)
-      : result.actualParamsList
-    const actualParams = (() => {
-      if (isAsyncCustomTask) return firstActualParams(actualParamsList)
-      return { ...result.actualParams, n: outputIds.length }
-    })()
-    const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
-    const revisedPromptByImage = isAsyncCustomTask
-      ? undefined
-      : result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
-          const imgId = outputIds[index]
-          if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
-          return acc
-        }, {})
-
-    // 更新任务
-    const latestBeforeUpdate = useStore.getState().tasks.find((t) => t.id === taskId)
-    if (!latestBeforeUpdate || latestBeforeUpdate.status !== 'running') return
-    clearOpenAIWatchdogTimer(taskId)
-    updateTaskInStore(taskId, {
-      outputImages: outputIds,
-      transparentOriginalImages: transparentOriginalImageIds,
-      rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
-      actualParams,
-      actualParamsByImage,
-      revisedPromptByImage:
-        revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0
-          ? revisedPromptByImage
-          : undefined,
-      status: 'done',
-      finishedAt: Date.now(),
-      elapsed: Date.now() - task.createdAt,
-      customRecoverable: false,
-    })
-
-    useStore
-      .getState()
-      .showToast(
-        i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
-        'success',
-      )
-    const currentMask = useStore.getState().maskDraft
-    if (
-      maskDataUrl &&
-      currentMask &&
-      currentMask.targetImageId === task.maskTargetImageId &&
-      currentMask.maskDataUrl === maskDataUrl
-    ) {
-      useStore.getState().clearMaskDraft()
-    }
-  } catch (err) {
-    clearOpenAIWatchdogTimer(taskId)
-    notifyPrivateSubmissionError(err)
-    const latestTask = useStore.getState().tasks.find((t) => t.id === taskId) ?? task
-    if (latestTask.status !== 'running') return
-    const latestCustomTaskInfo =
-      customTaskInfo ?? (latestTask.customTaskId ? { taskId: latestTask.customTaskId } : null)
-    if (latestCustomTaskInfo && isConnectionRecoverableError(err)) {
-      updateTaskInStore(taskId, {
-        status: 'error',
-        error: i18next.t('task.customDisconnected', { ns: 'store' }),
-        customTaskId: latestCustomTaskInfo.taskId,
-        customRecoverable: true,
-        finishedAt: Date.now(),
-        elapsed: Date.now() - task.createdAt,
-      })
-      scheduleCustomRecovery(taskId)
-    } else {
-      let errorMessage = isOwnTimeoutAbortError(err)
-        ? createOpenAITimeoutError(activeView.timeout)
-        : err instanceof Error
-          ? err.message
-          : String(err)
-      const networkErrorHint = getApiRequestNetworkErrorHint(
-        err,
-        latestTask,
-        useStore.getState().settings,
-      )
-      if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
-        errorMessage += `\n${networkErrorHint}`
-      }
-      updateTaskInStore(taskId, {
-        status: 'error',
-        error: errorMessage,
-        errorCode: taskErrorTypeOf(err),
-        ...getRawErrorPayload(err),
-        customRecoverable: false,
-        finishedAt: Date.now(),
-        elapsed: Date.now() - task.createdAt,
-      })
-      useStore.getState().setDetailTaskId(taskId)
-    }
-  } finally {
-    notifyPrivateSubmissionSettled()
-    // 释放输入图片的内存缓存（已持久化到 IndexedDB，后续按需从 DB 加载）
-    for (const imgId of task.inputImageIds) {
-      imageCache.delete(imgId)
-    }
   }
+
+  if (
+    profile.source !== 'builtin-edge' &&
+    !isAsyncCustomProviderTask(requestSettings, job.provider, task.inputImageIds.length > 0)
+  )
+    scheduleOpenAIWatchdog(task.id, view.timeout)
+  return resumeGeneration(
+    {
+      settings: requestSettings,
+      prompt: task.prompt,
+      params: task.params,
+      ...(task.clientRequestId ? { clientRequestId: task.clientRequestId } : {}),
+      // 输入图只存了 id，位图现从 IndexedDB 读回来。**交给 module 在受监管的范围内读**：
+      // 读不回来也是这一次提交失败，要与请求失败一样标错、一样发结算通知。
+      resend: async () => {
+        const inputs = await loadTaskInputs(task)
+        // 遮罩位图记到句柄上：出片后据它判断草稿还是不是这次用的那张。
+        if (inputs.maskDataUrl) job.maskDataUrl = inputs.maskDataUrl
+        return {
+          prompt: requestPromptOf(task, inputs.inputDataUrls.length),
+          inputImageDataUrls: inputs.inputDataUrls,
+          ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+        }
+      },
+    },
+    job,
+    report,
+  )
 }
 
 export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
@@ -1870,43 +1974,55 @@ export async function retryTask(task: TaskRecord) {
   return retryLocalTask(await materializeRemoteTask(task))
 }
 
+/**
+ * 重试走的是和首次提交同一条路（门禁、扇出、幂等键都在 `generationJob` 里），所以这里
+ * 只把旧任务行翻译成一次新的提交：配置身份取**当前活动**的那份，输入图按 id 读回来。
+ */
 async function retryLocalTask(task: TaskRecord) {
-  const { settings } = useStore.getState()
+  const { settings, showToast } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
-  // 重试和首次提交同一条路：内置渠道没账号就只弹登录框，不再多一条失败任务行。
-  if (activeProfile.source === 'builtin-edge' && !requireAccount()) return
+  const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
   const taskParams = deriveTaskParams(task.params, settings, task.inputImageIds.length > 0)
-  const transparentMeta = taskParams.transparent_output
+  const transparent = taskParams.transparent_output
     ? createTransparentOutputMeta(task.prompt.trim())
     : null
-  const taskId = genId()
-  const newTask: TaskRecord = {
-    id: taskId,
-    prompt: task.prompt,
-    params: taskParams,
-    apiProvider: activeView.provider,
-    apiProfileId: activeProfile.id,
-    apiProfileName: activeView.name,
-    apiModel: activeView.model,
-    inputImageIds: [...task.inputImageIds],
-    maskTargetImageId: task.maskTargetImageId ?? null,
-    maskImageId: task.maskImageId ?? null,
-    transparentOutput: transparentMeta?.transparentOutput,
-    transparentPrompt: transparentMeta?.effectivePrompt,
-    outputImages: [],
-    status: 'running',
-    error: null,
-    createdAt: Date.now(),
-    finishedAt: null,
-    elapsed: null,
+  let inputs: { inputDataUrls: string[]; maskDataUrl?: string }
+  try {
+    inputs = await loadTaskInputs(task)
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), 'error')
+    return
   }
 
-  const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([newTask, ...latestTasks])
-  await putTask(newTask)
-
-  executeTask(taskId)
+  startGeneration<WorkbenchJob, WorkbenchVariant>(
+    {
+      settings: requestSettings,
+      profile: activeProfile,
+      params: taskParams,
+      variants: [
+        {
+          prompt: replaceImageMentionsForApi(
+            transparent?.effectivePrompt ?? task.prompt,
+            inputs.inputDataUrls.length,
+          ),
+          inputImageDataUrls: inputs.inputDataUrls,
+          ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+          context: { prompt: task.prompt, transparent },
+        },
+      ],
+    },
+    workbenchSink({
+      profile: activeProfile,
+      view: activeView,
+      requestSettings,
+      createdAt: Date.now(),
+      inputImageIds: [...task.inputImageIds],
+      maskImageId: task.maskImageId ?? null,
+      maskTargetImageId: task.maskTargetImageId ?? null,
+      ...(inputs.maskDataUrl ? { maskDataUrl: inputs.maskDataUrl } : {}),
+    }),
+  )
 }
 
 /**

@@ -24,7 +24,8 @@ const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { createQueueTask } = await import('../../lib/taskSubmission')
 const { runTask } = await import('../../workers/task-runner')
-const { cancelTasks, finishTask } = await import('../../db/task-transitions')
+const { cancelTasks } = await import('../../db/task-transitions')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -365,10 +366,9 @@ async function submitToProject(projectConversationId: string, n = 1) {
   return submitted.taskId
 }
 
-/** 测试内的迷你 worker：领走任务，再把它推到失败终态。 */
+/** 测试内的迷你 worker：认领任务，再按真实路径把它推到失败终态。 */
 async function failTask(taskId: string, errorType: TaskErrorType) {
-  await db.update(schema.tasks).set({ status: 'in_progress' }).where(eq(schema.tasks.id, taskId))
-  return finishTask(taskId, { status: 'failed', errorType, completedAt: Date.now() })
+  return workerSettles(taskId, { status: 'failed', errorType })
 }
 
 it('生成失败时服务端占位转为带错误码的失败占位，另一个设备读得到', async () => {

@@ -1,33 +1,20 @@
-import { requireAccount } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
-import { callImageApi } from '../../../lib/api'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { startGeneration } from '../../../lib/generationJob'
+import { useStore } from '../../../store'
+import type { TaskParams } from '../../../types'
 import {
-  getPrivateSubmissionGuard,
-  notifyPrivateSubmissionAccepted,
-  notifyPrivateSubmissionError,
-  notifyPrivateSubmissionSettled,
-} from '../../../lib/privateOverlay'
-import { taskErrorTypeOf } from '../../../lib/taskError'
-import { removeKeyedBackgroundFromDataUrl } from '../../../lib/transparentImage'
-import { addCompletedCanvasTask, useStore } from '../../../store'
-import {
-  type CanvasTaskSpec,
-  getCanvasTask,
-  registerCanvasTask,
-  removeCanvasTask,
-  snapshotParams,
-} from './canvasTaskRuntime'
+  type CanvasEditKind,
+  type CanvasJobContext,
+  type CanvasJobHandle,
+  type CanvasPlacement,
+  canvasGenerationSink,
+  recallCanvasInputs,
+  releaseCanvasInputs,
+} from './canvasGenerationSink'
 import type { CanvasEditor, PlaceholderView } from './editor'
-import type { Box } from './geometry'
-import {
-  errorMessage,
-  markPlaceholderStatus,
-  settleGeneration,
-  targetFromShape,
-} from './placeholderShapeOps'
-import { computePlaceholderTargets } from './placement'
+import { targetFromShape } from './placeholderShapeOps'
+import type { PlacementTarget } from './placement'
 import {
   analyzeSelection,
   type CanvasInputEntry,
@@ -35,6 +22,38 @@ import {
   rasterizeSelection,
 } from './rasterizeSelection'
 import { retryCanvasVideo } from './submitVideoFromCanvas'
+
+/**
+ * 当前全局参数的画布任务快照：`n` 折叠为 1。数量由发起层单独说（生成栏按输入框里的份数，
+ * 二次加工与重试一律一份），扇出拆不拆由 `generationJob` 按渠道能力决定。
+ */
+export function snapshotParams(): TaskParams {
+  return { ...useStore.getState().params, n: 1 }
+}
+
+/**
+ * 一次画布生成任务的完整描述：人话需求 + 输入图 + 参数快照 + 放置目标。
+ * 二次加工（抠图 / 扩图 / 局部重绘 / 整图改）与重试都从这个入口发起。
+ */
+export interface CanvasTaskSpec {
+  /** 人话需求（画布文字标注 + 输入框合并）。标注指令样板在发起时才注入，不存这里。 */
+  prompt: string
+  /** 是否标注模式：发起时决定是否注入「按标注改、输出干净图」指令前缀。 */
+  annotated: boolean
+  inputImageDataUrls: string[]
+  /**
+   * 局部重绘的遮罩（不透明 = 保留、透明 = 可重绘），与 `inputImageDataUrls[0]` 逐像素同尺寸。
+   * 与输入图一样不持久化：它只为「同会话内重试」而留在内存运行态里。
+   */
+  maskDataUrl?: string
+  /** 二次加工的源图元素 id：处理期间那张卡片上盖遮罩，刷新后也要认得出来。 */
+  editSourceId?: string
+  /** 二次加工的种类，决定卡片与占位框上写什么。 */
+  editKind?: CanvasEditKind
+  /** 发起时的参数快照。 */
+  params: TaskParams
+  target: PlacementTarget
+}
 
 /**
  * 标注模式的指令前缀：把「带手绘标注的参考图」翻译成「按标注改、输出干净新图」。
@@ -57,39 +76,24 @@ function buildApiPrompt(annotated: boolean, requirement: string): string {
     : CANVAS_ANNOTATION_INSTRUCTION
 }
 
-/**
- * 抠图的后半程：模型只负责把背景换成纯色，真正的透明是在本地键出来的。
- *
- * 键失败（拿回来的背景不够纯、或者画布读不出像素）就**留着那张原图**并说一句：
- * 这一次已经花掉了积分，把它当失败扔掉比给一张还带背景的图更坏——用户至少能看到
- * 发生了什么，再决定重不重来。与工作台那条路的口径一致（store.ts `storeGeneratedImages`）。
- */
-async function keyOutBackground(images: string[]): Promise<string[]> {
-  let failed = false
-  const out = await Promise.all(
-    images.map(async (dataUrl) => {
-      try {
-        return await removeKeyedBackgroundFromDataUrl(dataUrl)
-      } catch {
-        failed = true
-        return dataUrl
-      }
-    }),
-  )
-  if (failed)
-    useStore.getState().showToast(i18next.t('cutout.keyFailed', { ns: 'canvas' }), 'error')
-  return out
+/** 一批要发的东西（落在哪由 placement 说）。 */
+interface CanvasBatch {
+  prompt: string
+  annotated: boolean
+  inputImageDataUrls: string[]
+  maskDataUrl?: string
+  editSourceId?: string
+  editKind?: CanvasEditKind
+  placement: CanvasPlacement
 }
 
 /**
- * 起一个画布生成任务：**同步**建 loading 占位框 + 登记内存运行态（第一个 await 之前完成，
- * 所以占位框立即出现、调用方 `void` 一下即返回），随后异步跑生成。submit / retry 共用此入口，
- * 保证占位 / 并发 / 恢复语义一致。底层复用 `callImageApi`（不改协议），全程不抛。
- * 成功后把结果落进工作台历史（addCompletedCanvasTask），画布生成同样可收藏 / 检索 / 复用。
+ * 画布发起的唯一出口：把一批变体交给生成任务 module。门禁按整批的量判一次、扇出按渠道
+ * 能力拆、幂等键逐条新铸、overlay 通知与错误码映射都在 module 里；这里只说「发什么、落在哪」。
+ * 返回是否受理（门禁拦下时为 false，反馈已经给过），重试据此决定要不要收掉旧占位框。
  */
-export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Promise<void> {
-  // 发起时快照 profile 身份：生成可长达数分钟，完成时用户可能已切 profile，
-  // 落历史用快照保真（与 params 快照同一决策）。
+function launch(editor: CanvasEditor, batches: CanvasBatch[], params: TaskParams): boolean {
+  // 发起时快照 profile 身份：生成可长达数分钟，完成时用户可能已切 profile，落历史用快照保真。
   const profile = getActiveApiProfile(useStore.getState().settings)
   const view = clientProfileToApiProfile(profile)
   const profileView = {
@@ -98,108 +102,56 @@ export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpe
     apiProfileName: view.name,
     apiModel: view.model,
   }
-  const taskId = crypto.randomUUID()
-  const clientRequestId = crypto.randomUUID()
-  const startedAt = Date.now()
-
-  // 决策 2：恢复元数据（含参数 / profile 快照）存元素 customData，随画布持久化；不含输入图。
-  const placeholderId = editor.createPlaceholder(spec.target, {
-    taskId,
-    clientRequestId,
-    source: profile.source,
-    prompt: spec.prompt,
-    annotated: spec.annotated,
-    inputCount: spec.inputImageDataUrls.length,
-    ...(spec.editSourceId ? { editSourceId: spec.editSourceId } : {}),
-    ...(spec.editKind ? { editKind: spec.editKind } : {}),
-    params: spec.params,
-    profileView,
-  })
-  registerCanvasTask(taskId, spec)
-
-  try {
-    const result = await callImageApi({
+  const handles = startGeneration<CanvasJobHandle, CanvasJobContext>(
+    {
       settings: useStore.getState().settings,
-      prompt: buildApiPrompt(spec.annotated, spec.prompt),
-      params: spec.params,
-      inputImageDataUrls: spec.inputImageDataUrls,
-      ...(spec.maskDataUrl ? { maskDataUrl: spec.maskDataUrl } : {}),
-      clientRequestId,
-      // submit 成功即回填 bffRequestId 到占位框 meta 并持久化，供刷新后 resume（决策 2 / 7）。
-      onQueueSubmitted: (requestId) => {
-        editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
-        notifyPrivateSubmissionAccepted()
-      },
-      // 队列阶段写回占位框：长任务只写「生成中」会让人以为卡死了。
-      onQueueStatus: (queuePhase) =>
-        editor.updatePlaceholder(placeholderId, { meta: { queuePhase } }),
-    })
-    const images =
-      spec.editKind === 'cutout' ? await keyOutBackground(result.images) : result.images
-    const placed = await settleGeneration(editor, placeholderId, spec.target, {
-      ...result,
-      images,
-    })
-    // 落图成功也**不释放**运行态：结果元素上的 `meta.taskId` 指着它，「重新生成」靠它原样再发。
-    // 内存由 canvasTaskRuntime 的有界 LRU 兜住；失败态的占位框同样还留着它用于重试。
-    // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
-    if (placed) {
-      void addCompletedCanvasTask({
-        prompt: spec.prompt,
-        params: spec.params,
-        images,
-        elapsed: Date.now() - startedAt,
-        profile: profileView,
-      })
-    }
-  } catch (err) {
-    notifyPrivateSubmissionError(err)
-    // 内容安全拒绝：占位框上写可行动的那句，不糊上游英文原文（ADR 0006）。
-    markPlaceholderStatus(
-      editor,
-      placeholderId,
-      'error',
-      taskErrorTypeOf(err) === 'content_policy'
-        ? i18next.t('detail.contentPolicy', { ns: 'task' })
-        : errorMessage(err),
-    )
-  } finally {
-    notifyPrivateSubmissionSettled()
-  }
+      profile,
+      params,
+      variants: batches.map((batch) => ({
+        prompt: buildApiPrompt(batch.annotated, batch.prompt),
+        inputImageDataUrls: batch.inputImageDataUrls,
+        ...(batch.maskDataUrl ? { maskDataUrl: batch.maskDataUrl } : {}),
+        context: {
+          prompt: batch.prompt,
+          annotated: batch.annotated,
+          source: profile.source,
+          profileView,
+          ...(batch.editSourceId ? { editSourceId: batch.editSourceId } : {}),
+          ...(batch.editKind ? { editKind: batch.editKind } : {}),
+          placement: batch.placement,
+        },
+      })),
+    },
+    canvasGenerationSink(editor),
+  )
+  return handles.length > 0
 }
 
-/** 一批任务要发的东西（目标位置由 launchBatch 现算）。 */
-type BatchSpec = Omit<CanvasTaskSpec, 'target'>
-
 /**
- * 发起一批：计费内置渠道把 n>1 合成一个 BFF 任务，让积分预留覆盖整批；其余按张 fan-out。
- * 目标位置在每次发起前现算——占位框是同步建的，后一张自然避开前一张。
+ * 起一个画布生成任务：占位框在第一个 await 之前就出现（调用方发完即可返回），随后异步跑生成。
+ * 二次加工与重试共用此入口，保证占位 / 并发 / 恢复语义一致。返回是否受理。
  */
-function launchBatch(
-  editor: CanvasEditor,
-  spec: BatchSpec,
-  anchor: Box | null,
-  quantity: number,
-  billed: boolean,
-): void {
-  if (billed && quantity > 1) {
-    const [target] = computePlaceholderTargets(editor, anchor, 1)
-    const params = { ...spec.params, n: quantity }
-    void launchCanvasTask(editor, {
-      ...spec,
-      params,
-      target: target!,
-    })
-    return
-  }
-  for (const target of computePlaceholderTargets(editor, anchor, quantity))
-    void launchCanvasTask(editor, { ...spec, target })
+export function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): boolean {
+  return launch(
+    editor,
+    [
+      {
+        prompt: spec.prompt,
+        annotated: spec.annotated,
+        inputImageDataUrls: spec.inputImageDataUrls,
+        ...(spec.maskDataUrl ? { maskDataUrl: spec.maskDataUrl } : {}),
+        ...(spec.editSourceId ? { editSourceId: spec.editSourceId } : {}),
+        ...(spec.editKind ? { editKind: spec.editKind } : {}),
+        placement: { target: spec.target },
+      },
+    ],
+    spec.params,
+  )
 }
 
 /**
  * 创作模式统一生成入口（决策 4）：把选区内**每张图片各自**栅格化为独立参考图，
  * 凭数量决定文生图（空数组）或多图迭代（非空）——单一调用路径。发起即返回、支持并发。
- * BYOK 按图片 fan-out；计费内置渠道把完整数量作为一个 BFF 任务提交，确保服务端原子预留。
  *
  * `perImage`：选中的每张图各起一个任务（同一句提示词逐张跑），而不是把它们并成一次多图迭代。
  * 这是「把这 12 张都改成 3:4」这类批量活的入口；结果各自落在源图附近，失败也只失败那一张。
@@ -211,29 +163,12 @@ export async function submitFromCanvas(
   opts: { perImage?: boolean } = {},
 ): Promise<void> {
   const { showToast, params } = useStore.getState()
-  const profile = getActiveApiProfile(useStore.getState().settings)
-  const quantity = Math.max(1, params.n)
   const plan = analyzeSelection(editor)
   // 逐张模式只有在真有两张以上时才成立，一张图逐张就是普通的一次生成。
   const perImageEntries = opts.perImage && plan && plan.entries.length > 1 ? plan.entries : null
-  const batches = perImageEntries?.length ?? 1
-  // 内置渠道要经 BFF 的队列：没账号就只弹登录框，不建占位框也不 toast。
-  if (profile.source === 'builtin-edge' && !requireAccount()) return
-  const submissionGuard = getPrivateSubmissionGuard({
-    model: clientProfileToApiProfile(profile).model,
-    // 逐张模式一次要跑 张数 × n 张图，门禁要按整批的量判，否则积分不够时先发一半再报错。
-    quantity: quantity * batches,
-  })
-  if (submissionGuard.blocked) {
-    showToast(
-      submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' }),
-      'error',
-    )
-    return
-  }
   const trimmed = userPrompt.trim()
-  const billed = profile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
-  const specParams = snapshotParams()
+  // 数量走 params.n：门禁按整批判、扇出按渠道能力拆，两件事都在 module 里。
+  const batchParams = { ...snapshotParams(), n: Math.max(1, params.n) }
 
   if (perImageEntries && plan) {
     const rasterized = await Promise.all(
@@ -253,21 +188,18 @@ export async function submitFromCanvas(
     const prompt = plan.annotated
       ? [plan.annotationText, trimmed].filter(Boolean).join('\n')
       : trimmed
-    for (const { entry, dataUrl } of usable)
-      launchBatch(
-        editor,
-        {
-          prompt,
-          annotated: plan.annotated,
-          inputImageDataUrls: [dataUrl],
-          params: specParams,
-        },
-        entry.box,
-        quantity,
-        billed,
-      )
+    const accepted = launch(
+      editor,
+      usable.map(({ entry, dataUrl }) => ({
+        prompt,
+        annotated: plan.annotated,
+        inputImageDataUrls: [dataUrl],
+        placement: { anchor: entry.box },
+      })),
+      batchParams,
+    )
     // 少数几张栅格化不了：已发的照发，漏掉的说清楚，不假装整批都发了。
-    if (usable.length < perImageEntries.length)
+    if (accepted && usable.length < perImageEntries.length)
       showToast(i18next.t('submit.rasterizePartial', { ns: 'canvas' }), 'info')
     return
   }
@@ -289,47 +221,31 @@ export async function submitFromCanvas(
     ? [selection.annotationText, trimmed].filter(Boolean).join('\n')
     : trimmed
 
-  launchBatch(
+  launch(
     editor,
-    {
-      prompt,
-      annotated: selection?.annotated ?? false,
-      inputImageDataUrls,
-      params: specParams,
-    },
-    selection?.bounds ?? null,
-    quantity,
-    billed,
+    [
+      {
+        prompt,
+        annotated: selection?.annotated ?? false,
+        inputImageDataUrls,
+        placement: { anchor: selection?.bounds ?? null },
+      },
+    ],
+    batchParams,
   )
 }
 
 /**
- * 失效 / 错误态占位框的「重试」：删旧占位框，用**同参数**重新发起一个任务。
- * 同会话内输入图仍在内存运行态里（决策 2 的投影），可完整重发；
- * 刷新后运行态已清空 → 以空输入图（文生图）+ meta 参数快照尽力重发，诚实反映能力边界。
+ * 失效 / 错误态占位框的「重试」：用**同参数**重新发起一个任务，受理了才收掉旧占位框
+ * （门禁拦下时旧框得留着，否则用户连重试入口都没了）。
+ * 同会话内输入图仍在内存运行态里（决策 2 的投影），可完整重发；刷新后运行态已清空，
+ * 由下面那条守卫拦住，不静默退化成文生图。
  */
 export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderView): void {
   const meta = placeholder.meta
   if (meta.video) return retryCanvasVideo(editor, placeholder)
-  const activeProfile = getActiveApiProfile(useStore.getState().settings)
-  const retryQuantity = Math.max(1, meta.params?.n ?? 1)
-  // 重试同样要经队列，门槛与首次提交一致。
-  if (activeProfile.source === 'builtin-edge' && !requireAccount()) return
-  const submissionGuard = getPrivateSubmissionGuard({
-    model: clientProfileToApiProfile(activeProfile).model,
-    quantity: retryQuantity,
-  })
-  if (submissionGuard.blocked) {
-    useStore
-      .getState()
-      .showToast(
-        submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' }),
-        'error',
-      )
-    return
-  }
-  const runtime = getCanvasTask(meta.taskId)
-  const inputImageDataUrls = runtime?.inputImageDataUrls ?? []
+  const retained = recallCanvasInputs(meta.taskId)
+  const inputImageDataUrls = retained?.inputImageDataUrls ?? []
 
   // 守卫：原任务带输入图但运行态已随页面关闭清空（输入图刻意不持久化，决策 2/6）——
   // 此时静默重发会退化成文生图、产出与原意无关的垃圾结果。明确报错，让用户重新选图发起。
@@ -338,20 +254,21 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
     return
   }
 
-  editor.deleteElement(placeholder.id)
-  removeCanvasTask(meta.taskId)
-  void launchCanvasTask(editor, {
+  const accepted = launchCanvasTask(editor, {
     prompt: meta.prompt,
     annotated: meta.annotated ?? false,
     inputImageDataUrls,
     // 局部重绘重试必须把遮罩一起带回去：丢了它就是一次静默的整图重绘，
-    // 与 :228 那条守卫防的是同一类事故。遮罩与输入图同在运行态，刷新后一起没，也被同一条守卫拦住。
-    ...(runtime?.maskDataUrl ? { maskDataUrl: runtime.maskDataUrl } : {}),
+    // 与上面那条守卫防的是同一类事故。遮罩与输入图同在运行态，刷新后一起没，也被同一条守卫拦住。
+    ...(retained?.maskDataUrl ? { maskDataUrl: retained.maskDataUrl } : {}),
     ...(meta.editSourceId ? { editSourceId: meta.editSourceId } : {}),
     ...(meta.editKind ? { editKind: meta.editKind } : {}),
-    // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
+    // meta.params 与运行态同源（发起时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
-    // 几何一律读活占位框：用户可能已拖动 / 拉伸过错误态占位框，submit 时的 runtime.target 已过期。
+    // 几何一律读活占位框：用户可能已拖动 / 拉伸过错误态占位框，发起时的目标框已过期。
     target: targetFromShape(placeholder),
   })
+  if (!accepted) return
+  editor.deleteElement(placeholder.id)
+  releaseCanvasInputs(meta.taskId)
 }

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
+import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import ConfirmDialog from './components/ConfirmDialog'
 import CreateTargetSwitch from './components/CreateTargetSwitch'
 import DetailModal from './components/DetailModal'
@@ -23,6 +24,7 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
+import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -65,7 +67,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       window.history.replaceState(null, '', nextUrl)
     }
 
-    initStore()
+    void initStore().then(() => {
+      if (user) return resumePendingSubmission()
+    })
     initHashRoute()
 
     if (adoptedTaskCount > 0) {
@@ -76,7 +80,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           'success',
         )
     }
-  }, [setSettings, adoptedTaskCount])
+  }, [setSettings, adoptedTaskCount, user])
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
@@ -111,6 +115,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <ExplorePage />
         ) : appMode === 'library' ? (
           <LibraryPage />
+        ) : appMode === 'tools' ? (
+          <ToolboxPage />
         ) : (
           <>
             <main data-home-main data-drag-select-surface className="relative pb-24">

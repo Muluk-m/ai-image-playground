@@ -44,6 +44,7 @@ vi.mock('../../../../lib/apiProfiles', () => ({
   }),
 }))
 vi.mock('../../../../lib/channels/profileSelectors', () => ({
+  getModelCapabilities: () => null,
   modelSupportsEdit: () => true,
   modelSupportsNativeMask: () => true,
   NO_EDIT_SUPPORT_MESSAGE: '当前模型不支持参考图',

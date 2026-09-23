@@ -7,16 +7,21 @@ import {
   findFreeTarget,
   fitToTarget,
   PLACEMENT_GAP,
+  spreadTargets,
 } from '../../../../features/canvas/lib/placement'
 
-/** placement 是纯函数，只读 editor 的视口与元素包围盒。 */
+/**
+ * placement 是纯函数，只读 editor 的视口与元素包围盒。
+ * 障碍物的元素 id 就是它在 `occupied` 里的下标，`exclude` 按这个认。
+ */
 function makeEditor(
   viewport: { midX: number; midY: number; w?: number },
   occupied: Box[] = [],
 ): CanvasEditor {
   return {
     getViewportPageBounds: () => ({ w: 4000, ...viewport }),
-    getOccupiedBounds: () => [...occupied],
+    getOccupiedBounds: (exclude: readonly string[] = []) =>
+      occupied.filter((_, index) => !exclude.includes(String(index))),
   } as unknown as CanvasEditor
 }
 
@@ -133,6 +138,29 @@ describe('computePlaceholderTargets', () => {
     const editor = makeEditor({ midX: 180, midY: 180 })
 
     expect(computePlaceholderTargets(editor, null, 0)).toHaveLength(1)
+  })
+})
+
+describe('spreadTargets', () => {
+  /**
+   * 出片落图时 `held` 就是这条任务自己的占位框：它占的位是让给这批结果的。
+   * 不摘掉它，第一张结果就会被自己的占位框挤走，落到用户看着转圈的框之外。
+   */
+  it('held 里的占位框不算障碍，别人的位置照避', () => {
+    const reserved = { x: 100, y: 0, w: 100, h: 100 }
+    // occupied[0] 是这条任务自己的占位框，occupied[1] 是别的元素。
+    const editor = makeEditor({ midX: 0, midY: 0 }, [
+      new Box(100, 0, 100, 100),
+      new Box(250, 0, 100, 100),
+    ])
+
+    const targets = spreadTargets(editor, reserved, 2, ['0'])
+
+    expect(targets[0]).toEqual(reserved)
+    // 第二张从预留框右侧起步，撞上别人就再跳过去。
+    expect(targets[1]).toEqual({ ...reserved, x: 250 + 100 + PLACEMENT_GAP })
+    // 不在 held 里就是普通障碍：同一个框连第一张都得让开。
+    expect(spreadTargets(editor, reserved, 1)[0]).not.toEqual(reserved)
   })
 })
 

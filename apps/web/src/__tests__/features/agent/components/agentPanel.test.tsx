@@ -1370,7 +1370,7 @@ describe('AgentPanel', () => {
       expect(host.querySelector('section[aria-label^="排队中"]')).toBeNull()
     })
 
-    it('在输入框上方按顺序列出排队消息，忙时发送按钮写着加入排队', () => {
+    it('在输入框上方按顺序列出排队消息', () => {
       useAgentStore.setState({
         conversationId: 'conversation-1',
         turn: 'running',
@@ -1388,7 +1388,6 @@ describe('AgentPanel', () => {
       // 列表在输入框之前：读的顺序就是处理的顺序，也就在输入框正上方。
       const composer = host.querySelector('.studio-agent-composer')!
       expect(list.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(host.querySelector('button[aria-label="加入排队"]')).not.toBeNull()
     })
 
     it('轮到时没能开轮的那一条写明原因，按钮是移除', () => {

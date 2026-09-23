@@ -61,6 +61,7 @@ export type AgentToolName =
   | 'webSearch'
   | 'webFetch'
   | 'fetchImage'
+  | 'fetchListingImages'
 
 /** 联网工具读到的一条来源：搜索结果或抓取的网页。面板照它列链接，回放照它列网址。 */
 export interface AgentWebSource {

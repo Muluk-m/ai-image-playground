@@ -146,7 +146,9 @@ vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
   readRemoteGeneration,
 }))
 
+import { IDBFactory } from 'fake-indexeddb'
 import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
+import { resumePendingSubmission } from '../auth/resumePendingSubmission'
 import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
@@ -176,6 +178,15 @@ async function waitUntil(predicate: () => boolean | undefined, message: string) 
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
   throw new Error(message)
+}
+
+function stubSessionStorage() {
+  const values = new Map<string, string>()
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  })
 }
 
 function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
@@ -399,6 +410,8 @@ describe('mask draft lifecycle in store actions', () => {
       prompt: 'a red cat',
       params: { ...DEFAULT_PARAMS },
     })
+    vi.stubGlobal('indexedDB', new IDBFactory())
+    stubSessionStorage()
     // 这个文件跑在 node 环境里，登录框事件要有个 window 才发得出去。
     vi.stubGlobal('window', new EventTarget())
     const prompted = vi.fn()
@@ -416,6 +429,61 @@ describe('mask draft lifecycle in store actions', () => {
     expect(useStore.getState().tasks).toEqual([])
     // 弹窗就是反馈，不再叠一条报错。
     expect(useStore.getState().showToast).not.toHaveBeenCalled()
+  })
+
+  it('sends the original prompt once after login, not a later draft', async () => {
+    const channel: PublicChannel = {
+      id: 'paid-openai',
+      kind: 'openai-queue',
+      label: 'Paid OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ ...allCapabilitiesOff(), 'accounts:login': true }))
+    await bootstrapClientCapabilities(true, '')
+    fetchMock.mockRestore()
+    vi.stubGlobal('indexedDB', new IDBFactory())
+    stubSessionStorage()
+    vi.stubGlobal('window', new EventTarget())
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      prompt: 'the original cat',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS },
+    })
+    try {
+      await submitTask()
+      expect(useStore.getState().tasks).toEqual([])
+      useStore.setState({ prompt: 'a later dog', inputImages: [] })
+      setSignedIn(true)
+      await resumePendingSubmission()
+      await waitUntil(
+        () => vi.mocked(callImageApi).mock.calls.length === 1,
+        'original submission was not sent',
+      )
+      expect(vi.mocked(callImageApi).mock.calls[0]?.[0]).toMatchObject({
+        prompt: 'the original cat',
+        inputImageDataUrls: [],
+      })
+      await resumePendingSubmission()
+      expect(callImageApi).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
@@ -929,6 +997,49 @@ describe('submitTask 数量分发（capability n 门控）', () => {
 
     expectFanOutFour()
   })
+
+  // 重试原本绕过了提交门禁、扇出与幂等键——三件事都归提交那条路，重试也得走同一条。
+  it('重试按扇出规则拆：未声明 n 的渠道，n=4 的失败任务重试出四条 n=1', async () => {
+    setChannels([geminiChannel])
+    setupCountState(builtinProfile('gemini-flash-image', 'gemini-3.1-flash-image'))
+    const failed = task({
+      id: 'fanout-failed',
+      status: 'error',
+      params: { ...DEFAULT_PARAMS, n: 4 },
+      apiProfileId: 'builtin-gemini-flash-image',
+    })
+    useStore.setState({ tasks: [failed] })
+
+    await retryTask(failed)
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 4, 'retry did not fan out')
+
+    const retried = useStore.getState().tasks.filter((t) => t.id !== failed.id)
+    expect(retried).toHaveLength(4)
+    expect(retried.every((t) => t.params.n === 1)).toBe(true)
+    // 幂等键逐条唯一：共用一个键会被 BFF 去重折叠成一次生成。
+    expect(new Set(retried.map((t) => t.clientRequestId)).size).toBe(4)
+  })
+
+  it('重试过提交门禁：门禁拦下就一条也不落，也不发请求', async () => {
+    setChannels([gptImageChannel])
+    setupCountState(builtinProfile('openai-images', 'gpt-image-2'))
+    const failed = task({
+      id: 'blocked-retry',
+      status: 'error',
+      apiProfileId: 'builtin-openai-images',
+    })
+    useStore.setState({ tasks: [failed] })
+    getPrivateSubmissionGuard.mockReturnValueOnce({
+      blocked: true,
+      disabledReason: '积分不够了',
+    } as never)
+
+    await retryTask(failed)
+
+    expect(useStore.getState().tasks).toEqual([failed])
+    expect(callImageApi).not.toHaveBeenCalled()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('积分不够了', 'error')
+  })
 })
 
 describe('submitTask 槽位批量展开', () => {
@@ -1351,6 +1462,12 @@ describe('submitPrepared 显式参数提交接缝', () => {
   })
 
   it('遮罩按显式参数写进任务记录', async () => {
+    await putImage({
+      id: 'mask-image',
+      dataUrl: 'data:image/png;base64,mask',
+      source: 'mask',
+      createdAt: 0,
+    })
     await submitPrepared({
       prompt: 'p',
       inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],

@@ -26,6 +26,7 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   webFetch: true,
   // 取到的网图进了用户媒体、可能落画布，得留一张带缩略图的卡。
   fetchImage: undefined,
+  fetchListingImages: undefined,
 }
 
 /**

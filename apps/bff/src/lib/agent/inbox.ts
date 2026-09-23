@@ -29,6 +29,9 @@ import type { BffTransaction } from '../private-overlay'
  *
  * 对澄清卡片的答复（`clarification_answer`）排在队首：智能体停下来等的问题最先得到回答。
  * 智能体问了澄清、还没人作答时，问之前就排着的那些话先等着，不抢在答复前面开轮。
+ *
+ * 这里只有一行行记录。围着它们的那几件事——发送、撤回、升级为插话、停止退回，各自要按什么
+ * 先后动收件箱、在跑的那一轮与连着的设备——在 `conversation-inbox.ts`。
  */
 
 type InboxRow = typeof schema.agent_inbox.$inferSelect

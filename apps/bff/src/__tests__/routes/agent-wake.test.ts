@@ -42,7 +42,8 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask, cancelTasks } = await import('../../db/task-transitions')
+const { cancelTasks } = await import('../../db/task-transitions')
+const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { AGENT_WAKE_BATCH_WAIT_MS } = await import('../../lib/agent/wake')
 const { createQueueTask } = await import('../../lib/taskSubmission')
@@ -152,16 +153,11 @@ async function wakes(conversationId: string) {
 }
 
 /**
- * 测试里的迷你 worker：领走一条任务、再用 worker 真正写终态的那个函数把它推到终态——唤醒
- * 判断就发生在这一步的事务里。
+ * 测试里的迷你 worker：认领一条任务、再按真实路径收尾——唤醒判断就发生在收尾的那个事务里。
  */
 async function work(taskId: string, outcome: 'completed' | 'failed', completedAt = Date.now()) {
-  await db
-    .update(schema.tasks)
-    .set({ status: 'in_progress', started_at: completedAt })
-    .where(eq(schema.tasks.id, taskId))
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
-  const finished = await finishTask(
+  const finished = await workerSettles(
     taskId,
     outcome === 'completed'
       ? {

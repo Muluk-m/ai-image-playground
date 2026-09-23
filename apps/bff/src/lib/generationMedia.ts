@@ -195,7 +195,13 @@ export async function spoolGenerationOutputs(
   }
 }
 
-export async function preserveGenerationInputs(id: string, request: PersistedSubmitRequest) {
+/**
+ * 把这次生成的输入原件挪进长期存储，给出换成 durable 引用后的请求。
+ * 落库是执行句柄的事（`preserveInputs`）：这一行只有租约还在的执行者写得动。
+ */
+export async function durableGenerationInputs(
+  request: PersistedSubmitRequest,
+): Promise<PersistedSubmitRequest> {
   return withMediaTransfer(async () => {
     const preserve = async (ref: NonNullable<PersistedSubmitRequest['mask']>) => {
       if (ref.store === 'durable') return ref
@@ -212,12 +218,7 @@ export async function preserveGenerationInputs(id: string, request: PersistedSub
       for (const ref of request.input_images) next.input_images.push(await preserve(ref))
     }
     if (request.mask) next.mask = await preserve(request.mask)
-    const updated = await db
-      .update(schema.tasks)
-      .set({ request_payload: next })
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-      .returning({ id: schema.tasks.id })
-    return updated.length ? next : null
+    return next
   })
 }
 

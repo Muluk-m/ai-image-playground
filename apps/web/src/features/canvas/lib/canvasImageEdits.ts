@@ -103,12 +103,7 @@ export function cutoutRefusal(image: ImageEl, settings: AppSettings): string | n
  * 输出强制 png 且不压缩——键掉背景之后要存的是带 alpha 的图，jpeg / webp 有损会把边缘糊掉。
  */
 export async function submitCanvasCutout(editor: CanvasEditor, image: ImageEl): Promise<boolean> {
-  const { showToast, settings } = useStore.getState()
-  const blocked = submissionBlocked(settings)
-  if (blocked) {
-    showToast(blocked, 'error')
-    return false
-  }
+  const { showToast } = useStore.getState()
   try {
     const source = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
     const params = {
@@ -119,7 +114,7 @@ export async function submitCanvasCutout(editor: CanvasEditor, image: ImageEl): 
     }
     // 占位框盖在源图上：抠完是同一张图的另一版，不该在旁边多出一张。
     const target = { x: image.x, y: image.y, w: image.width, h: image.height }
-    void launchCanvasTask(editor, {
+    const started = launchCanvasTask(editor, {
       prompt: CUTOUT_INSTRUCTION,
       annotated: false,
       inputImageDataUrls: [source],
@@ -128,7 +123,7 @@ export async function submitCanvasCutout(editor: CanvasEditor, image: ImageEl): 
       params,
       target,
     })
-    return true
+    return started
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), 'error')
     return false
@@ -169,12 +164,7 @@ export async function submitCanvasOutpaint(
   natural: { width: number; height: number },
   prompt: string,
 ): Promise<boolean> {
-  const { showToast, settings } = useStore.getState()
-  const blocked = submissionBlocked(settings)
-  if (blocked) {
-    showToast(blocked, 'error')
-    return false
-  }
+  const { showToast } = useStore.getState()
   try {
     const original = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
     const inputs = await buildOutpaintInputs(original, rect, image, natural)
@@ -186,7 +176,7 @@ export async function submitCanvasOutpaint(
     // 占位框就是那个扩出来的框：结果替换掉源图本身，几何按它来，所以框在哪结果就在哪。
     const origin = localToPage(image, { x: rect.x, y: rect.y })
     const target = { x: origin.x, y: origin.y, w: rect.w, h: rect.h }
-    void launchCanvasTask(editor, {
+    const started = launchCanvasTask(editor, {
       // 扩图没有「改什么」，只有「接着画」。用户不写字也能发，所以给一句默认指令。
       prompt: prompt.trim() || OUTPAINT_DEFAULT_INSTRUCTION,
       annotated: false,
@@ -197,7 +187,7 @@ export async function submitCanvasOutpaint(
       params: { ...useStore.getState().params, n: 1 },
       target,
     })
-    return true
+    return started
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), 'error')
     return false
@@ -225,18 +215,13 @@ export async function submitCanvasImageEdit(
   image: ImageEl,
   prompt: string,
 ): Promise<boolean> {
-  const { showToast, settings } = useStore.getState()
-  const blocked = submissionBlocked(settings)
-  if (blocked) {
-    showToast(blocked, 'error')
-    return false
-  }
+  const { showToast } = useStore.getState()
   const requirement = prompt.trim()
   if (!requirement) return false
   try {
     const source = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
     // 占位框盖在源图上：改的是这一张，不该在旁边多出一张。
-    void launchCanvasTask(editor, {
+    const started = launchCanvasTask(editor, {
       prompt: requirement,
       annotated: false,
       inputImageDataUrls: [source],
@@ -245,7 +230,7 @@ export async function submitCanvasImageEdit(
       params: { ...useStore.getState().params, n: 1 },
       target: { x: image.x, y: image.y, w: image.width, h: image.height },
     })
-    return true
+    return started
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), 'error')
     return false
@@ -295,18 +280,13 @@ export async function submitCanvasResize(
   image: ImageEl,
   ratio: ResizeRatio,
 ): Promise<boolean> {
-  const { showToast, settings } = useStore.getState()
-  const blocked = submissionBlocked(settings)
-  if (blocked) {
-    showToast(blocked, 'error')
-    return false
-  }
+  const { showToast } = useStore.getState()
   try {
     const source = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
     const params = useStore.getState().params
     const [target] = computePlaceholderTargets(editor, elementBounds(image), 1)
     if (!target) return false
-    void launchCanvasTask(editor, {
+    const started = launchCanvasTask(editor, {
       prompt: resizeInstruction(ratio),
       annotated: false,
       inputImageDataUrls: [source],
@@ -320,7 +300,7 @@ export async function submitCanvasResize(
       },
       target,
     })
-    return true
+    return started
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), 'error')
     return false
