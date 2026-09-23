@@ -5,7 +5,7 @@ import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
-import { seoPlugin } from './src/seo/vitePlugin'
+import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -110,8 +110,7 @@ export default defineConfig(({ command }) => {
         input: {
           main: resolve(__dirname, 'index.html'),
           localCompatibility: resolve(__dirname, 'local-compat.html'),
-          guide: resolve(__dirname, 'guide/index.html'),
-          guideEn: resolve(__dirname, 'guide/en/index.html'),
+          ...guideHtmlEntries(__dirname),
         },
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor

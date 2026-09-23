@@ -15,3 +15,30 @@ html {
     scroll-behavior: auto;
   }
 }
+
+/* 首页首屏：顶部主色光晕加一层向外淡出的网格。 */
+.guide-hero {
+  background:
+    radial-gradient(60% 50% at 50% 0%, hsl(var(--primary) / 0.22), transparent 70%),
+    radial-gradient(40% 40% at 85% 30%, hsl(var(--primary) / 0.08), transparent 70%);
+}
+.guide-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(hsl(var(--foreground) / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 20%, black, transparent 75%);
+  pointer-events: none;
+}
+/* 产品截图下半截淡进背景，首屏不必展示整张图。 */
+.guide-hero-fade {
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+.guide-cta {
+  background:
+    radial-gradient(80% 120% at 50% 0%, hsl(var(--primary) / 0.2), transparent 70%),
+    hsl(var(--card));
+}
