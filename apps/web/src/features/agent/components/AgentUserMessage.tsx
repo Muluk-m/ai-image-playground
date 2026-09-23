@@ -96,12 +96,18 @@ function ReferenceThumbnail({
   const conversationId = useAgentStore((state) => state.conversationId)
   const scope = scopedStorageName('media')
   const local = 'dataUrl' in reference ? reference.dataUrl : undefined
-  const object = 'image' in reference ? reference.image.object : undefined
-  const identity = `${scope}:${conversationId}:${messageId}:${index}:${object}`
+  // 服务端按下标发这张图，两种快照都认：内联那一路存在对象存储里，按 id 那一路仍是云媒体原件。
+  const remote =
+    'image' in reference
+      ? reference.image.object
+      : 'mediaId' in reference
+        ? reference.mediaId
+        : undefined
+  const identity = `${scope}:${conversationId}:${messageId}:${index}:${remote}`
   const [preview, setPreview] = useState<{ identity: string; source?: string }>()
   const [openIdentity, setOpenIdentity] = useState<string>()
   useEffect(() => {
-    if (local !== undefined || !conversationId || !object) return
+    if (local !== undefined || !conversationId || !remote) return
     const controller = new AbortController()
     let source: string | undefined
     void fetchMessageReference(conversationId, messageId, index, {
@@ -120,7 +126,7 @@ function ReferenceThumbnail({
       controller.abort()
       if (source) URL.revokeObjectURL(source)
     }
-  }, [local, conversationId, messageId, index, object, identity])
+  }, [local, conversationId, messageId, index, remote, identity])
   const source = local ?? (preview?.identity === identity ? preview.source : undefined)
   const label = name || getImageMentionLabel(index)
   const failed = !local && preview?.identity === identity && !preview.source
