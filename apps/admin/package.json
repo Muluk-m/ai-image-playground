@@ -12,6 +12,7 @@
     "routes:generate": "bun run scripts/generate-route-tree.ts",
     "prebuild": "pnpm routes:generate",
     "build": "tsc -b && vite build",
+    "build:static-host": "pnpm build && RUNTIME_CONFIG_DIR=$PWD/dist node ../web/scripts/write-runtime-config.mjs && RUNTIME_CONFIG_DIR=$PWD/dist node ../web/scripts/write-version-manifest.mjs",
     "pretypecheck": "pnpm routes:generate",
     "typecheck": "tsc -b",
     "pretest": "pnpm routes:generate",
@@ -74,6 +75,7 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.8.3",
     "vite": "^6.3.2",
+    "wrangler": "^4.124.0",
     "vitest": "^4.1.5"
   }
 }

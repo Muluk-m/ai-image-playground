@@ -11,6 +11,7 @@ export default function SyncStatusPanel() {
   const pending = useSyncStatus((s) => s.pending)
   const lastSyncedAt = useSyncStatus((s) => s.lastSyncedAt)
   const uploads = useSyncStatus((s) => s.uploads)
+  const failure = useSyncStatus((s) => s.failure)
   if (!enabled) return null
 
   const failed = status === 'error'
@@ -23,6 +24,12 @@ export default function SyncStatusPanel() {
         >
           {syncLabel({ status, pending, lastSyncedAt, uploads })}
         </p>
+        {failed && (
+          // 只说「失败」等于让用户自己猜：把处置办法一并写出来。
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            {t(`sync.failure.${failure ?? 'network'}`)}
+          </p>
+        )}
       </div>
       {failed ? (
         <button

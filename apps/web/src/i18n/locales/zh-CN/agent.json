@@ -97,7 +97,8 @@
     "interrupted": "已中断，已自动续上",
     "contextOverflow": "这一轮的内容太长，没有发出去",
     "stopped": "已停止",
-    "noCredits": "未扣积分"
+    "noCredits": "未扣积分",
+    "chatFree": "对话限时免费"
   },
   "composer": {
     "placeholder": "说一句你想做什么，@ 引用画布或素材",

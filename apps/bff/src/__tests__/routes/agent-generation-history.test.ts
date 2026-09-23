@@ -19,6 +19,7 @@ import {
   TEST_IMAGE_CHANNEL,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
@@ -41,6 +42,8 @@ const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+
+await silenceChatUpstream()
 class DurableFixture extends InMemoryObjectStore {
   sign(key: string) {
     return `https://durable.example/${key}`

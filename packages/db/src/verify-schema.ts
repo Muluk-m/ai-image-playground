@@ -1,6 +1,9 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
+  'inspiration_categories',
+  'inspiration_items',
+  'inspiration_publications',
   'generation_images',
   'agent_executions',
   'deployment_controls',
@@ -44,6 +47,12 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'inspiration_categories_pkey',
+  'inspiration_categories_name_unique',
+  'inspiration_items_pkey',
+  'idx_inspiration_items_public',
+  'idx_inspiration_items_category',
+  'inspiration_publications_pkey',
   'generation_images_generation_id_role_position_pk',
   'agent_executions_pkey',
   'deployment_controls_pkey',
@@ -125,7 +134,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 39
+const EXPECTED_MIGRATION_COUNT = 40
 
 export interface SchemaVerificationResult {
   tables: number

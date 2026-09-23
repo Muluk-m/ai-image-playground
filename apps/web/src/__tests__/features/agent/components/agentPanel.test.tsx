@@ -52,6 +52,18 @@ async function enableAgent(enabled: boolean): Promise<void> {
   vi.unstubAllGlobals()
 }
 
+/** 限时免费只改页脚的写法，所以要连着计费一起开：没有积分就没有「免积分」。 */
+async function enableChatFree(): Promise<void> {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({ ...MANIFEST, 'billing:credits': true, 'billing:chat-free': true }),
+    ),
+  )
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  vi.unstubAllGlobals()
+}
+
 function render(): void {
   act(() => {
     // 面板只把 editor 转交给创作记录页签；这些用例不点创作记录，给个空壳就够。
@@ -1017,6 +1029,72 @@ describe('AgentPanel', () => {
 
     act(() => toggle.click())
     expect(host.textContent).toContain('对话 42 · 生图 85')
+  })
+
+  it('对话限时免费：整轮只花在对话上时划掉总额并挂上免费徽章', async () => {
+    await enableChatFree()
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'completed',
+          cost: { chat: 12, image: 0, video: 0 },
+        },
+      },
+    })
+    render()
+
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('消耗'),
+    )!
+    // 划掉的是数字本身，闪电图标留着；原价还看得见，否则用户不知道免掉的是多少。
+    expect(toggle.textContent).toBe('消耗 12')
+    expect(toggle.querySelector('del')?.textContent).toBe('12')
+    expect(host.textContent).toContain('对话限时免费')
+  })
+
+  it('掺了生图的轮实付不为零：总额不划，只在明细里划掉对话那项', async () => {
+    await enableChatFree()
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'completed',
+          cost: { chat: 42, image: 85, video: 0 },
+        },
+      },
+    })
+    render()
+
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('消耗'),
+    )!
+    expect(toggle.querySelector('del')).toBeNull()
+    expect(host.textContent).not.toContain('对话限时免费')
+    act(() => toggle.click())
+    expect(host.querySelector('del')?.textContent).toBe('42')
   })
 
   it('重试记录夹在一轮中间时，页脚仍只跟在这一轮最后一条后面', () => {

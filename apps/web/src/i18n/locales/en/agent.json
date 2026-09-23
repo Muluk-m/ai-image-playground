@@ -103,7 +103,8 @@
     "interrupted": "Interrupted, resumed automatically",
     "contextOverflow": "This turn was too long to send",
     "stopped": "Stopped",
-    "noCredits": "No credits used"
+    "noCredits": "No credits used",
+    "chatFree": "Chat free for a limited time"
   },
   "composer": {
     "placeholder": "Say what you want, @ for canvas or assets",

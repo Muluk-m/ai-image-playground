@@ -35,7 +35,9 @@
     "confirmMessage": "将丢失输入框中未提交的提示词。继续将以本条灵感的提示词、参数与推荐模型覆盖。",
     "confirmAction": "替换并应用",
     "succeeded": "已应用灵感库示例",
-    "noProfile": "未找到 {{provider}} / {{model}} 的可用配置，请先在设置中添加"
+    "noProfile": "未找到 {{provider}} / {{model}} 的可用配置，请先在设置中添加",
+    "referenceFailed": "参考图下载失败，未替换当前输入",
+    "canvasFailed": "画布启动失败，提示词与参考图仍保留在输入框"
   },
   "manifest": {
     "loadFailed": "远程灵感清单加载失败：{{reason}}",

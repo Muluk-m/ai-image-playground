@@ -434,6 +434,23 @@ describe('mask draft lifecycle in store actions', () => {
     expect(state.inputImages.map((img) => img.id)).toEqual([replacement.id, imageB.id])
     expect(state.prompt).toBe(prompt)
   })
+
+  it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {
+    vi.mocked(callImageApi).mockRejectedValue(
+      new DOMException('The user aborted a request.', 'AbortError'),
+    )
+    useStore.setState({ prompt: 'a red cat', params: { ...DEFAULT_PARAMS } })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'error',
+      'aborted task did not fail',
+    )
+
+    const failed = useStore.getState().tasks[0]
+    expect(failed?.error).toContain('请求超时')
+    expect(failed?.error).not.toContain('aborted')
+  })
 })
 
 describe('interrupted OpenAI running tasks', () => {
