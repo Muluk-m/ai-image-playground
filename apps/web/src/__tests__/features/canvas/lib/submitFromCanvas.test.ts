@@ -136,7 +136,7 @@ describe('失败占位框的重试', () => {
     },
   } satisfies PlaceholderView
 
-  it('原任务的输入图还在内存里：原样带回去重发，旧占位框收掉', () => {
+  it('原任务的输入图还在内存里：原样带回去重发，旧占位框收掉', async () => {
     retainCanvasInputs('task-1', { inputImageDataUrls: ['data:image/png;base64,kept'] })
     const deleteElement = vi.fn()
     const editor = {
@@ -146,6 +146,8 @@ describe('失败占位框的重试', () => {
     } as unknown as CanvasEditor
 
     retryCanvasTask(editor, placeholder)
+    await vi.waitFor(() => expect(submitted).toHaveLength(1))
+    expect(submitted[0]!.input_images).toEqual(['data:image/png;base64,kept'])
 
     expect(deleteElement).toHaveBeenCalledWith('placeholder-1')
   })
