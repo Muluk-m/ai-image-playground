@@ -138,7 +138,9 @@ export default function AgentActivityTrail({
     <output
       aria-live="polite"
       aria-label={last.title}
-      className="overflow-hidden transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
+      // `shrink-0` 不能省：对话列表是纵向 flex，内容一溢出，带 overflow-hidden 的它会被压到 0 高，
+      // 步骤照常排版却一个像素也画不出来——长对话里活动轨与来源链接就是这么「消失」的。
+      className="shrink-0 overflow-hidden transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
       style={{
         height: spent ? 0 : WINDOW,
         opacity: spent ? 0 : 1,
