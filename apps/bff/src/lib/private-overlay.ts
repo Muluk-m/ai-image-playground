@@ -79,6 +79,14 @@ export interface PrivateTaskHooks {
     referralCode?: string
   }): Promise<void>
   runMaintenance(now: number): Promise<void>
+  /**
+   * 运营停用的模型：它们不出现在 `/api/channels`，页面上就没有入口。提交那一侧不靠它——
+   * 停用模型的预扣本来就回 `price_unavailable`，没刷新的老页面照样被拒，不会打到上游。
+   *
+   * 可选成员（「先扩后缩」）：钉住的 overlay 还没有这一项时加载照常，缺席即全部上架。
+   * 每次页面启动都会问一次，实现方自己决定缓存，别让它在热路径上每次查库。
+   */
+  inactiveModels?(): Promise<ReadonlySet<string>>
 }
 
 type PrivateBffModule = {

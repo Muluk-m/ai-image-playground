@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router'
 import { AlertTriangle, ChevronRight } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { AppSidebar } from '@/components/AppSidebar'
 import { CommandPalette } from '@/components/CommandPalette'
@@ -26,11 +27,7 @@ export const Route = createFileRoute('/_authed')({
     }
   },
   component: AuthedLayout,
-  notFoundComponent: () => (
-    <Page crumbs={[{ label: '页面不存在' }]}>
-      <NotFound hint="该功能未开启或链接已失效" />
-    </Page>
-  ),
+  notFoundComponent: AuthedNotFound,
 })
 
 // SidebarProvider 只写 sidebar_state，不读；不回读的话每次刷新侧栏都弹回展开。
@@ -39,16 +36,34 @@ function sidebarDefaultOpen(): boolean {
   return !/(?:^|;\s*)sidebar_state=false(?:;|$)/.test(document.cookie)
 }
 
-function AuthedLayout() {
+function AuthedShell({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
       <AppSidebar />
       <SidebarInset className="min-w-0">
-        <OpsAlertBanner />
-        <Outlet />
+        {children}
         <CommandPalette />
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function AuthedLayout() {
+  return (
+    <AuthedShell>
+      <OpsAlertBanner />
+      <Outlet />
+    </AuthedShell>
+  )
+}
+
+function AuthedNotFound() {
+  return (
+    <AuthedShell>
+      <Page crumbs={[{ label: '页面不存在' }]}>
+        <NotFound hint="该功能未开启或链接已失效" />
+      </Page>
+    </AuthedShell>
   )
 }
 

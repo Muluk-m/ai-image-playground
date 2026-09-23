@@ -120,7 +120,7 @@ describe('what the clipboard is allowed to carry', () => {
     paste([png, paper()])
 
     expect(browse).toHaveBeenCalledWith([png])
-    expect(useStore.getState().showToast).toHaveBeenCalledWith('只支持图片文件', 'error')
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('已跳过 1 个非图片文件', 'error')
   })
 
   it('refuses a file-only paste that carries no image', () => {

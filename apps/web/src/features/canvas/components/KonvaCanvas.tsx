@@ -5,8 +5,7 @@ import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } f
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { mediaIdentity } from '../../../lib/cloudMedia'
-import { dropEntries, expandDroppedFiles } from '../../../lib/dropFiles'
-import { acceptImageFiles } from '../../../lib/imageFiles'
+import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
@@ -682,9 +681,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           x: camera.x + (e.clientX - rect.left) / camera.zoom,
           y: camera.y + (e.clientY - rect.top) / camera.zoom,
         }
-        // entry 必须在这一拍同步取完：await 之后 DataTransfer 就空了。
-        const dropped = dropEntries(e.dataTransfer)
-        void expandDroppedFiles(dropped).then((files) => {
+        // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
+        void collectDroppedFiles(e.dataTransfer).then(({ files }) => {
           // 与输入框那块落点同一道闸：只留图片、太大的丢掉，各提示一次。
           void importImageFiles(editor, acceptImageFiles(files), drop)
         })

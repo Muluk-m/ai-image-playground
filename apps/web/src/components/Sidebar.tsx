@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { BookOpen, LoaderCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import { projectDisplayName } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
+import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
-import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
+import { BRAND_WORDMARK, brandNeedsWordmark, currentLocale, useTranslation } from '../i18n'
 
 import { APP_MODE_LABELS, type AppMode, isWorkbenchMode, NAV_APP_MODES, useStore } from '../store'
 import { AssetIcon, CanvasIcon, PromptImageIcon, SparkleIcon } from './icons'
@@ -52,8 +54,17 @@ export default function Sidebar() {
     .filter((project) => project.hasContent)
     .slice(0, 4)
 
+  // 正在打开的那个项目。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
+  // 这一行不给反馈的话点下去像没反应。
+  const [opening, setOpening] = useState<string | null>(null)
   const openProject = async (id: string, immersive = false) => {
-    if (!(await useAgentStore.getState().selectProject(id))) return
+    if (opening) return
+    setOpening(id)
+    try {
+      if (!(await useAgentStore.getState().selectProject(id))) return
+    } finally {
+      setOpening(null)
+    }
     setAppMode('canvas')
     // 沉浸式打开：进画布顺手把侧栏收掉。必须排在 setAppMode 后面——它会把这个选择复位成
     // 「按入口默认」。
@@ -155,10 +166,18 @@ export default function Sidebar() {
               >
                 <button
                   type="button"
+                  disabled={opening !== null}
                   onClick={() => void openProject(project.id)}
                   className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[13px]"
                 >
-                  <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  {opening === project.id ? (
+                    <LoaderCircle
+                      className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  )}
                   <span className="truncate">{projectDisplayName(project.name)}</span>
                 </button>
                 <button
@@ -173,6 +192,16 @@ export default function Sidebar() {
               </div>
             )
           })}
+          {/* 指南是独立的静态页，新标签打开，工作台原地不动。 */}
+          <a
+            href={GUIDE_PATHS[currentLocale()]}
+            target="_blank"
+            rel="noopener"
+            className={`${ITEM} ${IDLE_ITEM} mt-auto`}
+          >
+            <BookOpen className="h-4 w-4" aria-hidden="true" />
+            {t('nav.guide')}
+          </a>
         </nav>
       ) : null}
 

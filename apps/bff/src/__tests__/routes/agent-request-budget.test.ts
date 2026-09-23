@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { AGENT_TURN_MAX_REFERENCES, AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
+import {
+  AGENT_TURN_MAX_INLINE_REFERENCES,
+  AGENT_USER_MESSAGE_MAX_CHARS,
+} from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import {
@@ -140,8 +143,8 @@ it('本轮必要内容自己就装不下时不发请求，轮以「内容太长�
   const png = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#fff' } })
     .png()
     .toBuffer()
-  // 一句顶格长的话加满 8 张参考图。这些都是本轮的必要内容，裁历史裁不掉它们。
-  const references = Array.from({ length: AGENT_TURN_MAX_REFERENCES }, (_, at) => ({
+  // 一句顶格长的话加满能内联的那几张参考图。这些都是本轮的必要内容，裁历史裁不掉它们。
+  const references = Array.from({ length: AGENT_TURN_MAX_INLINE_REFERENCES }, (_, at) => ({
     imageId: `img-${at}`,
     dataUrl: `data:image/png;base64,${png.toString('base64')}`,
   }))

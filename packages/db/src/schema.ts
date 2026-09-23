@@ -739,7 +739,9 @@ export const agent_model_calls = pgTable(
     turn_id: text('turn_id').notNull(),
     user_id: text('user_id'),
     device_id: text('device_id').notNull(),
-    purpose: text('purpose').$type<'conversation' | 'compaction' | 'handoff'>().notNull(),
+    purpose: text('purpose')
+      .$type<'conversation' | 'compaction' | 'handoff' | 'web_search'>()
+      .notNull(),
     model: text('model').notNull(),
     input_image_count: integer('input_image_count').notNull().default(0),
     status: text('status').$type<'in_progress' | 'completed' | 'failed' | 'cancelled'>().notNull(),
@@ -754,7 +756,7 @@ export const agent_model_calls = pgTable(
     index('idx_agent_model_calls_turn').on(t.conversation_id, t.turn_id),
     check(
       'agent_model_calls_purpose_check',
-      sql`${t.purpose} IN ('conversation', 'compaction', 'handoff')`,
+      sql`${t.purpose} IN ('conversation', 'compaction', 'handoff', 'web_search')`,
     ),
     check(
       'agent_model_calls_status_check',

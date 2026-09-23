@@ -60,7 +60,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Request */}
-        <section className="rounded-md border bg-card p-4">
+        <section className="min-w-0 rounded-md border bg-card p-3 sm:p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Request
           </h3>
@@ -76,7 +76,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
               <KV label="background" value={req.background} mono />
             ) : null}
             {task.user_id ? (
-              <div className="grid grid-cols-[110px_1fr] gap-3">
+              <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-3 sm:grid-cols-[110px_1fr]">
                 <dt className="text-muted-foreground">user_id</dt>
                 <dd>
                   <Button
@@ -95,7 +95,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                 </dd>
               </div>
             ) : task.device_id ? (
-              <div className="grid grid-cols-[110px_1fr] gap-3">
+              <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-3 sm:grid-cols-[110px_1fr]">
                 <dt className="text-muted-foreground">device_id</dt>
                 <dd>
                   <Button
@@ -143,7 +143,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
               参考图 {inputImages.kind === 'count' ? `(${inputImages.count})` : null}
             </div>
             {inputImages.kind === 'count' && inputImages.count > 0 ? (
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {Array.from({ length: inputImages.count }).map((_, i) => (
                   <Button
                     key={i}
@@ -172,7 +172,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
         </section>
 
         {/* Result */}
-        <section className="rounded-md border bg-card p-4">
+        <section className="min-w-0 rounded-md border bg-card p-3 sm:p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Result
           </h3>

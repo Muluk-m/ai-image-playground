@@ -11,7 +11,13 @@ import {
   THUMBNAIL,
   THUMBNAIL_STATIC,
 } from '../agentStyles'
-import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPreview'
+import { fetchedCanvasId } from '../lib/artifactDelivery'
+import {
+  type AgentArtifactPreview,
+  type AgentFetchedPreview,
+  artifactPreview,
+  fetchedImagePreview,
+} from '../lib/artifactPreview'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
@@ -119,6 +125,85 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
       {image}
       {badge}
     </button>
+  )
+}
+
+/** 取回来的那几张网图此刻的样子；交付还在途时先不取图，那一份正在下载。 */
+function useFetchedPreviews(message: AgentToolMessage): readonly AgentFetchedPreview[] {
+  const [previews, setPreviews] = useState<readonly AgentFetchedPreview[]>([])
+  const images = message.delivery === 'pending' ? undefined : message.fetchedImages
+  const key = `${message.delivery}:${(images ?? []).map((one) => one.imageId).join(' ')}`
+
+  useEffect(() => {
+    let alive = true
+    if (!images?.length) {
+      setPreviews([])
+      return
+    }
+    void Promise.all(
+      images.map((image, index) =>
+        fetchedImagePreview(image, fetchedCanvasId(message.toolCallId, index)),
+      ),
+    ).then((next) => {
+      if (alive) setPreviews(next)
+    })
+    return () => {
+      alive = false
+    }
+    // images 每次渲染都是新数组，用它的 id 与交付状态合成的 key 当依赖。
+  }, [key])
+
+  return previews
+}
+
+/** 链接上只写站点，不写整条地址：地址常常很长，卡上一行放不下，站点才是用户要认的那一项。 */
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).host || url
+  } catch {
+    return url
+  }
+}
+
+/** 取回来的网图：缩略图加一个回到来源的链接——版权在对方那里，来源不能只留在模型的话里。 */
+function FetchedImages({ previews }: { previews: readonly AgentFetchedPreview[] }) {
+  const { t } = useTranslation('agent')
+  if (!previews.length) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        {previews.map(({ objectId, source, onCanvas }) => {
+          if (!source) return null
+          const bitmap = <img src={source} alt="" className="h-full w-full object-cover" />
+          return onCanvas ? (
+            <button
+              key={objectId}
+              type="button"
+              className={THUMBNAIL}
+              onClick={() => agentCanvasSink()?.focus([objectId])}
+            >
+              {bitmap}
+            </button>
+          ) : (
+            <span key={objectId} className={THUMBNAIL_STATIC}>
+              {bitmap}
+            </span>
+          )
+        })}
+      </div>
+      {previews.map(({ image, objectId }) => (
+        <a
+          key={objectId}
+          href={image.sourceUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={t('fetchedImage.sourceTitle')}
+          className={`self-start ${GHOST_LINK}`}
+        >
+          {sourceHost(image.sourceUrl)}
+        </a>
+      ))}
+    </div>
   )
 }
 
@@ -267,7 +352,11 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
   const previews = useArtifactPreviews(message)
-  const offCanvas = previews.some((preview) => !preview.onCanvas)
+  const fetched = useFetchedPreviews(message)
+  // 取回来的网图取不到预览时不算「可以放入画布」：放进去的那一步同样取不到字节。
+  const offCanvas =
+    previews.some((preview) => !preview.onCanvas) ||
+    fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, offCanvas, progress !== null)
   return (
@@ -325,6 +414,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
           ))}
         </div>
       )}
+      <FetchedImages previews={fetched} />
       {offCanvas && (
         <button
           type="button"

@@ -90,8 +90,8 @@
     "withdrawing": "Withdrawing…",
     "withdrawFailed": "Couldn't withdraw. Please try again shortly.",
     "withdrawn": "Retry withdrawn",
-    "retryRemaining_one": "Retry the {{count}} remaining failed placeholder",
-    "retryRemaining_other": "Retry the remaining {{count}} failed placeholders"
+    "retryRemaining_one": "Retry the remaining {{count}} image",
+    "retryRemaining_other": "Retry the remaining {{count}} images"
   },
   "cost": {
     "duration": "Took {{duration}}",
@@ -112,6 +112,9 @@
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",
     "removeReferenceAria": "Remove reference image {{label}}",
+    "selectionSummary_one": "{{count}} canvas image selected",
+    "selectionSummary_other": "{{count}} canvas images selected",
+    "clearSelectionAria": "Don't include the selected canvas images",
     "abort": "Stop",
     "interject": "Interject",
     "send": "Send",
@@ -126,6 +129,8 @@
     "sendAndCreateTitle": "Send: the assistant drafts a prompt first; generation starts only after you confirm",
     "tooManyReferences_one": "At most {{count}} reference image per turn",
     "tooManyReferences_other": "At most {{count}} reference images per turn",
+    "tooManyUploads_one": "At most {{count}} uploaded or library image per turn (images selected on the canvas don't count)",
+    "tooManyUploads_other": "At most {{count}} uploaded or library images per turn (images selected on the canvas don't count)",
     "abortedToast": "Stopped. Your draft is back in the box.",
     "aborting": "Stopping…",
     "modeAria": "Creation type",
@@ -195,6 +200,13 @@
   "delivery": {
     "generateFailed": "Generation failed",
     "artifactName": "Creation"
+  },
+  "fetchedImage": {
+    "canvasName": "Web image",
+    "sourceTitle": "Open source page"
+  },
+  "trail": {
+    "sources": "Sources"
   },
   "error": {
     "turnFailed": "This turn did not finish",

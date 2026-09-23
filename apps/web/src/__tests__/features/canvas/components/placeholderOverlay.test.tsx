@@ -648,7 +648,7 @@ describe('重试排队', () => {
 
   function retryRemainingButton() {
     return [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith('重试剩余'),
+      button.textContent?.startsWith('重试剩下的'),
     )
   }
 
@@ -661,7 +661,7 @@ describe('重试排队', () => {
     act(() => root.render(<AgentToolCard message={origin} />))
 
     const button = retryRemainingButton()!
-    expect(button.textContent).toBe('重试剩余 2 个失败占位')
+    expect(button.textContent).toBe('重试剩下的 2 张')
     act(() => button.click())
     expect(agent.retryRemaining).toHaveBeenCalledWith('tool-1')
   })

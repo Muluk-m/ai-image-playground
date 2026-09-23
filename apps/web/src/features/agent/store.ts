@@ -23,12 +23,17 @@ import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
-import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
+import {
+  notifyPrivateSubmissionError,
+  notifyPrivateSubmissionSettled,
+} from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
+import type { CanvasProject } from '../canvas/lib/projectRepository'
 import {
   bindNewCanvasWorkspace,
   currentCanvasWorkspace,
+  openCanvasCloudSession,
   selectCanvasWorkspace,
 } from '../canvas/lib/workspaces'
 import {
@@ -269,6 +274,29 @@ const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   messages: dropUnsettledMessages(state.messages),
 })
 
+/**
+ * 画布上的图换成云端媒体引用（`aip-media:`），`agentClient` 发送时就只带 id。
+ *
+ * 本机画布存的是原图 data URL——用户传的图、智能体产物落画布时都是整张原图——上传之后 id 只在
+ * 同步会话的绑定表里。不换的话一轮十张主图就是几十 MB 的请求体，慢，然后失败。
+ * 画过遮罩、烧过批注的那张是新像素，云端没有它，照旧内联；认不出的（没开云项目、同步失败）也照旧。
+ */
+async function withCloudMedia(
+  references: readonly AgentTurnReference[],
+): Promise<readonly AgentTurnReference[]> {
+  const cloud = openCanvasCloudSession()
+  const local = references.flatMap((one) =>
+    'dataUrl' in one && !one.maskDataUrl && one.dataUrl.startsWith('data:image/')
+      ? [one.dataUrl]
+      : [],
+  )
+  if (!cloud || local.length === 0) return references
+  const ids = await cloud.mediaIdsFor(local)
+  return references.map((one) => {
+    const id = 'dataUrl' in one && !one.maskDataUrl ? ids.get(one.dataUrl) : undefined
+    return id ? { ...one, dataUrl: `aip-media:${id}` } : one
+  })
+}
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
 
@@ -486,6 +514,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
     jobDeliveries.set(card.id, handle)
   }
 
+  /**
+   * 钱不够导致的失败当场把开通/充值面板叫出来。
+   *
+   * 失败卡片上本来就有「去充值」，但那要用户先看见那张卡、再看懂那句话、再去点。
+   * 余额见底不是这一次生成的问题，是账户的问题：不当场说清，用户只会当成又一次
+   * 生成失败，接着一遍遍重试，每次都失败。没有计费 overlay 的部署里这是空操作。
+   */
+  const promptRechargeIfBroke = (code: string | undefined) => {
+    if (code === 'insufficient_credits' || code === 'quota_exceeded')
+      notifyPrivateSubmissionError({ insufficientCredits: true })
+  }
+
   /** 一个后台任务到了终局：结果卡换成终局，产物按产物交付落画布，失败就在占位上标错。 */
   const settleJob = (job: AgentBackgroundJobView, conversationId: string) => {
     const shown = get().messages.find((message) => message.id === job.messageId)
@@ -519,6 +559,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       handle.discard(card.id)
     else if (card.status === 'failed') {
       handle.failed(card.id, card.message, failureCodeOf(card))
+      promptRechargeIfBroke(failureCodeOf(card))
       coverRefusedSlot(card)
     } else if (deliverable(card)) handle.enqueue(card)
     else handle.discard(card.id)
@@ -624,9 +665,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
           jobDeliveries.set(event.messageId, turnDelivery.handOff(event.messageId))
         }
         watchJobs(conversationId)
-      } else if (event.status === 'failed' && card.kind === 'tool')
+      } else if (event.status === 'failed' && card.kind === 'tool') {
         turnDelivery.failed(event.messageId, event.message, card.errorCode)
-      else if (card.kind === 'tool' && deliverable(card)) turnDelivery.enqueue(card)
+        promptRechargeIfBroke(card.errorCode)
+      } else if (card.kind === 'tool' && deliverable(card)) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }
   }
@@ -987,10 +1029,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
   ) => {
     const current = () => get().conversationId === conversationId
     try {
+      const sent = await withCloudMedia(references)
       const outcome = await startTurn(
         conversationId,
         text,
-        references,
+        sent,
         currentTurnParams(),
         mode,
         undefined,
@@ -1004,7 +1047,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       if (outcome.kind === 'alreadyRunning') {
         // 老服务端没有排队：忙时照旧是插话。
-        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, references)
+        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, sent)
       } else if (
         outcome.kind === 'frames' ||
         (outcome.kind === 'queued' && outcome.body.state === 'consumed')
@@ -1098,6 +1141,38 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const project = await useCanvasProjectStore.getState().create(kind)
     showProject(project, showPanel)
     return true
+  }
+
+  /**
+   * 项目已经在屏幕上了，再去把云端那份对一遍。
+   *
+   * 名字与 revision 换上去就行，画布不归这里管（它自己回源）。只有一种情况要重开面板：
+   * 别的设备给这个项目换过会话绑定——那时本机开着的是一段已经不属于它的历史。
+   * 取不回来不算失败：画布与草稿都在本机，用户照常能用，一句提示足够。
+   */
+  const refreshOpenedProject = async (
+    project: CanvasProject,
+    scope: string,
+    isCurrent: () => boolean,
+  ) => {
+    if (!project.cloud?.revision || !cloudProjectsEnabled() || navigator.onLine === false) return
+    const settled = () =>
+      isCurrent() &&
+      scopedStorageName('canvas') === scope &&
+      useCanvasProjectStore.getState().activeId === project.id
+    try {
+      const remote = await getCloudProject(project.id, AbortSignal.timeout(10000))
+      if (!settled()) return
+      const refreshed = await restoreCloudProject(remote)
+      if (!settled()) return
+      useCanvasProjectStore.setState((state) => ({
+        projects: state.projects.map((one) => (one.id === refreshed.id ? refreshed : one)),
+      }))
+      if (refreshed.conversationId !== project.conversationId) showProject(refreshed, showPanel)
+    } catch {
+      if (settled())
+        useStore.getState().showToast(i18next.t('project.openFailed', { ns: 'agent' }), 'error')
+    }
   }
   /** 删除时属于面板的那两步，外加它此刻的两件事实。 */
   const deletePanel: DeleteProjectPanel = {
@@ -1260,7 +1335,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
     async selectProject(projectId, isCurrent = () => true) {
       return changeProject(async () => {
         const scope = scopedStorageName('canvas')
-        let project = useCanvasProjectStore.getState().projects.find((one) => one.id === projectId)
+        const project = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.id === projectId)
         if (!project) return false
         if (!(await saveCurrentProject(get().conversationId)).ok) {
           useStore.getState().showToast(i18next.t('project.saveFailed', { ns: 'agent' }), 'error')
@@ -1268,23 +1345,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
         if (!isCurrent()) return false
         try {
-          if (project.cloud?.revision && cloudProjectsEnabled() && navigator.onLine !== false) {
-            const remote = await getCloudProject(project.id, AbortSignal.timeout(10000))
-            if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
-            project = await restoreCloudProject(remote)
-            if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
-            const refreshed = project
-            useCanvasProjectStore.setState((state) => ({
-              projects: state.projects.map((one) => (one.id === refreshed.id ? refreshed : one)),
-            }))
-          }
           await useCanvasProjectStore.getState().update(project.id, { workspaceOpened: true })
         } catch {
           useStore.getState().showToast(i18next.t('project.openFailed', { ns: 'agent' }), 'error')
           return false
         }
         if (!isCurrent()) return false
+        // 本机这份就足够开：画布自己回源（`selectCanvasWorkspace` 里的 `refreshCloud`），
+        // 会话历史另有一条请求，面板有它自己的加载态。云端那份只用来纠正名字、revision
+        // 与会话绑定——生产实测它要 1.5s，压在点击与画面之间就是纯粹的干等，
+        // 所以放到后台，顺带让离线时也能打开项目。
         showProject(project, showPanel)
+        void refreshOpenedProject(project, scope, isCurrent)
         return true
       })
     },
@@ -1449,7 +1521,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           outcome = await startTurn(
             target,
             trimmed,
-            references,
+            await withCloudMedia(references),
             turnParams,
             mode,
             undefined,

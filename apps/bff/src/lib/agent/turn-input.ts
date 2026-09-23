@@ -11,6 +11,7 @@ import {
   type ResolvedAgentImage,
   referenceHasMask,
   referenceManifest,
+  shownTurnReferences,
 } from './images'
 import { agentModel } from './model'
 import { requestOverheadTokens } from './request-budget'
@@ -265,14 +266,15 @@ export function expandSkillInvocation(
  * 本轮 prompt 的文字：用户原话后面跟上引用清单。
  * 改图工具读的执行原文也用这一句收尾，两处的引用编号因此不会各说各的。
  *
- * `attached` 只有本轮用户真的附了图时才为真——沿用下来的那批只上清单，不发字节。
+ * `selected` 只有本轮用户真的挑了图时才为真——沿用下来的那批是上下文，不是本轮意图。
+ * 本轮挑的图里有几张只上清单不发字节，由 `referenceManifest` 按同一条规则自己分辨。
  */
 export function turnPromptText(
   text: string,
   references: readonly AgentImageReference[],
-  attached: boolean,
+  selected: boolean,
 ): string {
-  return text + referenceManifest(references, attached)
+  return text + referenceManifest(references, selected)
 }
 
 export interface TurnVisualEvidence {
@@ -301,7 +303,8 @@ export function turnModelPrompt(
  * 形状与实发同源，只是图片块与清单里的选区值是占位——预扣定额要在起轮之前算完，读不起字节。
  * 不进这里的只有工具清单：它不是消息，单独由 `estimateToolDeclarationTokens` 折算。
  *
- * 视觉证据只数**本轮真的附上的**那几张：沿用下来的引用只上文字清单，实发路径也不发它们的字节。
+ * 视觉证据只数**本轮真的附上的**那几张：沿用下来的引用只上文字清单，按 id 附的图一多也只上
+ * 清单，两处都由 `shownTurnReferences` 说了算，实发路径读的是同一句规则。
  */
 export function estimatedTurnInput(
   history: readonly AgentMessageView[],
@@ -319,6 +322,7 @@ export function estimatedTurnInput(
 ): AgentMessage[] {
   const now = Date.now()
   const active = activeAgentReferences(references, history, selectionHistoryStart)
+  const shown = shownTurnReferences(references)
   const state = turnInitialState(history, mode, autoSubmit, selectionHistoryStart, audience)
   return [
     { role: 'user', content: [{ type: 'text', text: state.systemPrompt }], timestamp: now },
@@ -336,11 +340,11 @@ export function estimatedTurnInput(
               references.length > 0,
             ) +
             evidenceManifest([
-              ...estimatedListings(references),
+              ...estimatedListings(shown),
               ...reviewImageIds.map((imageId) => ({ imageId })),
             ]),
         },
-        ...references.flatMap((reference) =>
+        ...shown.flatMap((reference) =>
           evidenceBlocks(
             PLACEHOLDER_IMAGE,
             referenceHasMask(reference)

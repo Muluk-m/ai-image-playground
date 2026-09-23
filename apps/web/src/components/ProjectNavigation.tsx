@@ -22,7 +22,10 @@ export default function ProjectNavigation() {
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [busy, setBusy] = useState(false)
+  // 哪一项正在打开。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
+  // 只把按钮置灰的话点下去像没反应。`'new'` 是「新建」那一项。
+  const [pending, setPending] = useState<string | 'new' | null>(null)
+  const busy = pending !== null
   const catalog = useMemo(() => projectCatalog(projects, cloudCatalog), [projects, cloudCatalog])
   const current = catalog.find((project) => project.id === activeId)
   const name = projectDisplayName(
@@ -45,14 +48,14 @@ export default function ProjectNavigation() {
       setOpen(false)
       return
     }
-    setBusy(true)
+    setPending(id ?? 'new')
     try {
       const opened = id
         ? await useAgentStore.getState().selectProject(id)
         : await useAgentStore.getState().createProject()
       if (opened) setOpen(false)
     } finally {
-      setBusy(false)
+      setPending(null)
     }
   }
 
@@ -137,7 +140,11 @@ export default function ProjectNavigation() {
                       {formatDateMinute(project.updatedAt)}
                     </time>
                   </span>
-                  {project.id === activeId && <Check className="text-primary" />}
+                  {project.id === pending ? (
+                    <LoaderCircle className="animate-spin text-primary" aria-hidden="true" />
+                  ) : (
+                    project.id === activeId && <Check className="text-primary" />
+                  )}
                 </Button>
               ))}
               {!visible.length && (
@@ -171,7 +178,7 @@ export default function ProjectNavigation() {
                 disabled={busy}
                 onClick={() => void enter()}
               >
-                <Plus />
+                {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <Plus />}
                 <span className="text-left text-xs">
                   {t('panel.newProjectAria')}
                   <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
@@ -199,7 +206,7 @@ export default function ProjectNavigation() {
           disabled={busy}
           onClick={() => void enter()}
         >
-          {busy ? <LoaderCircle className="animate-spin" /> : <Plus />}
+          {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <Plus />}
         </Button>
       </div>
     </div>

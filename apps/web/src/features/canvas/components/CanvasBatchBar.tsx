@@ -51,10 +51,12 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
           onClose={() => setGenerating(false)}
         />
       )}
+      {/* `w-max whitespace-nowrap`：居中的绝对定位元素按「容器宽减 left」收缩，面板一窄最多只剩
+          半宽，「批量生成 12 张」就被挤成两行。宽度交给内容定。 */}
       <div
         role="toolbar"
         aria-label={t('batch.aria')}
-        className="pointer-events-auto absolute bottom-6 left-1/2 z-[400] flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur"
+        className="pointer-events-auto absolute bottom-6 left-1/2 z-[400] flex w-max -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur"
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >

@@ -1,0 +1,9 @@
+/* 字体栈与网络字体。工作台与使用指南共用一份。 */
+@import url('https://fontsapi.zeoseven.com/442/main/result.css');
+@import url('https://cdn.jsdelivr.net/npm/@lobehub/webfont-harmony-sans-sc@1.0.0/css/index.css');
+
+:root {
+  --font-ui-sans: 'HarmonyOS Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', 'Inter', 'Helvetica Neue', system-ui, sans-serif;
+  --font-mono: 'Maple Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+}
