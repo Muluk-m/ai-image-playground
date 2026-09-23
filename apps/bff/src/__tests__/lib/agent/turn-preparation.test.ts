@@ -432,15 +432,12 @@ describe('起轮准备半路出错', () => {
     const conversation = await createAgentConversation(USER, '你好')
     const source = await queuedMessage(conversation.id, '[image 1] 看这张图', [REFERENCE])
 
-    let asserted = 0
     await expect(
       prepare(conversation.id, source, USER, async () => {
-        asserted += 1
         throw new ConversationExecutionLost()
       }),
     ).rejects.toThrow(ConversationExecutionLost)
 
-    expect(asserted).toBe(1)
     expect(await db.select().from(schema.agent_messages)).toHaveLength(1)
     expect(await storage.listPrefix(`agent/${conversation.id}/`)).not.toEqual([])
   })

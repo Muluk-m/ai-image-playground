@@ -39,7 +39,7 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
-import type { AgentTurnAudience } from './skills'
+import { type AgentTurnAudience, ensureAgentSkills, loadAgentTurnAudience } from './skills'
 import { agentThinking } from './thinking'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
 import type { PreparedAgentTurn } from './turn'
@@ -146,16 +146,25 @@ interface TurnContent {
   readonly wake?: PreparedAgentTurn['wake']
   /** 取走与预扣之外，这一来源还要在同一事务里写的东西。 */
   readonly write?: (tx: BffTransaction) => Promise<void>
-  /** 事务没成的收尾：已经落进对象存储的参考图要清掉。 */
+  /**
+   * 事务没成的收尾：已经落进对象存储的参考图要清掉。**失败自己吞掉**——从这里抛出去会盖掉
+   * 真正的失败原因（见 `removeAgentTurnReferences`）。
+   */
   readonly rollback?: () => Promise<void>
   /** 预扣落定之后的后续，不挡这一轮。 */
   readonly settled?: () => void
 }
 
-/** 取件事务里落定的那一份：预扣的结果（这一轮不计费时没有），与最终进模型的那一份轮输入。 */
-interface TurnWritten {
+/** 取件事务落定的那一份：预扣的结果（这一轮不计费时没有），与这一轮最终按哪一份轮输入走。 */
+interface CommittedTurnStart {
   readonly reserved: ChatTaskReserved | undefined
   readonly input: AgentTurnInput
+}
+
+/** 一份候选的轮输入与按它算出的估算：预扣按估算，实发按输入，两边同源。 */
+interface EstimatedTurnInput {
+  readonly input: AgentTurnInput
+  readonly estimatedInputTokens: number
 }
 
 export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPreparation> {
@@ -173,10 +182,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   const [overlay, audience] = await Promise.all([
     loadPrivateBffOverlay(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
-    import('./skills').then(async (skills) => {
-      await skills.ensureAgentSkills()
-      return skills.loadAgentTurnAudience(userId)
-    }),
+    ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
   ])
   const content =
     source.kind === 'wake'
@@ -188,21 +194,24 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，
   // 不留孤儿对象。范围到事务提交为止——提交之后那条用户消息已经指着这些图了。
-  let written: TurnWritten
+  let committed: CommittedTurnStart
   try {
     const window = await history
     const selectedModel = agentThinking(content.params?.thinkingDepth).model
     const pricing =
       chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
 
-    // 一份轮输入，两个读者：这里的估算，与 `startAgentTurn` 发出去的那一份。估算在事务之外
-    // 算完，取件与预扣那一笔才只有数据库往返。
-    const withNote = turnInputOf(window, content, audience)
+    // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
+    // 事务之外算完，取件与预扣那一笔才只有数据库往返。
+    const estimated = (one: TurnContent): EstimatedTurnInput => {
+      const input = turnInputOf(window, one, audience)
+      return { input, estimatedInputTokens: estimateTurnInputTokens(input) }
+    }
+    const withNote = estimated(content)
+    // 并进来的那段说明带不带得起，要到预扣那一步才知道：扣不下就退到这一份。
     const withoutNote = content.wakes?.note
-      ? turnInputOf(window, { ...content, wakes: { ids: content.wakes.ids } }, audience)
+      ? estimated({ ...content, wakes: { ids: content.wakes.ids } })
       : null
-    const estimated = estimateTurnInputTokens(withNote)
-    const estimatedWithoutNote = withoutNote ? estimateTurnInputTokens(withoutNote) : null
     const chatTask =
       pricing && userId
         ? {
@@ -216,26 +225,27 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
           }
         : null
 
-    written = await execution.write(async (tx) => {
+    committed = await execution.write(async (tx) => {
       // 先取走再预扣：两步同在这个事务里，任一步不成立就整笔回滚，那一条原样待处理。
       if (!(await consumeAgentMessage(tx, conversationId, sourceId(source), turnId)))
         throw new TurnStartRollback({ kind: 'withdrawn' })
       let reserved: ChatTaskReserved | undefined
-      let keptNote = true
+      // 这一轮最终按哪一份走；退到 `withoutNote` 就是说明没进这一轮。
+      let chosen = withNote
       if (chatTask) {
         let reservation = await reserveChatTask({
           tx,
           ...chatTask,
-          estimatedInputTokens: estimated,
+          estimatedInputTokens: chosen.estimatedInputTokens,
         })
         // 带上唤醒的说明预扣不下，就只为用户这条消息预扣：唤醒的费用不能挡住用户的话。被拒的
         // 预扣不留痕迹，同一事务里可以再来一次。
-        if (reservation.kind === 'insufficient_credits' && estimatedWithoutNote !== null) {
-          keptNote = false
+        if (reservation.kind === 'insufficient_credits' && withoutNote) {
+          chosen = withoutNote
           reservation = await reserveChatTask({
             tx,
             ...chatTask,
-            estimatedInputTokens: estimatedWithoutNote,
+            estimatedInputTokens: chosen.estimatedInputTokens,
           })
         }
         if (reservation.kind !== 'reserved') throw new TurnStartRollback(reservation)
@@ -243,12 +253,12 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       }
       // 说明进了这一轮（或本来就没有说明）才取走那几条唤醒；被丢掉时它们留在收件箱里，
       // 之后走自己的路。
-      if (content.wakes && keptNote) {
+      if (content.wakes && chosen === withNote) {
         for (const id of content.wakes.ids)
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
       await content.write?.(tx)
-      return { reserved, input: keptNote ? withNote : (withoutNote ?? withNote) }
+      return { reserved, input: chosen.input }
     })
   } catch (error) {
     // 事务没提交，刚归档的参考图没有任何东西指着：清掉。
@@ -269,13 +279,13 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       turnId,
       userMessageId: content.userMessageId,
       ...(content.queueId ? { queueId: content.queueId } : {}),
-      input: written.input,
+      input: committed.input,
       userId,
       deviceId: content.deviceId,
       ...(content.params ? { params: content.params } : {}),
       ...(content.wake ? { wake: content.wake } : {}),
-      reservedCredits: written.reserved?.reservedCredits,
-      settle: chatTurnSettle(conversationId, turnId, written.reserved),
+      reservedCredits: committed.reserved?.reservedCredits,
+      settle: chatTurnSettle(conversationId, turnId, committed.reserved),
     },
   }
 }
