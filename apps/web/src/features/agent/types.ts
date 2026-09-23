@@ -1,6 +1,7 @@
 import type {
   AgentBackgroundJob,
   AgentCanvasEditPlan,
+  AgentFetchedImage,
   AgentSaveCard,
   AgentSkillOutcome,
   AgentStoredReference,
@@ -17,6 +18,7 @@ import type {
   AgentTurnReference,
   AgentTurnStopReason,
   AgentWakeSkipReason,
+  AgentWebSource,
 } from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
@@ -79,6 +81,10 @@ export interface AgentToolMessage {
   readonly canvasEdit?: AgentCanvasEditPlan
   /** 这次调用备好的保存卡片，连同它存没存过；缺席即这条不是保存工具。 */
   readonly saveCard?: AgentSaveCard
+  /** 搜索或抓取网页这一步读到的来源；缺席即这条不是联网工具，或者什么也没读到。 */
+  readonly sources?: readonly AgentWebSource[]
+  /** 取图这一步存下的网图；缺席即这条不是取图工具。 */
+  readonly fetchedImages?: readonly AgentFetchedImage[]
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */

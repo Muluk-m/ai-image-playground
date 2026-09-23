@@ -16,6 +16,8 @@ import type { CloudSceneStrategy, SceneRecord } from './sceneRecord'
 
 type Checkpoint = Omit<CloudSceneCheckpoint, 'version' | 'name'>
 const RETRY_DELAYS = [1000, 2000, 5000, 15000, 30000]
+/** 发送前为参考图等同步最多等这么久；超时就把认不出的那几张照旧内联。 */
+const MEDIA_LOOKUP_MS = 20_000
 let activeSyncs = 0
 const waitingSyncs: (() => void)[] = []
 async function withSyncSlot(work: () => Promise<void>) {
@@ -474,6 +476,38 @@ export class CloudProjectSession implements CloudSceneStrategy {
     this.timer = undefined
     this.retries = 0
     return this.runSync()
+  }
+  /**
+   * 这几张本机原图在云端各是哪个媒体 id；有还没上传的先同步一次（最多等 `MEDIA_LOOKUP_MS`）再认。
+   *
+   * 本机画布上的图一直是原图 data URL：上传之后 id 只记在绑定表里，不回写画布。发给智能体的
+   * 参考图靠这里换成按 id 发——整张 base64 进请求体，十张原图就是几十 MB，一轮多图发送又慢
+   * 又容易失败。生成产物服务端本来就有同一份，同步时按 sha256 秒回，不用真传字节。
+   * 认不出的（同步失败、离线、不是画布上的图）不在结果里，调用方照旧内联。
+   */
+  async mediaIdsFor(sources: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const lookup = () => {
+      const found = new Map<string, string>()
+      for (const binding of this.mediaBindings.values())
+        if (sources.includes(binding.source)) found.set(binding.source, binding.id)
+      return found
+    }
+    const found = lookup()
+    if (found.size === new Set(sources).size) return found
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        this.sync(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('media_lookup_timeout')), MEDIA_LOOKUP_MS)
+        }),
+      ])
+    } catch {
+      // 同步没成就按已认出的发，其余内联：宁可慢一点，也不能因为同步卡住发不出去。
+    } finally {
+      clearTimeout(timer)
+    }
+    return lookup()
   }
   private runSync(): Promise<void> {
     if (this.scheduled) return this.scheduled

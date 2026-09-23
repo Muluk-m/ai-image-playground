@@ -1,5 +1,6 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { Plus, Search } from 'lucide-react'
+import { Plus, RefreshCw, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Kpi } from '@/components/Kpi'
@@ -22,6 +23,7 @@ export const Route = createFileRoute('/_authed/users/')({
 
 function UsersPage() {
   const term = Route.useSearch().q ?? ''
+  const queryClient = useQueryClient()
   const query = useUsers(term)
   const [creating, setCreating] = useState(false)
 
@@ -30,10 +32,27 @@ function UsersPage() {
       crumbs={[{ label: '用户' }]}
       description="开通、会话与任务追踪"
       actions={
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus />
-          创建用户
-        </Button>
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={query.isFetching}
+            aria-busy={query.isFetching}
+            onClick={() =>
+              void Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['users'] }),
+                queryClient.invalidateQueries({ queryKey: ['private-billing', 'user-summaries'] }),
+              ])
+            }
+          >
+            <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
+            {query.isFetching ? '刷新中…' : '刷新'}
+          </Button>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            创建用户
+          </Button>
+        </>
       }
     >
       {query.isPending ? (

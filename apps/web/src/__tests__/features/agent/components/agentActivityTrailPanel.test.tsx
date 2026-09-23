@@ -120,4 +120,24 @@ describe('AgentPanel 活动轨', () => {
     expect(trail.style.height).toBe('0px')
     expect(trail.style.opacity).toBe('0')
   })
+
+  it('联网那一步把来源挂成可以点开的外链', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            ...step('t1', 'webSearch', '搜索：北欧椅子'),
+            sources: [{ title: 'Eames Plastic Chair | Vitra', url: 'https://www.vitra.com/eames' }],
+          } as AgentPanelMessage,
+        ],
+      }),
+    )
+    const link = host.querySelector<HTMLAnchorElement>('a[href="https://www.vitra.com/eames"]')!
+    // 主机名认得出是哪家站点；完整标题留在 title 提示里。
+    expect(link.textContent).toBe('vitra.com')
+    expect(link.title).toBe('Eames Plastic Chair | Vitra')
+    expect(link.target).toBe('_blank')
+    expect(link.rel).toBe('noreferrer noopener')
+  })
 })

@@ -13,6 +13,7 @@ let root: Root
 beforeEach(() => {
   vi.resetModules()
   localStorage.clear()
+  sessionStorage.clear()
   vi.stubGlobal('indexedDB', new IDBFactory())
   vi.stubGlobal(
     'fetch',
@@ -167,6 +168,27 @@ describe('anonymous startup', () => {
     expect(allowed).toBe(false)
     expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
     expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  })
+
+  it('closing the login dialog cancels the interrupted send', async () => {
+    await bootAnonymously()
+    const { queuePendingSubmission, hasPendingSubmission } = await import(
+      '../../auth/pendingSubmission'
+    )
+    const { requireAccount } = await import('../../auth/loginPrompt')
+    await queuePendingSubmission({
+      kind: 'heroCanvas',
+      draft: { prompt: 'a blue lantern', references: [] },
+    })
+    await act(async () => {
+      requireAccount()
+    })
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+    await act(async () => {
+      document.body.querySelector<HTMLButtonElement>('.auth-dialog-close')?.click()
+    })
+    await vi.waitFor(async () => expect(await hasPendingSubmission()).toBe(false))
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
   })
 
   it('keeps the workspace up and offers a re-login when the session expires', async () => {
