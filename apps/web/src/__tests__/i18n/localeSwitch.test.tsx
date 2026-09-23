@@ -19,7 +19,6 @@ let root: Root
 
 /**
  * 语言下拉在头像菜单里（登录框自己不带显示设置）。这里直接渲染那两行，
- * 它和设置面板「通用」页是同一个 `DisplaySettingsFields`。
  */
 function localeTrigger(): HTMLElement {
   const element = document.querySelector<HTMLElement>('[data-display-setting="locale"]')
