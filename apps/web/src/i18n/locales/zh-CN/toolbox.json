@@ -1,0 +1,75 @@
+{
+  "catalog": {
+    "process": "单张 / 批量处理",
+    "compose": "多图合成"
+  },
+  "tool": {
+    "compress": {
+      "name": "压缩",
+      "options": "质量 · 目标体积"
+    },
+    "convert": {
+      "name": "转格式",
+      "options": "JPG · PNG · WebP · AVIF"
+    },
+    "resize": {
+      "name": "改尺寸",
+      "options": "长边 · 宽度 · 百分比"
+    },
+    "crop": {
+      "name": "裁剪",
+      "options": "比例 · 电商 / 社媒尺寸"
+    },
+    "rotate": {
+      "name": "旋转翻转",
+      "options": "90° · 水平 · 垂直"
+    },
+    "collage": {
+      "name": "拼图",
+      "options": "宫格 · 间距 · 底色"
+    },
+    "stitch": {
+      "name": "长图拼接",
+      "options": "竖拼 · 横拼"
+    },
+    "slice": {
+      "name": "九宫格切图",
+      "options": "3×3 · 2×2 · 1×3"
+    }
+  },
+  "intake": {
+    "imported_other": "已导入 {{count}} 张",
+    "clear": "清空",
+    "addImages": "添加图片",
+    "addFolder": "文件夹",
+    "hint": "拖入图片或文件夹，也可以直接粘贴",
+    "chooseImages": "选择图片",
+    "chooseFolder": "选择文件夹"
+  },
+  "page": {
+    "back": "工具箱"
+  },
+  "params": {
+    "format": "输出格式",
+    "keepFormat": "保持原格式",
+    "quality": "质量"
+  },
+  "result": {
+    "processing": "处理中…",
+    "remove": "移除",
+    "fellBack": "已回退 {{format}}",
+    "canvasLimit": "输出 {{width}}×{{height}} 超出浏览器画布上限",
+    "undecodable": "这个浏览器解不开",
+    "failed": "处理失败"
+  },
+  "footer": {
+    "summary_other": "{{count}} 张 · {{before}} → {{after}}（{{delta}}）",
+    "processing": "处理中…",
+    "sendToComposer": "放入创作输入框",
+    "download": "下载",
+    "downloadAll_other": "下载全部（{{count}}）"
+  },
+  "composer": {
+    "sent_other": "已放入输入框 {{count}} 张"
+  }
+}
