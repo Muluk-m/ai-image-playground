@@ -416,18 +416,25 @@ async function writeLook(set: LibrarySet, look: LookRecord): Promise<void> {
 }
 
 /**
- * 一条素材的全部视角取成参考图：按 `imageId` 去重、保持组里的顺序（第一张是封面）。
- * 别的设备建的素材图这时才取回来；取不回来的那张跳过——为一张还没同步到的视角把整条
- * 素材都附不上说不过去。生成与智能体两边共用这一条，素材附加只有一种行为。
+ * 一串 `imageId` 取成参考图：按 id 去重、保持给的顺序。别的设备建的素材图这时才取回来；
+ * 取不回来的那张跳过——为一张还没同步到的图把整条素材、整条模板都附不上说不过去。
  */
-export async function assetViewImages(asset: AssetRecord): Promise<InputImage[]> {
+async function referencesForImageIds(imageIds: Iterable<string>): Promise<InputImage[]> {
   const images: InputImage[] = []
-  for (const imageId of new Set(asset.views.map((view) => view.imageId))) {
+  for (const imageId of new Set(imageIds)) {
     await ensureAssetImage(imageId)
     const dataUrl = await ensureImageCached(imageId)
     if (dataUrl) images.push({ id: imageId, dataUrl })
   }
   return images
+}
+
+/**
+ * 一条素材的全部视角取成参考图，第一张是封面。生成与智能体两边共用这一条，
+ * 素材附加只有一种行为。
+ */
+export function assetViewImages(asset: AssetRecord): Promise<InputImage[]> {
+  return referencesForImageIds(asset.views.map((view) => view.imageId))
 }
 
 async function writeTemplateIntoComposer(
@@ -443,13 +450,8 @@ async function writeTemplateIntoComposer(
     return asset ? assetCoverImageId(asset) : null
   })
 
-  const covers: InputImage[] = []
-  for (const imageId of new Set(imageIdsByOldIndex.filter((id) => id !== null))) {
-    // 别的设备建的素材图这时才取回来，取不到才让那一处引用降级为「已移除」。
-    await ensureAssetImage(imageId)
-    const dataUrl = await ensureImageCached(imageId)
-    if (dataUrl) covers.push({ id: imageId, dataUrl })
-  }
+  // 取不到图的那一位跟素材被删掉一样：引用降级为「已移除」，套用照旧。
+  const covers = await referencesForImageIds(imageIdsByOldIndex.filter((id) => id !== null))
   // 模板要的素材是一组：放不下就整条不套用，免得留下半条参考图配一句改过的提示词。
   if (!main.attachInputImages(covers)) return
 
