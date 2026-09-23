@@ -1,4 +1,5 @@
 import type {
+  AgentCanvasEditPlan,
   AgentTimelinePlan,
   AgentToolArtifact,
   AgentToolErrorCode,
@@ -78,6 +79,12 @@ export interface AgentCanvasSink {
    * 计划里的视频一段都不在画布上时是 `unavailable`。缺席即这块画布不收时间线。
    */
   placeTimeline?(plan: AgentTimelinePlan): Promise<AgentPlaceOutcome>
+  /**
+   * 按计划改已有对象的名称 / 几何。**只改属性，位图一个像素不动**，也不新建任何元素。
+   * 计划里全是绝对值，所以重放安全（断线重连会把同一条结果再交付一次）。
+   * 缺席即这块画布不支持改属性——老版本画布会如实回 `unavailable`，不会假装改过了。
+   */
+  editElements?(plan: AgentCanvasEditPlan): Promise<AgentPlaceOutcome>
   /**
    * 工具起跑就占位：建 `count` 个互不重叠、也不压住已有元素的 loading 占位框，
    * 并把镜头带到它们所在的区域，返回它们的 id。画布还在恢复场景时会先等它。

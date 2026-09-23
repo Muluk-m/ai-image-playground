@@ -1,4 +1,8 @@
-import { type AgentToolErrorCode, PROJECT_META_VALUE_MAX_CHARS } from '@image-playground/shared'
+import {
+  type AgentCanvasEdit,
+  type AgentToolErrorCode,
+  PROJECT_META_VALUE_MAX_CHARS,
+} from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import type {
   AgentCanvasSink,
@@ -224,6 +228,26 @@ export function createAgentCanvasSink(
     async placeTimeline(plan) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       return placeTimelinePlan(editor, plan) ? 'placed' : 'unavailable'
+    },
+
+    /**
+     * 按计划给已有图片元素打补丁。只认 image：生成占位与产物由服务端登记，客户端改一个字
+     * 整份保存都会被服务端的逐字核对拒掉（`apps/bff/src/lib/projects.ts`）。
+     *
+     * 进 undo 栈——这是用户看得见的编辑，不是机器搭的脚手架（与占位框的 `history:false` 相反），
+     * 改错了要能一步撤回。
+     */
+    async editElements(plan) {
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
+      const patches = plan.edits.flatMap((one: AgentCanvasEdit) => {
+        const element = editor.getElement(one.elementId)
+        if (element?.type !== 'image') return []
+        const { elementId: _id, ...patch } = one
+        return Object.keys(patch).length > 0 ? [{ id: one.elementId, patch }] : []
+      })
+      if (patches.length === 0) return 'unavailable'
+      editor.doc.updateElements(patches, { history: true })
+      return 'placed'
     },
 
     failedPlaceholders({ messageId, taskIds }) {
