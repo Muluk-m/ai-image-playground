@@ -3,11 +3,15 @@ import type { AgentTurnEvent, AgentTurnSummaryView } from '@image-playground/sha
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { settledMock } = vi.hoisted(() => ({ settledMock: vi.fn() }))
-// 只替换这一个导出：privateOverlay 的其它导出还有别的模块在用。
+const { settledMock, brokeMock } = vi.hoisted(() => ({
+  settledMock: vi.fn(),
+  brokeMock: vi.fn(),
+}))
+// 只替换这两个导出：privateOverlay 的其它导出还有别的模块在用。
 vi.mock('../../../lib/privateOverlay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/privateOverlay')>()),
   notifyPrivateSubmissionSettled: settledMock,
+  notifyPrivateSubmissionError: brokeMock,
 }))
 
 import { useAgentStore } from '../../../features/agent/store'
@@ -276,5 +280,41 @@ describe('顶栏余额', () => {
     await state().send('画一只猫')
 
     expect(settledMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('钱不够的失败当场把开通面板叫出来，不让用户从失败卡上自己找', async () => {
+    const broke: AgentTurnEvent = {
+      type: 'toolEnd',
+      messageId: 'tool-1',
+      toolCallId: 'call-1',
+      toolName: 'generateImage',
+      status: 'failed',
+      title: '一只橘猫坐在窗台上',
+      message: '余额不足',
+      errorCode: 'insufficient_credits',
+    } as AgentTurnEvent
+    turnResponses = [() => sseResponse(frames(1, TURN_START, broke, turnEnd()))]
+
+    await state().send('画一只猫')
+
+    expect(brokeMock).toHaveBeenCalledWith({ insufficientCredits: true })
+  })
+
+  it('生成本身失败的那一次不叫开通面板：那不是钱的问题', async () => {
+    const upstream: AgentTurnEvent = {
+      type: 'toolEnd',
+      messageId: 'tool-1',
+      toolCallId: 'call-1',
+      toolName: 'generateImage',
+      status: 'failed',
+      title: '一只橘猫坐在窗台上',
+      message: '上游拒绝了这张图',
+      errorCode: 'upstream_error',
+    } as AgentTurnEvent
+    turnResponses = [() => sseResponse(frames(1, TURN_START, upstream, turnEnd()))]
+
+    await state().send('画一只猫')
+
+    expect(brokeMock).not.toHaveBeenCalled()
   })
 })

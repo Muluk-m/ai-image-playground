@@ -85,7 +85,7 @@
     "withdrawing": "撤回中…",
     "withdrawFailed": "没能撤回，请稍后再试",
     "withdrawn": "重试已撤回",
-    "retryRemaining_other": "重试剩余 {{count}} 个失败占位"
+    "retryRemaining_other": "重试剩下的 {{count}} 张"
   },
   "cost": {
     "duration": "本轮耗时 {{duration}}",

@@ -161,7 +161,7 @@ it('提交被拒时改过的字还在，原因与出路只落在这张卡上', a
 
   expect(field().value).toBe(CORRECTED)
   expect(card().status).toBe('awaiting_confirmation')
-  expect(host.querySelector('[role="alert"]')?.textContent).toBe('积分不够，这次没有提交')
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('积分不够，这次没有生成')
   expect(confirmButton().disabled).toBe(false)
   expect(useAgentStore.getState().error).toBeNull()
 })
