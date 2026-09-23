@@ -196,6 +196,13 @@
     "generateFailed": "Generation failed",
     "artifactName": "Creation"
   },
+  "fetchedImage": {
+    "canvasName": "Web image",
+    "sourceTitle": "Open source page"
+  },
+  "trail": {
+    "sources": "Sources"
+  },
   "error": {
     "turnFailed": "This turn did not finish",
     "rateLimited": "Too many messages. Try again shortly.",
