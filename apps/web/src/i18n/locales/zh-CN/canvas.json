@@ -392,5 +392,11 @@
       "sw": "左下",
       "w": "左边"
     }
+  },
+  "cutout": {
+    "action": "抠图",
+    "running": "抠图中…",
+    "videoUnsupported": "视频不支持抠图",
+    "keyFailed": "背景没能键干净，先给你原图；可以重来一次"
   }
 }
