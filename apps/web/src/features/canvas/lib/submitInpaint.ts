@@ -9,12 +9,11 @@ import { useStore } from '../../../store'
 import type { AppSettings } from '../../../types'
 import type { PaintEditKind } from '../inpaintStore'
 import type { ImageEl } from './canvasDoc'
-import { snapshotParams } from './canvasTaskRuntime'
 import { type CanvasEditor, elementBounds } from './editor'
 import { exportMaskDataUrl, type MaskStroke } from './inpaintMask'
 import { maskedEditSizeRefusal } from './maskedEditLimits'
 import { computePlaceholderTargets } from './placement'
-import { launchCanvasTask } from './submitFromCanvas'
+import { launchCanvasTask, snapshotParams } from './submitFromCanvas'
 
 /**
  * 这张图能不能局部重绘。返回原因即不能——按钮据此置灰并说明，不做静默隐藏。

@@ -94,8 +94,18 @@ export interface GenerationResumption {
   clientRequestId?: string
 }
 
+/**
+ * 一趟生成的终局口。结果类型是参数：画布视频那条路走的是另一套队列协议（提交视频请求 →
+ * 等输出元信息 → 抽封面帧），产物不是 `CallApiResult`，但通知与错误码映射要与图片同一套。
+ */
+export interface GenerationOutcomeReport<H, R> {
+  /** 出片。抛出即按失败收场（宿主落盘失败也是这次生成失败）。 */
+  delivered(handle: H, result: R): void | Promise<void>
+  failed(handle: H, failure: GenerationFailure): void
+}
+
 /** 宿主记录（工作台任务行 / 画布占位框）在生命周期各处的回写口。 */
-export interface GenerationReport<H> {
+export interface GenerationReport<H> extends GenerationOutcomeReport<H, CallApiResult> {
   /** 上游受理，交回可恢复句柄。宿主必须把它写进**持久**记录。 */
   accepted(handle: H, reference: GenerationReference): void
   /**
@@ -105,9 +115,6 @@ export interface GenerationReport<H> {
   persisted?(handle: H): Promise<void> | void
   /** 队列阶段推进。长任务只写「生成中」会让人以为卡死了。 */
   progress(handle: H, phase: TaskProgressPhase): void
-  /** 出片。抛出即按失败收场（宿主落盘失败也是这次生成失败）。 */
-  delivered(handle: H, result: CallApiResult): void | Promise<void>
-  failed(handle: H, failure: GenerationFailure): void
 }
 
 /** 起一批生成时还要能开记录：`open` 同步返回句柄（画布要求占位框在第一个 await 之前出现）。 */
@@ -119,8 +126,12 @@ export interface GenerationSink<H, C> extends GenerationReport<H> {
  * 能不能发：内置渠道先看账号（弹出来的登录框本身是反馈，不再叠 toast），再看计费门禁。
  * 被拦下时说明原因并把出路（充值面板等）一并给出来。
  */
-export function admitGeneration(profile: ClientProfile, charge: GenerationCharge): boolean {
-  if (profile.source === 'builtin-edge' && !requireAccount()) return false
+export function admitGeneration(
+  source: ClientProfile['source'],
+  charge: GenerationCharge,
+): boolean {
+  // BYOK 浏览器直连上游，不需要账号；内置渠道要经 BFF 的队列，没账号发不出去。
+  if (source === 'builtin-edge' && !requireAccount()) return false
   const guard = getPrivateSubmissionGuard(charge)
   if (!guard.blocked) return true
   useStore
@@ -169,7 +180,7 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
   const quantity = Math.max(1, spec.params.n)
   const model = clientProfileToApiProfile(spec.profile).model
   // 门禁按整批的量判，否则积分不够时会先发一半再报错。
-  if (!admitGeneration(spec.profile, { model, quantity: quantity * spec.variants.length }))
+  if (!admitGeneration(spec.profile.source, { model, quantity: quantity * spec.variants.length }))
     return []
 
   const fanOut = fanOutOf(spec.profile, spec.params)
@@ -220,7 +231,7 @@ export function resumeGeneration<H>(
     )
   }
   const requestId = input.requestId
-  return settle(handle, report, () =>
+  return superviseGeneration(handle, report, () =>
     resumeQueueImageApi(
       {
         settings: input.settings,
@@ -242,7 +253,7 @@ async function runUnit<H>(
   report: GenerationReport<H>,
 ): Promise<void> {
   await report.persisted?.(handle)
-  await settle(handle, report, () =>
+  await superviseGeneration(handle, report, () =>
     callImageApi({
       settings,
       prompt: unit.prompt,
@@ -260,11 +271,16 @@ async function runUnit<H>(
   )
 }
 
-/** 终局收口：出片交给宿主，失败先通知 overlay 再把映射好的文案交给宿主；结算一定要发。 */
-async function settle<H>(
+/**
+ * 终局收口，全仓唯一一份：出片交给宿主，失败先通知 overlay 再把映射好的文案交给宿主，
+ * 结算通知无论如何都要发（顶栏余额与提交门禁停在发起之前那一份就是个 bug）。
+ * 图片走 `startGeneration` / `resumeGeneration` 自然经过这里；画布视频那条路自带队列协议，
+ * 它把自己那趟请求交给这里包住，收尾语义因此与图片一致。
+ */
+export async function superviseGeneration<H, R>(
   handle: H,
-  report: GenerationReport<H>,
-  call: () => Promise<CallApiResult>,
+  report: GenerationOutcomeReport<H, R>,
+  call: () => Promise<R>,
 ): Promise<void> {
   try {
     await report.delivered(handle, await call())

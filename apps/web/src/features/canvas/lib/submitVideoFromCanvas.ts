@@ -4,23 +4,23 @@ import {
   videoPromptRejection,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { requireAccount } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../../lib/channels/queueClient'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import {
-  getPrivateSubmissionGuard,
-  notifyPrivateSubmissionAccepted,
-  notifyPrivateSubmissionError,
-  notifyPrivateSubmissionSettled,
-} from '../../../lib/privateOverlay'
+  admitGeneration,
+  type GenerationOutcomeReport,
+  superviseGeneration,
+} from '../../../lib/generationJob'
+import { notifyPrivateSubmissionAccepted } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { videoOutputFrame } from '../../agent/lib/artifactSource'
 import { blankVideoPoster } from '../../agent/lib/videoPoster'
 import { videoRejectionText } from '../../video/lib/labels'
 import { useVideoStore } from '../../video/store'
 import type { VideoDraft } from '../../video/types'
+import { recallCanvasInputs, releaseCanvasInputs, retainCanvasInputs } from './canvasGenerationSink'
 import { type CanvasVideoRefusal, planVideoFrames } from './canvasVideoPlan'
 import type { CanvasEditor, PlaceholderView } from './editor'
 import { Box } from './geometry'
@@ -41,11 +41,9 @@ import {
 import { videoOptionRejection } from './videoRejection'
 
 /**
- * 画布视频任务的内存运行态：首尾帧位图。它不进占位框 meta（几 MB 的 data URL 不该随画布
- * 持久化），所以只够同一次打开里的重试用；刷新后续跑只认 `bffRequestId`，不必重传。
- * 出片落地才释放：失败态的占位框还要拿它原样重试。
+ * 画布视频任务的首尾帧走与图片任务同一张有界 LRU（`canvasGenerationSink` 的运行态表）：
+ * 两者本来就是同一个概念——「不可持久化、只够同一次打开里重试用的输入」。
  */
-const frameHandles = new Map<string, string[]>()
 
 export interface CanvasVideoLaunch {
   prompt: string
@@ -295,26 +293,28 @@ export async function submitReferenceVideo(
 
 /**
  * 每条视频都要经 BFF 的队列（没有 BYOK 出视频这条路），所以视频侧的「能不能发」收在这里：
- * 先看有没有账号，再看计费门禁。生成栏、参考图面板、重试、续写 / 改视频、重新生成都从这过。
+ * 门禁本身是生成任务 module 那一份，计价口径换成「秒数 × 清晰度倍率」。
+ * 生成栏、参考图面板、重试、续写 / 改视频、重新生成都从这过。
  */
 export function guardAllows(generation: VideoGenerationRecord): boolean {
-  // 弹出来的登录框本身就是反馈，不再叠一条 toast。
-  if (!requireAccount()) return false
-  const guard = getPrivateSubmissionGuard({
+  return admitGeneration('builtin-edge', {
     model: generation.model,
     quantity: generation.duration,
     unitMultiplier: videoRateMultiplier(generation.model, generation.resolution),
   })
-  if (!guard.blocked) return true
-  toast(guard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' }))
-  guard.blockedAction?.run()
-  return false
 }
 
-export async function launchCanvasVideo(
-  editor: CanvasEditor,
-  launch: CanvasVideoLaunch,
-): Promise<void> {
+/** 视频占位框的终局口：出片由 `settleCanvasVideo` 落，失败就地标错（文案已按错误码映射）。 */
+function videoPlaceholderReport(editor: CanvasEditor): GenerationOutcomeReport<string, void> {
+  return {
+    delivered() {},
+    failed(placeholderId, failure) {
+      markPlaceholderStatus(editor, placeholderId, 'error', failure.text)
+    },
+  }
+}
+
+export function launchCanvasVideo(editor: CanvasEditor, launch: CanvasVideoLaunch): Promise<void> {
   const taskId = crypto.randomUUID()
   const clientRequestId = crypto.randomUUID()
   const placeholderId = editor.createPlaceholder(launch.target, {
@@ -326,8 +326,8 @@ export async function launchCanvasVideo(
     inputCount: launch.frames.length,
     video: { channelId: launch.channelId, generation: launch.generation },
   })
-  frameHandles.set(taskId, launch.frames)
-  try {
+  retainCanvasInputs(taskId, { inputImageDataUrls: launch.frames })
+  return superviseGeneration(placeholderId, videoPlaceholderReport(editor), async () => {
     const channel = getStoredChannel(launch.channelId)
     if (!channel) throw new Error(i18next.t('error.noModel', { ns: 'video' }))
     const requestId = await submitVideoRequest({
@@ -342,13 +342,8 @@ export async function launchCanvasVideo(
     editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
     notifyPrivateSubmissionAccepted()
     await settleCanvasVideo(editor, placeholderId, requestId, launch.generation, launch.target)
-    frameHandles.delete(taskId)
-  } catch (err) {
-    notifyPrivateSubmissionError(err)
-    markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
-  } finally {
-    notifyPrivateSubmissionSettled()
-  }
+    releaseCanvasInputs(taskId)
+  })
 }
 
 /**
@@ -391,29 +386,23 @@ export async function settleCanvasVideo(
   if (placeholder) editor.deleteElement(placeholderId)
 }
 
-/** 刷新后续跑一条已提交的画布视频任务。 */
-export async function resumeCanvasVideo(
+/** 刷新后续跑一条已提交的画布视频任务。收尾与首次提交同一份：余额刷新、错误码映射都在里面。 */
+export function resumeCanvasVideo(
   editor: CanvasEditor,
   placeholder: PlaceholderView,
   requestId: string,
 ): Promise<void> {
   const video = placeholder.meta.video
-  if (!video) return
-  try {
-    await settleCanvasVideo(
+  if (!video) return Promise.resolve()
+  return superviseGeneration(placeholder.id, videoPlaceholderReport(editor), () =>
+    settleCanvasVideo(
       editor,
       placeholder.id,
       requestId,
       video.generation,
       targetFromShape(placeholder),
-    )
-  } catch (err) {
-    notifyPrivateSubmissionError(err)
-    markPlaceholderStatus(editor, placeholder.id, 'error', errorMessage(err))
-  } finally {
-    // 续跑出片同样要让余额与充值入口刷新。
-    notifyPrivateSubmissionSettled()
-  }
+    ),
+  )
 }
 
 /**
@@ -423,7 +412,7 @@ export async function resumeCanvasVideo(
 export function retryCanvasVideo(editor: CanvasEditor, placeholder: PlaceholderView): void {
   const { meta } = placeholder
   if (!meta.video) return
-  const frames = frameHandles.get(meta.taskId) ?? []
+  const frames = recallCanvasInputs(meta.taskId)?.inputImageDataUrls ?? []
   if ((meta.inputCount ?? 0) > 0 && frames.length === 0) {
     toast(i18next.t('submit.inputsLost', { ns: 'canvas' }))
     return
@@ -438,7 +427,7 @@ export function retryCanvasVideo(editor: CanvasEditor, placeholder: PlaceholderV
   if (!guardAllows(meta.video.generation)) return
   editor.deleteElement(placeholder.id)
   // 帧交给新任务，旧 key 随之作废。
-  frameHandles.delete(meta.taskId)
+  releaseCanvasInputs(meta.taskId)
   void launchCanvasVideo(editor, {
     prompt: meta.prompt,
     userPrompt: meta.userPrompt ?? meta.prompt,
