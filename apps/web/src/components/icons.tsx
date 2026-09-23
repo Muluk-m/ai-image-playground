@@ -357,6 +357,23 @@ export function CanvasIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** 工具箱入口：一把扳手。PROTOTYPE 分支先借用，正式实现再定图形。 */
+export function ToolboxIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-3-3 8-8-1.3-1.3a4 4 0 0 1-5-5L10 5l-3-3-4 4 3 3 1.3-1.3" />
+    </svg>
+  )
+}
+
 /** 生图入口：提示词直出的一张图。 */
 export function PromptImageIcon(props: SVGProps<SVGSVGElement>) {
   return (

@@ -23,6 +23,7 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
+import ToolboxPrototypePage from './features/toolbox/prototype/ToolboxPrototypePage'
 import { i18next, useTranslation } from './i18n'
 import { installAppRouting } from './lib/appRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
@@ -111,6 +112,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
           <ExplorePage />
         ) : appMode === 'library' ? (
           <LibraryPage />
+        ) : appMode === 'tools' ? (
+          <ToolboxPrototypePage />
         ) : (
           <>
             <main data-home-main data-drag-select-surface className="relative pb-24">
