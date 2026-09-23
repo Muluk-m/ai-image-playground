@@ -307,7 +307,8 @@ describe('插话', () => {
     const block = messages.find(
       (message) => message.role === 'user' && JSON.stringify(message.content).includes('new-image'),
     )!.content[0]!
-    expect(block.type === 'text' && block.references?.[0]?.mask).toBeTruthy()
+    const stored = block.type === 'text' ? block.references?.[0] : undefined
+    expect(stored && 'mask' in stored && stored.mask).toBeTruthy()
     expect(JSON.stringify(block)).not.toContain('data:image')
     const source = createAgentImageSource({
       references: [],

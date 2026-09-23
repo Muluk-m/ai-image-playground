@@ -1,3 +1,4 @@
+import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { type MarkRenderer, renderMarkedImage, selectedMarkIds } from './markedReferences'
 import { type AgentDraft, removeReference } from './references'
@@ -28,6 +29,8 @@ interface Synced {
   readonly draft: AgentDraft
   readonly auto: ReadonlySet<string>
   readonly dismissed: ReadonlySet<string>
+  /** 选中却没能进引用区的张数：本轮的参考图已经满了。 */
+  readonly overflow: number
 }
 
 /**
@@ -39,6 +42,9 @@ interface Synced {
  *
  * 「自动带的」除了本模块记下的，还认草稿里标着 `origin: 'selection'` 的：输入框重挂、
  * 发送失败放回来的草稿，本模块的记账已经归零，只有草稿自己还记得。
+ *
+ * 一轮最多带 `AGENT_TURN_MAX_REFERENCES` 张：服务端对这个数量是硬校验，超出去的那几张
+ * 会让整轮起轮以 400 被打回。放不下的既不进草稿也不记账——腾出位置后下一次同步再带进来。
  */
 function syncSelected(
   draft: AgentDraft,
@@ -64,6 +70,7 @@ function syncSelected(
     const index = result.references.findIndex((one) => one.id === id)
     if (index >= 0) result = removeReference(result, index)
   }
+  let overflow = 0
   for (const image of selected) {
     if (refused.has(image.imageId)) continue
     const at = result.references.findIndex((one) => one.id === image.imageId)
@@ -71,6 +78,10 @@ function syncSelected(
       // 自动带进来的回到原图（批注取消了）；用户手动 `@` 的不动。
       if (!next.has(image.imageId) || result.references[at]!.dataUrl === image.dataUrl) continue
       result = withDataUrl(result, image.imageId, image.dataUrl)
+      continue
+    }
+    if (result.references.length >= AGENT_TURN_MAX_REFERENCES) {
+      overflow += 1
       continue
     }
     next.add(image.imageId)
@@ -82,7 +93,7 @@ function syncSelected(
       ],
     }
   }
-  return { draft: result, auto: next, dismissed: refused }
+  return { draft: result, auto: next, dismissed: refused, overflow }
 }
 
 /** 换掉某张自动带进来的参考图的位图；手动 `@` 的那张不归选区管，原样返回。 */
@@ -106,13 +117,15 @@ export interface SelectionReferences {
    *
    * `scope` 是这份草稿的身份。这套记账只对当初那份草稿成立，`scope` 一变先全部归零再同步：
    * 换了草稿还拿旧账去对，同一个 id 在新草稿里被手动 `@` 过就会被当成自动引用撤走。
+   *
+   * 返回这次因为满了没带进去的张数，调用方据此告诉用户；0 表示选区整个带上了。
    */
   follow(
     doc: CanvasDoc,
     update: (change: (draft: AgentDraft) => AgentDraft) => void,
     renderer?: MarkRenderer,
     scope?: string,
-  ): void
+  ): number
   /**
    * 草稿整份被发送收走了。引用区跟着空掉不是用户在拒绝，所以只作废 auto 记账，
    * 仍选中的图下一次同步照常带回来；用户拒绝过的那几张仍然算数。发送失败放回来的草稿
@@ -150,13 +163,15 @@ export function createSelectionReferences(): SelectionReferences {
       const selected = selectedImages(doc)
       const key = selectionKey(selected)
       current = key
+      let overflow = 0
       update((draft) => {
         const synced = syncSelected(draft, selected, auto, dismissed)
         auto = synced.auto
         dismissed = synced.dismissed
+        overflow = synced.overflow
         return synced.draft
       })
-      if (!renderer) return
+      if (!renderer) return overflow
       for (const image of selected) {
         if (image.marks.length === 0) continue
         void renderMarkedImage(renderer, image.element, image.marks).then((dataUrl) => {
@@ -166,6 +181,7 @@ export function createSelectionReferences(): SelectionReferences {
           )
         })
       }
+      return overflow
     },
   }
 }
