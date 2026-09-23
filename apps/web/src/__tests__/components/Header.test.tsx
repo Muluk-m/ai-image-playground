@@ -9,8 +9,8 @@ import { useStore } from '../../store'
 // 私有 overlay 接管账号区（replacesAuthActions）后公开的退出按钮不再渲染；这里测的是公开分支。
 vi.mock('../../lib/privateOverlay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/privateOverlay')>()),
-  PrivateWebHeaderCreditAction: () => null,
-  PrivateWebHeaderAccountActions: () => null,
+  PrivateWebHeaderCreditAction: () => <button aria-label="积分余额">—</button>,
+  PrivateWebHeaderAccountActions: () => <button aria-label="收费版账户头像">头像</button>,
   PrivateWebReplacesAuthActions: false,
 }))
 
@@ -43,6 +43,7 @@ function renderLoggedIn(logout: (clearLocalData: boolean) => Promise<void>): voi
         value={{
           enabled: true,
           user: { id: 'u1', username: '小马' },
+          login: () => {},
           logout,
         }}
       >
@@ -76,6 +77,30 @@ describe('the header', () => {
     expect(document.querySelector('.animate-coach-pulse')).toBeNull()
     // 灵感搬进「库」的页签后，顶栏不再有它自己的图标。
     expect(document.querySelector('button[aria-label="灵感库"]')).toBeNull()
+  })
+
+  it('未登录时只保留登录入口，登录后恢复积分和账户入口', () => {
+    const login = vi.fn()
+    const logout = vi.fn(async () => {})
+    const render = (user: { id: string; username: string } | null) =>
+      root.render(
+        <AuthContextProvider value={{ enabled: true, user, login, logout }}>
+          <Header />
+        </AuthContextProvider>,
+      )
+
+    act(() => render(null))
+    expect(host.querySelector('[aria-label="积分余额"]')).toBeNull()
+    expect(host.querySelector('[aria-label="收费版账户头像"]')).toBeNull()
+    expect(host.querySelector('[aria-label="打开应用菜单"]')).toBeNull()
+    click('登录')
+    expect(login).toHaveBeenCalledOnce()
+
+    act(() => render({ id: 'u1', username: '小马' }))
+    expect(host.querySelector('[aria-label="积分余额"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="收费版账户头像"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="打开个人账户"]')).not.toBeNull()
+    expect(host.querySelector('button')?.textContent).not.toBe('登录')
   })
 
   it('顶栏没有横栏了：账号这一簇浮在右上角，不带品牌与导航', () => {

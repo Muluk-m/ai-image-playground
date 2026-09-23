@@ -322,3 +322,22 @@ export interface OpsSnapshot {
   api: OpsBlock<OpsApi>
   deployments: OpsBlock<OpsDeployments>
 }
+
+// ---- 审计 ----
+// `operator_audits` 是运营写操作的事实记录，后台只读。字段名保持数据库列名，
+// 免得页面上看到的动作名和排查时 SQL 里写的不是一个词。
+
+export interface OperatorAuditRow {
+  id: string
+  operator_id: string
+  action: string
+  target_type: string
+  target_id: string
+  details: Record<string, unknown>
+  created_at: number
+}
+
+export interface ListAuditsResult {
+  audits: OperatorAuditRow[]
+  nextCursor: string | null
+}

@@ -16,11 +16,13 @@ import { recoverStorageUser, rememberStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
-import { LoginScreen } from './LoginScreen'
+import { LoginDialog } from './LoginDialog'
+import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './loginPrompt'
+import { SessionExpiredCard } from './SessionExpiredCard'
 
 const App = lazy(() => import('../App'))
 
-type Phase = 'checking' | 'ready' | 'login' | 'unavailable'
+type Phase = 'checking' | 'ready' | 'unavailable'
 
 function LoadingScreen() {
   const { t } = useTranslation('auth')
@@ -78,6 +80,8 @@ export function AuthGate() {
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [adoptedTaskCount, setAdoptedTaskCount] = useState(0)
+  const [loginReason, setLoginReason] = useState<LoginPromptReason | null>(null)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -93,14 +97,29 @@ export function AuthGate() {
           setPhase('ready')
           return
         }
-        const currentUser = await getCurrentUser()
-        setClientStorageScope(currentUser.id)
+        // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
+        const currentUser = await getCurrentUser().catch((err) => {
+          if (err instanceof AuthRequestError && err.status === 401) return null
+          throw err
+        })
+        if (cancelled) return
+        setSignedIn(Boolean(currentUser))
+        setClientStorageScope(currentUser?.id ?? null)
+        if (!currentUser) {
+          // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。
+          await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, false)
+          if (cancelled) return
+          rememberStorageUser(null)
+          setUser(null)
+          setPhase('ready')
+          return
+        }
         const [adopted] = await Promise.all([
           // 必须跑在 <App/> 之前：store 是 lazy 加载的，一旦求值就读走 IndexedDB 与 persist key。
           adoptAnonymousStorage(),
           adoptDeviceConversations(),
-          // 认证部署中 channel discovery 同样是受保护请求。这里不能静默降级：
-          // session 若恰好过期，应停在登录页，不能把 stale user 标成 ready。
+          // 登录用户这条必须成真：session 若恰好在两次请求之间过期，宁可停在错误页，
+          // 也不能把 stale user 标成 ready 后再满屏 401。
           bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true),
         ])
         if (!cancelled) {
@@ -109,13 +128,8 @@ export function AuthGate() {
           setUser(currentUser)
           setPhase('ready')
         }
-      } catch (err) {
-        if (cancelled) return
-        if (err instanceof AuthRequestError && err.status === 401) {
-          setPhase('login')
-        } else {
-          setPhase('unavailable')
-        }
+      } catch {
+        if (!cancelled) setPhase('unavailable')
       }
     }
     void boot()
@@ -134,12 +148,15 @@ export function AuthGate() {
     if (!accountsLoginEnabled) return
     const expired = () => {
       rememberStorageUser(null)
+      setSignedIn(false)
       setUser(null)
-      setPhase('login')
+      setSessionExpired(true)
     }
     window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
   }, [accountsLoginEnabled])
+
+  useEffect(() => subscribeLoginPrompt(setLoginReason), [])
 
   const logout = useCallback(async (clearLocalData: boolean) => {
     try {
@@ -152,7 +169,6 @@ export function AuthGate() {
   }, [])
 
   if (phase === 'checking') return <LoadingScreen />
-  if (phase === 'login') return <LoginScreen />
   if (phase === 'unavailable') {
     return (
       <ProblemScreen
@@ -167,10 +183,26 @@ export function AuthGate() {
   }
 
   return (
-    <AuthContextProvider value={{ enabled: accountsLoginEnabled, user, logout }}>
+    <AuthContextProvider
+      value={{
+        enabled: accountsLoginEnabled,
+        user,
+        login: () => setLoginReason(sessionExpired ? 'session-expired' : 'gated-action'),
+        logout,
+      }}
+    >
       <Suspense fallback={<LoadingScreen />}>
         <App adoptedTaskCount={adoptedTaskCount} />
       </Suspense>
+      {sessionExpired && loginReason === null ? (
+        <SessionExpiredCard
+          onRelogin={() => setLoginReason('session-expired')}
+          onDismiss={() => setSessionExpired(false)}
+        />
+      ) : null}
+      {loginReason ? (
+        <LoginDialog reason={loginReason} onClose={() => setLoginReason(null)} />
+      ) : null}
     </AuthContextProvider>
   )
 }

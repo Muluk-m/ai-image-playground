@@ -336,6 +336,25 @@ function BackupBody({ backup, now }: { backup: OpsBackups; now: number }) {
   )
 }
 
+/**
+ * 全后台顶部那条窄横幅用：把看板每一栏的问题汇总成一串。顺序跟看板里的栏一致，
+ * 所以横幅上那句话就是运营者滚到看板顶上会看到的第一句。
+ * 取不到的栏不算出事——看板里也是这么处理的（只有那一栏说取不到）。
+ */
+export function opsAlerts(snapshot: OpsSnapshot): string[] {
+  const now = snapshot.generated_at
+  const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
+  return [
+    ...(snapshot.host.ok ? hostProblems(snapshot.host.data, now) : []),
+    ...(snapshot.containers.ok ? containersProblems(snapshot.containers.data) : []),
+    ...(snapshot.services.ok ? servicesProblems(snapshot.services.data, now, deployments) : []),
+    ...(snapshot.api.ok ? apiProblems(snapshot.api.data) : []),
+    ...(snapshot.queue.ok ? queueProblems(snapshot.queue.data) : []),
+    ...(snapshot.backup.ok ? backupProblems(snapshot.backup.data, now) : []),
+    ...(snapshot.deployments.ok ? deploymentsProblems(snapshot.deployments.data) : []),
+  ]
+}
+
 /** 回答「这套部署现在有没有出事」。业务跑得怎么样是概览页的事，这里不重复。 */
 export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
   const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null

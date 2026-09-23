@@ -1,0 +1,246 @@
+/**
+ * 幕芽 后台设计 token —— 三层结构，写法与 docs/design/admin-design-system.md 同步。
+ *
+ *   primitive（原始值，只有这一层出现具体颜色/尺寸）
+ *        ↓
+ *   semantic（用途别名，shadcn 约定的名字；深浅色只覆盖这一层）
+ *        ↓
+ *   component（组件私有覆盖，只引用 semantic）
+ *
+ * 颜色一律存「H S% L%」三元组不带 hsl()，这样 Tailwind 的 `bg-primary/60`
+ * 透明度修饰符才能工作。组件里禁止写死颜色，一律走 token。
+ */
+
+@layer base {
+  :root {
+    /* ============================ PRIMITIVE ============================ */
+
+    /* 品牌（docs/brand/muvloom.md：深灰 #23282B / 芽尖 #DBFFA0 / 薄荷 #83EEB0） */
+    --brand-ink: 202 10.3% 15.3%;
+    --brand-ink-raised: 202 10.3% 21%;
+    --brand-sprout: 83 100% 81.4%;
+    --brand-sprout-strong: 83 68% 70%;
+    --brand-mint: 145 75.9% 72.4%;
+
+    /* 中性（zinc 阶，与 tailwind.config.js 的 gray: colors.zinc 同源） */
+    --neutral-0: 0 0% 100%;
+    --neutral-50: 0 0% 98%;
+    --neutral-100: 240 4.8% 95.9%;
+    --neutral-200: 240 5.9% 90%;
+    --neutral-400: 240 5% 64.9%;
+    --neutral-500: 240 3.8% 46.1%;
+    --neutral-700: 240 5.3% 26.1%;
+    --neutral-800: 240 3.7% 15.9%;
+    --neutral-900: 240 5.9% 10%;
+    --neutral-950: 240 10% 3.9%;
+    --neutral-ring-dark: 240 4.9% 83.9%;
+
+    /* 状态 */
+    --status-emerald: 160 84% 30%;
+    --status-emerald-light: 160 65% 45%;
+    --status-amber: 38 92% 45%;
+    --status-amber-light: 38 92% 58%;
+    --status-rose: 350 78% 48%;
+    --status-rose-light: 350 85% 65%;
+    --status-red: 0 84.2% 60.2%;
+    --status-red-dark: 0 62.8% 30.6%;
+    --status-violet: 265 70% 52%;
+    --status-violet-light: 265 80% 72%;
+
+    /* 间距（4px 基数） */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+    --space-12: 3rem;
+
+    /* 字号 */
+    --font-size-2xs: 0.625rem;
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.25rem;
+    --font-size-2xl: 1.5rem;
+    --font-size-3xl: 1.875rem;
+
+    /* 圆角 / 阴影 / 时长 */
+    --radius: 0.5rem;
+    --radius-pill: 9999px;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.25);
+    --duration-fast: 120ms;
+    --duration-normal: 200ms;
+
+    /* ============================ SEMANTIC ============================= */
+
+    --background: var(--neutral-0);
+    --foreground: var(--neutral-950);
+    --card: var(--neutral-0);
+    --card-foreground: var(--neutral-950);
+    --popover: var(--neutral-0);
+    --popover-foreground: var(--neutral-950);
+    --primary: var(--neutral-900);
+    --primary-foreground: var(--neutral-50);
+    --secondary: var(--neutral-100);
+    --secondary-foreground: var(--neutral-900);
+    --muted: var(--neutral-100);
+    --muted-foreground: var(--neutral-500);
+    --accent: var(--neutral-100);
+    --accent-foreground: var(--neutral-900);
+    --destructive: var(--status-red);
+    --destructive-foreground: var(--neutral-50);
+    --border: var(--neutral-200);
+    --input: var(--neutral-200);
+    --ring: var(--neutral-900);
+    --success: var(--status-emerald);
+    --warning: var(--status-amber);
+    --danger: var(--status-rose);
+    --private: var(--status-violet);
+
+    /* 芽绿只做「主要动作」与「选中态」，必须成对使用前景色 */
+    --brand-action: var(--brand-sprout);
+    --brand-action-hover: var(--brand-sprout-strong);
+    --brand-action-foreground: var(--brand-ink);
+    --brand-selected: var(--brand-sprout);
+    --brand-selected-foreground: var(--brand-ink);
+
+    /* shadcn sidebar 语义位：保持现有浅色行为，深色壳属于 v2 组件层 */
+    --sidebar-background: var(--neutral-50);
+    --sidebar-foreground: var(--neutral-700);
+    --sidebar-primary: var(--neutral-900);
+    --sidebar-primary-foreground: var(--neutral-50);
+    --sidebar-accent: var(--neutral-100);
+    --sidebar-accent-foreground: var(--neutral-900);
+    --sidebar-border: var(--neutral-200);
+    --sidebar-ring: var(--neutral-900);
+
+    /* 语义间距与字阶 */
+    --spacing-page-x: var(--space-5);
+    --spacing-page-y: var(--space-5);
+    --spacing-section: var(--space-5);
+    --spacing-stack: var(--space-4);
+    --spacing-inline: var(--space-3);
+    --font-heading: var(--font-size-lg);
+    --font-heading-lg: var(--font-size-2xl);
+    --font-body: var(--font-size-sm);
+    --font-label: var(--font-size-xs);
+    --font-overline: var(--font-size-2xs);
+    --font-metric: var(--font-size-2xl);
+
+    /* =========================== COMPONENT ============================= */
+
+    /* 应用壳：v2 的导航栏是常驻深色，不跟随浅色主题反转 */
+    --shell-header-height: 4rem;
+    --shell-nav-width: 16rem;
+    --shell-nav-width-icon: 4.5rem;
+    --shell-nav-bg: var(--brand-ink);
+    --shell-nav-fg: var(--neutral-200);
+    --shell-nav-border: var(--brand-ink-raised);
+    --shell-nav-group-label: var(--neutral-500);
+    --shell-nav-item-hover-bg: var(--brand-ink-raised);
+    --shell-nav-item-active-bg: var(--brand-selected);
+    --shell-nav-item-active-fg: var(--brand-selected-foreground);
+    --shell-alert-banner-bg: var(--destructive);
+    --shell-alert-banner-fg: var(--destructive-foreground);
+
+    /* 检视抽屉（A 方案的主要交互面） */
+    --inspector-width: 36rem;
+    --inspector-width-wide: 44rem;
+    --inspector-bg: var(--background);
+    --inspector-border: var(--border);
+    --inspector-shadow: var(--shadow-lg);
+    --inspector-padding: var(--space-6);
+
+    /* 按钮 */
+    --button-radius: var(--radius);
+    --button-height: 2.25rem;
+    --button-padding-x: var(--space-4);
+    --button-font-size: var(--font-body);
+    --button-bg: var(--primary);
+    --button-fg: var(--primary-foreground);
+    --button-brand-bg: var(--brand-action);
+    --button-brand-hover-bg: var(--brand-action-hover);
+    --button-brand-fg: var(--brand-action-foreground);
+    --button-destructive-bg: var(--destructive);
+    --button-destructive-fg: var(--destructive-foreground);
+    --button-ghost-hover-bg: var(--accent);
+
+    /* 卡片 */
+    --card-radius: 0.75rem;
+    --card-padding: var(--space-4);
+    --card-gap: var(--space-4);
+    --card-border: var(--border);
+    --card-shadow: var(--shadow-sm);
+    --card-shadow-hover: var(--shadow-md);
+
+    /* 表单 */
+    --input-height: 2.25rem;
+    --input-padding-x: var(--space-3);
+    --input-radius: var(--radius);
+    --input-border: var(--input);
+    --input-focus-ring: var(--ring);
+    --input-placeholder: var(--muted-foreground);
+
+    /* 徽标 */
+    --badge-radius: var(--radius);
+    --badge-padding-x: 0.625rem;
+    --badge-font-size: var(--font-label);
+
+    /* 表格 / 列表行 */
+    --row-height: 3.25rem;
+    --row-padding-x: var(--space-4);
+    --row-padding-y: var(--space-3);
+    --row-hover-bg: var(--muted);
+    --row-selected-bg: var(--brand-selected);
+
+    /* 灵感库媒体网格 */
+    --media-card-radius: 0.75rem;
+    --media-card-aspect: 4 / 3;
+    --media-grid-gap: var(--space-4);
+    --media-grid-min: 15rem;
+    --status-dot-size: 0.5rem;
+  }
+
+  /* 深色：只改 semantic 层；primitive 与 component 层不重复定义 */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: var(--neutral-950);
+      --foreground: var(--neutral-50);
+      --card: var(--neutral-950);
+      --card-foreground: var(--neutral-50);
+      --popover: var(--neutral-950);
+      --popover-foreground: var(--neutral-50);
+      --primary: var(--neutral-50);
+      --primary-foreground: var(--neutral-900);
+      --secondary: var(--neutral-800);
+      --secondary-foreground: var(--neutral-50);
+      --muted: var(--neutral-800);
+      --muted-foreground: var(--neutral-400);
+      --accent: var(--neutral-800);
+      --accent-foreground: var(--neutral-50);
+      --destructive: var(--status-red-dark);
+      --destructive-foreground: var(--neutral-50);
+      --border: var(--neutral-800);
+      --input: var(--neutral-800);
+      --ring: var(--neutral-ring-dark);
+      --success: var(--status-emerald-light);
+      --warning: var(--status-amber-light);
+      --danger: var(--status-rose-light);
+      --private: var(--status-violet-light);
+      --sidebar-background: var(--neutral-900);
+      --sidebar-foreground: var(--neutral-100);
+      --sidebar-primary: var(--neutral-50);
+      --sidebar-primary-foreground: var(--neutral-900);
+      --sidebar-accent: var(--neutral-800);
+      --sidebar-accent-foreground: var(--neutral-100);
+      --sidebar-border: var(--neutral-800);
+      --sidebar-ring: var(--neutral-ring-dark);
+    }
+  }
+}

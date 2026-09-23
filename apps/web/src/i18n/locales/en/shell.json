@@ -9,6 +9,7 @@
     "unsynced": "Changes waiting to save",
     "settings": "Settings",
     "loginMethods": "Account settings",
+    "login": "Sign in",
     "loggingOut": "Signing out",
     "membership": {
       "subscribe": "Get membership"

@@ -1,0 +1,8 @@
+{
+  // Plain static Admin frontend for Cloudflare Pages. API traffic goes to the origin in
+  // runtime-config.json; this project has no Functions or bindings.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "muvloom-admin",
+  "compatibility_date": "2026-09-01",
+  "pages_build_output_dir": "dist"
+}

@@ -34,6 +34,9 @@ export default defineConfig({
     },
   },
   build: {
+    // main.tsx 用 top-level await 读 runtime-config.json 决定 API 基址；
+    // vite 默认 target='modules'（ES2020）不支持 TLA，会构建失败。与 apps/web 同源同因。
+    target: 'esnext',
     outDir: 'dist',
     emptyOutDir: true,
   },

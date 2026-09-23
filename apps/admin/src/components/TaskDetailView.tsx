@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { duration, isoTime } from '@/lib/format'
 import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
+import { adminApiUrl } from '@/lib/runtime-config'
 import type { TaskDetail } from '@/lib/types'
 
 interface TaskDetailViewProps {
@@ -152,7 +153,9 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                     className="block aspect-square h-auto w-full overflow-hidden rounded border bg-muted p-0 hover:bg-muted"
                   >
                     <img
-                      src={`/api/tasks/${encodeURIComponent(task.id)}/input-image?idx=${i}`}
+                      src={adminApiUrl(
+                        `/api/tasks/${encodeURIComponent(task.id)}/input-image?idx=${i}`,
+                      )}
                       alt={`参考图 ${i + 1}`}
                       loading="lazy"
                       className="h-full w-full object-cover"
@@ -213,7 +216,9 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                   className="block aspect-square h-auto w-full overflow-hidden rounded border bg-muted p-0 hover:bg-muted"
                 >
                   <img
-                    src={`/api/tasks/${encodeURIComponent(task.id)}/image?idx=${img.index}`}
+                    src={adminApiUrl(
+                      `/api/tasks/${encodeURIComponent(task.id)}/image?idx=${img.index}`,
+                    )}
                     alt={`输出图 ${img.index + 1}`}
                     loading="lazy"
                     className="h-full w-full object-cover"

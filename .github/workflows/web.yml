@@ -26,6 +26,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm --dir apps/web build
+      - run: pnpm --dir apps/admin build
   bff:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -112,3 +113,4 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm --dir apps/web build
+      - run: pnpm --dir apps/admin build

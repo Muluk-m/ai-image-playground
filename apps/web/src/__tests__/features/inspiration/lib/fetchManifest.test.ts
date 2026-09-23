@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchRemoteManifest } from '../../../../features/inspiration/lib/fetchManifest'
+import {
+  fetchManifestWithFallback,
+  fetchRemoteManifest,
+} from '../../../../features/inspiration/lib/fetchManifest'
 
 const goodManifest = {
   version: 1,
@@ -68,5 +71,27 @@ describe('fetchRemoteManifest', () => {
     const m = await fetchRemoteManifest('https://x/manifest.json')
     expect(m.items).toHaveLength(1)
     expect(m.items[0].id).toBe('a')
+  })
+
+  it('falls back to the bundled seed when the published manifest is empty', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ version: 0, updatedAt: '1970-01-01T00:00:00.000Z', items: [] }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(goodManifest), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const manifest = await fetchManifestWithFallback('https://api.example.test/manifest')
+
+    expect(manifest.items).toHaveLength(1)
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/inspiration-manifest.json',
+      expect.objectContaining({ method: 'GET' }),
+    )
   })
 })

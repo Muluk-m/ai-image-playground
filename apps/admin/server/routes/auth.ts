@@ -31,7 +31,7 @@ export const authRoutes = new Elysia()
         return { error: locked ? 'rate_limited' : 'invalid_password' }
       }
       loginLimiter.recordSuccess(key)
-      setSessionCookie(cookie)
+      setSessionCookie(cookie, 'password-admin')
       return { ok: true }
     },
     {

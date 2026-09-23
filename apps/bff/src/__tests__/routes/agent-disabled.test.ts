@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
@@ -11,6 +12,8 @@ process.env.OPERATOR_CONFIG_FILE = ''
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+
+await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 

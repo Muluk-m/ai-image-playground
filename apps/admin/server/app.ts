@@ -2,13 +2,17 @@ import { extname } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config, getAdminCapabilities } from './config'
+import { appVersion } from './lib/app-version'
+import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
 import { devicesRoutes } from './routes/devices'
 import { googleAuthRoutes } from './routes/google-auth'
 import { imagesRoutes } from './routes/images'
+import { inspirationsRoutes } from './routes/inspirations'
 import { opsRoutes } from './routes/ops'
 import { overviewRoutes } from './routes/overview'
 import { extensionRoutes, privateRoutes } from './routes/private'
+import { skillsRoutes } from './routes/skills'
 import { tasksRoutes } from './routes/tasks'
 import { usersRoutes } from './routes/users'
 import { isApiPath, serveSpaFallback, serveStatic } from './static'
@@ -25,14 +29,17 @@ const STATIC_DIR = config.staticDir
 
 const apiApp = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
-  .get('/health', () => ({ ok: true }))
+  .get('/health', () => ({ ok: true, version: appVersion() }))
   .use(authRoutes)
   .use(googleAuthRoutes)
   .use(devicesRoutes)
   .use(overviewRoutes)
   .use(opsRoutes)
+  .use(auditRoutes)
   .use(tasksRoutes)
   .use(imagesRoutes)
+  .use(inspirationsRoutes)
+  .use(skillsRoutes)
   .use(extensionRoutes)
   .use(privateRoutes)
 

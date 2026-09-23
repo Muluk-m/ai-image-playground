@@ -1,4 +1,5 @@
 import type { AuthUserView, LoginMethodsView, OAuthProviderView } from '@image-playground/shared'
+import { isSignedIn } from '../auth/loginPrompt'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
@@ -154,8 +155,11 @@ export async function unlinkOAuthProvider(provider: string): Promise<void> {
 }
 
 /**
- * 所有受保护 BFF 调用统一带 cookie。运行中收到 401 时通知 AuthGate 立即卸载工作台，
+ * 所有受保护 BFF 调用统一带 cookie。运行中收到 401 时通知 AuthGate 提示重新登录，
  * 避免每个 queue 调用点各自维护登录状态。
+ *
+ * 只有「本来登着」才算会话失效：未登录访客也能进工作台，他们的 401 是正常的权限边界，
+ * 由动作自己在发请求前调 requireAccount() 弹登录框，这里再喊一次只会冒出第二个弹窗。
  */
 export async function authenticatedBffFetch(
   input: string,
@@ -164,6 +168,7 @@ export async function authenticatedBffFetch(
   const res = await fetch(input, { ...init, credentials: 'include' })
   if (
     res.status === 401 &&
+    isSignedIn() &&
     isClientCapabilityEnabled('accounts:login') &&
     typeof window !== 'undefined'
   ) {

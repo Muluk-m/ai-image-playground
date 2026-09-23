@@ -50,6 +50,7 @@ jobs:
       # The bff suite is not run: this workflow ships no backend, and `Web checks` covers it on
       # every pull request into main.
       - run: pnpm --dir apps/web build
+      - run: pnpm --dir apps/admin build
 
   publish:
     name: Release test.muvloom.online

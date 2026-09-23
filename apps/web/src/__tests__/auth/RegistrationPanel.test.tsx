@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LoginScreen } from '../../auth/LoginScreen'
+import { LoginDialog } from '../../auth/LoginDialog'
 import { RegistrationPanel } from '../../auth/RegistrationPanel'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
@@ -158,7 +158,7 @@ describe('RegistrationPanel', () => {
   })
 })
 
-describe('LoginScreen registration entry', () => {
+describe('LoginDialog registration entry', () => {
   it('opens the registration panel when the deployment enables self-registration', async () => {
     vi.stubGlobal(
       'fetch',
@@ -172,20 +172,20 @@ describe('LoginScreen registration entry', () => {
       ),
     )
     await bootstrapClientCapabilities(true, '')
-    act(() => root.render(<LoginScreen />))
+    act(() => root.render(<LoginDialog onClose={() => {}} />))
 
-    expect(host.querySelector('.auth-showcase')).toBeDefined()
-    expect(host.querySelector('.auth-panel')).toBeDefined()
-    expect(host.textContent).toContain('让灵感，长成画面')
-    expect(host.textContent).toContain('邮箱地址')
+    const dialog = document.body.querySelector('.auth-dialog')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.querySelector('.auth-showcase')).not.toBeNull()
+    expect(dialog?.textContent).toContain('让灵感，长成画面')
+    expect(dialog?.textContent).toContain('邮箱地址')
 
-    const registrationEntry = Array.from(host.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === '立即注册',
-    )
+    const registrationEntry = Array.from(
+      document.body.querySelectorAll('.auth-dialog button'),
+    ).find((button) => button.textContent?.trim() === '立即注册')
     expect(registrationEntry).toBeDefined()
-    act(() => registrationEntry?.click())
+    act(() => (registrationEntry as HTMLButtonElement | undefined)?.click())
 
-    expect(host.querySelector('h1')?.textContent).toBe('创建账户')
-    expect(input('confirmPassword')).toBeDefined()
+    expect(document.body.querySelector('.auth-dialog h1')?.textContent).toBe('创建账户')
   })
 })
