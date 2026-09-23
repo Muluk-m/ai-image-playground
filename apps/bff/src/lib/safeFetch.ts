@@ -42,6 +42,11 @@ export interface SafeFetchOptions {
   readonly timeoutMs: number
   readonly signal?: AbortSignal
   readonly accept?: string
+  /**
+   * 附加请求头。`Host` 与 TLS 那一套仍由这一层钉死，覆盖不了；商品站这类不带浏览器
+   * User-Agent 与 Accept-Language 就回验证码页的站点用它。
+   */
+  readonly headers?: Readonly<Record<string, string>>
   readonly maxRedirects?: number
 }
 
@@ -226,8 +231,9 @@ export async function safeFetch(
           redirect: 'manual',
           signal: deadline.signal,
           headers: {
+            ...options.headers,
             Host: url.host,
-            'User-Agent': USER_AGENT,
+            'User-Agent': options.headers?.['User-Agent'] ?? USER_AGENT,
             Accept: options.accept ?? '*/*',
           },
           ...(url.protocol === 'https:' ? { tls: { serverName: url.hostname } } : {}),
