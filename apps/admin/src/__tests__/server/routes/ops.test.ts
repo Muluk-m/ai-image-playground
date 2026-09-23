@@ -326,6 +326,18 @@ describe('GET /api/ops', () => {
     expect(series[0]?.mem_available_ratio).toBeCloseTo(0.25, 5)
   })
 
+  it('serves an hourly host window instead of the fixed seven-day series', async () => {
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/ops?range=1h', { headers: { cookie } }),
+    )
+    const body = (await response.json()) as OpsSnapshot
+
+    if (!body.host.ok) throw new Error(body.host.error)
+    expect(body.host.data.series).toHaveLength(1)
+    expect(body.host.data.series[0]?.at).toBeGreaterThan(now - 5 * minute)
+  })
+
   it('lists every container of the newest reading with its week peak and fresh OOM kills', async () => {
     const cookie = await login()
     const body = (await (

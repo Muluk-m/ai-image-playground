@@ -1,6 +1,5 @@
 import { OPS_THRESHOLDS } from '@image-playground/shared'
 import { Link } from '@tanstack/react-router'
-
 import { Kpi } from '@/components/Kpi'
 import { ApiBody, apiProblems } from '@/components/ops/ApiBlock'
 import { ContainersBody, containersProblems } from '@/components/ops/ContainersBlock'
@@ -24,6 +23,7 @@ import type {
   OpsServices,
   OpsSnapshot,
 } from '@/lib/types'
+import { OPS_RANGE_LABEL, type OpsRange } from '../../../contracts'
 
 function percent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`
@@ -67,7 +67,7 @@ function loadNote(latest: NonNullable<OpsHost['latest']>): string | undefined {
   return `${cores}负载 ${loads.map((value) => (value as number).toFixed(2)).join(' / ')}`
 }
 
-function HostBody({ host, now }: { host: OpsHost; now: number }) {
+function HostBody({ host, now, range }: { host: OpsHost; now: number; range: OpsRange }) {
   const { latest, series } = host
   if (!latest) {
     return (
@@ -123,8 +123,9 @@ function HostBody({ host, now }: { host: OpsHost; now: number }) {
       {series.length > 1 ? (
         <LazyHostTrendChart
           series={series}
+          stepMs={host.bucket_ms}
           diskAlertRatio={OPS_THRESHOLDS.DISK_USED_RATIO}
-          label="近 7 天的磁盘、内存与 CPU 用量"
+          label={`近 ${OPS_RANGE_LABEL[range]}的磁盘、内存与 CPU 用量`}
         />
       ) : (
         <p className="border-t pt-3 text-xs text-muted-foreground">采样还不够画出趋势。</p>
@@ -356,7 +357,7 @@ export function opsAlerts(snapshot: OpsSnapshot): string[] {
 }
 
 /** 回答「这套部署现在有没有出事」。业务跑得怎么样是概览页的事，这里不重复。 */
-export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
+export function OpsBoard({ snapshot, range }: { snapshot: OpsSnapshot; range: OpsRange }) {
   const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
   return (
     <section className="grid gap-4 xl:grid-cols-2">
@@ -365,7 +366,7 @@ export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
         block={snapshot.host}
         problems={(host) => hostProblems(host, snapshot.generated_at)}
       >
-        {(host) => <HostBody host={host} now={snapshot.generated_at} />}
+        {(host) => <HostBody host={host} now={snapshot.generated_at} range={range} />}
       </OpsBlockCard>
       <OpsBlockCard title="容器" block={snapshot.containers} problems={containersProblems}>
         {(containers) => <ContainersBody containers={containers} now={snapshot.generated_at} />}

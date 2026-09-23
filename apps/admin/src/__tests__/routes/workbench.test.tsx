@@ -30,6 +30,7 @@ vi.mock('../../lib/api-client', () => {
     created_at: Date.now(),
     updated_at: Date.now(),
     last_login_at: Date.now(),
+    login_methods: ['password'],
     last_task_at: Date.now(),
     last_activity_at: Date.now(),
     active_sessions: 1,

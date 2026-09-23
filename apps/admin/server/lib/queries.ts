@@ -1,3 +1,4 @@
+import { OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import { TASK_STATUSES } from '@image-playground/shared'
 
 import type {
@@ -146,6 +147,7 @@ function mapAdminUser(row: Record<string, unknown>): AdminUserRow {
     created_at: toEpochMs(row.created_at),
     updated_at: toEpochMs(row.updated_at),
     last_login_at: nullableEpochMs(row.last_login_at),
+    login_methods: Array.isArray(row.login_methods) ? row.login_methods.map(String) : [],
     last_task_at: nullableEpochMs(row.last_task_at),
     last_activity_at: nullableEpochMs(row.last_activity_at),
     active_sessions: Number(row.active_sessions),
@@ -159,6 +161,18 @@ const ADMIN_USER_PROJECTION = sql`
   u.created_at,
   u.updated_at,
   u.last_login_at,
+  ARRAY(
+    SELECT method
+    FROM (
+      SELECT 'password'::text AS method, 0 AS sort
+      WHERE u.password_hash <> ${OAUTH_ONLY_PASSWORD_HASH}
+      UNION
+      SELECT i.provider AS method, 1 AS sort
+      FROM user_identities i
+      WHERE i.user_id = u.id
+    ) methods
+    ORDER BY sort, method
+  ) AS login_methods,
   task_stats.last_task_at,
   GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
   COALESCE(session_stats.active_sessions, 0) AS active_sessions,

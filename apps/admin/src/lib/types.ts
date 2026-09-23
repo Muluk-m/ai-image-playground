@@ -21,6 +21,7 @@ export type {
   OpsHost,
   OpsHostPoint,
   OpsQueue,
+  OpsRange,
   OpsService,
   OpsServiceName,
   OpsServices,
