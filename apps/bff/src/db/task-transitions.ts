@@ -3,21 +3,33 @@ import {
   type TaskErrorType,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, inArray, type SQL } from 'drizzle-orm'
+import { and, eq, gt, inArray, type SQL } from 'drizzle-orm'
 import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { publishProjectOutputs } from '../lib/projectArchive'
 import { db, schema } from './client'
-import { executionFence } from './execution-context'
 import { publishGenerations } from './generation-events'
 
 /**
- * 每个状态写入都带 `status='in_progress'` 守卫：cancel route 已经把 status 写成
- * 'cancelled' 时，worker 这边一律 no-op，不会反悔覆盖。
+ * 「这一行还归这个执行者」：令牌对得上，租约还没过。过期的执行者可以跑完一次 fetch，
+ * 但再也发布不了、结算不了它的结果。worker 侧由执行句柄自动带上，非 worker 的调用方
+ * （对话轮结算）自己显式给出。
  */
-const stillRunning = (id: string, guard?: SQL) =>
-  and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'), executionFence(), guard)
+export function heldBy(token: string): SQL {
+  return and(
+    eq(schema.tasks.execution_token, token),
+    gt(schema.tasks.lease_expires_at, Date.now()),
+  )!
+}
+
+/**
+ * 每个状态写入都带 `status='in_progress'` 与调用方的归属守卫：cancel route 已经
+ * 把 status 写成 'cancelled' 时，worker 一律 no-op；旧执行者也不能写新执行者的行。
+ * worker 经执行句柄传入令牌与租约守卫，回收扫描传入它扫到的令牌守卫。
+ */
+const stillRunning = (id: string, fence: SQL) =>
+  and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'), fence)
 
 /** 回队时一律抹掉的上一次尝试痕迹。新增「每次尝试」列时改这里，别只加进某一个 requeue。 */
 const CLEARED_ON_REQUEUE = {
@@ -40,13 +52,13 @@ export async function requeueTask(
   id: string,
   attemptJustFailed: number,
   nextRetryAt: number,
-  guard?: SQL,
+  fence: SQL,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
     const updated = await tx
       .update(schema.tasks)
       .set({ ...CLEARED_ON_REQUEUE, attempt_count: attemptJustFailed, next_retry_at: nextRetryAt })
-      .where(stillRunning(id, guard))
+      .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
     await publishGenerations(
       tx,
@@ -60,13 +72,13 @@ export async function requeueTask(
  * 把中断的异步任务退回 queued 以**继续轮询**：保留 upstream_task_ids 与 attempt_count。
  * 上游任务还活着且已计费，这不是一次失败的尝试，不进重试预算。返回真的改到的行数。
  */
-export async function requeueTasksForPolling(ids: readonly string[], guard?: SQL): Promise<number> {
+export async function requeueTasksForPolling(ids: readonly string[], fence: SQL): Promise<number> {
   if (ids.length === 0) return 0
   return db.transaction(async (tx) => {
     const updated = await tx
       .update(schema.tasks)
       .set({ ...CLEARED_ON_REQUEUE, next_retry_at: null })
-      .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress'), guard))
+      .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress'), fence))
       .returning({ id: schema.tasks.id })
     await publishGenerations(
       tx,
@@ -79,12 +91,13 @@ export async function requeueTasksForPolling(ids: readonly string[], guard?: SQL
 export async function saveArchiveCheckpoint(
   id: string,
   payload: (typeof schema.tasks.$inferInsert)['archive_payload'],
+  fence: SQL,
 ) {
   return db.transaction(async (tx) => {
     const updated = await tx
       .update(schema.tasks)
       .set({ archive_payload: payload })
-      .where(stillRunning(id))
+      .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
     await publishGenerations(
       tx,
@@ -97,9 +110,9 @@ export async function saveArchiveCheckpoint(
 /** Archive retries keep the successful result and never consume model attempts. */
 export async function requeueTaskArchive(
   id: string,
-  nextRetryAt = Date.now() + 60_000,
-  payload?: (typeof schema.tasks.$inferInsert)['archive_payload'],
-  guard?: SQL,
+  nextRetryAt: number,
+  payload: (typeof schema.tasks.$inferInsert)['archive_payload'] | undefined,
+  fence: SQL,
 ) {
   return db.transaction(async (tx) => {
     const updated = await tx
@@ -111,7 +124,7 @@ export async function requeueTaskArchive(
         error_message: '图片已生成，正在重试保存',
         error_type: 'object_storage_error',
       })
-      .where(stillRunning(id, guard))
+      .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
     await publishGenerations(
       tx,
@@ -136,11 +149,14 @@ export type TerminalTaskUpdate = {
   media?: GenerationMediaLink[]
 }
 
-/** 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。 */
+/**
+ * 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。
+ * worker 一律经执行句柄（`workers/task-execution`）调它；回收扫描与对话轮结算自己给 fence。
+ */
 export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
-  guard?: SQL,
+  fence: SQL,
 ): Promise<boolean> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
@@ -158,7 +174,7 @@ export async function finishTask(
         upstream_body: update.upstreamBody,
         completed_at: update.completedAt,
       })
-      .where(stillRunning(id, guard))
+      .where(stillRunning(id, fence))
       .returning({
         id: schema.tasks.id,
         userId: schema.tasks.user_id,

@@ -1,11 +1,13 @@
 import type { ProjectWrite } from '@image-playground/shared'
-import type { Camera, CanvasEl } from './canvasDoc'
-import type { CanvasEditor } from './editor'
+import type { Camera, CanvasDoc, CanvasEl } from './canvasDoc'
 import type { MediaBindings } from './projectMedia'
 
 /**
  * 画布场景的 IndexedDB 持久化。与项目 image-playground 主库隔离，独立 DB；
  * 每个会话独立保存场景；旧单场景留作迁移备份。
+ *
+ * 这一层只认字节：读一条、写一条、合并规则。一个项目的存档由谁读、何时恢复、
+ * 带哪个检查点，归 `sceneRecord.ts`。
  */
 const DB_NAME = 'image-playground-canvas'
 const DB_VERSION = 1
@@ -94,7 +96,11 @@ function dbGet(key: string, migrateLegacy: boolean): Promise<unknown> {
   )
 }
 
-function dbPut(
+/**
+ * 把一份场景写进 IndexedDB。合并规则只有这一处：`preserveStructure` 表示这次只动过相机，
+ * 旧标签页不能把另一标签页的新结构与修订基线写回旧值。
+ */
+export function writePersistedScene(
   scene: PersistedScene,
   key: string,
   removeKey?: string,
@@ -128,53 +134,23 @@ function dbPut(
   )
 }
 
-/**
- * 把当前场景写入 IndexedDB。files 只保留仍被 image 元素引用的（删图后不积累孤儿大文件）。
- * 返回事务是否提交成功，由界面提供重试入口。
- */
-export async function saveScene(
-  editor: CanvasEditor,
-  key = SCENE_KEY,
-  removeKey?: string,
-  options: { cloud?: CloudSceneCheckpoint; preserveStructure?: boolean } = {},
-): Promise<boolean> {
-  try {
-    const { elements, files, camera } = editor.doc
-    const kept: Record<string, string> = {}
-    for (const el of elements) {
-      if (el.type === 'image' && files[el.fileId]) kept[el.fileId] = files[el.fileId]
-    }
-    await dbPut(
-      {
-        version: SCENE_FORMAT,
-        elements: [...elements],
-        files: kept,
-        camera: { ...camera },
-        ...(options.cloud ? { cloud: options.cloud } : {}),
-      },
-      key,
-      removeKey,
-      options.preserveStructure,
-    )
-    return true
-  } catch (err) {
-    console.warn('[canvas] 场景持久化失败', err)
-    return false
+/** 要落盘的那一份：files 只保留仍被 image 元素引用的（删图后不积累孤儿大文件）。 */
+export function persistedScene(doc: CanvasDoc, cloud?: CloudSceneCheckpoint): PersistedScene {
+  const { elements, files, camera } = doc
+  const kept: Record<string, string> = {}
+  for (const el of elements) {
+    if (el.type === 'image' && files[el.fileId]) kept[el.fileId] = files[el.fileId]
+  }
+  return {
+    version: SCENE_FORMAT,
+    elements: [...elements],
+    files: kept,
+    camera: { ...camera },
+    ...(cloud ? { cloud } : {}),
   }
 }
 
 /** 读取失败必须阻止编辑与保存，不能把暂时读不到的存档当成空场景覆盖。 */
-export async function loadScene(
-  editor: CanvasEditor,
-  key = SCENE_KEY,
-  migrateLegacy = false,
-): Promise<boolean> {
-  const stored = await readPersistedScene(key, migrateLegacy)
-  if (!stored) return false
-  editor.doc.restore([...stored.elements], stored.files ?? {}, stored.camera)
-  return true
-}
-
 export async function readPersistedScene(
   key: string,
   migrateLegacy = false,

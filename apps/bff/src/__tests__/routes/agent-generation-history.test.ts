@@ -311,7 +311,8 @@ it('无活动浏览器轮的排队任务仍阻止回收，结束后恢复同一�
   expect((await request(`/api/projects/${original.id}`, deviceB, undefined, 'DELETE')).status).toBe(
     409,
   )
-  await db.update(schema.tasks).set({ status: 'completed' }).where(eq(schema.tasks.id, accepted.id))
+  const { workerSettles } = await import('../helpers/taskWorker')
+  await workerSettles(accepted.id, { status: 'completed' })
   expect((await request(`/api/projects/${original.id}`, deviceB, undefined, 'DELETE')).status).toBe(
     200,
   )

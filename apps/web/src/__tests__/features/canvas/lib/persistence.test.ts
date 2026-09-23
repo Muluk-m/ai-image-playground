@@ -1,53 +1,68 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import { describe, expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
-import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
+import {
+  type CloudSceneCheckpoint,
+  openCanvasDatabase,
+  persistedScene,
+  readPersistedScene,
+  writePersistedScene,
+} from '../../../../features/canvas/lib/persistence'
 
-describe('画布保存', () => {
-  it('事务提交完成后才返回成功，并可恢复场景', async () => {
-    const editor = new CanvasEditor(new CanvasDoc())
-    editor.doc.setCamera({ x: 123 })
-    expect(await saveScene(editor)).toBe(true)
-    const restored = new CanvasEditor(new CanvasDoc())
-    expect(await loadScene(restored)).toBe(true)
-    expect(restored.doc.camera.x).toBe(123)
+const key = () => `persistence:${crypto.randomUUID()}`
+
+const checkpoint: CloudSceneCheckpoint = {
+  version: 1,
+  name: '云端那份',
+  revision: 7,
+  savedContent: 'saved',
+  pending: null,
+  conflict: false,
+}
+
+function docWithImage(fileId: string, files: Record<string, string>): CanvasDoc {
+  const doc = new CanvasDoc()
+  doc.addElements(
+    [{ id: 'img', type: 'image', x: 0, y: 0, width: 10, height: 10, rotation: 0, fileId }],
+    { files },
+  )
+  return doc
+}
+
+it('要落盘的那一份只带还被引用的位图，删掉的图不再占着存档', () => {
+  const doc = docWithImage('kept', {
+    kept: 'data:image/png;base64,AAAA',
+    gone: 'data:image/png;base64,BBBB',
   })
-  it('事务中止时返回失败，随后重试能成功', async () => {
-    const original = IDBObjectStore.prototype.put
-    const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(function (
-      this: IDBObjectStore,
-      ...args: Parameters<IDBObjectStore['put']>
-    ) {
-      const request = original.apply(this, args)
-      this.transaction.abort()
-      return request
-    })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const editor = new CanvasEditor(new CanvasDoc())
-    expect(await saveScene(editor)).toBe(false)
-    spy.mockRestore()
-    warn.mockRestore()
-    expect(await saveScene(editor)).toBe(true)
-  })
+
+  expect(persistedScene(doc).files).toEqual({ kept: 'data:image/png;base64,AAAA' })
 })
 
-describe('画布存档隔离与迁移', () => {
-  it('旧单场景仅被一个画布认领，备份保持不变', async () => {
-    const old = new CanvasEditor(new CanvasDoc())
-    old.doc.setCamera({ x: 987 })
-    await saveScene(old)
-    const first = new CanvasEditor(new CanvasDoc())
-    const second = new CanvasEditor(new CanvasDoc())
-    expect(await loadScene(first, 'conversation:a', true)).toBe(true)
-    expect(first.doc.camera.x).toBe(987)
-    expect(await loadScene(second, 'conversation:b', true)).toBe(false)
-    first.doc.setCamera({ x: 123 })
-    await saveScene(first, 'conversation:a')
-    const backup = new CanvasEditor(new CanvasDoc())
-    await loadScene(backup)
-    expect(backup.doc.camera.x).toBe(987)
-    expect(second.doc.camera.x).toBe(0)
+it('认不出的存档格式要报错，不能当成一张空画布交出去（ADR-0005）', async () => {
+  const scene = key()
+  const db = await openCanvasDatabase()
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction('scene', 'readwrite')
+    // 未来版本写下的记录：这台机器上的旧代码读不懂它。
+    transaction
+      .objectStore('scene')
+      .put({ version: 99, elements: [], files: {}, camera: { x: 0, y: 0, zoom: 1 } }, scene)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
   })
+
+  await expect(readPersistedScene(scene)).rejects.toThrow()
+})
+
+it('只在本机的那次写入不抹掉盘上的云端基线', async () => {
+  const scene = key()
+  await writePersistedScene(persistedScene(new CanvasDoc(), checkpoint), scene)
+
+  const local = docWithImage('kept', { kept: 'data:image/png;base64,AAAA' })
+  await writePersistedScene(persistedScene(local), scene)
+
+  const stored = await readPersistedScene(scene)
+  expect(stored?.elements).toHaveLength(1)
+  expect(stored?.cloud).toEqual(checkpoint)
 })

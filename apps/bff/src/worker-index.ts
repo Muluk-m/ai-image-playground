@@ -9,7 +9,7 @@ import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { createAlertSender } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
-import { abortAllRunningTasks, runningTaskIds } from './workers/task-runner'
+import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
 import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
 

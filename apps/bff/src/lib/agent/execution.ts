@@ -20,6 +20,32 @@ export function agentExecutionToken(turnId: string): string {
 }
 
 /**
+ * 一轮对会话的执行权，一个句柄两件事：确认租约还在自己手上，以及在租约下写一笔。
+ * 起轮准备与轮运行时都只拿它，不再各自带一对回调。
+ */
+export interface TurnExecution {
+  /** 租约还在吗；已被接管时抛 {@link ConversationExecutionLost}。 */
+  readonly assert: () => Promise<void>
+  /** 在租约下开一个事务；期间租约行被锁住，接管的一方写不进来。 */
+  readonly write: <T>(callback: (tx: BffTransaction) => Promise<T>) => Promise<T>
+}
+
+/**
+ * 这一轮的执行句柄。`assert` 由起轮方给：它除了查租约行，还要认本进程里已经收到的丢失通知
+ * （见 `maintainConversation`）。
+ */
+export function turnExecution(
+  conversationId: string,
+  turnId: string,
+  assert: () => Promise<void>,
+): TurnExecution {
+  return {
+    assert,
+    write: (callback) => withConversationExecution(conversationId, turnId, callback),
+  }
+}
+
+/**
  * Locks the durable ownership row for the whole callback. A stale executor therefore cannot pass
  * the ownership check and then write after a replacement claim commits.
  */
