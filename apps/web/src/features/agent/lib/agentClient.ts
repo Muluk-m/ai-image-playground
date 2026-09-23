@@ -32,7 +32,7 @@ import {
   parseAgentFrame,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
@@ -603,11 +603,29 @@ export async function interjectTurn(
   return ((await response.json()) as { messageId: string }).messageId
 }
 
+/**
+ * 发送形态：字节已经在云媒体里的只带 id，其余把本机来源解成真正的 data URL。
+ *
+ * 曾经这里对每一条都调 `resolveMediaSource`——画布上选中八张图，就是先把八张原件从 R2
+ * 下回浏览器，再 base64 塞进请求体传上去：几十 MB、几分钟，服务端拿到的还是它自己那份字节。
+ */
 async function resolveReferences(
   references: readonly AgentTurnReference[],
 ): Promise<AgentTurnReference[]> {
   const resolved: AgentTurnReference[] = []
-  for (const reference of references)
+  for (const reference of references) {
+    if (!('dataUrl' in reference)) {
+      resolved.push(reference)
+      continue
+    }
+    const mediaId = mediaIdentity(reference.dataUrl)
+    // 画过遮罩、烧过批注的那张是新像素，云端没有它，只能内联。
+    if (mediaId && !reference.maskDataUrl) {
+      const { dataUrl: _cloud, maskDataUrl: _none, ...rest } = reference
+      resolved.push({ ...rest, mediaId })
+      continue
+    }
     resolved.push({ ...reference, dataUrl: await resolveMediaSource(reference.dataUrl) })
+  }
   return resolved
 }

@@ -6,6 +6,16 @@ const DEVICE = 'device-abcdefgh'
 
 vi.mock('../../../../lib/deviceId', () => ({ getDeviceId: () => DEVICE }))
 vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'https://bff.test' }))
+// 真 `resolveMediaSource` 会去回源；这里只关心哪几张走到了它。
+const { resolveMediaSource } = vi.hoisted(() => ({
+  resolveMediaSource: vi.fn(async (source: string) =>
+    source.startsWith('aip-media:') ? 'data:image/png;base64,Y2xvdWQ=' : source,
+  ),
+}))
+vi.mock('../../../../lib/cloudMedia', () => ({
+  mediaIdentity: (source: string) => source.match(/^aip-media:([0-9a-f-]{36})$/i)?.[1],
+  resolveMediaSource,
+}))
 
 import {
   AgentRequestError,
@@ -82,6 +92,38 @@ describe('插话请求', () => {
         async () => new Response(null, { status: 409 }),
       ),
     ).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('字节已经在云媒体里的只发 id，不把原图下回来再传上去', async () => {
+    const mediaId = '7f1a5b3c-2d4e-4f60-8a91-0b2c3d4e5f60'
+    const { calls, fetcher } = recordingFetcher({ messageId: 'm1' })
+    resolveMediaSource.mockClear()
+
+    await interjectTurn(
+      'conv-1',
+      'turn-1',
+      '改这几张',
+      [
+        { imageId: 'canvas-1', dataUrl: `aip-media:${mediaId}`, name: '主图' },
+        // 画过遮罩的是新像素，云端没有它，只能内联。
+        {
+          imageId: 'canvas-2',
+          dataUrl: `aip-media:${mediaId}`,
+          maskDataUrl: 'data:image/png;base64,bWFzaw==',
+        },
+      ],
+      fetcher,
+    )
+
+    expect(resolveMediaSource).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(calls[0]!.init?.body)).references).toEqual([
+      { imageId: 'canvas-1', mediaId, name: '主图' },
+      {
+        imageId: 'canvas-2',
+        dataUrl: 'data:image/png;base64,Y2xvdWQ=',
+        maskDataUrl: 'data:image/png;base64,bWFzaw==',
+      },
+    ])
   })
 })
 

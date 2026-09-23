@@ -1010,7 +1010,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
             ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
             : code === 'invalid_selection'
               ? i18next.t('error.invalidSelection', { ns: 'agent' })
-              : i18next.t('error.queueFailed', { ns: 'agent' }),
+              : code === 'invalid_reference'
+                ? i18next.t('error.invalidReference', { ns: 'agent' })
+                : i18next.t('error.queueFailed', { ns: 'agent' }),
       })
     }
   }
@@ -1430,7 +1432,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
                 ? TURN_RATE_LIMITED()
                 : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
                   ? i18next.t('error.invalidSelection', { ns: 'agent' })
-                  : undefined,
+                  : thrown instanceof AgentRequestError && thrown.code === 'invalid_reference'
+                    ? i18next.t('error.invalidReference', { ns: 'agent' })
+                    : undefined,
             )
           await turnDelivery.settled()
           return
