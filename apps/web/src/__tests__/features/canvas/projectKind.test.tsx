@@ -154,7 +154,7 @@ it('云端文档带着画布类型往返：推上去带，另一台设备读回�
       })
     }),
   )
-  const session = new CloudProjectSession(local, await openSceneRecord(local.sceneKey, editor))
+  const session = new CloudProjectSession(local, await openSceneRecord(local.sceneKey, { editor }))
   await session.load()
   expect(writes).toHaveLength(1)
   expect(writes[0]?.document.kind).toBe('video')

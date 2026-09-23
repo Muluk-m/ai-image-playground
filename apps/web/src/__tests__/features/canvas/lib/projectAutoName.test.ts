@@ -5,19 +5,68 @@ import {
   currentCanvasWorkspace,
   forgetCanvasWorkspace,
   importConversationProjects,
-} from '../../../features/canvas/lib/activeProject'
-import { projectRepository, UNTITLED_PROJECT } from '../../../features/canvas/lib/projectRepository'
-import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
-import { setClientStorageScope } from '../../../lib/authScope'
-import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
-import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
+} from '../../../../features/canvas/lib/activeProject'
+import {
+  projectRepository,
+  UNTITLED_PROJECT,
+} from '../../../../features/canvas/lib/projectRepository'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
+import { setClientStorageScope } from '../../../../lib/authScope'
+import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
+import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 const cloud = { revision: 1, createdAt: 1, updatedAt: 1, elementCount: 0 }
 
 afterEach(async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
   await bootstrapClientCapabilities(false, '')
   setClientStorageScope(null)
+  useCanvasProjectStore.setState({ projects: [], activeId: null, loaded: false })
   vi.unstubAllGlobals()
+})
+
+function conversation(id: string, title: string) {
+  return { id, title, createdAt: 1, updatedAt: 2 }
+}
+
+it('会话有了标题就给还叫未命名的项目改名，云端来的那份也算数', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  // 这一条只看目录侧的改名决定：云端关着，不牵动工作区与上传。
+  _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+  await bootstrapClientCapabilities(false, '')
+  const auto = await projectRepository.create(UNTITLED_PROJECT, {
+    sceneKey: 'scene-auto',
+    conversationId: 'conversation-auto',
+  })
+  // 云端目录里同步下来的项目：名字还是未命名，所以自动命名仍然管得着。
+  const listedCloud = await projectRepository.importCloud({
+    id: crypto.randomUUID(),
+    name: UNTITLED_PROJECT,
+    revision: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 0,
+    coverMediaId: null,
+    conversationId: 'conversation-cloud',
+  })
+  const mine = await projectRepository.create('我自己起的名字', {
+    sceneKey: 'scene-mine',
+    conversationId: 'conversation-mine',
+  })
+
+  await importConversationProjects([
+    conversation('conversation-auto', '浴缸多视角'),
+    conversation('conversation-cloud', '客厅灯光'),
+    conversation('conversation-mine', '别改我'),
+  ])
+
+  const named = (id: string) =>
+    useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  expect(named(auto.id)?.name).toBe('浴缸多视角')
+  expect(named(listedCloud.id)?.name).toBe('客厅灯光')
+  // 云端项目的自动名还没推上去，目录得先信本机这一份。
+  expect(named(listedCloud.id)?.cloud?.nameDirty).toBe(true)
+  expect(named(mine.id)?.name).toBe('我自己起的名字')
 })
 
 it('本机与云端项目都按会话标题自动命名，改过名的不动，一个项目失败不挡后面的', async () => {

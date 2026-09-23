@@ -2,10 +2,14 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
+import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../../lib/authScope'
-import { saveSceneRecord } from '../../../helpers/sceneRecord'
+import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
+import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { abortNextPut, freshSceneKey, saveSceneRecord } from '../../../helpers/sceneRecord'
 
 vi.mock('../../../../features/canvas/lib/recoverCanvasTasks', () => ({
   recoverCanvasTasks: vi.fn(),
@@ -16,24 +20,10 @@ afterEach(() => {
   vi.restoreAllMocks()
   setClientStorageScope(null)
 })
-const freshKey = () => `test:${crypto.randomUUID()}`
-
-function abortNextPut() {
-  const put = IDBObjectStore.prototype.put
-  vi.spyOn(console, 'warn').mockImplementation(() => {})
-  return vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(function (
-    this: IDBObjectStore,
-    ...args: Parameters<IDBObjectStore['put']>
-  ) {
-    const result = put.apply(this, args)
-    this.transaction.abort()
-    return result
-  })
-}
 
 describe('画布工作区', () => {
   it('未编辑的旧标签页不覆盖其它标签页的新存档', async () => {
-    const key = freshKey()
+    const key = freshSceneKey()
     const stale = new CanvasWorkspace(key)
     await stale.ready
     await saveSceneRecord(key, 99)
@@ -46,8 +36,8 @@ describe('画布工作区', () => {
   })
 
   it('绑定事务失败保留草稿，重试原子转存后后续编辑只写新会话', async () => {
-    const source = freshKey(),
-      target = freshKey()
+    const source = freshSceneKey(),
+      target = freshSceneKey()
     const draft = new CanvasWorkspace(source)
     await draft.ready
     draft.doc.setCamera({ x: 42 })
@@ -64,7 +54,7 @@ describe('画布工作区', () => {
   })
 
   it('读失败不写空场景，重试读取恢复原内容', async () => {
-    const key = freshKey()
+    const key = freshSceneKey()
     await saveSceneRecord(key, 81)
     vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementationOnce(() => {
       throw new Error('offline storage')
@@ -90,10 +80,6 @@ describe('画布工作区', () => {
 })
 
 it('真实工作区断网自动保存，联网无需手动点击即可续传', async () => {
-  const { _setRuntimeConfigForTesting } = await import('../../../../lib/runtimeConfig')
-  const { bootstrapClientCapabilities } = await import('../../../../lib/clientCapabilities')
-  const { projectRepository } = await import('../../../../features/canvas/lib/projectRepository')
-  const { useCanvasProjectStore } = await import('../../../../features/canvas/projectStore')
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)

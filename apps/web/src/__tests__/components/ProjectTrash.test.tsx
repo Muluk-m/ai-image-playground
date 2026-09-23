@@ -109,7 +109,7 @@ it('实际项目列表回收站把过期项目的本机编辑存为新身份，�
       fill: '#000000',
     },
   ])
-  await (await openSceneRecord(local.sceneKey, editor)).persist()
+  await (await openSceneRecord(local.sceneKey, { editor })).persist()
   const writes: string[] = []
   vi.stubGlobal('fetch', async (input: unknown, init?: RequestInit) => {
     const url = String(input)

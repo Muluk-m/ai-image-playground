@@ -130,7 +130,10 @@ export function selectCanvasWorkspace(key: string): void {
 
 /**
  * 把这个项目摆成当前项目：认它当前、按项目（不是按会话）选它的画布、发布它的产物出口、写地址。
- * `reset` 在旧画布撤下与新画布发布之间跑——面板必须在这一刻清空，否则旧轮的产物会投进新项目。
+ *
+ * `reset` 是给「从别的项目切过来」那一路的：它在旧画布撤下与新画布发布之间跑，面板必须在这一刻
+ * 清空，否则旧轮的产物会投进新项目——`showProject` 传的就是这一步。重新摆开已经是当前项目的
+ * 那个（进画布、失效会话解绑后）没有别人的面板要清，不传。
  */
 export function openProject(projectId: string, reset: () => void = () => {}): void {
   const state = useCanvasProjectStore.getState()

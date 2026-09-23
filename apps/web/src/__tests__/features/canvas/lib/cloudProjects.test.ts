@@ -144,7 +144,7 @@ async function fresh() {
 
 /** 盘上那份读进一个文档：断言落盘结果用。 */
 async function storedEditor(key: string, editor?: CanvasEditor): Promise<CanvasEditor> {
-  return (await openSceneRecord(key, editor)).editor
+  return (await openSceneRecord(key, { editor })).editor
 }
 
 /** 打开这个项目：盘上那份读进来，再接上同步会话——生产里打开一个项目就是这两步。 */
@@ -153,7 +153,7 @@ async function open(
   editor?: CanvasEditor,
   onFork?: (copy: CanvasProject) => void,
 ) {
-  const record = await openSceneRecord(project.sceneKey, editor)
+  const record = await openSceneRecord(project.sceneKey, { editor })
   return { record, session: new CloudProjectSession(project, record, undefined, onFork) }
 }
 const receipt = (
@@ -295,7 +295,7 @@ it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订
   )
   const fetcher = vi.fn()
   vi.stubGlobal('fetch', fetcher)
-  const record = await openSceneRecord(project.sceneKey, editor)
+  const record = await openSceneRecord(project.sceneKey, { editor })
   await record.persist()
   const session = new CloudProjectSession({ ...project, cloud: { revision } }, record)
   await session.load(true)
