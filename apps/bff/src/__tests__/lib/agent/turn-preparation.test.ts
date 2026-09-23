@@ -26,9 +26,9 @@ const billing = installRecordingTaskHooks()
 
 const { prepareAgentTurn } = await import('../../../lib/agent/turn-preparation')
 const { startAgentTurn } = await import('../../../lib/agent/turn')
-const { claimConversation, releaseConversation, turnExecution } = await import(
-  '../../../lib/agent/execution'
-)
+const { claimConversation, ConversationExecutionLost, releaseConversation, turnExecution } =
+  await import('../../../lib/agent/execution')
+const { chatTaskPricing, reservedChatUsage } = await import('../../../lib/agent/chat-task')
 const { estimateTurnInputTokens, turnPromptBody } = await import('../../../lib/agent/turn-input')
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { appendAgentMessage, createAgentConversation } = await import(
@@ -37,7 +37,9 @@ const { appendAgentMessage, createAgentConversation } = await import(
 const { enqueueAgentResume, enqueueAgentUserMessage, enqueueAgentWake, nextAgentInboxEntry } =
   await import('../../../lib/agent/inbox')
 const { setAgentSkillsRootForTesting } = await import('../../../lib/agent/skills')
-const { _setPrivateBffOverlayForTesting } = await import('../../../lib/private-overlay')
+const { _setPrivateBffOverlayForTesting, loadPrivateBffOverlay } = await import(
+  '../../../lib/private-overlay'
+)
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
@@ -59,6 +61,7 @@ const REFERENCE: AgentTurnReference = {
 }
 
 let calls: AgentCall[]
+let storage: InMemoryObjectStore
 
 /** 一条已经结算成终局的结果卡：唤醒点名的就是它。 */
 function resultBlock(artifacts: readonly string[]): AgentToolResultBlock {
@@ -107,6 +110,7 @@ async function prepare(
   conversationId: string,
   source: AgentTurnSource,
   owner: AgentOwner = USER,
+  assertOwnership: () => Promise<void> = async () => {},
 ): Promise<{ readonly prepared: TurnPreparation; readonly turnId: string }> {
   const turnId = crypto.randomUUID()
   expect(await claimConversation(conversationId, turnId)).toBe(true)
@@ -114,7 +118,7 @@ async function prepare(
     conversationId,
     owner,
     turnId,
-    execution: turnExecution(conversationId, turnId, async () => {}),
+    execution: turnExecution(conversationId, turnId, assertOwnership),
     source,
   })
   return { prepared, turnId }
@@ -226,7 +230,8 @@ beforeEach(async () => {
   billing.reset()
   calls = []
   setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('好')))
-  setObjectStoreForTesting(new InMemoryObjectStore())
+  storage = new InMemoryObjectStore()
+  setObjectStoreForTesting(storage)
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
   await db.delete(schema.agent_executions)
@@ -352,8 +357,13 @@ describe('估算看到的就是发出去的那一份', () => {
 })
 
 describe('预扣按这一份轮输入算', () => {
-  it('预扣的输入 token 就是这一份轮输入的估算', async () => {
+  it('记到账上的计价用量，就是这一份轮输入折算出来的那一份', async () => {
     const conversationId = await conversationWithResult()
+    const pricing = await chatTaskPricing(
+      (await loadPrivateBffOverlay()).taskHooks,
+      'fixture-agent-model',
+    )
+
     const { prepared } = await prepare(
       conversationId,
       await queuedMessage(conversationId, '换成夜景'),
@@ -361,9 +371,13 @@ describe('预扣按这一份轮输入算', () => {
     const turn = preparedTurn(prepared)
 
     expect(billing.reservations).toHaveLength(1)
-    // 私有钩子拿到的是折算后的计价用量；输入 token 由这一份轮输入定，两边必须同源。
-    expect(estimateTurnInputTokens(turn.input)).toBeGreaterThan(0)
-    expect(billing.reservations[0]).toMatchObject({ taskId: turn.turnId, userId: USER_ID })
+    // 账上那一笔的量由这一份轮输入定：换成别处算的估算，下面这行就对不上。
+    expect(billing.reservations[0]).toMatchObject({
+      taskId: turn.turnId,
+      userId: USER_ID,
+      model: 'fixture-agent-model',
+      ...reservedChatUsage(estimateTurnInputTokens(turn.input), pricing),
+    })
   })
 
   /** 带着说明预扣不下时整段丢掉：唤醒的费用不能挡住用户的话。 */
@@ -394,6 +408,41 @@ describe('预扣按这一份轮输入算', () => {
     const tries = billing.reservations.slice(before)
     expect(tries).toHaveLength(2)
     expect(tries[0]!.unitMultiplier).toBeGreaterThan(tries[1]!.unitMultiplier)
+  })
+})
+
+/** 参考图在取件事务之前就落进了对象存储，所以清不清只看那一笔事务成没成。 */
+describe('起轮准备半路出错', () => {
+  it('事务没成：这一轮归档的参考图跟着一起清掉', async () => {
+    billing.answer = { kind: 'insufficient_credits', required: 78, available: 12 }
+    const conversation = await createAgentConversation(USER, '你好')
+    const source = await queuedMessage(conversation.id, '[image 1] 看这张图', [REFERENCE])
+
+    const { prepared } = await prepare(conversation.id, source)
+
+    expect(prepared.kind).toBe('insufficient_credits')
+    expect(await storage.listPrefix(`agent/${conversation.id}/`)).toEqual([])
+  })
+
+  /**
+   * 事务提交之后租约才被接管：那条用户消息已经落库、正指着刚归档的参考图，一张都不能删，
+   * 否则历史里留下一条引用打不开的消息。
+   */
+  it('提交之后才丢租约：落好的用户消息与它的参考图都留着', async () => {
+    const conversation = await createAgentConversation(USER, '你好')
+    const source = await queuedMessage(conversation.id, '[image 1] 看这张图', [REFERENCE])
+
+    let asserted = 0
+    await expect(
+      prepare(conversation.id, source, USER, async () => {
+        asserted += 1
+        throw new ConversationExecutionLost()
+      }),
+    ).rejects.toThrow(ConversationExecutionLost)
+
+    expect(asserted).toBe(1)
+    expect(await db.select().from(schema.agent_messages)).toHaveLength(1)
+    expect(await storage.listPrefix(`agent/${conversation.id}/`)).not.toEqual([])
   })
 })
 
