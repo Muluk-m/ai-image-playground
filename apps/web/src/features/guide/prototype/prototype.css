@@ -1,0 +1,33 @@
+/* PROTOTYPE — throwaway. 各方案的氛围背景，Tailwind 写不顺手的渐变放这里。 */
+.proto-b-hero {
+  background:
+    radial-gradient(60% 50% at 50% 0%, hsl(var(--primary) / 0.22), transparent 70%),
+    radial-gradient(40% 40% at 85% 30%, hsl(var(--primary) / 0.08), transparent 70%);
+}
+.proto-b-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(hsl(var(--foreground) / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 20%, black, transparent 75%);
+  pointer-events: none;
+}
+.proto-b-fade {
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+.proto-b-cta {
+  background: radial-gradient(80% 120% at 50% 0%, hsl(var(--primary) / 0.2), transparent 70%), hsl(var(--card));
+}
+.proto-c-hero {
+  background:
+    radial-gradient(50% 80% at 15% 0%, hsl(var(--primary) / 0.16), transparent 70%),
+    radial-gradient(40% 70% at 90% 10%, hsl(var(--primary) / 0.1), transparent 70%), hsl(var(--card));
+}
+.proto-c {
+  background: hsl(var(--muted) / 0.35);
+}
+.proto-c-banner {
+  background: linear-gradient(120deg, hsl(var(--primary) / 0.1), transparent 60%), hsl(var(--card));
+}

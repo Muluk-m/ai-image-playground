@@ -309,15 +309,6 @@ export function renderGuideDocument(content: GuideContent, options: GuideRenderO
         <p class="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">${renderInline(chrome.lead)}</p>
         <p class="mt-3 text-xs text-muted-foreground">${escapeHtml(chrome.updated)} <time datetime="${options.updated}">${options.updated}</time></p>
       </div>
-      <nav aria-label="${escapeHtml(content.quickStart.title)}" class="mb-12">
-        <h2 class="mb-3 text-sm font-semibold text-foreground">${escapeHtml(content.quickStart.title)}</h2>
-        <ol class="grid gap-3 sm:grid-cols-3">${content.quickStart.items
-          .map(
-            (item, index) =>
-              `<li><a href="${safeHref(item.href)}" class="flex h-full gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/50"><span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-bold text-primary">${index + 1}</span><span><span class="block font-semibold text-foreground">${escapeHtml(item.title)}</span><span class="mt-1 block text-sm leading-6 text-muted-foreground">${renderInline(item.text)}</span></span></a></li>`,
-          )
-          .join('')}</ol>
-      </nav>
       <details class="mb-8 rounded-xl border border-border bg-card lg:hidden" data-mobile-toc>
         <summary class="cursor-pointer list-none px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">${escapeHtml(chrome.toc)}</summary>
         <div class="border-t border-border px-1 py-2">${renderToc(content)}</div>

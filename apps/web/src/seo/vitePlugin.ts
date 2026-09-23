@@ -3,6 +3,12 @@ import { join } from 'node:path'
 import { guideEn } from '../features/guide/content/en'
 import { guideZhCN } from '../features/guide/content/zh-CN'
 import type { GuideContent } from '../features/guide/model'
+// PROTOTYPE — throwaway：设计方案评审期间仅在 dev server 生效，定稿后删除。
+import {
+  renderPrototypeDocument,
+  VARIANTS,
+  type VariantKey,
+} from '../features/guide/prototype/variants'
 import { escapeHtml, renderGuideDocument } from '../features/guide/render'
 
 /**
@@ -122,15 +128,25 @@ export function seoPlugin({ publicDir }: { publicDir: string }) {
     transformIndexHtml: {
       // 指南整页替换，必须赶在 Vite 解析脚本与样式之前。
       order: 'pre' as const,
-      handler(html: string, ctx: { path: string }) {
+      handler(html: string, ctx: { path: string; originalUrl?: string; server?: unknown }) {
         const guide = GUIDES[ctx.path]
+        const imageSize = (src: string) => webpSize(join(publicDir, src))
+        const variant = ctx.server
+          ? new URL(ctx.originalUrl ?? ctx.path, 'http://dev').searchParams.get('variant')
+          : null
+        if (guide && variant && variant in VARIANTS)
+          return renderPrototypeDocument(guide, variant as VariantKey, {
+            alternates: ALTERNATES,
+            updated,
+            imageSize,
+          })
         if (guide)
           return renderGuideDocument(guide, {
             origin,
             indexing,
             alternates: ALTERNATES,
             updated,
-            imageSize: (src) => webpSize(join(publicDir, src)),
+            imageSize,
           })
         if (ctx.path === '/index.html') return { html, tags: homeTags(origin, indexing) }
         return html

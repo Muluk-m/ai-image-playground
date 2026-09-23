@@ -35,6 +35,8 @@ export interface GuideSubsection {
 export interface GuideSection {
   id: string
   title: string
+  /** 一句话概述，用于目录卡片与章节导语。 */
+  summary: string
   intro?: Block[]
   subsections: GuideSubsection[]
 }
@@ -65,7 +67,6 @@ export interface GuideContent {
     otherLanguage: string
     updated: string
   }
-  quickStart: { title: string; items: { title: string; text: string; href: string }[] }
   sections: GuideSection[]
   faq: { id: string; title: string; items: GuideFaq[] }
 }

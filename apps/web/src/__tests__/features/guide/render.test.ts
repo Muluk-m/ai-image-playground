@@ -30,7 +30,6 @@ function shape(content: GuideContent) {
         ),
       })),
     })),
-    quickStart: content.quickStart.items.map((item) => item.href),
     faq: content.faq.items.length,
   }
 }
