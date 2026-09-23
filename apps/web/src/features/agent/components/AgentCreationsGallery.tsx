@@ -94,7 +94,9 @@ export default function AgentCreationsGallery({
             {t('creations.galleryEmpty')}
           </p>
         ) : (
-          <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto p-4 sm:grid-cols-3 lg:grid-cols-4">
+          // 瀑布流：产物比例各不相同，等比铺开才能看清自己在选哪张；
+          // 方格 + object-cover 会把竖图裁成一条，人物直接被切掉头。
+          <div className="columns-2 flex-1 gap-3 overflow-y-auto p-4 sm:columns-3 lg:columns-4">
             {works.map((work) => {
               const src = srcOf(work)
               const name = canvasImageName(work)
@@ -106,17 +108,16 @@ export default function AgentCreationsGallery({
                   aria-pressed={isSelected}
                   onClick={() => toggle(work.id)}
                   title={name}
-                  className={`group relative overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-background`}
+                  className={`group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${isSelected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-background`}
                 >
                   {src ? (
-                    <img
-                      src={src}
-                      alt=""
-                      loading="lazy"
-                      className="block aspect-square w-full object-cover"
-                    />
+                    <img src={src} alt="" loading="lazy" className="block h-auto w-full" />
                   ) : (
-                    <div className="grid aspect-square w-full place-items-center bg-muted text-[11px] text-muted-foreground">
+                    // 取图期间按画布上的比例占位，图到了不会把整列推一下。
+                    <div
+                      style={{ aspectRatio: `${work.width} / ${work.height}` }}
+                      className="grid min-h-16 w-full place-items-center bg-muted px-2 text-center text-[11px] text-muted-foreground"
+                    >
                       {src === null ? t('creations.previewUnavailable') : '…'}
                     </div>
                   )}
