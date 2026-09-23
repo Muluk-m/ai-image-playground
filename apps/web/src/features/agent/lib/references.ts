@@ -43,7 +43,7 @@ export interface AgentDraft extends ReferenceDraft<AgentReference> {
  */
 export const AGENT_ADMISSION: ReferenceAdmission = {
   limit: AGENT_TURN_MAX_REFERENCES,
-  supportsEdit: true,
+  acceptsReferences: true,
 }
 
 export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }

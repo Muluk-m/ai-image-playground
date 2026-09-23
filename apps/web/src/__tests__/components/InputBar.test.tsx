@@ -8,7 +8,7 @@ import { useLibraryStore } from '../../features/library/store'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
 import { setChannels } from '../../lib/channels/channelStore'
 import type { PublicChannel } from '../../lib/channels/types'
-import { putImage } from '../../lib/db'
+import { getAllImageIds, putImage } from '../../lib/db'
 import { useStore } from '../../store'
 
 declare global {
@@ -216,5 +216,23 @@ describe('首屏「画布」档的参考图', () => {
     remount('generate')
 
     expect(attachButton().title).toContain('不支持参考图')
+  })
+
+  it('这一把文件进不去就一张都不落盘：写进去的图谁也不会再用，只占地方', async () => {
+    remount('generate')
+    const before = await getAllImageIds()
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error('没找到文件输入')
+    Object.defineProperty(input, 'files', {
+      value: [new File(['x'], 'a.png', { type: 'image/png' })],
+      configurable: true,
+    })
+
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(useStore.getState().toast?.message).toContain('不支持参考图')
+    expect(await getAllImageIds()).toEqual(before)
   })
 })

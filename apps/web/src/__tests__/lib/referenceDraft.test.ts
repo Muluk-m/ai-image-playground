@@ -4,12 +4,13 @@ import {
   attachReferences,
   moveReference,
   type ReferenceDraft,
+  referenceRefusal,
   removeReference,
   replaceReferences,
 } from '../../lib/referenceDraft'
 import type { InputImage } from '../../types'
 
-const OK = { limit: 3, supportsEdit: true }
+const OK = { limit: 3, acceptsReferences: true }
 const mention = getSelectedImageMentionLabel
 
 function draft(ids: string[], prompt = ''): ReferenceDraft<InputImage> {
@@ -45,7 +46,7 @@ describe('往参考图草稿里附图', () => {
   })
 
   it('模型不认参考图就一张都不附', () => {
-    const result = attachReferences(draft([]), [image('a')], { limit: 3, supportsEdit: false })
+    const result = attachReferences(draft([]), [image('a')], { limit: 3, acceptsReferences: false })
 
     expect(result).toEqual({ ok: false, reason: 'noEdit' })
   })
@@ -53,7 +54,7 @@ describe('往参考图草稿里附图', () => {
   it('整组都已在条里时，不认参考图的模型也不拦——这一次没往条里加东西', () => {
     const before = draft(['a'])
 
-    const result = attachReferences(before, [image('a')], { limit: 1, supportsEdit: false })
+    const result = attachReferences(before, [image('a')], { limit: 1, acceptsReferences: false })
 
     expect(result.ok && result.indexes).toEqual([0])
     expect(result.ok && result.draft).toBe(before)
@@ -64,7 +65,7 @@ describe('往参考图草稿里附图', () => {
 
     const result = attachReferences(before, [image('a')], {
       limit: 1,
-      supportsEdit: false,
+      acceptsReferences: false,
       intent: 'edit',
     })
 
@@ -77,6 +78,18 @@ describe('往参考图草稿里附图', () => {
     const result = attachReferences(before, [image('a')], OK)
 
     expect(result.ok && result.draft.mode).toBe('image')
+  })
+})
+
+describe('图还没落盘时先问一次准入', () => {
+  it('这一把放不下就整把不收，放得下才让调用方去取图', () => {
+    expect(referenceRefusal(2, 2, OK)).toBe('overflow')
+    expect(referenceRefusal(2, 1, OK)).toBeNull()
+  })
+
+  it('模型不认参考图：要新加就不收，一张都不打算加时不拦', () => {
+    expect(referenceRefusal(0, 1, { limit: 3, acceptsReferences: false })).toBe('noEdit')
+    expect(referenceRefusal(1, 0, { limit: 3, acceptsReferences: false })).toBeNull()
   })
 })
 

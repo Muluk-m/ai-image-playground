@@ -50,6 +50,7 @@ import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
   CANVAS_HANDOFF_ADMISSION,
   referenceAdmission,
+  referenceRefusal,
   referenceRefusalMessage,
 } from '../lib/referenceDraft'
 import {
@@ -236,9 +237,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 模型由服务端定，所以只剩条的上限管着。
   const modelAdmission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
   const admission = toCanvas ? CANVAS_HANDOFF_ADMISSION : modelAdmission
-  const acceptsReferences = admission.supportsEdit
+  const acceptsReferences = admission.acceptsReferences
   // 遮罩是出图那一刻的事，始终归生图模型：画布档把图交出去时不带遮罩。
-  const supportsMask = modelAdmission.supportsEdit
+  const supportsMask = modelAdmission.acceptsReferences
   const atImageLimit = inputImages.length >= admission.limit
   const attachDisabled = atImageLimit || !acceptsReferences
   const attachDisabledReason = referenceRefusalMessage(acceptsReferences ? 'overflow' : 'noEdit')
@@ -555,11 +556,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const handleFiles = async (files: FileList | File[]) => {
     const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
     if (accepted.length === 0) return
+    // 这一把文件是一组：放不下就一张都不落，免得用户拖进去十张只见前几张、还得自己数少了哪几张。
+    // 所以先按张数问一次准入——答案是「不行」就别往 image store 写，那几张谁也不会再用。
+    const refusal = referenceRefusal(inputImages.length, accepted.length, admission)
+    if (refusal) {
+      useStore.getState().showToast(referenceRefusalMessage(refusal), 'error')
+      return
+    }
     try {
       const images: InputImage[] = []
       for (const file of accepted) images.push(await storeImageFromFile(file))
-      // 这一把文件是一组：先全部落进 image store，再整组过准入——放不下就一张都不落，
-      // 免得用户拖进去十张只见前几张、还得自己数少了哪几张。
       useStore.getState().attachInputImages(images, admission)
     } catch (err) {
       useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
