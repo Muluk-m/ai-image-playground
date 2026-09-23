@@ -33,6 +33,7 @@ import type { CanvasProject } from '../canvas/lib/projectRepository'
 import {
   bindNewCanvasWorkspace,
   currentCanvasWorkspace,
+  openCanvasCloudSession,
   selectCanvasWorkspace,
 } from '../canvas/lib/workspaces'
 import {
@@ -273,6 +274,29 @@ const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   messages: dropUnsettledMessages(state.messages),
 })
 
+/**
+ * 画布上的图换成云端媒体引用（`aip-media:`），`agentClient` 发送时就只带 id。
+ *
+ * 本机画布存的是原图 data URL——用户传的图、智能体产物落画布时都是整张原图——上传之后 id 只在
+ * 同步会话的绑定表里。不换的话一轮十张主图就是几十 MB 的请求体，慢，然后失败。
+ * 画过遮罩、烧过批注的那张是新像素，云端没有它，照旧内联；认不出的（没开云项目、同步失败）也照旧。
+ */
+async function withCloudMedia(
+  references: readonly AgentTurnReference[],
+): Promise<readonly AgentTurnReference[]> {
+  const cloud = openCanvasCloudSession()
+  const local = references.flatMap((one) =>
+    'dataUrl' in one && !one.maskDataUrl && one.dataUrl.startsWith('data:image/')
+      ? [one.dataUrl]
+      : [],
+  )
+  if (!cloud || local.length === 0) return references
+  const ids = await cloud.mediaIdsFor(local)
+  return references.map((one) => {
+    const id = 'dataUrl' in one && !one.maskDataUrl ? ids.get(one.dataUrl) : undefined
+    return id ? { ...one, dataUrl: `aip-media:${id}` } : one
+  })
+}
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
 
@@ -1005,10 +1029,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
   ) => {
     const current = () => get().conversationId === conversationId
     try {
+      const sent = await withCloudMedia(references)
       const outcome = await startTurn(
         conversationId,
         text,
-        references,
+        sent,
         currentTurnParams(),
         mode,
         undefined,
@@ -1022,7 +1047,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
       if (outcome.kind === 'alreadyRunning') {
         // 老服务端没有排队：忙时照旧是插话。
-        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, references)
+        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, sent)
       } else if (
         outcome.kind === 'frames' ||
         (outcome.kind === 'queued' && outcome.body.state === 'consumed')
@@ -1496,7 +1521,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           outcome = await startTurn(
             target,
             trimmed,
-            references,
+            await withCloudMedia(references),
             turnParams,
             mode,
             undefined,
