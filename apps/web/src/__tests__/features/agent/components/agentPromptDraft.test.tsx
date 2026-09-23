@@ -4,7 +4,6 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
-import { setAgentJobTimingForTesting } from '../../../../features/agent/lib/backgroundJobs'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
@@ -70,7 +69,6 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
-  setAgentJobTimingForTesting({ pollIntervalMs: 5 })
   posted.length = 0
   confirmResponse = () => Response.json({ message: submitted })
   useAgentStore.setState({
@@ -90,7 +88,6 @@ afterEach(() => {
   host.remove()
   // 守候循环按会话退出：别让它跨用例继续问服务端。
   useAgentStore.setState({ conversationId: null, messages: [], promptDrafts: {} })
-  setAgentJobTimingForTesting()
   vi.unstubAllGlobals()
   fetchMock.mockClear()
 })

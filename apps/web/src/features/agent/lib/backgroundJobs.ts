@@ -25,26 +25,19 @@ import { agentDraftReservation } from './promptDraft'
 import type { AgentRetryRefusal } from './retry'
 import { promptAgentRecharge } from './toolFailure'
 
-/** 后台任务问服务端的节奏。每次用时现读，所以测试调快它对已经建好的模块也作数。 */
+/** 后台任务问服务端的节奏。建模块时定下，此后不再变；测试调快它要另建一个模块。 */
 export interface AgentJobTiming {
   /** 有没结束的后台任务时隔多久问一次结果。任务是分钟级的，几秒的延迟看不出来。 */
-  pollIntervalMs: number
+  readonly pollIntervalMs: number
   /**
    * 服务端唤醒智能体起的那一轮还没登记上时，隔多久再看一次。
    * 头一次读快照就会让服务端当场起轮，所以通常第二次就看得到。
    */
-  wakePickupDelayMs: number
+  readonly wakePickupDelayMs: number
 }
 
+/** 不另说时的那一份节奏，也就是面板上跑的那一份。 */
 const REAL_TIMING: AgentJobTiming = { pollIntervalMs: 3_000, wakePickupDelayMs: 500 }
-
-/** 不另说时的那一份节奏。 */
-export const AGENT_JOB_TIMING: AgentJobTiming = { ...REAL_TIMING }
-
-/** 测试注入点：面板那一条只有一份 store，调不了构造参数，所以就地改这一份。不传恢复真实节奏。 */
-export function setAgentJobTimingForTesting(timing?: Partial<AgentJobTiming>): void {
-  Object.assign(AGENT_JOB_TIMING, REAL_TIMING, timing)
-}
 
 /** 找唤醒轮最多看这么多次。 */
 const WAKE_PICKUP_ATTEMPTS = 8
@@ -157,7 +150,7 @@ export function createAgentBackgroundJobs({
   session,
   fetchJobs = requestJobs,
   fetchSnapshot = requestSnapshot,
-  timing = AGENT_JOB_TIMING,
+  timing = REAL_TIMING,
 }: AgentBackgroundJobsOptions): AgentBackgroundJobs {
   /**
    * 后台任务的交付把手，按结果卡的 messageId 索引。工具在轮里收尾时占的位移交到这里，

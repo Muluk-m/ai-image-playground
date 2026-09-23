@@ -14,7 +14,6 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
   blankVideoPoster: () => 'data:image/png;base64,UE9TVEVS',
 }))
 
-import { setAgentJobTimingForTesting } from '../../../features/agent/lib/backgroundJobs'
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
@@ -118,7 +117,29 @@ function toolCard(id: string): AgentToolMessage {
   return found
 }
 
+/** 后台任务守候问服务端的真实间隔；假时钟每次就推过这么一整跳。 */
+const JOB_POLL_MS = 3_000
+
+/**
+ * 等一件事成立。守候与唤醒接轮都是隔几秒问一次服务端，假时钟自己不会走：没成立就把时钟
+ * 推过一整跳，推的过程里这一跳带出来的请求与交付也一并跑完，再看一次。
+ */
+async function settles(check: () => void): Promise<void> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      check()
+      return
+    } catch {
+      await vi.advanceTimersByTimeAsync(JOB_POLL_MS)
+    }
+  }
+  check()
+}
+
 beforeEach(() => {
+  // 守候与唤醒接轮按真实节奏隔几秒问一次：用假时钟把那几跳推过去，不去改模块的构造参数。
+  // 只假掉模块用的那一个定时器：fake-indexeddb 与 fetch 的内部还靠 setImmediate 推进。
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
@@ -130,7 +151,6 @@ beforeEach(() => {
   abortResponse = () => Response.json({ aborted: true })
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [], queue: [] })
   jobsResponse = () => []
-  setAgentJobTimingForTesting({ pollIntervalMs: 5, wakePickupDelayMs: 5 })
   setAgentCanvasSink({
     has: () => false,
     async reserve(request) {
@@ -167,9 +187,12 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => {
+afterEach(async () => {
   useAgentStore.setState({ conversationId: null, messages: [], turn: 'idle', activeTurn: null })
-  setAgentJobTimingForTesting()
+  // 守候按会话退出，但要等到下一跳才看得见会话已经切走：先推过那一跳再收假时钟，否则它带着
+  // 上一个会话停在半路，下一个用例的守候会被当成同一次而不再开。
+  await vi.advanceTimersByTimeAsync(JOB_POLL_MS)
+  vi.useRealTimers()
   setAgentCanvasSink(null)
   vi.unstubAllGlobals()
   fetchMock.mockClear()
@@ -294,12 +317,12 @@ it('唤醒接轮换上快照时：已经结算的任务当场交付，还没结�
   expect(reserved).toEqual([['placeholder-1'], ['placeholder-2'], ['placeholder-3']])
 
   // 快照接管的那一下必须替它交付：轮询只认没结束的卡，错过这一次，占的位会一直转圈。
-  await vi.waitFor(() => expect(toolCard('tool-2').delivery).toBe('placed'))
+  await settles(() => expect(toolCard('tool-2').delivery).toBe('placed'))
   expect(placedInto).toEqual([['placeholder-2']])
   expect(placed).toEqual(['agent_image_2'])
 
   // 快照里还没结束的那个照旧接着问服务端。
   settledUpstream = true
-  await vi.waitFor(() => expect(toolCard('tool-3').delivery).toBe('placed'))
+  await settles(() => expect(toolCard('tool-3').delivery).toBe('placed'))
   expect(placedInto).toEqual([['placeholder-2'], ['placeholder-3']])
 })
