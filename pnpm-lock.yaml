@@ -91,7 +91,7 @@ importers:
         version: 2.1.1
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.3.14)
+        version: 0.45.2(bun-types@1.4.2)
       elysia:
         specifier: ^1.4.0
         version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.3.14)(exact-mirror@1.0.0(typebox@1.3.7))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
@@ -200,7 +200,7 @@ importers:
         version: link:../../packages/shared
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.3.14)
+        version: 0.45.2(bun-types@1.4.2)
       elysia:
         specifier: ^1.4.0
         version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.3.14)(exact-mirror@1.0.0(typebox@1.3.7))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
@@ -343,7 +343,7 @@ importers:
         version: link:../shared
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(bun-types@1.3.14)
+        version: 0.45.2(bun-types@1.4.2)
     devDependencies:
       '@types/bun':
         specifier: latest
@@ -369,6 +369,87 @@ importers:
       '@types/bun':
         specifier: 1.3.14
         version: 1.3.14
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  private/apps/admin:
+    dependencies:
+      '@hookform/resolvers':
+        specifier: ^5.7.1
+        version: 5.7.1(@sinclair/typebox@0.34.49)(@standard-schema/spec@1.1.0)(react-hook-form@7.85.0(react@19.2.4))(zod@4.4.3)
+      '@tanstack/react-query':
+        specifier: ^5.62.7
+        version: 5.90.21(react@19.2.4)
+      heat-graph:
+        specifier: ^0.0.17
+        version: 0.0.17(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      lucide-react:
+        specifier: ^0.469.0
+        version: 0.469.0(react@19.2.4)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+      react-hook-form:
+        specifier: ^7.85.0
+        version: 7.85.0(react@19.2.4)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.2
+        version: 19.2.3(@types/react@19.2.14)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  private/apps/bff:
+    dependencies:
+      '@image-playground/db':
+        specifier: workspace:*
+        version: link:../../../packages/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(bun-types@1.4.2)
+      elysia:
+        specifier: ^1.4.0
+        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@1.0.0(typebox@1.3.7))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.4.2
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  private/apps/web:
+    dependencies:
+      heat-graph:
+        specifier: ^0.0.17
+        version: 0.0.17(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      react:
+        specifier: ^19.2.1
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.2.1
+        version: 19.2.6(react@19.2.6)
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.4.2
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.2
+        version: 19.2.3(@types/react@19.2.14)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -3073,6 +3154,9 @@ packages:
   '@types/bun@1.3.14':
     resolution: {integrity: sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw==}
 
+  '@types/bun@1.4.2':
+    resolution: {integrity: sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ==}
+
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
@@ -3307,6 +3391,9 @@ packages:
 
   bun-types@1.3.14:
     resolution: {integrity: sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ==}
+
+  bun-types@1.4.2:
+    resolution: {integrity: sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w==}
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -3832,6 +3919,16 @@ packages:
 
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
+
+  heat-graph@0.0.17:
+    resolution: {integrity: sha512-myaMPwShgTMBysVEV+RPwq8LnxK6MxroL9ugc0OzHFUCoj1/npwekqqujErMceIYnNxF64ZUfgdkEaCYkdIbDw==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^18 || ^19
+      react-dom: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   html-encoding-sniffer@4.0.0:
     resolution: {integrity: sha512-Y22oTqIU4uuPgEemfz7NDJz6OeKf12Lsu+QC+s3BVpda64lTiMYCyGwg5ki4vFxkMwQdeZDl2adZoqUgdFuTgQ==}
@@ -7605,6 +7702,10 @@ snapshots:
     dependencies:
       bun-types: 1.3.14
 
+  '@types/bun@1.4.2':
+    dependencies:
+      bun-types: 1.4.2
+
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
@@ -7859,6 +7960,10 @@ snapshots:
     dependencies:
       '@types/node': 25.7.0
 
+  bun-types@1.4.2:
+    dependencies:
+      '@types/node': 25.7.0
+
   call-bind-apply-helpers@1.0.2:
     dependencies:
       es-errors: 1.3.0
@@ -8022,9 +8127,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(bun-types@1.3.14):
+  drizzle-orm@0.45.2(bun-types@1.4.2):
     optionalDependencies:
-      bun-types: 1.3.14
+      bun-types: 1.4.2
 
   dunder-proto@1.0.1:
     dependencies:
@@ -8049,6 +8154,19 @@ snapshots:
       openapi-types: 12.1.3
     optionalDependencies:
       '@types/bun': 1.3.14
+      typescript: 5.9.3
+
+  elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@1.0.0(typebox@1.3.7))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3):
+    dependencies:
+      '@sinclair/typebox': 0.34.49
+      cookie: 1.1.1
+      exact-mirror: 1.0.0(typebox@1.3.7)
+      fast-decode-uri-component: 1.0.1
+      file-type: 22.0.1
+      memoirist: 0.4.0
+      openapi-types: 12.1.3
+    optionalDependencies:
+      '@types/bun': 1.4.2
       typescript: 5.9.3
 
   entities@6.0.1: {}
@@ -8369,6 +8487,26 @@ snapshots:
   hast-util-whitespace@3.0.0:
     dependencies:
       '@types/hast': 3.0.5
+
+  heat-graph@0.0.17(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+    dependencies:
+      '@radix-ui/react-popper': 1.3.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+    optionalDependencies:
+      '@types/react': 19.2.14
+    transitivePeerDependencies:
+      - '@types/react-dom'
+
+  heat-graph@0.0.17(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
+    dependencies:
+      '@radix-ui/react-popper': 1.3.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+    optionalDependencies:
+      '@types/react': 19.2.14
+    transitivePeerDependencies:
+      - '@types/react-dom'
 
   html-encoding-sniffer@4.0.0:
     dependencies:
