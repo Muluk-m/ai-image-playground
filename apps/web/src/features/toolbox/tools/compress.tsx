@@ -9,42 +9,92 @@ import {
 } from '../../../components/ui/select'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
-import { Field } from '../components/fields'
-import { encodeCanvas, formatLabel, type OutputFormat, resolveOutputType } from '../lib/encode'
-import { createOutputCanvas } from '../lib/render'
-import type { ToolDefinition, ToolOutput, ToolSource } from '../lib/tool'
+import { Field, NumberField, Segmented } from '../components/fields'
+import { encodeCanvas, formatLabel } from '../lib/encode'
+import { plan } from '../lib/geometry'
+import { renderPlan } from '../lib/render'
+import { searchQualityForSize } from '../lib/targetSize'
+import type { EachTool, ToolOutput, ToolSource } from '../lib/tool'
+import { optimisePng } from '../lib/wasmEncoder'
 
-export interface CompressParams {
-  format: OutputFormat
-  /** 5–100，除以 100 就是 canvas 的 quality。 */
-  quality: number
+/** `auto`：JPG / WebP / AVIF 保持原格式；PNG 与编不出的格式（HEIC、GIF…）出 WebP——PNG 无损，按质量压不动它。 */
+export type CompressFormat = 'auto' | 'image/jpeg' | 'image/png' | 'image/webp' | 'image/avif'
+const FORMATS: readonly CompressFormat[] = [
+  'auto',
+  'image/jpeg',
+  'image/webp',
+  'image/avif',
+  'image/png',
+]
+const LOSSY_KEEP: Record<string, true> = {
+  'image/jpeg': true,
+  'image/webp': true,
+  'image/avif': true,
 }
 
-/** 压缩不列 PNG：PNG 是无损的，质量滑杆拧不动它（PNG 源的落点规则在 #810）。 */
-const FORMATS: readonly OutputFormat[] = ['keep', 'image/jpeg', 'image/webp', 'image/avif']
+export interface CompressParams {
+  format: CompressFormat
+  mode: 'quality' | 'target'
+  /** 5–100。 */
+  quality: number
+  targetKb: number
+}
 
-const DEFAULTS: CompressParams = { format: 'keep', quality: 80 }
+const DEFAULTS: CompressParams = { format: 'auto', mode: 'quality', quality: 80, targetKb: 200 }
 
-const MIN_QUALITY = 5
+export function compressOutputType(format: CompressFormat, sourceType: string): string {
+  if (format !== 'auto') return format
+  return LOSSY_KEEP[sourceType] ? sourceType : 'image/webp'
+}
+
+function original(source: ToolSource): ToolOutput {
+  return {
+    blob: source.file,
+    type: source.type,
+    width: source.bitmap.width,
+    height: source.bitmap.height,
+    fellBack: false,
+    notes: ['keptOriginal'],
+  }
+}
 
 export async function compressImage(
   source: ToolSource,
   params: CompressParams,
 ): Promise<ToolOutput> {
-  const type = resolveOutputType(params.format, source.type)
-  const { width, height } = source.bitmap
-  const { canvas, ctx } = createOutputCanvas(width, height, type)
-  ctx.drawImage(source.bitmap, 0, 0)
-  // PNG 无损，给它 quality 只会被忽略；别的格式都吃这个 0–1 的数。
-  const quality = type === 'image/png' ? undefined : params.quality / 100
-  const encoded = await encodeCanvas(canvas, type, quality)
-  return {
-    blob: encoded.blob,
-    type: encoded.type,
-    fellBack: encoded.fellBack,
-    width,
-    height,
+  const type = compressOutputType(params.format, source.type)
+  const sameFormat = type === source.type
+  const targetBytes = params.targetKb * 1024
+  // 原图已经达标、格式也不用变：再编一遍只会更糊，还可能更大。
+  if (params.mode === 'target' && sameFormat && source.size <= targetBytes) return original(source)
+
+  const geometry = plan(source.bitmap.width, source.bitmap.height, {})
+  const canvas = renderPlan(source.bitmap, geometry, type)
+  let output: ToolOutput
+  if (type === 'image/png') {
+    const encoded = await encodeCanvas(canvas, type)
+    const blob = await optimisePng(encoded.blob).catch(() => encoded.blob)
+    output = { ...encoded, blob, width: canvas.width, height: canvas.height }
+  } else if (params.mode === 'target') {
+    const { result, overTarget } = await searchQualityForSize(async (quality) => {
+      const encoded = await encodeCanvas(canvas, type, quality)
+      return { ...encoded, size: encoded.blob.size }
+    }, targetBytes)
+    output = {
+      blob: result.blob,
+      type: result.type,
+      fellBack: result.fellBack,
+      width: canvas.width,
+      height: canvas.height,
+      notes: overTarget ? ['overTarget'] : undefined,
+    }
+  } else {
+    const encoded = await encodeCanvas(canvas, type, params.quality / 100)
+    output = { ...encoded, width: canvas.width, height: canvas.height }
   }
+  // 格式没变、体积却涨了：交原图。格式变了的话用户要的就是新格式，照给。
+  if (sameFormat && output.blob.size >= source.size) return original(source)
+  return output
 }
 
 function CompressControls({
@@ -55,45 +105,72 @@ function CompressControls({
   onChange: (patch: Partial<CompressParams>) => void
 }) {
   const { t } = useTranslation('toolbox')
+  const lossless = params.format === 'image/png'
   return (
     <>
       <Field label={t('params.format')}>
         <Select
           value={params.format}
-          onValueChange={(format) => onChange({ format: format as OutputFormat })}
+          onValueChange={(format) => onChange({ format: format as CompressFormat })}
         >
-          <SelectTrigger className="h-8 w-36 text-[13px]">
+          <SelectTrigger className="h-8 w-36 text-[13px]" aria-label={t('params.format')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {FORMATS.map((format) => (
               <SelectItem key={format} value={format}>
-                {format === 'keep' ? t('params.keepFormat') : formatLabel(format)}
+                {format === 'auto' ? t('params.autoFormat') : formatLabel(format)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </Field>
-      <Field label={t('params.quality')}>
-        <div className="flex h-8 w-56 items-center gap-3">
-          <Slider
-            min={MIN_QUALITY}
-            max={100}
-            step={1}
-            value={[params.quality]}
-            onValueChange={([quality]) => onChange({ quality })}
-            aria-label={t('params.quality')}
+      {!lossless && (
+        <Field label={t('params.compressBy')}>
+          <Segmented
+            label={t('params.compressBy')}
+            value={params.mode}
+            options={[
+              { value: 'quality', label: t('params.byQuality') },
+              { value: 'target', label: t('params.byTarget') },
+            ]}
+            onChange={(mode) => onChange({ mode })}
           />
-          <span className="w-8 text-right text-xs tabular-nums">{params.quality}</span>
-        </div>
-      </Field>
+        </Field>
+      )}
+      {!lossless && params.mode === 'quality' && (
+        <Field label={t('params.quality')}>
+          <div className="flex h-8 w-56 items-center gap-3">
+            <Slider
+              min={5}
+              max={100}
+              step={1}
+              value={[params.quality]}
+              onValueChange={([quality]) => onChange({ quality })}
+              aria-label={t('params.quality')}
+            />
+            <span className="w-8 text-right text-xs tabular-nums">{params.quality}</span>
+          </div>
+        </Field>
+      )}
+      {!lossless && params.mode === 'target' && (
+        <Field label={t('params.atMost')}>
+          <NumberField
+            label={t('params.atMost')}
+            value={params.targetKb}
+            unit="KB"
+            onChange={(targetKb) => onChange({ targetKb })}
+          />
+        </Field>
+      )}
     </>
   )
 }
 
-export const compressTool: ToolDefinition = {
+export const compressTool: EachTool = {
   id: 'compress',
   group: 'process',
+  kind: 'each',
   icon: Minimize2,
   useController() {
     const [params, setParams] = useState(DEFAULTS)
@@ -104,7 +181,7 @@ export const compressTool: ToolDefinition = {
           onChange={(patch) => setParams((prev) => ({ ...prev, ...patch }))}
         />
       ),
-      // 参数一变换一个新函数，结果才会重算；参数没变时拖别的工具的滑杆不该触发编码。
+      // 参数一变换一个新函数，结果才会重算。
       run: useCallback((source: ToolSource) => compressImage(source, params), [params]),
     }
   },

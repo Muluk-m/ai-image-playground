@@ -1,12 +1,27 @@
+import { collageTool } from '../tools/collage'
 import { compressTool } from '../tools/compress'
+import { convertTool } from '../tools/convert'
+import { cropTool } from '../tools/crop'
+import { resizeTool } from '../tools/resize'
+import { rotateTool } from '../tools/rotate'
+import { sliceTool } from '../tools/slice'
+import { stitchTool } from '../tools/stitch'
 import type { ToolDefinition, ToolGroup } from './tool'
 
 /**
- * 目录页照着这张表长：一件工具做完就加进来，卡片、参数行与处理逻辑都跟着它走，
- * 目录页和工具页都不用改。没做的工具不出现在目录里——摆一张点进去只有拖放区的卡片，
- * 等于把「还没做」做成了一个功能。
+ * 目录页照着这张表长：一件工具就是一个模块，卡片、参数行与处理逻辑都跟着它走，
+ * 目录页和工具页都不用改。
  */
-export const TOOLS: readonly ToolDefinition[] = [compressTool]
+export const TOOLS: readonly ToolDefinition[] = [
+  compressTool,
+  convertTool,
+  resizeTool,
+  cropTool,
+  rotateTool,
+  collageTool,
+  stitchTool,
+  sliceTool,
+]
 
-/** 目录页的分组顺序。某一组一件工具都还没有时，那一段整块不渲染。 */
+/** 目录页的分组顺序。 */
 export const TOOL_GROUPS: readonly ToolGroup[] = ['process', 'compose']

@@ -1,5 +1,6 @@
 import { TOOLS } from '../lib/registry'
 import { useToolboxStore } from '../store'
+import CombineView from './CombineView'
 import ToolCatalog from './ToolCatalog'
 import ToolView from './ToolView'
 
@@ -7,5 +8,10 @@ import ToolView from './ToolView'
 export default function ToolboxPage() {
   const activeTool = useToolboxStore((state) => state.activeTool)
   const tool = TOOLS.find((one) => one.id === activeTool)
-  return tool ? <ToolView key={tool.id} tool={tool} /> : <ToolCatalog />
+  if (!tool) return <ToolCatalog />
+  return tool.kind === 'each' ? (
+    <ToolView key={tool.id} tool={tool} />
+  ) : (
+    <CombineView key={tool.id} tool={tool} />
+  )
 }

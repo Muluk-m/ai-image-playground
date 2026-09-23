@@ -1,12 +1,13 @@
 import { canvasToBlob } from '../../../lib/canvasImage'
 import { extensionFor } from './naming'
+import { encodeWithWasm } from './wasmEncoder'
 
 export type OutputFormat = 'keep' | 'image/jpeg' | 'image/png' | 'image/webp' | 'image/avif'
 
 /**
  * canvas 原生能编的只有这三种（Safari 连 WebP 都不能编，AVIF 全平台都不能）。
  * 规范规定不支持的 type **静默**回退成 PNG，`try/catch` 抓不到——所以编完必须看 `blob.type`。
- * wasm 编码器（`@jsquash`）由 #807 接上，接上之后这张表只影响「保持原格式」的落点。
+ * 编不出来的交给 wasm（见 `encodeCanvas`）；这张表只决定「保持原格式」的落点。
  */
 const CANVAS_ENCODABLE: Record<string, true> = {
   'image/jpeg': true,
@@ -40,6 +41,10 @@ export interface EncodedImage {
   fellBack: boolean
 }
 
+/**
+ * 编码一张画布。先让 canvas 原生编（快、不下载任何东西）；拿回来的格式不对——Safari 的 WebP、
+ * 全平台的 AVIF——就交给 wasm 编码器，真实格式与所选一致。wasm 也失败时才照实标「已回退」。
+ */
 export async function encodeCanvas(
   canvas: HTMLCanvasElement,
   type: string,
@@ -48,5 +53,13 @@ export async function encodeCanvas(
   const blob = await canvasToBlob(canvas, type, quality)
   // 老浏览器偶尔给回空 type；那种情况按请求的算，别在卡片上凭空标一个回退。
   const actual = blob.type || type
-  return { blob, type: actual, fellBack: actual !== type }
+  if (actual === type) return { blob, type, fellBack: false }
+  if (type === 'image/webp' || type === 'image/avif') {
+    try {
+      return { blob: await encodeWithWasm(canvas, type, quality ?? 0.8), type, fellBack: false }
+    } catch {
+      // 编码器没下载下来：给用户 canvas 那一份，并照实标出来。
+    }
+  }
+  return { blob, type: actual, fellBack: true }
 }

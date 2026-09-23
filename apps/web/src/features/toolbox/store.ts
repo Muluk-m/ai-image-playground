@@ -21,11 +21,15 @@ export interface ToolboxItem {
 
 /** 位图不进 store：它不可序列化，也不该参与 zustand 的相等比较。按 id 放这儿，随条目一起生灭。 */
 const bitmaps = new Map<string, ImageBitmap>()
+/** 原文件：处理后反而更大时，交出去的就是它本身。 */
+const originals = new Map<string, File>()
 
 export function toolSource(item: ToolboxItem): ToolSource | null {
   const bitmap = bitmaps.get(item.id)
   if (!bitmap) return null
-  return { id: item.id, name: item.name, type: item.type, size: item.size, bitmap }
+  const file = originals.get(item.id)
+  if (!file) return null
+  return { id: item.id, name: item.name, type: item.type, size: item.size, bitmap, file }
 }
 
 interface ToolboxState {
@@ -34,6 +38,8 @@ interface ToolboxState {
   activeTool: ToolId | null
   add: (files: readonly File[]) => Promise<void>
   remove: (id: string) => void
+  /** 合成工具按导入顺序排版，这里调顺序。 */
+  move: (id: string, delta: number) => void
   clear: () => void
   openTool: (id: ToolId) => void
   closeTool: () => void
@@ -43,6 +49,7 @@ function releaseItem(item: ToolboxItem): void {
   URL.revokeObjectURL(item.url)
   bitmaps.get(item.id)?.close()
   bitmaps.delete(item.id)
+  originals.delete(item.id)
 }
 
 export const useToolboxStore = create<ToolboxState>()((set, get) => ({
@@ -64,6 +71,7 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
       try {
         const bitmap = await createImageBitmap(file)
         bitmaps.set(id, bitmap)
+        originals.set(id, file)
         item = { ...base, width: bitmap.width, height: bitmap.height, decodable: true }
       } catch {
         item = { ...base, width: 0, height: 0, decodable: false }
@@ -76,6 +84,15 @@ export const useToolboxStore = create<ToolboxState>()((set, get) => ({
     if (item) releaseItem(item)
     set((state) => ({ items: state.items.filter((one) => one.id !== id) }))
   },
+  move: (id, delta) =>
+    set((state) => {
+      const index = state.items.findIndex((one) => one.id === id)
+      const target = index + delta
+      if (index < 0 || target < 0 || target >= state.items.length) return state
+      const items = [...state.items]
+      ;[items[index], items[target]] = [items[target], items[index]]
+      return { items }
+    }),
   clear: () => {
     for (const item of get().items) releaseItem(item)
     set({ items: [] })
