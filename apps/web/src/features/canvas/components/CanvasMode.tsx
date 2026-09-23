@@ -24,6 +24,7 @@ import {
   subscribeCanvasWorkspace,
 } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
+import CanvasBatchBar from './CanvasBatchBar'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasImageToolbar from './CanvasImageToolbar'
 import CanvasMinimap from './CanvasMinimap'
@@ -307,6 +308,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <TimelineEditorHost editor={editor} />
             <FilmExportStatus />
             <CanvasToolbar doc={doc} />
+            <CanvasBatchBar editor={editor} />
             <StylePanel doc={doc} />
             {saveFailed && (
               <div

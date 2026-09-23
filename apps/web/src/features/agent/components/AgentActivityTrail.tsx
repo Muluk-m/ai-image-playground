@@ -27,8 +27,7 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
   return (
     <div
       {...(step.toolName === 'loadSkill' ? { 'data-tool': 'loadSkill' } : {})}
-      className={`flex items-center gap-2 text-[11.5px] ${active ? 'text-foreground/80' : 'text-muted-foreground/60'}`}
-      style={{ height: ROW }}
+      className={`flex items-center gap-2 text-[11.5px] ${active ? 'text-foreground/85' : 'text-muted-foreground'}`}
     >
       {step.toolName === 'loadSkill' ? (
         <AgentSkillIcon name={skill?.icon} className="h-3 w-3 shrink-0" />
@@ -82,7 +81,8 @@ export default function AgentActivityTrail({
   // 最后一步还没结束才算「正在做」；都做完了就全是历史，等着收起。
   const last = steps[steps.length - 1]!
   const running = !spent && (last.status === 'running' || last.status === 'submitted')
-  const offset = Math.max(0, steps.length - VISIBLE) * (ROW + GAP)
+  const overflowing = steps.length > VISIBLE
+  const offset = overflowing ? (steps.length - VISIBLE) * (ROW + GAP) : 0
 
   return (
     <output
@@ -92,14 +92,20 @@ export default function AgentActivityTrail({
       style={{
         height: spent ? 0 : WINDOW,
         opacity: spent ? 0 : 1,
-        // 滚上去的那几行从顶部淡出，看得出上面还有内容又不抢注意力。
-        maskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.7}px)`,
-        WebkitMaskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.7}px)`,
+        // 只有真的滚上去了才在顶部渐隐。不分青红皂白地挂着，头一两步正好落在渐隐区里，
+        // 叠上「做完变暗」就什么都看不见——那块空白就是这么来的。
+        ...(overflowing
+          ? {
+              maskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.8}px)`,
+              WebkitMaskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.8}px)`,
+            }
+          : {}),
       }}
     >
       <div
-        className="flex flex-col transition-transform duration-300 ease-out motion-reduce:transition-none"
-        style={{ gap: GAP, transform: `translateY(${-offset}px)` }}
+        className="flex flex-col justify-end transition-transform duration-300 ease-out motion-reduce:transition-none"
+        // 像聊天一样贴底排：第一步出现在窗口下沿，后来的把它往上顶。
+        style={{ gap: GAP, minHeight: WINDOW, transform: `translateY(${-offset}px)` }}
       >
         {steps.map((step, index) => (
           <Step key={step.id} step={step} active={running && index === steps.length - 1} />
