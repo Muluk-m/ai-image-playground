@@ -5,7 +5,7 @@ import type {
   AgentTurnReference,
   StoredImageRef,
 } from '@image-playground/shared'
-import { parseProjectArtifactId } from '@image-playground/shared'
+import { AGENT_TURN_ATTACHED_MEDIA_MAX, parseProjectArtifactId } from '@image-playground/shared'
 import { and, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
@@ -54,18 +54,31 @@ export interface AgentImageSource {
   note(artifacts: readonly AgentToolArtifact[]): void
 }
 
+/**
+ * 按 id 取图时要哪一份字节。只给 id 即原件：工具拿到的图要送进上游改，缩过的那一份不行。
+ * 只有「给模型看一眼」的场合才写成带 `variant` 的形状。
+ */
+export type AgentImageRequest =
+  | string
+  | { readonly imageId: string; readonly variant: AgentImageVariant }
+
 /** 按 id 取图，取不到就抛。工具共用这一句：模型换个 id 重试是它唯一的出路。 */
 export async function requireAgentImages(
   source: AgentImageSource,
-  imageIds: readonly string[],
+  requested: readonly AgentImageRequest[],
 ): Promise<ResolvedAgentImage[]> {
-  const resolved = await Promise.all(imageIds.map((id) => source.resolve(id)))
+  const resolved = await Promise.all(
+    requested.map((one) =>
+      typeof one === 'string' ? source.resolve(one) : source.resolve(one.imageId, one.variant),
+    ),
+  )
   return resolved.map((image, at) => {
     if (!image) {
+      const request = requested[at]!
       const available = source.references.map((reference) => reference.imageId).join('、')
       throw new AgentToolError(
         'invalid_params',
-        `图片 ${imageIds[at]} 不可用。${available ? `可用参考图 id：${available}；请核对后重试。` : '当前会话没有可用参考图。'}`,
+        `图片 ${typeof request === 'string' ? request : request.imageId} 不可用。${available ? `可用参考图 id：${available}；请核对后重试。` : '当前会话没有可用参考图。'}`,
       )
     }
     return image
@@ -73,7 +86,38 @@ export async function requireAgentImages(
 }
 
 /**
- * 把这一批刚到的引用解成字节。按 id 附来的那几张从云媒体读回来，内联的原样用。
+ * 这一轮的引用里，哪几张的**内容**真的进这一份输入。规则只写在这里：实发首轮、插话、
+ * 预扣估算与清单措辞四处共用它，不会各数各的。
+ *
+ * 内联那一路一定进：字节已经在请求体里了，不给模型看等于白传一遍，何况画了遮罩的图
+ * 只能内联。按 id 附的那一路整批同进退——画布上一次圈几十张是常事，全塞进去既撑爆上下文
+ * 也把出站带宽烧光；超过 {@link AGENT_TURN_ATTACHED_MEDIA_MAX} 张就只上清单，
+ * 模型要看内容自己调 `viewImage`。
+ */
+export function shownTurnReferences<T extends AgentImageReference>(
+  references: readonly T[],
+): readonly T[] {
+  let media = 0
+  for (const one of references) if ('mediaId' in one) media += 1
+  if (media <= AGENT_TURN_ATTACHED_MEDIA_MAX) return references
+  return references.filter((one) => !('mediaId' in one))
+}
+
+/**
+ * 这一轮要给模型看的那几张，连同各自该取哪一份字节。按 id 附的取预览：判断「是不是那张图」
+ * 预览就够，原件一次就是几 MB。内联的本来只有一份，照常给原件——遮罩也只对得上原件的尺寸。
+ */
+export function shownImageRequests(
+  references: readonly AgentImageReference[],
+): AgentImageRequest[] {
+  return shownTurnReferences(references).map((one) =>
+    'mediaId' in one ? { imageId: one.imageId, variant: 'preview' as const } : one.imageId,
+  )
+}
+
+/**
+ * 把这一批刚到的引用里**要给模型看的那几张**解成字节。按 id 附来的从云媒体读回来，
+ * 内联的原样用；张数多到只上清单的那些根本不解（见 `shownTurnReferences`）。
  *
  * 它不经 `AgentImageSource`：插话在被收下之前就要做视觉证据，这时把它们登记进图源
  * 会让一条可能被拒收的插话提前改掉本轮的活动引用。
@@ -84,7 +128,7 @@ export async function resolveTurnReferences(
   userId: string | null,
 ): Promise<ResolvedAgentImage[]> {
   const resolved: ResolvedAgentImage[] = []
-  for (const reference of references) {
+  for (const reference of shownTurnReferences(references)) {
     if (!('mediaId' in reference)) {
       resolved.push({
         imageId: reference.imageId,
@@ -93,7 +137,7 @@ export async function resolveTurnReferences(
       })
       continue
     }
-    const media = await readConversationMedia(reference.mediaId, conversationId, userId, 'original')
+    const media = await readConversationMedia(reference.mediaId, conversationId, userId, 'preview')
     // 认领是起轮前落下的，读不到只能是这中间媒体被删了；那张图这一轮就当没附。
     if (media)
       resolved.push({
@@ -343,32 +387,48 @@ export function referenceHasMask(reference: AgentImageReference): boolean {
 /**
  * 附在用户消息后面送给模型；没有引用时是空串。
  *
- * `attached` 说的是这批图的**内容**在不在这一份输入里。本轮用户附上的图连字节一起发；
- * 从上下文里沿用下来的那批只给 id——它们不代表本轮意图，模型要看内容得自己调 `viewImage`。
- * 两种措辞都带同一份编号，`[image N]` 的可寻址性不因为字节没发而丢。
+ * `selected` 说的是这批图**是不是用户为这一轮挑的**，与内容在不在这份输入里是两件事：
+ *
+ * - 上下文里沿用下来的（`false`）：它们不代表本轮意图，模型要看内容得自己调 `viewImage`。
+ * - 本轮选中、内容也附上了的：连字节一起发，措辞照旧。
+ * - 本轮选中、只给了 id 的（张数超过 {@link AGENT_TURN_ATTACHED_MEDIA_MAX}）：它们**是**
+ *   本轮意图，只是内容没随这一轮发——把它说成「之前对话用到的图」会让模型当历史图忽略掉。
+ *
+ * 三种措辞共用同一份编号，`[image N]` 的可寻址性不因为字节没发而丢；编号一律按请求顺序数，
+ * 用户那句话里写的 `[image N]` 指的就是这一个。
  */
 export function referenceManifest(
   references: readonly AgentImageReference[],
-  attached: boolean,
+  selected: boolean,
   maskScope: 'historical' | 'retained' = 'retained',
 ): string {
   if (references.length === 0) return ''
+  const shown = selected ? shownTurnReferences(references) : []
+  const attached = new Set(shown)
+  // 一半附一半不附时逐条标注；整批同进退的两种情形由开头那句话一次说清。
+  // 张数按数组长度比，不按集合大小：同一张图重复附两次时，集合会少数一个。
+  const mixed = shown.length > 0 && shown.length < references.length
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
     const mask = referenceHasMask(one)
-      ? attached
+      ? attached.has(one)
         ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
         : maskScope === 'retained'
           ? '，这次续作仍沿用此前的选区；作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
           : '，此前附过选区；历史选区不代表本轮修改范围，以本轮附图或系统续作计划为准'
       : ''
-    return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
+    const carried = mixed && attached.has(one) ? '（内容已附在本轮输入里）' : ''
+    return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}${carried}`
   })
-  const head = attached
-    ? '可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：'
-    : maskScope === 'historical'
+  const head = !selected
+    ? maskScope === 'historical'
       ? '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
       : '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+    : shown.length === references.length
+      ? '可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：'
+      : mixed
+        ? '本轮用户选中的图（工具参数使用图片 id，不要把编号当 id）：它们都是用户为这次请求挑的图，标注「内容已附在本轮输入里」的那几张随这一轮发出，其余只给了 id；只有任务确实要看清某张的样子时才调 viewImage，改图或以图生图直接把 id 交给 editImage / generateImage，不必先看。'
+        : '本轮用户选中的图（工具参数使用图片 id，不要把编号当 id）：它们都是用户为这次请求挑的图，张数较多，内容没有附在本轮输入里；只有任务确实要看清某张的样子时才调 viewImage，改图或以图生图直接把 id 交给 editImage / generateImage，不必先看。'
   return `\n\n${head}\n${lines.join('\n')}`
 }
 
