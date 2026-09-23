@@ -24,6 +24,10 @@ const DYNAMIC_PREFIXES = [
   'video:reject.',
   'video:tagline.',
   'video:derive.',
+  // features/canvas/components/InpaintPanel.tsx：分段控件按 'brush' | 'eraser' 拼 key。
+  'canvas:inpaint.tool.',
+  // features/canvas/components/CanvasRectEditLayer.tsx：八个手柄按方位名拼 key。
+  'canvas:rectEdit.handle.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/

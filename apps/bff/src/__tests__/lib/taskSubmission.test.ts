@@ -92,14 +92,15 @@ const describeSubmission = (input: Submission) =>
 
 /**
  * 一句话不变式：`preserve_outside_mask` 与 `masked_original_size` 是同一个判定的一对事实
- * ——要么都落库、要么都不落库，且只有「智能体 + 选区 + 非视频」那一格才落。
+ * ——要么都落库、要么都不落库，且只要是「选区 + 非视频」就落，与提交方是智能体还是画布 /
+ * 工作台无关。
  * worker 靠前者决定保护选区外像素，靠后者把补边裁回原尺寸；只出现一个就是坏任务。
  */
 for (const agent of [false, true])
   for (const mask of [false, true])
     for (const video of [false, true]) {
       const submission = { agent, mask, video }
-      const masked = agent && mask && !video
+      const masked = mask && !video
       it(`${masked ? 'records' : 'omits'} both masked facts for ${describeSubmission(submission)}`, async () => {
         const payload = await submit(submission)
 
@@ -114,7 +115,7 @@ for (const agent of [false, true])
       })
     }
 
-it('pads an agent masked image submission to the model grid and keeps it lossless', async () => {
+it('pads a masked image submission to the model grid and keeps it lossless', async () => {
   const payload = await submit({ agent: true, mask: true, video: false })
 
   // 补边后的像素才是送上游的那一份；交付时按原尺寸裁回去。
@@ -128,10 +129,21 @@ it('pads an agent masked image submission to the model grid and keeps it lossles
   expect(payload).not.toHaveProperty('output_compression')
 })
 
+it('pads a masked image submission that no agent sent on the same terms', async () => {
+  const payload = await submit({ agent: false, mask: true, video: false })
+
+  expect(payload.size).toBe('1008x784')
+  expect(await sharp(await store.read(payload.input_images![0]!.object)).metadata()).toMatchObject({
+    width: 1008,
+    height: 784,
+  })
+  expect(payload.masked_original_size).toEqual({ width: WIDTH, height: HEIGHT })
+})
+
 // 不是遮罩提交就不该被改写：格式、压缩、选区、视频参数都按调用方给的原样落库。
 for (const submission of [
   { agent: true, mask: false, video: false },
-  { agent: false, mask: true, video: false },
+  { agent: false, mask: false, video: false },
   { agent: true, mask: true, video: true },
 ])
   it(`keeps ${describeSubmission(submission)} in the format its caller asked for`, async () => {

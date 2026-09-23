@@ -194,7 +194,8 @@
     "preview": "View original",
     "previewTouch": "View original / hold to save",
     "previewFailed": "Could not load the original. Close and try again.",
-    "loading": "Loading original…"
+    "loading": "Loading original…",
+    "delete": "Delete"
   },
   "grid": {
     "loadingCloud": "Loading projects…",
@@ -223,8 +224,7 @@
   "touch": {
     "hint": "Drag to pan · Pinch to zoom · Tap, then drag an element",
     "editText": "Edit text",
-    "edit": "Edit",
-    "imageActions": "Image actions"
+    "edit": "Edit"
   },
   "trash": {
     "title": "Recycle bin",
@@ -337,5 +337,80 @@
     "submit": "Generate video",
     "submitted": "Video generation submitted",
     "referenceLabel": "Image {{no}}"
+  },
+  "imageToolbar": {
+    "aria": "Image actions",
+    "more": "More",
+    "sourceMissing": "Image data unavailable"
+  },
+  "inpaint": {
+    "action": "Inpaint",
+    "title": "Inpaint",
+    "running": "Inpainting…",
+    "toolAria": "Mask tools",
+    "tool": {
+      "brush": "Brush",
+      "eraser": "Eraser"
+    },
+    "brushSize": "Brush",
+    "undo": "Undo stroke",
+    "promptAria": "Inpaint description",
+    "promptPlaceholder": "Describe what this area should become, e.g. make the faucet gold",
+    "paintFirst": "Paint the area you want changed first",
+    "uploadReference": "Upload image",
+    "removeReference": "Remove reference",
+    "submit": "Generate",
+    "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
+    "videoUnsupported": "Videos cannot be inpainted",
+    "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
+    "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
+    "sourceGone": "The source image is no longer on the canvas",
+    "canvasAria": "Inpaint mask canvas"
+  },
+  "crop": {
+    "action": "Crop",
+    "title": "Crop",
+    "apply": "Apply"
+  },
+  "outpaint": {
+    "action": "Expand",
+    "title": "Expand image",
+    "running": "Expanding…",
+    "submit": "Generate",
+    "promptAria": "Expanded area description",
+    "promptPlaceholder": "Optional: what fills the new area, e.g. keep extending the night sky",
+    "dragFirst": "Drag an edge outward to expand the frame",
+    "tooLarge": "Expanded too far for the model to handle"
+  },
+  "erase": {
+    "action": "Erase",
+    "title": "Erase",
+    "submit": "Erase",
+    "paintFirst": "Paint over whatever should go away",
+    "continueHint": "Keep painting, or finish",
+    "running": "Erasing…"
+  },
+  "regenerate": {
+    "action": "Regenerate",
+    "unavailable": "The original settings were lost when the page closed, so this cannot be redone",
+    "sourceGone": "The images this was made from are no longer on the canvas"
+  },
+  "rectEdit": {
+    "handle": {
+      "nw": "Top left",
+      "n": "Top edge",
+      "ne": "Top right",
+      "e": "Right edge",
+      "se": "Bottom right",
+      "s": "Bottom edge",
+      "sw": "Bottom left",
+      "w": "Left edge"
+    }
+  },
+  "cutout": {
+    "action": "Cut out",
+    "running": "Cutting out…",
+    "videoUnsupported": "Video cannot be cut out",
+    "keyFailed": "The background could not be keyed out; kept the raw image — try again"
   }
 }

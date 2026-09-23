@@ -457,6 +457,7 @@ describe('智能体生图工具', () => {
     // `loadSkill` 在场是因为 `apps/bff/skills/image` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
       'askClarification',
+      'editCanvasObject',
       'editImage',
       'generateImage',
       'loadSkill',

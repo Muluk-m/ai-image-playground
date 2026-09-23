@@ -1,15 +1,13 @@
+import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CopyIcon, DownloadIcon } from '../../../components/icons'
 import { ImagePreview } from '../../../components/Lightbox'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
-import { dataUrlToBlob } from '../../../lib/canvasImage'
-import { copyBlobToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
-import { downloadBlob } from '../../../lib/downloadImages'
-import { useStore } from '../../../store'
 import type { CanvasDoc } from '../lib/canvasDoc'
+import { copyCanvasImage, downloadCanvasImage } from '../lib/canvasImageActions'
 
 export interface CanvasImageMenuState {
   readonly id: string
@@ -60,26 +58,13 @@ export default function CanvasImageMenu({
   }, [preview, dataUrl])
   if (!menu) return null
   if (!dataUrl) return null
-  const showToast = useStore.getState().showToast
-
-  const copy = async () => {
+  const copy = () => {
     onClose()
-    try {
-      await copyBlobToClipboard(await dataUrlToBlob(dataUrl))
-      showToast(t('imageMenu.copied'), 'success')
-    } catch (err) {
-      showToast(getClipboardFailureMessage(t('common:toast.copyFailed'), err), 'error')
-    }
+    void copyCanvasImage(dataUrl)
   }
-  const download = async () => {
+  const download = () => {
     onClose()
-    try {
-      const blob = await dataUrlToBlob(dataUrl)
-      const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
-      downloadBlob(blob, `canvas-${menu.id}.${ext}`)
-    } catch {
-      showToast(t('imageMenu.downloadFailed'), 'error')
-    }
+    void downloadCanvasImage(dataUrl, menu.id)
   }
 
   if (preview)
@@ -106,12 +91,20 @@ export default function CanvasImageMenu({
       <ContextMenuItem
         icon={<CopyIcon className="h-4 w-4" />}
         label={t('imageMenu.copy')}
-        onClick={() => void copy()}
+        onClick={copy}
       />
       <ContextMenuItem
         icon={<DownloadIcon className="h-4 w-4" />}
         label={t('imageMenu.download')}
-        onClick={() => void download()}
+        onClick={download}
+      />
+      <ContextMenuItem
+        icon={<Trash2 className="h-4 w-4" />}
+        label={t('imageMenu.delete')}
+        onClick={() => {
+          onClose()
+          doc.deleteElements([menu.id])
+        }}
       />
     </ContextMenu>
   )

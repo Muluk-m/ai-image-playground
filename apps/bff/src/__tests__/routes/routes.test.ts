@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
+import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -203,12 +204,26 @@ describe('BFF queue routes', () => {
       }) as unknown as TestFetch,
     )
 
-    const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
+    // 现在所有带 mask 的提交都走严格局部编辑，尺寸下限对非智能体路径同样生效：
+    // 原图要过 minPixels，选区还得真有一块透明区域，否则提交会被判成 invalid_input_image。
+    const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`
+    const SOURCE = url(
+      await sharp({ create: { width: 1024, height: 768, channels: 4, background: '#6386a3' } })
+        .png()
+        .toBuffer(),
+    )
+    const selection = Buffer.alloc(1024 * 768 * 4, 255)
+    selection[(384 * 1024 + 512) * 4 + 3] = 0
+    const MASK = url(
+      await sharp(selection, { raw: { width: 1024, height: 768, channels: 4 } })
+        .png()
+        .toBuffer(),
+    )
 
     const { status, json } = await jsonReq(
       'POST',
       '/v1/queue/openai-compat/gpt-image-2/submit',
-      submitBody({ prompt: 'mask edit', input_images: [TINY_PNG], mask: TINY_PNG }),
+      submitBody({ prompt: 'mask edit', input_images: [SOURCE], mask: MASK }),
     )
     expect(status).toBe(200)
     const id = responseRequestId(json)

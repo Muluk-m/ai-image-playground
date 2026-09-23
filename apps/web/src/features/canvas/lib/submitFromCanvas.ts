@@ -10,6 +10,7 @@ import {
   notifyPrivateSubmissionSettled,
 } from '../../../lib/privateOverlay'
 import { taskErrorTypeOf } from '../../../lib/taskError'
+import { removeKeyedBackgroundFromDataUrl } from '../../../lib/transparentImage'
 import { addCompletedCanvasTask, useStore } from '../../../store'
 import {
   type CanvasTaskSpec,
@@ -33,6 +34,7 @@ import {
   rasterizeEntry,
   rasterizeSelection,
 } from './rasterizeSelection'
+import { encodeRecipe, type RegenRecipe } from './regenRecipe'
 import { retryCanvasVideo } from './submitVideoFromCanvas'
 
 /**
@@ -57,12 +59,36 @@ function buildApiPrompt(annotated: boolean, requirement: string): string {
 }
 
 /**
+ * 抠图的后半程：模型只负责把背景换成纯色，真正的透明是在本地键出来的。
+ *
+ * 键失败（拿回来的背景不够纯、或者画布读不出像素）就**留着那张原图**并说一句：
+ * 这一次已经花掉了积分，把它当失败扔掉比给一张还带背景的图更坏——用户至少能看到
+ * 发生了什么，再决定重不重来。与工作台那条路的口径一致（store.ts `storeGeneratedImages`）。
+ */
+async function keyOutBackground(images: string[]): Promise<string[]> {
+  let failed = false
+  const out = await Promise.all(
+    images.map(async (dataUrl) => {
+      try {
+        return await removeKeyedBackgroundFromDataUrl(dataUrl)
+      } catch {
+        failed = true
+        return dataUrl
+      }
+    }),
+  )
+  if (failed)
+    useStore.getState().showToast(i18next.t('cutout.keyFailed', { ns: 'canvas' }), 'error')
+  return out
+}
+
+/**
  * 起一个画布生成任务：**同步**建 loading 占位框 + 登记内存运行态（第一个 await 之前完成，
  * 所以占位框立即出现、调用方 `void` 一下即返回），随后异步跑生成。submit / retry 共用此入口，
  * 保证占位 / 并发 / 恢复语义一致。底层复用 `callImageApi`（不改协议），全程不抛。
  * 成功后把结果落进工作台历史（addCompletedCanvasTask），画布生成同样可收藏 / 检索 / 复用。
  */
-async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Promise<void> {
+export async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Promise<void> {
   // 发起时快照 profile 身份：生成可长达数分钟，完成时用户可能已切 profile，
   // 落历史用快照保真（与 params 快照同一决策）。
   const profile = getActiveApiProfile(useStore.getState().settings)
@@ -78,6 +104,8 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
   const startedAt = Date.now()
 
   // 决策 2：恢复元数据（含参数 / profile 快照）存元素 customData，随画布持久化；不含输入图。
+  // 配方超长（涂了几百笔）就不写：半份配方会让重出拿着残缺的输入去生成，用户看不出来。
+  const recipe = spec.recipe ? encodeRecipe(spec.recipe) : undefined
   const placeholderId = editor.createPlaceholder(spec.target, {
     taskId,
     clientRequestId,
@@ -85,6 +113,9 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
     prompt: spec.prompt,
     annotated: spec.annotated,
     inputCount: spec.inputImageDataUrls.length,
+    ...(spec.editSourceId ? { editSourceId: spec.editSourceId } : {}),
+    ...(spec.editKind ? { editKind: spec.editKind } : {}),
+    ...(recipe ? { regen: recipe } : {}),
     params: spec.params,
     profileView,
   })
@@ -96,22 +127,31 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
       prompt: buildApiPrompt(spec.annotated, spec.prompt),
       params: spec.params,
       inputImageDataUrls: spec.inputImageDataUrls,
+      ...(spec.maskDataUrl ? { maskDataUrl: spec.maskDataUrl } : {}),
       clientRequestId,
       // submit 成功即回填 bffRequestId 到占位框 meta 并持久化，供刷新后 resume（决策 2 / 7）。
       onQueueSubmitted: (requestId) => {
         editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
         notifyPrivateSubmissionAccepted()
       },
+      // 队列阶段写回占位框：长任务只写「生成中」会让人以为卡死了。
+      onQueueStatus: (queuePhase) =>
+        editor.updatePlaceholder(placeholderId, { meta: { queuePhase } }),
     })
-    const placed = await settleGeneration(editor, placeholderId, spec.target, result)
-    // 输入图只在落图成功后释放：失败态的占位框在同一次打开里还要能原样重试。
-    if (placed) removeCanvasTask(taskId)
+    const images =
+      spec.editKind === 'cutout' ? await keyOutBackground(result.images) : result.images
+    const placed = await settleGeneration(editor, placeholderId, spec.target, {
+      ...result,
+      images,
+    })
+    // 落图成功也**不释放**运行态：结果元素上的 `meta.taskId` 指着它，「重新生成」靠它原样再发。
+    // 内存由 canvasTaskRuntime 的有界 LRU 兜住；失败态的占位框同样还留着它用于重试。
     // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
     if (placed) {
       void addCompletedCanvasTask({
         prompt: spec.prompt,
         params: spec.params,
-        images: result.images,
+        images,
         elapsed: Date.now() - startedAt,
         profile: profileView,
       })
@@ -148,9 +188,12 @@ function launchBatch(
 ): void {
   if (billed && quantity > 1) {
     const [target] = computePlaceholderTargets(editor, anchor, 1)
+    const params = { ...spec.params, n: quantity }
     void launchCanvasTask(editor, {
       ...spec,
-      params: { ...spec.params, n: quantity },
+      params,
+      // 配方里的参数必须跟着这一批实际发的走，否则重出会变成另一个张数。
+      ...(spec.recipe ? { recipe: { ...spec.recipe, params } } : {}),
       target: target!,
     })
     return
@@ -219,7 +262,21 @@ export async function submitFromCanvas(
     for (const { entry, dataUrl } of usable)
       launchBatch(
         editor,
-        { prompt, annotated: plan.annotated, inputImageDataUrls: [dataUrl], params: specParams },
+        {
+          prompt,
+          annotated: plan.annotated,
+          inputImageDataUrls: [dataUrl],
+          params: specParams,
+          // 逐张模式每张各有自己的配方：重出时只重新栅格化它那一张源图。
+          recipe: {
+            v: 1,
+            kind: 'generate',
+            prompt,
+            annotated: plan.annotated,
+            params: specParams,
+            entries: [{ imageId: entry.imageId, graphicIds: entry.graphicIds }],
+          },
+        },
         entry.box,
         quantity,
         billed,
@@ -247,9 +304,22 @@ export async function submitFromCanvas(
     ? [selection.annotationText, trimmed].filter(Boolean).join('\n')
     : trimmed
 
+  // 重出配方：存「用了画布上哪几个元素」，不存那几 MB 位图。刷新后按当前画布重新栅格化。
+  const recipe: RegenRecipe = {
+    v: 1,
+    kind: 'generate',
+    prompt,
+    annotated: selection?.annotated ?? false,
+    params: specParams,
+    entries: (selection?.entries ?? []).map((entry) => ({
+      imageId: entry.imageId,
+      graphicIds: entry.graphicIds,
+    })),
+  }
   launchBatch(
     editor,
     {
+      recipe,
       prompt,
       annotated: selection?.annotated ?? false,
       inputImageDataUrls,
@@ -302,6 +372,11 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
     prompt: meta.prompt,
     annotated: meta.annotated ?? false,
     inputImageDataUrls,
+    // 局部重绘重试必须把遮罩一起带回去：丢了它就是一次静默的整图重绘，
+    // 与 :228 那条守卫防的是同一类事故。遮罩与输入图同在运行态，刷新后一起没，也被同一条守卫拦住。
+    ...(runtime?.maskDataUrl ? { maskDataUrl: runtime.maskDataUrl } : {}),
+    ...(meta.editSourceId ? { editSourceId: meta.editSourceId } : {}),
+    ...(meta.editKind ? { editKind: meta.editKind } : {}),
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
     // 几何一律读活占位框：用户可能已拖动 / 拉伸过错误态占位框，submit 时的 runtime.target 已过期。

@@ -173,7 +173,7 @@ async function adoptLegacyCommand(
       .for('update')
     if (!task) return null
     const provider = asQueueProvider(task.provider)
-    // Agent mask preparation changes the original request, so it cannot be reconstructed safely.
+    // 遮罩提交改写过原始请求，重建不回去，所以不认领。
     if (!provider || task.request_payload.preserve_outside_mask)
       return { kind: 'idempotency_mismatch' }
     let originalHash: string
@@ -212,11 +212,13 @@ async function adoptLegacyCommand(
 /**
  * 「这是不是一次遮罩提交」只在这里判一次：`preserve_outside_mask` 与 `masked_original_size`
  * 描述同一个判定，要么都写、要么都不写，由这一个返回值保证。
+ * 判据是请求里有没有选区，不是谁发的：画布与工作台直发的局部重绘同样要圈外像素不变，
+ * 按提交方分叉会让同一个功能在两条路径上行为不一致。
  * `prepareMaskedInput` 不合规时抛 `TypeError`，由调用方翻成 `invalid_input_image`。
  */
 async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
   const request = input.request
-  if (!input.agent || !request.mask || input.video) return undefined
+  if (!request.mask || input.video) return undefined
   const strict = await prepareMaskedInput(
     input.model,
     request.input_images?.[0] ?? '',

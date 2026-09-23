@@ -14,6 +14,7 @@ import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
 import { useAgentSkills } from '../lib/useAgentSkills'
@@ -21,6 +22,7 @@ import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import type { AgentPanelMessage } from '../types'
 import AgentActivity from './AgentActivity'
+import AgentActivityTrail from './AgentActivityTrail'
 import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
 import AgentConnectionHint from './AgentConnectionHint'
@@ -30,7 +32,6 @@ import AgentMessageQueue from './AgentMessageQueue'
 import AgentPendingDrafts from './AgentPendingDrafts'
 import AgentReply from './AgentReply'
 import AgentSaveCard from './AgentSaveCard'
-import AgentSkillStep from './AgentSkillStep'
 import AgentSuggestions from './AgentSuggestions'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
@@ -58,12 +59,8 @@ function renderMessage(
   if (message.kind === 'tool') {
     // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
     if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
-    // 读取技能只是一步，不是一件产出；它走不到结果卡那条路。
-    return message.toolName === 'loadSkill' ? (
-      <AgentSkillStep message={message} />
-    ) : (
-      <AgentToolCard message={message} />
-    )
+    // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
+    return <AgentToolCard message={message} />
   }
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
@@ -167,6 +164,8 @@ export default function AgentPanel({
   // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
   // 消息中间，所以按「这一轮的最后一条」认，而不只看下一条换没换轮。
   const lastOfTurn = new Map(messages.map((message, index) => [message.turnId, index]))
+  // 连续的过程步（读画布、看图、读技能）折成一条固定高度的活动轨，不再一步一张空卡。
+  const grouping = groupPanelMessages(messages)
 
   return (
     <div aria-label={t('panel.aria')} style={{ width: panelWidth }} className="studio-sidebar">
@@ -240,9 +239,11 @@ export default function AgentPanel({
             )}
             {messages.map((message, index) => {
               const footer = lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
+              const trail = grouping.trails.get(index)
               return (
                 <Fragment key={message.id}>
-                  {renderMessage(message, answerableId, skills)}
+                  {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
+                  {!grouping.absorbed.has(index) && renderMessage(message, answerableId, skills)}
                   {footer && <AgentTurnCost footer={footer} />}
                 </Fragment>
               )

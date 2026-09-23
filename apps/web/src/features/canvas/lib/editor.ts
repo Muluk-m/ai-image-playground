@@ -1,4 +1,8 @@
-import type { AgentToolErrorCode, VideoGenerationRecord } from '@image-playground/shared'
+import type {
+  AgentToolErrorCode,
+  TaskProgressPhase,
+  VideoGenerationRecord,
+} from '@image-playground/shared'
 import Konva from 'konva'
 import type { CanvasProfileSnapshot } from '../../../store'
 import type { TaskParams } from '../../../types'
@@ -49,6 +53,20 @@ export interface CanvasTaskMeta {
   annotated?: boolean
   /** 发起时的输入图数量：重试时判定「输入图已丢失」，拒绝静默退化成文生图。 */
   inputCount?: number
+  /**
+   * 二次加工的源图元素 id。有它即这条任务是对某张已有图做的：处理期间源图卡片上盖一层
+   * 「处理中」，刷新后靠 meta 认回来（运行态会清空，这个不会）。
+   */
+  editSourceId?: string
+  /** 二次加工的种类，决定卡片上那层写什么。旧占位框没有这个字段，按局部重绘处理。 */
+  editKind?: 'inpaint' | 'erase' | 'outpaint' | 'cutout'
+  /** 序列化后的重出配方（`regenRecipe.ts`）。占位框与结果元素上都有一份。 */
+  regen?: string
+  /**
+   * BFF 队列报上来的阶段。占位框上只写「生成中」而不说排到哪了，长任务看起来就像卡死；
+   * 它随 meta 持久化，刷新后续 poll 也能接着说。
+   */
+  queuePhase?: TaskProgressPhase
   /** 发起时的参数快照（已折叠 n=1），供重试 / 恢复 / 落历史保真复用。 */
   params?: TaskParams
   /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */
