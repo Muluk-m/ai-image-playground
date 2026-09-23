@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { executionContext } from '../../db/execution-context'
 import { finishTask } from '../../db/task-transitions'
+import { isCapabilityEnabled } from '../capabilities'
 import type {
   BffTransaction,
   ChatPricing,
@@ -58,6 +59,29 @@ export async function chatTaskPricing(
   model: string,
 ): Promise<ChatTaskPricing> {
   return (await taskHooks.chatPricing(model)) ?? FALLBACK_CHAT_PRICING
+}
+
+/**
+ * 这一轮的对话要不要计费。`billing:chat-free` 开着时对话不预扣也不结算——
+ * 整条路退化成免费部署那一条（不落对话任务行、`cost.chat` 为 0）。
+ * 工具产生的生图 / 生视频任务各自独立计费，不受这个开关影响。
+ */
+export function chatTurnsBilled(): boolean {
+  return isCapabilityEnabled('billing:credits') && !isCapabilityEnabled('billing:chat-free')
+}
+
+/**
+ * 这一轮怎么收尾。预扣过就按预扣结算；对话免费时没有预扣可结，但工具产生的生图 /
+ * 生视频仍然计费，所以照样要把本轮的账收拢一次——否则页脚连生图花了多少都不写。
+ */
+export function chatTurnSettle(
+  conversationId: string,
+  turnId: string,
+  reserved?: ChatTaskReserved,
+): ChatTaskSettle | undefined {
+  if (reserved) return reserved.settle
+  if (!isCapabilityEnabled('billing:credits')) return undefined
+  return async () => collectTurnCost(conversationId, turnId)
 }
 
 /**

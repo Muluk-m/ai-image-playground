@@ -23,7 +23,13 @@ import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
 import { markAgentJobsWakeSkipped } from './background-jobs'
-import { type ChatTaskReserved, chatTaskPricing, reserveChatTask } from './chat-task'
+import {
+  type ChatTaskReserved,
+  chatTaskPricing,
+  chatTurnSettle,
+  chatTurnsBilled,
+  reserveChatTask,
+} from './chat-task'
 import {
   type AgentOwner,
   appendAgentMessage,
@@ -362,7 +368,8 @@ async function executeWakeTurn(
     ? 0
     : clarificationChainStart(historyWindow.messages)
   const deviceId = wake.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
-  const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
+  const pricing =
+    chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
   const chatTask =
     pricing && userId
       ? {
@@ -430,7 +437,7 @@ async function executeWakeTurn(
         reviewImageIds,
       },
       reservedCredits: written.reserved?.reservedCredits,
-      settle: written.reserved?.settle,
+      settle: chatTurnSettle(conversationId, turnId, written.reserved),
     }),
   }
 }
@@ -565,7 +572,8 @@ async function executeResumeTurn(
       ? clarificationChainStart(historyWindow.messages.slice(0, interruptedStart))
       : clarificationChainStart(historyWindow.messages)
   const deviceId = resume.deviceId || (owner.kind === 'device' ? owner.deviceId : '')
-  const pricing = billed && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
+  const pricing =
+    chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
   const chatTask =
     pricing && userId
       ? {
@@ -632,7 +640,7 @@ async function executeResumeTurn(
         ...(submissions.length > 0 ? { replay: createSubmissionReplay(submissions) } : {}),
       },
       reservedCredits: written.reserved?.reservedCredits,
-      settle: written.reserved?.settle,
+      settle: chatTurnSettle(conversationId, turnId, written.reserved),
     }),
   }
 }
@@ -748,7 +756,9 @@ async function executeConversationTurn(
     // 读历史会把窗口里结束了的后台任务结算成终局：并进这一轮的唤醒看到的就是它们的结果。窗口
     // 之外更老的那些不在这一趟里，由会话快照（`routes/agent.ts`）与维护任务结算。
     listAgentHistoryWindow(conversationId, owner),
-    billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
+    chatTurnsBilled()
+      ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel))
+      : null,
     // 恰好排着的唤醒并进这一轮，不再单独起轮。
     pendingAgentWakes(conversationId),
     // 这个用户自建的模板与内置技能排在同一份清单里，所以跟着技能一起读完再估算。
@@ -883,7 +893,7 @@ async function executeConversationTurn(
       ...(params ? { params } : {}),
       ...(written.wakeNote ? { wakeNote: written.wakeNote } : {}),
       reservedCredits: written.reserved?.reservedCredits,
-      settle: written.reserved?.settle,
+      settle: chatTurnSettle(conversationId, turnId, written.reserved),
     }),
   }
 }
