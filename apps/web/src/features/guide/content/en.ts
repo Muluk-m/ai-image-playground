@@ -183,6 +183,28 @@ export const guideEn: GuideContent = {
           ],
         },
       ],
+      faq: [
+        {
+          q: 'Why are transparent background or compression missing from More?',
+          a: 'Available options depend on the model and format: transparency requires PNG, compression requires JPEG or WebP, and Gemini models expose a different set of parameters.',
+        },
+        {
+          q: 'Why are Inpaint, Erase and Expand disabled?',
+          a: 'They require a model with mask support (GPT Image family), and the image cannot be too small or too elongated. Hover the button to see the exact reason.',
+        },
+        {
+          q: 'An image on the canvas was deleted by the eraser. How do I restore it?',
+          a: 'The toolbar eraser deletes any element it touches; press Ctrl/⌘ + Z to undo. To remove an object inside an image, select the image and use Erase on the image toolbar.',
+        },
+        {
+          q: 'Generation failed content review. What should I do?',
+          a: 'Retrying the same prompt will fail again. Open the work details, click Edit the prompt and revise the description.',
+        },
+        {
+          q: 'Do running jobs stop if I close the page?',
+          a: 'Jobs on built-in models run on the server and resume automatically when you return.',
+        },
+      ],
     },
     {
       id: 'create',
@@ -704,36 +726,16 @@ export const guideEn: GuideContent = {
         a: 'The current model does not support reference images. Switch to a model that supports image-to-image. Up to 16 reference images are allowed, 10MB each.',
       },
       {
-        q: 'Why are transparent background or compression missing from More?',
-        a: 'Available options depend on the model and format: transparency requires PNG, compression requires JPEG or WebP, and Gemini models expose a different set of parameters.',
-      },
-      {
         q: 'What does “at most 16 images per submission” mean?',
         a: 'Slot combinations multiplied by the count exceed 16. Reduce slot values or the count, and generate in several runs.',
-      },
-      {
-        q: 'Why are Inpaint, Erase and Expand disabled?',
-        a: 'They require a model with mask support (GPT Image family), and the image cannot be too small or too elongated. Hover the button to see the exact reason.',
       },
       {
         q: 'I messaged the agent but no image was generated. Why?',
         a: 'The agent prepares a prompt draft first and waits for you to click Confirm and generate. Direct generation mode skips confirmation but consumes credits immediately.',
       },
       {
-        q: 'An image on the canvas was deleted by the eraser. How do I restore it?',
-        a: 'The toolbar eraser deletes any element it touches; press Ctrl/⌘ + Z to undo. To remove an object inside an image, select the image and use Erase on the image toolbar.',
-      },
-      {
         q: 'Where does Save as template store my prompt?',
         a: 'In the Prompts tab on the Assets page; you can also type / in the prompt box to use it. The Templates tab holds tuned looks, which serve a different purpose.',
-      },
-      {
-        q: 'Generation failed content review. What should I do?',
-        a: 'Retrying the same prompt will fail again. Open the work details, click Edit the prompt and revise the description.',
-      },
-      {
-        q: 'Do running jobs stop if I close the page?',
-        a: 'Jobs on built-in models run on the server and resume automatically when you return.',
       },
       {
         q: 'Can I see my works on another device?',
