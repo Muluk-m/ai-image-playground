@@ -201,8 +201,11 @@ export interface AgentTurnParams {
  * 对话模式靠「拟稿即收尾」刹车：一拟稿这一轮就结束，模型没机会接着调。出图模式要的正是
  * 连着出，那条刹车就没了，剩下的只有模型自己。超过这个数之后的调用退回等待确认——
  * 不报错、不中断，用户仍然看得见那些稿，只是要自己点。
+ *
+ * 它不是排队：排队管怎么跑，这里管模型自己能决定花多少。与一轮能带的参考图上限对齐，
+ * 圈几张就能出几张；真正的硬上限是余额。
  */
-export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 12
+export const AGENT_AUTO_SUBMIT_MAX_PER_TURN = 50
 
 /** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
 export const AGENT_IMAGE_MAX_N = 10
@@ -218,7 +221,24 @@ export function agentImageCount(args: { readonly n?: unknown } | null | undefine
   return Math.min(AGENT_IMAGE_MAX_N, Math.max(1, Math.trunc(raw)))
 }
 
-export const AGENT_TURN_MAX_REFERENCES = 8
+/**
+ * 一轮最多带多少张参考图。多数是画布上圈选的图：它们按 id 发（`AgentMediaReference`），
+ * 字节不进请求体；超过 {@link AGENT_TURN_ATTACHED_MEDIA_MAX} 张时模型只拿到清单，
+ * 要看内容自己调 viewImage——所以张数不再撑大请求与上下文。与画布批量操作对齐。
+ */
+export const AGENT_TURN_MAX_REFERENCES = 50
+
+/**
+ * 其中最多多少张能内联字节（`AgentInlineReference`）：拖进来的文件、画了遮罩或批注的图。
+ * 它们云端没有，只能随请求带上，也一定随消息给模型看。
+ */
+export const AGENT_TURN_MAX_INLINE_REFERENCES = 8
+
+/**
+ * 按 id 发的参考图不超过这么多张时，预览随消息一起给模型看（小场景和从前一样顺手）；
+ * 超过就只给清单，模型要看哪张自己调 viewImage。批量处理多半不需要看每一张。
+ */
+export const AGENT_TURN_ATTACHED_MEDIA_MAX = 3
 
 /**
  * 一次工具调用的结局。生成工具先停在 `awaiting_confirmation`，提示词经用户确认后才会提交后台任务。
