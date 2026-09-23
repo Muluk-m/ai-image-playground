@@ -59,6 +59,18 @@ describe('往参考图草稿里附图', () => {
     expect(result.ok && result.draft).toBe(before)
   })
 
+  it('改图这一次不吃去重的豁免：那张图早在条里，模型不认参考图也不给改', () => {
+    const before = draft(['a'])
+
+    const result = attachReferences(before, [image('a')], {
+      limit: 1,
+      supportsEdit: false,
+      intent: 'edit',
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'noEdit' })
+  })
+
   it('草稿自己带的别的东西原样留着：智能体草稿的创作类型不能在附图时掉了', () => {
     const before = { ...draft([]), mode: 'image' as const }
 

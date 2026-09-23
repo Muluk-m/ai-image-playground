@@ -20,10 +20,15 @@ export interface ReferenceDraft<R extends InputImage = InputImage> {
 /** 某份草稿里参考图的实际形状；草稿带的别的字段（如智能体的 `mode`）随操作原样留着。 */
 type DraftReference<D extends ReferenceDraft> = D['references'][number]
 
-/** 这一刻允许附几张、模型认不认参考图。由调用方给出，草稿自己不认识 profile。 */
+/** 这一次写图要干什么：附图只要条放得下，改图非要模型认参考图不可。 */
+export type ReferenceIntent = 'attach' | 'edit'
+
+/** 这一刻允许附几张、模型认不认参考图、这一次是来干什么的。由调用方给出，草稿自己不认识 profile。 */
 export interface ReferenceAdmission {
   readonly limit: number
   readonly supportsEdit: boolean
+  /** 缺省是 `attach`。 */
+  readonly intent?: ReferenceIntent
 }
 
 /** 这一组没进去的理由。文案在 `referenceRefusalMessage`，草稿层不碰界面语言。 */
@@ -43,13 +48,18 @@ export type AttachResult<D extends ReferenceDraft> =
  * 一组，右键菜单的一张也是一组；半条素材比没有素材更糟，模型会照着缺了视角的主体出图。
  *
  * 按 `id` 去重：同一张图从画布、素材库还是文件进来都只占条里一位，已在条里的复用原序号，
- * 提示词里的引用因此不用动。整组都已在条里时上限与改图能力都不拦——那一次本来就没往条里加东西。
+ * 提示词里的引用因此不用动。整组都已在条里时上限不拦——那一次本来就没往条里加东西；
+ * 改图（`intent: 'edit'`）是唯一的例外，它要的是模型认参考图这份能力本身。
  */
 export function attachReferences<D extends ReferenceDraft>(
   draft: D,
   incoming: readonly DraftReference<D>[],
   admission: ReferenceAdmission,
 ): AttachResult<D> {
+  // 改图要模型认参考图，跟这一次往条里加不加东西无关：那张图早就在条里也一样。
+  if (admission.intent === 'edit' && !admission.supportsEdit) {
+    return { ok: false, reason: 'noEdit' }
+  }
   const references = [...draft.references] as DraftReference<D>[]
   const indexes: number[] = []
   for (const image of incoming) {
@@ -124,15 +134,28 @@ export function moveReference<D extends ReferenceDraft>(draft: D, from: number, 
 }
 
 /**
- * 某个 profile 下的参考图准入：条的上限，以及那个模型认不认参考图。
+ * 某个 profile 下的参考图准入：条的上限、那个模型认不认参考图，以及这一次是附图还是改图。
  * 每个写入方都从这里取，不再各自读 capability 或写死一个数。传进来的是 profile 而不是
  * 设置，因为「玩同款」要按换上推荐模型之后的能力判，而那一刻设置还没写下去。
  */
-export function referenceAdmission(profile: ClientProfile): ReferenceAdmission {
+export function referenceAdmission(
+  profile: ClientProfile,
+  intent: ReferenceIntent = 'attach',
+): ReferenceAdmission {
   return {
     limit: API_MAX_IMAGES,
     supportsEdit: modelSupportsEdit(profile, getPublicChannels()),
+    intent,
   }
+}
+
+/**
+ * 交给画布第一轮的那几张图的准入：那一轮用哪个模型由服务端定，生图模型认不认参考图
+ * 与它无关，所以只剩条的上限管着。首屏「画布」档与灵感库的技能示例走这一条。
+ */
+export const CANVAS_HANDOFF_ADMISSION: ReferenceAdmission = {
+  limit: API_MAX_IMAGES,
+  supportsEdit: true,
 }
 
 /** 被拒时给用户看的那句话；两条文案都随界面语言变，所以按调用时取。 */

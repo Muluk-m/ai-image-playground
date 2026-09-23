@@ -550,7 +550,8 @@ interface AppState {
   /**
    * 往参考图条里附一组图：整组落地或整组不落，被拒的理由已经提示过。返回每张图在条里的
    * 序号（按入参顺序，已在条里的复用原序号），被拒时返回 null。
-   * 准入默认按当前模型算；图不是给当前模型用的（首屏交给画布第一轮）才自己说明准入。
+   * 准入默认按当前模型算、意图按「附图」算；图不是给当前模型用的（首屏交给画布第一轮）、
+   * 或者这一次是拿图去改（`intent: 'edit'`），由调用方自己给一份。
    */
   attachInputImages: (
     images: readonly InputImage[],
@@ -2009,23 +2010,33 @@ async function reuseLocalConfig(task: TaskRecord) {
 }
 
 /**
- * 对任务的某张输出图开启遮罩编辑（局部重绘）：先确保该图在参考图框里
- * （遮罩编辑器保存时按 inputImages 替换 target，不在框里遮罩会丢），
- * 再打开遮罩编辑器。不传 imageId 时默认取首张输出图。
+ * 把一张图设成改图目标：先确保它在参考图条里（遮罩编辑器保存时按 inputImages 替换 target，
+ * 不在条里遮罩会丢），再打开遮罩编辑器。右键菜单的「编辑」与历史里的「改这张」都走这一条。
+ *
+ * 这一次的意图是改图，不是附图：哪怕这张图早就在条里、一张都不用加，模型不认参考图也开不了
+ * 遮罩——那条规则写在 `lib/referenceDraft` 的准入里，被拒的理由由附图那一步提示。
  */
+export function editImageInComposer(image: InputImage): boolean {
+  const { settings, attachInputImages, setMaskEditorImageId } = useStore.getState()
+  if (!attachInputImages([image], referenceAdmission(getActiveApiProfile(settings), 'edit'))) {
+    return false
+  }
+  setMaskEditorImageId(image.id)
+  return true
+}
+
+/** 对任务的某张输出图开启遮罩编辑（局部重绘）。不传 imageId 时默认取首张输出图。 */
 export async function editOutputImage(task: TaskRecord, imageId?: string) {
   const local = await materializeRemoteTask(task)
-  const { attachInputImages, setMaskEditorImageId, showToast } = useStore.getState()
   const targetId = resolveOutputId(task, local, imageId)
   if (!targetId) return
 
   const dataUrl = await ensureImageCached(targetId)
   if (!dataUrl) {
-    showToast(i18next.t('toast.imageMissingForEdit', { ns: 'store' }), 'error')
+    useStore.getState().showToast(i18next.t('toast.imageMissingForEdit', { ns: 'store' }), 'error')
     return
   }
-  if (!attachInputImages([{ id: targetId, dataUrl }])) return
-  setMaskEditorImageId(targetId)
+  editImageInComposer({ id: targetId, dataUrl })
 }
 
 /** 画布任务发起时快照的 profile 身份（落历史保真，避免完成时用户已切 profile 而失真）。 */

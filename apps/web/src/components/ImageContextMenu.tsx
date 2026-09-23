@@ -5,7 +5,7 @@ import { useLibraryStore } from '../features/library/store'
 import { describeError, useTranslation } from '../i18n'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
-import { ensureImageCached, storeImageFromUrl, useStore } from '../store'
+import { editImageInComposer, ensureImageCached, storeImageFromUrl, useStore } from '../store'
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon, VideoIcon } from './icons'
 
@@ -18,10 +18,8 @@ export default function ImageContextMenu() {
     y: number
   } | null>(null)
   const showToast = useStore((s) => s.showToast)
-  const attachInputImages = useStore((s) => s.attachInputImages)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
-  const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
 
   useEffect(() => {
@@ -109,12 +107,10 @@ export default function ImageContextMenu() {
     try {
       const src = await getOriginalImageSrc()
       const { id, dataUrl } = await storeImageFromUrl(src)
-      // 上限、去重与「模型认不认参考图」都归参考图草稿判，被拒的理由它自己提示。
-      if (!attachInputImages([{ id, dataUrl }])) return
+      // 准入、去重与遮罩编辑器的打开都归这一条改图路径，被拒的理由它自己提示。
+      if (!editImageInComposer({ id, dataUrl })) return
       setDetailTaskId(null)
       setLightboxImageId(null)
-      // 加入参考图后直接打开遮罩编辑器对这张图局部编辑
-      setMaskEditorImageId(id)
     } catch (err) {
       console.error(err)
       showToast(t('menu.addReferenceFailed', { reason: describeError(err) }), 'error')

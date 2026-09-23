@@ -253,6 +253,41 @@ describe('mask draft lifecycle in store actions', () => {
     expect(useStore.getState().maskDraft).toEqual(maskDraft)
   })
 
+  it('模型不认参考图时，条里已有的那张输出图也不给开遮罩编辑器', async () => {
+    const channel: PublicChannel = {
+      id: 'no-edit',
+      kind: 'openai-queue',
+      label: 'NoEdit',
+      models: [{ id: 'gen-only', label: 'Gen only', capabilities: ['generate'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    await putImage({ id: imageA.id, dataUrl: imageA.dataUrl, source: 'generated', createdAt: 1 })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: 'builtin-no-edit',
+            source: 'builtin-edge',
+            channelId: 'no-edit',
+            selectedModelId: 'gen-only',
+          },
+        ],
+        activeProfileId: 'builtin-no-edit',
+      }),
+      inputImages: [imageA],
+    })
+
+    await editOutputImage(task({ outputImages: [imageA.id] }))
+
+    expect(useStore.getState().maskEditorImageId).toBeNull()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      expect.stringContaining('不支持参考图'),
+      'error',
+    )
+  })
+
   it('参考图条满了就不让改图，也不往条里塞第 17 张', async () => {
     await putImage({ id: 'output-x', dataUrl: imageA.dataUrl, source: 'generated', createdAt: 1 })
     useStore.setState({

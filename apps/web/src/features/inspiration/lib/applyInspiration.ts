@@ -3,8 +3,7 @@ import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
-import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
-import { referenceAdmission } from '../../../lib/referenceDraft'
+import { CANVAS_HANDOFF_ADMISSION, referenceAdmission } from '../../../lib/referenceDraft'
 import { storeImageFromUrl, useStore } from '../../../store'
 import type { InputImage } from '../../../types'
 import { startCanvasFromComposer } from '../../agent/lib/heroHandoff'
@@ -57,7 +56,7 @@ async function doApply(item: InspirationItem): Promise<void> {
 
   if (item.kind === 'skill' && item.skill) {
     // 这几张图是交给画布第一轮的，改图能力归那一轮的模型管，不看生图模型认不认参考图。
-    if (!current.attachInputImages(images, { limit: API_MAX_IMAGES, supportsEdit: true })) return
+    if (!current.attachInputImages(images, CANVAS_HANDOFF_ADMISSION)) return
     // BFF's explicit skill syntax is /skill-name, not /skill name. Handoff transfers the
     // already-staged reference IDs to the first agent turn.
     current.setPrompt(`/${item.skill} ${item.prompt}`)
