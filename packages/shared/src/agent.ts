@@ -58,6 +58,29 @@ export type AgentToolName =
   | 'saveAsset'
   | 'saveLook'
   | 'editCanvasObject'
+  | 'webSearch'
+  | 'webFetch'
+  | 'fetchImage'
+
+/** 联网工具读到的一条来源：搜索结果或抓取的网页。面板照它列链接，回放照它列网址。 */
+export interface AgentWebSource {
+  readonly title: string
+  readonly url: string
+}
+
+/**
+ * 取图工具存下的一张网图。`imageId` 就是媒体对象 id：它已被本会话认领，改图与看图工具
+ * 直接拿它当图片 id 用，不必再经过别的登记。
+ */
+export interface AgentFetchedImage {
+  readonly imageId: string
+  /** 跟完重定向之后真正取到字节的那个地址。 */
+  readonly sourceUrl: string
+  readonly mime: string
+  readonly width?: number
+  readonly height?: number
+  readonly name?: string
+}
 
 /**
  * 技能没写 `meta.json`、或写坏了时用的图标。技能不会因此被丢掉，只是长得一样。
@@ -508,6 +531,10 @@ export interface AgentToolResultBlock {
    * 用户按下保存后由 `POST .../saves` 就地改写成 `saved`，所以它是这张卡的唯一真相。
    */
   readonly saveCard?: AgentSaveCard
+  /** 搜索或抓取网页这一步读到的来源。缺席即这条不是联网工具，或者什么也没读到。 */
+  readonly sources?: readonly AgentWebSource[]
+  /** 取图这一步存下的网图。缺席即这条不是取图工具，或者没有取到。 */
+  readonly fetchedImages?: readonly AgentFetchedImage[]
 }
 
 /**
@@ -1112,6 +1139,13 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return block.saveCard.status === 'saved'
       ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
       : `${title}：卡片已经给到用户，他还没按下保存`
+  if (block.fetchedImages?.length)
+    return `${title}：完成，${block.fetchedImages
+      .map((image) => `图片 ${image.imageId}（来自 ${image.sourceUrl}）`)
+      .join(', ')}`
+  // 来源只回放网址：正文已经在那一轮的上下文里用过，下一轮要细节就再搜一次或再抓一次。
+  if (block.sources?.length)
+    return `${title}：完成，来源 ${block.sources.map((source) => source.url).join(', ')}`
   const listed = (block.artifacts ?? [])
     .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
     .join(', ')
