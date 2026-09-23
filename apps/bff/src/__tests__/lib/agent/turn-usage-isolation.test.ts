@@ -12,12 +12,13 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
-// 窗口要落在一条实测出来的带里：低于约 5550 时固定开销（系统说明 + 工具清单，见
-// `request-budget.ts`）装不下，出站硬闸把每一轮都拒掉，这个文件要测的用量无从产生；高于约 5900
-// 时留给消息的预算装得下整段历史，压缩根本不触发，同样测不到东西。5750 在带的中间
-// （2026-09-22 重测：saveAsset / saveLook 两个工具与 viewImage.region 把开销抬了约 150）。
-// 贴着任一边设都会让「往某个工具上加个参数」把这个文件弄红，而那跟它测的用量隔离毫无关系。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '5750'
+// 窗口要落在一条实测出来的带里：太低时固定开销（系统说明 + 工具清单，见 `request-budget.ts`）
+// 装不下，出站硬闸把每一轮都拒掉，这个文件要测的用量无从产生；太高时留给消息的预算装得下
+// 整段历史，压缩根本不触发，同样测不到东西。阈值 = 窗口 − 1500，所以带的下沿约等于
+// 固定开销 + 1500。**每加一个工具，这一条都要跟着抬**：
+// 2026-09-22 saveAsset / saveLook / viewImage.region 把开销抬到约 4000（窗口 5750）；
+// 2026-09-23 editCanvasObject 抬到 4127，带随之上移到约 5630–6030，取中。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '5880'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,

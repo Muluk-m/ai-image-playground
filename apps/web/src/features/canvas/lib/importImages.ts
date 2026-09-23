@@ -9,7 +9,8 @@ import { PLACEMENT_GAP } from './placement'
  */
 const MAX_SIDE = 720
 
-function fileToDataUrl(file: File): Promise<string> {
+/** File → dataURL。画布导入与局部重绘面板的参考图上传共用，避免两处各写一份 FileReader。 */
+export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)

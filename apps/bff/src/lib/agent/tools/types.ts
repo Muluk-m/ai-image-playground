@@ -1,6 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
+  AgentCanvasEditPlan,
   AgentMode,
   AgentSaveCard,
   AgentSkillOutcome,
@@ -84,6 +85,8 @@ export interface AgentToolDetails {
   readonly skill?: AgentSkillOutcome
   /** 排时间线的结果；只有那个工具会填。 */
   readonly timeline?: AgentTimelinePlan
+  /** 改画布对象的结果；只有那个工具会填。 */
+  readonly canvasEdit?: AgentCanvasEditPlan
   /** 备好的保存卡片；只有存素材、存模板那两个工具会填。 */
   readonly saveCard?: AgentSaveCard
 }

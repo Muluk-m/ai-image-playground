@@ -245,6 +245,7 @@ describe('智能体生视频工具', () => {
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
       'arrangeTimeline',
       'askClarification',
+      'editCanvasObject',
       'editImage',
       'generateImage',
       'generateVideo',

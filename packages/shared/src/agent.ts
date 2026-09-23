@@ -57,6 +57,7 @@ export type AgentToolName =
   | 'arrangeTimeline'
   | 'saveAsset'
   | 'saveLook'
+  | 'editCanvasObject'
 
 /**
  * 技能没写 `meta.json`、或写坏了时用的图标。技能不会因此被丢掉，只是长得一样。
@@ -346,6 +347,32 @@ export interface AgentTimelinePlan {
   readonly clips: readonly AgentTimelineClip[]
 }
 
+/** 画布元素名称的长度上限，与 `ProjectImage.name` 的校验同一条。 */
+export const AGENT_CANVAS_NAME_MAX_CHARS = 500
+
+/** 一次画布对象改动的最大条数：一句话改一屏够用，再多就该分批说清楚改了什么。 */
+export const AGENT_CANVAS_EDIT_MAX = 50
+
+/**
+ * 对画布上一个已有对象的属性改动。**全是绝对值，没有相对位移**——交付层在断线重连后
+ * 会重放同一条结果，相对量重放一次就叠加一次，绝对量重放多少次结果都一样。
+ *
+ * 缺席的字段表示「这一项不动」，不是「清空」。
+ */
+export interface AgentCanvasEdit {
+  readonly elementId: string
+  readonly name?: string
+  readonly x?: number
+  readonly y?: number
+  readonly width?: number
+  readonly height?: number
+}
+
+/** 改画布这一步的结果：画布照它逐条打补丁。 */
+export interface AgentCanvasEditPlan {
+  readonly edits: readonly AgentCanvasEdit[]
+}
+
 /** 时间线上的一段：哪段视频、从第几秒播到第几秒。出点总在入点之后。 */
 export interface AgentTimelineClip {
   readonly videoId: string
@@ -474,6 +501,8 @@ export interface AgentToolResultBlock {
   readonly wakeSkipped?: AgentWakeSkipReason
   /** 排时间线这一步的结果：画布照它建时间线。缺席即这条不是排时间线，或者没有可排的视频。 */
   readonly timeline?: AgentTimelinePlan
+  /** 改画布对象这一步的结果：画布照它改名称 / 几何。缺席即这条不是改画布，或者没有可改的对象。 */
+  readonly canvasEdit?: AgentCanvasEditPlan
   /**
    * 这次调用备好的保存卡片，连同它此刻存没存过。缺席即这条不是保存工具。
    * 用户按下保存后由 `POST .../saves` 就地改写成 `saved`，所以它是这张卡的唯一真相。

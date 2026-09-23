@@ -221,6 +221,7 @@ describe('tool declarations in the estimate', () => {
       'viewImage',
       'readLibrary',
       'readCanvas',
+      'editCanvasObject',
       'askClarification',
     ])
   })

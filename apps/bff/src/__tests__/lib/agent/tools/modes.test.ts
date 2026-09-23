@@ -109,6 +109,7 @@ afterAll(async () => {
 describe('tools filtered by creation mode', () => {
   it('keeps generateVideo out of an image turn', () => {
     expect(toolNames('image')).toEqual([
+      'editCanvasObject',
       'editImage',
       'generateImage',
       'loadSkill',
@@ -121,6 +122,7 @@ describe('tools filtered by creation mode', () => {
   it('gives a video turn the image tools too, so it can produce and fix a first frame', () => {
     expect(toolNames('video')).toEqual([
       'arrangeTimeline',
+      'editCanvasObject',
       'editImage',
       'generateImage',
       'generateVideo',

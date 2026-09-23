@@ -666,9 +666,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         void importImageFiles(editor, [...e.dataTransfer.files], drop)
       }}
     >
-      {!dragging && !panning && (
-        <SelectionInfo doc={doc} onImageMenu={(menu) => setImageMenu(menu)} />
-      )}
+      {!dragging && !panning && <SelectionInfo doc={doc} />}
       <Stage
         ref={stageRef}
         width={viewport.width}

@@ -186,7 +186,8 @@
     "preview": "查看原图",
     "previewTouch": "查看原图 / 长按保存",
     "previewFailed": "原图加载失败，请关闭后重试",
-    "loading": "正在加载原图…"
+    "loading": "正在加载原图…",
+    "delete": "删除"
   },
   "grid": {
     "loadingCloud": "正在读取项目…",
@@ -215,8 +216,7 @@
   "touch": {
     "hint": "拖动画布 · 双指缩放 · 轻点选中后拖动元素",
     "editText": "编辑文字",
-    "edit": "编辑",
-    "imageActions": "图片操作"
+    "edit": "编辑"
   },
   "trash": {
     "title": "回收站",
@@ -323,5 +323,80 @@
     "submit": "生成视频",
     "submitted": "已提交生成视频",
     "referenceLabel": "图片{{no}}"
+  },
+  "imageToolbar": {
+    "aria": "图片操作",
+    "more": "更多",
+    "sourceMissing": "图片数据不可用"
+  },
+  "inpaint": {
+    "action": "局部重绘",
+    "title": "局部重绘",
+    "running": "局部重绘中…",
+    "toolAria": "涂抹工具",
+    "tool": {
+      "brush": "画笔",
+      "eraser": "橡皮擦"
+    },
+    "brushSize": "笔刷",
+    "undo": "撤销一笔",
+    "promptAria": "重绘描述",
+    "promptPlaceholder": "描述这块区域要改成什么，例如：把水龙头换成金色",
+    "paintFirst": "先在图上涂出要改的区域",
+    "uploadReference": "上传图片",
+    "removeReference": "移除参考图",
+    "submit": "生成",
+    "modelUnsupported": "当前模型不支持遮罩重绘，请切到 GPT Image 系列",
+    "videoUnsupported": "视频不支持局部重绘",
+    "tooSmall": "图片太小，局部重绘要求约 80 万像素以上",
+    "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
+    "sourceGone": "源图已不在画布上",
+    "canvasAria": "局部重绘涂抹区"
+  },
+  "crop": {
+    "action": "裁切",
+    "title": "裁切",
+    "apply": "应用"
+  },
+  "outpaint": {
+    "action": "扩图",
+    "title": "扩图",
+    "running": "扩图中…",
+    "submit": "生成",
+    "promptAria": "扩展区域描述",
+    "promptPlaceholder": "可选：说明新区域画什么，例如：继续延伸夜空与星云",
+    "dragFirst": "拖动边框把画面往外扩",
+    "tooLarge": "扩得太大了，超出模型能处理的尺寸"
+  },
+  "erase": {
+    "action": "擦除",
+    "title": "擦除",
+    "submit": "完成擦除",
+    "paintFirst": "涂掉要去除的东西",
+    "continueHint": "继续涂抹，或点击完成",
+    "running": "擦除中…"
+  },
+  "regenerate": {
+    "action": "重新生成",
+    "unavailable": "这张图的生成参数已随页面关闭丢失，无法原样重出",
+    "sourceGone": "这张图用到的素材已不在画布上，无法重出"
+  },
+  "rectEdit": {
+    "handle": {
+      "nw": "左上",
+      "n": "上边",
+      "ne": "右上",
+      "e": "右边",
+      "se": "右下",
+      "s": "下边",
+      "sw": "左下",
+      "w": "左边"
+    }
+  },
+  "cutout": {
+    "action": "抠图",
+    "running": "抠图中…",
+    "videoUnsupported": "视频不支持抠图",
+    "keyFailed": "背景没能键干净，先给你原图；可以重来一次"
   }
 }
