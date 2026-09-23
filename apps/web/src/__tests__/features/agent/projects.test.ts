@@ -165,6 +165,31 @@ it('保存失败时拒绝切换，保留当前项目', async () => {
   expect(useCanvasProjectStore.getState().activeId).toBe(first)
 })
 
+it('第一句话上屏就是项目名，图片哨兵不进标题', async () => {
+  const id = useCanvasProjectStore.getState().activeId!
+  const name = () => useCanvasProjectStore.getState().projects.find((one) => one.id === id)?.name
+  // `Promise.withResolvers` 不在 apps/web 的 lib 目标里，这里沿用同文件其它用例的写法。
+  let release!: (response: Response) => void
+  turnResponse = () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+
+  const sending = state().send('把[image 1]和[image 2] 换成浅木色背景')
+
+  // 起轮还在路上，标题已经跟上了：这正是它存在的理由。
+  await vi.waitFor(() => expect(name()).toBe('把和 换成浅木色背景'))
+  release(Response.json({ error: 'agent_turn_failed' }, { status: 500 }))
+  await sending
+
+  // 用户自己改过名字之后，下一次首轮不再抢它。
+  await useCanvasProjectStore.getState().update(id, { name: '我的项目', customName: true })
+  useAgentStore.setState({ messages: [], turn: 'idle', conversationId: null })
+  turnResponse = async () => Response.json({ error: 'agent_turn_failed' }, { status: 500 })
+  await state().send('另起一句')
+  expect(name()).toBe('我的项目')
+})
+
 it('失效会话保留原项目和画布，只移除失效绑定', async () => {
   const id = useCanvasProjectStore.getState().activeId!
   await useCanvasProjectStore.getState().update(id, { conversationId: 'gone' })
