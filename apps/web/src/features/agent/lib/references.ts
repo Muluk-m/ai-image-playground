@@ -1,8 +1,10 @@
 import {
+  AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_TURN_MAX_REFERENCES,
   type AgentInlineReference,
   type AgentMode,
 } from '@image-playground/shared'
+import { mediaIdentity } from '../../../lib/cloudMedia'
 import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
@@ -13,7 +15,9 @@ import {
   attachReferences,
   type ReferenceAdmission,
   type ReferenceDraft,
+  type ReferenceRefusal,
   removeReference as removeDraftReference,
+  replaceReferences,
 } from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
 
@@ -35,15 +39,6 @@ export interface AgentDraft extends ReferenceDraft<AgentReference> {
    * 草稿层自己原样保管（`withMode`），没有人再据它决定发什么。
    */
   readonly mode?: AgentMode
-}
-
-/**
- * 一轮的参考图准入。上限是服务端的硬校验，超出去的那一份会让整轮起轮以 400 被打回，
- * 用户的话连同图一起白等；改图能力不在这里判——轮用哪个模型由服务端定，输入框看不到。
- */
-export const AGENT_ADMISSION: ReferenceAdmission = {
-  limit: AGENT_TURN_MAX_REFERENCES,
-  acceptsReferences: true,
 }
 
 export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }
@@ -84,28 +79,74 @@ export function referenceLabels(references: readonly AgentReference[]): MentionL
   return createMentionLabels([...references], named)
 }
 
+/**
+ * 这张参考图发送时能不能按 id 走——判据与发送前 `withCloudMedia` 能换成 id 的条件一致：
+ * 没画遮罩，并且它本来就是云媒体（`aip-media:`），或者是云项目画布上某张图的原件。
+ * 批注合成图、拖进来的文件、素材都不在其列，只能内联字节。
+ */
+export interface ReferenceTransport {
+  /** 当前是不是云项目：本机项目的画布图没有云端那份，只能内联。 */
+  readonly cloud: boolean
+  /** 画布上各张图此刻的来源；不是原件（例如烧了批注）的认不出。 */
+  readonly canvasSources: ReadonlySet<string>
+}
+
+/** 什么都认不出的时候：一律按内联算。 */
+export const INLINE_ONLY: ReferenceTransport = { cloud: false, canvasSources: new Set() }
+
+export function sendsById(reference: AgentReference, transport: ReferenceTransport): boolean {
+  if (reference.maskDataUrl) return false
+  if (mediaIdentity(reference.dataUrl)) return true
+  return transport.cloud && transport.canvasSources.has(reference.dataUrl)
+}
+
+/**
+ * 一轮的参考图准入。两道上限都是服务端的硬校验，超出去的那一份会让整轮起轮以 4xx 被打回，
+ * 用户的话连同图一起白等；改图能力不在这里判——轮用哪个模型由服务端定，输入框看不到。
+ *
+ * 按 id 发的那几张字节不进请求体，只占一轮总数（张数因此能与画布批量操作对齐）；只能内联的
+ * （拖进来的文件、素材、批注合成图、本机项目的画布图）仍限 {@link AGENT_TURN_MAX_INLINE_REFERENCES}
+ * 张。两档在这里写一遍，每个写入方——手动 `@`、拖文件、跟着选区带进来的——都从这里取。
+ */
+export function agentAdmission(
+  transport: ReferenceTransport = INLINE_ONLY,
+): ReferenceAdmission<AgentReference> {
+  return {
+    limit: AGENT_TURN_MAX_REFERENCES,
+    acceptsReferences: true,
+    inline: {
+      limit: AGENT_TURN_MAX_INLINE_REFERENCES,
+      sendsById: (reference) => sendsById(reference, transport),
+    },
+  }
+}
+
 export interface AttachedReference {
   readonly draft: AgentDraft
   /** 可见文本坐标系里的光标落点。 */
   readonly cursor: number
-  /** 这一张没放进去：本轮的参考图已经满了。草稿与光标原样返回。 */
-  readonly overflow: boolean
+  /** 这一组没放进去，撞的是哪道上限；草稿与光标原样返回。整组都进去了是 null。 */
+  readonly refusal: ReferenceRefusal | null
 }
 
 /**
  * 在可见文本的 `[start, cursor)` 上插一条引用。附图那一步走 `lib/referenceDraft`：
  * 同一张图按 `id` 复用原序号、不重复附加，画布对象与素材走的是同一条路。
  * 一起附上的 `rest`（素材的其余视角）只进条、不各占一个胶囊。
+ *
+ * 放不下就整组都不附（见 `agentAdmission` 的两档上限）：超出去的那一份会让整轮起轮被打回，
+ * 用户的话连同图一起白等。撞的是哪道由 `refusal` 交代，调用方据它决定说哪一句。
  */
 export function attachReference(
   draft: AgentDraft,
   reference: AgentReference,
   start: number,
   cursor: number,
+  transport: ReferenceTransport = INLINE_ONLY,
   rest: readonly AgentReference[] = [],
 ): AttachedReference {
-  const attached = attachReferences(draft, [reference, ...rest], AGENT_ADMISSION)
-  if (!attached.ok) return { draft, cursor, overflow: true }
+  const attached = attachReferences(draft, [reference, ...rest], agentAdmission(transport))
+  if (!attached.ok) return { draft, cursor, refusal: attached.reason }
   const inserted = insertImageMentionAtVisibleRange(
     draft.prompt,
     start,
@@ -117,13 +158,23 @@ export function attachReference(
   return {
     draft: { ...attached.draft, prompt: inserted.prompt },
     cursor: inserted.cursor,
-    overflow: false,
+    refusal: null,
   }
 }
 
 /** 拿掉一张参考图，指向它的引用降级为「已移除」，其余的跟着新序号走。 */
 export function removeReference(draft: AgentDraft, index: number): AgentDraft {
   return removeDraftReference(draft, index)
+}
+
+/**
+ * 一次拿掉所有跟着画布选区带进来的参考图。指向它们的引用降级为「已移除」，手动附上的跟着新序号走。
+ * 选区模块会把仍选着、草稿里却没了的认成用户拒绝过，不会立刻再塞回来。
+ */
+export function removeSelectionReferences(draft: AgentDraft): AgentDraft {
+  const references = draft.references.filter((one) => one.origin !== 'selection')
+  if (references.length === draft.references.length) return draft
+  return replaceReferences(draft, references)
 }
 
 /**

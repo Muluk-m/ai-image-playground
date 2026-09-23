@@ -1,4 +1,4 @@
-import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
+import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
 import { Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
@@ -55,9 +55,10 @@ import {
 } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
-import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
+import { CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
@@ -73,11 +74,13 @@ import {
   attachAssetToDraft,
   attachReferences,
   filesToReferences,
+  referenceLimitMessage,
   setAgentComposerAttach,
 } from '../lib/attachments'
 import { setAgentComposerFill } from '../lib/composerFill'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
+import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
 import {
   type AgentReference,
   type AttachedReference,
@@ -85,9 +88,11 @@ import {
   clearReferenceMask,
   draftForSubmit,
   hasDraftContent,
+  type ReferenceTransport,
   referenceDisplayNames,
   referenceLabels,
   removeReference,
+  removeSelectionReferences,
   setReferenceMask,
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
@@ -161,9 +166,13 @@ export default function AgentComposer({
     const images = acceptImageFiles(files)
     if (images.length === 0) return
     void filesToReferences(images).then((added) => {
-      setDraft((current) => attachReferences(current, added))
+      setDraft((current) => attachReferences(current, added, transportRef.current))
     })
   }
+  // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
+  // 收成一条「已选 N 张画布图」。手动附上的照旧逐张显示。
+  const selected = draft.references.filter((one) => one.origin === 'selection')
+  const selectionSummary = selected.length > AGENT_TURN_ATTACHED_MEDIA_MAX ? selected : []
   const referenceNames = referenceDisplayNames(draft.references)
   const { dragging, dropZoneProps } = useImageDropZone(attachFiles)
   // 面板把落在对话记录上的文件递过来。
@@ -241,13 +250,26 @@ export default function AgentComposer({
   // 哪些是这么带进来的归 selection 自己记，输入框只管把画布和草稿的入口交给它。
   const [selection] = useState(createSelectionReferences)
   const selectionKey = useMemo(() => selection.key(doc), [selection, doc, version])
-  const tooManyReferences = () =>
-    useStore
-      .getState()
-      .showToast(t('composer.tooManyReferences', { count: AGENT_TURN_MAX_REFERENCES }), 'error')
+  // 哪些参考图发送时能按 id 走（见 `sendsById`）：决定放得下多少。选区同步的 effect 只在选区
+  // 变化时跑，所以经 ref 取最新一份，别把画布内容列进它的依赖。
+  const cloudProject =
+    useCanvasProjectStore((state) =>
+      Boolean(state.projects.find((one) => one.id === state.activeId)?.cloud),
+    ) && cloudProjectsEnabled()
+  const transport = useMemo<ReferenceTransport>(
+    () => ({ cloud: cloudProject, canvasSources: new Set(Object.values(doc.files)) }),
+    [cloudProject, doc, version],
+  )
+  const transportRef = useRef(transport)
+  transportRef.current = transport
   useEffect(() => {
     if (loading) return
-    if (selection.follow(doc, setDraft, editor, session.key) > 0) tooManyReferences()
+    // 撞的是哪道上限由准入定夺，文案跟着它走——输入框不再自己数一遍两道上限。
+    const overflow = selection.follow(doc, setDraft, editor, session.key, transportRef.current)
+    if (overflow.refusal)
+      useStore
+        .getState()
+        .showToast(referenceLimitMessage(overflow.refusal, transportRef.current), 'error')
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
   }, [selection, selectionKey, loading, session])
 
@@ -306,8 +328,10 @@ export default function AgentComposer({
 
   const applyAttach = (next: AttachedReference) => {
     typedRef.current = null
-    if (next.overflow) {
-      tooManyReferences()
+    if (next.refusal) {
+      useStore
+        .getState()
+        .showToast(referenceLimitMessage(next.refusal, transportRef.current), 'error')
       return
     }
     setDraft(next.draft)
@@ -343,7 +367,13 @@ export default function AgentComposer({
 
     // 只有素材要等图取回来；另外两支就在手边，别让它们也隔一个微任务才插胶囊。
     if (value.type === 'asset') {
-      const attached = await attachAssetToDraft(draft, value.id, active.start, at)
+      const attached = await attachAssetToDraft(
+        draft,
+        value.id,
+        active.start,
+        at,
+        transportRef.current,
+      )
       if (attached) applyAttach(attached)
       return
     }
@@ -351,7 +381,8 @@ export default function AgentComposer({
       value.type === 'reference'
         ? draft.references[value.index]
         : canvasReference(canvas, value.imageId)
-    if (reference) applyAttach(attachReference(draft, reference, active.start, at))
+    if (reference)
+      applyAttach(attachReference(draft, reference, active.start, at, transportRef.current))
   }
 
   const menu = useSuggestionMenu({
@@ -389,6 +420,12 @@ export default function AgentComposer({
     else open(reference.dataUrl)
   }
 
+  /**
+   * 发送与中止是同一颗按钮的两个状态：输入框空着才是中止，写了字就是发送（忙时进排队）。
+   * 停止只掐当前这段回复，已经在跑的出图不受影响（ADR 0012）。
+   */
+  const stopMode = running && !draft.prompt.trim()
+
   const submit = () => {
     if (loading || submitting || historyBlocked || stopping) return
     const submission = draftForSubmit(draft)
@@ -398,6 +435,7 @@ export default function AgentComposer({
     session.accept(snapshot)
     selection.sent()
     setCursor(0)
+    browsingRef.current = null
     const releaseSubmission = session.beginSubmission()
     let accepted = false
     const restore = (cancelled = false) => {
@@ -419,6 +457,7 @@ export default function AgentComposer({
         submission.references,
         () => {
           accepted = true
+          rememberAgentPrompt(snapshot.prompt)
           releaseSubmission()
         },
         mode,
@@ -432,8 +471,74 @@ export default function AgentComposer({
       .finally(releaseSubmission)
   }
 
+  /**
+   * shell 式的上下翻：`index` 是从用户自己打的那份往回数的步数，0 就是那份本身。
+   * 一路带着 `typed`，翻过头再往前走要把它原样放回去。一开始翻就把历史定住：
+   * 翻的过程中这个会话又发出去一句（排队的那种），脚下的清单不该跟着变。
+   */
+  const browsingRef = useRef<{
+    entries: readonly string[]
+    index: number
+    typed: string
+  } | null>(null)
+
+  const recall = (step: 1 | -1): boolean => {
+    const browsing = browsingRef.current ?? {
+      entries: agentPromptHistory(),
+      index: 0,
+      typed: draft.prompt,
+    }
+    const index = browsing.index + step
+    // 翻到最旧的那条就停住，别绕回最新的：绕回去看着像刚才那几下没生效。
+    if (index < 0 || index > browsing.entries.length) return false
+    const prompt = index === 0 ? browsing.typed : browsing.entries[browsing.entries.length - index]
+    browsingRef.current = { ...browsing, index }
+    // 这一笔不是用户打进去的，要让编辑器照常重画（胶囊、技能徽标都得跟着回来）。
+    typedRef.current = null
+    setDraft((current) => ({ ...current, prompt }))
+    const end = getVisiblePrompt(prompt, labels).length
+    setCursor(end)
+    window.setTimeout(() => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      setContentEditableCursor(el, end)
+    }, 0)
+    return true
+  }
+
+  /** 候选菜单没开着时上下键翻历史：光标在首行往回翻、在末行往前翻，中间几行照常移动光标。 */
+  const recallKeyDown = (event: KeyboardEvent<HTMLDivElement>): boolean => {
+    const back = event.key === 'ArrowUp'
+    if (!back && event.key !== 'ArrowDown') return false
+    if (
+      loading ||
+      event.nativeEvent.isComposing ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    )
+      return false
+    const range = getContentEditableSelection(event.currentTarget)
+    if (range.start !== range.end) return false
+    const edge = back
+      ? range.start === 0 || visible.lastIndexOf('\n', range.start - 1) === -1
+      : visible.indexOf('\n', range.start) === -1
+    if (!edge || !recall(back ? 1 : -1)) return false
+    event.preventDefault()
+    return true
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (menu.handleKeyDown(event)) return
+    if (recallKeyDown(event)) return
+    // 写着字时按钮是发送，中止没有可点的入口；Esc 补上它，不必先清空输入框。
+    if (event.key === 'Escape' && running && !stopping) {
+      event.preventDefault()
+      void useAgentStore.getState().abort()
+      return
+    }
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
     submit()
@@ -472,7 +577,33 @@ export default function AgentComposer({
       <ComposerBar dragActive={dragging}>
         {draft.references.length > 0 && (
           <ComposerAttachments>
+            {selectionSummary.length > 0 && (
+              <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
+                <div className="flex -space-x-3">
+                  {selectionSummary.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX).map((one) => (
+                    <MediaImage
+                      key={one.id}
+                      src={one.dataUrl}
+                      className={`${STRIP_THUMB} ring-2 ring-muted`}
+                      alt=""
+                    />
+                  ))}
+                </div>
+                <span className="whitespace-nowrap text-xs text-foreground">
+                  {t('composer.selectionSummary', { count: selectionSummary.length })}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t('composer.clearSelectionAria')}
+                  className={`shrink-0 ${ICON_BUTTON}`}
+                  onClick={() => setDraft(removeSelectionReferences(draft))}
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             {draft.references.map((reference, index) => {
+              if (selectionSummary.length > 0 && reference.origin === 'selection') return null
               const label = referenceNames[index] ?? getImageMentionLabel(index)
               const masked = Boolean(reference.maskDataUrl)
               return (
@@ -548,6 +679,8 @@ export default function AgentComposer({
               syncMentionTagSelection(el)
               const text = getContentEditablePlainText(el)
               typedRef.current = text
+              // 动过一个字就不再是在翻历史：下一次上键从最新那条重新数起。
+              browsingRef.current = null
               setDraft((current) => ({ ...current, prompt: text }))
               menu.open()
             }}
@@ -612,18 +745,8 @@ export default function AgentComposer({
               <Zap aria-hidden="true" />
             </Button>
             <AgentParamsChip />
-            {running && (
-              <button
-                type="button"
-                className={ABORT_BUTTON}
-                disabled={stopping}
-                onClick={() => void useAgentStore.getState().abort()}
-              >
-                {stopping ? t('composer.aborting') : t('composer.abort')}
-              </button>
-            )}
             <ComposerSend
-              streaming={false}
+              streaming={stopMode}
               idle={
                 !stopping &&
                 !historyBlocked &&
@@ -632,15 +755,29 @@ export default function AgentComposer({
                 Boolean(draft.prompt.trim())
               }
               aria-label={
-                submitting
-                  ? t('composer.sending')
+                stopMode
+                  ? stopping
+                    ? t('composer.aborting')
+                    : t('composer.abort')
+                  : submitting
+                    ? t('composer.sending')
+                    : running
+                      ? t('composer.queue')
+                      : t('composer.sendAndCreate')
+              }
+              title={
+                stopMode
+                  ? t('composer.abortTitle')
                   : running
                     ? t('composer.queue')
-                    : t('composer.sendAndCreate')
+                    : t('composer.sendAndCreateTitle')
               }
-              title={running ? t('composer.queue') : t('composer.sendAndCreateTitle')}
-              disabled={historyBlocked || loading || submitting || !draft.prompt.trim()}
-              onClick={submit}
+              disabled={
+                stopMode
+                  ? stopping
+                  : historyBlocked || loading || submitting || !draft.prompt.trim()
+              }
+              onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
             />
           </ComposerActions>
         </ComposerToolbar>

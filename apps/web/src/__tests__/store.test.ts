@@ -147,7 +147,9 @@ vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
   readRemoteGeneration,
 }))
 
+import { IDBFactory } from 'fake-indexeddb'
 import { setSignedIn, subscribeLoginPrompt } from '../auth/loginPrompt'
+import { resumePendingSubmission } from '../auth/resumePendingSubmission'
 import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
@@ -177,6 +179,15 @@ async function waitUntil(predicate: () => boolean | undefined, message: string) 
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
   throw new Error(message)
+}
+
+function stubSessionStorage() {
+  const values = new Map<string, string>()
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  })
 }
 
 function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
@@ -454,6 +465,8 @@ describe('mask draft lifecycle in store actions', () => {
       prompt: 'a red cat',
       params: { ...DEFAULT_PARAMS },
     })
+    vi.stubGlobal('indexedDB', new IDBFactory())
+    stubSessionStorage()
     // 这个文件跑在 node 环境里，登录框事件要有个 window 才发得出去。
     vi.stubGlobal('window', new EventTarget())
     const prompted = vi.fn()
@@ -471,6 +484,61 @@ describe('mask draft lifecycle in store actions', () => {
     expect(useStore.getState().tasks).toEqual([])
     // 弹窗就是反馈，不再叠一条报错。
     expect(useStore.getState().showToast).not.toHaveBeenCalled()
+  })
+
+  it('sends the original prompt once after login, not a later draft', async () => {
+    const channel: PublicChannel = {
+      id: 'paid-openai',
+      kind: 'openai-queue',
+      label: 'Paid OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ ...allCapabilitiesOff(), 'accounts:login': true }))
+    await bootstrapClientCapabilities(true, '')
+    fetchMock.mockRestore()
+    vi.stubGlobal('indexedDB', new IDBFactory())
+    stubSessionStorage()
+    vi.stubGlobal('window', new EventTarget())
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      prompt: 'the original cat',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS },
+    })
+    try {
+      await submitTask()
+      expect(useStore.getState().tasks).toEqual([])
+      useStore.setState({ prompt: 'a later dog', inputImages: [] })
+      setSignedIn(true)
+      await resumePendingSubmission()
+      await waitUntil(
+        () => vi.mocked(callImageApi).mock.calls.length === 1,
+        'original submission was not sent',
+      )
+      expect(vi.mocked(callImageApi).mock.calls[0]?.[0]).toMatchObject({
+        prompt: 'the original cat',
+        inputImageDataUrls: [],
+      })
+      await resumePendingSubmission()
+      expect(callImageApi).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('把自己挂的超时 abort 写成超时文案，不把浏览器那句「用户取消了」甩给用户', async () => {

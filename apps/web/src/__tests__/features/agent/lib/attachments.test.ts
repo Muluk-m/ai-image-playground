@@ -1,4 +1,4 @@
-import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
+import { AGENT_TURN_MAX_INLINE_REFERENCES } from '@image-playground/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachAssetToDraft } from '../../../../features/agent/lib/attachments'
 import type { AgentDraft } from '../../../../features/agent/lib/references'
@@ -92,11 +92,12 @@ describe('素材变成参考图', () => {
       { id: 'img-front', dataUrl: PIXEL },
       { id: 'img-side', dataUrl: PIXEL },
     ]
-    const draft = filled(AGENT_TURN_MAX_REFERENCES - 1)
+    // 素材只能内联字节，撞的是内联那道上限。
+    const draft = filled(AGENT_TURN_MAX_INLINE_REFERENCES - 1)
 
     const attached = await attachAssetToDraft(draft, 'asset-1', 0, 0)
 
-    expect(attached?.overflow).toBe(true)
+    expect(attached?.refusal).toBe('inlineOverflow')
     expect(attached?.draft).toBe(draft)
   })
 })

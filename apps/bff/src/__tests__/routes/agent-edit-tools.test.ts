@@ -916,6 +916,9 @@ describe('智能体改图工具', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      // 联网里只有这两个不要求登录，所以匿名轮的清单里就这两条。
+      'webFetch',
+      'webSearch',
     ])
   })
 

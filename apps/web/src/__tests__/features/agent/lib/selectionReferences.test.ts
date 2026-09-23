@@ -1,4 +1,7 @@
-import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
+import {
+  AGENT_TURN_MAX_INLINE_REFERENCES,
+  AGENT_TURN_MAX_REFERENCES,
+} from '@image-playground/shared'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type AgentDraft,
@@ -14,6 +17,8 @@ import { getVisiblePrompt } from '../../../../lib/promptImageMentions'
 const PIXEL = 'data:image/png;base64,aGk='
 const OTHER = 'data:image/png;base64,b3RoZXI='
 const COMPOSITE = 'data:image/png;base64,bWFya2Vk'
+/** 拖进来的文件：不是画布上任何一张图的来源。 */
+const DROPPED = 'data:image/png;base64,ZHJvcHBlZA=='
 
 function image(id: string, fileId: string): CanvasEl {
   return { id, type: 'image', x: 0, y: 0, width: 10, height: 10, rotation: 0, fileId }
@@ -70,8 +75,9 @@ describe('跟着画布选区走的引用', () => {
     expect(draft.sources).toEqual([OTHER, PIXEL])
   })
 
-  it('选区超过一轮上限时只带前几张，多出来的报给调用方', () => {
-    const many = Array.from({ length: AGENT_TURN_MAX_REFERENCES + 3 }, (_, at) =>
+  // 本机项目的画布图只能内联字节，服务端对这个数是硬校验：多发一张整轮就被打回。
+  it('本机项目的选区超过内联上限时只带前几张，多出来的报给调用方', () => {
+    const many = Array.from({ length: AGENT_TURN_MAX_INLINE_REFERENCES + 3 }, (_, at) =>
       image(`canvas-${at}`, 'file-1'),
     )
     const doc = canvas(many)
@@ -79,31 +85,54 @@ describe('跟着画布选区走的引用', () => {
     const draft = drafts()
 
     doc.setSelection(many.map((one) => one.id))
-    // 服务端对张数是硬校验：多发一张整轮以 400 打回，用户等几分钟才看到一句失败。
-    expect(selection.follow(doc, draft.update)).toBe(3)
-    expect(draft.ids).toHaveLength(AGENT_TURN_MAX_REFERENCES)
+    expect(selection.follow(doc, draft.update).dropped).toBe(3)
+    expect(draft.ids).toHaveLength(AGENT_TURN_MAX_INLINE_REFERENCES)
 
     // 腾出位置之后，此前放不下的那几张下一次同步照常带进来。
     const last = many[many.length - 1]!
     const secondLast = many[many.length - 2]!
     doc.setSelection([secondLast.id, last.id])
-    expect(selection.follow(doc, draft.update)).toBe(0)
+    expect(selection.follow(doc, draft.update).dropped).toBe(0)
     expect(draft.ids).toEqual([last.id, secondLast.id])
   })
 
-  it('手动 @ 到满之后不再附图，草稿与光标原样留着', () => {
+  // 云项目的画布图按 id 发、不进请求体：圈一整批主图不该被内联那道上限卡住，
+  // 只受一轮总数管，与画布批量操作对齐。
+  it('云项目的选区按 id 发，一整批都带上，只受一轮总数限制', () => {
+    const many = Array.from({ length: AGENT_TURN_MAX_REFERENCES + 2 }, (_, at) =>
+      image(`canvas-${at}`, 'file-1'),
+    )
+    const doc = canvas(many)
+    const selection = createSelectionReferences()
+    const draft = drafts()
+    const cloud = { cloud: true, canvasSources: new Set(Object.values(doc.files)) }
+
+    doc.setSelection(many.map((one) => one.id))
+
+    const overflow = selection.follow(doc, draft.update, undefined, undefined, cloud)
+
+    // 撞的是一轮总数那一道，不是内联那一道——调用方据此说对是哪一句。
+    expect(overflow).toEqual({ dropped: 2, refusal: 'overflow' })
+    expect(draft.ids).toHaveLength(AGENT_TURN_MAX_REFERENCES)
+  })
+
+  it('按 id 发的图不占内联名额：满了的内联上限挡不住画布图，挡得住再拖一张文件', () => {
+    const doc = canvas([image('canvas-1', 'file-1')])
+    const cloud = { cloud: true, canvasSources: new Set(Object.values(doc.files)) }
     let draft = EMPTY_DRAFT
-    for (let at = 0; at < AGENT_TURN_MAX_REFERENCES; at++) {
+    for (let at = 0; at < AGENT_TURN_MAX_INLINE_REFERENCES; at++) {
       const end = visible(draft).length
-      draft = attachReference(draft, { id: `img-${at}`, dataUrl: PIXEL }, end, end).draft
+      draft = attachReference(draft, { id: `file_${at}`, dataUrl: DROPPED }, end, end, cloud).draft
     }
-
     const end = visible(draft).length
-    const overflowing = attachReference(draft, { id: 'one-too-many', dataUrl: OTHER }, end, end)
 
-    expect(overflowing.overflow).toBe(true)
-    expect(overflowing.draft).toBe(draft)
-    expect(overflowing.cursor).toBe(end)
+    expect(
+      attachReference(draft, { id: 'canvas-1', dataUrl: PIXEL }, end, end, cloud).refusal,
+    ).toBeNull()
+    const file = attachReference(draft, { id: 'file_more', dataUrl: DROPPED }, end, end, cloud)
+    expect(file.refusal).toBe('inlineOverflow')
+    expect(file.draft).toBe(draft)
+    expect(file.cursor).toBe(end)
   })
 
   it('取消选中就撤走，指向它的引用降级为已移除', () => {

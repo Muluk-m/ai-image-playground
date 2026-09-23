@@ -3,14 +3,22 @@ import { getSelectedImageMentionLabel } from '../../lib/promptImageMentions'
 import {
   attachReferences,
   moveReference,
+  type ReferenceAdmission,
   type ReferenceDraft,
   referenceRefusal,
+  referenceTally,
   removeReference,
   replaceReferences,
 } from '../../lib/referenceDraft'
 import type { InputImage } from '../../types'
 
 const OK = { limit: 3, acceptsReferences: true }
+/** 分两档发的那一头：条一共放 5 张，其中只能内联字节的最多 2 张。 */
+const TWO_TIER: ReferenceAdmission = {
+  limit: 5,
+  acceptsReferences: true,
+  inline: { limit: 2, sendsById: (one) => one.dataUrl.startsWith('aip-media:') },
+}
 const mention = getSelectedImageMentionLabel
 
 function draft(ids: string[], prompt = ''): ReferenceDraft<InputImage> {
@@ -19,6 +27,11 @@ function draft(ids: string[], prompt = ''): ReferenceDraft<InputImage> {
 
 function image(id: string): InputImage {
   return { id, dataUrl: `data:,${id}` }
+}
+
+/** 一张按 id 发的图：字节不进请求体，不占内联名额。 */
+function byId(id: string): InputImage {
+  return { id, dataUrl: `aip-media:${id}` }
 }
 
 describe('往参考图草稿里附图', () => {
@@ -81,15 +94,54 @@ describe('往参考图草稿里附图', () => {
   })
 })
 
+describe('两档上限：按 id 发的与只能内联的', () => {
+  const inlineFull: ReferenceDraft<InputImage> = {
+    prompt: '',
+    references: [image('a'), image('b')],
+  }
+
+  it('按 id 发的不占内联名额：内联那道满了也拦不住它', () => {
+    const result = attachReferences(inlineFull, [byId('m1')], TWO_TIER)
+
+    expect(result.ok && result.draft.references.map((one) => one.id)).toEqual(['a', 'b', 'm1'])
+  })
+
+  it('只能内联的撞内联那道，报的是内联那道——调用方据此说对是哪一句', () => {
+    const result = attachReferences(inlineFull, [image('c')], TWO_TIER)
+
+    expect(result).toEqual({ ok: false, reason: 'inlineOverflow' })
+  })
+
+  it('一轮总数先判：按 id 发的再多也放不下第 6 张', () => {
+    const full = { prompt: '', references: ['m1', 'm2', 'm3', 'm4', 'm5'].map(byId) }
+
+    expect(attachReferences(full, [byId('m6')], TWO_TIER)).toEqual({
+      ok: false,
+      reason: 'overflow',
+    })
+  })
+})
+
 describe('图还没落盘时先问一次准入', () => {
   it('这一把放不下就整把不收，放得下才让调用方去取图', () => {
-    expect(referenceRefusal(2, 2, OK)).toBe('overflow')
-    expect(referenceRefusal(2, 1, OK)).toBeNull()
+    expect(referenceRefusal({ total: 2 }, { total: 2 }, OK)).toBe('overflow')
+    expect(referenceRefusal({ total: 2 }, { total: 1 }, OK)).toBeNull()
   })
 
   it('模型不认参考图：要新加就不收，一张都不打算加时不拦', () => {
-    expect(referenceRefusal(0, 1, { limit: 3, acceptsReferences: false })).toBe('noEdit')
-    expect(referenceRefusal(1, 0, { limit: 3, acceptsReferences: false })).toBeNull()
+    expect(
+      referenceRefusal({ total: 0 }, { total: 1 }, { limit: 3, acceptsReferences: false }),
+    ).toBe('noEdit')
+    expect(
+      referenceRefusal({ total: 1 }, { total: 0 }, { limit: 3, acceptsReferences: false }),
+    ).toBeNull()
+  })
+
+  it('不报内联张数就按全都要内联算：拖进来的一把文件正是如此', () => {
+    const attached = referenceTally([byId('m1'), image('a')], TWO_TIER)
+
+    expect(attached).toEqual({ total: 2, inline: 1 })
+    expect(referenceRefusal(attached, { total: 2 }, TWO_TIER)).toBe('inlineOverflow')
   })
 })
 

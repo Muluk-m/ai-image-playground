@@ -19,7 +19,7 @@ const parameters = Type.Object({
     minItems: 1,
     maxItems: MAX_REFERENCES,
     description:
-      '图片 id 列表：第一张是唯一编辑目标，产出落在它旁边；后续是用户指定或明确委托用途的参考图（如换款、范例复刻、补足背面结构），不是其它待处理目标。id 来自用户引用、readLibrary 或本轮产物。',
+      '图片 id 列表：第一张是唯一编辑目标，产出落在它旁边；后续是用户指定或明确委托用途的参考图（如换款、范例复刻、补足背面结构），不是其它待处理目标。id 来自用户引用、readLibrary、fetchImage 或 fetchListingImages 取回的网图，或本轮产物。',
   }),
   selectionBindings: Type.Optional(
     Type.Array(

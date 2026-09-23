@@ -24,18 +24,32 @@ type DraftReference<D extends ReferenceDraft> = D['references'][number]
 export type ReferenceIntent = 'attach' | 'edit'
 
 /**
+ * 条里「只能内联字节」的那几张另受的一道上限。有的那一头把图分成两档发：认得出 id 的
+ * 只发 id，字节不进请求体，张数可以放得很宽；剩下的必须整张带上，多几张就是几十 MB。
+ * 两个数在服务端都是硬校验，超了整轮以 4xx 打回，所以进条之前就得拦住。
+ */
+export interface InlineAdmission<R extends InputImage = InputImage> {
+  readonly limit: number
+  /** 这一张发送时走不走 id；走 id 的不占内联名额。 */
+  readonly sendsById: (reference: R) => boolean
+}
+
+/**
  * 这一次写图的准入：允许附几张、图要去的那一头认不认参考图、这一次是来干什么的。
  * 由调用方给出——草稿自己不认识 profile，也不知道图是给生图模型还是给画布第一轮用的。
  */
-export interface ReferenceAdmission {
+export interface ReferenceAdmission<R extends InputImage = InputImage> {
+  /** 条里一共放得下几张。 */
   readonly limit: number
   readonly acceptsReferences: boolean
   /** 缺省是 `attach`。 */
   readonly intent?: ReferenceIntent
+  /** 缺席即这一头没有「按 id 发」那一档：条里每一张都要随请求带上，只有 `limit` 管着。 */
+  readonly inline?: InlineAdmission<R>
 }
 
 /** 这一组没进去的理由。文案在 `referenceRefusalMessage`，草稿层不碰界面语言。 */
-export type ReferenceRefusal = 'overflow' | 'noEdit'
+export type ReferenceRefusal = 'overflow' | 'inlineOverflow' | 'noEdit'
 
 export type AttachResult<D extends ReferenceDraft> =
   | {
@@ -46,21 +60,43 @@ export type AttachResult<D extends ReferenceDraft> =
     }
   | { readonly ok: false; readonly reason: ReferenceRefusal }
 
+/** 一组图各占掉多少名额：一共几张、其中几张只能内联字节（缺席即全都只能内联）。 */
+export interface ReferenceTally {
+  readonly total: number
+  readonly inline?: number
+}
+
+/** 按准入数一组图的两档名额。没有按 id 那一档时不必分辨，每张都算内联。 */
+export function referenceTally<R extends InputImage>(
+  references: readonly R[],
+  admission: ReferenceAdmission<R>,
+): ReferenceTally {
+  const inline = admission.inline
+  if (!inline) return { total: references.length }
+  let count = 0
+  for (const one of references) if (!inline.sendsById(one)) count += 1
+  return { total: references.length, inline: count }
+}
+
 /**
- * 条里已经有 `attached` 张、这一次要新进 `incoming` 张时，这一组过不过得去；过得去是 null。
- * 准入只在这里判一次：`attachReferences` 拿它定夺，图还没落盘的调用方（拖进来的一把文件）
- * 也先拿它问一声，免得为一组进不去的图往 image store 白写几张。
+ * 条里已经放着 `attached`、这一次要新进 `incoming` 时，这一组过不过得去；过得去是 null。
+ * 两档上限都只在这里判：`attachReferences` 拿它定夺，图还没落盘的调用方（拖进来的一把文件）
+ * 也先拿它问一声，免得为一组进不去的图往 image store 白写几张。撞哪道就报哪道。
  */
-export function referenceRefusal(
-  attached: number,
-  incoming: number,
-  admission: ReferenceAdmission,
+export function referenceRefusal<R extends InputImage>(
+  attached: ReferenceTally,
+  incoming: ReferenceTally,
+  admission: ReferenceAdmission<R>,
 ): ReferenceRefusal | null {
   // 改图要模型认参考图，跟这一次往条里加不加东西无关：那张图早就在条里也一样。
   if (admission.intent === 'edit' && !admission.acceptsReferences) return 'noEdit'
-  if (incoming === 0) return null
+  if (incoming.total === 0) return null
   if (!admission.acceptsReferences) return 'noEdit'
-  return attached + incoming > admission.limit ? 'overflow' : null
+  if (attached.total + incoming.total > admission.limit) return 'overflow'
+  const inline = admission.inline
+  if (!inline) return null
+  const taken = (attached.inline ?? attached.total) + (incoming.inline ?? incoming.total)
+  return taken > inline.limit ? 'inlineOverflow' : null
 }
 
 /**
@@ -74,7 +110,7 @@ export function referenceRefusal(
 export function attachReferences<D extends ReferenceDraft>(
   draft: D,
   incoming: readonly DraftReference<D>[],
-  admission: ReferenceAdmission,
+  admission: ReferenceAdmission<DraftReference<D>>,
 ): AttachResult<D> {
   const references = [...draft.references] as DraftReference<D>[]
   const indexes: number[] = []
@@ -88,8 +124,8 @@ export function attachReferences<D extends ReferenceDraft>(
     indexes.push(references.length - 1)
   }
   const refusal = referenceRefusal(
-    draft.references.length,
-    references.length - draft.references.length,
+    referenceTally(draft.references as readonly DraftReference<D>[], admission),
+    referenceTally(references.slice(draft.references.length), admission),
     admission,
   )
   if (refusal) return { ok: false, reason: refusal }

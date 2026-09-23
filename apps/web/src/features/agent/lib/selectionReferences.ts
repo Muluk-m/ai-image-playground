@@ -1,7 +1,18 @@
-import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
+import {
+  attachReferences,
+  type ReferenceAdmission,
+  type ReferenceRefusal,
+} from '../../../lib/referenceDraft'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { type MarkRenderer, renderMarkedImage, selectedMarkIds } from './markedReferences'
-import { type AgentDraft, removeReference } from './references'
+import {
+  type AgentDraft,
+  type AgentReference,
+  agentAdmission,
+  INLINE_ONLY,
+  type ReferenceTransport,
+  removeReference,
+} from './references'
 
 /** 画布上选中的一张图，连同压在它上面、也被选中的批注。 */
 interface SelectedImage {
@@ -25,12 +36,17 @@ function selectedImages(doc: CanvasDoc): SelectedImage[] {
   })
 }
 
+/** 这一次同步没带进去的那几张：几张，以及撞的是哪道上限；整批都带上了就是 null。 */
+export interface SelectionOverflow {
+  readonly dropped: number
+  readonly refusal: ReferenceRefusal | null
+}
+
 interface Synced {
   readonly draft: AgentDraft
   readonly auto: ReadonlySet<string>
   readonly dismissed: ReadonlySet<string>
-  /** 选中却没能进引用区的张数：本轮的参考图已经满了。 */
-  readonly overflow: number
+  readonly overflow: SelectionOverflow
 }
 
 /**
@@ -43,14 +59,15 @@ interface Synced {
  * 「自动带的」除了本模块记下的，还认草稿里标着 `origin: 'selection'` 的：输入框重挂、
  * 发送失败放回来的草稿，本模块的记账已经归零，只有草稿自己还记得。
  *
- * 一轮最多带 `AGENT_TURN_MAX_REFERENCES` 张：服务端对这个数量是硬校验，超出去的那几张
- * 会让整轮起轮以 400 被打回。放不下的既不进草稿也不记账——腾出位置后下一次同步再带进来。
+ * 放得下多少由 `agentAdmission` 定：按 id 发的圈选图只占一轮总数，只能内联的仍然有限；
+ * 服务端对两个数都是硬校验。放不下的既不进草稿也不记账——腾出位置后下一次同步再带进来。
  */
 function syncSelected(
   draft: AgentDraft,
   selected: readonly SelectedImage[],
   remembered: ReadonlySet<string>,
   dismissed: ReadonlySet<string>,
+  admission: ReferenceAdmission<AgentReference>,
 ): Synced {
   const ids = new Set(selected.map((one) => one.imageId))
   const auto = new Set(remembered)
@@ -70,7 +87,8 @@ function syncSelected(
     const index = result.references.findIndex((one) => one.id === id)
     if (index >= 0) result = removeReference(result, index)
   }
-  let overflow = 0
+  let dropped = 0
+  let refusal: ReferenceRefusal | null = null
   for (const image of selected) {
     if (refused.has(image.imageId)) continue
     const at = result.references.findIndex((one) => one.id === image.imageId)
@@ -80,20 +98,21 @@ function syncSelected(
       result = withDataUrl(result, image.imageId, image.dataUrl)
       continue
     }
-    if (result.references.length >= AGENT_TURN_MAX_REFERENCES) {
-      overflow += 1
+    const reference: AgentReference = {
+      id: image.imageId,
+      dataUrl: image.dataUrl,
+      origin: 'selection',
+    }
+    const attached = attachReferences(result, [reference], admission)
+    if (!attached.ok) {
+      dropped += 1
+      refusal ??= attached.reason
       continue
     }
     next.add(image.imageId)
-    result = {
-      ...result,
-      references: [
-        ...result.references,
-        { id: image.imageId, dataUrl: image.dataUrl, origin: 'selection' },
-      ],
-    }
+    result = attached.draft
   }
-  return { draft: result, auto: next, dismissed: refused, overflow }
+  return { draft: result, auto: next, dismissed: refused, overflow: { dropped, refusal } }
 }
 
 /** 换掉某张自动带进来的参考图的位图；手动 `@` 的那张不归选区管，原样返回。 */
@@ -118,14 +137,18 @@ export interface SelectionReferences {
    * `scope` 是这份草稿的身份。这套记账只对当初那份草稿成立，`scope` 一变先全部归零再同步：
    * 换了草稿还拿旧账去对，同一个 id 在新草稿里被手动 `@` 过就会被当成自动引用撤走。
    *
-   * 返回这次因为满了没带进去的张数，调用方据此告诉用户；0 表示选区整个带上了。
+   * `transport` 决定放得下多少（见 `agentAdmission`）；不给就一律按内联算，与从前一样紧。
+   *
+   * 返回这次因为满了没带进去的张数与撞的那道上限，调用方据此告诉用户；`dropped` 为 0
+   * 表示选区整个带上了。
    */
   follow(
     doc: CanvasDoc,
     update: (change: (draft: AgentDraft) => AgentDraft) => void,
     renderer?: MarkRenderer,
     scope?: string,
-  ): number
+    transport?: ReferenceTransport,
+  ): SelectionOverflow
   /**
    * 草稿整份被发送收走了。引用区跟着空掉不是用户在拒绝，所以只作废 auto 记账，
    * 仍选中的图下一次同步照常带回来；用户拒绝过的那几张仍然算数。发送失败放回来的草稿
@@ -154,18 +177,19 @@ export function createSelectionReferences(): SelectionReferences {
       auto = new Set()
     },
 
-    follow(doc, update, renderer, scope) {
+    follow(doc, update, renderer, scope, transport = INLINE_ONLY) {
       if (scope !== scoped) {
         scoped = scope
         auto = new Set()
         dismissed = new Set()
       }
+      const admission = agentAdmission(transport)
       const selected = selectedImages(doc)
       const key = selectionKey(selected)
       current = key
-      let overflow = 0
+      let overflow: SelectionOverflow = { dropped: 0, refusal: null }
       update((draft) => {
-        const synced = syncSelected(draft, selected, auto, dismissed)
+        const synced = syncSelected(draft, selected, auto, dismissed, admission)
         auto = synced.auto
         dismissed = synced.dismissed
         overflow = synced.overflow

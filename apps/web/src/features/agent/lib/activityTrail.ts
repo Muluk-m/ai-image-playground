@@ -21,6 +21,12 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   arrangeTimeline: undefined,
   // 改画布对象改的是用户看得见的东西，得留一张卡说清楚改了什么，不能折成一行。
   editCanvasObject: undefined,
+  // 搜索与抓网页只是读：来源链接挂在过程步上，不另起一张结果卡。
+  webSearch: true,
+  webFetch: true,
+  // 取到的网图进了用户媒体、可能落画布，得留一张带缩略图的卡。
+  fetchImage: undefined,
+  fetchListingImages: undefined,
 }
 
 /**

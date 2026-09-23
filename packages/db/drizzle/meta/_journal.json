@@ -281,6 +281,13 @@
       "when": 1790120000000,
       "tag": "0040_user_looks",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790121000000,
+      "tag": "0041_agent_web_search_calls",
+      "breakpoints": true
     }
   ]
 }
