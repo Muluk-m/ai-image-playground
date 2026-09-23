@@ -316,14 +316,14 @@ async function executeResumeTurn(
     execution: turnExecution(conversationId, turnId, assertOwnership),
     source: { kind: 'resume', resume },
   })
-  return startedOr(prepared, startAgentTurn)
+  return startPreparedTurn(prepared, startAgentTurn)
 }
 
 /**
  * 起轮准备的结果换成取件方认得的那一种。`no_results` 与 `wake_limit` 只有唤醒来源会出现，
  * 所以这里不该看见它们。
  */
-async function startedOr(
+async function startPreparedTurn(
   prepared: TurnPreparation,
   startAgentTurn: (turn: PreparedAgentTurn) => Promise<RunningTurn>,
 ): Promise<StartConversationTurnResult> {
@@ -418,5 +418,5 @@ async function executeConversationTurn(
       announce: queued.announce,
     },
   })
-  return startedOr(prepared, startAgentTurn)
+  return startPreparedTurn(prepared, startAgentTurn)
 }
