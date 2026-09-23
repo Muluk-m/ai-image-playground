@@ -114,6 +114,9 @@ describe('tools filtered by creation mode', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      // 联网里只有这两个对匿名轮在场：取网图与抓商品图要写用户媒体，得先登录。
+      'webFetch',
+      'webSearch',
     ])
   })
 
@@ -128,6 +131,8 @@ describe('tools filtered by creation mode', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'webFetch',
+      'webSearch',
     ])
   })
 

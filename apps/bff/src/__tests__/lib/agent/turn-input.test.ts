@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
+import {
+  AGENT_TURN_ATTACHED_MEDIA_MAX,
+  type AgentMessageView,
+  type AgentTurnReference,
+} from '@image-playground/shared'
 import sharp from 'sharp'
 import { estimateMessageTokens } from '../../../lib/agent/token-estimate'
 import type { AgentToolDeclaration } from '../../../lib/agent/tools'
@@ -28,6 +32,7 @@ const {
 } = await import('../../../lib/agent/turn-input')
 const { ANONYMOUS_AUDIENCE, lookSkillContent } = await import('../../../lib/agent/skills')
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { shownImageRequests } = await import('../../../lib/agent/images')
 
 type AgentTurnInput = import('../../../lib/agent/turn-input').AgentTurnInput
 
@@ -245,6 +250,9 @@ describe('tool declarations in the estimate', () => {
       'readLibrary',
       'readCanvas',
       'editCanvasObject',
+      // 联网工具没有开关，所以它们在任何部署里都随清单发出去；取图那两个要登录，这里没有。
+      'webSearch',
+      'webFetch',
       'askClarification',
     ])
   })
@@ -316,6 +324,40 @@ describe('estimated and sent turn input', () => {
     const estimated = estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED]))
     expect(imageBlocks(estimated.at(-1)!)).toBe(evidence.content.length)
     expect(evidence.content).toHaveLength(4)
+  })
+
+  /**
+   * 按 id 附的图一多，两条路就都只上清单：实发那一路解哪几张由 `shownImageRequests` 说了算，
+   * 预扣照同一条规则数图片块。两边各数各的时，圈了一大片的每一轮都会照没发出去的字节预扣。
+   */
+  it('stops charging canvas selections once they are listing-only', () => {
+    // 画布上圈选的图按 id 发，字节不在请求体里；多一张就越过只上清单的那道线。
+    const canvas = Array.from(
+      { length: AGENT_TURN_ATTACHED_MEDIA_MAX + 1 },
+      (_, at): AgentTurnReference => ({ imageId: `canvas-${at}`, mediaId: `media-${at}` }),
+    )
+    const listed = [PLAIN, ...canvas]
+    const shown = [PLAIN, ...canvas.slice(0, AGENT_TURN_ATTACHED_MEDIA_MAX)]
+    const blocks = (references: readonly AgentTurnReference[]) =>
+      imageBlocks(estimatedTurnInput(input([], '都换成夜景', references)).at(-1)!)
+
+    // 这几张都没有遮罩，一张一块：实发要解的那份清单有多长，预扣就数几块。
+    expect(blocks(listed)).toBe(shownImageRequests(listed).length)
+    expect(blocks(shown)).toBe(shownImageRequests(shown).length)
+    expect(blocks(listed)).toBe(1)
+    expect(blocks(shown)).toBe(1 + AGENT_TURN_ATTACHED_MEDIA_MAX)
+
+    // 清单措辞也是本轮输入的一部分：哪几张随这一轮发出逐条标注，估算从 `turnPromptText` 照收。
+    const promptText = turnPromptText('都换成夜景', listed, true)
+    expect(promptText).toContain('（内容已附在本轮输入里）')
+    expect(
+      textOf(estimatedTurnInput(input([], '都换成夜景', listed)).at(-1)!).startsWith(promptText),
+    ).toBe(true)
+
+    // 一张内联的也没有时整批只上清单，预扣连一块图片都不数。
+    expect(blocks(canvas)).toBe(shownImageRequests(canvas).length)
+    expect(blocks(canvas)).toBe(0)
+    expect(turnPromptText('都换成夜景', canvas, true)).toContain('张数较多')
   })
 
   /**

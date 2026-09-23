@@ -464,6 +464,8 @@ describe('智能体生图工具', () => {
       'readCanvas',
       'readLibrary',
       'viewImage',
+      'webFetch',
+      'webSearch',
     ])
   })
 

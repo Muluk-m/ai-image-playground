@@ -3,6 +3,7 @@ export const APP_MODE_PATHS = {
   image: '/image',
   explore: '/explore',
   library: '/assets',
+  tools: '/tools',
 } as const
 
 export type RoutedAppMode = keyof typeof APP_MODE_PATHS
