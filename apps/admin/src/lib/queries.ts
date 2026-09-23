@@ -6,6 +6,7 @@ import type {
   ListAuditsResult,
   ListDevicesResult,
   ListUsersResult,
+  OpsRange,
   OpsSnapshot,
   OverviewResult,
   Range,
@@ -87,11 +88,11 @@ export function useOverview(range: Range) {
   })
 }
 
-/** 看板默认 30 秒重拉；常驻壳可传更慢的间隔，避免闲置页面持续打满只读池。 */
-export function useOps(refetchInterval = 30_000) {
+/** 看板默认 30 秒重拉；范围切换只改变宿主机趋势，其他实时块仍取同一份快照。 */
+export function useOps(range: OpsRange, refetchInterval = 30_000) {
   return useQuery({
-    queryKey: ['ops'],
-    queryFn: () => apiClient.get<OpsSnapshot>('/api/ops'),
+    queryKey: ['ops', { range }],
+    queryFn: () => apiClient.get<OpsSnapshot>(`/api/ops?range=${range}`),
     refetchInterval,
   })
 }

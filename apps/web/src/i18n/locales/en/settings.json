@@ -3,21 +3,22 @@
     "title": "Settings"
   },
   "tab": {
-    "general": "Preferences",
-    "api": "API settings",
-    "data": "Data management"
+    "general": "General",
+    "api": "API",
+    "data": "Data"
+  },
+  "section": {
+    "display": "Display",
+    "behavior": "Behavior",
+    "account": "Account"
   },
   "general": {
     "submitShortcut": "Submit shortcut",
-    "submitShortcutHint": "With Enter to submit, use Shift + Enter for a new line; otherwise Enter inserts a new line.",
+    "newlineWithShift": "Shift + Enter for a new line",
+    "newlineWithEnter": "Enter for a new line",
     "clearInputAfterSubmit": "Clear the input after submitting",
-    "clearInputAfterSubmitHint": "When on, a successful submission clears the prompt and reference images.",
     "persistInput": "Restore the last input on restart",
-    "persistInputHint": "When off, the prompt and reference images are not kept, and the next launch starts empty.",
-    "reuseTaskProfile": "Reuse the task's API profile temporarily",
-    "reuseTaskProfileHint": "When on, reusing a past task temporarily switches to that task's API profile, and submitting warns you if the profile is gone; when off, the current API profile stays in use.",
-    "alwaysShowRetry": "Keep retry on successful tasks",
-    "alwaysShowRetryHint": "When on, the retry button stays on the task card and the detail view even after a task succeeds."
+    "alwaysShowRetry": "Keep retry on successful tasks"
   },
   "profile": {
     "current": "Current profile",
@@ -27,7 +28,6 @@
     "duplicateAria": "Duplicate the profile “{{name}}”",
     "copyImportUrl": "Copy import URL",
     "copyImportUrlFor": "Copy the import URL for the profile “{{name}}”",
-    "dragToReorder": "Drag to reorder",
     "builtinBadge": "Built-in",
     "builtinModel": "Built-in model",
     "delete": "Delete profile",
@@ -96,7 +96,6 @@
     "createAndUse": "Create and use"
   },
   "data": {
-    "notice": "Settings, task history and generated images stay only in your browser (unless your provider stores them). Export a backup before you clear site data, reset the browser, or move to another device.",
     "exportTitle": "Export data",
     "importTitle": "Import data",
     "clearTitle": "Clear data",

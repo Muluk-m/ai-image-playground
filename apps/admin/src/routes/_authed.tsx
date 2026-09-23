@@ -9,6 +9,7 @@ import { Page } from '@/components/Page'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { useOps } from '@/lib/queries'
+import { DEFAULT_OPS_RANGE } from '@/lib/search-params'
 
 // 鉴权守卫：layout route，beforeLoad 探 /api/me（cookie 校验），失败 redirect /login。
 // 用 ensureQueryData 走 queryClient cache 避免每次 prefetch 都打一次后端。
@@ -57,7 +58,7 @@ function AuthedLayout() {
  * 还没取到或取失败时什么都不显示：横幅是「有事」的信号，不是「取数状态」的展示位。
  */
 function OpsAlertBanner() {
-  const { data } = useOps(5 * 60_000)
+  const { data } = useOps(DEFAULT_OPS_RANGE, 5 * 60_000)
   const alerts = data ? opsAlerts(data) : []
   if (!alerts.length) return null
   return (
