@@ -376,11 +376,6 @@
     "continueHint": "继续涂抹，或点击完成",
     "running": "擦除中…"
   },
-  "regenerate": {
-    "action": "重新生成",
-    "unavailable": "这张图的生成参数已随页面关闭丢失，无法原样重出",
-    "sourceGone": "这张图用到的素材已不在画布上，无法重出"
-  },
   "rectEdit": {
     "handle": {
       "nw": "左上",
@@ -398,5 +393,26 @@
     "running": "抠图中…",
     "videoUnsupported": "视频不支持抠图",
     "keyFailed": "背景没能键干净，先给你原图；可以重来一次"
+  },
+  "imageEdit": {
+    "action": "编辑图片",
+    "title": "编辑图片",
+    "hint": "按一句话整张改这张图，改完替换原图。只改一小块请用局部重绘。",
+    "promptLabel": "描述编辑",
+    "placeholder": "例如：把背景换成浅木色桌面，保持产品本身不变",
+    "submit": "开始编辑",
+    "running": "编辑中…",
+    "videoUnsupported": "视频不支持整图编辑"
+  },
+  "resize": {
+    "action": "调整尺寸",
+    "hint": "用不同宽高比生成此图片",
+    "ratio": {
+      "square": "方形",
+      "portrait": "竖版",
+      "story": "故事版",
+      "landscape": "横版",
+      "wide": "宽屏"
+    }
   }
 }

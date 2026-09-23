@@ -8,21 +8,20 @@ import {
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { calculateImageSize } from '../../../lib/size'
 import { useStore } from '../../../store'
 import type { AppSettings } from '../../../types'
 import type { EditRect } from '../rectEditStore'
 import type { ImageEl } from './canvasDoc'
-import { getCanvasTask } from './canvasTaskRuntime'
 import { type CanvasEditor, elementBounds } from './editor'
 import { buildOutpaintInputs, cropBitmap, localToPage, rectPixelSize } from './imageRectEdit'
 import { maskedEditSizeRefusal } from './maskedEditLimits'
 import { computePlaceholderTargets } from './placement'
-import { decodeRecipe, rebuildSpecFromRecipe, recipeSourcesPresent } from './regenRecipe'
 import { launchCanvasTask } from './submitFromCanvas'
 
 /**
- * 画布上已有图片的二次加工：裁切（纯本地）、抠图（绿幕 + 本地去背）、扩图（走遮罩链路）、
- * 重新生成（原样再发一次）。
+ * 画布上已有图片的二次加工：裁切（纯本地）、抠图（绿幕 + 本地去背）、
+ * 扩图（走遮罩链路）、按一句话整图编辑。
  */
 
 /**
@@ -127,14 +126,6 @@ export async function submitCanvasCutout(editor: CanvasEditor, image: ImageEl): 
       editSourceId: image.id,
       editKind: 'cutout',
       params,
-      recipe: {
-        v: 1,
-        kind: 'cutout',
-        prompt: CUTOUT_INSTRUCTION,
-        annotated: false,
-        params,
-        entries: [{ imageId: image.id, graphicIds: [] }],
-      },
       target,
     })
     return true
@@ -204,15 +195,6 @@ export async function submitCanvasOutpaint(
       editSourceId: image.id,
       editKind: 'outpaint',
       params: { ...useStore.getState().params, n: 1 },
-      recipe: {
-        v: 1,
-        kind: 'outpaint',
-        prompt: prompt.trim() || OUTPAINT_DEFAULT_INSTRUCTION,
-        annotated: false,
-        params: { ...useStore.getState().params, n: 1 },
-        entries: [{ imageId: image.id, graphicIds: [] }],
-        rect,
-      },
       target,
     })
     return true
@@ -222,48 +204,125 @@ export async function submitCanvasOutpaint(
   }
 }
 
-// ===== 重新生成 =====
+// ===== 编辑图片 =====
 
-/**
- * 能不能再出一张。两条路，按保真度排：
- * 1. 同一次打开里，内存运行态还留着那次提交的原始输入 → 逐字节重放。
- * 2. 刷新之后运行态空了，改读随画布持久化的**配方**（用了哪些元素、什么参数、涂了哪几笔），
- *    按当前画布把输入重新造一遍。元素被删了、或者当时附过本地上传的参考图，就重出不了。
- */
-export function regenerateRefusal(
-  editor: CanvasEditor,
-  image: ImageEl,
-  settings: AppSettings,
-): string | null {
+/** 能不能整图编辑：模型接不住输入图就谈不上在原图上改。 */
+export function imageEditRefusal(image: ImageEl, settings: AppSettings): string | null {
   const blocked = submissionBlocked(settings)
   if (blocked) return blocked
-  if (image.meta?.taskId && getCanvasTask(image.meta.taskId)) return null
-  const recipe = decodeRecipe(image.meta?.regen)
-  if (!recipe || recipe.hadUpload) return i18next.t('regenerate.unavailable', { ns: 'canvas' })
-  if (!recipeSourcesPresent(editor, recipe))
-    return i18next.t('regenerate.sourceGone', { ns: 'canvas' })
+  if (image.video) return i18next.t('imageEdit.videoUnsupported', { ns: 'canvas' })
+  if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels()))
+    return NO_EDIT_SUPPORT_MESSAGE
   return null
 }
 
-/** 再发一次。结果对二次加工是就地替换源图，对普通生成是落在旁边的空位。 */
-export async function regenerateCanvasImage(editor: CanvasEditor, image: ImageEl): Promise<void> {
-  const { showToast } = useStore.getState()
-  const retained = image.meta?.taskId ? getCanvasTask(image.meta.taskId) : undefined
+/**
+ * 按一句话整图改这一张：不带遮罩，改完就地替换源图。
+ * 与局部重绘的区别只有「改哪儿」——那个圈了区域，这个整张交给模型。
+ */
+export async function submitCanvasImageEdit(
+  editor: CanvasEditor,
+  image: ImageEl,
+  prompt: string,
+): Promise<boolean> {
+  const { showToast, settings } = useStore.getState()
+  const blocked = submissionBlocked(settings)
+  if (blocked) {
+    showToast(blocked, 'error')
+    return false
+  }
+  const requirement = prompt.trim()
+  if (!requirement) return false
   try {
-    const spec = retained ?? (await rebuiltSpec(editor, image))
-    const anchor = spec.editSourceId
-      ? { x: image.x, y: image.y, w: image.width, h: image.height }
-      : computePlaceholderTargets(editor, elementBounds(image), 1)[0]
-    if (!anchor) return
-    void launchCanvasTask(editor, { ...spec, target: anchor })
+    const source = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
+    // 占位框盖在源图上：改的是这一张，不该在旁边多出一张。
+    void launchCanvasTask(editor, {
+      prompt: requirement,
+      annotated: false,
+      inputImageDataUrls: [source],
+      editSourceId: image.id,
+      editKind: 'edit',
+      params: { ...useStore.getState().params, n: 1 },
+      target: { x: image.x, y: image.y, w: image.width, h: image.height },
+    })
+    return true
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), 'error')
+    return false
   }
 }
 
-async function rebuiltSpec(editor: CanvasEditor, image: ImageEl) {
-  const recipe = decodeRecipe(image.meta?.regen)
-  if (!recipe || recipe.hadUpload)
-    throw new Error(i18next.t('regenerate.unavailable', { ns: 'canvas' }))
-  return await rebuildSpecFromRecipe(editor, recipe)
+// ===== 调整尺寸 =====
+
+/**
+ * 「调整尺寸」给的那几档比例。顺序即菜单顺序；`key` 是文案 key 的那一段——
+ * i18next 把冒号当命名空间分隔符，比例本身不能直接进 key。
+ */
+export const RESIZE_RATIOS = [
+  { ratio: '1:1', key: 'square' },
+  { ratio: '3:4', key: 'portrait' },
+  { ratio: '9:16', key: 'story' },
+  { ratio: '4:3', key: 'landscape' },
+  { ratio: '16:9', key: 'wide' },
+] as const
+export type ResizeRatio = (typeof RESIZE_RATIOS)[number]['ratio']
+
+/**
+ * 换比例发给模型的那句。**这段中文是数据不是文案**，不进语料、不随界面语言变。
+ *
+ * 这不是裁切：模型按新画幅重新构图，缺的边自然补、多的边自然收。要像素级不动画面
+ * 请用裁切。
+ */
+function resizeInstruction(ratio: ResizeRatio): string {
+  return (
+    `把这张图重新构图为 ${ratio} 的画幅：主体、风格、光线与色彩保持一致，` +
+    '需要补出来的区域按原图环境自然延伸，需要收掉的区域顺势裁去；' +
+    '不要拉伸或挤压画面，也不要添加与原图无关的新主体。'
+  )
+}
+
+/** 能不能换比例：与整图编辑同一道闸——都是拿原图当输入重画一张。 */
+export function resizeRefusal(image: ImageEl, settings: AppSettings): string | null {
+  return imageEditRefusal(image, settings)
+}
+
+/**
+ * 按选中的比例重出这一张。结果落在**旁边的空位**而不是原地：换画幅是另一版素材，
+ * 用户多半要拿它和原图比着挑，就地替换会把原图吃掉。
+ */
+export async function submitCanvasResize(
+  editor: CanvasEditor,
+  image: ImageEl,
+  ratio: ResizeRatio,
+): Promise<boolean> {
+  const { showToast, settings } = useStore.getState()
+  const blocked = submissionBlocked(settings)
+  if (blocked) {
+    showToast(blocked, 'error')
+    return false
+  }
+  try {
+    const source = await resolveMediaSource(editor.doc.files[image.fileId] ?? '', 'original')
+    const params = useStore.getState().params
+    const [target] = computePlaceholderTargets(editor, elementBounds(image), 1)
+    if (!target) return false
+    void launchCanvasTask(editor, {
+      prompt: resizeInstruction(ratio),
+      annotated: false,
+      inputImageDataUrls: [source],
+      params: {
+        ...params,
+        n: 1,
+        // OpenAI 路径认 size 字符串，Gemini 认比例本身：两个都给，各取各的。
+        // 算不出合规尺寸（理论上这几档都算得出）就退回 auto，不拿空串去发。
+        size: calculateImageSize('1K', ratio) ?? 'auto',
+        gemini_aspect_ratio: ratio,
+      },
+      target,
+    })
+    return true
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), 'error')
+    return false
+  }
 }

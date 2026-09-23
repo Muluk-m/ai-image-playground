@@ -6,8 +6,9 @@ import {
   Eraser,
   Expand,
   MoreHorizontal,
-  RotateCcw,
+  Ratio,
   Scissors,
+  Wand2,
 } from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
@@ -16,16 +17,18 @@ import { useInpaintSession } from '../inpaintStore'
 import { canvasImageSource, copyCanvasImage, downloadCanvasImage } from '../lib/canvasImageActions'
 import {
   cutoutRefusal,
+  imageEditRefusal,
   outpaintRefusal,
-  regenerateCanvasImage,
-  regenerateRefusal,
+  resizeRefusal,
   submitCanvasCutout,
 } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
 import { inpaintRefusal } from '../lib/submitInpaint'
 import { useRectEdit } from '../rectEditStore'
+import CanvasEditPromptDialog from './CanvasEditPromptDialog'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
+import CanvasResizeMenu from './CanvasResizeMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
 
 /** 工具条与图片之间的留白，以及它自己的高度（贴到视口底时据此翻到上沿）。 */
@@ -48,6 +51,8 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const rectMode = useRectEdit((state) => state.mode)
   const openRect = useRectEdit((state) => state.open)
   const [menu, setMenu] = useState<CanvasImageMenuState | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [resizeAt, setResizeAt] = useState<{ x: number; y: number } | null>(null)
 
   const doc = editor.doc
   // 涂抹进行时让位给面板：这条工具条的动作这会儿都不该被点到。
@@ -110,10 +115,10 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         />
         <CanvasToolbarButton
           compact
-          icon={<RotateCcw />}
-          label={t('regenerate.action')}
-          reason={regenerateRefusal(editor, element, settings) ?? undefined}
-          onClick={() => void regenerateCanvasImage(editor, element)}
+          icon={<Wand2 />}
+          label={t('imageEdit.action')}
+          reason={imageEditRefusal(element, settings) ?? undefined}
+          onClick={() => setEditing(true)}
         />
         <CanvasToolbarButton
           compact
@@ -130,6 +135,16 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         />
         <CanvasToolbarButton
           compact
+          icon={<Ratio />}
+          label={t('resize.action')}
+          reason={resizeRefusal(element, settings) ?? undefined}
+          onClick={(button) => {
+            const rect = button.getBoundingClientRect()
+            setResizeAt({ x: rect.left, y: rect.bottom + 4 })
+          }}
+        />
+        <CanvasToolbarButton
+          compact
           icon={<MoreHorizontal />}
           label={t('imageToolbar.more')}
           onClick={(button) => {
@@ -139,6 +154,18 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         />
       </div>
       <CanvasImageMenu menu={menu} doc={doc} onClose={() => setMenu(null)} />
+      {editing && (
+        <CanvasEditPromptDialog editor={editor} image={element} onClose={() => setEditing(false)} />
+      )}
+      {resizeAt && (
+        <CanvasResizeMenu
+          editor={editor}
+          image={element}
+          x={resizeAt.x}
+          y={resizeAt.y}
+          onClose={() => setResizeAt(null)}
+        />
+      )}
     </>
   )
 }

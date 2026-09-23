@@ -73,7 +73,6 @@ export async function settleGeneration(
         ...source.meta,
         prompt: placeholder.meta.prompt,
         taskId: placeholder.meta.taskId,
-        ...(placeholder.meta.regen ? { regen: placeholder.meta.regen } : {}),
       },
     })
     editor.deleteElement(placeholderId, { history: false })
@@ -179,7 +178,6 @@ async function placeResults(
     ? {
         prompt: placeholder.meta.prompt,
         taskId: placeholder.meta.taskId,
-        ...(placeholder.meta.regen ? { regen: placeholder.meta.regen } : {}),
       }
     : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
