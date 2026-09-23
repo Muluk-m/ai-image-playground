@@ -7,10 +7,11 @@ import { useAgentStore } from '../../../features/agent/store'
 import {
   currentCanvasWorkspace,
   selectCanvasWorkspace,
-} from '../../../features/canvas/lib/workspaces'
+} from '../../../features/canvas/lib/activeProject'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
+import { openCanvas } from '../../helpers/activeProject'
 
 const state = () => useAgentStore.getState()
 let turnResponse: () => Promise<Response>
@@ -31,9 +32,7 @@ beforeEach(async () => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   useCanvasProjectStore.setState({ projects: [], activeId: null, loaded: false, error: null })
-  await useCanvasProjectStore.getState().load()
-  selectCanvasWorkspace(null)
-  await currentCanvasWorkspace().ready
+  await openCanvas()
   useAgentStore.setState({
     loaded: true,
     conversationId: null,

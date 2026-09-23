@@ -5,12 +5,13 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
+import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
 import {
   type CanvasProject,
   projectRepository,
 } from '../../../../features/canvas/lib/projectRepository'
 import { setClientStorageScope } from '../../../../lib/authScope'
+import { openSceneRecord } from '../../../helpers/sceneRecord'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -47,7 +48,7 @@ it('新设备打开云端文字画布，恢复名称与标注；相机和选区�
   vi.stubGlobal('fetch', fetcher)
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
   expect(editor.doc.elements).toEqual(remote.document.elements)
   expect(session.getSnapshot().status).toBe('saved')
@@ -97,7 +98,7 @@ it('新设备先恢复图片布局和稳定身份，打开项目不批量下载�
   )
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
   expect(session.getSnapshot().status).toBe('saved')
   expect(editor.doc.elements[0]).toMatchObject({
@@ -139,6 +140,21 @@ async function fresh() {
     },
   ])
   return { project, editor }
+}
+
+/** 盘上那份读进一个文档：断言落盘结果用。 */
+async function storedEditor(key: string, editor?: CanvasEditor): Promise<CanvasEditor> {
+  return (await openSceneRecord(key, { editor })).editor
+}
+
+/** 打开这个项目：盘上那份读进来，再接上同步会话——生产里打开一个项目就是这两步。 */
+async function open(
+  project: CanvasProject,
+  editor?: CanvasEditor,
+  onFork?: (copy: CanvasProject) => void,
+) {
+  const record = await openSceneRecord(project.sceneKey, { editor })
+  return { record, session: new CloudProjectSession(project, record, undefined, onFork) }
 }
 const receipt = (
   id: string,
@@ -198,7 +214,7 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
       return Response.json(receipt(project.id, body))
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   expect(session.getSnapshot().status).toBe('saved')
   expect(editor.doc.files.original).toBe(source)
@@ -208,9 +224,7 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
   expect(urls.filter((url) => url === 'https://media.example/upload')).toHaveLength(1)
   expect(urls.filter((url) => url.endsWith('/uploads'))).toHaveLength(1)
   session.dispose()
-  const saved = await import('../../../../features/canvas/lib/persistence').then((module) =>
-    module.readPersistedScene(project.sceneKey),
-  )
+  const saved = await readPersistedScene(project.sceneKey)
   const nextImage = {
     id: 'photo',
     type: 'image',
@@ -238,13 +252,11 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
     ),
   )
   const reopened = new CanvasEditor(new CanvasDoc())
-  const next = new CloudProjectSession(project, reopened)
+  const { session: next } = await open(project, reopened)
   await next.load(true)
   expect(reopened.doc.elements[1]).toMatchObject({ x: 400, fileId: 'original' })
   expect(reopened.doc.files.original).toBe(source)
-  const retained = await import('../../../../features/canvas/lib/persistence').then((module) =>
-    module.readPersistedScene(project.sceneKey),
-  )
+  const retained = await readPersistedScene(project.sceneKey)
   expect(retained?.files.original).toBe(source)
   expect(retained?.cloud?.media?.original.id).toBe(mediaId)
   expect(next.getSnapshot().status).toBe('saved')
@@ -266,7 +278,7 @@ it('本机原图认得出云端媒体 id；还没上传的先同步再认，不�
       return Response.json(receipt(project.id, JSON.parse(init!.body as string)))
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   // 图是在同步之后才放上来的：绑定表里还没有它。
   editor.doc.addElements(
@@ -298,7 +310,7 @@ it('读取错误保留原画布，重试成功前不发送空文档', async () =
     Promise.resolve(Response.json({ error: 'unavailable' }, { status: 503 })),
   )
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession({ ...project, cloud: { revision: 1 } }, editor)
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
   await expect(session.load(true)).rejects.toThrow()
   expect(editor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(fetcher.mock.calls).toHaveLength(1)
@@ -325,8 +337,9 @@ it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订
   )
   const fetcher = vi.fn()
   vi.stubGlobal('fetch', fetcher)
-  await saveScene(editor, project.sceneKey)
-  const session = new CloudProjectSession({ ...project, cloud: { revision } }, editor)
+  const record = await openSceneRecord(project.sceneKey, { editor })
+  await record.persist()
+  const session = new CloudProjectSession({ ...project, cloud: { revision } }, record)
   await session.load(true)
   expect(session.getSnapshot().status).toBe('error')
   expect(fetcher.mock.calls.every((call) => String(call[0]).startsWith('data:'))).toBe(true)
@@ -350,13 +363,12 @@ it('提交响应丢失后刷新重试同一请求身份，不重复提交版本'
       return Response.json(receipt(project.id, body))
     }),
   )
-  const first = new CloudProjectSession(project, editor)
+  const { session: first } = await open(project, editor)
   await first.load(true)
   expect(first.getSnapshot().status).toBe('error')
   first.dispose()
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, project.sceneKey)
-  const second = new CloudProjectSession(project, restored)
+  const restored = await storedEditor(project.sceneKey)
+  const { session: second } = await open(project, restored)
   await second.load(true)
   expect(bodies).toHaveLength(2)
   expect(bodies[1]).toEqual(bodies[0])
@@ -369,12 +381,11 @@ it('收到冲突后停写，刷新后仍保留本机原稿', async () => {
     Promise.resolve(Response.json({ error: 'project_conflict', revision: 2 }, { status: 409 })),
   )
   vi.stubGlobal('fetch', fetcher)
-  const first = new CloudProjectSession(project, editor)
+  const { session: first } = await open(project, editor)
   await first.load(true)
   await first.sync()
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, project.sceneKey)
-  const second = new CloudProjectSession(project, restored)
+  const restored = await storedEditor(project.sceneKey)
+  const { session: second } = await open(project, restored)
   await second.load(true)
   expect(second.getSnapshot().status).toBe('conflict')
   expect(restored.doc.elements[0]).toMatchObject({ text: '本机原稿' })
@@ -395,7 +406,7 @@ it('较早确认不能把同步期间的新编辑标成已同步', async () => {
       })
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   const loading = session.load(true)
   await vi.waitFor(() => expect(sent).toBeDefined())
   editor.doc.updateElements([{ id: 'note', patch: { text: '请求期间的新稿' } }], { history: true })
@@ -428,22 +439,20 @@ it('旧标签页仅平移后刷新不能借用新修订覆盖另一标签页的�
     }),
   )
   const existing = { ...project, cloud: { revision: 1 } }
-  const first = new CloudProjectSession(existing, editor)
+  const { session: first } = await open(existing, editor)
   await first.load()
-  const oldEditor = new CanvasEditor(new CanvasDoc())
-  await loadScene(oldEditor, project.sceneKey)
-  const oldTab = new CloudProjectSession(existing, oldEditor)
+  const oldEditor = await storedEditor(project.sceneKey)
+  const { session: oldTab, record: oldRecord } = await open(existing, oldEditor)
   await oldTab.load(true)
   editor.doc.updateElements([{ id: 'note', patch: { text: '另一标签页的新内容' } }], {
     history: true,
   })
   await first.sync()
   oldEditor.doc.setCamera({ x: 456 })
-  await oldTab.saveLocal(true)
+  await oldRecord.flush()
   await oldTab.sync()
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, project.sceneKey)
-  const reopened = new CloudProjectSession(existing, restored)
+  const restored = await storedEditor(project.sceneKey)
+  const { session: reopened } = await open(existing, restored)
   await reopened.load(true)
   expect(restored.doc.elements[0]).toMatchObject({ text: '另一标签页的新内容' })
   expect(writes).toBe(1)
@@ -472,7 +481,7 @@ it('云端读取成功但本机落盘失败后重试读取，不上传旧缓存'
     }),
   )
   const existing = { ...project, cloud: { revision: 1 } }
-  await new CloudProjectSession(existing, editor).load()
+  await (await open(existing, editor)).session.load()
   remote = {
     ...remote,
     revision: 2,
@@ -483,9 +492,8 @@ it('云端读取成功但本机落盘失败后重试读取，不上传旧缓存'
       ] as typeof remote.document.elements,
     },
   }
-  const secondEditor = new CanvasEditor(new CanvasDoc())
-  await loadScene(secondEditor, project.sceneKey)
-  const second = new CloudProjectSession(existing, secondEditor)
+  const secondEditor = await storedEditor(project.sceneKey)
+  const { session: second } = await open(existing, secondEditor)
   const originalPut = IDBObjectStore.prototype.put
   const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
     this: IDBObjectStore,
@@ -497,9 +505,12 @@ it('云端读取成功但本机落盘失败后重试读取，不上传旧缓存'
   })
   await expect(second.load(true)).rejects.toThrow()
   spy.mockRestore()
-  await loadScene(secondEditor, project.sceneKey)
+  // 存档还拿着上一次读回来的云端稿：重试只补落盘那一步，不把旧缓存当成新编辑推上去。
   await second.load(true)
   expect(secondEditor.doc.elements[0]).toMatchObject({ text: '云端新稿' })
+  expect((await readPersistedScene(project.sceneKey))?.elements[0]).toMatchObject({
+    text: '云端新稿',
+  })
   expect(writes).toBe(0)
 })
 
@@ -526,14 +537,16 @@ it('本地模式保存保留云端基线，重新启用后不覆盖未同步修�
     }),
   )
   const existing = { ...project, cloud: { revision: 1 } }
-  await new CloudProjectSession(existing, editor).load()
+  const { session, record } = await open(existing, editor)
+  await session.load()
   editor.doc.updateElements([{ id: 'note', patch: { text: '关闭同步期间的修改' } }], {
     history: true,
   })
-  await saveScene(editor, project.sceneKey)
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, project.sceneKey)
-  await new CloudProjectSession(existing, restored).load(true)
+  // 关掉同步：这份存档退回只在本机保存，盘上那份云端基线必须原样留着。
+  record.useCloud(undefined)
+  await record.flush()
+  const restored = await storedEditor(project.sceneKey)
+  await (await open(existing, restored)).session.load(true)
   expect(restored.doc.elements[0]).toMatchObject({ text: '关闭同步期间的修改' })
   expect(saved).toHaveLength(1)
   expect(saved[0]).toMatchObject({ baseRevision: 1 })
@@ -548,22 +561,22 @@ it('已缓存云端画布断网后仍可编辑，刷新保留修改，联网才�
     return Response.json(receipt(project.id, body))
   })
   vi.stubGlobal('fetch', fetcher)
-  const first = new CloudProjectSession(project, editor)
+  const { session: first } = await open(project, editor)
   await first.load(true)
   first.dispose()
   const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   const local = new CanvasEditor(new CanvasDoc())
-  const offline = new CloudProjectSession(project, local)
+  const { session: offline, record: offlineRecord } = await open(project, local)
   await offline.load(true)
   expect(offline.getSnapshot().status).toBe('offline')
   local.doc.updateElements([{ id: 'note', patch: { text: '离线修改' } }])
   offline.markChanged()
-  expect(await offline.saveLocal()).toBe(true)
+  expect(await offlineRecord.flush()).toBe(true)
   await offline.sync()
   expect(writes).toHaveLength(1)
   offline.dispose()
   const reopenedEditor = new CanvasEditor(new CanvasDoc())
-  const reopened = new CloudProjectSession(project, reopenedEditor)
+  const { session: reopened } = await open(project, reopenedEditor)
   await reopened.load(true)
   expect(reopenedEditor.doc.elements[0]).toMatchObject({ text: '离线修改' })
   expect(reopened.getSnapshot().status).toBe('offline')
@@ -586,7 +599,7 @@ it('联网事件自动续传离线修改，重复事件不会重复上传', asyn
     Response.json(receipt(project.id, JSON.parse(init.body as string))),
   )
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   session.start()
   expect(fetcher).not.toHaveBeenCalled()
@@ -612,7 +625,7 @@ it('网络故障有限退避五次，手动重试仍沿用原请求身份', asyn
       return Response.json(receipt(project.id, body))
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
   try {
@@ -647,7 +660,7 @@ it.each([
     Response.json({ error: 'rejected' }, { status: Number(status) }),
   )
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession(project, editor)
+  const { session, record } = await open(project, editor)
   await session.load(true)
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
   try {
@@ -656,12 +669,11 @@ it.each([
     window.dispatchEvent(new Event('online'))
     editor.doc.updateElements([{ id: 'note', patch: { text: '继续保留在本机' } }])
     session.markChanged()
-    await session.saveLocal()
+    await record.flush()
     await vi.advanceTimersByTimeAsync(300000)
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(session.getSnapshot().status).toBe(expected)
-    const restored = new CanvasEditor(new CanvasDoc())
-    await loadScene(restored, project.sceneKey)
+    const restored = await storedEditor(project.sceneKey)
     expect(restored.doc.elements[0]).toMatchObject({ text: '继续保留在本机' })
   } finally {
     session.dispose()
@@ -675,7 +687,7 @@ it('本机写入失败单独提示，不把未持久化的修改发到云端', a
     Response.json(receipt(project.id, JSON.parse(init.body as string))),
   )
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession(project, editor)
+  const { session, record } = await open(project, editor)
   await session.load(true)
   editor.doc.updateElements([{ id: 'note', patch: { text: '尚未落盘' } }])
   session.markChanged()
@@ -689,14 +701,14 @@ it('本机写入失败单独提示，不把未持久化的修改发到云端', a
     return result
   })
   try {
-    expect(await session.saveLocal()).toBe(false)
+    expect(await record.flush()).toBe(false)
     expect(session.getSnapshot().status).toBe('local-error')
     await session.sync()
     expect(fetcher).toHaveBeenCalledTimes(1)
   } finally {
     spy.mockRestore()
   }
-  expect(await session.saveLocal()).toBe(true)
+  expect(await record.flush()).toBe(true)
   expect(session.getSnapshot().status).toBe('local')
   await session.sync()
   expect(session.getSnapshot().status).toBe('saved')
@@ -714,7 +726,7 @@ it('一轮连续编辑合并为一次后台写入，只发送最后的画布状�
       return Response.json(receipt(project.id, body))
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session, record } = await open(project, editor)
   await session.load(true)
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
   try {
@@ -722,7 +734,7 @@ it('一轮连续编辑合并为一次后台写入，只发送最后的画布状�
     for (let index = 1; index <= 10; index++) {
       editor.doc.updateElements([{ id: 'note', patch: { x: index * 10 } }])
       session.markChanged()
-      await session.saveLocal()
+      await record.flush()
       session.requestSync()
     }
     expect(bodies).toHaveLength(1)
@@ -748,17 +760,17 @@ it('浏览器显示在线但 API 暂不可达时，已缓存项目仍可编辑�
       return Response.json(receipt(project.id, body))
     }),
   )
-  const first = new CloudProjectSession(project, editor)
+  const { session: first } = await open(project, editor)
   await first.load(true)
   first.dispose()
   const nextEditor = new CanvasEditor(new CanvasDoc())
-  const second = new CloudProjectSession(project, nextEditor)
+  const { session: second, record: secondRecord } = await open(project, nextEditor)
   await second.load(true)
   expect(second.getSnapshot().status).toBe('error')
   expect(nextEditor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   nextEditor.doc.updateElements([{ id: 'note', patch: { text: '网络故障期间的新稿' } }])
   second.markChanged()
-  await second.saveLocal()
+  await secondRecord.flush()
   await second.sync()
   expect(second.getSnapshot().status).toBe('saved')
   expect(writes).toHaveLength(2)
@@ -790,7 +802,7 @@ it('检查远端期间发生的新编辑不能被较晚的 GET 覆盖', async ()
         : Response.json({ error: 'project_conflict' }, { status: 409 })
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   const loading = session.load(true)
   await vi.waitFor(() => expect(reading).toBe(true))
@@ -810,8 +822,7 @@ it('检查远端期间发生的新编辑不能被较晚的 GET 覆盖', async ()
   await loading
   expect(editor.doc.elements[0]).toMatchObject({ text: '读取期间编辑的稿件' })
   expect(session.getSnapshot().status).toBe('conflict')
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, project.sceneKey)
+  const restored = await storedEditor(project.sceneKey)
   expect(restored.doc.elements[0]).toMatchObject({ text: '读取期间编辑的稿件' })
   session.dispose()
   // 冲突会自动再去读一次云端；这个 stub 不认 abort，得手动放行，别让它占着同步槽拖累后面的用例。
@@ -832,7 +843,7 @@ it('重复打开或恢复可见时五秒内至多检查一次远端', async () =
       return Response.json(remote)
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
   try {
@@ -873,9 +884,8 @@ it('同时恢复多个项目时最多两条同步链占用网络', async () => {
   const projects = await Promise.all(
     Array.from({ length: 4 }, () => projectRepository.create('并发项目', undefined, true)),
   )
-  const sessions = projects.map(
-    (project) => new CloudProjectSession(project, new CanvasEditor(new CanvasDoc())),
-  )
+  const opened = await Promise.all(projects.map((project) => open(project)))
+  const sessions = opened.map(({ session }) => session)
   const loading = sessions.map((session) => session.load(true))
   try {
     await vi.waitFor(() => expect(finish.length).toBeGreaterThanOrEqual(2))
@@ -907,7 +917,7 @@ it('切换账号后迟到的确认不清除原账号待同步批次，也不写�
       })
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   const loading = session.load(true)
   const settled = loading.catch((error) => error)
   await vi.waitFor(() => expect(body).toBeDefined())
@@ -915,7 +925,6 @@ it('切换账号后迟到的确认不清除原账号待同步批次，也不写�
   const other = await projectRepository.create('另一个账号', undefined, true)
   finish(Response.json(receipt(project.id, body!)))
   expect(await settled).toMatchObject({ message: 'project_scope_changed' })
-  const { readPersistedScene } = await import('../../../../features/canvas/lib/persistence')
   expect((await readPersistedScene(project.sceneKey))?.cloud?.pending).toMatchObject({
     baseRevision: 0,
   })
@@ -936,7 +945,7 @@ it.each([
     Response.json({ error: 'rejected' }, { status: Number(status) }),
   )
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession({ ...project, cloud: { revision: 1 } }, editor)
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
   await expect(session.load(true)).rejects.toThrow()
   expect(session.getSnapshot().status).toBe(expected)
   await expect(session.sync()).rejects.toThrow()
@@ -961,13 +970,13 @@ it('后台读取被拒后继续编辑，权限恢复重试不会用旧云端内�
       return Response.json(remote)
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session, record } = await open(project, editor)
   await session.load(true)
   allowed = false
   await expect(session.load(true)).rejects.toThrow()
   editor.doc.updateElements([{ id: 'note', patch: { text: '权限恢复前保留的新稿' } }])
   session.markChanged()
-  await session.saveLocal()
+  await record.flush()
   allowed = true
   await session.sync()
   expect(editor.doc.elements[0]).toMatchObject({ text: '权限恢复前保留的新稿' })
@@ -997,7 +1006,7 @@ it('使用云端版前保存可重新打开的独立本机副本，重复操作�
     ),
   )
   const forked: CanvasProject[] = []
-  const session = new CloudProjectSession(project, editor, undefined, (copy) => {
+  const { session } = await open(project, editor, (copy) => {
     forked.push(copy)
   })
   await session.load(true)
@@ -1007,8 +1016,7 @@ it('使用云端版前保存可重新打开的独立本机副本，重复操作�
   const copy = forked[0]!
   expect(copy.id).not.toBe(project.id)
   expect(copy.conversationId).toBeNull()
-  const reopened = new CanvasEditor(new CanvasDoc())
-  expect(await loadScene(reopened, copy.sceneKey)).toBe(true)
+  const reopened = await storedEditor(copy.sceneKey)
   expect(reopened.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(editor.doc.elements).toEqual([])
   expect(
@@ -1025,13 +1033,12 @@ it('本机副本操作在刷新后重复也复用同一副本，后续新编辑�
     'fetch',
     vi.fn(async () => Response.json({ error: 'project_conflict' }, { status: 409 })),
   )
-  const first = new CloudProjectSession(project, editor)
+  const { session: first } = await open(project, editor)
   await first.load(true)
   const copy = await first.resolveConflict('copy')
   first.dispose()
-  const reloaded = new CanvasEditor(new CanvasDoc())
-  await loadScene(reloaded, project.sceneKey)
-  const second = new CloudProjectSession(project, reloaded)
+  const reloaded = await storedEditor(project.sceneKey)
+  const { session: second } = await open(project, reloaded)
   await second.load(true)
   const again = await second.resolveConflict('copy')
   expect(again?.id).toBe(copy?.id)
@@ -1049,7 +1056,7 @@ it('恢复副本不接管原项目正在生成的占位任务或会话执行上�
     'fetch',
     vi.fn(async () => Response.json({ error: 'project_conflict' }, { status: 409 })),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   editor.doc.addElements([
     {
@@ -1073,8 +1080,7 @@ it('恢复副本不接管原项目正在生成的占位任务或会话执行上�
   ])
   session.markChanged()
   const copy = await session.resolveConflict('copy')
-  const restored = new CanvasEditor(new CanvasDoc())
-  await loadScene(restored, copy!.sceneKey)
+  const restored = await storedEditor(copy!.sceneKey)
   expect(restored.doc.elements).toHaveLength(2)
   expect(restored.doc.elements[1]).toMatchObject({ type: 'text', text: '生成中\n新图片' })
   expect(JSON.stringify(restored.doc.elements)).not.toContain('original-job')
@@ -1096,7 +1102,7 @@ it('恢复副本事务中止时不替换原稿，刷新后仍可恢复并显示�
         : Response.json(remote),
     ),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   const originalAdd = IDBObjectStore.prototype.add
   const fault = vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (
@@ -1117,8 +1123,7 @@ it('恢复副本事务中止时不替换原稿，刷新后仍可恢复并显示�
     message: 'errors:projectSync.recovery_copy_failed',
   })
   expect(editor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
-  const reopened = new CanvasEditor(new CanvasDoc())
-  await loadScene(reopened, project.sceneKey)
+  const reopened = await storedEditor(project.sceneKey)
   expect(reopened.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(await projectRepository.list()).toHaveLength(1)
 })
@@ -1130,20 +1135,19 @@ it('已有副本被继续编辑后，再次解决原冲突会重新保全原稿'
     'fetch',
     vi.fn(async () => Response.json({ error: 'project_conflict' }, { status: 409 })),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   const copy = await session.resolveConflict('copy')
-  const copyEditor = new CanvasEditor(new CanvasDoc())
-  await loadScene(copyEditor, copy!.sceneKey)
-  copyEditor.doc.updateElements([{ id: 'note', patch: { text: '已改掉的副本内容' } }])
-  await saveScene(copyEditor, copy!.sceneKey)
+  const copyRecord = await openSceneRecord(copy!.sceneKey)
+  copyRecord.editor.doc.updateElements([{ id: 'note', patch: { text: '已改掉的副本内容' } }])
+  await copyRecord.flush()
   const recovered = await session.resolveConflict('copy')
   expect(recovered?.id).not.toBe(copy?.id)
-  const original = new CanvasEditor(new CanvasDoc())
-  await loadScene(original, recovered!.sceneKey)
+  const original = await storedEditor(recovered!.sceneKey)
   expect(original.doc.elements[0]).toMatchObject({ text: '本机原稿' })
-  await loadScene(copyEditor, copy!.sceneKey)
-  expect(copyEditor.doc.elements[0]).toMatchObject({ text: '已改掉的副本内容' })
+  expect((await storedEditor(copy!.sceneKey)).doc.elements[0]).toMatchObject({
+    text: '已改掉的副本内容',
+  })
 })
 
 it.each([
@@ -1168,7 +1172,7 @@ it.each([
           : Response.json(remote),
     ),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session, record } = await open(project, editor)
   await session.load(true)
   // 自动那一轮云端读失败就不会落副本，冲突原样留在手上；等它失败完再改内容，走手动路径。
   await vi.waitFor(() => expect(cloudReads).toBe(1))
@@ -1204,9 +1208,8 @@ it.each([
     status: 'conflict',
     message: 'errors:projectSync.recovery_changed',
   })
-  await session.saveLocal()
-  const reopened = new CanvasEditor(new CanvasDoc())
-  await loadScene(reopened, project.sceneKey)
+  await record.flush()
+  const reopened = await storedEditor(project.sceneKey)
   expect(reopened.doc.elements[0]).toMatchObject({ text: '保存期间的新编辑' })
 })
 
@@ -1225,7 +1228,7 @@ it('采用云端稿落盘期间的新修改不能被标成已同步', async () =
         : Response.json(remote),
     ),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
   const originalPut = IDBObjectStore.prototype.put
   let edited = false
@@ -1289,7 +1292,7 @@ it.each([
     if (args[0]?.id === project.id && args[0]?.name === '云端新名称') this.transaction.abort()
     return request
   })
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   try {
     await session.load(true)
     // 冲突自动采用云端稿时项目索引写不进去，状态要落到 local-error 而不是吞掉。
@@ -1339,7 +1342,7 @@ it('新设备恢复服务端生成占位，刷新不删除；移动只同步几�
   })
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
   expect(editor.doc.elements).toMatchObject([
     {
@@ -1395,7 +1398,7 @@ it('另一台设备恢复服务端的失败占位并带着错误码；删除后�
   })
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
   expect(editor.getPlaceholder(id)).toMatchObject({
     status: 'error',
@@ -1455,7 +1458,7 @@ it('提交就被拒的失败占位只留在本机：不写云端、不挡同步�
   })
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
   const { createAgentCanvasSink } = await import('../../../../features/canvas/lib/agentCanvasSink')
   const sink = createAgentCanvasSink(editor, undefined, {
@@ -1506,7 +1509,7 @@ it('其他设备删除项目后停止旧身份上传，保留本机编辑并允�
   vi.stubGlobal('fetch', fetcher)
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
   editor.doc.addElements([
     {
@@ -1531,8 +1534,7 @@ it('其他设备删除项目后停止旧身份上传，保留本机编辑并允�
   const copy = await session.resolveConflict('copy')
   expect(copy?.id).not.toBe(project.id)
   expect(copy?.cloud?.revision).toBe(0)
-  const recovered = new CanvasEditor(new CanvasDoc())
-  await loadScene(recovered, copy!.sceneKey)
+  const recovered = await storedEditor(copy!.sceneKey)
   expect(recovered.doc.elements).toMatchObject([{ id: 'offline-text', text: '尚未上传的编辑' }])
   await projectRepository.update(copy!.id, { cloud: { revision: 1, deleted: true } })
   const nextCopy = await session.resolveConflict('copy')
@@ -1563,7 +1565,7 @@ it('其他设备恢复项目后，已打开的删除状态会自动恢复同步'
   )
   vi.stubGlobal('fetch', fetcher)
   const project = await projectRepository.importCloud(remote)
-  const session = new CloudProjectSession(project, new CanvasEditor(new CanvasDoc()))
+  const { session } = await open(project)
   await session.load()
   deleted = true
   await session.refresh(true)
@@ -1618,7 +1620,7 @@ it('画布上有视频照常同步：封面上传，播放来源与生成参数�
       return Response.json(receipt(project.id, body))
     }),
   )
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load(true)
 
   expect(session.getSnapshot().status).toBe('saved')
@@ -1667,7 +1669,7 @@ it('新设备打开含视频的云端项目，视频的播放来源与生成参�
   )
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
 
   expect(session.getSnapshot().status).toBe('saved')
@@ -1731,7 +1733,7 @@ it('时间线随云端项目往返：引用、入出点都在，保存时不带�
   )
   const project = await projectRepository.importCloud(remote)
   const editor = new CanvasEditor(new CanvasDoc())
-  const session = new CloudProjectSession(project, editor)
+  const { session } = await open(project, editor)
   await session.load()
 
   expect(session.getSnapshot().status).toBe('saved')
