@@ -7,9 +7,14 @@ import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
   type MentionLabelResolver,
-  remapImageMentionsForOrder,
   replaceImageMentionsForApi,
 } from '../../../lib/promptImageMentions'
+import {
+  attachReferences,
+  type ReferenceAdmission,
+  type ReferenceDraft,
+  removeReference as removeDraftReference,
+} from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
 
 /** 输入框附上的一张参考图。`id` 是画布对象 id 或素材的图片 id，模型据此指认要改哪一张。 */
@@ -24,14 +29,21 @@ export interface AgentReference extends InputImage {
   readonly origin?: 'selection'
 }
 
-export interface AgentDraft {
-  readonly prompt: string
-  readonly references: readonly AgentReference[]
+export interface AgentDraft extends ReferenceDraft<AgentReference> {
   /**
    * 这份草稿上次停在什么创作类型。轮的类型现在由项目的画布类型定，这里只剩存储里的历史值，
    * 草稿层自己原样保管（`withMode`），没有人再据它决定发什么。
    */
   readonly mode?: AgentMode
+}
+
+/**
+ * 一轮的参考图准入。上限是服务端的硬校验，超出去的那一份会让整轮起轮以 400 被打回，
+ * 用户的话连同图一起白等；改图能力不在这里判——轮用哪个模型由服务端定，输入框看不到。
+ */
+export const AGENT_ADMISSION: ReferenceAdmission = {
+  limit: AGENT_TURN_MAX_REFERENCES,
+  supportsEdit: true,
 }
 
 export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }
@@ -81,33 +93,29 @@ export interface AttachedReference {
 }
 
 /**
- * 在可见文本的 `[start, cursor)` 上插一条引用。同一张图按 `id` 复用原序号，
- * 不重复附加——画布对象与素材走的是同一条路。
- *
- * 满了就不附：服务端对一轮的参考图数量有硬上限（`AGENT_TURN_MAX_REFERENCES`），
- * 超出去的那一份会让整轮起轮以 400 被打回，用户的话连同图一起白等。
+ * 在可见文本的 `[start, cursor)` 上插一条引用。附图那一步走 `lib/referenceDraft`：
+ * 同一张图按 `id` 复用原序号、不重复附加，画布对象与素材走的是同一条路。
+ * 一起附上的 `rest`（素材的其余视角）只进条、不各占一个胶囊。
  */
 export function attachReference(
   draft: AgentDraft,
   reference: AgentReference,
   start: number,
   cursor: number,
+  rest: readonly AgentReference[] = [],
 ): AttachedReference {
-  const at = draft.references.findIndex((one) => one.id === reference.id)
-  if (at < 0 && draft.references.length >= AGENT_TURN_MAX_REFERENCES)
-    return { draft, cursor, overflow: true }
-  const references = at >= 0 ? draft.references : [...draft.references, reference]
-  const index = at >= 0 ? at : references.length - 1
+  const attached = attachReferences(draft, [reference, ...rest], AGENT_ADMISSION)
+  if (!attached.ok) return { draft, cursor, overflow: true }
   const inserted = insertImageMentionAtVisibleRange(
     draft.prompt,
     start,
     cursor,
-    index,
+    attached.indexes[0]!,
     referenceLabels(draft.references),
-    referenceLabels(references),
+    referenceLabels(attached.draft.references),
   )
   return {
-    draft: { prompt: inserted.prompt, references },
+    draft: { ...attached.draft, prompt: inserted.prompt },
     cursor: inserted.cursor,
     overflow: false,
   }
@@ -115,11 +123,7 @@ export function attachReference(
 
 /** 拿掉一张参考图，指向它的引用降级为「已移除」，其余的跟着新序号走。 */
 export function removeReference(draft: AgentDraft, index: number): AgentDraft {
-  const references = draft.references.filter((_, at) => at !== index)
-  return {
-    prompt: remapImageMentionsForOrder(draft.prompt, [...draft.references], [...references]),
-    references,
-  }
+  return removeDraftReference(draft, index)
 }
 
 /**

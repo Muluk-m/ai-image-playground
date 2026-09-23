@@ -1,10 +1,11 @@
 import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
-import { ensureAssetImage } from '../../../lib/sync/assetImages'
-import { ensureImageCached, useStore } from '../../../store'
-import { useLibraryStore } from '../../library/store'
+import { attachReferences as admitReferences } from '../../../lib/referenceDraft'
+import { useStore } from '../../../store'
+import { assetViewImages, useLibraryStore } from '../../library/store'
 import {
+  AGENT_ADMISSION,
   type AgentDraft,
   type AgentReference,
   type AttachedReference,
@@ -64,28 +65,21 @@ export async function attachAssetToDraft(
   const asset = useLibraryStore.getState().assets.find((one) => one.id === assetId)
   if (!asset) return null
 
-  const views: AgentReference[] = []
-  for (const imageId of new Set(asset.views.map((view) => view.imageId))) {
-    await ensureAssetImage(imageId)
-    const dataUrl = await ensureImageCached(imageId)
-    if (dataUrl) views.push({ id: imageId, dataUrl, name: asset.name })
-  }
+  const views = (await assetViewImages(asset)).map((image) => ({ ...image, name: asset.name }))
   const [cover, ...rest] = views
   if (!cover) return null
 
   // 读素材库工具按「最近用过」排序，不记这一笔它就永远看不见智能体这边的使用。
   void useLibraryStore.getState().noteAssetUsed(asset.id)
-  const attached = attachReference(draft, cover, start, cursor)
-  // 其余视角只进参考图条，不各占一个胶囊；超出上限的在这里被丢掉并提示一次。
-  return { ...attached, draft: attachReferences(attached.draft, rest) }
+  return attachReference(draft, cover, start, cursor, rest)
 }
 
-/** 附到草稿末尾；超出上限的丢掉并提示一次。 */
+/** 附到草稿末尾；这一把整组放不下就一张都不附，并提示一次。 */
 export function attachReferences(draft: AgentDraft, added: readonly AgentReference[]): AgentDraft {
-  const room = Math.max(0, AGENT_TURN_MAX_REFERENCES - draft.references.length)
-  if (added.length > room) useStore.getState().showToast(TOO_MANY(), 'error')
-  const kept = added.slice(0, room)
-  return kept.length ? { ...draft, references: [...draft.references, ...kept] } : draft
+  const attached = admitReferences(draft, added, AGENT_ADMISSION)
+  if (attached.ok) return attached.draft
+  useStore.getState().showToast(TOO_MANY(), 'error')
+  return draft
 }
 
 /**
