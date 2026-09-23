@@ -269,6 +269,20 @@ export class CanvasDoc {
     this.emit()
   }
 
+  /**
+   * 删除当前选区里可删的元素，返回删掉的数量。
+   * 运行中的占位框是进行中任务的身份，全选误删会丢掉还没落回来的结果，所以留下；
+   * error / stale 的占位框可删——那是清除失败任务的入口。
+   */
+  deleteSelection(): number {
+    const ids = [...this.selection].filter((id) => {
+      const el = this.getElement(id)
+      return !(el?.type === 'placeholder' && el.status === 'loading')
+    })
+    if (ids.length > 0) this.deleteElements(ids)
+    return ids.length
+  }
+
   // ===== 瞬态状态 =====
 
   setSelection(ids: Iterable<string>): void {
