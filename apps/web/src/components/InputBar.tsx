@@ -1,4 +1,3 @@
-import type { AgentSkillSummary } from '@image-playground/shared'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
@@ -28,24 +27,12 @@ import { API_MAX_IMAGES, MAX_IMAGE_MB, MAX_INPUT_IMAGES_MESSAGE } from '../lib/i
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
-import {
-  getContentEditableCursor,
-  getContentEditablePlainText,
-  getContentEditableSelection,
-  setContentEditableCursor,
-  setContentEditableSelection,
-  syncMentionTagSelection,
-} from '../lib/promptEditorDom'
-import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
+import { syncMentionTagSelection } from '../lib/promptEditorDom'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   createMentionLabels,
   getAtImageQuery,
-  getPromptIndexFromVisibleIndex,
-  getPromptMentionParts,
-  getVisiblePrompt,
-  insertImageMentionAtVisibleRange,
-  isCursorInSelectedImageMention,
+  getSelectedImageMentionLabel,
   type MentionLabelResolver,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
@@ -61,6 +48,7 @@ import { ChipIcons } from './chipIcons'
 import { BookmarkIcon, CloseIcon, LibraryIcon, LinkIcon, MaskBrushIcon } from './icons'
 import LookChips, { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
+import PromptEditor, { usePromptEditor } from './PromptEditor'
 import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
@@ -125,7 +113,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const moveInputImage = useStore((s) => s.moveInputImage)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(42)
@@ -178,12 +165,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [],
   )
   useEffect(() => () => thumbLongPress.cancel(), [thumbLongPress])
-  const lastTypedRef = useRef<string | null>(null)
   const imageHintLockedRef = useRef(false)
   const imageHintReleaseRef = useRef<(() => void) | null>(null)
-  const [cursorPos, setCursorPos] = useState(0)
   const [openSlot, setOpenSlot] = useState<{ name: string; left: number } | null>(null)
-  const [menuLeft, setMenuLeft] = useState(0)
   const maskConflictNoticeShownRef = useRef(false)
   const compressionHintTimerRef = useRef<number | null>(null)
   const sizeHintTimerRef = useRef<number | null>(null)
@@ -245,65 +229,83 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const referenceImages = maskTargetImage
     ? inputImages.filter((img) => img.id !== maskTargetImage.id)
     : inputImages
-  const cursorPosition = cursorPos
   // 序号胶囊的显示标签随界面语言变；编辑器 HTML 与光标换算都按这份解析器缓存，语言也是入参。
   const mentionLabels = useMemo(
     () => createMentionLabels(inputImages, getAssetNamesByImageId(assets)),
     [inputImages, assets, i18n.language],
   )
-  const visiblePrompt = getVisiblePrompt(prompt, mentionLabels)
-  const atImageQuery = isCursorInSelectedImageMention(prompt, cursorPosition, mentionLabels)
-    ? null
-    : getAtImageQuery(visiblePrompt, cursorPosition)
-  const atMentionGroups = atImageQuery
-    ? buildAtMentionGroups({
-        query: atImageQuery.query,
-        inputImages,
-        assets,
-        canAttachAssets: supportsEdit,
-      })
-    : []
-  const slashQuery = isCursorInSelectedImageMention(prompt, cursorPosition, mentionLabels)
-    ? null
-    : getSlashTemplateQuery(visiblePrompt, cursorPosition)
-  const templateMenuGroups =
-    slashQuery && atMentionGroups.length === 0
-      ? buildTemplateMenuGroups({ query: slashQuery.query, templates })
+  // 开头的 `/技能` 要变成带图标的胶囊，与画布输入框同一种呈现——用户从资产页「用智能体创建」
+  // 跳过来看到的不该是一行裸文本。名字还在打的时候不提升，否则菜单会被胶囊关在外面。
+  const skills = useAgentSkills('image')
+  const skillInvocation = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
+  const skillCommand = skillInvocation?.rest ? skillInvocation.command : null
+  // 菜单要用编辑器报的查询，编辑器的按键又要先问菜单——这一环用 ref 断开。
+  const menusRef = useRef<{
+    open: () => void
+    handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => boolean
+  }>({ open: () => {}, handleKeyDown: () => false })
+  const promptEditor = usePromptEditor({
+    value: prompt,
+    labels: mentionLabels,
+    onChange: setPrompt,
+    slotValues,
+    command: skillCommand,
+    commandLabel: skillInvocation?.skill.title,
+    commandChip: skillInvocation && <AgentSkillBadge skill={skillInvocation.skill} />,
+    parseCommand: getSlashTemplateQuery,
+    onEdit: () => menusRef.current.open(),
+    onKeyDown: (event) => {
+      if (menusRef.current.handleKeyDown(event)) return
+      if (event.key !== 'Enter') return
+      const isModifier = event.ctrlKey || event.metaKey
+      if (settings.enterSubmit) {
+        if (event.shiftKey) promptEditor.insertText('\n')
+        else if (!isModifier && submitReady) submit()
+        return
+      }
+      if (isModifier) {
+        if (submitReady) submit()
+        return
+      }
+      promptEditor.insertText('\n')
+    },
+    onPaste: (event) => {
+      // 图片走 usePasteImageFiles 那条路，别让它再往提示词里塞一份。
+      if (Array.from(event.clipboardData.items ?? []).some((one) => one.type.startsWith('image/')))
+        event.preventDefault()
+    },
+  })
+  const atMentionGroups =
+    promptEditor.query?.kind === 'mention'
+      ? buildAtMentionGroups({
+          query: promptEditor.query.query,
+          inputImages,
+          assets,
+          canAttachAssets: supportsEdit,
+        })
       : []
-  const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
+  const templateMenuGroups =
+    promptEditor.query?.kind === 'command'
+      ? buildTemplateMenuGroups({ query: promptEditor.query.query, templates })
+      : []
   const replaceRangeWithImageMention = useCallback(
     (start: number, end: number, imageIndex: number, nextLabelFor?: MentionLabelResolver) => {
-      const next = insertImageMentionAtVisibleRange(
-        prompt,
-        start,
-        end,
-        imageIndex,
-        mentionLabels,
-        nextLabelFor,
-      )
-      setPrompt(next.prompt)
-      window.setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.focus()
-          setContentEditableCursor(textareaRef.current, next.cursor)
-        }
-      }, 0)
+      promptEditor.replaceRange(start, end, getSelectedImageMentionLabel(imageIndex), nextLabelFor)
     },
-    [mentionLabels, prompt, setPrompt],
+    [promptEditor.replaceRange],
   )
   const insertImageMentionAtCursor = useCallback(
     (imageIndex: number) => {
-      const el = textareaRef.current
-      const cursor = el ? getContentEditableCursor(el) : prompt.length
+      const cursor = promptEditor.cursor()
       replaceRangeWithImageMention(cursor, cursor, imageIndex)
     },
-    [prompt, replaceRangeWithImageMention],
+    [promptEditor.cursor, replaceRangeWithImageMention],
   )
   const selectAtMentionOption = useCallback(
     async (value: AtMentionValue) => {
-      const el = textareaRef.current
-      const cursor = el ? getContentEditableCursor(el) : prompt.length
-      const query = getAtImageQuery(getVisiblePrompt(prompt, mentionLabels), cursor)
+      // 选中的这一刻重新问一次光标：菜单开着的时候用户还可能移动它。
+      const cursor = promptEditor.cursor()
+      const query = getAtImageQuery(promptEditor.visible, cursor)
       if (!query) return
 
       if (value.type === 'image') {
@@ -320,73 +322,48 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       )
       replaceRangeWithImageMention(query.start, cursor, imageIndex, nextLabels)
     },
-    [attachAsset, mentionLabels, prompt, replaceRangeWithImageMention],
+    [attachAsset, promptEditor.cursor, promptEditor.visible, replaceRangeWithImageMention],
   )
 
   const atImageMenu = useSuggestionMenu({
     groups: atMentionGroups,
     onSelect: (value: AtMentionValue) => void selectAtMentionOption(value),
-    onClose: blurPrompt,
+    onClose: promptEditor.blur,
   })
 
   const selectTemplateOption = useCallback(
     (id: string) => {
-      const el = textareaRef.current
-      const cursor = el ? getContentEditableCursor(el) : prompt.length
-      const query = getSlashTemplateQuery(getVisiblePrompt(prompt, mentionLabels), cursor)
+      const cursor = promptEditor.cursor()
+      const query = getSlashTemplateQuery(promptEditor.visible, cursor)
       if (!query) return
 
       // 先抹掉 `/关键词`，否则套用会把它当成未保存的输入而弹覆盖确认框。
-      const promptStart = getPromptIndexFromVisibleIndex(prompt, query.start, mentionLabels)
-      const promptEnd = getPromptIndexFromVisibleIndex(prompt, cursor, mentionLabels)
-      setPrompt(`${prompt.slice(0, promptStart)}${prompt.slice(promptEnd)}`)
+      promptEditor.replaceRange(query.start, cursor, '')
       void applyTemplate(id)
     },
-    [applyTemplate, mentionLabels, prompt, setPrompt],
+    [applyTemplate, promptEditor.cursor, promptEditor.replaceRange, promptEditor.visible],
   )
 
   const templateMenu = useSuggestionMenu({
     groups: templateMenuGroups,
     onSelect: selectTemplateOption,
-    onClose: blurPrompt,
+    onClose: promptEditor.blur,
   })
 
-  const insertPromptTextAtSelection = useCallback(
-    (text: string) => {
-      const el = textareaRef.current
-      const selection = el
-        ? getContentEditableSelection(el)
-        : { start: prompt.length, end: prompt.length }
-      const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start, mentionLabels)
-      const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end, mentionLabels)
-      const nextPrompt = `${prompt.slice(0, promptStart)}${text}${prompt.slice(promptEnd)}`
-      const nextCursor = selection.start + text.length
-      setPrompt(nextPrompt)
-      window.setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.focus()
-          setContentEditableCursor(textareaRef.current, nextCursor)
-        }
-      }, 0)
+  menusRef.current = {
+    open: () => {
+      atImageMenu.open()
+      templateMenu.open()
     },
-    [prompt, setPrompt],
-  )
+    handleKeyDown: (event) => atImageMenu.handleKeyDown(event) || templateMenu.handleKeyDown(event),
+  }
 
   const handleClearPrompt = useCallback(() => {
     setPrompt('')
-    setCursorPos(0)
     atImageMenu.dismiss()
     templateMenu.dismiss()
-
-    window.setTimeout(() => {
-      const el = textareaRef.current
-      if (!el) return
-      el.innerHTML = ''
-      el.focus()
-      setContentEditableCursor(el, 0)
-      syncMentionTagSelection(el)
-    }, 0)
-  }, [atImageMenu.dismiss, templateMenu.dismiss, setPrompt])
+    promptEditor.focusAt(0)
+  }, [atImageMenu.dismiss, templateMenu.dismiss, promptEditor.focusAt, setPrompt])
 
   useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, settings, {
@@ -588,61 +565,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     e.target.value = ''
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (atImageMenu.handleKeyDown(e) || templateMenu.handleKeyDown(e)) return
-
-    // 阻止 contentEditable 默认换行
-    if (e.key === 'Enter') {
-      e.preventDefault()
-
-      const isModifier = e.ctrlKey || e.metaKey
-
-      if (settings.enterSubmit) {
-        if (e.shiftKey) {
-          insertPromptTextAtSelection('\n')
-        } else if (!isModifier) {
-          if (submitReady) submit()
-        }
-      } else {
-        if (isModifier) {
-          if (submitReady) submit()
-        } else {
-          insertPromptTextAtSelection('\n')
-        }
-      }
-      return
-    }
-  }
-
-  const handlePromptPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const text = e.clipboardData.getData('text/plain')
-    if (!text) return
-    if (Array.from(e.clipboardData.items).some((item) => item.type.startsWith('image/'))) return
-
-    e.preventDefault()
-    insertPromptTextAtSelection(text.replace(/\r\n?/g, '\n'))
-  }
-
-  const handlePromptCopy = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    const el = textareaRef.current
-    if (!el) return
-
-    const selection = getContentEditableSelection(el)
-    if (selection.start === selection.end) return
-
-    const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start, mentionLabels)
-    const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end, mentionLabels)
-    const text = getVisiblePrompt(prompt.slice(promptStart, promptEnd), mentionLabels)
-    // 只选中一个胶囊时复制胶囊本身，别把它两边的空白也带走
-    const parts = getPromptMentionParts(prompt.slice(promptStart, promptEnd), mentionLabels).filter(
-      (part) => part.type === 'mention' || part.text.trim(),
-    )
-    const copyText = parts.length === 1 && parts[0].type === 'mention' ? parts[0].text : text
-
-    e.preventDefault()
-    e.clipboardData.setData('text/plain', copyText)
-  }
-
   const dragActive = useImageInputScope() === 'image'
   usePasteImageFiles('image', (files) => void handleFilesRef.current(files))
 
@@ -703,7 +625,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }, [dragActive])
 
   const adjustTextareaHeight = useCallback(() => {
-    const el = textareaRef.current
+    const el = promptEditor.ref.current
     if (!el) return
 
     // 卡片内除 textarea 外的固定占用（图片 thumbs + 参数行 + padding 等），用于把
@@ -731,44 +653,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     el.style.overflowY = scroll ? 'auto' : 'hidden'
 
     prevHeightRef.current = targetH
-  }, [])
-
-  // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）。开头的 `/技能` 命令要变成带图标的胶囊，
-  // 与画布输入框同一种呈现——用户从资产页「用智能体创建」跳过来看到的不该是一行裸文本。
-  const skills = useAgentSkills('image')
-  const [skillChip, setSkillChip] = useState<{
-    element: HTMLElement
-    skill: AgentSkillSummary
-  } | null>(null)
-  useEffect(() => {
-    // 只跳过用户刚打进去的那个值，避免光标跳动；粘性布尔会把外部设置的 prompt 一起吞掉。
-    const typed = lastTypedRef.current
-    lastTypedRef.current = null
-    const el = textareaRef.current
-    if (!el) return
-    const invocation = getLeadingAgentSkill(prompt, skills)
-    const chipMissing = Boolean(invocation) && !el.querySelector('[data-skill-command]')
-    if (prompt === typed && !chipMissing) return
-    const html = buildPromptEditorHtml(prompt, mentionLabels, slotValues)
-    const selection = document.activeElement === el ? getContentEditableSelection(el) : null
-    if (el.innerHTML !== html) el.innerHTML = html
-    const first = el.firstChild
-    if (invocation && first instanceof Text && first.data.startsWith(invocation.command)) {
-      first.splitText(invocation.command.length)
-      const element = document.createElement('span')
-      element.contentEditable = 'false'
-      element.className = 'mention-tag agent-skill-mention'
-      element.dataset.mentionText = invocation.command
-      element.dataset.mentionLabel = invocation.command
-      element.dataset.skillCommand = invocation.skill.name
-      element.setAttribute('aria-label', invocation.skill.title)
-      first.replaceWith(element)
-      setSkillChip({ element, skill: invocation.skill })
-      if (selection) setContentEditableSelection(el, selection)
-    } else {
-      setSkillChip(null)
-    }
-  }, [prompt, mentionLabels, slotValues, skills])
+  }, [promptEditor.ref])
 
   useEffect(() => {
     adjustTextareaHeight()
@@ -784,36 +669,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     void loadTemplates()
   }, [loadAssets, loadTemplates])
 
-  // 监听 selectionchange 以在光标移动时更新位置（contentEditable 的 onSelect 不可靠）
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const el = textareaRef.current
-      if (!el) return
-      const sel = window.getSelection()
-      if (!sel || sel.rangeCount === 0) return
-
-      const domRange = sel.getRangeAt(0)
-      try {
-        if (!domRange.intersectsNode(el)) {
-          syncMentionTagSelection(el)
-          return
-        }
-      } catch {
-        return
-      }
-
-      const range = getContentEditableSelection(el)
-      setCursorPos(range.start)
-      syncMentionTagSelection(el)
-
-      const rangeRect = domRange.getBoundingClientRect()
-      const elRect = el.getBoundingClientRect()
-      if (rangeRect.width === 0 && rangeRect.height === 0) return
-      setMenuLeft(rangeRect.left - elRect.left)
-    }
-    document.addEventListener('selectionchange', handleSelectionChange)
-    return () => document.removeEventListener('selectionchange', handleSelectionChange)
-  }, [])
   useEffect(() => {
     adjustTextareaHeight()
   }, [inputImages.length, Boolean(maskDraft), maskPreviewUrl, adjustTextareaHeight])
@@ -1232,7 +1087,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
   return (
     <>
-      {skillChip && createPortal(<AgentSkillBadge skill={skillChip.skill} />, skillChip.element)}
       {/* 全屏拖拽遮罩 */}
       {isDragging && (
         <div className="fixed inset-0 z-[100] bg-card/60 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
@@ -1343,7 +1197,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 className="min-w-0 flex-1 truncate rounded-xl bg-muted/60 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
                 title={t('bar.expandHint')}
               >
-                {prompt.trim() ? visiblePrompt : t('bar.emptyPromptHint')}
+                {prompt.trim() ? promptEditor.visible : t('bar.emptyPromptHint')}
               </button>
               <div
                 className="relative flex items-center gap-2"
@@ -1456,7 +1310,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   <SuggestionMenu
                     groups={atMentionGroups}
                     activeIndex={atImageMenu.activeIndex}
-                    offsetLeft={menuLeft}
+                    offsetLeft={promptEditor.query?.left ?? 0}
                     onActiveIndexChange={atImageMenu.setActiveIndex}
                     onSelect={atImageMenu.select}
                   />
@@ -1465,56 +1319,17 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   <SuggestionMenu
                     groups={templateMenuGroups}
                     activeIndex={templateMenu.activeIndex}
-                    offsetLeft={menuLeft}
+                    offsetLeft={promptEditor.query?.left ?? 0}
                     onActiveIndexChange={templateMenu.setActiveIndex}
                     onSelect={templateMenu.select}
                   />
                 )}
-                <div
-                  ref={textareaRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={(e) => {
-                    const el = e.currentTarget
-                    // contentEditable 删除最后一个字符后浏览器常留 <br> 或空 span，让
-                    // :empty 不再匹配 → placeholder 消失。textContent 真为空就把残留 DOM 清干净。
-                    if (!el.textContent && el.innerHTML) {
-                      el.innerHTML = ''
-                    }
-                    const range = getContentEditableSelection(el)
-                    setCursorPos(range.start)
-                    syncMentionTagSelection(el)
-                    const text = getContentEditablePlainText(el)
-                    // 手打出一个完整槽位时必须让渲染 effect 跑一次，否则它永远不会变成 chip。
-                    const slotsChanged =
-                      JSON.stringify(getPromptSlotNames(text)) !==
-                      JSON.stringify(getPromptSlotNames(prompt))
-                    lastTypedRef.current = slotsChanged ? null : text
-                    setPrompt(text)
-                    if (slotsChanged) {
-                      window.setTimeout(() => {
-                        if (textareaRef.current) {
-                          setContentEditableCursor(textareaRef.current, range.start)
-                        }
-                      }, 0)
-                    }
-                    atImageMenu.open()
-                    templateMenu.open()
-                  }}
-                  onSelect={(e) => {
-                    const el = e.currentTarget
-                    const range = getContentEditableSelection(el)
-                    setCursorPos(range.start)
-                    syncMentionTagSelection(el)
-                    atImageMenu.open()
-                    templateMenu.open()
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePromptPaste}
-                  onCopy={handlePromptCopy}
+                <PromptEditor
+                  editor={promptEditor}
+                  placeholder={t('editor.placeholder')}
+                  className={TEXTAREA_CLASS}
                   onClick={(e) => {
-                    const el = textareaRef.current
-                    if (!el) return
+                    const el = e.currentTarget
                     const target = e.target as HTMLElement
                     const slotTag = target.closest<HTMLElement>('.slot-tag')
                     if (slotTag?.dataset.slotName) {
@@ -1542,8 +1357,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
                     syncMentionTagSelection(el)
                   }}
-                  data-placeholder={t('editor.placeholder')}
-                  className={TEXTAREA_CLASS}
                 />
                 {prompt.length > 0 && (
                   <button
