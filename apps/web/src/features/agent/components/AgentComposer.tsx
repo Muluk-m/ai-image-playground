@@ -62,7 +62,7 @@ import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
-import { ABORT_BUTTON, CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
+import { CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
@@ -428,6 +428,12 @@ export default function AgentComposer({
     else open(reference.dataUrl)
   }
 
+  /**
+   * 发送与中止是同一颗按钮的两个状态：输入框空着才是中止，写了字就是发送（忙时进排队）。
+   * 停止只掐当前这段回复，已经在跑的出图不受影响（ADR 0012）。
+   */
+  const stopMode = running && !draft.prompt.trim()
+
   const submit = () => {
     if (loading || submitting || historyBlocked || stopping) return
     const submission = draftForSubmit(draft)
@@ -677,18 +683,8 @@ export default function AgentComposer({
               <Zap aria-hidden="true" />
             </Button>
             <AgentParamsChip />
-            {running && (
-              <button
-                type="button"
-                className={ABORT_BUTTON}
-                disabled={stopping}
-                onClick={() => void useAgentStore.getState().abort()}
-              >
-                {stopping ? t('composer.aborting') : t('composer.abort')}
-              </button>
-            )}
             <ComposerSend
-              streaming={false}
+              streaming={stopMode}
               idle={
                 !stopping &&
                 !historyBlocked &&
@@ -697,15 +693,29 @@ export default function AgentComposer({
                 Boolean(draft.prompt.trim())
               }
               aria-label={
-                submitting
-                  ? t('composer.sending')
+                stopMode
+                  ? stopping
+                    ? t('composer.aborting')
+                    : t('composer.abort')
+                  : submitting
+                    ? t('composer.sending')
+                    : running
+                      ? t('composer.queue')
+                      : t('composer.sendAndCreate')
+              }
+              title={
+                stopMode
+                  ? t('composer.abortTitle')
                   : running
                     ? t('composer.queue')
-                    : t('composer.sendAndCreate')
+                    : t('composer.sendAndCreateTitle')
               }
-              title={running ? t('composer.queue') : t('composer.sendAndCreateTitle')}
-              disabled={historyBlocked || loading || submitting || !draft.prompt.trim()}
-              onClick={submit}
+              disabled={
+                stopMode
+                  ? stopping
+                  : historyBlocked || loading || submitting || !draft.prompt.trim()
+              }
+              onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
             />
           </ComposerActions>
         </ComposerToolbar>
