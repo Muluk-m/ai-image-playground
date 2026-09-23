@@ -1,8 +1,14 @@
 import { Link } from '@tanstack/react-router'
-import { ChevronRight } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { EmptyState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   type PrivateAdminUserSummary,
   privateUserSummaryColumnTitle,
@@ -25,7 +31,9 @@ const LOGIN_METHOD_LABELS: Readonly<Record<string, string>> = {
 function UserIdentity({ user }: { user: AdminUserRow }) {
   return (
     <span className="min-w-0">
-      <span className="block truncate text-sm font-semibold">{user.username}</span>
+      <span className="block truncate text-sm font-semibold group-hover:text-primary">
+        {user.username}
+      </span>
       <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
         {user.id}
       </span>
@@ -62,7 +70,7 @@ function RegistrationOrigin({
   if (summary.registrationSource === 'invited') {
     return (
       <span
-        className={`block min-w-0 text-[10px] text-muted-foreground ${
+        className={`block min-w-0 truncate text-[10px] text-muted-foreground ${
           align === 'end' ? 'text-right' : ''
         }`}
         title={summary.inviter ? `邀请人 ID：${summary.inviter.userId}` : undefined}
@@ -106,135 +114,91 @@ function SummaryValue({ summary }: { summary: PrivateAdminUserSummary | undefine
   )
 }
 
-function MobileMetric({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </span>
-      <div className="mt-1 min-w-0 text-sm">{children}</div>
-    </div>
-  )
-}
-
 export function UserTable({ users }: { users: AdminUserRow[] }) {
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
     users.map((user) => user.id),
   )
-  const gridColumns = privateAdminOverlayEnabled
-    ? 'grid-cols-[minmax(190px,1.4fr)_90px_105px_115px_190px_170px_28px]'
-    : 'grid-cols-[minmax(190px,1.4fr)_90px_105px_115px_165px_28px]'
+  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[930px]' : 'min-w-[760px]'
   if (!users.length) return <EmptyState label="没有匹配的用户" />
 
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border bg-card/70 shadow-sm">
-      <div
-        className={`hidden ${gridColumns} border-b bg-muted/40 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground xl:grid`}
-      >
-        <span>用户</span>
-        <span>状态</span>
-        <span className="text-right">任务 / 会话</span>
-        <span className="text-right">最近活动</span>
-        <span className="text-right">注册 / 登录方式</span>
-        {privateAdminOverlayEnabled ? (
-          <span className="text-right">{privateUserSummaryColumnTitle}</span>
-        ) : null}
-        <span />
-      </div>
-
-      <div className="hidden divide-y xl:block">
-        {users.map((user) => (
-          <Link
-            key={user.id}
-            to="/users/$userId"
-            params={{ userId: user.id }}
-            className={`group grid ${gridColumns} items-center px-4 py-3 transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring`}
-          >
-            <UserIdentity user={user} />
-            <span>
-              <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
-                {user.status === 'active' ? '正常' : '已停用'}
-              </Badge>
-            </span>
-            <span className="text-right font-mono text-xs tabular-nums">
-              {user.task_count}
-              <span className="mx-1.5 text-border">/</span>
-              {user.active_sessions}
-            </span>
-            <span className="text-right text-xs">
-              <FuzzyTime ts={user.last_activity_at} />
-            </span>
-            <span className="min-w-0 text-right">
-              <span className="mb-1 block text-xs tabular-nums">
-                {USER_DATE_FORMAT.format(user.created_at)}
-              </span>
-              {privateAdminOverlayEnabled ? (
-                <RegistrationOrigin summary={summaries[user.id]} align="end" />
-              ) : null}
-              <LoginMethods methods={user.login_methods} align="end" />
-            </span>
-            {privateAdminOverlayEnabled ? <SummaryValue summary={summaries[user.id]} /> : null}
-            <span className="flex justify-end">
-              <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-            </span>
-          </Link>
-        ))}
-      </div>
-
-      <div className="divide-y xl:hidden">
-        {users.map((user) => (
-          <Link
-            key={user.id}
-            to="/users/$userId"
-            params={{ userId: user.id }}
-            className="group block min-w-0 px-4 py-4 transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            <span className="flex min-w-0 items-center gap-3">
-              <UserIdentity user={user} />
-              <span className="ml-auto flex shrink-0 items-center gap-2">
+      <Table className={`${tableWidth} table-fixed`}>
+        <TableHeader className="bg-muted/40">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className={`${privateAdminOverlayEnabled ? 'w-[26%]' : 'w-[30%]'} pl-4`}>
+              用户
+            </TableHead>
+            <TableHead className="w-[10%]">状态</TableHead>
+            <TableHead className="w-[14%] text-right">任务 / 会话</TableHead>
+            <TableHead className="w-[13%] text-right">最近活动</TableHead>
+            <TableHead
+              className={`${privateAdminOverlayEnabled ? 'w-[19%]' : 'w-[25%]'} text-right`}
+            >
+              注册 / 登录方式
+            </TableHead>
+            {privateAdminOverlayEnabled ? (
+              <TableHead className="w-[18%] pr-4 text-right">
+                {privateUserSummaryColumnTitle}
+              </TableHead>
+            ) : (
+              <TableHead className="w-[8%] pr-4 text-right">详情</TableHead>
+            )}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {users.map((user) => (
+            <TableRow key={user.id} className="group">
+              <TableCell className="pl-4">
+                <Link
+                  to="/users/$userId"
+                  params={{ userId: user.id }}
+                  className="block min-w-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <UserIdentity user={user} />
+                </Link>
+              </TableCell>
+              <TableCell>
                 <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
                   {user.status === 'active' ? '正常' : '已停用'}
                 </Badge>
-                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-              </span>
-            </span>
-
-            <span className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3">
-              <MobileMetric label="任务 / 会话">
-                <span className="font-mono text-xs tabular-nums">
-                  {user.task_count}
-                  <span className="mx-1.5 text-border">/</span>
-                  {user.active_sessions}
-                </span>
-              </MobileMetric>
-              <MobileMetric label="最近活动">
-                <span className="text-xs">
-                  <FuzzyTime ts={user.last_activity_at} />
-                </span>
-              </MobileMetric>
-              <MobileMetric label="注册信息">
-                <span className="block text-xs tabular-nums">
-                  {USER_DATE_FORMAT.format(user.created_at)}
-                </span>
-                {privateAdminOverlayEnabled ? (
-                  <RegistrationOrigin summary={summaries[user.id]} />
-                ) : null}
-              </MobileMetric>
-              <MobileMetric label="登录方式">
-                <LoginMethods methods={user.login_methods} />
-              </MobileMetric>
-              {privateAdminOverlayEnabled ? (
-                <span className="col-span-2 flex min-w-0 items-start justify-between gap-4 border-t pt-3">
-                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {privateUserSummaryColumnTitle}
+              </TableCell>
+              <TableCell className="text-right font-mono text-xs tabular-nums">
+                {user.task_count}
+                <span className="mx-1.5 text-border">/</span>
+                {user.active_sessions}
+              </TableCell>
+              <TableCell className="text-right text-xs">
+                <FuzzyTime ts={user.last_activity_at} />
+              </TableCell>
+              <TableCell className="text-right">
+                <span className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                  <span className="text-xs tabular-nums">
+                    {USER_DATE_FORMAT.format(user.created_at)}
                   </span>
-                  <SummaryValue summary={summaries[user.id]} />
+                  {privateAdminOverlayEnabled ? (
+                    <RegistrationOrigin summary={summaries[user.id]} align="end" />
+                  ) : null}
                 </span>
-              ) : null}
-            </span>
-          </Link>
-        ))}
-      </div>
+                <LoginMethods methods={user.login_methods} align="end" />
+              </TableCell>
+              <TableCell className="pr-4">
+                {privateAdminOverlayEnabled ? (
+                  <SummaryValue summary={summaries[user.id]} />
+                ) : (
+                  <Link
+                    to="/users/$userId"
+                    params={{ userId: user.id }}
+                    className="flex justify-end text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    查看
+                  </Link>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
