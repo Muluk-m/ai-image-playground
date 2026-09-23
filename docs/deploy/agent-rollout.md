@@ -120,6 +120,22 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 "agent:turns-per-ip-hour": 200
 ```
 
+### 联网（`agent:web`）
+
+另一位能力，默认关，与 `agent:chat` 各开各的。开着它智能体多三个工具：搜索网页、读取网页、
+取网图。`deploy/operator-config.*.example.json` 里两份示例都没开 `agent:chat`，所以也都不写
+这一位——要开就和 `agent:chat` 一起写进 `capabilities`。
+
+开之前先配 `AGENT_SEARCH_MODEL`。**它打的是 `/v1/responses` 上托管的 `web_search`，与对话模型
+不是同一个端点**：某个模型在 `/v1/chat/completions` 能用，不代表网关在 Responses 上也供着它，
+所以照样拿它打一次真请求再定。留空时依次跟随 `AGENT_SUMMARY_MODEL`、`AGENT_CHAT_MODEL`；
+三个都没有时搜索工具不进模型的工具清单（读取网页与取网图不受影响），不会每次调用都失败。
+
+搜索那一次是**额外的上游模型调用**，2026-09-23 实测单次 11~14 秒、输入约 8.8k token
+（网关自己往里塞了上下文）。它与压缩摘要一样**由平台承担**：记进 `agent_model_calls`
+（`purpose = 'web_search'`），不累进用户这一轮的结算，也不参与预扣。所以这一位开下去
+是运营自己掏的钱，开之前按「一天多少次搜索」算一遍。
+
 ### 窗口为什么是 40000
 
 压缩触发点 = `contextWindow − min(maxOutputTokens, outputReserveTokens) − bufferTokens`。

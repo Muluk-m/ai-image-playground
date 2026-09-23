@@ -20,6 +20,7 @@ import { arrangeTimeline } from './arrangeTimeline'
 import { editCanvasObject } from './editCanvasObject'
 import { editImage } from './editImage'
 import type { ToolFailureLog } from './errors'
+import { fetchImage } from './fetchImage'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
@@ -37,6 +38,8 @@ import type {
   AgentToolSpec,
 } from './types'
 import { viewImage } from './viewImage'
+import { webFetch } from './webFetch'
+import { webSearch } from './webSearch'
 
 export type { AgentToolOutcome, AgentToolStart } from './adapter'
 export { agentToolStage } from './adapter'
@@ -62,6 +65,9 @@ const TOOLS: readonly AgentToolSpec[] = [
   loadSkill,
   saveAsset,
   saveLook,
+  fetchImage,
+  webSearch,
+  webFetch,
 ]
 
 function find(name: string): AgentToolSpec | undefined {

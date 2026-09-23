@@ -635,6 +635,33 @@ describe('排时间线的结果卡', () => {
   })
 })
 
+describe('联网那一步的来源', () => {
+  const SEARCHED: AgentToolResultBlock = {
+    type: 'toolResult',
+    toolCallId: 'call-5',
+    toolName: 'webSearch',
+    status: 'succeeded',
+    title: '搜索：北欧椅子',
+    sources: [{ title: 'Eames Plastic Chair | Vitra', url: 'https://www.vitra.com/eames' }],
+  }
+
+  it('直播与历史都把来源带到卡上，活动轨才挂得出那几条链接', () => {
+    const live = replay([
+      { type: 'turnStart', turnId: TURN, userMessageId: 'user-1', reservedCredits: 0 },
+      toolEnd(SEARCHED, 'tool-5'),
+    ])
+    const history = panelStateFromHistory({
+      messages: [stored('tool-5', [SEARCHED])],
+      turns: [],
+    })
+    for (const state of [live, history])
+      expect(state.messages.find((message) => message.id === 'tool-5')).toMatchObject({
+        kind: 'tool',
+        sources: SEARCHED.sources,
+      })
+  })
+})
+
 describe('确认过的生成不被重放盖回去', () => {
   const DRAFT: AgentToolResultBlock = {
     type: 'toolResult',

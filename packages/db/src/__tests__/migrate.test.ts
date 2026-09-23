@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(40)
+    expect(rows).toHaveLength(41)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -89,7 +89,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(40)
+    expect(rows).toHaveLength(41)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -140,6 +140,7 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0041_agent_web_search_calls.down.sql',
       '0040_user_looks.down.sql',
       '0039_asset_views.down.sql',
       '0038_inspiration_library.down.sql',
@@ -212,6 +213,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(40)
+    expect(restored).toHaveLength(41)
   })
 })
