@@ -30,9 +30,15 @@ async function enableAgent(enabled: boolean): Promise<void> {
   vi.unstubAllGlobals()
 }
 
-function render(): void {
+function render(onImportImages = () => {}, onImportFolder = () => {}): void {
   act(() => {
-    root.render(<CanvasToolbar doc={new CanvasDoc()} />)
+    root.render(
+      <CanvasToolbar
+        doc={new CanvasDoc()}
+        onImportImages={onImportImages}
+        onImportFolder={onImportFolder}
+      />,
+    )
   })
 }
 
@@ -77,5 +83,32 @@ describe('画布工具条', () => {
     render()
 
     expect(toolbar().dataset.canvasToolbar).toBe('side')
+  })
+
+  it('画布有内容或没有内容时都能选择图片或文件夹', () => {
+    const images = vi.fn()
+    const folder = vi.fn()
+    render(images, folder)
+    act(() =>
+      toolbar().querySelector<HTMLButtonElement>('button[aria-label="导入到画布"]')!.click(),
+    )
+    expect(document.body.textContent).toContain('导入图片')
+    expect(document.body.textContent).toContain('导入文件夹')
+    act(() =>
+      [...document.body.querySelectorAll('button')]
+        .find((button) => button.textContent?.trim() === '导入文件夹')!
+        .click(),
+    )
+    expect(folder).toHaveBeenCalledOnce()
+    expect(images).not.toHaveBeenCalled()
+    act(() =>
+      toolbar().querySelector<HTMLButtonElement>('button[aria-label="导入到画布"]')!.click(),
+    )
+    act(() =>
+      [...document.body.querySelectorAll('button')]
+        .find((button) => button.textContent?.trim() === '导入图片')!
+        .click(),
+    )
+    expect(images).toHaveBeenCalledOnce()
   })
 })

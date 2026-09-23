@@ -3,6 +3,7 @@ import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
+import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { isWorkbenchMode, useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
 import AgentSuggestions from '../../agent/components/AgentSuggestions'
@@ -116,6 +117,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const open = useAgentStore((state) => state.open)
   const setOpen = useAgentStore((state) => state.setOpen)
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
+  const importFiles = (files: File[]) => {
+    void importImageFiles(editor, acceptImageFiles(files), {
+      x: editor.getViewportPageBounds().midX,
+      y: editor.getViewportPageBounds().midY,
+    })
+      .then((count) => {
+        if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+      })
+      .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+  }
   const hasAgent = agentPanelPresent()
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
@@ -282,7 +294,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <InpaintPanel editor={editor} />
             <TimelineEditorHost editor={editor} />
             <FilmExportStatus />
-            <CanvasToolbar doc={doc} />
+            <CanvasToolbar
+              doc={doc}
+              onImportImages={() => fileInput.current?.click()}
+              onImportFolder={() => folderInput.current?.click()}
+            />
             <CanvasBatchBar editor={editor} />
             <StylePanel doc={doc} />
             {saveFailed && (
@@ -330,14 +346,20 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               onChange={(event) => {
                 const files = [...(event.currentTarget.files ?? [])]
                 event.currentTarget.value = ''
-                void importImageFiles(editor, files, {
-                  x: editor.getViewportPageBounds().midX,
-                  y: editor.getViewportPageBounds().midY,
-                })
-                  .then((count) => {
-                    if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
-                  })
-                  .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+                importFiles(files)
+              }}
+            />
+            <input
+              ref={folderInput}
+              type="file"
+              {...{ webkitdirectory: '' }}
+              multiple
+              className="hidden"
+              aria-label={t('import.folder')}
+              onChange={(event) => {
+                const { files } = filesFromFolderInput(event.currentTarget.files)
+                event.currentTarget.value = ''
+                importFiles(files)
               }}
             />
           </section>

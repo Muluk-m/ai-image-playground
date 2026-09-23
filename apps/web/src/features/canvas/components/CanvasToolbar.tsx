@@ -1,4 +1,6 @@
-import { useSyncExternalStore } from 'react'
+import { FolderOpen, Images, Upload } from 'lucide-react'
+import { type MouseEvent, useState, useSyncExternalStore } from 'react'
+import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
@@ -102,7 +104,7 @@ function ToolButton({
 }: {
   active?: boolean
   title: string
-  onClick: () => void
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void
   disabled?: boolean
   children: React.ReactNode
 }) {
@@ -129,9 +131,18 @@ const PILL =
   'pointer-events-auto rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur'
 
 /** 工具与缩放共用画布左侧工具栏，窄矮视口内可滚动。 */
-export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
+export default function CanvasToolbar({
+  doc,
+  onImportImages,
+  onImportFolder,
+}: {
+  doc: CanvasDoc
+  onImportImages: () => void
+  onImportFolder: () => void
+}) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const { t } = useTranslation('canvas')
+  const [importMenu, setImportMenu] = useState<{ x: number; y: number } | null>(null)
   const { tool, selection, camera, viewport } = doc
 
   const toolLabels: Record<Tool, string> = {
@@ -238,11 +249,41 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
       >
         {tools}
         <div className="my-1 h-px w-6 shrink-0 bg-border" />
+        <ToolButton
+          title={t('import.openMenu')}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect()
+            setImportMenu({ x: bounds.right + 6, y: bounds.top })
+          }}
+        >
+          <Upload className="h-[18px] w-[18px]" aria-hidden="true" />
+        </ToolButton>
+        <div className="my-1 h-px w-6 shrink-0 bg-border" />
         {history}
         {selectionActions}
         <div className="my-1 h-px w-6 shrink-0 bg-border" />
         {zoom}
       </div>
+      {importMenu && (
+        <ContextMenu x={importMenu.x} y={importMenu.y} onClose={() => setImportMenu(null)}>
+          <ContextMenuItem
+            icon={<Images className="h-4 w-4" aria-hidden="true" />}
+            label={t('import.images')}
+            onClick={() => {
+              setImportMenu(null)
+              onImportImages()
+            }}
+          />
+          <ContextMenuItem
+            icon={<FolderOpen className="h-4 w-4" aria-hidden="true" />}
+            label={t('import.folder')}
+            onClick={() => {
+              setImportMenu(null)
+              onImportFolder()
+            }}
+          />
+        </ContextMenu>
+      )}
     </div>
   )
 }
