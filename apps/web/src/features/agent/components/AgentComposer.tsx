@@ -1,3 +1,4 @@
+import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
 import { Zap } from 'lucide-react'
 import {
   type ClipboardEvent,
@@ -240,9 +241,13 @@ export default function AgentComposer({
   // 哪些是这么带进来的归 selection 自己记，输入框只管把画布和草稿的入口交给它。
   const [selection] = useState(createSelectionReferences)
   const selectionKey = useMemo(() => selection.key(doc), [selection, doc, version])
+  const tooManyReferences = () =>
+    useStore
+      .getState()
+      .showToast(t('composer.tooManyReferences', { count: AGENT_TURN_MAX_REFERENCES }), 'error')
   useEffect(() => {
     if (loading) return
-    selection.follow(doc, setDraft, editor, session.key)
+    if (selection.follow(doc, setDraft, editor, session.key) > 0) tooManyReferences()
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
   }, [selection, selectionKey, loading, session])
 
@@ -301,6 +306,10 @@ export default function AgentComposer({
 
   const applyAttach = (next: AttachedReference) => {
     typedRef.current = null
+    if (next.overflow) {
+      tooManyReferences()
+      return
+    }
     setDraft(next.draft)
     setCursor(next.cursor)
     window.setTimeout(() => {

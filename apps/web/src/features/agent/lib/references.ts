@@ -1,4 +1,8 @@
-import type { AgentMode, AgentTurnReference } from '@image-playground/shared'
+import {
+  AGENT_TURN_MAX_REFERENCES,
+  type AgentInlineReference,
+  type AgentMode,
+} from '@image-playground/shared'
 import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
@@ -72,11 +76,16 @@ export interface AttachedReference {
   readonly draft: AgentDraft
   /** 可见文本坐标系里的光标落点。 */
   readonly cursor: number
+  /** 这一张没放进去：本轮的参考图已经满了。草稿与光标原样返回。 */
+  readonly overflow: boolean
 }
 
 /**
  * 在可见文本的 `[start, cursor)` 上插一条引用。同一张图按 `id` 复用原序号，
  * 不重复附加——画布对象与素材走的是同一条路。
+ *
+ * 满了就不附：服务端对一轮的参考图数量有硬上限（`AGENT_TURN_MAX_REFERENCES`），
+ * 超出去的那一份会让整轮起轮以 400 被打回，用户的话连同图一起白等。
  */
 export function attachReference(
   draft: AgentDraft,
@@ -85,6 +94,8 @@ export function attachReference(
   cursor: number,
 ): AttachedReference {
   const at = draft.references.findIndex((one) => one.id === reference.id)
+  if (at < 0 && draft.references.length >= AGENT_TURN_MAX_REFERENCES)
+    return { draft, cursor, overflow: true }
   const references = at >= 0 ? draft.references : [...draft.references, reference]
   const index = at >= 0 ? at : references.length - 1
   const inserted = insertImageMentionAtVisibleRange(
@@ -95,7 +106,11 @@ export function attachReference(
     referenceLabels(draft.references),
     referenceLabels(references),
   )
-  return { draft: { prompt: inserted.prompt, references }, cursor: inserted.cursor }
+  return {
+    draft: { prompt: inserted.prompt, references },
+    cursor: inserted.cursor,
+    overflow: false,
+  }
 }
 
 /** 拿掉一张参考图，指向它的引用降级为「已移除」，其余的跟着新序号走。 */
@@ -144,7 +159,11 @@ function mapReference(
 
 export interface AgentSubmission {
   readonly text: string
-  readonly references: readonly AgentTurnReference[]
+  /**
+   * 输入框交出去的一律是内联形态：这里的 `dataUrl` 可能是本机字节，也可能还是画布里那句
+   * `aip-media:<id>`。哪几张改成按 id 发由 `agentClient` 的 `resolveReferences` 在发送那一刻定。
+   */
+  readonly references: readonly AgentInlineReference[]
 }
 
 /** 发送形状：胶囊按序号转成 `[image N]`，参考图按同一个序号排。 */
