@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
 import {
   Aperture,
+  Brush,
   Clapperboard,
   Flame,
   ImagePlay,
@@ -35,6 +36,7 @@ import {
  */
 const AGENT_SKILL_ICONS: Readonly<Record<string, LucideIcon>> = {
   aperture: Aperture,
+  brush: Brush,
   clapperboard: Clapperboard,
   flame: Flame,
   'image-play': ImagePlay,
