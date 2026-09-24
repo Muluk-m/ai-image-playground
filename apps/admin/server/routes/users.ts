@@ -1,4 +1,9 @@
-import { PASSWORD_MAX_LENGTH, TASK_STATUSES, USERNAME_MAX_LENGTH } from '@image-playground/shared'
+import {
+  ADMIN_USER_NOTE_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  TASK_STATUSES,
+  USERNAME_MAX_LENGTH,
+} from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { requireAuth } from '../lib/middleware'
 import { getUserDetail, getUserTasks, listUsers } from '../lib/queries'
@@ -48,6 +53,19 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
     {
       params: t.Object({ id: t.String({ minLength: 1 }) }),
       body: t.Object({ status: t.String({ minLength: 1, maxLength: 16 }) }),
+    },
+  )
+  .patch(
+    '/:id/note',
+    ({ params, body }) =>
+      forwardUserOperation({
+        method: 'PATCH',
+        path: `/${encodeURIComponent(params.id)}/note`,
+        body,
+      }),
+    {
+      params: t.Object({ id: t.String({ minLength: 1 }) }),
+      body: t.Object({ note: t.String({ maxLength: ADMIN_USER_NOTE_MAX_LENGTH }) }),
     },
   )
   .post(

@@ -1,5 +1,7 @@
 import { Link } from '@tanstack/react-router'
+import { useState } from 'react'
 import { EmptyState } from '@/components/Page'
+import { UserNoteDialog } from '@/components/UserNoteDialog'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -115,6 +117,7 @@ function SummaryValue({ summary }: { summary: PrivateAdminUserSummary | undefine
 }
 
 export function UserTable({ users }: { users: AdminUserRow[] }) {
+  const [editingNote, setEditingNote] = useState<AdminUserRow | null>(null)
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
     users.map((user) => user.id),
   )
@@ -157,6 +160,15 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
                 >
                   <UserIdentity user={user} />
                 </Link>
+                <button
+                  type="button"
+                  className="mt-1 block max-w-full truncate text-left text-xs text-muted-foreground hover:text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={user.note ?? undefined}
+                  aria-label={`${user.username}：${user.note ? '编辑备注' : '添加备注'}`}
+                  onClick={() => setEditingNote(user)}
+                >
+                  {user.note ? `备注：${user.note}` : '添加备注'}
+                </button>
               </TableCell>
               <TableCell>
                 <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
@@ -199,6 +211,13 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
           ))}
         </TableBody>
       </Table>
+      <UserNoteDialog
+        user={editingNote}
+        open={editingNote !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingNote(null)
+        }}
+      />
     </div>
   )
 }
