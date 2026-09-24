@@ -82,6 +82,32 @@ async function takeOver(id: string): Promise<void> {
 }
 
 describe('认领', () => {
+  it('serializes account claims and applies the plan limit without blocking another account', async () => {
+    const user = (id: string) => ({
+      id,
+      username: id,
+      password_hash: 'test',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    })
+    await db.insert(schema.users).values([user('account-a'), user('account-b')])
+    await insertQueuedTask('account-a-1', { user_id: 'account-a' })
+    await insertQueuedTask('account-a-2', { user_id: 'account-a' })
+    await insertQueuedTask('account-b-1', { user_id: 'account-b' })
+    billing.concurrencyLimit = 1
+
+    const [first, second] = await Promise.all([
+      claimTaskExecution('account-a-1'),
+      claimTaskExecution('account-a-2'),
+    ])
+    expect([first, second].filter(Boolean)).toHaveLength(1)
+    const other = await claimTaskExecution('account-b-1')
+    expect(other).not.toBeNull()
+    first?.release()
+    second?.release()
+    other?.release()
+  })
+
   it('同一条排着的任务只有一个执行者认领得到', async () => {
     await insertQueuedTask('single-claim')
 

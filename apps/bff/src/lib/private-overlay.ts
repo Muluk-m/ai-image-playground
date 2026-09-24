@@ -72,6 +72,12 @@ export interface PrivateTaskHooks {
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
    */
   taskCredits(input: { taskIds: readonly string[] }): Promise<Readonly<Record<string, number>>>
+  /** Active generation slots for one account. Optional until the pinned overlay supplies plan entitlements. */
+  accountConcurrencyLimit?(input: {
+    tx: BffTransaction
+    userId: string
+    now: number
+  }): Promise<number>
   onUserCreated(input: {
     tx: BffTransaction
     userId: string

@@ -76,6 +76,69 @@ describe('TaskScheduler', () => {
     expect(scheduler.lastSuccessfulPollAt()).toBe(123_456)
   })
 
+  it('skips a full account backlog and starts another account', async () => {
+    const stamp = Date.now()
+    await db.insert(schema.users).values([
+      {
+        id: 'full-account',
+        username: 'full-account',
+        password_hash: 'x',
+        created_at: stamp,
+        updated_at: stamp,
+      },
+      {
+        id: 'other-account',
+        username: 'other-account',
+        password_hash: 'x',
+        created_at: stamp,
+        updated_at: stamp,
+      },
+    ])
+    for (let i = 0; i < 3; i++) {
+      await db.insert(schema.tasks).values({
+        id: `full-running-${i}`,
+        user_id: 'full-account',
+        provider: 'openai-compat',
+        model: 'test-model',
+        status: 'in_progress',
+        request_payload: { prompt: 'x' },
+        submitted_at: i + 1,
+      })
+    }
+    await db.insert(schema.tasks).values([
+      {
+        id: 'full-queued',
+        user_id: 'full-account',
+        provider: 'openai-compat',
+        model: 'test-model',
+        status: 'queued',
+        request_payload: { prompt: 'x' },
+        submitted_at: 4,
+      },
+      {
+        id: 'other-queued',
+        user_id: 'other-account',
+        provider: 'openai-compat',
+        model: 'test-model',
+        status: 'queued',
+        request_payload: { prompt: 'x' },
+        submitted_at: 5,
+      },
+    ])
+
+    const launched: string[] = []
+    const scheduler = new TaskScheduler({
+      concurrency: { 'openai-compat': 1, gemini: 1 },
+      executeTask: async (id) => {
+        launched.push(id)
+      },
+    })
+    scheduler.start()
+    await waitFor(() => launched.length === 1)
+    scheduler.stop()
+    expect(launched).toEqual(['other-queued'])
+  })
+
   it('bounds providers independently and keeps the second OpenAI task queued', async () => {
     await insertTask('openai-1', 'openai-compat', 1)
     await insertTask('openai-2', 'openai-compat', 2)
