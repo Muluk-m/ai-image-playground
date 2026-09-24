@@ -106,6 +106,7 @@ describe('画布图片右键菜单', () => {
     const labels = [...document.querySelectorAll('button')].map((b) => b.textContent)
     expect(labels.some((text) => text?.endsWith('查看原图'))).toBe(true)
     expect(labels.some((text) => text?.includes('长按'))).toBe(false)
+    expect(item('查看原图').querySelector('.lucide-eye')).not.toBeNull()
   })
 
   it('指着的不是图片就没有菜单', () => {

@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react'
+import { Eye, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CopyIcon, DownloadIcon } from '../../../components/icons'
@@ -84,7 +84,7 @@ export default function CanvasImageMenu({
   return (
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
       <ContextMenuItem
-        icon={<span aria-hidden="true">↗</span>}
+        icon={<Eye className="h-4 w-4" aria-hidden="true" />}
         label={t(coarsePointer ? 'imageMenu.previewTouch' : 'imageMenu.preview')}
         onClick={() => setPreview(true)}
       />
