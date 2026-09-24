@@ -216,6 +216,7 @@
     "conversationGone": "This conversation is no longer available. Your canvas and draft are kept, so you can keep creating.",
     "invalidSelection": "That selection can't be used. Mark the area again — your draft is kept.",
     "invalidReference": "Some reference images are no longer available. Select them on the canvas again — your draft is kept.",
+    "referencesNotUploaded": "Some images haven't finished uploading, so this turn wasn't sent. Please retry — your draft is kept.",
     "interjectFailed": "The interjection was not sent. Your draft is kept, please retry.",
     "canvasBindFailed": "The canvas could not be saved into the new conversation. Please retry — the original canvas and draft are kept.",
     "turnAlreadyRunning": "A turn is already running in this conversation. The message was not sent and your draft is kept.",
