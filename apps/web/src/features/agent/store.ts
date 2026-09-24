@@ -14,6 +14,7 @@ import type {
 import {
   AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
+  AGENT_TURN_MAX_INLINE_REFERENCES,
   PROJECT_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -57,6 +58,7 @@ import {
   fetchConversations,
   fetchMessages,
   followTurn,
+  inlineReferenceCount,
   interjectQueuedMessage,
   interjectTurn,
   removeConversation,
@@ -308,6 +310,16 @@ async function withCloudMedia(
     return id ? { ...one, dataUrl: `aip-media:${id}` } : one
   })
 }
+
+/**
+ * 这一份参考图能不能发出去。上传没成、离线、同步被打回时，圈中的图换不成 id，就只剩内联
+ * 这一条路；服务端对内联张数有硬上限，超了必被 4xx 打回。照发的代价不是一次失败，而是
+ * 先把几十 MB 传上几分钟：那几分钟里面板一直挂着「发送中」，最后才说失败。所以发之前就拦。
+ */
+const REFERENCES_NOT_UPLOADED = () => i18next.t('error.referencesNotUploaded', { ns: 'agent' })
+
+const sendableReferences = (references: readonly AgentTurnReference[]) =>
+  inlineReferenceCount(references) <= AGENT_TURN_MAX_INLINE_REFERENCES
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
 
@@ -838,6 +850,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const current = () => get().conversationId === conversationId
     try {
       const sent = await withCloudMedia(references)
+      if (!sendableReferences(sent)) {
+        if (current()) set({ error: REFERENCES_NOT_UPLOADED() })
+        return
+      }
       const outcome = await startTurn(
         conversationId,
         text,
@@ -1325,13 +1341,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
         if (submission.cancelled) return await cancelUnsent()
         const turnParams = currentTurnParams()
+        const sent = await withCloudMedia(references)
+        if (!sendableReferences(sent)) {
+          if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED())
+          await turnDelivery.settled()
+          return
+        }
         // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
         let outcome: StartTurnOutcome
         try {
           outcome = await startTurn(
             target,
             trimmed,
-            await withCloudMedia(references),
+            sent,
             turnParams,
             mode,
             undefined,
