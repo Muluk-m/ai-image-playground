@@ -18,7 +18,8 @@
     "logAria": "对话记录",
     "emptyTitle": "今天，想创作什么？",
     "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。",
-    "jumpToLatest": "有新消息"
+    "jumpToLatest": "有新消息",
+    "errorTitle": "对话出错了"
   },
   "suggestions": {
     "aria": "示例提示词",
@@ -45,7 +46,16 @@
     "skillNotFound": "没找到技能：{{name}}",
     "locateTitle": "在画布上定位这些产物",
     "place": "放入画布",
-    "viewPrompt": "查看提示词"
+    "viewPrompt": "查看提示词",
+    "imageGenerating": "图片正在生成",
+    "status": {
+      "running": "进行中",
+      "queued": "排队中",
+      "waiting": "待确认",
+      "succeeded": "已完成",
+      "failed": "失败",
+      "deliveryFailed": "放入失败"
+    }
   },
   "confirm": {
     "pending": "核对下面这段提示词（可以直接改），然后点「确认生成」。",
