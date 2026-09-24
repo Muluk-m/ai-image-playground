@@ -80,7 +80,11 @@
     "stale": "任务失效",
     "noImages": "生成完成但未返回图片",
     "unconfirmed": "任务未确认，请手动重试",
-    "byokUnrecoverable": "BYOK 任务无法跨会话恢复，请重试"
+    "byokUnrecoverable": "BYOK 任务无法跨会话恢复，请重试",
+    "failedHint": "这次没有生成成功，可以重试",
+    "copyError": "复制错误信息",
+    "errorCopied": "错误信息已复制",
+    "copyFailed": "复制失败"
   },
   "style": {
     "color": "标注颜色 {{color}}"

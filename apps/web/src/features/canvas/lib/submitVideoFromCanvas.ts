@@ -304,7 +304,7 @@ function videoPlaceholderReport(editor: CanvasEditor): GenerationOutcomeReport<s
   return {
     delivered() {},
     failed(placeholderId, failure) {
-      markPlaceholderStatus(editor, placeholderId, 'error', failure.text)
+      markPlaceholderStatus(editor, placeholderId, 'error', failure.text, failure.code)
     },
   }
 }

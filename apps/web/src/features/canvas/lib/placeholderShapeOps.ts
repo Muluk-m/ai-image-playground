@@ -27,8 +27,9 @@ export function markPlaceholderStatus(
   id: string,
   status: Exclude<CanvasTaskStatus, 'loading'>,
   message: string,
+  errorCode?: string,
 ): void {
-  editor.updatePlaceholder(id, { status, message })
+  editor.updatePlaceholder(id, { status, message, ...(errorCode ? { meta: { errorCode } } : {}) })
 }
 
 /**
