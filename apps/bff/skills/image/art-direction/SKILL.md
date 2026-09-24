@@ -1,6 +1,6 @@
 ---
 name: art-direction
-description: 何时用：用户只给了一句笼统想法、要你把画面做出设计感，或要按用途（写实摄影、商品图、界面、信息图、Logo、插画、概念图、广告）组织生图提示词。不处理：带文案的海报 poster、平台主图 product-main-image。
+description: 何时用：用户只给笼统想法，或要按用途组织生图提示词（摄影、界面、信息图、Logo、插画、广告）。不处理：明确要设计完整场景 scene-direction、带文案海报 poster、平台主图 product-main-image。
 ---
 
 # 美术指导：把一句话变成一份生图简报
