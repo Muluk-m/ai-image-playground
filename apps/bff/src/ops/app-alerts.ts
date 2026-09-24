@@ -5,13 +5,14 @@ import {
   type OpsBackups,
   type OpsRestoreDrill,
 } from '@image-playground/shared'
-import { and, desc, eq, min } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import {
   readBackups as readBackupsFromStore,
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
+import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
 /**
@@ -49,11 +50,23 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const [queue, backup, restoreDrill, heartbeats] = await Promise.all([
     attempt('queue', async () => {
-      const [row] = await db
-        .select({ oldest: min(schema.queue_tasks.submitted_at) })
-        .from(schema.queue_tasks)
-        .where(eq(schema.queue_tasks.status, 'queued'))
-      const oldest = row?.oldest == null ? null : Number(row.oldest)
+      const candidates = await Promise.all([
+        selectRunnableTasks('openai-compat', 1, options.now, {
+          excludeArchived: true,
+          orderByEligible: true,
+        }),
+        selectRunnableTasks('gemini', 1, options.now, {
+          excludeArchived: true,
+          orderByEligible: true,
+        }),
+      ])
+      const oldest = candidates
+        .flat()
+        .reduce<number | null>(
+          (current, task) =>
+            current === null ? task.eligibleSince : Math.min(current, task.eligibleSince),
+          null,
+        )
       return { oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest) }
     }),
     attempt('backup', async () => {

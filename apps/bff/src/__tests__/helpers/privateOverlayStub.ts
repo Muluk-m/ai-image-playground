@@ -22,6 +22,7 @@ export interface RecordedTaskHooks {
   settledCredits: number
   /** 其余任务的实扣积分；工具提交的任务 id 测试事先不知道。 */
   creditsPerTask: number
+  concurrencyLimit: number
   reset(): void
 }
 
@@ -38,6 +39,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     pricing: null,
     settledCredits: 0,
     creditsPerTask: 0,
+    concurrencyLimit: 3,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
@@ -46,6 +48,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
       recorded.pricing = null
       recorded.settledCredits = 0
       recorded.creditsPerTask = 0
+      recorded.concurrencyLimit = 3
     },
   }
   _setPrivateBffOverlayForTesting(
@@ -74,6 +77,9 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
         },
         async chatPricing() {
           return recorded.pricing
+        },
+        async accountConcurrencyLimit() {
+          return recorded.concurrencyLimit
         },
       },
     }),

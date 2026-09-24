@@ -1,8 +1,9 @@
 import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
-import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
+import { selectRunnableTasks } from './runnable-tasks'
 import { abortRunningTask, failCrashedExecution, runningTaskIds } from './task-execution'
 import { runTask } from './task-runner'
 
@@ -113,21 +114,9 @@ export class TaskScheduler {
         const available = this.concurrency[provider] - active.size
         if (available <= 0) continue
 
-        const due = await db
-          .select({ id: schema.tasks.id })
-          .from(schema.tasks)
-          .where(
-            and(
-              eq(schema.tasks.provider, provider),
-              eq(schema.tasks.status, 'queued'),
-              or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, now)),
-            ),
-          )
-          .orderBy(asc(schema.tasks.submitted_at))
-          .limit(available)
-
+        const selected = await selectRunnableTasks(provider, available, now)
         if (this.stopped || this.draining) return
-        for (const task of due) this.launch(provider, task.id)
+        for (const task of selected) this.launch(provider, task.id)
       }
       this.lastSuccessfulPollTimestamp = this.clock()
     } catch (err) {

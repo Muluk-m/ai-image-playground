@@ -675,7 +675,13 @@ describe('AgentPanel', () => {
   it('文件拖到对话记录上也进输入框的引用区', async () => {
     render()
     const log = host.querySelector('[data-image-dropzone]')!
-    const file = new File([new Uint8Array([137, 80, 78, 71])], 'ref.png', { type: 'image/png' })
+    const bytes = Uint8Array.from(
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=',
+      ),
+      (char) => char.charCodeAt(0),
+    )
+    const file = new File([bytes], 'ref.png', { type: 'image/png' })
     const event = new Event('drop', { bubbles: true, cancelable: true })
     Object.defineProperty(event, 'dataTransfer', { value: { files: [file], types: ['Files'] } })
     act(() => {

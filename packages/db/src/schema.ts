@@ -784,6 +784,8 @@ export const tasks = pgTable(
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */
     archive_payload: bunJsonb('archive_payload'),
+    /** First durable archive checkpoint; bounds save retries without consuming model attempts. */
+    archive_retry_started_at: epochMs('archive_retry_started_at'),
     error_message: text('error_message'),
     error_type: text('error_type'),
     /**
@@ -823,6 +825,16 @@ export const tasks = pgTable(
   (t) => [
     check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat')`),
     index('idx_tasks_status').on(t.status),
+    index('idx_tasks_queued_provider_time')
+      .on(t.provider, t.submitted_at, t.id)
+      .where(sql`${t.status} = 'queued'`),
+    index('idx_tasks_queued_provider_eligible')
+      .on(
+        t.provider,
+        sql`greatest(${t.submitted_at}, coalesce(${t.next_retry_at}, ${t.submitted_at}))`,
+        t.id,
+      )
+      .where(sql`${t.status} = 'queued'`),
     index('idx_tasks_lease_expires').on(t.lease_expires_at).where(sql`${t.status} = 'in_progress'`),
     index('idx_tasks_submitted_at').on(t.submitted_at),
     index('idx_tasks_next_retry_at').on(t.next_retry_at).where(sql`${t.next_retry_at} IS NOT NULL`),
@@ -871,6 +883,7 @@ export const daily_quota = pgTable(
 // task migrations, so existing read-only grants do not need the view to be dropped and recreated.
 const {
   archive_payload: _archivePayload,
+  archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
   lease_expires_at: _leaseExpiresAt,
   ...queueTaskColumns

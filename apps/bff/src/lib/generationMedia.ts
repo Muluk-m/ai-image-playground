@@ -261,25 +261,19 @@ export async function archiveGenerationOutputs(
       links.push({ role: 'output', position: image.index, mediaId: media.id })
     }
     for (const [position, ref] of (request.input_images ?? []).entries()) {
-      const media = await storeMedia(
-        userId,
-        await readMediaBytes(
-          ref.store === 'durable' ? durableMediaStore() : objectStore(),
-          ref.object,
-        ),
-        ref.mime,
+      const bytes = await readMediaBytes(
+        ref.store === 'durable' ? durableMediaStore() : objectStore(),
+        ref.object,
       )
+      const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? ref.mime)
       links.push({ role: 'input', position, mediaId: media.id })
     }
     if (request.mask) {
-      const media = await storeMedia(
-        userId,
-        await readMediaBytes(
-          request.mask.store === 'durable' ? durableMediaStore() : objectStore(),
-          request.mask.object,
-        ),
-        request.mask.mime,
+      const bytes = await readMediaBytes(
+        request.mask.store === 'durable' ? durableMediaStore() : objectStore(),
+        request.mask.object,
       )
+      const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? request.mask.mime)
       links.push({ role: 'mask', position: 0, mediaId: media.id })
     }
     return links

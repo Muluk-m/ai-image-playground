@@ -10,6 +10,23 @@ const OPAQUE_MIME = /^data:image\/jpe?g/i
 /** 上游只认这几种；AVIF / HEIC / BMP 之类再小也要重编码，否则送出去就是「不是有效图片」。 */
 const UPSTREAM_MIME = /^data:image\/(jpe?g|png|gif|webp)[;,]/i
 
+/** 部分画布来源把 ICO / WebP 标成 PNG；仅看 data URL 头会把小图直接放行。 */
+function hasMatchingImageSignature(dataUrl: string): boolean {
+  const match = /^data:image\/(jpe?g|png|gif|webp);base64,([a-z0-9+/]{16,})/i.exec(dataUrl)
+  if (!match) return false
+  let header: string
+  try {
+    header = atob(match[2]!.slice(0, 32))
+  } catch {
+    return false
+  }
+  const mime = match[1]!.toLowerCase()
+  if (mime === 'jpeg' || mime === 'jpg') return header.startsWith('\xff\xd8\xff')
+  if (mime === 'png') return header.startsWith('\x89PNG\r\n\x1a\n')
+  if (mime === 'gif') return header.startsWith('GIF87a') || header.startsWith('GIF89a')
+  return header.startsWith('RIFF') && header.slice(8, 12) === 'WEBP'
+}
+
 function hasAlphaPixels(ctx: CanvasRenderingContext2D, width: number, height: number): boolean {
   const { data } = ctx.getImageData(0, 0, width, height)
   for (let i = 3; i < data.length; i += 4) {
@@ -21,7 +38,7 @@ function hasAlphaPixels(ctx: CanvasRenderingContext2D, width: number, height: nu
 /** 压缩失败一律回退原图，不因此拦掉一次提交。 */
 async function compressOne(dataUrl: string): Promise<string> {
   const originalBytes = getDataUrlDecodedByteSize(dataUrl)
-  const foreign = !UPSTREAM_MIME.test(dataUrl)
+  const foreign = !UPSTREAM_MIME.test(dataUrl) || !hasMatchingImageSignature(dataUrl)
   if (originalBytes <= PASSTHROUGH_BYTES && !foreign) return dataUrl
 
   try {
@@ -35,7 +52,7 @@ async function compressOne(dataUrl: string): Promise<string> {
     if (!ctx) return dataUrl
     ctx.drawImage(image, 0, 0, width, height)
 
-    const keepAlpha = !OPAQUE_MIME.test(dataUrl) && hasAlphaPixels(ctx, width, height)
+    const keepAlpha = (foreign || !OPAQUE_MIME.test(dataUrl)) && hasAlphaPixels(ctx, width, height)
     const compressed = keepAlpha
       ? canvas.toDataURL('image/png')
       : canvas.toDataURL('image/jpeg', JPEG_QUALITY)

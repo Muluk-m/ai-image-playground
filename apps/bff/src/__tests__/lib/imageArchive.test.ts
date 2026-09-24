@@ -4,8 +4,13 @@ import { Buffer } from 'node:buffer'
 process.env.DATABASE_URL ||= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 process.env.PORT ||= '0'
 
-const { archiveOutputImages, hydrateInputImages, ObjectStorageError, SourceImageFetchError } =
-  await import('../../lib/imageArchive')
+const {
+  archiveInputImages,
+  archiveOutputImages,
+  hydrateInputImages,
+  ObjectStorageError,
+  SourceImageFetchError,
+} = await import('../../lib/imageArchive')
 const { isRetryableError } = await import('../../lib/retry')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
@@ -27,6 +32,35 @@ beforeEach(() => {
 afterEach(() => {
   setObjectStoreForTesting()
   restoreFetch()
+})
+
+describe('archiveInputImages', () => {
+  it('rejects an ICO file masquerading as PNG before submitting to the model', async () => {
+    const ico = Buffer.from([0, 0, 1, 0, 1, 0, 32, 32, 0, 0, 0, 0])
+    await expect(
+      archiveInputImages('task-ico', {
+        prompt: 'edit',
+        input_images: [`data:image/png;base64,${ico.toString('base64')}`],
+      }),
+    ).rejects.toThrow('参考图是 ICO 格式')
+    expect(store.objects.size).toBe(0)
+  })
+
+  it('uses the actual image MIME for a mislabeled reference and hydrates old references', async () => {
+    const jpeg = Buffer.from(JPEG_8X8_BASE64, 'base64')
+    const request = await archiveInputImages('task-jpeg', {
+      prompt: 'edit',
+      input_images: [`data:image/png;base64,${jpeg.toString('base64')}`],
+    })
+    expect(request.input_images?.[0]).toEqual({ object: 'task-jpeg/in/0', mime: 'image/jpeg' })
+    expect(store.objects.get('task-jpeg/in/0')?.contentType).toBe('image/jpeg')
+
+    const old = await hydrateInputImages({
+      prompt: 'edit',
+      input_images: [{ object: 'task-jpeg/in/0', mime: 'image/png' }],
+    })
+    expect(old.input_images?.[0]).toBe(`data:image/jpeg;base64,${JPEG_8X8_BASE64}`)
+  })
 })
 
 describe('archiveOutputImages openai-compat', () => {

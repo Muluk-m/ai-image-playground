@@ -1,6 +1,7 @@
 import { hostname } from 'node:os'
-import type { PersistedSubmitRequest } from '@image-playground/shared'
+import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, isNull, lte, or, type SQL, sql } from 'drizzle-orm'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
 import {
@@ -13,6 +14,7 @@ import {
 } from '../db/task-transitions'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
+import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
 
 /**
  * 任务执行：认领 → 带 fence 的写 → 收尾。
@@ -50,6 +52,7 @@ export type ClaimedTask = Pick<
   | 'request_payload'
   | 'user_id'
   | 'archive_payload'
+  | 'archive_retry_started_at'
   | 'attempt_count'
   | 'upstream_task_ids'
   | 'upstream_submitted_at'
@@ -239,6 +242,45 @@ export async function claimTaskExecution(
 ): Promise<TaskExecution | null> {
   const token = `${hostname()}:${crypto.randomUUID()}`
   const claimed = await db.transaction(async (tx) => {
+    const [candidate] = await tx
+      .select({ userId: schema.tasks.user_id, provider: schema.tasks.provider })
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'queued')))
+      .limit(1)
+    if (!candidate) return null
+    if (candidate.userId) {
+      // The user row serializes claims across worker instances. Count and status update must
+      // share this transaction, otherwise two workers can both see the last free account slot.
+      await tx
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.id, candidate.userId))
+        .for('update')
+      const limits = await accountGenerationLimits(
+        tx,
+        candidate.userId,
+        candidate.provider,
+        claimedAt,
+      )
+      const [active] = await tx
+        .select({
+          total: sql<number>`count(*)::int`,
+          provider: sql<number>`count(*) filter (where ${schema.tasks.provider} = ${candidate.provider})::int`,
+        })
+        .from(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.user_id, candidate.userId),
+            eq(schema.tasks.kind, 'queue'),
+            eq(schema.tasks.status, 'in_progress'),
+          ),
+        )
+      if (
+        Number(active?.total ?? 0) >= limits.total ||
+        Number(active?.provider ?? 0) >= limits.provider
+      )
+        return null
+    }
     const [row] = await tx
       .update(schema.tasks)
       .set({
@@ -260,6 +302,7 @@ export async function claimTaskExecution(
         request_payload: schema.tasks.request_payload,
         user_id: schema.tasks.user_id,
         archive_payload: schema.tasks.archive_payload,
+        archive_retry_started_at: schema.tasks.archive_retry_started_at,
         attempt_count: schema.tasks.attempt_count,
         upstream_task_ids: schema.tasks.upstream_task_ids,
         upstream_submitted_at: schema.tasks.upstream_submitted_at,
@@ -272,6 +315,23 @@ export async function claimTaskExecution(
   const execution = new TaskExecutionHandle(id, token, claimedAt, claimed)
   running.set(id, execution)
   return execution
+}
+
+/** The claim is authoritative; the scheduler also reads this to skip accounts at capacity. */
+export async function accountGenerationLimits(
+  tx: BffTransaction,
+  userId: string,
+  provider: QueueProvider,
+  now: number,
+): Promise<{ total: number; provider: number }> {
+  const overlay = await loadPrivateBffOverlay()
+  const entitled = (await overlay.taskHooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
+  const requested = Number.isInteger(entitled) && entitled > 0 ? entitled : 1
+  const providerSlots =
+    provider === 'openai-compat'
+      ? config.worker.concurrency.openaiCompat
+      : config.worker.concurrency.gemini
+  return { total: requested, provider: Math.max(1, providerSlots - 1) }
 }
 
 /** cancel route / scheduler 调用：打断对应任务的上游 fetch。返回是否找到。 */
