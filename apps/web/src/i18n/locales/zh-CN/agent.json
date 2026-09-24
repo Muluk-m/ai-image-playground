@@ -293,7 +293,7 @@
       "queued": "排队中",
       "generating": "生成中",
       "reconnecting": "重新连接中",
-      "confirming": "确认结果",
+      "confirming": "保存结果中",
       "delivering": "放入画布"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",

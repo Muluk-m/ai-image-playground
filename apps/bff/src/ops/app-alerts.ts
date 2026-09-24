@@ -5,7 +5,7 @@ import {
   type OpsBackups,
   type OpsRestoreDrill,
 } from '@image-playground/shared'
-import { and, desc, eq, min } from 'drizzle-orm'
+import { and, desc, eq, isNull, lte, min, or, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import {
@@ -50,9 +50,20 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const [queue, backup, restoreDrill, heartbeats] = await Promise.all([
     attempt('queue', async () => {
       const [row] = await db
-        .select({ oldest: min(schema.queue_tasks.submitted_at) })
-        .from(schema.queue_tasks)
-        .where(eq(schema.queue_tasks.status, 'queued'))
+        .select({
+          oldest: min(
+            sql<number>`(extract(epoch from greatest(${schema.tasks.submitted_at}, coalesce(${schema.tasks.next_retry_at}, ${schema.tasks.submitted_at}))) * 1000)::bigint`,
+          ),
+        })
+        .from(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.kind, 'queue'),
+            eq(schema.tasks.status, 'queued'),
+            isNull(schema.tasks.archive_payload),
+            or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, options.now)),
+          ),
+        )
       const oldest = row?.oldest == null ? null : Number(row.oldest)
       return { oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest) }
     }),

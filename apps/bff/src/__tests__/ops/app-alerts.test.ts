@@ -36,6 +36,33 @@ await writer.db.insert(writer.schema.tasks).values([
     request_payload: { prompt: 'x', device_id: 'd' },
     submitted_at: now - 50 * minute,
   },
+  {
+    id: 'generated-result-awaiting-save',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    archive_payload: { outputs: [] },
+    submitted_at: now - 50 * minute,
+  },
+  {
+    id: 'retry-not-due',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    next_retry_at: now + minute,
+    submitted_at: now - 50 * minute,
+  },
+  {
+    id: 'retry-just-due',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    next_retry_at: now - minute,
+    submitted_at: now - 50 * minute,
+  },
 ])
 await writer.db.insert(writer.schema.service_heartbeats).values([
   { service: 'bff', instance: 'old', version: 'a', last_seen_at: now - 3 * hour },
@@ -58,7 +85,7 @@ describe('observeApp', () => {
       }),
     })
 
-    // 对话轮不在生成队列里，不计入排队等待。
+    // 对话轮、保存结果重试、未到期重试都不占实际排队；已到期重试从到期时算。
     expect(observation.queue?.oldest_queued_wait_ms).toBeGreaterThanOrEqual(12 * minute)
     expect(observation.queue?.oldest_queued_wait_ms).toBeLessThan(13 * minute)
     expect(observation.backup).toEqual({ latest_modified_at: now - 30 * hour })

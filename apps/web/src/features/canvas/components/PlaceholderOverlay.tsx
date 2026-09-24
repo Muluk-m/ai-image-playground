@@ -7,7 +7,11 @@ import {
   useAgentToolProgress,
 } from '../../agent/components/AgentJobProgress'
 import { AgentRetryWithdraw } from '../../agent/components/AgentToolCard'
-import { toolMessageForPlaceholder } from '../../agent/lib/jobProgress'
+import {
+  AGENT_JOB_STEPS,
+  agentJobStep,
+  toolMessageForPlaceholder,
+} from '../../agent/lib/jobProgress'
 import {
   agentLiveRetry,
   agentRerunBlock,
@@ -105,10 +109,38 @@ function AgentPlaceholderLabel({ placeholder }: { placeholder: PlaceholderView }
       ...(placeholder.meta.cloudGeneration ? { taskId: placeholder.meta.cloudGeneration.id } : {}),
     }),
   )
-  const text = useAgentJobProgressText(useAgentToolProgress(message))
+  const progress = useAgentToolProgress(message)
+  const text = useAgentJobProgressText(progress)
+  const reached = progress ? AGENT_JOB_STEPS.indexOf(agentJobStep(progress.phase)) : -1
   return (
-    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-      {text ?? t('placeholder.generating')}
+    <span
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+      }}
+    >
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {text ?? t('placeholder.generating')}
+      </span>
+      {reached >= 0 && (
+        <span aria-hidden="true" style={{ display: 'flex', gap: 4, width: 'min(120px, 100%)' }}>
+          {AGENT_JOB_STEPS.map((step, index) => (
+            <span
+              key={step}
+              className={index === reached ? 'animate-pulse' : undefined}
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: 4,
+                background: index <= reached ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+              }}
+            />
+          ))}
+        </span>
+      )}
     </span>
   )
 }
