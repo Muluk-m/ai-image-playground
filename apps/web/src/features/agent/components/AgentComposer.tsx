@@ -409,11 +409,14 @@ export default function AgentComposer({
   /**
    * 发送与中止是同一颗按钮的两个状态：输入框空着才是中止，写了字就是发送（忙时进排队）。
    * 停止只掐当前这段回复，已经在跑的出图不受影响（ADR 0012）。
+   *
+   * 点下去这颗按钮当场变回发送，不再有「正在中止…」的禁用态：跟服务端交涉的那几百毫秒里
+   * 用户照常打字、照常发，`send` 会静默等中止落定再起新轮。
    */
-  const stopMode = running && !draft.prompt.trim()
+  const stopMode = running && !stopping && !draft.prompt.trim()
 
   const submit = () => {
-    if (loading || submitting || historyBlocked || stopping) return
+    if (loading || submitting || historyBlocked) return
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
     // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
@@ -713,18 +716,10 @@ export default function AgentComposer({
             <AgentParamsChip />
             <ComposerSend
               streaming={stopMode}
-              idle={
-                !stopping &&
-                !historyBlocked &&
-                !loading &&
-                !submitting &&
-                Boolean(draft.prompt.trim())
-              }
+              idle={!historyBlocked && !loading && !submitting && Boolean(draft.prompt.trim())}
               aria-label={
                 stopMode
-                  ? stopping
-                    ? t('composer.aborting')
-                    : t('composer.abort')
+                  ? t('composer.abort')
                   : submitting
                     ? t('composer.sending')
                     : running
@@ -739,9 +734,7 @@ export default function AgentComposer({
                     : t('composer.sendAndCreateTitle')
               }
               disabled={
-                stopMode
-                  ? stopping
-                  : historyBlocked || loading || submitting || !draft.prompt.trim()
+                stopMode ? false : historyBlocked || loading || submitting || !draft.prompt.trim()
               }
               onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
             />
