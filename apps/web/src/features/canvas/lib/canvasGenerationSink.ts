@@ -223,7 +223,7 @@ export function canvasGenerationSink(
     },
 
     failed(handle, failure) {
-      markPlaceholderStatus(editor, handle.placeholderId, 'error', failure.text)
+      markPlaceholderStatus(editor, handle.placeholderId, 'error', failure.text, failure.code)
     },
   }
 }
