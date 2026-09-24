@@ -118,8 +118,8 @@ function readings(
     out.queue = {
       breached: wait !== null && wait > OPS_THRESHOLDS.QUEUE_WAIT_MS,
       sustainMs: 0,
-      firingText: `最老的排队任务已经等了 ${span(wait ?? 0)}（告警线 ${span(OPS_THRESHOLDS.QUEUE_WAIT_MS)}）`,
-      resolvedText: '已恢复：队列不再积压',
+      firingText: `最老的可运行排队任务已经等了 ${span(wait ?? 0)}（告警线 ${span(OPS_THRESHOLDS.QUEUE_WAIT_MS)}）`,
+      resolvedText: '已恢复：可运行队列不再积压',
     }
   }
 

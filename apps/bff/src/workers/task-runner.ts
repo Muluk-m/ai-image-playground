@@ -32,6 +32,8 @@ import {
 } from '../lib/upstream'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 
+const ARCHIVE_RETRY_BUDGET_MS = 60 * 60_000
+
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
  *
@@ -89,6 +91,7 @@ export async function runTask(id: string): Promise<void> {
       status: 'failed',
       errorType: 'interrupted',
       errorMessage: '任务执行异常',
+      preserveArchive: true,
       completedAt: Date.now(),
     })
     throw error
@@ -124,7 +127,26 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   let archivePayload = task.archive_payload
   let receivedImages = false
   let protectOutput: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
+  const stopExpiredArchive = async (cause?: unknown): Promise<boolean> => {
+    if (!archivePayload) return false
+    const startedAt = task.archive_retry_started_at ?? claimedAt
+    if (now() - startedAt < ARCHIVE_RETRY_BUDGET_MS) return false
+    const failed = await execution.finish({
+      status: 'failed',
+      errorType: 'object_storage_error',
+      errorMessage: '图片已生成，但保存结果连续失败超过 1 小时，已停止自动重试。请联系支持。',
+      preserveArchive: true,
+      completedAt: now(),
+    })
+    if (failed)
+      log.error(
+        { event: 'task.archive_retry_exhausted', taskId: id, startedAt, err: String(cause) },
+        'generated output archive exceeded retry budget',
+      )
+    return true
+  }
   try {
+    if (await stopExpiredArchive()) return
     if (cloudArchive && !archivePayload) {
       const preserved = await execution.preserveInputs(request)
       if (!preserved) return
@@ -286,6 +308,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     const rejectedMaskedOutput =
       err instanceof MaskedOutputArchiveError && err.cause instanceof MaskedOutputError
     if (archivePayload && !rejectedMaskedOutput) {
+      if (await stopExpiredArchive(err)) return
       await execution.requeueArchive(Date.now() + 60_000, archivePayload)
       log.warn(
         { event: 'task.archive_retry', taskId: id, err: String(err) },

@@ -61,8 +61,9 @@ export async function archiveInputImages(
     const refs: StoredImageRef[] = []
     for (const input of request.input_images) {
       const decoded = decodeDataUrl(input)
-      const ref = { object: `${taskId}/in/${index}`, mime: decoded.mime }
-      await writeWithRetry(ref.object, decoded.bytes, ref.mime)
+      const mime = inputImageMime(decoded.bytes, decoded.mime)
+      const ref = { object: `${taskId}/in/${index}`, mime }
+      await writeWithRetry(ref.object, decoded.bytes, mime)
       refs.push(ref)
       index++
     }
@@ -71,8 +72,9 @@ export async function archiveInputImages(
 
   if (request.mask) {
     const decoded = decodeDataUrl(request.mask)
-    const ref = { object: `${taskId}/in/${index}`, mime: decoded.mime }
-    await writeWithRetry(ref.object, decoded.bytes, ref.mime)
+    const mime = inputImageMime(decoded.bytes, decoded.mime)
+    const ref = { object: `${taskId}/in/${index}`, mime }
+    await writeWithRetry(ref.object, decoded.bytes, mime)
     archived.mask = ref
   }
 
@@ -320,7 +322,8 @@ async function hydrateObjectRef(ref: StoredImageRef): Promise<string> {
     const bytes = await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(
       ref.object,
     )
-    return `data:${ref.mime};base64,${Buffer.from(bytes).toString('base64')}`
+    const mime = detectMediaMime(bytes) ?? ref.mime
+    return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
   } catch (error) {
     throw new ObjectStorageError(`Object storage read failed for ${ref.object}`, { cause: error })
   }
@@ -358,6 +361,23 @@ export function decodeDataUrl(value: string): { bytes: Uint8Array; mime: string 
   return { bytes: Buffer.from(match[2]!, 'base64'), mime: match[1]! }
 }
 
+function inputImageMime(bytes: Uint8Array, declaredMime: string): string {
+  const mime = detectMediaMime(bytes)
+  if (mime?.startsWith('image/')) return mime
+  // Some imported icons carry ICO bytes while their data URL labels them PNG.
+  // Reject this known unsupported signature before charging or calling the image model.
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0 &&
+    bytes[1] === 0 &&
+    (bytes[2] === 1 || bytes[2] === 2) &&
+    bytes[3] === 0
+  ) {
+    throw new TypeError('参考图是 ICO 格式，请重新导出为 PNG、JPEG、WebP 或 GIF')
+  }
+  return declaredMime
+}
+
 function openAIOutputMime(format: string | undefined): string {
   if (format === 'jpeg' || format === 'jpg') return 'image/jpeg'
   if (format === 'webp') return 'image/webp'
@@ -380,6 +400,17 @@ export function detectMediaMime(bytes: Uint8Array): string | undefined {
   }
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return 'image/jpeg'
+  }
+  if (
+    bytes.length >= 6 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38 &&
+    (bytes[4] === 0x37 || bytes[4] === 0x39) &&
+    bytes[5] === 0x61
+  ) {
+    return 'image/gif'
   }
   if (
     bytes.length >= 12 &&

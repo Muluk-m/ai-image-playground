@@ -3,7 +3,7 @@ import {
   type TaskErrorType,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, gt, inArray, type SQL } from 'drizzle-orm'
+import { and, eq, gt, inArray, type SQL, sql } from 'drizzle-orm'
 import { agentJobsEnded } from '../lib/agent/wake'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
@@ -96,7 +96,10 @@ export async function saveArchiveCheckpoint(
   return db.transaction(async (tx) => {
     const updated = await tx
       .update(schema.tasks)
-      .set({ archive_payload: payload })
+      .set({
+        archive_payload: payload,
+        archive_retry_started_at: sql`coalesce(${schema.tasks.archive_retry_started_at}, now())`,
+      })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
     await publishGenerations(
@@ -121,6 +124,7 @@ export async function requeueTaskArchive(
         status: 'queued',
         next_retry_at: nextRetryAt,
         archive_payload: payload,
+        archive_retry_started_at: sql`coalesce(${schema.tasks.archive_retry_started_at}, now())`,
         error_message: '图片已生成，正在重试保存',
         error_type: 'object_storage_error',
       })
@@ -147,6 +151,8 @@ export type TerminalTaskUpdate = {
   upstreamBody?: string | null
   actualUsage?: TaskUsage
   media?: GenerationMediaLink[]
+  /** Keep the generated source for operator recovery after archive retries expire. */
+  preserveArchive?: boolean
 }
 
 /**
@@ -164,7 +170,7 @@ export async function finishTask(
       .update(schema.tasks)
       .set({
         status: update.status,
-        archive_payload: null,
+        ...(update.preserveArchive ? {} : { archive_payload: null }),
         attempt_count: update.attemptCount,
         upstream_invocation_count: update.upstreamInvocationCount,
         result_payload: update.resultPayload,

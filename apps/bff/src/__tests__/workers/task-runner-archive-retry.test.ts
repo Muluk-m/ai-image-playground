@@ -55,6 +55,8 @@ async function readTask(id: string) {
       errorMessage: schema.tasks.error_message,
       completedAt: schema.tasks.completed_at,
       invocations: schema.tasks.upstream_invocation_count,
+      archivePayload: schema.tasks.archive_payload,
+      archiveRetryStartedAt: schema.tasks.archive_retry_started_at,
     })
     .from(schema.tasks)
     .where(eq(schema.tasks.id, id))
@@ -121,5 +123,34 @@ describe('object store write failure', () => {
       attempt: 0,
     })
     expect(row?.errorMessage).toContain('Object storage write failed')
+  })
+})
+
+describe('durable archive retry budget', () => {
+  it('stops an hour-old save retry without another upstream call and keeps its checkpoint', async () => {
+    const checkpoint = { archive_store: 'durable', data: [{ object: 'expired/out/0' }] }
+    await db.insert(schema.tasks).values({
+      id: 'archive-expired',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'queued',
+      request_payload: { prompt: 'already generated' },
+      archive_payload: checkpoint,
+      archive_retry_started_at: Date.now() - 61 * 60_000,
+      submitted_at: Date.now() - 62 * 60_000,
+    })
+
+    await runTask('archive-expired')
+
+    const row = await readTask('archive-expired')
+    expect(row).toMatchObject({
+      status: 'failed',
+      errorType: 'object_storage_error',
+      attempt: 0,
+      invocations: 0,
+      archivePayload: checkpoint,
+    })
+    expect(row?.errorMessage).toContain('超过 1 小时')
+    expect(row?.completedAt).not.toBeNull()
   })
 })

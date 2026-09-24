@@ -18,6 +18,14 @@ const minute = 60_000
 const hour = 60 * minute
 const now = Date.now()
 
+await writer.db.insert(writer.schema.users).values({
+  id: 'full-alert-account',
+  username: 'full-alert-account',
+  password_hash: 'test',
+  created_at: now,
+  updated_at: now,
+})
+
 await writer.db.insert(writer.schema.tasks).values([
   {
     id: 'waiting-long',
@@ -32,6 +40,51 @@ await writer.db.insert(writer.schema.tasks).values([
     kind: 'chat',
     provider: 'openai-compat',
     model: 'gpt-5',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    submitted_at: now - 50 * minute,
+  },
+  {
+    id: 'generated-result-awaiting-save',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    archive_payload: { outputs: [] },
+    submitted_at: now - 50 * minute,
+  },
+  {
+    id: 'retry-not-due',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    next_retry_at: now + minute,
+    submitted_at: now - 50 * minute,
+  },
+  {
+    id: 'retry-just-due',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'queued',
+    request_payload: { prompt: 'x', device_id: 'd' },
+    next_retry_at: now - minute,
+    submitted_at: now - 50 * minute,
+  },
+  ...Array.from({ length: 3 }, (_, index) => ({
+    id: `full-alert-running-${index}`,
+    user_id: 'full-alert-account',
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    status: 'in_progress' as const,
+    request_payload: { prompt: 'x', device_id: 'd' },
+    submitted_at: now - 55 * minute,
+  })),
+  {
+    id: 'full-alert-queued',
+    user_id: 'full-alert-account',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
     status: 'queued',
     request_payload: { prompt: 'x', device_id: 'd' },
     submitted_at: now - 50 * minute,
@@ -58,7 +111,7 @@ describe('observeApp', () => {
       }),
     })
 
-    // 对话轮不在生成队列里，不计入排队等待。
+    // 对话轮、保存重试、未到期重试和账号限流不占实际排队；已到期重试从到期时算。
     expect(observation.queue?.oldest_queued_wait_ms).toBeGreaterThanOrEqual(12 * minute)
     expect(observation.queue?.oldest_queued_wait_ms).toBeLessThan(13 * minute)
     expect(observation.backup).toEqual({ latest_modified_at: now - 30 * hour })

@@ -319,7 +319,7 @@
       "queued": "Queued",
       "generating": "Generating",
       "reconnecting": "Reconnecting",
-      "confirming": "Confirming results",
+      "confirming": "Saving result",
       "delivering": "Adding to canvas"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
