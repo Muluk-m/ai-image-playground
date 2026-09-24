@@ -318,6 +318,71 @@ it('读取错误保留原画布，重试成功前不发送空文档', async () =
   await expect(session.sync()).rejects.toThrow('unavailable')
 })
 
+it('读取失败后画布照常编辑，重试读取不拿云端版本盖掉失败之后的本机修改', async () => {
+  const { project, editor } = await fresh()
+  let reads = 0
+  const puts: { baseRevision: number; document: { elements: { text?: string }[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      reads += 1
+      if (reads === 1) return Response.json({ error: 'unavailable' }, { status: 503 })
+      return Response.json({
+        id: project.id,
+        name: '本机编辑',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
+    }),
+  )
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  await expect(session.load(true)).rejects.toThrow()
+  expect(session.getSnapshot().status).toBe('load-error')
+
+  editor.doc.addElements([
+    {
+      id: 'later',
+      type: 'text',
+      x: 0,
+      y: 0,
+      text: '失败之后写的',
+      fontSize: 24,
+      fill: '#000',
+      width: 100,
+      height: 30,
+    },
+  ])
+  session.markChanged()
+  await session.reload()
+
+  expect(editor.doc.elements.map((one) => one.id)).toEqual(['note', 'later'])
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual([
+    '本机原稿',
+    '失败之后写的',
+  ])
+})
+
+it('读取之前那几步就失败：落到可重试的读取失败，不停在读取中', async () => {
+  const { project, editor } = await fresh()
+  vi.stubGlobal('fetch', vi.fn())
+  const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  vi.spyOn(record, 'checkpoint', 'get').mockReturnValue({
+    version: 2,
+    revision: 1,
+  } as unknown as ReturnType<() => typeof record.checkpoint>)
+
+  await expect(session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  expect(session.getSnapshot().status).toBe('load-error')
+})
+
 it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
   const { project, editor } = await fresh()
   editor.doc.addElements(
@@ -389,8 +454,13 @@ it('收到冲突后停写，刷新后仍保留本机原稿', async () => {
   await second.load(true)
   expect(second.getSnapshot().status).toBe('conflict')
   expect(restored.doc.elements[0]).toMatchObject({ text: '本机原稿' })
-  // PUT 撞 409 后会自动去拉云端稿；这里云端也拒绝，本机原稿必须原样留下。
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  // PUT 撞 409 后会自动去拉云端稿（两个会话各拉一次，先后不定）；这里云端也拒绝，本机原稿必须
+  // 原样留下，且停写之后不再有第二次提交。
+  const methods = fetcher.mock.calls.map(
+    (call: unknown[]) => (call[1] as RequestInit | undefined)?.method,
+  )
+  expect(methods.filter((method) => method === 'PUT')).toHaveLength(1)
+  expect(methods.filter((method) => method !== 'PUT').length).toBeGreaterThanOrEqual(1)
 })
 
 it('较早确认不能把同步期间的新编辑标成已同步', async () => {
@@ -949,6 +1019,13 @@ it.each([
   await expect(session.load(true)).rejects.toThrow()
   expect(session.getSnapshot().status).toBe(expected)
   await expect(session.sync()).rejects.toThrow()
+  await new Promise((r) => setTimeout(r, 200))
+  console.log(
+    'CALLS',
+    JSON.stringify(
+      fetcher.mock.calls.map((c: unknown[]) => [c[0], (c[1] as RequestInit | undefined)?.method]),
+    ),
+  )
   expect(fetcher).toHaveBeenCalledTimes(2)
   session.dispose()
 })

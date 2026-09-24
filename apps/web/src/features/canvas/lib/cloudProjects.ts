@@ -272,7 +272,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
   load(hasLocalScene = false): Promise<void> {
     this.lastCheck = Date.now()
     this.loadedWithLocal = hasLocalScene
-    return this.serialize(() => this.loadCurrent(hasLocalScene))
+    return this.serialize(() => this.loadCurrent(hasLocalScene)).catch((error: unknown) => {
+      // 读取之前的几步（检查点校验、本机原图对账）抛出时状态还停在读取中：画布已经交给用户，
+      // 不落到 load-error 就没有重试入口。
+      if (this.state.status === 'loading') this.update('load-error', classifyFailure(error).message)
+      throw error
+    })
   }
   /** 读取失败（`load-error`）后的手动重试：本机画布已经在用了，只能在这里再读一遍。 */
   reload(): Promise<void> {
@@ -360,10 +365,18 @@ export class CloudProjectSession implements CloudSceneStrategy {
       hasLocalScene &&
       this.baseline.savedContent !== null &&
       (!local || content(this.project.name, local) !== this.baseline.savedContent)
+    // 读取失败后画布照常可编辑：失败之后动过的内容不能被这次重读盖掉。有基线时 `dirty` 按内容比过了；
+    // 还没有基线可比就按修改推，云端若已前进，服务端 409 会转入冲突处理（另存副本），两边都不丢。
+    const editedAfterFailedRead =
+      retryingRead &&
+      hasLocalScene &&
+      this.baseline.savedContent === null &&
+      this.editVersion !== this.readVersion
     if (
       this.baseline.pending ||
       this.baseline.conflict ||
       dirty ||
+      editedAfterFailedRead ||
       (this.project.cloud?.revision === 0 && this.baseline.revision === 0)
     ) {
       this.writable = true

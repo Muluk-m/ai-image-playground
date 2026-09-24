@@ -65,10 +65,10 @@ export class CanvasWorkspace {
         if (hasLocal) {
           // 本机已有这份画布就先交给用户：云端核对与补传原图（大画布要逐张上传）放到后台。
           // 与 refresh 同一条路：加载期间的编辑由 loadCurrent 认出来改走推送，不会被云端版本盖掉。
+          // 云端文档里没有可续跑的画布任务（服务端预留的占位由它自己收尾），续跑只看本机这份，不必等。
+          recoverCanvasTasks(this.editor)
           const settle = () => {
-            if (this.disposed) return
-            cloud.start()
-            recoverCanvasTasks(this.editor)
+            if (!this.disposed) cloud.start()
           }
           void cloud.load(true).then(settle, settle)
           return
