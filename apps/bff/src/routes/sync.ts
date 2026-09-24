@@ -21,6 +21,7 @@ import {
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { validationMessage } from '../lib/http'
 import { synchronize } from '../lib/sync'
 import { assetImageByteLimit, readAssetImage, storeAssetImage } from '../lib/sync-assets'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -126,7 +127,7 @@ export const syncRoutes = new Elysia()
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
     if (code === 'VALIDATION') {
       set.status = 400
-      return { error: 'invalid_request', message: error.message }
+      return { error: 'invalid_request', message: validationMessage(error) }
     }
   })
   .use(resolveAuthUser)

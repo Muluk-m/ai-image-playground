@@ -4,7 +4,7 @@ import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
-import { deviceIdSchema } from '../lib/http'
+import { deviceIdSchema, validationMessage } from '../lib/http'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
@@ -84,7 +84,7 @@ export const submitRoutes = new Elysia()
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
     if (code === 'VALIDATION') {
       set.status = 400
-      return { error: 'invalid_request', message: error.message }
+      return { error: 'invalid_request', message: validationMessage(error) }
     }
   })
   .post(
