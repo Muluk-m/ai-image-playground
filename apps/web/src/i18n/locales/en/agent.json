@@ -136,7 +136,6 @@
     "tooManyUploads_one": "At most {{count}} uploaded or library image per turn (images selected on the canvas don't count)",
     "tooManyUploads_other": "At most {{count}} uploaded or library images per turn (images selected on the canvas don't count)",
     "abortedToast": "Stopped. Your draft is back in the box.",
-    "aborting": "Stopping…",
     "modeAria": "Creation type",
     "modeImage": "Image",
     "modeVideo": "Video",

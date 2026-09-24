@@ -559,7 +559,7 @@ describe('发送与中止共用一颗按钮', () => {
     expect(abort).not.toHaveBeenCalled()
   })
 
-  it('中止请求还没回来时按钮停用，不会重复发出中止', () => {
+  it('中止还在路上时按钮已经变回发送：不再有停用的「正在中止」', () => {
     const abort = vi.fn(async () => {})
     useAgentStore.setState({
       turn: 'running',
@@ -569,8 +569,18 @@ describe('发送与中止共用一颗按钮', () => {
     })
     render()
 
-    expect(trailing().getAttribute('aria-label')).toBe('正在中止…')
+    // 轮还在跑，所以标签仍是「加入排队」；关键是它不再是中止，也没有停用的「正在中止」。
+    expect(trailing().getAttribute('aria-label')).toBe('加入排队')
     expect(trailing().disabled).toBe(true)
+
+    type('那换成夜景')
+    expect(trailing().getAttribute('aria-label')).toBe('加入排队')
+    expect(trailing().disabled).toBe(false)
+    act(() => {
+      trailing().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(send).toHaveBeenCalledWith('那换成夜景', [])
+    expect(abort).not.toHaveBeenCalled()
   })
 
   it('写着字时 Esc 仍能中止，不必先清空输入框', () => {

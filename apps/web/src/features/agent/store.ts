@@ -347,6 +347,11 @@ const QUEUE_PICKUP_ATTEMPTS = 8
 const QUEUE_PICKUP_DELAY_MS = 250
 /** 停止请求没拿到响应时，连同第一次一共发这么多次。 */
 const STOP_ATTEMPTS = 3
+/**
+ * 停止已经答应下来、轮的终帧还没到时，紧接着发出的那一句最多等这么久。等到了就起新的一轮，
+ * 等不到就按当时的状态走（挂成排队消息，服务端收尾后照样处理），不把用户卡在这里。
+ */
+const ABORT_SETTLE_GRACE_MS = 2_000
 
 /**
  * 服务端在起轮时把首句标题交给小模型改写，改完不另行通知。首轮收尾读到的多半还是首句，
@@ -397,7 +402,7 @@ function readPanelWidth(): number {
   return Number.isFinite(raw) && raw > 0 ? clampPanelWidth(raw) : PANEL_WIDTH
 }
 
-export const useAgentStore = create<AgentState>((set, get) => {
+export const useAgentStore = create<AgentState>((set, get, store) => {
   const delivery = createArtifactDelivery((messageId, status) =>
     set((state) => ({
       messages: state.messages.map((message) =>
@@ -781,7 +786,35 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
 
   // 发送请求尚未返回轮标识时，也必须记住用户的中止意图。
-  let pendingStart: { cancelled: boolean; delivery: TurnArtifactDelivery } | null = null
+  let pendingStart: {
+    cancelled: boolean
+    delivery: TurnArtifactDelivery
+    settled: Promise<void>
+  } | null = null
+  /** 还没落定的那次中止。界面已经放行，新的一轮在起轮前静默等它，不把话挂到正在停的轮上。 */
+  let abortInFlight: Promise<unknown> | null = null
+  /**
+   * 服务端答应了停，轮的终帧还在流上飞：等它落地（有上限），紧接着发出的那一句才起成新的一轮，
+   * 而不是被挂成正在停的这一轮的排队消息。等不到就按现状走，不把用户卡在这里。
+   */
+  const turnSettledAfterAbort = (conversationId: string) =>
+    new Promise<void>((resolve) => {
+      const now = get()
+      if (now.conversationId !== conversationId || now.turn !== 'running' || !now.stopping) {
+        resolve()
+        return
+      }
+      const finish = () => {
+        clearTimeout(timer)
+        unsubscribe()
+        resolve()
+      }
+      const timer = setTimeout(finish, ABORT_SETTLE_GRACE_MS)
+      const unsubscribe = store.subscribe((next) => {
+        if (next.conversationId !== conversationId || next.turn !== 'running' || !next.stopping)
+          finish()
+      })
+    })
   const requestAbort = async (conversationId: string, turnId: string) => {
     const current = () =>
       get().conversationId === conversationId && get().activeTurn?.turnId === turnId
@@ -1193,7 +1226,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     async send(text, references = [], onAccepted, mode = get().mode, clientMessageId) {
-      if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
+      // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
+      // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
+      if (get().stopping && abortInFlight) await abortInFlight
+      if (changingProject || get().historyLoading || get().historyFailed) return
       const trimmed = text.trim()
       if (!trimmed) return
       // 计费部署的起轮要账号（BFF 在 `/api/agent/turns` 上直接 401）：先弹登录框，
@@ -1278,7 +1314,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
           void autoNameProject(sourceProject.id, titled).catch(() => {})
       }
       const turnDelivery = delivery.beginTurn()
-      const submission = { cancelled: false, delivery: turnDelivery }
+      let settleSubmission = () => {}
+      const submitted = new Promise<void>((resolve) => {
+        settleSubmission = resolve
+      })
+      const submission = { cancelled: false, delivery: turnDelivery, settled: submitted }
       pendingStart = submission
       const cancelUnsent = async () => {
         if (turnDelivery.isCurrent())
@@ -1429,6 +1469,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
       } finally {
         settleJournal()
+        settleSubmission()
         if (pendingStart === submission) pendingStart = null
       }
     },
@@ -1440,12 +1481,20 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (!active || !conversationId) {
         if (pendingStart?.delivery.isCurrent()) {
           pendingStart.cancelled = true
+          abortInFlight = pendingStart.settled
           set({ stopping: true, error: null })
         }
         return
       }
       set({ stopping: true, error: null })
-      await requestAbort(conversationId, active.turnId)
+      const settling = requestAbort(conversationId, active.turnId)
+      // 界面已经放行；下一句要等的是「请求回来 + 终帧落地」，`abort()` 自己只等请求。
+      const settled = settling.then(() => turnSettledAfterAbort(conversationId))
+      abortInFlight = settled
+      void settled.finally(() => {
+        if (abortInFlight === settled) abortInFlight = null
+      })
+      await settling
     },
 
     async withdrawQueued(queueId) {
