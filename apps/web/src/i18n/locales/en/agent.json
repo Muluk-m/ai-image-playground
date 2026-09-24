@@ -18,7 +18,8 @@
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
     "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing.",
-    "jumpToLatest": "New messages"
+    "jumpToLatest": "New messages",
+    "errorTitle": "Chat error"
   },
   "suggestions": {
     "aria": "Example prompts",
@@ -45,7 +46,16 @@
     "skillNotFound": "Skill not found: {{name}}",
     "locateTitle": "Find these results on the canvas",
     "place": "Add to canvas",
-    "viewPrompt": "View prompt"
+    "viewPrompt": "View prompt",
+    "imageGenerating": "Image generating",
+    "status": {
+      "running": "Running",
+      "queued": "Queued",
+      "waiting": "Awaiting confirmation",
+      "succeeded": "Completed",
+      "failed": "Failed",
+      "deliveryFailed": "Placement failed"
+    }
   },
   "confirm": {
     "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",

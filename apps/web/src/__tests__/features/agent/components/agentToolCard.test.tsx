@@ -81,6 +81,42 @@ it('says a submitted background job is still generating and will land on the can
     act(() => root.unmount())
   }
 })
+
+it('shows the assistant-ui image element only while an image result is pending', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const message: AgentToolMessage = {
+    kind: 'tool',
+    id: 'image-step',
+    turnId: 'turn',
+    toolCallId: 'call',
+    toolName: 'generateImage',
+    title: '一只橘猫',
+    prompt: '阳光下的一只橘猫',
+    status: 'submitted',
+  }
+  try {
+    act(() => root.render(<AgentToolCard message={message} />))
+    expect(host.querySelector('[data-slot="image-generation"]')).not.toBeNull()
+    expect(
+      host.querySelector('[data-slot="image-generation"]')?.getAttribute('data-generating'),
+    ).toBe('true')
+    expect(host.querySelectorAll('[data-slot="image-generation"] .grid-cols-8 span')).toHaveLength(
+      64,
+    )
+    expect(host.querySelector('[data-slot="tool-status"]')?.getAttribute('data-status')).toBe(
+      'running',
+    )
+
+    act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
+    expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
+    expect(host.querySelector('[data-slot="tool-status"]')?.getAttribute('data-status')).toBe(
+      'succeeded',
+    )
+  } finally {
+    act(() => root.unmount())
+  }
+})
 describe('后台任务的进度与取消', () => {
   const NOW = Date.UTC(2026, 8, 18, 10, 0, 0)
   const submitted = {
@@ -315,6 +351,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed(code))
     try {
       expect(host.textContent).toContain(text)
+      expect(host.querySelector('[data-slot="error-state"]')?.getAttribute('role')).toBe('alert')
       // 界面不读服务端文字（ADR 0006）。
       expect(host.textContent).not.toContain('服务端写的那句话')
       expect(buttons(host)).toEqual([action])
