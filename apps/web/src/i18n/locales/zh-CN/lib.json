@@ -17,6 +17,9 @@
     "onlyImages": "只支持图片文件",
     "skippedNonImages_other": "已跳过 {{count}} 个非图片文件",
     "limitReached": "参考图数量已达上限（{{max}} 张），无法继续添加",
+    "confirmBatchTitle": "确认批量导入图片",
+    "confirmBatchMessage": "即将导入 {{count}} 张图片，确认继续吗？",
+    "confirmBatchAction": "确定导入 {{count}} 张图片",
     "tooLarge_other": "{{count}} 张图片超过 {{max}}MB，已跳过"
   },
   "imageFetch": {

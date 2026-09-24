@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { useToolboxStore } from '../store'
 
@@ -12,8 +13,13 @@ export function useToolboxIntake() {
   const add = useToolboxStore((state) => state.add)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
-  const { dragging, dropZoneProps } = useImageDropZone((files) => void add(files))
-  usePasteImageFiles('tools', (files) => void add(files))
+  /** 四条路都汇到这里：非图片已经筛掉，剩下的一次进太多就先问一声，确认了才解码入列。 */
+  const intake = (images: File[]) => {
+    if (images.length === 0) return
+    confirmImageBatch(images.length, () => void add(images))
+  }
+  const { dragging, dropZoneProps } = useImageDropZone(intake)
+  usePasteImageFiles('tools', intake)
 
   const inputs = (
     <>
@@ -24,7 +30,7 @@ export function useToolboxIntake() {
         multiple
         hidden
         onChange={(event) => {
-          void add(acceptImageFiles([...(event.target.files ?? [])]))
+          intake(acceptImageFiles([...(event.target.files ?? [])]))
           event.target.value = ''
         }}
       />
@@ -36,7 +42,7 @@ export function useToolboxIntake() {
         {...{ webkitdirectory: '' }}
         onChange={(event) => {
           const { files } = filesFromFolderInput(event.target.files)
-          void add(acceptImageFiles(files))
+          intake(acceptImageFiles(files))
           event.target.value = ''
         }}
       />

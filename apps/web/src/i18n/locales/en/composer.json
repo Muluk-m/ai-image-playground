@@ -58,6 +58,8 @@
     "dropFormats": "Up to {{count}} images, ≤{{mb}}MB each - JPG, PNG, WebP",
     "addFailed": "Could not add the image: {{reason}}",
     "attach": "Add reference images (up to {{count}}, ≤{{mb}}MB each)",
+    "attachImages": "Add images",
+    "attachFolder": "Add a folder",
     "summaryWithMask_one": "1 mask image · {{count}} reference image",
     "summaryWithMask_other": "1 mask image · {{count}} reference images",
     "summary_one": "{{count}} reference image",
