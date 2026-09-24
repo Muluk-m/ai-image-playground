@@ -61,9 +61,21 @@ export class CanvasWorkspace {
               )
           },
         )
-        await this.cloud.load(hasLocal)
-        this.cloud.start()
-        this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
+        const cloud = this.cloud
+        if (hasLocal) {
+          // 本机已有这份画布就先交给用户：云端核对与补传原图（大画布要逐张上传）放到后台。
+          // 与 refresh 同一条路：加载期间的编辑由 loadCurrent 认出来改走推送，不会被云端版本盖掉。
+          const settle = () => {
+            if (this.disposed) return
+            cloud.start()
+            recoverCanvasTasks(this.editor)
+          }
+          void cloud.load(true).then(settle, settle)
+          return
+        }
+        await cloud.load(false)
+        cloud.start()
+        this.needsInitialFit = this.doc.elements.length > 0
       }
       recoverCanvasTasks(this.editor)
     })

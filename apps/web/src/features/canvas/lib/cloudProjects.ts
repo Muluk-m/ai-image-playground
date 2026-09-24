@@ -117,6 +117,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   private readonly editor: CanvasEditor
   private baseline: Checkpoint = { revision: 0, savedContent: null, pending: null, conflict: false }
   private readonly mediaBindings: LoadedBindings = new Map()
+  private loadedWithLocal = false
   private initialized = false
   private writable = false
   private readRequired = false
@@ -270,7 +271,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
   }
   load(hasLocalScene = false): Promise<void> {
     this.lastCheck = Date.now()
+    this.loadedWithLocal = hasLocalScene
     return this.serialize(() => this.loadCurrent(hasLocalScene))
+  }
+  /** 读取失败（`load-error`）后的手动重试：本机画布已经在用了，只能在这里再读一遍。 */
+  reload(): Promise<void> {
+    return this.load(this.loadedWithLocal).then(() => this.requestSync())
   }
   refresh(force = false): Promise<void> {
     if (

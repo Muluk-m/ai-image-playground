@@ -195,3 +195,59 @@ it('编辑之后不用手动推：防抖落盘顺手把这份文档送上去', a
     vi.unstubAllGlobals()
   }
 })
+
+it('本机已有画布：先交给用户，补传原图在后台进行，不挡加载', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const source = 'data:image/png;base64,iVBORw0KGgoAAAAA'
+  const uploads: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+      if (url === source)
+        return new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      if (url.endsWith('/api/media/uploads')) {
+        uploads.push(url)
+        // 大画布逐张上传要很久：这里干脆不回，加载也必须照样结束。
+        return new Promise<Response>(() => {})
+      }
+      const body = JSON.parse(init!.body as string)
+      return Response.json({
+        id: project.id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: body.document.elements.length,
+      })
+    }),
+  )
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create('大画布', undefined, true)
+  useCanvasProjectStore.setState({ projects: [project] })
+  const first = new CanvasWorkspace(project.sceneKey)
+  let second: CanvasWorkspace | undefined
+  try {
+    await first.ready
+    first.doc.addElements(
+      [{ id: 'img', type: 'image', fileId: 'f', x: 0, y: 0, width: 10, height: 10, rotation: 0 }],
+      { files: { f: source } },
+    )
+    await first.flush()
+    first.dispose()
+
+    second = new CanvasWorkspace(project.sceneKey)
+    await second.ready
+    expect(second.getSnapshot().loading).toBe(false)
+    expect(second.doc.elements.map((one) => one.id)).toEqual(['img'])
+    await vi.waitFor(() => expect(uploads.length).toBeGreaterThan(0), { timeout: 3000 })
+  } finally {
+    first.dispose()
+    second?.dispose()
+    useCanvasProjectStore.setState({ projects: [] })
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    await bootstrapClientCapabilities(false, '')
+    vi.unstubAllGlobals()
+  }
+})
