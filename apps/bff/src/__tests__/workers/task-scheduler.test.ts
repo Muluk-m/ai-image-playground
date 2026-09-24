@@ -189,9 +189,9 @@ describe('TaskScheduler', () => {
     scheduler.stop()
     expect(launched.slice(0, 4)).toEqual([
       'busy-queued-0',
+      'waiting-queued',
       'busy-queued-1',
       'busy-queued-2',
-      'waiting-queued',
     ])
   })
 

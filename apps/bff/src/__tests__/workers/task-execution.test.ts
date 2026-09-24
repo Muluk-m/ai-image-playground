@@ -82,6 +82,19 @@ async function takeOver(id: string): Promise<void> {
 }
 
 describe('认领', () => {
+  it('starts the archive retry clock at the first durable checkpoint', async () => {
+    await insertQueuedTask('checkpoint-clock')
+    const execution = await claimTaskExecution('checkpoint-clock')
+    const before = Date.now()
+    expect(await execution!.saveCheckpoint({ outputs: [] })).toBe(true)
+    const started = (await readTask('checkpoint-clock'))?.archive_retry_started_at
+    expect(started).toBeGreaterThanOrEqual(before)
+    expect(started).toBeLessThanOrEqual(Date.now())
+    expect(await execution!.requeueArchive(Date.now() + 60_000, { outputs: [] })).toBe(true)
+    expect((await readTask('checkpoint-clock'))?.archive_retry_started_at).toBe(started)
+    execution!.release()
+  })
+
   it('serializes account claims and applies the plan limit without blocking another account', async () => {
     const user = (id: string) => ({
       id,

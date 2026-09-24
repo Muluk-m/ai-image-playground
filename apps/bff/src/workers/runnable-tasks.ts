@@ -16,17 +16,23 @@ export async function selectRunnableTasks(
 ): Promise<Array<{ id: string; eligibleSince: number }>> {
   const selected: Array<{ id: string; eligibleSince: number }> = []
   const excludedUsers = new Set<string>()
+  const roundUsers = new Set<string>()
+  const selectedTaskIds = new Set<string>()
   const plannedTotal = new Map<string, number>()
   const plannedProvider = new Map<string, number>()
+  let roundSelections = 0
   let cursor: { sortAt: number; id: string } | undefined
-  const eligibleAt = sql<number>`(extract(epoch from greatest(${schema.tasks.submitted_at}, coalesce(${schema.tasks.next_retry_at}, ${schema.tasks.submitted_at}))) * 1000)::bigint`
+  const eligibleAt = sql`greatest(${schema.tasks.submitted_at}, coalesce(${schema.tasks.next_retry_at}, ${schema.tasks.submitted_at}))`
   const orderAt = options.orderByEligible ? eligibleAt : schema.tasks.submitted_at
   while (selected.length < available) {
     const afterCursor = cursor
       ? options.orderByEligible
         ? or(
-            gt(eligibleAt, cursor.sortAt),
-            and(eq(eligibleAt, cursor.sortAt), gt(schema.tasks.id, cursor.id)),
+            gt(eligibleAt, sql`to_timestamp(${cursor.sortAt} / 1000.0)`),
+            and(
+              eq(eligibleAt, sql`to_timestamp(${cursor.sortAt} / 1000.0)`),
+              gt(schema.tasks.id, cursor.id),
+            ),
           )
         : or(
             gt(schema.tasks.submitted_at, cursor.sortAt),
@@ -48,15 +54,26 @@ export async function selectRunnableTasks(
           eq(schema.tasks.kind, 'queue'),
           options.excludeArchived ? isNull(schema.tasks.archive_payload) : undefined,
           or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, now)),
-          excludedUsers.size
-            ? or(isNull(schema.tasks.user_id), notInArray(schema.tasks.user_id, [...excludedUsers]))
+          excludedUsers.size || roundUsers.size
+            ? or(
+                isNull(schema.tasks.user_id),
+                notInArray(schema.tasks.user_id, [...excludedUsers, ...roundUsers]),
+              )
             : undefined,
+          selectedTaskIds.size ? notInArray(schema.tasks.id, [...selectedTaskIds]) : undefined,
           afterCursor,
         ),
       )
       .orderBy(asc(orderAt), asc(schema.tasks.id))
       .limit(Math.max(16, available * 4))
-    if (due.length === 0) break
+    if (due.length === 0) {
+      // Give each account one task before returning to accounts with spare entitlement.
+      if (roundSelections === 0 || selected.length >= available) break
+      roundUsers.clear()
+      roundSelections = 0
+      cursor = undefined
+      continue
+    }
     const last = due[due.length - 1]!
     cursor = {
       sortAt: options.orderByEligible
@@ -94,6 +111,7 @@ export async function selectRunnableTasks(
       const limits = new Map<string, { total: number; provider: number }>()
       for (const task of due) {
         if (task.userId) {
+          if (roundUsers.has(task.userId) || excludedUsers.has(task.userId)) continue
           let limit = limits.get(task.userId)
           if (!limit) {
             limit = await accountGenerationLimits(tx, task.userId, provider, now)
@@ -108,10 +126,13 @@ export async function selectRunnableTasks(
           }
           plannedTotal.set(task.userId, (plannedTotal.get(task.userId) ?? 0) + 1)
           plannedProvider.set(task.userId, (plannedProvider.get(task.userId) ?? 0) + 1)
+          roundUsers.add(task.userId)
           if (total + 1 >= limit.total || onProvider + 1 >= limit.provider) {
             excludedUsers.add(task.userId)
           }
         }
+        selectedTaskIds.add(task.id)
+        roundSelections++
         selected.push({
           id: task.id,
           eligibleSince: Math.max(task.submittedAt, task.nextRetryAt ?? task.submittedAt),

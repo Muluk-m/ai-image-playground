@@ -52,6 +52,7 @@ export type ClaimedTask = Pick<
   | 'request_payload'
   | 'user_id'
   | 'archive_payload'
+  | 'archive_retry_started_at'
   | 'attempt_count'
   | 'upstream_task_ids'
   | 'upstream_submitted_at'
@@ -301,6 +302,7 @@ export async function claimTaskExecution(
         request_payload: schema.tasks.request_payload,
         user_id: schema.tasks.user_id,
         archive_payload: schema.tasks.archive_payload,
+        archive_retry_started_at: schema.tasks.archive_retry_started_at,
         attempt_count: schema.tasks.attempt_count,
         upstream_task_ids: schema.tasks.upstream_task_ids,
         upstream_submitted_at: schema.tasks.upstream_submitted_at,

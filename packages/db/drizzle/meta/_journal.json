@@ -302,6 +302,13 @@
       "when": 1790224800000,
       "tag": "0043_queue_provider_time",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790228400000,
+      "tag": "0044_archive_retry_budget",
+      "breakpoints": true
     }
   ]
 }
