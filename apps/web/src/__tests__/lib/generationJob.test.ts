@@ -2,18 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as PrivateOverlay from '../../lib/privateOverlay'
 
 // 结算通知是这条链路的出站口：它有没有被发出去就是「余额刷不刷新」本身。
-// 门禁与 callImageApi 一律用真的，只有这三个出站通知换成探针。
+// 账号门禁与 callImageApi 用真的；单测扇出时可单独放行没有余额 fixture 的计费门禁。
 const overlay = vi.hoisted(() => ({
   accepted: vi.fn(),
   errored: vi.fn(),
   settled: vi.fn(),
+  bypassBillingGuard: false,
 }))
-vi.mock('../../lib/privateOverlay', async (importOriginal) => ({
-  ...(await importOriginal<typeof PrivateOverlay>()),
-  notifyPrivateSubmissionAccepted: overlay.accepted,
-  notifyPrivateSubmissionError: overlay.errored,
-  notifyPrivateSubmissionSettled: overlay.settled,
-}))
+vi.mock('../../lib/privateOverlay', async (importOriginal) => {
+  const original = await importOriginal<typeof PrivateOverlay>()
+  return {
+    ...original,
+    getPrivateSubmissionGuard: (input: PrivateOverlay.PrivateSubmissionInput) =>
+      overlay.bypassBillingGuard ? { blocked: false } : original.getPrivateSubmissionGuard(input),
+    notifyPrivateSubmissionAccepted: overlay.accepted,
+    notifyPrivateSubmissionError: overlay.errored,
+    notifyPrivateSubmissionSettled: overlay.settled,
+  }
+})
 
 import { setSignedIn, subscribeLoginPrompt } from '../../auth/loginPrompt'
 import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../lib/apiProfiles'
@@ -119,6 +125,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  overlay.bypassBillingGuard = false
   vi.restoreAllMocks()
   setChannels([])
   await bootstrapClientCapabilities(false, '')
@@ -169,6 +176,7 @@ describe('扇出规则只有一份', () => {
       .mockResolvedValue(Response.json({ ...allCapabilitiesOff(), 'billing:credits': true }))
     await bootstrapClientCapabilities(true, '')
     fetchMock.mockRestore()
+    overlay.bypassBillingGuard = true
     const settings = builtinSettings(channelWith(['generate']))
     stubHangingQueue()
     const { sink, opened } = recordingSink()
