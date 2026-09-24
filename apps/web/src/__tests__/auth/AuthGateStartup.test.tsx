@@ -69,7 +69,7 @@ function saveCoachState(key: string, dismissed: boolean) {
   )
 }
 
-async function boot() {
+async function boot(expectReady = true) {
   // Match main.tsx: static AuthGate imports precede capability discovery and identity lookup.
   const { AuthGate } = await import('../../auth/AuthGate')
   const { loadRuntimeConfig } = await import('../../lib/runtimeConfig')
@@ -84,7 +84,7 @@ async function boot() {
     ),
   )
   await act(async () => vi.dynamicImportSettled())
-  expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  if (expectReady) expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
 }
 
 function coachDismissed(): string | null | undefined {
@@ -131,6 +131,29 @@ describe('fallback startup', () => {
     await act(async () => window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT)))
     expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
   })
+})
+
+describe('connection recovery', () => {
+  it('retries a failed channel request and opens the workspace without a click', async () => {
+    let channelsAvailable = false
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/channels') && !channelsAvailable)
+        return Response.json({ error: 'unavailable' }, { status: 503 })
+      return original(...args)
+    })
+
+    await boot(false)
+    expect(host.textContent).toContain('正在准备工作台')
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1100)))
+    expect(host.textContent).toContain('连接暂时中断')
+    expect(host.querySelector('.auth-recovery-card')).not.toBeNull()
+
+    channelsAvailable = true
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2100)))
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  }, 7000)
 })
 
 describe('anonymous startup', () => {
