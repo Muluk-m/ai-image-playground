@@ -47,6 +47,7 @@ import {
 } from './skills'
 import { agentThinking } from './thinking'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
+import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
 import { type AgentTurnInput, clarificationChainStart, estimateTurnInputTokens } from './turn-input'
 import { wakePlan } from './wake'
@@ -208,8 +209,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
 
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
+    // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
+    const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
     const estimated = (one: TurnContent): EstimatedTurnInput => {
-      const input = turnInputOf(window, one, audience)
+      const input = turnInputOf(window, one, audience, skillTexts)
       return { input, estimatedInputTokens: estimateTurnInputTokens(input) }
     }
     const withNote = estimated(content)
@@ -306,6 +309,7 @@ function turnInputOf(
   history: AgentHistoryWindow,
   content: TurnContent,
   audience: AgentTurnAudience,
+  skillTexts: ReadonlyMap<string, string>,
 ): AgentTurnInput {
   const note = content.wakes?.note
   return {
@@ -318,6 +322,7 @@ function turnInputOf(
     autoSubmit: content.params?.autoSubmit === true,
     selectionHistoryStart: content.selectionHistoryStart,
     audience,
+    ...(skillTexts.size > 0 ? { skillTexts } : {}),
   }
 }
 

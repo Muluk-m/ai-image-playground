@@ -9,8 +9,8 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { APP_MODE_LABELS, storeImageFromFile, useStore } from '../../../store'
 import { useAgentSkills } from '../../agent/lib/useAgentSkills'
 import ProjectsTab from '../../canvas/components/ProjectsTab'
-import { availableImageModels } from '../lib/activeLook'
-import { lookBatchEnabled } from '../lib/batchClient'
+import { availableImageModels, pinLookParams } from '../lib/activeLook'
+import { libraryAgentReady } from '../lib/libraryAgent'
 import { type LookItem, lookNeedsRetune, matchLooksByName, mergeLookItems } from '../lib/looks'
 import {
   type LibraryTab,
@@ -21,7 +21,6 @@ import {
 import type { AssetRecord } from '../types'
 import AssetCard from './AssetCard'
 import AssetDetail from './AssetDetail'
-import BatchDialog from './BatchDialog'
 import CreateRecordDialog, { handoffToAgent } from './CreateRecordDialog'
 import { AssetsEmpty, NoMatch, TemplatesEmpty } from './LibraryEmpty'
 import LookCard from './LookCard'
@@ -60,7 +59,6 @@ export default function LibraryPage() {
   const [creating, setCreating] = useState<'asset' | 'look' | null>(null)
   const [assetDetail, setAssetDetail] = useState<AssetRecord | null>(null)
   const [lookDetail, setLookDetail] = useState<LookItem | null>(null)
-  const [batchLook, setBatchLook] = useState<LookItem | null>(null)
 
   useEffect(() => {
     const library = useLibraryStore.getState()
@@ -86,8 +84,8 @@ export default function LibraryPage() {
     [lookRecords, skills, searchKeyword],
   )
   const models = useMemo(() => availableImageModels(), [settings])
-  // 智能体创建与批量出图都要登录并开了同步：素材库在服务端才有一份，智能体才读得到。
-  const agentReady = lookBatchEnabled()
+  // 智能体创建与用模板出图都要登录并开了同步：素材库与模板在服务端才有一份，智能体才读得到。
+  const agentReady = libraryAgentReady()
   const mine = looks.filter((look) => look.origin === 'user')
   const builtin = looks.filter((look) => look.origin === 'builtin')
   // 详情里的记录随库变：改名、删除后不能还显示旧的那份。
@@ -97,6 +95,12 @@ export default function LibraryPage() {
   const liveLookDetail = lookDetail
     ? (looks.find((one) => one.skillName === lookDetail.skillName) ?? null)
     : null
+
+  // 用它出图：模型与尺寸切到模板钉死的那套，`/look-…` 放进画布输入框，等用户挑素材、点发送。
+  const generateWithLook = (look: LookItem) => {
+    pinLookParams(look)
+    handoffToAgent(`/${look.skillName} `)
+  }
 
   const tuneLook = (look: LookItem) =>
     handoffToAgent(
@@ -233,7 +237,7 @@ export default function LibraryPage() {
                   needsRetune={lookNeedsRetune(look, models)}
                   canGenerate={agentReady}
                   onOpen={setLookDetail}
-                  onGenerate={setBatchLook}
+                  onGenerate={generateWithLook}
                   onTune={tuneLook}
                 />
               ))}
@@ -252,7 +256,7 @@ export default function LibraryPage() {
                     needsRetune={lookNeedsRetune(look, models)}
                     canGenerate={agentReady}
                     onOpen={setLookDetail}
-                    onGenerate={setBatchLook}
+                    onGenerate={generateWithLook}
                     onTune={tuneLook}
                   />
                 ))}
@@ -297,12 +301,11 @@ export default function LibraryPage() {
           onClose={() => setLookDetail(null)}
           onGenerate={(look) => {
             setLookDetail(null)
-            setBatchLook(look)
+            generateWithLook(look)
           }}
           onTune={tuneLook}
         />
       )}
-      {batchLook && <BatchDialog look={batchLook} onClose={() => setBatchLook(null)} />}
       {creating === 'asset' && (
         <CreateRecordDialog
           kind="asset"

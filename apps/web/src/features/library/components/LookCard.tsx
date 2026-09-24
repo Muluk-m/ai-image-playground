@@ -58,9 +58,7 @@ export default function LookCard({
             {t('look.slots', { count: look.slotCount })}
           </span>
         </div>
-        <span className="truncate text-[11px] text-muted-foreground">
-          {look.model} · {look.size}
-        </span>
+        <span className="truncate text-[11px] text-muted-foreground">{look.size}</span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
