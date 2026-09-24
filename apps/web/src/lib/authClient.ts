@@ -43,8 +43,8 @@ async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T
 }
 
-export async function getCurrentUser(): Promise<AuthUserView> {
-  const result = await authJson<{ user: AuthUserView }>('/api/auth/me')
+export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUserView> {
+  const result = await authJson<{ user: AuthUserView }>('/api/auth/me', { signal })
   return result.user
 }
 
