@@ -340,6 +340,17 @@ export function findAgentSkill(mode: AgentMode, name: string): AgentSkill | unde
   return index[mode].find((skill) => skill.name === name)
 }
 
+/**
+ * 会话标题用的那一句：开头的 `/skill-name` 换成技能标题。项目列表里给人看的是「建模板」，
+ * 不是命令。认不出的名字原样留着，与 `expandSkillInvocation` 同一条规则。
+ */
+export function titleSourceText(text: string, mode: AgentMode): string {
+  const trimmed = text.trim()
+  const match = /^\/([a-z0-9-]+)(?=\s|$)/.exec(trimmed)
+  const skill = match ? findAgentSkill(mode, match[1] ?? '') : undefined
+  return match && skill ? skill.title + trimmed.slice(match[0].length) : text
+}
+
 export function agentSkillSummaries(mode: AgentMode): AgentSkillSummary[] {
   return index[mode].map(agentSkillSummary)
 }
