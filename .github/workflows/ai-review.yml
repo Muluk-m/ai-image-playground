@@ -1,0 +1,384 @@
+name: AI Code Review
+
+# 进 main 的 PR 跑一遍 AI 评审（阿里 open-code-review / ocr），结果发成行内评论 + Job Summary，不阻断合并。
+# 照抄公司 qiliangjia/qlj-action-tools 的 code-review workflow：那是私有组织仓库，个人仓库
+# `uses:` 不到它，也继承不到组织级 secret，所以步骤内联在这里，key 配成本仓库的 CI_LLM_API_KEY。
+#
+# 首次评审 base→head 全量 diff；之后每次 push 只审 before→head 的增量。
+# 想完整复评：在 PR 里评论 `/review`。
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# 同一 head 的重复运行互相替代；不同 head 各自一组，连续 push 不漏评。
+concurrency:
+  group: ai-code-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event.pull_request.head.sha || github.event.comment.id }}
+  cancel-in-progress: true
+
+env:
+  LLM_URL: https://sub2api.qiliangjia.org/v1/chat/completions
+  LLM_MODEL: gpt-6-sol
+  # 低于这一级的意见只进 Job Summary，不刷到 PR 上。
+  MIN_SEVERITY: P1
+
+jobs:
+  review:
+    # 评论触发只认 PR 上、以 /review 开头、且由有写权限的人发的评论：这一路会花 key 的额度。
+    if: >-
+      ${{ (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+          || (github.event_name == 'issue_comment'
+              && github.event.issue.pull_request != null
+              && startsWith(github.event.comment.body, '/review')
+              && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Resolve PR context
+        id: ctx
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let pr;
+            if (context.eventName === 'issue_comment') {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: context.issue.number,
+              });
+              pr = data;
+            } else {
+              pr = context.payload.pull_request;
+            }
+            const isSynchronize = context.eventName !== 'issue_comment'
+              && context.payload.action === 'synchronize';
+            const baseSha = isSynchronize ? (context.payload.before || '') : '';
+            if (isSynchronize && !baseSha) {
+              core.warning('synchronize payload has no previous head SHA; falling back to a full PR review');
+            }
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('base_sha', baseSha);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('pr_number', String(pr.number));
+            core.setOutput('title', pr.title || '');
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.ctx.outputs.head_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install OpenCodeReview
+        run: |
+          npm install -g @alibaba-group/open-code-review
+          echo "::notice::OpenCodeReview installed: $(ocr version 2>/dev/null || echo unknown)"
+
+      - name: Configure OCR
+        env:
+          OCR_LLM_AUTH_TOKEN: ${{ secrets.CI_LLM_API_KEY }}
+        run: |
+          if [ -z "$OCR_LLM_AUTH_TOKEN" ]; then
+            echo "::error::仓库 secret CI_LLM_API_KEY 未配置"
+            exit 1
+          fi
+          ocr config set llm.url "$LLM_URL"
+          ocr config set llm.auth_token "$OCR_LLM_AUTH_TOKEN"
+          ocr config set llm.model "$LLM_MODEL"
+          ocr config set llm.use_anthropic false
+          ocr config set language Chinese
+
+      - name: Resolve review range
+        id: range
+        env:
+          BASE_REF: ${{ steps.ctx.outputs.base_ref }}
+          BASE_SHA: ${{ steps.ctx.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+        run: |
+          git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null \
+            || git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" || true
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "pull/${PR_NUMBER}/head" \
+            || git fetch --no-tags origin "$HEAD_SHA" || true
+
+          FULL_BASE_SHA="$(git rev-parse "origin/${BASE_REF}^{commit}" 2>/dev/null || true)"
+          if [ -z "$FULL_BASE_SHA" ]; then
+            echo "::error::Unable to resolve full-review base origin/${BASE_REF}"
+            exit 1
+          fi
+
+          FROM_SHA="$FULL_BASE_SHA"
+          REVIEW_SCOPE="full"
+          if [ -n "$BASE_SHA" ]; then
+            git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+              || git fetch --no-tags origin "$BASE_SHA" || true
+            if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              FROM_SHA="$(git rev-parse "${BASE_SHA}^{commit}")"
+              REVIEW_SCOPE="incremental"
+            else
+              echo "::warning::Incremental base ${BASE_SHA} is unavailable; falling back to full review from origin/${BASE_REF}"
+            fi
+          fi
+
+          echo "from_sha=${FROM_SHA}" >> "$GITHUB_OUTPUT"
+          echo "scope=${REVIEW_SCOPE}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Selected ${REVIEW_SCOPE} review range ${FROM_SHA}..${HEAD_SHA}"
+
+      - name: Run OpenCodeReview
+        id: review
+        env:
+          FROM_SHA: ${{ steps.range.outputs.from_sha }}
+          REVIEW_SCOPE: ${{ steps.range.outputs.scope }}
+          HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
+          BACKGROUND: ${{ steps.ctx.outputs.title }}
+          REVIEW_GUIDANCE: "请用中文评审。每条评审意见必须以严重级别标签开头，格式 [P0] / [P1] / [P2]：[P0]=阻断性缺陷（安全漏洞、数据丢失、崩溃、必现逻辑错误）；[P1]=重要问题（异常与边界处理缺失、并发/性能隐患、明显坏味道）；[P2]=优化建议（可读性、命名、轻微改进）。标签置于该条意见最前，例如：[P1] 这里未校验空值……"
+          EXCLUDE: "**/node_modules/**,**/dist/**,**/build/**,**/out/**,**/.turbo/**,**/coverage/**,**/generated/**,**/*.generated.*,**/*.min.js,**/*.min.css,**/*.map,**/__snapshots__/**,**/*.snap,**/pnpm-lock.yaml,**/package-lock.json,**/bun.lockb,**/*.lock"
+        run: |
+          RESULT_PATH="${RUNNER_TEMP:-/tmp}/ocr-result.json"
+          STDERR_PATH="${RUNNER_TEMP:-/tmp}/ocr-stderr.log"
+          echo "result_path=${RESULT_PATH}" >> "$GITHUB_OUTPUT"
+          echo "stderr_path=${STDERR_PATH}" >> "$GITHUB_OUTPUT"
+
+          BG="$REVIEW_GUIDANCE"
+          if [ -n "$BACKGROUND" ]; then BG="${BG}"$'\n\n'"业务背景：${BACKGROUND}"; fi
+
+          echo "::notice::Reviewing ${FROM_SHA}..${HEAD_SHA} (${REVIEW_SCOPE})"
+          # 非阻断：评审本身失败不让 CI 红，结果由下一步呈现。
+          ocr review \
+            --from "${FROM_SHA}" \
+            --to "${HEAD_SHA}" \
+            --format json \
+            --audience agent \
+            --concurrency 8 \
+            --background "$BG" \
+            --exclude "$EXCLUDE" \
+            > "${RESULT_PATH}" 2> "${STDERR_PATH}" || true
+
+          echo "----- ocr stdout (json) -----"; cat "${RESULT_PATH}" || true
+          echo "----- ocr stderr -----"; cat "${STDERR_PATH}" || true
+
+      - name: Post review results
+        uses: actions/github-script@v7
+        env:
+          RESULT_PATH: ${{ steps.review.outputs.result_path }}
+          STDERR_PATH: ${{ steps.review.outputs.stderr_path }}
+          HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          POST_INLINE: "true"
+          JOB_SUMMARY: "true"
+        with:
+          script: |
+            const fs = require('fs');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const commitSha = process.env.HEAD_SHA;
+            const postInline = process.env.POST_INLINE === 'true';
+            const wantSummary = process.env.JOB_SUMMARY === 'true';
+            const { owner, repo } = context.repo;
+
+            // ---- 读取 ocr 输出 ----
+            let result = null;
+            try {
+              result = JSON.parse(fs.readFileSync(process.env.RESULT_PATH, 'utf8'));
+            } catch (e) {
+              const stderr = (() => { try { return fs.readFileSync(process.env.STDERR_PATH, 'utf8').trim(); } catch { return ''; } })();
+              const body = `⚠️ **AI Code Review (ocr)** 执行失败，无法解析评审结果。\n${stderr ? fencedBlock(stderr) : ''}`;
+              core.setOutput('issue_count', '0');
+              if (wantSummary) await core.summary.addRaw(body).write();
+              await safeComment(body);
+              return;
+            }
+
+            const comments = result.comments || [];
+            const warnings = result.warnings || [];
+            core.setOutput('issue_count', String(comments.length));
+
+            // ---- 无问题 ----
+            if (comments.length === 0) {
+              const msg = result.message || '未发现问题，看起来不错。';
+              const body = `✅ **AI Code Review (ocr)**：${msg}`;
+              if (wantSummary) await core.summary.addRaw(body).write();
+              await safeComment(body);
+              return;
+            }
+
+            // ---- 严重级别过滤：低于 min_severity 的只进 Job Summary，不发到 PR ----
+            // 未标级别的视为达标（不因漏标而漏报）
+            const RANK = { P0: 0, P1: 1, P2: 2 };
+            const minRank = RANK[String(process.env.MIN_SEVERITY || 'P2').toUpperCase()] ?? 2;
+            const meets = (c) => { const l = levelOf(c); return l === '' || (RANK[l] ?? 0) <= minRank; };
+            const postable = comments.filter(meets);
+            const suppressed = comments.length - postable.length;
+
+            // ---- 拆分：可行内评论 vs 仅摘要 ----
+            const reviewComments = [];
+            const commentsWithoutLine = [];
+            for (const c of postable) {
+              const body = formatComment(c);
+              const hasLine = c.start_line >= 1 || c.end_line >= 1;
+              if (!hasLine) { commentsWithoutLine.push({ comment: c, body }); continue; }
+              const rc = { path: c.path, body, line: c.end_line >= 1 ? c.end_line : c.start_line, side: 'RIGHT' };
+              if (c.start_line >= 1 && c.end_line >= 1 && c.start_line !== c.end_line) {
+                rc.start_line = c.start_line; rc.start_side = 'RIGHT';
+              }
+              reviewComments.push({ comment: c, reviewComment: rc });
+            }
+
+            // ---- Job Summary（不依赖写权限）：按严重级别统计 + 排序 ----
+            if (wantSummary) {
+              const order = { P0: 0, P1: 1, P2: 2, '': 3 };
+              const sorted = [...comments].sort((a, b) => (order[levelOf(a)] ?? 3) - (order[levelOf(b)] ?? 3));
+              const tally = ['P0', 'P1', 'P2'].map(l => `${l}: ${comments.filter(c => levelOf(c) === l).length}`).join(' / ');
+              let s = `## 🔍 AI Code Review (ocr)\n\n发现 **${comments.length}** 个问题（${tally}）。\n`;
+              if (suppressed > 0) s += `\n> ℹ️ 其中 ${suppressed} 条低于 min_severity=${(process.env.MIN_SEVERITY || 'P2').toUpperCase()}，仅在此摘要展示，未发到 PR。\n`;
+              if (warnings.length) s += `\n> ⚠️ 评审过程中产生 ${warnings.length} 条告警。\n`;
+              for (const c of sorted) s += `\n---\n\n${formatCommentMarkdown(c)}\n`;
+              await core.summary.addRaw(s).write();
+            }
+
+            // ---- 发 PR 行内评审（需要 pull-requests: write）----
+            if (!postInline) return;
+
+            // 达标的问题为 0：不向 PR 发"0 问题"评论（低级别问题已在 Job Summary 展示）
+            if (postable.length === 0) {
+              console.log(`无达到 min_severity 的问题；${suppressed} 条低级别仅进 Job Summary，跳过 PR 评论`);
+              return;
+            }
+
+            let summaryBody = buildSummaryBody(comments.length, reviewComments.length, commentsWithoutLine.length, warnings);
+            summaryBody += formatSummaryComments(commentsWithoutLine);
+
+            try {
+              await github.rest.pulls.createReview({
+                owner, repo, pull_number: prNumber, commit_id: commitSha,
+                body: summaryBody, event: 'COMMENT',
+                comments: reviewComments.map(({ reviewComment }) => reviewComment),
+              });
+              console.log(`已发布评审：${reviewComments.length} 条行内评论，${commentsWithoutLine.length} 条进摘要`);
+            } catch (e) {
+              console.log('批量发布行内评论失败，回退为逐条发布：', e.message);
+              await postIndividually(reviewComments, commentsWithoutLine, warnings, comments.length);
+            }
+
+            // ===================== helpers =====================
+            async function safeComment(body) {
+              try {
+                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+              } catch (e) { console.log('发布摘要评论失败（可能无写权限）：', e.message); }
+            }
+
+            async function postIndividually(reviewComments, commentsWithoutLine, warnings, totalCount) {
+              const MAX_RETRIES = 3;
+              const SUCCESS_DELAY = 2000;
+              const FAILURE_DELAY = 1000;
+              let successCount = 0, failedCount = 0;
+              const failedComments = [];
+              for (const { comment, reviewComment } of reviewComments) {
+                let posted = false;
+                for (let attempt = 0; attempt <= MAX_RETRIES && !posted; attempt++) {
+                  try {
+                    await github.rest.pulls.createReview({
+                      owner, repo, pull_number: prNumber, commit_id: commitSha,
+                      body: '', event: 'COMMENT', comments: [reviewComment],
+                    });
+                    successCount++; posted = true;
+                    await sleep(SUCCESS_DELAY);
+                  } catch (innerE) {
+                    const delayMs = computeRetryDelayMs(innerE, attempt);
+                    if (delayMs != null && attempt < MAX_RETRIES) {
+                      console.log(`限流/瞬时错误，${(delayMs/1000).toFixed(1)}s 后重试 ${reviewComment.path}`);
+                      await sleep(delayMs);
+                    } else {
+                      failedCount++; failedComments.push({ comment, error: innerE.message });
+                      await sleep(FAILURE_DELAY);
+                      break;
+                    }
+                  }
+                }
+              }
+              let finalBody = buildSummaryBody(totalCount, successCount, commentsWithoutLine.length + failedComments.length, warnings);
+              finalBody += formatSummaryComments(commentsWithoutLine);
+              finalBody += `\n\n---\n\n📊 **发布统计：** ✅ ${successCount} 条`;
+              if (failedCount > 0) finalBody += ` / ❌ ${failedCount} 条`;
+              for (const { comment, error } of failedComments) {
+                finalBody += `\n\n---\n\n${formatCommentMarkdown(comment, error)}`;
+              }
+              await safeComment(finalBody);
+            }
+
+            function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+            function computeRetryDelayMs(error, attempt) {
+              if (!error) return null;
+              const status = error.status;
+              const isRateLimit = status === 429 || (status === 403 && /rate limit|abuse|secondary/i.test(String(error.message || '')));
+              const isTransient = (status >= 500 && status < 600) || status === 408;
+              if (!isRateLimit && !isTransient) return null;
+              const cap = 300000;
+              const base = isRateLimit ? 60000 : 2000;
+              return Math.min(base * Math.pow(2, attempt), cap);
+            }
+
+            // 从评论内容开头解析严重级别标签 [P0]/[P1]/[P2]（模型按 review_guidance 标注），无则空串
+            function levelOf(c) {
+              const m = String(c.content || '').match(/^\s*[\[【]?\s*(P[012])\b/i);
+              return m ? m[1].toUpperCase() : '';
+            }
+
+            function formatComment(c) {
+              let body = c.content || '';
+              if (c.suggestion_code && c.existing_code) {
+                body += '\n\n**Suggestion:**\n' + fencedBlock(c.suggestion_code, 'suggestion');
+              }
+              return body;
+            }
+
+            function formatCommentMarkdown(c, error) {
+              let md = `### 📄 \`${c.path}\``;
+              if (c.start_line && c.end_line) md += ` (L${c.start_line}-L${c.end_line})`;
+              md += '\n\n';
+              if (error) md += `⚠️ 无法作为行内评论发布：${error}\n\n`;
+              md += c.content || '';
+              if (c.suggestion_code && c.existing_code) {
+                md += '\n\n<details><summary>💡 建议修改</summary>\n\n';
+                md += '**Before:**\n' + fencedBlock(c.existing_code) + '\n\n';
+                md += '**After:**\n' + fencedBlock(c.suggestion_code) + '\n\n</details>';
+              }
+              return md;
+            }
+
+            function buildSummaryBody(total, inlineCount, summaryCount, warnings) {
+              let body = `🔍 **AI Code Review (ocr)** 在本 PR 中发现 **${total}** 个问题。`;
+              if (total > 0) {
+                body += `\n- ✅ ${inlineCount} 条行内评论`;
+                body += `\n- 📝 ${summaryCount} 条摘要`;
+              }
+              if (warnings.length > 0) body += `\n\n⚠️ 评审过程中产生 ${warnings.length} 条告警。`;
+              return body;
+            }
+
+            function formatSummaryComments(list) {
+              let body = '';
+              for (const { comment } of list) body += `\n\n---\n\n${formatCommentMarkdown(comment)}`;
+              return body;
+            }
+
+            function fencedBlock(content, language = '') {
+              const text = String(content || '');
+              const matches = text.match(/`+/g) || [];
+              const maxTicks = matches.reduce((m, t) => Math.max(m, t.length), 0);
+              const fence = '`'.repeat(Math.max(3, maxTicks + 1));
+              let block = fence + language + '\n' + text;
+              if (!text.endsWith('\n')) block += '\n';
+              return block + fence;
+            }
