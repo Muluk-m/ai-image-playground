@@ -3,6 +3,7 @@ import Badge from '../../../components/Badge'
 import { CloseIcon, PlusIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { storeImageFromFile, useStore } from '../../../store'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
@@ -22,9 +23,14 @@ export default function AssetDetail({
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const appendViews = async (files: File[]) => {
+  /** 选进来的图追加成新视角；一次超过阈值先问一声，确认了才存图写库。 */
+  const addViews = (files: File[]) => {
     const images = files.filter((file) => file.type.startsWith('image/'))
     if (images.length === 0) return
+    confirmImageBatch(images.length, () => void appendViews(images))
+  }
+
+  const appendViews = async (images: File[]) => {
     const stored = await Promise.all(
       images.map((file) => storeImageFromFile(file, { compress: true })),
     )
@@ -116,7 +122,7 @@ export default function AssetDetail({
                 multiple
                 className="hidden"
                 onChange={(e) => {
-                  void appendViews([...(e.target.files ?? [])])
+                  addViews([...(e.target.files ?? [])])
                   e.target.value = ''
                 }}
               />

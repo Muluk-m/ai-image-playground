@@ -18,7 +18,16 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
-  useStore.setState({ prompt: '', createTarget: 'generate', appMode: 'library' })
+  useStore.setState({
+    prompt: '',
+    createTarget: 'generate',
+    appMode: 'library',
+    showToast: vi.fn(),
+    setConfirmDialog: vi.fn(),
+  })
+  // jsdom 没有对象 URL，预览图拿不到地址就渲染不出来。
+  URL.createObjectURL = ((file: File) => `blob:${file.name}`) as typeof URL.createObjectURL
+  URL.revokeObjectURL = (() => {}) as typeof URL.revokeObjectURL
 })
 
 afterEach(() => {
@@ -33,6 +42,22 @@ function button(text: string): HTMLButtonElement {
   )
   if (!found) throw new Error(`no button ${text}`)
   return found
+}
+
+/** 走「从本地选择」那个隐藏 input：文件夹选择器是另一个，按属性区开。 */
+function pickImages(count: number): void {
+  const input = [...document.querySelectorAll<HTMLInputElement>('input[type="file"]')].find(
+    (one) => !one.hasAttribute('webkitdirectory'),
+  )
+  if (!input) throw new Error('no file input')
+  const files = Array.from(
+    { length: count },
+    (_, i) => new File(['x'], `图${i}.png`, { type: 'image/png' }),
+  )
+  Object.defineProperty(input, 'files', { value: files, configurable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
 }
 
 describe('CreateRecordDialog', () => {
@@ -57,5 +82,42 @@ describe('CreateRecordDialog', () => {
     )
     const save = document.querySelector<HTMLButtonElement>('button[type="submit"]')
     expect(save?.disabled).toBe(true)
+  })
+
+  it('素材一次进四张先问一声：没点确认前不进预览，确认了才收下', () => {
+    act(() =>
+      root.render(
+        <CreateRecordDialog kind="asset" agentReady onClose={vi.fn()} onSave={vi.fn()} />,
+      ),
+    )
+    pickImages(4)
+
+    // 表单 portal 到 body，预览得在整份文档里数。取消（不执行 action）就停在这里：一张都没进来。
+    expect(document.querySelectorAll('img')).toHaveLength(0)
+    const confirm = vi.mocked(useStore.getState().setConfirmDialog).mock.calls[0]?.[0]
+    act(() => confirm?.action())
+    expect(document.querySelectorAll('img')).toHaveLength(4)
+  })
+
+  it('素材三张不打断，直接进预览', () => {
+    act(() =>
+      root.render(
+        <CreateRecordDialog kind="asset" agentReady onClose={vi.fn()} onSave={vi.fn()} />,
+      ),
+    )
+    pickImages(3)
+
+    expect(useStore.getState().setConfirmDialog).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('img')).toHaveLength(3)
+  })
+
+  it('模板只认一张图：塞四张也只留第一张，且不该弹确认', () => {
+    act(() =>
+      root.render(<CreateRecordDialog kind="look" agentReady onClose={vi.fn()} onSave={vi.fn()} />),
+    )
+    pickImages(4)
+
+    expect(useStore.getState().setConfirmDialog).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('img')).toHaveLength(1)
   })
 })

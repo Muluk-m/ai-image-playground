@@ -112,7 +112,7 @@ beforeEach(async () => {
       accepted?.()
     },
   })
-  useStore.setState({ maskEditorImageId: null, maskEditorSession: null })
+  useStore.setState({ maskEditorImageId: null, maskEditorSession: null, confirmDialog: null })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -154,6 +154,21 @@ async function attached(): Promise<string[]> {
   return [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
 }
 
+/** 隐藏的 file input 在 jsdom 里选不到真文件，塞一份进去再派 change。 */
+function pickFiles(input: HTMLInputElement, files: File[]): void {
+  Object.defineProperty(input, 'files', { value: files, configurable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+/** 文件夹选择器给的文件带相对路径，排序与「文件夹名」都从它来。 */
+function folderFile(path: string): File {
+  const file = png(path.slice(path.lastIndexOf('/') + 1))
+  Object.defineProperty(file, 'webkitRelativePath', { value: path })
+  return file
+}
+
 describe('智能体输入框', () => {
   it('图片文件拖进输入框就成为参考图，名字用文件名', async () => {
     render()
@@ -190,6 +205,78 @@ describe('智能体输入框', () => {
 
     expect(await attached()).toHaveLength(1)
     expect(useStore.getState().toast?.message).toBe('已跳过 1 个非图片文件')
+  })
+
+  it('一次进来的图超过 3 张先问一声，确认了才进引用区', async () => {
+    render()
+    const zone = host.querySelector('[data-image-dropzone]')!
+    fireDrag(zone, 'drop', [png('1.png'), png('2.png'), png('3.png'), png('4.png')])
+
+    expect(await attached()).toHaveLength(0)
+    const dialog = useStore.getState().confirmDialog
+    if (!dialog) throw new Error('missing confirm dialog')
+
+    act(() => dialog.action())
+    expect(await attached()).toHaveLength(4)
+  })
+
+  it('确认框没点确认，草稿一张参考图都不多', async () => {
+    render()
+    const zone = host.querySelector('[data-image-dropzone]')!
+    fireDrag(zone, 'drop', [png('1.png'), png('2.png'), png('3.png'), png('4.png')])
+
+    expect(await attached()).toHaveLength(0)
+    act(() => useStore.getState().setConfirmDialog(null))
+    expect(await attached()).toHaveLength(0)
+
+    type('先只说话')
+    click('发送并拟提示词')
+    expect(send).toHaveBeenCalledWith('先只说话', [])
+  })
+
+  // 阈值按过滤后的图片数算：粘贴板里混进来的非图片不该把 3 张顶成 4 张。
+  it('粘贴 3 张图带一个非图片文件，不问直接进引用区', async () => {
+    render()
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        files: [
+          png('1.png'),
+          png('2.png'),
+          png('3.png'),
+          new File(['%PDF'], 'brief.pdf', { type: 'application/pdf' }),
+        ],
+      },
+    })
+    act(() => {
+      editor().dispatchEvent(event)
+    })
+
+    expect(await attached()).toHaveLength(3)
+    expect(useStore.getState().confirmDialog).toBeNull()
+  })
+
+  it('回形针点开是图片 / 文件夹两选一，挑文件夹走同一条引用路', async () => {
+    render()
+    click('添加参考图')
+    // 菜单 portal 到 body，不在 host 里；两条按钮文字唯一，直接认文字。
+    const items = [...document.body.querySelectorAll('button')]
+    expect(items.map((one) => one.textContent)).toEqual(
+      expect.arrayContaining(['选择图片', '选择文件夹']),
+    )
+
+    act(() => {
+      items
+        .find((one) => one.textContent === '选择文件夹')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(document.body.textContent).not.toContain('选择文件夹')
+
+    const folderInput = host.querySelector<HTMLInputElement>('input[webkitdirectory]')!
+    pickFiles(folderInput, [folderFile('产品A/2.png'), folderFile('产品A/10.png')])
+
+    expect(await attached()).toHaveLength(2)
+    expect(host.textContent).toContain('2')
   })
 
   it('输入框卸载再挂载后保留文字、引用和遮罩', async () => {

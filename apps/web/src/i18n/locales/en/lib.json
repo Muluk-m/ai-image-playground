@@ -18,6 +18,9 @@
     "skippedNonImages_one": "Skipped {{count}} non-image file",
     "skippedNonImages_other": "Skipped {{count}} non-image files",
     "limitReached": "Reference image limit reached ({{max}}), cannot add more",
+    "confirmBatchTitle": "Confirm image import",
+    "confirmBatchMessage": "You're about to import {{count}} images. Continue?",
+    "confirmBatchAction": "Import {{count}} images",
     "tooLarge_one": "{{count}} image is over {{max}}MB and was skipped",
     "tooLarge_other": "{{count}} images are over {{max}}MB and were skipped"
   },

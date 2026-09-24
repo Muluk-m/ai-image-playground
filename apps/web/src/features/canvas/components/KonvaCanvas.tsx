@@ -5,6 +5,7 @@ import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } f
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { mediaIdentity } from '../../../lib/cloudMedia'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
@@ -240,11 +241,13 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       const t = e.target as HTMLElement | null
       // 输入框里的粘贴（生成条 prompt / 文字编辑）不拦
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return
-      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
+      const files = acceptImageFiles([...(e.clipboardData?.files ?? [])])
       if (files.length > 0) {
         e.preventDefault()
         const vp = editor.getViewportPageBounds()
-        void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+        confirmImageBatch(files.length, () => {
+          void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+        })
         return
       }
       if (pasteClipboard(editor.doc).length > 0) e.preventDefault()
@@ -683,8 +686,11 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         }
         // collectDroppedFiles 必须在这一拍同步调用：await 之后 DataTransfer.items 就空了。
         void collectDroppedFiles(e.dataTransfer).then(({ files }) => {
-          // 与输入框那块落点同一道闸：只留图片、太大的丢掉，各提示一次。
-          void importImageFiles(editor, acceptImageFiles(files), drop)
+          const images = acceptImageFiles(files)
+          if (images.length === 0) return
+          confirmImageBatch(images.length, () => {
+            void importImageFiles(editor, images, drop)
+          })
         })
       }}
     >
