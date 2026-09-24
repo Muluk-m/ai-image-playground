@@ -700,7 +700,7 @@ it('归档重试下载成功后重启，即使原链接过期也能用已保存�
   }
 })
 
-it('归档等待超过临时桶过期时间，生成原件、参考图和蒙版仍可恢复', async () => {
+it('归档等待超过一小时后停止自动重试，并保留长期存储中的原件供排查', async () => {
   const png = await maskedEditPng([0x44, 0x99, 0x77])
   const source = `data:image/png;base64,${png.toString('base64')}`
   let calls = 0
@@ -728,10 +728,13 @@ it('归档等待超过临时桶过期时间，生成原件、参考图和蒙版�
     clock.mockRestore()
   }
   const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
-  expect(detail.status).toBe('completed')
-  expect(detail.outputs).toHaveLength(1)
-  expect(detail.inputs).toHaveLength(1)
-  expect(detail.mask).not.toBeNull()
+  expect(detail.status).toBe('failed')
+  const [task] = await db
+    .select({ archivePayload: schema.tasks.archive_payload })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, id))
+  expect(task?.archivePayload).not.toBeNull()
+  expect((await durable.listPrefix(`${id}/`)).length).toBeGreaterThan(0)
   expect(calls).toBe(1)
 })
 
