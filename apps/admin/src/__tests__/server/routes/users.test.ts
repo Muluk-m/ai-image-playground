@@ -56,6 +56,11 @@ await writer.db.insert(writer.schema.users).values([
     updated_at: now - 30 * 24 * 3600_000,
   },
 ])
+await writer.db.insert(writer.schema.admin_user_notes).values({
+  user_id: 'user-existing',
+  note: '合作方，周五跟进',
+  updated_at: now,
+})
 await writer.db.insert(writer.schema.user_identities).values([
   {
     id: 'identity-existing-google',
@@ -231,6 +236,7 @@ describe('admin user routes', () => {
     expect(body.users).toHaveLength(1)
     expect(body.users[0]?.username).toBe('existing')
     expect(body.users[0]).toMatchObject({
+      note: '合作方，周五跟进',
       active_sessions: 1,
       task_count: 2,
       created_at: now - 8 * 24 * 3600_000,
@@ -246,6 +252,10 @@ describe('admin user routes', () => {
     expect(body.kpis).toMatchObject({ total_users: 2, active_users_7d: 1, submissions_24h: 2 })
     expect(body.kpis.failure_rate_24h).toBe(0.5)
     expect(body.truncated).toBe(false)
+    const noteMatch = (await (await call('/api/users?q=周五')).json()) as {
+      users: Array<{ id: string }>
+    }
+    expect(noteMatch.users.map((user) => user.id)).toEqual(['user-existing'])
   })
 
   it('returns the profile with a fixed 30-day trend and no task page', async () => {
@@ -258,6 +268,7 @@ describe('admin user routes', () => {
       volume_range: string
     }
     expect(body.user.id).toBe('user-existing')
+    expect(body.user).toMatchObject({ note: '合作方，周五跟进' })
     expect(body.user.task_count).toBe(2)
     expect(body).not.toHaveProperty('tasks')
     expect(body.volume).toHaveLength(30)
@@ -340,6 +351,29 @@ describe('admin user routes', () => {
     })
     const stored = await writer.db.select().from(writer.schema.users)
     expect(stored.map((user) => user.id)).not.toContain('created-by-bff')
+  })
+
+  it('forwards note changes only through the authenticated Admin API', async () => {
+    const unauthenticated = await call('/api/users/user-existing/note', {
+      method: 'PATCH',
+      body: { note: '新备注' },
+      authenticated: false,
+    })
+    expect(unauthenticated.status).toBe(401)
+    const response = await call('/api/users/user-existing/note', {
+      method: 'PATCH',
+      body: { note: '新备注' },
+    })
+    expect(response.status).toBe(200)
+    expect(forwarded.at(-1)).toEqual({
+      method: 'PATCH',
+      path: '/internal/admin/users/user-existing/note',
+      authorization: 'Bearer fixture-service-credential-alpha',
+      search: '',
+    })
+    expect(await writer.db.select().from(writer.schema.admin_user_notes)).toMatchObject([
+      { user_id: 'user-existing', note: '合作方，周五跟进' },
+    ])
   })
 
   it('forwards private operator APIs through the authenticated Admin server', async () => {

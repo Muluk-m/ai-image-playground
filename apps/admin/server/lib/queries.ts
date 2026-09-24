@@ -143,6 +143,7 @@ function mapAdminUser(row: Record<string, unknown>): AdminUserRow {
   return {
     id: String(row.id),
     username: String(row.username),
+    note: typeof row.note === 'string' ? row.note : null,
     status: row.status === 'disabled' ? 'disabled' : 'active',
     created_at: toEpochMs(row.created_at),
     updated_at: toEpochMs(row.updated_at),
@@ -157,6 +158,7 @@ function mapAdminUser(row: Record<string, unknown>): AdminUserRow {
 const ADMIN_USER_PROJECTION = sql`
   u.id,
   u.username,
+  n.note,
   u.status,
   u.created_at,
   u.updated_at,
@@ -194,6 +196,7 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
   const userRowsPromise = db.execute(sql`
     SELECT ${ADMIN_USER_PROJECTION}
     FROM users u
+    LEFT JOIN admin_user_notes n ON n.user_id = u.id
     ${ACTIVE_SESSION_JOIN}
     LEFT JOIN LATERAL (
       SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
@@ -203,6 +206,7 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
     WHERE ${term} = ''
        OR POSITION(${term} IN LOWER(u.username)) > 0
        OR POSITION(${term} IN LOWER(u.id)) > 0
+       OR POSITION(${term} IN LOWER(n.note)) > 0
     ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC, u.id DESC
     LIMIT ${USER_LIST_LIMIT + 1}
   `)
@@ -409,6 +413,7 @@ export async function getUserDetail(userId: string): Promise<UserDetailResult | 
     db.execute(sql`
       SELECT ${ADMIN_USER_PROJECTION}, ${SYNC_FOOTPRINT}
       FROM users u
+      LEFT JOIN admin_user_notes n ON n.user_id = u.id
       CROSS JOIN LATERAL (
         SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
         FROM queue_tasks t

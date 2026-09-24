@@ -106,7 +106,7 @@ function UsersContent({ data, term }: { data: ListUsersResult; term: string }) {
               value={draft}
               onChange={(event) => setDraft(event.currentTarget.value)}
               className="h-9 pl-9"
-              placeholder="按用户名或用户 ID 搜索"
+              placeholder="按用户名、用户 ID 或备注搜索"
               aria-label="搜索用户"
             />
           </div>

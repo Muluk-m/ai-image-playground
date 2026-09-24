@@ -2,10 +2,11 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const session = vi.hoisted(() => ({ accountsLogin: true, accountsSync: true }))
+const patch = vi.hoisted(() => vi.fn(async () => ({ note: '合作方' })))
 
 vi.mock('../../lib/api-client', () => {
   const overview = {
@@ -26,6 +27,7 @@ vi.mock('../../lib/api-client', () => {
   const user = {
     id: 'user-1',
     username: 'alice',
+    note: null,
     status: 'active',
     created_at: Date.now(),
     updated_at: Date.now(),
@@ -90,7 +92,7 @@ vi.mock('../../lib/api-client', () => {
     throw new Error(`unexpected request: ${url}`)
   }
 
-  return { apiClient: { get }, ApiError: class extends Error {} }
+  return { apiClient: { get, patch }, ApiError: class extends Error {} }
 })
 
 const { routeTree } = await import('../../routeTree.gen')
@@ -110,9 +112,24 @@ function renderAt(path: string): void {
 }
 
 beforeEach(() => {
+  patch.mockClear()
   session.accountsLogin = true
   session.accountsSync = true
   document.cookie = 'sidebar_state=; path=/; max-age=0'
+})
+
+describe('user notes', () => {
+  it('opens the note editor from the user list and saves the note', async () => {
+    renderAt('/users')
+    fireEvent.click(await screen.findByRole('button', { name: 'alice：添加备注' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '备注' }), {
+      target: { value: '合作方' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存备注' }))
+    await waitFor(() => {
+      expect(patch).toHaveBeenCalledWith('/api/users/user-1/note', { note: '合作方' })
+    })
+  })
 })
 
 async function navGroup(label: string) {
