@@ -12,6 +12,7 @@ import { SegmentedControl } from '@/components/SegmentedControl'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
 import { UserFormDialog } from '@/components/UserFormDialog'
+import { UserNoteDialog } from '@/components/UserNoteDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -41,6 +42,7 @@ const TASK_FILTERS = [
 function UserOperations({ user }: { user: AdminUserRow }) {
   const queryClient = useQueryClient()
   const [resetting, setResetting] = useState(false)
+  const [editingNote, setEditingNote] = useState(false)
   const mutation = useMutation({
     mutationFn: (operation: 'status' | 'sessions') => {
       const id = encodeURIComponent(user.id)
@@ -59,6 +61,9 @@ function UserOperations({ user }: { user: AdminUserRow }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => setEditingNote(true)}>
+        {user.note ? '编辑备注' : '添加备注'}
+      </Button>
       <Button variant="outline" size="sm" onClick={() => setResetting(true)}>
         <KeyRound /> 重置密码
       </Button>
@@ -86,6 +91,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
       </Button>
       {mutation.isError ? <span className="text-xs text-destructive">操作失败，请重试</span> : null}
       <UserFormDialog mode="reset" user={user} open={resetting} onOpenChange={setResetting} />
+      <UserNoteDialog user={user} open={editingNote} onOpenChange={setEditingNote} />
     </div>
   )
 }
@@ -185,6 +191,11 @@ function UserDetailContent({
                 </Badge>
               </div>
               <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{user.id}</p>
+              {user.note ? (
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                  备注：{user.note}
+                </p>
+              ) : null}
             </div>
             <UserOperations user={user} />
           </div>

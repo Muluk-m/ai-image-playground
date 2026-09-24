@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import {
+  ADMIN_USER_NOTE_MAX_LENGTH,
   isValidPassword,
   isValidUsername,
   type LoginMethodsView,
@@ -20,6 +21,7 @@ export type UserOperationErrorCode =
   | 'username_taken'
   | 'user_not_found'
   | 'invalid_status'
+  | 'invalid_note'
   | 'account_disabled'
   | 'current_password_required'
   | 'invalid_credentials'
@@ -475,6 +477,38 @@ export async function setUserStatus(userId: string, status: string): Promise<Ope
   })
   if (!changed) throw new UserOperationError('user_not_found')
   return changed
+}
+
+export async function setAdminUserNote(userId: string, input: string): Promise<string> {
+  const note = input.trim()
+  if (note.length > ADMIN_USER_NOTE_MAX_LENGTH) throw new UserOperationError('invalid_note')
+
+  await db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1)
+      .for('update')
+    if (!user) throw new UserOperationError('user_not_found')
+
+    if (note) {
+      const now = Date.now()
+      await tx
+        .insert(schema.admin_user_notes)
+        .values({ user_id: userId, note, updated_at: now })
+        .onConflictDoUpdate({
+          target: schema.admin_user_notes.user_id,
+          set: { note, updated_at: now },
+        })
+    } else {
+      await tx.delete(schema.admin_user_notes).where(eq(schema.admin_user_notes.user_id, userId))
+    }
+    await tx
+      .insert(schema.operator_audits)
+      .values(operatorAudit('user.note.update', userId, { has_note: Boolean(note) }))
+  })
+  return note
 }
 
 export async function resetUserPassword(userId: string, password: string): Promise<void> {
