@@ -91,6 +91,7 @@ export async function runTask(id: string): Promise<void> {
       status: 'failed',
       errorType: 'interrupted',
       errorMessage: '任务执行异常',
+      preserveArchive: true,
       completedAt: Date.now(),
     })
     throw error
