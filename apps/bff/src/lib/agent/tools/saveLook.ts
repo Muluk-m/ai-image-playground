@@ -14,6 +14,7 @@ import { getChannels, resolveModelMedia } from '../../channels'
 import { agentSaveToolsAvailable } from '../saves'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
+import { resolveAgentModel } from './queueTask'
 import type { AgentToolContext } from './types'
 
 const TITLE_MAX_CHARS = 24
@@ -43,11 +44,20 @@ const parameters = Type.Object({
     description:
       '模板正文，按固定七节写：## 1. 一句话目标 / ## 2. 适用场景 / ## 3. 需要用户提供的输入 / ## 4. 工作流程 / ## 5. 输出要求 / ## 6. 约束与禁忌 / ## 7. 示例。第 3 节列的就是素材位。',
   }),
-  model: Type.String({
-    maxLength: 128,
-    description: '钉死的出图模型 id：用真正出成这个效果的那个模型，不要换一个写上去。',
-  }),
-  size: Type.String({ maxLength: 32, description: '钉死的尺寸，与出图参数同一套写法。' }),
+  model: Type.Optional(
+    Type.String({
+      maxLength: 128,
+      description:
+        '一般不填：留空就钉这一轮正在用的出图模型。只有效果是用另一个模型调出来的才填，填的必须是这个部署真有的模型 id，不要凭印象写。',
+    }),
+  ),
+  size: Type.Optional(
+    Type.String({
+      maxLength: 32,
+      description:
+        '一般不填：留空就钉这一轮的尺寸。效果是用别的尺寸调出来的才填，与出图参数同一套写法。',
+    }),
+  ),
   slotCount: Type.Integer({
     minimum: 0,
     maximum: SYNC_LOOK_SLOT_COUNT_MAX,
@@ -109,7 +119,7 @@ export const saveLook = defineAgentTool({
   modes: ['image'],
   label: '存为模板',
   description:
-    '把调好的这套出图办法写成一条模板交给用户保存。模板钉死模型与尺寸，正文按固定七节写，第 3 节列出要用户提供的素材。调用它只是把卡片放到对话里：真正入库是用户在卡上按下保存，他按了你会收到一条消息。带 id 就是改写已有的那条。',
+    '把调好的这套出图办法写成一条模板交给用户保存。模板钉死模型与尺寸（默认就是这一轮的），正文按固定七节写，第 3 节列出要用户提供的素材。调用它只是把卡片放到对话里：真正入库是用户在卡上按下保存，他按了你会收到一条消息。带 id 就是改写已有的那条。',
   guidance:
     '效果调到用户满意之后，用存为模板工具把这套办法写成模板交给他保存；入库由用户按那一下，之后请他拿一条素材试一张，不满意就带着同一个 id 再存一版。',
   parameters,
@@ -124,7 +134,9 @@ export const saveLook = defineAgentTool({
     const body = raw.body.trim()
     if (!body)
       throw new AgentToolError('invalid_params', '模板正文是空的：把七节正文写全了再存一次。')
-    const model = raw.model.trim()
+    // 不填就钉这一轮正在用的模型与尺寸：模型看不见这一轮的参数，让它自己写只能靠猜。
+    const model =
+      raw.model?.trim() || resolveAgentModel('image', context.params?.model)?.model || ''
     // 钉一个这个部署没有的模型，等于存下一条出不了图的模板：当场说清，别让用户事后才发现。
     if (resolveModelMedia(model) !== 'image')
       throw new AgentToolError(
@@ -144,7 +156,7 @@ export const saveLook = defineAgentTool({
       purpose: raw.purpose,
       body,
       model,
-      size: raw.size.trim(),
+      size: raw.size?.trim() || context.params?.size || 'auto',
       slotCount: raw.slotCount,
       referenceImageIds,
       ...(cover[0] ? { coverImageId: cover[0] } : {}),
