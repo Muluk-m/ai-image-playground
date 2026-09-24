@@ -83,6 +83,8 @@ export function projectDocument(
   return isProjectDocument(document) ? document : null
 }
 
+const CLOUD_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
 async function digest(bytes: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
     byte.toString(16).padStart(2, '0'),
@@ -128,7 +130,9 @@ export async function prepareProjectMedia(
     // 申报按字节来：服务端解出的格式与申报不符就整张打回，而 data URL 上那行标签不保真。
     // 云媒体只收 png/jpeg/webp；SVG、GIF 这类照原样上传会被 400 打回，而这一张失败会让整次
     // 同步中止、排在后面的图永远传不上去，所以先栅格化成 PNG。绑定仍记原图的哈希，下次按原图认。
-    let contentType = imageMimeFromBytes(bytes)
+    const labeled = response.headers.get('content-type')?.split(';')[0]
+    let contentType =
+      imageMimeFromBytes(bytes) ?? (labeled && CLOUD_MEDIA_TYPES.has(labeled) ? labeled : undefined)
     let body = bytes
     if (!contentType) {
       body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
