@@ -728,6 +728,12 @@ export interface AgentSkillOutcome {
    * 没找到技能的那次也没有——两种情况界面都退回默认图标。
    */
   readonly icon?: string
+  /**
+   * 读到的那条技能的标识与附属文件路径：回放历史时照它把正文重新读回来，模型不必每轮再读一遍。
+   * 只有读到了才有；老消息里没有这两位，回放就只剩一行摘要。
+   */
+  readonly name?: string
+  readonly file?: string
 }
 
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */

@@ -192,15 +192,35 @@ export function replayTurnText(
     .trim()
 }
 
+const NO_SKILL_TEXTS: ReadonlyMap<string, string> = new Map()
+
+/** 读过的技能正文接在这条消息的摘要后面（见 `replayedSkillTexts`）；授权原文不走这里，那里只要摘要。 */
+function withSkillTexts(
+  text: string,
+  message: AgentMessageView,
+  skillTexts: ReadonlyMap<string, string>,
+): string {
+  const bodies = message.content.flatMap((block) => {
+    const body = block.type === 'toolResult' ? skillTexts.get(block.toolCallId) : undefined
+    return body ? [body] : []
+  })
+  return bodies.length ? [text, ...bodies].join('\n\n') : text
+}
+
 /** 历史消息回放成 pi 的形状；助手消息的用量与停因是回放占位，不进任何计费。 */
 function replayed(
   history: readonly AgentMessageView[],
   selectionHistoryStart = history.length,
+  skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
 ): AgentMessage[] {
   const model = agentModel()
   const messages: AgentMessage[] = []
   for (const [index, message] of history.entries()) {
-    const text = replayTurnText(message, index >= selectionHistoryStart ? 'retained' : 'historical')
+    const text = withSkillTexts(
+      replayTurnText(message, index >= selectionHistoryStart ? 'retained' : 'historical'),
+      message,
+      skillTexts,
+    )
     if (!text) continue
     messages.push(
       message.role === 'user'
@@ -231,13 +251,14 @@ export function turnInitialState(
   autoSubmit = false,
   selectionHistoryStart = history.length,
   audience: AgentTurnAudience = ANONYMOUS_AUDIENCE,
+  skillTexts: ReadonlyMap<string, string> = NO_SKILL_TEXTS,
 ): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
   return {
     systemPrompt: systemPrompt(mode, autoSubmit, audience),
-    messages: replayed(history, selectionHistoryStart),
+    messages: replayed(history, selectionHistoryStart, skillTexts),
   }
 }
 
@@ -326,6 +347,8 @@ export interface AgentTurnInput {
   readonly selectionHistoryStart: number
   /** 这一轮谁在看：他的模板进技能清单，他看得见的工具才装配。 */
   readonly audience: AgentTurnAudience
+  /** 历史里读过的技能正文，按 `toolCallId` 接回回放（见 `replayedSkillTexts`）。缺席即不补。 */
+  readonly skillTexts?: ReadonlyMap<string, string>
 }
 
 /** 这一份轮输入给 pi 的 initialState；估算与实发从同一处取，免得两边各挑一遍字段。 */
@@ -339,6 +362,7 @@ export function turnInitialStateOf(input: AgentTurnInput): {
     input.autoSubmit,
     input.selectionHistoryStart,
     input.audience,
+    input.skillTexts,
   )
 }
 
