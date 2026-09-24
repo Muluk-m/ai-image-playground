@@ -883,6 +883,7 @@ export const daily_quota = pgTable(
 // task migrations, so existing read-only grants do not need the view to be dropped and recreated.
 const {
   archive_payload: _archivePayload,
+  archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
   lease_expires_at: _leaseExpiresAt,
   ...queueTaskColumns
