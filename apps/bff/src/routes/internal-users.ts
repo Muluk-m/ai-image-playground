@@ -1,10 +1,15 @@
-import { PASSWORD_MAX_LENGTH, USERNAME_MAX_LENGTH } from '@image-playground/shared'
+import {
+  ADMIN_USER_NOTE_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  USERNAME_MAX_LENGTH,
+} from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   createUser,
   resetUserPassword,
   revokeUserSessions,
+  setAdminUserNote,
   setUserStatus,
   UserOperationError,
 } from '../lib/user-admin'
@@ -50,6 +55,20 @@ export const internalUserRoutes = new Elysia({ prefix: '/internal/admin/users' }
     {
       params: t.Object({ id: t.String({ minLength: 1 }) }),
       body: t.Object({ status: t.String({ minLength: 1, maxLength: 16 }) }),
+    },
+  )
+  .patch(
+    '/:id/note',
+    async ({ params, body, status }) => {
+      try {
+        return { note: await setAdminUserNote(params.id, body.note) }
+      } catch (error) {
+        return operationError(error, status)
+      }
+    },
+    {
+      params: t.Object({ id: t.String({ minLength: 1 }) }),
+      body: t.Object({ note: t.String({ maxLength: ADMIN_USER_NOTE_MAX_LENGTH }) }),
     },
   )
   .post(

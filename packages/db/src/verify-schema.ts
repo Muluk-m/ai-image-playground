@@ -1,6 +1,7 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
+  'admin_user_notes',
   'inspiration_categories',
   'inspiration_items',
   'inspiration_publications',
@@ -47,6 +48,7 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'admin_user_notes_pkey',
   'inspiration_categories_pkey',
   'inspiration_categories_name_unique',
   'inspiration_items_pkey',
@@ -134,7 +136,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 40
+const EXPECTED_MIGRATION_COUNT = 42
 
 export interface SchemaVerificationResult {
   tables: number

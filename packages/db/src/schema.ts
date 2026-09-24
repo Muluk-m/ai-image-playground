@@ -84,6 +84,14 @@ export const users = pgTable(
   ],
 )
 
+export const admin_user_notes = pgTable('admin_user_notes', {
+  user_id: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  note: text('note').notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+})
+
 export const email_verification_codes = pgTable(
   'email_verification_codes',
   {

@@ -108,4 +108,58 @@ describe('internal user operations', () => {
       details: { status: 'disabled' },
     })
   })
+
+  it('stores, updates and clears an operator-only note', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'note-user',
+      username: 'note-user',
+      password_hash: 'hash',
+      created_at: now,
+      updated_at: now,
+    })
+
+    const unauthenticated = await request(
+      '/internal/admin/users/note-user/note',
+      'PATCH',
+      { note: '合作方' },
+      false,
+    )
+    expect(unauthenticated.status).toBe(401)
+
+    const saved = await request('/internal/admin/users/note-user/note', 'PATCH', {
+      note: '  合作方  ',
+    })
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toEqual({ note: '合作方' })
+    expect(await db.select().from(schema.admin_user_notes)).toMatchObject([
+      { user_id: 'note-user', note: '合作方' },
+    ])
+
+    const updated = await request('/internal/admin/users/note-user/note', 'PATCH', {
+      note: '下周跟进',
+    })
+    expect(updated.status).toBe(200)
+    expect(await db.select().from(schema.admin_user_notes)).toMatchObject([
+      { user_id: 'note-user', note: '下周跟进' },
+    ])
+
+    const cleared = await request('/internal/admin/users/note-user/note', 'PATCH', { note: '' })
+    expect(cleared.status).toBe(200)
+    expect(await db.select().from(schema.admin_user_notes)).toHaveLength(0)
+    const audits = await db.select().from(schema.operator_audits)
+    expect(audits.map((audit) => audit.details)).toEqual([
+      { has_note: true },
+      { has_note: true },
+      { has_note: false },
+    ])
+
+    const missing = await request('/internal/admin/users/missing/note', 'PATCH', { note: 'x' })
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ error: 'user_not_found' })
+    const tooLong = await request('/internal/admin/users/note-user/note', 'PATCH', {
+      note: 'x'.repeat(501),
+    })
+    expect(tooLong.status).toBe(400)
+  })
 })

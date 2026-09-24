@@ -122,6 +122,7 @@ export type UserStatus = 'active' | 'disabled'
 export interface AdminUserRow {
   id: string
   username: string
+  note: string | null
   status: UserStatus
   created_at: number
   updated_at: number

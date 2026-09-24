@@ -288,6 +288,13 @@
       "when": 1790121000000,
       "tag": "0041_agent_web_search_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790208000000,
+      "tag": "0042_admin_user_notes",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ export const USERNAME_MAX_LENGTH = 32
 export const EMAIL_MAX_LENGTH = 254
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 128
+export const ADMIN_USER_NOTE_MAX_LENGTH = 500
 
 const USERNAME_PATTERN = /^[a-z0-9._-]+$/
 const EMAIL_PATTERN =
