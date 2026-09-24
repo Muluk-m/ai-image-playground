@@ -62,14 +62,15 @@ export default function ProjectSyncStatus({
     >
       <p>{t(LABEL_KEY[state.status])}</p>
       {state.message && <p className="mt-1">{t(state.message)}</p>}
-      {((state.status.endsWith('error') && state.status !== 'load-error') ||
-        state.status === 'pending') && (
+      {(state.status.endsWith('error') || state.status === 'pending') && (
         <Button
           type="button"
           variant="link"
           size="sm"
           className="ml-2"
-          onClick={() => void session.sync().catch(() => {})}
+          onClick={() =>
+            void (state.status === 'load-error' ? session.reload() : session.sync()).catch(() => {})
+          }
         >
           {t('sync.retry')}
         </Button>
