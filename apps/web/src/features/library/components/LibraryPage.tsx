@@ -5,6 +5,7 @@ import { PlusIcon, SparkleIcon } from '../../../components/icons'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { APP_MODE_LABELS, storeImageFromFile, useStore } from '../../../store'
 import { useAgentSkills } from '../../agent/lib/useAgentSkills'
 import ProjectsTab from '../../canvas/components/ProjectsTab'
@@ -70,8 +71,10 @@ export default function LibraryPage() {
     return () => useLibraryStore.getState().leaveLibraryPage()
   }, [])
 
+  // 拖进来和粘贴进来的都已经过了图片与大小筛，这里只剩「一次太多先问一声」。
   const saveAssets = (files: File[]) => {
-    if (tab === 'assets') void importAssetFiles(files)
+    if (tab !== 'assets') return
+    confirmImageBatch(files.length, () => void importAssetFiles(files))
   }
   const { dragging, dropZoneProps } = useImageDropZone(saveAssets)
   usePasteImageFiles('library', saveAssets)
@@ -150,8 +153,13 @@ export default function LibraryPage() {
               accept="image/*"
               className="hidden"
               onChange={(event) => {
-                void importAssetFiles([...(event.target.files ?? [])])
+                // 非图片本来就会被 importAssetFiles 丢掉，先筛一遍才问得出真正的张数。
+                const images = [...(event.target.files ?? [])].filter((file) =>
+                  file.type.startsWith('image/'),
+                )
                 event.target.value = ''
+                if (images.length === 0) return
+                confirmImageBatch(images.length, () => void importAssetFiles(images))
               }}
             />
             <button type="button" onClick={() => setCreating('asset')} className={GHOST}>

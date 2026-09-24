@@ -50,6 +50,8 @@
     "dropFormats": "最多 {{count}} 张，单张 ≤{{mb}}MB，JPG、PNG、WebP",
     "addFailed": "图片添加失败：{{reason}}",
     "attach": "添加参考图（最多 {{count}} 张，单张 ≤{{mb}}MB）",
+    "attachImages": "添加图片",
+    "attachFolder": "添加文件夹",
     "summaryWithMask_other": "1 张遮罩主图 · {{count}} 张参考图",
     "summary_other": "{{count}} 张参考图"
   },

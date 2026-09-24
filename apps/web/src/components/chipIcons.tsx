@@ -159,13 +159,11 @@ export const ChipIcons = {
   ),
   imageAttach: (
     <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <rect x="3.5" y="5" width="17" height="14" rx="2" strokeWidth={1.6} />
-      <circle cx="9" cy="10.5" r="1.6" strokeWidth={1.6} />
       <path
+        d="m20.5 11.6-8.9 8.9a5.5 5.5 0 0 1-7.8-7.8l9.5-9.5a3.8 3.8 0 0 1 5.4 5.4l-9.5 9.5a2.1 2.1 0 0 1-3-3l8.8-8.8"
         strokeWidth={1.6}
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M20.5 16.5L15.7 11.8a1 1 0 00-1.4 0L5.5 20.5"
       />
     </svg>
   ),
