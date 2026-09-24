@@ -76,7 +76,6 @@
   "lookDetail": {
     "cover": "封面",
     "reference": "参考图 {{index}}",
-    "model": "模型",
     "size": "尺寸",
     "slots": "素材位",
     "references": "参考图",
@@ -95,18 +94,6 @@
     "description": "描述",
     "descriptionPlaceholder": "这个效果想用在哪、要保留什么",
     "save": "保存"
-  },
-  "batch": {
-    "title": "用「{{name}}」出图",
-    "stepAssets": "选素材",
-    "stepCounts": "每条几张",
-    "back": "改选素材",
-    "next": "下一步",
-    "submit": "提交 {{count}} 张",
-    "summary": "{{assets}} 条素材 · 共 {{count}} 张",
-    "noAssets": "还没有产品或人物素材",
-    "submitted": "已提交 {{count}} 张",
-    "failed": "提交失败：{{reason}}"
   },
   "template": {
     "apply": "套用",

@@ -355,7 +355,7 @@
     "failed": "Couldn't save it, please retry",
     "imageGone": "Some images are gone. Ask the assistant for a fresh pass.",
     "assetMeta": "{{kind}} · {{background}}",
-    "lookMeta": "{{purpose}} · {{model}} · {{size}} · {{slots}} asset slots",
+    "lookMeta": "{{purpose}} · {{size}} · {{slots}} asset slots",
     "kind": {
       "product": "Product",
       "person": "Person"

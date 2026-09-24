@@ -24,10 +24,10 @@ export function availableImageModels(): ReadonlySet<string> {
 }
 
 /**
- * 生成模式点了模板 chip：挂上胶囊，把模型与尺寸切到模板钉死的那套。
- * 模型在哪个 profile 下就切到哪个 profile；找不到就只挂胶囊，提交时按「需重新调试」拦。
+ * 把输入框的模型与尺寸切到模板钉死的那套。模型在哪个 profile 下就切到哪个 profile；
+ * 找不到就只改尺寸，由调用方按「需重新调试」处理。
  */
-export function applyLookToComposer(look: LookItem): void {
+export function pinLookParams(look: LookItem): void {
   const store = useStore.getState()
   const publicChannels = getPublicChannels()
   const profile = store.settings.profiles.find((one) =>
@@ -42,9 +42,16 @@ export function applyLookToComposer(look: LookItem): void {
     })
   }
   store.setParams({ size: look.size })
+}
+
+/** 生成模式点了模板 chip：挂上胶囊，模型与尺寸切到模板钉死的那套。提交时按「需重新调试」拦。 */
+export function applyLookToComposer(look: LookItem): void {
+  pinLookParams(look)
   useActiveLook.getState().set(look)
-  store.showToast(
-    i18next.t('look.applied', { ns: 'library', model: look.model, size: look.size }),
-    'info',
-  )
+  useStore
+    .getState()
+    .showToast(
+      i18next.t('look.applied', { ns: 'library', model: look.model, size: look.size }),
+      'info',
+    )
 }

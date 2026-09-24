@@ -194,8 +194,6 @@ export default function LookDetail({
               ))}
             </div>
             <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-              <dt className="text-muted-foreground">{t('lookDetail.model')}</dt>
-              <dd className="text-foreground">{look.model}</dd>
               <dt className="text-muted-foreground">{t('lookDetail.size')}</dt>
               <dd className="text-foreground">{look.size}</dd>
               <dt className="text-muted-foreground">{t('lookDetail.slots')}</dt>

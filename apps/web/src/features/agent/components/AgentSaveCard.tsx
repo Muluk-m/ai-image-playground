@@ -330,7 +330,6 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
       <div className={CARD_NOTE}>
         {t('save.lookMeta', {
           purpose: t(PURPOSE_KEY[card.purpose]),
-          model: card.model,
           size: card.size,
           slots: card.slotCount,
         })}
