@@ -1,4 +1,5 @@
 import type { AuthUserView } from '@image-playground/shared'
+import { RefreshCw, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { adoptAgentConversations } from '../features/agent/lib/agentClient'
 import { useTranslation } from '../i18n'
@@ -23,7 +24,7 @@ import { SessionExpiredCard } from './SessionExpiredCard'
 
 const App = lazy(() => import('../App'))
 
-type Phase = 'checking' | 'ready' | 'unavailable'
+type Phase = 'checking' | 'ready' | 'reconnecting'
 
 function LoadingScreen() {
   const { t } = useTranslation('auth')
@@ -49,15 +50,20 @@ function ProblemScreen({
 }) {
   const { t } = useTranslation('auth')
   return (
-    <main className="auth-status-screen">
-      <div className="auth-problem-mark">!</div>
-      <h1>{title}</h1>
-      <p>{description}</p>
-      {retry ? (
-        <button type="button" onClick={retry}>
-          {t('status.retry')}
-        </button>
-      ) : null}
+    <main className="auth-status-screen auth-status-screen--problem">
+      <section className="auth-recovery-card" aria-live="polite">
+        <div className="auth-recovery-icon" aria-hidden="true">
+          <WifiOff size={19} strokeWidth={1.8} />
+        </div>
+        <h1>{title}</h1>
+        <p>{description}</p>
+        {retry ? (
+          <button type="button" onClick={retry}>
+            <RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
+            {t('status.retry')}
+          </button>
+        ) : null}
+      </section>
     </main>
   )
 }
@@ -86,6 +92,7 @@ export function AuthGate() {
 
   useEffect(() => {
     let cancelled = false
+    let retryTimer: number | undefined
     async function boot(): Promise<void> {
       try {
         setRecoveryBackend(
@@ -99,7 +106,7 @@ export function AuthGate() {
           return
         }
         // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
-        const currentUser = await getCurrentUser().catch((err) => {
+        const currentUser = await getCurrentUser(AbortSignal.timeout(15000)).catch((err) => {
           if (err instanceof AuthRequestError && err.status === 401) return null
           throw err
         })
@@ -132,12 +139,20 @@ export function AuthGate() {
           setPhase('ready')
         }
       } catch {
-        if (!cancelled) setPhase('unavailable')
+        if (cancelled) return
+        // A slow channel request or a brief BFF interruption should recover on its own.
+        // Keep the initial loading state through the first retry to avoid flashing an error.
+        if (attempt > 0) setPhase('reconnecting')
+        retryTimer = window.setTimeout(
+          () => setAttempt((value) => value + 1),
+          Math.min(1000 * 2 ** attempt, 15000),
+        )
       }
     }
     void boot()
     return () => {
       cancelled = true
+      window.clearTimeout(retryTimer)
     }
   }, [
     accountsLoginEnabled,
@@ -172,13 +187,12 @@ export function AuthGate() {
   }, [])
 
   if (phase === 'checking') return <LoadingScreen />
-  if (phase === 'unavailable') {
+  if (phase === 'reconnecting') {
     return (
       <ProblemScreen
         title={t('status.unavailableTitle')}
         description={t('status.unavailableDescription')}
         retry={() => {
-          setPhase('checking')
           setAttempt((value) => value + 1)
         }}
       />

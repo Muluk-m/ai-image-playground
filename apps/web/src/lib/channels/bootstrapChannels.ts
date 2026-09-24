@@ -1,7 +1,7 @@
 import { setChannels } from './channelStore'
 import { fetchDiscoveredChannels } from './discoverChannels'
 
-const DISCOVERY_TIMEOUT_MS = 5000
+const DISCOVERY_TIMEOUT_MS = 15000
 
 export async function bootstrapChannels(
   bffEnabled: boolean,
