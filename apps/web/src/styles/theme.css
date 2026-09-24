@@ -41,7 +41,7 @@
   --studio-space-6: 24px;
   --studio-radius: var(--radius);
 }
-/* 暗色由 src/theme 打在 <html> 上的 .dark 决定；跟随系统也是它算出来的，这里不再写 media。 */
+/* 暗色由 src/theme 打在 <html> 上的 .dark 决定；默认暗色，不按系统明暗切换。 */
 :root.dark {
   color-scheme: dark;
   --background: 120 4% 7%;

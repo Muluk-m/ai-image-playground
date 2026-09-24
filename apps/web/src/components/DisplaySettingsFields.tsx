@@ -7,8 +7,8 @@ import { GlobeIcon, MoonIcon, SunIcon } from './icons'
 import { SettingRow } from './SettingRow'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
-/** 设置面板与头像菜单都能选回「跟随系统」——两处是同一对控件，不再各写一份。 */
-const THEME_CHOICES: readonly ThemeChoice[] = ['system', 'light', 'dark']
+/** 设置面板与头像菜单共用这两个主题选项。 */
+const THEME_CHOICES: readonly ThemeChoice[] = ['dark', 'light']
 
 export interface DisplaySettingsFieldsProps {
   /** 行容器 class：宿主菜单的行距与 hover 由宿主给，设置面板用默认值。 */
