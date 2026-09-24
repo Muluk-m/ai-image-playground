@@ -106,15 +106,15 @@ describe('TaskScheduler', () => {
       })
     }
     await db.insert(schema.tasks).values([
-      {
-        id: 'full-queued',
+      ...Array.from({ length: 40 }, (_, index) => ({
+        id: `full-queued-${index}`,
         user_id: 'full-account',
-        provider: 'openai-compat',
+        provider: 'openai-compat' as const,
         model: 'test-model',
-        status: 'queued',
+        status: 'queued' as const,
         request_payload: { prompt: 'x' },
-        submitted_at: 4,
-      },
+        submitted_at: index + 4,
+      })),
       {
         id: 'other-queued',
         user_id: 'other-account',
@@ -122,7 +122,7 @@ describe('TaskScheduler', () => {
         model: 'test-model',
         status: 'queued',
         request_payload: { prompt: 'x' },
-        submitted_at: 5,
+        submitted_at: 44,
       },
     ])
 
@@ -137,6 +137,62 @@ describe('TaskScheduler', () => {
     await waitFor(() => launched.length === 1)
     scheduler.stop()
     expect(launched).toEqual(['other-queued'])
+  })
+
+  it('shares four provider slots when one account submitted a long backlog', async () => {
+    const stamp = Date.now()
+    await db.insert(schema.users).values([
+      {
+        id: 'busy-account',
+        username: 'busy-account',
+        password_hash: 'x',
+        created_at: stamp,
+        updated_at: stamp,
+      },
+      {
+        id: 'waiting-account',
+        username: 'waiting-account',
+        password_hash: 'x',
+        created_at: stamp,
+        updated_at: stamp,
+      },
+    ])
+    await db.insert(schema.tasks).values([
+      ...Array.from({ length: 40 }, (_, index) => ({
+        id: `busy-queued-${index}`,
+        user_id: 'busy-account',
+        provider: 'openai-compat' as const,
+        model: 'test-model',
+        status: 'queued' as const,
+        request_payload: { prompt: 'x' },
+        submitted_at: index + 1,
+      })),
+      {
+        id: 'waiting-queued',
+        user_id: 'waiting-account',
+        provider: 'openai-compat',
+        model: 'test-model',
+        status: 'queued',
+        request_payload: { prompt: 'x' },
+        submitted_at: 41,
+      },
+    ])
+    const launched: string[] = []
+    const scheduler = new TaskScheduler({
+      concurrency: { 'openai-compat': 4, gemini: 1 },
+      executeTask: async (id) => {
+        launched.push(id)
+      },
+    })
+    scheduler.start()
+    await waitFor(() => launched.length >= 4)
+    scheduler.stop()
+    expect(launched.slice(0, 4)).toEqual([
+      'busy-queued-0',
+      'busy-queued-1',
+      'busy-queued-2',
+      'waiting-queued',
+    ])
   })
 
   it('bounds providers independently and keeps the second OpenAI task queued', async () => {

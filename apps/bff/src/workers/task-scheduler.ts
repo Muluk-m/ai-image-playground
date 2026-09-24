@@ -1,14 +1,10 @@
 import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
-import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
-import {
-  abortRunningTask,
-  accountGenerationLimit,
-  failCrashedExecution,
-  runningTaskIds,
-} from './task-execution'
+import { selectRunnableTasks } from './runnable-tasks'
+import { abortRunningTask, failCrashedExecution, runningTaskIds } from './task-execution'
 import { runTask } from './task-runner'
 
 type ExecuteTask = (id: string) => Promise<void>
@@ -118,59 +114,7 @@ export class TaskScheduler {
         const available = this.concurrency[provider] - active.size
         if (available <= 0) continue
 
-        const due = await db
-          .select({ id: schema.tasks.id, userId: schema.tasks.user_id })
-          .from(schema.tasks)
-          .where(
-            and(
-              eq(schema.tasks.provider, provider),
-              eq(schema.tasks.status, 'queued'),
-              or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, now)),
-            ),
-          )
-          // Give each account its oldest task before taking a second task from any account.
-          // This keeps one large backlog from hiding another account's runnable work.
-          .orderBy(
-            sql`row_number() over (partition by coalesce(${schema.tasks.user_id}, ${schema.tasks.id}) order by ${schema.tasks.submitted_at}, ${schema.tasks.id})`,
-            asc(schema.tasks.submitted_at),
-          )
-          .limit(available + this.concurrency[provider] * 3)
-
-        if (this.stopped || this.draining) return
-        const selected = await db.transaction(async (tx) => {
-          const userIds = [...new Set(due.flatMap((task) => (task.userId ? [task.userId] : [])))]
-          const activeRows = userIds.length
-            ? await tx
-                .select({ userId: schema.tasks.user_id, count: sql<number>`count(*)::int` })
-                .from(schema.tasks)
-                .where(
-                  and(
-                    inArray(schema.tasks.user_id, userIds),
-                    eq(schema.tasks.kind, 'queue'),
-                    eq(schema.tasks.status, 'in_progress'),
-                  ),
-                )
-                .groupBy(schema.tasks.user_id)
-            : []
-          const activeCounts = new Map(activeRows.map((row) => [row.userId, Number(row.count)]))
-          const limits = new Map<string, number>()
-          const selected: typeof due = []
-          for (const task of due) {
-            if (task.userId) {
-              let limit = limits.get(task.userId)
-              if (limit === undefined) {
-                limit = await accountGenerationLimit(tx, task.userId, now)
-                limits.set(task.userId, limit)
-              }
-              const count = activeCounts.get(task.userId) ?? 0
-              if (count >= limit) continue
-              activeCounts.set(task.userId, count + 1)
-            }
-            selected.push(task)
-            if (selected.length >= available) break
-          }
-          return selected
-        })
+        const selected = await selectRunnableTasks(provider, available, now)
         if (this.stopped || this.draining) return
         for (const task of selected) this.launch(provider, task.id)
       }

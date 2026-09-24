@@ -52,7 +52,7 @@ async function compressOne(dataUrl: string): Promise<string> {
     if (!ctx) return dataUrl
     ctx.drawImage(image, 0, 0, width, height)
 
-    const keepAlpha = !OPAQUE_MIME.test(dataUrl) && hasAlphaPixels(ctx, width, height)
+    const keepAlpha = (foreign || !OPAQUE_MIME.test(dataUrl)) && hasAlphaPixels(ctx, width, height)
     const compressed = keepAlpha
       ? canvas.toDataURL('image/png')
       : canvas.toDataURL('image/jpeg', JPEG_QUALITY)

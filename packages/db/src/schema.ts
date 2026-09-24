@@ -823,6 +823,9 @@ export const tasks = pgTable(
   (t) => [
     check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat')`),
     index('idx_tasks_status').on(t.status),
+    index('idx_tasks_queued_provider_time')
+      .on(t.provider, t.submitted_at, t.id)
+      .where(sql`${t.status} = 'queued'`),
     index('idx_tasks_lease_expires').on(t.lease_expires_at).where(sql`${t.status} = 'in_progress'`),
     index('idx_tasks_submitted_at').on(t.submitted_at),
     index('idx_tasks_next_retry_at').on(t.next_retry_at).where(sql`${t.next_retry_at} IS NOT NULL`),

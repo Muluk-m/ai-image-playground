@@ -5,13 +5,14 @@ import {
   type OpsBackups,
   type OpsRestoreDrill,
 } from '@image-playground/shared'
-import { and, desc, eq, isNull, lte, min, or, sql } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import {
   readBackups as readBackupsFromStore,
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
+import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
 /**
@@ -49,22 +50,23 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const [queue, backup, restoreDrill, heartbeats] = await Promise.all([
     attempt('queue', async () => {
-      const [row] = await db
-        .select({
-          oldest: min(
-            sql<number>`(extract(epoch from greatest(${schema.tasks.submitted_at}, coalesce(${schema.tasks.next_retry_at}, ${schema.tasks.submitted_at}))) * 1000)::bigint`,
-          ),
-        })
-        .from(schema.tasks)
-        .where(
-          and(
-            eq(schema.tasks.kind, 'queue'),
-            eq(schema.tasks.status, 'queued'),
-            isNull(schema.tasks.archive_payload),
-            or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, options.now)),
-          ),
+      const candidates = await Promise.all([
+        selectRunnableTasks('openai-compat', 1, options.now, {
+          excludeArchived: true,
+          orderByEligible: true,
+        }),
+        selectRunnableTasks('gemini', 1, options.now, {
+          excludeArchived: true,
+          orderByEligible: true,
+        }),
+      ])
+      const oldest = candidates
+        .flat()
+        .reduce<number | null>(
+          (current, task) =>
+            current === null ? task.eligibleSince : Math.min(current, task.eligibleSince),
+          null,
         )
-      const oldest = row?.oldest == null ? null : Number(row.oldest)
       return { oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest) }
     }),
     attempt('backup', async () => {

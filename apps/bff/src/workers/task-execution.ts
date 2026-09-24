@@ -1,5 +1,5 @@
 import { hostname } from 'node:os'
-import type { PersistedSubmitRequest } from '@image-playground/shared'
+import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, isNull, lte, or, type SQL, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -242,7 +242,7 @@ export async function claimTaskExecution(
   const token = `${hostname()}:${crypto.randomUUID()}`
   const claimed = await db.transaction(async (tx) => {
     const [candidate] = await tx
-      .select({ userId: schema.tasks.user_id })
+      .select({ userId: schema.tasks.user_id, provider: schema.tasks.provider })
       .from(schema.tasks)
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'queued')))
       .limit(1)
@@ -255,9 +255,17 @@ export async function claimTaskExecution(
         .from(schema.users)
         .where(eq(schema.users.id, candidate.userId))
         .for('update')
-      const limit = await accountGenerationLimit(tx, candidate.userId, claimedAt)
+      const limits = await accountGenerationLimits(
+        tx,
+        candidate.userId,
+        candidate.provider,
+        claimedAt,
+      )
       const [active] = await tx
-        .select({ count: sql<number>`count(*)::int` })
+        .select({
+          total: sql<number>`count(*)::int`,
+          provider: sql<number>`count(*) filter (where ${schema.tasks.provider} = ${candidate.provider})::int`,
+        })
         .from(schema.tasks)
         .where(
           and(
@@ -266,7 +274,11 @@ export async function claimTaskExecution(
             eq(schema.tasks.status, 'in_progress'),
           ),
         )
-      if (Number(active?.count ?? 0) >= limit) return null
+      if (
+        Number(active?.total ?? 0) >= limits.total ||
+        Number(active?.provider ?? 0) >= limits.provider
+      )
+        return null
     }
     const [row] = await tx
       .update(schema.tasks)
@@ -304,19 +316,20 @@ export async function claimTaskExecution(
 }
 
 /** The claim is authoritative; the scheduler also reads this to skip accounts at capacity. */
-export async function accountGenerationLimit(
+export async function accountGenerationLimits(
   tx: BffTransaction,
   userId: string,
+  provider: QueueProvider,
   now: number,
-): Promise<number> {
+): Promise<{ total: number; provider: number }> {
   const overlay = await loadPrivateBffOverlay()
   const entitled = (await overlay.taskHooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
-  const providerSlots = Math.min(
-    config.worker.concurrency.openaiCompat,
-    config.worker.concurrency.gemini,
-  )
   const requested = Number.isInteger(entitled) && entitled > 0 ? entitled : 1
-  return Math.max(1, Math.min(requested, providerSlots - 1))
+  const providerSlots =
+    provider === 'openai-compat'
+      ? config.worker.concurrency.openaiCompat
+      : config.worker.concurrency.gemini
+  return { total: requested, provider: Math.max(1, providerSlots - 1) }
 }
 
 /** cancel route / scheduler 调用：打断对应任务的上游 fetch。返回是否找到。 */
