@@ -604,6 +604,19 @@ export async function interjectTurn(
 }
 
 /**
+ * 这一份参考图里有几张必须带着字节发。判据与 `resolveReferences` 逐字一致：云媒体那一路
+ * 只带 id，画过遮罩的那张云端没有、只能内联。服务端对内联张数另有硬上限，调用方据此在
+ * 发请求之前就知道这一轮会不会被打回。
+ */
+export function inlineReferenceCount(references: readonly AgentTurnReference[]): number {
+  let inline = 0
+  for (const reference of references)
+    if ('dataUrl' in reference && (!mediaIdentity(reference.dataUrl) || reference.maskDataUrl))
+      inline += 1
+  return inline
+}
+
+/**
  * 发送形态：字节已经在云媒体里的只带 id，其余把本机来源解成真正的 data URL。
  *
  * 曾经这里对每一条都调 `resolveMediaSource`——画布上选中八张图，就是先把八张原件从 R2

@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
-import type { AgentConversationView, AgentTurnEvent } from '@image-playground/shared'
-import { encodeAgentFrame } from '@image-playground/shared'
+import type {
+  AgentConversationView,
+  AgentTurnEvent,
+  AgentTurnReference,
+} from '@image-playground/shared'
+import { AGENT_TURN_MAX_INLINE_REFERENCES, encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
 import {
@@ -272,6 +276,27 @@ describe('一轮对话', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(state().turn).toBe('idle')
+  })
+
+  it('云端媒体换不上、只能内联的张数超过上限时当场打回，不发注定被拒的请求', async () => {
+    // 画布上圈了几十张，发送前媒体上传没成（422、离线……）：它们只能内联，服务端只收
+    // AGENT_TURN_MAX_INLINE_REFERENCES 张。照发就是几十 MB 传几分钟再被 4xx 打回。
+    // 这一轮若真被发出去，服务端会当场打回；流给全，免得失败表现成用例超时。
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    const references = Array.from(
+      { length: AGENT_TURN_MAX_INLINE_REFERENCES + 1 },
+      (_, at): AgentTurnReference => ({
+        imageId: `canvas-${at}`,
+        dataUrl: 'data:image/png;base64,aGk=',
+      }),
+    )
+
+    await state().send('都换成夜景', references)
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    expect(state().turn).toBe('failed')
+    expect(state().error).toBe('有几张图还没能上传到云端，这一轮没有发出。请重试，草稿已保留。')
+    expect(state().messages).toEqual([])
   })
 })
 
