@@ -439,6 +439,35 @@ describe('发送反馈', () => {
     expect(state().error).toBeNull()
   })
 
+  it('中止还在路上时发出的那一句静默等它落定，起的是新的一轮', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    let settleAbort!: (response: Response) => void
+    const aborting = new Promise<Response>((resolve) => {
+      settleAbort = resolve
+    })
+    let turnCalls = 0
+    turnResponse = () => {
+      turnCalls += 1
+      return turnCalls === 1 ? aborting : turnStream(TURN_START, TURN_END)
+    }
+    const stopping = state().abort()
+    const sending = state().send('那换成夜景')
+    // 中止还没回来：这一句不报错、也不抢跑。
+    expect(turnCalls).toBe(1)
+    settleAbort(Response.json({ aborted: true, returned: [] }))
+    await stopping
+    // 终帧由流带来；这里直接摆出它落地后的状态。
+    useAgentStore.setState({ turn: 'idle', stopping: false, activeTurn: null })
+    await sending
+    expect(turnCalls).toBe(2)
+    expect(state().queue).toEqual([])
+    expect(state().error).toBeNull()
+  })
+
   it('中止遇到已结束的轮，按历史恢复结束状态', async () => {
     useAgentStore.setState({
       conversationId: CONVERSATION,
