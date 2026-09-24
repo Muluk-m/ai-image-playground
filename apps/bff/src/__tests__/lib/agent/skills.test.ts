@@ -22,6 +22,7 @@ const {
   readAgentSkillFileBytes,
   resolveAgentSkill,
   setAgentSkillsRootForTesting,
+  titleSourceText,
 } = await import('../../../lib/agent/skills')
 const { log } = await import('../../../lib/logger')
 
@@ -403,5 +404,18 @@ describe('a deployment without a skills directory', () => {
     expect(agentSkills('video')).toEqual([])
     setAgentSkillsRootForTesting(root)
     await ensureAgentSkills()
+  })
+})
+
+describe('会话标题里的技能命令', () => {
+  it('开头的 /技能 换成技能标题，后面的话留着', () => {
+    expect(titleSourceText('/main-image', 'image')).toBe('电商主图')
+    expect(titleSourceText('/main-image 做一张耳机主图', 'image')).toBe('电商主图 做一张耳机主图')
+  })
+
+  it('认不出的名字、别的模式的技能、句中的斜杠都原样留着', () => {
+    expect(titleSourceText('/nope 你好', 'image')).toBe('/nope 你好')
+    expect(titleSourceText('/storyboard', 'image')).toBe('/storyboard')
+    expect(titleSourceText('把 /main-image 用上', 'image')).toBe('把 /main-image 用上')
   })
 })

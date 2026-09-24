@@ -47,7 +47,9 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
   return (
     <div
       {...(step.toolName === 'loadSkill' ? { 'data-tool': 'loadSkill' } : {})}
-      className={`flex items-center gap-2 text-[11.5px] ${active ? 'text-foreground/85' : 'text-muted-foreground'}`}
+      className={`flex shrink-0 items-center gap-2 text-[11.5px] ${active ? 'text-foreground/85' : 'text-muted-foreground'}`}
+      // 行高必须钉死成 ROW：滚动偏移按 ROW 算，行比它矮时每多一步就多推上去几像素，倒数第二行被推出窗口。
+      style={{ height: ROW }}
     >
       {step.toolName === 'loadSkill' ? (
         <AgentSkillIcon name={skill?.icon} className="h-3 w-3 shrink-0" />
@@ -145,11 +147,12 @@ export default function AgentActivityTrail({
         height: spent ? 0 : WINDOW,
         opacity: spent ? 0 : 1,
         // 只有真的滚上去了才在顶部渐隐。不分青红皂白地挂着，头一两步正好落在渐隐区里，
-        // 叠上「做完变暗」就什么都看不见——那块空白就是这么来的。
+        // 叠上「做完变暗」就什么都看不见——那块空白就是这么来的。渐隐只占行高的一小截：
+        // 盖掉大半行，窗口看上去就只剩一行。
         ...(overflowing
           ? {
-              maskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.8}px)`,
-              WebkitMaskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.8}px)`,
+              maskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.4}px)`,
+              WebkitMaskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.4}px)`,
             }
           : {}),
       }}

@@ -79,7 +79,8 @@
     "generateShortcut": "Generate (Ctrl+Enter)",
     "configureApiFirst": "Configure the API first",
     "apiNotConfigured": "Configure the API in Settings first",
-    "startCanvas": "Start creating"
+    "startCanvas": "Start creating",
+    "skillNeedsCanvas": "Skills only run on the canvas. Switch to Canvas to send"
   },
   "search": {
     "favoriteOnly": "Favorites only",

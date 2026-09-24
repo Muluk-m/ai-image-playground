@@ -3,6 +3,13 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../features/agent/lib/useAgentSkills', () => ({
+  useAgentSkills: () => [
+    { name: 'create-look', title: '建模板', description: '', icon: 'wand', summary: '' },
+  ],
+}))
+
 import InputBar from '../../components/InputBar'
 import { useLibraryStore } from '../../features/library/store'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
@@ -240,5 +247,49 @@ describe('首屏「画布」档的参考图', () => {
 
     expect(useStore.getState().toast?.message).toContain('不支持参考图')
     expect(await getAllImageIds()).toEqual(before)
+  })
+})
+
+describe('开头的 /技能 命令', () => {
+  function setPrompt(prompt: string): void {
+    act(() => useStore.setState({ prompt }))
+  }
+
+  it('画布档变成技能胶囊', () => {
+    remount('canvas')
+    setPrompt('/create-look 做个模板')
+    expect(host.querySelector('[data-skill-name="create-look"]')).not.toBeNull()
+  })
+
+  it('生成档不认技能，也不许把命令当提示词拿去出图', () => {
+    useStore.setState({
+      settings: {
+        ...useStore.getState().settings,
+        activeProfileId: 'openai-byok',
+        profiles: [
+          {
+            id: 'openai-byok',
+            source: 'user-byok',
+            name: 'OpenAI',
+            kind: 'openai-compat',
+            baseUrl: 'https://example.com',
+            apiKey: 'sk-x',
+            models: ['gpt-image-2'],
+            selectedModelId: 'gpt-image-2',
+            preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
+          },
+        ],
+      },
+    })
+    remount('generate')
+    const submit = () =>
+      [...host.querySelectorAll('button')].find((one) => one.textContent?.trim() === '生成')
+
+    setPrompt('做个模板')
+    expect(submit()?.disabled).toBe(false)
+
+    setPrompt('/create-look 做个模板')
+    expect(host.querySelector('[data-skill-name]')).toBeNull()
+    expect(submit()?.disabled).toBe(true)
   })
 })
