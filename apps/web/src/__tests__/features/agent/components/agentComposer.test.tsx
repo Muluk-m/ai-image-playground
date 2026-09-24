@@ -129,7 +129,11 @@ afterEach(() => {
 })
 
 function png(name = 'photo.png'): File {
-  return new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+  const bytes = Uint8Array.from(
+    atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='),
+    (char) => char.charCodeAt(0),
+  )
+  return new File([bytes], name, { type: 'image/png' })
 }
 
 function fireDrag(target: Element, type: string, files: File[]): void {
