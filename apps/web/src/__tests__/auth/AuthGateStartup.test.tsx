@@ -69,7 +69,7 @@ function saveCoachState(key: string, dismissed: boolean) {
   )
 }
 
-async function boot() {
+async function boot(expectReady = true) {
   // Match main.tsx: static AuthGate imports precede capability discovery and identity lookup.
   const { AuthGate } = await import('../../auth/AuthGate')
   const { loadRuntimeConfig } = await import('../../lib/runtimeConfig')
@@ -84,7 +84,7 @@ async function boot() {
     ),
   )
   await act(async () => vi.dynamicImportSettled())
-  expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  if (expectReady) expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
 }
 
 function coachDismissed(): string | null | undefined {
@@ -133,6 +133,29 @@ describe('fallback startup', () => {
   })
 })
 
+describe('connection recovery', () => {
+  it('retries a failed channel request and opens the workspace without a click', async () => {
+    let channelsAvailable = false
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/channels') && !channelsAvailable)
+        return Response.json({ error: 'unavailable' }, { status: 503 })
+      return original(...args)
+    })
+
+    await boot(false)
+    expect(host.textContent).toContain('正在准备工作台')
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1100)))
+    expect(host.textContent).toContain('连接暂时中断')
+    expect(host.querySelector('.auth-recovery-card')).not.toBeNull()
+
+    channelsAvailable = true
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2100)))
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  }, 7000)
+})
+
 describe('anonymous startup', () => {
   /** 401 的 /api/auth/me 不再是拦路虎：访客照样进工作台，channel 清单也照拉。 */
   async function bootAnonymously(): Promise<void> {
@@ -145,6 +168,25 @@ describe('anonymous startup', () => {
     })
     await boot()
   }
+
+  it('retries channel discovery for a visitor after a temporary failure', async () => {
+    let channelsAvailable = false
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/auth/me'))
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      if (String(args[0]).endsWith('/api/channels') && !channelsAvailable)
+        return Response.json({ error: 'unavailable' }, { status: 503 })
+      return original(...args)
+    })
+
+    await boot(false)
+    expect(host.querySelector('[data-testid="workspace"]')).toBeNull()
+    channelsAvailable = true
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1100)))
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  }, 5000)
 
   it('mounts the workspace for a visitor without a session', async () => {
     await bootAnonymously()
