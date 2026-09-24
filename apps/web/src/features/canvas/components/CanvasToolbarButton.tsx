@@ -13,6 +13,7 @@ export default function CanvasToolbarButton({
   icon,
   label,
   compact,
+  destructive,
   disabled,
   reason,
   onClick,
@@ -21,6 +22,8 @@ export default function CanvasToolbarButton({
   label: string
   /** 只留图标，说明文字移到悬停浮层里——动作一多，带文字的条会长到压住画布。 */
   compact?: boolean
+  /** 破坏性动作在工具条上保持醒目的危险色。 */
+  destructive?: boolean
   /** 正在进行中，暂时不可点。 */
   disabled?: boolean
   /** 做不了的原因；有它就是不可用。 */
@@ -35,7 +38,7 @@ export default function CanvasToolbarButton({
       type="button"
       variant="ghost"
       size="sm"
-      className={`h-8 gap-1 text-xs ${compact ? 'w-8 px-0' : 'px-2'} ${unavailable ? 'opacity-50' : ''}`}
+      className={`h-8 gap-1 text-xs ${compact ? 'w-8 px-0' : 'px-2'} ${destructive ? 'text-destructive hover:bg-destructive/10 hover:text-destructive' : ''} ${unavailable ? 'opacity-50' : ''}`}
       aria-label={label}
       aria-disabled={unavailable || undefined}
       // compact 下自带浮层，再留 title 会和它叠在一起出两份说明。

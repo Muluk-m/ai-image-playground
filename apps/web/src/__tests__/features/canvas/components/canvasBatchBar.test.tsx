@@ -82,7 +82,14 @@ describe('画布多图工具条', () => {
     doc.setSelection(['a', 'b'])
     act(() => root.render(<CanvasBatchBar editor={editor} />))
 
-    expect(labels()).toEqual(['抠图', '编辑图片', '调整尺寸', '更多'])
+    expect(labels()).toEqual([
+      '抠图',
+      '编辑图片',
+      '调整尺寸',
+      '选中的内容里没有可导出的图片或视频',
+      '删除所选（Del）',
+      '取消选择',
+    ])
     await act(async () => button('抠图').click())
     expect(actions.cutout).toHaveBeenCalledTimes(2)
     expect(
@@ -97,6 +104,29 @@ describe('画布多图工具条', () => {
     act(() => root.render(<CanvasBatchBar editor={editor} />))
 
     for (const label of ['局部重绘', '擦除', '裁切', '扩图']) expect(labels()).not.toContain(label)
+  })
+
+  it('取消选择直接在工具条上，且不再提供复制一份', () => {
+    addImage('a', 0)
+    addImage('b', 300)
+    doc.setSelection(['a', 'b'])
+    act(() => root.render(<CanvasBatchBar editor={editor} />))
+
+    expect(labels()).not.toContain('复制一份（⌘D）')
+    act(() => button('取消选择').click())
+    expect(doc.selection.size).toBe(0)
+    expect(host.querySelector('[role="toolbar"]')).toBeNull()
+  })
+
+  it('删除所选直接从工具条移除整批元素', () => {
+    addImage('a', 0)
+    addImage('b', 300)
+    doc.setSelection(['a', 'b'])
+    act(() => root.render(<CanvasBatchBar editor={editor} />))
+
+    act(() => button('删除所选（Del）').click())
+    expect(doc.getElement('a')).toBeUndefined()
+    expect(doc.getElement('b')).toBeUndefined()
   })
 
   it('视频封面不混进批量图片操作', async () => {
