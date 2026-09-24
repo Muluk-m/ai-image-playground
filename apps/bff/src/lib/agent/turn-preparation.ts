@@ -39,7 +39,12 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
-import { type AgentTurnAudience, ensureAgentSkills, loadAgentTurnAudience } from './skills'
+import {
+  type AgentTurnAudience,
+  ensureAgentSkills,
+  loadAgentTurnAudience,
+  titleSourceText,
+} from './skills'
 import { agentThinking } from './thinking'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
 import type { PreparedAgentTurn } from './turn'
@@ -438,6 +443,10 @@ async function messageContent(
   // 窗口空只说明锚点之后没有消息：压缩过的长会话窗口一样可能是空的，拿它当新会话会把用户自己
   // 改过的标题冲掉。一条都没折进摘要、窗口也空，才真是头一轮。
   const isFirstTurn = window.coveredCount === 0 && window.messages.length === 0
+  const mode = resolveAgentMode(message.mode ?? 'image')
+  // 首轮是 `/技能` 命令时，标题要落技能的名字；目录已由起轮前的那次加载缓存，这里只是等它。
+  if (isFirstTurn) await ensureAgentSkills()
+  const titleText = isFirstTurn ? titleSourceText(message.text, mode) : message.text
   const storedReferences = await archiveAgentReferences(conversationId, turnId, message.references)
   return {
     text: message.text,
@@ -454,7 +463,7 @@ async function messageContent(
           },
         }
       : {}),
-    mode: resolveAgentMode(message.mode ?? 'image'),
+    mode,
     ...(message.params ? { params: message.params } : {}),
     selectionHistoryStart: clarificationChainStart(window.messages),
     deviceId: message.deviceId,
@@ -466,7 +475,7 @@ async function messageContent(
           tx,
           conversationId,
           owner,
-          agentConversationTitle(message.text),
+          agentConversationTitle(titleText),
         )
       await appendAgentMessage(tx, {
         id: message.id,
@@ -487,7 +496,7 @@ async function messageContent(
     },
     // 自动命名不挡对话：小模型在后台改写标题，迟到或失败都只是继续用首句那个。
     settled: () => {
-      if (isFirstTurn) void nameConversation(conversationId, owner, message.text)
+      if (isFirstTurn) void nameConversation(conversationId, owner, titleText)
     },
   }
 }
