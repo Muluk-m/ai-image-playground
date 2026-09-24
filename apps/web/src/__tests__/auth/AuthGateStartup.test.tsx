@@ -169,6 +169,25 @@ describe('anonymous startup', () => {
     await boot()
   }
 
+  it('retries channel discovery for a visitor after a temporary failure', async () => {
+    let channelsAvailable = false
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/auth/me'))
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      if (String(args[0]).endsWith('/api/channels') && !channelsAvailable)
+        return Response.json({ error: 'unavailable' }, { status: 503 })
+      return original(...args)
+    })
+
+    await boot(false)
+    expect(host.querySelector('[data-testid="workspace"]')).toBeNull()
+    channelsAvailable = true
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1100)))
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  }, 5000)
+
   it('mounts the workspace for a visitor without a session', async () => {
     await bootAnonymously()
 

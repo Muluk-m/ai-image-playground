@@ -93,6 +93,7 @@ export function AuthGate() {
   useEffect(() => {
     let cancelled = false
     let retryTimer: number | undefined
+    const abortController = new AbortController()
     async function boot(): Promise<void> {
       try {
         setRecoveryBackend(
@@ -115,7 +116,12 @@ export function AuthGate() {
         setClientStorageScope(currentUser?.id ?? null)
         if (!currentUser) {
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。
-          await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, false)
+          await bootstrapChannels(
+            runtime.bff.enabled,
+            runtime.bff.baseUrl,
+            true,
+            abortController.signal,
+          )
           const pendingSend = await hasPendingSubmission().catch(() => false)
           if (cancelled) return
           if (pendingSend) setLoginReason('gated-action')
@@ -130,7 +136,7 @@ export function AuthGate() {
           adoptDeviceConversations(),
           // 登录用户这条必须成真：session 若恰好在两次请求之间过期，宁可停在错误页，
           // 也不能把 stale user 标成 ready 后再满屏 401。
-          bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true),
+          bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true, abortController.signal),
         ])
         if (!cancelled) {
           setAdoptedTaskCount(adopted)
@@ -152,6 +158,7 @@ export function AuthGate() {
     void boot()
     return () => {
       cancelled = true
+      abortController.abort()
       window.clearTimeout(retryTimer)
     }
   }, [
