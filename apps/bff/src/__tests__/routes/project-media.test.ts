@@ -218,3 +218,36 @@ it('对象存储写入缓慢时，同一账号仍能保存画布结构；失败�
   expect((await request(`media/${upload.id}/complete`, deviceB, {})).status).toBe(200)
   expect((await request(`media/${upload.id}/access`, deviceB)).status).toBe(200)
 })
+
+it('同一份字节改用正确的类型重新预留，沿用原身份并能确认', async () => {
+  // 旧版前端按 data URL 上的标签申报，WebP 被报成 png，确认那一步 422。改正后的申报
+  // 撞上的是当初那条预留：类型对不上就不能再把它判成坏请求，否则这张图永远上不去。
+  const bytes = await sharp({ create: { width: 8, height: 8, channels: 4, background: '#123456' } })
+    .webp()
+    .toBuffer()
+  const descriptor = {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+  }
+  const mislabeled = await (
+    await request('media/uploads', deviceA, { ...descriptor, contentType: 'image/png' })
+  ).json()
+  await storage.write(key(mislabeled.uploadUrl), bytes, 'image/webp')
+  expect(await (await request(`media/${mislabeled.id}/complete`, deviceA, {})).json()).toEqual({
+    error: 'media_invalid_image',
+  })
+
+  const corrected = await request('media/uploads', deviceA, {
+    ...descriptor,
+    contentType: 'image/webp',
+  })
+
+  expect(corrected.status).toBe(200)
+  const upload = await corrected.json()
+  expect(upload.id).toBe(mislabeled.id)
+  await storage.write(key(upload.uploadUrl), bytes, 'image/webp')
+  expect(await (await request(`media/${upload.id}/complete`, deviceA, {})).json()).toMatchObject({
+    id: upload.id,
+    status: 'ready',
+  })
+})

@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
-import { projectDocument, projectScene } from '../../../../features/canvas/lib/projectMedia'
+import {
+  prepareProjectMedia,
+  projectDocument,
+  projectScene,
+} from '../../../../features/canvas/lib/projectMedia'
 
 describe('上云的项目文档', () => {
   it('bounds an over-long meta value instead of failing the whole document', () => {
@@ -120,5 +124,52 @@ describe('只在本机的失败占位', () => {
     ])
 
     expect(projectDocument(doc)).toEqual({ version: 1, elements: [] })
+  })
+})
+
+describe('本机原图上云', () => {
+  /** 最小 WebP：`RIFF` + 长度 + `WEBP`。够让嗅探认出它不是 PNG。 */
+  const WEBP_BYTES = Uint8Array.from([
+    0x52, 0x49, 0x46, 0x46, 0x1a, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x4c,
+  ])
+
+  it('按真实字节申报类型，不信 data URL 上写的那一行', async () => {
+    // 画布上的原图曾被贴上 `data:image/png` 却装着 WebP 字节：服务端解出 webp、对不上申报的
+    // png，确认那一步 422 media_invalid_image，整批图于是一张都上不去。
+    const source = 'data:image/png;base64,UklGRhoAAABXRUJQVlA4TA=='
+    const doc = new CanvasDoc()
+    doc.addElements(
+      [
+        {
+          id: 'img',
+          type: 'image',
+          fileId: 'f',
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          rotation: 0,
+        },
+      ],
+      { files: { f: source } },
+    )
+    const declared: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === source)
+          return new Response(WEBP_BYTES, { headers: { 'content-type': 'image/png' } })
+        if (url.endsWith('/uploads')) {
+          declared.push(JSON.parse(init!.body as string).contentType)
+          return Response.json({ id: '3f1d2c5b-8a90-4b21-9d64-7c0e5a1b2f33', status: 'ready' })
+        }
+        throw new Error(`unexpected request: ${url}`)
+      }),
+    )
+
+    await prepareProjectMedia(doc, {}, new Map(), new AbortController().signal)
+
+    expect(declared).toEqual(['image/webp'])
+    vi.unstubAllGlobals()
   })
 })
