@@ -16,12 +16,10 @@
 
 `ai-image-playground` — AI 生图工作台。fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，扩展了 Gemini 原生协议、异步队列模式、可选 BFF 后端、内置 channel discovery。
 
-pnpm workspace + Turbo v2 + Biome：
-
-- `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。画布、已缓存产物与配置存浏览器 IndexedDB；完整 Agent 对话存对应 BFF 的 PostgreSQL，本地不是完整消息备份。
-- `apps/bff/` — **可选**任务队列 BFF（Elysia + Bun + Drizzle + PostgreSQL via `bun:sql`）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
-- `apps/admin/` — 可选运维面板（Bun + Elysia 服务端，端口 37378；Vite + TanStack Router + shadcn 前端）。HMAC cookie 鉴权；数据库连接只读，用户与运营写操作一律代理到 BFF。
-- `packages/shared/` — 跨 app 协议类型（`runtime-config.ts` / `channel-discovery.ts` / `queue-protocol.ts`）。
+- `apps/web/` — 前端工作台。画布、已缓存产物与配置存浏览器 IndexedDB；完整 Agent 对话存对应 BFF 的 PostgreSQL，本地不是完整消息备份。
+- `apps/bff/` — **可选**任务队列 BFF（`:37377`），托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
+- `apps/admin/` — 可选运维面板（`:37378`）。HMAC cookie 鉴权；数据库连接只读，用户与运营写操作一律代理到 BFF。
+- `packages/shared/` — 跨 app 协议类型。
 
 两种部署形态（详见仓库根 `README.md`）：
 
@@ -30,26 +28,11 @@ pnpm workspace + Turbo v2 + Biome：
 
 各 app 的内部约定（服务商架构、内置 channel、BFF 定位、queue 协议等）放在 `apps/web/CLAUDE.md` 与 `apps/bff/CLAUDE.md`，改到对应目录时自动加载。
 
-## 常用命令
-
-顶层 turbo 入口：
-
-- `pnpm test` — 所有 app 跑测试
-- `pnpm build` — 所有 app 构建（apps/web 内部含 `gen:hero-seed && tsc -b && vite build`）。**typecheck 的唯一入口**。
-- `pnpm typecheck` — 所有 app 单跑 `tsc -b`
-- `pnpm dev` — 起所有 app 的 dev server
-- `pnpm dev:web` — 只起 `apps/web` 的 Vite dev server
-- `pnpm lint` — `biome check .`（format + organize imports + linter；受限引用规则会强制私有树边界）
-- `pnpm exec biome check --write .` — **lint 自动修复**：同时修 format + organize imports。注意 `pnpm format` 只改 format 不动 import 顺序，**正经修 lint 错的入口是这条**。
-- `pnpm format` — `biome format --write .`（仅格式化，不动 import）
-
-子包内也可以直接进目录跑：`cd apps/web && pnpm dev`、`cd apps/bff && pnpm dev` 等。
-
 ## 完成任务的硬性检查清单
 
 **任何一次改完代码、提交前都要跑下面三件事**，缺一不可：
 
-1. `pnpm exec biome check --write .` — 自动修 format + import 排序；然后 `pnpm lint` 二次确认 0 errors（biome.json 自身的 schema deprecation warning/info 是已知 noise，可忽略）
+1. `pnpm exec biome check --write .` — 自动修 format + import 排序；然后 `pnpm lint` 二次确认 0 errors（biome.json 自身的 schema deprecation warning/info 是已知 noise，可忽略）。`pnpm format` 只改 format、不动 import 顺序，修 lint 错不要用它。
 2. `pnpm typecheck` — TypeScript 跨包 build 检查
 3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`。PostgreSQL 集成测试需要 `TEST_DATABASE_URL`（本机例：`TEST_DATABASE_URL=postgres://qiqian@127.0.0.1:5432/aip_test`），未设置会直接报错失败。
 
