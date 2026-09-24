@@ -19,7 +19,7 @@
   "detail": {
     "back": "返回列表",
     "openOriginalHint": "点击在新标签查看原图",
-    "openOriginal": "查看原图 ↗",
+    "openOriginal": "查看原图",
     "promptLabel": "完整提示词",
     "copyPrompt": "复制提示词",
     "apply": "使用此提示词",

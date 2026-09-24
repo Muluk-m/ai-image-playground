@@ -1,11 +1,9 @@
-import { Copy, Download, MoreHorizontal, Ratio, Scissors, Trash2, Wand2, X } from 'lucide-react'
+import { Download, Ratio, Scissors, Trash2, Wand2, X } from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
-import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
-import { duplicateSelection } from '../lib/canvasClipboard'
 import type { ImageEl } from '../lib/canvasDoc'
 import {
   cutoutRefusal,
@@ -22,9 +20,9 @@ import CanvasBatchResizeMenu from './CanvasBatchResizeMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
 
 /**
- * 多选工具条：只放**对一批成立**的动作——抠图、整图编辑、换比例，同一个指令逐张跑完。
+ * 多选工具条：直接展示对一批成立的动作——抠图、整图编辑、换比例、导出、删除与取消选择。
  * 局部重绘 / 擦除 / 裁切 / 扩图要先在某一张图上画出区域，区域换一张图就没有意义，
- * 它们只属于单图工具条。导出 / 复制 / 删除 / 取消选择收进「更多」。
+ * 它们只属于单图工具条。
  */
 export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation('canvas')
@@ -36,7 +34,6 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   )
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [editing, setEditing] = useState(false)
-  const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const [resizeAt, setResizeAt] = useState<{ x: number; y: number } | null>(null)
 
   const selection = [...doc.selection]
@@ -114,14 +111,33 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
             setResizeAt({ x: rect.left, y: rect.bottom + 4 })
           }}
         />
+        <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
         <CanvasToolbarButton
           compact
-          icon={<MoreHorizontal />}
-          label={t('imageToolbar.more')}
-          onClick={(button) => {
-            const rect = button.getBoundingClientRect()
-            setMoreAt({ x: rect.left, y: rect.bottom + 4 })
-          }}
+          icon={<Download />}
+          label={
+            progress
+              ? t('batch.exporting', progress)
+              : exportable.length > 0
+                ? t('batch.export', { count: exportable.length })
+                : t('batch.nothingToExport')
+          }
+          reason={exportable.length === 0 ? t('batch.nothingToExport') : undefined}
+          disabled={progress !== null}
+          onClick={() => void runExport()}
+        />
+        <CanvasToolbarButton
+          compact
+          destructive
+          icon={<Trash2 />}
+          label={t('toolbar.deleteSelected')}
+          onClick={() => doc.deleteSelection()}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<X />}
+          label={t('batch.clear')}
+          onClick={() => doc.setSelection([])}
         />
       </div>
       {editing && (
@@ -134,48 +150,6 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
           {...resizeAt}
           onClose={() => setResizeAt(null)}
         />
-      )}
-      {moreAt && (
-        <ContextMenu {...moreAt} onClose={() => setMoreAt(null)}>
-          {exportable.length > 0 && (
-            <ContextMenuItem
-              icon={<Download className="h-4 w-4" />}
-              label={
-                progress
-                  ? t('batch.exporting', progress)
-                  : t('batch.export', { count: exportable.length })
-              }
-              onClick={() => {
-                setMoreAt(null)
-                void runExport()
-              }}
-            />
-          )}
-          <ContextMenuItem
-            icon={<Copy className="h-4 w-4" />}
-            label={t('toolbar.duplicate')}
-            onClick={() => {
-              setMoreAt(null)
-              duplicateSelection(doc)
-            }}
-          />
-          <ContextMenuItem
-            icon={<Trash2 className="h-4 w-4" />}
-            label={t('toolbar.deleteSelected')}
-            onClick={() => {
-              setMoreAt(null)
-              doc.deleteSelection()
-            }}
-          />
-          <ContextMenuItem
-            icon={<X className="h-4 w-4" />}
-            label={t('batch.clear')}
-            onClick={() => {
-              setMoreAt(null)
-              doc.setSelection([])
-            }}
-          />
-        </ContextMenu>
       )}
     </>
   )
