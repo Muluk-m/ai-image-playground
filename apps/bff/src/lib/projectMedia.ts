@@ -75,10 +75,21 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
       .select()
       .from(media)
       .where(and(eq(media.user_id, userId), eq(media.sha256, input.sha256)))
-    if (existing && (existing.bytes !== input.bytes || existing.content_type !== input.contentType))
+    // 已发布的那份不能被改写：它的字节已经过校验，描述符必须与当初一致。还没确认的那条只是
+    // 一次预留，客户端改正申报（例如从前把 WebP 报成 png）要能接着用同一个身份重传。
+    if (
+      existing?.status === 'ready' &&
+      (existing.bytes !== input.bytes || existing.content_type !== input.contentType)
+    )
       throw new MediaError(409, 'media_descriptor_mismatch')
     const now = Date.now()
-    if (existing && (existing.status === 'ready' || existing.expires_at > now + 600_000))
+    // 还没到期的那条预留照旧原样交回；申报改过（类型纠正）的必须落到行上，否则签出的
+    // PUT 地址与确认时的校验都还按旧类型走。
+    const described = existing?.bytes === input.bytes && existing.content_type === input.contentType
+    if (
+      existing &&
+      (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
+    )
       return uploadResult(existing)
     const reserved = input.bytes + PREVIEW_BUDGET
     const used = await mediaUsage(tx, userId, now)
@@ -86,6 +97,8 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
     if (used - previous + reserved > config.operator.quotas['sync:user-media-bytes'])
       throw new MediaError(413, 'media_quota_exceeded')
     const values = {
+      bytes: input.bytes,
+      content_type: input.contentType,
       reserved_bytes: reserved,
       staging_key: existing?.staging_key ?? `staging/${userId}/${crypto.randomUUID()}`,
       expires_at: now + RESERVATION_MS,
@@ -99,8 +112,6 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
             id: crypto.randomUUID(),
             user_id: userId,
             sha256: input.sha256,
-            bytes: input.bytes,
-            content_type: input.contentType,
             status: 'pending',
             created_at: now,
             ...values,
