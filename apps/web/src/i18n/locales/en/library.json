@@ -78,7 +78,6 @@
   "lookDetail": {
     "cover": "Cover",
     "reference": "Reference {{index}}",
-    "model": "Model",
     "size": "Size",
     "slots": "Asset slots",
     "references": "References",
@@ -98,18 +97,6 @@
     "description": "Description",
     "descriptionPlaceholder": "Where this look is used and what must stay",
     "save": "Save"
-  },
-  "batch": {
-    "title": "Generate with “{{name}}”",
-    "stepAssets": "Pick assets",
-    "stepCounts": "Images per asset",
-    "back": "Change assets",
-    "next": "Next",
-    "submit": "Submit {{count}}",
-    "summary": "{{assets}} assets · {{count}} images",
-    "noAssets": "No product or person assets yet",
-    "submitted": "Submitted {{count}} images",
-    "failed": "Submit failed: {{reason}}"
   },
   "template": {
     "apply": "Apply",
