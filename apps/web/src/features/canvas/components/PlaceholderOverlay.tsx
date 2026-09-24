@@ -1,7 +1,9 @@
 import { type CSSProperties, useEffect, useState, useSyncExternalStore } from 'react'
 import Credits from '../../../components/Credits'
-import { useTranslation } from '../../../i18n'
+import { i18next, useTranslation } from '../../../i18n'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { useStore } from '../../../store'
 import {
   useAgentJobProgressText,
   useAgentToolProgress,
@@ -124,6 +126,32 @@ function useNow(active: boolean): number {
   return now
 }
 
+/** 发给运营排查用的那份：原文加上认得出这条任务的几个号。 */
+async function copyFailureReport(placeholder: PlaceholderView) {
+  const { meta } = placeholder
+  const report = [
+    placeholder.message,
+    meta.errorCode && `code: ${meta.errorCode}`,
+    meta.bffRequestId && `request: ${meta.bffRequestId}`,
+    meta.cloudGeneration && `generation: ${meta.cloudGeneration.id}`,
+    meta.clientRequestId && `client: ${meta.clientRequestId}`,
+    `time: ${new Date().toISOString()}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+  try {
+    await copyTextToClipboard(report)
+    useStore.getState().showToast(i18next.t('placeholder.errorCopied', { ns: 'canvas' }), 'success')
+  } catch (error) {
+    useStore
+      .getState()
+      .showToast(
+        getClipboardFailureMessage(i18next.t('placeholder.copyFailed', { ns: 'canvas' }), error),
+        'error',
+      )
+  }
+}
+
 /**
  * 占位框内容浮层：虚线边框由画布上的占位框元素本体绘制（Konva Rect），
  * spinner / 错误文案 / 重试按钮走 DOM 浮层——容器保持指针穿透
@@ -156,7 +184,14 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
         const refused =
           refusal && refusal.generationId === p.meta.cloudGeneration?.id ? refusal.code : undefined
         const agentCode = p.meta.agent ? (refused ?? p.meta.agentErrorCode) : undefined
-        const note = agentToolFailureText(agentCode) ?? p.message
+        const agentNote = agentToolFailureText(agentCode)
+        // 失败原文多是系统层的话（队列超时、上游报错），不直接给用户看：换成笼统一句，
+        // 原文留给「复制错误信息」发给运营。内容安全拒绝要用户改提示词，那句本就是人话，照旧显示。
+        const rawFailure =
+          p.status === 'error' && !agentNote && p.meta.errorCode !== 'content_policy'
+            ? p.message
+            : ''
+        const note = agentNote ?? (rawFailure ? t('placeholder.failedHint') : p.message)
         // 失败占位留得比会话久（切会话、刷新后还在）：不是当前打开的那个会话就不给这个出路，
         // 否则这句话会落进一个毫不相干的会话。
         const ownConversation =
@@ -245,6 +280,16 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   </span>
                   {note && (
                     <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{note}</span>
+                  )}
+                  {rawFailure && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => void copyFailureReport(p)}
+                      className="pointer-events-auto text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                      {t('placeholder.copyError')}
+                    </button>
                   )}
                   {queuedRetry && (
                     <>

@@ -79,6 +79,8 @@ export interface CanvasTaskMeta {
   agent?: true
   /** 智能体占位失败的分类；失败占位按它出文案与出路，不读 `message`。旧占位框没有。 */
   agentErrorCode?: AgentToolErrorCode
+  /** 画布任务失败的分类（`TaskErrorType`）；失败占位据此出文案，`message` 只留作排查原文。 */
+  errorCode?: string
   /** 有值即这是一条视频任务：提交到哪条 channel、按什么档位生成。恢复与重试都认它。 */
   video?: { channelId: string; generation: VideoGenerationRecord }
 }
