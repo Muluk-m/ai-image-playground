@@ -31,9 +31,11 @@ env:
 
 jobs:
   review:
+    # fork 来的 PR 拿不到 secret、token 也只读，评审不了也发不出评论，直接跳过而不是跑红。
     # 评论触发只认 PR 上、以 /review 开头、且由有写权限的人发的评论：这一路会花 key 的额度。
     if: >-
-      ${{ (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+      ${{ (github.event_name == 'pull_request' && !github.event.pull_request.draft
+          && github.event.pull_request.head.repo.full_name == github.repository)
           || (github.event_name == 'issue_comment'
               && github.event.issue.pull_request != null
               && startsWith(github.event.comment.body, '/review')
@@ -118,7 +120,8 @@ jobs:
             exit 1
           fi
 
-          FROM_SHA="$FULL_BASE_SHA"
+          # 全量评审从分叉点算起：直接拿 main 头，main 前进后 diff 会混进主干新增内容的反向删除。
+          FROM_SHA="$(git merge-base "$FULL_BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$FULL_BASE_SHA")"
           REVIEW_SCOPE="full"
           if [ -n "$BASE_SHA" ]; then
             git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
@@ -205,8 +208,11 @@ jobs:
 
             // ---- 无问题 ----
             if (comments.length === 0) {
+              // 只有告警没有意见，多半是读文件或调模型失败了：评审不完整，不能报成「没问题」。
               const msg = result.message || '未发现问题，看起来不错。';
-              const body = `✅ **AI Code Review (ocr)**：${msg}`;
+              const body = warnings.length > 0
+                ? `⚠️ **AI Code Review (ocr)** 未给出意见，但评审过程中产生 ${warnings.length} 条告警，结果可能不完整。\n\n${warnings.map((w) => `- ${typeof w === 'string' ? w : JSON.stringify(w)}`).join('\n')}`
+                : `✅ **AI Code Review (ocr)**：${msg}`;
               if (wantSummary) await core.summary.addRaw(body).write();
               await safeComment(body);
               return;
