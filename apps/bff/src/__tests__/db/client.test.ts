@@ -15,7 +15,7 @@ async function startPool(env: Record<string, string>) {
        const { db, close } = await import('./db/client.ts')
        const burst = await Promise.all(Array.from({ length: 8 }, () =>
          db.execute(sql\`SELECT pg_backend_pid() AS pid, current_setting('application_name') AS name,
-           pg_sleep(0.05)\`)))
+           pg_sleep(0.2)\`)))
        const pids = [...new Set(burst.map((rows) => rows[0].pid))]
        await Bun.sleep(2_500)
        const [{ open }] = await db.execute(sql\`SELECT count(*)::int AS open FROM pg_stat_activity
