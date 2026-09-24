@@ -123,11 +123,35 @@ it('要重试才解决得了的失败，这里只说原因', async () => {
   expect(host.querySelector('button')).toBeNull()
 })
 
-it('旧占位框没有错误码：照旧显示存下的那句话，没有按钮', async () => {
-  await failedPlaceholder('上游拒绝了这张图')
+it('认不出错误码的失败只给笼统一句，原文可以复制出来发给运营', async () => {
+  const writeText = vi.fn(async () => {})
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+  await failedPlaceholder('BFF 任务超过 1800s 未完成')
 
-  expect(host.textContent).toContain('上游拒绝了这张图')
-  expect(host.querySelector('button')).toBeNull()
+  expect(host.textContent).toContain('这次没有生成成功，可以重试')
+  expect(host.textContent).not.toContain('1800s')
+  const buttons = host.querySelectorAll('button')
+  expect(buttons).toHaveLength(1)
+  expect(buttons[0]!.textContent).toBe('复制错误信息')
+
+  await act(async () => buttons[0]!.click())
+  expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BFF 任务超过 1800s 未完成'))
+})
+
+it('内容安全拒绝本就是人话，照旧显示，不给复制', async () => {
+  const id = editor.createPlaceholder(
+    { x: 0, y: 0, w: 100, h: 100 },
+    { taskId: '', clientRequestId: 'c1', source: 'builtin-edge', prompt: '猫' },
+  )
+  editor.updatePlaceholder(id, {
+    status: 'error',
+    message: '内容被安全策略拦下，换个说法再试',
+    meta: { errorCode: 'content_policy' },
+  })
+  act(() => root.render(<PlaceholderOverlay editor={editor} />))
+
+  expect(host.textContent).toContain('内容被安全策略拦下，换个说法再试')
+  expect(host.textContent).not.toContain('复制错误信息')
 })
 
 it('占位所属的会话没打开时，不给「让助手重新处理」，免得这句话落进别的会话', async () => {
