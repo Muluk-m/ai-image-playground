@@ -5,6 +5,7 @@ import {
   type ProjectKind,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
+import { imageDataUrlToPngBlob } from '../../../lib/canvasImage'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
 import { imageMimeFromBytes } from '../../../lib/imageBytes'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
@@ -82,6 +83,14 @@ export function projectDocument(
   return isProjectDocument(document) ? document : null
 }
 
+const CLOUD_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+async function digest(bytes: ArrayBuffer): Promise<string> {
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
 interface Upload {
   id: string
   status: 'ready' | 'pending'
@@ -110,10 +119,7 @@ export async function prepareProjectMedia(
     current()
     const response = await fetch(source, { signal })
     const bytes = await response.arrayBuffer()
-    const sha256 = Array.from(
-      new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)),
-      (byte) => byte.toString(16).padStart(2, '0'),
-    ).join('')
+    const sha256 = await digest(bytes)
     current()
     const previous = persisted[element.fileId]
     if (previous?.sha256 === sha256) {
@@ -122,15 +128,26 @@ export async function prepareProjectMedia(
     }
     if (!uploadMissing) continue
     // 申报按字节来：服务端解出的格式与申报不符就整张打回，而 data URL 上那行标签不保真。
-    const contentType =
-      imageMimeFromBytes(bytes) ??
-      response.headers.get('content-type')?.split(';')[0] ??
-      'image/png'
+    // 云媒体只收 png/jpeg/webp；SVG、GIF 这类照原样上传会被 400 打回，而这一张失败会让整次
+    // 同步中止、排在后面的图永远传不上去，所以先栅格化成 PNG。绑定仍记原图的哈希，下次按原图认。
+    const labeled = response.headers.get('content-type')?.split(';')[0]
+    let contentType =
+      imageMimeFromBytes(bytes) ?? (labeled && CLOUD_MEDIA_TYPES.has(labeled) ? labeled : undefined)
+    let body = bytes
+    if (!contentType) {
+      body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
+      contentType = 'image/png'
+      current()
+    }
     const upload = await mediaJson<Upload>('/uploads', {
       method: 'POST',
       signal,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bytes: bytes.byteLength, contentType, sha256 }),
+      body: JSON.stringify({
+        bytes: body.byteLength,
+        contentType,
+        sha256: body === bytes ? sha256 : await digest(body),
+      }),
     })
     current()
     if (upload.status !== 'ready') {
@@ -140,7 +157,7 @@ export async function prepareProjectMedia(
         credentials: 'omit',
         signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
         headers: { 'content-type': contentType },
-        body: bytes,
+        body,
       })
       if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
       current()

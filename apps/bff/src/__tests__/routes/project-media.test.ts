@@ -251,3 +251,17 @@ it('同一份字节改用正确的类型重新预留，沿用原身份并能确�
     status: 'ready',
   })
 })
+
+it('申报了不收的类型：400 带一行可读原因，而不是整份校验报告的 JSON', async () => {
+  const response = await request('media/uploads', deviceA, {
+    sha256: 'a'.repeat(64),
+    bytes: 716,
+    contentType: 'image/svg+xml',
+  })
+
+  expect(response.status).toBe(400)
+  const body = await response.json()
+  expect(body.error).toBe('invalid_request')
+  expect(body.message).toStartWith('/contentType: ')
+  expect(body.message).not.toContain('\n')
+})
