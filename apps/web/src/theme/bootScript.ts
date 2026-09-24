@@ -16,6 +16,6 @@ export const THEME_COLORS = { light: '#f8f8f7', dark: '#23282b' } as const
 
 export const THEME_BOOT_SCRIPT = `(function(){try{var s=null;try{s=localStorage.getItem(${JSON.stringify(
   THEME_STORAGE_KEY,
-)})}catch(e){}var d=s==='dark'||(s!=='light'&&!!window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement('meta');m.name='theme-color';document.head.appendChild(m)}m.setAttribute('content',d?${JSON.stringify(
+)})}catch(e){}var d=s!=='light';document.documentElement.classList.toggle('dark',d);var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement('meta');m.name='theme-color';document.head.appendChild(m)}m.setAttribute('content',d?${JSON.stringify(
   THEME_COLORS.dark,
 )}:${JSON.stringify(THEME_COLORS.light)})}catch(e){}})()`
