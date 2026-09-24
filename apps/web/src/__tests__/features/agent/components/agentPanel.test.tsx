@@ -676,7 +676,9 @@ describe('AgentPanel', () => {
     render()
     const log = host.querySelector('[data-image-dropzone]')!
     const bytes = Uint8Array.from(
-      atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='),
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=',
+      ),
       (char) => char.charCodeAt(0),
     )
     const file = new File([bytes], 'ref.png', { type: 'image/png' })

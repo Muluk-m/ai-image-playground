@@ -130,7 +130,9 @@ afterEach(() => {
 
 function png(name = 'photo.png'): File {
   const bytes = Uint8Array.from(
-    atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='),
+    atob(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=',
+    ),
     (char) => char.charCodeAt(0),
   )
   return new File([bytes], name, { type: 'image/png' })
