@@ -1,3 +1,4 @@
+import { FolderOpen, Images } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
@@ -19,8 +20,10 @@ import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import { describeError, useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
+import { filesFromFolderInput } from '../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
@@ -119,6 +122,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const moveInputImage = useStore((s) => s.moveInputImage)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(42)
@@ -140,6 +144,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     x: number
     y: number
   } | null>(null)
+  // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
+  const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
   const [touchDragPreview, setTouchDragPreview] = useState<{
@@ -539,7 +545,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     window.addEventListener('dragend', release)
   }
 
-  const handleFiles = async (files: FileList | File[]) => {
+  const handleFiles = (files: FileList | File[]) => {
     const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
     if (accepted.length === 0) return
     // 这一把文件是一组：放不下就一张都不落，免得用户拖进去十张只见前几张、还得自己数少了哪几张。
@@ -554,21 +560,32 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       useStore.getState().showToast(referenceRefusalMessage(refusal), 'error')
       return
     }
-    try {
-      const images: InputImage[] = []
-      for (const file of accepted) images.push(await storeImageFromFile(file))
-      useStore.getState().attachInputImages(images, admission)
-    } catch (err) {
-      useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
+    const importAll = async () => {
+      try {
+        const images: InputImage[] = []
+        for (const file of accepted) images.push(await storeImageFromFile(file))
+        useStore.getState().attachInputImages(images, admission)
+      } catch (err) {
+        useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
+      }
     }
+    // 确认摆在准入之后：整组本来就进不来的时候再弹一个框，用户点完才发现是白点。
+    confirmImageBatch(accepted.length, () => void importAll())
   }
 
   const handleFilesRef = useRef(handleFiles)
   handleFilesRef.current = handleFiles
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    await handleFilesRef.current(e.target.files || [])
+  /** 附件按钮的两个入口共用：文件已在 handleFiles 里同步取走，清空 input 才能再选同一批。 */
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFilesRef.current(e.target.files || [])
     e.target.value = ''
+  }
+
+  const openAttachMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = getSafeBoundingClientRect(e.currentTarget)
+    // 输入条贴着视口底：从按钮上沿往上开，ContextMenu 自己会按实测高度夹回视口。
+    setAttachMenu(rect ? { x: rect.left, y: rect.top - 8 } : { x: e.clientX, y: e.clientY })
   }
 
   const dragActive = useImageInputScope() === 'image'
@@ -1392,7 +1409,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       text={attachDisabledReason}
                     />
                     <button
-                      onClick={() => !attachDisabled && fileInputRef.current?.click()}
+                      onClick={(e) => !attachDisabled && openAttachMenu(e)}
                       className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
                         attachDisabled
                           ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
@@ -1507,7 +1524,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         text={attachDisabledReason}
                       />
                       <button
-                        onClick={() => !attachDisabled && fileInputRef.current?.click()}
+                        onClick={(e) => !attachDisabled && openAttachMenu(e)}
                         className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
                           attachDisabled
                             ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
@@ -1592,8 +1609,44 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 accept="image/*"
                 multiple
                 className="hidden"
+                aria-label={t('image.attachImages')}
                 onChange={handleFileUpload}
               />
+              <input
+                ref={folderInputRef}
+                type="file"
+                // React 的类型里没有这个非标准属性，但 Chrome / Edge / Safari / Firefox 都支持。
+                {...{ webkitdirectory: '' }}
+                multiple
+                className="hidden"
+                aria-label={t('image.attachFolder')}
+                onChange={(e) => {
+                  // 文件夹选出来的是数组快照，排完序再交给同一条入口，清空 input 才能重选同一个文件夹。
+                  const { files } = filesFromFolderInput(e.target.files)
+                  e.target.value = ''
+                  handleFilesRef.current(files)
+                }}
+              />
+              {attachMenu && (
+                <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
+                  <ContextMenuItem
+                    icon={<Images className="h-4 w-4 flex-shrink-0" aria-hidden="true" />}
+                    label={t('image.attachImages')}
+                    onClick={() => {
+                      setAttachMenu(null)
+                      fileInputRef.current?.click()
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon={<FolderOpen className="h-4 w-4 flex-shrink-0" aria-hidden="true" />}
+                    label={t('image.attachFolder')}
+                    onClick={() => {
+                      setAttachMenu(null)
+                      folderInputRef.current?.click()
+                    }}
+                  />
+                </ContextMenu>
+              )}
             </>
           )}
         </div>

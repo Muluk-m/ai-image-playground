@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { CloseIcon, FolderIcon, PlusIcon, SparkleIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import {
   acceptImageFiles,
   collectDroppedFiles,
@@ -62,12 +63,18 @@ export default function CreateRecordDialog(props: Props) {
   const previews = useObjectUrls(files)
   const canSave = name.trim().length > 0 && files.length > 0 && !saving
 
-  /** 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。 */
+  /**
+   * 文件夹里解出来的图一并收下；名字还空着就用文件夹名。模板只要一张图，不收文件夹。
+   * 一次进太多先问一声：按真正会收下的张数问，模板永远只收一张，所以不会被打断。
+   */
   const addFiles = (incoming: readonly File[], folder: string | null = null) => {
     const images = acceptImageFiles(incoming)
     if (images.length === 0) return
-    setFiles((current) => (isAsset ? [...current, ...images] : images.slice(0, 1)))
-    if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
+    const accepted = isAsset ? images : images.slice(0, 1)
+    confirmImageBatch(accepted.length, () => {
+      setFiles((current) => (isAsset ? [...current, ...accepted] : accepted))
+      if (isAsset && folder) setName((current) => current || folder.slice(0, NAME_MAX))
+    })
   }
 
   const submit = async () => {

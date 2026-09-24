@@ -3,6 +3,7 @@ import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { isWorkbenchMode, useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
@@ -119,14 +120,18 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const importFiles = (files: File[]) => {
-    void importImageFiles(editor, acceptImageFiles(files), {
-      x: editor.getViewportPageBounds().midX,
-      y: editor.getViewportPageBounds().midY,
-    })
-      .then((count) => {
-        if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+    const images = acceptImageFiles(files)
+    if (images.length === 0) return
+    confirmImageBatch(images.length, () => {
+      void importImageFiles(editor, images, {
+        x: editor.getViewportPageBounds().midX,
+        y: editor.getViewportPageBounds().midY,
       })
-      .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+        .then((count) => {
+          if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+        })
+        .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+    })
   }
   const hasAgent = agentPanelPresent()
   const project = useCanvasProjectStore((state) =>

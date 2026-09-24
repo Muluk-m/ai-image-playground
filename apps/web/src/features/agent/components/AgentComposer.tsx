@@ -1,5 +1,5 @@
 import { AGENT_TURN_ATTACHED_MEDIA_MAX } from '@image-playground/shared'
-import { Zap } from 'lucide-react'
+import { FolderOpen, Images, Zap } from 'lucide-react'
 import {
   type KeyboardEvent,
   useEffect,
@@ -17,6 +17,7 @@ import {
   ComposerSend,
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
+import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import LookChips from '../../../components/LookChips'
 import MediaImage from '../../../components/MediaImage'
@@ -37,7 +38,8 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
-import { acceptImageFiles } from '../../../lib/imageFiles'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
+import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
@@ -94,6 +96,9 @@ const EDITOR_CLASS =
 
 const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 
+/** 附件菜单贴在回形针上方：两条目加内边距的实测高度，越界的那点由 ContextMenu 夹回视口。 */
+const ATTACH_MENU_HEIGHT = 96
+
 /** `@` 与 `/` 两个弹层共用一个菜单，所以候选身份要能分得出是哪一支。 */
 type ComposerSuggestion = AgentMentionValue | { readonly type: 'skill'; readonly name: string }
 
@@ -141,6 +146,9 @@ export default function AgentComposer({
     [session],
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  // 回形针点开的「图片 / 文件夹」两选一，位置按按钮实测。
+  const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
   // 菜单要用编辑器报的查询，编辑器的按键又要先问菜单——这一环用 ref 断开。
   const menuRef = useRef<{
     open: () => void
@@ -148,6 +156,7 @@ export default function AgentComposer({
   }>({ open: () => {}, handleKeyDown: () => false })
 
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：读文件 → 压缩 → 进引用区。
+  // 一次进来的图多了先问一声：整份文件夹误拖进来时，确认框比事后逐张删引用便宜。
   const attachFiles = (files: File[]) => {
     if (loading) {
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
@@ -155,8 +164,10 @@ export default function AgentComposer({
     }
     const images = acceptImageFiles(files)
     if (images.length === 0) return
-    void filesToReferences(images).then((added) => {
-      setDraft((current) => attachReferences(current, added, transportRef.current))
+    confirmImageBatch(images.length, () => {
+      void filesToReferences(images).then((added) => {
+        setDraft((current) => attachReferences(current, added, transportRef.current))
+      })
     })
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
@@ -639,12 +650,51 @@ export default function AgentComposer({
                 event.currentTarget.value = ''
               }}
             />
+            <input
+              ref={folderInputRef}
+              type="file"
+              // 文件夹选择器没有 React 的 prop 名，只能按 DOM 属性名直接摊上去。
+              {...{ webkitdirectory: '' }}
+              multiple
+              className="hidden"
+              aria-label={t('composer.folderInputAria')}
+              onChange={(event) => {
+                const { files } = filesFromFolderInput(event.currentTarget.files)
+                event.currentTarget.value = ''
+                attachFiles(files)
+              }}
+            />
             <ComposerAttachButton
               aria-label={t('composer.attachAria')}
               title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+              aria-haspopup="menu"
+              aria-expanded={attachMenu !== null}
               disabled={loading}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={(event) => {
+                const bounds = event.currentTarget.getBoundingClientRect()
+                setAttachMenu({ x: bounds.left, y: bounds.top - ATTACH_MENU_HEIGHT })
+              }}
             />
+            {attachMenu && (
+              <ContextMenu x={attachMenu.x} y={attachMenu.y} onClose={() => setAttachMenu(null)}>
+                <ContextMenuItem
+                  icon={<Images className="h-4 w-4" aria-hidden="true" />}
+                  label={t('composer.attachImages')}
+                  onClick={() => {
+                    setAttachMenu(null)
+                    fileInputRef.current?.click()
+                  }}
+                />
+                <ContextMenuItem
+                  icon={<FolderOpen className="h-4 w-4" aria-hidden="true" />}
+                  label={t('composer.attachFolder')}
+                  onClick={() => {
+                    setAttachMenu(null)
+                    folderInputRef.current?.click()
+                  }}
+                />
+              </ContextMenu>
+            )}
           </div>
           <ComposerActions className="min-w-0">
             {/* 模式只是状态展示、点不动，挤在按钮排里反而像可点控件——交给参数 chip 说明。 */}

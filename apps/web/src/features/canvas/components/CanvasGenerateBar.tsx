@@ -13,6 +13,7 @@ import {
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -233,12 +234,20 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   // 附件即「放到画布上的参考图」：导入后自动选中，选区随即被当作本次生成的输入。
   const attach = (files: File[]) => {
-    const bounds = editor.getViewportPageBounds()
-    void importImageFiles(editor, files, { x: bounds.midX, y: bounds.midY })
-      .then((count) => {
-        if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
-      })
-      .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+    // 先按导入本身的准入规则筛一遍（非图片本来就会被丢掉），确认框里的张数才是真会进画布的张数。
+    const images = files.filter((file) => file.type.startsWith('image/'))
+    if (images.length === 0) {
+      useStore.getState().showToast(t('import.noneImported'), 'error')
+      return
+    }
+    confirmImageBatch(images.length, () => {
+      const bounds = editor.getViewportPageBounds()
+      void importImageFiles(editor, images, { x: bounds.midX, y: bounds.midY })
+        .then((count) => {
+          if (!count) useStore.getState().showToast(t('import.noneImported'), 'error')
+        })
+        .catch(() => useStore.getState().showToast(t('import.failed'), 'error'))
+    })
   }
 
   return (

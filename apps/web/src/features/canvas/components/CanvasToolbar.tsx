@@ -1,4 +1,4 @@
-import { FolderOpen, Images, Upload } from 'lucide-react'
+import { FolderOpen, Images, Paperclip } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
@@ -256,7 +256,7 @@ export default function CanvasToolbar({
             setImportMenu({ x: bounds.right + 6, y: bounds.top })
           }}
         >
-          <Upload className="h-[18px] w-[18px]" aria-hidden="true" />
+          <Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />
         </ToolButton>
         <div className="my-1 h-px w-6 shrink-0 bg-border" />
         {history}
