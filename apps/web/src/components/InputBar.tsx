@@ -216,7 +216,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const createTarget = useStore((s) => s.createTarget)
   const toCanvas = inline && createTarget === 'canvas'
   const apiReady = toCanvas || hasSubmitApiConfig
-  const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit
+  // 技能只有画布里的智能体认得。生成档开头挂着 `/技能` 时不提交：否则这行命令会被当成提示词直接拿去出图。
+  const skills = useAgentSkills('image')
+  const leadingSkill = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
+  const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
+  const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas
+  // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
+  const submitBlockedTip = toCanvas
+    ? null
+    : skillNeedsCanvas
+      ? t('submit.skillNeedsCanvas')
+      : !hasSubmitApiConfig || submissionGuard.blocked
+        ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
+        : null
   const submit = () => {
     if (toCanvas) void startCanvasFromComposer()
     else if (activeLook) void submitWithLook(activeLook, lookBody)
@@ -247,8 +259,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   )
   // 开头的 `/技能` 要变成带图标的胶囊，与画布输入框同一种呈现——用户从资产页「用智能体创建」
   // 跳过来看到的不该是一行裸文本。名字还在打的时候不提升，否则菜单会被胶囊关在外面。
-  const skills = useAgentSkills('image')
-  const skillInvocation = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
+  const skillInvocation = toCanvas ? leadingSkill : null
   const skillCommand = skillInvocation?.rest ? skillInvocation.command : null
   // 菜单要用编辑器报的查询，编辑器的按键又要先问菜单——这一环用 ref 断开。
   const menusRef = useRef<{
@@ -1232,10 +1243,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   className="text-[11px]"
                 />
                 <ButtonTooltip
-                  visible={
-                    !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked) && submitHover
-                  }
-                  text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
+                  visible={submitHover && Boolean(submitBlockedTip)}
+                  text={submitBlockedTip ?? ''}
                 />
                 <button
                   type="button"
@@ -1456,10 +1465,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       className="text-xs"
                     />
                     <ButtonTooltip
-                      visible={
-                        !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked) && submitHover
-                      }
-                      text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
+                      visible={submitHover && Boolean(submitBlockedTip)}
+                      text={submitBlockedTip ?? ''}
                     />
                     <button
                       onClick={() => (apiReady ? submit() : setShowSettings(true))}
@@ -1569,12 +1576,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         className="text-[11px]"
                       />
                       <ButtonTooltip
-                        visible={
-                          !toCanvas &&
-                          (!hasSubmitApiConfig || submissionGuard.blocked) &&
-                          submitHover
-                        }
-                        text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
+                        visible={submitHover && Boolean(submitBlockedTip)}
+                        text={submitBlockedTip ?? ''}
                       />
                       <button
                         onClick={() => (apiReady ? submit() : setShowSettings(true))}

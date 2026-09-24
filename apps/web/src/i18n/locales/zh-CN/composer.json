@@ -68,7 +68,8 @@
     "generateShortcut": "生成 (Ctrl+Enter)",
     "configureApiFirst": "请先配置 API",
     "apiNotConfigured": "请先在设置里配置 API",
-    "startCanvas": "开始创作"
+    "startCanvas": "开始创作",
+    "skillNeedsCanvas": "技能只能在画布里用，切到「画布」再发送"
   },
   "search": {
     "favoriteOnly": "只看收藏",
