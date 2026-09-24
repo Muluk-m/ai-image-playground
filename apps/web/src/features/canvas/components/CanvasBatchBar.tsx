@@ -1,36 +1,140 @@
-import { Copy, Download, Trash2, WandSparkles, X } from 'lucide-react'
-import { useState, useSyncExternalStore } from 'react'
+import {
+  Brush,
+  Copy,
+  Crop,
+  Download,
+  Eraser,
+  Expand,
+  MoreHorizontal,
+  Ratio,
+  Scissors,
+  Trash2,
+  Wand2,
+  X,
+} from 'lucide-react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { useStore } from '../../../store'
+import { useInpaintSession } from '../inpaintStore'
 import { duplicateSelection } from '../lib/canvasClipboard'
+import type { ImageEl } from '../lib/canvasDoc'
+import {
+  cutoutRefusal,
+  imageEditRefusal,
+  outpaintRefusal,
+  resizeRefusal,
+  submitCanvasCutout,
+} from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
 import { exportableElements, exportCanvasSelection } from '../lib/exportImages'
+import { canvasImageDimensions } from '../lib/imageInfo'
 import { projectDisplayName } from '../lib/projectRepository'
+import { inpaintRefusal } from '../lib/submitInpaint'
 import { useCanvasProjectStore } from '../projectStore'
-import CanvasBatchPromptDialog from './CanvasBatchPromptDialog'
+import { useRectEdit } from '../rectEditStore'
+import CanvasBatchEditDialog from './CanvasBatchEditDialog'
+import CanvasBatchResizeMenu from './CanvasBatchResizeMenu'
+import CanvasToolbarButton from './CanvasToolbarButton'
+
+type SpatialAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
+interface SpatialQueue {
+  kind: SpatialAction
+  ids: readonly string[]
+  next: number
+}
 
 /**
- * 多选（两件以上）时浮在画布底部的批量操作条：导出、复制一份、删除。
- * 单选的动作各有自己的入口（右键菜单、视频工具条），这里只管「一批」。
+ * 多选工具条与单图工具条同一组动作。涂抹、擦除、裁切、扩图的区域不能从一张图
+ * 擅自复制到另一张图，因此逐张打开各自的选区；抠图、整图编辑与换比例逐张起任务。
+ * 导出 / 复制 / 删除 / 取消选择收到「更多」，不再占满底栏。
  */
 export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation('canvas')
   const doc = editor.doc
   useSyncExternalStore(doc.subscribe, () => doc.version)
+  const settings = useStore((state) => state.settings)
+  const openInpaint = useInpaintSession((state) => state.open)
+  const activeInpaintId = useInpaintSession((state) => state.imageId)
+  const openRect = useRectEdit((state) => state.open)
+  const activeRectId = useRectEdit((state) => state.imageId)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
-  const [generating, setGenerating] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
+  const [resizeAt, setResizeAt] = useState<{ x: number; y: number } | null>(null)
+  const [spatialQueue, setSpatialQueue] = useState<SpatialQueue | null>(null)
 
   const selection = [...doc.selection]
-  // 画笔 / 橡皮这些工具下没有「选区操作」可言，工具条也不该压住画布下沿。
-  if (doc.tool !== 'select' || selection.length < 2 || doc.editingTextId) return null
+  const images = selection
+    .map((id) => doc.getElement(id))
+    .filter((el): el is ImageEl => el?.type === 'image' && !el.video)
   const exportable = exportableElements(doc, selection)
-  // 批量生成只对静态图成立：视频段要重新生成走它自己的工具条。
-  const imageEntries = exportable.filter((el) => !el.video).length
+  const guard = usePrivateSubmissionGuard({
+    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
+    quantity: images.length,
+  })
+  const currentSpatialId =
+    spatialQueue?.kind === 'inpaint' || spatialQueue?.kind === 'erase'
+      ? activeInpaintId
+      : activeRectId
+
+  useEffect(() => {
+    if (!spatialQueue || currentSpatialId) return
+    for (let index = spatialQueue.next; index < spatialQueue.ids.length; index++) {
+      const el = editor.getElement(spatialQueue.ids[index])
+      if (el?.type !== 'image' || el.video) continue
+      if (spatialQueue.kind === 'inpaint' || spatialQueue.kind === 'erase')
+        openInpaint(el.id, spatialQueue.kind)
+      else openRect(spatialQueue.kind, el.id, { x: 0, y: 0, w: el.width, h: el.height })
+      setSpatialQueue({ ...spatialQueue, next: index + 1 })
+      return
+    }
+    setSpatialQueue(null)
+  }, [spatialQueue, currentSpatialId, editor, openInpaint, openRect])
+
+  // 两种逐张选区会话盖在画布上，此时底栏让位；关闭当前图后再打开下一张。
+  if (
+    doc.tool !== 'select' ||
+    selection.length < 2 ||
+    doc.editingTextId ||
+    activeInpaintId ||
+    activeRectId
+  )
+    return null
+
+  const refusal = (check: (image: ImageEl) => string | null) =>
+    images.map(check).find((reason) => reason !== null) ?? undefined
+  const modelReason = guard.blocked ? (guard.disabledReason ?? t('submit.blocked')) : undefined
+  const inpaintReason =
+    images.length < 2
+      ? t('batch.needImages')
+      : (modelReason ??
+        refusal((image) => inpaintRefusal(image, canvasImageDimensions(image, doc), settings)))
+  const cutoutReason =
+    images.length < 2
+      ? t('batch.needImages')
+      : (modelReason ?? refusal((image) => cutoutRefusal(image, settings)))
+  const editReason =
+    images.length < 2
+      ? t('batch.needImages')
+      : (modelReason ?? refusal((image) => imageEditRefusal(image, settings)))
+  const outpaintReason =
+    images.length < 2
+      ? t('batch.needImages')
+      : (modelReason ?? refusal((image) => outpaintRefusal(image, settings)))
+  const resizeReason =
+    images.length < 2
+      ? t('batch.needImages')
+      : (modelReason ?? refusal((image) => resizeRefusal(image, settings)))
+  const cropReason = images.length < 2 ? t('batch.needImages') : undefined
 
   const runExport = async () => {
-    if (progress) return
+    if (progress || exportable.length === 0) return
     setProgress({ done: 0, total: exportable.length })
     try {
       await exportCanvasSelection(doc, selection, {
@@ -41,84 +145,144 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
       setProgress(null)
     }
   }
+  const startSpatial = (kind: SpatialAction) => {
+    setSpatialQueue({ kind, ids: images.map((image) => image.id), next: 0 })
+  }
+  const runCutout = async () => {
+    for (const image of images) {
+      const current = editor.getElement(image.id)
+      if (current?.type !== 'image' || current.video) continue
+      if (!(await submitCanvasCutout(editor, current))) break
+    }
+  }
 
   return (
     <>
-      {generating && (
-        <CanvasBatchPromptDialog
-          editor={editor}
-          imageCount={imageEntries}
-          onClose={() => setGenerating(false)}
-        />
-      )}
-      {/* `w-max whitespace-nowrap`：居中的绝对定位元素按「容器宽减 left」收缩，面板一窄最多只剩
-          半宽，「批量生成 12 张」就被挤成两行。宽度交给内容定。 */}
       <div
         role="toolbar"
         aria-label={t('batch.aria')}
-        className="pointer-events-auto absolute bottom-6 left-1/2 z-[400] flex w-max -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur"
+        className="pointer-events-auto absolute bottom-6 left-1/2 z-[400] flex w-max max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur"
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <span className="px-2 text-xs text-muted-foreground tabular-nums">
+        <span className="shrink-0 px-2 text-xs text-muted-foreground tabular-nums">
           {t('batch.selected', { count: selection.length })}
         </span>
-        {imageEntries >= 2 && (
-          <button
-            type="button"
-            onClick={() => setGenerating(true)}
-            title={t('batch.generate', { count: imageEntries })}
-            className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            <WandSparkles className="h-4 w-4" aria-hidden="true" />
-            {t('batch.generate', { count: imageEntries })}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void runExport()}
-          disabled={exportable.length === 0 || progress !== null}
-          title={
-            exportable.length === 0
-              ? t('batch.nothingToExport')
-              : t('batch.export', { count: exportable.length })
-          }
-          className="flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-          {progress
-            ? t('batch.exporting', { done: progress.done, total: progress.total })
-            : t('batch.export', { count: exportable.length })}
-        </button>
-        <button
-          type="button"
-          onClick={() => duplicateSelection(doc)}
-          title={t('toolbar.duplicate')}
-          aria-label={t('toolbar.duplicate')}
-          className="grid h-9 w-9 place-items-center rounded-xl text-foreground transition-colors hover:bg-muted"
-        >
-          <Copy className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          onClick={() => doc.deleteSelection()}
-          title={t('toolbar.deleteSelected')}
-          aria-label={t('toolbar.deleteSelected')}
-          className="grid h-9 w-9 place-items-center rounded-xl text-destructive transition-colors hover:bg-destructive/10"
-        >
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <div className="mx-0.5 h-5 w-px bg-border" />
-        <button
-          type="button"
-          onClick={() => doc.setSelection([])}
-          title={t('batch.clear')}
-          aria-label={t('batch.clear')}
-          className="grid h-9 w-9 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <CanvasToolbarButton
+          compact
+          icon={<Brush />}
+          label={t('inpaint.action')}
+          reason={inpaintReason}
+          onClick={() => startSpatial('inpaint')}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Eraser />}
+          label={t('erase.action')}
+          reason={inpaintReason}
+          onClick={() => startSpatial('erase')}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Scissors />}
+          label={t('cutout.action')}
+          reason={cutoutReason}
+          onClick={() => void runCutout()}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Wand2 />}
+          label={t('imageEdit.action')}
+          reason={editReason}
+          onClick={() => setEditing(true)}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Crop />}
+          label={t('crop.action')}
+          reason={cropReason}
+          onClick={() => startSpatial('crop')}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Expand />}
+          label={t('outpaint.action')}
+          reason={outpaintReason}
+          onClick={() => startSpatial('outpaint')}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<Ratio />}
+          label={t('resize.action')}
+          reason={resizeReason}
+          onClick={(button) => {
+            const rect = button.getBoundingClientRect()
+            setResizeAt({ x: rect.left, y: rect.bottom + 4 })
+          }}
+        />
+        <CanvasToolbarButton
+          compact
+          icon={<MoreHorizontal />}
+          label={t('imageToolbar.more')}
+          onClick={(button) => {
+            const rect = button.getBoundingClientRect()
+            setMoreAt({ x: rect.left, y: rect.bottom + 4 })
+          }}
+        />
       </div>
+      {editing && (
+        <CanvasBatchEditDialog editor={editor} images={images} onClose={() => setEditing(false)} />
+      )}
+      {resizeAt && (
+        <CanvasBatchResizeMenu
+          editor={editor}
+          images={images}
+          {...resizeAt}
+          onClose={() => setResizeAt(null)}
+        />
+      )}
+      {moreAt && (
+        <ContextMenu {...moreAt} onClose={() => setMoreAt(null)}>
+          {exportable.length > 0 && (
+            <ContextMenuItem
+              icon={<Download className="h-4 w-4" />}
+              label={
+                progress
+                  ? t('batch.exporting', progress)
+                  : t('batch.export', { count: exportable.length })
+              }
+              onClick={() => {
+                setMoreAt(null)
+                void runExport()
+              }}
+            />
+          )}
+          <ContextMenuItem
+            icon={<Copy className="h-4 w-4" />}
+            label={t('toolbar.duplicate')}
+            onClick={() => {
+              setMoreAt(null)
+              duplicateSelection(doc)
+            }}
+          />
+          <ContextMenuItem
+            icon={<Trash2 className="h-4 w-4" />}
+            label={t('toolbar.deleteSelected')}
+            onClick={() => {
+              setMoreAt(null)
+              doc.deleteSelection()
+            }}
+          />
+          <ContextMenuItem
+            icon={<X className="h-4 w-4" />}
+            label={t('batch.clear')}
+            onClick={() => {
+              setMoreAt(null)
+              doc.setSelection([])
+            }}
+          />
+        </ContextMenu>
+      )}
     </>
   )
 }
