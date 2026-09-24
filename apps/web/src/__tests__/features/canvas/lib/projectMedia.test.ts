@@ -6,6 +6,11 @@ import {
   projectScene,
 } from '../../../../features/canvas/lib/projectMedia'
 
+const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
+vi.mock('../../../../lib/canvasImage', () => ({
+  imageDataUrlToPngBlob: vi.fn(async () => new Blob([PNG_BYTES], { type: 'image/png' })),
+}))
+
 describe('上云的项目文档', () => {
   it('bounds an over-long meta value instead of failing the whole document', () => {
     const doc = new CanvasDoc()
@@ -170,6 +175,44 @@ describe('本机原图上云', () => {
     await prepareProjectMedia(doc, {}, new Map(), new AbortController().signal)
 
     expect(declared).toEqual(['image/webp'])
+    vi.unstubAllGlobals()
+  })
+
+  it('云媒体不收的格式（SVG）先转成 PNG 再传，不让一张图卡住整个项目的同步', async () => {
+    const source = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>')}`
+    const doc = new CanvasDoc()
+    doc.addElements(
+      [{ id: 'img', type: 'image', fileId: 'f', x: 0, y: 0, width: 4, height: 4, rotation: 0 }],
+      { files: { f: source } },
+    )
+    const declared: { contentType: string; bytes: number }[] = []
+    const put: number[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === source) return new Response(atob(source.split(',')[1]!))
+        if (url.endsWith('/uploads')) {
+          declared.push(JSON.parse(init!.body as string))
+          return Response.json({ id: 'u1', status: 'pending', uploadUrl: 'https://r2/put' })
+        }
+        if (url === 'https://r2/put') {
+          put.push((init!.body as ArrayBuffer).byteLength)
+          return new Response(null, { status: 200 })
+        }
+        if (url.endsWith('/u1/complete')) return Response.json({ id: 'u1', status: 'ready' })
+        throw new Error(`unexpected request: ${url}`)
+      }),
+    )
+    const persisted = {}
+    const loaded = new Map()
+
+    await prepareProjectMedia(doc, persisted, loaded, new AbortController().signal)
+
+    expect(declared).toEqual([
+      expect.objectContaining({ contentType: 'image/png', bytes: PNG_BYTES.length }),
+    ])
+    expect(put).toEqual([PNG_BYTES.length])
+    expect(loaded.get('f')).toMatchObject({ id: 'u1', source })
     vi.unstubAllGlobals()
   })
 })
