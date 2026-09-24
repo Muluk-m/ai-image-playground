@@ -1,5 +1,5 @@
 import { DEVICE_ID_HEADER, IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
-import { Elysia, t } from 'elysia'
+import { Elysia, t, type ValidationError } from 'elysia'
 import { config } from '../config'
 
 /**
@@ -25,11 +25,18 @@ export const deviceIdSchema = () => t.String({ minLength: 8, maxLength: 64 })
  */
 export const deviceIdHeaderSchema = () => t.Object({ [DEVICE_ID_HEADER]: deviceIdSchema() })
 
+/** Elysia 的 `message` 是整份校验报告序列化成的 JSON；对外只给第一处出错的字段与原因。 */
+export function validationMessage(error: Pick<ValidationError, 'valueError'>): string {
+  const first = error.valueError
+  if (!first) return 'invalid request'
+  return first.path ? `${first.path}: ${first.message}` : first.message
+}
+
 /** Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。 */
 export const badRequestOnValidation = () =>
   new Elysia().onError({ as: 'scoped' }, ({ code, error, set }) => {
     if (code === 'VALIDATION') {
       set.status = 400
-      return { error: 'invalid_request', message: error.message }
+      return { error: 'invalid_request', message: validationMessage(error) }
     }
   })
