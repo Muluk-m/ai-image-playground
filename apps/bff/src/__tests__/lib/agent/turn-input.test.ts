@@ -167,6 +167,35 @@ function unfolded(messages: readonly AgentMessageView[]) {
   }
 }
 
+describe('skill bodies in the replay', () => {
+  it('appends the body of a skill read in an earlier turn after its one-line summary', () => {
+    const history = [
+      userMessage('u1', [{ type: 'text', text: '建个模板' }]),
+      assistantMessage('a1', [
+        {
+          type: 'toolResult',
+          toolCallId: 'read-1',
+          toolName: 'loadSkill',
+          status: 'succeeded',
+          title: '读取技能：建模板',
+          skill: { label: '建模板', found: true, name: 'create-look' },
+        },
+        { type: 'text', text: '正文写好了，你看看。' },
+      ]),
+    ]
+    const bodies = new Map([['read-1', '<skill name="create-look">建模板正文</skill>']])
+
+    const replay = estimatedTurnInput(input(history, '就这样', [], { skillTexts: bodies }))
+    const withBody = replay.map(textOf).find((text) => text.includes('建模板正文'))
+
+    expect(withBody).toContain('读取技能：建模板：完成')
+    // 授权原文与普通回放不带正文：没给正文时只剩摘要。
+    expect(estimatedTurnInput(input(history, '就这样')).map(textOf).join('\n')).not.toContain(
+      '建模板正文',
+    )
+  })
+})
+
 describe('estimateTurnInputTokens', () => {
   const bare = (history: readonly AgentMessageView[], text: string) =>
     estimateTurnInputTokens(input(history, text))

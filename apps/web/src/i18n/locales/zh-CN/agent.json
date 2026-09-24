@@ -338,7 +338,7 @@
     "failed": "没能保存，请重试",
     "imageGone": "有图片已经取不到了，让助手重新出一版",
     "assetMeta": "{{kind}} · {{background}}",
-    "lookMeta": "{{purpose}} · {{model}} · {{size}} · {{slots}} 个素材位",
+    "lookMeta": "{{purpose}} · {{size}} · {{slots}} 个素材位",
     "kind": {
       "product": "产品",
       "person": "人物"

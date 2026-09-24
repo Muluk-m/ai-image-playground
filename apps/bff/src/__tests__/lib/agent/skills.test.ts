@@ -2,7 +2,11 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test'
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
+import {
+  type AgentMessageView,
+  type AgentSkillOutcome,
+  DEFAULT_AGENT_SKILL_ICON,
+} from '@image-playground/shared'
 
 // 只读磁盘上的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-skills'
@@ -25,6 +29,7 @@ const {
   titleSourceText,
 } = await import('../../../lib/agent/skills')
 const { log } = await import('../../../lib/logger')
+const { replayedSkillTexts } = await import('../../../lib/agent/tools/loadSkill')
 
 let root = ''
 
@@ -393,6 +398,45 @@ describe('a skills directory that cannot be read right now', () => {
       setAgentSkillsRootForTesting(root)
       await ensureAgentSkills()
     }
+  })
+})
+
+describe('skills read in earlier turns', () => {
+  function readSkill(toolCallId: string, skill: AgentSkillOutcome): AgentMessageView {
+    return {
+      id: toolCallId,
+      turnId: 'turn-old',
+      role: 'assistant',
+      createdAt: 1,
+      content: [
+        {
+          type: 'toolResult',
+          toolCallId,
+          toolName: 'loadSkill',
+          status: 'succeeded',
+          title: '读取技能',
+          skill,
+        },
+      ],
+    }
+  }
+
+  it('brings back the latest read of each skill, as it reads now', async () => {
+    const texts = await replayedSkillTexts(
+      [
+        readSkill('first', { label: '电商主图', found: true, name: 'main-image' }),
+        readSkill('missed', { label: 'nope', found: false }),
+        // 老消息没有记名字：只剩摘要，不去猜。
+        readSkill('old', { label: '配色', found: true }),
+        readSkill('gone', { label: '已删', found: true, name: 'deleted-skill' }),
+        readSkill('again', { label: '电商主图', found: true, name: 'main-image' }),
+      ],
+      'image',
+      null,
+    )
+
+    expect([...texts.keys()]).toEqual(['again'])
+    expect(texts.get('again')).toContain('主图正文')
   })
 })
 
