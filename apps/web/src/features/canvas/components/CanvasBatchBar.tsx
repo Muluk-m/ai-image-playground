@@ -1,65 +1,36 @@
-import {
-  Brush,
-  Copy,
-  Crop,
-  Download,
-  Eraser,
-  Expand,
-  MoreHorizontal,
-  Ratio,
-  Scissors,
-  Trash2,
-  Wand2,
-  X,
-} from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { Copy, Download, MoreHorizontal, Ratio, Scissors, Trash2, Wand2, X } from 'lucide-react'
+import { useState, useSyncExternalStore } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
-import { useInpaintSession } from '../inpaintStore'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { ImageEl } from '../lib/canvasDoc'
 import {
   cutoutRefusal,
   imageEditRefusal,
-  outpaintRefusal,
   resizeRefusal,
   submitCanvasCutout,
 } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
 import { exportableElements, exportCanvasSelection } from '../lib/exportImages'
-import { canvasImageDimensions } from '../lib/imageInfo'
 import { projectDisplayName } from '../lib/projectRepository'
-import { inpaintRefusal } from '../lib/submitInpaint'
 import { useCanvasProjectStore } from '../projectStore'
-import { useRectEdit } from '../rectEditStore'
 import CanvasBatchEditDialog from './CanvasBatchEditDialog'
 import CanvasBatchResizeMenu from './CanvasBatchResizeMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
 
-type SpatialAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
-interface SpatialQueue {
-  kind: SpatialAction
-  ids: readonly string[]
-  next: number
-}
-
 /**
- * 多选工具条与单图工具条同一组动作。涂抹、擦除、裁切、扩图的区域不能从一张图
- * 擅自复制到另一张图，因此逐张打开各自的选区；抠图、整图编辑与换比例逐张起任务。
- * 导出 / 复制 / 删除 / 取消选择收到「更多」，不再占满底栏。
+ * 多选工具条：只放**对一批成立**的动作——抠图、整图编辑、换比例，同一个指令逐张跑完。
+ * 局部重绘 / 擦除 / 裁切 / 扩图要先在某一张图上画出区域，区域换一张图就没有意义，
+ * 它们只属于单图工具条。导出 / 复制 / 删除 / 取消选择收进「更多」。
  */
 export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation('canvas')
   const doc = editor.doc
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const settings = useStore((state) => state.settings)
-  const openInpaint = useInpaintSession((state) => state.open)
-  const activeInpaintId = useInpaintSession((state) => state.imageId)
-  const openRect = useRectEdit((state) => state.open)
-  const activeRectId = useRectEdit((state) => state.imageId)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
@@ -67,7 +38,6 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const [editing, setEditing] = useState(false)
   const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const [resizeAt, setResizeAt] = useState<{ x: number; y: number } | null>(null)
-  const [spatialQueue, setSpatialQueue] = useState<SpatialQueue | null>(null)
 
   const selection = [...doc.selection]
   const images = selection
@@ -78,60 +48,15 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
     model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
     quantity: images.length,
   })
-  const currentSpatialId =
-    spatialQueue?.kind === 'inpaint' || spatialQueue?.kind === 'erase'
-      ? activeInpaintId
-      : activeRectId
 
-  useEffect(() => {
-    if (!spatialQueue || currentSpatialId) return
-    for (let index = spatialQueue.next; index < spatialQueue.ids.length; index++) {
-      const el = editor.getElement(spatialQueue.ids[index])
-      if (el?.type !== 'image' || el.video) continue
-      if (spatialQueue.kind === 'inpaint' || spatialQueue.kind === 'erase')
-        openInpaint(el.id, spatialQueue.kind)
-      else openRect(spatialQueue.kind, el.id, { x: 0, y: 0, w: el.width, h: el.height })
-      setSpatialQueue({ ...spatialQueue, next: index + 1 })
-      return
-    }
-    setSpatialQueue(null)
-  }, [spatialQueue, currentSpatialId, editor, openInpaint, openRect])
+  if (doc.tool !== 'select' || selection.length < 2 || doc.editingTextId) return null
 
-  // 两种逐张选区会话盖在画布上，此时底栏让位；关闭当前图后再打开下一张。
-  if (
-    doc.tool !== 'select' ||
-    selection.length < 2 ||
-    doc.editingTextId ||
-    activeInpaintId ||
-    activeRectId
-  )
-    return null
-
-  const refusal = (check: (image: ImageEl) => string | null) =>
-    images.map(check).find((reason) => reason !== null) ?? undefined
   const modelReason = guard.blocked ? (guard.disabledReason ?? t('submit.blocked')) : undefined
-  const inpaintReason =
-    images.length < 2
-      ? t('batch.needImages')
-      : (modelReason ??
-        refusal((image) => inpaintRefusal(image, canvasImageDimensions(image, doc), settings)))
-  const cutoutReason =
-    images.length < 2
-      ? t('batch.needImages')
-      : (modelReason ?? refusal((image) => cutoutRefusal(image, settings)))
-  const editReason =
-    images.length < 2
-      ? t('batch.needImages')
-      : (modelReason ?? refusal((image) => imageEditRefusal(image, settings)))
-  const outpaintReason =
-    images.length < 2
-      ? t('batch.needImages')
-      : (modelReason ?? refusal((image) => outpaintRefusal(image, settings)))
-  const resizeReason =
-    images.length < 2
-      ? t('batch.needImages')
-      : (modelReason ?? refusal((image) => resizeRefusal(image, settings)))
-  const cropReason = images.length < 2 ? t('batch.needImages') : undefined
+  /** 整批能不能做这件事：少于两张图、门禁拦着、或任一张图自己不行，都给出第一条原因。 */
+  const batchRefusal = (check: (image: ImageEl) => string | null) => {
+    if (images.length < 2) return t('batch.needImages')
+    return modelReason ?? images.map(check).find((reason) => reason !== null) ?? undefined
+  }
 
   const runExport = async () => {
     if (progress || exportable.length === 0) return
@@ -144,9 +69,6 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
     } finally {
       setProgress(null)
     }
-  }
-  const startSpatial = (kind: SpatialAction) => {
-    setSpatialQueue({ kind, ids: images.map((image) => image.id), next: 0 })
   }
   const runCutout = async () => {
     for (const image of images) {
@@ -170,51 +92,23 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
         </span>
         <CanvasToolbarButton
           compact
-          icon={<Brush />}
-          label={t('inpaint.action')}
-          reason={inpaintReason}
-          onClick={() => startSpatial('inpaint')}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Eraser />}
-          label={t('erase.action')}
-          reason={inpaintReason}
-          onClick={() => startSpatial('erase')}
-        />
-        <CanvasToolbarButton
-          compact
           icon={<Scissors />}
           label={t('cutout.action')}
-          reason={cutoutReason}
+          reason={batchRefusal((image) => cutoutRefusal(image, settings))}
           onClick={() => void runCutout()}
         />
         <CanvasToolbarButton
           compact
           icon={<Wand2 />}
           label={t('imageEdit.action')}
-          reason={editReason}
+          reason={batchRefusal((image) => imageEditRefusal(image, settings))}
           onClick={() => setEditing(true)}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Crop />}
-          label={t('crop.action')}
-          reason={cropReason}
-          onClick={() => startSpatial('crop')}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Expand />}
-          label={t('outpaint.action')}
-          reason={outpaintReason}
-          onClick={() => startSpatial('outpaint')}
         />
         <CanvasToolbarButton
           compact
           icon={<Ratio />}
           label={t('resize.action')}
-          reason={resizeReason}
+          reason={batchRefusal((image) => resizeRefusal(image, settings))}
           onClick={(button) => {
             const rect = button.getBoundingClientRect()
             setResizeAt({ x: rect.left, y: rect.bottom + 4 })

@@ -3,10 +3,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CanvasBatchBar from '../../../../features/canvas/components/CanvasBatchBar'
-import { useInpaintSession } from '../../../../features/canvas/inpaintStore'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { useRectEdit } from '../../../../features/canvas/rectEditStore'
 
 const actions = vi.hoisted(() => ({
   cutout: vi.fn(async () => true),
@@ -15,13 +13,11 @@ const actions = vi.hoisted(() => ({
 vi.mock('../../../../features/canvas/lib/canvasImageEdits', () => ({
   cutoutRefusal: () => null,
   imageEditRefusal: () => null,
-  outpaintRefusal: () => null,
   resizeRefusal: () => null,
   submitCanvasCutout: actions.cutout,
   submitCanvasResize: actions.resize,
   RESIZE_RATIOS: [{ ratio: '1:1', key: 'square' }],
 }))
-vi.mock('../../../../features/canvas/lib/submitInpaint', () => ({ inpaintRefusal: () => null }))
 vi.mock('../../../../lib/privateOverlay', () => ({
   usePrivateSubmissionGuard: () => ({ blocked: false, disabledReason: null }),
 }))
@@ -49,6 +45,12 @@ function addImage(id: string, x: number, video = false) {
   ])
 }
 
+function labels(): (string | null)[] {
+  return [...host.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].map((item) =>
+    item.getAttribute('aria-label'),
+  )
+}
+
 function button(label: string): HTMLButtonElement {
   const found = [...host.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')].find(
     (item) => item.getAttribute('aria-label') === label,
@@ -61,8 +63,6 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   actions.cutout.mockClear()
   actions.resize.mockClear()
-  useInpaintSession.getState().close()
-  useRectEdit.getState().close()
   doc = new CanvasDoc()
   editor = new CanvasEditor(doc)
   host = document.createElement('div')
@@ -76,24 +76,13 @@ afterEach(() => {
 })
 
 describe('画布多图工具条', () => {
-  it('用和单图相同的八个编辑动作取代批量生成，并对每张图发起抠图', async () => {
+  it('只放对一批成立的动作，逐张跑完整批抠图', async () => {
     addImage('a', 0)
     addImage('b', 300)
     doc.setSelection(['a', 'b'])
     act(() => root.render(<CanvasBatchBar editor={editor} />))
 
-    for (const label of [
-      '局部重绘',
-      '擦除',
-      '抠图',
-      '编辑图片',
-      '裁切',
-      '扩图',
-      '调整尺寸',
-      '更多',
-    ])
-      expect(button(label)).toBeDefined()
-    expect(host.textContent).not.toContain('批量生成')
+    expect(labels()).toEqual(['抠图', '编辑图片', '调整尺寸', '更多'])
     await act(async () => button('抠图').click())
     expect(actions.cutout).toHaveBeenCalledTimes(2)
     expect(
@@ -101,17 +90,13 @@ describe('画布多图工具条', () => {
     ).toEqual(['a', 'b'])
   })
 
-  it('逐张打开各自的涂抹会话，关闭上一张后才轮到下一张', () => {
+  it('要先画区域的动作只属于单图，不出现在多选里', () => {
     addImage('a', 0)
     addImage('b', 300)
     doc.setSelection(['a', 'b'])
     act(() => root.render(<CanvasBatchBar editor={editor} />))
-    act(() => button('局部重绘').click())
-    expect(useInpaintSession.getState().imageId).toBe('a')
-    act(() => useInpaintSession.getState().close())
-    expect(useInpaintSession.getState().imageId).toBe('b')
-    act(() => useInpaintSession.getState().close())
-    expect(useInpaintSession.getState().imageId).toBeNull()
+
+    for (const label of ['局部重绘', '擦除', '裁切', '扩图']) expect(labels()).not.toContain(label)
   })
 
   it('视频封面不混进批量图片操作', async () => {
@@ -119,6 +104,7 @@ describe('画布多图工具条', () => {
     addImage('video', 300, true)
     doc.setSelection(['a', 'video'])
     act(() => root.render(<CanvasBatchBar editor={editor} />))
+
     expect(button('抠图').getAttribute('aria-disabled')).toBe('true')
     await act(async () => button('抠图').click())
     expect(actions.cutout).not.toHaveBeenCalled()
