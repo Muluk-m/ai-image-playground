@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../auth/AuthContext'
 import Header from '../../components/Header'
 import { type AppLocale, i18next, setLocale } from '../../i18n'
-import { setThemeChoice, THEME_STORAGE_KEY } from '../../theme'
+import { initTheme, THEME_STORAGE_KEY } from '../../theme'
 import { pointer, stubPointerApis } from '../helpers/radix'
 
 // 测的是公开树自己的头像菜单；私有 overlay 接管账号区时渲染的是同一个 DisplaySettingsMenuItems。
@@ -26,6 +26,7 @@ let root: Root
 
 beforeEach(() => {
   localStorage.clear()
+  initTheme()
   stubPointerApis()
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -100,7 +101,7 @@ describe('头像菜单里的显示设置', () => {
     openAccountMenu()
 
     expect(displayTrigger('locale').textContent).toContain('中文')
-    expect(displayTrigger('theme').textContent).toContain('跟随系统')
+    expect(displayTrigger('theme').textContent).toContain('暗色')
   })
 
   it('选另一种语言写进本机，菜单留着让人看到变化', async () => {
@@ -118,20 +119,17 @@ describe('头像菜单里的显示设置', () => {
 })
 
 describe('头像菜单里的主题', () => {
-  afterEach(() => {
-    act(() => setThemeChoice('system'))
-    document.documentElement.classList.remove('dark')
-  })
-
-  it('选一套就固定在本机，也能从这里选回跟随系统', () => {
+  it('只有手动选亮色才切换，之后能选回暗色', () => {
     openAccountMenu()
+
+    choose('theme', '亮色')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
+    expect(displayTrigger('theme').textContent).toContain('亮色')
 
     choose('theme', '暗色')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
     expect(displayTrigger('theme').textContent).toContain('暗色')
-
-    choose('theme', '跟随系统')
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull()
   })
 })
