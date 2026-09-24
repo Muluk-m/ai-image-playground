@@ -6,6 +6,7 @@ import {
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
+import { imageMimeFromBytes } from '../../../lib/imageBytes'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
 
 export interface MediaBinding {
@@ -120,7 +121,11 @@ export async function prepareProjectMedia(
       continue
     }
     if (!uploadMissing) continue
-    const contentType = response.headers.get('content-type')?.split(';')[0] ?? 'image/png'
+    // 申报按字节来：服务端解出的格式与申报不符就整张打回，而 data URL 上那行标签不保真。
+    const contentType =
+      imageMimeFromBytes(bytes) ??
+      response.headers.get('content-type')?.split(';')[0] ??
+      'image/png'
     const upload = await mediaJson<Upload>('/uploads', {
       method: 'POST',
       signal,
