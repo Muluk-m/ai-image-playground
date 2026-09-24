@@ -1,5 +1,8 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
+import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import PlayBadge from '../../video/components/PlayBadge'
@@ -359,6 +362,32 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
     fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
   const note = useStatusNote(message, offCanvas, progress !== null)
+  const imageGenerating =
+    progress !== null &&
+    (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
+    previews.length === 0
+  const status =
+    message.status === 'failed' || message.delivery === 'failed'
+      ? 'failed'
+      : message.status === 'queued'
+        ? 'queued'
+        : message.status === 'awaiting_confirmation'
+          ? 'waiting'
+          : message.status === 'running' || message.status === 'submitted' || progress
+            ? 'running'
+            : 'succeeded'
+  const statusLabel =
+    status === 'failed'
+      ? message.delivery === 'failed' && message.status !== 'failed'
+        ? t('tool.status.deliveryFailed')
+        : t('tool.status.failed')
+      : status === 'queued'
+        ? t('tool.status.queued')
+        : status === 'waiting'
+          ? t('tool.status.waiting')
+          : status === 'running'
+            ? t('tool.status.running')
+            : t('tool.status.succeeded')
   return (
     <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
       {message.retryOf && (
@@ -366,24 +395,27 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
           {t('retry.record')}
         </span>
       )}
-      {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
-        <button
-          type="button"
-          title={t('tool.locateTitle')}
-          className={`${CARD_TITLE} text-left`}
-          onClick={() =>
-            agentCanvasSink()?.focus(
-              previews
-                .filter((preview) => preview.onCanvas)
-                .map((preview) => preview.artifact.artifactId),
-            )
-          }
-        >
-          {message.title}
-        </button>
-      ) : (
-        <p className={CARD_TITLE}>{message.title}</p>
-      )}
+      <div className="flex items-start justify-between gap-2">
+        {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
+          <button
+            type="button"
+            title={t('tool.locateTitle')}
+            className={`${CARD_TITLE} min-w-0 text-left`}
+            onClick={() =>
+              agentCanvasSink()?.focus(
+                previews
+                  .filter((preview) => preview.onCanvas)
+                  .map((preview) => preview.artifact.artifactId),
+              )
+            }
+          >
+            {message.title}
+          </button>
+        ) : (
+          <p className={`${CARD_TITLE} min-w-0`}>{message.title}</p>
+        )}
+        <ToolStatus label={statusLabel} status={status} />
+      </div>
       {message.status === 'awaiting_confirmation' ? (
         <AgentPromptDraft message={message} />
       ) : (
@@ -400,12 +432,33 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {promptOpen && message.prompt && (
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
       )}
+      {imageGenerating && (
+        <ImageGeneration
+          prompt={message.prompt || message.title}
+          generating={progress?.phase !== 'delivering'}
+          aria-label={
+            progress?.phase === 'delivering' ? t('tool.delivering') : t('tool.imageGenerating')
+          }
+        />
+      )}
       {progress && <AgentJobProgress progress={progress} />}
-      {note && <p className={CARD_NOTE}>{note}</p>}
+      {note && message.status !== 'failed' && <p className={CARD_NOTE}>{note}</p>}
       <AgentJobCancel message={message} />
       <WakeSkippedNote message={message} />
-      {message.status === 'failed' && <FailureAction message={message} />}
-      <RetryRemaining message={message} />
+      {message.status === 'failed' ? (
+        <ErrorState
+          title={t('tool.notFinished')}
+          detail={note ?? undefined}
+          actions={
+            <>
+              <FailureAction message={message} />
+              <RetryRemaining message={message} />
+            </>
+          }
+        />
+      ) : (
+        <RetryRemaining message={message} />
+      )}
       <RetryRecord message={message} />
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

@@ -9,11 +9,12 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
-import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, JUMP_TO_LATEST, TAB } from '../agentStyles'
+import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
@@ -250,7 +251,7 @@ export default function AgentPanel({
             })}
             <AgentActivity />
             <AgentHistoryStatus />
-            {error && !historyFailed && <p className={`text-xs ${INK_3}`}>{error}</p>}
+            {error && !historyFailed && <ErrorState title={t('panel.errorTitle')} detail={error} />}
           </div>
           {unseen && (
             <button type="button" onClick={jumpToLatest} className={JUMP_TO_LATEST}>
