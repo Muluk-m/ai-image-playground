@@ -41,8 +41,9 @@ export class CanvasWorkspace {
   getSnapshot = (): SceneRecordStatus => this.record.getSnapshot()
   subscribe = (listener: () => void): (() => void) => this.record.subscribe(listener)
 
-  private load(): Promise<void> {
-    return this.record.open(async (hasLocal) => {
+  private async load(): Promise<void> {
+    let background: CloudProjectSession | undefined
+    await this.record.open(async (hasLocal) => {
       const project = useCanvasProjectStore
         .getState()
         .projects.find((one) => one.sceneKey === this.record.key)
@@ -61,12 +62,29 @@ export class CanvasWorkspace {
               )
           },
         )
-        await this.cloud.load(hasLocal)
+        if (hasLocal) {
+          background = this.cloud
+          return
+        }
+        await this.cloud.load(false)
         this.cloud.start()
-        this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
+        this.needsInitialFit = this.doc.elements.length > 0
       }
       recoverCanvasTasks(this.editor)
     })
+    // 本机已有这份画布就先交给用户：云端核对与补传原图（大画布要逐张上传）放到后台。
+    // 放在 open 之后：存档此刻才开始记录编辑，续跑任务改动的占位框与加载期间的编辑都落得了盘，
+    // loadCurrent 也认得出它们、改走推送而不是拿云端版本盖掉。
+    if (!background || this.disposed) return
+    const cloud = background
+    const settle = () => {
+      if (!this.disposed) cloud.start()
+    }
+    const loading = cloud.load(true)
+    // 云端文档里没有可续跑的画布任务（服务端预留的占位由它自己收尾），续跑只看本机这份，不必等；
+    // 它改动的占位框算加载期间的本机修改，由 load 推上去。
+    recoverCanvasTasks(this.editor)
+    void loading.then(settle, settle)
   }
   retryLoad = () => {
     this.ready = this.load()

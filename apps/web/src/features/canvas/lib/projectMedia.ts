@@ -83,6 +83,7 @@ export function projectDocument(
   return isProjectDocument(document) ? document : null
 }
 
+const MEDIA_CONCURRENCY = 4
 const CLOUD_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 async function digest(bytes: ArrayBuffer): Promise<string> {
@@ -109,27 +110,30 @@ export async function prepareProjectMedia(
     signal.throwIfAborted()
     if (!sameAccount()) throw new Error('media_scope_changed')
   }
-  const files = doc.files
+  const pending = new Map<string, string>()
   for (const element of doc.elements) {
-    if (element.type !== 'image') continue
+    if (element.type !== 'image' || pending.has(element.fileId)) continue
     if (!uploadMissing && !persisted[element.fileId]) continue
-    const source = files[element.fileId]
+    const source = doc.files[element.fileId]
     if (!source || mediaIdentity(source) || loaded.get(element.fileId)?.source === source) continue
     if (!source.startsWith('data:image/')) throw new Error('unsupported_local_media')
+    pending.set(element.fileId, source)
+  }
+  const prepare = async (fileId: string, source: string) => {
     current()
     const response = await fetch(source, { signal })
     const bytes = await response.arrayBuffer()
     const sha256 = await digest(bytes)
     current()
-    const previous = persisted[element.fileId]
+    const previous = persisted[fileId]
     if (previous?.sha256 === sha256) {
-      loaded.set(element.fileId, { ...previous, source })
-      continue
+      loaded.set(fileId, { ...previous, source })
+      return
     }
-    if (!uploadMissing) continue
+    if (!uploadMissing) return
     // 申报按字节来：服务端解出的格式与申报不符就整张打回，而 data URL 上那行标签不保真。
-    // 云媒体只收 png/jpeg/webp；SVG、GIF 这类照原样上传会被 400 打回，而这一张失败会让整次
-    // 同步中止、排在后面的图永远传不上去，所以先栅格化成 PNG。绑定仍记原图的哈希，下次按原图认。
+    // 云媒体只收 png/jpeg/webp；SVG、GIF 这类照原样上传次次被 400 打回，项目就永远同步不完，
+    // 所以先栅格化成 PNG。绑定仍记原图的哈希，下次按原图认。
     const labeled = response.headers.get('content-type')?.split(';')[0]
     let contentType =
       imageMimeFromBytes(bytes) ?? (labeled && CLOUD_MEDIA_TYPES.has(labeled) ? labeled : undefined)
@@ -171,9 +175,25 @@ export async function prepareProjectMedia(
         throw new Error('invalid_media_confirmation')
     }
     current()
-    persisted[element.fileId] = { id: upload.id, sha256 }
-    loaded.set(element.fileId, { id: upload.id, sha256, source })
+    persisted[fileId] = { id: upload.id, sha256 }
+    loaded.set(fileId, { id: upload.id, sha256, source })
   }
+  // 大画布一次要补传几十上百张：串行时整批要等最慢的那条链一张张走完。并发几张，
+  // 一张失败也让其余的传完再报错，下次同步只剩失败的那几张。
+  const queue = [...pending]
+  let failure: unknown
+  const worker = async () => {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      try {
+        await prepare(...next)
+      } catch (error) {
+        failure ??= error
+        if (signal.aborted) return
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(MEDIA_CONCURRENCY, queue.length) }, worker))
+  if (failure !== undefined) throw failure
 }
 
 /**

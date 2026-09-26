@@ -215,4 +215,54 @@ describe('本机原图上云', () => {
     expect(loaded.get('f')).toMatchObject({ id: 'u1', source })
     vi.unstubAllGlobals()
   })
+
+  it('并发补传：同时最多 4 张，一张被拒不耽误其余的传完', async () => {
+    const doc = new CanvasDoc()
+    const files: Record<string, string> = {}
+    const elements = Array.from({ length: 6 }, (_, index) => {
+      files[`f${index}`] = `data:image/png;base64,img${index}`
+      return {
+        id: `img${index}`,
+        type: 'image' as const,
+        fileId: `f${index}`,
+        x: 0,
+        y: 0,
+        width: 4,
+        height: 4,
+        rotation: 0,
+      }
+    })
+    doc.addElements(elements, { files })
+    let inFlight = 0
+    let peak = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.startsWith('data:'))
+          return new Response(Uint8Array.from([...PNG_BYTES, url.length]))
+        if (url.endsWith('/uploads')) {
+          inFlight += 1
+          peak = Math.max(peak, inFlight)
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          inFlight -= 1
+          const { sha256 } = JSON.parse(init!.body as string)
+          if (declaredOrder.push(sha256) === 1)
+            return Response.json({ error: 'invalid_request' }, { status: 400 })
+          return Response.json({ id: crypto.randomUUID(), status: 'ready' })
+        }
+        throw new Error(`unexpected request: ${url}`)
+      }),
+    )
+    const declaredOrder: string[] = []
+    const loaded = new Map()
+
+    await expect(
+      prepareProjectMedia(doc, {}, loaded, new AbortController().signal),
+    ).rejects.toBeTruthy()
+
+    expect(peak).toBeLessThanOrEqual(4)
+    expect(peak).toBeGreaterThan(1)
+    expect(loaded.size).toBe(5)
+    vi.unstubAllGlobals()
+  })
 })
