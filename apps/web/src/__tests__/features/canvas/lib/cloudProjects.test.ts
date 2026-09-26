@@ -426,6 +426,87 @@ it('读取之前那几步就失败：落到可重试的读取失败，重试时�
   ])
 })
 
+/** 云端这边：PUT 照收，GET 回一份空文档。记下每次推上去的正文。 */
+function cloudAccepting(projectId: string) {
+  const puts: { document: { elements: { id?: string; text?: string }[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(projectId, body))
+      }
+      return Response.json({
+        id: projectId,
+        name: '本机编辑',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
+    }),
+  )
+  return puts
+}
+
+const badCheckpoint = { version: 2, revision: 1 } as unknown as undefined
+
+it('连续两次在读取之前失败，其间的编辑到最后一次成功时照样推上去', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  const checkpoint = vi.spyOn(record, 'checkpoint', 'get').mockReturnValue(badCheckpoint)
+
+  await expect(session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  editor.doc.updateElements([{ id: 'note', patch: { text: '两次失败之间改的' } }], {
+    history: true,
+  })
+  session.markChanged()
+  await expect(session.reload()).rejects.toThrow('unsupported_cloud_cache')
+  checkpoint.mockRestore()
+  await session.reload()
+
+  expect(editor.doc.elements[0]).toMatchObject({ text: '两次失败之间改的' })
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual([
+    '两次失败之间改的',
+  ])
+})
+
+it('打开前就有没推上去的修改，读取之前失败一次，重试时仍按修改推上去', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const first = await open(project, editor)
+  await first.session.load(true)
+  editor.doc.updateElements([{ id: 'note', patch: { text: '没来得及推的' } }], { history: true })
+  await first.record.persist()
+  first.session.dispose()
+  const before = puts.length
+
+  const restored = await storedEditor(project.sceneKey)
+  const second = await open({ ...project, cloud: { revision: 1 } }, restored)
+  vi.spyOn(second.record, 'checkpoint', 'get').mockReturnValueOnce(badCheckpoint)
+  await expect(second.session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  await second.session.reload()
+
+  expect(restored.doc.elements[0]).toMatchObject({ text: '没来得及推的' })
+  expect(puts.slice(before).map((one) => one.document.elements[0]?.text)).toEqual(['没来得及推的'])
+})
+
+it('加载开始前动过画布（续跑任务改了占位框）：按本机修改推，不拿云端版本盖掉', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  editor.doc.updateElements([{ id: 'note', patch: { text: '续跑改过的' } }], { history: false })
+  session.markChanged()
+
+  await session.load(true)
+
+  expect(editor.doc.elements[0]).toMatchObject({ text: '续跑改过的' })
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual(['续跑改过的'])
+})
+
 it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
   const { project, editor } = await fresh()
   editor.doc.addElements(
