@@ -182,6 +182,53 @@ describe('断线重连', () => {
     expect(state().turn).toBe('failed')
     expect(state().error).toBe('这一轮没有跑完')
   })
+
+  it('被打断、已排上续跑的轮不判失败，挂到续跑的那一轮上', async () => {
+    const NEXT = 'turn-2'
+    turnResponses = [
+      () => sse([{ id: 1, event: TURN_START }], true),
+      () => new Response('{}', { status: 404 }),
+      () =>
+        sse([
+          { id: 5, event: { type: 'turnStart', turnId: NEXT, userMessageId: 'user-2' } },
+          { id: 6, event: { type: 'assistantStart', messageId: 'assistant-2' } },
+          { id: 7, event: { type: 'textDelta', messageId: 'assistant-2', delta: '接着来' } },
+          { id: 8, event: { ...TURN_END, turnId: NEXT } },
+        ]),
+    ]
+    messagesResponse = () =>
+      Response.json({
+        messages: [],
+        activeTurn: { turnId: NEXT },
+        turns: [
+          { turnId: TURN, durationMs: 12, stopReason: 'failed', error: 'agent_turn_interrupted' },
+        ],
+      })
+
+    await state().send('你好')
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+
+    expect(state().error).toBeNull()
+    expect(
+      state().messages.some((message) => message.kind === 'text' && message.text === '接着来'),
+    ).toBe(true)
+  })
+
+  it('等快照期间面板已经去了别的轮：不把它判失败', async () => {
+    turnResponses = [
+      () => sse([{ id: 1, event: TURN_START }], true),
+      () => new Response('{}', { status: 404 }),
+    ]
+    messagesResponse = () => {
+      useAgentStore.setState({ activeTurn: { turnId: 'turn-other' } })
+      return new Response('{}', { status: 500 })
+    }
+
+    await state().send('你好')
+
+    expect(state().turn).toBe('running')
+    expect(state().error).toBeNull()
+  })
 })
 
 describe('刷新后重新挂上', () => {
