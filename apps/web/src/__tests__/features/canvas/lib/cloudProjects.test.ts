@@ -318,6 +318,265 @@ it('读取错误保留原画布，重试成功前不发送空文档', async () =
   await expect(session.sync()).rejects.toThrow('unavailable')
 })
 
+it('读取失败后画布照常编辑，重试读取不拿云端版本盖掉失败之后的本机修改', async () => {
+  const { project, editor } = await fresh()
+  let reads = 0
+  const puts: { baseRevision: number; document: { elements: { text?: string }[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      reads += 1
+      if (reads === 1) return Response.json({ error: 'unavailable' }, { status: 503 })
+      return Response.json({
+        id: project.id,
+        name: '本机编辑',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
+    }),
+  )
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  await expect(session.load(true)).rejects.toThrow()
+  expect(session.getSnapshot().status).toBe('load-error')
+
+  editor.doc.addElements([
+    {
+      id: 'later',
+      type: 'text',
+      x: 0,
+      y: 0,
+      text: '失败之后写的',
+      fontSize: 24,
+      fill: '#000',
+      width: 100,
+      height: 30,
+    },
+  ])
+  session.markChanged()
+  await session.reload()
+
+  expect(editor.doc.elements.map((one) => one.id)).toEqual(['note', 'later'])
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual([
+    '本机原稿',
+    '失败之后写的',
+  ])
+})
+
+it('读取之前那几步就失败：落到可重试的读取失败，重试时不拿云端版本盖掉期间的编辑', async () => {
+  const { project, editor } = await fresh()
+  const puts: { document: { elements: { text?: string }[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      return Response.json({
+        id: project.id,
+        name: '本机编辑',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
+    }),
+  )
+  const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  vi.spyOn(record, 'checkpoint', 'get').mockReturnValueOnce({
+    version: 2,
+    revision: 1,
+  } as unknown as ReturnType<() => typeof record.checkpoint>)
+
+  // 画布已经交给用户：加载刚开始就动了一笔，状态随之从读取中变成待同步。
+  const loading = session.load(true)
+  editor.doc.addElements([
+    {
+      id: 'during',
+      type: 'text',
+      x: 0,
+      y: 0,
+      text: '加载期间写的',
+      fontSize: 24,
+      fill: '#000',
+      width: 100,
+      height: 30,
+    },
+  ])
+  session.markChanged()
+  await expect(loading).rejects.toThrow('unsupported_cloud_cache')
+  expect(session.getSnapshot().status).toBe('load-error')
+
+  await session.reload()
+
+  expect(editor.doc.elements.map((one) => one.id)).toEqual(['note', 'during'])
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual([
+    '本机原稿',
+    '加载期间写的',
+  ])
+})
+
+/** 云端这边：PUT 照收，GET 回一份空文档。记下每次推上去的正文。 */
+function cloudAccepting(projectId: string) {
+  const puts: { document: { elements: { id?: string; text?: string }[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(projectId, body))
+      }
+      return Response.json({
+        id: projectId,
+        name: '本机编辑',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
+    }),
+  )
+  return puts
+}
+
+const badCheckpoint = { version: 2, revision: 1 } as unknown as undefined
+
+it('连续两次在读取之前失败，其间的编辑到最后一次成功时照样推上去', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  const checkpoint = vi.spyOn(record, 'checkpoint', 'get').mockReturnValue(badCheckpoint)
+
+  await expect(session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  editor.doc.updateElements([{ id: 'note', patch: { text: '两次失败之间改的' } }], {
+    history: true,
+  })
+  session.markChanged()
+  await expect(session.reload()).rejects.toThrow('unsupported_cloud_cache')
+  checkpoint.mockRestore()
+  await session.reload()
+
+  expect(editor.doc.elements[0]).toMatchObject({ text: '两次失败之间改的' })
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual([
+    '两次失败之间改的',
+  ])
+})
+
+it('打开前就有没推上去的修改，读取之前失败一次，重试时仍按修改推上去', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const first = await open(project, editor)
+  await first.session.load(true)
+  editor.doc.updateElements([{ id: 'note', patch: { text: '没来得及推的' } }], { history: true })
+  await first.record.persist()
+  first.session.dispose()
+  const before = puts.length
+
+  const restored = await storedEditor(project.sceneKey)
+  const second = await open({ ...project, cloud: { revision: 1 } }, restored)
+  vi.spyOn(second.record, 'checkpoint', 'get').mockReturnValueOnce(badCheckpoint)
+  await expect(second.session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  await second.session.reload()
+
+  expect(restored.doc.elements[0]).toMatchObject({ text: '没来得及推的' })
+  expect(puts.slice(before).map((one) => one.document.elements[0]?.text)).toEqual(['没来得及推的'])
+})
+
+it('加载开始前动过画布（续跑任务改了占位框）：按本机修改推，不拿云端版本盖掉', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  editor.doc.updateElements([{ id: 'note', patch: { text: '续跑改过的' } }], { history: false })
+  session.markChanged()
+
+  await session.load(true)
+
+  expect(editor.doc.elements[0]).toMatchObject({ text: '续跑改过的' })
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual(['续跑改过的'])
+})
+
+it('读取期间加了图、原图上传又失败：下次同步重读前仍认得出这笔修改，不拿云端版本盖掉', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const source = 'data:image/png;base64,iVBORw0KGgo='
+  const puts: { document: { elements: { id?: string }[] } }[] = []
+  let answerRead: ((response: Response) => void) | undefined
+  let uploads = 0
+  const remote = () =>
+    Response.json({
+      id: project.id,
+      name: '本机编辑',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === source)
+        return new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      if (url.endsWith('/uploads')) {
+        uploads += 1
+        if (uploads === 1) throw new TypeError('network down')
+        return Response.json({ id: crypto.randomUUID(), status: 'ready' })
+      }
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      // 第一次读取挂着，好在它返回前动画布；之后的读取立即回云端那份。
+      if (!answerRead) return new Promise<Response>((resolve) => (answerRead = resolve))
+      return remote()
+    }),
+  )
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  const loading = session.load(true)
+  await vi.waitFor(() => expect(answerRead).toBeDefined())
+  editor.doc.addElements(
+    [{ id: 'photo', type: 'image', x: 0, y: 0, width: 10, height: 10, rotation: 0, fileId: 'f' }],
+    { files: { f: source } },
+  )
+  session.markChanged()
+  answerRead!(remote())
+  await loading
+  expect(puts).toHaveLength(0)
+
+  await session.sync()
+
+  expect(editor.doc.elements.map((one) => one.id)).toEqual(['note', 'photo'])
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.id)).toEqual(['note', 'photo'])
+})
+
+it('读取之前失败后直接同步：先重读再推，而不是以未加载报错', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  vi.spyOn(record, 'checkpoint', 'get').mockReturnValueOnce(badCheckpoint)
+  await expect(session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  editor.doc.updateElements([{ id: 'note', patch: { text: '失败之后改的' } }], { history: true })
+  session.markChanged()
+
+  await session.sync()
+
+  expect(editor.doc.elements[0]).toMatchObject({ text: '失败之后改的' })
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual(['失败之后改的'])
+})
+
 it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
   const { project, editor } = await fresh()
   editor.doc.addElements(
@@ -389,8 +648,13 @@ it('收到冲突后停写，刷新后仍保留本机原稿', async () => {
   await second.load(true)
   expect(second.getSnapshot().status).toBe('conflict')
   expect(restored.doc.elements[0]).toMatchObject({ text: '本机原稿' })
-  // PUT 撞 409 后会自动去拉云端稿；这里云端也拒绝，本机原稿必须原样留下。
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  // PUT 撞 409 后会自动去拉云端稿（两个会话各拉一次，先后不定）；这里云端也拒绝，本机原稿必须
+  // 原样留下，且停写之后不再有第二次提交。
+  const methods = fetcher.mock.calls.map(
+    (call: unknown[]) => (call[1] as RequestInit | undefined)?.method,
+  )
+  expect(methods.filter((method) => method === 'PUT')).toHaveLength(1)
+  expect(methods.filter((method) => method !== 'PUT').length).toBeGreaterThanOrEqual(1)
 })
 
 it('较早确认不能把同步期间的新编辑标成已同步', async () => {
@@ -949,6 +1213,13 @@ it.each([
   await expect(session.load(true)).rejects.toThrow()
   expect(session.getSnapshot().status).toBe(expected)
   await expect(session.sync()).rejects.toThrow()
+  await new Promise((r) => setTimeout(r, 200))
+  console.log(
+    'CALLS',
+    JSON.stringify(
+      fetcher.mock.calls.map((c: unknown[]) => [c[0], (c[1] as RequestInit | undefined)?.method]),
+    ),
+  )
   expect(fetcher).toHaveBeenCalledTimes(2)
   session.dispose()
 })

@@ -83,3 +83,26 @@ it('冲突自动把当前修改另存为副本并换上云端稿，手动按钮�
     vi.unstubAllGlobals()
   }
 })
+
+it('读取失败时画布已经在用：给重试，重新读一遍而不是推送', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const reload = vi.fn(async () => {})
+  const sync = vi.fn(async () => {})
+  const snapshot = { status: 'load-error' as const, message: null }
+  const session = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    reload,
+    sync,
+  } as unknown as CloudProjectSession
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  act(() => root.render(<ProjectSyncStatus session={session} />))
+
+  const retry = [...host.querySelectorAll('button')].find((one) => one.textContent === '重试')
+  expect(retry).toBeDefined()
+  act(() => retry!.click())
+  expect(reload).toHaveBeenCalledOnce()
+  expect(sync).not.toHaveBeenCalled()
+  act(() => root.unmount())
+})
