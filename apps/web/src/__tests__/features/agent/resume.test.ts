@@ -120,6 +120,68 @@ describe('断线重连', () => {
     expect(state().turn).toBe('failed')
     expect(state().error).toBe('这一轮没有跑完')
   })
+
+  it('流没接上但服务端已经跑完：照快照摆出回复，不判失败', async () => {
+    turnResponses = [
+      () =>
+        sse(
+          [
+            { id: 1, event: TURN_START },
+            { id: 2, event: ASSISTANT_START },
+          ],
+          true,
+        ),
+      () => new Response('{}', { status: 404 }),
+    ]
+    messagesResponse = () =>
+      Response.json({
+        messages: [
+          {
+            id: 'user-1',
+            turnId: TURN,
+            role: 'user',
+            content: [{ type: 'text', text: '你好' }],
+            createdAt: 1,
+          },
+          {
+            id: 'assistant-1',
+            turnId: TURN,
+            role: 'assistant',
+            content: [{ type: 'text', text: '画布上共有 2 张图片' }],
+            createdAt: 2,
+          },
+        ],
+        activeTurn: null,
+        turns: [{ turnId: TURN, durationMs: 12, stopReason: 'completed' }],
+      })
+
+    await state().send('你好')
+
+    expect(state().turn).toBe('idle')
+    expect(state().error).toBeNull()
+    expect(state().messages.map((message) => message.kind === 'text' && message.text)).toEqual([
+      '你好',
+      '画布上共有 2 张图片',
+    ])
+  })
+
+  it('快照里这一轮也是失败的：照旧判失败', async () => {
+    turnResponses = [
+      () => sse([{ id: 1, event: TURN_START }], true),
+      () => new Response('{}', { status: 404 }),
+    ]
+    messagesResponse = () =>
+      Response.json({
+        messages: [],
+        activeTurn: null,
+        turns: [{ turnId: TURN, durationMs: 12, stopReason: 'failed' }],
+      })
+
+    await state().send('你好')
+
+    expect(state().turn).toBe('failed')
+    expect(state().error).toBe('这一轮没有跑完')
+  })
 })
 
 describe('刷新后重新挂上', () => {
