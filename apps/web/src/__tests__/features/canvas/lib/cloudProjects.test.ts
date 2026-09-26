@@ -507,6 +507,76 @@ it('加载开始前动过画布（续跑任务改了占位框）：按本机修�
   expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual(['续跑改过的'])
 })
 
+it('读取期间加了图、原图上传又失败：下次同步重读前仍认得出这笔修改，不拿云端版本盖掉', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const source = 'data:image/png;base64,iVBORw0KGgo='
+  const puts: { document: { elements: { id?: string }[] } }[] = []
+  let answerRead: ((response: Response) => void) | undefined
+  let uploads = 0
+  const remote = () =>
+    Response.json({
+      id: project.id,
+      name: '本机编辑',
+      revision: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === source)
+        return new Response(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      if (url.endsWith('/uploads')) {
+        uploads += 1
+        if (uploads === 1) throw new TypeError('network down')
+        return Response.json({ id: crypto.randomUUID(), status: 'ready' })
+      }
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      // 第一次读取挂着，好在它返回前动画布；之后的读取立即回云端那份。
+      if (!answerRead) return new Promise<Response>((resolve) => (answerRead = resolve))
+      return remote()
+    }),
+  )
+  const { session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  const loading = session.load(true)
+  await vi.waitFor(() => expect(answerRead).toBeDefined())
+  editor.doc.addElements(
+    [{ id: 'photo', type: 'image', x: 0, y: 0, width: 10, height: 10, rotation: 0, fileId: 'f' }],
+    { files: { f: source } },
+  )
+  session.markChanged()
+  answerRead!(remote())
+  await loading
+  expect(puts).toHaveLength(0)
+
+  await session.sync()
+
+  expect(editor.doc.elements.map((one) => one.id)).toEqual(['note', 'photo'])
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.id)).toEqual(['note', 'photo'])
+})
+
+it('读取之前失败后直接同步：先重读再推，而不是以未加载报错', async () => {
+  const { project, editor } = await fresh()
+  const puts = cloudAccepting(project.id)
+  const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
+  vi.spyOn(record, 'checkpoint', 'get').mockReturnValueOnce(badCheckpoint)
+  await expect(session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  editor.doc.updateElements([{ id: 'note', patch: { text: '失败之后改的' } }], { history: true })
+  session.markChanged()
+
+  await session.sync()
+
+  expect(editor.doc.elements[0]).toMatchObject({ text: '失败之后改的' })
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual(['失败之后改的'])
+})
+
 it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
   const { project, editor } = await fresh()
   editor.doc.addElements(
