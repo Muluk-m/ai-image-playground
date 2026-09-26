@@ -569,8 +569,14 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (stream.outcome === 'rateLimited') {
         if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
       } else if (stream.outcome === 'gone' || stream.outcome === 'unreachable') {
-        // 轮没了或者一直接不上：面板还停在进行中就得给个交代。
-        if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+        // 轮没了或者一直接不上：面板还停在进行中就得给个交代。流断不等于轮失败——服务端
+        // 可能早已跑完，先照快照核一次，确实没跑成才判失败。
+        const stillOurs = () =>
+          turnDelivery.isCurrent() &&
+          get().turn === 'running' &&
+          (!turnId || get().activeTurn?.turnId === turnId)
+        if (stillOurs() && !(await settleFromSnapshot(conversationId, turnId)) && stillOurs())
+          fail()
       }
     } catch (thrown) {
       // 归约自己出了错：不能让面板永远停在进行中。
@@ -655,6 +661,36 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     })
     void delivery.restore(get().messages)
     jobs.resume(conversationId, get().messages)
+  }
+
+  /**
+   * 流放弃之后核对这一轮在服务端的终局：已经收尾且不算失败，就照快照摆出它的回复；服务端接着
+   * 开了下一轮（排队消息、中断续跑）就挂上去。读不到快照、这一轮还在跑或者确实失败了，都返回
+   * false 交给调用方判失败。
+   */
+  const settleFromSnapshot = async (conversationId: string, turnId: string): Promise<boolean> => {
+    if (!turnId) return false
+    let taken: AgentConversationState
+    try {
+      taken = await fetchMessages(conversationId)
+    } catch {
+      return false
+    }
+    const next = taken.activeTurn?.turnId
+    if (next === turnId) return false
+    const summary = taken.turns.find((one) => one.turnId === turnId)
+    // 被打断、排上中断续跑的轮不是失败，与 `apply` 处理终帧同一个口径（ADR 0006）。
+    const failed =
+      !summary || (summary.stopReason === 'failed' && summary.error !== 'agent_turn_interrupted')
+    if (failed) return false
+    if (get().conversationId !== conversationId || get().activeTurn?.turnId !== turnId) return true
+    if (next) {
+      void joinQueuedTurn(conversationId, taken, next)
+      return true
+    }
+    adoptSnapshot(conversationId, taken)
+    set({ turn: 'idle', stopping: false, reconnecting: false, activeTurn: null, error: null })
+    return true
   }
 
   /**
