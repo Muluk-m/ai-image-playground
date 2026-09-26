@@ -118,6 +118,13 @@ export class CloudProjectSession implements CloudSceneStrategy {
   private baseline: Checkpoint = { revision: 0, savedContent: null, pending: null, conflict: false }
   private readonly mediaBindings: LoadedBindings = new Map()
   private loadedWithLocal = false
+  /**
+   * 画布在云端加载完成前就交给了用户（后台加载、读取失败后照常编辑）：这段时间的改动一律按
+   * 本机修改推上去，不能被随后的读取拿云端版本盖掉。按次数比对版本号在连续失败、先失败后编辑
+   * 这些路径上都会漏，所以直接记一个标记。换上云端版本那一下不算。
+   */
+  private editedBeforeLoaded = false
+  private applyingRemote = false
   private initialized = false
   private writable = false
   private readRequired = false
@@ -221,7 +228,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
   /** 换上云端版本；只在这台设备上的失败占位不在云端文档里，原样留下。 */
   private restoreRemote(scene: ReturnType<typeof projectScene>) {
     const local = this.editor.doc.elements.filter(isLocalAgentFailure)
-    this.editor.doc.restore([...scene.elements, ...local], scene.files, this.editor.doc.camera)
+    this.applyingRemote = true
+    try {
+      this.editor.doc.restore([...scene.elements, ...local], scene.files, this.editor.doc.camera)
+    } finally {
+      this.applyingRemote = false
+    }
   }
   private document(): ProjectDocument | null {
     return projectDocument(this.editor.doc, this.mediaBindings, this.project.kind)
@@ -276,14 +288,10 @@ export class CloudProjectSession implements CloudSceneStrategy {
     const startVersion = this.editVersion
     return this.serialize(() => this.loadCurrent(hasLocalScene, startVersion)).catch(
       (error: unknown) => {
-        // 这次加载没走到可写（读取之前的检查点校验、原图对账也算）：记成待重读，重试时照样按
-        // 起点认出之后的编辑；并落到 load-error，否则没有重试入口。
-        if (!this.writable) {
-          this.readRequired = true
-          this.readVersion = startVersion
-          if (!STOPPED.has(this.state.status) && this.state.status !== 'offline')
-            this.update('load-error', classifyFailure(error).message)
-        }
+        // 这次加载没走到可写（读取之前的检查点校验、原图对账也算）：落到 load-error，否则画布已经
+        // 交给用户却没有重试入口。期间的编辑由 editedBeforeLoaded 记着，重试时照样推上去。
+        if (!this.writable && !STOPPED.has(this.state.status) && this.state.status !== 'offline')
+          this.update('load-error', classifyFailure(error).message)
         throw error
       },
     )
@@ -377,21 +385,17 @@ export class CloudProjectSession implements CloudSceneStrategy {
       hasLocalScene &&
       this.baseline.savedContent !== null &&
       (!local || content(this.project.name, local) !== this.baseline.savedContent)
-    // 读取失败后画布照常可编辑：失败之后动过的内容不能被这次重读盖掉。有基线时 `dirty` 按内容比过了；
-    // 还没有基线可比就按修改推，云端若已前进，服务端 409 会转入冲突处理（另存副本），两边都不丢。
-    const editedAfterFailedRead =
-      retryingRead &&
-      hasLocalScene &&
-      this.baseline.savedContent === null &&
-      this.editVersion !== this.readVersion
+    // 云端若已前进，推送撞 409 会转入冲突处理（另存副本），两边都不丢。
+    const editedLocally = hasLocalScene && this.editedBeforeLoaded
     if (
       this.baseline.pending ||
       this.baseline.conflict ||
       dirty ||
-      editedAfterFailedRead ||
+      editedLocally ||
       (this.project.cloud?.revision === 0 && this.baseline.revision === 0)
     ) {
       this.writable = true
+      this.editedBeforeLoaded = false
       await this.push()
       return
     }
@@ -414,11 +418,13 @@ export class CloudProjectSession implements CloudSceneStrategy {
       await this.adoptKind(remote.document)
       if (
         (version !== this.editVersion ||
+          this.editedBeforeLoaded ||
           elements !== this.editor.doc.elements ||
           files !== this.editor.doc.files) &&
         hasLocalScene
       ) {
         this.writable = true
+        this.editedBeforeLoaded = false
         await this.push()
         return
       }
@@ -444,6 +450,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
       }
       await this.persist()
       this.writable = true
+      this.editedBeforeLoaded = false
       this.readRequired = false
       const current = this.document()
       this.update(
@@ -479,6 +486,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   }
   markChanged() {
     this.editVersion++
+    if (!this.writable && !this.applyingRemote) this.editedBeforeLoaded = true
     if (!STOPPED.has(this.state.status) && this.state.status !== 'error') this.update('pending')
   }
   /**
