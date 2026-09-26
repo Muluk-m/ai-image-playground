@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
+import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
 import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
 import { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
@@ -237,8 +238,14 @@ it('本机已有画布：先交给用户，补传原图在后台进行，不挡�
     await first.flush()
     first.dispose()
 
+    // 续跑任务要在存档开始记录编辑之后：它删掉、改掉的占位框才落得了盘。
+    const loadingWhenRecovered: boolean[] = []
+    vi.mocked(recoverCanvasTasks).mockImplementation(() => {
+      loadingWhenRecovered.push(second!.getSnapshot().loading)
+    })
     second = new CanvasWorkspace(project.sceneKey)
     await second.ready
+    expect(loadingWhenRecovered).toEqual([false])
     expect(second.getSnapshot().loading).toBe(false)
     expect(second.doc.elements.map((one) => one.id)).toEqual(['img'])
     await vi.waitFor(() => expect(uploads.length).toBeGreaterThan(0), { timeout: 3000 })

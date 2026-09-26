@@ -370,17 +370,60 @@ it('读取失败后画布照常编辑，重试读取不拿云端版本盖掉失�
   ])
 })
 
-it('读取之前那几步就失败：落到可重试的读取失败，不停在读取中', async () => {
+it('读取之前那几步就失败：落到可重试的读取失败，重试时不拿云端版本盖掉期间的编辑', async () => {
   const { project, editor } = await fresh()
-  vi.stubGlobal('fetch', vi.fn())
+  const puts: { document: { elements: { text?: string }[] } }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        puts.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      return Response.json({
+        id: project.id,
+        name: '本机编辑',
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: 0,
+        document: { version: 1, elements: [] },
+      })
+    }),
+  )
   const { record, session } = await open({ ...project, cloud: { revision: 1 } }, editor)
-  vi.spyOn(record, 'checkpoint', 'get').mockReturnValue({
+  vi.spyOn(record, 'checkpoint', 'get').mockReturnValueOnce({
     version: 2,
     revision: 1,
   } as unknown as ReturnType<() => typeof record.checkpoint>)
 
-  await expect(session.load(true)).rejects.toThrow('unsupported_cloud_cache')
+  // 画布已经交给用户：加载刚开始就动了一笔，状态随之从读取中变成待同步。
+  const loading = session.load(true)
+  editor.doc.addElements([
+    {
+      id: 'during',
+      type: 'text',
+      x: 0,
+      y: 0,
+      text: '加载期间写的',
+      fontSize: 24,
+      fill: '#000',
+      width: 100,
+      height: 30,
+    },
+  ])
+  session.markChanged()
+  await expect(loading).rejects.toThrow('unsupported_cloud_cache')
   expect(session.getSnapshot().status).toBe('load-error')
+
+  await session.reload()
+
+  expect(editor.doc.elements.map((one) => one.id)).toEqual(['note', 'during'])
+  expect(puts[puts.length - 1]?.document.elements.map((one) => one.text)).toEqual([
+    '本机原稿',
+    '加载期间写的',
+  ])
 })
 
 it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
