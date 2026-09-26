@@ -128,6 +128,8 @@ export class CloudProjectSession implements CloudSceneStrategy {
   private initialized = false
   private writable = false
   private readRequired = false
+  /** 云端读取已经开始、还没成功收尾：文档里可能已经换上了云端那份，重试时不能再拿它当本机修改。 */
+  private remoteRead = false
   private readVersion = 0
   private queue: Promise<unknown> = Promise.resolve()
   private readonly sameAccount = accountScope()
@@ -288,10 +290,14 @@ export class CloudProjectSession implements CloudSceneStrategy {
     const startVersion = this.editVersion
     return this.serialize(() => this.loadCurrent(hasLocalScene, startVersion)).catch(
       (error: unknown) => {
-        // 这次加载没走到可写（读取之前的检查点校验、原图对账也算）：落到 load-error，否则画布已经
-        // 交给用户却没有重试入口。期间的编辑由 editedBeforeLoaded 记着，重试时照样推上去。
-        if (!this.writable && !STOPPED.has(this.state.status) && this.state.status !== 'offline')
-          this.update('load-error', classifyFailure(error).message)
+        // 这次加载没走到可写（读取之前的检查点校验、原图对账也算）：下次同步先重读，不能直接推；
+        // 并落到 load-error，否则画布已经交给用户却没有重试入口。期间的编辑由 editedBeforeLoaded
+        // 记着，重试时照样推上去。
+        if (!this.writable) {
+          this.readRequired = true
+          if (!STOPPED.has(this.state.status) && this.state.status !== 'offline')
+            this.update('load-error', classifyFailure(error).message)
+        }
         throw error
       },
     )
@@ -314,7 +320,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
     startVersion = this.editVersion,
   ): Promise<void> {
     this.current()
-    const retryingRead = this.readRequired && !this.writable
+    const retryingRead = this.remoteRead && !this.writable
     if (!this.initialized) {
       // 盘上那份已经由存档读过一次并恢复进文档，这里只接手它带着的检查点。
       const cached = this.record.checkpoint
@@ -395,13 +401,13 @@ export class CloudProjectSession implements CloudSceneStrategy {
       (this.project.cloud?.revision === 0 && this.baseline.revision === 0)
     ) {
       this.writable = true
-      this.editedBeforeLoaded = false
       await this.push()
       return
     }
     this.update('loading')
     this.writable = false
     this.readRequired = true
+    this.remoteRead = true
     const version = startVersion
     this.readVersion = version
     const { elements, files } = this.editor.doc
@@ -424,7 +430,6 @@ export class CloudProjectSession implements CloudSceneStrategy {
         hasLocalScene
       ) {
         this.writable = true
-        this.editedBeforeLoaded = false
         await this.push()
         return
       }
@@ -452,6 +457,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
       this.writable = true
       this.editedBeforeLoaded = false
       this.readRequired = false
+      this.remoteRead = false
       const current = this.document()
       this.update(
         current && content(this.project.name, current) === this.baseline.savedContent
@@ -578,6 +584,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
       conflict: false,
     }
     this.readRequired = false
+    this.remoteRead = false
     await this.persist()
     await this.metadata({
       cloud: { revision: result.revision, nameDirty: this.project.name !== pending.name },
@@ -627,6 +634,8 @@ export class CloudProjectSession implements CloudSceneStrategy {
         await this.persist()
         await this.commitPending()
       }
+      // 加载完成前的本机修改到这里才算真推上去了；推送失败就留着，下次重读前还认得出。
+      this.editedBeforeLoaded = false
       const current = this.document()
       this.update(
         current && content(this.project.name, current) === this.baseline.savedContent
@@ -717,6 +726,8 @@ export class CloudProjectSession implements CloudSceneStrategy {
       await this.saveRecoveryMetadata()
       this.writable = true
       this.readRequired = false
+      this.remoteRead = false
+      this.editedBeforeLoaded = false
       const current = this.document()
       this.update(
         current && content(this.project.name, current) === this.baseline.savedContent
