@@ -11,6 +11,7 @@ import {
   type AgentCall,
   completion,
   completionStream,
+  controlledCompletion,
   parseFrames,
   recordingAgentFetch,
   scriptedAgentFetch,
@@ -29,7 +30,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
-const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { setAgentFetchForTesting, setAgentStreamIdleForTesting } = await import(
+  '../../lib/agent/model'
+)
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
@@ -226,6 +229,31 @@ describe('POST /api/agent/conversations/:id/turns', () => {
 
     const messages = await readMessages(conversationId)
     expect(messages.map((message) => message.role)).toEqual(['user'])
+  })
+
+  it('fails a turn whose model stream stops sending instead of hanging on it', async () => {
+    setAgentStreamIdleForTesting(50)
+    try {
+      setAgentFetchForTesting(
+        recordingAgentFetch([], (signal) => {
+          const stalled = controlledCompletion()
+          const response = stalled.responseFor(signal)
+          stalled.push('好')
+          return response
+        }),
+      )
+      const conversationId = await startConversation()
+
+      const { frames } = await runTurn(conversationId, '把背景换成浅木色')
+
+      expect(frames.at(-1)!.event).toMatchObject({
+        type: 'turnEnd',
+        stopReason: 'failed',
+        error: 'agent_upstream_error',
+      })
+    } finally {
+      setAgentStreamIdleForTesting()
+    }
   })
 
   it('refuses a conversation that belongs to another device', async () => {
