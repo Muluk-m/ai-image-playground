@@ -1,5 +1,10 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
-import { videoPromptRejection, videoRequestRejection } from '@image-playground/shared'
+import {
+  QUEUE_MAX_INPUT_IMAGES,
+  QUEUE_PROMPT_MAX_CHARS,
+  videoPromptRejection,
+  videoRequestRejection,
+} from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { resolveModelMedia } from '../lib/channels'
@@ -11,8 +16,11 @@ import { taskAccessWhere } from '../lib/task-access'
 import { createQueueTask, findTaskByIdempotencyKey } from '../lib/taskSubmission'
 import { requireUser } from '../lib/user-auth'
 
+/** 与归档时的解码口径一致：base64 编码的 data URL。 */
+const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
+
 const submitBodySchema = t.Object({
-  prompt: t.String({ minLength: 1 }),
+  prompt: t.String({ minLength: 1, maxLength: QUEUE_PROMPT_MAX_CHARS }),
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),
@@ -22,8 +30,12 @@ const submitBodySchema = t.Object({
   image_size: t.Optional(t.String()),
   thinking_level: t.Optional(t.String()),
   n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
-  input_images: t.Optional(t.Array(t.String())),
-  mask: t.Optional(t.String()),
+  // 单张不按前端的 10MB 卡：画布上的大图拿去再编辑时本来就可能超过它。MIME 不限 image/*：
+  // 空类型的 Blob 会编成 octet-stream，真实格式由归档时嗅探字节决定。
+  input_images: t.Optional(
+    t.Array(t.String({ pattern: DATA_URL_PATTERN }), { maxItems: QUEUE_MAX_INPUT_IMAGES }),
+  ),
+  mask: t.Optional(t.String({ pattern: DATA_URL_PATTERN })),
   /** 档位合法性由 shared 的 videoRequestRejection 兜底，这里只做形状白名单。 */
   video: t.Optional(
     t.Object({

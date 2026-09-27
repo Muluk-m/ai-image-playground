@@ -1,6 +1,7 @@
+import { QUEUE_MAX_INPUT_IMAGES } from '@image-playground/shared'
 import { i18next } from '../i18n'
-/** API 支持的最大参考图数量。 */
-export const API_MAX_IMAGES = 16
+/** API 支持的最大参考图数量。BFF 的提交校验用同一个数，超了会 400。 */
+export const API_MAX_IMAGES = QUEUE_MAX_INPUT_IMAGES
 
 /**
  * 单张参考图的上限。上游把图连同提示词一起放进一次请求里，太大的原图既传不上去也没意义

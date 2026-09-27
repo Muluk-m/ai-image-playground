@@ -56,6 +56,12 @@ export type TaskErrorType =
   | 'object_storage_error'
   | 'unknown'
 
+/** 一次提交最多带几张参考图。前端的附件上限与 BFF 的请求校验共用这一个数。 */
+export const QUEUE_MAX_INPUT_IMAGES = 16
+
+/** 提示词最长多少字符（OpenAI 图像接口的上限），超了 BFF 直接 400。 */
+export const QUEUE_PROMPT_MAX_CHARS = 32_000
+
 /**
  * POST /v1/queue/{provider}/{model}/submit
  *
