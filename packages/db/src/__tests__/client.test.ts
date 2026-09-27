@@ -66,9 +66,43 @@ describe('createDb pool', () => {
   })
 })
 
+describe('server-side timeouts', () => {
+  it('sends them as session settings, so the server cancels a statement that runs too long', async () => {
+    const { client } = handle({
+      max: 1,
+      statementTimeoutMs: 200,
+      lockTimeoutMs: 150,
+      idleInTransactionTimeoutMs: 300,
+    })
+    const [settings] = await client`
+      SELECT current_setting('statement_timeout') AS statement,
+             current_setting('lock_timeout') AS lock,
+             current_setting('idle_in_transaction_session_timeout') AS idle`
+    expect(settings).toEqual({ statement: '200ms', lock: '150ms', idle: '300ms' })
+    const error = await client`SELECT pg_sleep(2)`.then(
+      () => null,
+      (err: Error) => err,
+    )
+    expect(error?.message).toContain('statement timeout')
+  })
+
+  it('leaves the server defaults alone when none are given', async () => {
+    const { client } = handle({ max: 1 })
+    const [settings] = await client`SELECT current_setting('statement_timeout') AS statement`
+    expect(settings).toEqual({ statement: '0' })
+  })
+})
+
 describe('databasePoolFromEnv', () => {
   it('closes idle connections after 60 s and keeps the driver pool size when unset or blank', () => {
-    const expected = { applicationName: 'aip-bff', max: undefined, idleTimeout: 60 }
+    const expected = {
+      applicationName: 'aip-bff',
+      max: undefined,
+      idleTimeout: 60,
+      statementTimeoutMs: 60_000,
+      lockTimeoutMs: 10_000,
+      idleInTransactionTimeoutMs: 60_000,
+    }
     expect(databasePoolFromEnv('aip-bff', {})).toEqual(expected)
     expect(
       databasePoolFromEnv('aip-bff', { DATABASE_POOL_MAX: ' ', DATABASE_IDLE_TIMEOUT_SECONDS: '' }),
@@ -80,11 +114,27 @@ describe('databasePoolFromEnv', () => {
       databasePoolFromEnv('aip-worker', {
         DATABASE_POOL_MAX: ' 4 ',
         DATABASE_IDLE_TIMEOUT_SECONDS: '120',
+        DATABASE_STATEMENT_TIMEOUT_MS: '30000',
+        DATABASE_LOCK_TIMEOUT_MS: '5000',
+        DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: '90000',
       }),
-    ).toEqual({ applicationName: 'aip-worker', max: 4, idleTimeout: 120 })
+    ).toEqual({
+      applicationName: 'aip-worker',
+      max: 4,
+      idleTimeout: 120,
+      statementTimeoutMs: 30_000,
+      lockTimeoutMs: 5_000,
+      idleInTransactionTimeoutMs: 90_000,
+    })
   })
 
-  for (const name of ['DATABASE_POOL_MAX', 'DATABASE_IDLE_TIMEOUT_SECONDS']) {
+  for (const name of [
+    'DATABASE_POOL_MAX',
+    'DATABASE_IDLE_TIMEOUT_SECONDS',
+    'DATABASE_STATEMENT_TIMEOUT_MS',
+    'DATABASE_LOCK_TIMEOUT_MS',
+    'DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS',
+  ]) {
     it.each(['0', '-2', '2.5', 'five', '4x'])(`rejects ${name}=%p`, (value) => {
       expect(() => databasePoolFromEnv('aip-bff', { [name]: value })).toThrow(
         `${name} must be a positive integer`,
