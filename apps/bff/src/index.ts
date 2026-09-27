@@ -8,7 +8,7 @@ import { initChannels } from './lib/channels'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
-import { startPeriodicSteps } from './lib/periodic'
+import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 
 const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
 
@@ -71,9 +71,17 @@ if (agentEnabled) {
 // channel discovery must be ready before that overlay initializes.
 const { app, apiMetrics } = await import('./app')
 
-await runPrivateMaintenance()
-const purgeStartup = await purgeOldTasks()
-if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
+// 开机清理失败（例如积压太多撞上语句超时）只记一条，不拦着启动：定时清理会接着清。
+await runPeriodicSteps([
+  { event: 'startup.private_maintenance_failed', run: runPrivateMaintenance },
+  {
+    event: 'startup.purge_tasks_failed',
+    run: async () => {
+      const removed = await purgeOldTasks()
+      if (removed > 0) log.info({ event: 'startup.purged', count: removed }, 'purged old tasks')
+    },
+  },
+])
 startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
   {
     event: 'periodic.purge_tasks_failed',
