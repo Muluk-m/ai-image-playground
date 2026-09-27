@@ -144,6 +144,33 @@ describe('BFF queue routes', () => {
     expect(taskStatus.json).toMatchObject({ status: 'queued' })
   })
 
+  it('POST submit drops client extra so it cannot override the billed count or model', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    setUpstreamFetchForTesting(
+      mock(async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch,
+    )
+
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ n: 1, extra: { n: 8, model: 'some-pricier-model' } }),
+    )
+    expect(status).toBe(200)
+    const id = responseRequestId(json)
+    const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(stored?.request_payload).not.toHaveProperty('extra')
+
+    await runTask(id)
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({ model: 'gpt-image-2', n: 1 })
+  })
+
   it('POST submit with input_images routes to /v1/images/edits as multipart', async () => {
     const calls: Array<{ url: string; init: Parameters<TestFetch>[1] }> = []
     setUpstreamFetchForTesting(
