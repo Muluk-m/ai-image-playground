@@ -13,8 +13,13 @@ const billing = installRecordingTaskHooks()
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { abortRunningTask, claimTaskExecution, runningTaskIds, setTaskHeartbeatForTesting } =
-  await import('../../workers/task-execution')
+const {
+  abortRunningTask,
+  claimTaskExecution,
+  leaseLostAfterFailedRenewal,
+  runningTaskIds,
+  setTaskHeartbeatForTesting,
+} = await import('../../workers/task-execution')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 
@@ -169,6 +174,17 @@ describe('租约', () => {
     execution!.release()
 
     expect(execution!.signal.aborted).toBe(false)
+  })
+})
+
+describe('续租失败', () => {
+  it('租约还够等下一次心跳就不中止：一次数据库抖动不该掐断已付费的上游请求', () => {
+    expect(leaseLostAfterFailedRenewal(1_000, 61_000, 10_000)).toBe(false)
+  })
+
+  it('剩下的时间撑不到下一次心跳就中止：再拖下去回收扫描会接手这一行', () => {
+    expect(leaseLostAfterFailedRenewal(52_000, 61_000, 10_000)).toBe(true)
+    expect(leaseLostAfterFailedRenewal(70_000, 61_000, 10_000)).toBe(true)
   })
 })
 
