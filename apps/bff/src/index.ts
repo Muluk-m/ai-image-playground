@@ -8,6 +8,7 @@ import { initChannels } from './lib/channels'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
+import { startPeriodicSteps } from './lib/periodic'
 
 const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
 
@@ -73,25 +74,50 @@ const { app, apiMetrics } = await import('./app')
 await runPrivateMaintenance()
 const purgeStartup = await purgeOldTasks()
 if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
-setInterval(async () => {
-  const removed = await purgeOldTasks()
-  await runPrivateMaintenance()
+startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
+  {
+    event: 'periodic.purge_tasks_failed',
+    run: async () => {
+      const removed = await purgeOldTasks()
+      if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+    },
+  },
+  { event: 'periodic.private_maintenance_failed', run: runPrivateMaintenance },
   // worker 的维护循环也清；没有 worker 的部署只有这里清。
-  await purgeStaleHeartbeats()
-  if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
-  if (syncEnabled) {
-    const orphaned = await purgeOrphanedAssetObjects()
-    if (orphaned > 0) {
-      log.info({ event: 'periodic.purged_asset_owners', count: orphaned }, 'purged asset objects')
-    }
-  }
-  if (agentEnabled) {
-    const expired = await purgeOldAgentTurnEvents()
-    if (expired > 0) {
-      log.info({ event: 'periodic.purged_agent_events', count: expired }, 'purged agent events')
-    }
-  }
-}, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)
+  { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
+  ...(syncEnabled
+    ? [
+        {
+          event: 'periodic.purge_asset_owners_failed',
+          run: async () => {
+            const orphaned = await purgeOrphanedAssetObjects()
+            if (orphaned > 0) {
+              log.info(
+                { event: 'periodic.purged_asset_owners', count: orphaned },
+                'purged asset objects',
+              )
+            }
+          },
+        },
+      ]
+    : []),
+  ...(agentEnabled
+    ? [
+        {
+          event: 'periodic.purge_agent_events_failed',
+          run: async () => {
+            const expired = await purgeOldAgentTurnEvents()
+            if (expired > 0) {
+              log.info(
+                { event: 'periodic.purged_agent_events', count: expired },
+                'purged agent events',
+              )
+            }
+          },
+        },
+      ]
+    : []),
+])
 
 if (config.corsOrigins === '*') {
   log.warn(
