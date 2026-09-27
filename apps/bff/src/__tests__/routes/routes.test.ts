@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { QUEUE_MAX_INPUT_IMAGES, QUEUE_PROMPT_MAX_CHARS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
@@ -653,6 +654,32 @@ describe('BFF queue routes', () => {
       submitBody({ device_id: 'short' }),
     )
     expect(status).toBe(400)
+  })
+
+  it('rejects submits outside the input bounds before writing anything', async () => {
+    const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
+    const path = '/v1/queue/openai-compat/gpt-image-2/submit'
+    const rejected = [
+      submitBody({ input_images: Array(QUEUE_MAX_INPUT_IMAGES + 1).fill(TINY_PNG) }),
+      submitBody({ input_images: ['https://example.com/cat.png'] }),
+      submitBody({ mask: 'not-a-data-url' }),
+      submitBody({ prompt: 'x'.repeat(QUEUE_PROMPT_MAX_CHARS + 1) }),
+    ]
+    for (const body of rejected) {
+      expect((await jsonReq('POST', path, body)).status).toBe(400)
+    }
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(storage.objects.size).toBe(0)
+
+    const atLimit = await jsonReq(
+      'POST',
+      path,
+      submitBody({
+        prompt: 'x'.repeat(QUEUE_PROMPT_MAX_CHARS),
+        input_images: Array(QUEUE_MAX_INPUT_IMAGES).fill(TINY_PNG),
+      }),
+    )
+    expect(atLimit.status).toBe(200)
   })
 
   it('uses the configured quota instead of the historical constant', async () => {
