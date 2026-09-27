@@ -38,7 +38,8 @@ const submitBodySchema = t.Object({
       source_output_index: t.Optional(t.Number({ minimum: 0 })),
     }),
   ),
-  extra: t.Optional(t.Record(t.String(), t.Any())),
+  // 不收 `extra`：它最后展开进上游请求体，能盖掉计费依据的 `n` 与 `model`。浏览器从不发它，
+  // schema 之外的字段 Elysia 会直接剥掉。
   /**
    * 幂等键：前端在 submitTask 时为每个任务生成 UUID。同一 ID 二次 submit
    * 直接返回原 request_id，避免页面刷新窗口期重复消耗上游配额。
