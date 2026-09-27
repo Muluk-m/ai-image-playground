@@ -125,12 +125,31 @@ export function kickConversationInbox(
   conversationId: string,
   options: KickConversationInboxOptions = {},
 ): void {
-  void pickUpNextTurn(conversationId, options).catch((err) =>
-    log.error(
-      { event: 'agent.inbox_drain_failed', conversationId, err },
-      'queued agent message could not start a turn',
+  track(
+    pickUpNextTurn(conversationId, options).catch((err) =>
+      log.error(
+        { event: 'agent.inbox_drain_failed', conversationId, err },
+        'queued agent message could not start a turn',
+      ),
     ),
   )
+}
+
+/** 本进程里还没跑完的接力：一轮收尾放手、再去收件箱取下一条。 */
+const handoffs = new Set<Promise<unknown>>()
+
+function track(handoff: Promise<unknown>): void {
+  handoffs.add(handoff)
+  // 接住 rejection：Bun 遇到没人接的 rejection 会直接退出进程。
+  handoff.finally(() => handoffs.delete(handoff)).catch(() => {})
+}
+
+/**
+ * 等本进程发出的接力都跑完。快照里 `activeTurn` 变成 null 时，收尾那一轮的接力可能还在路上，
+ * 测试若此刻往收件箱里放东西，会被它当场取走开轮。
+ */
+export async function settleInboxHandoffsForTesting(): Promise<void> {
+  while (handoffs.size > 0) await Promise.allSettled([...handoffs])
 }
 
 async function pickUpNextTurn(
@@ -229,9 +248,11 @@ async function drainOnce(
       release()
     }
     if (result.kind === 'started' && result.turn.completed) {
-      void result.turn.completed.then(finish).then(
-        () => kickConversationInbox(conversationId, { deliverDueWakes: true }),
-        () => bffDrain.failed(),
+      track(
+        result.turn.completed.then(finish).then(
+          () => kickConversationInbox(conversationId, { deliverDueWakes: true }),
+          () => bffDrain.failed(),
+        ),
       )
     } else {
       await finish()
