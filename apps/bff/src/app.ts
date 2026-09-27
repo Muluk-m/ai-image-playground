@@ -3,6 +3,7 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
+import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
@@ -36,15 +37,6 @@ if (isCapabilityEnabled('billing:credits')) {
 }
 
 const STATIC_DIR = config.staticDir
-
-function isApiPath(pathname: string): boolean {
-  return (
-    pathname.startsWith('/v1/') ||
-    pathname.startsWith('/api/') ||
-    pathname.startsWith('/internal/') ||
-    pathname === '/health'
-  )
-}
 
 /**
  * 给静态资源设 cache-control：
@@ -172,6 +164,7 @@ export const app = new Elysia()
       durationMs: performance.now() - startedAt,
     })
   })
+  .use(apiErrorHandler())
   .use(cors({ origin: corsOrigin, credentials: true }))
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
   // commit that is serving.
