@@ -42,6 +42,19 @@ export function setTaskHeartbeatForTesting(intervalMs?: number): void {
   heartbeatMs = intervalMs ?? TASK_HEARTBEAT_MS
 }
 
+/**
+ * 续租这一下抛错（连接断了、超时）时，租约是不是已经保不住了。还撑得到下一次心跳就接着跑：
+ * 数据库闪断一下就掐掉上游请求，等于把一张已经付了钱的图扔掉。撑不到时必须停，
+ * 过了到期时间回收扫描会接手这一行。
+ */
+export function leaseLostAfterFailedRenewal(
+  now: number,
+  leaseExpiresAt: number,
+  intervalMs: number,
+): boolean {
+  return leaseExpiresAt - now <= intervalMs
+}
+
 type TaskRow = typeof schema.tasks.$inferSelect
 
 /** 认领时一并读到的这一行：worker 要的列，一次 `UPDATE ... RETURNING` 拿齐。 */
@@ -103,6 +116,7 @@ class TaskExecutionHandle implements TaskExecution {
   readonly #controller = new AbortController()
   #heartbeat: ReturnType<typeof setInterval> | undefined
   #renewing = false
+  #leaseExpiresAt: number
 
   constructor(
     readonly taskId: string,
@@ -111,6 +125,7 @@ class TaskExecutionHandle implements TaskExecution {
     readonly task: ClaimedTask,
   ) {
     this.#token = token
+    this.#leaseExpiresAt = claimedAt + TASK_LEASE_MS
     this.#heartbeat = setInterval(() => void this.#renewLease(), heartbeatMs)
   }
 
@@ -131,23 +146,26 @@ class TaskExecutionHandle implements TaskExecution {
     )!
   }
 
-  /** 续不上租约就是失去了这一行：立刻中止上游 fetch，别再往下写。 */
+  /** 这一行已被接手就立刻中止上游 fetch；续租请求本身失败时撑到租约将尽才中止。 */
   async #renewLease(): Promise<void> {
     if (this.#renewing) return
     this.#renewing = true
     try {
+      const leaseExpiresAt = Date.now() + TASK_LEASE_MS
       const renewed = await db
         .update(schema.tasks)
-        .set({ lease_expires_at: Date.now() + TASK_LEASE_MS })
+        .set({ lease_expires_at: leaseExpiresAt })
         .where(this.#own())
         .returning({ id: schema.tasks.id })
       if (renewed.length === 0) this.#controller.abort()
+      else this.#leaseExpiresAt = leaseExpiresAt
     } catch (error) {
+      const lost = leaseLostAfterFailedRenewal(Date.now(), this.#leaseExpiresAt, heartbeatMs)
       log.warn(
-        { event: 'task.lease_renew_failed', taskId: this.taskId, err: String(error) },
+        { event: 'task.lease_renew_failed', taskId: this.taskId, lost, err: String(error) },
         'task lease renewal failed',
       )
-      this.#controller.abort()
+      if (lost) this.#controller.abort()
     } finally {
       this.#renewing = false
     }
