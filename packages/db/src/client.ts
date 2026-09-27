@@ -21,6 +21,23 @@ export interface DbPoolOptions {
   maxLifetime?: number
   /** Shown as application_name in pg_stat_activity, so connections can be told apart by role. */
   applicationName?: string
+  /** Server-side statement_timeout. The server cancels the statement; Bun alone only stops waiting. */
+  statementTimeoutMs?: number
+  /** Server-side lock_timeout, advisory locks included. */
+  lockTimeoutMs?: number
+  /** Server-side idle_in_transaction_session_timeout: a transaction left open drops its locks. */
+  idleInTransactionTimeoutMs?: number
+}
+
+/** Startup parameters for every connection in the pool; undefined keeps the server defaults. */
+function sessionSettings(pool: DbPoolOptions): Record<string, string> | undefined {
+  const settings: Record<string, string> = {}
+  if (pool.applicationName) settings.application_name = pool.applicationName
+  if (pool.statementTimeoutMs) settings.statement_timeout = String(pool.statementTimeoutMs)
+  if (pool.lockTimeoutMs) settings.lock_timeout = String(pool.lockTimeoutMs)
+  if (pool.idleInTransactionTimeoutMs)
+    settings.idle_in_transaction_session_timeout = String(pool.idleInTransactionTimeoutMs)
+  return Object.keys(settings).length ? settings : undefined
 }
 
 /**
@@ -33,7 +50,7 @@ export function createDb(databaseUrl: string, pool: DbPoolOptions = {}): DbHandl
     max: pool.max,
     idleTimeout: pool.idleTimeout,
     maxLifetime: pool.maxLifetime,
-    connection: pool.applicationName ? { application_name: pool.applicationName } : undefined,
+    connection: sessionSettings(pool),
   })
   const db = drizzle(client, { schema })
   return {
@@ -50,6 +67,15 @@ export function createDb(databaseUrl: string, pool: DbPoolOptions = {}): DbHandl
  */
 const SERVICE_IDLE_TIMEOUT_SECONDS = 60
 
+/**
+ * Service defaults. Both editions share one PostgreSQL with a small connection budget, so a runaway
+ * query, a stuck lock wait or a transaction left open must not hold a connection indefinitely.
+ * Migrations open their own client and are not bound by these.
+ */
+const SERVICE_STATEMENT_TIMEOUT_MS = 60_000
+const SERVICE_LOCK_TIMEOUT_MS = 10_000
+const SERVICE_IDLE_IN_TRANSACTION_TIMEOUT_MS = 60_000
+
 const positiveIntegerEnv = (env: Record<string, string | undefined>, name: string) => {
   const raw = env[name]?.trim()
   if (!raw) return undefined
@@ -59,9 +85,11 @@ const positiveIntegerEnv = (env: Record<string, string | undefined>, name: strin
 }
 
 /**
- * Pool settings for a long-running service: DATABASE_POOL_MAX (unset keeps the driver's 10) and
- * DATABASE_IDLE_TIMEOUT_SECONDS (default 60). Anything but a positive integer throws, so a typo
- * stops the process at startup instead of silently falling back.
+ * Pool settings for a long-running service: DATABASE_POOL_MAX (unset keeps the driver's 10),
+ * DATABASE_IDLE_TIMEOUT_SECONDS (default 60), and the server-side DATABASE_STATEMENT_TIMEOUT_MS
+ * (default 60000), DATABASE_LOCK_TIMEOUT_MS (10000) and DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS
+ * (60000). Anything but a positive integer throws, so a typo stops the process at startup instead
+ * of silently falling back.
  */
 export function databasePoolFromEnv(
   applicationName: string,
@@ -72,6 +100,12 @@ export function databasePoolFromEnv(
     max: positiveIntegerEnv(env, 'DATABASE_POOL_MAX'),
     idleTimeout:
       positiveIntegerEnv(env, 'DATABASE_IDLE_TIMEOUT_SECONDS') ?? SERVICE_IDLE_TIMEOUT_SECONDS,
+    statementTimeoutMs:
+      positiveIntegerEnv(env, 'DATABASE_STATEMENT_TIMEOUT_MS') ?? SERVICE_STATEMENT_TIMEOUT_MS,
+    lockTimeoutMs: positiveIntegerEnv(env, 'DATABASE_LOCK_TIMEOUT_MS') ?? SERVICE_LOCK_TIMEOUT_MS,
+    idleInTransactionTimeoutMs:
+      positiveIntegerEnv(env, 'DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS') ??
+      SERVICE_IDLE_IN_TRANSACTION_TIMEOUT_MS,
   }
 }
 
