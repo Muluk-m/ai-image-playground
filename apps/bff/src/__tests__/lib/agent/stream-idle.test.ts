@@ -22,16 +22,12 @@ function streamingFetch(chunks: readonly { afterMs: number; text: string }[], ha
   return { fetchFn, seen }
 }
 
-async function readAll(response: Response): Promise<string> {
-  return await response.text()
-}
-
 describe('model stream idle watchdog', () => {
   it('fails a stream that stops sending and aborts the upstream request', async () => {
     const { fetchFn, seen } = streamingFetch([{ afterMs: 0, text: 'data: a\n\n' }], true)
     const response = await withIdleTimeout(fetchFn, 40)('https://gateway.test/v1/chat')
     const started = performance.now()
-    await expect(readAll(response)).rejects.toBeInstanceOf(AgentStreamStalledError)
+    await expect(response.text()).rejects.toBeInstanceOf(AgentStreamStalledError)
     expect(performance.now() - started).toBeLessThan(1_000)
     expect(seen.signal?.aborted).toBe(true)
   })
@@ -46,7 +42,24 @@ describe('model stream idle watchdog', () => {
       false,
     )
     const response = await withIdleTimeout(fetchFn, 60)('https://gateway.test/v1/chat')
-    expect(await readAll(response)).toBe('data: a\n\ndata: b\n\ndata: c\n\n')
+    expect(await response.text()).toBe('data: a\n\ndata: b\n\ndata: c\n\n')
+  })
+
+  it('does not count the time the reader takes between reads', async () => {
+    const { fetchFn, seen } = streamingFetch(
+      [
+        { afterMs: 0, text: 'data: a\n\n' },
+        { afterMs: 0, text: 'data: b\n\n' },
+      ],
+      false,
+    )
+    const response = await withIdleTimeout(fetchFn, 40)('https://gateway.test/v1/chat')
+    const reader = response.body!.getReader()
+    await reader.read()
+    await Bun.sleep(120)
+    expect(seen.signal?.aborted).toBe(false)
+    const rest = await reader.read()
+    expect(new TextDecoder().decode(rest.value)).toBe('data: b\n\n')
   })
 
   it('fails a request whose response headers never arrive', async () => {
@@ -70,6 +83,6 @@ describe('model stream idle watchdog', () => {
     })
     caller.abort()
     expect(seen.signal?.aborted).toBe(true)
-    await expect(readAll(response)).rejects.not.toBeInstanceOf(AgentStreamStalledError)
+    await expect(response.text()).rejects.not.toBeInstanceOf(AgentStreamStalledError)
   })
 })
