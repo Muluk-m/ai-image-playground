@@ -4,6 +4,7 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
 import { resolveApiKey } from '../resolveApiKey'
+import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { agentThinking } from './thinking'
 
 const PROVIDER_ID = 'upstream-gateway'
@@ -12,10 +13,16 @@ const PROVIDER_ID = 'upstream-gateway'
 export type AgentFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 let fetchImpl: AgentFetch | undefined
+let idleMs = AGENT_STREAM_IDLE_TIMEOUT_MS
 
 /** 测试注入点；undefined 恢复真实 transport。 */
 export function setAgentFetchForTesting(impl?: AgentFetch): void {
   fetchImpl = impl
+}
+
+/** 测试注入点：把空闲看门狗调短；undefined 恢复默认。 */
+export function setAgentStreamIdleForTesting(ms?: number): void {
+  idleMs = ms ?? AGENT_STREAM_IDLE_TIMEOUT_MS
 }
 
 /**
@@ -75,7 +82,7 @@ function runtime(depth?: AgentThinkingDepth) {
   const streamFn: StreamFn = (streamModel, context, options) =>
     models.streamSimple(streamModel, context, {
       ...options,
-      fetch: fetchImpl as typeof globalThis.fetch | undefined,
+      fetch: withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs) as typeof globalThis.fetch,
     })
   const result = { model, streamFn }
   runtimes.set(key, result)
