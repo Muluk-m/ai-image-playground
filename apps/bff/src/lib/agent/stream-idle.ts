@@ -13,8 +13,9 @@ export class AgentStreamStalledError extends Error {
 
 /**
  * 给模型请求套一个空闲看门狗。没有它，网关卡在半路时一轮会一直挂着，会话执行租约也跟着
- * 一直占着，用户在这个会话里什么都做不了。计的是两次动静之间的间隔，不是总时长：
- * 长回复只要一直在吐字就不受影响。阈值要宽：推理模型想的时候网关可能很久不吐字。
+ * 一直占着，用户在这个会话里什么都做不了。只在等上游的时候计时（等响应头、等下一块），
+ * 读的一方慢不算；也不计总时长，长回复只要一直在吐字就不受影响。阈值要宽：推理模型想的
+ * 时候网关可能很久不吐字。
  */
 export function withIdleTimeout(fetchFn: AgentFetch, idleMs: number): AgentFetch {
   return async (input, init = {}) => {
@@ -48,11 +49,11 @@ export function withIdleTimeout(fetchFn: AgentFetch, idleMs: number): AgentFetch
       settle()
       throw controller.signal.aborted ? controller.signal.reason : err
     }
+    clearTimeout(timer)
     if (!response.body) {
       settle()
       return response
     }
-    arm()
     const reader = response.body.getReader()
     const body = new ReadableStream<Uint8Array>({
       start(stream) {
@@ -66,14 +67,15 @@ export function withIdleTimeout(fetchFn: AgentFetch, idleMs: number): AgentFetch
       },
       async pull(stream) {
         try {
+          arm()
           const chunk = await reader.read()
+          clearTimeout(timer)
           if (controller.signal.aborted) return
           if (chunk.done) {
             settle()
             stream.close()
             return
           }
-          arm()
           stream.enqueue(chunk.value)
         } catch (err) {
           if (controller.signal.aborted) return
