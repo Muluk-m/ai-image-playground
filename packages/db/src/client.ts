@@ -8,7 +8,10 @@ export interface DbHandle {
   close(): Promise<void>
 }
 
-/** Pool settings handed to Bun's SQL driver; both timeouts are in seconds, 0 disables them. */
+/**
+ * Pool settings handed to Bun's SQL driver. idleTimeout and maxLifetime are in seconds, the
+ * server-side timeouts in milliseconds; 0 disables any of them.
+ */
 export interface DbPoolOptions {
   /** Connections this process may open at once. Bun queues further queries until one frees up. */
   max?: number
@@ -33,9 +36,10 @@ export interface DbPoolOptions {
 function sessionSettings(pool: DbPoolOptions): Record<string, string> | undefined {
   const settings: Record<string, string> = {}
   if (pool.applicationName) settings.application_name = pool.applicationName
-  if (pool.statementTimeoutMs) settings.statement_timeout = String(pool.statementTimeoutMs)
-  if (pool.lockTimeoutMs) settings.lock_timeout = String(pool.lockTimeoutMs)
-  if (pool.idleInTransactionTimeoutMs)
+  if (pool.statementTimeoutMs !== undefined)
+    settings.statement_timeout = String(pool.statementTimeoutMs)
+  if (pool.lockTimeoutMs !== undefined) settings.lock_timeout = String(pool.lockTimeoutMs)
+  if (pool.idleInTransactionTimeoutMs !== undefined)
     settings.idle_in_transaction_session_timeout = String(pool.idleInTransactionTimeoutMs)
   return Object.keys(settings).length ? settings : undefined
 }
