@@ -140,7 +140,8 @@ const handoffs = new Set<Promise<unknown>>()
 
 function track(handoff: Promise<unknown>): void {
   handoffs.add(handoff)
-  void handoff.finally(() => handoffs.delete(handoff))
+  // 接住 rejection：Bun 遇到没人接的 rejection 会直接退出进程。
+  handoff.finally(() => handoffs.delete(handoff)).catch(() => {})
 }
 
 /**
