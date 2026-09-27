@@ -37,6 +37,7 @@ const { pickUpStrandedInboxes, strandedInboxConversations } = await import(
   '../../../lib/agent/inbox-pickup'
 )
 const { bffDrain } = await import('../../../lib/drain')
+const { settleInboxHandoffsForTesting } = await import('../../../lib/agent/start-turn')
 
 await silenceChatUpstream()
 
@@ -100,6 +101,8 @@ async function idleConversation(): Promise<string> {
   upstream.finish()
   await response.text()
   await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
+  // 收尾那一轮放手后还会去收件箱看一眼；不等它跑完，接下来放进去的消息会被它抢先开轮。
+  await settleInboxHandoffsForTesting()
   return conversationId
 }
 
