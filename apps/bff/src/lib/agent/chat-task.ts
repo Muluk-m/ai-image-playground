@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { finishTask, heldBy } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
+import { log } from '../logger'
 import type {
   BffTransaction,
   ChatPricing,
@@ -77,10 +78,31 @@ export function chatTurnSettle(
   conversationId: string,
   turnId: string,
   reserved?: ChatTaskReserved,
+  waiver?: { readonly pricing: ChatTaskPricing | null; readonly estimatedInputTokens: number },
 ): ChatTaskSettle | undefined {
   if (reserved) return reserved.settle
   if (!isCapabilityEnabled('billing:credits')) return undefined
-  return async () => collectTurnCost(conversationId, turnId)
+  return async (settlement) => {
+    const cost = await collectTurnCost(conversationId, turnId)
+    if (!waiver || settlement.outcome !== 'completed') return cost
+    const { pricing, estimatedInputTokens } = waiver
+    let chatWaived: number | null = null
+    try {
+      if (pricing?.quoteCredits) {
+        const quoted = pricing.quoteCredits(
+          reservedChatUsage(estimatedInputTokens, pricing),
+          settlement.usage ? actualChatUsage(settlement.usage, pricing) : undefined,
+        )
+        if (Number.isSafeInteger(quoted) && quoted >= 0) chatWaived = quoted
+      }
+    } catch (err) {
+      log.warn(
+        { event: 'agent.chat_waiver_quote_failed', turnId, err },
+        'chat waiver quote unavailable',
+      )
+    }
+    return { ...cost, chatWaived }
+  }
 }
 
 /**

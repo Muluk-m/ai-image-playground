@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { DEVICE_ID_HEADER } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import { completionStream, parseFrames, recordingAgentFetch } from '../helpers/agentStubs'
@@ -89,6 +90,99 @@ it('billing:chat-free 开着时对话轮不预扣不结算，页脚写的是真�
   // 账仍然收拢一次，页脚才写得出「本轮免费」而不是什么都不写。
   expect(frames.at(-1)?.event).toMatchObject({
     type: 'turnEnd',
-    cost: { chat: 0, image: 0, video: 0 },
+    cost: { chat: 0, image: 0, video: 0, chatWaived: null },
   })
+})
+
+it('对话原价由私有账本按本轮定价快照计算，终帧和历史都保留减免额', async () => {
+  const quotes: Array<{ reserved: number; actual: number | undefined }> = []
+  billing.pricing = {
+    outputPriceRatio: 5,
+    outputReserveTokens: 2_000,
+    quoteCredits(reserved, actual) {
+      quotes.push({ reserved: reserved.unitMultiplier, actual: actual?.unitMultiplier })
+      return 20
+    },
+  }
+  setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+  const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+  const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+  const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '把背景换成浅木色',
+  })
+  const frames = parseFrames(await response.text())
+  expect(reservations).toEqual([])
+  expect(settlements).toEqual([])
+  expect(quotes).toHaveLength(1)
+  expect(quotes[0]!.reserved).toBeGreaterThan(0)
+  expect(quotes[0]!.actual).toBeGreaterThan(0)
+  const end = frames.at(-1)!.event
+  expect(end).toMatchObject({
+    type: 'turnEnd',
+    cost: { chat: 0, image: 0, video: 0, chatWaived: 20 },
+  })
+  const history = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversation.id}/messages`, {
+      headers: {
+        cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+        [DEVICE_ID_HEADER]: DEVICE,
+      },
+    }),
+  )
+  expect((await history.json()) as { turns: unknown[] }).toMatchObject({
+    turns: [{ cost: { chat: 0, image: 0, video: 0, chatWaived: 20 } }],
+  })
+})
+
+it('只用于展示的单价读取失败时，免费对话仍完成并留下未知减免标记', async () => {
+  billing.pricingError = new Error('pricing unavailable')
+  setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+  const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+  const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+  const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '你好',
+  })
+  const frames = parseFrames(await response.text())
+
+  expect(reservations).toEqual([])
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    stopReason: 'completed',
+    cost: { chat: 0, image: 0, video: 0, chatWaived: null },
+  })
+})
+
+it('减免报价失败时仍写摘要和终帧，不重试本轮结算', async () => {
+  let quoteCalls = 0
+  billing.pricing = {
+    outputPriceRatio: 5,
+    outputReserveTokens: 2_000,
+    quoteCredits() {
+      quoteCalls += 1
+      throw new Error('quote unavailable')
+    },
+  }
+  setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+  const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+  const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+  const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '你好',
+  })
+  const frames = parseFrames(await response.text())
+
+  expect(quoteCalls).toBe(1)
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    stopReason: 'completed',
+    cost: { chat: 0, image: 0, video: 0, chatWaived: null },
+  })
+  expect(await db.select({ cost: schema.agent_turns.cost }).from(schema.agent_turns)).toMatchObject(
+    [{ cost: { chat: 0, image: 0, video: 0, chatWaived: null } }],
+  )
 })
