@@ -22,6 +22,7 @@ import {
   type AgentFetchedPreview,
   artifactPreview,
   fetchedImagePreview,
+  INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
 import { previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -81,11 +82,14 @@ function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
   return message.artifacts ?? NO_ARTIFACTS
 }
 
-function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactPreview[] {
+function useArtifactPreviews(
+  message: AgentToolMessage,
+  inline: boolean,
+): readonly AgentArtifactPreview[] {
   const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>([])
   const artifacts = previewable(message)
   // 交付状态变了就重问一遍；卡重新挂载（折叠面板、切页签）也重问，所以画布上删掉的图能被发现。
-  const key = `${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
+  const key = `${inline}:${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
 
   useEffect(() => {
     let alive = true
@@ -93,7 +97,11 @@ function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactP
       setPreviews([])
       return
     }
-    void Promise.all(artifacts.map(artifactPreview)).then((next) => {
+    void Promise.all(
+      artifacts.map((artifact) =>
+        artifactPreview(artifact, inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined),
+      ),
+    ).then((next) => {
       if (alive) setPreviews(next)
     })
     return () => {
@@ -154,10 +162,13 @@ function Thumbnail({
 }
 
 /** 取回来的那几张网图此刻的样子；交付还在途时先不取图，那一份正在下载。 */
-function useFetchedPreviews(message: AgentToolMessage): readonly AgentFetchedPreview[] {
+function useFetchedPreviews(
+  message: AgentToolMessage,
+  inline: boolean,
+): readonly AgentFetchedPreview[] {
   const [previews, setPreviews] = useState<readonly AgentFetchedPreview[]>([])
   const images = message.delivery === 'pending' ? undefined : message.fetchedImages
-  const key = `${message.delivery}:${(images ?? []).map((one) => one.imageId).join(' ')}`
+  const key = `${inline}:${message.delivery}:${(images ?? []).map((one) => one.imageId).join(' ')}`
 
   useEffect(() => {
     let alive = true
@@ -167,7 +178,11 @@ function useFetchedPreviews(message: AgentToolMessage): readonly AgentFetchedPre
     }
     void Promise.all(
       images.map((image, index) =>
-        fetchedImagePreview(image, fetchedCanvasId(message.toolCallId, index)),
+        fetchedImagePreview(
+          image,
+          fetchedCanvasId(message.toolCallId, index),
+          inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined,
+        ),
       ),
     ).then((next) => {
       if (alive) setPreviews(next)
@@ -405,8 +420,8 @@ export default function AgentToolCard({
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
-  const previews = useArtifactPreviews(message)
-  const fetched = useFetchedPreviews(message)
+  const previews = useArtifactPreviews(message, Boolean(onPreviewResult))
+  const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
   // 取回来的网图取不到预览时不算「可以放入画布」：放进去的那一步同样取不到字节。
   const offCanvas =
     previews.some((preview) => !preview.onCanvas) ||

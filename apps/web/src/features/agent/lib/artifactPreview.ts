@@ -4,6 +4,9 @@ import { previewArtifactBitmap } from './artifactSource'
 import { agentCanvasSink } from './canvasSink'
 
 const RESULT_CARD_THUMBNAIL_SCALE = 0.45
+// Canvas images are usually about 360 document units wide. The inline image needs
+// enough pixels for a 420px card on a high-density screen.
+export const INLINE_RESULT_THUMBNAIL_SCALE = 2.5
 
 /** 结果卡上一张产出此刻的样子。 */
 export interface AgentArtifactPreview {
@@ -18,10 +21,13 @@ export interface AgentArtifactPreview {
  * 画布仍是落在画布上那些产出的位图单源；不在画布上的产出回退到 `artifactSource` 取图，
  * 所以刷新之后、或者对象被删之后，结果卡仍看得见产出并能把它放回画布。
  */
-export async function artifactPreview(artifact: AgentToolArtifact): Promise<AgentArtifactPreview> {
+export async function artifactPreview(
+  artifact: AgentToolArtifact,
+  scale = RESULT_CARD_THUMBNAIL_SCALE,
+): Promise<AgentArtifactPreview> {
   const canvas = agentCanvasSink()
   if (canvas?.has(artifact.artifactId)) {
-    const thumbnail = await canvas.thumbnail(artifact.artifactId, RESULT_CARD_THUMBNAIL_SCALE)
+    const thumbnail = await canvas.thumbnail(artifact.artifactId, scale)
     // 等缩略图期间画布可能已经换掉或对象已被删，那就当它不在画布上。
     if (thumbnail && agentCanvasSink() === canvas && canvas.has(artifact.artifactId))
       return { artifact, source: thumbnail, onCanvas: true }
@@ -45,10 +51,11 @@ export interface AgentFetchedPreview {
 export async function fetchedImagePreview(
   image: AgentFetchedImage,
   objectId: string,
+  scale?: number,
 ): Promise<AgentFetchedPreview> {
   const canvas = agentCanvasSink()
   if (canvas?.has(objectId)) {
-    const thumbnail = await canvas.thumbnail(objectId)
+    const thumbnail = await canvas.thumbnail(objectId, scale)
     if (thumbnail && agentCanvasSink() === canvas && canvas.has(objectId))
       return { image, objectId, source: thumbnail, onCanvas: true }
   }
