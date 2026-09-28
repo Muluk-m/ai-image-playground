@@ -101,7 +101,15 @@ function validateManifest(payload: unknown): InspirationManifest | null {
           if (typeof image.url !== 'string' || typeof image.name !== 'string') return []
           try {
             const url = new URL(image.url)
-            if (url.protocol !== 'https:' || !url.hostname || !image.name.trim()) return []
+            if (
+              url.protocol !== 'https:' ||
+              !url.hostname ||
+              url.username ||
+              url.password ||
+              !image.name.trim()
+            ) {
+              return []
+            }
             return [{ url: url.href, name: image.name.trim() }]
           } catch {
             return []

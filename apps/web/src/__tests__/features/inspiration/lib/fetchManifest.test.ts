@@ -84,6 +84,7 @@ describe('fetchRemoteManifest', () => {
             null,
             { url: 'https://example.com/broken.png' },
             { url: 'not-a-url', name: '坏图' },
+            { url: 'https://user:pass@example.com/photo.png', name: '凭据图' },
           ],
         },
       ],
