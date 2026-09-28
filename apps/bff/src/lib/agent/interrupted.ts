@@ -189,6 +189,7 @@ async function resumePayload(
     deviceId: ('deviceId' in payload && payload.deviceId) || conversation.deviceId || '',
     ...(mode ? { mode } : {}),
     ...(params ? { params } : {}),
+    ...('canvas' in payload && payload.canvas ? { canvas: payload.canvas } : {}),
   }
 }
 

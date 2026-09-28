@@ -567,6 +567,28 @@ export async function claimConversationMedia(
   return true
 }
 
+/** 画布目录里的媒体可以尚未进入服务端项目文档。只认领当前用户已上传且可用的编号。 */
+export async function claimCanvasMedia(
+  conversationId: string,
+  userId: string | null,
+  mediaIds: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (!userId || mediaIds.length === 0) return new Set()
+  const owned = await db
+    .select({ id: schema.media_objects.id })
+    .from(schema.media_objects)
+    .where(
+      and(
+        inArray(schema.media_objects.id, [...new Set(mediaIds)]),
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.media_objects.status, 'ready'),
+      ),
+    )
+  const ids = owned.map((row) => row.id)
+  await addConversationMediaClaims(conversationId, userId, ids)
+  return new Set(ids)
+}
+
 /**
  * 把这一轮的参考图存成跨轮可读的快照。内联那一路把字节复制进对象存储；云媒体那一路
  * 只记 id——字节已经在 R2 里，复制第二遍既费出站带宽又白占一份配额，认领由

@@ -64,6 +64,7 @@ import {
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
 import {
+  claimCanvasMedia,
   claimConversationMedia,
   readConversationMedia,
   removeAgentConversationReferences,
@@ -556,7 +557,7 @@ export const agentRoutes = new Elysia()
         if (forwarded) return forwarded
 
         const references = turnReferences(body.references ?? [])
-        const canvas = parseAgentCanvasSnapshot(body.canvas)
+        let canvas = parseAgentCanvasSnapshot(body.canvas)
         if (!references) return status(422, { error: 'invalid_reference' })
         try {
           await validateSelections(references)
@@ -568,6 +569,24 @@ export const agentRoutes = new Elysia()
         // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
         if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
           return status(422, { error: 'invalid_reference' })
+        if (canvas) {
+          const claimed = await claimCanvasMedia(
+            conversation.id,
+            authUser?.id ?? null,
+            canvas.elements.flatMap((element) =>
+              element.type === 'image' && element.mediaId ? [element.mediaId] : [],
+            ),
+          )
+          canvas = {
+            ...canvas,
+            elements: canvas.elements.map((element) => {
+              if (element.type !== 'image' || !element.mediaId || claimed.has(element.mediaId))
+                return element
+              const { mediaId: _unavailable, ...image } = element
+              return image
+            }),
+          }
+        }
         // 开不了轮的请求不进收件箱：排进去也没有哪一轮能取走它。
         if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
           return status(401, { error: 'unauthorized' })

@@ -1,6 +1,6 @@
 import { isProjectDocument, type ProjectDocument, projectKind } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
-import { MediaRequestError } from '../../../lib/cloudMedia'
+import { MediaRequestError, mediaIdentity } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
@@ -530,6 +530,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
    * 又容易失败。生成产物服务端本来就有同一份，同步时按 sha256 秒回，不用真传字节。
    * 认不出的（同步失败、离线、不是画布上的图）不在结果里，调用方照旧内联。
    */
+  /** 已经知道的云端媒体编号。不发起上传。 */
+  knownMediaId(fileId: string, source: string | undefined): string | undefined {
+    const binding = this.mediaBindings.get(fileId)
+    return (binding && binding.source === source ? binding.id : undefined) ?? mediaIdentity(source)
+  }
+
   async mediaIdsFor(sources: readonly string[]): Promise<ReadonlyMap<string, string>> {
     const lookup = () => {
       const found = new Map<string, string>()

@@ -1,6 +1,7 @@
 import {
   type AgentCanvasEdit,
   type AgentCanvasEditPlan,
+  type AgentCanvasSnapshot,
   ARRANGE_CAPTION_MAX,
   ARRANGE_MAX_ITEMS,
   ARRANGE_SECTION_MAX,
@@ -67,6 +68,15 @@ async function loadDocument(context: AgentToolContext): Promise<ProjectDocument 
   return row?.document ?? null
 }
 
+function imageShift(
+  canvas: AgentCanvasSnapshot | undefined,
+  elementId: string,
+): { dx: number; dy: number } {
+  const element = canvas?.elements.find((one) => one.id === elementId)
+  if (!element || element.type !== 'image') return { dx: 0, dy: 0 }
+  return { dx: element.dx ?? 0, dy: element.dy ?? 0 }
+}
+
 /** 箭头和手绘没有外接矩形字段，用点列自己围一个，好让整理结果避开它们。 */
 function boundsOf(element: ProjectElement): ArrangeBox | null {
   if (element.type === 'arrow' || element.type === 'freedraw') {
@@ -131,6 +141,11 @@ export const arrangeCanvas = defineAgentTool({
       )
 
     const live = context.canvas
+    if (live?.omitted)
+      throw new AgentToolError(
+        'invalid_params',
+        `这张画布还有 ${live.omitted} 个元素没有进入目录，无法安全计算整理落点。请先缩小画布范围。`,
+      )
     const document = live ? null : await loadDocument(context)
     if (!live && !document)
       throw new AgentToolError(
@@ -190,15 +205,16 @@ export const arrangeCanvas = defineAgentTool({
       throw new AgentToolError('invalid_params', `没有可以整理的图片。${notes}`)
 
     const canvasEdit: AgentCanvasEditPlan = {
-      edits: placements.map(
-        (item): AgentCanvasEdit => ({
+      edits: placements.map((item): AgentCanvasEdit => {
+        const shift = imageShift(context.canvas, item.elementId)
+        return {
           elementId: item.elementId,
-          x: item.x,
-          y: item.y,
+          x: item.x + shift.dx,
+          y: item.y + shift.dy,
           ...(item.caption ? { name: item.caption } : {}),
           section: item.section,
-        }),
-      ),
+        }
+      }),
     }
     return {
       content: [

@@ -19,6 +19,7 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
 const {
   archiveAgentReferences,
+  claimCanvasMedia,
   claimConversationMedia,
   createAgentImageSource,
   removeAgentConversationReferences,
@@ -276,6 +277,31 @@ it('reports the canvas the user is looking at even when the server copy only has
   expect(body.text).not.toContain('没有服务端画布')
 })
 
+it('continues through a large live canvas and reports missing elements honestly', async () => {
+  const result = await readCanvas
+    .create({
+      ...context('conv-1', null),
+      canvas: {
+        elements: Array.from({ length: 205 }, (_, index) => ({
+          id: `image-${index}`,
+          type: 'image' as const,
+          x: index * 20,
+          y: 0,
+          width: 10,
+          height: 10,
+        })),
+        omitted: 3,
+      },
+    })
+    .execute('call-1', { offset: 200 }, undefined, undefined)
+  const block = result.content[0]
+  if (block?.type !== 'text') throw new Error('readCanvas should answer in text')
+  expect(block.text).toContain('共 208 个元素')
+  expect(block.text).toContain('还有 3 个没带上')
+  expect(block.text).toContain('元素 image-200')
+  expect(block.text).not.toContain('元素 image-0：')
+})
+
 it('keeps only the elements a keyword hits', async () => {
   await conversation('conv-1', USER)
   await project({
@@ -362,6 +388,31 @@ it('resolves a canvas image id straight into bytes', async () => {
   const resolved = await sourceFor('conv-1', USER).resolve(MEDIA)
 
   expect(resolved?.dataUrl).toBe('data:image/png;base64,aGk=')
+})
+
+it('makes an uploaded image readable before the project document syncs', async () => {
+  await conversation('conv-1', USER)
+  const now = Date.now()
+  await durable.write(`media/${MEDIA}`, new TextEncoder().encode('hi'), 'image/png')
+  await db.insert(schema.media_objects).values({
+    id: MEDIA,
+    user_id: USER,
+    sha256: 'sha-unsynced',
+    bytes: 2,
+    content_type: 'image/png',
+    status: 'ready',
+    reserved_bytes: 0,
+    staging_key: `staging/${MEDIA}`,
+    object_key: `media/${MEDIA}`,
+    expires_at: now + 86_400_000,
+    created_at: now,
+    updated_at: now,
+  })
+  expect(await sourceFor('conv-1', USER).resolve(MEDIA)).toBeNull()
+  expect((await claimCanvasMedia('conv-1', USER, [MEDIA])).has(MEDIA)).toBe(true)
+  expect((await sourceFor('conv-1', USER).resolve(MEDIA))?.dataUrl).toBe(
+    'data:image/png;base64,aGk=',
+  )
 })
 
 // 看一眼判断「是不是那张图」用缩略图就够，原件一次几 MB 的 data URL 会直接把出站预算吃穿。

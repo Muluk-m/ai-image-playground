@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseAgentCanvasSnapshot } from '../agent-canvas-snapshot'
+import { AGENT_CANVAS_SNAPSHOT_MAX, parseAgentCanvasSnapshot } from '../agent-canvas-snapshot'
 
 describe('parseAgentCanvasSnapshot', () => {
   it('keeps the images the user can see and drops a broken entry', () => {
@@ -14,10 +14,21 @@ describe('parseAgentCanvasSnapshot', () => {
 
     expect(parsed?.elements.map((element) => element.id)).toEqual(['el-a', 'el-b'])
     expect(parsed?.elements[0]).toMatchObject({ type: 'image', name: '原图' })
+    expect(parsed?.omitted).toBe(2)
   })
 
-  it('treats a payload that is not a directory as absent', () => {
-    expect(parseAgentCanvasSnapshot({ elements: [] })).toBeUndefined()
+  it('keeps an empty directory and ignores a payload that is not one', () => {
+    expect(parseAgentCanvasSnapshot({ elements: [] })).toEqual({ elements: [] })
     expect(parseAgentCanvasSnapshot(null)).toBeUndefined()
+  })
+
+  it('keeps a browser-reported truncation and rejects an oversized input array', () => {
+    const image = { id: 'a', type: 'image', x: 0, y: 0, width: 10, height: 10 }
+    expect(parseAgentCanvasSnapshot({ elements: [image], omitted: 7 })?.omitted).toBe(7)
+    expect(
+      parseAgentCanvasSnapshot({
+        elements: Array.from({ length: AGENT_CANVAS_SNAPSHOT_MAX + 1 }, () => image),
+      }),
+    ).toBeUndefined()
   })
 })

@@ -525,6 +525,8 @@ export interface AgentInboxResumePayload {
    * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
    */
   readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds'>
+  /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 export type AgentInboxPayload =

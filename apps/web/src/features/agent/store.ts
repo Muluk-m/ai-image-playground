@@ -871,6 +871,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
   }
 
+  /** 发话这一刻的画布。必须在任何 await 之前拍，上传期间换项目不能把别的画布带进这一轮。 */
+  const canvasAtSend = (conversationId: string | null, project: CanvasProject | undefined) => {
+    const workspace = peekCanvasWorkspace()
+    const sceneKey = project?.sceneKey ?? canvasSceneKey(conversationId)
+    if (!workspace || workspace.record.key !== sceneKey) return undefined
+    if (conversationId && project?.conversationId && project.conversationId !== conversationId)
+      return undefined
+    return liveCanvasSnapshot(workspace.doc, (fileId, source) =>
+      workspace.cloud?.knownMediaId(fileId, source),
+    )
+  }
+
   /** 智能体忙时发的话进服务端的排队列表，当前回复结束后按顺序处理。 */
   const queueMessage = async (
     conversationId: string,
@@ -881,6 +893,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     mode: AgentMode,
     clarificationAnswer: boolean,
     clientMessageId: string,
+    canvas: ReturnType<typeof canvasAtSend>,
   ) => {
     const current = () => get().conversationId === conversationId
     try {
@@ -898,7 +911,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         undefined,
         clientMessageId,
         clarificationAnswer,
-        liveCanvasSnapshot(peekCanvasWorkspace()?.doc),
+        canvas,
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
@@ -1245,6 +1258,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const clarificationAnswer = answerableClarificationId(get().messages) !== null
       const sourceProject = currentCanvasProject()
       const messageId = clientMessageId ?? crypto.randomUUID()
+      const canvas = canvasAtSend(conversationId, sourceProject)
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
@@ -1273,6 +1287,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             mode,
             clarificationAnswer,
             messageId,
+            canvas,
           )
         } finally {
           settleJournal()
@@ -1402,7 +1417,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             undefined,
             messageId,
             clarificationAnswer,
-            liveCanvasSnapshot(peekCanvasWorkspace()?.doc),
+            canvas,
           )
         } catch (thrown) {
           if (turnDelivery.isCurrent())
