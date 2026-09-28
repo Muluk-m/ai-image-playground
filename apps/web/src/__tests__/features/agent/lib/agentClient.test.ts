@@ -49,13 +49,13 @@ function headerOf(init: RequestInit | undefined, name: string): string | null {
 }
 
 describe('agentClient 的设备标识传输位置', () => {
-  it('认领旧对话有请求时限，慢请求不能一直吊着启动流程', async () => {
+  it('认领旧对话携带设备标识，供服务端幂等改挂', async () => {
     const { calls, fetcher } = recordingFetcher({ adopted: 1 })
 
     await adoptAgentConversations(fetcher)
 
     expect(calls[0]!.url).toBe('https://bff.test/api/agent/conversations/adopt')
-    expect(calls[0]!.init?.signal).toBeInstanceOf(AbortSignal)
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ deviceId: DEVICE })
   })
 
   it('列会话把设备标识放请求头，不放 query string', async () => {

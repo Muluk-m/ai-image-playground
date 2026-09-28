@@ -17,6 +17,7 @@ import { recoverStorageUser, rememberStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
+import { trackConversationAdoption } from './conversationAdoption'
 import { LoginDialog } from './LoginDialog'
 import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './loginPrompt'
 import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
@@ -69,14 +70,9 @@ function ProblemScreen({
 }
 
 /** 会话存在服务端，本地那套领养搬不动它，得让 BFF 另外改挂一次。 */
-async function adoptDeviceConversations(): Promise<boolean> {
-  if (!isClientCapabilityEnabled('agent:chat')) return false
-  try {
-    return (await adoptAgentConversations()) > 0
-  } catch {
-    // 搬不成不该把人挡在工作台外，下次登录接着搬。
-    return false
-  }
+async function adoptDeviceConversations(): Promise<number> {
+  if (!isClientCapabilityEnabled('agent:chat')) return 0
+  return adoptAgentConversations()
 }
 
 export function AuthGate() {
@@ -142,14 +138,18 @@ export function AuthGate() {
           setAdoptedTaskCount(adopted)
           rememberStorageUser(currentUser.id)
           setUser(currentUser)
+          const adoption = adoptDeviceConversations()
+          trackConversationAdoption(adoption)
           setPhase('ready')
           // 服务端对话认领不碰本机 store。让工作台先出现；认领完成后刷新已打开的会话目录。
-          void adoptDeviceConversations()
-            .then(async (changed) => {
-              if (!changed || cancelled) return
+          void adoption
+            .then(async () => {
+              if (cancelled) return
               const { useAgentStore } = await import('../features/agent/store')
-              if (!cancelled && useAgentStore.getState().loaded)
-                await useAgentStore.getState().refreshConversations()
+              if (cancelled || !useAgentStore.getState().loaded) return
+              await useAgentStore.getState().refreshConversations()
+              if (!cancelled && useAgentStore.getState().historyFailed)
+                await useAgentStore.getState().retryHistory()
             })
             .catch(() => undefined)
         }

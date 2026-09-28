@@ -2,6 +2,7 @@
 import 'fake-indexeddb/auto'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { trackConversationAdoption } from '../../../auth/conversationAdoption'
 import { agentDraft } from '../../../features/agent/lib/drafts'
 import { useAgentStore } from '../../../features/agent/store'
 import {
@@ -47,6 +48,7 @@ beforeEach(async () => {
   })
 })
 afterEach(async () => {
+  trackConversationAdoption(Promise.resolve())
   await currentCanvasWorkspace().flush()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -200,6 +202,53 @@ it('失效会话保留原项目和画布，只移除失效绑定', async () => {
   expect(useCanvasProjectStore.getState().projects).toHaveLength(1)
   expect(state().conversationId).toBeNull()
   expect(currentCanvasWorkspace().doc.camera.x).toBe(99)
+})
+
+it('认领失败期间的 404 不删除旧项目的会话绑定', async () => {
+  const id = useCanvasProjectStore.getState().activeId!
+  await useCanvasProjectStore.getState().update(id, { conversationId: 'legacy' })
+  trackConversationAdoption(Promise.reject(new Error('adoption unavailable')))
+  const original = fetchMock.getMockImplementation()!
+  fetchMock.mockImplementation(async (input, init) =>
+    String(input).includes('/conversations/legacy/messages')
+      ? new Response('{}', { status: 404 })
+      : original(input, init),
+  )
+
+  await state().selectProject(id)
+  await vi.waitFor(() => expect(state().historyLoading).toBe(false))
+
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === id)?.conversationId,
+  ).toBe('legacy')
+  expect(
+    fetchMock.mock.calls.some(([input]) =>
+      String(input).includes('/conversations/legacy/messages'),
+    ),
+  ).toBe(true)
+  expect(state().historyFailed).toBe(true)
+})
+
+it('迟到的旧会话列表不覆盖认领后刷出的新列表', async () => {
+  let finishFirst!: (response: Response) => void
+  fetchMock.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finishFirst = resolve
+      }),
+  )
+  const first = state().refreshConversations()
+  fetchMock.mockImplementationOnce(async () =>
+    Response.json({ conversations: [{ id: 'new', title: '新列表', createdAt: 2, updatedAt: 2 }] }),
+  )
+
+  await state().refreshConversations()
+  finishFirst(
+    Response.json({ conversations: [{ id: 'old', title: '旧列表', createdAt: 1, updatedAt: 1 }] }),
+  )
+  await first
+
+  expect(state().conversations.map((one) => one.id)).toEqual(['new'])
 })
 
 it('删除后迟到的会话列表不能重新导入项目', async () => {
