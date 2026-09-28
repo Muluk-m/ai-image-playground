@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from '../i18n'
 import { mergeHistory } from '../lib/platformGenerations'
 import { useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -11,7 +12,11 @@ import type { TaskRecord } from '../types'
  * 参考图各写一条对账回头路。
  */
 export function useHistoryTasks(): TaskRecord[] {
+  const { i18n } = useTranslation('errors')
   const tasks = useStore((s) => s.tasks)
   const platformGenerations = useStore((s) => s.platformGenerations)
-  return useMemo(() => mergeHistory(tasks, platformGenerations), [tasks, platformGenerations])
+  return useMemo(
+    () => mergeHistory(tasks, platformGenerations),
+    [tasks, platformGenerations, i18n.resolvedLanguage],
+  )
 }
