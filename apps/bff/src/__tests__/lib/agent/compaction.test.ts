@@ -241,6 +241,7 @@ describe('shapeAgentContext', () => {
       user('m5', '继续'),
     ]
     const calls: SummaryRequest[] = []
+    const budgetInputs: Array<ReturnType<typeof narrative> | null> = []
     await shapeAgentContext({
       messages,
       state: null,
@@ -257,9 +258,14 @@ describe('shapeAgentContext', () => {
       now: 1_000,
       overheadTokens: 0,
       summarize: summarizerOf(calls),
+      summaryBudget: (previousSummary) => {
+        budgetInputs.push(previousSummary)
+        return 32_000
+      },
     })
 
     expect(calls).toHaveLength(2)
+    expect(budgetInputs).toEqual([null, narrative()])
     expect(calls.flatMap((call) => call.messages.map((entry) => entry.id))).toEqual(['m1', 'm2'])
     expect(
       calls.every(
@@ -827,5 +833,23 @@ describe('truncateToBudget', () => {
       tokensOfMessages([call, result]),
     )
     expect(shaped).toEqual([call, result])
+  })
+
+  it('drops an indivisible tool pair when it cannot fit the budget', () => {
+    const call = {
+      ...assistant('m2', '').message,
+      content: [
+        {
+          type: 'toolCall' as const,
+          id: 'call-1',
+          name: 'viewImage',
+          arguments: { prompt: body('x').repeat(20) },
+        },
+      ],
+    } as AgentMessage
+    const result = toolResult('call-1', body('r')).message
+    const shaped = truncateToBudget([user('m1', body('u')).message, call, result], 200)
+    expect(shaped.every((message) => message.role !== 'toolResult')).toBe(true)
+    expect(tokensOfMessages(shaped)).toBeLessThanOrEqual(200)
   })
 })

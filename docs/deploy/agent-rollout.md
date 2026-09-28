@@ -89,6 +89,8 @@ AGENT_CHAT_MODEL=gpt-6-luna
 AGENT_CHAT_CONTEXT_WINDOW=128000
 AGENT_CHAT_MAX_TOKENS=8000
 AGENT_SUMMARY_MODEL=gpt-5.6-luna
+# 自定义摘要模型或网关窗口更小时，填该摘要模型的真实窗口
+# AGENT_SUMMARY_CONTEXT_WINDOW=16000
 AGENT_IMAGE_MODEL=gpt-image-2.5-flare
 AGENT_VIDEO_MODEL=grok-imagine-video
 ```
@@ -108,6 +110,9 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 一段时间——`gpt-5.4` 系列下架后这里还留着 `gpt-5.4-mini`，网关回 400「model is not
 supported」，是确定性错误因而不重试，三次就把熔断器打开，压缩从此再没成功过一次。
 配之前拿它打一次 `/v1/chat/completions`，别只看 `/v1/models`。
+摘要使用自己的模型窗口，扣除提示词、上一版摘要、1500 token 输出和估算缓冲后再分段。
+三档对话模型及 `gpt-5.6-luna` 已登记窗口；其他摘要模型应设置
+`AGENT_SUMMARY_CONTEXT_WINDOW`，网关实际窗口较小时也用它覆盖登记值。
 
 ## 五、开能力，同时把阈值写死
 
@@ -158,7 +163,8 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 | claude-opus-5-5 | 1000000 | 984000 |
 
 每轮实际计费仍按上游真实用量结算；长会话接近窗口时，输入消耗可能显著增加。
-摘要模型独立于对话模型，摘要按 32000 token 分段；单条超长消息仍单独成段。
+摘要模型独立于对话模型，摘要每段不超过 32000 token，并按摘要模型的剩余输入预算进一步收紧；
+单条超长消息仍单独成段，出站前会阻止超限请求。
 
 ## 六、重启并核对
 

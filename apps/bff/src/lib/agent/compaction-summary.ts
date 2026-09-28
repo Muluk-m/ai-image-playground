@@ -5,10 +5,49 @@ import { config } from '../../config'
 import { askChatModel, type ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
-import type { CompactionMessage, Summarize, SummaryRequest } from './compaction'
+import {
+  type CompactionMessage,
+  SUMMARY_CHUNK_TOKENS,
+  type Summarize,
+  type SummaryRequest,
+} from './compaction'
+import profiles from './thinking.config.json'
+import { estimateMessageTokens } from './token-estimate'
 
 /** 摘要输入很大而输出是四段话；给足够写完、又不够跑题的额度。 */
 const SUMMARY_MAX_TOKENS = 1_500
+
+function summaryModelWindow(): number {
+  const known = Object.values(profiles).find(
+    (profile) => profile.model === config.agent.summaryModel,
+  )
+  return (
+    config.agent.summaryContextWindow ??
+    known?.contextWindow ??
+    (config.agent.summaryModel === 'gpt-5.6-luna' ? 1_050_000 : 16_000)
+  )
+}
+
+function summaryPromptTokens(previousSummary: AgentCompactionNarrative | null): number {
+  return estimateMessageTokens({
+    role: 'user',
+    content: [{ type: 'text', text: buildSummaryPrompt({ messages: [], previousSummary }) }],
+    timestamp: 0,
+  })
+}
+
+/** 给真实摘要窗口留下提示词、旧摘要、输出和估算误差，再给折叠区分段。 */
+export function summaryChunkBudget(previousSummary: AgentCompactionNarrative | null): number {
+  const window = summaryModelWindow()
+  const buffer = Math.max(512, Math.ceil(window * 0.05))
+  return Math.max(
+    1,
+    Math.min(
+      SUMMARY_CHUNK_TOKENS,
+      window - SUMMARY_MAX_TOKENS - summaryPromptTokens(previousSummary) - buffer,
+    ),
+  )
+}
 
 /**
  * 一段满预算的折叠区要摘多久，是量出来的不是拍的：线上那条 181 条消息的会话，折叠区 145 条
@@ -70,10 +109,24 @@ export async function summarizeCompaction(
   onAttempt?: (attempt: ChatAttempt) => Promise<void>,
 ): ReturnType<Summarize> {
   try {
+    const prompt = buildSummaryPrompt(request)
+    const window = summaryModelWindow()
+    const inputTokens = estimateMessageTokens({
+      role: 'user',
+      content: [{ type: 'text', text: prompt }],
+      timestamp: 0,
+    })
+    if (inputTokens + SUMMARY_MAX_TOKENS > window - Math.max(512, Math.ceil(window * 0.05))) {
+      log.warn(
+        { event: 'agent.compaction_summary_overflow', inputTokens, window },
+        'summary exceeds model context window',
+      )
+      return null
+    }
     return await askChatModel(
       {
         model: config.agent.summaryModel,
-        prompt: buildSummaryPrompt(request),
+        prompt,
         maxTokens: SUMMARY_MAX_TOKENS,
         timeoutMs: SUMMARY_TIMEOUT_MS,
         onAttempt,

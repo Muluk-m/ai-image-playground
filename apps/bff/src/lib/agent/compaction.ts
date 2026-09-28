@@ -95,6 +95,8 @@ export interface CompactionInput {
   readonly settings: CompactionSettings
   readonly now: number
   readonly summarize: Summarize
+  /** 摘要模型当前可接收的消息 token；它可能与主模型窗口不同。 */
+  readonly summaryBudget?: (previousSummary: AgentCompactionNarrative | null) => number
   /**
    * 这一轮请求里不由消息承担的那部分：系统说明与工具清单（见 `request-budget.ts`）。
    * 塑形只管得着消息，可闸门管的是整份请求，所以消息能占的预算要先把它让出来。
@@ -298,7 +300,7 @@ export function truncateToBudget(
         break
       }
     }
-    if (call >= 0) start = call
+    if (call >= 0 && tokensOf(messages.slice(call)) <= budget) start = call
     else {
       while (start < messages.length && messages[start]!.role === 'toolResult') start += 1
       if (start === messages.length) {
@@ -407,7 +409,7 @@ function gapNote(count: number): AgentMessage {
 const GAP_NOTE_TOKENS = tokens(gapNote(0))
 
 /** 摘要模型与主模型不是同一窗口，也不能让一次摘要吞下整段百万 token 历史。 */
-const SUMMARY_CHUNK_TOKENS = 32_000
+export const SUMMARY_CHUNK_TOKENS = 32_000
 
 /**
  * 摘要 + 尾巴，整体收进预算。
@@ -505,16 +507,19 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   // 摘要请求也是一次出站，按摘要模型可承受的上限分段；每一段带上一段的摘要往下传，
   // 内容一点不丢，主模型的百万窗口不会变成单次百万 token 的摘要请求。
   const folded = messages.slice(state ? covered : 0, cut)
-  const chunks = foldChunks(
-    folded,
-    Math.min(compactionBudget(input.settings).threshold, SUMMARY_CHUNK_TOKENS),
-  )
   let narrative = state ? state.narrative : null
-  for (const chunk of chunks) {
+  let offset = 0
+  while (offset < folded.length) {
+    const summaryBudget = input.summaryBudget?.(narrative) ?? SUMMARY_CHUNK_TOKENS
+    const chunk = foldChunks(
+      folded.slice(offset),
+      Math.min(compactionBudget(input.settings).threshold, summaryBudget),
+    )[0]!
     const next = await input.summarize({ messages: chunk, previousSummary: narrative })
     // 中途哪一段没折成就整体作废：半截摘要盖不住整个折叠区，用它会把没摘到的内容丢掉。
     if (!next) return fallback(afterFailure(breaker, input.now, input.settings))
     narrative = next
+    offset += chunk.length
   }
   // `cut > covered` 已经保过折叠区非空，所以上面至少折了一段。这一行只为收敛类型，
   // 走到它说明前面的不变量破了——那不是摘要失败，不该记进熔断器。
