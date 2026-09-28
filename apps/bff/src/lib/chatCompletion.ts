@@ -1,7 +1,7 @@
 import { type AssistantMessage, isRetryableAssistantError } from '@earendil-works/pi-ai'
 import { config } from '../config'
 import { log } from './logger'
-import { resolveApiKey } from './resolveApiKey'
+import { resolveChatApiKey } from './resolveApiKey'
 import {
   createDispatcher,
   createFetchSlot,
@@ -159,7 +159,7 @@ async function requestContent(body: string, ask: ChatAsk): Promise<string | unde
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${resolveApiKey('openai-compat')}`,
+        authorization: `Bearer ${resolveChatApiKey(ask.model)}`,
       },
       body,
       signal: deadline.signal,

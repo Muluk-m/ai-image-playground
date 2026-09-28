@@ -127,6 +127,7 @@ export const config = {
     baseUrl: env('UPSTREAM_BASE_URL', 'http://localhost:8080').replace(/\/+$/, ''),
     apiKey: env('UPSTREAM_API_KEY', ''),
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
+    claudeApiKey: env('UPSTREAM_CLAUDE_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
     /**
      * 通用网关提供 sub2api 风格的异步图片任务端点。不能写进 channels.json：网关部署里
@@ -139,6 +140,7 @@ export const config = {
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
     model: env('AGENT_CHAT_MODEL', ''),
+    /** 每轮愿意承担的上下文预算；可低于模型实际窗口，压缩按此值触发。 */
     contextWindow: positiveIntEnv('AGENT_CHAT_CONTEXT_WINDOW', 128_000),
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
