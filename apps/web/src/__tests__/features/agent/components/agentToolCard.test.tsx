@@ -58,7 +58,7 @@ beforeEach(() => {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-it('says a submitted background job is still generating and will land on the canvas', () => {
+it('says a submitted background job is still generating and will appear in the conversation', () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   try {
@@ -76,7 +76,7 @@ it('says a submitted background job is still generating and will land on the can
         />,
       ),
     )
-    expect(host.textContent).toContain('已在后台生成，完成后自动放入画布')
+    expect(host.textContent).toContain('正在后台生成，完成后会在这里显示')
   } finally {
     act(() => root.unmount())
   }
