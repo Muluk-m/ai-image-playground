@@ -1,5 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, ArrowLeft, Images } from 'lucide-react'
 import {
   Fragment,
   type PointerEvent as ReactPointerEvent,
@@ -188,20 +188,45 @@ export default function AgentPanel({
           className="absolute -left-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
         />
       )}
-      <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
-        <div className="flex items-center gap-1.5">
-          {TABS.map((one) => (
+      {presentation === 'page' ? (
+        <div className="studio-agent-page-toolbar flex shrink-0 items-center justify-end gap-3 px-3 py-2">
+          {tab === 'layers' ? (
             <button
-              key={one.id}
               type="button"
-              onClick={() => setTab(one.id)}
-              className={`${TAB} ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
+              onClick={() => setTab('chat')}
+              className="mr-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
-              {t(one.labelKey)}
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('panel.backToChat')}
             </button>
-          ))}
+          ) : null}
+          {tab === 'layers' ? (
+            <span className="text-xs font-medium text-foreground">{t('label.layers')}</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setTab('layers')}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <Images className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('label.layers')}
+            </button>
+          )}
         </div>
-        {presentation === 'side' && (
+      ) : (
+        <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
+          <div className="flex items-center gap-1.5">
+            {TABS.map((one) => (
+              <button
+                key={one.id}
+                type="button"
+                onClick={() => setTab(one.id)}
+                className={`${TAB} ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
+              >
+                {t(one.labelKey)}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             aria-label={t('panel.collapseAria')}
@@ -218,8 +243,8 @@ export default function AgentPanel({
               />
             </svg>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <AgentConnectionHint />
 
@@ -239,7 +264,7 @@ export default function AgentPanel({
               followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
               if (followLatest.current) setUnseen(false)
             }}
-            className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
+            className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
             {...dropZoneProps}
           >
             {messages.length === 0 && !historyLoading && !historyFailed && (
@@ -277,7 +302,13 @@ export default function AgentPanel({
 
       {tab === 'chat' && <AgentPendingDrafts />}
       {tab === 'chat' && <AgentMessageQueue />}
-      {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
+      {tab === 'chat' && (
+        <AgentComposer
+          doc={doc}
+          editor={editor}
+          showLooks={presentation !== 'page' || messages.length === 0}
+        />
+      )}
     </div>
   )
 }

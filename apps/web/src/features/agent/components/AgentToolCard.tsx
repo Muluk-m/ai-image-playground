@@ -1,4 +1,5 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
+import { ArrowUpRight, Images } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -412,6 +413,69 @@ export default function AgentToolCard({
           : status === 'running'
             ? t('tool.status.running')
             : t('tool.status.succeeded')
+  const canvasIds = previews
+    .filter((preview) => preview.onCanvas)
+    .map((preview) => preview.artifact.artifactId)
+  const viewCanvas = () => {
+    if (onViewCanvas) onViewCanvas(canvasIds)
+    else agentCanvasSink()?.focus(canvasIds)
+  }
+  if (status === 'succeeded' && previews.length > 0 && fetched.length === 0 && !message.retryOf) {
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-result-card">
+        <div className="studio-agent-result-media" data-multiple={previews.length > 1 || undefined}>
+          {previews.map((preview) => (
+            <Thumbnail
+              key={preview.artifact.artifactId}
+              preview={preview}
+              onViewCanvas={onViewCanvas}
+            />
+          ))}
+        </div>
+        <div className="studio-agent-result-body">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-foreground">{t('tool.resultTitle')}</span>
+            <ToolStatus label={statusLabel} status={status} />
+          </div>
+          <p className="studio-agent-result-description" title={message.title}>
+            {message.title}
+          </p>
+          {note && <p className={CARD_NOTE}>{note}</p>}
+          <WakeSkippedNote message={message} />
+          <div className="studio-agent-result-actions">
+            {canvasIds.length > 0 && (
+              <button type="button" title={t('tool.locateTitle')} onClick={viewCanvas}>
+                <Images className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('tool.openCanvas')}
+                <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+              </button>
+            )}
+            {message.prompt && (
+              <button type="button" onClick={() => setPromptOpen(true)}>
+                {t('tool.viewPrompt')}
+              </button>
+            )}
+            {offCanvas && (
+              <button
+                type="button"
+                onClick={() =>
+                  void useAgentStore
+                    .getState()
+                    .placeOnCanvas(message.id)
+                    .then(() => onViewCanvas?.())
+                }
+              >
+                {t('tool.place')}
+              </button>
+            )}
+          </div>
+        </div>
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </div>
+    )
+  }
   return (
     <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
       {message.retryOf && (

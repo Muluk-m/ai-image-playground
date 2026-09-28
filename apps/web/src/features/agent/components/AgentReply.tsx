@@ -56,7 +56,10 @@ function CopyReplyButton({ text }: { text: string }) {
 export default function AgentReply({ text, streaming }: Props) {
   return (
     <div className="group flex max-w-full flex-col items-start gap-0.5">
-      <div className={`${REPLY} break-words`} data-streaming={streaming || undefined}>
+      <div
+        className={`${REPLY} studio-agent-reply break-words`}
+        data-streaming={streaming || undefined}
+      >
         <AgentMarkdown text={text} />
       </div>
       {/* 流式中原文还在变，说完才给复制。 */}
