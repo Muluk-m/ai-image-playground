@@ -2,7 +2,7 @@ import { BookOpen, LoaderCircle, MessageCircle, PanelLeftClose } from 'lucide-re
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
-import { projectDisplayName, projectExperience } from '../features/canvas/lib/projectRepository'
+import { projectEntryName, projectExperience } from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { GUIDE_PATHS } from '../features/guide/paths'
 import { useLibraryStore } from '../features/library/store'
@@ -193,7 +193,7 @@ export default function Sidebar() {
                   ) : (
                     <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   )}
-                  <span className="truncate">{projectDisplayName(project.name)}</span>
+                  <span className="truncate">{projectEntryName(project)}</span>
                 </button>
                 <button
                   type="button"
@@ -253,7 +253,7 @@ export default function Sidebar() {
                 ) : (
                   <CanvasIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 )}
-                <span className="truncate">{projectDisplayName(project.name)}</span>
+                <span className="truncate">{projectEntryName(project)}</span>
               </button>
               <button
                 type="button"

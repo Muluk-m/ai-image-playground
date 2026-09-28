@@ -46,6 +46,15 @@ export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
   return project.experience ?? (!project.conversationId && project.hasContent ? 'canvas' : 'chat')
 }
 
+/** 默认名只在界面区分入口；存储和同步仍使用统一的未命名项目标识。 */
+export function projectEntryName(project: CanvasProject): string {
+  if (project.name !== UNTITLED_PROJECT) return project.name
+  return i18next.t(
+    projectExperience(project) === 'chat' ? 'project.untitledChat' : 'project.untitledCanvas',
+    { ns: 'canvas' },
+  )
+}
+
 /** 存档里画布类型可以缺席：这个字段是后加的，更早的记录与刚从云端目录导入的都还没有。 */
 type StoredProject = Omit<CanvasProject, 'kind'> & {
   kind?: ProjectKind

@@ -108,6 +108,8 @@
     "restoring": "Restoring your projects…",
     "reload": "Reload",
     "untitled": "Untitled project",
+    "untitledChat": "Untitled chat",
+    "untitledCanvas": "Untitled canvas",
     "kindImage": "Image",
     "kindVideo": "Video",
     "routeUnavailable": "This project can't be opened right now. Check the account, or try again on the original device.",
