@@ -348,28 +348,32 @@
     "sourceMissing": "Image data unavailable"
   },
   "inpaint": {
-    "action": "Inpaint",
-    "title": "Inpaint",
-    "running": "Inpainting…",
+    "action": "Smart edit",
+    "title": "Smart edit",
+    "running": "Editing image…",
     "toolAria": "Mask tools",
     "tool": {
+      "rect": "Select area",
       "brush": "Brush",
       "eraser": "Eraser"
     },
     "brushSize": "Brush",
-    "undo": "Undo stroke",
-    "promptAria": "Inpaint description",
-    "promptPlaceholder": "Describe what this area should become, e.g. make the faucet gold",
-    "paintFirst": "Paint the area you want changed first",
+    "undo": "Undo mark",
+    "regions": "Edit regions",
+    "regionName": "Area {{no}}",
+    "removeRegion": "Remove area {{no}}",
+    "promptAria": "Edit description",
+    "promptPlaceholder": "Describe the change, e.g. make the laces bright blue",
+    "paintFirst": "Drag to select an area, or switch to the brush",
     "uploadReference": "Upload image",
     "removeReference": "Remove reference",
-    "submit": "Generate",
+    "submit": "Generate edit",
     "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
     "videoUnsupported": "Videos cannot be inpainted",
     "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
     "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
     "sourceGone": "The source image is no longer on the canvas",
-    "canvasAria": "Inpaint mask canvas"
+    "canvasAria": "Smart edit selection canvas"
   },
   "crop": {
     "action": "Crop",
@@ -414,8 +418,9 @@
   },
   "imageEdit": {
     "action": "Edit image",
-    "title": "Edit image",
-    "hint": "Rewrite the whole image from one instruction; the result replaces this one. To change only a spot, use inpaint.",
+    "singleAction": "Edit whole image",
+    "title": "Edit whole image",
+    "hint": "Rewrite the whole image from one instruction; the result replaces this one. To change only a spot, use Smart edit.",
     "promptLabel": "Describe the edit",
     "placeholder": "e.g. put it on a light wooden desk, keep the product itself unchanged",
     "submit": "Edit",

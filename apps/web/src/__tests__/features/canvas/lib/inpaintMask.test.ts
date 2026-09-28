@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ImageEl } from '../../../../features/canvas/lib/canvasDoc'
-import { pageToMaskPixel } from '../../../../features/canvas/lib/inpaintMask'
+import { pageToMaskPixel, paintMaskStroke } from '../../../../features/canvas/lib/inpaintMask'
 
 /**
  * 涂抹点从页面坐标换到遮罩像素坐标这一步错了，界面上看不出来：紫色高亮照样画在手指下面，
@@ -56,5 +56,38 @@ describe('pageToMaskPixel', () => {
     const mapped = pageToMaskPixel(el, SIZE, page)
     expect(mapped.x).toBeCloseTo((dx / el.width) * SIZE.width, 6)
     expect(mapped.y).toBeCloseTo((dy / el.height) * SIZE.height, 6)
+  })
+})
+
+describe('rectangle edit mask', () => {
+  it('uses the same rotated image coordinates for preview and submitted mask', () => {
+    const el = image({ rotation: 90 })
+    const fillRect = vi.fn()
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      fillRect,
+    } as unknown as CanvasRenderingContext2D
+    const region = {
+      tool: 'brush' as const,
+      shape: 'rect' as const,
+      width: 0,
+      points: [
+        { x: 60, y: 150 },
+        { x: -40, y: 250 },
+      ],
+    }
+
+    paintMaskStroke(ctx, el, SIZE, region, { inverted: true, color: '#159cf6' })
+    const [x, y, width, height] = fillRect.mock.calls[0]!
+    expect(x).toBeCloseTo(256)
+    expect(y).toBeCloseTo(102.4)
+    expect(width).toBeCloseTo(256)
+    expect(height).toBeCloseTo(256)
+    expect(ctx.globalCompositeOperation).toBe('source-over')
+
+    paintMaskStroke(ctx, el, SIZE, region, { inverted: false, color: '#fff' })
+    expect(fillRect).toHaveBeenCalledTimes(2)
+    expect(ctx.globalCompositeOperation).toBe('destination-out')
   })
 })

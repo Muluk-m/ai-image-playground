@@ -29,6 +29,8 @@ export interface MaskStroke {
   readonly tool: 'brush' | 'eraser'
   readonly points: readonly Point[]
   readonly width: number
+  /** 两个页面坐标点是框选的对角；其余笔画仍按原来的轨迹解释。 */
+  readonly shape?: 'rect'
 }
 
 /**
@@ -82,6 +84,19 @@ export function paintMaskStroke(
   ctx.lineWidth = Math.max(1, stroke.width * scale)
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
+  if (stroke.shape === 'rect') {
+    const opposite = points[1]
+    if (opposite) {
+      ctx.fillRect(
+        Math.min(first.x, opposite.x),
+        Math.min(first.y, opposite.y),
+        Math.abs(opposite.x - first.x),
+        Math.abs(opposite.y - first.y),
+      )
+    }
+    ctx.restore()
+    return
+  }
   ctx.beginPath()
   ctx.moveTo(first.x, first.y)
   for (const point of points.slice(1)) ctx.lineTo(point.x, point.y)
