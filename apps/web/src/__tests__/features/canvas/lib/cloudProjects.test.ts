@@ -1745,6 +1745,24 @@ it('提交就被拒的失败占位只留在本机：不写云端、不挡同步�
   )
   const refused = editor.getPlaceholders().find((one) => one.meta.agentMessageId === 'tool-refused')
   expect(refused?.meta.agentErrorCode).toBe('insufficient_credits')
+  editor.doc.addElements([
+    {
+      id: 'local-queue-failure',
+      type: 'placeholder',
+      x: 400,
+      y: 0,
+      width: 360,
+      height: 360,
+      status: 'error',
+      message: '',
+      meta: {
+        taskId: 'task-1',
+        clientRequestId: 'request-1',
+        source: 'builtin-edge',
+        prompt: '重新构图',
+      },
+    },
+  ])
 
   await session.sync()
   expect(writes).toHaveLength(0)
@@ -1759,6 +1777,7 @@ it('提交就被拒的失败占位只留在本机：不写云端、不挡同步�
   await session.refresh(true)
   expect(editor.getPlaceholder(id)?.meta.agentErrorCode).toBe('timeout')
   expect(editor.getPlaceholder(refused!.id)?.meta.agentErrorCode).toBe('insufficient_credits')
+  expect(editor.getPlaceholder('local-queue-failure')?.meta.taskId).toBe('task-1')
   expect(writes).toHaveLength(0)
   session.dispose()
 })

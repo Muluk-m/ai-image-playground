@@ -5,7 +5,7 @@ import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
-  isLocalAgentFailure,
+  isLocalPlaceholder,
   type LoadedBindings,
   prepareProjectMedia,
   projectDocument,
@@ -227,9 +227,9 @@ export class CloudProjectSession implements CloudSceneStrategy {
         .catch(() => {})
     }
   }
-  /** 换上云端版本；只在这台设备上的失败占位不在云端文档里，原样留下。 */
+  /** 换上云端版本；只在这台设备上的占位框不在云端文档里，原样留下。 */
   private restoreRemote(scene: ReturnType<typeof projectScene>) {
-    const local = this.editor.doc.elements.filter(isLocalAgentFailure)
+    const local = this.editor.doc.elements.filter(isLocalPlaceholder)
     this.applyingRemote = true
     try {
       this.editor.doc.restore([...scene.elements, ...local], scene.files, this.editor.doc.camera)
