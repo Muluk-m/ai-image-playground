@@ -1,5 +1,5 @@
 import { OAUTH_LINK_ERROR_QUERY_PARAM, OAUTH_LINK_QUERY_PARAM } from '@image-playground/shared'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
@@ -35,11 +35,30 @@ export default function Header() {
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
+  const headerActionsRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
 
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
+
+  useLayoutEffect(() => {
+    const node = headerActionsRef.current
+    if (!node) return
+    const updateWidth = () => {
+      document.documentElement.style.setProperty(
+        '--studio-header-actions-width',
+        `${Math.ceil(node.getBoundingClientRect().width)}px`,
+      )
+    }
+    updateWidth()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateWidth)
+    observer?.observe(node)
+    return () => {
+      observer?.disconnect()
+      document.documentElement.style.removeProperty('--studio-header-actions-width')
+    }
+  }, [])
   // 中文品牌名后面还跟一个拉丁字标；英文里字标就是品牌名本身，没有第二段可跟。
 
   // 绑定回跳只回到工作台，面板得靠回跳参数自己重开。
@@ -83,6 +102,7 @@ export default function Header() {
         各页面用 `studio-page-head` 给它让出右侧空位。
       */}
       <div
+        ref={headerActionsRef}
         data-no-drag-select
         className="fixed right-3 z-40 flex items-center gap-3 sm:right-4"
         style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
