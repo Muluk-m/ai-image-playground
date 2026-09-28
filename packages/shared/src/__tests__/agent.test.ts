@@ -107,6 +107,7 @@ describe('agentClarificationSummary', () => {
 describe('agentTurnCostTotal', () => {
   it('sums the per-kind breakdown into the one number the footer shows', () => {
     expect(agentTurnCostTotal({ chat: 42, image: 85, video: 0 })).toBe(127)
+    expect(agentTurnCostTotal({ chat: 0, image: 100, video: 0, chatWaived: 20 })).toBe(100)
   })
 
   it('counts a chat-only turn', () => {

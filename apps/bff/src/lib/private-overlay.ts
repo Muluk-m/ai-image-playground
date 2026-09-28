@@ -42,6 +42,8 @@ export interface ChatPricing {
   readonly outputPriceRatio: number
   /** 一轮预扣多少输出 token；实际用量超过它就按预留封顶。 */
   readonly outputReserveTokens: number
+  /** 私有账本用起轮时的单价快照计算原价；旧 overlay 缺席时不展示减免数。 */
+  readonly quoteCredits?: (reserved: TaskUsage, actual?: TaskUsage) => number
 }
 
 export interface PrivateTaskHooks {

@@ -810,6 +810,8 @@ export interface AgentTurnCost {
   readonly chat: number
   readonly image: number
   readonly video: number
+  /** 对话免费时，按本轮原价计算的减免；null 表示老计价接缝无法提供金额。 */
+  readonly chatWaived?: number | null
 }
 
 export function agentTurnCostTotal(cost: AgentTurnCost): number {

@@ -77,10 +77,23 @@ export function chatTurnSettle(
   conversationId: string,
   turnId: string,
   reserved?: ChatTaskReserved,
+  waiver?: { readonly pricing: ChatTaskPricing; readonly estimatedInputTokens: number },
 ): ChatTaskSettle | undefined {
   if (reserved) return reserved.settle
   if (!isCapabilityEnabled('billing:credits')) return undefined
-  return async () => collectTurnCost(conversationId, turnId)
+  return async (settlement) => {
+    const cost = await collectTurnCost(conversationId, turnId)
+    if (!waiver || settlement.outcome !== 'completed') return cost
+    const { pricing, estimatedInputTokens } = waiver
+    return {
+      ...cost,
+      chatWaived:
+        pricing.quoteCredits?.(
+          reservedChatUsage(estimatedInputTokens, pricing),
+          settlement.usage ? actualChatUsage(settlement.usage, pricing) : undefined,
+        ) ?? null,
+    }
+  }
 }
 
 /**
