@@ -139,10 +139,18 @@ interface ReferenceImageFieldsProps {
   value: InspirationReferenceInput[]
   onChange: (next: InspirationReferenceInput[]) => void
   assetBaseUrl: string
+  assetBaseStatus?: 'loading' | 'error' | 'ready'
+  onRetryAssetBase?: () => void
 }
 
 /** 参考图：主站「玩同款」会把它们塞进 composer，所以名字是给用户看的，必填。 */
-export function ReferenceImageFields({ value, onChange, assetBaseUrl }: ReferenceImageFieldsProps) {
+export function ReferenceImageFields({
+  value,
+  onChange,
+  assetBaseUrl,
+  assetBaseStatus = 'ready',
+  onRetryAssetBase,
+}: ReferenceImageFieldsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const { busy, error, upload } = useAssetUpload()
   const [existingUrl, setExistingUrl] = useState('')
@@ -150,6 +158,7 @@ export function ReferenceImageFields({ value, onChange, assetBaseUrl }: Referenc
   const [existingError, setExistingError] = useState<string | null>(null)
 
   function addExistingImage() {
+    if (assetBaseStatus !== 'ready') return
     const key = trustedReferenceUrl(existingUrl, assetBaseUrl)
     const name = existingName.trim()
     if (!name || !key) {
@@ -247,12 +256,23 @@ export function ReferenceImageFields({ value, onChange, assetBaseUrl }: Referenc
           type="button"
           variant="outline"
           size="sm"
-          disabled={busy || value.length >= MAX_REFERENCE_IMAGES}
+          disabled={busy || value.length >= MAX_REFERENCE_IMAGES || assetBaseStatus !== 'ready'}
           onClick={addExistingImage}
         >
           引用已有图片
         </Button>
       </div>
+      {assetBaseStatus === 'loading' && (
+        <p className="text-xs text-muted-foreground">正在读取本站公开素材配置…</p>
+      )}
+      {assetBaseStatus === 'error' && (
+        <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
+          <span>公开素材配置加载失败，请重试</span>
+          <Button type="button" variant="outline" size="sm" onClick={onRetryAssetBase}>
+            重试
+          </Button>
+        </div>
+      )}
       {existingError ? <p className="text-xs text-destructive">{existingError}</p> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>

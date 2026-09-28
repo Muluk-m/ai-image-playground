@@ -492,6 +492,14 @@ function InspirationEditor({
               value={draft.referenceImages}
               onChange={(next) => patch({ referenceImages: next })}
               assetBaseUrl={assetBase.data?.baseUrl ?? ''}
+              assetBaseStatus={
+                assetBase.isPending
+                  ? 'loading'
+                  : assetBase.isError && !assetBase.data
+                    ? 'error'
+                    : 'ready'
+              }
+              onRetryAssetBase={() => void assetBase.refetch()}
             />
           </TabsContent>
 
