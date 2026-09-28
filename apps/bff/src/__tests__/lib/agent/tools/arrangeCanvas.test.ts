@@ -219,8 +219,8 @@ it('arranges the images on the open canvas when the server copy does not have th
     )
 
   const edits = result.details?.canvasEdit?.edits ?? []
-  expect(edits.map((edit) => edit.elementId)).toEqual(['poster', 'code'])
-  expect(edits[0]).toMatchObject({ name: '海报', section: '素材' })
+  expect(edits[0]).toMatchObject({ elementId: 'poster', name: '海报', section: '素材' })
+  expect(edits[1]).toMatchObject({ elementId: 'code', name: '二维码' })
 })
 
 it('refuses to invent a layout when this turn has no server canvas', async () => {
