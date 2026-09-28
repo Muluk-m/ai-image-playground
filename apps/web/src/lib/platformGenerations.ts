@@ -174,21 +174,42 @@ export function isPlatformGeneration(id: string): boolean {
 
 /**
  * 作品页那一条时间线：本机记录加平台记录缓存。本机自己跑的那条（id 相同，或 `bffRequestId`
- * 指向它）压住平台那条——它带着真实像素、收藏与参考图，比缓存完整。
+ * 指向它）通常带着更完整的像素和参考图，所以只显示本机卡。平台已有终态而本机仍停在
+ * 「生成中」或错误时，平台的终态和归档封面必须补到这张卡上，否则成功的作品会一直转圈。
  */
 export function mergeHistory(
   tasks: readonly TaskRecord[],
   rows: readonly PlatformGenerationRow[],
 ): TaskRecord[] {
+  const remoteById = new Map(rows.map((row) => [row.id, row]))
   const owned = new Set<string>()
   for (const task of tasks) {
     owned.add(task.id)
     if (task.bffRequestId) owned.add(task.bffRequestId)
   }
+  const reconciled = tasks.map((task) => {
+    const remote = remoteById.get(task.bffRequestId ?? task.id)
+    if (!remote || remote.record.status === 'queued' || remote.record.status === 'in_progress')
+      return task
+    const settled = taskFromGeneration(remote.record, remote.favorite)
+    if (task.status === 'done' && task.outputImages.length) return task
+    if (task.status === 'error' && settled.status === 'error') return task
+    // 成功记录还没归档出图时，保留本机已有的状态，等平台封面真正可用再收口。
+    if (settled.status === 'done' && !settled.outputImages.length && !task.outputImages.length)
+      return task
+    return {
+      ...task,
+      status: settled.status,
+      error: settled.error,
+      finishedAt: settled.finishedAt,
+      elapsed: settled.elapsed,
+      outputImages: task.outputImages.length ? task.outputImages : settled.outputImages,
+    }
+  })
   const projected = rows
     .filter((row) => !owned.has(row.id))
     .map((row) => taskFromGeneration(row.record, row.favorite))
-  return [...tasks, ...projected]
+  return [...reconciled, ...projected]
 }
 
 const watched = new Set<string>()

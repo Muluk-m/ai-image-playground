@@ -194,6 +194,61 @@ it('本机自己跑的那条压住平台那条：同一条生成只出一张卡'
   expect(merged.map((task) => task.id)).toEqual(['local-1'])
 })
 
+it('平台已完成时，本机残留的生成中卡不能盖住作品和终态', async () => {
+  await receivePlatformPage([summary])
+  const merged = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'running',
+        outputImages: [],
+        finishedAt: null,
+      }),
+    ],
+    [...useStore.getState().platformGenerations],
+  )
+
+  expect(merged).toHaveLength(1)
+  expect(merged[0]).toMatchObject({
+    status: 'done',
+    outputImages: [`aip-media:${summary.cover.mediaId}`],
+  })
+})
+
+it('本机完成卡缺图时，使用平台已经归档的封面', async () => {
+  await receivePlatformPage([summary])
+  const [card] = mergeHistory(
+    [localTask({ bffRequestId: summary.id, outputImages: [] })],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({
+    id: 'local-1',
+    status: 'done',
+    outputImages: [`aip-media:${summary.cover.mediaId}`],
+  })
+})
+
+it('平台已失败时，本机残留的生成中卡也要收口', async () => {
+  await receivePlatformPage([
+    { ...summary, status: 'failed', cover: null, errorType: 'upstream_error' },
+  ])
+  const [card] = mergeHistory(
+    [localTask({ bffRequestId: summary.id, status: 'running', finishedAt: null })],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({ status: 'error', error: 'upstream_error' })
+})
+
+it('本机已有完整产出时保留其图片顺序与收藏', async () => {
+  await receivePlatformPage([summary])
+  const local = localTask({
+    bffRequestId: summary.id,
+    outputImages: ['local-image-1', 'local-image-2'],
+    isFavorite: true,
+  })
+  expect(mergeHistory([local], useStore.getState().platformGenerations)).toEqual([local])
+})
+
 it('平台记录不写进本机任务表', async () => {
   await receivePlatformPage([summary])
 
