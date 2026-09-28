@@ -23,7 +23,6 @@ import {
 import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
-import { workerSettles } from '../helpers/taskWorker'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_confirmations_a300')
 process.env.PORT = '0'
@@ -45,6 +44,7 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { imageSelection } = await import('../../lib/agent/selection-preview')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
+const { workerSettles } = await import('../helpers/taskWorker')
 
 await silenceChatUpstream()
 
