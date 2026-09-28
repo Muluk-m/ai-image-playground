@@ -8,6 +8,8 @@ import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { agentThinking } from './thinking'
 
 const PROVIDER_ID = 'upstream-gateway'
+const PRE_STREAM_RETRIES = 2
+const MAX_RETRY_DELAY_MS = 10_000
 
 /** pi 要的是完整的 `typeof globalThis.fetch`；测试替身只需要这两个参数。 */
 export type AgentFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -84,6 +86,9 @@ function runtime(depth?: AgentThinkingDepth) {
   const streamFn: StreamFn = (streamModel, context, options) =>
     models.streamSimple(streamModel, context, {
       ...options,
+      // pi-ai 只在收到流之前重试 408/409/429/5xx；流中断后不重发可能已执行的工具。
+      maxRetries: PRE_STREAM_RETRIES,
+      maxRetryDelayMs: MAX_RETRY_DELAY_MS,
       fetch: withIdleTimeout(fetchImpl ?? globalThis.fetch, idleMs) as typeof globalThis.fetch,
     })
   const result = { model, streamFn }
