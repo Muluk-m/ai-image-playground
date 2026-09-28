@@ -443,6 +443,24 @@ describe('对话轮的结算', () => {
     })
   })
 
+  it('retries a transient error before streaming without starting another billed turn', async () => {
+    let attempts = 0
+    setAgentFetchForTesting(async () => {
+      attempts += 1
+      return attempts === 1
+        ? new Response('temporarily unavailable', { status: 503 })
+        : completionStream('已恢复')
+    })
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '帮我看一下')
+
+    expect(attempts).toBe(2)
+    expect(settlements).toHaveLength(1)
+    expect(settlements[0]!.outcome).toBe('completed')
+    expect(await db.select().from(schema.agent_model_calls)).toHaveLength(1)
+  })
+
   it('被中止的轮按取消结算，让占用整笔退回', async () => {
     const upstream: ControlledCompletion = controlledCompletion()
     setAgentFetchForTesting(recordingAgentFetch([], (signal) => upstream.responseFor(signal)))
