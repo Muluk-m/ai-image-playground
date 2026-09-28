@@ -415,6 +415,7 @@ async function resumeContent(
     reviewImageIds: wakeReviewImageIds(jobs),
     mode: resolveAgentMode(setup.mode ?? 'image'),
     ...(setup.params ? { params: setup.params } : {}),
+    ...(resume.canvas ? { canvas: resume.canvas } : {}),
     selectionHistoryStart: plan?.protected
       ? 0
       : !wake && interruptedStart >= 0

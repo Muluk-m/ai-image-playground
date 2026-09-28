@@ -223,6 +223,20 @@ it('arranges the images on the open canvas when the server copy does not have th
   expect(edits[1]).toMatchObject({ elementId: 'code', name: '二维码' })
 })
 
+it('refuses to calculate a layout from an incomplete live canvas', async () => {
+  await expect(
+    arrangeCanvas
+      .create({
+        ...context('conv-1', null),
+        canvas: {
+          elements: [{ id: 'el-a', type: 'image', x: 0, y: 0, width: 10, height: 10 }],
+          omitted: 1,
+        },
+      })
+      .execute('call-1', { groups: [{ items: [{ elementId: 'el-a' }] }] }, undefined, undefined),
+  ).rejects.toMatchObject({ name: 'AgentToolError' })
+})
+
 it('refuses to invent a layout when this turn has no server canvas', async () => {
   await expect(run('conv-1', null, [{ items: [{ elementId: 'el-a' }] }])).rejects.toMatchObject({
     name: 'AgentToolError',

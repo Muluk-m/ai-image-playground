@@ -10,6 +10,7 @@ const ID_MAX = 128
 const NAME_MAX = 200
 const TEXT_MAX = 80
 const COORD_MAX = 10_000_000
+const MEDIA_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
 export interface AgentCanvasLiveImage {
   readonly id: string
@@ -26,6 +27,9 @@ export interface AgentCanvasLiveImage {
   readonly mediaId?: string
   readonly video?: true
   readonly derivedFrom?: string
+  /** 元素左上角相对外接矩形的偏移。旋转过的图，整理落点要加回这个偏移。 */
+  readonly dx?: number
+  readonly dy?: number
 }
 
 export interface AgentCanvasLiveBox {
@@ -42,6 +46,8 @@ export type AgentCanvasLiveElement = AgentCanvasLiveImage | AgentCanvasLiveBox
 
 export interface AgentCanvasSnapshot {
   readonly elements: readonly AgentCanvasLiveElement[]
+  /** 目录装不下的其余元素个数。有它时，elements 不是用户看见的全部。 */
+  readonly omitted?: number
 }
 
 function finite(value: unknown): value is number {
@@ -88,9 +94,13 @@ function elementOf(value: unknown): AgentCanvasLiveElement | undefined {
       ...(createdAt !== undefined ? { createdAt } : {}),
       ...(text(record.prompt, TEXT_MAX) ? { prompt: text(record.prompt, TEXT_MAX) } : {}),
       ...(text(record.section, TEXT_MAX) ? { section: text(record.section, TEXT_MAX) } : {}),
-      ...(idOf(record.mediaId) ? { mediaId: idOf(record.mediaId) } : {}),
+      ...(typeof record.mediaId === 'string' && MEDIA_ID.test(record.mediaId)
+        ? { mediaId: record.mediaId }
+        : {}),
       ...(record.video === true ? { video: true } : {}),
       ...(idOf(record.derivedFrom) ? { derivedFrom: idOf(record.derivedFrom) } : {}),
+      ...(finite(record.dx) ? { dx: record.dx } : {}),
+      ...(finite(record.dy) ? { dy: record.dy } : {}),
     }
   }
   if (record.type === 'text' || record.type === 'shape') {
@@ -109,14 +119,25 @@ export function parseAgentCanvasSnapshot(value: unknown): AgentCanvasSnapshot | 
   if (!value || typeof value !== 'object') return undefined
   const elements = (value as { elements?: unknown }).elements
   if (!Array.isArray(elements)) return undefined
+  const reportedOmitted = (value as { omitted?: unknown }).omitted
+  const omitted =
+    typeof reportedOmitted === 'number' &&
+    Number.isSafeInteger(reportedOmitted) &&
+    reportedOmitted >= 0
+      ? reportedOmitted
+      : 0
+  // 不能把截断的前半段当成完整画布；浏览器只会发送上限内的元素及 omitted。
+  if (elements.length > AGENT_CANVAS_SNAPSHOT_MAX) return undefined
+  if (elements.length === 0) return omitted ? { elements: [], omitted } : { elements: [] }
   const seen = new Set<string>()
   const parsed: AgentCanvasLiveElement[] = []
   for (const item of elements) {
-    if (parsed.length >= AGENT_CANVAS_SNAPSHOT_MAX) break
     const element = elementOf(item)
     if (!element || seen.has(element.id)) continue
     seen.add(element.id)
     parsed.push(element)
   }
-  return parsed.length > 0 ? { elements: parsed } : undefined
+  if (parsed.length === 0) return undefined
+  const missing = omitted + elements.length - parsed.length
+  return missing > 0 ? { elements: parsed, omitted: missing } : { elements: parsed }
 }
