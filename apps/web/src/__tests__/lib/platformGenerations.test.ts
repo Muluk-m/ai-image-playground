@@ -299,6 +299,15 @@ it('平台和本机失败分类相同时，保留本机详细说明', async () =
   expect(card).toMatchObject({ error: '上游返回 502，稍后再试', errorCode: 'upstream_error' })
 })
 
+it('平台取消且没有错误分类时，不沿用本机先前的网络错误', async () => {
+  await receivePlatformPage([{ ...summary, status: 'cancelled', cover: null, errorType: null }])
+  const [card] = mergeHistory(
+    [localTask({ bffRequestId: summary.id, status: 'error', error: 'network timeout' })],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({ status: 'error', error: null, errorCode: undefined })
+})
+
 it('本机已有完整产出时保留其图片顺序与收藏', async () => {
   await receivePlatformPage([summary])
   const local = localTask({

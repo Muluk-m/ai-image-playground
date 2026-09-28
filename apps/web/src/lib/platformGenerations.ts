@@ -209,7 +209,8 @@ export function mergeHistory(
     const sameFailure =
       task.status === 'error' &&
       settled.status === 'error' &&
-      task.errorCode === (remote.record.errorType ?? undefined) &&
+      remote.record.errorType != null &&
+      task.errorCode === remote.record.errorType &&
       task.error
     return {
       ...task,

@@ -1693,4 +1693,60 @@ describe('展开平台记录的详情', () => {
       outputImages: ['aip-media:out-0', 'aip-media:out-1'],
     })
   })
+
+  it('完成但归档未就绪时，重新展开还能补到稍后归档的图片', async () => {
+    const base = {
+      id: 'gen-late',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'completed',
+      archiveStatus: 'pending',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: 62_000,
+      revision: '1',
+      prompt: '迟到的归档',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+      outputs: [],
+    } as const
+    const cover = {
+      index: 0,
+      mediaId: 'late-output',
+      width: null,
+      height: null,
+      contentType: 'image/png',
+    }
+    readRemoteGeneration
+      .mockResolvedValueOnce(base)
+      .mockResolvedValueOnce({ ...base, archiveStatus: 'ready', cover, outputs: [cover] })
+    useStore.setState({
+      tasks: [task({ id: 'local-late', bffRequestId: base.id, status: 'running' })],
+      platformGenerations: [],
+      detailTaskId: null,
+    })
+
+    useStore.getState().setDetailTaskId('local-late')
+    await waitUntil(
+      () => useStore.getState().platformGenerations.some((row) => row.id === base.id),
+      '首次详情未缓存',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const beforeReopen = readRemoteGeneration.mock.calls.filter(([id]) => id === base.id).length
+    useStore.getState().setDetailTaskId(null)
+    useStore.getState().setDetailTaskId('local-late')
+    expect(readRemoteGeneration.mock.calls.filter(([id]) => id === base.id)).toHaveLength(
+      beforeReopen + 1,
+    )
+    await waitUntil(
+      () =>
+        mergeHistory(useStore.getState().tasks, useStore.getState().platformGenerations)[0]
+          ?.outputImages.length === 1,
+      '二次展开未补到归档图片',
+    )
+  })
 })
