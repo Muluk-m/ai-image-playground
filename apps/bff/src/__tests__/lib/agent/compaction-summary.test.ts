@@ -9,6 +9,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
+process.env.AGENT_SUMMARY_CONTEXT_WINDOW = '6000'
 process.env.OPERATOR_CONFIG_FILE = ''
 
 const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
@@ -16,7 +17,9 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 )
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
-const { summarizeCompaction } = await import('../../../lib/agent/compaction-summary')
+const { summarizeCompaction, summaryChunkBudget } = await import(
+  '../../../lib/agent/compaction-summary'
+)
 
 const NARRATIVE = {
   completed: '出了三张马克杯图',
@@ -30,6 +33,27 @@ afterEach(() => {
 })
 
 describe('summarizeCompaction', () => {
+  it('reserves prompt, prior summary and output inside the summary model window', () => {
+    const emptyBudget = summaryChunkBudget(null)
+    const previousBudget = summaryChunkBudget({ ...NARRATIVE, completed: '旧结论'.repeat(500) })
+    expect(emptyBudget).toBeLessThan(6_000 - 1_500)
+    expect(previousBudget).toBeLessThan(emptyBudget)
+  })
+
+  it('does not send a summary request that exceeds the summary model window', async () => {
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(calls, () => chatCompletion(JSON.stringify(NARRATIVE))),
+    )
+    expect(
+      await summarizeCompaction({
+        messages: [user('m1', '很长的用户内容'.repeat(5_000))],
+        previousSummary: null,
+      }),
+    ).toBeNull()
+    expect(calls).toHaveLength(0)
+  })
+
   it('asks the configured summary model and returns the fixed sections', async () => {
     const calls: ChatCall[] = []
     setChatFetchForTesting(

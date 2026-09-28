@@ -11,7 +11,7 @@ import {
   shapeAgentContext,
   truncateToBudget,
 } from './compaction'
-import { summarizeCompaction } from './compaction-summary'
+import { summarizeCompaction, summaryChunkBudget } from './compaction-summary'
 import { saveAgentCompaction } from './conversations'
 
 export interface CompactionTransformInput {
@@ -128,6 +128,7 @@ export function createCompactionTransform(
         now: Date.now(),
         overheadTokens: input.overheadTokens,
         summarize: (request) => summarizeCompaction(request, input.onSummaryAttempt),
+        summaryBudget: summaryChunkBudget,
       })
 
       const next: Persisted = { state: result.state, breaker: result.breaker }
