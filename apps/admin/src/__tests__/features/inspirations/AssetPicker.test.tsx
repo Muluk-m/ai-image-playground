@@ -30,21 +30,43 @@ describe('ReferenceImageFields', () => {
     const user = userEvent.setup()
     render(
       <ReferenceImageFields
-        value={[{ key: 'https://example.com/source.png', name: '已有原图' }]}
+        value={[
+          {
+            key: 'https://muvloom-inspiration-assets.deepclick.com/source.png',
+            name: '已有原图',
+          },
+        ]}
         onChange={onChange}
       />,
     )
 
     await user.type(screen.getByRole('textbox', { name: '已有图片的素材名' }), '另一张')
     const url = screen.getByRole('textbox', { name: '已有图片的 https 地址' })
-    await user.type(url, 'http://example.com/source.png')
+    await user.type(url, 'http://muvloom-inspiration-assets.deepclick.com/source.png')
     await user.click(screen.getByRole('button', { name: '引用已有图片' }))
-    expect(screen.getByText('填写素材名和 https 图片地址')).toBeInTheDocument()
+    expect(screen.getByText('填写素材名及本站公开素材的 https 地址')).toBeInTheDocument()
+
+    await user.clear(url)
+    await user.type(url, 'https://muvloom-inspiration-assets.deepclick.com/source.png')
+    await user.click(screen.getByRole('button', { name: '引用已有图片' }))
+    expect(screen.getByText('这张参考图已经添加')).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed hosts and third-party images without verified CORS', async () => {
+    const onChange = vi.fn()
+    const user = userEvent.setup()
+    render(<ReferenceImageFields value={[]} onChange={onChange} />)
+
+    await user.type(screen.getByRole('textbox', { name: '已有图片的素材名' }), '坏地址')
+    const url = screen.getByRole('textbox', { name: '已有图片的 https 地址' })
+    await user.type(url, 'https:///')
+    await user.click(screen.getByRole('button', { name: '引用已有图片' }))
+    expect(onChange).not.toHaveBeenCalled()
 
     await user.clear(url)
     await user.type(url, 'https://example.com/source.png')
     await user.click(screen.getByRole('button', { name: '引用已有图片' }))
-    expect(screen.getByText('这张参考图已经添加')).toBeInTheDocument()
     expect(onChange).not.toHaveBeenCalled()
   })
 })
