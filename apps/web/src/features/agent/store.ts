@@ -245,6 +245,8 @@ export interface AgentState {
     clientMessageId?: string,
     /** 仅供本机未确认消息重发：沿用首次发话保存的画布。 */
     replay?: { canvas?: AgentCanvasSnapshot },
+    /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
+    modelOverride?: string,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -769,9 +771,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         // 这个会话正跑着一轮：跑的可能就是它。等这一轮收尾后的下一次打开再说，
         // 本机这份留着，丢不了。
         if (get().turn === 'running') return
-        await get().send(message.text, message.references, undefined, message.mode, message.id, {
-          canvas: message.canvas,
-        })
+        await get().send(
+          message.text,
+          message.references,
+          undefined,
+          message.mode,
+          message.id,
+          {
+            canvas: message.canvas,
+          },
+          message.modelOverride,
+        )
       }
     } finally {
       resuming.delete(projectId)
@@ -901,6 +911,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     clarificationAnswer: boolean,
     clientMessageId: string,
     canvas: ReturnType<typeof canvasAtSend>,
+    modelOverride?: string,
   ) => {
     const current = () => get().conversationId === conversationId
     try {
@@ -913,7 +924,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         conversationId,
         text,
         sent,
-        currentTurnParams(),
+        modelOverride ? { ...currentTurnParams(), model: modelOverride } : currentTurnParams(),
         mode,
         undefined,
         clientMessageId,
@@ -1248,7 +1259,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       })
     },
 
-    async send(text, references = [], onAccepted, mode = get().mode, clientMessageId, replay) {
+    async send(
+      text,
+      references = [],
+      onAccepted,
+      mode = get().mode,
+      clientMessageId,
+      replay,
+      modelOverride,
+    ) {
       // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
       // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
       if (get().stopping && abortInFlight) await abortInFlight
@@ -1277,6 +1296,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           text: trimmed,
           references: [...references],
           mode,
+          ...(modelOverride ? { modelOverride } : {}),
           clarificationAnswer,
           ...(canvas ? { canvas } : {}),
           createdAt: Date.now(),
@@ -1296,6 +1316,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             clarificationAnswer,
             messageId,
             canvas,
+            modelOverride,
           )
         } finally {
           settleJournal()
@@ -1406,7 +1427,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           return
         }
         if (submission.cancelled) return await cancelUnsent()
-        const turnParams = currentTurnParams()
+        const turnParams = modelOverride
+          ? { ...currentTurnParams(), model: modelOverride }
+          : currentTurnParams()
         const sent = await withCloudMedia(references)
         if (!sendableReferences(sent)) {
           if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED())
