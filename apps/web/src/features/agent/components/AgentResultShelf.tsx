@@ -20,6 +20,7 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
   const messages = useAgentStore((state) => state.messages)
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const [expanded, setExpanded] = useState(true)
+  const [visibleCount, setVisibleCount] = useState(8)
   const [previews, setPreviews] = useState<Record<string, string | null>>({})
   const groups = useMemo(
     () =>
@@ -31,15 +32,16 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
             Boolean(message.artifacts?.length || message.fetchedImages?.length),
         )
         .reverse()
-        .slice(1, 13),
+        .slice(1),
     [messages],
   )
-  const signature = groups.map((message) => message.id).join(' ')
+  const visibleGroups = groups.slice(0, visibleCount)
+  const signature = visibleGroups.map((message) => message.id).join(' ')
 
   useEffect(() => {
     let active = true
     void Promise.all(
-      groups.map(async (message) => {
+      visibleGroups.map(async (message) => {
         const first = message.artifacts?.[0]
         const fetched = message.fetchedImages?.[0]
         const preview = await (first
@@ -77,7 +79,7 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
       </div>
       {expanded && (
         <div className="studio-result-shelf-items">
-          {groups.map((message) => {
+          {visibleGroups.map((message) => {
             const ids = resultIds(message)
             const placed = ids.every((id) => agentCanvasSink()?.has(id))
             return (
@@ -102,6 +104,15 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
               </button>
             )
           })}
+          {visibleCount < groups.length && (
+            <button
+              type="button"
+              className="studio-result-shelf-more"
+              onClick={() => setVisibleCount((count) => count + 8)}
+            >
+              {t('resultShelf.more', { count: Math.min(8, groups.length - visibleCount) })}
+            </button>
+          )}
         </div>
       )}
     </div>

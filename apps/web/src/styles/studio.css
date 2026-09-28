@@ -45,6 +45,8 @@
   background: hsl(var(--card)); text-align: left; font-size: 11px;
 }
 .studio-result-shelf-item:hover { border-color: hsl(var(--primary) / .6); }
+.studio-result-shelf-more { flex: 0 0 110px; align-self: stretch; border: 1px dashed hsl(var(--border)); border-radius: 9px; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.studio-result-shelf-more:hover { color: hsl(var(--foreground)); border-color: hsl(var(--primary) / .6); }
 .studio-result-shelf-item img, .studio-result-shelf-placeholder { width: 42px; height: 42px; flex: 0 0 auto; border-radius: 6px; object-fit: cover; }
 .studio-result-shelf-placeholder { display: grid; place-items: center; background: hsl(var(--muted)); color: hsl(var(--primary)); }
 .studio-sidebar {

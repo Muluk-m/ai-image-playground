@@ -1,8 +1,9 @@
 import { useTranslation } from '../i18n'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { useStore } from '../store'
 import { SparkleIcon } from './icons'
 
-/** 首屏输入框上方的两档：生成（直接出图）/ 画布（新建画布项目并把这句话发给智能体）。 */
+/** 首屏的两条创作路径：直接出图，或在项目中与智能体对话并切换画布。 */
 export default function CreateTargetSwitch() {
   const { t } = useTranslation('shell')
   const target = useStore((s) => s.createTarget)
@@ -15,7 +16,9 @@ export default function CreateTargetSwitch() {
     },
     {
       id: 'canvas',
-      label: t('createTarget.canvas'),
+      label: isClientCapabilityEnabled('agent:chat')
+        ? t('createTarget.canvas')
+        : t('mode.canvas'),
       icon: (
         <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
           <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.4" />

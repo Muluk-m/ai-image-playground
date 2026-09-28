@@ -18,7 +18,6 @@ import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
-import { useCanvasProjectStore } from './features/canvas/projectStore'
 import ExplorePage from './features/inspiration/components/ExplorePage'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
@@ -68,11 +67,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       window.history.replaceState(null, '', nextUrl)
     }
 
-    void initStore().then(async () => {
-      if (import.meta.env.DEV && searchParams.has('agentUiPreview')) {
-        await useCanvasProjectStore.getState().load()
-        useStore.getState().setAppMode('canvas')
-      }
+    void initStore().then(() => {
       if (user) return resumePendingSubmission()
     })
     initHashRoute()

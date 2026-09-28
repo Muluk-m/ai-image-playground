@@ -2,6 +2,7 @@
   "resultShelf": {
     "title": "历史结果",
     "count_other": "{{count}} 组",
+    "more_other": "再看 {{count}} 组",
     "collapse": "收起",
     "expand": "展开",
     "place": "加入画布",

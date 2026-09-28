@@ -116,7 +116,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   const mobile = useMobileWorkspace()
   const [projectView, setProjectView] = useState<'chat' | 'canvas'>('chat')
-  const canvasOpened = useRef(false)
+  const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
@@ -138,10 +138,19 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     })
   }
   const hasAgent = agentPanelPresent()
+  const messages = useAgentStore((state) => state.messages)
+  const latestResult = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.kind === 'tool' &&
+        message.status === 'succeeded' &&
+        (Boolean(message.artifacts?.length) || Boolean(message.fetchedImages?.length)),
+    )
   const openCanvas = (selectedIds?: readonly string[]) => {
     setProjectView('canvas')
     if (selectedIds?.length) {
-      canvasOpened.current = true
+      focusedResult.current = latestResult?.id ?? null
       const focus = () => requestAnimationFrame(() => agentCanvasSink()?.focus(selectedIds))
       if (selectedIds.every((id) => agentCanvasSink()?.has(id))) focus()
       else {
@@ -160,25 +169,30 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       }
       return
     }
-    if (canvasOpened.current) return
-    canvasOpened.current = true
-    const latest = [...useAgentStore.getState().messages]
-      .reverse()
-      .find(
-        (message) =>
-          message.kind === 'tool' &&
-          message.status === 'succeeded' &&
-          (Boolean(message.artifacts?.length) || Boolean(message.fetchedImages?.length)),
-      )
-    if (!latest || latest.kind !== 'tool') return
+  }
+  useEffect(() => {
+    if (
+      !hasAgent ||
+      projectView !== 'canvas' ||
+      !latestResult ||
+      latestResult.kind !== 'tool' ||
+      latestResult.delivery === undefined ||
+      latestResult.delivery === 'pending' ||
+      focusedResult.current === latestResult.id ||
+      !agentCanvasSink()
+    )
+      return
+    focusedResult.current = latestResult.id
     const ids =
-      latest.artifacts?.map((artifact) => artifact.artifactId) ??
-      latest.fetchedImages?.map((_, index) => fetchedCanvasId(latest.toolCallId, index)) ??
+      latestResult.artifacts?.map((artifact) => artifact.artifactId) ??
+      latestResult.fetchedImages?.map((_, index) =>
+        fetchedCanvasId(latestResult.toolCallId, index),
+      ) ??
       []
     const focus = () => requestAnimationFrame(() => agentCanvasSink()?.focus(ids))
     if (ids.every((id) => agentCanvasSink()?.has(id))) focus()
-    else void useAgentStore.getState().placeOnCanvas(latest.id).then(focus)
-  }
+    else void useAgentStore.getState().placeOnCanvas(latestResult.id).then(focus)
+  }, [hasAgent, projectView, latestResult?.id, latestResult?.delivery])
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
@@ -195,28 +209,12 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   }, [showWelcome, project])
   useEffect(() => {
     if (!hasAgent) return
-    if (import.meta.env.DEV && new URLSearchParams(location.search).has('agentUiPreview')) return
     void useAgentStore.getState().load()
   }, [hasAgent, workspace])
   const { loading, loadFailed, saveFailed } = useSyncExternalStore(
     workspace.subscribe,
     workspace.getSnapshot,
   )
-  const previewMessageCount = useAgentStore((state) => state.messages.length)
-
-  useEffect(() => {
-    if (
-      !import.meta.env.DEV ||
-      !new URLSearchParams(location.search).has('agentUiPreview') ||
-      loading ||
-      previewMessageCount > 0
-    )
-      return
-    void import('../../agent/lib/agentUiPreview').then(({ seedAgentUiPreview }) =>
-      seedAgentUiPreview(workspace),
-    )
-  }, [workspace, loading, previewMessageCount])
-
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(window as unknown as { __canvasEditor?: CanvasEditor }).__canvasEditor = editor

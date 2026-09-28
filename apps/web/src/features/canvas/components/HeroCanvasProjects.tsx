@@ -2,7 +2,7 @@ import { useTranslation } from '../../../i18n'
 import { useLibraryStore } from '../../library/store'
 import ProjectGrid from './ProjectGrid'
 
-/** 首屏切到「画布」档时，输入框下面从作品流换成画布项目：接下来要去的是画布，先把最近的摆出来。 */
+/** 项目创作入口显示最近项目。 */
 export default function HeroCanvasProjects() {
   const { t } = useTranslation(['canvas', 'shell'])
   const openProjects = useLibraryStore((s) => s.openProjects)
