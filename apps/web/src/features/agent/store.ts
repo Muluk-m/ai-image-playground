@@ -771,9 +771,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         // 这个会话正跑着一轮：跑的可能就是它。等这一轮收尾后的下一次打开再说，
         // 本机这份留着，丢不了。
         if (get().turn === 'running') return
-        await get().send(message.text, message.references, undefined, message.mode, message.id, {
-          canvas: message.canvas,
-        })
+        await get().send(
+          message.text,
+          message.references,
+          undefined,
+          message.mode,
+          message.id,
+          {
+            canvas: message.canvas,
+          },
+          message.modelOverride,
+        )
       }
     } finally {
       resuming.delete(projectId)
@@ -1288,6 +1296,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           text: trimmed,
           references: [...references],
           mode,
+          ...(modelOverride ? { modelOverride } : {}),
           clarificationAnswer,
           ...(canvas ? { canvas } : {}),
           createdAt: Date.now(),
