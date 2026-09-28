@@ -122,6 +122,26 @@ interface ReferenceImageFieldsProps {
 export function ReferenceImageFields({ value, onChange }: ReferenceImageFieldsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const { busy, error, upload } = useAssetUpload()
+  const [existingUrl, setExistingUrl] = useState('')
+  const [existingName, setExistingName] = useState('')
+  const [existingError, setExistingError] = useState<string | null>(null)
+
+  function addExistingImage() {
+    const key = existingUrl.trim()
+    const name = existingName.trim()
+    if (!name || !/^https:\/\/[^\s]+$/.test(key)) {
+      setExistingError('填写素材名和 https 图片地址')
+      return
+    }
+    if (value.some((reference) => reference.key === key)) {
+      setExistingError('这张参考图已经添加')
+      return
+    }
+    onChange([...value, { key, name }])
+    setExistingUrl('')
+    setExistingName('')
+    setExistingError(null)
+  }
 
   return (
     <div className="space-y-3">
@@ -185,6 +205,32 @@ export function ReferenceImageFields({ value, onChange }: ReferenceImageFieldsPr
         )}
         添加参考图
       </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={existingName}
+          onChange={(event) => setExistingName(event.target.value)}
+          placeholder="已有图片的素材名"
+          aria-label="已有图片的素材名"
+          className="min-w-36 flex-1"
+        />
+        <Input
+          value={existingUrl}
+          onChange={(event) => setExistingUrl(event.target.value)}
+          placeholder="已有图片的 https 地址"
+          aria-label="已有图片的 https 地址"
+          className="min-w-52 flex-[2] font-mono text-xs"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={value.length >= MAX_REFERENCE_IMAGES}
+          onClick={addExistingImage}
+        >
+          引用已有图片
+        </Button>
+      </div>
+      {existingError ? <p className="text-xs text-destructive">{existingError}</p> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   )
