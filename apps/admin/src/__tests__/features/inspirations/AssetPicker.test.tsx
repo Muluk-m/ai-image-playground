@@ -99,4 +99,35 @@ describe('ReferenceImageFields', () => {
       { key: 'https://assets.staging.example/source.png', name: '原图' },
     ])
   })
+
+  it('waits for the trusted origin and offers a retry when its config fails', async () => {
+    const onChange = vi.fn()
+    const retry = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <ReferenceImageFields
+        value={[]}
+        onChange={onChange}
+        assetBaseUrl=""
+        assetBaseStatus="loading"
+        onRetryAssetBase={retry}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '引用已有图片' })).toBeDisabled()
+
+    rerender(
+      <ReferenceImageFields
+        value={[]}
+        onChange={onChange}
+        assetBaseUrl=""
+        assetBaseStatus="error"
+        onRetryAssetBase={retry}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '引用已有图片' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('公开素材配置加载失败')
+    await user.click(screen.getByRole('button', { name: '重试' }))
+    expect(retry).toHaveBeenCalledOnce()
+    expect(onChange).not.toHaveBeenCalled()
+  })
 })
