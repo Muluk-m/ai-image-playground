@@ -446,7 +446,7 @@
 .studio-agent-inline-gallery[data-count="2"] { max-width: 525px; }
 .studio-agent-inline-gallery[data-count="3"] { max-width: 790px; }
 .studio-agent-inline-tile { position: relative; overflow: hidden; min-width: 0; aspect-ratio: 16 / 10; border-radius: 8px; background: hsl(var(--muted)); }
-.studio-agent-inline-open { display: grid; width: 100%; height: 100%; place-items: center; color: hsl(var(--muted-foreground)); }
+.studio-agent-inline-open { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
 .studio-agent-inline-open img { width: 100%; height: 100%; object-fit: contain; transition: transform .2s ease; }
 .studio-agent-inline-tile:hover .studio-agent-inline-open img { transform: scale(1.025); }
 .studio-agent-inline-actions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 2px; padding: 3px; border: 1px solid rgb(255 255 255 / .13); border-radius: 10px; background: rgb(15 16 15 / .78); color: white; opacity: 0; transform: translateY(4px); transition: opacity .15s ease, transform .15s ease; backdrop-filter: blur(12px); }
