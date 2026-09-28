@@ -19,6 +19,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -555,6 +556,7 @@ export const agentRoutes = new Elysia()
         if (forwarded) return forwarded
 
         const references = turnReferences(body.references ?? [])
+        const canvas = parseAgentCanvasSnapshot(body.canvas)
         if (!references) return status(422, { error: 'invalid_reference' })
         try {
           await validateSelections(references)
@@ -580,6 +582,7 @@ export const agentRoutes = new Elysia()
           ...(body.mode ? { mode: body.mode } : {}),
           ...(body.params ? { params: body.params } : {}),
           ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
+          ...(canvas ? { canvas } : {}),
         })
         if (sent.kind === 'full') {
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
@@ -607,6 +610,8 @@ export const agentRoutes = new Elysia()
         clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
         /** 这是对澄清卡片的答复：排在其他排队消息前面处理。 */
         clarificationAnswer: t.Optional(t.Boolean()),
+        /** 发话时浏览器里的画布。不合规格就当没带，不因此拒绝这一轮。 */
+        canvas: t.Optional(t.Any()),
       }),
     },
   )

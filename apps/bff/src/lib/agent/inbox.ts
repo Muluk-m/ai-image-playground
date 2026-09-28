@@ -6,6 +6,7 @@ import type {
 } from '@image-playground/db'
 import {
   AGENT_QUEUE_MAX_PENDING,
+  type AgentCanvasSnapshot,
   type AgentMode,
   type AgentQueuedMessageFailure,
   type AgentQueuedMessageState,
@@ -44,6 +45,7 @@ export interface QueuedUserMessage {
   readonly references: readonly AgentTurnReference[]
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 export interface EnqueueUserMessage {
@@ -55,6 +57,7 @@ export interface EnqueueUserMessage {
   readonly references: readonly AgentTurnReference[]
   readonly mode?: AgentMode
   readonly params?: AgentTurnParams
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 export interface InboxEntry {
@@ -155,6 +158,7 @@ export async function enqueueAgentUserMessage(
       referenceCount: message.references.length,
       ...(message.mode ? { mode: message.mode } : {}),
       ...(message.params ? { params: message.params } : {}),
+      ...(message.canvas ? { canvas: message.canvas } : {}),
       ...(answering ? { clarificationAnswer: true as const } : {}),
     }
     const [row] = await tx
@@ -322,6 +326,7 @@ function queuedMessageOf(row: InboxRow): QueuedUserMessage {
     references: row.attachments ?? [],
     ...(payload.mode ? { mode: payload.mode } : {}),
     ...(payload.params ? { params: payload.params } : {}),
+    ...(payload.canvas ? { canvas: payload.canvas } : {}),
   }
 }
 

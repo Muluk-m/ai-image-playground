@@ -88,6 +88,8 @@ export interface PreparedAgentTurn {
   readonly deviceId: string
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
+  /** 发话时浏览器里的画布。 */
+  readonly canvas?: import('@image-playground/shared').AgentCanvasSnapshot
   /**
    * 唤醒轮与中断续跑：`input.text` 是给模型的系统说明，不是用户的话，也不落库。授权原文与改图
    * 计划接着提交那一批的那一轮（`plan`，它记着当时的授权原文）；没有记下计划时退回
@@ -190,6 +192,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       assertExecution: execution.assert,
       recordWebSearch: (attempt) => ledger.recordSideCall('web_search', attempt),
       ...(prepared.params ? { params: prepared.params } : {}),
+      ...(prepared.canvas ? { canvas: prepared.canvas } : {}),
       // 出图模式：额度对象一轮一个，领完就退回拟稿（见 `auto-submit.ts`）。
       ...(input.autoSubmit ? { autoSubmit: createAutoSubmitBudget() } : {}),
       ...(prepared.wake?.replay ? { replay: prepared.wake.replay } : {}),

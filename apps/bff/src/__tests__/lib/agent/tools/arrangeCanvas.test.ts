@@ -185,6 +185,44 @@ it('names the ids it could not place and still moves the rest', async () => {
   })
 })
 
+it('arranges the images on the open canvas when the server copy does not have them', async () => {
+  const result = await arrangeCanvas
+    .create({
+      mode: 'image',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      userId: null,
+      deviceId: 'device-abcdefgh',
+      images: { references: [], identify: () => undefined, attach: () => {} } as never,
+      canvas: {
+        elements: [
+          { id: 'poster', type: 'image', x: 0, y: 0, width: 100, height: 80, name: '海报' },
+          { id: 'code', type: 'image', x: 120, y: 0, width: 80, height: 80, name: '二维码' },
+        ],
+      },
+    })
+    .execute(
+      'call-1',
+      {
+        groups: [
+          {
+            label: '素材',
+            items: [
+              { elementId: 'poster', caption: '海报' },
+              { elementId: 'code', caption: '二维码' },
+            ],
+          },
+        ],
+      },
+      undefined,
+      undefined,
+    )
+
+  const edits = result.details?.canvasEdit?.edits ?? []
+  expect(edits.map((edit) => edit.elementId)).toEqual(['poster', 'code'])
+  expect(edits[0]).toMatchObject({ name: '海报', section: '素材' })
+})
+
 it('refuses to invent a layout when this turn has no server canvas', async () => {
   await expect(run('conv-1', null, [{ items: [{ elementId: 'el-a' }] }])).rejects.toMatchObject({
     name: 'AgentToolError',
