@@ -5,9 +5,11 @@ import { retainCanvasInputs } from '../../../../features/canvas/lib/canvasGenera
 import { CanvasEditor, type PlaceholderView } from '../../../../features/canvas/lib/editor'
 import { Box } from '../../../../features/canvas/lib/geometry'
 import { retryCanvasTask, submitFromCanvas } from '../../../../features/canvas/lib/submitFromCanvas'
+import { i18next } from '../../../../i18n'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../../../lib/apiProfiles'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import type { PublicChannel } from '../../../../lib/channels/types'
+import { API_MAX_IMAGES } from '../../../../lib/inputImageLimit'
 import { DEFAULT_PARAMS } from '../../../../types'
 
 /**
@@ -76,24 +78,21 @@ beforeEach(() => {
   stubSubmit()
 })
 
-/** 两张并排的图各自成为一个输入条目（没有标注跟随）。 */
-function selectionEditor(): CanvasEditor {
-  const boxes: Record<string, Box> = {
-    a: new Box(0, 0, 100, 100),
-    b: new Box(400, 0, 100, 100),
-  }
+/** 并排的几张图各自成为一个输入条目（没有标注跟随）；默认两张。 */
+function selectionEditor(count = 2): CanvasEditor {
+  const ids = Array.from({ length: count }, (_, index) => String.fromCharCode(97 + index))
+  const boxes: Record<string, Box> = Object.fromEntries(
+    ids.map((id, index) => [id, new Box(index * 400, 0, 100, 100)]),
+  )
   return {
     createPlaceholder: vi.fn(() => 'placeholder-1'),
     updatePlaceholder: vi.fn(),
-    getSelectedIds: () => ['a', 'b'],
+    getSelectedIds: () => ids,
     getElement: (id: string) => (boxes[id] ? { id, type: 'image' } : undefined),
-    getElements: () => [
-      { id: 'a', type: 'image' },
-      { id: 'b', type: 'image' },
-    ],
+    getElements: () => ids.map((id) => ({ id, type: 'image' })),
     getElementPageBounds: (id: string) => boxes[id],
     isPlaceholder: () => false,
-    getViewportPageBounds: () => new Box(0, 0, 4000, 4000),
+    getViewportPageBounds: () => new Box(0, 0, 40_000, 4000),
     getOccupiedBounds: () => [],
     toImage: vi.fn(async (ids: string[]) => `data:image/png;base64,${ids[0]}`),
   } as unknown as CanvasEditor
@@ -115,6 +114,24 @@ describe('选区怎么变成请求', () => {
 
     await vi.waitFor(() => expect(submitted).toHaveLength(1))
     expect(submitted[0]!.input_images).toHaveLength(2)
+  })
+
+  it('并成一次时超过参考图上限：先拦下并说明，不栅格化、不提交', async () => {
+    const editor = selectionEditor(API_MAX_IMAGES + 1)
+    await submitFromCanvas(editor, 'blend these')
+
+    expect(editor.toImage).not.toHaveBeenCalled()
+    expect(submitted).toHaveLength(0)
+    expect(store.showToast).toHaveBeenCalledWith(
+      i18next.t('submit.tooManyInputs', { ns: 'canvas', max: API_MAX_IMAGES }),
+      'error',
+    )
+  })
+
+  it('逐张模式每张各发一次，不受参考图上限影响', async () => {
+    await submitFromCanvas(selectionEditor(API_MAX_IMAGES + 1), 'crop', { perImage: true })
+
+    await vi.waitFor(() => expect(submitted).toHaveLength(API_MAX_IMAGES + 1))
   })
 })
 
