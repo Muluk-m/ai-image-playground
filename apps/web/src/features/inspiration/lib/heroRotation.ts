@@ -25,16 +25,19 @@ export function selectHeroItems(
     selected.push(imageEdit)
     categories.add(imageEdit.category)
   }
-  for (const item of pool) {
+  // 对比卡占两列：首页最多选一张，余下四张普通卡恰好排满六列。
+  const maxCards = imageEdit ? HERO_CARD_COUNT - 1 : HERO_CARD_COUNT
+  const remaining = imageEdit ? pool.filter((item) => !item.referenceImages?.length) : pool
+  for (const item of remaining) {
     if (selected.includes(item)) continue
     if (categories.has(item.category)) continue
     categories.add(item.category)
     selected.push(item)
-    if (selected.length === HERO_CARD_COUNT) return selected
+    if (selected.length === maxCards) return selected
   }
-  for (const item of pool) {
+  for (const item of remaining) {
     if (!selected.includes(item)) selected.push(item)
-    if (selected.length === HERO_CARD_COUNT) break
+    if (selected.length === maxCards) break
   }
   return selected
 }

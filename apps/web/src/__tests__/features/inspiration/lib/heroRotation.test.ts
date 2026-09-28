@@ -29,7 +29,20 @@ describe('home inspiration rotation', () => {
 
     const result = selectHeroItems(items, ['poster-2'])
 
-    expect(result).toHaveLength(6)
+    expect(result).toHaveLength(5)
     expect(result.some((entry) => entry.id === 'poster-2')).toBe(true)
+  })
+
+  it('uses just one two-column image edit in a six-column hero', () => {
+    const items = [
+      item('edit-1', 'Illustration', true),
+      item('edit-2', 'Architecture', true),
+      ...Array.from({ length: 5 }, (_, index) => item(`single-${index}`, `Category ${index}`)),
+    ]
+
+    const result = selectHeroItems(items)
+
+    expect(result).toHaveLength(5)
+    expect(result.filter((entry) => entry.referenceImages?.length)).toHaveLength(1)
   })
 })

@@ -12,6 +12,7 @@ import InspirationCard from './InspirationCard'
 
 // 完整清单不可用时保留离线示例。
 const HERO_SEED = heroSeedData as InspirationItem[]
+const FEATURED_IDS = new Set(HERO_SEED.map((item) => item.id))
 
 export default function InspirationEmptyHero() {
   const available = useInspirationStore((s) => s.items)
@@ -26,7 +27,10 @@ export default function InspirationEmptyHero() {
     // 每次进入只选一批，收藏、输入和后台清单更新都不会让卡片跳动。
     if (selected.current || (!available.length && status !== 'ready' && status !== 'error')) return
     selected.current = true
-    setItems(rotateHeroItems(available.length ? available : HERO_SEED))
+    const featured = available.filter((item) => FEATURED_IDS.has(item.id))
+    const source =
+      featured.length >= HERO_CARD_COUNT ? featured : available.length ? available : HERO_SEED
+    setItems(rotateHeroItems(source))
   }, [available, status])
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
   const { t } = useTranslation('inspiration')
