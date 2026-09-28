@@ -259,61 +259,65 @@ const CANVAS_MEDIA_ID = /^(?:aip-media:)?([0-9a-f-]{36})$/i
  * - **这个会话自己**认领着它：用户按 id 附过来的参考图走这条（见 `claimConversationMedia`）。
  *   会话自己那一份是历史的锚：用户后来把这张图从画布上删了，项目那条认领会随下一次项目
  *   写入消失，历史里的引用不该跟着变成一张读不出来的图。
+ * - **本轮已校验的画布目录**列着它：尚未同步到项目的图只在本轮可读，不创建永久认领。
  */
 export async function readConversationMedia(
   mediaId: string,
   conversationId: string,
   userId: string | null,
   variant: AgentImageVariant,
+  fromCurrentCanvas = false,
 ): Promise<{
   readonly bytes: Uint8Array
   readonly contentType: string
   readonly reduced: boolean
 } | null> {
   if (!userId) return null
-  const [row] = await db
-    .select({
-      objectKey: schema.media_objects.object_key,
-      previewKey: schema.media_objects.preview_key,
-      contentType: schema.media_objects.content_type,
-    })
-    .from(schema.media_objects)
-    .innerJoin(
-      schema.media_references,
-      and(
-        eq(schema.media_references.media_id, schema.media_objects.id),
-        eq(schema.media_references.user_id, userId),
-        or(
+  const fields = {
+    objectKey: schema.media_objects.object_key,
+    previewKey: schema.media_objects.preview_key,
+    contentType: schema.media_objects.content_type,
+  }
+  const filter = and(
+    eq(schema.media_objects.id, mediaId),
+    eq(schema.media_objects.user_id, userId),
+    eq(schema.media_objects.status, 'ready'),
+  )
+  const [row] = fromCurrentCanvas
+    ? await db.select(fields).from(schema.media_objects).where(filter).limit(1)
+    : await db
+        .select(fields)
+        .from(schema.media_objects)
+        .innerJoin(
+          schema.media_references,
           and(
-            eq(schema.media_references.owner_kind, 'conversation'),
-            eq(schema.media_references.owner_id, conversationId),
-          ),
-          and(
-            eq(schema.media_references.owner_kind, 'project'),
-            exists(
-              db
-                .select({ one: sql`1` })
-                .from(schema.canvas_projects)
-                .where(
-                  and(
-                    eq(schema.canvas_projects.id, schema.media_references.owner_id),
-                    eq(schema.canvas_projects.conversation_id, conversationId),
-                    isNull(schema.canvas_projects.deleted_at),
-                  ),
+            eq(schema.media_references.media_id, schema.media_objects.id),
+            eq(schema.media_references.user_id, userId),
+            or(
+              and(
+                eq(schema.media_references.owner_kind, 'conversation'),
+                eq(schema.media_references.owner_id, conversationId),
+              ),
+              and(
+                eq(schema.media_references.owner_kind, 'project'),
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(schema.canvas_projects)
+                    .where(
+                      and(
+                        eq(schema.canvas_projects.id, schema.media_references.owner_id),
+                        eq(schema.canvas_projects.conversation_id, conversationId),
+                        isNull(schema.canvas_projects.deleted_at),
+                      ),
+                    ),
                 ),
+              ),
             ),
           ),
-        ),
-      ),
-    )
-    .where(
-      and(
-        eq(schema.media_objects.id, mediaId),
-        eq(schema.media_objects.user_id, userId),
-        eq(schema.media_objects.status, 'ready'),
-      ),
-    )
-    .limit(1)
+        )
+        .where(filter)
+        .limit(1)
   // 预览是上传时一并生成的，理论上 ready 的行两份都在；缺了就退回原件，宁可贵一次也别取不到图。
   const previewKey = variant === 'preview' ? row?.previewKey : null
   const key = previewKey ?? row?.objectKey
@@ -337,10 +341,17 @@ async function readCanvasMedia(
   conversationId: string,
   userId: string | null,
   variant: AgentImageVariant,
+  canvasMediaIds?: ReadonlySet<string>,
 ): Promise<ReadImage | null> {
   const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
   if (!mediaId) return null
-  const media = await readConversationMedia(mediaId, conversationId, userId, variant)
+  const media = await readConversationMedia(
+    mediaId,
+    conversationId,
+    userId,
+    variant,
+    canvasMediaIds?.has(mediaId) ?? false,
+  )
   if (!media) return null
   // 预留的预览已经是这条规格缩过的，别再缩第二次。
   return {
@@ -567,13 +578,12 @@ export async function claimConversationMedia(
   return true
 }
 
-/** 画布目录里的媒体可以尚未进入服务端项目文档。只认领当前用户已上传且可用的编号。 */
-export async function claimCanvasMedia(
-  conversationId: string,
+/** 只把当前用户已上传且可用的媒体编号留在本轮画布目录中，不创建持久引用。 */
+export async function readyCanvasMediaIds(
   userId: string | null,
   mediaIds: readonly string[],
-): Promise<{ allowed: ReadonlySet<string>; created: readonly string[] }> {
-  if (!userId || mediaIds.length === 0) return { allowed: new Set(), created: [] }
+): Promise<ReadonlySet<string>> {
+  if (!userId || mediaIds.length === 0) return new Set()
   const owned = await db
     .select({ id: schema.media_objects.id })
     .from(schema.media_objects)
@@ -584,41 +594,7 @@ export async function claimCanvasMedia(
         eq(schema.media_objects.status, 'ready'),
       ),
     )
-  const ids = owned.map((row) => row.id)
-  if (ids.length === 0) return { allowed: new Set(), created: [] }
-  const created = await db
-    .insert(schema.media_references)
-    .values(
-      ids.map((mediaId) => ({
-        user_id: userId,
-        media_id: mediaId,
-        owner_kind: 'conversation' as const,
-        owner_id: conversationId,
-        created_at: Date.now(),
-      })),
-    )
-    .onConflictDoNothing()
-    .returning({ mediaId: schema.media_references.media_id })
-  return { allowed: new Set(ids), created: created.map((row) => row.mediaId) }
-}
-
-/** 起轮没被接收时只撤回本次新建的引用，不动原有会话引用。 */
-export async function releaseCanvasMediaClaims(
-  conversationId: string,
-  userId: string | null,
-  mediaIds: readonly string[],
-): Promise<void> {
-  if (!userId || mediaIds.length === 0) return
-  await db
-    .delete(schema.media_references)
-    .where(
-      and(
-        eq(schema.media_references.user_id, userId),
-        eq(schema.media_references.owner_kind, 'conversation'),
-        eq(schema.media_references.owner_id, conversationId),
-        inArray(schema.media_references.media_id, mediaIds),
-      ),
-    )
+  return new Set(owned.map((row) => row.id))
 }
 
 /**
@@ -667,10 +643,13 @@ export function createAgentImageSource(input: {
   readonly history: readonly AgentMessageView[]
   readonly conversationId: string
   readonly userId: string | null
+  /** 仅本轮已校验画布里的媒体；不把它们持久认领给会话。 */
+  readonly canvasMediaIds?: readonly string[]
   /** 未完成澄清链从此处继承选区；系统续作传 0，新请求默认不继承。 */
   readonly selectionHistoryStart?: number
 }): AgentImageSource {
   const { userId } = input
+  const canvasMediaIds = new Set(input.canvasMediaIds ?? [])
   // 原图可跨请求复用，选区只在当前请求、澄清链或已授权续作中有效。
   const selectionHistoryStart = input.selectionHistoryStart ?? input.history.length
   const references = new Map<string, AgentImageReference>()
@@ -735,7 +714,13 @@ export function createAgentImageSource(input: {
     }
     const folded = await readFoldedOutput(imageId, input.conversationId, userId)
     if (folded) return { imageId, ...folded }
-    const canvas = await readCanvasMedia(imageId, input.conversationId, userId, variant)
+    const canvas = await readCanvasMedia(
+      imageId,
+      input.conversationId,
+      userId,
+      variant,
+      canvasMediaIds,
+    )
     if (canvas) return { imageId, ...canvas }
     if (!userId) return null
     const asset = await readAssetImage(userId, imageId)
