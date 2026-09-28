@@ -1,6 +1,9 @@
 import { accountRequired } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
+import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { loadImage } from '../../../lib/canvasImage'
+import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
+import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { calculateMaskWorkingSize, prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
@@ -12,6 +15,7 @@ import type { ImageEl } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 import { buildOutpaintInputs, cropBitmap, rectPixelSize } from './imageRectEdit'
 import { exportMaskDataUrl, type MaskStroke } from './inpaintMask'
+import { maskedEditSizeRefusal } from './maskedEditLimits'
 
 /** 画布快捷操作只组织 Agent 的一轮输入；生成、排队和落图仍由 Agent 对话负责。 */
 export async function sendImageEditToAgent(
@@ -32,6 +36,14 @@ export async function sendImageEditToAgent(
       .showToast(i18next.t('imageToolbar.sourceMissing', { ns: 'canvas' }), 'error')
     return false
   }
+  const masked = Boolean(options.strokes?.length || options.frame?.mode === 'outpaint')
+  if (
+    masked &&
+    !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
+  ) {
+    useStore.getState().showToast(i18next.t('inpaint.modelUnsupported', { ns: 'canvas' }), 'error')
+    return false
+  }
   const agent = useAgentStore.getState()
   if (!agentPanelPresent() || agent.historyLoading || agent.historyFailed) {
     useStore
@@ -45,6 +57,11 @@ export async function sendImageEditToAgent(
     if (options.strokes?.length) {
       const original = await resolveMediaSource(source, 'original')
       const target = await prepareMaskTargetDataUrl(original)
+      const refusal = maskedEditSizeRefusal(target.width, target.height)
+      if (refusal) {
+        useStore.getState().showToast(refusal, 'error')
+        return false
+      }
       dataUrl = target.dataUrl
       maskDataUrl = await exportMaskDataUrl(
         current,
@@ -71,6 +88,11 @@ export async function sendImageEditToAgent(
           current,
           workingNatural,
         )
+        const refusal = maskedEditSizeRefusal(input.width, input.height)
+        if (refusal) {
+          useStore.getState().showToast(refusal, 'error')
+          return false
+        }
         dataUrl = input.source
         maskDataUrl = input.mask
       }

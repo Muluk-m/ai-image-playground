@@ -12,10 +12,18 @@ import {
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { useTranslation } from '../../../i18n'
+import { loadImage } from '../../../lib/canvasImage'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
+import { useStore } from '../../../store'
 import { useInpaintSession } from '../inpaintStore'
 import { canvasImageSource } from '../lib/canvasImageActions'
+import { outpaintRefusal } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
+import { rectPixelSize } from '../lib/imageRectEdit'
+import { maskedEditSizeRefusal } from '../lib/maskedEditLimits'
 import { sendImageEditToAgent } from '../lib/sendImageEditToAgent'
+import { inpaintRefusal } from '../lib/submitInpaint'
 import { useRectEdit } from '../rectEditStore'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
@@ -31,6 +39,7 @@ const RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const
 /** 图片下方的快捷菜单；编辑动作将它就地展开，要求统一发给 Agent 对话。 */
 export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation(['canvas', 'common'])
+  const settings = useStore((state) => state.settings)
   const version = useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const inpaintImageId = useInpaintSession((state) => state.imageId)
   const openInpaint = useInpaintSession((state) => state.open)
@@ -41,9 +50,52 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const [prompt, setPrompt] = useState('')
   const [ratio, setRatio] = useState<(typeof RATIOS)[number]>('1:1')
   const [pending, setPending] = useState(false)
+  const [naturalSize, setNaturalSize] = useState<{
+    source: string
+    width: number
+    height: number
+  } | null>(null)
   const sessionEpoch = useRef(0)
+  const busyRef = useRef(false)
+  const activeRef = useRef(active)
+  activeRef.current = active
   const doc = editor.doc
   const selectedId = doc.selection.size === 1 ? [...doc.selection][0] : null
+  const selectedElement = selectedId ? doc.getElement(selectedId) : undefined
+  const selectedSource =
+    selectedElement?.type === 'image' ? doc.files[selectedElement.fileId] : undefined
+
+  useEffect(() => {
+    let live = true
+    if (selectedSource) {
+      void resolveMediaSource(selectedSource, 'original')
+        .then(loadImage)
+        .then((image) => {
+          if (live)
+            setNaturalSize({
+              source: selectedSource,
+              width: image.naturalWidth,
+              height: image.naturalHeight,
+            })
+        })
+        .catch(() => {
+          if (live) setNaturalSize(null)
+        })
+    }
+    return () => {
+      live = false
+    }
+  }, [selectedSource])
+
+  useEffect(
+    () => () => {
+      sessionEpoch.current += 1
+      const imageId = activeRef.current?.imageId
+      if (imageId && useInpaintSession.getState().imageId === imageId) closeInpaint()
+      if (imageId && useRectEdit.getState().imageId === imageId) rectSession.close()
+    },
+    [closeInpaint, rectSession.close],
+  )
 
   useEffect(() => {
     const item = active ? doc.getElement(active.imageId) : undefined
@@ -71,6 +123,16 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const sourceMissing = canvasImageSource(doc, element.id)
     ? undefined
     : t('imageToolbar.sourceMissing')
+  const dimensions = naturalSize?.source === selectedSource ? naturalSize : null
+  const paintReason =
+    sourceMissing ??
+    inpaintRefusal(
+      element,
+      dimensions ? { width: dimensions.width, height: dimensions.height } : null,
+      settings,
+    ) ??
+    undefined
+  const outpaintReason = sourceMissing ?? outpaintRefusal(element, settings) ?? undefined
   const actionTitle: Record<EditAction, string> = {
     inpaint: t('inpaint.title'),
     erase: t('erase.title'),
@@ -112,8 +174,13 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
       ? imageBottom + TOOLBAR_GAP
       : Math.max(8, imageTop - TOOLBAR_GAP - TOOLBAR_HEIGHT)
   const panelEpoch = sessionEpoch.current
+  const setBusy = (value: boolean) => {
+    busyRef.current = value
+    setPending(value)
+  }
 
   const close = () => {
+    if (busyRef.current) return
     sessionEpoch.current += 1
     setActive(null)
     setPending(false)
@@ -121,8 +188,8 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
     rectSession.close()
   }
   const open = (action: EditAction) => {
+    if (busyRef.current) return
     sessionEpoch.current += 1
-    setPending(false)
     setMenu(null)
     if (inpaintImageId) closeInpaint()
     if (rectSession.mode) rectSession.close()
@@ -135,10 +202,19 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
     editor.focusImageForEdit(element.id, action === 'inpaint' || action === 'erase' ? 390 : 225)
   }
   const send = async () => {
-    if (pending || !expanded || painting) return
+    if (busyRef.current || !expanded || painting) return
     const requirement = prompt.trim()
     if (expanded === 'edit' && !requirement) return
     if (framing && !frameChanged) return
+    if (expanded === 'outpaint' && dimensions) {
+      const desired = rectPixelSize(frame, element, dimensions)
+      const working = calculateMaskWorkingSize(desired.width, desired.height)
+      const refusal = maskedEditSizeRefusal(working.width, working.height)
+      if (refusal) {
+        useStore.getState().showToast(refusal, 'error')
+        return
+      }
+    }
     // 发给模型的业务指令是数据，按 apps/web/AGENTS.md 不随界面语言翻译。
     const instructions: Record<Exclude<EditAction, 'inpaint' | 'erase'>, string> = {
       cutout: '请把 [image 1] 的主体精细抠出，背景透明，保留边缘细节。',
@@ -155,18 +231,16 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
       frameDescription +
       (expanded !== 'edit' && requirement ? ' ' + requirement : '')
     const epoch = sessionEpoch.current
-    setPending(true)
+    setBusy(true)
+    let sent = false
     try {
-      if (
-        (await sendImageEditToAgent(editor, element, instruction, {
-          ...(frameMode ? { frame: { mode: frameMode, rect: frame } } : {}),
-        })) &&
-        epoch === sessionEpoch.current
-      )
-        close()
+      sent = await sendImageEditToAgent(editor, element, instruction, {
+        ...(frameMode ? { frame: { mode: frameMode, rect: frame } } : {}),
+      })
     } finally {
-      if (epoch === sessionEpoch.current) setPending(false)
+      if (epoch === sessionEpoch.current) setBusy(false)
     }
+    if (sent && epoch === sessionEpoch.current) close()
   }
 
   return (
@@ -200,14 +274,16 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             compact
             icon={<Wand2 />}
             label={t('inpaint.action')}
-            reason={sourceMissing}
+            reason={paintReason}
+            disabled={pending}
             onClick={() => open('inpaint')}
           />
           <CanvasToolbarButton
             compact
             icon={<Eraser />}
             label={t('erase.action')}
-            reason={sourceMissing}
+            reason={paintReason}
+            disabled={pending}
             onClick={() => open('erase')}
           />
           <CanvasToolbarButton
@@ -215,6 +291,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             icon={<Scissors />}
             label={t('cutout.action')}
             reason={sourceMissing}
+            disabled={pending}
             onClick={() => open('cutout')}
           />
           <CanvasToolbarButton
@@ -222,6 +299,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             icon={<Pencil />}
             label={t('imageEdit.singleAction')}
             reason={sourceMissing}
+            disabled={pending}
             onClick={() => open('edit')}
           />
           <CanvasToolbarButton
@@ -229,13 +307,15 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             icon={<Crop />}
             label={t('crop.action')}
             reason={sourceMissing}
+            disabled={pending}
             onClick={() => open('crop')}
           />
           <CanvasToolbarButton
             compact
             icon={<Expand />}
             label={t('outpaint.action')}
-            reason={sourceMissing}
+            reason={outpaintReason}
+            disabled={pending}
             onClick={() => open('outpaint')}
           />
           <CanvasToolbarButton
@@ -243,12 +323,14 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             icon={<Ratio />}
             label={t('resize.action')}
             reason={sourceMissing}
+            disabled={pending}
             onClick={() => open('resize')}
           />
           <CanvasToolbarButton
             compact
             icon={<MoreHorizontal />}
             label={t('imageToolbar.more')}
+            disabled={pending}
             onClick={(button) => {
               const rect = button.getBoundingClientRect()
               setMenu({ id: element.id, x: rect.left, y: rect.bottom + 4 })
@@ -259,6 +341,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
               type="button"
               aria-label={t('common:action.close')}
               className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+              disabled={pending}
               onClick={close}
             >
               <X className="h-4 w-4" />
@@ -268,6 +351,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         {painting && (
           <InpaintPanel
             editor={editor}
+            onSendingChange={setBusy}
             onDone={() => {
               if (sessionEpoch.current === panelEpoch) close()
             }}
@@ -315,7 +399,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
               }}
             />
             <div className="flex justify-end gap-2">
-              <button type="button" className={OUTLINE_BUTTON} onClick={close}>
+              <button type="button" className={OUTLINE_BUTTON} disabled={pending} onClick={close}>
                 {t('common:action.cancel')}
               </button>
               <button
