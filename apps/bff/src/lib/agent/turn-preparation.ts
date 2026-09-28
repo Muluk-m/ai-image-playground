@@ -211,8 +211,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
     const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
+    const currentTime = new Date().toISOString()
     const estimated = (one: TurnContent): EstimatedTurnInput => {
-      const input = turnInputOf(window, one, audience, skillTexts)
+      const input = turnInputOf(window, one, audience, skillTexts, currentTime)
       return { input, estimatedInputTokens: estimateTurnInputTokens(input) }
     }
     const withNote = estimated(content)
@@ -310,10 +311,12 @@ function turnInputOf(
   content: TurnContent,
   audience: AgentTurnAudience,
   skillTexts: ReadonlyMap<string, string>,
+  currentTime: string,
 ): AgentTurnInput {
   const note = content.wakes?.note
   return {
     history,
+    currentTime,
     text: content.text,
     references: content.references,
     mode: content.mode,

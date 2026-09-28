@@ -267,16 +267,21 @@ afterAll(async () => {
 describe('估算看到的就是发出去的那一份', () => {
   it('用户消息这一轮', async () => {
     const conversationId = await conversationWithResult()
+    const before = Date.now()
     const { prepared } = await prepare(
       conversationId,
       await queuedMessage(conversationId, '换成夜景'),
     )
+    const after = Date.now()
     const turn = preparedTurn(prepared)
+    expect(Date.parse(turn.input.currentTime)).toBeGreaterThanOrEqual(before)
+    expect(Date.parse(turn.input.currentTime)).toBeLessThanOrEqual(after)
 
     const call = await runPrepared(turn)
 
     const body = turnPromptBody(turn.input)
-    expect(body).toBe('换成夜景')
+    expect(body).toContain('换成夜景')
+    expect(body).toContain(`当前时间（UTC）：${turn.input.currentTime}`)
     expect(sentPromptText(call).startsWith(body)).toBe(true)
   })
 
@@ -326,7 +331,7 @@ describe('估算看到的就是发出去的那一份', () => {
 
     const body = turnPromptBody(turn.input)
     const note = '先回应用户这条消息'
-    expect(body.startsWith('顺便把背景换成蓝色')).toBe(true)
+    expect(body).toContain('顺便把背景换成蓝色')
     expect(body.indexOf('[image 1]')).toBeLessThan(body.indexOf(note))
     expect(turn.input.reviewImageIds).toEqual(['agent_task-1_0'])
     expect(sentPromptText(call).startsWith(body)).toBe(true)
@@ -397,7 +402,7 @@ describe('预扣按这一份轮输入算', () => {
     const turn = preparedTurn(prepared)
 
     expect(turn.input.note).toBeUndefined()
-    expect(turnPromptBody(turn.input)).toBe('顺便把背景换成蓝色')
+    expect(turnPromptBody(turn.input)).toContain('顺便把背景换成蓝色')
     // 说明没进这一轮，那条唤醒就留在收件箱里，之后走它自己的路。
     const [wake] = await db
       .select()

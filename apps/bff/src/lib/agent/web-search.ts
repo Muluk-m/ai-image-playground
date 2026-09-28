@@ -94,13 +94,14 @@ export interface AgentWebSearchOutcome {
 }
 
 function requestBody({ query, count }: AgentWebSearchInput): string {
+  const currentTime = new Date().toISOString()
   return JSON.stringify({
     model: config.agent.searchModel,
     instructions: INSTRUCTIONS,
     // 搜索要的是检索与转述，不是推演；低档位省掉大半输出 token 与一半等待。
     reasoning: { effort: 'low' },
     tools: [{ type: 'web_search' }],
-    input: `Search the web for: ${query}\n\nReturn the top ${count} results with title, URL and a one-line description.`,
+    input: `Current time (UTC): ${currentTime}. Use it for relative dates; preserve explicit dates in the query.\n\nSearch the web for: ${query}\n\nReturn the top ${count} results with title, URL and a one-line description.`,
     stream: false,
   })
 }
