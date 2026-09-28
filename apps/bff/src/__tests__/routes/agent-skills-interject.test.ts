@@ -152,6 +152,7 @@ describe('naming a skill while the turn is still running', () => {
       text: '先聊聊',
       mode: 'video',
     })
+    expect(live.status).toBe(200)
     upstream.push('好的')
     const seen = await readFrames(live, 3)
     const start = seen[0]!.event
@@ -180,5 +181,53 @@ describe('naming a skill while the turn is still running', () => {
     const messages = await readMessages(conversationId)
     const typed = messages.filter((message) => message.role === 'user')
     expect(typed.at(-1)?.content).toEqual([{ type: 'text', text: '/storyboard-short 加一镜结尾' }])
+  })
+
+  it('delivers multiple pending interjections together at the next model call', async () => {
+    const conversationId = await startConversation()
+    const live = await post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text: '先聊聊',
+      mode: 'video',
+    })
+    expect(live.status).toBe(200)
+    upstream.push('好的')
+    const seen = await readFrames(live, 3)
+    const start = seen[0]!.event
+    const turnId = start.type === 'turnStart' ? start.turnId : ''
+
+    for (const text of ['补充第一点', '补充第二点']) {
+      const response = await post(
+        `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+        { deviceId: DEVICE, text },
+      )
+      expect(response.status).toBe(200)
+    }
+
+    const next = controlledCompletion()
+    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => next.responseFor(signal)))
+    upstream.finish()
+    await waitFor(() => calls.length === 2)
+
+    const pendingTexts = calls[1]!.messages
+      .filter((message) => message.role === 'user')
+      .map((message) =>
+        typeof message.content === 'string'
+          ? message.content
+          : (message.content as { type: string; text?: string }[])
+              .filter((block) => block.type === 'text')
+              .map((block) => block.text ?? '')
+              .join(''),
+      )
+    expect(pendingTexts.at(-2)).toContain('补充第一点')
+    expect(pendingTexts.at(-1)).toContain('补充第二点')
+
+    next.push('收到')
+    next.finish()
+    await waitFor(
+      async () =>
+        (await readMessages(conversationId)).filter((m) => m.role === 'user').length === 3,
+    )
+    expect(calls).toHaveLength(2)
   })
 })
