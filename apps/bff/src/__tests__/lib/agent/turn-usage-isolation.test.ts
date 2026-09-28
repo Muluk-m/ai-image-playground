@@ -61,6 +61,7 @@ function prepared(
     turnId,
     userMessageId: 'next',
     input: {
+      currentTime: '2026-09-28T00:00:00.000Z',
       history: {
         messages,
         coveredCount: 0,

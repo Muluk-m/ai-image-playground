@@ -35,6 +35,7 @@ const { agentToolDeclarations } = await import('../../../lib/agent/tools')
 const { shownImageRequests } = await import('../../../lib/agent/images')
 
 type AgentTurnInput = import('../../../lib/agent/turn-input').AgentTurnInput
+const CURRENT_TIME = '2026-09-28T02:30:00.000Z'
 
 /** 一份轮输入：估算与实发都从它派生，所以每条用例只写它和默认值的差。 */
 function input(
@@ -45,6 +46,7 @@ function input(
 ): AgentTurnInput {
   return {
     history: unfolded(history),
+    currentTime: CURRENT_TIME,
     text,
     references,
     mode: 'image',
@@ -221,14 +223,15 @@ describe('estimateTurnInputTokens', () => {
     expect(added([], '换成夜景', [PLAIN])).toBe(1268)
   })
 
-  // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行（182）。
+  // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行；
+  // 本轮时间上下文改变了整条消息的取整边界。
   it('charges three image blocks for a masked reference', () => {
-    expect(added([], '换成夜景', [MASKED])).toBe(3782)
+    expect(added([], '换成夜景', [MASKED])).toBe(3783)
   })
 
-  // 上面两条各自的块与清单行加在一起（4800 字符 = 4800 + 201），清单头只写一次。
+  // 上面两条各自的块与清单行加在一起，清单头只写一次。
   it('adds the blocks of every active reference', () => {
-    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5001)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(5002)
   })
 
   it('does not charge visual input blocks for historical selections', () => {
@@ -342,9 +345,9 @@ describe('estimated and sent turn input', () => {
 
   it('writes this turn prompt text the same way on both paths', () => {
     const estimated = estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED]))
-    // 实发那一份是 `turnPromptText` 再接视觉证据清单，估算照同一条规则拼，所以只能是前缀。
+    // 实发那一份是时间上下文与 `turnPromptText` 再接视觉证据清单，估算照同一条规则拼。
     expect(
-      textOf(estimated.at(-1)!).startsWith(turnPromptText('换成夜景', [PLAIN, MASKED], true)),
+      textOf(estimated.at(-1)!).startsWith(turnPromptBody(input([], '换成夜景', [PLAIN, MASKED]))),
     ).toBe(true)
   })
 
@@ -380,7 +383,9 @@ describe('estimated and sent turn input', () => {
     const promptText = turnPromptText('都换成夜景', listed, true)
     expect(promptText).toContain('（内容已附在本轮输入里）')
     expect(
-      textOf(estimatedTurnInput(input([], '都换成夜景', listed)).at(-1)!).startsWith(promptText),
+      textOf(estimatedTurnInput(input([], '都换成夜景', listed)).at(-1)!).startsWith(
+        turnPromptBody(input([], '都换成夜景', listed)),
+      ),
     ).toBe(true)
 
     // 一张内联的也没有时整批只上清单，预扣连一块图片都不数。
@@ -395,7 +400,7 @@ describe('estimated and sent turn input', () => {
    */
   it('writes the same visual evidence manifest on both paths', async () => {
     const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
-    const promptText = turnPromptText('换成夜景', [PLAIN, MASKED], true)
+    const promptText = turnPromptBody(input([], '换成夜景', [PLAIN, MASKED]))
     const sent = turnModelPrompt(promptText, evidence)
     const estimatedText = textOf(estimatedTurnInput(input([], '换成夜景', [PLAIN, MASKED])).at(-1)!)
     const estimatedManifest = estimatedText.slice(promptText.length)
@@ -421,7 +426,7 @@ describe('estimated and sent turn input', () => {
     const reviewing = input([], '复核', [], { reviewImageIds: [reviewed.imageId] })
     const estimated = estimatedTurnInput(reviewing).at(-1)!
     expect(imageBlocks(estimated)).toBe(evidence.content.length)
-    expect(textOf(estimated)).toBe(turnPromptText('复核', [], false) + evidence.manifest)
+    expect(textOf(estimated)).toBe(turnPromptBody(reviewing) + evidence.manifest)
     expect(
       estimateTurnInputTokens(reviewing) - estimateTurnInputTokens(input([], '复核')),
     ).toBeGreaterThanOrEqual(1200)
@@ -434,8 +439,21 @@ describe('estimated and sent turn input', () => {
   it('appends a merged wake note after the reference manifest, outside the skill command', () => {
     const merged = input([], '换成夜景', [PLAIN], { note: '顺带：任务已完成。' })
     const body = turnPromptBody(merged)
-    expect(body).toBe(`${turnPromptText('换成夜景', [PLAIN], true)}\n\n顺带：任务已完成。`)
+    expect(body).toBe(
+      `当前时间（UTC）：${CURRENT_TIME}。按此理解“今年”“最近”等相对时间；用户明确给出的日期优先。\n\n${turnPromptText('换成夜景', [PLAIN], true)}\n\n顺带：任务已完成。`,
+    )
     expect(textOf(estimatedTurnInput(merged).at(-1)!).startsWith(body)).toBe(true)
+  })
+
+  it('uses this turn time without changing earlier messages or explicit dates', () => {
+    const earlier = userMessage('old', [{ type: 'text', text: '2025 年的趋势' }])
+    const current = input([earlier], '今年有哪些方向？')
+    const later = { ...current, currentTime: '2027-01-01T00:00:00.000Z' }
+
+    expect(turnPromptBody(current)).toContain(CURRENT_TIME)
+    expect(turnPromptBody(later)).toContain('2027-01-01T00:00:00.000Z')
+    expect(turnPromptBody(later)).not.toContain(CURRENT_TIME)
+    expect(estimatedTurnInput(current).map(textOf).join('\n')).toContain('2025 年的趋势')
   })
 })
 
