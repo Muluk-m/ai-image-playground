@@ -73,6 +73,30 @@ describe('fetchRemoteManifest', () => {
     expect(m.items[0].id).toBe('a')
   })
 
+  it('keeps only well-formed reference images from a published manifest', async () => {
+    const mixedManifest = {
+      ...goodManifest,
+      items: [
+        {
+          ...goodManifest.items[0],
+          referenceImages: [
+            { url: 'https://muvloom-inspiration-assets.deepclick.com/before.png', name: ' 原图 ' },
+            null,
+            { url: 'https://example.com/broken.png' },
+            { url: 'not-a-url', name: '坏图' },
+          ],
+        },
+      ],
+    }
+    mockFetch(() => Promise.resolve(new Response(JSON.stringify(mixedManifest), { status: 200 })))
+
+    const manifest = await fetchRemoteManifest('https://x/manifest.json')
+
+    expect(manifest.items[0].referenceImages).toEqual([
+      { url: 'https://muvloom-inspiration-assets.deepclick.com/before.png', name: '原图' },
+    ])
+  })
+
   it('falls back to the bundled seed when the published manifest is empty', async () => {
     const fetchMock = vi
       .fn()
