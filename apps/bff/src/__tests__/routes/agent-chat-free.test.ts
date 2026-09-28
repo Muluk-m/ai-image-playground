@@ -135,3 +135,54 @@ it('对话原价由私有账本按本轮定价快照计算，终帧和历史都�
     turns: [{ cost: { chat: 0, image: 0, video: 0, chatWaived: 20 } }],
   })
 })
+
+it('只用于展示的单价读取失败时，免费对话仍完成并留下未知减免标记', async () => {
+  billing.pricingError = new Error('pricing unavailable')
+  setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+  const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+  const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+  const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '你好',
+  })
+  const frames = parseFrames(await response.text())
+
+  expect(reservations).toEqual([])
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    stopReason: 'completed',
+    cost: { chat: 0, image: 0, video: 0, chatWaived: null },
+  })
+})
+
+it('减免报价失败时仍写摘要和终帧，不重试本轮结算', async () => {
+  let quoteCalls = 0
+  billing.pricing = {
+    outputPriceRatio: 5,
+    outputReserveTokens: 2_000,
+    quoteCredits() {
+      quoteCalls += 1
+      throw new Error('quote unavailable')
+    },
+  }
+  setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+  const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+  const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+  const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+    deviceId: DEVICE,
+    text: '你好',
+  })
+  const frames = parseFrames(await response.text())
+
+  expect(quoteCalls).toBe(1)
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    stopReason: 'completed',
+    cost: { chat: 0, image: 0, video: 0, chatWaived: null },
+  })
+  expect(await db.select({ cost: schema.agent_turns.cost }).from(schema.agent_turns)).toMatchObject(
+    [{ cost: { chat: 0, image: 0, video: 0, chatWaived: null } }],
+  )
+})

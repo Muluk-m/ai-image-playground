@@ -5,7 +5,6 @@ import Credits from '../../../components/Credits'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { CARD_NOTE } from '../agentStyles'
 import type { AgentTurnFooter } from '../types'
 
@@ -22,9 +21,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   const total = cost ? agentTurnCostTotal(cost) : null
   const failed = footer.stopReason === 'failed'
   const waivedChat =
-    footer.stopReason === 'completed' &&
-    cost?.chat === 0 &&
-    (cost.chatWaived !== undefined || isClientCapabilityEnabled('billing:chat-free'))
+    footer.stopReason === 'completed' && cost?.chat === 0 && cost.chatWaived !== undefined
 
   if (waivedChat && cost) return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} />
 

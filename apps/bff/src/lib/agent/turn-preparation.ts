@@ -10,6 +10,7 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
+import { log } from '../logger'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
@@ -167,7 +168,7 @@ interface CommittedTurnStart {
   readonly reserved: ChatTaskReserved | undefined
   readonly input: AgentTurnInput
   readonly estimatedInputTokens: number
-  readonly waiverPricing?: ChatTaskPricing
+  readonly waiverPricing?: ChatTaskPricing | null
 }
 
 /** 一份候选的轮输入与按它算出的估算：预扣按估算，实发按输入，两边同源。 */
@@ -210,10 +211,19 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const selectedModel = model.id
     const billChat = chatTurnsBilled()
     const waiveChat = isCapabilityEnabled('billing:chat-free')
-    const pricing =
-      (billChat || waiveChat) && userId
-        ? await chatTaskPricing(overlay.taskHooks, selectedModel)
-        : null
+    let pricing: ChatTaskPricing | null = null
+    if (billChat && userId) {
+      pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+    } else if (waiveChat && userId) {
+      try {
+        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+      } catch (err) {
+        log.warn(
+          { event: 'agent.chat_waiver_pricing_failed', turnId, err },
+          'chat waiver pricing unavailable',
+        )
+      }
+    }
 
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
@@ -279,7 +289,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         reserved,
         input: chosen.input,
         estimatedInputTokens: chosen.estimatedInputTokens,
-        ...(waiveChat && pricing ? { waiverPricing: pricing } : {}),
+        ...(waiveChat ? { waiverPricing: pricing } : {}),
       }
     })
   } catch (error) {
@@ -311,7 +321,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         conversationId,
         turnId,
         committed.reserved,
-        committed.waiverPricing
+        committed.waiverPricing !== undefined
           ? {
               pricing: committed.waiverPricing,
               estimatedInputTokens: committed.estimatedInputTokens,

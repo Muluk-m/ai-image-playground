@@ -18,6 +18,7 @@ export interface RecordedTaskHooks {
   decide: ((reservation: RecordedReservation) => TaskReservationResult | undefined) | null
   /** 单价表交给公开树的对话定价；默认 null，让公开树用它自己的兜底那档。 */
   pricing: ChatPricing | null
+  pricingError: Error | null
   /** 对话任务的实扣积分；退回的终态照真账本报 0。 */
   settledCredits: number
   /** 其余任务的实扣积分；工具提交的任务 id 测试事先不知道。 */
@@ -37,6 +38,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     answer: { kind: 'reserved', credits: 0 },
     decide: null,
     pricing: null,
+    pricingError: null,
     settledCredits: 0,
     creditsPerTask: 0,
     concurrencyLimit: 3,
@@ -46,6 +48,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
       recorded.answer = { kind: 'reserved', credits: 0 }
       recorded.decide = null
       recorded.pricing = null
+      recorded.pricingError = null
       recorded.settledCredits = 0
       recorded.creditsPerTask = 0
       recorded.concurrencyLimit = 3
@@ -76,6 +79,7 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
           )
         },
         async chatPricing() {
+          if (recorded.pricingError) throw recorded.pricingError
           return recorded.pricing
         },
         async accountConcurrencyLimit() {

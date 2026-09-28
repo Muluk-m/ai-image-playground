@@ -1161,6 +1161,34 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
   })
 
+  it('当前限免开关不把没有减免记录的旧零费用轮误标为对话减免', async () => {
+    await enableChatFree()
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '你好',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'completed',
+          cost: { chat: 0, image: 0, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
+    expect(host.textContent).toContain('本轮免费，未扣积分')
+  })
+
   it('限免时中止的轮仍标明已停止，不当作完成的减免', async () => {
     await enableChatFree()
     useAgentStore.setState({
