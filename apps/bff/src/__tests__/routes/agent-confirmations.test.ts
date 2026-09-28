@@ -9,7 +9,7 @@ import {
 import { and, eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
-import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
+import { _setPrivateBffOverlayForTesting, loadPrivateBffOverlay } from '../../lib/private-overlay'
 import {
   type AgentCall,
   completionStream,
@@ -390,6 +390,39 @@ describe('生成前确认', () => {
       })
       .where(eq(schema.agent_messages.id, pending.messageId))
     expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
+  })
+
+  it('清理任务前取不到实扣时保留任务行供下次补账', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一版')
+    const pending = await pendingCard(conversationId)
+    await confirm(conversationId, pending.messageId, WHITE_PROMPT)
+    const [task] = await generationTasks(conversationId)
+    expect(
+      await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
+    ).toBe(true)
+
+    const overlay = await loadPrivateBffOverlay()
+    _setPrivateBffOverlayForTesting({
+      ...overlay,
+      taskHooks: {
+        ...overlay.taskHooks,
+        async taskCredits() {
+          throw new Error('ledger unavailable')
+        },
+      },
+    })
+    try {
+      const { purgeOldTasks } = await import('../../db/maintenance')
+      await purgeOldTasks(-1)
+      expect(
+        await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id)),
+      ).toHaveLength(1)
+    } finally {
+      _setPrivateBffOverlayForTesting(overlay)
+    }
   })
 
   it('别人的会话确认不了', async () => {

@@ -13,9 +13,14 @@ export function turnCostWithJobs(
     const relevant = jobs.flatMap((message) => (message.job?.media === media ? [message.job] : []))
     if (!relevant.length) return cost[media]
     const known = relevant.filter((job) => job.chargedCredits !== undefined)
+    if (cost.includedTaskIds) {
+      const included = new Set(cost.includedTaskIds)
+      const later = known.filter((job) => !included.has(job.taskId))
+      return cost[media] + later.reduce((total, job) => total + (job.chargedCredits ?? 0), 0)
+    }
+    // 旧页脚没有任务快照；只能维持已结算金额，并补上它原本为零的轮后扣费。
     const sum = known.reduce((total, job) => total + (job.chargedCredits ?? 0), 0)
-    // 全部任务有实扣记录时，结果卡就是完整账本；部分旧记录尚无实扣时保留轮结算额。
-    return known.length === relevant.length ? sum : Math.max(cost[media], sum)
+    return Math.max(cost[media], sum)
   }
   return { ...cost, image: spent('image'), video: spent('video') }
 }

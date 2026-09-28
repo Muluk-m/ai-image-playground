@@ -812,6 +812,8 @@ export interface AgentTurnCost {
   readonly chat: number
   readonly image: number
   readonly video: number
+  /** 轮结算时已经归集的任务；轮后才确认的任务不在其中，展示时可逐笔追加。 */
+  readonly includedTaskIds?: readonly string[]
   /** 对话免费时，按本轮原价计算的减免；null 表示老计价接缝无法提供金额。 */
   readonly chatWaived?: number | null
 }

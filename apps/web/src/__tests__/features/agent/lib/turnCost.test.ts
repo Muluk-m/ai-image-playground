@@ -20,7 +20,14 @@ describe('turnCostWithJobs', () => {
   })
 
   it('keeps the known turn cost while a background job has not settled', () => {
-    const cost = { chat: 0, image: 100, video: 0, chatWaived: 20 }
+    const cost = { chat: 0, image: 100, video: 0, chatWaived: 20, includedTaskIds: ['first'] }
     expect(turnCostWithJobs(cost, [job('first', 100), job('second')]).image).toBe(100)
+  })
+
+  it('adds only charges absent from the settled footer even when a card is missing', () => {
+    const cost = { chat: 0, image: 100, video: 0, includedTaskIds: ['first', 'missing'] }
+    expect(turnCostWithJobs(cost, [job('first', 100), job('second', 50), job('third')]).image).toBe(
+      150,
+    )
   })
 })

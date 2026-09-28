@@ -10,6 +10,7 @@ import {
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
+import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
@@ -68,6 +69,7 @@ export function settledJobBlock(
 export async function settleAgentJobs(
   conversationId: string,
   messages: readonly AgentMessageView[],
+  options: { readonly requireCharges?: boolean } = {},
 ): Promise<AgentMessageView[]> {
   const pendingIds = messages.flatMap((message) =>
     message.content.filter(pendingJob).map((block) => block.job.taskId),
@@ -116,12 +118,20 @@ export async function settleAgentJobs(
       const overlay = await loadPrivateBffOverlay()
       credits = await overlay.taskHooks.taskCredits({ taskIds: billableIds })
     } catch (err) {
+      if (options.requireCharges) throw err
       // 报价不可用时照常交付产物；缺席金额不冒充零扣费。
       log.warn(
         { event: 'agent.job_credits_unavailable', conversationId, err },
         'job charge unavailable',
       )
     }
+  }
+  if (
+    options.requireCharges &&
+    isCapabilityEnabled('billing:credits') &&
+    billableIds.some((taskId) => !Number.isSafeInteger(credits[taskId]) || credits[taskId] < 0)
+  ) {
+    throw new Error('Agent job charge unavailable before task purge')
   }
 
   const settled: AgentMessageView[] = []
