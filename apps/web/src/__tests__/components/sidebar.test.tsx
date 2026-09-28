@@ -53,8 +53,8 @@ it('顶部三项：创作 / 探索 / 资产，选中的那个自己标出来', (
   expect(useStore.getState().appMode).toBe('library')
 })
 
-it('画布不占顶部导航位：项目是资产的一部分，「画布」标题和「全部」都去资产的项目标签', () => {
-  expect(() => entry('项目')).toThrow()
+it('项目不占顶部导航位：分组标题和「全部」都去资产的项目标签', () => {
+  expect(entry('项目').getAttribute('aria-pressed')).toBeNull()
 
   act(() => entry('全部').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('library')
@@ -62,7 +62,7 @@ it('画布不占顶部导航位：项目是资产的一部分，「画布」标�
   expect(entry('资产').getAttribute('aria-pressed')).toBe('true')
 
   act(() => useStore.getState().setAppMode('image'))
-  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => entry('项目').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('library')
   expect(useLibraryStore.getState().tab).toBe('projects')
 })
