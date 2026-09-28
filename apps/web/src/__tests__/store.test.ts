@@ -1676,7 +1676,8 @@ describe('展开平台记录的详情', () => {
           finishedAt: null,
         }),
       ],
-      platformGenerations: [{ id: 'gen-2', record: running, fetchedAt: 0 }],
+      // 首次拉取列表前也能按本机任务上的服务端请求号展开详情。
+      platformGenerations: [],
       detailTaskId: null,
     })
 

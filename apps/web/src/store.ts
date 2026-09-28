@@ -1864,7 +1864,8 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
 /** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出。补到的写回缓存，不写进本机任务。 */
 const hydratedGenerations = new Set<string>()
 async function hydratePlatformGeneration(id: string) {
-  if (!isPlatformGeneration(id) || hydratedGenerations.has(id)) return
+  const localRequest = useStore.getState().tasks.some((task) => task.bffRequestId === id)
+  if ((!isPlatformGeneration(id) && !localRequest) || hydratedGenerations.has(id)) return
   hydratedGenerations.add(id)
   const detail = await readRemoteGeneration(id)
   if (!detail) {
