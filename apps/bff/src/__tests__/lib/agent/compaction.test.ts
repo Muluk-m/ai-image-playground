@@ -232,6 +232,42 @@ describe('shapeAgentContext', () => {
     expect(result.mode).toBe('rebuild')
   })
 
+  it('bounds summary chunks independently of a million-token chat window', async () => {
+    const messages = [
+      user('m1', body('a').repeat(200)),
+      assistant('m2', body('b').repeat(200)),
+      user('m3', '最近的任务'),
+      assistantReporting('m4', '正在处理', 1_100_000),
+      user('m5', '继续'),
+    ]
+    const calls: SummaryRequest[] = []
+    await shapeAgentContext({
+      messages,
+      state: null,
+      foldedBefore: 0,
+      breaker: CLOSED,
+      settings: {
+        ...SETTINGS,
+        contextWindow: 1_000_000,
+        maxOutputTokens: 8_000,
+        outputReserveTokens: 8_000,
+        bufferTokens: 8_000,
+        keepRecentTokens: 500,
+      },
+      now: 1_000,
+      overheadTokens: 0,
+      summarize: summarizerOf(calls),
+    })
+
+    expect(calls).toHaveLength(2)
+    expect(calls.flatMap((call) => call.messages.map((entry) => entry.id))).toEqual(['m1', 'm2'])
+    expect(
+      calls.every(
+        (call) => tokensOfMessages(call.messages.map((entry) => entry.message)) <= 32_000,
+      ),
+    ).toBe(true)
+  })
+
   // 段界向前吸附到用户消息，与 cutPoint 同一条规矩：一段里不出现没有调用的工具结果。
   it('starts every fold chunk at a user message', async () => {
     const messages = [
@@ -778,5 +814,18 @@ describe('truncateToBudget', () => {
 
   it('没有消息就没有消息', () => {
     expect(truncateToBudget([], 250)).toEqual([])
+  })
+
+  it('keeps a tool result with its matching assistant call at a tight boundary', () => {
+    const call = {
+      ...assistant('m2', '').message,
+      content: [{ type: 'toolCall' as const, id: 'call-1', name: 'viewImage', arguments: {} }],
+    } as AgentMessage
+    const result = toolResult('call-1', body('r')).message
+    const shaped = truncateToBudget(
+      [user('m1', body('u')).message, call, result],
+      tokensOfMessages([call, result]),
+    )
+    expect(shaped).toEqual([call, result])
   })
 })

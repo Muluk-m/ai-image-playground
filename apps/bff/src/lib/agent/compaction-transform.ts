@@ -2,9 +2,15 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentCompactionRecord } from '@image-playground/shared'
 import type { ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
-import type { CompactionBreaker, CompactionMessage, CompactionState } from './compaction'
-import { messageBudget, shapeAgentContext, truncateToBudget } from './compaction'
-import { compactionSettings } from './compaction-settings'
+import {
+  type CompactionBreaker,
+  type CompactionMessage,
+  type CompactionSettings,
+  type CompactionState,
+  messageBudget,
+  shapeAgentContext,
+  truncateToBudget,
+} from './compaction'
 import { summarizeCompaction } from './compaction-summary'
 import { saveAgentCompaction } from './conversations'
 
@@ -27,6 +33,8 @@ export interface CompactionTransformInput {
    * 塑形要先把它让出来，否则消息刚好卡在阈值上、加上开销就超了出站硬闸。
    */
   readonly overheadTokens: number
+  /** 本轮模型的窗口及同源预留，压缩与出站硬闸共用。 */
+  readonly settings: CompactionSettings
   readonly onSummaryAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
 
@@ -106,7 +114,7 @@ export function createCompactionTransform(
   let current: Persisted = fromRecord(input.compaction)
   // 兜底预算在这里算一次：它要在 catch 里用，而 catch 自己不能再抛。
   // 与塑形用的是同一个算式，「兜底也不超阈值」才成立。
-  const fallbackBudget = messageBudget(compactionSettings(), input.overheadTokens)
+  const fallbackBudget = messageBudget(input.settings, input.overheadTokens)
 
   return async (messages) => {
     try {
@@ -116,7 +124,7 @@ export function createCompactionTransform(
         foldedBefore: input.foldedBefore,
         state: current.state,
         breaker: current.breaker,
-        settings: compactionSettings(),
+        settings: input.settings,
         now: Date.now(),
         overheadTokens: input.overheadTokens,
         summarize: (request) => summarizeCompaction(request, input.onSummaryAttempt),

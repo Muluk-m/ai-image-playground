@@ -32,6 +32,7 @@ const {
 } = await import('../../../lib/agent/turn-input')
 const { ANONYMOUS_AUDIENCE, lookSkillContent } = await import('../../../lib/agent/skills')
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { agentModel } = await import('../../../lib/agent/model')
 const { shownImageRequests } = await import('../../../lib/agent/images')
 
 type AgentTurnInput = import('../../../lib/agent/turn-input').AgentTurnInput
@@ -246,6 +247,9 @@ describe('estimateTurnInputTokens', () => {
 
   it('caps a long history at the compaction threshold', () => {
     expect(estimateTurnInputTokens(input(LONG_HISTORY, '继续'))).toBe(26_500)
+    expect(
+      estimateTurnInputTokens(input(LONG_HISTORY, '继续'), agentModel('fast')),
+    ).toBeGreaterThan(26_500)
   })
 })
 

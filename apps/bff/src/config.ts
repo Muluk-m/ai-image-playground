@@ -140,7 +140,7 @@ export const config = {
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
     model: env('AGENT_CHAT_MODEL', ''),
-    /** 每轮愿意承担的上下文预算；可低于模型实际窗口，压缩按此值触发。 */
+    /** 未登记在 thinking.config.json 的旧模型窗口；已登记模型从自身元数据取值。 */
     contextWindow: positiveIntEnv('AGENT_CHAT_CONTEXT_WINDOW', 128_000),
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
