@@ -6,6 +6,7 @@ import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
 import { previewArtifactBitmap } from '../lib/artifactSource'
+import { agentCanvasSink } from '../lib/canvasSink'
 import type { AgentToolMessage } from '../types'
 import AgentPromptDialog from './AgentPromptDialog'
 
@@ -13,7 +14,21 @@ interface PaneItem {
   readonly id: string
   readonly media: 'image' | 'video'
   readonly load: () => Promise<string | null>
+  readonly loadThumbnail: () => Promise<string | null>
   readonly videoUrl?: string
+}
+
+async function canvasOrSource(
+  id: string,
+  fallback: () => Promise<string | null>,
+  scale = 1,
+): Promise<string | null> {
+  const canvas = agentCanvasSink()
+  if (canvas?.has(id)) {
+    const bitmap = await canvas.thumbnail(id, scale).catch(() => null)
+    if (bitmap) return bitmap
+  }
+  return fallback()
 }
 
 export default function AgentArtifactPane({
@@ -39,7 +54,9 @@ export default function AgentArtifactPane({
     ...(message.artifacts ?? []).map((artifact) => ({
       id: artifact.artifactId,
       media: artifact.media === 'video' ? ('video' as const) : ('image' as const),
-      load: () => previewArtifactBitmap(artifact),
+      load: () => canvasOrSource(artifact.artifactId, () => previewArtifactBitmap(artifact)),
+      loadThumbnail: () =>
+        canvasOrSource(artifact.artifactId, () => previewArtifactBitmap(artifact), 0.16),
       videoUrl:
         artifact.media === 'video'
           ? queueOutputUrl(artifact.taskId, artifact.outputIndex)
@@ -49,7 +66,15 @@ export default function AgentArtifactPane({
       id: fetchedCanvasId(message.toolCallId, index),
       media: 'image' as const,
       load: () =>
-        resolveMediaSource(`aip-media:${image.imageId}`, 'original', true).catch(() => null),
+        canvasOrSource(fetchedCanvasId(message.toolCallId, index), () =>
+          resolveMediaSource(`aip-media:${image.imageId}`, 'original', true).catch(() => null),
+        ),
+      loadThumbnail: () =>
+        canvasOrSource(
+          fetchedCanvasId(message.toolCallId, index),
+          () => resolveMediaSource(`aip-media:${image.imageId}`, 'preview').catch(() => null),
+          0.16,
+        ),
     })),
   ]
   const active = items.find((item) => item.id === selectedId) ?? items[0]
@@ -206,7 +231,7 @@ function PaneThumbnail({
   const [source, setSource] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
-    void item.load().then((next) => {
+    void item.loadThumbnail().then((next) => {
       if (alive) setSource(next)
     })
     return () => {
