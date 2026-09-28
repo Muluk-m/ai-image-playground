@@ -1,6 +1,7 @@
 import { i18next } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { startGeneration } from '../../../lib/generationJob'
+import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import type { TaskParams } from '../../../types'
 import {
@@ -204,6 +205,11 @@ export async function submitFromCanvas(
     return
   }
 
+  // 并成一次时 BFF 最多收这么多张参考图；超了先说清楚，别栅格化完再被服务端拒掉。
+  if (plan && plan.entries.length > API_MAX_IMAGES) {
+    showToast(i18next.t('submit.tooManyInputs', { ns: 'canvas', max: API_MAX_IMAGES }), 'error')
+    return
+  }
   const selection = await rasterizeSelection(editor)
   // 守卫：选中了图片但栅格化全部失败 → 明确报错，绝不静默降级成文生图。
   if (!selection && plan) {

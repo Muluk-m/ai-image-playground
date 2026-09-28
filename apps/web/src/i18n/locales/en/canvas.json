@@ -77,6 +77,7 @@
   "submit": {
     "blocked": "Can't generate right now",
     "rasterizeFailed": "Could not process the selected images, please retry",
+    "tooManyInputs": "Up to {{max}} reference images per generation. Select fewer, or generate one image at a time",
     "rasterizePartial": "Some images could not be processed and were skipped; the rest were submitted",
     "emptyInput": "Enter a prompt, or select images on the canvas first",
     "inputsLost": "The original input images were lost when the page closed; select the images again to generate"
