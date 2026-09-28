@@ -1106,6 +1106,54 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('实扣100')
   })
 
+  it('确认后才结算的生图费用回填同一轮账单，刷新后仍显示 120 − 20 = 100', async () => {
+    await enableChatFree()
+    const footer = {
+      turnId: 'turn-1',
+      durationMs: 7_000,
+      stopReason: 'completed' as const,
+      cost: { chat: 0, image: 0, video: 0, chatWaived: 20 },
+    }
+    const job: AgentToolMessage = {
+      kind: 'tool',
+      id: 'tool-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      title: '蓝色圆形',
+      status: 'submitted',
+      job: { taskId: 'task-1', media: 'image' },
+    }
+    useAgentStore.setState({ messages: [job], turns: { 'turn-1': footer } })
+    render()
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).toBeNull()
+
+    act(() =>
+      useAgentStore.setState({
+        messages: [{ ...job, status: 'succeeded', job: { ...job.job!, chargedCredits: 100 } }],
+      }),
+    )
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    act(() => toggle.click())
+    expect(host.textContent).toContain('原价120')
+    expect(host.textContent).toContain('对话减免−20')
+    expect(host.textContent).toContain('实扣100')
+
+    act(() =>
+      useAgentStore.setState({
+        messages: [],
+        turns: {},
+      }),
+    )
+    act(() =>
+      useAgentStore.setState({
+        messages: [{ ...job, status: 'succeeded', job: { ...job.job!, chargedCredits: 100 } }],
+        turns: { 'turn-1': footer },
+      }),
+    )
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+  })
+
   it('限免开启后翻旧的收费轮，不把已经实扣的对话积分划掉', async () => {
     await enableChatFree()
     useAgentStore.setState({

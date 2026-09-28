@@ -324,16 +324,21 @@ describe('settling a chat task', () => {
       outputTokens: 400,
     })
 
-    expect(cost).toEqual({ chat: 42, image: 85, video: 85 })
+    expect(cost).toEqual({
+      chat: 42,
+      image: 85,
+      video: 85,
+      includedTaskIds: [`${turnId}-image`, `${turnId}-video`, turnId],
+    })
   })
 
   it('costs a failed turn nothing once the ledger has refunded it', async () => {
     billing.settledCredits = 42
-    const { reservation } = await reserve({ estimatedInputTokens: 3_000 })
+    const { turnId, reservation } = await reserve({ estimatedInputTokens: 3_000 })
 
     const { cost, settlement } = await settleTurn(expectReserved(reservation), null, 'failed')
 
     expect(settlement.outcome).toBe('failed')
-    expect(cost).toEqual({ chat: 0, image: 0, video: 0 })
+    expect(cost).toEqual({ chat: 0, image: 0, video: 0, includedTaskIds: [turnId] })
   })
 })

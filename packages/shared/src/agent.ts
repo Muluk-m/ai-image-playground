@@ -437,6 +437,8 @@ export interface AgentTimelineClip {
 export interface AgentBackgroundJob {
   readonly taskId: string
   readonly media: ChannelMedia
+  /** 任务结算后的实扣积分；任务仍在跑或旧记录查不到账时缺席。 */
+  readonly chargedCredits?: number
   /** 视频任务实际提交的档位；任务成功时记到产物上。 */
   readonly video?: VideoGenerationRecord
   /**
@@ -810,6 +812,8 @@ export interface AgentTurnCost {
   readonly chat: number
   readonly image: number
   readonly video: number
+  /** 轮结算时已经归集的任务；轮后才确认的任务不在其中，展示时可逐笔追加。 */
+  readonly includedTaskIds?: readonly string[]
   /** 对话免费时，按本轮原价计算的减免；null 表示老计价接缝无法提供金额。 */
   readonly chatWaived?: number | null
 }

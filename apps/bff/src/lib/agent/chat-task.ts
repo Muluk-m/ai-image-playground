@@ -200,7 +200,7 @@ async function collectTurnCost(conversationId: string, turnId: string): Promise<
   const overlay = await loadPrivateBffOverlay()
   const credits = await overlay.taskHooks.taskCredits({ taskIds: rows.map((row) => row.id) })
 
-  const cost = { chat: 0, image: 0, video: 0 }
+  const cost = { chat: 0, image: 0, video: 0, includedTaskIds: Object.keys(credits) }
   for (const row of rows) {
     const bucket = row.kind === 'chat' ? 'chat' : row.video ? 'video' : 'image'
     cost[bucket] += credits[row.id] ?? 0
