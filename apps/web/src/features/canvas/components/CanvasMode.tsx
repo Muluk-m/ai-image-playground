@@ -273,6 +273,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       setProjectView('canvas')
       return true
     } catch {
+      pendingArtifactEdit = null
       return false
     }
   }
