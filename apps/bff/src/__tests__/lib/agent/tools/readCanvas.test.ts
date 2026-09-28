@@ -419,6 +419,9 @@ it('makes an uploaded image readable before the project document syncs', async (
     canvasMediaIds: [...ready],
   })
   expect((await inThisTurn.resolve(MEDIA))?.dataUrl).toBe('data:image/png;base64,aGk=')
+  expect((await inThisTurn.resolve(`aip-media:${MEDIA.toUpperCase()}`))?.dataUrl).toBe(
+    'data:image/png;base64,aGk=',
+  )
   const [claims] = await db
     .select({ id: schema.media_references.media_id })
     .from(schema.media_references)

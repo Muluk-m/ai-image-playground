@@ -343,7 +343,7 @@ async function readCanvasMedia(
   variant: AgentImageVariant,
   canvasMediaIds?: ReadonlySet<string>,
 ): Promise<ReadImage | null> {
-  const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]
+  const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]?.toLowerCase()
   if (!mediaId) return null
   const media = await readConversationMedia(
     mediaId,
