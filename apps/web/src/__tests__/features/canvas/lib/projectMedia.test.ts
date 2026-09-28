@@ -130,6 +130,58 @@ describe('只在本机的失败占位', () => {
 
     expect(projectDocument(doc)).toEqual({ version: 1, elements: [] })
   })
+
+  it('不把本机生成队列的失败和等待占位写进云端文档', () => {
+    const doc = new CanvasDoc()
+    doc.addElements([
+      {
+        id: 'note',
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        text: '保留',
+        fontSize: 20,
+        fill: '#fff',
+      },
+      {
+        id: 'failed',
+        type: 'placeholder',
+        x: 100,
+        y: 0,
+        width: 360,
+        height: 360,
+        status: 'error',
+        message: '',
+        meta: {
+          taskId: 'task-1',
+          clientRequestId: 'request-1',
+          source: 'builtin-edge',
+          prompt: '重新构图',
+        },
+      },
+      {
+        id: 'waiting',
+        type: 'placeholder',
+        x: 500,
+        y: 0,
+        width: 360,
+        height: 360,
+        status: 'loading',
+        message: '',
+        meta: {
+          taskId: 'task-2',
+          clientRequestId: 'request-2',
+          source: 'builtin-edge',
+          prompt: '重新构图',
+        },
+      },
+    ])
+
+    expect(projectDocument(doc)).toEqual({ version: 1, elements: [doc.getElement('note')] })
+    expect(doc.elements).toHaveLength(3)
+  })
 })
 
 describe('本机原图上云', () => {
