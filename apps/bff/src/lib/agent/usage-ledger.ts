@@ -115,6 +115,9 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
             model: message.model,
             estimatedInputTokens: estimated,
             reportedInputTokens: usage.inputTokens,
+            reportedCacheReadTokens: reported.cacheRead,
+            reportedCacheWriteTokens: reported.cacheWrite,
+            cacheHitRate: usage.inputTokens > 0 ? reported.cacheRead / usage.inputTokens : 0,
           },
           'agent input estimate compared with the reported usage',
         )
