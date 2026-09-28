@@ -49,7 +49,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   if (waivedChat && cost) {
     parts.push(
       <span className="inline-flex items-center gap-1">
-        {t('cost.image')}{' '}
+        {t('cost.imageCredits')}{' '}
         {cost.image > 0 ? <Credits credits={cost.image} /> : t('cost.billedByTask')}
       </span>,
     )

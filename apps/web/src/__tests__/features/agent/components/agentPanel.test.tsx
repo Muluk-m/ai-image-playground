@@ -1061,7 +1061,7 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('生图 积分按任务计费')
+    expect(host.textContent).toContain('生图积分 按任务计费')
     expect(host.querySelector('del')?.textContent).toBe('对话积分')
     expect(host.textContent).toContain('免费')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
@@ -1097,7 +1097,7 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('生图 85')
+    expect(host.textContent).toContain('生图积分 85')
     expect(host.querySelector('del')?.textContent).toBe('对话积分')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
     expect(host.querySelector('[aria-label="对话限时免费"]')).not.toBeNull()
