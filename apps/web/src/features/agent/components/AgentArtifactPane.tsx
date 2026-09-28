@@ -31,6 +31,16 @@ async function canvasOrSource(
   return fallback()
 }
 
+async function sourceOrCanvas(
+  id: string,
+  loadSource: () => Promise<string | null>,
+): Promise<string | null> {
+  const source = await loadSource().catch(() => null)
+  if (source) return source
+  const canvas = agentCanvasSink()
+  return canvas?.has(id) ? canvas.thumbnail(id, 3).catch(() => null) : null
+}
+
 export default function AgentArtifactPane({
   message,
   selectedId,
@@ -54,7 +64,7 @@ export default function AgentArtifactPane({
     ...(message.artifacts ?? []).map((artifact) => ({
       id: artifact.artifactId,
       media: artifact.media === 'video' ? ('video' as const) : ('image' as const),
-      load: () => canvasOrSource(artifact.artifactId, () => previewArtifactBitmap(artifact)),
+      load: () => sourceOrCanvas(artifact.artifactId, () => previewArtifactBitmap(artifact)),
       loadThumbnail: () =>
         canvasOrSource(artifact.artifactId, () => previewArtifactBitmap(artifact), 0.16),
       videoUrl:
@@ -66,7 +76,7 @@ export default function AgentArtifactPane({
       id: fetchedCanvasId(message.toolCallId, index),
       media: 'image' as const,
       load: () =>
-        canvasOrSource(fetchedCanvasId(message.toolCallId, index), () =>
+        sourceOrCanvas(fetchedCanvasId(message.toolCallId, index), () =>
           resolveMediaSource(`aip-media:${image.imageId}`, 'original', true).catch(() => null),
         ),
       loadThumbnail: () =>
