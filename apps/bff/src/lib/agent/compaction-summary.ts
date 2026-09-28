@@ -167,6 +167,17 @@ async function summarizeSingleLongMessage(
         high = end - 1
       }
     }
+    // JavaScript 的索引是 UTF-16 单元；不能把 emoji 等字符的代理对切成两半。
+    if (
+      best > offset &&
+      best < text.length &&
+      text.charCodeAt(best - 1) >= 0xd800 &&
+      text.charCodeAt(best - 1) <= 0xdbff &&
+      text.charCodeAt(best) >= 0xdc00 &&
+      text.charCodeAt(best) <= 0xdfff
+    ) {
+      best -= 1
+    }
     if (best === offset) return null
     const fragment = fragmentOf(original, text.slice(offset, best), part)
     const next = await askSummaryPrompt(
@@ -193,7 +204,7 @@ export async function summarizeCompaction(
     const prompt = buildSummaryPrompt(request)
     const window = summaryModelWindow()
     if (!summaryRequestFits(request.messages, request.previousSummary)) {
-      if (request.messages.length === 1) return summarizeSingleLongMessage(request, onAttempt)
+      if (request.messages.length === 1) return await summarizeSingleLongMessage(request, onAttempt)
       log.warn(
         {
           event: 'agent.compaction_summary_overflow',

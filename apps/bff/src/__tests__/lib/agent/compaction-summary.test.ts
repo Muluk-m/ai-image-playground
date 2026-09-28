@@ -68,6 +68,48 @@ describe('summarizeCompaction', () => {
     ).toBe(true)
   })
 
+  it('keeps Unicode code points intact across oversized-message fragments', async () => {
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(calls, () => chatCompletion(JSON.stringify(NARRATIVE))),
+    )
+
+    expect(
+      await summarizeCompaction({
+        messages: [user('m1', '😀'.repeat(12_000))],
+        previousSummary: null,
+      }),
+    ).toEqual(NARRATIVE)
+    expect(calls.length).toBeGreaterThan(1)
+    expect(
+      calls.every((call) =>
+        Array.from(call.prompt).every((char) => {
+          const codePoint = char.codePointAt(0)!
+          return codePoint < 0xd800 || codePoint > 0xdfff
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('returns null if a later fragment fails upstream', async () => {
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(calls, () =>
+        calls.length === 1
+          ? chatCompletion(JSON.stringify(NARRATIVE))
+          : new Response('rejected', { status: 400 }),
+      ),
+    )
+
+    expect(
+      await summarizeCompaction({
+        messages: [user('m1', '很长的用户内容'.repeat(5_000))],
+        previousSummary: null,
+      }),
+    ).toBe(null)
+    expect(calls.length).toBe(2)
+  })
+
   it('counts serialized roles when deciding whether short messages fit', () => {
     const messages = Array.from({ length: 2_000 }, (_, index) => user(`m${index}`, 'a'))
     expect(
