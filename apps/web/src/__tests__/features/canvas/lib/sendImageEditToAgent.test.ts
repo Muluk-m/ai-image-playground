@@ -96,6 +96,9 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       [{ imageId: 'image-1', dataUrl: 'aip-media:source' }],
       expect.any(Function),
       'image',
+      undefined,
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -119,6 +122,9 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       ],
       expect.any(Function),
       'image',
+      undefined,
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -136,6 +142,9 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       [{ imageId: 'image-1', dataUrl: 'data:image/png;base64,CROPPED' }],
       expect.any(Function),
       'image',
+      undefined,
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -159,6 +168,9 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       ],
       expect.any(Function),
       'image',
+      undefined,
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -206,6 +218,18 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
         frame: { mode: 'outpaint', rect: { x: -40, y: 0, w: 552, h: 512 } },
       }),
     ).toBe(false)
+    expect(agent.send).not.toHaveBeenCalled()
+  })
+
+  it('扩图框超限时不创建大画布', async () => {
+    media.rectSize.mockReturnValueOnce({ width: 4000, height: 4000 })
+    media.rectSize.mockReturnValueOnce({ width: 4000, height: 4000 })
+    expect(
+      await sendImageEditToAgent(editor(), image, '请扩图', {
+        frame: { mode: 'outpaint', rect: { x: -40, y: 0, w: 552, h: 512 } },
+      }),
+    ).toBe(false)
+    expect(media.outpaint).not.toHaveBeenCalled()
     expect(agent.send).not.toHaveBeenCalled()
   })
 })
