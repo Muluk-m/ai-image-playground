@@ -19,11 +19,10 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
 const {
   archiveAgentReferences,
-  claimCanvasMedia,
   claimConversationMedia,
   createAgentImageSource,
   removeAgentConversationReferences,
-  releaseCanvasMediaClaims,
+  readyCanvasMediaIds,
 } = await import('../../../../lib/agent/images')
 const { setDurableMediaStoreForTesting } = await import('../../../../lib/durableMediaStore')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
@@ -410,13 +409,21 @@ it('makes an uploaded image readable before the project document syncs', async (
     updated_at: now,
   })
   expect(await sourceFor('conv-1', USER).resolve(MEDIA)).toBeNull()
-  const claim = await claimCanvasMedia('conv-1', USER, [MEDIA])
-  expect(claim.allowed.has(MEDIA)).toBe(true)
-  expect(claim.created).toEqual([MEDIA])
-  expect((await sourceFor('conv-1', USER).resolve(MEDIA))?.dataUrl).toBe(
-    'data:image/png;base64,aGk=',
-  )
-  await releaseCanvasMediaClaims('conv-1', USER, claim.created)
+  const ready = await readyCanvasMediaIds(USER, [MEDIA])
+  expect(ready.has(MEDIA)).toBe(true)
+  const inThisTurn = createAgentImageSource({
+    references: [],
+    history: [],
+    conversationId: 'conv-1',
+    userId: USER,
+    canvasMediaIds: [...ready],
+  })
+  expect((await inThisTurn.resolve(MEDIA))?.dataUrl).toBe('data:image/png;base64,aGk=')
+  const [claims] = await db
+    .select({ id: schema.media_references.media_id })
+    .from(schema.media_references)
+    .where(eq(schema.media_references.owner_id, 'conv-1'))
+  expect(claims).toBeUndefined()
   expect(await sourceFor('conv-1', USER).resolve(MEDIA)).toBeNull()
 })
 

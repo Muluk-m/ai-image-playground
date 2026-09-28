@@ -159,6 +159,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     history: history.messages,
     conversationId,
     userId: prepared.userId,
+    canvasMediaIds: prepared.canvas?.elements.flatMap((element) =>
+      element.type === 'image' && element.mediaId ? [element.mediaId] : [],
+    ),
     selectionHistoryStart,
   })
   const authorization = createTurnAuthorization({

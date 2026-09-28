@@ -95,7 +95,7 @@ function elementOf(value: unknown): AgentCanvasLiveElement | undefined {
       ...(text(record.prompt, TEXT_MAX) ? { prompt: text(record.prompt, TEXT_MAX) } : {}),
       ...(text(record.section, TEXT_MAX) ? { section: text(record.section, TEXT_MAX) } : {}),
       ...(typeof record.mediaId === 'string' && MEDIA_ID.test(record.mediaId)
-        ? { mediaId: record.mediaId }
+        ? { mediaId: record.mediaId.toLowerCase() }
         : {}),
       ...(record.video === true ? { video: true } : {}),
       ...(idOf(record.derivedFrom) ? { derivedFrom: idOf(record.derivedFrom) } : {}),
