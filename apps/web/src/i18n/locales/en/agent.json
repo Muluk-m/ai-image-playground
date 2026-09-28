@@ -1,4 +1,13 @@
 {
+  "resultShelf": {
+    "title": "Earlier results",
+    "count_one": "{{count}} group",
+    "count_other": "{{count}} groups",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "place": "Add to canvas",
+    "locate": "Locate"
+  },
   "label": {
     "chat": "Chat",
     "layers": "Creations"

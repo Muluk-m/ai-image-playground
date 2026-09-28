@@ -1,4 +1,12 @@
 {
+  "resultShelf": {
+    "title": "历史结果",
+    "count_other": "{{count}} 组",
+    "collapse": "收起",
+    "expand": "展开",
+    "place": "加入画布",
+    "locate": "定位"
+  },
   "label": {
     "chat": "对话",
     "layers": "创作记录"

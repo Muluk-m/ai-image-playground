@@ -56,12 +56,13 @@ function renderMessage(
   message: AgentPanelMessage,
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
+  onViewCanvas?: (objectIds?: readonly string[]) => void,
 ) {
   if (message.kind === 'tool') {
     // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
     if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
     // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
-    return <AgentToolCard message={message} />
+    return <AgentToolCard message={message} onViewCanvas={onViewCanvas} />
   }
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
@@ -75,11 +76,13 @@ export default function AgentPanel({
   editor,
   mobile = false,
   onViewCanvas,
+  presentation = 'side',
 }: {
   doc: CanvasDoc
   editor: CanvasEditor
   mobile?: boolean
-  onViewCanvas?: () => void
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  presentation?: 'page' | 'side'
 }) {
   const { t } = useTranslation('agent')
   const open = useAgentStore((state) => state.open)
@@ -147,7 +150,7 @@ export default function AgentPanel({
     const originX = event.clientX
     const originWidth = panelWidth
     handle.setPointerCapture(event.pointerId)
-    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + move.clientX - originX)
+    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + originX - move.clientX)
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
@@ -159,7 +162,8 @@ export default function AgentPanel({
   }
 
   if (!agentPanelPresent()) return null
-  if (!open && !mobile) return <CollapsedButton onOpen={() => setOpen(true)} />
+  if (!open && !mobile && presentation === 'side')
+    return <CollapsedButton onOpen={() => setOpen(true)} />
 
   const answerableId = answerableClarificationId(messages)
   // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
@@ -169,15 +173,21 @@ export default function AgentPanel({
   const grouping = groupPanelMessages(messages)
 
   return (
-    <div aria-label={t('panel.aria')} style={{ width: panelWidth }} className="studio-sidebar">
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('panel.resizeAria')}
-        title={t('panel.resizeTitle')}
-        onPointerDown={startResize}
-        className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
-      />
+    <div
+      aria-label={t('panel.aria')}
+      style={presentation === 'side' ? { width: panelWidth } : undefined}
+      className={`studio-sidebar ${presentation === 'page' ? 'studio-sidebar--page' : ''}`}
+    >
+      {presentation === 'side' && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('panel.resizeAria')}
+          title={t('panel.resizeTitle')}
+          onPointerDown={startResize}
+          className="absolute -left-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
+        />
+      )}
       <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-1.5">
           {TABS.map((one) => (
@@ -191,29 +201,31 @@ export default function AgentPanel({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          aria-label={t('panel.collapseAria')}
-          className={`${ICON_BUTTON} hidden md:inline-flex`}
-          onClick={() => setOpen(false)}
-        >
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
-            <path
-              d="M10 3.5 5.5 8l4.5 4.5"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+        {presentation === 'side' && (
+          <button
+            type="button"
+            aria-label={t('panel.collapseAria')}
+            className={`${ICON_BUTTON} hidden md:inline-flex`}
+            onClick={() => setOpen(false)}
+          >
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path
+                d="M10 3.5 5.5 8l4.5 4.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
       </div>
 
       <AgentConnectionHint />
 
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentCreations doc={doc} onSelect={mobile ? onViewCanvas : undefined} />
+          <AgentCreations doc={doc} onSelect={onViewCanvas} />
         </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -244,7 +256,8 @@ export default function AgentPanel({
               return (
                 <Fragment key={message.id}>
                   {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
-                  {!grouping.absorbed.has(index) && renderMessage(message, answerableId, skills)}
+                  {!grouping.absorbed.has(index) &&
+                    renderMessage(message, answerableId, skills, onViewCanvas)}
                   {footer && <AgentTurnCost footer={footer} />}
                 </Fragment>
               )
