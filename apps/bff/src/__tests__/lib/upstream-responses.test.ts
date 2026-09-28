@@ -179,6 +179,24 @@ describe('Astra 图片 Responses 调用', () => {
     expect(resolveImageBytesRef('openai-compat', result.payload, 0)?.data).toBe(PNG)
   })
 
+  it('流末尾的完成事件后面没有空行，也照常收下，并能跨分片拼回', async () => {
+    const text = `data: ${JSON.stringify({ type: 'response.output_item.done', output_index: 0, item })}\n\ndata: ${JSON.stringify(completed)}`
+    const bytes = new TextEncoder().encode(text)
+    setUpstreamFetchForTesting(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              for (let i = 0; i < bytes.length; i += 11) controller.enqueue(bytes.slice(i, i + 11))
+              controller.close()
+            },
+          }),
+        ),
+    )
+    const result = await callUpstream({ ...request, request: { prompt: '蓝色方块' } })
+    expect(extractMeta('openai-compat', result.payload).images).toHaveLength(1)
+  })
+
   it('图片到达但完成事件缺失时结果未知，禁止自动重试', async () => {
     setUpstreamFetchForTesting(async () => sse([doneItem]))
     let failure: unknown

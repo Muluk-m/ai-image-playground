@@ -84,8 +84,8 @@ async function* readEvents(body: ReadableStream<Uint8Array>, signal: AbortSignal
       const chunk = await reader.read()
       signal.throwIfAborted()
       if (chunk.done) {
-        parser.feed(decoder.decode())
-        parser.reset({ consume: true })
+        // 末尾事件后面可能没有空行；reset({ consume }) 只收残行不派发，补一个空行才会交出它。
+        parser.feed(`${decoder.decode()}\n\n`)
         yield* ready.splice(0)
         return
       }
