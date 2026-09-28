@@ -99,7 +99,6 @@
   },
   "cost": {
     "duration": "本轮耗时 {{duration}}",
-    "free": "本轮免费，未扣积分",
     "spent": "消耗",
     "image": "生图",
     "imageSpentAria": "生图实扣 {{amount}} 积分",
@@ -115,8 +114,7 @@
     "failed": "本轮失败",
     "interrupted": "已中断，已自动续上",
     "contextOverflow": "这一轮的内容太长，没有发出去",
-    "stopped": "已停止",
-    "noCredits": "未扣积分"
+    "stopped": "已停止"
   },
   "composer": {
     "placeholder": "说一句你想做什么，@ 引用画布或素材",

@@ -130,7 +130,7 @@ describe('本轮消耗', () => {
     expect(state().messages.map((message) => message.turnId)).toEqual(['turn-1', 'turn-1'])
   })
 
-  it('失败的轮消耗是零，页脚据此写本轮免费', async () => {
+  it('失败的轮记录零扣费', async () => {
     turnResponses = [
       () =>
         sseResponse(
