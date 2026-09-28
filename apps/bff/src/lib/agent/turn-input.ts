@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import type { ImageContent } from '@earendil-works/pi-ai'
+import type { ImageContent, Model } from '@earendil-works/pi-ai'
 import type { AgentMessageView, AgentMode, AgentTurnReference } from '@image-playground/shared'
 import { agentClarificationSummary, agentToolResultSummary } from '@image-playground/shared'
 import { reservationCeiling, storedSummaryTokens } from './compaction'
@@ -448,7 +448,10 @@ export function estimatedTurnInput(input: AgentTurnInput): AgentMessage[] {
  * 吃整个窗口而不只是消息：折进摘要的那些不在 `messages` 里，可摘要本身每一轮都发出去
  * （见 `shapeAgentContext`），漏掉它压缩过的会话就会一路少扣。
  */
-export function estimateTurnInputTokens(input: AgentTurnInput): number {
+export function estimateTurnInputTokens(
+  input: AgentTurnInput,
+  model: Pick<Model<'openai-completions'>, 'contextWindow' | 'maxTokens'> = agentModel(),
+): number {
   const estimated =
     estimatedTurnInput(input).reduce(
       (total, message) => total + estimateMessageTokens(message),
@@ -456,5 +459,5 @@ export function estimateTurnInputTokens(input: AgentTurnInput): number {
     ) +
     estimateToolDeclarationTokens(input.mode, input.audience) +
     storedSummaryTokens(input.history.compaction)
-  return Math.min(estimated, reservationCeiling(compactionSettings()))
+  return Math.min(estimated, reservationCeiling(compactionSettings(model)))
 }

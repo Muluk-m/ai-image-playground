@@ -127,6 +127,7 @@ export const config = {
     baseUrl: env('UPSTREAM_BASE_URL', 'http://localhost:8080').replace(/\/+$/, ''),
     apiKey: env('UPSTREAM_API_KEY', ''),
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
+    claudeApiKey: env('UPSTREAM_CLAUDE_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
     /**
      * 通用网关提供 sub2api 风格的异步图片任务端点。不能写进 channels.json：网关部署里
@@ -139,10 +140,15 @@ export const config = {
   agent: {
     /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
     model: env('AGENT_CHAT_MODEL', ''),
+    /** 未登记在 thinking.config.json 的旧模型窗口；已登记模型从自身元数据取值。 */
     contextWindow: positiveIntEnv('AGENT_CHAT_CONTEXT_WINDOW', 128_000),
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
+    /** 可覆盖摘要模型登记窗口；自定义摘要模型应显式填它的真实窗口。 */
+    summaryContextWindow: env('AGENT_SUMMARY_CONTEXT_WINDOW', '')
+      ? positiveIntEnv('AGENT_SUMMARY_CONTEXT_WINDOW', 16_000)
+      : null,
     /**
      * 搜索工具那一次 Responses `web_search` 调用用的模型。搜索只要它读网页、列来源，
      * 不需要对话模型那一档，默认跟随摘要模型。

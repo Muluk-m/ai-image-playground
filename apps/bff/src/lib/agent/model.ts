@@ -3,7 +3,7 @@ import { createModels, createProvider, type Model } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import type { AgentThinkingDepth } from '@image-playground/shared'
 import { config } from '../../config'
-import { resolveApiKey } from '../resolveApiKey'
+import { resolveChatApiKey } from '../resolveApiKey'
 import { AGENT_STREAM_IDLE_TIMEOUT_MS, withIdleTimeout } from './stream-idle'
 import { agentThinking } from './thinking'
 
@@ -32,16 +32,18 @@ export function setAgentStreamIdleForTesting(ms?: number): void {
  * `stream_options.include_usage`，流式响应也就不带用量，token 计费无从结算。
  */
 function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
+  const profile = agentThinking(depth)
   return {
-    id: agentThinking(depth).model,
-    name: agentThinking(depth).model,
+    id: profile.model,
+    name: profile.model,
     api: 'openai-completions',
     provider: PROVIDER_ID,
     baseUrl: `${config.upstream.baseUrl}/v1`,
     reasoning: !!depth,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: config.agent.contextWindow,
+    // 当前模型的真实窗口；压缩、硬闸和预扣都从这里读同一个值。
+    contextWindow: profile.contextWindow,
     maxTokens: config.agent.maxTokens,
     compat: {
       supportsStore: false,
@@ -72,7 +74,7 @@ function runtime(depth?: AgentThinkingDepth) {
       auth: {
         apiKey: {
           name: 'Upstream gateway API key',
-          resolve: async () => ({ auth: { apiKey: resolveApiKey('openai-compat') } }),
+          resolve: async () => ({ auth: { apiKey: resolveChatApiKey(model.id) } }),
         },
       },
       models: [model],

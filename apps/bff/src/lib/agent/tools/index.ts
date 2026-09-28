@@ -16,6 +16,7 @@ import {
   toolDeclaration,
   toolResultBlock,
 } from './adapter'
+import { arrangeCanvas } from './arrangeCanvas'
 import { arrangeTimeline } from './arrangeTimeline'
 import { editCanvasObject } from './editCanvasObject'
 import { editImage } from './editImage'
@@ -63,6 +64,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   generateVideo,
   arrangeTimeline,
   editCanvasObject,
+  arrangeCanvas,
   loadSkill,
   saveAsset,
   saveLook,

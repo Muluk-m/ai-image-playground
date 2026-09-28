@@ -1,6 +1,6 @@
 import { config } from '../../config'
 import type { ChatAttempt } from '../chatCompletion'
-import { resolveApiKey } from '../resolveApiKey'
+import { resolveChatApiKey } from '../resolveApiKey'
 import {
   createDispatcher,
   createFetchSlot,
@@ -248,7 +248,7 @@ export async function searchWeb(input: AgentWebSearchInput): Promise<AgentWebSea
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${resolveApiKey('openai-compat')}`,
+        authorization: `Bearer ${resolveChatApiKey(model)}`,
       },
       body: requestBody(input),
       signal: deadline.signal,

@@ -9,6 +9,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
+process.env.AGENT_SUMMARY_CONTEXT_WINDOW = '6000'
 process.env.OPERATOR_CONFIG_FILE = ''
 
 const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
@@ -16,7 +17,10 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 )
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
-const { summarizeCompaction } = await import('../../../lib/agent/compaction-summary')
+const { summarizeCompaction, summaryChunkBudget, summaryRequestFits } = await import(
+  '../../../lib/agent/compaction-summary'
+)
+const { estimateMessageTokens } = await import('../../../lib/agent/token-estimate')
 
 const NARRATIVE = {
   completed: '出了三张马克杯图',
@@ -30,6 +34,90 @@ afterEach(() => {
 })
 
 describe('summarizeCompaction', () => {
+  it('reserves prompt, prior summary and output inside the summary model window', () => {
+    const emptyBudget = summaryChunkBudget(null)
+    const previousBudget = summaryChunkBudget({ ...NARRATIVE, completed: '旧结论'.repeat(500) })
+    expect(emptyBudget).toBeLessThan(6_000 - 1_500)
+    expect(previousBudget).toBeLessThan(emptyBudget)
+  })
+
+  it('splits one oversized message into safe summary requests without losing its text', async () => {
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(calls, () => chatCompletion(JSON.stringify(NARRATIVE))),
+    )
+    const result = await summarizeCompaction({
+      messages: [user('m1', '很长的用户内容'.repeat(5_000))],
+      previousSummary: null,
+    })
+    expect(result).toEqual(NARRATIVE)
+    expect(calls.length).toBeGreaterThan(1)
+    expect(calls[0]!.prompt).toContain('很长的用户内容')
+    expect(calls.at(-1)!.prompt).toContain('很长的用户内容')
+    expect(
+      calls.every(
+        (call) =>
+          estimateMessageTokens({
+            role: 'user',
+            content: [{ type: 'text', text: call.prompt }],
+            timestamp: 0,
+          }) +
+            1_500 <=
+          6_000 - 512,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps Unicode code points intact across oversized-message fragments', async () => {
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(calls, () => chatCompletion(JSON.stringify(NARRATIVE))),
+    )
+
+    expect(
+      await summarizeCompaction({
+        messages: [user('m1', '😀'.repeat(12_000))],
+        previousSummary: null,
+      }),
+    ).toEqual(NARRATIVE)
+    expect(calls.length).toBeGreaterThan(1)
+    expect(
+      calls.every((call) =>
+        Array.from(call.prompt).every((char) => {
+          const codePoint = char.codePointAt(0)!
+          return codePoint < 0xd800 || codePoint > 0xdfff
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('returns null if a later fragment fails upstream', async () => {
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(calls, () =>
+        calls.length === 1
+          ? chatCompletion(JSON.stringify(NARRATIVE))
+          : new Response('rejected', { status: 400 }),
+      ),
+    )
+
+    expect(
+      await summarizeCompaction({
+        messages: [user('m1', '很长的用户内容'.repeat(5_000))],
+        previousSummary: null,
+      }),
+    ).toBe(null)
+    expect(calls.length).toBe(2)
+  })
+
+  it('counts serialized roles when deciding whether short messages fit', () => {
+    const messages = Array.from({ length: 2_000 }, (_, index) => user(`m${index}`, 'a'))
+    expect(
+      messages.reduce((total, entry) => total + estimateMessageTokens(entry.message), 0),
+    ).toBeLessThan(summaryChunkBudget(null))
+    expect(summaryRequestFits(messages, null)).toBe(false)
+  })
+
   it('asks the configured summary model and returns the fixed sections', async () => {
     const calls: ChatCall[] = []
     setChatFetchForTesting(

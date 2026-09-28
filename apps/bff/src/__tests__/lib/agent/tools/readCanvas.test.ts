@@ -217,6 +217,37 @@ it('reports each element with the id that the image tools accept', async () => {
   expect(text).toContain('共 3 个元素')
 })
 
+it('lists the batch, time and prompt excerpt a grouping pass can use without viewing pixels', async () => {
+  await conversation('conv-1', USER)
+  await project({
+    id: 'proj-1',
+    userId: USER,
+    conversationId: 'conv-1',
+    document: {
+      version: 1,
+      elements: [
+        {
+          ...imageElement(),
+          groupId: 'task-batch',
+          createdAt: 1_700_000_000_000,
+          meta: {
+            prompt: `落在图上的生成提示词${'很长'.repeat(80)}`,
+            userPrompt: '白底八仙角色',
+          },
+        },
+      ],
+    },
+  })
+
+  const text = await run('conv-1', USER)
+
+  expect(text).toContain('同批 task-batch')
+  expect(text).toContain('时间 1700000000000')
+  expect(text).toContain('提示词「白底八仙角色」')
+  expect(text).not.toContain('落在图上的生成提示词')
+  expect(await run('conv-1', USER, { query: '八仙' })).toContain('橘猫实拍')
+})
+
 it('keeps only the elements a keyword hits', async () => {
   await conversation('conv-1', USER)
   await project({

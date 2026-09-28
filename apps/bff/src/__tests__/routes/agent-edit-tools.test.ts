@@ -34,12 +34,13 @@ process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.UPSTREAM_OPENAI_API_KEY = ''
+process.env.UPSTREAM_CLAUDE_API_KEY = 'fixture-claude-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-config.json')
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
-const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { agentModel, setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -890,6 +891,7 @@ describe('智能体改图工具', () => {
 
     // `loadSkill` 在场是因为 `apps/bff/skills/image` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'arrangeCanvas',
       'askClarification',
       'editCanvasObject',
       'editImage',
@@ -1156,10 +1158,10 @@ describe('智能体读素材库工具', () => {
   })
 })
 
-for (const [depth, model, effort] of [
-  ['fast', 'gpt-5.6-luna', 'low'],
-  ['medium', 'gpt-5.6-sol', 'medium'],
-  ['deep', 'gpt-6-astra', 'high'],
+for (const [depth, model, effort, contextWindow, credential] of [
+  ['fast', 'gpt-6-luna', 'low', 1_050_000, 'fixture-upstream-key'],
+  ['medium', 'gpt-6-sol', 'medium', 1_050_000, 'fixture-upstream-key'],
+  ['deep', 'claude-opus-5-5', 'high', 1_000_000, 'fixture-claude-key'],
 ] as const) {
   it(`sends the ${depth} model and reasoning effort to the gateway`, async () => {
     const calls: AgentCall[] = []
@@ -1168,6 +1170,8 @@ for (const [depth, model, effort] of [
     await runTurn(id, '你好', { params: { thinkingDepth: depth } })
     expect(calls[0]?.model).toBe(model)
     expect(calls[0]?.reasoning_effort).toBe(effort)
+    expect(calls[0]?.authorization).toBe(`Bearer ${credential}`)
+    expect(agentModel(depth).contextWindow).toBe(contextWindow)
   })
 }
 

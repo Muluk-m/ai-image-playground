@@ -1,15 +1,15 @@
+import type { Model } from '@earendil-works/pi-ai'
 import type { QuotaValues } from '@image-playground/shared'
 import { config } from '../../config'
 import type { CompactionSettings } from './compaction'
 
 export function compactionSettings(
+  model: Pick<Model<'openai-completions'>, 'contextWindow' | 'maxTokens'>,
   quotas: QuotaValues = config.operator.quotas,
-  contextWindow: number = config.agent.contextWindow,
-  maxOutputTokens: number = config.agent.maxTokens,
 ): CompactionSettings {
   return {
-    contextWindow,
-    maxOutputTokens,
+    contextWindow: model.contextWindow,
+    maxOutputTokens: model.maxTokens,
     outputReserveTokens: quotas['agent:compaction-output-reserve-tokens'],
     bufferTokens: quotas['agent:compaction-buffer-tokens'],
     keepRecentTokens: quotas['agent:compaction-keep-tokens'],
