@@ -334,7 +334,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <>
           {hasAgent && (
             <div
-              className={`studio-project-viewbar ${(sidebarExpanded ?? projectView === 'chat') ? 'studio-project-viewbar--with-sidebar' : ''}`}
+              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${(sidebarExpanded ?? projectView === 'chat') ? 'studio-project-viewbar--with-sidebar' : ''}`}
             >
               <button
                 type="button"
