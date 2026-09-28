@@ -1,11 +1,11 @@
 import {
-  Brush,
   Copy,
   Crop,
   Download,
   Eraser,
   Expand,
   MoreHorizontal,
+  Pencil,
   Ratio,
   Scissors,
   Wand2,
@@ -94,9 +94,9 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
       >
         <CanvasToolbarButton
           compact
-          icon={<Brush />}
+          icon={<Wand2 />}
           label={t('inpaint.action')}
-          reason={refusal ?? undefined}
+          reason={sourceMissing}
           onClick={() => openInpaint(element.id, 'inpaint')}
         />
         <CanvasToolbarButton
@@ -115,8 +115,8 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         />
         <CanvasToolbarButton
           compact
-          icon={<Wand2 />}
-          label={t('imageEdit.action')}
+          icon={<Pencil />}
+          label={t('imageEdit.singleAction')}
           reason={imageEditRefusal(element, settings) ?? undefined}
           onClick={() => setEditing(true)}
         />

@@ -189,8 +189,8 @@ export const guideEn: GuideContent = {
           a: 'Available options depend on the model and format: transparency requires PNG, compression requires JPEG or WebP, and Gemini models expose a different set of parameters.',
         },
         {
-          q: 'Why are Inpaint, Erase and Expand disabled?',
-          a: 'They require a model with mask support (GPT Image family), and the image cannot be too small or too elongated. Hover the button to see the exact reason.',
+          q: 'Why can’t Smart Edit, Erase or Expand generate?',
+          a: 'They require a model with mask support (GPT Image family), and the image cannot be too small or too elongated. Smart Edit shows the reason in its panel; hover Erase or Expand to see the reason.',
         },
         {
           q: 'An image on the canvas was deleted by the eraser. How do I restore it?',
@@ -405,7 +405,7 @@ export const guideEn: GuideContent = {
       meta: {
         title: 'Canvas: annotate, cut out, expand and export - Muvloom',
         description:
-          'Use the Muvloom infinite canvas: arrange images, annotate with pen, arrows and text, inpaint, erase, cut out, crop and expand, plus shortcuts, batch generation and export.',
+          'Use the Muvloom infinite canvas: arrange images, annotate with pen, arrows and text, Smart edit, erase, cut out, crop and expand, plus shortcuts, batch generation and export.',
       },
       intro: [
         p(
@@ -447,7 +447,7 @@ export const guideEn: GuideContent = {
               '**Agent input**: describe your request; use `@` to reference canvas images or assets.',
               '**Toolbar**: select, hand, pen, eraser, arrow and text, plus undo, redo and zoom.',
               '**Annotations**: mark what to change and how, with the pen, arrows and text.',
-              '**Image toolbar**: shown when a single image is selected; provides inpainting, erase, cut-out and more.',
+              '**Image toolbar**: shown when a single image is selected; provides Smart edit, erase, cut-out and more.',
             ),
             p(
               'Add images with [[＋ Import reference images]] on an empty canvas, by dragging files in, or by pasting. Scroll to pan; {{Ctrl}} / {{⌘}} + scroll to zoom.',
@@ -496,10 +496,8 @@ export const guideEn: GuideContent = {
             p('Selecting a single image shows the image toolbar:'),
             table(
               ['Tool', 'Description'],
-              [
-                '[[Inpaint]]',
-                'Paint an area and describe the change; only that area is regenerated.',
-              ],
+              ['[[Smart edit]]', 'Select or brush one or more areas, then describe the change.'],
+              ['[[Edit whole image]]', 'Change the entire image with one instruction.'],
               [
                 '[[Erase]]',
                 'Paint over content to remove; the background is filled in automatically.',
@@ -513,13 +511,8 @@ export const guideEn: GuideContent = {
               ],
               ['[[More]]', 'View original, copy, download and delete.'],
             ),
-            shot(
-              img('canvas-inpaint'),
-              'Inpainting: painting the area to change, with the description panel below',
-              'Inpainting',
-            ),
             note(
-              'Inpaint, erase, cut-out and expand replace the original image; undo with {{⌘}}{{Z}}. Inpaint, erase and expand require a model with mask support (GPT Image family); hover a disabled button to see why.',
+              'Smart edit, erase, cut-out and expand replace the original image; undo with {{⌘}}{{Z}}. Smart edit, erase and expand require a model with mask support (GPT Image family); an unsupported action shows the reason.',
             ),
           ],
         },

@@ -10,10 +10,16 @@ import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
 import { useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
-import { type MaskStroke, renderMask } from '../lib/inpaintMask'
+import { type MaskStroke, type Point, pageToMaskPixel, renderMask } from '../lib/inpaintMask'
 
-/** 涂抹高亮：半透明才看得见底下要改的东西，颜色刻意避开占位框的蓝 / 红 / 橙。 */
-const SELECTION_COLOR = 'rgba(139, 92, 246, 0.55)'
+const SELECTION_COLOR = 'rgba(21, 156, 246, 0.34)'
+
+function extendStroke(stroke: MaskStroke, point: Point): MaskStroke {
+  if (stroke.shape === 'rect') return { ...stroke, points: [stroke.points[0]!, point] }
+  const last = stroke.points[stroke.points.length - 1]
+  if (last?.x === point.x && last.y === point.y) return stroke
+  return { ...stroke, points: [...stroke.points, point] }
+}
 
 /**
  * 局部重绘的就地涂抹层：盖在被选中那张图上，收走指针自己画，其余画布照常缩放平移。
@@ -26,6 +32,9 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const imageId = useInpaintSession((state) => state.imageId)
   const strokes = useInpaintSession((state) => state.strokes)
+  const selectedStroke = useInpaintSession((state) => state.selectedStroke)
+  const selectStroke = useInpaintSession((state) => state.selectStroke)
+  const kind = useInpaintSession((state) => state.kind)
   const tool = useInpaintSession((state) => state.tool)
   const brushPx = useInpaintSession((state) => state.brushPx)
   const addStroke = useInpaintSession((state) => state.addStroke)
@@ -96,7 +105,10 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           event.preventDefault()
           event.currentTarget.setPointerCapture(event.pointerId)
           // 笔宽按落笔那一刻的相机折算成页面单位：手感跟屏幕走，数据跟图走。
-          const stroke: MaskStroke = { tool, points: [point], width: brushPx / camera.zoom }
+          const stroke: MaskStroke =
+            tool === 'rect'
+              ? { tool: 'brush', shape: 'rect', points: [point, point], width: 0 }
+              : { tool, points: [point], width: brushPx / camera.zoom }
           drawingRef.current = stroke
           setLive(stroke)
         }}
@@ -106,12 +118,34 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           if (!current) return
           const point = pagePoint(event)
           if (!point) return
-          const next = { ...current, points: [...current.points, point] }
+          const next = extendStroke(current, point)
           drawingRef.current = next
           setLive(next)
         }}
-        onPointerUp={commit}
-        onPointerCancel={commit}
+        onPointerUp={(event) => {
+          const current = drawingRef.current
+          const point = pagePoint(event)
+          if (current && point) {
+            drawingRef.current = extendStroke(current, point)
+          }
+          const completed = drawingRef.current
+          if (completed?.shape === 'rect' && image) {
+            const displaySize = { width: image.width, height: image.height }
+            const start = pageToMaskPixel(image, displaySize, completed.points[0]!)
+            const end = pageToMaskPixel(image, displaySize, completed.points[1]!)
+            if (
+              Math.abs(start.x - end.x) * camera.zoom < 4 ||
+              Math.abs(start.y - end.y) * camera.zoom < 4
+            ) {
+              drawingRef.current = null
+            }
+          }
+          commit()
+        }}
+        onPointerCancel={() => {
+          drawingRef.current = null
+          setLive(null)
+        }}
         onPointerLeave={() => setRing(null)}
         // 空格、方向键、Delete 在画布上是平移 / 移动 / 删除，涂抹时不该漏过去。
         onKeyDown={(event) => event.stopPropagation()}
@@ -122,11 +156,49 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           height={size.height}
           className="block h-full w-full"
         />
+        {kind === 'inpaint' &&
+          strokes.map((stroke, index) => {
+            const first = stroke.points[0]
+            if (!first) return null
+            const displaySize = { width: image.width, height: image.height }
+            const start = pageToMaskPixel(image, displaySize, first)
+            const end =
+              stroke.shape === 'rect' && stroke.points[1]
+                ? pageToMaskPixel(image, displaySize, stroke.points[1])
+                : null
+            const left = end ? Math.min(start.x, end.x) : start.x
+            const top = end ? Math.min(start.y, end.y) : start.y
+            return (
+              <div
+                key={`${index}-${first.x}-${first.y}`}
+                className="pointer-events-none absolute border-2"
+                style={{
+                  left: left * camera.zoom,
+                  top: top * camera.zoom,
+                  width: end ? Math.abs(start.x - end.x) * camera.zoom : 0,
+                  height: end ? Math.abs(start.y - end.y) * camera.zoom : 0,
+                  borderColor: end ? '#159cf6' : 'transparent',
+                  boxShadow: end && selectedStroke === index ? '0 0 0 2px #d5f3ff80' : undefined,
+                }}
+              >
+                <button
+                  type="button"
+                  aria-label={t('inpaint.regionName', { no: index + 1 })}
+                  aria-pressed={selectedStroke === index}
+                  className="pointer-events-auto absolute -left-3 -top-3 grid h-6 w-6 place-items-center rounded-full border-2 border-white bg-[#159cf6] text-xs font-semibold text-white shadow-md"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => selectStroke(index)}
+                >
+                  {index + 1}
+                </button>
+              </div>
+            )
+          })}
       </div>
-      {ring && (
+      {ring && tool !== 'rect' && (
         <span
           aria-hidden="true"
-          className="pointer-events-none fixed rounded-full border-2 border-primary/80"
+          className={`pointer-events-none fixed rounded-full border-2 ${kind === 'inpaint' ? 'border-[#159cf6]/80' : 'border-primary/80'}`}
           style={{
             left: ring.x - brushPx / 2,
             top: ring.y - brushPx / 2,
