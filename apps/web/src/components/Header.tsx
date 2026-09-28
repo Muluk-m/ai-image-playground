@@ -104,7 +104,7 @@ export default function Header() {
       <div
         ref={headerActionsRef}
         data-no-drag-select
-        className="fixed right-3 z-40 flex items-center gap-3 sm:right-4"
+        className="studio-global-account fixed right-3 z-40 flex items-center gap-3 sm:right-4"
         style={{ top: 'calc(var(--safe-area-top) + var(--studio-account-cluster-top))' }}
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}

@@ -97,6 +97,12 @@ it('previews, switches and enlarges results without entering the canvas', async 
     )
     expect(onViewCanvas).toHaveBeenCalledWith(['second'])
     act(() =>
+      (
+        document.body.querySelector('.studio-artifact-pane-tools button') as HTMLButtonElement
+      ).click(),
+    )
+    expect(onViewCanvas).toHaveBeenCalledWith(['second'], 'inpaint')
+    act(() =>
       (document.body.querySelector('.studio-artifact-pane-back') as HTMLButtonElement).click(),
     )
     expect(onClose).toHaveBeenCalledOnce()

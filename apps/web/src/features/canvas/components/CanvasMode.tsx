@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderOpen } from 'lucide-react'
+import { ArrowLeft, FolderOpen, Search } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
@@ -21,6 +21,7 @@ import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
+import { useInpaintSession } from '../inpaintStore'
 import {
   backToCurrentProject,
   currentCanvasWorkspace,
@@ -34,6 +35,7 @@ import { projectExperience } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
+import { useRectEdit } from '../rectEditStore'
 import CanvasBatchBar from './CanvasBatchBar'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasImageToolbar from './CanvasImageToolbar'
@@ -116,6 +118,19 @@ function CanvasLoading({ label }: { label: string }) {
   )
 }
 
+type ArtifactEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
+let pendingArtifactEdit: { action: ArtifactEditAction; before: Set<string> } | null = null
+
+function openArtifactEdit(editor: CanvasEditor, id: string, action: ArtifactEditAction): void {
+  const element = editor.doc.getElement(id)
+  if (element?.type !== 'image' || element.video) return
+  editor.doc.setTool('select')
+  editor.doc.setSelection([id])
+  editor.scrollToElements([id])
+  if (action === 'inpaint' || action === 'erase') useInpaintSession.getState().open(id, action)
+  else useRectEdit.getState().open(action, id, { x: 0, y: 0, w: element.width, h: element.height })
+}
+
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const mobile = useMobileWorkspace()
@@ -127,9 +142,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   const sidebarExpanded = useStore((state) => state.sidebarExpanded)
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
+  const [selectedExternalResult, setSelectedExternalResult] = useState<AgentToolMessage | null>(
+    null,
+  )
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>()
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
+  const [handoffAction, setHandoffAction] = useState<ArtifactEditAction | null>(null)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
@@ -165,9 +185,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     (message): message is AgentToolMessage =>
       message.kind === 'tool' && message.id === selectedResultId,
   )
-  const activeResult = selectedResult ?? latestResult
+  const activeResult = selectedExternalResult ?? selectedResult ?? latestResult
   const previewResult = (messageId: string, artifactId?: string) => {
+    setSelectedExternalResult(null)
     setSelectedResultId(messageId)
+    setSelectedArtifactId(artifactId)
+    setAssetDrawerOpen(false)
+  }
+  const previewAsset = (message: AgentToolMessage, artifactId: string) => {
+    setSelectedExternalResult(message)
+    setSelectedResultId(message.id)
     setSelectedArtifactId(artifactId)
     setAssetDrawerOpen(false)
   }
@@ -176,11 +203,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     try {
       const dataUrls = await Promise.all(
         selected.map(async (id) => {
-          const artifact = messages
+          const artifact = [
+            ...messages,
+            ...(selectedExternalResult ? [selectedExternalResult] : []),
+          ]
             .flatMap((message) => (message.kind === 'tool' ? (message.artifacts ?? []) : []))
             .find((one) => one.artifactId === id)
           if (artifact?.media === 'video') return null
-          const fetched = messages
+          const fetched = [...messages, ...(selectedExternalResult ? [selectedExternalResult] : [])]
             .flatMap((message) =>
               message.kind === 'tool'
                 ? (message.fetchedImages ?? []).map((image, index) => ({
@@ -223,6 +253,12 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         ? await useAgentStore.getState().selectProject(targetId)
         : await useAgentStore.getState().createProject(undefined, false, 'canvas', project?.id)
       if (!opened) return false
+      if (handoffAction) {
+        pendingArtifactEdit = {
+          action: handoffAction,
+          before: new Set(currentCanvasWorkspace().doc.elements.map((one) => one.id)),
+        }
+      }
       const groupId = selected.length > 1 ? crypto.randomUUID() : undefined
       useStore
         .getState()
@@ -233,15 +269,17 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         )
       setSelectedResultId(null)
       setHandoffIds(null)
+      setHandoffAction(null)
       setProjectView('canvas')
       return true
     } catch {
       return false
     }
   }
-  const openCanvas = (selectedIds?: readonly string[]) => {
+  const openCanvas = (selectedIds?: readonly string[], action?: ArtifactEditAction) => {
     if (projectView === 'chat' && (!project || projectExperience(project) === 'chat')) {
       setHandoffIds(selectedIds ?? [])
+      setHandoffAction(action ?? null)
       return
     }
     setProjectView('canvas')
@@ -250,19 +288,30 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       const focus = () => requestAnimationFrame(() => agentCanvasSink()?.focus(selectedIds))
       if (selectedIds.every((id) => agentCanvasSink()?.has(id))) focus()
       else {
-        const owner = useAgentStore
-          .getState()
-          .messages.find(
-            (message) =>
-              message.kind === 'tool' &&
-              (message.artifacts?.some((artifact) => selectedIds.includes(artifact.artifactId)) ||
-                message.fetchedImages?.some((_, index) =>
-                  selectedIds.includes(fetchedCanvasId(message.toolCallId, index)),
-                )),
-          )
-        if (owner) void useAgentStore.getState().placeOnCanvas(owner.id).then(focus)
+        const owner = [
+          ...useAgentStore.getState().messages,
+          ...(selectedExternalResult ? [selectedExternalResult] : []),
+        ].find(
+          (message) =>
+            message.kind === 'tool' &&
+            (message.artifacts?.some((artifact) => selectedIds.includes(artifact.artifactId)) ||
+              message.fetchedImages?.some((_, index) =>
+                selectedIds.includes(fetchedCanvasId(message.toolCallId, index)),
+              )),
+        )
+        if (owner)
+          void useAgentStore
+            .getState()
+            .placeOnCanvas(owner.id)
+            .then(() => {
+              focus()
+              if (action)
+                requestAnimationFrame(() => openArtifactEdit(editor, selectedIds[0]!, action))
+            })
         else focus()
       }
+      if (action && selectedIds.every((id) => agentCanvasSink()?.has(id)))
+        requestAnimationFrame(() => openArtifactEdit(editor, selectedIds[0]!, action))
       return
     }
   }
@@ -322,6 +371,20 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   useEffect(() => {
     if (pendingImages > 0) workspace.placePendingImages()
   }, [workspace, loading, loadFailed, pendingImages])
+  useEffect(() => {
+    if (!pendingArtifactEdit) return
+    const locate = () => {
+      const pending = pendingArtifactEdit
+      if (!pending) return
+      const added = doc.elements.find((one) => one.type === 'image' && !pending.before.has(one.id))
+      if (!added) return
+      pendingArtifactEdit = null
+      requestAnimationFrame(() => openArtifactEdit(editor, added.id, pending.action))
+    }
+    const unsubscribe = doc.subscribe(locate)
+    locate()
+    return unsubscribe
+  }, [doc, editor, pendingImages])
 
   return (
     <div
@@ -360,15 +423,26 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </button>
               )}
               {projectView === 'chat' && (
-                <button
-                  type="button"
-                  className="studio-assets-trigger"
-                  aria-label={t('workspace.assets')}
-                  title={t('workspace.assets')}
-                  onClick={() => setAssetDrawerOpen(true)}
-                >
-                  <FolderOpen size={18} aria-hidden="true" />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="studio-assets-trigger studio-search-trigger"
+                    aria-label="搜索当前对话"
+                    title="搜索当前对话"
+                    onClick={() => setSearchOpen(true)}
+                  >
+                    <Search size={18} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="studio-assets-trigger"
+                    aria-label={t('workspace.assets')}
+                    title={t('workspace.assets')}
+                    onClick={() => setAssetDrawerOpen(true)}
+                  >
+                    <FolderOpen size={18} aria-hidden="true" />
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -425,6 +499,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     editor={editor}
                     mobile={mobile}
                     presentation={projectView === 'chat' ? 'page' : 'side'}
+                    searchOpen={searchOpen && projectView === 'chat'}
+                    onCloseSearch={() => setSearchOpen(false)}
                     onViewCanvas={openCanvas}
                     onPreviewResult={projectView === 'chat' ? previewResult : undefined}
                   />
@@ -503,6 +579,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 onSelect={setSelectedArtifactId}
                 onClose={() => {
                   setSelectedResultId(null)
+                  setSelectedExternalResult(null)
                 }}
                 onViewCanvas={openCanvas}
               />
@@ -511,7 +588,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <AgentAssetDrawer
                 messages={messages}
                 onClose={() => setAssetDrawerOpen(false)}
-                onPreview={previewResult}
+                onPreview={previewAsset}
               />
             )}
             {handoffIds && (
@@ -519,7 +596,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 count={handoffIds.length}
                 projects={useCanvasProjectStore.getState().projects}
                 onChoose={completeHandoff}
-                onClose={() => setHandoffIds(null)}
+                onClose={() => {
+                  setHandoffIds(null)
+                  setHandoffAction(null)
+                }}
               />
             )}
             <section
