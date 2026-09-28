@@ -1862,21 +1862,26 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
 }
 
 /** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出。补到的写回缓存，不写进本机任务。 */
-const hydratedGenerations = new Set<string>()
+const hydratingGenerations = new Set<string>()
 async function hydratePlatformGeneration(id: string) {
-  const localRequest = useStore.getState().tasks.some((task) => task.bffRequestId === id)
-  if ((!isPlatformGeneration(id) && !localRequest) || hydratedGenerations.has(id)) return
-  hydratedGenerations.add(id)
-  const detail = await readRemoteGeneration(id)
-  if (!detail) {
-    hydratedGenerations.delete(id)
+  const state = useStore.getState()
+  const row = state.platformGenerations.find((item) => item.id === id)
+  const localRequest = state.tasks.some((task) => task.bffRequestId === id)
+  if (
+    (!isPlatformGeneration(id) && !localRequest) ||
+    (row && 'outputs' in row.record && !['queued', 'in_progress'].includes(row.record.status)) ||
+    hydratingGenerations.has(id)
+  )
     return
-  }
-  await refreshPlatformGeneration(detail)
-  // 平台还在跑：这一份补不齐，交给轮询收尾，下次展开也要重读。
-  if (detail.status === 'queued' || detail.status === 'in_progress') {
-    hydratedGenerations.delete(id)
-    watchPlatformGeneration(id)
+  hydratingGenerations.add(id)
+  try {
+    const detail = await readRemoteGeneration(id)
+    if (!detail) return
+    await refreshPlatformGeneration(detail)
+    // 平台还在跑：这一份补不齐，交给轮询收尾，下次展开也要重读。
+    if (detail.status === 'queued' || detail.status === 'in_progress') watchPlatformGeneration(id)
+  } finally {
+    hydratingGenerations.delete(id)
   }
 }
 /**

@@ -2,11 +2,13 @@
 import type { GenerationSummary } from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { i18next } from '../../i18n'
 import { getCachedGenerations } from '../../lib/db'
 import {
   loadPlatformGenerations,
   mergeHistory,
   receivePlatformPage,
+  refreshPlatformGeneration,
   setPlatformFavorite,
   taskFromGeneration,
 } from '../../lib/platformGenerations'
@@ -175,6 +177,19 @@ it('收藏是本机标注，刷新缓存时留着', async () => {
   })
 })
 
+it('列表刷新不抹掉同一封面详情里的多张产出', async () => {
+  const second = { ...summary.cover, index: 1, mediaId: '44444444-4444-4444-8444-444444444444' }
+  await refreshPlatformGeneration({ ...summary, outputs: [summary.cover, second] })
+
+  await receivePlatformPage([{ ...summary, revision: '2' }])
+
+  const [row] = useStore.getState().platformGenerations
+  expect('outputs' in row!.record && row!.record.outputs.map((one) => one.mediaId)).toEqual([
+    summary.cover.mediaId,
+    second.mediaId,
+  ])
+})
+
 it('刷新后第一帧就有卡：缓存落盘，启动读回来', async () => {
   await receivePlatformPage([summary])
   useStore.setState({ platformGenerations: [] })
@@ -236,7 +251,11 @@ it('平台已失败时，本机残留的生成中卡也要收口', async () => {
     [localTask({ bffRequestId: summary.id, status: 'running', finishedAt: null })],
     useStore.getState().platformGenerations,
   )
-  expect(card).toMatchObject({ status: 'error', error: 'upstream_error' })
+  expect(card).toMatchObject({
+    status: 'error',
+    error: i18next.t('agentTool.upstream_error', { ns: 'errors' }),
+    errorCode: 'upstream_error',
+  })
 })
 
 it('平台最终失败原因覆盖本机临时超时，并清掉旧错误分类', async () => {
@@ -256,10 +275,28 @@ it('平台最终失败原因覆盖本机临时超时，并清掉旧错误分类'
   )
   expect(card).toMatchObject({
     status: 'error',
-    error: 'content_policy',
+    error: i18next.t('agentTool.content_policy', { ns: 'errors' }),
     errorCode: 'content_policy',
     finishedAt: summary.completedAt,
   })
+})
+
+it('平台和本机失败分类相同时，保留本机详细说明', async () => {
+  await receivePlatformPage([
+    { ...summary, status: 'failed', cover: null, errorType: 'upstream_error' },
+  ])
+  const [card] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'error',
+        error: '上游返回 502，稍后再试',
+        errorCode: 'upstream_error',
+      }),
+    ],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({ error: '上游返回 502，稍后再试', errorCode: 'upstream_error' })
 })
 
 it('本机已有完整产出时保留其图片顺序与收藏', async () => {
