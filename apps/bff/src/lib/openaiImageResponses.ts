@@ -1,3 +1,4 @@
+import { createParser } from 'eventsource-parser'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { isObject } from './type-guards'
 
@@ -67,12 +68,12 @@ export function buildImageResponsesBody(
   }
 }
 
-/** 逐行拼接，避免每个网络分片都复制一次尚未收完的大段图片 base64。 */
+/** 按 SSE 规范切事件。eventsource-parser 用片段列表缓存未收完的行，几 MB 的图片 base64 不会被反复拼接。 */
 async function* readEvents(body: ReadableStream<Uint8Array>, signal: AbortSignal) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
-  let lineParts: string[] = []
-  let dataLines: string[] = []
+  const ready: string[] = []
+  const parser = createParser({ onEvent: (event) => ready.push(event.data) })
   const abort = () => {
     void reader.cancel(signal.reason).catch(() => {})
   }
@@ -82,34 +83,14 @@ async function* readEvents(body: ReadableStream<Uint8Array>, signal: AbortSignal
       signal.throwIfAborted()
       const chunk = await reader.read()
       signal.throwIfAborted()
-      const text = decoder.decode(chunk.value, { stream: !chunk.done })
-      let start = 0
-      for (;;) {
-        const end = text.indexOf('\n', start)
-        if (end < 0) {
-          if (start < text.length) lineParts.push(text.slice(start))
-          break
-        }
-        lineParts.push(text.slice(start, end))
-        const line = lineParts.join('').replace(/\r$/, '')
-        lineParts = []
-        start = end + 1
-        if (!line) {
-          if (dataLines.length) {
-            yield dataLines.join('\n')
-            dataLines = []
-          }
-        } else if (line.startsWith('data:')) {
-          const value = line.slice(5)
-          dataLines.push(value.startsWith(' ') ? value.slice(1) : value)
-        }
-      }
       if (chunk.done) {
-        const line = lineParts.join('').replace(/\r$/, '')
-        if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
-        if (dataLines.length) yield dataLines.join('\n')
+        parser.feed(decoder.decode())
+        parser.reset({ consume: true })
+        yield* ready.splice(0)
         return
       }
+      parser.feed(decoder.decode(chunk.value, { stream: true }))
+      yield* ready.splice(0)
     }
   } finally {
     signal.removeEventListener('abort', abort)

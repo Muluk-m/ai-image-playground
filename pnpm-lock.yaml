@@ -204,6 +204,9 @@ importers:
       elysia:
         specifier: ^1.4.0
         version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.4.2)(exact-mirror@1.0.0(typebox@1.3.7))(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+      eventsource-parser:
+        specifier: ^4.1.1
+        version: 4.1.1
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -3812,6 +3815,10 @@ packages:
 
   eventemitter3@4.0.7:
     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
+
+  eventsource-parser@4.1.1:
+    resolution: {integrity: sha512-zaWNqeSLeyzEAAt2Q6aDBRDRk/VnPmsKqvToyGvv6aahvLv71A4Jw7jG93Hckf11zXurbqgsffvpSgKPoeU1Qw==}
+    engines: {node: '>=22.12'}
 
   exact-mirror@1.0.0:
     resolution: {integrity: sha512-tB6QSwlyUDZh22vS4ytBjmTvpMJ7eNNqSUtH4w7TpQsE7//V+MsdWUhO0B1UptzStDFHQBCxfJPtDDiVaFfRyQ==}
@@ -8378,6 +8385,8 @@ snapshots:
       '@types/estree': 1.0.9
 
   eventemitter3@4.0.7: {}
+
+  eventsource-parser@4.1.1: {}
 
   exact-mirror@1.0.0(typebox@1.3.7):
     optionalDependencies:
