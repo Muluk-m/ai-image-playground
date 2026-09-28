@@ -193,7 +193,6 @@ export function mergeHistory(
       return task
     const settled = taskFromGeneration(remote.record, remote.favorite)
     if (task.status === 'done' && task.outputImages.length) return task
-    if (task.status === 'error' && settled.status === 'error') return task
     // 成功记录还没归档出图时，保留本机已有的状态，等平台封面真正可用再收口。
     if (settled.status === 'done' && !settled.outputImages.length && !task.outputImages.length)
       return task
@@ -201,6 +200,7 @@ export function mergeHistory(
       ...task,
       status: settled.status,
       error: settled.error,
+      errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
       outputImages: task.outputImages.length ? task.outputImages : settled.outputImages,

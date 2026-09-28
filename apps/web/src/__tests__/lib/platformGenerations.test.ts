@@ -239,6 +239,29 @@ it('平台已失败时，本机残留的生成中卡也要收口', async () => {
   expect(card).toMatchObject({ status: 'error', error: 'upstream_error' })
 })
 
+it('平台最终失败原因覆盖本机临时超时，并清掉旧错误分类', async () => {
+  await receivePlatformPage([
+    { ...summary, status: 'failed', cover: null, errorType: 'content_policy' },
+  ])
+  const [card] = mergeHistory(
+    [
+      localTask({
+        bffRequestId: summary.id,
+        status: 'error',
+        error: 'network timeout',
+        errorCode: 'upstream_timeout',
+      }),
+    ],
+    useStore.getState().platformGenerations,
+  )
+  expect(card).toMatchObject({
+    status: 'error',
+    error: 'content_policy',
+    errorCode: 'content_policy',
+    finishedAt: summary.completedAt,
+  })
+})
+
 it('本机已有完整产出时保留其图片顺序与收藏', async () => {
   await receivePlatformPage([summary])
   const local = localTask({
