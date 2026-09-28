@@ -27,9 +27,9 @@
     "templates": "Templates",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "canvases": "Canvases",
+    "canvases": "Projects",
     "allCanvases": "All",
-    "newCanvas": "New canvas",
+    "newCanvas": "New project",
     "immersive": "Open immersive",
     "guide": "User guide"
   },
@@ -94,7 +94,7 @@
   },
   "createTarget": {
     "aria": "Where this prompt goes",
-    "generate": "Generate",
-    "canvas": "Canvas"
+    "generate": "Quick generate",
+    "canvas": "Project studio"
   }
 }

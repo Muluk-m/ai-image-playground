@@ -3,6 +3,8 @@
     "title": "Earlier results",
     "count_one": "{{count}} group",
     "count_other": "{{count}} groups",
+    "more_one": "Show {{count}} more group",
+    "more_other": "Show {{count}} more groups",
     "collapse": "Collapse",
     "expand": "Expand",
     "place": "Add to canvas",

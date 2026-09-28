@@ -127,7 +127,7 @@ export default function Sidebar() {
             </button>
           </div>
           {NAV_APP_MODES.map(item)}
-          {/* 画布分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
+          {/* 项目分段：标题行 hover 出「全部 ＋」，条目 hover 出 ↗（沉浸式打开：进去就收起侧栏）。 */}
           <div className="group/head mt-2 flex h-9 items-center gap-2 px-3">
             {/* 画布项目是资产的一部分：标题和「全部」都去「资产 → 项目」，那时点亮的是「资产」。 */}
             <button
