@@ -171,6 +171,7 @@ it('重发仍使用发话时保存的画布目录', async () => {
     references: [],
     canvas,
     mode: 'image',
+    modelOverride: 'gpt-image-2.5-flare',
     clarificationAnswer: false,
     createdAt: Date.now(),
   })
@@ -182,5 +183,7 @@ it('重发仍使用发话时保存的画布目录', async () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
   )
   const sent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
-  expect(JSON.parse(String(sent?.[1]?.body)).canvas).toEqual(canvas)
+  const body = JSON.parse(String(sent?.[1]?.body))
+  expect(body.canvas).toEqual(canvas)
+  expect(body.params.model).toBe('gpt-image-2.5-flare')
 })

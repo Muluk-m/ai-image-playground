@@ -19,6 +19,8 @@ export interface OutgoingMessage {
   /** 发话时的目录；未加载好时缺省，重发也不从另一个时刻补拍。 */
   readonly canvas?: AgentCanvasSnapshot
   readonly mode: AgentMode
+  /** 画布快捷编辑校验遮罩时选定的模型，恢复发送必须沿用。 */
+  readonly modelOverride?: string
   readonly clarificationAnswer: boolean
   readonly createdAt: number
 }
