@@ -106,9 +106,11 @@ function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactP
 function Thumbnail({
   preview,
   onViewCanvas,
+  onPreview,
 }: {
   preview: AgentArtifactPreview
   onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreview?: (id: string) => void
 }) {
   const { artifact, source, onCanvas } = preview
   if (!source) return null
@@ -118,6 +120,13 @@ function Thumbnail({
     </span>
   )
   const image = <img src={source} alt="" className="h-full w-full object-cover" />
+  if (onPreview)
+    return (
+      <button type="button" className={THUMBNAIL} onClick={() => onPreview(artifact.artifactId)}>
+        {image}
+        {badge}
+      </button>
+    )
   // 不在画布上就没有可定位的对象，那张图只是看一眼，不做成按钮。
   if (!onCanvas)
     return (
@@ -183,9 +192,11 @@ function sourceHost(url: string): string {
 function FetchedImages({
   previews,
   onViewCanvas,
+  onPreview,
 }: {
   previews: readonly AgentFetchedPreview[]
   onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreview?: (id: string) => void
 }) {
   const { t } = useTranslation('agent')
   if (!previews.length) return null
@@ -195,6 +206,17 @@ function FetchedImages({
         {previews.map(({ objectId, source, onCanvas }) => {
           if (!source) return null
           const bitmap = <img src={source} alt="" className="h-full w-full object-cover" />
+          if (onPreview)
+            return (
+              <button
+                key={objectId}
+                type="button"
+                className={THUMBNAIL}
+                onClick={() => onPreview(objectId)}
+              >
+                {bitmap}
+              </button>
+            )
           return onCanvas ? (
             <button
               key={objectId}
@@ -373,9 +395,11 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
 export default function AgentToolCard({
   message,
   onViewCanvas,
+  onPreviewResult,
 }: {
   message: AgentToolMessage
   onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreviewResult?: (messageId: string, objectId?: string) => void
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
@@ -386,7 +410,7 @@ export default function AgentToolCard({
     previews.some((preview) => !preview.onCanvas) ||
     fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
-  const note = useStatusNote(message, offCanvas, progress !== null)
+  const note = useStatusNote(message, onPreviewResult ? false : offCanvas, progress !== null)
   const imageGenerating =
     progress !== null &&
     (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
@@ -424,13 +448,28 @@ export default function AgentToolCard({
     return (
       <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-result-card">
         <div className="studio-agent-result-media" data-multiple={previews.length > 1 || undefined}>
-          {previews.map((preview) => (
-            <Thumbnail
-              key={preview.artifact.artifactId}
-              preview={preview}
-              onViewCanvas={onViewCanvas}
-            />
-          ))}
+          {previews.map((preview) =>
+            onPreviewResult ? (
+              <button
+                key={preview.artifact.artifactId}
+                type="button"
+                className={THUMBNAIL}
+                aria-label={t('tool.previewResult')}
+                onClick={() => onPreviewResult(message.id, preview.artifact.artifactId)}
+              >
+                {preview.source && (
+                  <img src={preview.source} alt="" className="h-full w-full object-cover" />
+                )}
+                {preview.artifact.media === 'video' && <PlayBadge />}
+              </button>
+            ) : (
+              <Thumbnail
+                key={preview.artifact.artifactId}
+                preview={preview}
+                onViewCanvas={onViewCanvas}
+              />
+            ),
+          )}
         </div>
         <div className="studio-agent-result-body">
           <div className="flex items-center justify-between gap-2">
@@ -443,19 +482,24 @@ export default function AgentToolCard({
           {note && <p className={CARD_NOTE}>{note}</p>}
           <WakeSkippedNote message={message} />
           <div className="studio-agent-result-actions">
-            {canvasIds.length > 0 && (
+            {onPreviewResult ? (
+              <button type="button" onClick={() => onPreviewResult(message.id)}>
+                <Images className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('tool.previewResult')}
+              </button>
+            ) : canvasIds.length > 0 ? (
               <button type="button" title={t('tool.locateTitle')} onClick={viewCanvas}>
                 <Images className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('tool.openCanvas')}
                 <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
               </button>
-            )}
+            ) : null}
             {message.prompt && (
               <button type="button" onClick={() => setPromptOpen(true)}>
                 {t('tool.viewPrompt')}
               </button>
             )}
-            {offCanvas && (
+            {offCanvas && !onPreviewResult && (
               <button
                 type="button"
                 onClick={() =>
@@ -484,7 +528,7 @@ export default function AgentToolCard({
         </span>
       )}
       <div className="flex items-start justify-between gap-2">
-        {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
+        {!message.prompt && !onPreviewResult && previews.some((preview) => preview.onCanvas) ? (
           <button
             type="button"
             title={t('tool.locateTitle')}
@@ -555,12 +599,17 @@ export default function AgentToolCard({
               key={preview.artifact.artifactId}
               preview={preview}
               onViewCanvas={onViewCanvas}
+              onPreview={onPreviewResult ? (id) => onPreviewResult(message.id, id) : undefined}
             />
           ))}
         </div>
       )}
-      <FetchedImages previews={fetched} onViewCanvas={onViewCanvas} />
-      {offCanvas && (
+      <FetchedImages
+        previews={fetched}
+        onViewCanvas={onViewCanvas}
+        onPreview={onPreviewResult ? (id) => onPreviewResult(message.id, id) : undefined}
+      />
+      {offCanvas && !onPreviewResult && (
         <button
           type="button"
           className={`self-start ${GHOST_LINK}`}

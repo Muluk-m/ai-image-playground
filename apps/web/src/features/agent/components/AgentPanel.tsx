@@ -57,12 +57,19 @@ function renderMessage(
   answerableId: string | null,
   skills: readonly AgentSkillSummary[],
   onViewCanvas?: (objectIds?: readonly string[]) => void,
+  onPreviewResult?: (messageId: string, objectId?: string) => void,
 ) {
   if (message.kind === 'tool') {
     // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
     if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
     // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
-    return <AgentToolCard message={message} onViewCanvas={onViewCanvas} />
+    return (
+      <AgentToolCard
+        message={message}
+        onViewCanvas={onViewCanvas}
+        onPreviewResult={onPreviewResult}
+      />
+    )
   }
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
@@ -76,12 +83,14 @@ export default function AgentPanel({
   editor,
   mobile = false,
   onViewCanvas,
+  onPreviewResult,
   presentation = 'side',
 }: {
   doc: CanvasDoc
   editor: CanvasEditor
   mobile?: boolean
   onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreviewResult?: (messageId: string, objectId?: string) => void
   presentation?: 'page' | 'side'
 }) {
   const { t } = useTranslation('agent')
@@ -292,7 +301,7 @@ export default function AgentPanel({
                 <Fragment key={message.id}>
                   {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
                   {!grouping.absorbed.has(index) &&
-                    renderMessage(message, answerableId, skills, onViewCanvas)}
+                    renderMessage(message, answerableId, skills, onViewCanvas, onPreviewResult)}
                   {footer && <AgentTurnCost footer={footer} />}
                 </Fragment>
               )
