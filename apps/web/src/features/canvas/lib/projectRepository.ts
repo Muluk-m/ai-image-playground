@@ -32,10 +32,18 @@ export interface CanvasProject {
    * 从云端认领也只认领一次（{@link projectRepository.adoptKind}）。
    */
   readonly kind: ProjectKind
+  /** 工作台入口类型；与图片/视频画布类型分别记录。 */
+  readonly experience?: 'chat' | 'canvas'
+  /** 从对话创建时保留来源，画布可以一键返回原会话。 */
+  readonly sourceProjectId?: string
   /** 主动打开的空项目保持画布布局，初次进入仍可展示欢迎页。 */
   readonly workspaceOpened?: boolean
   readonly cover?: string
   readonly cloud?: { revision: number; nameDirty?: boolean; deleted?: boolean }
+}
+
+export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
+  return project.experience ?? (!project.conversationId && project.hasContent ? 'canvas' : 'chat')
 }
 
 /** 存档里画布类型可以缺席：这个字段是后加的，更早的记录与刚从云端目录导入的都还没有。 */
@@ -110,6 +118,8 @@ export const projectRepository = {
     cloud = false,
     workspaceOpened = false,
     kind: ProjectKind = 'image',
+    experience?: 'chat' | 'canvas',
+    sourceProjectId?: string,
   ): Promise<CanvasProject> {
     const id = legacy ? `legacy:${legacy.sceneKey}` : crypto.randomUUID()
     const now = Date.now()
@@ -123,6 +133,8 @@ export const projectRepository = {
       updatedAt: now,
       hasContent: Boolean(legacy?.conversationId),
       workspaceOpened,
+      ...(experience ? { experience } : {}),
+      ...(sourceProjectId ? { sourceProjectId } : {}),
       // 只有视频项目落这一项：缺席即图片，跟云端文档同一个约定。
       ...(kind === 'video' ? { kind } : {}),
       ...(cloud ? { cloud: { revision: 0 } } : {}),
@@ -266,6 +278,9 @@ export const projectRepository = {
           result = { ...result, cloud: { ...result.cloud, deleted: false } }
         if (summary.conversationId !== undefined)
           result = { ...result, conversationId: summary.conversationId }
+        if (summary.experience !== undefined) result = { ...result, experience: summary.experience }
+        if (summary.sourceProjectId !== undefined)
+          result = { ...result, sourceProjectId: summary.sourceProjectId }
         store.put(result, storageKey)
       }
       tx.oncomplete = () => resolve(projectView(result))
@@ -285,6 +300,8 @@ export const projectRepository = {
         | 'updatedAt'
         | 'hasContent'
         | 'workspaceOpened'
+        | 'experience'
+        | 'sourceProjectId'
         | 'cover'
         | 'cloud'
       >

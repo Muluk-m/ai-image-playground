@@ -142,6 +142,10 @@ export type ProjectKind = 'image' | 'video'
 export interface ProjectDocument {
   version: 1
   elements: ProjectElement[]
+  /** 工作台入口类型，旧文档缺席时由客户端按原有项目推断。 */
+  experience?: 'chat' | 'canvas'
+  /** 从对话衍生的画布可返回来源项目。 */
+  sourceProjectId?: string
   /**
    * 这张画布是拿来做图还是做片。放在文档里而不是摘要里：摘要的每一项都是服务端从文档算出来的
    * 派生值（`elementCount`、`coverMediaId`），只有文档是客户端说了算的那份原文，而画布类型
@@ -165,6 +169,8 @@ export interface CloudProjectSummary {
   elementCount: number
   coverMediaId?: string | null
   conversationId?: string | null
+  experience?: 'chat' | 'canvas'
+  sourceProjectId?: string
 }
 export interface RecycledProject extends CloudProjectSummary {
   deletedAt: number
@@ -332,9 +338,16 @@ function element(value: unknown): value is ProjectElement {
 export function isProjectDocument(value: unknown): value is ProjectDocument {
   return (
     object(value) &&
-    keys(value, ['version', 'elements', 'kind']) &&
+    keys(value, ['version', 'elements', 'kind', 'experience', 'sourceProjectId']) &&
     value.version === 1 &&
     (value.kind === undefined || value.kind === 'image' || value.kind === 'video') &&
+    (value.experience === undefined ||
+      value.experience === 'chat' ||
+      value.experience === 'canvas') &&
+    (value.sourceProjectId === undefined ||
+      (typeof value.sourceProjectId === 'string' &&
+        value.sourceProjectId.length > 0 &&
+        value.sourceProjectId.length <= 128)) &&
     Array.isArray(value.elements) &&
     value.elements.length <= PROJECT_ELEMENT_MAX_COUNT &&
     value.elements.every(element) &&

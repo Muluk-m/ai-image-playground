@@ -119,7 +119,7 @@ export class CanvasWorkspace {
     if (!pending.length) return
     void placeImagesIntoTargets(
       this.editor,
-      pending.map((dataUrl) => ({ dataUrl })),
+      pending.map((item) => (typeof item === 'string' ? { dataUrl: item } : item)),
       computePlaceholderTargets(this.editor, null, pending.length),
     ).then(
       () => this.flush(),

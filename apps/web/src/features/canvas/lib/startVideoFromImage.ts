@@ -19,7 +19,7 @@ export async function startVideoFromImage(imageId: string): Promise<void> {
     return
   }
   if (currentCanvasProject()?.kind !== 'video') {
-    if (!(await useAgentStore.getState().createProject('video'))) return
+    if (!(await useAgentStore.getState().createProject('video', true, 'canvas'))) return
     main.showToast(i18next.t('toast.videoCanvasOpened', { ns: 'store' }), 'success')
   }
   main.setLightboxImageId(null)

@@ -22,6 +22,8 @@ export function projectCatalog(
                 : project.cover,
             updatedAt: Math.max(project.updatedAt, remote.updatedAt),
             hasContent: project.hasContent || remote.elementCount > 0,
+            experience: remote.experience ?? project.experience,
+            sourceProjectId: remote.sourceProjectId ?? project.sourceProjectId,
           }
         : project
     })

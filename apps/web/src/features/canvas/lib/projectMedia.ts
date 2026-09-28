@@ -50,6 +50,7 @@ export function projectDocument(
   doc: CanvasDoc,
   bindings: LoadedBindings = new Map(),
   kind: ProjectKind = 'image',
+  identity?: { experience?: 'chat' | 'canvas'; sourceProjectId?: string },
 ): ProjectDocument | null {
   const elements = doc.elements.filter((element) => !isLocalAgentFailure(element))
   const mapped = elements.map((element) => {
@@ -79,7 +80,13 @@ export function projectDocument(
     return { ...image, mediaId, ...(image.meta ? { meta: boundedMeta(image.meta) } : {}) }
   })
   // 只有视频项目写 `kind`：缺席即图片，老项目的文档因此不会平白变出一次改动要推。
-  const document = { version: 1, elements: mapped, ...(kind === 'video' ? { kind } : {}) }
+  const document = {
+    version: 1,
+    elements: mapped,
+    ...(kind === 'video' ? { kind } : {}),
+    ...(identity?.experience ? { experience: identity.experience } : {}),
+    ...(identity?.sourceProjectId ? { sourceProjectId: identity.sourceProjectId } : {}),
+  }
   return isProjectDocument(document) ? document : null
 }
 
