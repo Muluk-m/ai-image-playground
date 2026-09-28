@@ -169,8 +169,8 @@ export interface CloudProjectSummary {
   elementCount: number
   coverMediaId?: string | null
   conversationId?: string | null
-  experience?: 'chat' | 'canvas'
-  sourceProjectId?: string
+  experience?: 'chat' | 'canvas' | null
+  sourceProjectId?: string | null
 }
 export interface RecycledProject extends CloudProjectSummary {
   deletedAt: number
