@@ -329,6 +329,8 @@ export interface AgentTurnInput {
    * （见 `listAgentHistoryWindow`）。整份带着走，不在沿途拆开重组。
    */
   readonly history: AgentHistoryWindow
+  /** 起轮时捕获一次，预扣与实发共用；UTC 避免把 BFF 主机时区误当用户时区。 */
+  readonly currentTime: string
   /** 用户原话，或唤醒 / 续跑那段系统说明。`/skill-name` 由两条路共用的拼法展开。 */
   readonly text: string
   /** 本轮附上的参考图，序号就是提示词里的 `[image N]`。 */
@@ -386,7 +388,8 @@ export function turnPromptBody(
     references,
     input.references.length > 0,
   )
-  return input.note ? `${asked}\n\n${input.note}` : asked
+  const dated = `当前时间（UTC）：${input.currentTime}。按此理解“今年”“最近”等相对时间；用户明确给出的日期优先。\n\n${asked}`
+  return input.note ? `${dated}\n\n${input.note}` : dated
 }
 
 /**
