@@ -84,7 +84,7 @@ C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才�
 追加进 `$d/app.env`。重复执行前先 `sed -i '/^AGENT_[A-Z_]*=/d'` 保证幂等。
 
 ```sh
-AGENT_CHAT_MODEL=gpt-5.6-luna
+AGENT_CHAT_MODEL=gpt-6-luna
 AGENT_CHAT_CONTEXT_WINDOW=40000
 AGENT_CHAT_MAX_TOKENS=8000
 AGENT_SUMMARY_MODEL=gpt-5.6-luna
@@ -94,6 +94,10 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 
 `AGENT_CHAT_CONTEXT_WINDOW` **填的是预算窗口，不是模型标称窗口**。这是全文最容易配错的一项，
 理由见下面「窗口为什么是 40000」。
+
+三档模型分别是低 `gpt-6-luna`、中 `gpt-6-sol`、深 `claude-opus-5-5`。
+模型标称窗口分别为 105 万、105 万、100 万 token；这不改变线上每轮 4 万 token 的
+成本预算。Claude 对话、摘要或搜索模型用 `UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
 
 生图与生视频模型必须是 `channels.json` 里的模型，且在单价表里 active，否则工具提交会被拒。
 留空则取该类目的第一个，当前分别是 `gpt-image-2.5-flare` 与 `grok-imagine-video`。
