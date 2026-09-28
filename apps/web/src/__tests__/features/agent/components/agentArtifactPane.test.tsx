@@ -8,7 +8,12 @@ import type { AgentToolMessage } from '../../../../features/agent/types'
 const previewArtifactBitmap = vi.hoisted(() =>
   vi.fn(async (artifact: { artifactId: string }) => `data:image/png;base64,${artifact.artifactId}`),
 )
+const canvas = vi.hoisted(() => ({
+  has: vi.fn((_id: string) => false),
+  thumbnail: vi.fn(async (_id: string) => 'data:image/png;base64,canvas'),
+}))
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({ previewArtifactBitmap }))
+vi.mock('../../../../features/agent/lib/canvasSink', () => ({ agentCanvasSink: () => canvas }))
 vi.mock('../../../../components/Lightbox', () => ({
   ImagePreview: () => <div data-testid="zoomed" />,
 }))
@@ -29,7 +34,12 @@ const message: AgentToolMessage = {
   ],
 }
 
-afterEach(() => previewArtifactBitmap.mockClear())
+afterEach(() => {
+  previewArtifactBitmap.mockClear()
+  canvas.has.mockReset()
+  canvas.has.mockReturnValue(false)
+  canvas.thumbnail.mockClear()
+})
 
 it('previews, switches and enlarges results without entering the canvas', async () => {
   const host = document.createElement('div')
@@ -78,6 +88,31 @@ it('previews, switches and enlarges results without entering the canvas', async 
     expect(onViewCanvas).toHaveBeenCalledWith(['second'])
     act(() => (host.querySelector('.studio-artifact-pane-back') as HTMLButtonElement).click())
     expect(onClose).toHaveBeenCalledOnce()
+  } finally {
+    act(() => root.unmount())
+  }
+})
+
+it('uses the existing canvas bitmap when the original queue output is no longer available', async () => {
+  canvas.has.mockReturnValue(true)
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          message={message}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          onViewCanvas={vi.fn()}
+        />,
+      ),
+    )
+    expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
+      'canvas',
+    )
+    expect(canvas.thumbnail).toHaveBeenCalledWith('first', 1)
+    expect(previewArtifactBitmap).not.toHaveBeenCalled()
   } finally {
     act(() => root.unmount())
   }

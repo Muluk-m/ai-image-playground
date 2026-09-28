@@ -494,7 +494,7 @@ export default function AgentToolCard({
                 <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
               </button>
             ) : null}
-            {message.prompt && (
+            {message.prompt && !onPreviewResult && (
               <button type="button" onClick={() => setPromptOpen(true)}>
                 {t('tool.viewPrompt')}
               </button>
