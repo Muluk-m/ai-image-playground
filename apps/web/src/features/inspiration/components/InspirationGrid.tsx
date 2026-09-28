@@ -9,6 +9,7 @@ export default function InspirationGrid() {
   const items = useInspirationStore((s) => s.items)
   const selectedProvider = useInspirationStore((s) => s.selectedProvider)
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
+  const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const showDetail = useInspirationStore((s) => s.showDetail)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
@@ -17,10 +18,10 @@ export default function InspirationGrid() {
   const ordered = useMemo(
     () =>
       sortPinnedFirst(
-        filterItems(items, selectedProvider, selectedCategory, searchKeyword),
+        filterItems(items, selectedProvider, selectedCategory, onlyImageEdits, searchKeyword),
         pinnedIds,
       ),
-    [items, selectedProvider, selectedCategory, searchKeyword, pinnedIds],
+    [items, selectedProvider, selectedCategory, onlyImageEdits, searchKeyword, pinnedIds],
   )
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds])
 
@@ -35,7 +36,7 @@ export default function InspirationGrid() {
   return (
     <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
       {ordered.map((item) => (
-        <li key={item.id}>
+        <li key={item.id} className={item.referenceImages?.length ? 'col-span-2' : ''}>
           <InspirationCard
             item={item}
             pinned={pinnedSet.has(item.id)}
@@ -51,12 +52,14 @@ function filterItems(
   items: InspirationItem[],
   provider: InspirationProviderFilter,
   category: string | null,
+  onlyImageEdits: boolean,
   keyword: string,
 ) {
   const kw = keyword.trim().toLowerCase()
   return items.filter((item) => {
     if (provider !== 'all' && item.recommendedProvider !== provider) return false
     if (category && item.category !== category) return false
+    if (onlyImageEdits && !item.referenceImages?.length) return false
     if (!kw) return true
     const haystack = [item.title, item.description ?? '', item.prompt, ...(item.tags ?? [])]
       .join(' ')

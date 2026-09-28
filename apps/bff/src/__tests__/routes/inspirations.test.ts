@@ -9,6 +9,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../operator-c
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.OPENAI_API_KEY = 'test'
+process.env.PUBLIC_ASSET_BASE_URL = 'https://assets.test.example'
 
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
@@ -79,6 +80,15 @@ afterAll(async () => {
 })
 
 describe('inspiration publication', () => {
+  it('exposes the configured public asset base only to the internal admin', async () => {
+    expect(
+      (await request('/internal/admin/inspirations/asset-base', 'GET', undefined, false)).status,
+    ).toBe(401)
+    const response = await request('/internal/admin/inspirations/asset-base')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ baseUrl: 'https://assets.test.example' })
+  })
+
   it('keeps drafts and archived items private and increments the public version on publication', async () => {
     expect((await request('/internal/admin/inspirations', 'POST', ITEM, false)).status).toBe(401)
     expect((await request('/internal/admin/inspirations', 'POST', ITEM)).status).toBe(201)

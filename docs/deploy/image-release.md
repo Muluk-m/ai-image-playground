@@ -87,7 +87,7 @@ cd /absolute/paid-checkout   # 必须带已验证的 private/
 1. `cloudflared tunnel route dns image-playground-paid admin-api.muvloom.online`，ingress 加 `admin-api.muvloom.online → http://admin:37378`，重启 cloudflared。
 2. `app.env` 加 `ADMIN_FRONTEND_ORIGIN=https://admin.muvloom.online`、`ADMIN_CORS_ALLOWED_ORIGINS=https://admin.muvloom.online`，把 `ADMIN_PUBLIC_ORIGIN` 改成 `https://admin-api.muvloom.online`（它是 API 自己的 origin，Google 控制台的回调地址跟着改成 `https://admin-api.muvloom.online/api/auth/google/callback`），删掉 `ADMIN_DIST_DIR` 那一行。
 3. `app-compose.sh compose image-playground-paid up --detach --no-deps admin`，验 `https://admin-api.muvloom.online/health` 的 `version`。
-4. 用付费账号凭证给公开素材桶应用浏览器直传 CORS：`npx wrangler r2 bucket cors set "$PUBLIC_ASSET_BUCKET" --file deploy/r2-public-assets-cors.json`，再用 `npx wrangler r2 bucket cors list "$PUBLIC_ASSET_BUCKET"` 确认只放行 `https://admin.muvloom.online` 的 `GET` / `HEAD` / `PUT`。
+4. 用付费账号凭证给公开素材桶应用浏览器直传 CORS：`npx wrangler r2 bucket cors set "$PUBLIC_ASSET_BUCKET" --file deploy/r2-public-assets-cors.json`，再用 `npx wrangler r2 bucket cors list "$PUBLIC_ASSET_BUCKET"` 确认 Admin 可 `GET` / `HEAD` / `PUT`，主站、内部站与测试站只可 `GET` / `HEAD`。主站套用图生图灵感时会从浏览器读取原图，因此读权限必须覆盖主站 origin。
 5. 建 Pages 项目并首发，再把 `admin.muvloom.online` 的 DNS 从 tunnel 切到 Pages，删掉 ingress 里旧的 `admin.muvloom.online` 那行。Cloudflare Access 两个域名都要覆盖。
 6. 浏览器验收：登录、任务详情里的图片（跨域带 cookie）、私有计费面板、灵感库封面上传。
 

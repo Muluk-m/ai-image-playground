@@ -8,6 +8,18 @@
       },
       "exposeHeaders": ["ETag"],
       "maxAgeSeconds": 3600
+    },
+    {
+      "allowed": {
+        "origins": [
+          "https://muvloom.online",
+          "https://image-playground.qiliangjia.one",
+          "https://test.muvloom.online",
+          "https://muvloom-test.pages.dev"
+        ],
+        "methods": ["GET", "HEAD"]
+      },
+      "maxAgeSeconds": 3600
     }
   ]
 }
