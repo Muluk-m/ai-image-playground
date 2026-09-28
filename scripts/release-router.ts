@@ -7,7 +7,8 @@ const allowedOrigin = new RegExp(`^http://[a-zA-Z0-9_-]+:${originPort}$`)
 const server = Bun.serve({
   port,
   idleTimeout: 255,
-  maxRequestBodySize: 600 * 1024 * 1024,
+  // Same limit as the BFF behind it; Cloudflare caps public requests at 100 MB anyway.
+  maxRequestBodySize: 100 * 1024 * 1024,
   async fetch(request) {
     try {
       const route = (await Bun.file(routeFile).json()) as { origin: string }
