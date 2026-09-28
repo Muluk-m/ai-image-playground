@@ -1,4 +1,4 @@
-import type { AgentMode, AgentTurnReference } from '@image-playground/shared'
+import type { AgentCanvasSnapshot, AgentMode, AgentTurnReference } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 
 /**
@@ -16,6 +16,8 @@ export interface OutgoingMessage {
   readonly conversationId: string | null
   readonly text: string
   readonly references: readonly AgentTurnReference[]
+  /** 发话时的目录；未加载好时缺省，重发也不从另一个时刻补拍。 */
+  readonly canvas?: AgentCanvasSnapshot
   readonly mode: AgentMode
   readonly clarificationAnswer: boolean
   readonly createdAt: number

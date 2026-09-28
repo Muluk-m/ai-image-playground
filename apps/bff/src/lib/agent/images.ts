@@ -572,8 +572,8 @@ export async function claimCanvasMedia(
   conversationId: string,
   userId: string | null,
   mediaIds: readonly string[],
-): Promise<ReadonlySet<string>> {
-  if (!userId || mediaIds.length === 0) return new Set()
+): Promise<{ allowed: ReadonlySet<string>; created: readonly string[] }> {
+  if (!userId || mediaIds.length === 0) return { allowed: new Set(), created: [] }
   const owned = await db
     .select({ id: schema.media_objects.id })
     .from(schema.media_objects)
@@ -585,8 +585,40 @@ export async function claimCanvasMedia(
       ),
     )
   const ids = owned.map((row) => row.id)
-  await addConversationMediaClaims(conversationId, userId, ids)
-  return new Set(ids)
+  if (ids.length === 0) return { allowed: new Set(), created: [] }
+  const created = await db
+    .insert(schema.media_references)
+    .values(
+      ids.map((mediaId) => ({
+        user_id: userId,
+        media_id: mediaId,
+        owner_kind: 'conversation' as const,
+        owner_id: conversationId,
+        created_at: Date.now(),
+      })),
+    )
+    .onConflictDoNothing()
+    .returning({ mediaId: schema.media_references.media_id })
+  return { allowed: new Set(ids), created: created.map((row) => row.mediaId) }
+}
+
+/** 起轮没被接收时只撤回本次新建的引用，不动原有会话引用。 */
+export async function releaseCanvasMediaClaims(
+  conversationId: string,
+  userId: string | null,
+  mediaIds: readonly string[],
+): Promise<void> {
+  if (!userId || mediaIds.length === 0) return
+  await db
+    .delete(schema.media_references)
+    .where(
+      and(
+        eq(schema.media_references.user_id, userId),
+        eq(schema.media_references.owner_kind, 'conversation'),
+        eq(schema.media_references.owner_id, conversationId),
+        inArray(schema.media_references.media_id, mediaIds),
+      ),
+    )
 }
 
 /**
