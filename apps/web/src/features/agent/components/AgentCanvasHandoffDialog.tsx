@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from '../../../i18n'
 import {
   type CanvasProject,
-  projectDisplayName,
+  projectEntryName,
   projectExperience,
 } from '../../canvas/lib/projectRepository'
 
@@ -98,7 +98,7 @@ export default function AgentCanvasHandoffDialog({
                 >
                   <LayoutDashboard size={18} />
                   <span>
-                    <strong>{projectDisplayName(project.name)}</strong>
+                    <strong>{projectEntryName(project)}</strong>
                   </span>
                   <ArrowRight size={16} />
                 </button>

@@ -13,6 +13,7 @@ import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
 import {
   projectDisplayName,
+  projectEntryName,
   projectExperience,
   UNTITLED_PROJECT,
 } from '../features/canvas/lib/projectRepository'
@@ -41,15 +42,17 @@ export default function ProjectNavigation() {
   const busy = pending !== null
   const catalog = useMemo(() => projectCatalog(projects, cloudCatalog), [projects, cloudCatalog])
   const current = catalog.find((project) => project.id === activeId)
-  const name = projectDisplayName(
-    current?.name ?? projects.find((project) => project.id === activeId)?.name ?? UNTITLED_PROJECT,
-  )
+  const name = current
+    ? projectEntryName(current)
+    : projectDisplayName(
+        projects.find((project) => project.id === activeId)?.name ?? UNTITLED_PROJECT,
+      )
   const query = search.trim().toLocaleLowerCase()
   const recent = current
     ? [current, ...catalog.filter((project) => project.id !== activeId)]
     : catalog
   const matches = (query ? catalog : recent).filter((project) =>
-    projectDisplayName(project.name).toLocaleLowerCase().includes(query),
+    projectEntryName(project).toLocaleLowerCase().includes(query),
   )
   const visible = (
     query
@@ -166,9 +169,7 @@ export default function ProjectNavigation() {
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs">
-                        {projectDisplayName(project.name)}
-                      </span>
+                      <span className="block truncate text-xs">{projectEntryName(project)}</span>
                       <time
                         dateTime={new Date(project.updatedAt).toISOString()}
                         className="mt-0.5 block text-[10px] font-normal text-muted-foreground"
