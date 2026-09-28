@@ -355,6 +355,7 @@
     "searchAll": "搜索全部资产",
     "loading": "正在加载其他对话的产物…",
     "loadFailed": "部分对话暂时无法加载，请稍后重试。",
+    "retry": "重试",
     "media": "媒体类型",
     "image": "图片",
     "video": "视频",

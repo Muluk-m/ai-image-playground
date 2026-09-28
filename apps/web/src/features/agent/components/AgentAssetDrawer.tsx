@@ -1,5 +1,5 @@
 import { FolderOpen, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from '../../../i18n'
 import { fetchConversations, fetchMessages } from '../lib/agentClient'
@@ -60,6 +60,7 @@ export default function AgentAssetDrawer({
   const [allItems, setAllItems] = useState<AssetItem[]>([])
   const [loadingAll, setLoadingAll] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [reload, setReload] = useState(0)
   const conversationId = useAgentStore((state) => state.conversationId)
   const sessionItems = useMemo(() => assetsFromMessages(messages), [messages])
   useEffect(() => {
@@ -106,7 +107,7 @@ export default function AgentAssetDrawer({
     return () => {
       cancelled = true
     }
-  }, [scope, conversationId, sessionItems])
+  }, [scope, conversationId, sessionItems, reload])
   const items = scope === 'session' ? sessionItems : allItems
   const shown = items.filter(
     (item) =>
@@ -182,7 +183,10 @@ export default function AgentAssetDrawer({
           )}
           {scope === 'all' && loadFailed && (
             <p className="studio-assets-status" role="alert">
-              {t('assets.loadFailed')}
+              {t('assets.loadFailed')}{' '}
+              <button type="button" onClick={() => setReload((value) => value + 1)}>
+                {t('assets.retry')}
+              </button>
             </p>
           )}
           {shown.map((item) => (
@@ -208,8 +212,29 @@ export default function AgentAssetDrawer({
 }
 
 function AssetThumb({ item, onClick }: { item: AssetItem; onClick: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [visible, setVisible] = useState(false)
   const [source, setSource] = useState<string | null>(null)
   useEffect(() => {
+    const element = ref.current
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setVisible(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setVisible(true)
+          observer.disconnect()
+        }
+      },
+      { root: element.closest('.studio-assets-grid'), rootMargin: '160px' },
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!visible) return
     let alive = true
     void item
       .load()
@@ -220,9 +245,15 @@ function AssetThumb({ item, onClick }: { item: AssetItem; onClick: () => void })
     return () => {
       alive = false
     }
-  }, [item.id])
+  }, [item.id, visible])
   return (
-    <button type="button" className="studio-assets-item" title={item.title} onClick={onClick}>
+    <button
+      ref={ref}
+      type="button"
+      className="studio-assets-item"
+      title={item.title}
+      onClick={onClick}
+    >
       <span className="studio-assets-thumb">
         {source && <img src={source} alt="" loading="lazy" />}
         {item.media === 'video' && <span className="studio-assets-video">▶</span>}

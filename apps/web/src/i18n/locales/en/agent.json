@@ -373,6 +373,7 @@
     "searchAll": "Search all assets",
     "loading": "Loading results from other conversations…",
     "loadFailed": "Some conversations could not be loaded. Try again later.",
+    "retry": "Retry",
     "media": "Media type",
     "image": "Images",
     "video": "Videos",
