@@ -178,6 +178,50 @@ describe('本机原图上云', () => {
     vi.unstubAllGlobals()
   })
 
+  it('PNG 标签包着 ICO 字节时先转成 PNG，避免卡住整份画布', async () => {
+    const source = 'data:image/png;base64,AAABAAEA'
+    const doc = new CanvasDoc()
+    doc.addElements(
+      [
+        {
+          id: 'icon',
+          type: 'image',
+          fileId: 'icon-file',
+          x: 0,
+          y: 0,
+          width: 32,
+          height: 32,
+          rotation: 0,
+        },
+      ],
+      { files: { 'icon-file': source } },
+    )
+    const declared: { contentType: string; bytes: number }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === source)
+          return new Response(Uint8Array.from([0, 0, 1, 0, 1, 0]), {
+            headers: { 'content-type': 'image/png' },
+          })
+        if (url.endsWith('/uploads')) {
+          declared.push(JSON.parse(init!.body as string))
+          return Response.json({ id: 'icon-media', status: 'ready' })
+        }
+        throw new Error(`unexpected request: ${url}`)
+      }),
+    )
+    const persisted = {}
+
+    await prepareProjectMedia(doc, persisted, new Map(), new AbortController().signal)
+
+    expect(declared).toEqual([
+      expect.objectContaining({ contentType: 'image/png', bytes: PNG_BYTES.length }),
+    ])
+    expect(persisted).toMatchObject({ 'icon-file': { id: 'icon-media' } })
+    vi.unstubAllGlobals()
+  })
+
   it('云媒体不收的格式（SVG）先转成 PNG 再传，不让一张图卡住整个项目的同步', async () => {
     const source = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>')}`
     const doc = new CanvasDoc()
