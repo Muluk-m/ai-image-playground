@@ -18,7 +18,7 @@ import {
   type UndiciFetchInput,
 } from './timeoutFetch'
 import {
-  AsyncTaskProtocol,
+  type AsyncTaskProtocol,
   asyncTaskFailure,
   imageTaskProtocol,
   isRecoverablePollFailure,
@@ -49,17 +49,13 @@ import {
   withoutImageCount,
   withoutModeration,
 } from './upstream/openai'
-import { ChannelRouteStyle, clientError, UpstreamCallResult } from './upstream/shared'
+import { type ChannelRouteStyle, clientError, type UpstreamCallResult } from './upstream/shared'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
-/**
- * Convert queued requests into OpenAI Images or Gemini generateContent calls.
- *
- * The BFF does not translate model parameters. OpenAI requests use multipart edits when input
- * images are present and JSON generations otherwise. Gemini requests use generateContent.
+/*
+ * 把排队任务发给上游：按 channel 路由、硬超时、计费回调、fan-out、异步任务的提交与恢复。
+ * 各服务商的请求体、结果解析与异步任务协议在 `./upstream/` 下。BFF 不翻译模型参数。
  */
-
-/** 各服务商的请求体、结果解析与异步任务协议在 `./upstream/` 下；这里只做路由、超时、计费回调、fan-out 与恢复。 */
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',

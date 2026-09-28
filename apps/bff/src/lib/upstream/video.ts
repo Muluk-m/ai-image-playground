@@ -1,15 +1,15 @@
-import { type VideoMode, type VideoResolution } from '@image-playground/shared'
+import type { VideoMode, VideoResolution } from '@image-playground/shared'
 import type { HydratedSubmitRequest, HydratedVideoRequest } from '../imageArchive'
 import { isObject } from '../type-guards'
 import {
-  AsyncTaskProtocol,
-  AsyncTaskState,
+  type AsyncTaskProtocol,
+  type AsyncTaskState,
   readTaskIdField,
   videoStatusReader,
 } from './async-tasks'
 import { UpstreamResultUnknownError } from './errors'
 import { inlineDataPart } from './gemini'
-import { ChannelRouteStyle, clientError } from './shared'
+import { type ChannelRouteStyle, clientError } from './shared'
 
 /**
  * 成片的取法：`public` 交给归档回源，`credentialed` 要在上游路径内带 key 再取一次字节

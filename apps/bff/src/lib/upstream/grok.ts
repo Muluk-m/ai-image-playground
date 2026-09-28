@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer'
 import sharp from 'sharp'
 import type { HydratedSubmitRequest } from '../imageArchive'
-import { buildOpenAIBody, decodeDataUrl } from './openai'
-import { clientError } from './shared'
+import { buildOpenAIBody } from './openai'
+import { clientError, decodeDataUrl } from './shared'
 
 const GROK_IMAGINE_2_MODEL_ID = 'grok-imagine-image-2.0'
 
