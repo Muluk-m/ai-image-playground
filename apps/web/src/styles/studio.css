@@ -7,6 +7,7 @@
   border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--sidebar) / .96);
   backdrop-filter: blur(14px);
 }
+.studio-project-viewbar--chat { border-bottom: 0; background: hsl(var(--background)); backdrop-filter: none; }
 .studio-project-viewbar > .studio-agent-project { flex: 0 1 auto; min-width: 0; border: 0; padding: 0; }
 .studio-project-switch {
   display: flex; flex: 0 0 auto; gap: 3px; margin-left: clamp(12px, 2vw, 24px); padding: 3px;
@@ -430,7 +431,10 @@
 }
 
 /* 对话是完整阅读面；产物跟在回复里，只有点开时才进入详情。 */
-.studio-chat-column--page > .studio-sidebar { width: min(1040px, 100%) !important; }
+.studio-chat-column--page > .studio-sidebar { width: min(1400px, 100%) !important; }
+@media (min-width: 1000px) {
+  .studio-chat-column--page > .studio-sidebar { width: min(1400px, calc(100% - 96px)) !important; }
+}
 .studio-sidebar--page .studio-agent-log { gap: 20px; padding-top: 24px; }
 .studio-sidebar--page .studio-agent-reply { font-size: 15px; line-height: 1.75; }
 .studio-sidebar--page .studio-agent-user-message { font-size: 14px; }
