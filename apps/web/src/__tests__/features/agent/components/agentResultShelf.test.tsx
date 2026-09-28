@@ -38,8 +38,8 @@ function result(id: string): AgentToolMessage {
     toolCallId: id,
     title: `Result ${id}`,
     status: 'succeeded',
-    artifacts: [{ artifactId: id }],
-  } as AgentToolMessage
+    artifacts: [{ artifactId: id, media: 'image', taskId: id, outputIndex: 0, mime: 'image/png' }],
+  }
 }
 
 const doc = {
