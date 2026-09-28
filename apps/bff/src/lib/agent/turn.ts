@@ -249,6 +249,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       modelCallId = await ledger.begin('conversation', model.id, context)
       return stream(model, context, options)
     },
+    // 一次工具边界把已排队的插话按顺序交给模型，避免每句再触发一次模型请求。
+    steeringMode: 'all',
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
     // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
