@@ -1,6 +1,7 @@
 import {
   type AgentCanvasEdit,
   type AgentCanvasEditPlan,
+  type AgentCanvasSnapshot,
   ARRANGE_CAPTION_MAX,
   ARRANGE_MAX_ITEMS,
   ARRANGE_SECTION_MAX,
@@ -67,6 +68,15 @@ async function loadDocument(context: AgentToolContext): Promise<ProjectDocument 
   return row?.document ?? null
 }
 
+function imageShift(
+  canvas: AgentCanvasSnapshot | undefined,
+  elementId: string,
+): { dx: number; dy: number } {
+  const element = canvas?.elements.find((one) => one.id === elementId)
+  if (!element || element.type !== 'image') return { dx: 0, dy: 0 }
+  return { dx: element.dx ?? 0, dy: element.dy ?? 0 }
+}
+
 /** 箭头和手绘没有外接矩形字段，用点列自己围一个，好让整理结果避开它们。 */
 function boundsOf(element: ProjectElement): ArrangeBox | null {
   if (element.type === 'arrow' || element.type === 'freedraw') {
@@ -106,11 +116,11 @@ export const arrangeCanvas = defineAgentTool({
   modes: ['image', 'video'],
   label: '整理画布',
   description:
-    '把画布上已有的图片按你给的分组收成格子，并给每张或每一组写上页签。不生成东西、不花积分，画面内容一个像素不变。' +
-    '先看画布：同批 id、提示词摘要和位置够分组时不要逐张看图；只有某一堆完全没有名字和提示词时，才对那一堆看一张缩略图。' +
-    '元素 id 取自看画布的「元素 xxx」。没写进分组的元素留在原地，这一批会整组挪到它们右侧。坐标不用给。',
+    '把用户此刻看见的画布图片按你给的分组收成格子，并给每张或每一组写上页签。不生成东西、不花积分，画面内容一个像素不变。' +
+    '先看画布：那一份包含还没同步到服务端的图，张数以它报的「共 N 个元素」为准，不要只整理上一轮提到的几张。' +
+    '同批 id、提示词摘要和位置够分组时不要逐张看图。元素 id 取自看画布的「元素 xxx」。没写进分组的元素留在原地。坐标不用给。',
   guidance: () =>
-    '用户要整理画布、把一批图排开或标上名字时，先看画布再调一次整理画布。按同批 id、提示词和时间分组，不要为了分类把每张图都看一遍；无名无提示词的那一堆只看一张缩略图，名字用在整堆上。每组写 label 和成员 caption，caption 是卡片上的小字。',
+    '用户要整理画布时，先看画布再调一次整理画布。看画布列的是他屏幕上的全部图，包括还没上传完的；把要排的图片元素 id 都写进分组，不要只拿上一轮说过的那几张。按同批 id、提示词和时间分组；无名无提示词的那一堆只看一张缩略图，名字用在整堆上。',
   parameters,
   onError: 'continue',
   call: ({ groups }) => {
@@ -123,12 +133,6 @@ export const arrangeCanvas = defineAgentTool({
     return { title: count > 0 ? `整理画布：${count} 张` : '整理画布' }
   },
   execute: (context) => async (_toolCallId, params) => {
-    const document = await loadDocument(context)
-    if (!document)
-      throw new AgentToolError(
-        'invalid_params',
-        '这一轮没有服务端画布可读（画布只在本地，或者用户没登录），没法整理。',
-      )
     const listed = params.groups.reduce((sum, group) => sum + group.items.length, 0)
     if (listed > ARRANGE_MAX_ITEMS)
       throw new AgentToolError(
@@ -136,7 +140,36 @@ export const arrangeCanvas = defineAgentTool({
         `一次最多整理 ${ARRANGE_MAX_ITEMS} 张，这次有 ${listed} 张。请拆成几组先后整理。`,
       )
 
-    const known = new Map(document.elements.map((element) => [element.id, element]))
+    const live = context.canvas
+    if (live?.omitted)
+      throw new AgentToolError(
+        'invalid_params',
+        `这张画布还有 ${live.omitted} 个元素没有进入目录，无法安全计算整理落点。请先缩小画布范围。`,
+      )
+    const document = live ? null : await loadDocument(context)
+    if (!live && !document)
+      throw new AgentToolError(
+        'invalid_params',
+        '这一轮没有服务端画布可读（画布只在本地，或者用户没登录），没法整理。',
+      )
+    const known = new Map(
+      (live ? live.elements : (document?.elements ?? [])).map((element) => [
+        element.id,
+        element.type,
+      ]),
+    )
+    const boxes: ArrangeBox[] = live
+      ? live.elements.map((element) => ({
+          id: element.id,
+          x: element.x,
+          y: element.y,
+          w: element.width,
+          h: element.height,
+        }))
+      : (document?.elements ?? []).flatMap((element) => {
+          const box = boundsOf(element)
+          return box ? [box] : []
+        })
     const missing: string[] = []
     const unsupported: string[] = []
     const duplicate: string[] = []
@@ -153,7 +186,7 @@ export const arrangeCanvas = defineAgentTool({
           missing.push(item.elementId)
           return []
         }
-        if (element.type !== 'image') {
+        if (known.get(item.elementId) !== 'image') {
           unsupported.push(item.elementId)
           return []
         }
@@ -163,13 +196,7 @@ export const arrangeCanvas = defineAgentTool({
         ? [{ ...(group.label ? { label: group.label } : {}), columns: group.columns, items }]
         : []
     })
-    const placements = layoutCanvasArrange(
-      groups,
-      document.elements.flatMap((element) => {
-        const box = boundsOf(element)
-        return box ? [box] : []
-      }),
-    )
+    const placements = layoutCanvasArrange(groups, boxes)
     const notes =
       (missing.length ? `这些元素 id 在画布上找不到：${missing.join('、')}。` : '') +
       (unsupported.length ? `这些对象不是图片，没有排进去：${unsupported.join('、')}。` : '') +
@@ -178,15 +205,16 @@ export const arrangeCanvas = defineAgentTool({
       throw new AgentToolError('invalid_params', `没有可以整理的图片。${notes}`)
 
     const canvasEdit: AgentCanvasEditPlan = {
-      edits: placements.map(
-        (item): AgentCanvasEdit => ({
+      edits: placements.map((item): AgentCanvasEdit => {
+        const shift = imageShift(context.canvas, item.elementId)
+        return {
           elementId: item.elementId,
-          x: item.x,
-          y: item.y,
+          x: item.x + shift.dx,
+          y: item.y + shift.dy,
           ...(item.caption ? { name: item.caption } : {}),
           section: item.section,
-        }),
-      ),
+        }
+      }),
     }
     return {
       content: [

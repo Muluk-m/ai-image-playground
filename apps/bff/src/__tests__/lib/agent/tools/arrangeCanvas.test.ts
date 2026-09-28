@@ -185,6 +185,58 @@ it('names the ids it could not place and still moves the rest', async () => {
   })
 })
 
+it('arranges the images on the open canvas when the server copy does not have them', async () => {
+  const result = await arrangeCanvas
+    .create({
+      mode: 'image',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      userId: null,
+      deviceId: 'device-abcdefgh',
+      images: { references: [], identify: () => undefined, attach: () => {} } as never,
+      canvas: {
+        elements: [
+          { id: 'poster', type: 'image', x: 0, y: 0, width: 100, height: 80, name: '海报' },
+          { id: 'code', type: 'image', x: 120, y: 0, width: 80, height: 80, name: '二维码' },
+        ],
+      },
+    })
+    .execute(
+      'call-1',
+      {
+        groups: [
+          {
+            label: '素材',
+            items: [
+              { elementId: 'poster', caption: '海报' },
+              { elementId: 'code', caption: '二维码' },
+            ],
+          },
+        ],
+      },
+      undefined,
+      undefined,
+    )
+
+  const edits = result.details?.canvasEdit?.edits ?? []
+  expect(edits[0]).toMatchObject({ elementId: 'poster', name: '海报', section: '素材' })
+  expect(edits[1]).toMatchObject({ elementId: 'code', name: '二维码' })
+})
+
+it('refuses to calculate a layout from an incomplete live canvas', async () => {
+  await expect(
+    arrangeCanvas
+      .create({
+        ...context('conv-1', null),
+        canvas: {
+          elements: [{ id: 'el-a', type: 'image', x: 0, y: 0, width: 10, height: 10 }],
+          omitted: 1,
+        },
+      })
+      .execute('call-1', { groups: [{ items: [{ elementId: 'el-a' }] }] }, undefined, undefined),
+  ).rejects.toMatchObject({ name: 'AgentToolError' })
+})
+
 it('refuses to invent a layout when this turn has no server canvas', async () => {
   await expect(run('conv-1', null, [{ items: [{ elementId: 'el-a' }] }])).rejects.toMatchObject({
     name: 'AgentToolError',
