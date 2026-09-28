@@ -6,6 +6,8 @@ process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.UPSTREAM_OPENAI_API_KEY = ''
+process.env.UPSTREAM_CLAUDE_API_KEY = 'fixture-claude-key'
 process.env.OPERATOR_CONFIG_FILE = ''
 process.env.LOG_LEVEL = 'silent'
 
@@ -20,6 +22,18 @@ const {
   setChatFetchForTesting,
   setChatRetryBackoffForTesting,
 } = await import('../../lib/chatCompletion')
+const { config } = await import('../../config')
+const { resolveChatApiKey } = await import('../../lib/resolveApiKey')
+
+it('falls back to the existing gateway credential when no Claude override is configured', () => {
+  const previous = config.upstream.claudeApiKey
+  try {
+    config.upstream.claudeApiKey = ''
+    expect(resolveChatApiKey('claude-opus-5-5')).toBe('fixture-upstream-key')
+  } finally {
+    config.upstream.claudeApiKey = previous
+  }
+})
 
 describe('extractJson', () => {
   it('reads the object out of a fenced block, out of prose, and out of bare JSON', () => {
@@ -84,6 +98,20 @@ describe('askChatModel', () => {
   afterEach(() => {
     setChatFetchForTesting()
     setChatRetryBackoffForTesting()
+  })
+
+  it('uses the Claude credential for a Claude summary model', async () => {
+    const authorizations: string[] = []
+    setChatFetchForTesting(async (_input, init) => {
+      const headers = init?.headers as Record<string, string | undefined> | undefined
+      authorizations.push(headers?.authorization ?? '')
+      return chatCompletion('{"answer":"好"}')
+    })
+
+    expect(await askChatModel({ ...ASK, model: 'claude-opus-5-5' }, parseAnswer)).toEqual({
+      answer: '好',
+    })
+    expect(authorizations).toEqual(['Bearer fixture-claude-key'])
   })
 
   it('retries a transient upstream failure and answers from the second try', async () => {
