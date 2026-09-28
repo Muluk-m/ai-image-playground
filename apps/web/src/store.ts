@@ -1869,7 +1869,13 @@ async function hydratePlatformGeneration(id: string) {
   const localRequest = state.tasks.some((task) => task.bffRequestId === id)
   if (
     (!isPlatformGeneration(id) && !localRequest) ||
-    (row && 'outputs' in row.record && !['queued', 'in_progress'].includes(row.record.status)) ||
+    (row &&
+      'outputs' in row.record &&
+      (row.record.status === 'failed' ||
+        row.record.status === 'cancelled' ||
+        (row.record.status === 'completed' &&
+          row.record.archiveStatus === 'ready' &&
+          row.record.outputs.length > 0))) ||
     hydratingGenerations.has(id)
   )
     return
