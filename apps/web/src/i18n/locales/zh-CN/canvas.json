@@ -70,6 +70,7 @@
   "submit": {
     "blocked": "当前无法生成",
     "rasterizeFailed": "选中图片处理失败，请重试",
+    "tooManyInputs": "一次最多参考 {{max}} 张图，请少选几张，或改用逐张生成",
     "rasterizePartial": "部分图片处理失败，已跳过，其余照常发起",
     "emptyInput": "请输入提示词，或先在画布上选中图片",
     "inputsLost": "原任务的输入图已随页面关闭丢失，请重新选中图片后发起生成"
