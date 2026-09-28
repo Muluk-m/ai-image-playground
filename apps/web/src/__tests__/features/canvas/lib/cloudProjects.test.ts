@@ -13,6 +13,8 @@ import {
 import { setClientStorageScope } from '../../../../lib/authScope'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
 
+const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+
 afterEach(() => {
   vi.unstubAllGlobals()
   setClientStorageScope(null)
@@ -195,7 +197,7 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
     vi.fn(async (url: string, init?: RequestInit) => {
       urls.push(url)
       if (url === source)
-        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+        return new Response(PNG_BYTES, { headers: { 'content-type': 'image/png' } })
       if (url.endsWith('/uploads'))
         return Response.json({
           id: mediaId,
@@ -239,7 +241,7 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
     'fetch',
     vi.fn(async (url: string) =>
       url === source
-        ? new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+        ? new Response(PNG_BYTES, { headers: { 'content-type': 'image/png' } })
         : Response.json({
             id: project.id,
             name: '其他设备修改',
@@ -273,7 +275,7 @@ it('本机原图认得出云端媒体 id；还没上传的先同步再认，不�
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === source)
-        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+        return new Response(PNG_BYTES, { headers: { 'content-type': 'image/png' } })
       if (url.endsWith('/uploads')) return Response.json({ id: mediaId, status: 'ready' })
       return Response.json(receipt(project.id, JSON.parse(init!.body as string)))
     }),
@@ -1884,7 +1886,7 @@ it('画布上有视频照常同步：封面上传，播放来源与生成参数�
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === poster)
-        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+        return new Response(PNG_BYTES, { headers: { 'content-type': 'image/png' } })
       if (url.endsWith('/uploads')) return Response.json({ id: mediaId, status: 'ready' })
       const body = JSON.parse(init!.body as string)
       saved.push(body)
