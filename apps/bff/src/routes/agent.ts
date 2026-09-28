@@ -67,6 +67,7 @@ import {
   claimCanvasMedia,
   claimConversationMedia,
   readConversationMedia,
+  releaseCanvasMediaClaims,
   removeAgentConversationReferences,
 } from '../lib/agent/images'
 import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
@@ -566,9 +567,14 @@ export const agentRoutes = new Elysia()
             return status(422, { error: 'invalid_selection' })
           throw error
         }
+        // 开不了轮的请求不进收件箱，也不认领画布媒体。
+        if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
+          return status(401, { error: 'unauthorized' })
+        if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
         // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
         if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
           return status(422, { error: 'invalid_reference' })
+        let createdCanvasClaims: readonly string[] = []
         if (canvas) {
           const claimed = await claimCanvasMedia(
             conversation.id,
@@ -577,21 +583,21 @@ export const agentRoutes = new Elysia()
               element.type === 'image' && element.mediaId ? [element.mediaId] : [],
             ),
           )
+          createdCanvasClaims = claimed.created
           canvas = {
             ...canvas,
             elements: canvas.elements.map((element) => {
-              if (element.type !== 'image' || !element.mediaId || claimed.has(element.mediaId))
+              if (
+                element.type !== 'image' ||
+                !element.mediaId ||
+                claimed.allowed.has(element.mediaId)
+              )
                 return element
               const { mediaId: _unavailable, ...image } = element
               return image
             }),
           }
         }
-        // 开不了轮的请求不进收件箱：排进去也没有哪一轮能取走它。
-        if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
-          return status(401, { error: 'unauthorized' })
-        if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
-
         // 每条消息先进收件箱，再按顺序开轮：忙时它排在后面，闲时它当场就是下一条。
         const sent = await sendToConversationInbox(conversation.id, {
           clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
@@ -602,14 +608,27 @@ export const agentRoutes = new Elysia()
           ...(body.params ? { params: body.params } : {}),
           ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
           ...(canvas ? { canvas } : {}),
+        }).catch(async (error: unknown) => {
+          await releaseCanvasMediaClaims(conversation.id, authUser?.id ?? null, createdCanvasClaims)
+          throw error
         })
         if (sent.kind === 'full') {
+          await releaseCanvasMediaClaims(conversation.id, authUser?.id ?? null, createdCanvasClaims)
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
           return status(409, full)
         }
         if (sent.kind === 'started') return agentTurnStream(sent.turn.read(0))
-        if (sent.kind === 'queued') return status(202, queuedBody(sent.entry, sent.runningTurnId))
+        if (sent.kind === 'queued') {
+          if (sent.entry.state === 'cancelled')
+            await releaseCanvasMediaClaims(
+              conversation.id,
+              authUser?.id ?? null,
+              createdCanvasClaims,
+            )
+          return status(202, queuedBody(sent.entry, sent.runningTurnId))
+        }
         // 开不了轮（余额不足等）：照旧把原因交回去，草稿留在输入框。
+        await releaseCanvasMediaClaims(conversation.id, authUser?.id ?? null, createdCanvasClaims)
         const { failure } = sent
         if (failure.kind === 'draining') return status(503, { error: 'instance_draining' })
         if (failure.kind === 'authentication_required')

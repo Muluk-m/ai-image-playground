@@ -23,6 +23,7 @@ const {
   claimConversationMedia,
   createAgentImageSource,
   removeAgentConversationReferences,
+  releaseCanvasMediaClaims,
 } = await import('../../../../lib/agent/images')
 const { setDurableMediaStoreForTesting } = await import('../../../../lib/durableMediaStore')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
@@ -409,10 +410,14 @@ it('makes an uploaded image readable before the project document syncs', async (
     updated_at: now,
   })
   expect(await sourceFor('conv-1', USER).resolve(MEDIA)).toBeNull()
-  expect((await claimCanvasMedia('conv-1', USER, [MEDIA])).has(MEDIA)).toBe(true)
+  const claim = await claimCanvasMedia('conv-1', USER, [MEDIA])
+  expect(claim.allowed.has(MEDIA)).toBe(true)
+  expect(claim.created).toEqual([MEDIA])
   expect((await sourceFor('conv-1', USER).resolve(MEDIA))?.dataUrl).toBe(
     'data:image/png;base64,aGk=',
   )
+  await releaseCanvasMediaClaims('conv-1', USER, claim.created)
+  expect(await sourceFor('conv-1', USER).resolve(MEDIA)).toBeNull()
 })
 
 // 看一眼判断「是不是那张图」用缩略图就够，原件一次几 MB 的 data URL 会直接把出站预算吃穿。
