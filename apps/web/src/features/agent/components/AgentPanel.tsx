@@ -136,6 +136,16 @@ export default function AgentPanel({
     } else if (grew) setUnseen(true)
   }, [messages, open, tab, conversationId])
 
+  useEffect(() => {
+    const log = logRef.current
+    if (!log || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (followLatest.current) log.scrollTop = log.scrollHeight
+    })
+    for (const child of log.children) observer.observe(child)
+    return () => observer.disconnect()
+  }, [messages, turns, tab, conversationId])
+
   const jumpToLatest = () => {
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
