@@ -21,6 +21,8 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   arrangeTimeline: undefined,
   // 改画布对象改的是用户看得见的东西，得留一张卡说清楚改了什么，不能折成一行。
   editCanvasObject: undefined,
+  // 整理同样改了位置和页签，结果卡要留着，用户才知道这一屏是谁排的。
+  arrangeCanvas: undefined,
   // 搜索与抓网页只是读：来源链接挂在过程步上，不另起一张结果卡。
   webSearch: true,
   webFetch: true,

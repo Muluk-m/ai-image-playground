@@ -21,7 +21,9 @@ process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 // 2026-09-23 生图美术指导（含「直出」判断）与取网图的描述再抬约 250；
 // 2026-09-24 搜索网页与读取网页不再由能力开关控制，它们随每一轮发出去，开销再抬约 550；
 // 逐档实测可用带 6700–7050，取中。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '6880'
+// 2026-09-28 arrangeCanvas 的声明和指引，加上 readCanvas 目录那两句，按同一口径大约 +548，
+// 带随之上移到约 7248–7598，取中。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '7428'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,

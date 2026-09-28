@@ -63,11 +63,31 @@ function preview(text: string): string {
   return flat.length > TEXT_PREVIEW_CHARS ? `${flat.slice(0, TEXT_PREVIEW_CHARS)}…` : flat
 }
 
-/** 关键词只能落在人写得出的字上：图片名与文字正文。坐标、颜色、id 都不该被关键词命中。 */
+/** 关键词只能落在人写得出的字上：图片名、提示词与文字正文。坐标、颜色、id 都不该被关键词命中。 */
 function matches(element: ProjectElement, keyword: string): boolean {
   if (element.type === 'text') return element.text.toLowerCase().includes(keyword)
-  if (element.type === 'image') return (element.name ?? '').toLowerCase().includes(keyword)
+  if (element.type === 'image') {
+    const written = [element.name, element.meta?.userPrompt, element.meta?.prompt]
+      .filter((part) => part)
+      .join('\n')
+    return written.toLowerCase().includes(keyword)
+  }
   return false
+}
+
+/**
+ * 分组用的目录，不看像素。提示词只给开头：整段能到一万字，塞进目录就和逐张看图一样贵。
+ * 用户原话优先于落在图上的那份生成提示词，两边都有时原话更接近他要的分类。
+ */
+function catalog(element: Extract<ProjectElement, { type: 'image' }>): string {
+  const parts: string[] = []
+  if (element.groupId) parts.push(`同批 ${element.groupId}`)
+  if (element.createdAt !== undefined) parts.push(`时间 ${element.createdAt}`)
+  const prompt = element.meta?.userPrompt?.trim() || element.meta?.prompt?.trim()
+  if (prompt) parts.push(`提示词「${preview(prompt)}」`)
+  const derived = element.video?.generation?.derivedFrom?.id
+  if (derived) parts.push(`从元素 ${derived} 派生`)
+  return parts.length > 0 ? `，${parts.join('，')}` : ''
 }
 
 /**
@@ -88,7 +108,7 @@ function describeElement(element: ProjectElement): string {
     case 'image': {
       const name = element.name ? `「${element.name}」` : '未命名'
       const kind = element.video ? '视频（这里给的是封面）' : '图片'
-      return `${head}：${kind}${name}，图片 id ${element.mediaId}，${box(element)}`
+      return `${head}：${kind}${name}，图片 id ${element.mediaId}，${box(element)}${catalog(element)}`
     }
     case 'text':
       return `${head}：文字「${preview(element.text)}」，位置 (${Math.round(element.x)}, ${Math.round(element.y)})`
@@ -137,9 +157,9 @@ export const readCanvas = defineAgentTool({
   modes: ['image', 'video'],
   label: '看画布',
   description:
-    '看当前这张画布上有什么：每个元素的类型、位置、尺寸，图片给得出图片 id。用户提到画布上某个东西却没有在输入框里引用它时调用（「左边那张」「刚才那张图」「这些图」）。注意元素 id 与图片 id 不是一回事，只有图片 id 能交给 viewImage 或 editImage。',
+    '看当前这张画布上有什么：每个元素的类型、位置、尺寸，图片还给同批 id、创建时间和提示词摘要，用来分组，不必为了分类把每张都看一遍。用户提到画布上某个东西却没有在输入框里引用它时调用（「左边那张」「刚才那张图」「这些图」）。注意元素 id 与图片 id 不是一回事，只有图片 id 能交给 viewImage 或 editImage。',
   guidance:
-    '用户指着画布上的东西说话（「左边那张」「这几张」「刚才那张」）却没有引用图片时，先看画布拿到图片 id，再去看图或改图。',
+    '用户指着画布上的东西说话（「左边那张」「这几张」「刚才那张」）却没有引用图片时，先看画布拿到图片 id，再去看图或改图。整理画布前也先看这一份：同批 id 相同、提示词相近、位置挨着的是一组；名字和提示词都看不出内容的那一堆，再对其中一张看缩略图，不要逐张看。',
   parameters,
   onError: 'continue',
   // 读画布不落画布，也没有送进上游的提示词，所以起跑时只有一行标题。
