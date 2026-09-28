@@ -18,12 +18,12 @@ const OUTPUT_PATH = resolve(REPO_ROOT, 'src/generated/heroSeed.json')
 
 // 6 个不同 category 覆盖典型场景。改这里换 hero 卡片。
 const HERO_SEED_IDS = [
-  'awesome-3', // 海报与字体 - 足球主题电影海报
-  'awesome-6', // 插画与艺术 - 插画艺术创作图
-  'awesome-11', // 建筑与空间 - 手绘城市美食地图
-  'awesome-27', // 人物与角色 - 人物角色设定图
-  'awesome-182', // 场景与叙事 - 千禧年日系校园喜剧场景
-  'awesome-8', // 图表与信息图 - 科普百科图
+  'gpt-image-2-travel-journal-edit', // 插画与艺术 - 真实输入图与手绘效果
+  'gpt-image-2-room-sketch-render', // 建筑与空间 - 草图与写实效果
+  'gpt-image-2-dumplings-editorial-poster', // 海报与字体 - 新版编辑设计
+  'i25-02', // 产品与电商 - 白底产品图
+  'i25-03', // 图表与信息图 - 教学图解
+  'i25-08', // 人物与角色 - 角色设定
 ]
 
 // 与 InspirationItem (apps/web/src/features/inspiration/types.ts) 保持同步：

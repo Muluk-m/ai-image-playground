@@ -17,7 +17,16 @@ export function selectHeroItems(
   }
   const categories = new Set<string>()
   const selected: InspirationItem[] = []
+  // 只要清单里有真实输入图，首页至少展示一条可看前后对比的案例。
+  const imageEdit =
+    pool.find((item) => item.referenceImages?.length) ??
+    unique.find((item) => item.referenceImages?.length)
+  if (imageEdit) {
+    selected.push(imageEdit)
+    categories.add(imageEdit.category)
+  }
   for (const item of pool) {
+    if (selected.includes(item)) continue
     if (categories.has(item.category)) continue
     categories.add(item.category)
     selected.push(item)
