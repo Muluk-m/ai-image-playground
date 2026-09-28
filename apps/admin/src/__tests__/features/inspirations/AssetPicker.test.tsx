@@ -8,7 +8,13 @@ describe('ReferenceImageFields', () => {
   it('attaches an existing HTTPS image with its visible name', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
-    render(<ReferenceImageFields value={[]} onChange={onChange} />)
+    render(
+      <ReferenceImageFields
+        value={[]}
+        onChange={onChange}
+        assetUrls={['https://muvloom-inspiration-assets.deepclick.com/cover.png']}
+      />,
+    )
 
     await user.type(screen.getByRole('textbox', { name: '已有图片的素材名' }), '旅行原图')
     await user.type(
@@ -37,6 +43,7 @@ describe('ReferenceImageFields', () => {
           },
         ]}
         onChange={onChange}
+        assetUrls={['https://muvloom-inspiration-assets.deepclick.com/cover.png']}
       />,
     )
 
@@ -56,7 +63,7 @@ describe('ReferenceImageFields', () => {
   it('rejects malformed hosts and third-party images without verified CORS', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
-    render(<ReferenceImageFields value={[]} onChange={onChange} />)
+    render(<ReferenceImageFields value={[]} onChange={onChange} assetUrls={[]} />)
 
     await user.type(screen.getByRole('textbox', { name: '已有图片的素材名' }), '坏地址')
     const url = screen.getByRole('textbox', { name: '已有图片的 https 地址' })
@@ -68,5 +75,28 @@ describe('ReferenceImageFields', () => {
     await user.type(url, 'https://example.com/source.png')
     await user.click(screen.getByRole('button', { name: '引用已有图片' }))
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('uses the current cover origin when the public bucket domain differs by environment', async () => {
+    const onChange = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ReferenceImageFields
+        value={[]}
+        onChange={onChange}
+        assetUrls={['https://assets.staging.example/cover.png']}
+      />,
+    )
+
+    await user.type(screen.getByRole('textbox', { name: '已有图片的素材名' }), '原图')
+    await user.type(
+      screen.getByRole('textbox', { name: '已有图片的 https 地址' }),
+      'https://assets.staging.example/source.png',
+    )
+    await user.click(screen.getByRole('button', { name: '引用已有图片' }))
+
+    expect(onChange).toHaveBeenCalledWith([
+      { key: 'https://assets.staging.example/source.png', name: '原图' },
+    ])
   })
 })

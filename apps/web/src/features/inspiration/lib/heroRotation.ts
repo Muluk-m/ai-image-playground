@@ -17,30 +17,34 @@ export function selectHeroItems(
       ;[group[i], group[j]] = [group[j]!, group[i]!]
     }
   }
-  const pool = [...unseen, ...seen]
   const categories = new Set<string>()
   const selected: InspirationItem[] = []
-  // 优先轮到上批未展示过的对比卡；不要为了凑对比而固定重复上一批的唯一案例。
+  const unseenNormal = unseen.filter((item) => !item.referenceImages?.length)
+  const seenNormal = seen.filter((item) => !item.referenceImages?.length)
+  // 普通卡不够六张时，复用上批对比卡来填满六列；否则先让未展示案例轮换。
   const imageEdit =
     unseen.find((item) => item.referenceImages?.length) ??
-    (unseen.length === 0 ? seen.find((item) => item.referenceImages?.length) : undefined)
+    (unseen.length === 0 || unseenNormal.length + seenNormal.length < HERO_CARD_COUNT
+      ? seen.find((item) => item.referenceImages?.length)
+      : undefined)
   if (imageEdit) {
     selected.push(imageEdit)
     categories.add(imageEdit.category)
   }
   // 对比卡占两列：首页最多选一张，余下四张普通卡恰好排满六列。
   const maxCards = imageEdit ? HERO_CARD_COUNT - 1 : HERO_CARD_COUNT
-  const remaining = pool.filter((item) => !item.referenceImages?.length)
-  for (const item of remaining) {
-    if (selected.includes(item)) continue
-    if (categories.has(item.category)) continue
-    categories.add(item.category)
-    selected.push(item)
-    if (selected.length === maxCards) return selected
-  }
-  for (const item of remaining) {
-    if (!selected.includes(item)) selected.push(item)
-    if (selected.length === maxCards) break
+  for (const group of [unseenNormal, seenNormal]) {
+    for (const item of group) {
+      if (categories.has(item.category)) continue
+      categories.add(item.category)
+      selected.push(item)
+      if (selected.length === maxCards) return selected
+    }
+    for (const item of group) {
+      if (selected.includes(item)) continue
+      selected.push(item)
+      if (selected.length === maxCards) return selected
+    }
   }
   return selected
 }

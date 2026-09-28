@@ -9,17 +9,21 @@ import { assetUrl, MAX_REFERENCE_IMAGES } from './constants'
 
 /** 公开桶只收这四种，跟 BFF createInspirationUploadTarget 的白名单一致。 */
 const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
-const REFERENCE_ASSET_HOSTS = new Set([
-  'muvloom-inspiration-assets.deepclick.com',
-  'cms-r2.deepclick.com',
-])
+const SHARED_REFERENCE_ASSET_HOSTS = new Set(['cms-r2.deepclick.com'])
 
-function trustedReferenceUrl(raw: string): string | null {
+function trustedReferenceUrl(raw: string, assetUrls: readonly string[]): string | null {
   try {
     const url = new URL(raw.trim())
+    const assetOrigins = assetUrls.flatMap((value) => {
+      try {
+        return [new URL(value).origin]
+      } catch {
+        return []
+      }
+    })
     if (
       url.protocol !== 'https:' ||
-      !REFERENCE_ASSET_HOSTS.has(url.hostname) ||
+      (!SHARED_REFERENCE_ASSET_HOSTS.has(url.hostname) && !assetOrigins.includes(url.origin)) ||
       url.username ||
       url.password
     ) {
@@ -137,10 +141,11 @@ export function AssetPicker({ label, hint, value, onChange, clearable }: AssetPi
 interface ReferenceImageFieldsProps {
   value: InspirationReferenceInput[]
   onChange: (next: InspirationReferenceInput[]) => void
+  assetUrls: readonly string[]
 }
 
 /** 参考图：主站「玩同款」会把它们塞进 composer，所以名字是给用户看的，必填。 */
-export function ReferenceImageFields({ value, onChange }: ReferenceImageFieldsProps) {
+export function ReferenceImageFields({ value, onChange, assetUrls }: ReferenceImageFieldsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const { busy, error, upload } = useAssetUpload()
   const [existingUrl, setExistingUrl] = useState('')
@@ -148,7 +153,7 @@ export function ReferenceImageFields({ value, onChange }: ReferenceImageFieldsPr
   const [existingError, setExistingError] = useState<string | null>(null)
 
   function addExistingImage() {
-    const key = trustedReferenceUrl(existingUrl)
+    const key = trustedReferenceUrl(existingUrl, assetUrls)
     const name = existingName.trim()
     if (!name || !key) {
       setExistingError('填写素材名及本站公开素材的 https 地址')

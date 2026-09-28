@@ -489,6 +489,7 @@ function InspirationEditor({
             <ReferenceImageFields
               value={draft.referenceImages}
               onChange={(next) => patch({ referenceImages: next })}
+              assetUrls={[draft.coverKey, draft.imageKey ?? '']}
             />
           </TabsContent>
 

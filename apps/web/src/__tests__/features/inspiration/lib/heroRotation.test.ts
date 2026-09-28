@@ -75,4 +75,31 @@ describe('home inspiration rotation', () => {
     expect(result).toHaveLength(5)
     expect(result.filter((entry) => entry.referenceImages?.length)).toHaveLength(1)
   })
+
+  it('uses the previous edit when five ordinary cases would leave one column empty', () => {
+    const items = [
+      item('only-edit', 'Illustration', true),
+      ...Array.from({ length: 5 }, (_, index) => item(`single-${index}`, `Category ${index}`)),
+    ]
+
+    const result = selectHeroItems(items, ['only-edit'])
+
+    expect(result).toHaveLength(5)
+    expect(result.some((entry) => entry.id === 'only-edit')).toBe(true)
+  })
+
+  it('uses every unseen ordinary case before repeating a different category', () => {
+    const items = [
+      ...Array.from({ length: 6 }, (_, index) => item(`new-${index}`, 'Poster')),
+      ...Array.from({ length: 6 }, (_, index) => item(`old-${index}`, `Old ${index}`)),
+    ]
+
+    const result = selectHeroItems(
+      items,
+      Array.from({ length: 6 }, (_, index) => `old-${index}`),
+    )
+
+    expect(result).toHaveLength(6)
+    expect(result.every((entry) => entry.id.startsWith('new-'))).toBe(true)
+  })
 })
