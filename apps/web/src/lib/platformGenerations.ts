@@ -2,8 +2,10 @@ import type {
   GenerationDetail,
   GenerationSummary,
   TaskStatus as QueueStatus,
+  TaskErrorType,
 } from '@image-playground/shared'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import { useStore } from '../store'
 import {
   DEFAULT_PARAMS,
@@ -114,11 +116,19 @@ export async function receivePlatformPage(
     if (inWindow) dropped.push(row.id)
     else kept.push(row)
   }
-  const favorites = new Map(previous.map((row) => [row.id, row.favorite]))
+  const previousById = new Map(previous.map((row) => [row.id, row]))
   const now = Date.now()
   const received = items.map((item): PlatformGenerationRow => {
-    const favorite = favorites.get(item.id)
-    return { id: item.id, record: item, fetchedAt: now, ...(favorite ? { favorite } : {}) }
+    const prior = previousById.get(item.id)
+    // 列表摘要不带整组产出；同一封面的终态记录已经读过详情时，不要把它降回一张图。
+    const detailed = prior?.record && 'outputs' in prior.record ? prior.record : null
+    const sameOutputs =
+      detailed &&
+      detailed.status === 'completed' &&
+      item.status === 'completed' &&
+      item.cover?.mediaId === detailed.cover?.mediaId
+    const record = sameOutputs ? { ...item, outputs: detailed.outputs } : item
+    return { id: item.id, record, fetchedAt: now, ...(prior?.favorite ? { favorite: true } : {}) }
   })
   const rows = sortRows([...kept, ...received])
   const pruned = rows.slice(MAX_CACHED)
@@ -196,10 +206,15 @@ export function mergeHistory(
     // 成功记录还没归档出图时，保留本机已有的状态，等平台封面真正可用再收口。
     if (settled.status === 'done' && !settled.outputImages.length && !task.outputImages.length)
       return task
+    const sameFailure =
+      task.status === 'error' &&
+      settled.status === 'error' &&
+      task.errorCode === (remote.record.errorType ?? undefined) &&
+      task.error
     return {
       ...task,
       status: settled.status,
-      error: settled.error,
+      error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,
       elapsed: settled.elapsed,
@@ -272,10 +287,26 @@ function statusPatch(
 ): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed'> {
   return {
     status: statusFromGeneration(item.status),
-    error: item.errorType,
+    error: item.errorType ? generationErrorText(item.errorType) : null,
     finishedAt: item.completedAt,
     elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
   }
+}
+
+function generationErrorText(code: TaskErrorType): string {
+  const key = (
+    {
+      upstream_timeout: 'agentTool.timeout',
+      upstream_result_unknown: 'agentTool.result_unknown',
+      upstream_error: 'agentTool.upstream_error',
+      content_policy: 'agentTool.content_policy',
+      upstream_no_image: 'agentTool.no_output',
+      interrupted: 'agentTool.cancelled',
+      object_storage_error: 'agentTool.upstream_error',
+      unknown: 'agentTool.fallback',
+    } as const
+  )[code]
+  return i18next.t(key, { ns: 'errors' })
 }
 
 function statusFromGeneration(status: QueueStatus): TaskStatus {
