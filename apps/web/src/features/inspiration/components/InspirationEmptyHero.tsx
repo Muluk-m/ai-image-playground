@@ -3,7 +3,6 @@ import { SparkleIcon } from '../../../components/icons'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
-import { applyInspiration } from '../lib/applyInspiration'
 import { HERO_CARD_COUNT, rotateHeroItems } from '../lib/heroRotation'
 import { openInspiration } from '../lib/navigate'
 import { useInspirationStore } from '../store'
@@ -80,7 +79,10 @@ export default function InspirationEmptyHero() {
               <InspirationCard
                 item={item}
                 pinned={pinnedIds.includes(item.id)}
-                onClick={() => applyInspiration(item)}
+                onClick={() => {
+                  useInspirationStore.getState().showDetail(item.id)
+                  openInspiration()
+                }}
               />
             </div>
           ))}
