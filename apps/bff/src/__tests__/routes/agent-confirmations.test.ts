@@ -17,11 +17,13 @@ import {
   scriptedAgentFetch,
   submittedPrompt,
   TEST_IMAGE_CHANNEL,
+  TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
+import { workerSettles } from '../helpers/taskWorker'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_confirmations_a300')
 process.env.PORT = '0'
@@ -350,6 +352,44 @@ describe('生成前确认', () => {
       messageId: pending.messageId,
       block: { status: 'submitted', prompt: WHITE_PROMPT },
     })
+  })
+
+  it('确认后生成的实扣写回结果卡，旧终局卡也能从账本补齐', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一版')
+    const pending = await pendingCard(conversationId)
+    await confirm(conversationId, pending.messageId, WHITE_PROMPT)
+    const [task] = await generationTasks(conversationId)
+    billing.settledCredits = 100
+    expect(
+      await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
+    ).toBe(true)
+
+    const [settled] = toolCards(await readMessages(conversationId))
+    expect(settled!.block).toMatchObject({
+      status: 'succeeded',
+      job: { taskId: task!.id, chargedCredits: 100 },
+    })
+    expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
+
+    // 旧版本留下的终局卡没有金额：只要任务账还在，历史读取就补上并持久化。
+    const [row] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, pending.messageId))
+    await db
+      .update(schema.agent_messages)
+      .set({
+        content: row!.content.map((block) =>
+          block.type === 'toolResult' && block.job
+            ? { ...block, job: { taskId: block.job.taskId, media: block.job.media } }
+            : block,
+        ),
+      })
+      .where(eq(schema.agent_messages.id, pending.messageId))
+    expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
   })
 
   it('别人的会话确认不了', async () => {

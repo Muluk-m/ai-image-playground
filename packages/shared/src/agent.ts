@@ -437,6 +437,8 @@ export interface AgentTimelineClip {
 export interface AgentBackgroundJob {
   readonly taskId: string
   readonly media: ChannelMedia
+  /** 任务结算后的实扣积分；任务仍在跑或旧记录查不到账时缺席。 */
+  readonly chargedCredits?: number
   /** 视频任务实际提交的档位；任务成功时记到产物上。 */
   readonly video?: VideoGenerationRecord
   /**

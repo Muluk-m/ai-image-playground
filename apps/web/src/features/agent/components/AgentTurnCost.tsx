@@ -6,7 +6,8 @@ import { formatElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
 import { CARD_NOTE } from '../agentStyles'
-import type { AgentTurnFooter } from '../types'
+import { turnCostWithJobs } from '../lib/turnCost'
+import type { AgentToolMessage, AgentTurnFooter } from '../types'
 
 const BREAKDOWN = [
   ['chat', 'label.chat'],
@@ -14,10 +15,16 @@ const BREAKDOWN = [
   ['video', 'cost.video'],
 ] as const
 
-export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
+export default function AgentTurnCost({
+  footer,
+  jobs = [],
+}: {
+  footer: AgentTurnFooter
+  jobs?: readonly AgentToolMessage[]
+}) {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
-  const cost = footer.cost
+  const cost = footer.cost ? turnCostWithJobs(footer.cost, jobs) : undefined
   const total = cost ? agentTurnCostTotal(cost) : null
   const failed = footer.stopReason === 'failed'
   const waivedChat =
