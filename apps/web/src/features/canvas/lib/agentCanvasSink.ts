@@ -242,7 +242,14 @@ export function createAgentCanvasSink(
       const patches = plan.edits.flatMap((one: AgentCanvasEdit) => {
         const element = editor.getElement(one.elementId)
         if (element?.type !== 'image') return []
-        const { elementId: _id, ...patch } = one
+        const { elementId: _id, section, ...rest } = one
+        const patch: Partial<typeof element> = { ...rest }
+        if (section !== undefined) {
+          const meta = { ...element.meta }
+          if (section === '') delete meta.section
+          else meta.section = section
+          patch.meta = Object.keys(meta).length > 0 ? meta : undefined
+        }
         return Object.keys(patch).length > 0 ? [{ id: one.elementId, patch }] : []
       })
       if (patches.length === 0) return 'unavailable'

@@ -279,6 +279,7 @@ describe('tool declarations in the estimate', () => {
       'readLibrary',
       'readCanvas',
       'editCanvasObject',
+      'arrangeCanvas',
       // 联网工具没有开关，所以它们在任何部署里都随清单发出去；取图那两个要登录，这里没有。
       'webSearch',
       'webFetch',
