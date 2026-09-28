@@ -13,14 +13,17 @@ import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 export default function InpaintPanel({
   editor,
   onDone,
+  onSendingChange,
 }: {
   editor: CanvasEditor
   onDone: () => void
+  onSendingChange: (sending: boolean) => void
 }) {
   const { t } = useTranslation(['canvas', 'common'])
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const session = useInpaintSession()
   const fileRef = useRef<HTMLInputElement>(null)
+  const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
 
   if (!session.imageId) return null
@@ -31,20 +34,25 @@ export default function InpaintPanel({
   const image = element?.type === 'image' ? element : null
 
   const submit = async () => {
-    if (pending || !image) return
+    if (pendingRef.current || !image) return
+    pendingRef.current = true
+    onSendingChange(true)
     setPending(true)
+    let sent = false
     try {
       const instruction = erasing
         ? '请移除 [image 1] 中标记区域内的内容，用周围背景自然填补；未标记区域保持不变。'
         : `请只修改 [image 1] 中标记的区域：${session.prompt.trim()}。未标记区域保持不变。`
-      const sent = await sendImageEditToAgent(editor, image, instruction, {
+      sent = await sendImageEditToAgent(editor, image, instruction, {
         strokes: session.strokes,
         ...(session.reference ? { referenceDataUrl: session.reference.dataUrl } : {}),
       })
-      if (sent) onDone()
     } finally {
+      pendingRef.current = false
+      onSendingChange(false)
       setPending(false)
     }
+    if (sent) onDone()
   }
 
   const pickReference = async (file: File | undefined) => {
@@ -205,7 +213,7 @@ export default function InpaintPanel({
           }}
         />
         <div className="flex items-center gap-2">
-          <button type="button" className={OUTLINE_BUTTON} onClick={onDone}>
+          <button type="button" className={OUTLINE_BUTTON} disabled={pending} onClick={onDone}>
             {t('common:action.cancel')}
           </button>
           <button

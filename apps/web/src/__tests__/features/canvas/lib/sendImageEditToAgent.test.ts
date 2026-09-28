@@ -11,13 +11,14 @@ const agent = vi.hoisted(() => ({
   historyLoading: false,
   historyFailed: false,
 }))
+const capability = vi.hoisted(() => ({ maskSupported: true }))
 const media = vi.hoisted(() => ({
   load: vi.fn(async () => ({ naturalWidth: 1024, naturalHeight: 1024 })),
   resolve: vi.fn(async () => 'data:image/png;base64,ORIGINAL'),
   prepare: vi.fn(async () => ({
     dataUrl: 'data:image/png;base64,WORKING',
-    width: 512,
-    height: 512,
+    width: 1024,
+    height: 1024,
   })),
   mask: vi.fn(async () => 'data:image/png;base64,MASK'),
   fit: vi.fn((width: number, height: number) => ({ width, height })),
@@ -25,11 +26,16 @@ const media = vi.hoisted(() => ({
   outpaint: vi.fn(async () => ({
     source: 'data:image/png;base64,EXPANDED',
     mask: 'data:image/png;base64,OUTPAINT_MASK',
+    width: 1536,
+    height: 1536,
   })),
   rectSize: vi.fn(() => ({ width: 1536, height: 1536 })),
 }))
 
 vi.mock('../../../../features/agent/panelLayout', () => ({ agentPanelPresent: () => true }))
+vi.mock('../../../../lib/channels/profileSelectors', () => ({
+  modelSupportsNativeMask: () => capability.maskSupported,
+}))
 vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: { getState: () => agent },
 }))
@@ -71,6 +77,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   agent.historyLoading = false
   agent.historyFailed = false
+  capability.maskSupported = true
+  media.prepare.mockResolvedValue({
+    dataUrl: 'data:image/png;base64,WORKING',
+    width: 1024,
+    height: 1024,
+  })
 })
 
 describe('画布单图快捷编辑经 Agent 对话发送', () => {
@@ -94,7 +106,7 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       referenceDataUrl: 'data:image/png;base64,REFERENCE',
     })
     expect(sent).toBe(true)
-    expect(media.mask).toHaveBeenCalledWith(image, { width: 512, height: 512 }, strokes)
+    expect(media.mask).toHaveBeenCalledWith(image, { width: 1024, height: 1024 }, strokes)
     expect(agent.send).toHaveBeenCalledWith(
       '请修改 [image 1] 的选区',
       [
@@ -156,5 +168,44 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       return await new Promise<undefined>(() => {})
     })
     expect(await sendImageEditToAgent(editor(), image, '请编辑')).toBe(true)
+  })
+
+  it('遮罩工作图过小时在发送前拒绝', async () => {
+    media.prepare.mockResolvedValueOnce({
+      dataUrl: 'data:image/png;base64,SMALL',
+      width: 512,
+      height: 512,
+    })
+    expect(
+      await sendImageEditToAgent(editor(), image, '请编辑', {
+        strokes: [{ tool: 'brush', points: [{ x: 10, y: 10 }], width: 8 }],
+      }),
+    ).toBe(false)
+    expect(agent.send).not.toHaveBeenCalled()
+  })
+
+  it('当前模型不支持原生遮罩时不会把区域操作交给 Agent', async () => {
+    capability.maskSupported = false
+    expect(
+      await sendImageEditToAgent(editor(), image, '请扩图', {
+        frame: { mode: 'outpaint', rect: { x: -40, y: 0, w: 552, h: 512 } },
+      }),
+    ).toBe(false)
+    expect(agent.send).not.toHaveBeenCalled()
+  })
+
+  it('扩图后的工作图超限时不提交到 Agent', async () => {
+    media.outpaint.mockResolvedValueOnce({
+      source: 'data:image/png;base64,TOO_LARGE',
+      mask: 'data:image/png;base64,MASK',
+      width: 4000,
+      height: 4000,
+    })
+    expect(
+      await sendImageEditToAgent(editor(), image, '请扩图', {
+        frame: { mode: 'outpaint', rect: { x: -40, y: 0, w: 552, h: 512 } },
+      }),
+    ).toBe(false)
+    expect(agent.send).not.toHaveBeenCalled()
   })
 })
