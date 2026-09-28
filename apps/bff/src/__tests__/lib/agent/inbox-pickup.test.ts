@@ -243,7 +243,8 @@ describe('接手没人处理的排队消息', () => {
     bffDrain.begin()
     first.finish()
     await waitFor(async () => (await snapshot(conversationId)).activeTurn === null, 3_000)
-    await Bun.sleep(100)
+    // 快照里没有在跑的轮时，租约可能还没放；等收尾的接力跑完再看。
+    await settleInboxHandoffsForTesting()
 
     // 没有记成开不了轮，也没被处理：新版本的巡查会接手它。
     expect(await queueList(conversationId)).toEqual([queued.queued])
