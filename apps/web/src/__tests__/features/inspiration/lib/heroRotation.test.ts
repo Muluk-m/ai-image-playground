@@ -20,7 +20,7 @@ function item(id: string, category: string, withInput = false): InspirationItem 
 }
 
 describe('home inspiration rotation', () => {
-  it('keeps a real image edit visible even when its category was already represented', () => {
+  it('does not force a previously shown edit into a full unseen batch', () => {
     const items = [
       item('poster-1', 'Poster'),
       item('poster-2', 'Poster', true),
@@ -29,8 +29,8 @@ describe('home inspiration rotation', () => {
 
     const result = selectHeroItems(items, ['poster-2'])
 
-    expect(result).toHaveLength(5)
-    expect(result.some((entry) => entry.id === 'poster-2')).toBe(true)
+    expect(result).toHaveLength(6)
+    expect(result.some((entry) => entry.id === 'poster-2')).toBe(false)
   })
 
   it('uses just one two-column image edit in a six-column hero', () => {
@@ -44,5 +44,18 @@ describe('home inspiration rotation', () => {
 
     expect(result).toHaveLength(5)
     expect(result.filter((entry) => entry.referenceImages?.length)).toHaveLength(1)
+  })
+
+  it('rotates to an unseen edit when the previous batch included another one', () => {
+    const items = [
+      item('edit-1', 'Illustration', true),
+      item('edit-2', 'Architecture', true),
+      ...Array.from({ length: 6 }, (_, index) => item(`single-${index}`, `Category ${index}`)),
+    ]
+
+    const result = selectHeroItems(items, ['edit-1'])
+
+    expect(result).toHaveLength(5)
+    expect(result[0]?.id).toBe('edit-2')
   })
 })

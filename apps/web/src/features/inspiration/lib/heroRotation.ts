@@ -17,17 +17,19 @@ export function selectHeroItems(
   }
   const categories = new Set<string>()
   const selected: InspirationItem[] = []
-  // 只要清单里有真实输入图，首页至少展示一条可看前后对比的案例。
+  // 优先轮到上批未展示过的对比卡；不要为了凑对比而固定重复上一批的唯一案例。
   const imageEdit =
-    pool.find((item) => item.referenceImages?.length) ??
-    unique.find((item) => item.referenceImages?.length)
+    pool.find((item) => item.referenceImages?.length && !previous.has(item.id)) ??
+    (unseen.length === 0 ? pool.find((item) => item.referenceImages?.length) : undefined)
   if (imageEdit) {
     selected.push(imageEdit)
     categories.add(imageEdit.category)
   }
   // 对比卡占两列：首页最多选一张，余下四张普通卡恰好排满六列。
   const maxCards = imageEdit ? HERO_CARD_COUNT - 1 : HERO_CARD_COUNT
-  const remaining = imageEdit ? pool.filter((item) => !item.referenceImages?.length) : pool
+  const remaining = pool.filter(
+    (item) => !item.referenceImages?.length || (!imageEdit && !previous.has(item.id)),
+  )
   for (const item of remaining) {
     if (selected.includes(item)) continue
     if (categories.has(item.category)) continue
