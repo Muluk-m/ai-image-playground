@@ -1,24 +1,36 @@
 /**
- * 登录后的设备会话认领可以在后台跑，但读旧会话历史前要给它一个完成机会。
- * 等待最多 15 秒；超时或失败时仍可读用户已有的会话，只是不准把 404 当作旧会话已删除。
+ * 登录后的设备会话认领在后台跑。仅当历史读取返回 404/403 时才等待认领并重试，
+ * 避免已属于当前用户的会话被慢认领请求阻塞。
  */
 const WAIT_MS = 15_000
 let tracked: Promise<boolean> | null = null
 let uncertain = false
+let pending = false
 
 export function trackConversationAdoption(request: Promise<unknown>): void {
   uncertain = false
-  const pending = request.then(
+  pending = true
+  const trackedRequest = request.then(
     () => {
-      if (tracked === pending) uncertain = false
+      if (tracked === trackedRequest) {
+        uncertain = false
+        pending = false
+      }
       return true
     },
     () => {
-      if (tracked === pending) uncertain = true
+      if (tracked === trackedRequest) {
+        uncertain = true
+        pending = false
+      }
       return false
     },
   )
-  tracked = pending
+  tracked = trackedRequest
+}
+
+export function isConversationAdoptionPending(): boolean {
+  return pending
 }
 
 export async function waitForConversationAdoption(): Promise<boolean> {

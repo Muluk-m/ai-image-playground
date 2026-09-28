@@ -19,7 +19,10 @@ import {
   PROJECT_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { create } from 'zustand'
-import { waitForConversationAdoption } from '../../auth/conversationAdoption'
+import {
+  isConversationAdoptionPending,
+  waitForConversationAdoption,
+} from '../../auth/conversationAdoption'
 import { requireAccount } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -699,10 +702,23 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     })
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let state: AgentConversationState
-    const adoptionConfirmed = await waitForConversationAdoption()
-    if (!isCurrent()) return
+    let adoptionConfirmed = true
+    const adoptionPendingOnRead = isConversationAdoptionPending()
     try {
-      state = await fetchMessages(conversationId)
+      try {
+        state = await fetchMessages(conversationId)
+      } catch (firstError) {
+        if (!isCurrent()) return
+        const missingDuringAdoption =
+          firstError instanceof AgentRequestError &&
+          (firstError.status === 404 || firstError.status === 403)
+        if (!missingDuringAdoption) throw firstError
+        adoptionConfirmed = await waitForConversationAdoption()
+        if (!isCurrent()) return
+        // 请求可能早于认领开始，响应却晚于认领成功；再读一次才能确认真的不存在。
+        if (!adoptionPendingOnRead || !adoptionConfirmed) throw firstError
+        state = await fetchMessages(conversationId)
+      }
       if (!isCurrent()) return
     } catch (thrown) {
       if (!isCurrent()) return
