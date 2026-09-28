@@ -58,4 +58,21 @@ describe('home inspiration rotation', () => {
     expect(result).toHaveLength(5)
     expect(result[0]?.id).toBe('edit-2')
   })
+
+  it('fills the hero with older ordinary cards when the unseen pool is mostly edits', () => {
+    const items = [
+      ...Array.from({ length: 6 }, (_, index) => item(`edit-${index}`, `Edit ${index}`, true)),
+      item('new-single-1', 'Product'),
+      item('new-single-2', 'Poster'),
+      ...Array.from({ length: 4 }, (_, index) => item(`old-single-${index}`, `Older ${index}`)),
+    ]
+
+    const result = selectHeroItems(
+      items,
+      Array.from({ length: 4 }, (_, index) => `old-single-${index}`),
+    )
+
+    expect(result).toHaveLength(5)
+    expect(result.filter((entry) => entry.referenceImages?.length)).toHaveLength(1)
+  })
 })

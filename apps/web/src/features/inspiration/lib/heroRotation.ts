@@ -10,26 +10,27 @@ export function selectHeroItems(
   const previous = new Set(previousIds)
   const unique = [...new Map(items.map((item) => [item.id, item])).values()]
   const unseen = unique.filter((item) => !previous.has(item.id))
-  const pool = unseen.length >= HERO_CARD_COUNT ? unseen : unique
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[pool[i], pool[j]] = [pool[j]!, pool[i]!]
+  const seen = unique.filter((item) => previous.has(item.id))
+  for (const group of [unseen, seen]) {
+    for (let i = group.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[group[i], group[j]] = [group[j]!, group[i]!]
+    }
   }
+  const pool = [...unseen, ...seen]
   const categories = new Set<string>()
   const selected: InspirationItem[] = []
   // 优先轮到上批未展示过的对比卡；不要为了凑对比而固定重复上一批的唯一案例。
   const imageEdit =
-    pool.find((item) => item.referenceImages?.length && !previous.has(item.id)) ??
-    (unseen.length === 0 ? pool.find((item) => item.referenceImages?.length) : undefined)
+    unseen.find((item) => item.referenceImages?.length) ??
+    (unseen.length === 0 ? seen.find((item) => item.referenceImages?.length) : undefined)
   if (imageEdit) {
     selected.push(imageEdit)
     categories.add(imageEdit.category)
   }
   // 对比卡占两列：首页最多选一张，余下四张普通卡恰好排满六列。
   const maxCards = imageEdit ? HERO_CARD_COUNT - 1 : HERO_CARD_COUNT
-  const remaining = pool.filter(
-    (item) => !item.referenceImages?.length || (!imageEdit && !previous.has(item.id)),
-  )
+  const remaining = pool.filter((item) => !item.referenceImages?.length)
   for (const item of remaining) {
     if (selected.includes(item)) continue
     if (categories.has(item.category)) continue

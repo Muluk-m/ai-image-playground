@@ -27,9 +27,10 @@ export default function InspirationEmptyHero() {
     // 每次进入只选一批，收藏、输入和后台清单更新都不会让卡片跳动。
     if (selected.current || (!available.length && status !== 'ready' && status !== 'error')) return
     selected.current = true
-    const featured = available.filter((item) => FEATURED_IDS.has(item.id))
-    const source =
-      featured.length >= HERO_CARD_COUNT ? featured : available.length ? available : HERO_SEED
+    const featured = new Map(
+      available.filter((item) => FEATURED_IDS.has(item.id)).map((item) => [item.id, item]),
+    )
+    const source = HERO_SEED.map((seed) => featured.get(seed.id) ?? seed)
     setItems(rotateHeroItems(source))
   }, [available, status])
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
