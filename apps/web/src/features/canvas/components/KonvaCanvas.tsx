@@ -1,6 +1,13 @@
+import {
+  ARRANGE_CAPTION_FONT,
+  ARRANGE_LABEL_LINE,
+  ARRANGE_SECTION_FONT,
+  arrangeCaptionHeight,
+  arrangeSectionHeight,
+} from '@image-playground/shared'
 import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
@@ -8,7 +15,7 @@ import { mediaIdentity } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, collectDroppedFiles } from '../../../lib/imageFiles'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
-import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
+import type { ArrowEl, CanvasEl, FreedrawEl, ImageEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
 import { type CanvasEditor, elementBounds } from '../lib/editor'
 import { Box } from '../lib/geometry'
@@ -41,6 +48,65 @@ const MIN_GESTURE_LEN = 3
 
 /** 拖拽吸附判定距离（屏幕像素，换算回页面单位随缩放缩放）。 */
 const SNAP_THRESHOLD_PX = 8
+
+function themeColor(variable: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(variable).trim()
+  return raw ? `hsl(${raw})` : fallback
+}
+
+/** 页签节点的 id。拖动图片时它们不在元素表里，要跟着图片的节点一起挪。 */
+function labelNodeIds(id: string): string[] {
+  return [`caption_${id}`, `section_${id}`]
+}
+
+/** 名字画在图片上方，组页签再高一行。自由文字不走这里，避免被下一次生成当成修改要求。 */
+function ImageTabs({ el }: { el: ImageEl }) {
+  const name = el.name?.trim()
+  const section = el.meta?.section?.trim()
+  if (!name && !section) return null
+  const captionH = arrangeCaptionHeight()
+  const sectionH = arrangeSectionHeight()
+  const captionSlot = name || section ? captionH : 0
+  const muted = themeColor('--muted-foreground', 'hsl(90 4% 65%)')
+  const strong = themeColor('--foreground', 'hsl(60 9% 96%)')
+  return (
+    <>
+      {section ? (
+        <Text
+          id={`section_${el.id}`}
+          listening={false}
+          x={el.x}
+          y={el.y - captionSlot - sectionH}
+          width={el.width}
+          text={section}
+          fontSize={ARRANGE_SECTION_FONT}
+          fontFamily={CANVAS_FONT_FAMILY}
+          fill={strong}
+          ellipsis
+          wrap="none"
+          lineHeight={ARRANGE_LABEL_LINE}
+        />
+      ) : null}
+      {name ? (
+        <Text
+          id={`caption_${el.id}`}
+          listening={false}
+          x={el.x}
+          y={el.y - captionH}
+          width={el.width}
+          text={name}
+          fontSize={ARRANGE_CAPTION_FONT}
+          fontFamily={CANVAS_FONT_FAMILY}
+          fill={muted}
+          ellipsis
+          wrap="none"
+          lineHeight={ARRANGE_LABEL_LINE}
+        />
+      ) : null}
+    </>
+  )
+}
 
 type Gesture =
   | { kind: 'pan'; lastX: number; lastY: number }
@@ -497,6 +563,10 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     for (const selId of doc.selection) {
       const node = stage?.findOne(`#${selId}`)
       if (node) origins.set(selId, node.position())
+      for (const labelId of labelNodeIds(selId)) {
+        const label = stage?.findOne(`#${labelId}`)
+        if (label) origins.set(labelId, label.position())
+      }
     }
     dragOriginRef.current = origins
     const bounds = selectionBounds(editor, doc.selection)
@@ -746,13 +816,15 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
                 )
                 if (!img) return null
                 return (
-                  <KImage
-                    key={el.id}
-                    {...common}
-                    image={img}
-                    {...imageProps(el)}
-                    onTransformEnd={(e) => onTransformEnd(e, el.id)}
-                  />
+                  <Fragment key={el.id}>
+                    <ImageTabs el={el} />
+                    <KImage
+                      {...common}
+                      image={img}
+                      {...imageProps(el)}
+                      onTransformEnd={(e) => onTransformEnd(e, el.id)}
+                    />
+                  </Fragment>
                 )
               }
               case 'freedraw':

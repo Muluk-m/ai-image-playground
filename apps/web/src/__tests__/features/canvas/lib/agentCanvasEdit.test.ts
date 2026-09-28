@@ -71,6 +71,28 @@ describe('agentCanvasSink.editElements', () => {
     expect(doc.getElement(placeholderId)).toEqual(before)
   })
 
+  it('writes a section tab onto the image and clears it with an empty string', async () => {
+    const { doc, sink, imageId } = canvas()
+
+    await sink.editElements!(
+      plan([{ elementId: imageId, section: '古装角色', name: '韩湘子', x: 30 }]),
+    )
+    const named = doc.getElement(imageId)
+    expect(named?.type === 'image' && named.meta?.section).toBe('古装角色')
+    expect(named?.type === 'image' && named.name).toBe('韩湘子')
+    expect(named?.type === 'image' && named.x).toBe(30)
+
+    doc.undo()
+    const undone = doc.getElement(imageId)
+    expect(undone?.type === 'image' && undone.meta?.section).toBeUndefined()
+    expect(undone?.type === 'image' && undone.name).toBe('旧名字')
+
+    await sink.editElements!(plan([{ elementId: imageId, section: '古装角色' }]))
+    await sink.editElements!(plan([{ elementId: imageId, section: '' }]))
+    const cleared = doc.getElement(imageId)
+    expect(cleared?.type === 'image' && cleared.meta?.section).toBeUndefined()
+  })
+
   it('applies the images it recognises and skips the rest', async () => {
     const { doc, sink, imageId } = canvas()
 

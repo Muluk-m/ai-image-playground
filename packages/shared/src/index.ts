@@ -1,5 +1,6 @@
 export * from './agent'
 export * from './auth'
+export * from './canvas-arrange'
 export * from './capabilities'
 export * from './channel-discovery'
 export * from './content-policy'
