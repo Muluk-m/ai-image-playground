@@ -24,6 +24,7 @@
     "resizeTitle": "Drag to resize",
     "collapseAria": "Collapse panel",
     "expand": "Open chat",
+    "backToChat": "Back to chat",
     "aria": "Creation chat",
     "newProjectAria": "New project",
     "logAria": "Conversation log",
@@ -58,6 +59,8 @@
     "locateTitle": "Find these results on the canvas",
     "place": "Add to canvas",
     "viewPrompt": "View prompt",
+    "resultTitle": "Creation result",
+    "openCanvas": "View on canvas",
     "imageGenerating": "Image generating",
     "status": {
       "running": "Running",

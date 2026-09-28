@@ -221,7 +221,7 @@ export default memo(function AgentUserMessage({
           ))}
         </div>
       )}
-      <p className={USER_BUBBLE}>
+      <p className={`${USER_BUBBLE} studio-agent-user-message`}>
         {invocation && <AgentSkillBadge skill={invocation.skill} />}
         {content}
       </p>
