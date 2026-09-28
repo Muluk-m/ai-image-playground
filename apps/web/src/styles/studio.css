@@ -135,8 +135,10 @@
 }
 @media (max-width: 767px) {
   .studio-project-viewbar { padding: 0 64px 0 8px; }
-  .studio-project-viewbar > .studio-agent-project { display: none; }
-  .studio-project-switch { margin-left: 4px; }
+  .studio-project-viewbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; }
+  .studio-project-viewbar > .studio-agent-project > div > button:last-child { display: none; }
+  .studio-project-viewbar > .studio-agent-project button { min-width: 0; padding-inline: 4px; }
+  .studio-project-switch { margin-left: 0; }
   .studio-layout[data-project-view="chat"] > .studio-chat-column { padding: 0 8px 8px; }
   .studio-layout[data-project-view="canvas"] > .studio-chat-column { display: none; }
   .studio-result-shelf { left: 58px; right: 8px; top: 8px; width: auto; }
