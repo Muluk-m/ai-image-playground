@@ -10,7 +10,9 @@ import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
 
-const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
+// 与 Cloudflare 的请求体上限对齐：生产流量经它进来，超过的本来就到不了这里；直连源站时
+// 也不该放进更大的。前端提交前会把参考图压到长边 2048，正常一次远小于这个数。
+const MAX_REQUEST_BODY_SIZE_BYTES = 100 * 1024 * 1024
 
 config.assertValid()
 log.info(
