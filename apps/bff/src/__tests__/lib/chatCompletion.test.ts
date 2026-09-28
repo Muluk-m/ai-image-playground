@@ -88,16 +88,17 @@ describe('askChatModel', () => {
   })
 
   it('uses the Claude credential for a Claude summary model', async () => {
-    let authorization: string | null = null
+    const authorizations: string[] = []
     setChatFetchForTesting(async (_input, init) => {
-      authorization = new Headers(init?.headers).get('authorization')
+      const headers = init?.headers as Record<string, string | undefined> | undefined
+      authorizations.push(headers?.authorization ?? '')
       return chatCompletion('{"answer":"好"}')
     })
 
     expect(
       await askChatModel({ ...ASK, model: 'claude-opus-5-5' }, parseAnswer),
     ).toEqual({ answer: '好' })
-    expect(authorization).toBe('Bearer fixture-claude-key')
+    expect(authorizations).toEqual(['Bearer fixture-claude-key'])
   })
 
   it('retries a transient upstream failure and answers from the second try', async () => {
