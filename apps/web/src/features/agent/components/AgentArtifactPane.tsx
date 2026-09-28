@@ -110,6 +110,7 @@ export default function AgentArtifactPane({
   const active = items.find((item) => item.id === selectedId) ?? items[0]
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
       if (document.querySelector('.studio-handoff-dialog, .studio-artifact-edit-dialog')) return
       if (event.key === 'Escape') onClose()
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && items.length > 1) {
