@@ -813,7 +813,10 @@ export const useStore = create<AppState>()(
       setDetailTaskId: (detailTaskId) => {
         if (detailTaskId) dismissAllTooltips()
         set({ detailTaskId })
-        if (detailTaskId) void hydratePlatformGeneration(detailTaskId)
+        if (detailTaskId) {
+          const local = get().tasks.find((task) => task.id === detailTaskId)
+          void hydratePlatformGeneration(local?.bffRequestId ?? detailTaskId)
+        }
       },
       lightboxImageId: null,
       lightboxImageList: [],

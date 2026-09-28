@@ -1631,4 +1631,65 @@ describe('展开平台记录的详情', () => {
       inputImageIds: ['aip-media:in-1'],
     })
   })
+
+  it('本机残留卡的详情用平台任务号补齐整组产出', async () => {
+    const running = {
+      id: 'gen-2',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'in_progress',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: null,
+      revision: '1',
+      prompt: '两张图',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+    } as const
+    const output = (index: number) => ({
+      index,
+      mediaId: `out-${index}`,
+      width: null,
+      height: null,
+      contentType: 'image/png',
+    })
+    readRemoteGeneration.mockResolvedValue({
+      ...running,
+      status: 'completed',
+      archiveStatus: 'ready',
+      completedAt: 62_000,
+      cover: output(0),
+      outputs: [output(0), output(1)],
+    })
+    useStore.setState({
+      tasks: [
+        task({
+          id: 'local-2',
+          bffRequestId: 'gen-2',
+          status: 'running',
+          outputImages: [],
+          finishedAt: null,
+        }),
+      ],
+      platformGenerations: [{ id: 'gen-2', record: running, fetchedAt: 0 }],
+      detailTaskId: null,
+    })
+
+    useStore.getState().setDetailTaskId('local-2')
+
+    const card = () =>
+      mergeHistory(useStore.getState().tasks, useStore.getState().platformGenerations)[0]
+    await waitUntil(() => card()?.outputImages.length === 2, '详情没有补齐平台的两张产出')
+    expect(readRemoteGeneration).toHaveBeenCalledWith('gen-2')
+    expect(card()).toMatchObject({
+      id: 'local-2',
+      status: 'done',
+      outputImages: ['aip-media:out-0', 'aip-media:out-1'],
+    })
+  })
 })
