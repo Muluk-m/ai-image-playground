@@ -8,3 +8,9 @@ export function resolveApiKey(kind: QueueProvider): string {
   if (kind === 'gemini') return geminiApiKey || apiKey
   return apiKey
 }
+
+/** Chat, summary and search calls prefer the Claude credential when configured. */
+export function resolveChatApiKey(model: string): string {
+  if (!model.toLowerCase().startsWith('claude-')) return resolveApiKey('openai-compat')
+  return config.upstream.claudeApiKey || resolveApiKey('openai-compat')
+}

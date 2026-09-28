@@ -196,7 +196,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     },
     toolFailures,
   )
-  const budget = compactionSettings()
+  const model = agentModel(prepared.params?.thinkingDepth)
+  const budget = compactionSettings(model)
   // 系统说明与工具清单这一轮里逐字不变，算一次就够；塑形按它让预算，硬闸按真发出去的那一份判。
   const overheadTokens = requestOverheadTokens({
     systemPrompt: initialState.systemPrompt,
@@ -208,7 +209,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const agent = new Agent({
     initialState: {
       ...initialState,
-      model: agentModel(prepared.params?.thinkingDepth),
+      model,
       thinkingLevel: agentThinking(prepared.params?.thinkingDepth).effort,
       tools: turnTools,
     },
@@ -260,6 +261,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       compaction: history.compaction,
       foldedBefore: history.coveredCount,
       overheadTokens,
+      settings: budget,
       onSummaryAttempt: (attempt) => ledger.recordSideCall('compaction', attempt),
     }),
   })

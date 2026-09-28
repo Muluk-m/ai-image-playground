@@ -58,6 +58,7 @@ export type AgentToolName =
   | 'saveAsset'
   | 'saveLook'
   | 'editCanvasObject'
+  | 'arrangeCanvas'
   | 'webSearch'
   | 'webFetch'
   | 'fetchImage'
@@ -401,7 +402,7 @@ export const AGENT_CANVAS_EDIT_MAX = 50
  * 对画布上一个已有对象的属性改动。**全是绝对值，没有相对位移**——交付层在断线重连后
  * 会重放同一条结果，相对量重放一次就叠加一次，绝对量重放多少次结果都一样。
  *
- * 缺席的字段表示「这一项不动」，不是「清空」。
+ * 缺席的字段表示「这一项不动」，不是「清空」。组页签是例外：空串表示清掉。
  */
 export interface AgentCanvasEdit {
   readonly elementId: string
@@ -410,6 +411,11 @@ export interface AgentCanvasEdit {
   readonly y?: number
   readonly width?: number
   readonly height?: number
+  /**
+   * 挂在这张图上方的组页签。缺席表示不动；空串表示清掉。
+   * 它写在图片的 meta 上，跟着图走，不进下一次生成的提示词。
+   */
+  readonly section?: string
 }
 
 /** 改画布这一步的结果：画布照它逐条打补丁。 */

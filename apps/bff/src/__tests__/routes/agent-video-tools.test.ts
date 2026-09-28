@@ -8,7 +8,7 @@ import {
   DEVICE_ID_HEADER,
   projectArtifactId,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import {
@@ -123,11 +123,17 @@ async function runTurn(conversationId: string, text: string, references: unknown
 /** 等迷你 worker 把任务推到终态，读回结算过的后台任务。 */
 async function settledJobs(conversationId: string): Promise<AgentToolResultBlock[]> {
   for (let i = 0; i < 400; i++) {
-    const queued = await db
+    // 执行中的也要等：迷你 worker 先认领（in_progress）再写终态，只看 queued 会在两步之间读到 submitted。
+    const unsettled = await db
       .select({ id: schema.tasks.id })
       .from(schema.tasks)
-      .where(eq(schema.tasks.status, 'queued'))
-    if (queued.length === 0) break
+      .where(
+        and(
+          eq(schema.tasks.kind, 'queue'),
+          inArray(schema.tasks.status, ['queued', 'in_progress']),
+        ),
+      )
+    if (unsettled.length === 0) break
     await Bun.sleep(5)
   }
   const response = await app.handle(
@@ -240,6 +246,7 @@ describe('智能体生视频工具', () => {
     // 视频轮照样带着生图与改图：首帧要先画出来、改到位，再让它动起来。
     // `loadSkill` 在场是因为 `apps/bff/skills/video` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'arrangeCanvas',
       'arrangeTimeline',
       'askClarification',
       'editCanvasObject',

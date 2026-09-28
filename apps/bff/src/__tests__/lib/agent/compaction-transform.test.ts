@@ -30,6 +30,9 @@ const { ChatTimeoutError, setChatFetchForTesting, setChatRetryBackoffForTesting 
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
 const { createCompactionTransform } = await import('../../../lib/agent/compaction-transform')
+const { compactionSettings } = await import('../../../lib/agent/compaction-settings')
+const { agentModel } = await import('../../../lib/agent/model')
+const SETTINGS = compactionSettings(agentModel())
 const { createAgentConversation, loadAgentCompaction } = await import(
   '../../../lib/agent/conversations'
 )
@@ -96,6 +99,7 @@ describe('createCompactionTransform', () => {
       compaction: FRESH,
       foldedBefore: 0,
       overheadTokens: 0,
+      settings: SETTINGS,
     })
 
     const shaped = await transform(MESSAGES)
@@ -124,6 +128,7 @@ describe('createCompactionTransform', () => {
       compaction: FRESH,
       foldedBefore: 40,
       overheadTokens: 0,
+      settings: SETTINGS,
     })(MESSAGES)
 
     expect((await loadAgentCompaction(id))?.anchor).toEqual({
@@ -143,6 +148,7 @@ describe('createCompactionTransform', () => {
       compaction: FRESH,
       foldedBefore: 0,
       overheadTokens: 0,
+      settings: SETTINGS,
     })(MESSAGES)
     const stored = await loadAgentCompaction(id)
 
@@ -161,6 +167,7 @@ describe('createCompactionTransform', () => {
       compaction: stored!,
       foldedBefore: 2,
       overheadTokens: 0,
+      settings: SETTINGS,
     })([...MESSAGES.slice(2, 5), user('m6', '好的').message])
 
     expect(summaryCalls).toHaveLength(0)
@@ -179,6 +186,7 @@ describe('createCompactionTransform', () => {
       compaction: FRESH,
       foldedBefore: 0,
       overheadTokens: 0,
+      settings: SETTINGS,
     })(MESSAGES)
 
     // 这一轮还得再折一次：折的是窗口里的消息，而存档里那句原文早就不在窗口里了。
@@ -190,6 +198,7 @@ describe('createCompactionTransform', () => {
       compaction: (await loadAgentCompaction(id))!,
       foldedBefore: 2,
       overheadTokens: 0,
+      settings: SETTINGS,
     })([...MESSAGES.slice(2, 6), user('m7', body('g')).message, user('m8', body('h')).message])
 
     expect(JSON.stringify(shaped[0])).toContain(body('a'))
@@ -207,6 +216,7 @@ describe('createCompactionTransform', () => {
       compaction: FRESH,
       foldedBefore: 0,
       overheadTokens: 0,
+      settings: SETTINGS,
     })(MESSAGES)
 
     expect(shaped.length).toBeGreaterThan(0)
@@ -226,6 +236,7 @@ describe('createCompactionTransform', () => {
         compaction: FRESH,
         foldedBefore: 0,
         overheadTokens,
+        settings: SETTINGS,
       })(MESSAGES)
 
     expect((await shapedWith(300)).length).toBeLessThan((await shapedWith(0)).length)
@@ -245,6 +256,7 @@ describe('createCompactionTransform', () => {
       compaction: FRESH,
       foldedBefore: 0,
       overheadTokens: 0,
+      settings: SETTINGS,
     })(MESSAGES)
     const stored = (await loadAgentCompaction(id))!
 
@@ -263,6 +275,7 @@ describe('createCompactionTransform', () => {
       compaction: stored,
       foldedBefore: 2,
       overheadTokens: 0,
+      settings: SETTINGS,
     })([...MESSAGES.slice(2, 6), user('m7', body('g')).message, user('m8', body('h')).message])
 
     expect(attempts).toBe(1)
