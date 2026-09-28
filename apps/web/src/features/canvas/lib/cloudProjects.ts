@@ -1,5 +1,6 @@
 import { isProjectDocument, type ProjectDocument, projectKind } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
+import { supportsProjectDocumentIdentity } from '../../../lib/clientCapabilities'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
@@ -238,7 +239,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
     }
   }
   private document(): ProjectDocument | null {
-    return projectDocument(this.editor.doc, this.mediaBindings, this.project.kind)
+    return projectDocument(
+      this.editor.doc,
+      this.mediaBindings,
+      this.project.kind,
+      supportsProjectDocumentIdentity() ? this.project : undefined,
+    )
   }
   /**
    * 云端文档是本机第一次得知「这张画布是什么」的地方——从另一台设备同步过来的项目，
@@ -246,9 +252,21 @@ export class CloudProjectSession implements CloudSceneStrategy {
    */
   private async adoptKind(document: ProjectDocument) {
     const kind = projectKind(document)
-    if (this.project.kind === kind) return
+    if (
+      this.project.kind === kind &&
+      (document.experience === undefined || this.project.experience === document.experience) &&
+      (document.sourceProjectId === undefined ||
+        this.project.sourceProjectId === document.sourceProjectId)
+    )
+      return
     this.current()
-    this.project = await projectRepository.adoptKind(this.project.id, kind)
+    if (this.project.kind !== kind)
+      this.project = await projectRepository.adoptKind(this.project.id, kind)
+    if (document.experience || document.sourceProjectId)
+      this.project = await projectRepository.update(this.project.id, {
+        ...(document.experience ? { experience: document.experience } : {}),
+        ...(document.sourceProjectId ? { sourceProjectId: document.sourceProjectId } : {}),
+      })
     this.current()
     this.publish(this.project)
   }

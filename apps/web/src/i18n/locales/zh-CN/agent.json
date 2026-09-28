@@ -27,7 +27,7 @@
     "newProjectAria": "新建项目",
     "logAria": "对话记录",
     "emptyTitle": "今天，想创作什么？",
-    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。",
+    "emptyBody": "描述你的想法，或添加一张参考图。产物会直接出现在对话中，点开即可查看与编辑。",
     "jumpToLatest": "有新消息",
     "errorTitle": "对话出错了"
   },
@@ -47,10 +47,10 @@
     "copyFailed": "复制失败，请选择回复文字手动复制"
   },
   "tool": {
-    "background": "已在后台生成，完成后自动放入画布",
+    "background": "正在后台生成，完成后会在这里显示",
     "preparing": "准备中",
     "notFinished": "没有完成",
-    "delivering": "产物已生成，正在放入画布…",
+    "delivering": "产物已生成，正在载入…",
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但放入画布失败，可以重试。",
     "skillNotFound": "没找到技能：{{name}}",
@@ -66,6 +66,13 @@
     "zoomResult": "放大查看",
     "downloadResult": "下载",
     "editOnCanvas": "在画布中编辑",
+    "openResultNumber": "查看第 {{number}} 个产物",
+    "resultNumber": "第 {{number}} 个产物",
+    "previousResult": "上一个产物",
+    "nextResult": "下一个产物",
+    "imagePrompt": "图片提示词",
+    "copyPrompt": "复制提示词",
+    "editGroupOnCanvas": "整组放入画布",
     "loadingPreview": "正在载入产物…",
     "previewUnavailable": "暂时无法预览",
     "retryPreview": "重试载入",
@@ -321,7 +328,36 @@
     "recent": "最近项目",
     "results": "搜索结果",
     "newHint": "开启独立的对话与画布",
+    "chats": "对话",
+    "canvases": "画布",
+    "newChat": "新建对话",
+    "newCanvas": "新建画布",
+    "newChatHint": "和 Agent 一起创作",
+    "newCanvasHint": "自由排版与编辑",
     "all": "查看全部项目"
+  },
+  "assets": {
+    "title": "资产库",
+    "close": "关闭资产库",
+    "scope": "资产范围",
+    "session": "会话资产",
+    "all": "全部资产",
+    "allMedia": "全部",
+    "search": "搜索会话资产",
+    "media": "媒体类型",
+    "image": "图片",
+    "video": "视频",
+    "empty": "这段对话还没有产物",
+    "noMatch": "没有找到匹配的产物"
+  },
+  "handoff": {
+    "title": "放入画布",
+    "description": "已选择 {{count}} 张图片，放到哪张画布？",
+    "new": "新建画布",
+    "newHint": "用选中的图片开始排版",
+    "existing": "已有画布",
+    "close": "关闭选择画布",
+    "failed": "图片未能放入画布，请重试"
   },
   "job": {
     "phase": {

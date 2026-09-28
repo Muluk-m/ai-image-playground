@@ -1,11 +1,12 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import { ArrowUpRight, Images } from 'lucide-react'
+import { ArrowUpRight, Download, Images, Maximize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -22,6 +23,7 @@ import {
   artifactPreview,
   fetchedImagePreview,
 } from '../lib/artifactPreview'
+import { previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
@@ -443,6 +445,116 @@ export default function AgentToolCard({
   const viewCanvas = () => {
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
+  }
+  if (status === 'succeeded' && (previews.length > 0 || fetched.length > 0) && onPreviewResult) {
+    const tiles = [
+      ...previews.map((preview) => ({
+        id: preview.artifact.artifactId,
+        source: preview.source,
+        media: preview.artifact.media,
+        original: () => previewArtifactBitmap(preview.artifact),
+      })),
+      ...fetched.map((preview) => ({
+        id: preview.objectId,
+        source: preview.source,
+        media: 'image' as const,
+        original: () => resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+      })),
+    ]
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-inline-result">
+        <div className="studio-agent-inline-meta">
+          <ToolStatus label={statusLabel} status={status} />
+          <span title={message.title}>{message.title}</span>
+        </div>
+        <div className="studio-agent-inline-gallery" data-count={tiles.length}>
+          {tiles.map((tile, index) => (
+            <div className="studio-agent-inline-tile" key={tile.id}>
+              <button
+                type="button"
+                className="studio-agent-inline-open"
+                aria-label={t('tool.openResultNumber', { number: index + 1 })}
+                onClick={() => onPreviewResult(message.id, tile.id)}
+              >
+                {tile.source ? (
+                  <img
+                    src={tile.source}
+                    alt={t('tool.resultNumber', { number: index + 1 })}
+                    loading="lazy"
+                  />
+                ) : (
+                  <span>{t('tool.previewUnavailable')}</span>
+                )}
+                {tile.media === 'video' && <PlayBadge />}
+              </button>
+              <div className="studio-agent-inline-actions">
+                <button
+                  type="button"
+                  title={t('tool.previewResult')}
+                  aria-label={t('tool.openResultNumber', { number: index + 1 })}
+                  onClick={() => onPreviewResult(message.id, tile.id)}
+                >
+                  <Maximize2 size={16} />
+                </button>
+                {tile.media !== 'video' && (
+                  <button
+                    type="button"
+                    title={t('tool.downloadResult')}
+                    aria-label={t('tool.downloadResult')}
+                    onClick={() =>
+                      void tile.original().then((source) => {
+                        if (!source) return
+                        const link = document.createElement('a')
+                        link.href = source
+                        link.download = `muvloom-${tile.id}.png`
+                        link.click()
+                      })
+                    }
+                  >
+                    <Download size={16} />
+                  </button>
+                )}
+                {tile.media !== 'video' && onViewCanvas && (
+                  <button
+                    type="button"
+                    title={t('tool.editOnCanvas')}
+                    aria-label={t('tool.editOnCanvas')}
+                    onClick={() => onViewCanvas([tile.id])}
+                  >
+                    <Images size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {tiles.length > 1 && tiles.some((tile) => tile.media !== 'video') && onViewCanvas && (
+          <button
+            type="button"
+            className="studio-agent-inline-prompt"
+            onClick={() =>
+              onViewCanvas(tiles.filter((tile) => tile.media !== 'video').map((tile) => tile.id))
+            }
+          >
+            <Images size={14} aria-hidden="true" />
+            {t('tool.editGroupOnCanvas')}
+          </button>
+        )}
+        {message.prompt && (
+          <button
+            type="button"
+            className="studio-agent-inline-prompt"
+            onClick={() => setPromptOpen(true)}
+          >
+            {t('tool.viewPrompt')}
+          </button>
+        )}
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+        <WakeSkippedNote message={message} />
+      </div>
+    )
   }
   if (status === 'succeeded' && previews.length > 0 && fetched.length === 0 && !message.retryOf) {
     return (

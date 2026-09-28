@@ -1,16 +1,21 @@
+import { ArrowLeft, FolderOpen } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
-import { isWorkbenchMode, useStore } from '../../../store'
+import { useStore } from '../../../store'
 import AgentArtifactPane from '../../agent/components/AgentArtifactPane'
+import AgentAssetDrawer from '../../agent/components/AgentAssetDrawer'
+import AgentCanvasHandoffDialog from '../../agent/components/AgentCanvasHandoffDialog'
 import AgentPanel from '../../agent/components/AgentPanel'
 import AgentResultShelf from '../../agent/components/AgentResultShelf'
 import AgentSuggestions from '../../agent/components/AgentSuggestions'
 import { fetchedCanvasId } from '../../agent/lib/artifactDelivery'
+import { previewArtifactBitmap } from '../../agent/lib/artifactSource'
 import { agentCanvasSink } from '../../agent/lib/canvasSink'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
@@ -25,6 +30,7 @@ import {
 } from '../lib/activeProject'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
+import { projectExperience } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
@@ -112,22 +118,22 @@ function CanvasLoading({ label }: { label: string }) {
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
-  // 收起侧栏时左上角有一颗品牌按钮，顶行要从它右边开始排。
-  const sidebarExpanded = useStore(
-    (state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode),
-  )
   const mobile = useMobileWorkspace()
-  const [projectView, setProjectView] = useState<'chat' | 'canvas'>('chat')
+  const project = useCanvasProjectStore((state) =>
+    state.projects.find((one) => one.id === state.activeId),
+  )
+  const [projectView, setProjectView] = useState<'chat' | 'canvas'>(
+    project ? projectExperience(project) : 'chat',
+  )
+  const sidebarExpanded = useStore((state) => state.sidebarExpanded)
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>()
-  const [previewDismissed, setPreviewDismissed] = useState(false)
-  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false)
-  const seenLatestResult = useRef<string | null>(null)
+  const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
+  const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
-  const agentTab = useAgentStore((state) => state.tab)
   const setOpen = useAgentStore((state) => state.setOpen)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
@@ -160,27 +166,84 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       message.kind === 'tool' && message.id === selectedResultId,
   )
   const activeResult = selectedResult ?? latestResult
-  const showResultPreview =
-    hasAgent &&
-    projectView === 'chat' &&
-    agentTab !== 'layers' &&
-    Boolean(activeResult) &&
-    !previewDismissed
-  useEffect(() => {
-    if (!latestResult || seenLatestResult.current === latestResult.id) return
-    seenLatestResult.current = latestResult.id
-    setSelectedResultId(latestResult.id)
-    setSelectedArtifactId(undefined)
-    setPreviewDismissed(false)
-  }, [latestResult?.id])
   const previewResult = (messageId: string, artifactId?: string) => {
     setSelectedResultId(messageId)
     setSelectedArtifactId(artifactId)
-    setPreviewDismissed(false)
-    setMobilePreviewOpen(true)
+    setAssetDrawerOpen(false)
+  }
+  const completeHandoff = async (targetId?: string): Promise<boolean> => {
+    const selected = handoffIds ?? []
+    try {
+      const dataUrls = await Promise.all(
+        selected.map(async (id) => {
+          const artifact = messages
+            .flatMap((message) => (message.kind === 'tool' ? (message.artifacts ?? []) : []))
+            .find((one) => one.artifactId === id)
+          if (artifact?.media === 'video') return null
+          const fetched = messages
+            .flatMap((message) =>
+              message.kind === 'tool'
+                ? (message.fetchedImages ?? []).map((image, index) => ({
+                    id: fetchedCanvasId(message.toolCallId, index),
+                    image,
+                  }))
+                : [],
+            )
+            .find((one) => one.id === id)
+          const source = artifact
+            ? await previewArtifactBitmap(artifact).catch(() => null)
+            : fetched
+              ? await resolveMediaSource(
+                  `aip-media:${fetched.image.imageId}`,
+                  'original',
+                  true,
+                ).catch(() => null)
+              : null
+          const available =
+            source ??
+            (await agentCanvasSink()
+              ?.thumbnail(id, 3)
+              .catch(() => null))
+          if (!available) return null
+          if (available.startsWith('data:')) return available
+          const blob = await fetch(available)
+            .then((response) => response.blob())
+            .catch(() => null)
+          if (!blob) return null
+          return await new Promise<string | null>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+            reader.onerror = () => resolve(null)
+            reader.readAsDataURL(blob)
+          })
+        }),
+      )
+      if (dataUrls.some((one) => !one)) return false
+      const opened = targetId
+        ? await useAgentStore.getState().selectProject(targetId)
+        : await useAgentStore.getState().createProject(undefined, false, 'canvas', project?.id)
+      if (!opened) return false
+      const groupId = selected.length > 1 ? crypto.randomUUID() : undefined
+      useStore
+        .getState()
+        .queueCanvasImages(
+          dataUrls
+            .filter((one): one is string => Boolean(one))
+            .map((dataUrl) => ({ dataUrl, groupId })),
+        )
+      setSelectedResultId(null)
+      setHandoffIds(null)
+      setProjectView('canvas')
+      return true
+    } catch {
+      return false
+    }
   }
   const openCanvas = (selectedIds?: readonly string[]) => {
-    setMobilePreviewOpen(false)
+    if (projectView === 'chat' && (!project || projectExperience(project) === 'chat')) {
+      setHandoffIds(selectedIds ?? [])
+      return
+    }
     setProjectView('canvas')
     if (selectedIds?.length) {
       focusedResult.current = latestResult?.id ?? null
@@ -225,9 +288,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     if (ids.every((id) => agentCanvasSink()?.has(id))) focus()
     else void useAgentStore.getState().placeOnCanvas(latestResult.id).then(focus)
   }, [hasAgent, projectView, latestResult?.id, latestResult?.delivery])
-  const project = useCanvasProjectStore((state) =>
-    state.projects.find((one) => one.id === state.activeId),
-  )
+  useEffect(() => {
+    if (project) setProjectView(projectExperience(project))
+  }, [project?.id, project?.experience])
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
   const showWelcome =
@@ -270,7 +333,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       ) : (
         <>
           {hasAgent && (
-            <div className="studio-project-viewbar">
+            <div
+              className={`studio-project-viewbar ${(sidebarExpanded ?? projectView === 'chat') ? 'studio-project-viewbar--with-sidebar' : ''}`}
+            >
               <button
                 type="button"
                 onClick={() => useStore.getState().setAppMode('image')}
@@ -281,37 +346,35 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
               </button>
               <ProjectNavigation />
-              <div
-                className="studio-project-switch"
-                role="group"
-                aria-label={t('mobileSwitch.aria')}
-              >
+              {projectView === 'canvas' && project?.sourceProjectId && (
                 <button
                   type="button"
-                  aria-pressed={projectView === 'chat'}
+                  className="studio-source-chat-link"
                   onClick={() => {
-                    useAgentStore.getState().setTab('chat')
-                    setMobilePreviewOpen(false)
-                    setProjectView('chat')
+                    if (project.sourceProjectId)
+                      void useAgentStore.getState().selectProject(project.sourceProjectId)
                   }}
                 >
-                  {t('mobileSwitch.chat')}
+                  <ArrowLeft size={15} aria-hidden="true" />
+                  {t('workspace.sourceChat')}
                 </button>
+              )}
+              {projectView === 'chat' && (
                 <button
                   type="button"
-                  aria-pressed={projectView === 'canvas'}
-                  onClick={() => openCanvas()}
+                  className="studio-assets-trigger"
+                  aria-label={t('workspace.assets')}
+                  title={t('workspace.assets')}
+                  onClick={() => setAssetDrawerOpen(true)}
                 >
-                  {t('mobileSwitch.canvas')}
+                  <FolderOpen size={18} aria-hidden="true" />
                 </button>
-              </div>
+              )}
             </div>
           )}
           <div
             className="studio-layout"
             data-project-view={hasAgent ? projectView : undefined}
-            data-artifact-open={showResultPreview ? 'true' : undefined}
-            data-artifact-mobile-open={mobilePreviewOpen ? 'true' : undefined}
             data-mobile-view={projectView}
             inert={loading || loadFailed}
           >
@@ -433,16 +496,30 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </svg>
               </button>
             )}
-            {showResultPreview && activeResult && (
+            {selectedResultId && activeResult && projectView === 'chat' && (
               <AgentArtifactPane
                 message={activeResult}
                 selectedId={selectedArtifactId}
                 onSelect={setSelectedArtifactId}
                 onClose={() => {
-                  setPreviewDismissed(true)
-                  setMobilePreviewOpen(false)
+                  setSelectedResultId(null)
                 }}
                 onViewCanvas={openCanvas}
+              />
+            )}
+            {assetDrawerOpen && projectView === 'chat' && (
+              <AgentAssetDrawer
+                messages={messages}
+                onClose={() => setAssetDrawerOpen(false)}
+                onPreview={previewResult}
+              />
+            )}
+            {handoffIds && (
+              <AgentCanvasHandoffDialog
+                count={handoffIds.length}
+                projects={useCanvasProjectStore.getState().projects}
+                onChoose={completeHandoff}
+                onClose={() => setHandoffIds(null)}
               />
             )}
             <section

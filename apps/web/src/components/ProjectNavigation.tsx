@@ -1,8 +1,21 @@
-import { Check, ChevronDown, FolderOpen, LoaderCircle, Plus, Search } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  FolderOpen,
+  LayoutDashboard,
+  LoaderCircle,
+  MessageCircle,
+  Plus,
+  Search,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import { projectCatalog } from '../features/canvas/lib/projectCatalog'
-import { projectDisplayName, UNTITLED_PROJECT } from '../features/canvas/lib/projectRepository'
+import {
+  projectDisplayName,
+  projectExperience,
+  UNTITLED_PROJECT,
+} from '../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
@@ -35,14 +48,22 @@ export default function ProjectNavigation() {
   const recent = current
     ? [current, ...catalog.filter((project) => project.id !== activeId)]
     : catalog
-  const visible = (query ? catalog : recent)
-    .filter((project) => projectDisplayName(project.name).toLocaleLowerCase().includes(query))
-    .slice(0, query ? 30 : 8)
+  const matches = (query ? catalog : recent).filter((project) =>
+    projectDisplayName(project.name).toLocaleLowerCase().includes(query),
+  )
+  const visible = (
+    query
+      ? matches
+      : [
+          ...matches.filter((project) => projectExperience(project) === 'chat'),
+          ...matches.filter((project) => projectExperience(project) === 'canvas'),
+        ]
+  ).slice(0, query ? 30 : 10)
   const allProjects = () => {
     setOpen(false)
     useLibraryStore.getState().openProjects()
   }
-  const enter = async (id?: string) => {
+  const enter = async (id?: string, experience: 'chat' | 'canvas' = 'chat') => {
     if (busy) return
     if (id === activeId) {
       setOpen(false)
@@ -52,7 +73,7 @@ export default function ProjectNavigation() {
     try {
       const opened = id
         ? await useAgentStore.getState().selectProject(id)
-        : await useAgentStore.getState().createProject()
+        : await useAgentStore.getState().createProject(undefined, false, experience)
       if (opened) setOpen(false)
     } finally {
       setPending(null)
@@ -106,46 +127,62 @@ export default function ProjectNavigation() {
               {query ? t('navigation.results') : t('navigation.recent')}
             </p>
             <div className="min-h-0 overflow-y-auto" aria-busy={busy}>
-              {visible.map((project) => (
-                <Button
-                  key={project.id}
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void enter(project.id)}
-                  aria-current={project.id === activeId ? 'true' : undefined}
-                  className={`h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left ${project.id === activeId ? 'bg-accent' : ''}`}
-                >
-                  {/* 云端项目的封面是 `aip-media:` 这种要换签名 URL 的引用，交给 MediaImage；
+              {visible.map((project, index) => (
+                <div key={project.id}>
+                  {!query &&
+                    (index === 0 ||
+                      projectExperience(visible[index - 1]) !== projectExperience(project)) && (
+                      <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
+                        {t(
+                          projectExperience(project) === 'chat'
+                            ? 'navigation.chats'
+                            : 'navigation.canvases',
+                        )}
+                      </p>
+                    )}
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void enter(project.id)}
+                    aria-current={project.id === activeId ? 'true' : undefined}
+                    className={`h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left ${project.id === activeId ? 'bg-accent' : ''}`}
+                  >
+                    {/* 云端项目的封面是 `aip-media:` 这种要换签名 URL 的引用，交给 MediaImage；
                       本机项目的封面是 data URL，同一条路直出。取不到封面就露出底下的文件夹图标，
                       不把认不出的地址塞进 <img>——那只会得到一个碎图。 */}
-                  <span className="relative flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
-                    <FolderOpen aria-hidden="true" />
-                    {project.cover && (
-                      <MediaImage
-                        src={project.cover}
-                        alt=""
-                        loading="lazy"
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs">
-                      {projectDisplayName(project.name)}
+                    <span className="relative flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                      {projectExperience(project) === 'chat' ? (
+                        <MessageCircle aria-hidden="true" />
+                      ) : (
+                        <LayoutDashboard aria-hidden="true" />
+                      )}
+                      {project.cover && (
+                        <MediaImage
+                          src={project.cover}
+                          alt=""
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      )}
                     </span>
-                    <time
-                      dateTime={new Date(project.updatedAt).toISOString()}
-                      className="mt-0.5 block text-[10px] font-normal text-muted-foreground"
-                    >
-                      {formatDateMinute(project.updatedAt)}
-                    </time>
-                  </span>
-                  {project.id === pending ? (
-                    <LoaderCircle className="animate-spin text-primary" aria-hidden="true" />
-                  ) : (
-                    project.id === activeId && <Check className="text-primary" />
-                  )}
-                </Button>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs">
+                        {projectDisplayName(project.name)}
+                      </span>
+                      <time
+                        dateTime={new Date(project.updatedAt).toISOString()}
+                        className="mt-0.5 block text-[10px] font-normal text-muted-foreground"
+                      >
+                        {formatDateMinute(project.updatedAt)}
+                      </time>
+                    </span>
+                    {project.id === pending ? (
+                      <LoaderCircle className="animate-spin text-primary" aria-hidden="true" />
+                    ) : (
+                      project.id === activeId && <Check className="text-primary" />
+                    )}
+                  </Button>
+                </div>
               ))}
               {!visible.length && (
                 <p className="px-3 py-6 text-center text-xs text-muted-foreground">
@@ -176,13 +213,27 @@ export default function ProjectNavigation() {
                 variant="ghost"
                 className="h-auto w-full justify-start px-3 py-2 text-primary"
                 disabled={busy}
-                onClick={() => void enter()}
+                onClick={() => void enter(undefined, 'chat')}
               >
-                {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <Plus />}
+                {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <MessageCircle />}
                 <span className="text-left text-xs">
-                  {t('panel.newProjectAria')}
+                  {t('navigation.newChat')}
                   <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                    {t('navigation.newHint')}
+                    {t('navigation.newChatHint')}
+                  </span>
+                </span>
+              </Button>
+              <Button
+                variant="ghost"
+                className="h-auto w-full justify-start px-3 py-2"
+                disabled={busy}
+                onClick={() => void enter(undefined, 'canvas')}
+              >
+                <LayoutDashboard />
+                <span className="text-left text-xs">
+                  {t('navigation.newCanvas')}
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    {t('navigation.newCanvasHint')}
                   </span>
                 </span>
               </Button>
@@ -204,7 +255,7 @@ export default function ProjectNavigation() {
           aria-label={t('panel.newProjectAria')}
           title={t('navigation.newHint')}
           disabled={busy}
-          onClick={() => void enter()}
+          onClick={() => void enter(undefined, 'chat')}
         >
           {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <Plus />}
         </Button>

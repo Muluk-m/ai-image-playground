@@ -1,5 +1,5 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ArrowDown, ArrowLeft, Images } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import {
   Fragment,
   type PointerEvent as ReactPointerEvent,
@@ -104,6 +104,9 @@ export default function AgentPanel({
   const error = useAgentStore((state) => state.error)
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const { setOpen, setTab, load, setPanelWidth } = useAgentStore.getState()
+  useEffect(() => {
+    if (presentation === 'page' && tab === 'layers') setTab('chat')
+  }, [presentation, tab, setTab])
   const historyLoading = useAgentStore((state) => state.historyLoading)
   const historyFailed = useAgentStore((state) => state.historyFailed)
   const logRef = useRef<HTMLDivElement>(null)
@@ -207,32 +210,7 @@ export default function AgentPanel({
           className="absolute -left-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
         />
       )}
-      {presentation === 'page' ? (
-        <div className="studio-agent-page-toolbar flex shrink-0 items-center justify-end gap-3 px-3 py-2">
-          {tab === 'layers' ? (
-            <button
-              type="button"
-              onClick={() => setTab('chat')}
-              className="mr-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('panel.backToChat')}
-            </button>
-          ) : null}
-          {tab === 'layers' ? (
-            <span className="text-xs font-medium text-foreground">{t('label.layers')}</span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setTab('layers')}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              <Images className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('label.layers')}
-            </button>
-          )}
-        </div>
-      ) : (
+      {presentation === 'side' && (
         <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
           <div className="flex items-center gap-1.5">
             {TABS.map((one) => (

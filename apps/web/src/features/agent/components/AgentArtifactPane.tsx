@@ -1,5 +1,6 @@
-import { ArrowLeft, Download, Expand, Images, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Copy, Download, Expand, Images, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -8,7 +9,6 @@ import { fetchedCanvasId } from '../lib/artifactDelivery'
 import { previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import type { AgentToolMessage } from '../types'
-import AgentPromptDialog from './AgentPromptDialog'
 
 interface PaneItem {
   readonly id: string
@@ -58,7 +58,6 @@ export default function AgentArtifactPane({
   const [source, setSource] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
-  const [promptOpen, setPromptOpen] = useState(false)
   const [retry, setRetry] = useState(0)
   const items: PaneItem[] = [
     ...(message.artifacts ?? []).map((artifact) => ({
@@ -88,6 +87,20 @@ export default function AgentArtifactPane({
     })),
   ]
   const active = items.find((item) => item.id === selectedId) ?? items[0]
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (document.querySelector('.studio-handoff-dialog')) return
+      if (event.key === 'Escape') onClose()
+      if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && items.length > 1) {
+        const index = items.findIndex((item) => item.id === active?.id)
+        onSelect(
+          items[(index + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length].id,
+        )
+      }
+    }
+    window.addEventListener('keydown', keydown)
+    return () => window.removeEventListener('keydown', keydown)
+  }, [active?.id, items.length, onClose, onSelect])
 
   useEffect(() => {
     let alive = true
@@ -115,8 +128,13 @@ export default function AgentArtifactPane({
     link.click()
   }
 
-  return (
-    <aside className="studio-artifact-pane" aria-label={t('tool.previewTitle')}>
+  return createPortal(
+    <aside
+      className="studio-artifact-pane"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('tool.previewTitle')}
+    >
       <div className="studio-artifact-pane-head">
         <button type="button" className="studio-artifact-pane-back" onClick={onClose}>
           <ArrowLeft size={16} aria-hidden="true" />
@@ -141,6 +159,23 @@ export default function AgentArtifactPane({
         </button>
       </div>
       <div className="studio-artifact-pane-viewer">
+        {items.length > 1 && (
+          <button
+            type="button"
+            className="studio-artifact-pane-prev"
+            aria-label={t('tool.previousResult')}
+            onClick={() =>
+              onSelect(
+                items[
+                  (items.findIndex((item) => item.id === active.id) - 1 + items.length) %
+                    items.length
+                ].id,
+              )
+            }
+          >
+            <ArrowLeft size={22} />
+          </button>
+        )}
         {active.media === 'video' && active.videoUrl ? (
           <video
             key={active.id}
@@ -172,6 +207,20 @@ export default function AgentArtifactPane({
             )}
           </div>
         )}
+        {items.length > 1 && (
+          <button
+            type="button"
+            className="studio-artifact-pane-next"
+            aria-label={t('tool.nextResult')}
+            onClick={() =>
+              onSelect(
+                items[(items.findIndex((item) => item.id === active.id) + 1) % items.length].id,
+              )
+            }
+          >
+            <ArrowRight size={22} />
+          </button>
+        )}
       </div>
       {items.length > 1 && (
         <div className="studio-artifact-pane-strip" aria-label={t('tool.previewTitle')}>
@@ -189,6 +238,22 @@ export default function AgentArtifactPane({
       )}
       <div className="studio-artifact-pane-foot">
         <p title={message.title}>{message.title}</p>
+        {message.prompt && (
+          <section className="studio-artifact-pane-prompt">
+            <div>
+              <span>{t('tool.imagePrompt')}</span>
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(message.prompt ?? '')}
+                aria-label={t('tool.copyPrompt')}
+                title={t('tool.copyPrompt')}
+              >
+                <Copy size={15} />
+              </button>
+            </div>
+            <p>{message.prompt}</p>
+          </section>
+        )}
         <div className="studio-artifact-pane-actions">
           {active.media === 'image' && source && (
             <>
@@ -202,11 +267,6 @@ export default function AgentArtifactPane({
               </button>
             </>
           )}
-          {message.prompt && (
-            <button type="button" onClick={() => setPromptOpen(true)}>
-              {t('tool.viewPrompt')}
-            </button>
-          )}
           <button
             type="button"
             className="studio-artifact-pane-edit"
@@ -218,10 +278,8 @@ export default function AgentArtifactPane({
         </div>
       </div>
       {zoomed && source && <ImagePreview src={source} onClose={() => setZoomed(false)} />}
-      {promptOpen && message.prompt && (
-        <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-      )}
-    </aside>
+    </aside>,
+    document.body,
   )
 }
 

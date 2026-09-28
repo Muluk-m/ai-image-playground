@@ -105,13 +105,20 @@ export const projectRoutes = new Elysia()
   )
   .get(
     '/api/projects/:id',
-    async ({ authUser, params, status }) => {
+    async ({ authUser, params, request, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
       const project = await readProject(authUser.id, params.id)
       if (!project) return status(404, { error: 'project_not_found' })
       if (project.deletedAt != null) return status(410, { error: 'project_deleted' })
       const { deletedAt: _, ...active } = project
-      return active
+      // 老前端对文档字段严格校验；只给显式请求的新前端发送新增的身份字段。
+      if (new URL(request.url).searchParams.get('identity') === '1') return active
+      const {
+        experience: _experience,
+        sourceProjectId: _sourceProjectId,
+        ...legacyDocument
+      } = active.document
+      return { ...active, document: legacyDocument }
     },
     { params: t.Object({ id }) },
   )

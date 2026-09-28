@@ -29,7 +29,7 @@
     "newProjectAria": "New project",
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
-    "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing.",
+    "emptyBody": "Describe your idea or add a reference. Results appear in the chat; open one to view or edit it.",
     "jumpToLatest": "New messages",
     "errorTitle": "Chat error"
   },
@@ -49,10 +49,10 @@
     "copyFailed": "Copy failed. Select the reply text and copy it manually."
   },
   "tool": {
-    "background": "Generating in the background; it will land on the canvas when ready",
+    "background": "Generating in the background; the result will appear here",
     "preparing": "Preparing",
     "notFinished": "Did not finish",
-    "delivering": "Generated, adding to the canvas…",
+    "delivering": "Generated, loading the result…",
     "offCanvas": "Not on the current canvas. You can add it again.",
     "deliveryFailed": "Generated, but could not be added to the canvas. You can retry.",
     "skillNotFound": "Skill not found: {{name}}",
@@ -68,6 +68,13 @@
     "zoomResult": "Expand",
     "downloadResult": "Download",
     "editOnCanvas": "Edit on canvas",
+    "openResultNumber": "Open result {{number}}",
+    "resultNumber": "Result {{number}}",
+    "previousResult": "Previous result",
+    "nextResult": "Next result",
+    "imagePrompt": "Image prompt",
+    "copyPrompt": "Copy prompt",
+    "editGroupOnCanvas": "Add group to canvas",
     "loadingPreview": "Loading result…",
     "previewUnavailable": "Preview unavailable",
     "retryPreview": "Retry preview",
@@ -339,7 +346,36 @@
     "recent": "Recent projects",
     "results": "Search results",
     "newHint": "Start a separate chat and canvas",
+    "chats": "Chats",
+    "canvases": "Canvases",
+    "newChat": "New chat",
+    "newCanvas": "New canvas",
+    "newChatHint": "Create with the Agent",
+    "newCanvasHint": "Arrange and edit freely",
     "all": "View all projects"
+  },
+  "assets": {
+    "title": "Assets",
+    "close": "Close assets",
+    "scope": "Asset scope",
+    "session": "Chat assets",
+    "all": "All assets",
+    "allMedia": "All",
+    "search": "Search chat assets",
+    "media": "Media type",
+    "image": "Images",
+    "video": "Videos",
+    "empty": "No results in this chat yet",
+    "noMatch": "No matching results"
+  },
+  "handoff": {
+    "title": "Add to canvas",
+    "description": "You selected {{count}} images. Where should they go?",
+    "new": "New canvas",
+    "newHint": "Arrange the selected images on a new canvas",
+    "existing": "Existing canvases",
+    "close": "Close canvas picker",
+    "failed": "Could not add the images. Please retry."
   },
   "job": {
     "phase": {

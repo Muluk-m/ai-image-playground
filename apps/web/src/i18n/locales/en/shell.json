@@ -27,9 +27,11 @@
     "templates": "Templates",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "canvases": "Projects",
+    "chats": "Chats",
+    "newChat": "New chat",
+    "canvases": "Canvases",
     "allCanvases": "All",
-    "newCanvas": "New project",
+    "newCanvas": "New canvas",
     "immersive": "Open immersive",
     "guide": "User guide"
   },
