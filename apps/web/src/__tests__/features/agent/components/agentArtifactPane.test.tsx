@@ -224,3 +224,30 @@ it('keeps all image edit shortcuts in the Agent edit dialog', async () => {
     act(() => root.unmount())
   }
 })
+
+it('keeps the preview open when a higher dialog consumes Escape', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const onClose = vi.fn()
+  const consumeEscape = (event: KeyboardEvent) => event.preventDefault()
+  window.addEventListener('keydown', consumeEscape)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          message={message}
+          onSelect={vi.fn()}
+          onClose={onClose}
+          onViewCanvas={vi.fn()}
+        />,
+      ),
+    )
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+  } finally {
+    window.removeEventListener('keydown', consumeEscape)
+    act(() => root.unmount())
+  }
+})
