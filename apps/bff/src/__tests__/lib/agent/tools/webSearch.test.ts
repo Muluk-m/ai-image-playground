@@ -148,6 +148,26 @@ it('部署开了 agent:web、也配了搜索模型，模型这一轮就看得见
   expect(agentTurnTools(context()).map((tool) => tool.name)).toContain('webSearch')
 })
 
+it('每次搜索都把当前 UTC 时间送给搜索模型', async () => {
+  let sentBody: unknown
+  setAgentSearchFetchForTesting(async (_url, init) => {
+    sentBody = JSON.parse(String(init?.body))
+    return { ok: true, status: 200, text: async () => JSON.stringify(responsesPayload()) }
+  })
+  const before = Date.now()
+
+  await run({ query: '今年 AI 生图产品趋势' })
+
+  const after = Date.now()
+  expect(sentBody).toMatchObject({ model: 'fixture-search-model' })
+  const input = (sentBody as { input: string }).input
+  const iso = /Current time \(UTC\): ([^ ]+)\./.exec(input)?.[1]
+  expect(iso).toBeDefined()
+  expect(new Date(iso!).getTime()).toBeGreaterThanOrEqual(before)
+  expect(new Date(iso!).getTime()).toBeLessThanOrEqual(after)
+  expect(input).toContain('Search the web for: 今年 AI 生图产品趋势')
+})
+
 it('把引用标注读成来源，并按编号列表交回模型', async () => {
   respond(responsesPayload())
 
