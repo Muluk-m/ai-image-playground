@@ -8,9 +8,9 @@ export interface InpaintReference {
 }
 
 /** 笔宽用**屏幕像素**存：画布缩放时手感恒定；转成页面单位是落笔那一刻按相机算的。 */
-const DEFAULT_BRUSH_PX = 48
-export const MIN_BRUSH_PX = 8
-export const MAX_BRUSH_PX = 160
+const DEFAULT_BRUSH_PX = 18
+export const MIN_BRUSH_PX = 4
+export const MAX_BRUSH_PX = 80
 
 /** 涂抹会话干的是哪件事：按描述重画，还是把涂掉的东西抹干净。 */
 export type PaintEditKind = 'inpaint' | 'erase'

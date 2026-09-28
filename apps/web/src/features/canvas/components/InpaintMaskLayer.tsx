@@ -63,6 +63,11 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
 
   if (!image || !size) return null
   const { camera } = editor.doc
+  // 缩得很小时，笔宽仍不能盖住半张图；焦点放大过程中也保持同样的比例上限。
+  const effectiveBrushPx = Math.min(
+    brushPx,
+    Math.max(4, Math.min(image.width, image.height) * camera.zoom * 0.08),
+  )
 
   const pagePoint = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -108,7 +113,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           const stroke: MaskStroke =
             tool === 'rect'
               ? { tool: 'brush', shape: 'rect', points: [point, point], width: 0 }
-              : { tool, points: [point], width: brushPx / camera.zoom }
+              : { tool, points: [point], width: effectiveBrushPx / camera.zoom }
           drawingRef.current = stroke
           setLive(stroke)
         }}
@@ -200,10 +205,10 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           aria-hidden="true"
           className={`pointer-events-none fixed rounded-full border-2 ${kind === 'inpaint' ? 'border-[#159cf6]/80' : 'border-primary/80'}`}
           style={{
-            left: ring.x - brushPx / 2,
-            top: ring.y - brushPx / 2,
-            width: brushPx,
-            height: brushPx,
+            left: ring.x - effectiveBrushPx / 2,
+            top: ring.y - effectiveBrushPx / 2,
+            width: effectiveBrushPx,
+            height: effectiveBrushPx,
           }}
         />
       )}

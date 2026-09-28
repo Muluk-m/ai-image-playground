@@ -1,54 +1,47 @@
 import { Brush, Eraser, Scan, Undo2, Upload, Wand2, X } from 'lucide-react'
 import { useRef, useState, useSyncExternalStore } from 'react'
 import { LABEL, OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
-import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { useTranslation } from '../../../i18n'
-import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
-import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
-import { useStore } from '../../../store'
 import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
-import { canvasImageDimensions } from '../lib/imageInfo'
 import { fileToDataUrl } from '../lib/importImages'
-import { inpaintRefusal, submitCanvasInpaint } from '../lib/submitInpaint'
+import { sendImageEditToAgent } from '../lib/sendImageEditToAgent'
 import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 
-/** 智能改图浮层保持画布可操作；所有编号区域共同组成一次原生遮罩提交。 */
-export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
+/** 图片快捷菜单展开后的区域标记与要求输入。 */
+export default function InpaintPanel({
+  editor,
+  onDone,
+}: {
+  editor: CanvasEditor
+  onDone: () => void
+}) {
   const { t } = useTranslation(['canvas', 'common'])
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const session = useInpaintSession()
-  const settings = useStore((state) => state.settings)
   const fileRef = useRef<HTMLInputElement>(null)
   const [pending, setPending] = useState(false)
-  const guard = usePrivateSubmissionGuard({
-    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
-    quantity: 1,
-  })
 
   if (!session.imageId) return null
   const painted = session.strokes.length > 0
   // 擦除没有「改成什么」：描述与参考图由固定指令代替，面板只剩画笔与完成。
   const erasing = session.kind === 'erase'
   const element = editor.getElement(session.imageId)
-  const refusal =
-    element?.type === 'image'
-      ? inpaintRefusal(element, canvasImageDimensions(element, editor.doc), settings)
-      : t('inpaint.sourceGone')
+  const image = element?.type === 'image' ? element : null
 
   const submit = async () => {
-    if (pending || !session.imageId) return
+    if (pending || !image) return
     setPending(true)
     try {
-      const started = await submitCanvasInpaint(editor, {
-        imageId: session.imageId,
+      const instruction = erasing
+        ? '请移除 [image 1] 中标记区域内的内容，用周围背景自然填补；未标记区域保持不变。'
+        : `请只修改 [image 1] 中标记的区域：${session.prompt.trim()}。未标记区域保持不变。`
+      const sent = await sendImageEditToAgent(editor, image, instruction, {
         strokes: session.strokes,
-        kind: session.kind,
-        prompt: session.prompt,
         ...(session.reference ? { referenceDataUrl: session.reference.dataUrl } : {}),
       })
-      if (started) session.close()
+      if (sent) onDone()
     } finally {
       setPending(false)
     }
@@ -64,26 +57,12 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-label={t(erasing ? 'erase.title' : 'inpaint.title')}
-      className="absolute bottom-4 left-1/2 z-[430] w-[min(36rem,calc(100%-2rem))] -translate-x-1/2 rounded-2xl border border-border bg-card/95 p-3 shadow-2xl backdrop-blur"
-      onPointerDown={(event) => event.stopPropagation()}
-      onKeyDown={(event) => event.stopPropagation()}
-    >
-      <div className="mb-2 flex items-center justify-between">
+    <div className="p-3">
+      <div className="mb-2">
         <h3 className={`${PANEL_TITLE} inline-flex items-center gap-1.5`}>
           {!erasing && <Wand2 className="h-4 w-4 text-[#159cf6]" />}
           {t(erasing ? 'erase.title' : 'inpaint.title')}
         </h3>
-        <button
-          type="button"
-          aria-label={t('common:action.close')}
-          className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={session.close}
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -202,10 +181,7 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
           {t(painted ? 'erase.continueHint' : 'erase.paintFirst')}
         </p>
       )}
-      {(refusal || (guard.blocked && guard.disabledReason)) && (
-        <p className="mb-1.5 text-xs text-destructive">{refusal || guard.disabledReason}</p>
-      )}
-      <SubmissionBillingAction blockedAction={guard.blockedAction} className="mb-1.5 text-[11px]" />
+      {!image && <p className="mb-1.5 text-xs text-destructive">{t('inpaint.sourceGone')}</p>}
 
       <div className="flex items-center justify-between gap-2">
         {erasing ? (
@@ -229,23 +205,16 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
           }}
         />
         <div className="flex items-center gap-2">
-          <button type="button" className={OUTLINE_BUTTON} onClick={session.close}>
+          <button type="button" className={OUTLINE_BUTTON} onClick={onDone}>
             {t('common:action.cancel')}
           </button>
           <button
             type="button"
-            disabled={
-              pending ||
-              !painted ||
-              Boolean(refusal) ||
-              guard.blocked ||
-              (!erasing && !session.prompt.trim())
-            }
-            title={refusal || guard.disabledReason}
+            disabled={pending || !painted || !image || (!erasing && !session.prompt.trim())}
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
           >
-            {t(erasing ? 'erase.submit' : 'inpaint.submit')}
+            {t('imageToolbar.sendToAgent')}
           </button>
         </div>
       </div>

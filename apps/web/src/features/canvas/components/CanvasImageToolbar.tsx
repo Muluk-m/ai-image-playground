@@ -1,7 +1,5 @@
 import {
-  Copy,
   Crop,
-  Download,
   Eraser,
   Expand,
   MoreHorizontal,
@@ -9,163 +7,293 @@ import {
   Ratio,
   Scissors,
   Wand2,
+  X,
 } from 'lucide-react'
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { useTranslation } from '../../../i18n'
-import { useStore } from '../../../store'
 import { useInpaintSession } from '../inpaintStore'
-import { canvasImageSource, copyCanvasImage, downloadCanvasImage } from '../lib/canvasImageActions'
-import {
-  cutoutRefusal,
-  imageEditRefusal,
-  outpaintRefusal,
-  resizeRefusal,
-  submitCanvasCutout,
-} from '../lib/canvasImageEdits'
+import { canvasImageSource } from '../lib/canvasImageActions'
 import type { CanvasEditor } from '../lib/editor'
-import { canvasImageDimensions } from '../lib/imageInfo'
-import { inpaintRefusal } from '../lib/submitInpaint'
+import { sendImageEditToAgent } from '../lib/sendImageEditToAgent'
 import { useRectEdit } from '../rectEditStore'
-import CanvasEditPromptDialog from './CanvasEditPromptDialog'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
-import CanvasResizeMenu from './CanvasResizeMenu'
 import CanvasToolbarButton from './CanvasToolbarButton'
+import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
+import InpaintPanel from './InpaintPanel'
 
-/** 工具条与图片之间的留白，以及它自己的高度（贴到视口底时据此翻到上沿）。 */
+type EditAction = 'inpaint' | 'erase' | 'cutout' | 'edit' | 'crop' | 'outpaint' | 'resize'
+const PANEL_WIDTH = 576
 const TOOLBAR_GAP = 10
 const TOOLBAR_HEIGHT = 40
+const RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const
 
-/**
- * 单选一张图片时浮在它**下方**的操作条：常用动作直出，其余收进「更多」。
- *
- * 放下沿是照产品形态走的（尺寸标签在上、动作条在下，见 `SelectionInfo`），
- * 也正好与 `CanvasVideoToolbar` 的上沿错开。「更多」直接复用右键那份
- * `CanvasImageMenu`——同一组动作两个入口，实现只有一份。
- */
+/** 图片下方的快捷菜单；编辑动作将它就地展开，要求统一发给 Agent 对话。 */
 export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation(['canvas', 'common'])
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
-  const settings = useStore((state) => state.settings)
   const inpaintImageId = useInpaintSession((state) => state.imageId)
   const openInpaint = useInpaintSession((state) => state.open)
-  const rectMode = useRectEdit((state) => state.mode)
-  const openRect = useRectEdit((state) => state.open)
+  const closeInpaint = useInpaintSession((state) => state.close)
+  const rectSession = useRectEdit()
   const [menu, setMenu] = useState<CanvasImageMenuState | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [resizeAt, setResizeAt] = useState<{ x: number; y: number } | null>(null)
-
+  const [active, setActive] = useState<{ imageId: string; action: EditAction } | null>(null)
+  const [prompt, setPrompt] = useState('')
+  const [ratio, setRatio] = useState<(typeof RATIOS)[number]>('1:1')
+  const [pending, setPending] = useState(false)
   const doc = editor.doc
-  // 涂抹进行时让位给面板：这条工具条的动作这会儿都不该被点到。
-  if (inpaintImageId || rectMode) return null
-  if (doc.tool !== 'select' || doc.selection.size !== 1) return null
-  const element = doc.getElement([...doc.selection][0] ?? '')
-  // 画布上的视频也是 image 元素（位图当封面），它归 CanvasVideoToolbar 管。
-  if (element?.type !== 'image' || element.video) return null
-  // 这张图正在被重绘：卡片上盖着「局部重绘中」，别在遮罩上再浮一条能点的工具条。
-  if (editor.getPlaceholders().some((one) => one.meta.editSourceId === element.id)) return null
+  const selectedId = doc.selection.size === 1 ? [...doc.selection][0] : null
 
+  useEffect(() => {
+    if (active && active.imageId !== selectedId) {
+      setActive(null)
+      closeInpaint()
+      rectSession.close()
+    }
+  }, [active, selectedId, closeInpaint, rectSession.close])
+
+  if (doc.tool !== 'select' || !selectedId) return null
+  const element = doc.getElement(selectedId)
+  if (element?.type !== 'image' || element.video) return null
+  if (editor.getPlaceholders().some((one) => one.meta.editSourceId === element.id)) return null
   const bounds = editor.getElementPageBounds(element.id)
   if (!bounds) return null
-  const { camera } = doc
-  const top = (bounds.y - camera.y) * camera.zoom
-  const bottom = (bounds.y + bounds.h - camera.y) * camera.zoom
-  const source = canvasImageSource(doc, element.id)
-  const sourceMissing = source ? undefined : t('imageToolbar.sourceMissing')
-  const natural = canvasImageDimensions(element, doc)
-  const refusal = inpaintRefusal(element, natural, settings)
-  const fullRect = { x: 0, y: 0, w: element.width, h: element.height }
+  const sourceMissing = canvasImageSource(doc, element.id)
+    ? undefined
+    : t('imageToolbar.sourceMissing')
+  const actionTitle: Record<EditAction, string> = {
+    inpaint: t('inpaint.title'),
+    erase: t('erase.title'),
+    cutout: t('cutout.action'),
+    edit: t('imageEdit.title'),
+    crop: t('crop.title'),
+    outpaint: t('outpaint.title'),
+    resize: t('resize.action'),
+  }
+  const expanded = active?.imageId === element.id ? active.action : null
+  const painting = expanded === 'inpaint' || expanded === 'erase'
+  const framing = expanded === 'crop' || expanded === 'outpaint'
+  const frame = rectSession.rect
+  const frameChanged =
+    frame.x !== 0 || frame.y !== 0 || frame.w !== element.width || frame.h !== element.height
+  const { camera, viewport } = doc
+  const imageLeft = (bounds.x - camera.x) * camera.zoom
+  const imageTop = (bounds.y - camera.y) * camera.zoom
+  const imageBottom = (bounds.y + bounds.h - camera.y) * camera.zoom
+  const width = Math.min(PANEL_WIDTH, viewport.width - 16)
+  const left = expanded
+    ? Math.max(
+        8,
+        Math.min(viewport.width - width - 8, imageLeft + (bounds.w * camera.zoom - width) / 2),
+      )
+    : Math.max(8, imageLeft)
+  const top = expanded
+    ? imageBottom + TOOLBAR_GAP
+    : imageBottom + TOOLBAR_GAP + TOOLBAR_HEIGHT <= viewport.height
+      ? imageBottom + TOOLBAR_GAP
+      : Math.max(8, imageTop - TOOLBAR_GAP - TOOLBAR_HEIGHT)
+
+  const close = () => {
+    setActive(null)
+    closeInpaint()
+    rectSession.close()
+  }
+  const open = (action: EditAction) => {
+    setMenu(null)
+    if (inpaintImageId) closeInpaint()
+    if (rectSession.mode) rectSession.close()
+    setActive({ imageId: element.id, action })
+    setPrompt('')
+    setRatio('1:1')
+    if (action === 'inpaint' || action === 'erase') openInpaint(element.id, action)
+    if (action === 'crop' || action === 'outpaint')
+      rectSession.open(action, element.id, { x: 0, y: 0, w: element.width, h: element.height })
+    editor.focusImageForEdit(element.id, action === 'inpaint' || action === 'erase' ? 390 : 225)
+  }
+  const send = async () => {
+    if (pending || !expanded || painting) return
+    const requirement = prompt.trim()
+    if (expanded === 'edit' && !requirement) return
+    if (framing && !frameChanged) return
+    const instructions: Record<Exclude<EditAction, 'inpaint' | 'erase'>, string> = {
+      cutout: '请把 [image 1] 的主体精细抠出，背景透明，保留边缘细节。',
+      edit: '请编辑 [image 1]：' + requirement,
+      crop: '请裁切 [image 1]，保留主体和关键内容。',
+      outpaint: '请扩展 [image 1] 的画面，延续原有风格与环境。',
+      resize: '请把 [image 1] 调整为 ' + ratio + ' 构图，保留完整主体。',
+    }
+    const frameDescription = framing
+      ? ` 目标画框相对原图的左上角为 (${Math.round((frame.x / element.width) * 100)}%, ${Math.round((frame.y / element.height) * 100)}%)，宽 ${Math.round((frame.w / element.width) * 100)}%，高 ${Math.round((frame.h / element.height) * 100)}%。`
+      : ''
+    const instruction =
+      instructions[expanded] +
+      frameDescription +
+      (expanded !== 'edit' && requirement ? ' ' + requirement : '')
+    setPending(true)
+    try {
+      if (await sendImageEditToAgent(editor, element, instruction)) close()
+    } finally {
+      setPending(false)
+    }
+  }
 
   return (
     <>
       <div
-        role="toolbar"
-        aria-label={t('imageToolbar.aria')}
-        className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
+        role={expanded ? 'dialog' : undefined}
+        aria-label={expanded ? t('imageToolbar.aria') : undefined}
+        className={
+          'absolute z-[430] rounded-xl border border-border bg-card shadow-xl ' +
+          (expanded ? 'overflow-y-auto' : '')
+        }
         style={{
-          left: Math.max(8, (bounds.x - camera.x) * camera.zoom),
-          top:
-            bottom + TOOLBAR_GAP + TOOLBAR_HEIGHT <= doc.viewport.height
-              ? bottom + TOOLBAR_GAP
-              : Math.max(8, top - TOOLBAR_GAP - TOOLBAR_HEIGHT),
+          left,
+          top,
+          ...(expanded ? { width, maxHeight: Math.max(180, viewport.height - top - 8) } : {}),
         }}
         onPointerDown={(event) => event.stopPropagation()}
-        // 空格、方向键在画布上是平移 / 移动的快捷键，按在工具条按钮上不该漏过去。
-        onKeyDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          event.stopPropagation()
+          if (event.key === 'Escape' && expanded) close()
+        }}
       >
-        <CanvasToolbarButton
-          compact
-          icon={<Wand2 />}
-          label={t('inpaint.action')}
-          reason={sourceMissing}
-          onClick={() => openInpaint(element.id, 'inpaint')}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Eraser />}
-          label={t('erase.action')}
-          reason={refusal ?? undefined}
-          onClick={() => openInpaint(element.id, 'erase')}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Scissors />}
-          label={t('cutout.action')}
-          reason={cutoutRefusal(element, settings) ?? undefined}
-          onClick={() => void submitCanvasCutout(editor, element)}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Pencil />}
-          label={t('imageEdit.singleAction')}
-          reason={imageEditRefusal(element, settings) ?? undefined}
-          onClick={() => setEditing(true)}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Crop />}
-          label={t('crop.action')}
-          onClick={() => openRect('crop', element.id, fullRect)}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Expand />}
-          label={t('outpaint.action')}
-          reason={outpaintRefusal(element, settings) ?? undefined}
-          onClick={() => openRect('outpaint', element.id, fullRect)}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<Ratio />}
-          label={t('resize.action')}
-          reason={resizeRefusal(element, settings) ?? undefined}
-          onClick={(button) => {
-            const rect = button.getBoundingClientRect()
-            setResizeAt({ x: rect.left, y: rect.bottom + 4 })
-          }}
-        />
-        <CanvasToolbarButton
-          compact
-          icon={<MoreHorizontal />}
-          label={t('imageToolbar.more')}
-          onClick={(button) => {
-            const rect = button.getBoundingClientRect()
-            setMenu({ id: element.id, x: rect.left, y: rect.bottom + 4 })
-          }}
-        />
+        <div
+          role="toolbar"
+          aria-label={t('imageToolbar.aria')}
+          className={
+            'flex items-center gap-0.5 p-0.5 ' + (expanded ? 'border-b border-border' : '')
+          }
+        >
+          <CanvasToolbarButton
+            compact
+            icon={<Wand2 />}
+            label={t('inpaint.action')}
+            reason={sourceMissing}
+            onClick={() => open('inpaint')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<Eraser />}
+            label={t('erase.action')}
+            reason={sourceMissing}
+            onClick={() => open('erase')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<Scissors />}
+            label={t('cutout.action')}
+            reason={sourceMissing}
+            onClick={() => open('cutout')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<Pencil />}
+            label={t('imageEdit.singleAction')}
+            reason={sourceMissing}
+            onClick={() => open('edit')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<Crop />}
+            label={t('crop.action')}
+            reason={sourceMissing}
+            onClick={() => open('crop')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<Expand />}
+            label={t('outpaint.action')}
+            reason={sourceMissing}
+            onClick={() => open('outpaint')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<Ratio />}
+            label={t('resize.action')}
+            reason={sourceMissing}
+            onClick={() => open('resize')}
+          />
+          <CanvasToolbarButton
+            compact
+            icon={<MoreHorizontal />}
+            label={t('imageToolbar.more')}
+            onClick={(button) => {
+              const rect = button.getBoundingClientRect()
+              setMenu({ id: element.id, x: rect.left, y: rect.bottom + 4 })
+            }}
+          />
+          {expanded && (
+            <button
+              type="button"
+              aria-label={t('common:action.close')}
+              className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+              onClick={close}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {painting && <InpaintPanel editor={editor} onDone={close} />}
+        {expanded && !painting && (
+          <div className="space-y-3 p-3">
+            <h3 className="text-sm font-semibold">{actionTitle[expanded]}</h3>
+            {expanded === 'resize' && (
+              <div className="flex flex-wrap gap-1.5" aria-label={t('resize.action')}>
+                {RATIOS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={ratio === value}
+                    className={
+                      'rounded-lg border px-2.5 py-1 text-xs ' +
+                      (ratio === value
+                        ? 'border-primary text-primary'
+                        : 'border-border text-muted-foreground')
+                    }
+                    onClick={() => setRatio(value)}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
+            {framing && (
+              <p className="text-xs text-muted-foreground">{t('imageToolbar.dragFrame')}</p>
+            )}
+            <textarea
+              autoFocus
+              rows={3}
+              value={prompt}
+              aria-label={t('inpaint.promptAria')}
+              placeholder={t('imageToolbar.promptPlaceholder')}
+              className={CANVAS_PANEL_FIELD + ' w-full resize-none'}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  void send()
+                }
+              }}
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" className={OUTLINE_BUTTON} onClick={close}>
+                {t('common:action.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  pending || (expanded === 'edit' && !prompt.trim()) || (framing && !frameChanged)
+                }
+                className={PRIMARY_BUTTON}
+                onClick={() => void send()}
+              >
+                {t('imageToolbar.sendToAgent')}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <CanvasImageMenu menu={menu} doc={doc} onClose={() => setMenu(null)} />
-      {editing && (
-        <CanvasEditPromptDialog editor={editor} image={element} onClose={() => setEditing(false)} />
-      )}
-      {resizeAt && (
-        <CanvasResizeMenu
-          editor={editor}
-          image={element}
-          x={resizeAt.x}
-          y={resizeAt.y}
-          onClose={() => setResizeAt(null)}
-        />
-      )}
     </>
   )
 }

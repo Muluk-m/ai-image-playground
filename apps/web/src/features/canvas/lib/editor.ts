@@ -361,6 +361,22 @@ export class CanvasEditor {
     this.animateCamera(target)
   }
 
+  /** 把选中的图放大到视口上方，给紧贴图片下方展开的操作框留出空间。 */
+  focusImageForEdit(id: string, panelHeight = 330): void {
+    const bounds = this.getElementPageBounds(id)
+    if (!bounds) return
+    const { width, height } = this.doc.viewport
+    const availableHeight = Math.max(120, height - panelHeight - 68)
+    const zoom = Math.max(0.05, Math.min(8, (width - 32) / bounds.w, availableHeight / bounds.h))
+    const imageWidth = bounds.w * zoom
+    const screenX = Math.max(16, (width - imageWidth) / 2)
+    this.animateCamera({
+      x: bounds.x - screenX / zoom,
+      y: bounds.y - 42 / zoom,
+      zoom,
+    })
+  }
+
   private cameraAnimHandle = 0
 
   private animateCamera(target: { x: number; y: number; zoom: number }): void {
