@@ -3,6 +3,8 @@ import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { previewArtifactBitmap } from './artifactSource'
 import { agentCanvasSink } from './canvasSink'
 
+const RESULT_CARD_THUMBNAIL_SCALE = 0.45
+
 /** 结果卡上一张产出此刻的样子。 */
 export interface AgentArtifactPreview {
   readonly artifact: AgentToolArtifact
@@ -19,7 +21,7 @@ export interface AgentArtifactPreview {
 export async function artifactPreview(artifact: AgentToolArtifact): Promise<AgentArtifactPreview> {
   const canvas = agentCanvasSink()
   if (canvas?.has(artifact.artifactId)) {
-    const thumbnail = await canvas.thumbnail(artifact.artifactId)
+    const thumbnail = await canvas.thumbnail(artifact.artifactId, RESULT_CARD_THUMBNAIL_SCALE)
     // 等缩略图期间画布可能已经换掉或对象已被删，那就当它不在画布上。
     if (thumbnail && agentCanvasSink() === canvas && canvas.has(artifact.artifactId))
       return { artifact, source: thumbnail, onCanvas: true }

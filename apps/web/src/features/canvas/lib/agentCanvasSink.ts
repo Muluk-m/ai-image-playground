@@ -290,14 +290,14 @@ export function createAgentCanvasSink(
       return true
     },
 
-    async thumbnail(objectId) {
+    async thumbnail(objectId, scale = THUMBNAIL_SCALE) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       await recoverVideoPoster(editor, objectId)
       const element = editor.getElement(objectId)
-      const cacheKey = element?.type === 'image' ? `${objectId}:${element.fileId}` : objectId
+      const cacheKey = `${element?.type === 'image' ? `${objectId}:${element.fileId}` : objectId}:${scale}`
       const cached = thumbnails.get(cacheKey)
       if (cached) return cached
-      const rendered = await editor.toImage([objectId], { scale: THUMBNAIL_SCALE })
+      const rendered = await editor.toImage([objectId], { scale })
       if (rendered) thumbnails.set(cacheKey, rendered)
       return rendered
     },
