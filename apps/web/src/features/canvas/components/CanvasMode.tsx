@@ -6,6 +6,7 @@ import { useTranslation } from '../../../i18n'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { isWorkbenchMode, useStore } from '../../../store'
+import AgentArtifactPane from '../../agent/components/AgentArtifactPane'
 import AgentPanel from '../../agent/components/AgentPanel'
 import AgentResultShelf from '../../agent/components/AgentResultShelf'
 import AgentSuggestions from '../../agent/components/AgentSuggestions'
@@ -117,10 +118,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   const mobile = useMobileWorkspace()
   const [projectView, setProjectView] = useState<'chat' | 'canvas'>('chat')
+  const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>()
+  const [previewDismissed, setPreviewDismissed] = useState(false)
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false)
+  const seenLatestResult = useRef<string | null>(null)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
+  const agentTab = useAgentStore((state) => state.tab)
   const setOpen = useAgentStore((state) => state.setOpen)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
@@ -148,7 +155,32 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         message.status === 'succeeded' &&
         (Boolean(message.artifacts?.length) || Boolean(message.fetchedImages?.length)),
     )
+  const selectedResult = messages.find(
+    (message): message is AgentToolMessage =>
+      message.kind === 'tool' && message.id === selectedResultId,
+  )
+  const activeResult = selectedResult ?? latestResult
+  const showResultPreview =
+    hasAgent &&
+    projectView === 'chat' &&
+    agentTab !== 'layers' &&
+    Boolean(activeResult) &&
+    !previewDismissed
+  useEffect(() => {
+    if (!latestResult || seenLatestResult.current === latestResult.id) return
+    seenLatestResult.current = latestResult.id
+    setSelectedResultId(latestResult.id)
+    setSelectedArtifactId(undefined)
+    setPreviewDismissed(false)
+  }, [latestResult?.id])
+  const previewResult = (messageId: string, artifactId?: string) => {
+    setSelectedResultId(messageId)
+    setSelectedArtifactId(artifactId)
+    setPreviewDismissed(false)
+    setMobilePreviewOpen(true)
+  }
   const openCanvas = (selectedIds?: readonly string[]) => {
+    setMobilePreviewOpen(false)
     setProjectView('canvas')
     if (selectedIds?.length) {
       focusedResult.current = latestResult?.id ?? null
@@ -259,6 +291,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   aria-pressed={projectView === 'chat'}
                   onClick={() => {
                     useAgentStore.getState().setTab('chat')
+                    setMobilePreviewOpen(false)
                     setProjectView('chat')
                   }}
                 >
@@ -277,6 +310,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
           <div
             className="studio-layout"
             data-project-view={hasAgent ? projectView : undefined}
+            data-artifact-open={showResultPreview ? 'true' : undefined}
+            data-artifact-mobile-open={mobilePreviewOpen ? 'true' : undefined}
             data-mobile-view={projectView}
             inert={loading || loadFailed}
           >
@@ -328,6 +363,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     mobile={mobile}
                     presentation={projectView === 'chat' ? 'page' : 'side'}
                     onViewCanvas={openCanvas}
+                    onPreviewResult={projectView === 'chat' ? previewResult : undefined}
                   />
                 ) : (
                   <aside
@@ -396,6 +432,18 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   />
                 </svg>
               </button>
+            )}
+            {showResultPreview && activeResult && (
+              <AgentArtifactPane
+                message={activeResult}
+                selectedId={selectedArtifactId}
+                onSelect={setSelectedArtifactId}
+                onClose={() => {
+                  setPreviewDismissed(true)
+                  setMobilePreviewOpen(false)
+                }}
+                onViewCanvas={openCanvas}
+              />
             )}
             <section
               className="studio-canvas"

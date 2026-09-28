@@ -1,0 +1,84 @@
+// @vitest-environment jsdom
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { afterEach, expect, it, vi } from 'vitest'
+import AgentArtifactPane from '../../../../features/agent/components/AgentArtifactPane'
+import type { AgentToolMessage } from '../../../../features/agent/types'
+
+const previewArtifactBitmap = vi.hoisted(() =>
+  vi.fn(async (artifact: { artifactId: string }) => `data:image/png;base64,${artifact.artifactId}`),
+)
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({ previewArtifactBitmap }))
+vi.mock('../../../../components/Lightbox', () => ({
+  ImagePreview: () => <div data-testid="zoomed" />,
+}))
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+const message: AgentToolMessage = {
+  kind: 'tool',
+  id: 'result',
+  turnId: 'turn',
+  toolCallId: 'call',
+  title: '两张城市夜景',
+  status: 'succeeded',
+  delivery: 'placed',
+  artifacts: [
+    { artifactId: 'first', taskId: 'task', outputIndex: 0, media: 'image', mime: 'image/png' },
+    { artifactId: 'second', taskId: 'task', outputIndex: 1, media: 'image', mime: 'image/png' },
+  ],
+}
+
+afterEach(() => previewArtifactBitmap.mockClear())
+
+it('previews, switches and enlarges results without entering the canvas', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const onViewCanvas = vi.fn()
+  const onClose = vi.fn()
+  const onSelect = vi.fn()
+  try {
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          message={message}
+          onSelect={onSelect}
+          onClose={onClose}
+          onViewCanvas={onViewCanvas}
+        />,
+      ),
+    )
+    expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
+      'first',
+    )
+    expect(onViewCanvas).not.toHaveBeenCalled()
+
+    act(() =>
+      (host.querySelectorAll('.studio-artifact-pane-thumb')[1] as HTMLButtonElement).click(),
+    )
+    expect(onSelect).toHaveBeenCalledWith('second')
+    await act(async () =>
+      root.render(
+        <AgentArtifactPane
+          message={message}
+          selectedId="second"
+          onSelect={onSelect}
+          onClose={onClose}
+          onViewCanvas={onViewCanvas}
+        />,
+      ),
+    )
+    expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
+      'second',
+    )
+
+    act(() => (host.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click())
+    expect(host.querySelector('[data-testid="zoomed"]')).not.toBeNull()
+    act(() => (host.querySelector('.studio-artifact-pane-edit') as HTMLButtonElement).click())
+    expect(onViewCanvas).toHaveBeenCalledWith(['second'])
+    act(() => (host.querySelector('.studio-artifact-pane-back') as HTMLButtonElement).click())
+    expect(onClose).toHaveBeenCalledOnce()
+  } finally {
+    act(() => root.unmount())
+  }
+})
