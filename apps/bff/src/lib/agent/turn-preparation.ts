@@ -39,13 +39,13 @@ import {
   type QueuedWake,
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
+import { agentModel } from './model'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
   loadAgentTurnAudience,
   titleSourceText,
 } from './skills'
-import { agentThinking } from './thinking'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
@@ -203,7 +203,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   let committed: CommittedTurnStart
   try {
     const window = await history
-    const selectedModel = agentThinking(content.params?.thinkingDepth).model
+    const model = agentModel(content.params?.thinkingDepth)
+    const selectedModel = model.id
     const pricing =
       chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
 
@@ -214,7 +215,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const currentTime = new Date().toISOString()
     const estimated = (one: TurnContent): EstimatedTurnInput => {
       const input = turnInputOf(window, one, audience, skillTexts, currentTime)
-      return { input, estimatedInputTokens: estimateTurnInputTokens(input) }
+      return { input, estimatedInputTokens: estimateTurnInputTokens(input, model) }
     }
     const withNote = estimated(content)
     // 并进来的那段说明带不带得起，要到预扣那一步才知道：扣不下就退到这一份。

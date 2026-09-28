@@ -85,19 +85,20 @@ C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才�
 
 ```sh
 AGENT_CHAT_MODEL=gpt-6-luna
-AGENT_CHAT_CONTEXT_WINDOW=40000
+# 只作未登记旧模型的窗口兜底；三档模型用 thinking.config.json 的真实窗口
+AGENT_CHAT_CONTEXT_WINDOW=128000
 AGENT_CHAT_MAX_TOKENS=8000
 AGENT_SUMMARY_MODEL=gpt-5.6-luna
 AGENT_IMAGE_MODEL=gpt-image-2.5-flare
 AGENT_VIDEO_MODEL=grok-imagine-video
 ```
 
-`AGENT_CHAT_CONTEXT_WINDOW` **填的是预算窗口，不是模型标称窗口**。这是全文最容易配错的一项，
-理由见下面「窗口为什么是 40000」。
+`AGENT_CHAT_CONTEXT_WINDOW` 只供未登记在 `thinking.config.json` 的旧模型兜底。
+三档模型的压缩、出站硬闸与预扣都读取本轮所选模型的 `contextWindow`。
 
 三档模型分别是低 `gpt-6-luna`、中 `gpt-6-sol`、深 `claude-opus-5-5`。
-模型标称窗口分别为 105 万、105 万、100 万 token；这不改变线上每轮 4 万 token 的
-成本预算。Claude 对话、摘要或搜索模型用 `UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
+模型窗口分别为 105 万、105 万、100 万 token。Claude 对话、摘要或搜索模型用
+`UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
 
 生图与生视频模型必须是 `channels.json` 里的模型，且在单价表里 active，否则工具提交会被拒。
 留空则取该类目的第一个，当前分别是 `gpt-image-2.5-flare` 与 `grok-imagine-video`。
@@ -110,8 +111,8 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 
 ## 五、开能力，同时把阈值写死
 
-`operator-config.json` 的 `capabilities` 加 `"agent:chat": true`，`quotas` 补齐九项。
-**不要留默认值**：默认值是按 128k 窗口写的，配到 40000 的窗口上会立刻互相打架。
+`operator-config.json` 的 `capabilities` 加 `"agent:chat": true`，`quotas` 补齐八项。
+这些阈值控制输出预留、缓冲和摘要保留量；三档模型的窗口本身不在这里覆盖。
 
 ```json
 "agent:compaction-output-reserve-tokens": 8000,
@@ -145,26 +146,19 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 每张都走取网图那条落库路径，所以同样吃 `sync:asset-image-bytes` 与 `sync:user-media-bytes`
 两个配额。亚马逊回验证码页时工具如实报错，不重试。
 
-### 窗口为什么是 40000
+### 模型窗口与压缩触发点
 
 压缩触发点 = `contextWindow − min(maxOutputTokens, outputReserveTokens) − bufferTokens`。
 
-照默认值（窗口 128000、预留 20000、缓冲 13000）算出来是 107000。每一轮都要重发全部历史，
-按 6 积分/千输入 token，**一轮封顶 642 积分，约等于 6 张图**。在一个以出图为主业的产品里，
-对话比出图还贵是错的定位。
+按上面的 8000 token 输出预留和 8000 token 缓冲，三档模型的触发点为：
 
-所以窗口按「愿意为一轮花多少」倒推，而不是照抄模型标称窗口：
+| 模型 | 窗口 | 压缩触发点 |
+| --- | ---: | ---: |
+| gpt-6-luna / gpt-6-sol | 1050000 | 1034000 |
+| claude-opus-5-5 | 1000000 | 984000 |
 
-| 项 | 值 |
-| --- | --- |
-| 窗口 | 40000 |
-| 减去输出预留 | 8000 |
-| 减去缓冲 | 8000 |
-| **触发点** | **24000 token** |
-| **一轮封顶** | **约 144 积分 ≈ 1.4 张图** |
-
-把窗口报小对 pi 是安全的：它只会以为模型窗口小，而我们在更早的位置就压缩了。
-反过来报大才会溢出。
+每轮实际计费仍按上游真实用量结算；长会话接近窗口时，输入消耗可能显著增加。
+摘要模型独立于对话模型，摘要按 32000 token 分段；单条超长消息仍单独成段。
 
 ## 六、重启并核对
 

@@ -265,7 +265,7 @@ function foldChunks(
 }
 
 /**
- * 兜底的纯截尾窗口：至少留最新一条，开头不留工具结果（没有配对的调用，上游会拒）。
+ * 兜底的纯截尾窗口：工具结果必须带着产生它的调用，否则上游会拒绝整份请求。
  *
  * 整条压缩路径出岔子时也走它（`compaction-transform.ts` 的 catch），理由只有一个：
  * **摘要失败不能回退成发完整历史**——那一刻历史正是最长的那一份（#400 验收第 2 条）。
@@ -284,8 +284,35 @@ export function truncateToBudget(
     start -= 1
     used += cost
   }
-  while (start < messages.length - 1 && messages[start]!.role === 'toolResult') {
-    start += 1
+  const result = messages[start]!
+  if (result.role === 'toolResult') {
+    let call = -1
+    for (let index = start - 1; index >= 0; index -= 1) {
+      const message = messages[index]!
+      if (message.role === 'user') break
+      if (
+        message.role === 'assistant' &&
+        message.content.some((block) => block.type === 'toolCall' && block.id === result.toolCallId)
+      ) {
+        call = index
+        break
+      }
+    }
+    if (call >= 0) start = call
+    else {
+      while (start < messages.length && messages[start]!.role === 'toolResult') start += 1
+      if (start === messages.length) {
+        return [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '[最近的工具结果缺少对应调用，请重新确认上一步操作。]' },
+            ],
+            timestamp: Date.now(),
+          },
+        ]
+      }
+    }
   }
   return messages.slice(start)
 }
@@ -378,6 +405,9 @@ function gapNote(count: number): AgentMessage {
 
 /** 占位那一行自己也占预算。它的长度只随条数的位数变，按一条代表性的预留就够。 */
 const GAP_NOTE_TOKENS = tokens(gapNote(0))
+
+/** 摘要模型与主模型不是同一窗口，也不能让一次摘要吞下整段百万 token 历史。 */
+const SUMMARY_CHUNK_TOKENS = 32_000
 
 /**
  * 摘要 + 尾巴，整体收进预算。
@@ -472,10 +502,13 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   // 增量摘要一路往下叠，不再周期性重做。曾经有过一道「折满次数就从头重做」的保险，可重做
   // 要求整段历史都还在窗口里，而折得够多的会话必然已经有原文读不回来了（#708）——触发条件
   // 与要保护的场景互斥，线上一次都没生效过，已随 #714 拆掉。
-  // 摘要请求也是一次出站，按智能体那份请求的同一条上限量它：折叠区超了就分段，
-  // 每一段带上一段的摘要往下传，内容不丢而每一次请求都有界。
+  // 摘要请求也是一次出站，按摘要模型可承受的上限分段；每一段带上一段的摘要往下传，
+  // 内容一点不丢，主模型的百万窗口不会变成单次百万 token 的摘要请求。
   const folded = messages.slice(state ? covered : 0, cut)
-  const chunks = foldChunks(folded, compactionBudget(input.settings).threshold)
+  const chunks = foldChunks(
+    folded,
+    Math.min(compactionBudget(input.settings).threshold, SUMMARY_CHUNK_TOKENS),
+  )
   let narrative = state ? state.narrative : null
   for (const chunk of chunks) {
     const next = await input.summarize({ messages: chunk, previousSummary: narrative })
