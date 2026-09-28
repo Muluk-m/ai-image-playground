@@ -13,15 +13,21 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { accountRequired, requireAccount } from '../../../auth/loginPrompt'
 import { ImagePreview } from '../../../components/Lightbox'
 import { useTranslation } from '../../../i18n'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { useStore } from '../../../store'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
+import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
 import { previewArtifactBitmap } from '../lib/artifactSource'
 import { attachFilesToComposer } from '../lib/attachments'
 import { agentCanvasSink } from '../lib/canvasSink'
+import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentArtifactEditDialog from './AgentArtifactEditDialog'
 
 interface PaneItem {
   readonly id: string
@@ -65,16 +71,15 @@ export default function AgentArtifactPane({
   selectedId?: string
   onSelect: (id: string) => void
   onClose: () => void
-  onViewCanvas: (
-    objectIds?: readonly string[],
-    action?: 'inpaint' | 'erase' | 'crop' | 'outpaint',
-  ) => void
+  onViewCanvas: (objectIds?: readonly string[]) => void
 }) {
   const { t } = useTranslation('agent')
   const [source, setSource] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [editAction, setEditAction] = useState<ArtifactEditAction | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
   const items: PaneItem[] = [
     ...(message.artifacts ?? []).map((artifact) => ({
       id: artifact.artifactId,
@@ -105,7 +110,7 @@ export default function AgentArtifactPane({
   const active = items.find((item) => item.id === selectedId) ?? items[0]
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (document.querySelector('.studio-handoff-dialog')) return
+      if (document.querySelector('.studio-handoff-dialog, .studio-artifact-edit-dialog')) return
       if (event.key === 'Escape') onClose()
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && items.length > 1) {
         const index = items.findIndex((item) => item.id === active?.id)
@@ -151,6 +156,51 @@ export default function AgentArtifactPane({
     if (!blob) return
     const file = new File([blob], `muvloom-${active.id}.png`, { type: blob.type || 'image/png' })
     if (attachFilesToComposer([file])) onClose()
+  }
+  const startEdit = (action: ArtifactEditAction) => {
+    if (!source || active.media !== 'image') return
+    if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) {
+      onClose()
+      return
+    }
+    setEditAction(action)
+  }
+  const generateEdit = (input: ArtifactEditInput, customInstruction: string) => {
+    if (!editAction || editBusy) return
+    const agent = useAgentStore.getState()
+    if (agent.historyLoading || agent.historyFailed) {
+      useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
+      return
+    }
+    const instruction = [t(`tool.${editAction}Instruction`), customInstruction]
+      .filter(Boolean)
+      .join('\n')
+    setEditBusy(true)
+    let accepted = false
+    void agent
+      .send(
+        instruction,
+        [{ imageId: active.id, ...input }],
+        () => {
+          accepted = true
+          setEditAction(null)
+          onClose()
+        },
+        'image',
+      )
+      .then((result) => {
+        if (accepted || result === 'cancelled') return
+        if (accountRequired()) {
+          setEditAction(null)
+          onClose()
+        } else useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
+      })
+      .catch((error) => {
+        useStore
+          .getState()
+          .showToast(error instanceof Error ? error.message : String(error), 'error')
+      })
+      .finally(() => setEditBusy(false))
   }
 
   return createPortal(
@@ -259,7 +309,9 @@ export default function AgentArtifactPane({
             </span>
           )}
         </div>
-        <p title={message.title}>{message.title}</p>
+        <p className="studio-artifact-pane-caption" title={message.title}>
+          {message.title}
+        </p>
         {message.prompt && (
           <section className="studio-artifact-pane-prompt">
             <div>
@@ -280,7 +332,7 @@ export default function AgentArtifactPane({
         )}
         <div className="studio-artifact-pane-actions">
           {active.media === 'image' && source && (
-            <>
+            <div className="studio-artifact-pane-quick">
               <button type="button" onClick={() => setZoomed(true)}>
                 <Expand size={15} aria-hidden="true" />
                 {t('tool.zoomResult')}
@@ -289,33 +341,36 @@ export default function AgentArtifactPane({
                 <ImagePlus size={15} aria-hidden="true" />
                 {t('tool.useAsReference')}
               </button>
-            </>
+            </div>
           )}
           {active.media === 'image' && (
-            <button
-              type="button"
-              className="studio-artifact-pane-edit"
-              onClick={() => onViewCanvas([active.id])}
-            >
-              <Images size={15} aria-hidden="true" />
-              {t('tool.editOnCanvas')}
-            </button>
+            <div className="studio-artifact-pane-canvas-action">
+              <button
+                type="button"
+                className="studio-artifact-pane-edit"
+                onClick={() => onViewCanvas([active.id])}
+              >
+                <Images size={15} aria-hidden="true" />
+                {t('tool.editOnCanvas')}
+                <ArrowRight size={14} aria-hidden="true" />
+              </button>
+            </div>
           )}
           {active.media === 'image' && (
             <div className="studio-artifact-pane-tools">
-              <button type="button" onClick={() => onViewCanvas([active.id], 'inpaint')}>
+              <button type="button" onClick={() => startEdit('inpaint')} disabled={!source}>
                 <Brush size={15} />
                 {t('tool.inpaint')}
               </button>
-              <button type="button" onClick={() => onViewCanvas([active.id], 'erase')}>
+              <button type="button" onClick={() => startEdit('erase')} disabled={!source}>
                 <Eraser size={15} />
                 {t('tool.erase')}
               </button>
-              <button type="button" onClick={() => onViewCanvas([active.id], 'crop')}>
+              <button type="button" onClick={() => startEdit('crop')} disabled={!source}>
                 <Crop size={15} />
                 {t('tool.crop')}
               </button>
-              <button type="button" onClick={() => onViewCanvas([active.id], 'outpaint')}>
+              <button type="button" onClick={() => startEdit('outpaint')} disabled={!source}>
                 <Scan size={15} />
                 {t('tool.outpaint')}
               </button>
@@ -324,6 +379,16 @@ export default function AgentArtifactPane({
         </div>
       </div>
       {zoomed && source && <ImagePreview src={source} onClose={() => setZoomed(false)} />}
+      {editAction && source && (
+        <AgentArtifactEditDialog
+          key={`${active.id}:${editAction}`}
+          action={editAction}
+          source={source}
+          busy={editBusy}
+          onClose={() => setEditAction(null)}
+          onGenerate={generateEdit}
+        />
+      )}
     </aside>,
     document.body,
   )
