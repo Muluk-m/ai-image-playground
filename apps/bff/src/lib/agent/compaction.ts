@@ -97,6 +97,11 @@ export interface CompactionInput {
   readonly summarize: Summarize
   /** 摘要模型当前可接收的消息 token；它可能与主模型窗口不同。 */
   readonly summaryBudget?: (previousSummary: AgentCompactionNarrative | null) => number
+  /** 用真正序列化后的摘要 prompt 复核，避免短消息标签开销漏算。 */
+  readonly summaryFits?: (
+    messages: readonly CompactionMessage[],
+    previousSummary: AgentCompactionNarrative | null,
+  ) => boolean
   /**
    * 这一轮请求里不由消息承担的那部分：系统说明与工具清单（见 `request-budget.ts`）。
    * 塑形只管得着消息，可闸门管的是整份请求，所以消息能占的预算要先把它让出来。
@@ -233,37 +238,40 @@ function cutPoint(
  * `previousSummary` 通道），内容一点不丢，每一次请求都有界。
  *
  * 段界向前吸附到用户消息，与 `cutPoint` 同一条规矩：一段里不出现没有调用的工具结果。
- * 单独一条就超预算时自成一段——再切也没用，那一份超不超由上游说了算。
+ * 单独一条就超预算时自成一段，由摘要调用把它拆成多个安全片段。
  */
-function foldChunks(
+function nextFoldChunk(
   region: readonly CompactionMessage[],
+  prefixTokens: readonly number[],
+  start: number,
   budget: number,
-): readonly CompactionMessage[][] {
-  const chunks: CompactionMessage[][] = []
-  let start = 0
-  while (start < region.length) {
-    let end = start + 1
-    let used = tokens(region[start]!.message)
-    while (end < region.length) {
-      const cost = tokens(region[end]!.message)
-      if (used + cost > budget) break
-      used += cost
-      end += 1
+  previousSummary: AgentCompactionNarrative | null,
+  fits?: CompactionInput['summaryFits'],
+): readonly CompactionMessage[] {
+  let best = start
+  let low = start + 1
+  let high = region.length
+  while (low <= high) {
+    const end = Math.floor((low + high) / 2)
+    const estimated = prefixTokens[end]! - prefixTokens[start]!
+    if (estimated <= budget && (!fits || fits(region.slice(start, end), previousSummary))) {
+      best = end
+      low = end + 1
+    } else {
+      high = end - 1
     }
-    if (end < region.length) {
-      // 吸附：段界落在用户消息上，下一段就从一轮对话的开头起。吸不到就按原样切，
-      // 不然这一段会一路吞到底，分段等于没做。
-      for (let at = end; at > start + 1; at -= 1) {
-        if (isUser(region[at]!)) {
-          end = at
-          break
-        }
+  }
+  let end = Math.max(start + 1, best)
+  if (end < region.length) {
+    // 吸附：下一段从用户轮次起；吸不到就按预算切，避免整段尾巴被吞掉。
+    for (let at = end; at > start + 1; at -= 1) {
+      if (isUser(region[at]!)) {
+        end = at
+        break
       }
     }
-    chunks.push(region.slice(start, end))
-    start = end
   }
-  return chunks
+  return region.slice(start, end)
 }
 
 /**
@@ -507,14 +515,20 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
   // 摘要请求也是一次出站，按摘要模型可承受的上限分段；每一段带上一段的摘要往下传，
   // 内容一点不丢，主模型的百万窗口不会变成单次百万 token 的摘要请求。
   const folded = messages.slice(state ? covered : 0, cut)
+  const prefixTokens = [0]
+  for (const entry of folded) prefixTokens.push(prefixTokens.at(-1)! + tokens(entry.message))
   let narrative = state ? state.narrative : null
   let offset = 0
   while (offset < folded.length) {
     const summaryBudget = input.summaryBudget?.(narrative) ?? SUMMARY_CHUNK_TOKENS
-    const chunk = foldChunks(
-      folded.slice(offset),
+    const chunk = nextFoldChunk(
+      folded,
+      prefixTokens,
+      offset,
       Math.min(compactionBudget(input.settings).threshold, summaryBudget),
-    )[0]!
+      narrative,
+      input.summaryFits,
+    )
     const next = await input.summarize({ messages: chunk, previousSummary: narrative })
     // 中途哪一段没折成就整体作废：半截摘要盖不住整个折叠区，用它会把没摘到的内容丢掉。
     if (!next) return fallback(afterFailure(breaker, input.now, input.settings))
