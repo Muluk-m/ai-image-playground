@@ -62,13 +62,15 @@ it('previews, switches and enlarges results without entering the canvas', async 
         />,
       ),
     )
-    expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
-      'first',
-    )
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('first')
     expect(onViewCanvas).not.toHaveBeenCalled()
 
     act(() =>
-      (host.querySelectorAll('.studio-artifact-pane-thumb')[1] as HTMLButtonElement).click(),
+      (
+        document.body.querySelectorAll('.studio-artifact-pane-thumb')[1] as HTMLButtonElement
+      ).click(),
     )
     expect(onSelect).toHaveBeenCalledWith('second')
     await act(async () =>
@@ -82,15 +84,21 @@ it('previews, switches and enlarges results without entering the canvas', async 
         />,
       ),
     )
-    expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
-      'second',
-    )
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('second')
 
-    act(() => (host.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click())
-    expect(host.querySelector('[data-testid="zoomed"]')).not.toBeNull()
-    act(() => (host.querySelector('.studio-artifact-pane-edit') as HTMLButtonElement).click())
+    act(() =>
+      (document.body.querySelector('.studio-artifact-pane-image') as HTMLButtonElement).click(),
+    )
+    expect(document.body.querySelector('[data-testid="zoomed"]')).not.toBeNull()
+    act(() =>
+      (document.body.querySelector('.studio-artifact-pane-edit') as HTMLButtonElement).click(),
+    )
     expect(onViewCanvas).toHaveBeenCalledWith(['second'])
-    act(() => (host.querySelector('.studio-artifact-pane-back') as HTMLButtonElement).click())
+    act(() =>
+      (document.body.querySelector('.studio-artifact-pane-back') as HTMLButtonElement).click(),
+    )
     expect(onClose).toHaveBeenCalledOnce()
   } finally {
     act(() => root.unmount())
@@ -113,9 +121,9 @@ it('uses the existing canvas bitmap when the original queue output is no longer 
         />,
       ),
     )
-    expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
-      'canvas',
-    )
+    expect(
+      document.body.querySelector('.studio-artifact-pane-image img')?.getAttribute('src'),
+    ).toContain('canvas')
     expect(canvas.thumbnail).toHaveBeenCalledWith('first', 3)
     expect(previewArtifactBitmap).toHaveBeenCalled()
   } finally {

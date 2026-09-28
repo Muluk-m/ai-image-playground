@@ -278,8 +278,9 @@ export const projectRepository = {
           result = { ...result, cloud: { ...result.cloud, deleted: false } }
         if (summary.conversationId !== undefined)
           result = { ...result, conversationId: summary.conversationId }
-        if (summary.experience !== undefined) result = { ...result, experience: summary.experience }
-        if (summary.sourceProjectId !== undefined)
+        if (summary.experience === 'chat' || summary.experience === 'canvas')
+          result = { ...result, experience: summary.experience }
+        if (typeof summary.sourceProjectId === 'string')
           result = { ...result, sourceProjectId: summary.sourceProjectId }
         store.put(result, storageKey)
       }

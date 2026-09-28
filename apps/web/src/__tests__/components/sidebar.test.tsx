@@ -22,7 +22,7 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  useStore.setState({ appMode: 'image' })
+  useStore.setState({ appMode: 'image', sidebarExpanded: null })
   useLibraryStore.setState({ onLibraryPage: false, tab: 'assets' })
   host = document.createElement('div')
   document.body.append(host)
@@ -53,8 +53,11 @@ it('顶部三项：创作 / 探索 / 资产，选中的那个自己标出来', (
   expect(useStore.getState().appMode).toBe('library')
 })
 
-it('项目不占顶部导航位：分组标题和「全部」都去资产的项目标签', () => {
-  expect(entry('项目').getAttribute('aria-pressed')).toBeNull()
+it('对话和画布分别列出，全部入口打开项目列表', () => {
+  expect(entry('对话').getAttribute('aria-pressed')).toBeNull()
+  expect(entry('画布').getAttribute('aria-pressed')).toBeNull()
+  expect(entry('新建对话')).toBeDefined()
+  expect(entry('新建画布')).toBeDefined()
 
   act(() => entry('全部').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('library')
@@ -62,24 +65,24 @@ it('项目不占顶部导航位：分组标题和「全部」都去资产的项�
   expect(entry('资产').getAttribute('aria-pressed')).toBe('true')
 
   act(() => useStore.getState().setAppMode('image'))
-  act(() => entry('项目').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(useStore.getState().appMode).toBe('library')
   expect(useLibraryStore.getState().tab).toBe('projects')
 })
 
-it('画布是沉浸式的：宽栏不出现，连手动展开都不给', () => {
+it('宽屏侧栏可收起并重新展开', () => {
   // 宽屏那条栏 + 窄屏底部条，别处两条都在。
   expect(host.querySelectorAll('nav')).toHaveLength(2)
-
-  act(() => useStore.getState().setAppMode('canvas'))
-
-  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
-  expect(host.querySelectorAll('nav')).toHaveLength(1)
 
   act(() => useStore.getState().toggleSidebar())
 
   expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('0px')
   expect(host.querySelectorAll('nav')).toHaveLength(1)
+
+  act(() => entry('主导航').click())
+
+  expect(document.documentElement.style.getPropertyValue('--app-sidebar-size')).toBe('13rem')
+  expect(host.querySelectorAll('nav')).toHaveLength(2)
 })
 
 it('品牌在侧栏里，不再挂在顶栏上', () => {
