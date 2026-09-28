@@ -64,6 +64,25 @@ it('reads a generateImage call the way the panel needs it', () => {
   )
 })
 
+it('shows the actual design intent in the prompt the user can review', () => {
+  const brief = {
+    message: '让人感到旧物仍有价值',
+    focalPoint: '修补过的旧椅子',
+    visualPath: '从接缝走向有使用痕迹的扶手',
+    mood: '温暖、克制',
+  }
+  expect(facts('generateImage', { prompt: '一把木椅，靠窗侧光', designIntent: brief }).prompt).toBe(
+    '画面要表达（用视觉呈现，不作为图中文字）：让人感到旧物仍有价值\n第一眼焦点：修补过的旧椅子\n视线引导：从接缝走向有使用痕迹的扶手\n情绪与氛围：温暖、克制\n\n一把木椅，靠窗侧光',
+  )
+  // 用户提供完整提示词直出时，输出字节必须和输入一样。
+  const direct = 'A red chair, 35mm film --ar 3:4'
+  expect(facts('generateImage', { prompt: direct }).prompt).toBe(direct)
+  // 起跑事件发生在参数校验之前：残缺参数不能把整轮打断。
+  expect(() =>
+    facts('generateImage', { prompt: direct, designIntent: { message: { invalid: true } } }),
+  ).not.toThrow()
+})
+
 it('reads an editImage call down to its anchor', () => {
   expect(
     facts('editImage', { prompt: '把背景换成海边', imageIds: ['image 1', 'image 2'], n: 2 }),

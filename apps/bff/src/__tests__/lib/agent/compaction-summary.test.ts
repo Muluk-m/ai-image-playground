@@ -44,6 +44,7 @@ describe('summarizeCompaction', () => {
     expect(narrative).toEqual(NARRATIVE)
     expect(calls[0]!.model).toBe('fixture-summary-model')
     expect(calls[0]!.prompt).toContain('把主体换成白色马克杯')
+    expect(calls[0]!.prompt).toContain('保留用户要表达的核心意思')
     expect(calls[0]!.prompt).not.toContain('上一版摘要')
   })
 
