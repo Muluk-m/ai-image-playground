@@ -1,6 +1,5 @@
 import type { HydratedSubmitRequest } from '../imageArchive'
-import { DATA_URL_PATTERN } from './openai'
-import { UpstreamCallResult } from './shared'
+import { DATA_URL_PATTERN, type UpstreamCallResult } from './shared'
 
 export function mergeGeminiCandidateResults(results: UpstreamCallResult[]): UpstreamCallResult {
   return {

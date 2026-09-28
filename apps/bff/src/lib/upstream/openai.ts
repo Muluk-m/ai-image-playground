@@ -1,7 +1,7 @@
 import { Buffer, File } from 'node:buffer'
 import { FormData } from 'undici'
 import type { HydratedSubmitRequest } from '../imageArchive'
-import { UpstreamCallResult } from './shared'
+import { decodeDataUrl, type UpstreamCallResult } from './shared'
 
 export function mergeOpenAIDataResults(results: UpstreamCallResult[]): UpstreamCallResult {
   const first = results[0]?.payload
@@ -142,16 +142,4 @@ export function buildOpenAIEditFormData(model: string, request: HydratedSubmitRe
 function dataUrlToFile(dataUrl: string, filename: string): File {
   const { mime, bytes } = decodeDataUrl(dataUrl)
   return new File([Buffer.from(bytes)], filename, { type: mime })
-}
-
-export const DATA_URL_PATTERN = /^data:([^;,]+);base64,(.*)$/i
-
-export function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
-  const m = dataUrl.match(DATA_URL_PATTERN)
-  if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
-  const mime = m[1]!
-  const bin = atob(m[2]!)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return { mime, bytes }
 }

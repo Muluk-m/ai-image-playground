@@ -36,3 +36,15 @@ export function clientError(message: string): Error {
   err.upstreamStatus = 400
   return err
 }
+
+export const DATA_URL_PATTERN = /^data:([^;,]+);base64,(.*)$/i
+
+export function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
+  const m = dataUrl.match(DATA_URL_PATTERN)
+  if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
+  const mime = m[1]!
+  const bin = atob(m[2]!)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return { mime, bytes }
+}
