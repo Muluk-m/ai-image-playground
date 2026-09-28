@@ -6,7 +6,8 @@
     "searchPlaceholder": "Search title / prompt / tag"
   },
   "filter": {
-    "all": "All"
+    "all": "All",
+    "imageEdit": "Image edits · Before & after"
   },
   "list": {
     "loading": "Loading…",
@@ -15,15 +16,26 @@
   "card": {
     "titleHint": "{{title}}\nSuggested model: {{model}}",
     "pin": "Pin",
-    "unpin": "Unpin"
+    "unpin": "Unpin",
+    "imageEdit": "Image edit",
+    "before": "Before",
+    "after": "After",
+    "beforeAlt": "Input image for {{title}}",
+    "afterAlt": "Generated result for {{title}}",
+    "referenceCount": "{{count}} reference images",
+    "viewCase": "View case"
   },
   "detail": {
     "back": "Back to list",
-    "openOriginalHint": "Open the original in a new tab",
-    "openOriginal": "View original",
+    "openOriginalHint": "Open the full-size result in a new tab",
+    "openOriginal": "View full image",
+    "openBefore": "Open input image",
+    "openAfter": "Open generated result",
+    "source": "View source",
     "promptLabel": "Full prompt",
     "copyPrompt": "Copy prompt",
     "apply": "Use this prompt",
+    "applyWithReference": "Try with input image",
     "promptCopied": "Prompt copied",
     "copyFailed": "Could not copy. Select the text manually."
   },
