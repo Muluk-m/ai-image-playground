@@ -6,7 +6,10 @@ import AgentArtifactPane from '../../../../features/agent/components/AgentArtifa
 import type { AgentToolMessage } from '../../../../features/agent/types'
 
 const previewArtifactBitmap = vi.hoisted(() =>
-  vi.fn(async (artifact: { artifactId: string }) => `data:image/png;base64,${artifact.artifactId}`),
+  vi.fn(
+    async (artifact: { artifactId: string }): Promise<string | null> =>
+      `data:image/png;base64,${artifact.artifactId}`,
+  ),
 )
 const canvas = vi.hoisted(() => ({
   has: vi.fn((_id: string) => false),
