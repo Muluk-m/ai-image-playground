@@ -257,7 +257,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <button
                   type="button"
                   aria-pressed={projectView === 'chat'}
-                  onClick={() => setProjectView('chat')}
+                  onClick={() => {
+                    useAgentStore.getState().setTab('chat')
+                    setProjectView('chat')
+                  }}
                 >
                   {t('mobileSwitch.chat')}
                 </button>
