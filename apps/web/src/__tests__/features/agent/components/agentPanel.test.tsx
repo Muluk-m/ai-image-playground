@@ -1037,7 +1037,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
-  it('对话限时免费：整轮只花在对话上时划掉原价，免费标记 hover 才出文案', async () => {
+  it('对话限时免费：生图另计、对话积分划掉，免费标记 hover 才出文案', async () => {
     await enableChatFree()
     useAgentStore.setState({
       messages: [
@@ -1055,19 +1055,16 @@ describe('AgentPanel', () => {
           turnId: 'turn-1',
           durationMs: 24_000,
           stopReason: 'completed',
-          cost: { chat: 12, image: 0, video: 0 },
+          cost: { chat: 0, image: 0, video: 0 },
         },
       },
     })
     render()
 
-    const toggle = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith('消耗'),
-    )!
-    // 整块 ⚡12 划掉，那道线才够长；原价还看得见，否则用户不知道免掉的是多少。
-    expect(toggle.textContent).toBe('消耗 12')
-    expect(toggle.querySelector('del')?.textContent).toBe('12')
-    // 页脚只放一个图标位，文案挂在 hover 上。
+    expect(host.textContent).toContain('生图 积分按任务计费')
+    expect(host.querySelector('del')?.textContent).toBe('对话积分')
+    expect(host.textContent).toContain('免费')
+    expect(host.textContent).not.toContain('本轮免费，未扣积分')
     const mark = host.querySelector('[role="img"][aria-label="对话限时免费"]') as HTMLElement
     expect(mark).not.toBeNull()
     expect(host.textContent).not.toContain('对话限时免费')
@@ -1076,7 +1073,37 @@ describe('AgentPanel', () => {
     expect(document.body.textContent).toContain('对话限时免费')
   })
 
-  it('掺了生图的轮实付不为零：总额不划，只在明细里划掉对话那项', async () => {
+  it('限免期间掺了生图的轮直接列出生图实扣，只划掉对话积分', async () => {
+    await enableChatFree()
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'completed',
+          cost: { chat: 0, image: 85, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.textContent).toContain('生图 85')
+    expect(host.querySelector('del')?.textContent).toBe('对话积分')
+    expect(host.textContent).not.toContain('本轮免费，未扣积分')
+    expect(host.querySelector('[aria-label="对话限时免费"]')).not.toBeNull()
+  })
+
+  it('限免开启后翻旧的收费轮，不把已经实扣的对话积分划掉', async () => {
     await enableChatFree()
     useAgentStore.setState({
       messages: [
@@ -1100,13 +1127,8 @@ describe('AgentPanel', () => {
     })
     render()
 
-    const toggle = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.startsWith('消耗'),
-    )!
-    expect(toggle.querySelector('del')).toBeNull()
-    expect(host.querySelector('[aria-label="对话限时免费"]')).toBeNull()
-    act(() => toggle.click())
-    expect(host.querySelector('del')?.textContent).toBe('42')
+    expect(host.textContent).toContain('消耗 127')
+    expect(host.querySelector('del')).toBeNull()
   })
 
   it('重试记录夹在一轮中间时，页脚仍只跟在这一轮最后一条后面', () => {
