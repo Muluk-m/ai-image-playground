@@ -65,28 +65,6 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const selectedSource =
     selectedElement?.type === 'image' ? doc.files[selectedElement.fileId] : undefined
 
-  useEffect(() => {
-    let live = true
-    if (selectedSource) {
-      void resolveMediaSource(selectedSource, 'original')
-        .then(loadImage)
-        .then((image) => {
-          if (live)
-            setNaturalSize({
-              source: selectedSource,
-              width: image.naturalWidth,
-              height: image.naturalHeight,
-            })
-        })
-        .catch(() => {
-          if (live) setNaturalSize(null)
-        })
-    }
-    return () => {
-      live = false
-    }
-  }, [selectedSource])
-
   useEffect(
     () => () => {
       sessionEpoch.current += 1
@@ -108,7 +86,6 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
     if (active && !visible) {
       sessionEpoch.current += 1
       setActive(null)
-      setPending(false)
       closeInpaint()
       rectSession.close()
     }
@@ -187,8 +164,42 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
     closeInpaint()
     rectSession.close()
   }
-  const open = (action: EditAction) => {
+  const open = async (action: EditAction) => {
     if (busyRef.current) return
+    if (action === 'inpaint' || action === 'erase' || action === 'outpaint') {
+      const source = selectedSource
+      if (!source) return
+      const epoch = sessionEpoch.current
+      setBusy(true)
+      try {
+        const original = await resolveMediaSource(source, 'original')
+        const image = await loadImage(original)
+        if (
+          epoch !== sessionEpoch.current ||
+          doc.tool !== 'select' ||
+          doc.selection.size !== 1 ||
+          !doc.selection.has(element.id) ||
+          doc.files[element.fileId] !== source
+        )
+          return
+        const size = { width: image.naturalWidth, height: image.naturalHeight }
+        if (action === 'inpaint' || action === 'erase') {
+          const refusal = inpaintRefusal(element, size, useStore.getState().settings)
+          if (refusal) {
+            useStore.getState().showToast(refusal, 'error')
+            return
+          }
+        }
+        setNaturalSize({ source, ...size })
+      } catch (error) {
+        useStore
+          .getState()
+          .showToast(error instanceof Error ? error.message : String(error), 'error')
+        return
+      } finally {
+        setBusy(false)
+      }
+    }
     sessionEpoch.current += 1
     setMenu(null)
     if (inpaintImageId) closeInpaint()
@@ -238,7 +249,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         ...(frameMode ? { frame: { mode: frameMode, rect: frame } } : {}),
       })
     } finally {
-      if (epoch === sessionEpoch.current) setBusy(false)
+      setBusy(false)
     }
     if (sent && epoch === sessionEpoch.current) close()
   }
@@ -276,7 +287,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('inpaint.action')}
             reason={paintReason}
             disabled={pending}
-            onClick={() => open('inpaint')}
+            onClick={() => void open('inpaint')}
           />
           <CanvasToolbarButton
             compact
@@ -284,7 +295,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('erase.action')}
             reason={paintReason}
             disabled={pending}
-            onClick={() => open('erase')}
+            onClick={() => void open('erase')}
           />
           <CanvasToolbarButton
             compact
@@ -292,7 +303,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('cutout.action')}
             reason={sourceMissing}
             disabled={pending}
-            onClick={() => open('cutout')}
+            onClick={() => void open('cutout')}
           />
           <CanvasToolbarButton
             compact
@@ -300,7 +311,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('imageEdit.singleAction')}
             reason={sourceMissing}
             disabled={pending}
-            onClick={() => open('edit')}
+            onClick={() => void open('edit')}
           />
           <CanvasToolbarButton
             compact
@@ -308,7 +319,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('crop.action')}
             reason={sourceMissing}
             disabled={pending}
-            onClick={() => open('crop')}
+            onClick={() => void open('crop')}
           />
           <CanvasToolbarButton
             compact
@@ -316,7 +327,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('outpaint.action')}
             reason={outpaintReason}
             disabled={pending}
-            onClick={() => open('outpaint')}
+            onClick={() => void open('outpaint')}
           />
           <CanvasToolbarButton
             compact
@@ -324,7 +335,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             label={t('resize.action')}
             reason={sourceMissing}
             disabled={pending}
-            onClick={() => open('resize')}
+            onClick={() => void open('resize')}
           />
           <CanvasToolbarButton
             compact

@@ -1,6 +1,6 @@
 import { accountRequired } from '../../../auth/loginPrompt'
 import { i18next } from '../../../i18n'
-import { getActiveApiProfile } from '../../../lib/apiProfiles'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { loadImage } from '../../../lib/canvasImage'
 import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
@@ -36,11 +36,10 @@ export async function sendImageEditToAgent(
       .showToast(i18next.t('imageToolbar.sourceMissing', { ns: 'canvas' }), 'error')
     return false
   }
+  const profile = getActiveApiProfile(useStore.getState().settings)
+  const model = clientProfileToApiProfile(profile).model
   const masked = Boolean(options.strokes?.length || options.frame?.mode === 'outpaint')
-  if (
-    masked &&
-    !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
-  ) {
+  if (masked && !modelSupportsNativeMask(profile, getPublicChannels())) {
     useStore.getState().showToast(i18next.t('inpaint.modelUnsupported', { ns: 'canvas' }), 'error')
     return false
   }
@@ -82,6 +81,12 @@ export async function sendImageEditToAgent(
           width: Math.max(1, Math.round(natural.width * scale)),
           height: Math.max(1, Math.round(natural.height * scale)),
         }
+        const outputSize = rectPixelSize(options.frame.rect, current, workingNatural)
+        const sizeRefusal = maskedEditSizeRefusal(outputSize.width, outputSize.height)
+        if (sizeRefusal) {
+          useStore.getState().showToast(sizeRefusal, 'error')
+          return false
+        }
         const input = await buildOutpaintInputs(
           original,
           options.frame.rect,
@@ -119,7 +124,15 @@ export async function sendImageEditToAgent(
       }
       void useAgentStore
         .getState()
-        .send(instruction.trim(), references, () => finish(true), 'image')
+        .send(
+          instruction.trim(),
+          references,
+          () => finish(true),
+          'image',
+          undefined,
+          undefined,
+          model,
+        )
         .then(
           (result) => {
             if (
