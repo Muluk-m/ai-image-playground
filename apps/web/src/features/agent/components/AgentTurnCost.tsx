@@ -30,7 +30,8 @@ export default function AgentTurnCost({
   const waivedChat =
     footer.stopReason === 'completed' && cost?.chat === 0 && cost.chatWaived !== undefined
 
-  if (waivedChat && cost) return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} />
+  if (waivedChat && cost && total)
+    return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} />
 
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
@@ -50,7 +51,6 @@ export default function AgentTurnCost({
   if (footer.durationMs !== undefined) {
     parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
   }
-  if (total === 0) parts.push(<span>{failed ? t('cost.noCredits') : t('cost.free')}</span>)
   if (total) {
     parts.push(
       <button
