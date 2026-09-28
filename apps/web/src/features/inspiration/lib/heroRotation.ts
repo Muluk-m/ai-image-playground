@@ -10,22 +10,41 @@ export function selectHeroItems(
   const previous = new Set(previousIds)
   const unique = [...new Map(items.map((item) => [item.id, item])).values()]
   const unseen = unique.filter((item) => !previous.has(item.id))
-  const pool = unseen.length >= HERO_CARD_COUNT ? unseen : unique
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[pool[i], pool[j]] = [pool[j]!, pool[i]!]
+  const seen = unique.filter((item) => previous.has(item.id))
+  for (const group of [unseen, seen]) {
+    for (let i = group.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[group[i], group[j]] = [group[j]!, group[i]!]
+    }
   }
   const categories = new Set<string>()
   const selected: InspirationItem[] = []
-  for (const item of pool) {
-    if (categories.has(item.category)) continue
-    categories.add(item.category)
-    selected.push(item)
-    if (selected.length === HERO_CARD_COUNT) return selected
+  const unseenNormal = unseen.filter((item) => !item.referenceImages?.length)
+  const seenNormal = seen.filter((item) => !item.referenceImages?.length)
+  // 普通卡不够六张时，复用上批对比卡来填满六列；否则先让未展示案例轮换。
+  const imageEdit =
+    unseen.find((item) => item.referenceImages?.length) ??
+    (unseen.length === 0 || unseenNormal.length + seenNormal.length < HERO_CARD_COUNT
+      ? seen.find((item) => item.referenceImages?.length)
+      : undefined)
+  if (imageEdit) {
+    selected.push(imageEdit)
+    categories.add(imageEdit.category)
   }
-  for (const item of pool) {
-    if (!selected.includes(item)) selected.push(item)
-    if (selected.length === HERO_CARD_COUNT) break
+  // 对比卡占两列：首页最多选一张，余下四张普通卡恰好排满六列。
+  const maxCards = imageEdit ? HERO_CARD_COUNT - 1 : HERO_CARD_COUNT
+  for (const group of [unseenNormal, seenNormal]) {
+    for (const item of group) {
+      if (categories.has(item.category)) continue
+      categories.add(item.category)
+      selected.push(item)
+      if (selected.length === maxCards) return selected
+    }
+    for (const item of group) {
+      if (selected.includes(item)) continue
+      selected.push(item)
+      if (selected.length === maxCards) return selected
+    }
   }
   return selected
 }
