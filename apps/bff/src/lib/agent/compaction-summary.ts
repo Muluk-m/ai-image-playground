@@ -24,7 +24,7 @@ function summaryModelWindow(): number {
   return (
     config.agent.summaryContextWindow ??
     known?.contextWindow ??
-    (config.agent.summaryModel === 'gpt-5.6-luna' ? 1_050_000 : 16_000)
+    (config.agent.summaryModel === 'gpt-5.6-luna' ? 1_000_000 : 16_000)
   )
 }
 

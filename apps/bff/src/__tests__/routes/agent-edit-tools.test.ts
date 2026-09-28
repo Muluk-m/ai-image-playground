@@ -1159,8 +1159,8 @@ describe('智能体读素材库工具', () => {
 })
 
 for (const [depth, model, effort, contextWindow, credential] of [
-  ['fast', 'gpt-6-luna', 'low', 1_050_000, 'fixture-upstream-key'],
-  ['medium', 'gpt-6-sol', 'medium', 1_050_000, 'fixture-upstream-key'],
+  ['fast', 'gpt-6-luna', 'low', 1_000_000, 'fixture-upstream-key'],
+  ['medium', 'gpt-6-sol', 'medium', 1_000_000, 'fixture-upstream-key'],
   ['deep', 'claude-opus-5-5', 'high', 1_000_000, 'fixture-claude-key'],
 ] as const) {
   it(`sends the ${depth} model and reasoning effort to the gateway`, async () => {

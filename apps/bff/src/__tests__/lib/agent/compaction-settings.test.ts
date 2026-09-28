@@ -12,10 +12,10 @@ const { agentModel } = await import('../../../lib/agent/model')
 describe('compactionSettings', () => {
   it('uses the selected model window for each thinking depth', () => {
     const { quotas } = loadOperatorConfig(null)
-    expect(compactionSettings(agentModel('fast'), quotas).contextWindow).toBe(1_050_000)
-    expect(compactionSettings(agentModel('medium'), quotas).contextWindow).toBe(1_050_000)
+    expect(compactionSettings(agentModel('fast'), quotas).contextWindow).toBe(1_000_000)
+    expect(compactionSettings(agentModel('medium'), quotas).contextWindow).toBe(1_000_000)
     expect(compactionSettings(agentModel('deep'), quotas).contextWindow).toBe(1_000_000)
-    expect(compactionSettings(agentModel(), quotas).contextWindow).toBe(1_050_000)
+    expect(compactionSettings(agentModel(), quotas).contextWindow).toBe(1_000_000)
   })
 
   it('falls back to the shipped defaults', () => {
