@@ -138,8 +138,11 @@ if (config.corsOrigins === '*') {
 }
 
 // 不用 app.listen：每个请求要先套上 request id 的上下文，日志才能按请求串起来。
+// 代价是 Elysia 的 onStart / onStop 钩子与 `.use(import(...))` 懒加载路由不再生效，别往这上面加。
 const server = Bun.serve({
   port: config.port,
+  // app.listen 原本替我们关掉的开发模式：开着时未捕获的错误会回带调用栈的错误页。
+  development: false,
   idleTimeout: SERVER_IDLE_TIMEOUT_SEC,
   maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
   fetch: withRequestContext((request) => app.fetch(request)),

@@ -15,7 +15,7 @@ export function requestLogFields(): { requestId?: string } {
 
 /**
  * 给整个请求套上 request id：沿用或生成、在处理期间对日志可见、写回响应头。
- * 请求里顺带发起的后台工作（例如对话轮）继承同一个 id，日志能一路串起来。
+ * 请求里 await 链上发起的后台工作（例如对话轮）通常也带着它；流式响应体里打的日志不保证有。
  */
 export function withRequestContext(
   handle: (request: Request) => Response | Promise<Response>,
