@@ -1,7 +1,6 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Search, X } from 'lucide-react'
 import {
-  Fragment,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -85,6 +84,8 @@ export default function AgentPanel({
   onViewCanvas,
   onPreviewResult,
   presentation = 'side',
+  searchOpen = false,
+  onCloseSearch,
 }: {
   doc: CanvasDoc
   editor: CanvasEditor
@@ -92,6 +93,8 @@ export default function AgentPanel({
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string) => void
   presentation?: 'page' | 'side'
+  searchOpen?: boolean
+  onCloseSearch?: () => void
 }) {
   const { t } = useTranslation('agent')
   const open = useAgentStore((state) => state.open)
@@ -113,6 +116,27 @@ export default function AgentPanel({
   const followLatest = useRef(true)
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchResults = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase()
+    if (!query) return []
+    return messages.filter((message) => {
+      const text =
+        message.kind === 'text'
+          ? message.text
+          : message.kind === 'tool'
+            ? `${message.title} ${message.prompt ?? ''}`
+            : message.question
+      return text.toLocaleLowerCase().includes(query)
+    })
+  }, [messages, search])
+  const locateMessage = (id: string) => {
+    const target = Array.from(
+      logRef.current?.querySelectorAll<HTMLElement>('[data-agent-message-id]') ?? [],
+    ).find((one) => one.dataset.agentMessageId === id)
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    followLatest.current = false
+  }
   const conversationId = useAgentStore((state) => state.conversationId)
   useLayoutEffect(() => {
     followLatest.current = true
@@ -245,6 +269,40 @@ export default function AgentPanel({
 
       <AgentConnectionHint />
 
+      {presentation === 'page' && searchOpen && (
+        <div className="studio-conversation-search" role="dialog" aria-label={t('panel.search')}>
+          <label>
+            <Search size={17} aria-hidden="true" />
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t('panel.search')}
+            />
+          </label>
+          <button type="button" onClick={onCloseSearch} aria-label={t('panel.closeSearch')}>
+            <X size={17} />
+          </button>
+          {search.trim() && (
+            <div className="studio-conversation-search-results" aria-live="polite">
+              {searchResults.length ? (
+                searchResults.map((message) => (
+                  <button key={message.id} type="button" onClick={() => locateMessage(message.id)}>
+                    {message.kind === 'text'
+                      ? message.text
+                      : message.kind === 'tool'
+                        ? message.title
+                        : message.question}
+                  </button>
+                ))
+              ) : (
+                <p>{t('panel.noSearchResults')}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           <AgentCreations doc={doc} onSelect={onViewCanvas} />
@@ -264,29 +322,38 @@ export default function AgentPanel({
             className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
             {...dropZoneProps}
           >
-            {messages.length === 0 && !historyLoading && !historyFailed && (
-              <div className="studio-chat-empty">
-                <span className="studio-spark">✧</span>
-                <h3>{t('panel.emptyTitle')}</h3>
-                <p>{t('panel.emptyBody')}</p>
-                <AgentSuggestions className="studio-suggestions mt-6" />
-              </div>
-            )}
-            {messages.map((message, index) => {
-              const footer = lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
-              const trail = grouping.trails.get(index)
-              return (
-                <Fragment key={message.id}>
-                  {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
-                  {!grouping.absorbed.has(index) &&
-                    renderMessage(message, answerableId, skills, onViewCanvas, onPreviewResult)}
-                  {footer && <AgentTurnCost footer={footer} />}
-                </Fragment>
-              )
-            })}
-            <AgentActivity />
-            <AgentHistoryStatus />
-            {error && !historyFailed && <ErrorState title={t('panel.errorTitle')} detail={error} />}
+            <div className={presentation === 'page' ? 'studio-agent-log-content' : 'contents'}>
+              {messages.length === 0 && !historyLoading && !historyFailed && (
+                <div className="studio-chat-empty">
+                  <span className="studio-spark">✧</span>
+                  <h3>{t('panel.emptyTitle')}</h3>
+                  <p>{t('panel.emptyBody')}</p>
+                  <AgentSuggestions className="studio-suggestions mt-6" />
+                </div>
+              )}
+              {messages.map((message, index) => {
+                const footer =
+                  lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
+                const trail = grouping.trails.get(index)
+                return (
+                  <div
+                    key={message.id}
+                    data-agent-message-id={message.id}
+                    className="studio-agent-message-block"
+                  >
+                    {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
+                    {!grouping.absorbed.has(index) &&
+                      renderMessage(message, answerableId, skills, onViewCanvas, onPreviewResult)}
+                    {footer && <AgentTurnCost footer={footer} />}
+                  </div>
+                )
+              })}
+              <AgentActivity />
+              <AgentHistoryStatus />
+              {error && !historyFailed && (
+                <ErrorState title={t('panel.errorTitle')} detail={error} />
+              )}
+            </div>
           </div>
           {unseen && (
             <button type="button" onClick={jumpToLatest} className={JUMP_TO_LATEST}>

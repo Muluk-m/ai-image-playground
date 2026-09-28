@@ -2,18 +2,46 @@ import { FolderOpen, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from '../../../i18n'
-import { useStore } from '../../../store'
-import { useLibraryStore } from '../../library/store'
+import { fetchConversations, fetchMessages } from '../lib/agentClient'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
 import { artifactPreview, fetchedImagePreview } from '../lib/artifactPreview'
-import type { AgentPanelMessage } from '../types'
+import { panelStateFromHistory } from '../lib/panelMessages'
+import { useAgentStore } from '../store'
+import type { AgentPanelMessage, AgentToolMessage } from '../types'
 
 interface AssetItem {
-  messageId: string
+  message: AgentToolMessage
   id: string
   title: string
   media: 'image' | 'video'
   load: () => Promise<string | null>
+}
+
+function assetsFromMessages(messages: readonly AgentPanelMessage[]): AssetItem[] {
+  return messages
+    .flatMap((message) => {
+      if (message.kind !== 'tool' || message.status !== 'succeeded') return []
+      return [
+        ...(message.artifacts ?? []).map((artifact) => ({
+          message,
+          id: artifact.artifactId,
+          title: message.title,
+          media: artifact.media === 'video' ? ('video' as const) : ('image' as const),
+          load: async () => (await artifactPreview(artifact)).source,
+        })),
+        ...(message.fetchedImages ?? []).map((image, index) => {
+          const id = fetchedCanvasId(message.toolCallId, index)
+          return {
+            message,
+            id,
+            title: message.title,
+            media: 'image' as const,
+            load: async () => (await fetchedImagePreview(image, id)).source,
+          }
+        }),
+      ]
+    })
+    .reverse()
 }
 
 export default function AgentAssetDrawer({
@@ -23,43 +51,69 @@ export default function AgentAssetDrawer({
 }: {
   messages: readonly AgentPanelMessage[]
   onClose: () => void
-  onPreview: (messageId: string, id: string) => void
+  onPreview: (message: AgentToolMessage, id: string) => void
 }) {
   const { t } = useTranslation('agent')
   const [search, setSearch] = useState('')
   const [media, setMedia] = useState<'all' | 'image' | 'video'>('all')
-  const items = useMemo<AssetItem[]>(
-    () =>
-      messages
-        .flatMap((message) => {
-          if (message.kind !== 'tool' || message.status !== 'succeeded') return []
-          return [
-            ...(message.artifacts ?? []).map((artifact) => ({
-              messageId: message.id,
-              id: artifact.artifactId,
-              title: message.title,
-              media: artifact.media === 'video' ? ('video' as const) : ('image' as const),
-              load: async () => (await artifactPreview(artifact)).source,
-            })),
-            ...(message.fetchedImages ?? []).map((image, index) => {
-              const id = fetchedCanvasId(message.toolCallId, index)
-              return {
-                messageId: message.id,
-                id,
-                title: message.title,
-                media: 'image' as const,
-                load: async () => (await fetchedImagePreview(image, id)).source,
+  const [scope, setScope] = useState<'session' | 'all'>('session')
+  const [allItems, setAllItems] = useState<AssetItem[]>([])
+  const [loadingAll, setLoadingAll] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const conversationId = useAgentStore((state) => state.conversationId)
+  const sessionItems = useMemo(() => assetsFromMessages(messages), [messages])
+  useEffect(() => {
+    if (scope !== 'all') return
+    let cancelled = false
+    setLoadingAll(true)
+    setLoadFailed(false)
+    void (async () => {
+      try {
+        const conversations = await fetchConversations()
+        const other = conversations.filter((one) => one.id !== conversationId)
+        const byConversation = new Map<string, AssetItem[]>()
+        const publish = () =>
+          setAllItems([
+            ...sessionItems,
+            ...other.flatMap((conversation) => byConversation.get(conversation.id) ?? []),
+          ])
+        // 并发受控，避免打开资产抽屉时对 BFF 同时发出大量完整历史请求。
+        let next = 0
+        await Promise.all(
+          Array.from({ length: Math.min(3, other.length) }, async () => {
+            while (next < other.length && !cancelled) {
+              const conversation = other[next++]!
+              try {
+                const history = await fetchMessages(conversation.id)
+                byConversation.set(
+                  conversation.id,
+                  assetsFromMessages(panelStateFromHistory(history).messages),
+                )
+                if (!cancelled) publish()
+              } catch {
+                if (!cancelled) setLoadFailed(true)
               }
-            }),
-          ]
-        })
-        .reverse(),
-    [messages],
-  )
+            }
+          }),
+        )
+        if (!cancelled) publish()
+      } catch {
+        if (!cancelled) setLoadFailed(true)
+      } finally {
+        if (!cancelled) setLoadingAll(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [scope, conversationId, sessionItems])
+  const items = scope === 'session' ? sessionItems : allItems
   const shown = items.filter(
     (item) =>
       (media === 'all' || item.media === media) &&
-      item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+      `${item.title} ${item.message.prompt ?? ''}`
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()),
   )
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -68,11 +122,6 @@ export default function AgentAssetDrawer({
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
   }, [onClose])
-  const openLibrary = () => {
-    onClose()
-    useLibraryStore.getState().setTab('assets')
-    useStore.getState().setAppMode('library')
-  }
   return createPortal(
     <div
       className="studio-assets-overlay"
@@ -95,10 +144,14 @@ export default function AgentAssetDrawer({
           </button>
         </header>
         <div className="studio-assets-tabs" role="group" aria-label={t('assets.scope')}>
-          <button type="button" aria-pressed="true">
+          <button
+            type="button"
+            aria-pressed={scope === 'session'}
+            onClick={() => setScope('session')}
+          >
             {t('assets.session')}
           </button>
-          <button type="button" onClick={openLibrary}>
+          <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             {t('assets.all')}
           </button>
         </div>
@@ -107,8 +160,8 @@ export default function AgentAssetDrawer({
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('assets.search')}
-            aria-label={t('assets.search')}
+            placeholder={t(scope === 'all' ? 'assets.searchAll' : 'assets.search')}
+            aria-label={t(scope === 'all' ? 'assets.searchAll' : 'assets.search')}
           />
         </label>
         <div className="studio-assets-filters" role="group" aria-label={t('assets.media')}>
@@ -124,17 +177,25 @@ export default function AgentAssetDrawer({
           ))}
         </div>
         <div className="studio-assets-grid">
+          {scope === 'all' && loadingAll && (
+            <p className="studio-assets-status">{t('assets.loading')}</p>
+          )}
+          {scope === 'all' && loadFailed && (
+            <p className="studio-assets-status" role="alert">
+              {t('assets.loadFailed')}
+            </p>
+          )}
           {shown.map((item) => (
             <AssetThumb
               key={item.id}
               item={item}
               onClick={() => {
                 onClose()
-                onPreview(item.messageId, item.id)
+                onPreview(item.message, item.id)
               }}
             />
           ))}
-          {!shown.length && (
+          {!shown.length && !loadingAll && !loadFailed && (
             <p className="studio-assets-empty">
               {t(items.length ? 'assets.noMatch' : 'assets.empty')}
             </p>

@@ -1,4 +1,16 @@
-import { ArrowLeft, ArrowRight, Copy, Download, Expand, Images, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Brush,
+  Copy,
+  Crop,
+  Download,
+  Eraser,
+  Expand,
+  ImagePlus,
+  Images,
+  Scan,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImagePreview } from '../../../components/Lightbox'
@@ -7,6 +19,7 @@ import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
 import { previewArtifactBitmap } from '../lib/artifactSource'
+import { attachFilesToComposer } from '../lib/attachments'
 import { agentCanvasSink } from '../lib/canvasSink'
 import type { AgentToolMessage } from '../types'
 
@@ -52,7 +65,10 @@ export default function AgentArtifactPane({
   selectedId?: string
   onSelect: (id: string) => void
   onClose: () => void
-  onViewCanvas: (objectIds?: readonly string[]) => void
+  onViewCanvas: (
+    objectIds?: readonly string[],
+    action?: 'inpaint' | 'erase' | 'crop' | 'outpaint',
+  ) => void
 }) {
   const { t } = useTranslation('agent')
   const [source, setSource] = useState<string | null>(null)
@@ -120,12 +136,21 @@ export default function AgentArtifactPane({
 
   if (!active) return null
   const download = () => {
-    if (!source || active.media !== 'image') return
+    if (!source && !active.videoUrl) return
     const link = document.createElement('a')
-    link.href = source
-    const mime = source.match(/^data:image\/(png|jpeg|webp|gif)/)?.[1]
-    link.download = `muvloom-${active.id}.${mime === 'jpeg' ? 'jpg' : (mime ?? 'png')}`
+    link.href = active.media === 'video' ? active.videoUrl! : source!
+    const mime = source?.match(/^data:image\/(png|jpeg|webp|gif)/)?.[1]
+    link.download = `muvloom-${active.id}.${active.media === 'video' ? 'mp4' : mime === 'jpeg' ? 'jpg' : (mime ?? 'png')}`
     link.click()
+  }
+  const useAsReference = async () => {
+    if (!source || active.media !== 'image') return
+    const blob = await fetch(source)
+      .then((response) => response.blob())
+      .catch(() => null)
+    if (!blob) return
+    const file = new File([blob], `muvloom-${active.id}.png`, { type: blob.type || 'image/png' })
+    if (attachFilesToComposer([file])) onClose()
   }
 
   return createPortal(
@@ -135,29 +160,15 @@ export default function AgentArtifactPane({
       aria-modal="true"
       aria-label={t('tool.previewTitle')}
     >
-      <div className="studio-artifact-pane-head">
-        <button type="button" className="studio-artifact-pane-back" onClick={onClose}>
-          <ArrowLeft size={16} aria-hidden="true" />
-          {t('tool.backToChat')}
-        </button>
-        <div className="studio-artifact-pane-heading">
-          <Images size={16} aria-hidden="true" />
-          <span>{t('tool.previewTitle')}</span>
-          {items.length > 1 && (
-            <span className="studio-artifact-pane-count">
-              {items.findIndex((item) => item.id === active.id) + 1}/{items.length}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          className="studio-artifact-pane-close"
-          aria-label={t('tool.closePreview')}
-          onClick={onClose}
-        >
-          <X size={17} aria-hidden="true" />
-        </button>
-      </div>
+      <button
+        type="button"
+        className="studio-artifact-pane-back"
+        onClick={onClose}
+        aria-label={t('tool.backToChat')}
+        title={t('tool.backToChat')}
+      >
+        <ArrowLeft size={21} aria-hidden="true" />
+      </button>
       <div className="studio-artifact-pane-viewer">
         {items.length > 1 && (
           <button
@@ -237,6 +248,17 @@ export default function AgentArtifactPane({
         </div>
       )}
       <div className="studio-artifact-pane-foot">
+        <div className="studio-artifact-pane-primary">
+          <button type="button" onClick={download} disabled={!source && !active.videoUrl}>
+            <Download size={18} aria-hidden="true" />
+            {t('tool.downloadResult')}
+          </button>
+          {items.length > 1 && (
+            <span>
+              {items.findIndex((item) => item.id === active.id) + 1}/{items.length}
+            </span>
+          )}
+        </div>
         <p title={message.title}>{message.title}</p>
         {message.prompt && (
           <section className="studio-artifact-pane-prompt">
@@ -251,7 +273,9 @@ export default function AgentArtifactPane({
                 <Copy size={15} />
               </button>
             </div>
-            <p>{message.prompt}</p>
+            <p className="studio-artifact-pane-prompt-text" tabIndex={0}>
+              {message.prompt}
+            </p>
           </section>
         )}
         <div className="studio-artifact-pane-actions">
@@ -261,20 +285,42 @@ export default function AgentArtifactPane({
                 <Expand size={15} aria-hidden="true" />
                 {t('tool.zoomResult')}
               </button>
-              <button type="button" onClick={download}>
-                <Download size={15} aria-hidden="true" />
-                {t('tool.downloadResult')}
+              <button type="button" onClick={() => void useAsReference()}>
+                <ImagePlus size={15} aria-hidden="true" />
+                {t('tool.useAsReference')}
               </button>
             </>
           )}
-          <button
-            type="button"
-            className="studio-artifact-pane-edit"
-            onClick={() => onViewCanvas([active.id])}
-          >
-            <Images size={15} aria-hidden="true" />
-            {t('tool.editOnCanvas')}
-          </button>
+          {active.media === 'image' && (
+            <button
+              type="button"
+              className="studio-artifact-pane-edit"
+              onClick={() => onViewCanvas([active.id])}
+            >
+              <Images size={15} aria-hidden="true" />
+              {t('tool.editOnCanvas')}
+            </button>
+          )}
+          {active.media === 'image' && (
+            <div className="studio-artifact-pane-tools">
+              <button type="button" onClick={() => onViewCanvas([active.id], 'inpaint')}>
+                <Brush size={15} />
+                {t('tool.inpaint')}
+              </button>
+              <button type="button" onClick={() => onViewCanvas([active.id], 'erase')}>
+                <Eraser size={15} />
+                {t('tool.erase')}
+              </button>
+              <button type="button" onClick={() => onViewCanvas([active.id], 'crop')}>
+                <Crop size={15} />
+                {t('tool.crop')}
+              </button>
+              <button type="button" onClick={() => onViewCanvas([active.id], 'outpaint')}>
+                <Scan size={15} />
+                {t('tool.outpaint')}
+              </button>
+            </div>
+          )}
         </div>
       </div>
       {zoomed && source && <ImagePreview src={source} onClose={() => setZoomed(false)} />}
