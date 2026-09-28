@@ -123,10 +123,15 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           const current = drawingRef.current
           const point = pagePoint(event)
           if (current && point) {
+            const last = current.points[current.points.length - 1]
             drawingRef.current = {
               ...current,
               points:
-                current.shape === 'rect' ? [current.points[0]!, point] : [...current.points, point],
+                current.shape === 'rect'
+                  ? [current.points[0]!, point]
+                  : last?.x === point.x && last.y === point.y
+                    ? current.points
+                    : [...current.points, point],
             }
           }
           const completed = drawingRef.current
