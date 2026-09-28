@@ -114,7 +114,10 @@ export async function removeConversation(
 export async function adoptAgentConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<number> {
-  const response = await fetcher(url('/conversations/adopt'), jsonInit({ deviceId: getDeviceId() }))
+  const response = await fetcher(url('/conversations/adopt'), {
+    ...jsonInit({ deviceId: getDeviceId() }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { adopted: number }).adopted
 }
