@@ -1037,7 +1037,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
-  it('对话限时免费：只展示本轮实际减免，明细列出原价与实扣', async () => {
+  it('对话限时免费且没有实扣时，只保留耗时', async () => {
     await enableChatFree()
     useAgentStore.setState({
       messages: [
@@ -1061,15 +1061,11 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.querySelector('del')?.textContent).toBe('20')
-    expect(host.textContent).toContain('免')
+    expect(host.textContent).toContain('24s')
+    expect(host.querySelector('del')).toBeNull()
+    expect(host.textContent).not.toContain('免')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
-    expect(host.querySelector('[aria-label="对话原价 20 积分，本轮减免"]')).not.toBeNull()
-    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
-    act(() => toggle.click())
-    expect(host.textContent).toContain('原价20')
-    expect(host.textContent).toContain('对话减免−20')
-    expect(host.textContent).toContain('实扣0')
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
   })
 
   it('限免期间生图实扣 100、对话减免 20，明细显示原价 120', async () => {
@@ -1126,6 +1122,7 @@ describe('AgentPanel', () => {
     useAgentStore.setState({ messages: [job], turns: { 'turn-1': footer } })
     render()
     expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
 
     act(() =>
       useAgentStore.setState({
@@ -1234,7 +1231,8 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
-    expect(host.textContent).toContain('本轮免费，未扣积分')
+    expect(host.textContent).toContain('本轮耗时 24s')
+    expect(host.textContent).not.toContain('本轮免费，未扣积分')
   })
 
   it('限免时中止的轮仍标明已停止，不当作完成的减免', async () => {
@@ -1361,7 +1359,7 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
   })
 
-  it('失败的轮明确标出失败和未扣积分，不显示为免费完成', () => {
+  it('失败且没有扣费的轮只标失败与耗时', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -1385,7 +1383,8 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('本轮失败')
-    expect(host.textContent).toContain('未扣积分')
+    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.textContent).not.toContain('未扣积分')
     expect(host.textContent).not.toContain('本轮免费')
   })
 

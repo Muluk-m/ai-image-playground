@@ -105,7 +105,6 @@
   },
   "cost": {
     "duration": "Took {{duration}}",
-    "free": "Free turn, no credits used",
     "spent": "Spent",
     "image": "Image",
     "imageSpentAria": "Image generation charged {{amount}} credits",
@@ -121,8 +120,7 @@
     "failed": "Turn failed",
     "interrupted": "Interrupted, resumed automatically",
     "contextOverflow": "This turn was too long to send",
-    "stopped": "Stopped",
-    "noCredits": "No credits used"
+    "stopped": "Stopped"
   },
   "composer": {
     "placeholder": "Say what you want, @ for canvas or assets",
