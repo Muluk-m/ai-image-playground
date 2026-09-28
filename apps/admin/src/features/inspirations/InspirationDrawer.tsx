@@ -37,6 +37,7 @@ import {
   useCreateInspiration,
   useDeleteInspiration,
   useInspiration,
+  useInspirationAssetBase,
   useSetInspirationStatus,
   useUpdateInspiration,
 } from '@/lib/inspirations'
@@ -154,6 +155,7 @@ function InspirationEditor({
   // 等这一轮动作整个做完才 onCreated（它会改 URL 并按新 id 重挂编辑器）。
   const [createdId, setCreatedId] = useState<string | null>(null)
   const skills = useAgentSkillCatalog()
+  const assetBase = useInspirationAssetBase()
   const create = useCreateInspiration()
   const update = useUpdateInspiration()
   const remove = useDeleteInspiration()
@@ -489,7 +491,7 @@ function InspirationEditor({
             <ReferenceImageFields
               value={draft.referenceImages}
               onChange={(next) => patch({ referenceImages: next })}
-              assetUrls={[draft.coverKey, draft.imageKey ?? '']}
+              assetBaseUrl={assetBase.data?.baseUrl ?? ''}
             />
           </TabsContent>
 

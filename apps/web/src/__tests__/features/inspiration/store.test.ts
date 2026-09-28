@@ -27,6 +27,7 @@ describe('useInspirationStore', () => {
       selectedCategory: null,
       searchKeyword: '',
       detailItemId: null,
+      detailFallback: null,
     })
   })
 
@@ -53,5 +54,16 @@ describe('useInspirationStore', () => {
     s.setProvider('gemini')
     expect(useInspirationStore.getState().selectedProvider).toBe('gemini')
     expect(useInspirationStore.getState().selectedCategory).toBeNull()
+  })
+
+  it('keeps an offline detail separate when the remote list refreshes', () => {
+    const seed = makeItem('offline', 'Offline case')
+    useInspirationStore.getState().showDetail(seed.id, seed)
+    useInspirationStore.getState().setRemoteItems([makeItem('online', 'Online case')])
+
+    expect(useInspirationStore.getState().items.map((item) => item.id)).toEqual(['online'])
+    expect(useInspirationStore.getState().detailFallback).toEqual(seed)
+    useInspirationStore.getState().closeDetail()
+    expect(useInspirationStore.getState().detailFallback).toBeNull()
   })
 })
