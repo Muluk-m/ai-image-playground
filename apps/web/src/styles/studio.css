@@ -2,11 +2,12 @@
 .studio-layout { display: flex; position: relative; height: 100%; width: 100%; }
 .studio-project-viewbar {
   position: absolute; inset: 0 0 auto; z-index: 415; height: 56px;
-  display: flex; align-items: center; gap: 8px; padding: 0 190px 0 16px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 calc(var(--studio-header-actions-width, 162px) + 28px) 0 16px;
   border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--sidebar) / .96);
   backdrop-filter: blur(14px);
 }
-.studio-project-viewbar > .studio-agent-project { min-width: 0; border: 0; padding: 0; }
+.studio-project-viewbar > .studio-agent-project { flex: 1 1 auto; min-width: 0; border: 0; padding: 0; }
 .studio-project-switch {
   display: flex; flex: 0 0 auto; gap: 3px; margin-left: auto; padding: 3px;
   border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--muted));
