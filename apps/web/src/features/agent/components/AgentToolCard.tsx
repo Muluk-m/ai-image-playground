@@ -102,7 +102,13 @@ function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactP
   return previews
 }
 
-function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
+function Thumbnail({
+  preview,
+  onViewCanvas,
+}: {
+  preview: AgentArtifactPreview
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+}) {
   const { artifact, source, onCanvas } = preview
   if (!source) return null
   const badge = artifact.media === 'video' && (
@@ -123,7 +129,11 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
     <button
       type="button"
       className={THUMBNAIL}
-      onClick={() => agentCanvasSink()?.focus([artifact.artifactId])}
+      onClick={() =>
+        onViewCanvas
+          ? onViewCanvas([artifact.artifactId])
+          : agentCanvasSink()?.focus([artifact.artifactId])
+      }
     >
       {image}
       {badge}
@@ -169,7 +179,13 @@ function sourceHost(url: string): string {
 }
 
 /** 取回来的网图：缩略图加一个回到来源的链接——版权在对方那里，来源不能只留在模型的话里。 */
-function FetchedImages({ previews }: { previews: readonly AgentFetchedPreview[] }) {
+function FetchedImages({
+  previews,
+  onViewCanvas,
+}: {
+  previews: readonly AgentFetchedPreview[]
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+}) {
   const { t } = useTranslation('agent')
   if (!previews.length) return null
   return (
@@ -183,7 +199,9 @@ function FetchedImages({ previews }: { previews: readonly AgentFetchedPreview[] 
               key={objectId}
               type="button"
               className={THUMBNAIL}
-              onClick={() => agentCanvasSink()?.focus([objectId])}
+              onClick={() =>
+                onViewCanvas ? onViewCanvas([objectId]) : agentCanvasSink()?.focus([objectId])
+              }
             >
               {bitmap}
             </button>
@@ -351,7 +369,13 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
+export default function AgentToolCard({
+  message,
+  onViewCanvas,
+}: {
+  message: AgentToolMessage
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+}) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
   const previews = useArtifactPreviews(message)
@@ -401,13 +425,13 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
             type="button"
             title={t('tool.locateTitle')}
             className={`${CARD_TITLE} min-w-0 text-left`}
-            onClick={() =>
-              agentCanvasSink()?.focus(
-                previews
-                  .filter((preview) => preview.onCanvas)
-                  .map((preview) => preview.artifact.artifactId),
-              )
-            }
+            onClick={() => {
+              const ids = previews
+                .filter((preview) => preview.onCanvas)
+                .map((preview) => preview.artifact.artifactId)
+              if (onViewCanvas) onViewCanvas(ids)
+              else agentCanvasSink()?.focus(ids)
+            }}
           >
             {message.title}
           </button>
@@ -463,16 +487,25 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {previews.map((preview) => (
-            <Thumbnail key={preview.artifact.artifactId} preview={preview} />
+            <Thumbnail
+              key={preview.artifact.artifactId}
+              preview={preview}
+              onViewCanvas={onViewCanvas}
+            />
           ))}
         </div>
       )}
-      <FetchedImages previews={fetched} />
+      <FetchedImages previews={fetched} onViewCanvas={onViewCanvas} />
       {offCanvas && (
         <button
           type="button"
           className={`self-start ${GHOST_LINK}`}
-          onClick={() => void useAgentStore.getState().placeOnCanvas(message.id)}
+          onClick={() =>
+            void useAgentStore
+              .getState()
+              .placeOnCanvas(message.id)
+              .then(() => onViewCanvas?.())
+          }
         >
           {t('tool.place')}
         </button>

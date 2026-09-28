@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useCloudGenerations } from '../hooks/useCloudGenerations'
 import { useTranslation } from '../i18n'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
@@ -14,20 +15,32 @@ import { Button } from './ui/button'
  */
 export default function GenerationHistory({ userId, hero }: { userId?: string; hero?: boolean }) {
   const { t } = useTranslation(['task', 'errors'])
+  const [showAll, setShowAll] = useState(false)
   const cloud = useCloudGenerations(Boolean(userId) && isClientCapabilityEnabled('accounts:sync'))
   return (
     <>
       {hero ? (
         <div className="flex flex-wrap items-center gap-3 pb-5 pt-10 sm:gap-4">
           <h2 className="shrink-0 text-[15px] font-semibold">{t('grid.mine')}</h2>
-          <div className="w-full sm:ml-auto sm:w-auto sm:max-w-xl sm:flex-1">
-            <SearchBar compact />
-          </div>
+          {showAll && (
+            <div className="w-full sm:ml-auto sm:w-auto sm:max-w-xl sm:flex-1">
+              <SearchBar compact />
+            </div>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-muted-foreground"
+            aria-expanded={showAll}
+            onClick={() => setShowAll((value) => !value)}
+          >
+            {showAll ? t('grid.collapse') : t('grid.viewAll')}
+          </Button>
         </div>
       ) : (
         <SearchBar />
       )}
-      <TaskGrid hero={hero} />
+      <TaskGrid hero={hero} limit={hero && !showAll ? 3 : undefined} />
       {cloud.failed && (
         <div className="flex items-center justify-center gap-3 pb-8">
           <p role="alert" className="text-sm text-destructive">
@@ -38,7 +51,7 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
           </Button>
         </div>
       )}
-      {cloud.hasMore && (
+      {cloud.hasMore && (!hero || showAll) && (
         <div className="flex justify-center pb-10">
           <Button variant="outline" disabled={cloud.loading} onClick={cloud.loadMore}>
             {cloud.loading ? t('cloudHistory.loading') : t('cloudHistory.more')}
