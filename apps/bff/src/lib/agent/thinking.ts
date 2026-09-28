@@ -22,7 +22,12 @@ export function agentThinking(depth?: AgentThinkingDepth): {
   contextWindow: number
 } {
   if (!depth) {
-    return { model: config.agent.model, effort: 'off', contextWindow: config.agent.contextWindow }
+    const known = Object.values(profiles).find((profile) => profile.model === config.agent.model)
+    return {
+      model: config.agent.model,
+      effort: 'off',
+      contextWindow: known?.contextWindow ?? config.agent.contextWindow,
+    }
   }
   const profile = profiles[depth]
   return {
