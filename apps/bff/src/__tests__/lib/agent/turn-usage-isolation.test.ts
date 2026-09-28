@@ -20,8 +20,9 @@ process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 // 2026-09-23 editCanvasObject 抬到 4127，带随之上移到约 5630–6030，取中；
 // 2026-09-23 生图美术指导（含「直出」判断）与取网图的描述再抬约 250；
 // 2026-09-24 搜索网页与读取网页不再由能力开关控制，它们随每一轮发出去，开销再抬约 550；
-// 逐档实测可用带 6700–7050，取中。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '6880'
+// 2026-09-28 设计意图说明与 generateImage 参数扩大了固定开销，重建后的输入约 5429，
+// 窗口至少要到 6930 才装得下；历史仍足够长，保证摘要路径会触发。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '6970'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,

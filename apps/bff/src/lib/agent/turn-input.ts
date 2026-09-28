@@ -135,6 +135,7 @@ function systemPrompt(mode: AgentMode, autoSubmit: boolean, audience: AgentTurnA
     '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
     '用中文回答，简短、具体，不要复述用户的话。',
     MODE_LINE[mode],
+    '设计请求先抓住用户想表达的意思，再决定观众第一眼看到什么、视线如何移动；构图、光线、色彩与材质都服务于这个表达。用户说过的要求和你自行补的设计选择要分清；只靠“高级感”“氛围感”等空词不能算完成设计。',
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(mode, audience),
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
