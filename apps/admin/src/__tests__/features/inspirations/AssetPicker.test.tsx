@@ -12,7 +12,7 @@ describe('ReferenceImageFields', () => {
       <ReferenceImageFields
         value={[]}
         onChange={onChange}
-        assetUrls={['https://muvloom-inspiration-assets.deepclick.com/cover.png']}
+        assetBaseUrl="https://assets.staging.example"
       />,
     )
 
@@ -43,7 +43,7 @@ describe('ReferenceImageFields', () => {
           },
         ]}
         onChange={onChange}
-        assetUrls={['https://muvloom-inspiration-assets.deepclick.com/cover.png']}
+        assetBaseUrl="https://assets.staging.example"
       />,
     )
 
@@ -63,7 +63,7 @@ describe('ReferenceImageFields', () => {
   it('rejects malformed hosts and third-party images without verified CORS', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
-    render(<ReferenceImageFields value={[]} onChange={onChange} assetUrls={[]} />)
+    render(<ReferenceImageFields value={[]} onChange={onChange} assetBaseUrl="" />)
 
     await user.type(screen.getByRole('textbox', { name: '已有图片的素材名' }), '坏地址')
     const url = screen.getByRole('textbox', { name: '已有图片的 https 地址' })
@@ -77,14 +77,14 @@ describe('ReferenceImageFields', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('uses the current cover origin when the public bucket domain differs by environment', async () => {
+  it('uses the configured public bucket origin when the domain differs by environment', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
     render(
       <ReferenceImageFields
         value={[]}
         onChange={onChange}
-        assetUrls={['https://assets.staging.example/cover.png']}
+        assetBaseUrl="https://assets.staging.example"
       />,
     )
 

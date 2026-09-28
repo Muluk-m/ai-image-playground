@@ -8,14 +8,17 @@ import { useInspirationStore } from '../store'
 
 export default function InspirationDetail() {
   const detailItemId = useInspirationStore((s) => s.detailItemId)
+  const detailFallback = useInspirationStore((s) => s.detailFallback)
   const closeDetail = useInspirationStore((s) => s.closeDetail)
   const items = useInspirationStore((s) => s.items)
   const showToast = useStore((s) => s.showToast)
   const { t } = useTranslation(['inspiration', 'common'])
 
   const item = useMemo(
-    () => items.find((i) => i.id === detailItemId) ?? null,
-    [items, detailItemId],
+    () =>
+      items.find((i) => i.id === detailItemId) ??
+      (detailFallback?.id === detailItemId ? detailFallback : null),
+    [items, detailItemId, detailFallback],
   )
 
   const promptDisplay = useMemo(() => formatPrompt(item?.prompt ?? ''), [item?.prompt])

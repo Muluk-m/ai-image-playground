@@ -20,6 +20,7 @@ export interface InspirationState {
   onlyImageEdits: boolean
   searchKeyword: string
   detailItemId: string | null
+  detailFallback: InspirationItem | null
 
   loadRemote: (signal?: AbortSignal) => Promise<void>
   setRemoteItems: (items: InspirationItem[], categories?: string[]) => void
@@ -30,7 +31,7 @@ export interface InspirationState {
   setCategory: (category: string | null) => void
   setOnlyImageEdits: (enabled: boolean) => void
   setSearch: (keyword: string) => void
-  showDetail: (id: string) => void
+  showDetail: (id: string, fallback?: InspirationItem) => void
   closeDetail: () => void
 }
 
@@ -54,6 +55,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   onlyImageEdits: false,
   searchKeyword: '',
   detailItemId: null,
+  detailFallback: null,
 
   loadRemote: async (signal) => {
     const url = resolveRemoteManifestUrl()
@@ -105,6 +107,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   setCategory: (selectedCategory) => set({ selectedCategory }),
   setOnlyImageEdits: (onlyImageEdits) => set({ onlyImageEdits }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
-  showDetail: (detailItemId) => set({ detailItemId }),
-  closeDetail: () => set({ detailItemId: null }),
+  showDetail: (detailItemId, detailFallback) =>
+    set({ detailItemId, detailFallback: detailFallback ?? null }),
+  closeDetail: () => set({ detailItemId: null, detailFallback: null }),
 }))

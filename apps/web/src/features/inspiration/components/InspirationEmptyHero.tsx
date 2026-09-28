@@ -30,9 +30,14 @@ export default function InspirationEmptyHero() {
       available.filter((item) => FEATURED_IDS.has(item.id)).map((item) => [item.id, item]),
     )
     // 有线上清单时只展示已发布案例；种子仅用于离线兜底，避免草稿提前出现在首页。
+    const publishedFeatured = HERO_SEED.flatMap((seed) => featured.get(seed.id) ?? [])
     const source = available.length
-      ? HERO_SEED.flatMap((seed) => featured.get(seed.id) ?? [])
-      : HERO_SEED
+      ? publishedFeatured.length > 0
+        ? publishedFeatured
+        : available
+      : status === 'error'
+        ? HERO_SEED
+        : []
     setItems(rotateHeroItems(source))
   }, [available, status])
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
@@ -65,6 +70,7 @@ export default function InspirationEmptyHero() {
       <div className="-mx-4 overflow-x-auto hide-scrollbar sm:mx-0 sm:overflow-x-visible">
         <div className="flex snap-x snap-mandatory gap-3 px-4 sm:grid sm:snap-none sm:grid-cols-3 sm:gap-3.5 sm:px-0 lg:grid-cols-6">
           {items.length === 0 &&
+            !selected.current &&
             Array.from({ length: HERO_CARD_COUNT }, (_, index) => (
               <div
                 key={index}
@@ -74,6 +80,9 @@ export default function InspirationEmptyHero() {
                 <div className="aspect-[3/4] animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
               </div>
             ))}
+          {items.length === 0 && selected.current && (
+            <p className="col-span-full py-8 text-sm text-muted-foreground">{t('list.empty')}</p>
+          )}
           {items.map((item) => (
             <div
               key={item.id}
@@ -83,12 +92,7 @@ export default function InspirationEmptyHero() {
                 item={item}
                 pinned={pinnedIds.includes(item.id)}
                 onClick={() => {
-                  const inspiration = useInspirationStore.getState()
-                  // 离线种子不在远端清单里时，仍要能打开完整详情。
-                  if (!inspiration.items.some((candidate) => candidate.id === item.id)) {
-                    inspiration.setRemoteItems([...inspiration.items, item])
-                  }
-                  inspiration.showDetail(item.id)
+                  useInspirationStore.getState().showDetail(item.id, item)
                   openInspiration()
                 }}
               />
