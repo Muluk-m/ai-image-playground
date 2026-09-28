@@ -1,15 +1,8 @@
-import { Buffer, File } from 'node:buffer'
-import {
-  QUEUE_TIMEOUTS,
-  type QueueProvider,
-  type VideoMode,
-  type VideoResolution,
-} from '@image-playground/shared'
-import sharp from 'sharp'
-import { FormData } from 'undici'
+import { Buffer } from 'node:buffer'
+import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import { config } from '../config'
 import { getChannels } from './channels'
-import type { HydratedSubmitRequest, HydratedVideoRequest } from './imageArchive'
+import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import {
   buildImageResponsesBody,
@@ -24,7 +17,40 @@ import {
   type UndiciFetchInit,
   type UndiciFetchInput,
 } from './timeoutFetch'
-import { isObject } from './type-guards'
+import {
+  AsyncTaskProtocol,
+  asyncTaskFailure,
+  imageTaskProtocol,
+  isRecoverablePollFailure,
+  warnIfAsyncTasksDisabled,
+} from './upstream/async-tasks'
+import {
+  extractErrorMessage,
+  stringifyUpstreamPayload,
+  UpstreamPartialResultError,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} from './upstream/errors'
+import { buildGeminiBody, mergeGeminiCandidateResults } from './upstream/gemini'
+import {
+  buildGrokEditBody,
+  buildGrokImagine2Body,
+  isGrokImagine2,
+  normalizeGrokEditInputs,
+  normalizeGrokImagine2EditInputs,
+} from './upstream/grok'
+import {
+  buildAgnesGenerationsBody,
+  buildOpenAIBody,
+  buildOpenAIEditFormData,
+  isGptImageModel,
+  mergeOpenAIDataResults,
+  mergeOpenAIImageResults,
+  withoutImageCount,
+  withoutModeration,
+} from './upstream/openai'
+import { ChannelRouteStyle, clientError, UpstreamCallResult } from './upstream/shared'
+import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
 
 /**
  * Convert queued requests into OpenAI Images or Gemini generateContent calls.
@@ -33,33 +59,7 @@ import { isObject } from './type-guards'
  * images are present and JSON generations otherwise. Gemini requests use generateContent.
  */
 
-/**
- * 每 channel 的上游路由风格。命中映射的 channel 用 channels.json 自带的
- * baseUrl + auth.secret（单一事实源），不走 UPSTREAM_BASE_URL 通用网关；
- * value 决定 callUpstream 走哪套上游协议。
- *
- * 不能按 model 盲查 channels：网关部署用 UPSTREAM_BASE_URL 故意把
- * openai/gemini channel 指到同一中转上游，channels.json 里它们的 baseUrl
- * 只是名义官方地址，盲查会把网关部署静默切成直连。
- */
-type ChannelRouteStyle =
-  /**
-   * Agnes 风格上游：没有 images/edits 端点，文生图与图生图共用
-   * images/generations JSON，输入图放 extra_body.image。
-   */
-  | 'agnes-generations-json'
-  /** 标准 OpenAI Images 语义：generations JSON / edits multipart / n>1 fan-out。 */
-  | 'openai-images'
-  /** Grok Imagine JSON generations/edits。1.0 多图拼 contact sheet；2.0 原生最多 5 张并映射 size/quality。 */
-  | 'grok-openai-images'
-  /** Grok Imagine 视频：提交拿 request_id，轮询 videos/{id}，成片字节要带 key 去内容端点取。 */
-  | 'grok-videos'
-  /** Agnes 视频：提交拿 video_id，轮询网关根下的 agnesapi，结果是公网 mp4 地址。 */
-  | 'agnes-videos'
-  /** 火山方舟 Seedance：提交 content 数组拿 id，轮询同一路径，结果是公网 mp4 地址。 */
-  | 'ark-videos'
-  /** Google Veo：提交拿 operation name，轮询 base + 该 name，成片要带 key 去 Google 域内取。 */
-  | 'veo-videos'
+/** 各服务商的请求体、结果解析与异步任务协议在 `./upstream/` 下；这里只做路由、超时、计费回调、fan-out 与恢复。 */
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',
@@ -120,6 +120,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     supportsNativeN: false,
   }
 }
+
 export interface UpstreamCallParams {
   provider: QueueProvider
   model: string
@@ -142,10 +143,6 @@ export interface UpstreamResume {
   readonly submittedAt: number
 }
 
-export interface UpstreamCallResult {
-  payload: unknown
-}
-
 interface UpstreamResponse {
   readonly ok: boolean
   readonly status: number
@@ -155,9 +152,11 @@ interface UpstreamResponse {
 }
 
 type UpstreamFetch = (input: UndiciFetchInput, init?: UndiciFetchInit) => Promise<UpstreamResponse>
+
 type UpstreamFetchInit = UndiciFetchInit
 
 export const UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
+
 export const UPSTREAM_TRANSPORT_TIMEOUT_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60_000
 
 const upstreamDispatcher = createDispatcher({
@@ -169,31 +168,6 @@ const upstreamTransport = createFetchSlot<UpstreamFetch>()
 
 export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
   upstreamTransport.set(fetchImpl)
-}
-
-/**
- * 自定义错误：BFF 自己的 UPSTREAM_HARD_TIMEOUT_MS 切的（vs 上游返 4xx/5xx
- * 或 socket 异常关）。task-runner 用 instanceof 检查并统一落库为
- * `upstream_result_unknown`，避免自动重试重复执行。
- */
-export class UpstreamResultUnknownError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options)
-    this.name = 'UpstreamResultUnknownError'
-  }
-}
-
-export class UpstreamPartialResultError extends UpstreamResultUnknownError {
-  constructor(readonly payload: unknown) {
-    super('部分图片已完成，其余提交结果未知；未重复生成')
-  }
-}
-
-export class UpstreamTimeoutError extends UpstreamResultUnknownError {
-  constructor(message = 'Upstream call exceeded BFF hard timeout') {
-    super(message)
-    this.name = 'UpstreamTimeoutError'
-  }
 }
 
 /**
@@ -597,405 +571,6 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/**
- * 轮询专用的可恢复判定，**与 retry.ts 的提交侧判定方向相反**，不要合并：提交没有幂等键，
- * 重来一次就是重复计费；轮询只是再读一次同一个任务，代价为零。
- */
-function isRecoverablePollFailure(err: unknown): boolean {
-  const { status } = extractUpstreamFailure(err)
-  if (status === null) return err instanceof UpstreamResultUnknownError
-  return status === 408 || status === 429 || status >= 500
-}
-
-/**
- * 一种上游异步任务形态：提交地址、id 字段、轮询地址、状态词表。
- * 图片与两家视频上游共用同一套提交 / 落库 / 轮询骨架，差异全在这四项。
- */
-interface AsyncTaskProtocol {
-  readonly submitUrl: string
-  readonly pollUrl: (taskId: string) => string
-  readonly readTaskId: (payload: unknown) => string
-  readonly readState: (payload: unknown) => AsyncTaskState
-}
-
-function imageTaskProtocol(base: string, submitBase: string): AsyncTaskProtocol {
-  return {
-    submitUrl: `${submitBase}/async`,
-    pollUrl: (taskId) => `${base}/images/tasks/${encodeURIComponent(taskId)}`,
-    readTaskId: (payload) => readTaskIdField(payload, ['task_id']),
-    readState: readAsyncTaskState,
-  }
-}
-
-/**
- * 成片的取法：`public` 交给归档回源，`credentialed` 要在上游路径内带 key 再取一次字节
- * （上游把成片锁在自己域里，归档那一步没有凭据）。
- */
-type VideoOutcome = {
-  readonly kind: 'public' | 'credentialed'
-  readonly url: string
-  readonly durationSeconds: number
-}
-
-interface VideoStyleSpec {
-  /** 上游实际接受的模式；档位表已在 submit 拦过一遍，这里是发请求前的最后一道。 */
-  readonly modes: readonly VideoMode[]
-  protocol(args: { base: string; model: string; mode: VideoMode }): AsyncTaskProtocol
-  body(
-    model: string,
-    request: HydratedSubmitRequest,
-    video: HydratedVideoRequest,
-    mode: VideoMode,
-  ): Record<string, unknown>
-  result(base: string, payload: unknown, video: HydratedVideoRequest): VideoOutcome
-}
-
-const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec>> = {
-  'grok-videos': {
-    modes: ['generate', 'extend', 'edit'],
-    protocol: ({ base, mode }) => grokVideoProtocol(base, mode),
-    body: buildGrokVideoBody,
-    result: grokVideoResult,
-  },
-  'agnes-videos': {
-    modes: ['generate'],
-    protocol: ({ base, model }) => agnesVideoProtocol(base, model),
-    body: buildAgnesVideoBody,
-    result: agnesVideoResult,
-  },
-  'ark-videos': {
-    modes: ['generate'],
-    protocol: ({ base }) => arkVideoProtocol(base),
-    body: buildArkVideoBody,
-    result: arkVideoResult,
-  },
-  'veo-videos': {
-    modes: ['generate'],
-    protocol: ({ base, model }) => veoVideoProtocol(base, model),
-    body: buildVeoVideoBody,
-    result: veoVideoResult,
-  },
-}
-
-const GROK_VIDEO_SUBMIT_PATHS: Record<VideoMode, string> = {
-  generate: 'videos/generations',
-  extend: 'videos/extensions',
-  edit: 'videos/edits',
-}
-
-function grokVideoProtocol(base: string, mode: VideoMode): AsyncTaskProtocol {
-  return {
-    submitUrl: `${base}/${GROK_VIDEO_SUBMIT_PATHS[mode]}`,
-    pollUrl: (taskId) => `${base}/videos/${encodeURIComponent(taskId)}`,
-    readTaskId: (payload) => readTaskIdField(payload, ['request_id', 'id']),
-    readState: readGrokVideoState,
-  }
-}
-
-/** Agnes 的轮询端点挂在网关根上，不在 /v1 下 —— 用 base 的 origin 重新拼，别接相对路径。 */
-function agnesVideoProtocol(base: string, model: string): AsyncTaskProtocol {
-  const origin = new URL(base).origin
-  return {
-    submitUrl: `${base}/videos`,
-    pollUrl: (taskId) =>
-      `${origin}/agnesapi?video_id=${encodeURIComponent(taskId)}&model_name=${encodeURIComponent(model)}`,
-    readTaskId: (payload) => readTaskIdField(payload, ['video_id', 'task_id', 'id']),
-    readState: readAgnesVideoState,
-  }
-}
-
-function arkVideoProtocol(base: string): AsyncTaskProtocol {
-  const tasks = `${base}/contents/generations/tasks`
-  return {
-    submitUrl: tasks,
-    pollUrl: (taskId) => `${tasks}/${encodeURIComponent(taskId)}`,
-    readTaskId: (payload) => readTaskIdField(payload, ['id']),
-    readState: readArkVideoState,
-  }
-}
-
-/**
- * Veo 的任务 id 就是 operation name（`models/<model>/operations/<id>` 形状），
- * 轮询地址是 base 直接拼它——带斜杠，不能 encodeURIComponent。
- */
-function veoVideoProtocol(base: string, model: string): AsyncTaskProtocol {
-  return {
-    submitUrl: `${base}/models/${model}:predictLongRunning`,
-    pollUrl: (taskId) => `${base}/${taskId}`,
-    readTaskId: (payload) => readTaskIdField(payload, ['name']),
-    readState: readVeoVideoState,
-  }
-}
-
-function readTaskIdField(payload: unknown, fields: readonly string[]): string {
-  const body = (payload ?? {}) as Record<string, unknown>
-  for (const field of fields) {
-    const value = body[field]
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-  // 任务可能已经建起来在烧钱，但我们拿不到 id 去轮询它 —— 按结果未知处理，绝不自动重提。
-  throw new UpstreamResultUnknownError(`上游异步任务提交未返回 ${fields[0]}，执行结果未知`)
-}
-
-/** 上游把异步开关关掉时提交一律 404。单独一条 event，别混在通用 upstream 失败里。 */
-function warnIfAsyncTasksDisabled(err: unknown): void {
-  const { status, body } = extractUpstreamFailure(err)
-  if (status !== 404 || !body?.includes('async image tasks are not enabled')) return
-  log.error(
-    { event: 'upstream.async_disabled', upstreamStatus: status },
-    'upstream async image tasks are disabled; turn off the asyncTasks declaration on our side',
-  )
-}
-
-type AsyncTaskState =
-  | { kind: 'pending' }
-  | { kind: 'completed'; payload: unknown }
-  | { kind: 'failed'; status: number | null }
-
-/** 未知 status 一律当 pending 继续轮：上游加新中间态时不该把任务判死。 */
-function readAsyncTaskState(payload: unknown): AsyncTaskState {
-  if (!payload || typeof payload !== 'object') return { kind: 'pending' }
-  const body = payload as { status?: unknown; result?: unknown; http_status?: unknown }
-  if (body.status === 'completed') {
-    // 结果在 result 里；上游也可能直接把 OpenAI envelope 平铺在根级。
-    const result = body.result
-    return { kind: 'completed', payload: result && typeof result === 'object' ? result : payload }
-  }
-  if (body.status !== 'failed') return { kind: 'pending' }
-  return { kind: 'failed', status: typeof body.http_status === 'number' ? body.http_status : null }
-}
-
-const VIDEO_MIME = 'video/mp4'
-
-function readStatusToken(payload: unknown): string | null {
-  const status = (payload as { status?: unknown } | null)?.status
-  return typeof status === 'string' ? status.toLowerCase() : null
-}
-
-/** 未知 status 一律当 pending 继续轮：上游加新中间态时不该把任务判死。 */
-function videoStatusReader(
-  done: readonly string[],
-  failed: readonly string[],
-): (payload: unknown) => AsyncTaskState {
-  const doneStatuses = new Set(done)
-  const failedStatuses = new Set(failed)
-  return (payload) => {
-    const status = readStatusToken(payload)
-    if (status === null) return { kind: 'pending' }
-    if (doneStatuses.has(status)) return { kind: 'completed', payload }
-    if (failedStatuses.has(status)) return { kind: 'failed', status: null }
-    return { kind: 'pending' }
-  }
-}
-
-const readGrokVideoState = videoStatusReader(
-  ['done', 'succeeded', 'completed'],
-  ['failed', 'error', 'expired', 'cancelled'],
-)
-const readAgnesVideoState = videoStatusReader(['completed'], ['failed'])
-const readArkVideoState = videoStatusReader(['succeeded'], ['failed', 'cancelled', 'expired'])
-
-/** operation 没有 status 字段：`done` 之前一律继续轮，`done` 带 error 是终态失败。 */
-function readVeoVideoState(payload: unknown): AsyncTaskState {
-  if (!isObject(payload) || payload.done !== true) return { kind: 'pending' }
-  if (payload.error) return { kind: 'failed', status: null }
-  return { kind: 'completed', payload }
-}
-
-/** 内容端点给的是网关相对路径，按 baseUrl 解析成绝对地址。 */
-function grokVideoResult(
-  base: string,
-  payload: unknown,
-  video: HydratedVideoRequest,
-): VideoOutcome {
-  const body = (payload as { video?: { url?: unknown; duration?: unknown } } | null)?.video
-  if (typeof body?.url !== 'string' || body.url.length === 0)
-    throw new UpstreamResultUnknownError('Grok 视频任务已完成但未返回内容地址')
-  const duration = body.duration
-  return {
-    kind: 'credentialed',
-    url: new URL(body.url, base).toString(),
-    durationSeconds:
-      typeof duration === 'number' && duration > 0 ? duration : video.duration_seconds,
-  }
-}
-
-/** 成片地址已经是绝对地址的上游共用的收口；时长按提交值记。 */
-function absoluteVideoOutcome(
-  kind: VideoOutcome['kind'],
-  url: unknown,
-  video: HydratedVideoRequest,
-  label: string,
-): VideoOutcome {
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
-    throw new UpstreamResultUnknownError(`${label} 视频任务已完成但未返回结果地址`)
-  return { kind, url, durationSeconds: video.duration_seconds }
-}
-
-function agnesVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
-  const body = (payload ?? {}) as { url?: unknown; metadata?: { url?: unknown } }
-  const url = [body.url, body.metadata?.url].find(
-    (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
-  )
-  return absoluteVideoOutcome('public', url, video, 'Agnes')
-}
-
-function arkVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
-  const content = (payload as { content?: { video_url?: unknown } } | null)?.content
-  return absoluteVideoOutcome('public', content?.video_url, video, 'Seedance')
-}
-
-type VeoOperation = {
-  response?: { generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: unknown } }> } }
-}
-
-/** 成片在 Google 域内，取字节要带同一把 key；链接两天后失效，所以必须归档到自己的存储。 */
-function veoVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
-  const uri = (payload as VeoOperation | null)?.response?.generateVideoResponse
-    ?.generatedSamples?.[0]?.video?.uri
-  return absoluteVideoOutcome('credentialed', uri, video, 'Veo')
-}
-
-/** 首尾帧指向同一请求的 input_images；hydrate 之后它们已经是 data URL。 */
-function videoFrame(request: HydratedSubmitRequest, index: number | undefined): string | undefined {
-  if (index === undefined) return undefined
-  return request.input_images?.[index]
-}
-
-/** 参考图按用户排好的顺序取；下标由提交校验保证落在输入图里。 */
-function videoReferences(request: HydratedSubmitRequest, video: HydratedVideoRequest): string[] {
-  return (video.reference_image_indices ?? [])
-    .map((index) => request.input_images?.[index])
-    .filter((url): url is string => typeof url === 'string')
-}
-
-/** 有首帧或参考图时上游要求换到 1.5：文生的那个既不吃 image，也不吃 reference_images。 */
-const GROK_VIDEO_IMAGE_MODEL = 'grok-imagine-video-1.5'
-
-function buildGrokVideoBody(
-  model: string,
-  request: HydratedSubmitRequest,
-  video: HydratedVideoRequest,
-  mode: VideoMode,
-): Record<string, unknown> {
-  if (mode !== 'generate') {
-    if (!video.source_video) throw clientError('续写和改视频缺少源视频')
-    return {
-      model,
-      prompt: request.prompt,
-      video: { url: video.source_video },
-      // edit 的时长跟随源片，上游不接受 duration。
-      ...(mode === 'extend' ? { duration: video.duration_seconds } : {}),
-    }
-  }
-  const firstFrame = videoFrame(request, video.first_frame_index)
-  const references = videoReferences(request, video)
-  return {
-    model: firstFrame || references.length ? GROK_VIDEO_IMAGE_MODEL : model,
-    prompt: request.prompt,
-    duration: video.duration_seconds,
-    aspect_ratio: video.aspect_ratio,
-    resolution: video.resolution,
-    ...(firstFrame ? { image: { url: firstFrame } } : {}),
-    ...(references.length ? { reference_images: references.map((url) => ({ url })) } : {}),
-  }
-}
-
-const AGNES_VIDEO_SIZES: Record<VideoResolution, string> = {
-  '720p': '720P',
-  '1080p': '1080P',
-  '2k': '2K',
-}
-
-function buildAgnesVideoBody(
-  model: string,
-  request: HydratedSubmitRequest,
-  video: HydratedVideoRequest,
-): Record<string, unknown> {
-  const firstFrame = videoFrame(request, video.first_frame_index)
-  const lastFrame = videoFrame(request, video.last_frame_index)
-  return {
-    model,
-    prompt: request.prompt,
-    seconds: String(video.duration_seconds),
-    mode: firstFrame || lastFrame ? 'keyframe' : 'text',
-    size: AGNES_VIDEO_SIZES[video.resolution],
-    aspect_ratio: video.aspect_ratio,
-    ...(firstFrame ? { first_frame: firstFrame } : {}),
-    ...(lastFrame ? { last_frame: lastFrame } : {}),
-  }
-}
-
-/** 方舟的 ratio / resolution token 跟我们的档位同名，直接透传，别再加一层映射。 */
-function buildArkVideoBody(
-  model: string,
-  request: HydratedSubmitRequest,
-  video: HydratedVideoRequest,
-): Record<string, unknown> {
-  const frame = (role: string, index: number | undefined): Record<string, unknown>[] => {
-    const url = videoFrame(request, index)
-    return url ? [{ type: 'image_url', image_url: { url }, role }] : []
-  }
-  return {
-    model,
-    content: [
-      { type: 'text', text: request.prompt },
-      ...frame('first_frame', video.first_frame_index),
-      ...frame('last_frame', video.last_frame_index),
-      // 提示词里的「图片 n」按 content 里 image_url 的顺序数，所以参考图保持用户排好的顺序。
-      // 这依赖矩阵里 Seedance 的 withFrames:false：帧与参考图同时出现时，帧会占掉前面的编号。
-      ...videoReferences(request, video).map((url) => ({
-        type: 'image_url',
-        image_url: { url },
-        role: 'reference_image',
-      })),
-    ],
-    ratio: video.aspect_ratio,
-    duration: video.duration_seconds,
-    resolution: video.resolution,
-    watermark: false,
-  }
-}
-
-function buildVeoVideoBody(
-  _model: string,
-  request: HydratedSubmitRequest,
-  video: HydratedVideoRequest,
-): Record<string, unknown> {
-  const firstFrame = videoFrame(request, video.first_frame_index)
-  const image = firstFrame ? inlineDataPart(firstFrame) : undefined
-  if (firstFrame && !image) throw clientError('首帧图片不是合法的数据 URL')
-  return {
-    instances: [{ prompt: request.prompt, ...(image ? { image } : {}) }],
-    parameters: {
-      aspectRatio: video.aspect_ratio,
-      // 上游只认字符串秒数，数字会被拒。
-      durationSeconds: String(video.duration_seconds),
-      resolution: video.resolution,
-      // 上游按模式固定这个值：文生放开，带人像首帧的只允许成人。
-      personGeneration: image ? 'allow_adult' : 'allow_all',
-    },
-  }
-}
-
-/** 已知错误码换成中文文案；上游英文原文仍完整落 upstream_body。 */
-function asyncFailureMessage(payload: unknown, status: number | null): string {
-  const error = isObject(payload) ? payload.error : null
-  if (isObject(error) && error.code === 'internal_error') return '上游服务异常，请稍后重试'
-  return extractErrorMessage(payload, status ?? 502)
-}
-
-/** 上游任务终态失败 → 复用 HTTP 失败的错误形状，retry.ts 与 admin 才认得出来。 */
-function asyncTaskFailure(status: number | null, payload: unknown): Error {
-  const err = new Error(asyncFailureMessage(payload, status)) as Error & {
-    upstreamStatus?: number
-    upstreamPayload: unknown
-  }
-  if (status !== null) err.upstreamStatus = status
-  err.upstreamPayload = payload
-  return err
-}
-
 async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
@@ -1006,464 +581,11 @@ async function fanOutRequests(
   return merge(await Promise.all(Array.from({ length: count }, run)))
 }
 
-function mergeGeminiCandidateResults(results: UpstreamCallResult[]): UpstreamCallResult {
-  return {
-    payload: {
-      candidates: results.flatMap((result) => {
-        const payload = result.payload as { candidates?: unknown[] } | null
-        return Array.isArray(payload?.candidates) ? payload.candidates : []
-      }),
-    },
-  }
-}
-
-function mergeOpenAIDataResults(results: UpstreamCallResult[]): UpstreamCallResult {
-  const first = results[0]?.payload
-  const firstPayload =
-    first && typeof first === 'object' && !Array.isArray(first)
-      ? (first as Record<string, unknown>)
-      : {}
-  return {
-    payload: {
-      ...firstPayload,
-      data: results.flatMap((result) => {
-        const payload = result.payload as { data?: unknown[] } | null
-        return Array.isArray(payload?.data) ? payload.data : []
-      }),
-    },
-  }
-}
-
-/** fan-out 的单次请求体用：去掉 n，让上游按默认的一张返回。 */
-function withoutImageCount(request: HydratedSubmitRequest): HydratedSubmitRequest {
-  const { n: _n, ...singleRequest } = request
-  return singleRequest
-}
-
-/**
- * Grok 网关对请求体里的 moderation 一律 403 `Request blocked by upstream content policy`，
- * 与内容是否违规无关。前端 chip 隐藏后 params.moderation 仍保留默认值并照发，
- * 这里是唯一的拦截点。extra 也要清：它最后 spread 进 body，绕过顶层字段。
- */
-function withoutModeration(request: HydratedSubmitRequest): HydratedSubmitRequest {
-  const { moderation: _moderation, ...rest } = request
-  if (!rest.extra || !('moderation' in rest.extra)) return rest
-  const { moderation: _fromExtra, ...extra } = rest.extra
-  return { ...rest, extra }
-}
-
-/**
- * 把 fan-out 的多次单图响应合并成一个 OpenAI 风格 payload。
- * 只保留 data；单次响应的顶层字段（created / usage / size / quality / output_format）丢弃，
- * 即 fan-out 结果没有 extractImages 的 actual_params。
- */
-function mergeOpenAIImageResults(results: readonly UpstreamCallResult[]): UpstreamCallResult {
-  return {
-    payload: {
-      data: results.flatMap((result) => {
-        const payload = result.payload as { data?: unknown[] } | null
-        return Array.isArray(payload?.data) ? payload.data : []
-      }),
-    },
-  }
-}
-
-/**
- * Agnes 风格（agnes-generations-json）请求体：文生图与图生图同一端点同一 JSON 体，
- * 输入图放 extra_body.image（实测 top-level image 会被上游静默忽略）。
- * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
- * 新增的 OpenAI / Gemini 参数也不传，避免上游拒绝或静默忽略未知字段。
- */
-function buildAgnesGenerationsBody(
-  model: string,
-  request: HydratedSubmitRequest,
-): Record<string, unknown> {
-  const { extra_body: extraBody, ...extraTop } = (request.extra ?? {}) as {
-    extra_body?: Record<string, unknown>
-    [k: string]: unknown
-  }
-  const mergedExtraBody: Record<string, unknown> = { ...(extraBody ?? {}) }
-  if (request.input_images?.length) mergedExtraBody.image = request.input_images
-  return {
-    model,
-    prompt: request.prompt,
-    ...(request.size ? { size: request.size } : {}),
-    ...extraTop,
-    ...(Object.keys(mergedExtraBody).length ? { extra_body: mergedExtraBody } : {}),
-  }
-}
-
-function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
-  return {
-    model,
-    prompt: request.prompt,
-    ...(request.size ? { size: request.size } : {}),
-    ...(request.quality ? { quality: request.quality } : {}),
-    ...(request.output_format ? { output_format: request.output_format } : {}),
-    ...(request.moderation ? { moderation: request.moderation } : {}),
-    ...(request.output_compression != null
-      ? { output_compression: request.output_compression }
-      : {}),
-    ...(request.n ? { n: request.n } : {}),
-    ...(request.extra ?? {}),
-  }
-}
-
-/** 按 id 前缀认 GPT Image 家族：网关给的别名不带这个前缀就静默走回原 Images 协议。 */
-function isGptImageModel(model: string): boolean {
-  return model.startsWith('gpt-image-')
-}
-
-const GROK_IMAGINE_2_MODEL_ID = 'grok-imagine-image-2.0'
-const GROK_IMAGINE_2_MAX_INPUTS = 5
-
-function isGrokImagine2(model: string): boolean {
-  return model === GROK_IMAGINE_2_MODEL_ID
-}
-
-/** xAI 2.0 官方比例。OpenAI WxH 归到最近的一档。 */
-const GROK_ASPECT_RATIOS: ReadonlyArray<{ label: string; value: number }> = [
-  { label: '1:1', value: 1 },
-  { label: '16:9', value: 16 / 9 },
-  { label: '9:16', value: 9 / 16 },
-  { label: '4:3', value: 4 / 3 },
-  { label: '3:4', value: 3 / 4 },
-  { label: '3:2', value: 3 / 2 },
-  { label: '2:3', value: 2 / 3 },
-  { label: '2:1', value: 2 },
-  { label: '1:2', value: 1 / 2 },
-  { label: '19.5:9', value: 19.5 / 9 },
-  { label: '9:19.5', value: 9 / 19.5 },
-  { label: '20:9', value: 20 / 9 },
-  { label: '9:20', value: 9 / 20 },
-  { label: '21:9', value: 21 / 9 },
-  { label: '5:2', value: 5 / 2 },
-]
-
-/** 前端比例选择器落盘的 1K 预设 → 精确比例，避免 1280x544 被算成 5:2。 */
-const GROK_SIZE_TO_ASPECT: Readonly<Record<string, string>> = {
-  '1024x1024': '1:1',
-  '1536x1024': '3:2',
-  '1024x1536': '2:3',
-  '1280x720': '16:9',
-  '720x1280': '9:16',
-  '1024x768': '4:3',
-  '768x1024': '3:4',
-  '1280x544': '21:9',
-}
-
-function grokAspectRatioFromSize(size: string | undefined): string | undefined {
-  if (!size) return undefined
-  const trimmed = size.trim()
-  if (!trimmed || trimmed.toLowerCase() === 'auto') return undefined
-  if (GROK_ASPECT_RATIOS.some((ratio) => ratio.label === trimmed)) return trimmed
-  const normalized = trimmed.toLowerCase().replace(/×/g, 'x').replace(/\s+/g, '')
-  const exact = GROK_SIZE_TO_ASPECT[normalized]
-  if (exact) return exact
-  const match = trimmed.match(/^(\d+)\s*[xX×]\s*(\d+)$/)
-  if (!match) return undefined
-  const width = Number(match[1])
-  const height = Number(match[2])
-  if (!width || !height) return undefined
-  const ratio = width / height
-  let best = GROK_ASPECT_RATIOS[0]!
-  let bestDelta = Number.POSITIVE_INFINITY
-  for (const candidate of GROK_ASPECT_RATIOS) {
-    const delta = Math.abs(Math.log(ratio) - Math.log(candidate.value))
-    if (delta < bestDelta) {
-      best = candidate
-      bestDelta = delta
-    }
-  }
-  return best.label
-}
-
-/** xAI 2.0 没有 high：high 落到 medium + 2k。 */
-function grok2QualityFromOpenAI(quality: string | undefined): {
-  quality?: 'low' | 'medium'
-  resolution?: '1k' | '2k'
-} {
-  if (!quality || quality === 'auto') return {}
-  if (quality === 'low') return { quality: 'low', resolution: '1k' }
-  if (quality === 'medium') return { quality: 'medium', resolution: '1k' }
-  if (quality === 'high') return { quality: 'medium', resolution: '2k' }
-  return {}
-}
-
-const GROK2_STRIPPED_EXTRA_KEYS = new Set([
-  'n',
-  'size',
-  'quality',
-  'output_format',
-  'output_compression',
-  'moderation',
-  'aspect_ratio',
-  'resolution',
-])
-
-function buildGrokImagine2Body(
-  model: string,
-  request: HydratedSubmitRequest,
-): Record<string, unknown> {
-  const extra: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(request.extra ?? {})) {
-    if (GROK2_STRIPPED_EXTRA_KEYS.has(key) || value == null) continue
-    extra[key] = value
-  }
-  const aspectRatio = grokAspectRatioFromSize(request.size)
-  const mapped = grok2QualityFromOpenAI(request.quality)
-  return {
-    model,
-    prompt: request.prompt,
-    ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
-    ...(mapped.quality ? { quality: mapped.quality } : {}),
-    ...(mapped.resolution ? { resolution: mapped.resolution } : {}),
-    ...extra,
-  }
-}
-
-function buildGrokEditBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
-  // n 由上层 fan-out 承担；extra 最后 spread 进 body，所以 extra.n 也要一起剥。
-  const grok2 = isGrokImagine2(model)
-  const { n: _n, ...body } = grok2
-    ? buildGrokImagine2Body(model, request)
-    : buildOpenAIBody(model, request)
-  const images = (request.input_images ?? []).map((url) => ({ type: 'image_url' as const, url }))
-  if (grok2 && images.length > 1) return { ...body, images }
-  const image = images[0]
-  return {
-    ...body,
-    ...(image ? { image } : {}),
-    ...(!grok2 && request.mask ? { mask: { type: 'image_url', url: request.mask } } : {}),
-  }
-}
-
-/** 挂 upstreamStatus=400 → retry.ts 判为永久失败，不浪费 3 次重试。 */
-function clientError(message: string): Error {
-  const err = new Error(message) as Error & { upstreamStatus: number }
-  err.upstreamStatus = 400
-  return err
-}
-
-function grokClientError(message: string): never {
-  throw clientError(message)
-}
-
-function normalizeGrokImagine2EditInputs(request: HydratedSubmitRequest): HydratedSubmitRequest {
-  const inputImages = request.input_images ?? []
-  if (inputImages.length > GROK_IMAGINE_2_MAX_INPUTS) {
-    grokClientError(
-      `Grok Imagine 2.0 最多支持 ${GROK_IMAGINE_2_MAX_INPUTS} 张参考图，当前收到 ${inputImages.length} 张`,
-    )
-  }
-  if (request.mask) {
-    grokClientError('该模型不支持遮罩编辑（上游无 mask 能力），请换 GPT 模型或去掉遮罩')
-  }
-  return request
-}
-
-const GROK_CONTACT_SHEET_MAX_SIDE = 2048
-const GROK_CONTACT_SHEET_MAX_INPUTS = 16
-const GROK_CONTACT_SHEET_GAP = 16
-const GROK_CONTACT_SHEET_LABEL_HEIGHT = 64
-
-/**
- * Grok edits only accept one image. Combine multiple inputs into a numbered contact sheet.
- */
-async function normalizeGrokEditInputs(
-  request: HydratedSubmitRequest,
-  signal: AbortSignal,
-): Promise<HydratedSubmitRequest> {
-  signal.throwIfAborted()
-  const inputImages = request.input_images ?? []
-  if (inputImages.length > GROK_CONTACT_SHEET_MAX_INPUTS) {
-    throw new Error(
-      `Grok contact sheet 最多支持 ${GROK_CONTACT_SHEET_MAX_INPUTS} 张参考图，当前收到 ${inputImages.length} 张`,
-    )
-  }
-  if (inputImages.length > 1 && request.mask) {
-    throw new Error(
-      'Grok 编辑不支持“多张参考图 + 遮罩”：原始遮罩坐标无法映射到 contact sheet，请只保留一张参考图或移除遮罩',
-    )
-  }
-  if (inputImages.length <= 1) return request
-
-  const columns = Math.ceil(Math.sqrt(inputImages.length))
-  const rows = Math.ceil(inputImages.length / columns)
-  const gap = Math.min(
-    GROK_CONTACT_SHEET_GAP,
-    Math.floor(GROK_CONTACT_SHEET_MAX_SIDE / (Math.max(columns, rows) * 8)),
-  )
-  const cellWidth = Math.max(
-    1,
-    Math.floor((GROK_CONTACT_SHEET_MAX_SIDE - gap * (columns - 1)) / columns),
-  )
-  const rowHeight = Math.max(2, Math.floor((GROK_CONTACT_SHEET_MAX_SIDE - gap * (rows - 1)) / rows))
-  const labelHeight = Math.min(
-    GROK_CONTACT_SHEET_LABEL_HEIGHT,
-    Math.max(1, Math.floor(rowHeight / 5)),
-  )
-  const imageSide = Math.max(1, Math.min(cellWidth, rowHeight - labelHeight))
-  const sheetWidth = columns * imageSide + gap * (columns - 1)
-  const sheetHeight = rows * (imageSide + labelHeight) + gap * (rows - 1)
-
-  const tiles: Array<{ image: Buffer; label: Buffer }> = []
-  for (const [index, dataUrl] of inputImages.entries()) {
-    const { bytes } = decodeDataUrl(dataUrl)
-    signal.throwIfAborted()
-    const image = await sharp(bytes)
-      .rotate()
-      .resize(imageSide, imageSide, {
-        fit: 'contain',
-        background: { r: 245, g: 245, b: 245, alpha: 1 },
-      })
-      .png()
-      .toBuffer()
-    signal.throwIfAborted()
-    tiles.push({ image, label: buildTileLabelSvg(index, imageSide, labelHeight) })
-  }
-
-  const overlays = tiles.flatMap(({ image, label }, index) => {
-    const column = index % columns
-    const row = Math.floor(index / columns)
-    const left = column * (imageSide + gap)
-    const top = row * (imageSide + labelHeight + gap)
-    return [
-      { input: image, left, top },
-      { input: label, left, top: top + imageSide },
-    ]
-  })
-  signal.throwIfAborted()
-  const sheet = await sharp({
-    create: {
-      width: sheetWidth,
-      height: sheetHeight,
-      channels: 4,
-      background: { r: 255, g: 255, b: 255, alpha: 1 },
-    },
-  })
-    .composite(overlays)
-    .png()
-    .toBuffer()
-  signal.throwIfAborted()
-
-  return {
-    ...request,
-    input_images: [`data:image/png;base64,${sheet.toString('base64')}`],
-  }
-}
-
-function buildTileLabelSvg(index: number, width: number, height: number): Buffer {
-  const fontSize = Math.max(12, Math.min(28, Math.floor(height * 0.44)))
-  return Buffer.from(
-    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
-      '<rect width="100%" height="100%" fill="#111827"/>' +
-      '<text x="24" y="50%" dy="0.35em" fill="#ffffff" font-family="sans-serif" ' +
-      `font-size="${fontSize}" font-weight="700">Image ${index + 1}</text>` +
-      '</svg>',
-  )
-}
-
-interface OpenAIEditFiles {
-  inputs: File[]
-  mask?: File
-}
-
-function prepareOpenAIEditFiles(request: HydratedSubmitRequest): OpenAIEditFiles {
-  return {
-    inputs: (request.input_images ?? []).map((dataUrl) => dataUrlToFile(dataUrl, 'image.png')),
-    ...(request.mask ? { mask: dataUrlToFile(request.mask, 'mask.png') } : {}),
-  }
-}
-
-function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
-  const files = prepareOpenAIEditFiles(request)
-  const form = new FormData()
-  form.append('model', model)
-  form.append('prompt', request.prompt)
-  if (request.size) form.append('size', request.size)
-  if (request.quality) form.append('quality', request.quality)
-  if (request.output_format) form.append('output_format', request.output_format)
-  if (request.moderation) form.append('moderation', request.moderation)
-  if (request.output_compression != null) {
-    form.append('output_compression', String(request.output_compression))
-  }
-  for (const input of files.inputs) form.append('image[]', input)
-  if (files.mask) form.append('mask', files.mask)
-  // edits 不接受 n；数量由本地 fan-out 实现。其余 extra 标量字段原样透传。
-  for (const [k, v] of Object.entries(request.extra ?? {})) {
-    if (k === 'n' || v == null) continue
-    form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
-  }
-  return form
-}
-
-function dataUrlToFile(dataUrl: string, filename: string): File {
-  const { mime, bytes } = decodeDataUrl(dataUrl)
-  return new File([Buffer.from(bytes)], filename, { type: mime })
-}
-
-const DATA_URL_PATTERN = /^data:([^;,]+);base64,(.*)$/i
-
-function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
-  const m = dataUrl.match(DATA_URL_PATTERN)
-  if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
-  const mime = m[1]!
-  const bin = atob(m[2]!)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return { mime, bytes }
-}
-
 /** Google 直连认自己的 key 头；其余上游都是 Bearer。 */
 function upstreamAuthHeader(style: ChannelRouteStyle, key: string): Record<string, string> {
   if (!key) return {}
   return style === 'veo-videos' ? { 'x-goog-api-key': key } : { authorization: `Bearer ${key}` }
 }
-
-/** Google 家的图片入参形状；不是 data URL 返回 undefined，由调用方决定跳过还是报错。 */
-function inlineDataPart(
-  dataUrl: string,
-): { inlineData: { mimeType: string; data: string } } | undefined {
-  const m = dataUrl.match(DATA_URL_PATTERN)
-  return m ? { inlineData: { mimeType: m[1]!, data: m[2]! } } : undefined
-}
-
-function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
-  const parts: Array<Record<string, unknown>> = [{ text: request.prompt }]
-  for (const dataUrl of request.input_images ?? []) {
-    const part = inlineDataPart(dataUrl)
-    if (part) parts.push(part)
-  }
-
-  const { generationConfig: extraGenerationConfig, ...extraTopLevel } = (request.extra ?? {}) as {
-    generationConfig?: Record<string, unknown>
-    [key: string]: unknown
-  }
-  const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] }
-  if (request.aspect_ratio || request.image_size) {
-    generationConfig.imageConfig = {
-      ...(request.aspect_ratio ? { aspectRatio: request.aspect_ratio } : {}),
-      ...(request.image_size ? { imageSize: request.image_size } : {}),
-    }
-  }
-  if (request.thinking_level) {
-    generationConfig.thinkingConfig = { thinkingLevel: request.thinking_level }
-  }
-
-  return {
-    contents: [{ role: 'user', parts }],
-    // extra.generationConfig 放最后：调用方显式给的配置压过这里从扁平参数推导的默认值。
-    generationConfig: { ...generationConfig, ...extraGenerationConfig },
-    ...extraTopLevel,
-  }
-}
-
-/**
- * 非 2xx 时上游响应体的截断上限，避免上游回 base64 巨长串吞内存。log preview 与
- * 落库的 tasks.upstream_body 共用同一上限，两处看到的内容一致。
- */
-const UPSTREAM_ERROR_BODY_MAX_CHARS = 2000
 
 async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCallResult> {
   const text = await res.text()
@@ -1495,41 +617,10 @@ async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCal
   return { payload }
 }
 
-/** 上游错误响应体转可存储字符串（截断）。空体返回 null，避免落库一个空串。 */
-function stringifyUpstreamPayload(payload: unknown): string | null {
-  if (payload === null || payload === undefined) return null
-  const text = typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
-  if (!text) return null
-  return text.slice(0, UPSTREAM_ERROR_BODY_MAX_CHARS)
-}
-
-/**
- * 从 catch 到的错误里抽上游诊断信息，供 task-runner 落库、admin 直接展示。
- * 两个字段互相独立：异步任务终态失败有 body 没有 HTTP status，别再把 body 挂到 status 上。
- */
-export function extractUpstreamFailure(err: unknown): {
-  status: number | null
-  body: string | null
-} {
-  if (!isObject(err)) return { status: null, body: null }
-  const status = err.upstreamStatus
-  return {
-    status: typeof status === 'number' ? status : null,
-    body: stringifyUpstreamPayload(err.upstreamPayload),
-  }
-}
-
-function extractErrorMessage(payload: unknown, status: number): string {
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>
-    const errObj = obj.error as { message?: string } | string | undefined
-    if (typeof errObj === 'object' && typeof errObj?.message === 'string') return errObj.message
-    if (typeof errObj === 'string') return errObj
-    if (typeof obj.message === 'string') return obj.message
-    if (typeof obj.detail === 'string') return obj.detail
-  }
-  if (typeof payload === 'string' && payload.trim()) {
-    return payload.length > 500 ? `${payload.slice(0, 500)}…` : payload
-  }
-  return `Upstream HTTP ${status}`
-}
+export {
+  extractUpstreamFailure,
+  UpstreamPartialResultError,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} from './upstream/errors'
+export type { UpstreamCallResult } from './upstream/shared'
