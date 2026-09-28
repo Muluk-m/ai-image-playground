@@ -16,9 +16,7 @@ export default function CreateTargetSwitch() {
     },
     {
       id: 'canvas',
-      label: isClientCapabilityEnabled('agent:chat')
-        ? t('createTarget.canvas')
-        : t('mode.canvas'),
+      label: isClientCapabilityEnabled('agent:chat') ? t('createTarget.canvas') : t('mode.canvas'),
       icon: (
         <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
           <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.4" />
