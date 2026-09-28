@@ -9,6 +9,7 @@ import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
+import { withRequestContext } from './lib/request-context'
 
 // 与 Cloudflare 的请求体上限对齐：生产流量经它进来，超过的本来就到不了这里；直连源站时
 // 也不该放进更大的。前端提交前会把参考图压到长边 2048，正常一次远小于这个数。
@@ -136,25 +137,25 @@ if (config.corsOrigins === '*') {
   )
 }
 
-app.listen(
+// 不用 app.listen：每个请求要先套上 request id 的上下文，日志才能按请求串起来。
+const server = Bun.serve({
+  port: config.port,
+  idleTimeout: SERVER_IDLE_TIMEOUT_SEC,
+  maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
+  fetch: withRequestContext((request) => app.fetch(request)),
+})
+// 路由靠 context.server 取对端地址（requestIP）做限流，自己起的 server 要交给 Elysia。
+app.server = server
+log.info(
   {
-    port: config.port,
-    idleTimeout: SERVER_IDLE_TIMEOUT_SEC,
-    maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
+    event: 'listen',
+    port: server.port,
+    upstream: config.upstream.baseUrl,
+    corsOrigins: config.corsOrigins,
+    staticDir: config.staticDir,
+    accountsLoginEnabled,
   },
-  () => {
-    log.info(
-      {
-        event: 'listen',
-        port: config.port,
-        upstream: config.upstream.baseUrl,
-        corsOrigins: config.corsOrigins,
-        staticDir: config.staticDir,
-        accountsLoginEnabled,
-      },
-      'bff listening',
-    )
-  },
+  'bff listening',
 )
 
 // 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
@@ -208,11 +209,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
   clearInterval(apiMinutesTimer)
 
   try {
-    await app.stop?.()
+    await server.stop()
   } catch (err) {
     log.error(
       { event: 'shutdown.stop_failed', err: err instanceof Error ? err.message : String(err) },
-      'app.stop failed',
+      'server.stop failed',
     )
   }
 
