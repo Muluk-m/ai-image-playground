@@ -29,7 +29,10 @@ export default function InspirationEmptyHero() {
     const featured = new Map(
       available.filter((item) => FEATURED_IDS.has(item.id)).map((item) => [item.id, item]),
     )
-    const source = HERO_SEED.map((seed) => featured.get(seed.id) ?? seed)
+    // 有线上清单时只展示已发布案例；种子仅用于离线兜底，避免草稿提前出现在首页。
+    const source = available.length
+      ? HERO_SEED.flatMap((seed) => featured.get(seed.id) ?? [])
+      : HERO_SEED
     setItems(rotateHeroItems(source))
   }, [available, status])
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
@@ -80,7 +83,12 @@ export default function InspirationEmptyHero() {
                 item={item}
                 pinned={pinnedIds.includes(item.id)}
                 onClick={() => {
-                  useInspirationStore.getState().showDetail(item.id)
+                  const inspiration = useInspirationStore.getState()
+                  // 离线种子不在远端清单里时，仍要能打开完整详情。
+                  if (!inspiration.items.some((candidate) => candidate.id === item.id)) {
+                    inspiration.setRemoteItems([...inspiration.items, item])
+                  }
+                  inspiration.showDetail(item.id)
                   openInspiration()
                 }}
               />
