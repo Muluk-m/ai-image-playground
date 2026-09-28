@@ -13,7 +13,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
  * 3. ESC 栈 —— useCloseOnEscape，一次只关最顶层
  * 4. backdrop 关闭 —— pointerdown-guard：pointerdown 必须落在表面上，click 才关闭（防划词误关）；
  *    backdrop 必须 pointer-events-none，否则它盖在表面之上、命中的是 backdrop 而非表面，永不关闭
- * 5. z 层三档 —— modal(50) / raised(100) / alert(110)
+ * 5. z 层：modal(50) / raised(100) / alert(110) / artifact(1200)
  * 6. 打开任意 Overlay 时统一收起 Tooltip —— 定位型浮层不得越过模态 backdrop
  *
  * 定位型浮层（Tooltip、Select 下拉、拖拽预览）不属于这里。
@@ -22,6 +22,7 @@ const TIER_CLASS = {
   modal: 'z-50',
   raised: 'z-[100]',
   alert: 'z-[110]',
+  artifact: 'z-[1200]',
 } as const
 
 type OverlayTier = keyof typeof TIER_CLASS

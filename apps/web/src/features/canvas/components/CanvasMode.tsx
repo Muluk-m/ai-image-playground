@@ -21,7 +21,6 @@ import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
-import { useInpaintSession } from '../inpaintStore'
 import {
   backToCurrentProject,
   currentCanvasWorkspace,
@@ -35,7 +34,6 @@ import { projectExperience } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import { useCanvasProjectStore } from '../projectStore'
-import { useRectEdit } from '../rectEditStore'
 import CanvasBatchBar from './CanvasBatchBar'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasImageToolbar from './CanvasImageToolbar'
@@ -118,19 +116,6 @@ function CanvasLoading({ label }: { label: string }) {
   )
 }
 
-type ArtifactEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
-let pendingArtifactEdit: { action: ArtifactEditAction; before: Set<string> } | null = null
-
-function openArtifactEdit(editor: CanvasEditor, id: string, action: ArtifactEditAction): void {
-  const element = editor.doc.getElement(id)
-  if (element?.type !== 'image' || element.video) return
-  editor.doc.setTool('select')
-  editor.doc.setSelection([id])
-  editor.scrollToElements([id])
-  if (action === 'inpaint' || action === 'erase') useInpaintSession.getState().open(id, action)
-  else useRectEdit.getState().open(action, id, { x: 0, y: 0, w: element.width, h: element.height })
-}
-
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const mobile = useMobileWorkspace()
@@ -149,7 +134,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
-  const [handoffAction, setHandoffAction] = useState<ArtifactEditAction | null>(null)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
@@ -253,12 +237,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         ? await useAgentStore.getState().selectProject(targetId)
         : await useAgentStore.getState().createProject(undefined, false, 'canvas', project?.id)
       if (!opened) return false
-      if (handoffAction) {
-        pendingArtifactEdit = {
-          action: handoffAction,
-          before: new Set(currentCanvasWorkspace().doc.elements.map((one) => one.id)),
-        }
-      }
       const groupId = selected.length > 1 ? crypto.randomUUID() : undefined
       useStore
         .getState()
@@ -269,18 +247,15 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         )
       setSelectedResultId(null)
       setHandoffIds(null)
-      setHandoffAction(null)
       setProjectView('canvas')
       return true
     } catch {
-      pendingArtifactEdit = null
       return false
     }
   }
-  const openCanvas = (selectedIds?: readonly string[], action?: ArtifactEditAction) => {
+  const openCanvas = (selectedIds?: readonly string[]) => {
     if (projectView === 'chat' && (!project || projectExperience(project) === 'chat')) {
       setHandoffIds(selectedIds ?? [])
-      setHandoffAction(action ?? null)
       return
     }
     setProjectView('canvas')
@@ -306,13 +281,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             .placeOnCanvas(owner.id)
             .then(() => {
               focus()
-              if (action)
-                requestAnimationFrame(() => openArtifactEdit(editor, selectedIds[0]!, action))
             })
         else focus()
       }
-      if (action && selectedIds.every((id) => agentCanvasSink()?.has(id)))
-        requestAnimationFrame(() => openArtifactEdit(editor, selectedIds[0]!, action))
       return
     }
   }
@@ -372,21 +343,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   useEffect(() => {
     if (pendingImages > 0) workspace.placePendingImages()
   }, [workspace, loading, loadFailed, pendingImages])
-  useEffect(() => {
-    if (!pendingArtifactEdit) return
-    const locate = () => {
-      const pending = pendingArtifactEdit
-      if (!pending) return
-      const added = doc.elements.find((one) => one.type === 'image' && !pending.before.has(one.id))
-      if (!added) return
-      pendingArtifactEdit = null
-      requestAnimationFrame(() => openArtifactEdit(editor, added.id, pending.action))
-    }
-    const unsubscribe = doc.subscribe(locate)
-    locate()
-    return unsubscribe
-  }, [doc, editor, pendingImages])
-
   return (
     <div
       className="studio-shell fixed bottom-0 right-0 z-30"
@@ -599,7 +555,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 onChoose={completeHandoff}
                 onClose={() => {
                   setHandoffIds(null)
-                  setHandoffAction(null)
                 }}
               />
             )}
