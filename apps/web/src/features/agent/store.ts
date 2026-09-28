@@ -19,6 +19,10 @@ import {
   PROJECT_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { create } from 'zustand'
+import {
+  isConversationAdoptionPending,
+  waitForConversationAdoption,
+} from '../../auth/conversationAdoption'
 import { requireAccount } from '../../auth/loginPrompt'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -698,15 +702,32 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     })
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let state: AgentConversationState
+    let adoptionConfirmed = true
+    const adoptionPendingOnRead = isConversationAdoptionPending()
     try {
-      state = await fetchMessages(conversationId)
+      try {
+        state = await fetchMessages(conversationId)
+      } catch (firstError) {
+        if (!isCurrent()) return
+        const missingDuringAdoption =
+          firstError instanceof AgentRequestError &&
+          (firstError.status === 404 || firstError.status === 403)
+        if (!missingDuringAdoption) throw firstError
+        adoptionConfirmed = await waitForConversationAdoption()
+        if (!isCurrent()) return
+        // 请求可能早于认领开始，响应却晚于认领成功；再读一次才能确认真的不存在。
+        if (!adoptionPendingOnRead || !adoptionConfirmed) throw firstError
+        state = await fetchMessages(conversationId)
+      }
       if (!isCurrent()) return
     } catch (thrown) {
       if (!isCurrent()) return
       // 只有服务端明说「没有」或「不是你的」才忘掉会话：其它失败（旧 bundle 打新服务端的 400、
       // 5xx、断网）里会话还在，忘掉它等于把用户的历史无声弄丢，报错让用户知道是读不到。
       const gone =
-        thrown instanceof AgentRequestError && (thrown.status === 404 || thrown.status === 403)
+        adoptionConfirmed &&
+        thrown instanceof AgentRequestError &&
+        (thrown.status === 404 || thrown.status === 403)
       if (!gone) set({ historyLoading: false, historyFailed: true })
       const project = currentCanvasProject()
       if (gone && project?.conversationId === conversationId) {
@@ -980,6 +1001,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   const currentTurnRunning = () => get().turn === 'running'
 
   let conversationListRevision = 0
+  let conversationListRequest = 0
   let changingProject = false
   const changeProject = async (action: () => Promise<boolean>) => {
     if (changingProject) return false
@@ -1134,14 +1156,23 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
     async refreshConversations() {
       const revision = conversationListRevision
+      const request = ++conversationListRequest
       try {
         const conversations = await fetchConversations()
-        if (changingProject || revision !== conversationListRevision) return
+        if (
+          changingProject ||
+          revision !== conversationListRevision ||
+          request !== conversationListRequest
+        )
+          return
         set({ conversations })
         if (useCanvasProjectStore.getState().loaded)
           await importConversationProjects(
             conversations,
-            () => !changingProject && revision === conversationListRevision,
+            () =>
+              !changingProject &&
+              revision === conversationListRevision &&
+              request === conversationListRequest,
           )
       } catch {
         // 列表读不回来不该拖垮面板，留着上一份。

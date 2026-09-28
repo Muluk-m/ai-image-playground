@@ -156,6 +156,43 @@ describe('connection recovery', () => {
   }, 7000)
 })
 
+describe('conversation adoption during startup', () => {
+  it('opens the workspace while server adoption is still pending', async () => {
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    let finishAdoption!: (response: Response) => void
+    const adoption = new Promise<Response>((resolve) => {
+      finishAdoption = resolve
+    })
+    fetchMock.mockImplementation(async (...args) => {
+      const path = new URL(String(args[0]), 'https://bff.example.com').pathname
+      if (path === '/api/capabilities')
+        return Response.json({
+          ...allCapabilitiesOff(),
+          'accounts:login': true,
+          'agent:chat': true,
+        })
+      if (path === '/api/agent/conversations/adopt') return adoption
+      return original(...args)
+    })
+
+    try {
+      await boot(false)
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).endsWith('/conversations/adopt')),
+      ).toBe(true)
+      expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+      const { useAgentStore } = await import('../../features/agent/store')
+      const refreshConversations = vi.fn(async () => undefined)
+      useAgentStore.setState({ loaded: true, refreshConversations })
+      await act(async () => finishAdoption(Response.json({ adopted: 1 })))
+      expect(refreshConversations).toHaveBeenCalledOnce()
+    } finally {
+      finishAdoption(Response.json({ adopted: 0 }))
+    }
+  })
+})
+
 describe('anonymous startup', () => {
   /** 401 的 /api/auth/me 不再是拦路虎：访客照样进工作台，channel 清单也照拉。 */
   async function bootAnonymously(): Promise<void> {
