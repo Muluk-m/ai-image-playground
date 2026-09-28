@@ -10,9 +10,16 @@ import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
 import { useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
-import { type MaskStroke, pageToMaskPixel, renderMask } from '../lib/inpaintMask'
+import { type MaskStroke, type Point, pageToMaskPixel, renderMask } from '../lib/inpaintMask'
 
 const SELECTION_COLOR = 'rgba(21, 156, 246, 0.34)'
+
+function extendStroke(stroke: MaskStroke, point: Point): MaskStroke {
+  if (stroke.shape === 'rect') return { ...stroke, points: [stroke.points[0]!, point] }
+  const last = stroke.points[stroke.points.length - 1]
+  if (last?.x === point.x && last.y === point.y) return stroke
+  return { ...stroke, points: [...stroke.points, point] }
+}
 
 /**
  * 局部重绘的就地涂抹层：盖在被选中那张图上，收走指针自己画，其余画布照常缩放平移。
@@ -111,11 +118,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           if (!current) return
           const point = pagePoint(event)
           if (!point) return
-          const next = {
-            ...current,
-            points:
-              current.shape === 'rect' ? [current.points[0]!, point] : [...current.points, point],
-          }
+          const next = extendStroke(current, point)
           drawingRef.current = next
           setLive(next)
         }}
@@ -123,16 +126,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           const current = drawingRef.current
           const point = pagePoint(event)
           if (current && point) {
-            const last = current.points[current.points.length - 1]
-            drawingRef.current = {
-              ...current,
-              points:
-                current.shape === 'rect'
-                  ? [current.points[0]!, point]
-                  : last?.x === point.x && last.y === point.y
-                    ? current.points
-                    : [...current.points, point],
-            }
+            drawingRef.current = extendStroke(current, point)
           }
           const completed = drawingRef.current
           if (completed?.shape === 'rect' && image) {
