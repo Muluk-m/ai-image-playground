@@ -34,7 +34,6 @@ import CanvasVideoOverlay from './CanvasVideoOverlay'
 import CanvasVideoToolbar from './CanvasVideoToolbar'
 import FilmExportStatus from './FilmExportStatus'
 import InpaintMaskLayer from './InpaintMaskLayer'
-import InpaintPanel from './InpaintPanel'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import ProjectWelcome from './ProjectWelcome'
@@ -296,7 +295,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             <CanvasImageToolbar editor={editor} />
             <InpaintMaskLayer editor={editor} />
             <CanvasRectEditLayer editor={editor} />
-            <InpaintPanel editor={editor} />
             <TimelineEditorHost editor={editor} />
             <FilmExportStatus />
             <CanvasToolbar

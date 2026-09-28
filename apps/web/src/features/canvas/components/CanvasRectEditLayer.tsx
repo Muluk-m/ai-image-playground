@@ -1,18 +1,6 @@
-import {
-  type PointerEvent as ReactPointerEvent,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react'
-import { OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
-import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { type PointerEvent as ReactPointerEvent, useRef, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
-import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
-import { useStore } from '../../../store'
-import { applyCanvasCrop, outpaintRectRefusal, submitCanvasOutpaint } from '../lib/canvasImageEdits'
 import type { CanvasEditor } from '../lib/editor'
-import { canvasImageDimensions } from '../lib/imageInfo'
 import {
   applyHandleDrag,
   localToPage,
@@ -20,7 +8,6 @@ import {
   type RectHandle,
 } from '../lib/imageRectEdit'
 import { useRectEdit } from '../rectEditStore'
-import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 
 const HANDLES: readonly RectHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
@@ -37,39 +24,29 @@ const HANDLE_POSITION: Record<RectHandle, { left: string; top: string; cursor: s
 }
 
 /**
- * 裁切与扩图共用的拖拽框。两者的交互是同一个：在图上（或图外）拉一个矩形再确认，
- * 只有夹取方向和确认后干什么不一样，所以是一个组件带一个 mode，而不是两份几乎一样的代码。
+ * 裁切与扩图共用的拖拽框。它只收集视觉区域，确认与 Agent 请求在图片快捷菜单中完成。
  *
  * 框存在 `useRectEdit` 里不进 CanvasDoc：doc 的快照就是 undo 栈，
  * 把拖动中间态写进去，一次 ⌘Z 只会撤掉上一帧拖动。
  */
 export default function CanvasRectEditLayer({ editor }: { editor: CanvasEditor }) {
-  const { t } = useTranslation(['canvas', 'common'])
+  const { t } = useTranslation('canvas')
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const session = useRectEdit()
-  const settings = useStore((state) => state.settings)
-  const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{
     handle: RectHandle
     startX: number
     startY: number
     base: typeof session.rect
   } | null>(null)
-  const [prompt, setPrompt] = useState('')
-  const guard = usePrivateSubmissionGuard({
-    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
-    quantity: 1,
-  })
 
   const element = session.imageId ? editor.getElement(session.imageId) : undefined
   const image = element?.type === 'image' ? element : null
   if (!session.mode || !image) return null
 
-  const natural = canvasImageDimensions(image, editor.doc)
   const { camera } = editor.doc
   const origin = localToPage(image, { x: session.rect.x, y: session.rect.y })
   const outpaint = session.mode === 'outpaint'
-  const refusal = outpaint ? outpaintRectRefusal(image, session.rect, natural) : null
 
   const onHandleDown = (handle: RectHandle) => (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -101,24 +78,8 @@ export default function CanvasRectEditLayer({ editor }: { editor: CanvasEditor }
     )
   }
 
-  const confirm = async () => {
-    if (!natural || session.submitting) return
-    session.setSubmitting(true)
-    try {
-      const done = outpaint
-        ? await submitCanvasOutpaint(editor, image, session.rect, natural, prompt)
-        : await applyCanvasCrop(editor, image, session.rect, natural)
-      if (done) {
-        setPrompt('')
-        session.close()
-      }
-    } finally {
-      session.setSubmitting(false)
-    }
-  }
-
   return (
-    <div ref={containerRef} className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+    <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
       {/* 裁切时把框外压暗：9999px 的外扩阴影被图片自身的裁剪容器切住，正好只暗到图边。 */}
       {!outpaint && (
         <div
@@ -184,42 +145,6 @@ export default function CanvasRectEditLayer({ editor }: { editor: CanvasEditor }
             />
           )
         })}
-      </div>
-
-      <div
-        role="dialog"
-        aria-label={t(outpaint ? 'outpaint.title' : 'crop.title')}
-        className="pointer-events-auto absolute bottom-4 left-1/2 flex w-[min(30rem,calc(100%-6rem))] -translate-x-1/2 flex-col gap-2 rounded-2xl border border-border bg-card/95 p-3 shadow-2xl backdrop-blur"
-        onPointerDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-      >
-        <h3 className={PANEL_TITLE}>{t(outpaint ? 'outpaint.title' : 'crop.title')}</h3>
-        {outpaint && (
-          <input
-            value={prompt}
-            aria-label={t('outpaint.promptAria')}
-            placeholder={t('outpaint.promptPlaceholder')}
-            className={CANVAS_PANEL_FIELD}
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-        )}
-        {refusal && <p className="text-[11px] text-muted-foreground">{refusal}</p>}
-        {outpaint && (
-          <SubmissionBillingAction blockedAction={guard.blockedAction} className="text-[11px]" />
-        )}
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className={OUTLINE_BUTTON} onClick={session.close}>
-            {t('common:action.cancel')}
-          </button>
-          <button
-            type="button"
-            disabled={session.submitting || Boolean(refusal) || !natural}
-            className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
-            onClick={() => void confirm()}
-          >
-            {t(outpaint ? 'outpaint.submit' : 'crop.apply')}
-          </button>
-        </div>
       </div>
     </div>
   )

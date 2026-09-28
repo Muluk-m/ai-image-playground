@@ -345,7 +345,11 @@
   "imageToolbar": {
     "aria": "Image actions",
     "more": "More",
-    "sourceMissing": "Image data unavailable"
+    "sourceMissing": "Image data unavailable",
+    "agentUnavailable": "Agent chat is unavailable. Please try again.",
+    "promptPlaceholder": "Tell the Agent how to edit this image",
+    "dragFrame": "Drag the frame edges on the image to set the area to keep or extend",
+    "sendToAgent": "Send to Agent"
   },
   "inpaint": {
     "action": "Smart edit",
@@ -367,7 +371,6 @@
     "paintFirst": "Drag to select an area, or switch to the brush",
     "uploadReference": "Upload image",
     "removeReference": "Remove reference",
-    "submit": "Generate edit",
     "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
     "videoUnsupported": "Videos cannot be inpainted",
     "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
@@ -377,23 +380,18 @@
   },
   "crop": {
     "action": "Crop",
-    "title": "Crop",
-    "apply": "Apply"
+    "title": "Crop"
   },
   "outpaint": {
     "action": "Expand",
     "title": "Expand image",
     "running": "Expanding…",
-    "submit": "Generate",
-    "promptAria": "Expanded area description",
-    "promptPlaceholder": "Optional: what fills the new area, e.g. keep extending the night sky",
     "dragFirst": "Drag an edge outward to expand the frame",
     "tooLarge": "Expanded too far for the model to handle"
   },
   "erase": {
     "action": "Erase",
     "title": "Erase",
-    "submit": "Erase",
     "paintFirst": "Paint over whatever should go away",
     "continueHint": "Keep painting, or finish",
     "running": "Erasing…"
