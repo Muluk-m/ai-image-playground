@@ -14,6 +14,7 @@ import { agentCanvasSink } from '../../agent/lib/canvasSink'
 import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
+import type { AgentToolMessage } from '../../agent/types'
 import {
   backToCurrentProject,
   currentCanvasWorkspace,
@@ -142,7 +143,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const latestResult = [...messages]
     .reverse()
     .find(
-      (message) =>
+      (message): message is AgentToolMessage =>
         message.kind === 'tool' &&
         message.status === 'succeeded' &&
         (Boolean(message.artifacts?.length) || Boolean(message.fetchedImages?.length)),
@@ -175,7 +176,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
       !hasAgent ||
       projectView !== 'canvas' ||
       !latestResult ||
-      latestResult.kind !== 'tool' ||
       latestResult.delivery === undefined ||
       latestResult.delivery === 'pending' ||
       focusedResult.current === latestResult.id ||
