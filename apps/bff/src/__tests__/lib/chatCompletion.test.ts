@@ -108,9 +108,9 @@ describe('askChatModel', () => {
       return chatCompletion('{"answer":"好"}')
     })
 
-    expect(
-      await askChatModel({ ...ASK, model: 'claude-opus-5-5' }, parseAnswer),
-    ).toEqual({ answer: '好' })
+    expect(await askChatModel({ ...ASK, model: 'claude-opus-5-5' }, parseAnswer)).toEqual({
+      answer: '好',
+    })
     expect(authorizations).toEqual(['Bearer fixture-claude-key'])
   })
 
