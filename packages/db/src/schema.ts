@@ -1,4 +1,5 @@
 import type {
+  AgentCanvasSnapshot,
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
@@ -495,6 +496,8 @@ export interface AgentInboxUserMessagePayload {
   readonly referenceCount: number
   /** 对澄清卡片的答复；`kind` 为 `clarification_answer` 的记录才有。 */
   readonly clarificationAnswer?: true
+  /** 发话时浏览器里的画布。缺席即这一轮只认服务端已经同步的那份。 */
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 /**

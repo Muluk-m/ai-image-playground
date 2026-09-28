@@ -50,6 +50,8 @@ export interface StartConversationTurnInput {
   readonly mode?: AgentMode
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
+  /** 发话时浏览器里的画布。 */
+  readonly canvas?: import('@image-playground/shared').AgentCanvasSnapshot
 }
 
 /**
@@ -233,6 +235,7 @@ async function drainOnce(
                 deviceId: next.deviceId,
                 ...(next.mode ? { mode: next.mode } : {}),
                 ...(next.params ? { params: next.params } : {}),
+                ...(next.canvas ? { canvas: next.canvas } : {}),
               },
               turnId,
               assertOwnership,
@@ -453,6 +456,7 @@ async function executeConversationTurn(
         references: input.references,
         ...(input.mode ? { mode: input.mode } : {}),
         ...(input.params ? { params: input.params } : {}),
+        ...(input.canvas ? { canvas: input.canvas } : {}),
       },
       announce: queued.announce,
     },

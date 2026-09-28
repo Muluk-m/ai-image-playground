@@ -1,4 +1,9 @@
-import type { ProjectDocument, ProjectElement } from '@image-playground/shared'
+import type {
+  AgentCanvasLiveElement,
+  AgentCanvasSnapshot,
+  ProjectDocument,
+  ProjectElement,
+} from '@image-playground/shared'
 import { agentTitleLine, projectArtifactId } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Type } from 'typebox'
@@ -7,7 +12,7 @@ import { defineAgentTool } from './adapter'
 import type { AgentToolContext } from './types'
 
 const TITLE_MAX_CHARS = 24
-const DEFAULT_LIMIT = 30
+const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 100
 /** 文字元素整段抄进结果会把一屏便签变成几千字，正文只给够认出是哪一条的长度。 */
 const TEXT_PREVIEW_CHARS = 80
@@ -130,10 +135,63 @@ function describeElement(element: ProjectElement): string {
   }
 }
 
+function matchesLive(element: AgentCanvasLiveElement, keyword: string): boolean {
+  if (element.type === 'text') return (element.text ?? '').toLowerCase().includes(keyword)
+  if (element.type === 'image') {
+    return [element.name, element.prompt, element.section]
+      .filter((part) => part)
+      .join('\n')
+      .toLowerCase()
+      .includes(keyword)
+  }
+  return false
+}
+
+function describeLiveElement(element: AgentCanvasLiveElement): string {
+  const head = `元素 ${element.id}`
+  const where = `位置 (${Math.round(element.x)}, ${Math.round(element.y)})，尺寸 ${Math.round(element.width)}×${Math.round(element.height)}`
+  if (element.type === 'text') {
+    const body = element.text ? `「${element.text}」` : ''
+    return `${head}：文字${body}，${where}`
+  }
+  if (element.type !== 'image') return `${head}：图形，${where}`
+  const image = element
+  const kind = image.video ? '视频（这里给的是封面）' : '图片'
+  const name = image.name ? `「${image.name}」` : '（未命名）'
+  const parts = [`${kind}${name}`]
+  if (image.mediaId) parts.push(`图片 id ${image.mediaId}`)
+  parts.push(where)
+  if (image.groupId) parts.push(`同批 ${image.groupId}`)
+  if (image.createdAt !== undefined) parts.push(`时间 ${image.createdAt}`)
+  if (image.prompt) parts.push(`提示词「${image.prompt}」`)
+  if (image.section) parts.push(`组页签「${image.section}」`)
+  if (image.derivedFrom) parts.push(`从元素 ${image.derivedFrom} 派生`)
+  return `${head}：${parts.join('，')}`
+}
+
+function describeSnapshot(
+  canvas: AgentCanvasSnapshot,
+  params: { query?: string; limit?: number },
+): string {
+  const keyword = params.query?.trim().toLowerCase()
+  const all = canvas.elements
+  const picked = keyword ? all.filter((element) => matchesLive(element, keyword)) : all
+  const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_LIMIT)
+  const shown = picked.slice(0, limit)
+  const head = keyword
+    ? `图片画布（用户此刻看见的，共 ${all.length} 个元素），关键词命中 ${picked.length} 个`
+    : `图片画布（用户此刻看见的，共 ${all.length} 个元素）`
+  if (shown.length === 0) return `${head}：没有可列的元素。`
+  const more =
+    picked.length > shown.length ? `\n（还有 ${picked.length - shown.length} 个没列出来）` : ''
+  return `${head}：\n${shown.map((element) => describeLiveElement(element)).join('\n')}${more}`
+}
+
 async function describe(
   context: AgentToolContext,
   params: { query?: string; limit?: number },
 ): Promise<string> {
+  if (context.canvas) return describeSnapshot(context.canvas, params)
   const loaded = await loadDocument(context)
   if (!loaded) return '这一轮没有服务端画布可读（画布只在本地，或者用户没登录）。'
   const { document, revision } = loaded
@@ -157,9 +215,9 @@ export const readCanvas = defineAgentTool({
   modes: ['image', 'video'],
   label: '看画布',
   description:
-    '看当前这张画布上有什么：每个元素的类型、位置、尺寸，图片还给同批 id、创建时间和提示词摘要，用来分组，不必为了分类把每张都看一遍。用户提到画布上某个东西却没有在输入框里引用它时调用（「左边那张」「刚才那张图」「这些图」）。注意元素 id 与图片 id 不是一回事，只有图片 id 能交给 viewImage 或 editImage。',
+    '看用户发话时屏幕上的画布：每个元素的类型、位置、尺寸，图片还给同批 id、创建时间和提示词摘要。还没同步到服务端的图也在里面，张数以「共 N 个元素」为准，不要沿用上一轮说过的张数。用户提到画布上某个东西却没有在输入框里引用它时调用。元素 id 与图片 id 不是一回事，只有图片 id 能交给 viewImage 或 editImage。',
   guidance:
-    '用户指着画布上的东西说话（「左边那张」「这几张」「刚才那张」）却没有引用图片时，先看画布拿到图片 id，再去看图或改图。整理画布前也先看这一份：同批 id 相同、提示词相近、位置挨着的是一组；名字和提示词都看不出内容的那一堆，再对其中一张看缩略图，不要逐张看。',
+    '用户指着画布上的东西说话，或要整理画布时，先看画布。这一份是他此刻看见的全部元素，包括还没上传完的图；张数以这次的「共 N 个元素」为准，不要沿用上一轮的印象。同批 id 相同、提示词相近、位置挨着的是一组；名字和提示词都看不出内容的那一堆，再对其中一张看缩略图，不要逐张看。',
   parameters,
   onError: 'continue',
   // 读画布不落画布，也没有送进上游的提示词，所以起跑时只有一行标题。

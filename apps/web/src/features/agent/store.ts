@@ -38,8 +38,10 @@ import {
   importConversationProjects,
   openCanvasCloudSession,
   openProject,
+  peekCanvasWorkspace,
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
+import { liveCanvasSnapshot } from '../canvas/lib/canvasSnapshot'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import type { CanvasProject } from '../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
@@ -896,6 +898,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         undefined,
         clientMessageId,
         clarificationAnswer,
+        liveCanvasSnapshot(peekCanvasWorkspace()?.doc),
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
@@ -1399,6 +1402,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             undefined,
             messageId,
             clarificationAnswer,
+            liveCanvasSnapshot(peekCanvasWorkspace()?.doc),
           )
         } catch (thrown) {
           if (turnDelivery.isCurrent())

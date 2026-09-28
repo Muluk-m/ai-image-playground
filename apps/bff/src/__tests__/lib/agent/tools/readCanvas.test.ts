@@ -248,6 +248,34 @@ it('lists the batch, time and prompt excerpt a grouping pass can use without vie
   expect(await run('conv-1', USER, { query: '八仙' })).toContain('橘猫实拍')
 })
 
+it('reports the canvas the user is looking at even when the server copy only has older images', async () => {
+  const text = await readCanvas
+    .create({
+      mode: 'image',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      userId: null,
+      deviceId: 'device-abcdefgh',
+      images: { references: [], identify: () => undefined, attach: () => {} } as never,
+      canvas: {
+        elements: [
+          { id: 'local-1', type: 'image', x: 0, y: 0, width: 10, height: 10, name: '海报' },
+          { id: 'local-2', type: 'image', x: 20, y: 0, width: 10, height: 10, name: '二维码' },
+          { id: 'local-3', type: 'image', x: 40, y: 0, width: 10, height: 10 },
+        ],
+      },
+    })
+    .execute('call-1', {}, undefined, undefined)
+
+  const body = text.content[0]
+  if (body?.type !== 'text') throw new Error('readCanvas should answer in text')
+  expect(body.text).toContain('共 3 个元素')
+  expect(body.text).toContain('用户此刻看见的')
+  expect(body.text).toContain('海报')
+  expect(body.text).toContain('二维码')
+  expect(body.text).not.toContain('没有服务端画布')
+})
+
 it('keeps only the elements a keyword hits', async () => {
   await conversation('conv-1', USER)
   await project({
