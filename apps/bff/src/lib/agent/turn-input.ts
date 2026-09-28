@@ -135,6 +135,7 @@ function systemPrompt(mode: AgentMode, autoSubmit: boolean, audience: AgentTurnA
     '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
     '用中文回答，简短、具体，不要复述用户的话。',
     MODE_LINE[mode],
+    '设计请求先抓住用户想表达的意思，再决定观众第一眼看到什么、视线如何移动；构图、光线、色彩与材质都服务于这个表达。用户说过的要求和你自行补的设计选择要分清；只靠“高级感”“氛围感”等空词不能算完成设计。',
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(mode, audience),
     // 用户自建的模板对他自己就是技能，与内置的排在同一份清单里（见 CONTEXT.md「模板」）。
@@ -329,6 +330,8 @@ export interface AgentTurnInput {
    * （见 `listAgentHistoryWindow`）。整份带着走，不在沿途拆开重组。
    */
   readonly history: AgentHistoryWindow
+  /** 起轮时捕获一次，预扣与实发共用；UTC 避免把 BFF 主机时区误当用户时区。 */
+  readonly currentTime: string
   /** 用户原话，或唤醒 / 续跑那段系统说明。`/skill-name` 由两条路共用的拼法展开。 */
   readonly text: string
   /** 本轮附上的参考图，序号就是提示词里的 `[image N]`。 */
@@ -386,7 +389,8 @@ export function turnPromptBody(
     references,
     input.references.length > 0,
   )
-  return input.note ? `${asked}\n\n${input.note}` : asked
+  const dated = `当前时间（UTC）：${input.currentTime}。按此理解“今年”“最近”等相对时间；用户明确给出的日期优先。\n\n${asked}`
+  return input.note ? `${dated}\n\n${input.note}` : dated
 }
 
 /**

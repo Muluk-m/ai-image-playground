@@ -27,6 +27,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
   const failed = footer.stopReason === 'failed'
+  const waivedChat = chatFree && cost?.chat === 0 && !failed
   if (failed)
     parts.push(
       <span>
@@ -45,20 +46,29 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   if (footer.durationMs !== undefined) {
     parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
   }
-  if (total === 0)
+  if (waivedChat && cost) {
     parts.push(
-      // 真的没扣：限时免费期里对话轮压根不计费，这里的零不是「没跑起来」。
-      <span className="inline-flex items-center gap-1.5">
-        <span>{failed ? t('cost.noCredits') : t('cost.free')}</span>
-        {chatFree && !failed && <ChatFreeMark />}
+      <span className="inline-flex items-center gap-1">
+        {t('cost.imageCredits')}{' '}
+        {cost.image > 0 ? <Credits credits={cost.image} /> : t('cost.billedByTask')}
       </span>,
     )
-  if (total) {
-    // 限时免费期里这一轮的积分是「原价」：划掉它，紧跟一枚徽章说清为什么没收。
-    // 只在整轮都来自对话时划总额；掺了生图/生视频的轮实付不为零，划总额就是谎。
-    const freeChat = chatFree && cost !== undefined && cost.image === 0 && cost.video === 0
+    if (cost.video > 0)
+      parts.push(
+        <span className="inline-flex items-center gap-1">
+          {t('cost.video')} <Credits credits={cost.video} />
+        </span>,
+      )
     parts.push(
-      // 徽章紧贴着划掉的数字，中间不插分隔点：它解释的就是这个数，不是页脚的又一项。
+      <span className="inline-flex items-center gap-1.5">
+        <del className="decoration-1 opacity-70">{t('cost.chatCredits')}</del>
+        <span>{t('cost.waived')}</span>
+        <ChatFreeMark />
+      </span>,
+    )
+  } else if (total === 0) parts.push(<span>{failed ? t('cost.noCredits') : t('cost.free')}</span>)
+  if (total && !waivedChat) {
+    parts.push(
       <span className="inline-flex items-center gap-1.5">
         <button
           type="button"
@@ -66,9 +76,8 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
           className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
           onClick={() => setOpen(!open)}
         >
-          {t('cost.spent')} <Credits credits={total} struck={freeChat} />
+          {t('cost.spent')} <Credits credits={total} />
         </button>
-        {freeChat && <ChatFreeMark />}
       </span>,
     )
   }
@@ -88,13 +97,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
             return (
               <Fragment key={key}>
                 {index > 0 && <span aria-hidden="true"> · </span>}
-                {t(labelKey)}{' '}
-                {/* 混着生图/生视频的轮总额不划，免掉的那一项在明细里划掉自己的数字。 */}
-                {chatFree && key === 'chat' ? (
-                  <del className="decoration-1 opacity-60">{amount}</del>
-                ) : (
-                  amount
-                )}
+                {t(labelKey)} {amount}
               </Fragment>
             )
           })}
@@ -104,7 +107,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   )
 }
 
-/** 限时免费只占一个图标位：页脚是给人扫一眼的，一行里塞不下第二段文字。 */
+/** 免费标记解释被划掉的对话积分。 */
 function ChatFreeMark() {
   const { t } = useTranslation('agent')
   const tooltip = useTooltip()

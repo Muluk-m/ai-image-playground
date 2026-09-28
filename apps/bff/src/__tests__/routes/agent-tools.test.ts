@@ -183,6 +183,38 @@ afterAll(async () => {
 })
 
 describe('智能体生图工具', () => {
+  it('keeps the design intent visible from draft through the submitted image prompt', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-design',
+            name: 'generateImage',
+            args: {
+              prompt: '修补过的木椅靠在窗边，侧光照亮修补接缝',
+              designIntent: {
+                message: '让人感到旧物仍有价值',
+                focalPoint: '修补接缝',
+                visualPath: '从接缝走向椅背的使用痕迹',
+              },
+            },
+          }),
+      ]),
+    )
+    const conversationId = await startConversation()
+    const frames = await runTurn(conversationId, '设计一张表达旧物新生的图')
+    const prompt =
+      '画面要表达（用视觉呈现，不作为图中文字）：让人感到旧物仍有价值\n第一眼焦点：修补接缝\n视线引导：从接缝走向椅背的使用痕迹\n\n修补过的木椅靠在窗边，侧光照亮修补接缝'
+
+    expect(eventsOfType(frames, 'toolStart')[0]?.prompt).toBe(prompt)
+    expect((await pendingCards(conversationId))[0]?.block.prompt).toBe(prompt)
+    const [confirmed] = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
+    expect(confirmed?.prompt).toBe(prompt)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload.prompt).toBe(submittedPrompt(prompt))
+  })
+
   it('reports one tool call and links the image task to the turn', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
