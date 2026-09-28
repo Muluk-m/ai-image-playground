@@ -21,7 +21,7 @@ import { answerableClarificationId } from '../lib/panelMessages'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
-import type { AgentPanelMessage } from '../types'
+import type { AgentPanelMessage, AgentToolMessage } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentActivityTrail from './AgentActivityTrail'
 import AgentClarification from './AgentClarification'
@@ -165,6 +165,13 @@ export default function AgentPanel({
   // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
   // 消息中间，所以按「这一轮的最后一条」认，而不只看下一条换没换轮。
   const lastOfTurn = new Map(messages.map((message, index) => [message.turnId, index]))
+  const jobsByTurn = new Map<string, AgentToolMessage[]>()
+  for (const message of messages) {
+    if (message.kind !== 'tool' || !message.job) continue
+    const jobs = jobsByTurn.get(message.turnId) ?? []
+    jobs.push(message)
+    jobsByTurn.set(message.turnId, jobs)
+  }
   // 连续的过程步（读画布、看图、读技能）折成一条固定高度的活动轨，不再一步一张空卡。
   const grouping = groupPanelMessages(messages)
 
@@ -245,7 +252,9 @@ export default function AgentPanel({
                 <Fragment key={message.id}>
                   {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
                   {!grouping.absorbed.has(index) && renderMessage(message, answerableId, skills)}
-                  {footer && <AgentTurnCost footer={footer} />}
+                  {footer && (
+                    <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                  )}
                 </Fragment>
               )
             })}

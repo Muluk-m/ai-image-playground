@@ -292,7 +292,7 @@ export async function settleAgentConversationJobs(conversationId: string): Promi
       ),
     )
     .orderBy(asc(schema.agent_messages.seq))
-  await settleAgentJobs(conversationId, rows.map(messageView))
+  await settleAgentJobs(conversationId, rows.map(messageView), { requireCharges: true })
 }
 
 /**

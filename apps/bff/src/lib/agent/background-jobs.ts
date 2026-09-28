@@ -10,7 +10,10 @@ import {
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
+import { isCapabilityEnabled } from '../capabilities'
+import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
+import { loadPrivateBffOverlay } from '../private-overlay'
 import { taskProgressPhase } from '../task-progress'
 import { type QueueTaskTerminalRow, queueTaskOutcome } from '../taskSubmission'
 import { queueArtifacts } from './tools/queueTask'
@@ -33,6 +36,7 @@ function pendingJob(block: AgentContentBlock): block is PendingJobBlock {
 export function settledJobBlock(
   block: PendingJobBlock,
   task: QueueTaskTerminalRow | undefined,
+  chargedCredits?: number,
 ): AgentToolResultBlock | null {
   const outcome = task
     ? queueTaskOutcome(task)
@@ -42,16 +46,17 @@ export function settledJobBlock(
         errorType: 'upstream_result_unknown' as const,
       }
   if (!outcome) return null
-  const { job } = block
+  const job = chargedCredits === undefined ? block.job : { ...block.job, chargedCredits }
   if (outcome.kind === 'completed') {
     const artifacts = queueArtifacts(job.taskId, job.media, outcome.result).map((artifact) =>
       job.video && artifact.media === 'video' ? { ...artifact, video: job.video } : artifact,
     )
-    return { ...block, status: 'succeeded', artifacts }
+    return { ...block, status: 'succeeded', artifacts, job }
   }
   return {
     ...block,
     status: 'failed',
+    job,
     message: outcome.reason,
     errorCode: 'cancelled' in outcome ? 'cancelled' : taskFailureCode(outcome.errorType),
   }
@@ -64,38 +69,87 @@ export function settledJobBlock(
 export async function settleAgentJobs(
   conversationId: string,
   messages: readonly AgentMessageView[],
+  options: { readonly requireCharges?: boolean } = {},
 ): Promise<AgentMessageView[]> {
-  const taskIds = messages.flatMap((message) =>
+  const pendingIds = messages.flatMap((message) =>
     message.content.filter(pendingJob).map((block) => block.job.taskId),
   )
-  if (taskIds.length === 0) return [...messages]
-  const tasks = await db
-    .select({
-      id: schema.tasks.id,
-      status: schema.tasks.status,
-      provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
-      error_message: schema.tasks.error_message,
-      error_type: schema.tasks.error_type,
-    })
-    .from(schema.tasks)
-    .where(
-      and(
-        inArray(schema.tasks.id, [...new Set(taskIds)]),
-        eq(schema.tasks.agent_conversation_id, conversationId),
-      ),
-    )
+  // 旧终局卡也补一次实扣：确认生成可能发生在轮结束之后，轮页脚里没有这笔钱。
+  // 金额写回结果卡，任务行过了保留期仍能展示同一张账单。
+  const unpricedIds = messages.flatMap((message) =>
+    message.content.flatMap((block) =>
+      block.type === 'toolResult' && block.job && block.job.chargedCredits === undefined
+        ? [block.job.taskId]
+        : [],
+    ),
+  )
+  if (pendingIds.length === 0 && unpricedIds.length === 0) return [...messages]
+  const lookupIds = [...new Set([...pendingIds, ...unpricedIds])]
+  const tasks = lookupIds.length
+    ? await db
+        .select({
+          id: schema.tasks.id,
+          status: schema.tasks.status,
+          provider: schema.tasks.provider,
+          result_payload: schema.tasks.result_payload,
+          error_message: schema.tasks.error_message,
+          error_type: schema.tasks.error_type,
+        })
+        .from(schema.tasks)
+        .where(
+          and(
+            inArray(schema.tasks.id, lookupIds),
+            eq(schema.tasks.agent_conversation_id, conversationId),
+          ),
+        )
+    : []
   const byId = new Map(tasks.map((task) => [task.id, task]))
+  let credits: Readonly<Record<string, number>> = {}
+  const billableIds = [
+    ...new Set(
+      unpricedIds.filter((taskId) => {
+        const status = byId.get(taskId)?.status
+        return status === 'completed' || status === 'failed' || status === 'cancelled'
+      }),
+    ),
+  ]
+  if (billableIds.length) {
+    try {
+      const overlay = await loadPrivateBffOverlay()
+      credits = await overlay.taskHooks.taskCredits({ taskIds: billableIds })
+    } catch (err) {
+      if (options.requireCharges) throw err
+      // 报价不可用时照常交付产物；缺席金额不冒充零扣费。
+      log.warn(
+        { event: 'agent.job_credits_unavailable', conversationId, err },
+        'job charge unavailable',
+      )
+    }
+  }
+  if (
+    options.requireCharges &&
+    isCapabilityEnabled('billing:credits') &&
+    billableIds.some((taskId) => !Number.isSafeInteger(credits[taskId]) || credits[taskId] < 0)
+  ) {
+    throw new Error('Agent job charge unavailable before task purge')
+  }
 
   const settled: AgentMessageView[] = []
   for (const message of messages) {
     let changed = false
     const content = message.content.map((block) => {
-      if (!pendingJob(block)) return block
-      const next = settledJobBlock(block, byId.get(block.job.taskId))
-      if (!next) return block
+      if (block.type !== 'toolResult' || !block.job) return block
+      const amount = credits[block.job.taskId]
+      const charge = Number.isSafeInteger(amount) && amount >= 0 ? amount : undefined
+      if (pendingJob(block)) {
+        const next = settledJobBlock(block, byId.get(block.job.taskId), charge)
+        if (!next) return block
+        changed = true
+        return next
+      }
+      if (block.job.chargedCredits !== undefined || charge === undefined) return block
       changed = true
-      return next
+      return { ...block, job: { ...block.job, chargedCredits: charge } }
     })
     if (!changed) {
       settled.push(message)
