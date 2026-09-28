@@ -42,6 +42,7 @@ afterEach(() => {
 })
 
 it('previews, switches and enlarges results without entering the canvas', async () => {
+  canvas.has.mockReturnValue(true)
   const host = document.createElement('div')
   const root = createRoot(host)
   const onViewCanvas = vi.fn()
@@ -95,6 +96,7 @@ it('previews, switches and enlarges results without entering the canvas', async 
 
 it('uses the existing canvas bitmap when the original queue output is no longer available', async () => {
   canvas.has.mockReturnValue(true)
+  previewArtifactBitmap.mockResolvedValueOnce(null)
   const host = document.createElement('div')
   const root = createRoot(host)
   try {
@@ -111,8 +113,8 @@ it('uses the existing canvas bitmap when the original queue output is no longer 
     expect(host.querySelector('.studio-artifact-pane-image img')?.getAttribute('src')).toContain(
       'canvas',
     )
-    expect(canvas.thumbnail).toHaveBeenCalledWith('first', 1)
-    expect(previewArtifactBitmap).not.toHaveBeenCalled()
+    expect(canvas.thumbnail).toHaveBeenCalledWith('first', 3)
+    expect(previewArtifactBitmap).toHaveBeenCalled()
   } finally {
     act(() => root.unmount())
   }
