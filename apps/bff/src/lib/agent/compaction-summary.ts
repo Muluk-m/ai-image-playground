@@ -29,11 +29,29 @@ function summaryModelWindow(): number {
 }
 
 function summaryPromptTokens(previousSummary: AgentCompactionNarrative | null): number {
+  return summaryInputTokens(buildSummaryPrompt({ messages: [], previousSummary }))
+}
+
+function summaryInputTokens(prompt: string): number {
   return estimateMessageTokens({
     role: 'user',
-    content: [{ type: 'text', text: buildSummaryPrompt({ messages: [], previousSummary }) }],
+    content: [{ type: 'text', text: prompt }],
     timestamp: 0,
   })
+}
+
+/** 实际发出的摘要文本连角色标签一起计入，而不是只数原始消息。 */
+export function summaryRequestFits(
+  messages: readonly CompactionMessage[],
+  previousSummary: AgentCompactionNarrative | null,
+): boolean {
+  const window = summaryModelWindow()
+  const inputTokens = summaryInputTokens(buildSummaryPrompt({ messages, previousSummary }))
+  const buffer = Math.max(512, Math.ceil(window * 0.05))
+  return (
+    inputTokens + SUMMARY_MAX_TOKENS <= window - buffer &&
+    inputTokens - summaryPromptTokens(previousSummary) <= SUMMARY_CHUNK_TOKENS
+  )
 }
 
 /** 给真实摘要窗口留下提示词、旧摘要、输出和估算误差，再给折叠区分段。 */
@@ -100,6 +118,69 @@ function parseNarrative(value: unknown): AgentCompactionNarrative | null {
   return { completed, inProgress, decisions, artifacts } as AgentCompactionNarrative
 }
 
+function fragmentOf(original: CompactionMessage, text: string, part: number): CompactionMessage {
+  return {
+    id: `${original.id}#${part}`,
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text: `[原消息 ${original.id} 的连续片段 ${part}]\n${text}` }],
+      timestamp: original.message.timestamp,
+    },
+  }
+}
+
+async function askSummaryPrompt(
+  prompt: string,
+  onAttempt?: (attempt: ChatAttempt) => Promise<void>,
+): ReturnType<Summarize> {
+  return askChatModel(
+    {
+      model: config.agent.summaryModel,
+      prompt,
+      maxTokens: SUMMARY_MAX_TOKENS,
+      timeoutMs: SUMMARY_TIMEOUT_MS,
+      onAttempt,
+    },
+    parseNarrative,
+  )
+}
+
+async function summarizeSingleLongMessage(
+  request: SummaryRequest,
+  onAttempt?: (attempt: ChatAttempt) => Promise<void>,
+): ReturnType<Summarize> {
+  const original = request.messages[0]!
+  const text = transcript([original])
+  let offset = 0
+  let part = 1
+  let narrative = request.previousSummary
+  while (offset < text.length) {
+    let best = offset
+    let low = offset + 1
+    let high = Math.min(text.length, offset + summaryChunkBudget(narrative) * 4)
+    while (low <= high) {
+      const end = Math.floor((low + high) / 2)
+      if (summaryRequestFits([fragmentOf(original, text.slice(offset, end), part)], narrative)) {
+        best = end
+        low = end + 1
+      } else {
+        high = end - 1
+      }
+    }
+    if (best === offset) return null
+    const fragment = fragmentOf(original, text.slice(offset, best), part)
+    const next = await askSummaryPrompt(
+      buildSummaryPrompt({ messages: [fragment], previousSummary: narrative }),
+      onAttempt,
+    )
+    if (!next) return null
+    narrative = next
+    offset = best
+    part += 1
+  }
+  return narrative
+}
+
 /**
  * 摘要走独立的一次性对话，不经智能体的消息流：它的输出既不进 `messages`，
  * 也不计入任何一轮的用量——压缩由平台承担。
@@ -111,28 +192,19 @@ export async function summarizeCompaction(
   try {
     const prompt = buildSummaryPrompt(request)
     const window = summaryModelWindow()
-    const inputTokens = estimateMessageTokens({
-      role: 'user',
-      content: [{ type: 'text', text: prompt }],
-      timestamp: 0,
-    })
-    if (inputTokens + SUMMARY_MAX_TOKENS > window - Math.max(512, Math.ceil(window * 0.05))) {
+    if (!summaryRequestFits(request.messages, request.previousSummary)) {
+      if (request.messages.length === 1) return summarizeSingleLongMessage(request, onAttempt)
       log.warn(
-        { event: 'agent.compaction_summary_overflow', inputTokens, window },
+        {
+          event: 'agent.compaction_summary_overflow',
+          inputTokens: summaryInputTokens(prompt),
+          window,
+        },
         'summary exceeds model context window',
       )
       return null
     }
-    return await askChatModel(
-      {
-        model: config.agent.summaryModel,
-        prompt,
-        maxTokens: SUMMARY_MAX_TOKENS,
-        timeoutMs: SUMMARY_TIMEOUT_MS,
-        onAttempt,
-      },
-      parseNarrative,
-    )
+    return await askSummaryPrompt(prompt, onAttempt)
   } catch (error) {
     log.warn({ event: 'agent.compaction_summary_failed', err: error }, 'compaction summary failed')
     return null

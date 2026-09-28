@@ -260,8 +260,9 @@ describe('shapeAgentContext', () => {
       summarize: summarizerOf(calls),
       summaryBudget: (previousSummary) => {
         budgetInputs.push(previousSummary)
-        return 32_000
+        return 100_000
       },
+      summaryFits: (entries) => entries.length <= 1,
     })
 
     expect(calls).toHaveLength(2)

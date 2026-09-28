@@ -17,9 +17,10 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 )
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
-const { summarizeCompaction, summaryChunkBudget } = await import(
+const { summarizeCompaction, summaryChunkBudget, summaryRequestFits } = await import(
   '../../../lib/agent/compaction-summary'
 )
+const { estimateMessageTokens } = await import('../../../lib/agent/token-estimate')
 
 const NARRATIVE = {
   completed: '出了三张马克杯图',
@@ -40,18 +41,39 @@ describe('summarizeCompaction', () => {
     expect(previousBudget).toBeLessThan(emptyBudget)
   })
 
-  it('does not send a summary request that exceeds the summary model window', async () => {
+  it('splits one oversized message into safe summary requests without losing its text', async () => {
     const calls: ChatCall[] = []
     setChatFetchForTesting(
       recordingChatFetch(calls, () => chatCompletion(JSON.stringify(NARRATIVE))),
     )
+    const result = await summarizeCompaction({
+      messages: [user('m1', '很长的用户内容'.repeat(5_000))],
+      previousSummary: null,
+    })
+    expect(result).toEqual(NARRATIVE)
+    expect(calls.length).toBeGreaterThan(1)
+    expect(calls[0]!.prompt).toContain('很长的用户内容')
+    expect(calls.at(-1)!.prompt).toContain('很长的用户内容')
     expect(
-      await summarizeCompaction({
-        messages: [user('m1', '很长的用户内容'.repeat(5_000))],
-        previousSummary: null,
-      }),
-    ).toBeNull()
-    expect(calls).toHaveLength(0)
+      calls.every(
+        (call) =>
+          estimateMessageTokens({
+            role: 'user',
+            content: [{ type: 'text', text: call.prompt }],
+            timestamp: 0,
+          }) +
+            1_500 <=
+          6_000 - 512,
+      ),
+    ).toBe(true)
+  })
+
+  it('counts serialized roles when deciding whether short messages fit', () => {
+    const messages = Array.from({ length: 2_000 }, (_, index) => user(`m${index}`, 'a'))
+    expect(
+      messages.reduce((total, entry) => total + estimateMessageTokens(entry.message), 0),
+    ).toBeLessThan(summaryChunkBudget(null))
+    expect(summaryRequestFits(messages, null)).toBe(false)
   })
 
   it('asks the configured summary model and returns the fixed sections', async () => {
