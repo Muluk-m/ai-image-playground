@@ -12,6 +12,7 @@ const agent = vi.hoisted(() => ({
   historyFailed: false,
 }))
 const media = vi.hoisted(() => ({
+  load: vi.fn(async () => ({ naturalWidth: 1024, naturalHeight: 1024 })),
   resolve: vi.fn(async () => 'data:image/png;base64,ORIGINAL'),
   prepare: vi.fn(async () => ({
     dataUrl: 'data:image/png;base64,WORKING',
@@ -19,6 +20,13 @@ const media = vi.hoisted(() => ({
     height: 512,
   })),
   mask: vi.fn(async () => 'data:image/png;base64,MASK'),
+  fit: vi.fn((width: number, height: number) => ({ width, height })),
+  crop: vi.fn(async () => 'data:image/png;base64,CROPPED'),
+  outpaint: vi.fn(async () => ({
+    source: 'data:image/png;base64,EXPANDED',
+    mask: 'data:image/png;base64,OUTPAINT_MASK',
+  })),
+  rectSize: vi.fn(() => ({ width: 1536, height: 1536 })),
 }))
 
 vi.mock('../../../../features/agent/panelLayout', () => ({ agentPanelPresent: () => true }))
@@ -26,8 +34,17 @@ vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: { getState: () => agent },
 }))
 vi.mock('../../../../lib/cloudMedia', () => ({ resolveMediaSource: media.resolve }))
-vi.mock('../../../../lib/maskPreprocess', () => ({ prepareMaskTargetDataUrl: media.prepare }))
+vi.mock('../../../../lib/canvasImage', () => ({ loadImage: media.load }))
+vi.mock('../../../../lib/maskPreprocess', () => ({
+  prepareMaskTargetDataUrl: media.prepare,
+  calculateMaskWorkingSize: media.fit,
+}))
 vi.mock('../../../../features/canvas/lib/inpaintMask', () => ({ exportMaskDataUrl: media.mask }))
+vi.mock('../../../../features/canvas/lib/imageRectEdit', () => ({
+  cropBitmap: media.crop,
+  buildOutpaintInputs: media.outpaint,
+  rectPixelSize: media.rectSize,
+}))
 
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -91,5 +108,53 @@ describe('画布单图快捷编辑经 Agent 对话发送', () => {
       expect.any(Function),
       'image',
     )
+  })
+
+  it('裁切把画框对应的真实像素作为 Agent 的第一张输入', async () => {
+    const rect = { x: 20, y: 30, w: 300, h: 240 }
+    expect(
+      await sendImageEditToAgent(editor(), image, '请裁切', { frame: { mode: 'crop', rect } }),
+    ).toBe(true)
+    expect(media.crop).toHaveBeenCalledWith('data:image/png;base64,ORIGINAL', rect, image, {
+      width: 1024,
+      height: 1024,
+    })
+    expect(agent.send).toHaveBeenCalledWith(
+      '请裁切',
+      [{ imageId: 'image-1', dataUrl: 'data:image/png;base64,CROPPED' }],
+      expect.any(Function),
+      'image',
+    )
+  })
+
+  it('扩图把带空白和遮罩的画框送进 Agent', async () => {
+    const rect = { x: -50, y: -40, w: 612, h: 592 }
+    expect(
+      await sendImageEditToAgent(editor(), image, '请扩图', { frame: { mode: 'outpaint', rect } }),
+    ).toBe(true)
+    expect(media.outpaint).toHaveBeenCalledWith('data:image/png;base64,ORIGINAL', rect, image, {
+      width: 1024,
+      height: 1024,
+    })
+    expect(agent.send).toHaveBeenCalledWith(
+      '请扩图',
+      [
+        {
+          imageId: 'image-1',
+          dataUrl: 'data:image/png;base64,EXPANDED',
+          maskDataUrl: 'data:image/png;base64,OUTPAINT_MASK',
+        },
+      ],
+      expect.any(Function),
+      'image',
+    )
+  })
+
+  it('Agent 受理后立即收起，不等待整轮生成结束', async () => {
+    agent.send.mockImplementationOnce(async (_text, _references, accepted) => {
+      accepted?.()
+      return await new Promise<undefined>(() => {})
+    })
+    expect(await sendImageEditToAgent(editor(), image, '请编辑')).toBe(true)
   })
 })

@@ -9,7 +9,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { useTranslation } from '../../../i18n'
 import { useInpaintSession } from '../inpaintStore'
@@ -31,7 +31,7 @@ const RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const
 /** 图片下方的快捷菜单；编辑动作将它就地展开，要求统一发给 Agent 对话。 */
 export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor }) {
   const { t } = useTranslation(['canvas', 'common'])
-  useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
+  const version = useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const inpaintImageId = useInpaintSession((state) => state.imageId)
   const openInpaint = useInpaintSession((state) => state.open)
   const closeInpaint = useInpaintSession((state) => state.close)
@@ -41,16 +41,26 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   const [prompt, setPrompt] = useState('')
   const [ratio, setRatio] = useState<(typeof RATIOS)[number]>('1:1')
   const [pending, setPending] = useState(false)
+  const sessionEpoch = useRef(0)
   const doc = editor.doc
   const selectedId = doc.selection.size === 1 ? [...doc.selection][0] : null
 
   useEffect(() => {
-    if (active && active.imageId !== selectedId) {
+    const item = active ? doc.getElement(active.imageId) : undefined
+    const visible =
+      doc.tool === 'select' &&
+      active?.imageId === selectedId &&
+      item?.type === 'image' &&
+      !item.video &&
+      !editor.getPlaceholders().some((one) => one.meta.editSourceId === active.imageId)
+    if (active && !visible) {
+      sessionEpoch.current += 1
       setActive(null)
+      setPending(false)
       closeInpaint()
       rectSession.close()
     }
-  }, [active, selectedId, closeInpaint, rectSession.close])
+  }, [active, selectedId, version, doc, editor, closeInpaint, rectSession.close])
 
   if (doc.tool !== 'select' || !selectedId) return null
   const element = doc.getElement(selectedId)
@@ -72,7 +82,8 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   }
   const expanded = active?.imageId === element.id ? active.action : null
   const painting = expanded === 'inpaint' || expanded === 'erase'
-  const framing = expanded === 'crop' || expanded === 'outpaint'
+  const frameMode = expanded === 'crop' || expanded === 'outpaint' ? expanded : null
+  const framing = frameMode !== null
   const frame = rectSession.rect
   const frameChanged =
     frame.x !== 0 || frame.y !== 0 || frame.w !== element.width || frame.h !== element.height
@@ -87,18 +98,31 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         Math.min(viewport.width - width - 8, imageLeft + (bounds.w * camera.zoom - width) / 2),
       )
     : Math.max(8, imageLeft)
+  const expandedHeight = painting ? 300 : 205
+  const preferredTop = imageBottom + TOOLBAR_GAP
+  const expandedTop =
+    preferredTop + expandedHeight <= viewport.height - 8
+      ? preferredTop
+      : imageTop - TOOLBAR_GAP - expandedHeight >= 8
+        ? imageTop - TOOLBAR_GAP - expandedHeight
+        : Math.max(8, viewport.height - expandedHeight - 8)
   const top = expanded
-    ? imageBottom + TOOLBAR_GAP
+    ? expandedTop
     : imageBottom + TOOLBAR_GAP + TOOLBAR_HEIGHT <= viewport.height
       ? imageBottom + TOOLBAR_GAP
       : Math.max(8, imageTop - TOOLBAR_GAP - TOOLBAR_HEIGHT)
+  const panelEpoch = sessionEpoch.current
 
   const close = () => {
+    sessionEpoch.current += 1
     setActive(null)
+    setPending(false)
     closeInpaint()
     rectSession.close()
   }
   const open = (action: EditAction) => {
+    sessionEpoch.current += 1
+    setPending(false)
     setMenu(null)
     if (inpaintImageId) closeInpaint()
     if (rectSession.mode) rectSession.close()
@@ -115,6 +139,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
     const requirement = prompt.trim()
     if (expanded === 'edit' && !requirement) return
     if (framing && !frameChanged) return
+    // 发给模型的业务指令是数据，按 apps/web/AGENTS.md 不随界面语言翻译。
     const instructions: Record<Exclude<EditAction, 'inpaint' | 'erase'>, string> = {
       cutout: '请把 [image 1] 的主体精细抠出，背景透明，保留边缘细节。',
       edit: '请编辑 [image 1]：' + requirement,
@@ -129,11 +154,18 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
       instructions[expanded] +
       frameDescription +
       (expanded !== 'edit' && requirement ? ' ' + requirement : '')
+    const epoch = sessionEpoch.current
     setPending(true)
     try {
-      if (await sendImageEditToAgent(editor, element, instruction)) close()
+      if (
+        (await sendImageEditToAgent(editor, element, instruction, {
+          ...(frameMode ? { frame: { mode: frameMode, rect: frame } } : {}),
+        })) &&
+        epoch === sessionEpoch.current
+      )
+        close()
     } finally {
-      setPending(false)
+      if (epoch === sessionEpoch.current) setPending(false)
     }
   }
 
@@ -149,7 +181,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         style={{
           left,
           top,
-          ...(expanded ? { width, maxHeight: Math.max(180, viewport.height - top - 8) } : {}),
+          ...(expanded ? { width, maxHeight: Math.max(80, viewport.height - top - 8) } : {}),
         }}
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -233,7 +265,14 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             </button>
           )}
         </div>
-        {painting && <InpaintPanel editor={editor} onDone={close} />}
+        {painting && (
+          <InpaintPanel
+            editor={editor}
+            onDone={() => {
+              if (sessionEpoch.current === panelEpoch) close()
+            }}
+          />
+        )}
         {expanded && !painting && (
           <div className="space-y-3 p-3">
             <h3 className="text-sm font-semibold">{actionTitle[expanded]}</h3>
