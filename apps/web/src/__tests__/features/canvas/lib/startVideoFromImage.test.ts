@@ -42,7 +42,7 @@ describe('从一张图发起生成视频', () => {
     await startVideoFromImage('img-1')
 
     const main = useStore.getState()
-    expect(createProject).toHaveBeenCalledWith('video')
+    expect(createProject).toHaveBeenCalledWith('video', true, 'canvas')
     expect(main.appMode).toBe('canvas')
     expect(main.pendingCanvasImages).toEqual(['data:image/png;base64,AAAA'])
     expect(main.lightboxImageId).toBeNull()
