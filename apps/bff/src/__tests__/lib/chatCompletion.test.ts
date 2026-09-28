@@ -6,6 +6,7 @@ process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.UPSTREAM_CLAUDE_API_KEY = 'fixture-claude-key'
 process.env.OPERATOR_CONFIG_FILE = ''
 process.env.LOG_LEVEL = 'silent'
 
@@ -84,6 +85,19 @@ describe('askChatModel', () => {
   afterEach(() => {
     setChatFetchForTesting()
     setChatRetryBackoffForTesting()
+  })
+
+  it('uses the Claude credential for a Claude summary model', async () => {
+    let authorization: string | null = null
+    setChatFetchForTesting(async (_input, init) => {
+      authorization = new Headers(init?.headers).get('authorization')
+      return chatCompletion('{"answer":"好"}')
+    })
+
+    expect(
+      await askChatModel({ ...ASK, model: 'claude-opus-5-5' }, parseAnswer),
+    ).toEqual({ answer: '好' })
+    expect(authorization).toBe('Bearer fixture-claude-key')
   })
 
   it('retries a transient upstream failure and answers from the second try', async () => {
