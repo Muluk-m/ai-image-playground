@@ -119,12 +119,21 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
           drawingRef.current = next
           setLive(next)
         }}
-        onPointerUp={() => {
+        onPointerUp={(event) => {
           const current = drawingRef.current
-          if (current?.shape === 'rect' && image) {
+          const point = pagePoint(event)
+          if (current && point) {
+            drawingRef.current = {
+              ...current,
+              points:
+                current.shape === 'rect' ? [current.points[0]!, point] : [...current.points, point],
+            }
+          }
+          const completed = drawingRef.current
+          if (completed?.shape === 'rect' && image) {
             const displaySize = { width: image.width, height: image.height }
-            const start = pageToMaskPixel(image, displaySize, current.points[0]!)
-            const end = pageToMaskPixel(image, displaySize, current.points[1]!)
+            const start = pageToMaskPixel(image, displaySize, completed.points[0]!)
+            const end = pageToMaskPixel(image, displaySize, completed.points[1]!)
             if (
               Math.abs(start.x - end.x) * camera.zoom < 4 ||
               Math.abs(start.y - end.y) * camera.zoom < 4
