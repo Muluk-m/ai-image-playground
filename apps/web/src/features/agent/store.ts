@@ -1,6 +1,7 @@
 import type {
   AgentActiveTurnView,
   AgentBackgroundJobProgress,
+  AgentCanvasSnapshot,
   AgentConversationView,
   AgentMessageView,
   AgentMode,
@@ -38,8 +39,10 @@ import {
   importConversationProjects,
   openCanvasCloudSession,
   openProject,
+  peekCanvasWorkspace,
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
+import { liveCanvasSnapshot } from '../canvas/lib/canvasSnapshot'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import type { CanvasProject } from '../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
@@ -240,6 +243,8 @@ export interface AgentState {
      * 同一条，不会排第二次，也不会重复扣费。缺席即新生成一个。
      */
     clientMessageId?: string,
+    /** 仅供本机未确认消息重发：沿用首次发话保存的画布。 */
+    replay?: { canvas?: AgentCanvasSnapshot },
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -764,7 +769,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         // 这个会话正跑着一轮：跑的可能就是它。等这一轮收尾后的下一次打开再说，
         // 本机这份留着，丢不了。
         if (get().turn === 'running') return
-        await get().send(message.text, message.references, undefined, message.mode, message.id)
+        await get().send(message.text, message.references, undefined, message.mode, message.id, {
+          canvas: message.canvas,
+        })
       }
     } finally {
       resuming.delete(projectId)
@@ -869,6 +876,20 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
   }
 
+  /** 发话这一刻的画布。必须在任何 await 之前拍，上传期间换项目不能把别的画布带进这一轮。 */
+  const canvasAtSend = (conversationId: string | null, project: CanvasProject | undefined) => {
+    const workspace = peekCanvasWorkspace()
+    const sceneKey = project?.sceneKey ?? canvasSceneKey(conversationId)
+    if (!workspace || workspace.record.key !== sceneKey) return undefined
+    const { loading, loadFailed } = workspace.record.getSnapshot()
+    if (loading || loadFailed) return undefined
+    if (conversationId && project?.conversationId && project.conversationId !== conversationId)
+      return undefined
+    return liveCanvasSnapshot(workspace.doc, (fileId, source) =>
+      workspace.cloud?.knownMediaId(fileId, source),
+    )
+  }
+
   /** 智能体忙时发的话进服务端的排队列表，当前回复结束后按顺序处理。 */
   const queueMessage = async (
     conversationId: string,
@@ -879,6 +900,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     mode: AgentMode,
     clarificationAnswer: boolean,
     clientMessageId: string,
+    canvas: ReturnType<typeof canvasAtSend>,
   ) => {
     const current = () => get().conversationId === conversationId
     try {
@@ -896,6 +918,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         undefined,
         clientMessageId,
         clarificationAnswer,
+        canvas,
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
@@ -1225,7 +1248,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       })
     },
 
-    async send(text, references = [], onAccepted, mode = get().mode, clientMessageId) {
+    async send(text, references = [], onAccepted, mode = get().mode, clientMessageId, replay) {
       // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
       // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
       if (get().stopping && abortInFlight) await abortInFlight
@@ -1242,6 +1265,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const clarificationAnswer = answerableClarificationId(get().messages) !== null
       const sourceProject = currentCanvasProject()
       const messageId = clientMessageId ?? crypto.randomUUID()
+      const canvas = replay ? replay.canvas : canvasAtSend(conversationId, sourceProject)
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
@@ -1254,6 +1278,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           references: [...references],
           mode,
           clarificationAnswer,
+          ...(canvas ? { canvas } : {}),
           createdAt: Date.now(),
         })
       const settleJournal = () => {
@@ -1270,6 +1295,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             mode,
             clarificationAnswer,
             messageId,
+            canvas,
           )
         } finally {
           settleJournal()
@@ -1399,6 +1425,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             undefined,
             messageId,
             clarificationAnswer,
+            canvas,
           )
         } catch (thrown) {
           if (turnDelivery.isCurrent())

@@ -148,6 +148,8 @@ interface TurnContent {
   readonly params?: AgentTurnParams
   readonly selectionHistoryStart: number
   readonly deviceId: string
+  /** 发话时浏览器里的画布；唤醒与续跑没有。 */
+  readonly canvas?: import('@image-playground/shared').AgentCanvasSnapshot
   /** 唤醒与续跑没有用户消息，这个 id 不指向任何一条，只让轮头的形状与普通的轮一致。 */
   readonly userMessageId: string
   readonly queueId?: string
@@ -315,6 +317,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       userId,
       deviceId: content.deviceId,
       ...(content.params ? { params: content.params } : {}),
+      ...(content.canvas ? { canvas: content.canvas } : {}),
       ...(content.wake ? { wake: content.wake } : {}),
       reservedCredits: committed.reserved?.reservedCredits,
       settle: chatTurnSettle(
@@ -444,6 +447,7 @@ async function resumeContent(
     reviewImageIds: wakeReviewImageIds(jobs),
     mode: resolveAgentMode(setup.mode ?? 'image'),
     ...(setup.params ? { params: setup.params } : {}),
+    ...(resume.canvas ? { canvas: resume.canvas } : {}),
     selectionHistoryStart: plan?.protected
       ? 0
       : !wake && interruptedStart >= 0
@@ -506,6 +510,7 @@ async function messageContent(
       : {}),
     mode,
     ...(message.params ? { params: message.params } : {}),
+    ...(message.canvas ? { canvas: message.canvas } : {}),
     selectionHistoryStart: clarificationChainStart(window.messages),
     deviceId: message.deviceId,
     userMessageId: message.id,

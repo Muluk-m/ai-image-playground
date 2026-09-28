@@ -19,6 +19,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -65,6 +66,7 @@ import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/
 import {
   claimConversationMedia,
   readConversationMedia,
+  readyCanvasMediaIds,
   removeAgentConversationReferences,
 } from '../lib/agent/images'
 import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
@@ -555,6 +557,7 @@ export const agentRoutes = new Elysia()
         if (forwarded) return forwarded
 
         const references = turnReferences(body.references ?? [])
+        let canvas = parseAgentCanvasSnapshot(body.canvas)
         if (!references) return status(422, { error: 'invalid_reference' })
         try {
           await validateSelections(references)
@@ -563,14 +566,30 @@ export const agentRoutes = new Elysia()
             return status(422, { error: 'invalid_selection' })
           throw error
         }
-        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
-        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
-          return status(422, { error: 'invalid_reference' })
-        // 开不了轮的请求不进收件箱：排进去也没有哪一轮能取走它。
+        // 开不了轮的请求不进收件箱。
         if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
           return status(401, { error: 'unauthorized' })
         if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
-
+        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
+        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
+          return status(422, { error: 'invalid_reference' })
+        if (canvas) {
+          const ready = await readyCanvasMediaIds(
+            authUser?.id ?? null,
+            canvas.elements.flatMap((element) =>
+              element.type === 'image' && element.mediaId ? [element.mediaId] : [],
+            ),
+          )
+          canvas = {
+            ...canvas,
+            elements: canvas.elements.map((element) => {
+              if (element.type !== 'image' || !element.mediaId || ready.has(element.mediaId))
+                return element
+              const { mediaId: _unavailable, ...image } = element
+              return image
+            }),
+          }
+        }
         // 每条消息先进收件箱，再按顺序开轮：忙时它排在后面，闲时它当场就是下一条。
         const sent = await sendToConversationInbox(conversation.id, {
           clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
@@ -580,6 +599,7 @@ export const agentRoutes = new Elysia()
           ...(body.mode ? { mode: body.mode } : {}),
           ...(body.params ? { params: body.params } : {}),
           ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
+          ...(canvas ? { canvas } : {}),
         })
         if (sent.kind === 'full') {
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
@@ -607,6 +627,8 @@ export const agentRoutes = new Elysia()
         clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
         /** 这是对澄清卡片的答复：排在其他排队消息前面处理。 */
         clarificationAnswer: t.Optional(t.Boolean()),
+        /** 发话时浏览器里的画布。不合规格就当没带，不因此拒绝这一轮。 */
+        canvas: t.Optional(t.Any()),
       }),
     },
   )

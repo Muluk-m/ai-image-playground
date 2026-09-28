@@ -3,7 +3,11 @@ import 'fake-indexeddb/auto'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { forgetOutgoing, outgoingMessages } from '../../../features/agent/lib/outgoingJournal'
+import {
+  forgetOutgoing,
+  outgoingMessages,
+  rememberOutgoing,
+} from '../../../features/agent/lib/outgoingJournal'
 import { useAgentStore } from '../../../features/agent/store'
 import type { CanvasProject } from '../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
@@ -153,4 +157,30 @@ it('服务端已经收下的那条不再重发，本机那份丢掉', async () =
   await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
   expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
   neverSettles(COMPLETED_TURN())
+})
+
+it('重发仍使用发话时保存的画布目录', async () => {
+  const canvas = {
+    elements: [{ id: 'at-send', type: 'image' as const, x: 1, y: 2, width: 10, height: 10 }],
+  }
+  await rememberOutgoing({
+    id: 'retry-1',
+    projectId: PROJECT,
+    conversationId: CONVERSATION,
+    text: '看画布',
+    references: [],
+    canvas,
+    mode: 'image',
+    clarificationAnswer: false,
+    createdAt: Date.now(),
+  })
+  localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+
+  await useAgentStore.getState().load()
+
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+  )
+  const sent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+  expect(JSON.parse(String(sent?.[1]?.body)).canvas).toEqual(canvas)
 })

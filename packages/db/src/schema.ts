@@ -1,4 +1,5 @@
 import type {
+  AgentCanvasSnapshot,
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
@@ -495,6 +496,8 @@ export interface AgentInboxUserMessagePayload {
   readonly referenceCount: number
   /** 对澄清卡片的答复；`kind` 为 `clarification_answer` 的记录才有。 */
   readonly clarificationAnswer?: true
+  /** 发话时浏览器里的画布。缺席即这一轮只认服务端已经同步的那份。 */
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 /**
@@ -522,6 +525,8 @@ export interface AgentInboxResumePayload {
    * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
    */
   readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds'>
+  /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 export type AgentInboxPayload =
