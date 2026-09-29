@@ -234,7 +234,7 @@ export default function AgentPanel({
     const originX = event.clientX
     const originWidth = panelWidth
     handle.setPointerCapture(event.pointerId)
-    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + originX - move.clientX)
+    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + move.clientX - originX)
     const onUp = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
@@ -277,7 +277,7 @@ export default function AgentPanel({
           aria-label={t('panel.resizeAria')}
           title={t('panel.resizeTitle')}
           onPointerDown={startResize}
-          className="absolute -left-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
+          className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
         />
       )}
       {presentation === 'side' && (
