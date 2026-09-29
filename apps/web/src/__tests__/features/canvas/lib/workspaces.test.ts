@@ -59,6 +59,69 @@ describe('画布工作区', () => {
     workspace.dispose()
   })
 
+  it('旧存档在平板打开时根据内容是否在视野内决定适配', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'tablet-artwork',
+        type: 'text',
+        text: '画布内容',
+        x: 2000,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(768, 800)
+    workspace.fitInitialView()
+    expect((2000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeGreaterThan(0)
+    expect((3000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(768)
+    workspace.dispose()
+  })
+
+  it('轻微缩窄窗口但裁切了原本完整的图片时重新适配', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'almost-fitted',
+        type: 'text',
+        text: '画布内容',
+        x: 0,
+        y: 0,
+        width: 1100,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setViewport(1200, 800)
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(900, 800)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera.zoom).toBeLessThan(1)
+    expect((1100 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(900)
+    workspace.dispose()
+  })
+
+  it('只调整视口尺寸也会落盘', async () => {
+    const key = freshSceneKey()
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(900, 700)
+    expect(await workspace.flush()).toBe(true)
+    expect((await readPersistedScene(key))?.viewport).toEqual({ width: 900, height: 700 })
+    workspace.dispose()
+  })
+
   it('手机打开桌面保存的画布时框住内容，同尺寸再次打开保留相机位置', async () => {
     const key = freshSceneKey()
     const saved = new CanvasDoc()
@@ -115,7 +178,7 @@ describe('画布工作区', () => {
         text: '大画布',
         x: 0,
         y: 0,
-        width: 20000,
+        width: 2000000,
         height: 600,
         fontSize: 32,
         fill: '#000',
@@ -127,8 +190,8 @@ describe('画布工作区', () => {
     await workspace.ready
     workspace.doc.setViewport(320, 600)
     workspace.fitInitialView()
-    expect(workspace.doc.camera.zoom).toBeLessThan(0.05)
-    expect((20000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(320)
+    expect(workspace.doc.camera.zoom).toBeLessThan(0.001)
+    expect((2000000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(320)
     const fittedZoom = workspace.doc.camera.zoom
     workspace.doc.zoomAt(160, 300, fittedZoom * 1.25)
     expect(workspace.doc.camera.zoom).toBeCloseTo(fittedZoom * 1.25)

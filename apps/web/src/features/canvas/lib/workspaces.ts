@@ -2,14 +2,37 @@ import { i18next } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useCanvasProjectStore } from '../projectStore'
 import { createAgentCanvasSink } from './agentCanvasSink'
-import { CanvasDoc } from './canvasDoc'
+import { type Camera, CanvasDoc, type CanvasEl } from './canvasDoc'
 import { CloudProjectSession } from './cloudProjects'
-import { CanvasEditor } from './editor'
+import { CanvasEditor, elementBounds } from './editor'
 import { placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
 import { cloudProjectsEnabled } from './projectClient'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 import { SceneRecord, type SceneRecordStatus } from './sceneRecord'
+
+function contentVisibility(
+  elements: readonly CanvasEl[],
+  camera: Camera,
+  viewport: { width: number; height: number },
+): { allVisible: boolean; bestVisible: number } {
+  let allVisible = true
+  let bestVisible = 0
+  for (const element of elements) {
+    const bounds = elementBounds(element)
+    const left = (bounds.x - camera.x) * camera.zoom
+    const top = (bounds.y - camera.y) * camera.zoom
+    const right = (bounds.maxX - camera.x) * camera.zoom
+    const bottom = (bounds.maxY - camera.y) * camera.zoom
+    if (left < -4 || top < -4 || right > viewport.width + 4 || bottom > viewport.height + 4)
+      allVisible = false
+    const visibleWidth = Math.max(0, Math.min(right, viewport.width) - Math.max(left, 0))
+    const visibleHeight = Math.max(0, Math.min(bottom, viewport.height) - Math.max(top, 0))
+    const area = Math.max(1e-6, (right - left) * (bottom - top))
+    bestVisible = Math.max(bestVisible, (visibleWidth * visibleHeight) / area)
+  }
+  return { allVisible, bestVisible }
+}
 
 /** 一个项目在这台设备上打开着的那份画布：文档、编辑器、产物出口，以及它的存档与云端会话。 */
 export class CanvasWorkspace {
@@ -134,16 +157,23 @@ export class CanvasWorkspace {
       if (this.doc.viewport.width <= 1 || this.doc.viewport.height <= 1) return
       const previous = this.record.restoredViewport
       const { width, height } = this.doc.viewport
+      const current = contentVisibility(this.doc.elements, this.doc.camera, this.doc.viewport)
+      const old =
+        previous && previous.width > 1 && previous.height > 1
+          ? contentVisibility(this.doc.elements, this.doc.camera, previous)
+          : null
       const viewportChanged =
         this.doc.elements.length > 0 &&
-        (previous && previous.width > 1 && previous.height > 1
+        (old
           ? Math.max(
-              width / previous.width,
-              previous.width / width,
-              height / previous.height,
-              previous.height / height,
-            ) > 1.5
-          : width <= 640)
+              width / previous!.width,
+              previous!.width / width,
+              height / previous!.height,
+              previous!.height / height,
+            ) > 1.5 ||
+            (old.allVisible && !current.allVisible) ||
+            (old.bestVisible >= 0.6 && current.bestVisible < 0.6)
+          : current.bestVisible < 0.6)
       this.initialViewResolved = true
       if (!this.needsInitialFit && !viewportChanged) return unsubscribe()
       this.needsInitialFit = false
