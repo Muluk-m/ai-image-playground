@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import { ThinkingIndicator } from '../../../components/assistant-ui/elements/thinking-indicator'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
-import { INK_3 } from '../agentStyles'
 import { type AgentActivityPhase, agentActivityPhase } from '../lib/panelMessages'
 import { useAgentStore } from '../store'
 
@@ -31,23 +31,12 @@ export default function AgentActivity() {
 
   if (!phase) return null
   return (
-    <output
+    <ThinkingIndicator
+      role="status"
       aria-live="polite"
-      className={`flex items-center gap-2 text-[11px] ${INK_3}`}
       data-phase={phase}
-    >
-      <span
-        aria-hidden="true"
-        className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
-      />
-      <span key={phase} className="agent-shimmer relative inline-block leading-none">
-        {t(LABEL_KEY[phase])}
-      </span>
-      {elapsed !== null && elapsed >= 1000 && (
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/70">
-          {formatElapsed(elapsed)}
-        </span>
-      )}
-    </output>
+      label={t(LABEL_KEY[phase])}
+      elapsed={elapsed !== null && elapsed >= 1000 ? formatElapsed(elapsed) : undefined}
+    />
   )
 }
