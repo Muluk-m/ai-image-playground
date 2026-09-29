@@ -1359,7 +1359,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 )}
                 <PromptEditor
                   editor={promptEditor}
-                  placeholder={t('editor.placeholder')}
+                  placeholder={t(
+                    toCanvas
+                      ? createTarget === 'chat'
+                        ? 'editor.chatPlaceholder'
+                        : 'editor.canvasPlaceholder'
+                      : 'editor.placeholder',
+                  )}
                   className={TEXTAREA_CLASS}
                   onClick={(e) => {
                     const el = e.currentTarget

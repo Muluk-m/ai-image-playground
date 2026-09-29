@@ -65,7 +65,7 @@ export default function ProjectGrid({
   if (trash) return <ProjectTrash onBack={() => setTrash(false)} onOpen={enter} />
   return (
     <>
-      {cloudProjectsEnabled() && (
+      {cloudProjectsEnabled() && !recent && (
         /* 工具条：一排同形状的胶囊按钮（回收站 / 刷新 / 加载更多），不要下划线链接混排。 */
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {!recent && (
@@ -130,17 +130,6 @@ export default function ProjectGrid({
               )}
             </div>
           </div>
-        )}
-        {!search && recent && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void enter(undefined, 'image')}
-            className="group flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground transition hover:border-primary/60 hover:bg-muted disabled:opacity-50"
-          >
-            <PlusIcon className="h-8 w-8 transition group-hover:text-primary" />
-            <span className="text-sm font-medium">{t('grid.newProject')}</span>
-          </button>
         )}
         {visible.map((project) => (
           <article

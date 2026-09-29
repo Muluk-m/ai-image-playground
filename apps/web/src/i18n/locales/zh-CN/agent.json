@@ -181,6 +181,7 @@
   },
   "composer": {
     "placeholder": "说一句你想做什么，@ 引用画布或素材",
+    "chatPlaceholder": "说一句你想做什么，@ 引用素材",
     "editorAria": "对智能体说",
     "drawMaskAria": "给参考图 {{label}} 画遮罩",
     "editMaskAria": "修改参考图 {{label}} 的遮罩",
