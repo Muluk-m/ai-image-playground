@@ -106,8 +106,8 @@ export default function Sidebar() {
       {!expanded && (
         <button
           type="button"
-          onClick={toggleSidebar}
-          aria-label={t('header.nav')}
+          onClick={appMode === 'canvas' ? () => setAppMode('image') : toggleSidebar}
+          aria-label={t(appMode === 'canvas' ? 'brand.home' : 'header.nav')}
           className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-xl border border-border bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:grid"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
