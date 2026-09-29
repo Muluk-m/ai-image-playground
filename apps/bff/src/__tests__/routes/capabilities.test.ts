@@ -22,7 +22,8 @@ describe('GET /api/capabilities', () => {
       .sort()
 
     expect(response.status).toBe(200)
-    expect(Object.keys(body).sort()).toEqual(exposedKeys)
+    expect(Object.keys(body).sort()).toEqual([...exposedKeys, 'projectDocumentIdentity'].sort())
+    expect(body.projectDocumentIdentity).toBe(true)
     expect(body['accounts:login']).toBe(true)
     expect(body['accounts:self-register']).toBe(false)
     expect(body['accounts:sync']).toBe(false)

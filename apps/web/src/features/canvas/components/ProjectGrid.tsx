@@ -14,7 +14,7 @@ import { useLibraryStore } from '../../library/store'
 import { renameProject } from '../lib/activeProject'
 import { projectCatalog } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
-import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
+import { type CanvasProject, projectDisplayName, projectExperience } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectTrash from './ProjectTrash'
 
@@ -49,7 +49,7 @@ export default function ProjectGrid({
     try {
       const opened = project
         ? await useAgentStore.getState().selectProject(project.id)
-        : await useAgentStore.getState().createProject(kind)
+        : await useAgentStore.getState().createProject(kind, false, 'canvas')
       if (opened) {
         // 挑中或建出项目就落到画布——项目的唯一去处就是它自己的工作台。
         useStore.getState().setAppMode('canvas')
@@ -167,7 +167,13 @@ export default function ProjectGrid({
                 )}
                 <span className="absolute left-3 top-3 flex items-center gap-1.5">
                   <span className="rounded-full bg-background/85 px-2 py-1 text-[10px] text-muted-foreground">
-                    {t(project.kind === 'video' ? 'project.kindVideo' : 'project.kindImage')}
+                    {t(
+                      projectExperience(project) === 'chat'
+                        ? 'grid.chat'
+                        : project.kind === 'video'
+                          ? 'project.kindVideo'
+                          : 'grid.canvas',
+                    )}
                   </span>
                   {project.id === activeId && (
                     <span className="rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">

@@ -5,7 +5,10 @@ import { requireInternalService } from '../lib/user-auth'
 
 export const capabilitiesRoutes = new Elysia().get(
   '/api/capabilities',
-  (): ClientCapabilityManifest => capabilityManifest(),
+  (): ClientCapabilityManifest & { projectDocumentIdentity: true } => ({
+    ...capabilityManifest(),
+    projectDocumentIdentity: true,
+  }),
 )
 
 export const internalCapabilitiesRoutes = new Elysia().use(requireInternalService).get(

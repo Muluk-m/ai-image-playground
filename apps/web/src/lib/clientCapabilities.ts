@@ -28,6 +28,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 }
 let currentManifest = disabledManifest()
 let currentBffEnabled = false
+let projectDocumentIdentity = false
 
 export async function bootstrapClientCapabilities(
   bffEnabled: boolean,
@@ -35,6 +36,7 @@ export async function bootstrapClientCapabilities(
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
   currentBffEnabled = bffEnabled
+  projectDocumentIdentity = false
   if (!bffEnabled) return currentManifest
 
   try {
@@ -42,12 +44,24 @@ export async function bootstrapClientCapabilities(
       cache: 'no-store',
     })
     if (!response.ok) return currentManifest
-    const parsed = parseManifest(await response.json())
+    const body: unknown = await response.json()
+    const parsed = parseManifest(body)
     if (parsed) currentManifest = parsed
+    projectDocumentIdentity =
+      parsed !== null &&
+      typeof body === 'object' &&
+      body !== null &&
+      'projectDocumentIdentity' in body &&
+      body.projectDocumentIdentity === true
   } catch {
     // A missing capability response must never enable a feature.
   }
   return currentManifest
+}
+
+/** Older APIs reject the new document fields; send them only after the server advertises support. */
+export function supportsProjectDocumentIdentity(): boolean {
+  return projectDocumentIdentity
 }
 
 export function getClientCapabilityManifest(): Readonly<ClientCapabilityManifest> {

@@ -4,7 +4,7 @@ import {
   PROJECT_RECEIPT_COUNT,
   type ProjectWrite,
 } from '@image-playground/shared'
-import { and, asc, count, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { withAgentLifecycle } from './agent/lifecycle'
@@ -20,6 +20,8 @@ const summaryColumns = {
   elementCount: table.element_count,
   coverMediaId: table.cover_media_id,
   conversationId: table.conversation_id,
+  experience: sql<'chat' | 'canvas' | null>`${table.document}->>'experience'`,
+  sourceProjectId: sql<string | null>`${table.document}->>'sourceProjectId'`,
 }
 
 export async function listProjects(userId: string, pageSize: number, cursor?: string) {
@@ -139,6 +141,15 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
         return { ok: false as const, status: 409 as const, error: 'project_media_not_ready' }
     }
     const now = Date.now()
+    // 入口类型和来源跟随项目文档同步；已有类型只认第一次写入，避免旧客户端覆盖。
+    const document = existing
+      ? {
+          ...input.document,
+          kind: existing.document.kind,
+          experience: existing.document.experience ?? input.document.experience,
+          sourceProjectId: existing.document.sourceProjectId ?? input.document.sourceProjectId,
+        }
+      : input.document
     const project: CloudProjectSummary = {
       id,
       name: input.name,
@@ -148,9 +159,9 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       elementCount: input.document.elements.length,
       coverMediaId: imageIds.at(-1) ?? null,
       conversationId: existing?.conversation_id ?? null,
+      ...(document.experience ? { experience: document.experience } : {}),
+      ...(document.sourceProjectId ? { sourceProjectId: document.sourceProjectId } : {}),
     }
-    // 画布类型建项目时定死：已有项目以存档里那份为准，客户端后来带什么都不算数。
-    const document = existing ? { ...input.document, kind: existing.document.kind } : input.document
     const values = {
       name: project.name,
       revision: project.revision,

@@ -614,9 +614,9 @@ interface AppState {
    * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
    * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
    */
-  pendingCanvasImages: string[]
-  queueCanvasImages: (dataUrls: string[]) => void
-  consumeCanvasImages: () => string[]
+  pendingCanvasImages: Array<string | { dataUrl: string; groupId?: string }>
+  queueCanvasImages: (images: Array<string | { dataUrl: string; groupId?: string }>) => void
+  consumeCanvasImages: () => Array<string | { dataUrl: string; groupId?: string }>
   detailTaskId: string | null
   setDetailTaskId: (id: string | null) => void
   lightboxImageId: string | null

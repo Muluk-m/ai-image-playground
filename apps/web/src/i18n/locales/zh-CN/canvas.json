@@ -101,6 +101,8 @@
     "restoring": "正在恢复项目…",
     "reload": "重新加载",
     "untitled": "未命名项目",
+    "untitledChat": "未命名对话",
+    "untitledCanvas": "未命名画布",
     "kindImage": "图片",
     "kindVideo": "视频",
     "routeUnavailable": "此项目暂时无法打开，请确认账号或在原设备重试。",
@@ -124,7 +126,10 @@
     "canvasAria": "创作画布",
     "untitled": "我的画布",
     "backToProjects": "返回项目",
-    "backHome": "回到主页"
+    "backHome": "回到主页",
+    "assets": "资产库",
+    "sourceChat": "返回来源对话",
+    "imageTransferFailed": "图片未能加入新画布，请重试"
   },
   "saveError": {
     "message": "画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。",
@@ -195,6 +200,8 @@
     "delete": "删除"
   },
   "grid": {
+    "chat": "对话",
+    "canvas": "画布",
     "loadingCloud": "正在读取项目…",
     "retryCloud": "重试读取项目",
     "refreshCloud": "刷新项目",
