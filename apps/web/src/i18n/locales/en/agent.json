@@ -191,6 +191,7 @@
   },
   "composer": {
     "placeholder": "Say what you want, @ for canvas or assets",
+    "chatPlaceholder": "Say what you want, @ to mention an asset",
     "editorAria": "Message the agent",
     "drawMaskAria": "Draw a mask on {{label}}",
     "editMaskAria": "Edit the mask on {{label}}",

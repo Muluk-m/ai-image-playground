@@ -129,6 +129,7 @@ describe('首屏「画布」档的参数 chip', () => {
     remount('chat')
     expect(chip('数量')).toBeNull()
     expect(chip('比例') ?? chip('尺寸')).not.toBeNull()
+    expect(editor().getAttribute('data-placeholder')).toContain('讨论思路')
     expect(useStore.getState().createTarget).toBe('chat')
   })
 
