@@ -108,8 +108,8 @@ function renderClarification(): void {
 
 async function clickOption(label: string): Promise<void> {
   const button = [
-    ...host.querySelectorAll<HTMLButtonElement>('.studio-clarification-options > button'),
-  ].find((one) => one.querySelector('span:last-child')?.textContent === label)!
+    ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
+  ].find((one) => one.textContent === label)!
   await act(async () => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
