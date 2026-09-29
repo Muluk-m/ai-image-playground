@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(44)
+    expect(rows).toHaveLength(45)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -64,6 +64,16 @@ describe('runMigrations', () => {
     expect(quotaDate?.data_type).toBe('date')
   })
 
+  it('removes the retired domain handoff and conversation claim tables', async () => {
+    const rows = await connection.client.unsafe(`
+      SELECT tablename
+      FROM pg_tables
+      WHERE schemaname = 'public'
+        AND tablename IN ('domain_migrations', 'domain_migration_chunks', 'agent_device_claims')
+    `)
+    expect(rows).toEqual([])
+  })
+
   it('creates the idempotency and operational indexes', async () => {
     const rows = (await connection.client.unsafe(`
       SELECT indexname
@@ -89,7 +99,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(44)
+    expect(rows).toHaveLength(45)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -140,6 +150,7 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0045_retired_domain_migration.down.sql',
       '0044_archive_retry_budget.down.sql',
       '0043_queue_provider_time.down.sql',
       '0042_admin_user_notes.down.sql',
@@ -216,6 +227,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(44)
+    expect(restored).toHaveLength(45)
   })
 })
