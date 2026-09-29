@@ -41,7 +41,10 @@ const activationTimer =
 // 活着不等于在干活：把最后一次成功轮询的时间一并写进心跳，看板才分得清两者。
 const stopHeartbeat = startHeartbeat({
   service: 'worker',
-  detail: () => ({ last_successful_poll_at: scheduler.lastSuccessfulPollAt() }),
+  detail: () => ({
+    last_successful_poll_at: scheduler.lastSuccessfulPollAt(),
+    alerts_configured: Boolean(process.env.OPS_ALERT_WEBHOOK_URL?.trim()),
+  }),
 })
 // 队列积压、备份断了、后端心跳断了：每次维护循环看一眼，该发就发。没配地址就安静跳过。
 const checkAppAlerts = createAppAlerting({

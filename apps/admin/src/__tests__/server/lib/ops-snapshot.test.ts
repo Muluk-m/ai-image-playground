@@ -31,6 +31,11 @@ const healthy = {
     series: [],
     error_routes: [],
   }),
+  reliability: async () => ({
+    recent: { generation_system: 0, agent_failed: 0 },
+    windows: [],
+    exceptions: [],
+  }),
   deployments: async () => ({ own: null, available: false, entries: [] }),
 }
 
@@ -97,6 +102,7 @@ describe('buildOpsSnapshot', () => {
       host: track('host', { latest: null, series: [], bucket_ms: 30 * 60_000 }),
       containers: track('containers', { sampled_at: null, containers: [] }),
       api: track('api', await healthy.api()),
+      reliability: track('reliability', await healthy.reliability()),
       deployments: track('deployments', { own: null, available: false, entries: [] }),
     })
 
@@ -108,6 +114,7 @@ describe('buildOpsSnapshot', () => {
       'host',
       'containers',
       'api',
+      'reliability',
       'deployments',
     ])
   })
