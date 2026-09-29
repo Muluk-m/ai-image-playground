@@ -77,6 +77,7 @@
     "quota_exceeded": "Today's generation quota is used up",
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
+    "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
     "content_policy": "The prompt didn't pass content review, so the provider rejected it",
     "model_unavailable": "The model it needed isn't available right now",
     "cancelled": "Stopped",
