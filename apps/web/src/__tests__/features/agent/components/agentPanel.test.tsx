@@ -152,6 +152,61 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('把同一轮连续获取的网图收进一条缩略图带，保留预览和来源', async () => {
+    const onPreviewResult = vi.fn()
+    const image = (id: string, turnId = 'turn-1'): AgentToolMessage => ({
+      kind: 'tool',
+      id,
+      turnId,
+      toolCallId: `call-${id}`,
+      toolName: 'fetchImage',
+      title: '获取图片：i02.appmifile.com',
+      status: 'succeeded',
+      delivery: 'unavailable',
+      fetchedImages: [
+        {
+          imageId: `11111111-2222-4333-8444-55555555555${id}`,
+          sourceUrl: `https://i02.appmifile.com/${id}.png`,
+          mime: 'image/png',
+        },
+      ],
+    })
+    useAgentStore.setState({
+      messages: [
+        image('1'),
+        image('2'),
+        {
+          kind: 'text',
+          id: 'reply',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '找到两张参考图',
+          streaming: false,
+        },
+      ],
+    })
+    act(() => {
+      const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
+      root.render(
+        <AgentPanel
+          doc={new CanvasDoc()}
+          editor={editor}
+          presentation="page"
+          onPreviewResult={onPreviewResult}
+        />,
+      )
+    })
+    await settle()
+
+    const strip = host.querySelector('.studio-agent-fetched-strip')!
+    expect(strip.querySelectorAll('.studio-agent-fetched-strip-item')).toHaveLength(2)
+    expect(strip.querySelectorAll('.studio-agent-inline-result--fetched')).toHaveLength(2)
+    expect(strip.querySelectorAll('a[href^="https://i02.appmifile.com/"]')).toHaveLength(2)
+    expect(host.textContent).toContain('找到两张参考图')
+    act(() => strip.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(onPreviewResult).toHaveBeenCalledWith('1', 'fetched_call-1_0')
+  })
+
   it('发送中的引用显示本条消息的缩略图，确认起轮后不丢失或串成下一轮的图', async () => {
     vi.stubGlobal(
       'fetch',
@@ -1036,7 +1091,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
-  it('对话限时免费：生图另计、对话积分划掉，免费标记 hover 才出文案', async () => {
+  it('对话限时免费且没有实扣时，只保留耗时', async () => {
     await enableChatFree()
     useAgentStore.setState({
       messages: [
@@ -1054,25 +1109,20 @@ describe('AgentPanel', () => {
           turnId: 'turn-1',
           durationMs: 24_000,
           stopReason: 'completed',
-          cost: { chat: 0, image: 0, video: 0 },
+          cost: { chat: 0, image: 0, video: 0, chatWaived: 20 },
         },
       },
     })
     render()
 
-    expect(host.textContent).toContain('生图积分 按任务计费')
-    expect(host.querySelector('del')?.textContent).toBe('对话积分')
-    expect(host.textContent).toContain('免费')
+    expect(host.textContent).toContain('24s')
+    expect(host.querySelector('del')).toBeNull()
+    expect(host.textContent).not.toContain('免')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
-    const mark = host.querySelector('[role="img"][aria-label="对话限时免费"]') as HTMLElement
-    expect(mark).not.toBeNull()
-    expect(host.textContent).not.toContain('对话限时免费')
-
-    act(() => mark.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-    expect(document.body.textContent).toContain('对话限时免费')
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
   })
 
-  it('限免期间掺了生图的轮直接列出生图实扣，只划掉对话积分', async () => {
+  it('限免期间生图实扣 100、对话减免 20，明细显示原价 120', async () => {
     await enableChatFree()
     useAgentStore.setState({
       messages: [
@@ -1090,16 +1140,69 @@ describe('AgentPanel', () => {
           turnId: 'turn-1',
           durationMs: 24_000,
           stopReason: 'completed',
-          cost: { chat: 0, image: 85, video: 0 },
+          cost: { chat: 0, image: 100, video: 0, chatWaived: 20 },
         },
       },
     })
     render()
 
-    expect(host.textContent).toContain('生图积分 85')
-    expect(host.querySelector('del')?.textContent).toBe('对话积分')
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    expect(host.querySelector('del')?.textContent).toBe('20')
     expect(host.textContent).not.toContain('本轮免费，未扣积分')
-    expect(host.querySelector('[aria-label="对话限时免费"]')).not.toBeNull()
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    act(() => toggle.click())
+    expect(host.textContent).toContain('原价120')
+    expect(host.textContent).toContain('对话减免−20')
+    expect(host.textContent).toContain('实扣100')
+  })
+
+  it('确认后才结算的生图费用回填同一轮账单，刷新后仍显示 120 − 20 = 100', async () => {
+    await enableChatFree()
+    const footer = {
+      turnId: 'turn-1',
+      durationMs: 7_000,
+      stopReason: 'completed' as const,
+      cost: { chat: 0, image: 0, video: 0, chatWaived: 20 },
+    }
+    const job: AgentToolMessage = {
+      kind: 'tool',
+      id: 'tool-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      title: '蓝色圆形',
+      status: 'submitted',
+      job: { taskId: 'task-1', media: 'image' },
+    }
+    useAgentStore.setState({ messages: [job], turns: { 'turn-1': footer } })
+    render()
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
+
+    act(() =>
+      useAgentStore.setState({
+        messages: [{ ...job, status: 'succeeded', job: { ...job.job!, chargedCredits: 100 } }],
+      }),
+    )
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+    const toggle = host.querySelector('button[aria-label="查看本轮积分明细"]') as HTMLButtonElement
+    act(() => toggle.click())
+    expect(host.textContent).toContain('原价120')
+    expect(host.textContent).toContain('对话减免−20')
+    expect(host.textContent).toContain('实扣100')
+
+    act(() =>
+      useAgentStore.setState({
+        messages: [],
+        turns: {},
+      }),
+    )
+    act(() =>
+      useAgentStore.setState({
+        messages: [{ ...job, status: 'succeeded', job: { ...job.job!, chargedCredits: 100 } }],
+        turns: { 'turn-1': footer },
+      }),
+    )
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
   })
 
   it('限免开启后翻旧的收费轮，不把已经实扣的对话积分划掉', async () => {
@@ -1128,6 +1231,90 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('消耗 127')
     expect(host.querySelector('del')).toBeNull()
+  })
+
+  it('限免关闭后，已记录减免的历史轮仍显示划掉的原价', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'completed',
+          cost: { chat: 0, image: 100, video: 0, chatWaived: 20 },
+        },
+      },
+    })
+    render()
+
+    expect(host.querySelector('del')?.textContent).toBe('20')
+    expect(host.querySelector('[aria-label="生图实扣 100 积分"]')).not.toBeNull()
+  })
+
+  it('当前限免开关不把没有减免记录的旧零费用轮误标为对话减免', async () => {
+    await enableChatFree()
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '你好',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'completed',
+          cost: { chat: 0, image: 0, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
+    expect(host.textContent).toContain('本轮耗时 24s')
+    expect(host.textContent).not.toContain('本轮免费，未扣积分')
+  })
+
+  it('限免时中止的轮仍标明已停止，不当作完成的减免', async () => {
+    await enableChatFree()
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 24_000,
+          stopReason: 'aborted',
+          cost: { chat: 0, image: 0, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.textContent).toContain('已停止')
+    expect(host.querySelector('button[aria-label="查看本轮积分明细"]')).toBeNull()
   })
 
   it('重试记录夹在一轮中间时，页脚仍只跟在这一轮最后一条后面', () => {
@@ -1254,7 +1441,7 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
   })
 
-  it('失败的轮明确标出失败和未扣积分，不显示为免费完成', () => {
+  it('失败且没有扣费的轮只标失败与耗时', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -1278,7 +1465,8 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('本轮失败')
-    expect(host.textContent).toContain('未扣积分')
+    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.textContent).not.toContain('未扣积分')
     expect(host.textContent).not.toContain('本轮免费')
   })
 

@@ -2,6 +2,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
   AgentCanvasEditPlan,
+  AgentCanvasSnapshot,
   AgentFetchedImage,
   AgentMode,
   AgentSaveCard,
@@ -39,6 +40,11 @@ export interface AgentToolContext {
   readonly turnId: string
   readonly userId: string | null
   readonly deviceId: string
+  /**
+   * 用户发话时浏览器里的画布。服务端项目文档会漏掉还没上传完的图，
+   * 看画布和整理认这份，才跟屏幕上的张数一致。
+   */
+  readonly canvas?: AgentCanvasSnapshot
   /** 外部副作用开始前确认当前 BFF 仍拥有这一轮。 */
   readonly assertExecution?: () => Promise<void>
   /** 模型说的图片 id 到字节的唯一出口。 */

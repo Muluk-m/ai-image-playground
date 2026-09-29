@@ -6,6 +6,9 @@ const idParams = t.Object({ id: t.String({ minLength: 1, maxLength: 128 }) })
 
 export const inspirationsRoutes = new Elysia({ prefix: '/api' })
   .use(requireAuth)
+  .get('/inspirations/asset-base', () =>
+    forwardInternalBff({ path: '/internal/admin/inspirations/asset-base' }),
+  )
   .get(
     '/inspirations',
     ({ query }) => {

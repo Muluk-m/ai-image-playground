@@ -339,51 +339,53 @@
   "imageToolbar": {
     "aria": "图片操作",
     "more": "更多",
-    "sourceMissing": "图片数据不可用"
+    "sourceMissing": "图片数据不可用",
+    "agentUnavailable": "Agent 对话暂不可用，请稍后重试",
+    "promptPlaceholder": "补充你希望 Agent 怎样修改这张图片",
+    "dragFrame": "拖动图片上的画框边缘，确定要保留或扩展的范围",
+    "sendToAgent": "发送给 Agent"
   },
   "inpaint": {
-    "action": "局部重绘",
-    "title": "局部重绘",
-    "running": "局部重绘中…",
+    "action": "智能改图",
+    "title": "智能改图",
+    "running": "智能改图中…",
     "toolAria": "涂抹工具",
     "tool": {
+      "rect": "框选区域",
       "brush": "画笔",
       "eraser": "橡皮擦"
     },
     "brushSize": "笔刷",
-    "undo": "撤销一笔",
-    "promptAria": "重绘描述",
-    "promptPlaceholder": "描述这块区域要改成什么，例如：把水龙头换成金色",
-    "paintFirst": "先在图上涂出要改的区域",
+    "undo": "撤销标记",
+    "regions": "修改区域",
+    "regionName": "区域 {{no}}",
+    "removeRegion": "移除区域 {{no}}",
+    "promptAria": "修改要求",
+    "promptPlaceholder": "描述希望怎么修改，例如：把鞋带改成亮蓝色",
+    "paintFirst": "在图片上拖动框选，或切换画笔标记位置",
     "uploadReference": "上传图片",
     "removeReference": "移除参考图",
-    "submit": "生成",
     "modelUnsupported": "当前模型不支持遮罩重绘，请切到 GPT Image 系列",
     "videoUnsupported": "视频不支持局部重绘",
     "tooSmall": "图片太小，局部重绘要求约 80 万像素以上",
     "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
     "sourceGone": "源图已不在画布上",
-    "canvasAria": "局部重绘涂抹区"
+    "canvasAria": "智能改图标记区"
   },
   "crop": {
     "action": "裁切",
-    "title": "裁切",
-    "apply": "应用"
+    "title": "裁切"
   },
   "outpaint": {
     "action": "扩图",
     "title": "扩图",
     "running": "扩图中…",
-    "submit": "生成",
-    "promptAria": "扩展区域描述",
-    "promptPlaceholder": "可选：说明新区域画什么，例如：继续延伸夜空与星云",
     "dragFirst": "拖动边框把画面往外扩",
     "tooLarge": "扩得太大了，超出模型能处理的尺寸"
   },
   "erase": {
     "action": "擦除",
     "title": "擦除",
-    "submit": "完成擦除",
     "paintFirst": "涂掉要去除的东西",
     "continueHint": "继续涂抹，或点击完成",
     "running": "擦除中…"
@@ -408,8 +410,9 @@
   },
   "imageEdit": {
     "action": "编辑图片",
-    "title": "编辑图片",
-    "hint": "按一句话整张改这张图，改完替换原图。只改一小块请用局部重绘。",
+    "singleAction": "整图编辑",
+    "title": "整图编辑",
+    "hint": "按一句话整张改这张图，改完替换原图。只改一小块请用智能改图。",
     "promptLabel": "描述编辑",
     "placeholder": "例如：把背景换成浅木色桌面，保持产品本身不变",
     "submit": "开始编辑",

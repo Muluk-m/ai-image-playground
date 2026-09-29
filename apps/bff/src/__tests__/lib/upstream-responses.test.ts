@@ -14,6 +14,7 @@ const {
 } = await import('../../lib/upstream')
 const { extractMeta, resolveImageBytesRef } = await import('../../lib/extractImages')
 const { isRetryableError } = await import('../../lib/retry')
+const { setImageResponsesBufferLimitForTesting } = await import('../../lib/openaiImageResponses')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const originalUpstream = { ...config.upstream }
 const PNG =
@@ -177,6 +178,50 @@ describe('Astra 图片 Responses 调用', () => {
       { index: 0, mime: 'image/png', revised_prompt: '蓝色方块' },
     ])
     expect(resolveImageBytesRef('openai-compat', result.payload, 0)?.data).toBe(PNG)
+  })
+
+  it('流末尾的完成事件后面没有空行，也照常收下，并能跨分片拼回', async () => {
+    const text = `data: ${JSON.stringify({ type: 'response.output_item.done', output_index: 0, item })}\n\ndata: ${JSON.stringify(completed)}`
+    const bytes = new TextEncoder().encode(text)
+    setUpstreamFetchForTesting(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              for (let i = 0; i < bytes.length; i += 11) controller.enqueue(bytes.slice(i, i + 11))
+              controller.close()
+            },
+          }),
+        ),
+    )
+    const result = await callUpstream({ ...request, request: { prompt: '蓝色方块' } })
+    expect(extractMeta('openai-compat', result.payload).images).toHaveLength(1)
+  })
+
+  it('一条事件超过缓冲上限就放弃这次响应，不无界吃内存', async () => {
+    setImageResponsesBufferLimitForTesting(64)
+    try {
+      setUpstreamFetchForTesting(
+        async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                // 一条永远不结束的 data 行，每块都比上限的一半还长。
+                for (let i = 0; i < 4; i++)
+                  controller.enqueue(new TextEncoder().encode(`data: ${'x'.repeat(40)}`))
+                controller.close()
+              },
+            }),
+          ),
+      )
+      const error = await callUpstream({ ...request, request: { prompt: '蓝色方块' } }).catch(
+        (err: unknown) => err,
+      )
+      expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+      expect(String((error as Error).cause)).toContain('buffer')
+    } finally {
+      setImageResponsesBufferLimitForTesting()
+    }
   })
 
   it('图片到达但完成事件缺失时结果未知，禁止自动重试', async () => {

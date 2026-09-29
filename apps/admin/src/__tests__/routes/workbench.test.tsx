@@ -22,6 +22,15 @@ vi.mock('../../lib/api-client', () => {
     volume: [{ bucket_at: Date.now(), total: 3, completed: 2, failed: 1 }],
     volume_bucket: 'day',
     failures: [{ error_type: 'upstream_timeout', count: 1 }],
+    agent_cache: {
+      calls: 2,
+      input_tokens: 1000,
+      cache_read_tokens: 640,
+      models: [
+        { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
+        { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
+      ],
+    },
     models: [{ model: 'gpt-image-2', count: 3, upstream_invocations: 4, average_multiplier: 1.33 }],
   }
   const user = {
@@ -86,6 +95,7 @@ vi.mock('../../lib/api-client', () => {
         backup: unavailable,
         containers: unavailable,
         api: unavailable,
+        reliability: unavailable,
         deployments: unavailable,
       }
     }
@@ -211,6 +221,15 @@ describe('sync footprint', () => {
 })
 
 describe('time range placement', () => {
+  it('shows the token-weighted Agent cache hit rate and per-model usage', async () => {
+    renderAt('/overview')
+    expect(await screen.findByText('Agent 输入缓存 · 7 天')).toBeInTheDocument()
+    expect(screen.getByText('64.0%')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('row', { name: /model-b/ })).getByText('66.7%'),
+    ).toBeInTheDocument()
+  })
+
   it('renders the range control next to the task pulse chart on 概览', async () => {
     renderAt('/overview')
     expect(await screen.findByLabelText('时间范围')).toBeInTheDocument()

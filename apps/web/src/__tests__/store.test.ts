@@ -1631,4 +1631,122 @@ describe('展开平台记录的详情', () => {
       inputImageIds: ['aip-media:in-1'],
     })
   })
+
+  it('本机残留卡的详情用平台任务号补齐整组产出', async () => {
+    const running = {
+      id: 'gen-2',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'in_progress',
+      archiveStatus: 'none',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: null,
+      revision: '1',
+      prompt: '两张图',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+    } as const
+    const output = (index: number) => ({
+      index,
+      mediaId: `out-${index}`,
+      width: null,
+      height: null,
+      contentType: 'image/png',
+    })
+    readRemoteGeneration.mockResolvedValue({
+      ...running,
+      status: 'completed',
+      archiveStatus: 'ready',
+      completedAt: 62_000,
+      cover: output(0),
+      outputs: [output(0), output(1)],
+    })
+    useStore.setState({
+      tasks: [
+        task({
+          id: 'local-2',
+          bffRequestId: 'gen-2',
+          status: 'running',
+          outputImages: [],
+          finishedAt: null,
+        }),
+      ],
+      // 首次拉取列表前也能按本机任务上的服务端请求号展开详情。
+      platformGenerations: [],
+      detailTaskId: null,
+    })
+
+    useStore.getState().setDetailTaskId('local-2')
+
+    const card = () =>
+      mergeHistory(useStore.getState().tasks, useStore.getState().platformGenerations)[0]
+    await waitUntil(() => card()?.outputImages.length === 2, '详情没有补齐平台的两张产出')
+    expect(readRemoteGeneration).toHaveBeenCalledWith('gen-2')
+    expect(card()).toMatchObject({
+      id: 'local-2',
+      status: 'done',
+      outputImages: ['aip-media:out-0', 'aip-media:out-1'],
+    })
+  })
+
+  it('完成但归档未就绪时，重新展开还能补到稍后归档的图片', async () => {
+    const base = {
+      id: 'gen-late',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.5-flare',
+      status: 'completed',
+      archiveStatus: 'pending',
+      errorType: null,
+      cover: null,
+      createdAt: 1_000,
+      startedAt: 2_000,
+      completedAt: 62_000,
+      revision: '1',
+      prompt: '迟到的归档',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+      outputs: [],
+    } as const
+    const cover = {
+      index: 0,
+      mediaId: 'late-output',
+      width: null,
+      height: null,
+      contentType: 'image/png',
+    }
+    readRemoteGeneration
+      .mockResolvedValueOnce(base)
+      .mockResolvedValueOnce({ ...base, archiveStatus: 'ready', cover, outputs: [cover] })
+    useStore.setState({
+      tasks: [task({ id: 'local-late', bffRequestId: base.id, status: 'running' })],
+      platformGenerations: [],
+      detailTaskId: null,
+    })
+
+    useStore.getState().setDetailTaskId('local-late')
+    await waitUntil(
+      () => useStore.getState().platformGenerations.some((row) => row.id === base.id),
+      '首次详情未缓存',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const beforeReopen = readRemoteGeneration.mock.calls.filter(([id]) => id === base.id).length
+    useStore.getState().setDetailTaskId(null)
+    useStore.getState().setDetailTaskId('local-late')
+    expect(readRemoteGeneration.mock.calls.filter(([id]) => id === base.id)).toHaveLength(
+      beforeReopen + 1,
+    )
+    await waitUntil(
+      () =>
+        mergeHistory(useStore.getState().tasks, useStore.getState().platformGenerations)[0]
+          ?.outputImages.length === 1,
+      '二次展开未补到归档图片',
+    )
+  })
 })

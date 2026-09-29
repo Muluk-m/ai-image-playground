@@ -1,7 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { RefreshCw, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { adoptAgentConversations } from '../features/agent/lib/agentClient'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
@@ -26,7 +25,7 @@ const App = lazy(() => import('../App'))
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 
-function LoadingScreen() {
+export function LoadingScreen() {
   const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen" aria-live="polite">
@@ -39,7 +38,7 @@ function LoadingScreen() {
   )
 }
 
-function ProblemScreen({
+export function ProblemScreen({
   title,
   description,
   retry,
@@ -66,16 +65,6 @@ function ProblemScreen({
       </section>
     </main>
   )
-}
-
-/** 会话存在服务端，本地那套领养搬不动它，得让 BFF 另外改挂一次。 */
-async function adoptDeviceConversations(): Promise<void> {
-  if (!isClientCapabilityEnabled('agent:chat')) return
-  try {
-    await adoptAgentConversations()
-  } catch {
-    // 搬不成不该把人挡在登录外，下次登录接着搬。
-  }
 }
 
 export function AuthGate() {
@@ -133,7 +122,6 @@ export function AuthGate() {
         const [adopted] = await Promise.all([
           // 必须跑在 <App/> 之前：store 是 lazy 加载的，一旦求值就读走 IndexedDB 与 persist key。
           adoptAnonymousStorage(),
-          adoptDeviceConversations(),
           // 登录用户这条必须成真：session 若恰好在两次请求之间过期，宁可停在错误页，
           // 也不能把 stale user 标成 ready 后再满屏 401。
           bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true, abortController.signal),

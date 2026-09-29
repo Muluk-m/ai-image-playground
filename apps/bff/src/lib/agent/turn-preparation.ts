@@ -10,10 +10,12 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
+import { log } from '../logger'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
 import {
+  type ChatTaskPricing,
   type ChatTaskReserved,
   chatTaskPricing,
   chatTurnSettle,
@@ -146,6 +148,8 @@ interface TurnContent {
   readonly params?: AgentTurnParams
   readonly selectionHistoryStart: number
   readonly deviceId: string
+  /** 发话时浏览器里的画布；唤醒与续跑没有。 */
+  readonly canvas?: import('@image-playground/shared').AgentCanvasSnapshot
   /** 唤醒与续跑没有用户消息，这个 id 不指向任何一条，只让轮头的形状与普通的轮一致。 */
   readonly userMessageId: string
   readonly queueId?: string
@@ -165,6 +169,8 @@ interface TurnContent {
 interface CommittedTurnStart {
   readonly reserved: ChatTaskReserved | undefined
   readonly input: AgentTurnInput
+  readonly estimatedInputTokens: number
+  readonly waiverPricing?: ChatTaskPricing | null
 }
 
 /** 一份候选的轮输入与按它算出的估算：预扣按估算，实发按输入，两边同源。 */
@@ -205,8 +211,21 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const window = await history
     const model = agentModel(content.params?.thinkingDepth)
     const selectedModel = model.id
-    const pricing =
-      chatTurnsBilled() && userId ? await chatTaskPricing(overlay.taskHooks, selectedModel) : null
+    const billChat = chatTurnsBilled()
+    const waiveChat = isCapabilityEnabled('billing:chat-free')
+    let pricing: ChatTaskPricing | null = null
+    if (billChat && userId) {
+      pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+    } else if (waiveChat && userId) {
+      try {
+        pricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+      } catch (err) {
+        log.warn(
+          { event: 'agent.chat_waiver_pricing_failed', turnId, err },
+          'chat waiver pricing unavailable',
+        )
+      }
+    }
 
     // 一份轮输入，两个读者：按它估算的这一笔预扣，与 `startAgentTurn` 发出去的那一份。估算在
     // 事务之外算完，取件与预扣那一笔才只有数据库往返。
@@ -223,7 +242,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       ? estimated({ ...content, wakes: { ids: content.wakes.ids } })
       : null
     const chatTask =
-      pricing && userId
+      billChat && pricing && userId
         ? {
             taskHooks: overlay.taskHooks,
             conversationId,
@@ -268,7 +287,12 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
       await content.write?.(tx)
-      return { reserved, input: chosen.input }
+      return {
+        reserved,
+        input: chosen.input,
+        estimatedInputTokens: chosen.estimatedInputTokens,
+        ...(waiveChat ? { waiverPricing: pricing } : {}),
+      }
     })
   } catch (error) {
     // 事务没提交，刚归档的参考图没有任何东西指着：清掉。
@@ -293,9 +317,20 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       userId,
       deviceId: content.deviceId,
       ...(content.params ? { params: content.params } : {}),
+      ...(content.canvas ? { canvas: content.canvas } : {}),
       ...(content.wake ? { wake: content.wake } : {}),
       reservedCredits: committed.reserved?.reservedCredits,
-      settle: chatTurnSettle(conversationId, turnId, committed.reserved),
+      settle: chatTurnSettle(
+        conversationId,
+        turnId,
+        committed.reserved,
+        committed.waiverPricing !== undefined
+          ? {
+              pricing: committed.waiverPricing,
+              estimatedInputTokens: committed.estimatedInputTokens,
+            }
+          : undefined,
+      ),
     },
   }
 }
@@ -412,6 +447,7 @@ async function resumeContent(
     reviewImageIds: wakeReviewImageIds(jobs),
     mode: resolveAgentMode(setup.mode ?? 'image'),
     ...(setup.params ? { params: setup.params } : {}),
+    ...(resume.canvas ? { canvas: resume.canvas } : {}),
     selectionHistoryStart: plan?.protected
       ? 0
       : !wake && interruptedStart >= 0
@@ -474,6 +510,7 @@ async function messageContent(
       : {}),
     mode,
     ...(message.params ? { params: message.params } : {}),
+    ...(message.canvas ? { canvas: message.canvas } : {}),
     selectionHistoryStart: clarificationChainStart(window.messages),
     deviceId: message.deviceId,
     userMessageId: message.id,

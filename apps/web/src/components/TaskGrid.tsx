@@ -383,7 +383,10 @@ export default function TaskGrid({ limit, hero }: { limit?: number; hero?: boole
     const title = storyboardTitles.get(item.setId)
     const job = title ? undefined : productShotJobs.find((e) => e.id === item.setId)
     return {
-      at: Math.max(...item.tasks.map((task) => task.createdAt)),
+      at: item.tasks.reduce(
+        (latest, task) => Math.max(latest, task.createdAt),
+        Number.NEGATIVE_INFINITY,
+      ),
       nodes: [
         <SetHistoryCard
           key={`set-${item.setId}`}

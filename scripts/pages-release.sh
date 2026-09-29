@@ -103,11 +103,10 @@ esac
 
 BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
-LOCAL_COMPATIBILITY=$(edition_var "$prefix" LOCAL_COMPATIBILITY)
 # The web build writes canonical URLs, hreflang, sitemap.xml and robots.txt from these two.
 PUBLIC_ORIGIN=$public_origin
 SEARCH_INDEXING=$search_indexing
-export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID LOCAL_COMPATIBILITY \
+export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID \
   PUBLIC_ORIGIN SEARCH_INDEXING
 unset EXTRA_ASSETS_DIR NOTIFY_UPDATE
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)

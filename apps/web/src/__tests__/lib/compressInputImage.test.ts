@@ -12,6 +12,29 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('compresses a multi-megabyte reference without overflowing the signature check', async () => {
+  const largePng = `data:image/png;base64,${PNG_BASE64.slice(0, 32)}${'A'.repeat(8 * 1024 * 1024)}`
+  class LoadedImage {
+    naturalWidth = 4096
+    naturalHeight = 4096
+    onload: (() => void) | null = null
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.())
+    }
+  }
+  vi.stubGlobal('Image', LoadedImage)
+  const draw = vi.fn()
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: draw,
+    getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }),
+  } as unknown as CanvasRenderingContext2D)
+  const compressed = 'data:image/jpeg;base64,/9j/'
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(compressed)
+
+  await expect(compressInputImageDataUrls([largePng])).resolves.toEqual([compressed])
+  expect(draw).toHaveBeenCalledWith(expect.any(LoadedImage), 0, 0, 2048, 2048)
+})
+
 it('reencodes a mislabeled image and keeps transparent pixels', async () => {
   class LoadedImage {
     naturalWidth = 1

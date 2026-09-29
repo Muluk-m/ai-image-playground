@@ -202,6 +202,67 @@ it('失效会话保留原项目和画布，只移除失效绑定', async () => {
   expect(currentCanvasWorkspace().doc.camera.x).toBe(99)
 })
 
+it('迟到的旧会话列表不覆盖新列表', async () => {
+  let finishFirst!: (response: Response) => void
+  fetchMock.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finishFirst = resolve
+      }),
+  )
+  const first = state().refreshConversations()
+  fetchMock.mockImplementationOnce(async () =>
+    Response.json({ conversations: [{ id: 'new', title: '新列表', createdAt: 2, updatedAt: 2 }] }),
+  )
+
+  await state().refreshConversations()
+  finishFirst(
+    Response.json({ conversations: [{ id: 'old', title: '旧列表', createdAt: 1, updatedAt: 1 }] }),
+  )
+  await first
+
+  expect(state().conversations.map((one) => one.id)).toEqual(['new'])
+})
+
+it('云端目录未补齐时先显示缓存画布，延后导入会话以免产生重复项目', async () => {
+  const initial = useCanvasProjectStore.getState().projects
+  useCanvasProjectStore.setState({ cloudLoading: true })
+  fetchMock.mockImplementationOnce(async () =>
+    Response.json({
+      conversations: [{ id: 'remote-conversation', title: '远端项目', createdAt: 1, updatedAt: 1 }],
+    }),
+  )
+
+  await state().refreshConversations()
+  expect(useCanvasProjectStore.getState().projects).toHaveLength(initial.length)
+
+  useCanvasProjectStore.setState({ cloudLoading: false, cloudError: '暂时失败' })
+  expect(useCanvasProjectStore.getState().projects).toHaveLength(initial.length)
+  useCanvasProjectStore.setState({ cloudLoading: true, cloudError: null })
+
+  useCanvasProjectStore.setState({
+    projects: [
+      ...initial,
+      {
+        ...initial[0]!,
+        id: crypto.randomUUID(),
+        name: '远端项目',
+        customName: true,
+        conversationId: 'remote-conversation',
+        cloud: { revision: 1 },
+      },
+    ],
+    cloudLoading: false,
+  })
+  await vi.waitFor(() =>
+    expect(
+      useCanvasProjectStore
+        .getState()
+        .projects.filter((one) => one.conversationId === 'remote-conversation'),
+    ).toHaveLength(1),
+  )
+})
+
 it('删除后迟到的会话列表不能重新导入项目', async () => {
   const id = useCanvasProjectStore.getState().activeId!
   await useCanvasProjectStore.getState().update(id, { conversationId: 'deleted' })

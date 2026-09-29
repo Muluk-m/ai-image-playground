@@ -40,6 +40,29 @@ describe('isProcessStep', () => {
     )
   })
 
+  it('keeps failed web reads inside the operation trail', () => {
+    expect(
+      isProcessStep(
+        tool({
+          id: 'web',
+          toolName: 'webFetch',
+          status: 'failed',
+          errorCode: 'source_unavailable',
+        }),
+      ),
+    ).toBe(true)
+    expect(
+      isProcessStep(
+        tool({
+          id: 'search',
+          toolName: 'webSearch',
+          status: 'failed',
+          errorCode: 'invalid_params',
+        }),
+      ),
+    ).toBe(true)
+  })
+
   it('treats an unrecognised tool as something that produces output', () => {
     // 少一张卡是丢东西，多一张只是噪音；认不出就走保守那边。
     expect(isProcessStep(tool({ id: 'i', toolName: 'brandNewTool' as never }))).toBe(false)
@@ -81,5 +104,16 @@ describe('groupPanelMessages', () => {
       tool({ id: 'b', toolName: 'generateImage', status: 'running', turnId: 'turn-2' }),
     ])
     expect(trails.get(0)?.spent).toBe(true)
+  })
+
+  it('keeps a failed web read visible after the model answers', () => {
+    const { trails, absorbed } = groupPanelMessages([
+      tool({ id: 'a', toolName: 'webSearch' }),
+      tool({ id: 'b', toolName: 'webFetch', status: 'failed', errorCode: 'source_unavailable' }),
+      reply('r1'),
+    ])
+    expect(trails.get(0)?.steps.map((one) => one.id)).toEqual(['a', 'b'])
+    expect(trails.get(0)?.spent).toBe(false)
+    expect([...absorbed]).toEqual([0, 1])
   })
 })

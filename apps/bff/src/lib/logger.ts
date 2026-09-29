@@ -1,4 +1,5 @@
 import pino from 'pino'
+import { requestLogFields } from './request-context'
 
 /**
  * BFF 全局 logger。pino 默认 JSON line 输出到 stdout，方便后续接任意日志聚合
@@ -13,4 +14,6 @@ export const log = pino({
   base: { service: 'bff' },
   // ISO 时间戳比 epoch 数值方便人工读 & 聚合工具友好
   timestamp: pino.stdTimeFunctions.isoTime,
+  // 请求里打的日志自动带上 requestId（见 request-context）。
+  mixin: requestLogFields,
 })

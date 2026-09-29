@@ -1,5 +1,6 @@
-import type { AgentMode, AgentTurnReference } from '@image-playground/shared'
+import type { AgentMode } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
+import type { TurnSubmissionSnapshot } from './turnSubmission'
 
 /**
  * 一条已经交出去、但还没被服务端收下的用户消息。
@@ -8,15 +9,16 @@ import { scopedStorageName } from '../../../lib/authScope'
  * 标题已经改成这句话，对话却是空的。所以起轮之前先把它落到本机：回来时照样看得到，
  * 并且能拿同一个 `clientMessageId` 原样重发（服务端按它去重，不会排两次、不会重复扣费）。
  */
-export interface OutgoingMessage {
+export interface OutgoingMessage extends TurnSubmissionSnapshot {
   /** 同时是 `clientMessageId`：服务端认的就是它。 */
   readonly id: string
   /** 归属的项目；会话可能还没建出来，所以本机按项目存。 */
   readonly projectId: string
   readonly conversationId: string | null
   readonly text: string
-  readonly references: readonly AgentTurnReference[]
   readonly mode: AgentMode
+  /** 画布快捷编辑校验遮罩时选定的模型，恢复发送必须沿用。 */
+  readonly modelOverride?: string
   readonly clarificationAnswer: boolean
   readonly createdAt: number
 }
@@ -45,21 +47,30 @@ function openDatabase(): Promise<IDBDatabase> {
 const key = (projectId: string) => scopedStorageName(`agent-outgoing:${projectId}`)
 
 async function readRaw(projectId: string): Promise<OutgoingMessage[]> {
+  const storageKey = key(projectId)
   const db = await openDatabase()
   return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE).objectStore(STORE).get(key(projectId))
+    const request = db.transaction(STORE).objectStore(STORE).get(storageKey)
     request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : [])
     request.onerror = () => reject(request.error)
   })
 }
 
-async function write(projectId: string, messages: readonly OutgoingMessage[]): Promise<void> {
+async function update(
+  projectId: string,
+  change: (messages: OutgoingMessage[]) => readonly OutgoingMessage[],
+): Promise<void> {
+  const storageKey = key(projectId)
   const db = await openDatabase()
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE, 'readwrite')
     const store = transaction.objectStore(STORE)
-    if (messages.length) store.put([...messages], key(projectId))
-    else store.delete(key(projectId))
+    const request = store.get(storageKey)
+    request.onsuccess = () => {
+      const messages = change(Array.isArray(request.result) ? request.result : [])
+      if (messages.length) store.put([...messages], storageKey)
+      else store.delete(storageKey)
+    }
     transaction.oncomplete = () => resolve()
     transaction.onabort = () => reject(transaction.error)
     transaction.onerror = () => reject(transaction.error)
@@ -81,8 +92,10 @@ export async function outgoingMessages(projectId: string): Promise<OutgoingMessa
  */
 export async function rememberOutgoing(message: OutgoingMessage): Promise<void> {
   try {
-    const kept = (await outgoingMessages(message.projectId)).filter((one) => one.id !== message.id)
-    await write(message.projectId, [...kept, message])
+    await update(message.projectId, (messages) => [
+      ...messages.filter((one) => one.id !== message.id),
+      message,
+    ])
   } catch {
     /* 存不下就只是刷新后回不来。 */
   }
@@ -95,10 +108,7 @@ export async function bindOutgoingConversation(
   conversationId: string,
 ): Promise<void> {
   try {
-    const messages = await outgoingMessages(projectId)
-    if (!messages.some((one) => one.id === id)) return
-    await write(
-      projectId,
+    await update(projectId, (messages) =>
       messages.map((one) => (one.id === id ? { ...one, conversationId } : one)),
     )
   } catch {
@@ -109,13 +119,23 @@ export async function bindOutgoingConversation(
 /** 服务端收下了，或者这句话已经退回输入框：本机这份就不必再留。 */
 export async function forgetOutgoing(projectId: string, id: string): Promise<void> {
   try {
-    const messages = await outgoingMessages(projectId)
-    if (!messages.some((one) => one.id === id)) return
-    await write(
-      projectId,
-      messages.filter((one) => one.id !== id),
-    )
+    await update(projectId, (messages) => messages.filter((one) => one.id !== id))
   } catch {
     /* 同上。 */
+  }
+}
+
+/** 只更新仍未被确认的原记录；取消或成功移除后，迟到的上传不得复活它。 */
+export async function updateOutgoingInput(
+  projectId: string,
+  id: string,
+  input: TurnSubmissionSnapshot,
+): Promise<void> {
+  try {
+    await update(projectId, (messages) =>
+      messages.map((one) => (one.id === id ? { ...one, ...input } : one)),
+    )
+  } catch {
+    /* 存不下就保留之前的原始输入。 */
   }
 }

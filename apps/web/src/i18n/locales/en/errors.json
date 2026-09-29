@@ -1,4 +1,8 @@
 {
+  "customProvider": {
+    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again",
+    "fallback": "The custom provider request failed. Check its settings and try again"
+  },
   "login": {
     "invalid_credentials": "That email address or password is not correct",
     "rate_limited": "Too many attempts, please try again later",
@@ -77,6 +81,7 @@
     "quota_exceeded": "Today's generation quota is used up",
     "authentication_required": "Sign in to generate",
     "invalid_params": "The parameters didn't hold up, so this wasn't submitted",
+    "source_unavailable": "The source site denied access or couldn't provide the content. Try another public source",
     "content_policy": "The prompt didn't pass content review, so the provider rejected it",
     "model_unavailable": "The model it needed isn't available right now",
     "cancelled": "Stopped",

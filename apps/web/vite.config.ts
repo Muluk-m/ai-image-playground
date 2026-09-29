@@ -109,7 +109,6 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
-          localCompatibility: resolve(__dirname, 'local-compat.html'),
           ...guideHtmlEntries(__dirname),
         },
         output: {

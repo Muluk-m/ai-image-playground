@@ -12,6 +12,8 @@ export default function ExplorePage() {
   const { t } = useTranslation('inspiration')
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const setSearch = useInspirationStore((s) => s.setSearch)
+  const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
+  const setOnlyImageEdits = useInspirationStore((s) => s.setOnlyImageEdits)
   const detailItemId = useInspirationStore((s) => s.detailItemId)
 
   // 清单 872KB，站到这一页才拉；已加载过的不重复下载。
@@ -26,6 +28,18 @@ export default function ExplorePage() {
         <div className="flex-1">
           <InspirationProviderTabs />
         </div>
+        <button
+          type="button"
+          aria-pressed={onlyImageEdits}
+          onClick={() => setOnlyImageEdits(!onlyImageEdits)}
+          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+            onlyImageEdits
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+          }`}
+        >
+          {t('filter.imageEdit')}
+        </button>
         <label className="flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
           <input
             type="search"

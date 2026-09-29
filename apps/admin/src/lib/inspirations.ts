@@ -20,6 +20,15 @@ export interface InspirationListFilters {
 const ITEMS_KEY = ['inspirations'] as const
 const CATEGORIES_KEY = ['inspiration-categories'] as const
 
+/** 当前部署的公开素材域名由 BFF 的 PUBLIC_ASSET_BASE_URL 提供。 */
+export function useInspirationAssetBase() {
+  return useQuery({
+    queryKey: ['inspiration-asset-base'],
+    queryFn: () => apiClient.get<{ baseUrl: string }>('/api/inspirations/asset-base'),
+    staleTime: 5 * 60_000,
+  })
+}
+
 function listQuery(filters: InspirationListFilters): string {
   const search = new URLSearchParams()
   if (filters.status && filters.status !== 'all') search.set('status', filters.status)

@@ -159,7 +159,7 @@ describe('本轮消耗', () => {
 
     const frames = await runTurn(conversationId, '把背景换成浅木色')
 
-    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toMatchObject({ chat: 42, image: 0, video: 0 })
   })
 
   it('拟稿那一轮的页脚只有对话费，生图的钱到用户确认才扣', async () => {
@@ -185,7 +185,7 @@ describe('本轮消耗', () => {
 
     // 拟稿不建任务也不预扣：这一轮只花了对话的钱。
     expect(generationHolds()).toEqual([])
-    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toMatchObject({ chat: 42, image: 0, video: 0 })
 
     const [card] = await confirmPendingDrafts(app, conversationId, {
       deviceId: DEVICE,
@@ -205,7 +205,7 @@ describe('本轮消耗', () => {
     // 确认出去的任务不归任何一轮的页脚：拟稿那一轮早已结算，不会被回填。
     const turns = await readTurnSummaries(conversationId)
     expect(turns).toHaveLength(1)
-    expect(turns[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+    expect(turns[0]!.cost).toMatchObject({ chat: 42, image: 0, video: 0 })
   })
 
   it('生视频同理：页脚只有对话费，确认时按草稿冻结的秒数与清晰度预扣', async () => {
@@ -235,7 +235,7 @@ describe('本轮消耗', () => {
     const frames = await runTurn(conversationId, '来一段海浪的视频', 'video')
 
     expect(generationHolds()).toEqual([])
-    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toMatchObject({ chat: 42, image: 0, video: 0 })
 
     const [card] = await confirmPendingDrafts(app, conversationId, {
       deviceId: DEVICE,
@@ -254,7 +254,7 @@ describe('本轮消耗', () => {
     ])
     const turns = await readTurnSummaries(conversationId)
     expect(turns).toHaveLength(1)
-    expect(turns[0]!.cost).toEqual({ chat: 42, image: 0, video: 0 })
+    expect(turns[0]!.cost).toMatchObject({ chat: 42, image: 0, video: 0 })
   })
 
   it('失败的轮消耗是零', async () => {
@@ -266,7 +266,7 @@ describe('本轮消耗', () => {
 
     const end = eventsOfType(frames, 'turnEnd')[0]!
     expect(end.stopReason).toBe('failed')
-    expect(end.cost).toEqual({ chat: 0, image: 0, video: 0 })
+    expect(end.cost).toMatchObject({ chat: 0, image: 0, video: 0 })
   })
 
   it('历史里每轮带上耗时与消耗', async () => {

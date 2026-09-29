@@ -19,6 +19,7 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -45,14 +46,12 @@ import {
 } from '../lib/agent/conversation-inbox'
 import {
   type AgentOwner,
-  adoptDeviceConversations,
   createAgentConversation,
   findAgentConversation,
   listAgentConversations,
   listAgentMessages,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
-import { type CookieJar, ensureDeviceClaim, holdsDeviceClaim } from '../lib/agent/deviceClaim'
 import {
   isSealLease,
   lastConversationEventSeq,
@@ -65,6 +64,7 @@ import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/
 import {
   claimConversationMedia,
   readConversationMedia,
+  readyCanvasMediaIds,
   removeAgentConversationReferences,
 } from '../lib/agent/images'
 import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
@@ -240,17 +240,6 @@ export const agentRoutes = new Elysia()
     if (!isCapabilityEnabled('agent:chat')) return capabilityUnavailable('agent:chat')
   })
   .use(resolveAuthUser)
-  // 匿名流量顺路登记持有性证明。放在这里而不是只放在建会话上：已有用户没有登记行，
-  // 下一次任何一个请求就把他们补上，缩短「标识已泄漏但还没人登记」的窗口。
-  .onBeforeHandle(async ({ authUser, headers, body, cookie }) => {
-    if (authUser) return
-    const deviceId =
-      headers[DEVICE_ID_HEADER] ||
-      (typeof body === 'object' && body && 'deviceId' in body && typeof body.deviceId === 'string'
-        ? body.deviceId
-        : '')
-    if (deviceId) await ensureDeviceClaim(deviceId, cookie as CookieJar)
-  })
   .post(
     '/api/agent/conversations',
     async ({ body, authUser }) => ({
@@ -555,6 +544,7 @@ export const agentRoutes = new Elysia()
         if (forwarded) return forwarded
 
         const references = turnReferences(body.references ?? [])
+        let canvas = parseAgentCanvasSnapshot(body.canvas)
         if (!references) return status(422, { error: 'invalid_reference' })
         try {
           await validateSelections(references)
@@ -563,14 +553,30 @@ export const agentRoutes = new Elysia()
             return status(422, { error: 'invalid_selection' })
           throw error
         }
-        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
-        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
-          return status(422, { error: 'invalid_reference' })
-        // 开不了轮的请求不进收件箱：排进去也没有哪一轮能取走它。
+        // 开不了轮的请求不进收件箱。
         if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
           return status(401, { error: 'unauthorized' })
         if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
-
+        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
+        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
+          return status(422, { error: 'invalid_reference' })
+        if (canvas) {
+          const ready = await readyCanvasMediaIds(
+            authUser?.id ?? null,
+            canvas.elements.flatMap((element) =>
+              element.type === 'image' && element.mediaId ? [element.mediaId] : [],
+            ),
+          )
+          canvas = {
+            ...canvas,
+            elements: canvas.elements.map((element) => {
+              if (element.type !== 'image' || !element.mediaId || ready.has(element.mediaId))
+                return element
+              const { mediaId: _unavailable, ...image } = element
+              return image
+            }),
+          }
+        }
         // 每条消息先进收件箱，再按顺序开轮：忙时它排在后面，闲时它当场就是下一条。
         const sent = await sendToConversationInbox(conversation.id, {
           clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
@@ -580,6 +586,7 @@ export const agentRoutes = new Elysia()
           ...(body.mode ? { mode: body.mode } : {}),
           ...(body.params ? { params: body.params } : {}),
           ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
+          ...(canvas ? { canvas } : {}),
         })
         if (sent.kind === 'full') {
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
@@ -607,6 +614,8 @@ export const agentRoutes = new Elysia()
         clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
         /** 这是对澄清卡片的答复：排在其他排队消息前面处理。 */
         clarificationAnswer: t.Optional(t.Boolean()),
+        /** 发话时浏览器里的画布。不合规格就当没带，不因此拒绝这一轮。 */
+        canvas: t.Optional(t.Any()),
       }),
     },
   )
@@ -751,18 +760,6 @@ export const agentRoutes = new Elysia()
       })
     },
     { params: t.Object({ id: t.String() }), body: t.Object({ deviceId: deviceIdSchema() }) },
-  )
-  .post(
-    '/api/agent/conversations/adopt',
-    // 领养是不可逆的：会话改挂到账号下，原设备再也看不到。所以这一个动作不接受
-    // 「自述设备标识」，要求这个浏览器持有起轮时下发的那张 cookie。知道标识不等于持有它。
-    async ({ body, authUser, status, cookie }) => {
-      if (!authUser) return status(401, { error: 'unauthorized' })
-      if (!(await holdsDeviceClaim(body.deviceId, cookie as CookieJar)))
-        return status(403, { error: 'device_claim_required' })
-      return { adopted: await adoptDeviceConversations(body.deviceId, authUser.id) }
-    },
-    { body: t.Object({ deviceId: deviceIdSchema() }) },
   )
   .get(
     '/api/agent/conversations/:id/turns/:turnId/events',

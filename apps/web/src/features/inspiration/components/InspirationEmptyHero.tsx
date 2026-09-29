@@ -3,7 +3,6 @@ import { SparkleIcon } from '../../../components/icons'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
-import { applyInspiration } from '../lib/applyInspiration'
 import { HERO_CARD_COUNT, rotateHeroItems } from '../lib/heroRotation'
 import { openInspiration } from '../lib/navigate'
 import { useInspirationStore } from '../store'
@@ -12,6 +11,7 @@ import InspirationCard from './InspirationCard'
 
 // 完整清单不可用时保留离线示例。
 const HERO_SEED = heroSeedData as InspirationItem[]
+const FEATURED_IDS = new Set(HERO_SEED.map((item) => item.id))
 
 export default function InspirationEmptyHero() {
   const available = useInspirationStore((s) => s.items)
@@ -26,7 +26,19 @@ export default function InspirationEmptyHero() {
     // 每次进入只选一批，收藏、输入和后台清单更新都不会让卡片跳动。
     if (selected.current || (!available.length && status !== 'ready' && status !== 'error')) return
     selected.current = true
-    setItems(rotateHeroItems(available.length ? available : HERO_SEED))
+    const featured = new Map(
+      available.filter((item) => FEATURED_IDS.has(item.id)).map((item) => [item.id, item]),
+    )
+    // 有线上清单时只展示已发布案例；种子仅用于离线兜底，避免草稿提前出现在首页。
+    const publishedFeatured = HERO_SEED.flatMap((seed) => featured.get(seed.id) ?? [])
+    const source = available.length
+      ? publishedFeatured.length > 0
+        ? publishedFeatured
+        : available
+      : status === 'error'
+        ? HERO_SEED
+        : []
+    setItems(rotateHeroItems(source))
   }, [available, status])
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
   const { t } = useTranslation('inspiration')
@@ -58,6 +70,7 @@ export default function InspirationEmptyHero() {
       <div className="-mx-4 overflow-x-auto hide-scrollbar sm:mx-0 sm:overflow-x-visible">
         <div className="flex snap-x snap-mandatory gap-3 px-4 sm:grid sm:snap-none sm:grid-cols-3 sm:gap-3.5 sm:px-0 lg:grid-cols-6">
           {items.length === 0 &&
+            !selected.current &&
             Array.from({ length: HERO_CARD_COUNT }, (_, index) => (
               <div
                 key={index}
@@ -67,15 +80,21 @@ export default function InspirationEmptyHero() {
                 <div className="aspect-[3/4] animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
               </div>
             ))}
+          {items.length === 0 && selected.current && (
+            <p className="col-span-full py-8 text-sm text-muted-foreground">{t('list.empty')}</p>
+          )}
           {items.map((item) => (
             <div
               key={item.id}
-              className="w-[42%] flex-shrink-0 snap-start sm:w-auto sm:flex-shrink"
+              className={`flex-shrink-0 snap-start sm:w-auto sm:flex-shrink ${item.referenceImages?.length ? 'w-[78%] sm:col-span-2' : 'w-[42%]'}`}
             >
               <InspirationCard
                 item={item}
                 pinned={pinnedIds.includes(item.id)}
-                onClick={() => applyInspiration(item)}
+                onClick={() => {
+                  useInspirationStore.getState().showDetail(item.id, item)
+                  openInspiration()
+                }}
               />
             </div>
           ))}

@@ -44,9 +44,12 @@ export function isProcessStep(message: AgentPanelMessage): message is AgentToolM
   if (message.job || message.timeline || message.retryOf || message.delivery) return false
   // 保存卡片是一张要用户点的卡，折进一行就没人点得到了。
   if (message.saveCard) return false
-  if (message.errorCode || message.status === 'failed') return false
   // 等确认的那一步要露出提示词草稿，不能折进一行。
-  return message.status !== 'awaiting_confirmation'
+  if (message.status === 'awaiting_confirmation') return false
+  // 联网读取失败仍是过程步骤；错误和重新处理入口会在活动轨的行内显示。
+  if (message.errorCode || message.status === 'failed')
+    return message.toolName === 'webFetch' || message.toolName === 'webSearch'
+  return true
 }
 
 export interface ActivityTrail {
@@ -93,7 +96,11 @@ export function groupPanelMessages(messages: readonly AgentPanelMessage[]): Pane
       .some(
         (one) => one.turnId !== message.turnId || (one.kind === 'text' && one.role === 'assistant'),
       )
-    trails.set(start, { steps, spent: settled && movedOn })
+    trails.set(start, {
+      steps,
+      // 有失败时保留活动轨，用户仍需看到原因和可用的处理入口。
+      spent: settled && movedOn && !steps.some((one) => one.status === 'failed'),
+    })
   }
   return { trails, absorbed }
 }

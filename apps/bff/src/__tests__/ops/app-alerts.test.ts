@@ -90,6 +90,37 @@ await writer.db.insert(writer.schema.tasks).values([
     submitted_at: now - 50 * minute,
   },
 ])
+await writer.db.insert(writer.schema.tasks).values([
+  {
+    id: 'system-failure',
+    user_id: 'full-alert-account',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'failed',
+    error_type: 'upstream_error',
+    request_payload: { prompt: 'x' },
+    submitted_at: now - minute,
+    completed_at: now - minute,
+  },
+  {
+    id: 'policy-rejection',
+    user_id: 'full-alert-account',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'failed',
+    error_type: 'content_policy',
+    request_payload: { prompt: 'x' },
+    submitted_at: now - minute,
+    completed_at: now - minute,
+  },
+])
+await writer.db.insert(writer.schema.api_minutes).values({
+  minute: Math.floor((now - minute) / minute) * minute,
+  instance: 'bff-alert-test',
+  requests: 20,
+  client_errors: 0,
+  server_errors: 0,
+})
 await writer.db.insert(writer.schema.service_heartbeats).values([
   { service: 'bff', instance: 'old', version: 'a', last_seen_at: now - 3 * hour },
   { service: 'bff', instance: 'current', version: 'b', last_seen_at: now - 5 * minute },
@@ -123,6 +154,8 @@ describe('observeApp', () => {
     // 只看后端最新的那个实例；worker 不判断自己的心跳，发告警的就是它。
     expect(observation.heartbeats).toEqual({ bff: now - 5 * minute })
     expect(observation.host).toBeUndefined()
+    expect(observation.api).toEqual({ requests: 20, server_errors: 0 })
+    expect(observation.failures).toEqual({ generation_system: 1, agent: 0 })
   })
 
   it('leaves out a block it could not read, so that rule is skipped this round', async () => {

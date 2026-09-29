@@ -90,4 +90,36 @@ describe('client capability bootstrap', () => {
     await bootstrapClientCapabilities(true, '')
     expect(isByokGenerationEnabled()).toBe(false)
   })
+
+  it('bounds a stalled capability request and fails closed', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      )
+      const boot = bootstrapClientCapabilities(true, '')
+      await vi.advanceTimersByTimeAsync(5000)
+      await boot
+      expect(isClientCapabilityEnabled('accounts:login')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports a timed-out required startup manifest so the UI can retry', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      )
+      const boot = bootstrapClientCapabilities(true, '', true)
+      const outcome = expect(boot).rejects.toThrow('capability_request_timeout')
+      await vi.advanceTimersByTimeAsync(5000)
+      await outcome
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
