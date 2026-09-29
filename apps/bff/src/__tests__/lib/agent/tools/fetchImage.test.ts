@@ -184,13 +184,13 @@ it('refuses bytes that are not an image', async () => {
   expect(await db.select({ id: schema.media_objects.id }).from(schema.media_objects)).toEqual([])
 })
 
-// 地址是模型写的，指向内网就是一次 SSRF：拒绝也要归成「换个网址」，不是「重试」。
+// 地址是模型写的，指向内网就是一次 SSRF：拒绝并让模型换来源，不能原样重试。
 it('refuses a host that resolves into the private network', async () => {
   serve(PNG, 'image/png', '10.0.0.5')
 
   const thrown = await run('https://intranet.example/cat.png').catch((error: unknown) => error)
 
-  expect(thrown).toMatchObject({ code: 'invalid_params' })
+  expect(thrown).toMatchObject({ code: 'source_unavailable' })
   expect((thrown as Error).message).toContain('内网')
 })
 
