@@ -1,6 +1,7 @@
 import {
   AGENT_TURN_MAX_INLINE_REFERENCES,
   type AgentCanvasSnapshot,
+  type AgentMode,
   type AgentTurnParams,
   type AgentTurnReference,
 } from '@image-playground/shared'
@@ -20,7 +21,17 @@ export interface TurnSubmissionSnapshot {
   readonly canvasReferenceIds?: readonly string[]
 }
 
-export type TurnSubmissionReplay = Omit<TurnSubmissionSnapshot, 'references'>
+export type TurnSubmissionReplay = Omit<TurnSubmissionSnapshot, 'references'> & {
+  readonly clarificationAnswer?: boolean
+}
+
+/** 服务端尚未受理的一次发话，可交还草稿并原样再发。 */
+export interface UnsentTurnSubmission extends TurnSubmissionSnapshot {
+  readonly id: string
+  readonly text: string
+  readonly mode: AgentMode
+  readonly clarificationAnswer: boolean
+}
 
 /** 同步固定本轮输入；异步准备只补媒体身份，不重读画布或当前设置。 */
 export function captureTurnSubmission(input: {

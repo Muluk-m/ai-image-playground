@@ -86,6 +86,7 @@ import {
   setReferenceMask,
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
+import type { UnsentTurnSubmission } from '../lib/turnSubmission'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
@@ -426,7 +427,9 @@ export default function AgentComposer({
     browsingRef.current = null
     const releaseSubmission = session.beginSubmission()
     let accepted = false
-    const restore = (cancelled = false) => {
+    let returnedToDraft = false
+    const restore = (cancelled = false, retry?: UnsentTurnSubmission) => {
+      returnedToDraft = true
       useStore
         .getState()
         .showToast(
@@ -435,24 +438,33 @@ export default function AgentComposer({
         )
       // 这几秒里用户要是已经开始打下一句，别把它冲掉。
       setDraft((current) =>
-        current.prompt.trim() || current.references.length ? current : snapshot,
+        current.prompt.trim() || current.references.length
+          ? current
+          : { ...snapshot, submission: retry },
       )
     }
     void useAgentStore
       .getState()
       .send(
-        submission.text,
-        submission.references,
+        snapshot.submission?.text ?? submission.text,
+        snapshot.submission?.references ?? submission.references,
         () => {
           accepted = true
           rememberAgentPrompt(snapshot.prompt)
           releaseSubmission()
         },
-        mode,
+        snapshot.submission?.mode ?? mode,
+        snapshot.submission?.id,
+        snapshot.submission,
+        undefined,
+        async (retry) => {
+          restore(false, retry)
+          await session.flush()
+        },
       )
       .then(
         (outcome) => {
-          if (!accepted) restore(outcome === 'cancelled')
+          if (!accepted && !returnedToDraft) restore(outcome === 'cancelled')
         },
         () => restore(),
       )

@@ -3,22 +3,28 @@ import 'fake-indexeddb/auto'
 import { webcrypto } from 'node:crypto'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
+import { act, createElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import AgentComposer from '../../../features/agent/components/AgentComposer'
 import {
   forgetOutgoing,
   outgoingMessages,
   rememberOutgoing,
 } from '../../../features/agent/lib/outgoingJournal'
+import { currentProjectDraft } from '../../../features/agent/lib/projectLifecycle'
 import { useAgentStore } from '../../../features/agent/store'
 import {
   currentCanvasWorkspace,
   peekCanvasWorkspace,
 } from '../../../features/canvas/lib/activeProject'
+import { CanvasDoc } from '../../../features/canvas/lib/canvasDoc'
 import {
   type CanvasProject,
   projectRepository,
 } from '../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
+import { useLibraryStore } from '../../../features/library/store'
 import {
   AGENT_CONVERSATION_KEY,
   scopedStorageName,
@@ -347,4 +353,59 @@ it('排队发送失败后仍保留原输入，刷新后用同一消息身份重�
   const resent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
   expect(JSON.parse(String(resent?.[1]?.body)).clientMessageId).toBe(saved!.id)
   await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+})
+
+it.each([
+  false,
+  true,
+])('失败退回输入框后再次发送：原样沿用快照，改写则新发（改写=%s）', async (edited) => {
+  const original = useStore.getState().params
+  useStore.setState({ params: { ...original, size: '1536x1024', quality: 'high' } })
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '原消息', references: [] })
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    const clickSend = async () => {
+      await act(async () => {
+        const button = host.querySelector<HTMLButtonElement>('button[aria-label="发送并拟提示词"]')!
+        button.click()
+      })
+    }
+    turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+    await clickSend()
+    await act(async () => {
+      await vi.waitFor(() => expect(session.getSnapshot().draft.submission).toBeDefined())
+    })
+    const first = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    const initial = JSON.parse(String(first?.[1]?.body))
+    await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    useStore.setState({ params: { ...original, size: '1024x1536', quality: 'low' } })
+    if (edited) act(() => session.update((draft) => ({ ...draft, prompt: '改写后的消息' })))
+    turnResponse = COMPLETED_TURN
+    fetchMock.mockClear()
+    await clickSend()
+    await act(async () => {
+      await vi.waitFor(() => expect(useAgentStore.getState().turn).toBe('idle'))
+    })
+    const second = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    const resent = JSON.parse(String(second?.[1]?.body))
+    if (edited) {
+      expect(resent.clientMessageId).not.toBe(initial.clientMessageId)
+      expect(resent.params).toMatchObject({ size: '1024x1536', quality: 'low' })
+    } else {
+      expect(resent.clientMessageId).toBe(initial.clientMessageId)
+      expect(resent.params).toEqual(initial.params)
+    }
+    await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    useStore.setState({ params: original })
+  }
 })

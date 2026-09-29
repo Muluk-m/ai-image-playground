@@ -117,7 +117,17 @@ export class DraftSession {
   }
 
   update = (change: AgentDraft | ((draft: AgentDraft) => AgentDraft)) => {
-    const draft = typeof change === 'function' ? change(this.snapshot.draft) : change
+    let draft = typeof change === 'function' ? change(this.snapshot.draft) : change
+    const previous = this.snapshot.draft
+    if (
+      draft.submission &&
+      draft.submission === previous.submission &&
+      (draft.prompt !== previous.prompt ||
+        JSON.stringify(draft.references) !== JSON.stringify(previous.references))
+    ) {
+      const { submission: _previousSubmission, ...edited } = draft
+      draft = edited
+    }
     if (draft === this.snapshot.draft) return
     this.revision += 1
     this.publish({ draft })
@@ -137,7 +147,11 @@ export class DraftSession {
     this.publish({ unsent: null })
     this.update(
       withMode(
-        { ...unsent, references: [...unsent.references, ...kept] },
+        {
+          ...unsent,
+          references: [...unsent.references, ...kept],
+          submission: kept.length ? undefined : unsent.submission,
+        },
         this.snapshot.draft.mode,
       ),
     )
