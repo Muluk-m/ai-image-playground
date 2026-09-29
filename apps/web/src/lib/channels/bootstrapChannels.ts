@@ -1,8 +1,31 @@
+import type { DiscoveredChannel } from '@image-playground/shared'
 import { setChannels } from './channelStore'
 import { fetchDiscoveredChannels } from './discoverChannels'
 
 const DISCOVERY_TIMEOUT_MS = 15000
 let latestRequestId = 0
+let preloaded: { baseUrl: string; promise: Promise<DiscoveredChannel[]> } | undefined
+
+/** Start public discovery alongside capabilities; AuthGate consumes the same response. */
+export function preloadChannels(bffEnabled: boolean, bffBaseUrl: string): void {
+  const requestId = ++latestRequestId
+  preloaded = undefined
+  setChannels([])
+  if (!bffEnabled) return
+  const controller = new AbortController()
+  const timeout = globalThis.setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS)
+  const promise = fetchDiscoveredChannels(bffBaseUrl, { signal: controller.signal })
+    .then((channels) => {
+      if (requestId === latestRequestId) setChannels(channels)
+      return channels
+    })
+    .finally(() => {
+      globalThis.clearTimeout(timeout)
+    })
+  // AuthGate handles a failed preload as a required startup failure and retries it.
+  void promise.catch(() => {})
+  preloaded = { baseUrl: bffBaseUrl, promise }
+}
 
 export async function bootstrapChannels(
   bffEnabled: boolean,
@@ -19,11 +42,13 @@ export async function bootstrapChannels(
   signal?.addEventListener('abort', abort, { once: true })
   if (signal?.aborted) controller.abort()
   try {
-    const channels = await fetchDiscoveredChannels(bffBaseUrl, {
-      signal: controller.signal,
-    })
+    const startup = preloaded?.baseUrl === bffBaseUrl ? preloaded : undefined
+    const channels = startup
+      ? await startup.promise
+      : await fetchDiscoveredChannels(bffBaseUrl, { signal: controller.signal })
     if (requestId === latestRequestId && !signal?.aborted) setChannels(channels)
   } catch (err) {
+    if (preloaded?.baseUrl === bffBaseUrl) preloaded = undefined
     if (signal?.aborted) return
     if (required) throw err
     console.warn(
