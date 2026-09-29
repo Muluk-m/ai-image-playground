@@ -121,6 +121,55 @@ describe('画布工作区', () => {
     workspace.dispose()
   })
 
+  it('旧存档已有明确缩放与平移时保留可见的工作视角', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'zoomed-artwork',
+        type: 'text',
+        text: '正在编辑',
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setCamera({ x: 100, y: 50, zoom: 2 })
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(390, 700)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera).toEqual({ x: 100, y: 50, zoom: 2 })
+    workspace.dispose()
+  })
+
+  it('视口尚未量出有效尺寸时跳过内容适配', async () => {
+    const key = freshSceneKey()
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.addElements([
+      {
+        id: 'deferred-artwork',
+        type: 'text',
+        text: '等待视口',
+        x: 500,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    workspace.doc.setViewport(0, 0)
+    workspace.editor.scrollToElements(['deferred-artwork'], false)
+    expect(workspace.doc.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+    workspace.dispose()
+  })
+
   it('轻微缩窄窗口但裁切了原本完整的图片时重新适配', async () => {
     const key = freshSceneKey()
     const saved = new CanvasDoc()

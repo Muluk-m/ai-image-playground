@@ -162,6 +162,12 @@ export class CanvasWorkspace {
         previous && previous.width > 1 && previous.height > 1
           ? contentVisibility(this.doc.elements, this.doc.camera, previous)
           : null
+      const defaultCamera =
+        this.doc.camera.x === 0 && this.doc.camera.y === 0 && this.doc.camera.zoom === 1
+      const legacyNeedsFit =
+        current.bestVisible === 0 ||
+        (this.doc.camera.zoom <= 1 && current.bestVisible < 0.6) ||
+        (width <= 1024 && defaultCamera && !current.allVisible)
       const viewportChanged =
         this.doc.elements.length > 0 &&
         (old
@@ -173,9 +179,7 @@ export class CanvasWorkspace {
             ) > 1.5 ||
             (old.allVisible && !current.allVisible) ||
             (old.bestVisible >= 0.6 && current.bestVisible < 0.6)
-          : width <= 1024
-            ? !current.allVisible
-            : current.bestVisible < 0.6)
+          : legacyNeedsFit)
       this.initialViewResolved = true
       if (!this.needsInitialFit && !viewportChanged) return unsubscribe()
       this.needsInitialFit = false
