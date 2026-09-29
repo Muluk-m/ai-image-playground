@@ -134,15 +134,24 @@ export class CanvasWorkspace {
       if (this.doc.viewport.width <= 1 || this.doc.viewport.height <= 1) return
       const previous = this.record.restoredViewport
       const { width, height } = this.doc.viewport
-      const narrowed =
+      const viewportChanged =
         this.doc.elements.length > 0 &&
-        width <= 640 &&
-        (!previous || previous.width > width * 1.5 || previous.height > height * 1.5)
+        (previous && previous.width > 1 && previous.height > 1
+          ? Math.max(
+              width / previous.width,
+              previous.width / width,
+              height / previous.height,
+              previous.height / height,
+            ) > 1.5
+          : width <= 640)
       this.initialViewResolved = true
-      if (!this.needsInitialFit && !narrowed) return unsubscribe()
+      if (!this.needsInitialFit && !viewportChanged) return unsubscribe()
       this.needsInitialFit = false
       unsubscribe()
-      this.editor.scrollToElements(this.doc.elements.map((one) => one.id))
+      this.editor.scrollToElements(
+        this.doc.elements.map((one) => one.id),
+        false,
+      )
     }
     const unsubscribe = this.doc.subscribe(fit)
     fit()

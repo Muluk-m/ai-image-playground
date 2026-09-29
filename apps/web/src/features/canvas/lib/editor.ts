@@ -13,6 +13,7 @@ import {
   type ImageEl,
   newElementId,
   type PlaceholderEl,
+  ZOOM_MIN,
 } from './canvasDoc'
 import { Box } from './geometry'
 import { loadImage } from './imageCache'
@@ -339,8 +340,8 @@ export class CanvasEditor {
     this.doc.setSelection(ids)
   }
 
-  /** 平滑移动镜头到一组元素（结果落在视口外时的反馈）。 */
-  scrollToElements(ids: string[]): void {
+  /** 移动镜头到一组元素；结果反馈使用动画，初始视野与手动适应立即生效。 */
+  scrollToElements(ids: string[], animate = true): void {
     const idSet = new Set(ids)
     const els = this.doc.elements.filter((el) => idSet.has(el.id))
     if (els.length === 0) return
@@ -352,13 +353,17 @@ export class CanvasEditor {
       (viewport.width - padding * 2) / bounds.w,
       (viewport.height - padding * 2) / bounds.h,
     )
-    const clamped = Math.max(0.05, zoom)
+    const clamped = Math.max(ZOOM_MIN, zoom)
     const target = {
       x: bounds.midX - viewport.width / clamped / 2,
       y: bounds.midY - viewport.height / clamped / 2,
       zoom: clamped,
     }
-    this.animateCamera(target)
+    if (animate) this.animateCamera(target)
+    else {
+      cancelAnimationFrame(this.cameraAnimHandle)
+      this.doc.setCamera(target)
+    }
   }
 
   /** 把选中的图放大到视口上方，给紧贴图片下方展开的操作框留出空间。 */
