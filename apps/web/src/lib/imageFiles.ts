@@ -63,7 +63,7 @@ function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEn
       reader.readEntries((batch) => {
         if (batch.length === 0) resolve(all)
         else {
-          all.push(...batch)
+          for (const entry of batch) all.push(entry)
           next()
         }
       }, reject)

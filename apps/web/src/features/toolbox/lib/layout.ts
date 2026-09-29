@@ -26,7 +26,10 @@ export function stitchLayout(
   gap: number,
 ): Layout {
   const vertical = direction === 'vertical'
-  const edge = Math.min(...sizes.map((size) => (vertical ? size.width : size.height)))
+  const edge = sizes.reduce(
+    (min, size) => Math.min(min, vertical ? size.width : size.height),
+    Number.POSITIVE_INFINITY,
+  )
   let offset = 0
   const placements = sizes.map((size, index) => {
     const length = Math.round(
@@ -51,7 +54,7 @@ export const COLLAGE_MAX_CELL = 1200
 export function collageLayout(sizes: readonly Size[], columns: number, gap: number): Layout {
   const cols = Math.max(1, Math.min(columns, sizes.length))
   const rows = Math.ceil(sizes.length / cols)
-  const cell = Math.min(COLLAGE_MAX_CELL, ...sizes.map((size) => Math.min(size.width, size.height)))
+  const cell = sizes.reduce((min, size) => Math.min(min, size.width, size.height), COLLAGE_MAX_CELL)
   return {
     width: cols * cell + (cols + 1) * gap,
     height: rows * cell + (rows + 1) * gap,
