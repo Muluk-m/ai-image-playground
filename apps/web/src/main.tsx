@@ -48,9 +48,9 @@ function dismissBootSplash(): void {
 const runtime = await loadRuntimeConfig()
 // 首帧的明暗已由 index.html 里的内联脚本定好；这里接手后续变化。
 initTheme()
-const [{ AuthGate }, { bootstrapChannels }, { bootstrapClientCapabilities }] = await gateModules
+const [{ AuthGate }, { preloadChannels }, { bootstrapClientCapabilities }] = await gateModules
 // 频道清单只决定模型下拉里有什么，首帧不等它；能力决定登录页还是工作台，必须等。
-void bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl)
+preloadChannels(runtime.bff.enabled, runtime.bff.baseUrl)
 await Promise.all([
   // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
   localeReady,

@@ -86,4 +86,20 @@ describe('client capability bootstrap', () => {
     await bootstrapClientCapabilities(true, '')
     expect(isByokGenerationEnabled()).toBe(false)
   })
+
+  it('bounds a stalled capability request and fails closed', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise(() => {})),
+      )
+      const boot = bootstrapClientCapabilities(true, '')
+      await vi.advanceTimersByTimeAsync(5000)
+      await boot
+      expect(isClientCapabilityEnabled('accounts:login')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

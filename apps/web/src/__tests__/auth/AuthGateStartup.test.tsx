@@ -73,8 +73,10 @@ async function boot(expectReady = true) {
   // Match main.tsx: static AuthGate imports precede capability discovery and identity lookup.
   const { AuthGate } = await import('../../auth/AuthGate')
   const { loadRuntimeConfig } = await import('../../lib/runtimeConfig')
+  const { preloadChannels } = await import('../../lib/channels/bootstrapChannels')
   const { bootstrapClientCapabilities } = await import('../../lib/clientCapabilities')
   await loadRuntimeConfig()
+  preloadChannels(true, 'https://bff.example.com')
   await bootstrapClientCapabilities(true, 'https://bff.example.com')
   await act(async () =>
     root.render(
@@ -99,6 +101,9 @@ describe('authenticated startup coach state', () => {
     await boot()
 
     expect(coachDismissed()).toBe('true')
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/api/channels')),
+    ).toHaveLength(1)
   })
 
   it('does not inherit an anonymous visitor’s dismissal for a user who has not seen the coach', async () => {
