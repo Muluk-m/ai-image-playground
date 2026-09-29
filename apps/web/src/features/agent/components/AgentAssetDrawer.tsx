@@ -17,6 +17,8 @@ interface AssetItem {
   load: () => Promise<string | null>
 }
 
+const ASSET_PAGE_SIZE = 24
+
 function assetsFromMessages(messages: readonly AgentPanelMessage[]): AssetItem[] {
   return messages
     .flatMap((message) => {
@@ -60,54 +62,63 @@ export default function AgentAssetDrawer({
   const [allItems, setAllItems] = useState<AssetItem[]>([])
   const [loadingAll, setLoadingAll] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
-  const [reload, setReload] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+  const loadNextRef = useRef<() => void>(() => {})
   const conversationId = useAgentStore((state) => state.conversationId)
   const sessionItems = useMemo(() => assetsFromMessages(messages), [messages])
   useEffect(() => {
     if (scope !== 'all') return
     let cancelled = false
-    setLoadingAll(true)
+    let busy = false
+    let conversations: Awaited<ReturnType<typeof fetchConversations>> | null = null
+    let nextConversation = 0
+    let pending = sessionItems.slice(ASSET_PAGE_SIZE)
+    setAllItems(sessionItems.slice(0, ASSET_PAGE_SIZE))
+    setHasMore(true)
     setLoadFailed(false)
-    void (async () => {
+    const loadNext = async () => {
+      if (busy || cancelled) return
+      busy = true
+      setLoadingAll(true)
+      setLoadFailed(false)
+      const page: AssetItem[] = []
       try {
-        const conversations = await fetchConversations()
-        const other = conversations.filter((one) => one.id !== conversationId)
-        const byConversation = new Map<string, AssetItem[]>()
-        const publish = () =>
-          setAllItems([
-            ...sessionItems,
-            ...other.flatMap((conversation) => byConversation.get(conversation.id) ?? []),
-          ])
-        // 并发受控，避免打开资产抽屉时对 BFF 同时发出大量完整历史请求。
-        let next = 0
-        await Promise.all(
-          Array.from({ length: Math.min(3, other.length) }, async () => {
-            while (next < other.length && !cancelled) {
-              const conversation = other[next++]!
-              try {
-                const history = await fetchMessages(conversation.id)
-                byConversation.set(
-                  conversation.id,
-                  assetsFromMessages(panelStateFromHistory(history).messages),
-                )
-                if (!cancelled) publish()
-              } catch {
-                if (!cancelled) setLoadFailed(true)
-              }
-            }
-          }),
-        )
-        if (!cancelled) publish()
+        // 先消费已在内存里的本会话产物；滚到底部才读取下一段会话历史。
+        while (page.length < ASSET_PAGE_SIZE && !cancelled) {
+          if (pending.length) {
+            page.push(...pending.splice(0, ASSET_PAGE_SIZE - page.length))
+          } else {
+            if (!conversations)
+              conversations = (await fetchConversations()).filter(
+                (one) => one.id !== conversationId,
+              )
+            if (nextConversation >= conversations.length) break
+            const history = await fetchMessages(conversations[nextConversation]!.id)
+            nextConversation += 1
+            pending = assetsFromMessages(panelStateFromHistory(history).messages)
+          }
+        }
       } catch {
         if (!cancelled) setLoadFailed(true)
       } finally {
-        if (!cancelled) setLoadingAll(false)
+        if (!cancelled) {
+          if (page.length) setAllItems((items) => [...items, ...page])
+          setHasMore(
+            pending.length > 0 || conversations === null || nextConversation < conversations.length,
+          )
+          setLoadingAll(false)
+        }
+        busy = false
       }
-    })()
+    }
+    loadNextRef.current = () => void loadNext()
     return () => {
       cancelled = true
+      loadNextRef.current = () => {}
     }
-  }, [scope, conversationId, sessionItems, reload])
+  }, [scope, conversationId, sessionItems])
   const items = scope === 'session' ? sessionItems : allItems
   const shown = items.filter(
     (item) =>
@@ -116,6 +127,24 @@ export default function AgentAssetDrawer({
         .toLocaleLowerCase()
         .includes(search.trim().toLocaleLowerCase()),
   )
+  useEffect(() => {
+    if (scope !== 'all' || !hasMore || loadingAll || loadFailed) return
+    const end = endRef.current
+    const grid = gridRef.current
+    if (!end || !grid) return
+    if (typeof IntersectionObserver === 'undefined') {
+      loadNextRef.current()
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) loadNextRef.current()
+      },
+      { root: grid, rootMargin: '220px' },
+    )
+    observer.observe(end)
+    return () => observer.disconnect()
+  }, [scope, hasMore, loadingAll, loadFailed, shown.length])
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -177,18 +206,7 @@ export default function AgentAssetDrawer({
             </button>
           ))}
         </div>
-        <div className="studio-assets-grid">
-          {scope === 'all' && loadingAll && (
-            <p className="studio-assets-status">{t('assets.loading')}</p>
-          )}
-          {scope === 'all' && loadFailed && (
-            <p className="studio-assets-status" role="alert">
-              {t('assets.loadFailed')}{' '}
-              <button type="button" onClick={() => setReload((value) => value + 1)}>
-                {t('assets.retry')}
-              </button>
-            </p>
-          )}
+        <div className="studio-assets-grid" ref={gridRef}>
           {shown.map((item) => (
             <AssetThumb
               key={item.id}
@@ -199,7 +217,28 @@ export default function AgentAssetDrawer({
               }}
             />
           ))}
-          {!shown.length && !loadingAll && !loadFailed && (
+          {scope === 'all' && loadingAll && (
+            <div className="studio-assets-status" role="status">
+              <span className="studio-agent-history-pulse" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              {t('assets.loading')}
+            </div>
+          )}
+          {scope === 'all' && loadFailed && (
+            <p className="studio-assets-status" role="alert">
+              {t('assets.loadFailed')}{' '}
+              <button type="button" onClick={() => loadNextRef.current()}>
+                {t('assets.retry')}
+              </button>
+            </p>
+          )}
+          {scope === 'all' && hasMore && !loadFailed && (
+            <div ref={endRef} className="studio-assets-end" aria-hidden="true" />
+          )}
+          {!shown.length && !loadingAll && !loadFailed && (scope === 'session' || !hasMore) && (
             <p className="studio-assets-empty">
               {t(items.length ? 'assets.noMatch' : 'assets.empty')}
             </p>
