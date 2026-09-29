@@ -61,11 +61,9 @@ function getAllByPath(source: unknown, path: string | undefined): unknown[] {
       if (item == null) continue
       if (key === '*') {
         // 上游列表的大小不受本机控制，不能把每个成员展开成函数参数。
-        const values = Array.isArray(item)
-          ? item
-          : typeof item === 'object'
-            ? Object.values(item)
-            : []
+        let values: unknown[] = []
+        if (Array.isArray(item)) values = item
+        else if (typeof item === 'object') values = Object.values(item)
         for (const value of values) next.push(value)
         continue
       }
