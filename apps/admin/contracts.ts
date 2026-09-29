@@ -247,6 +247,8 @@ export interface OpsService {
   last_seen_at: number
   /** 只有 worker 会报：活着不等于在干活。 */
   last_successful_poll_at: number | null
+  /** worker 是否配置了告警 webhook；旧版本或 BFF 没上报时为 null。 */
+  alerts_configured: boolean | null
 }
 
 export interface OpsServices {
@@ -313,6 +315,35 @@ export interface OpsApi {
   error_routes: Array<{ route: string; count: number }>
 }
 
+export interface OpsReliabilityWindow {
+  range: '24h' | '7d'
+  requests: number
+  server_errors: number
+  /** 只按已采集的用户 API 请求计算；没有请求时为 null。 */
+  availability: number | null
+  last_api_sample_at: number | null
+  generation_completed: number
+  generation_failed: number
+  agent_completed: number
+  agent_failed: number
+}
+
+export interface OpsExceptionGroup {
+  source: 'api' | 'generation' | 'agent'
+  /** API 模板路由、生成错误类型，或 Agent 轮次失败。没有原始报错文本。 */
+  key: string
+  count: number
+  last_at: number
+  example_task_id?: string
+}
+
+export interface OpsReliability {
+  recent: { generation_system: number; agent_failed: number }
+  windows: OpsReliabilityWindow[]
+  /** 近 24 小时，按次数排序。 */
+  exceptions: OpsExceptionGroup[]
+}
+
 export interface OpsDeployment {
   at: number
   /** 部署的是哪一套：paid、internal，或 Pages 的发布名。 */
@@ -352,6 +383,7 @@ export interface OpsSnapshot {
   backup: OpsBlock<OpsBackups>
   containers: OpsBlock<OpsContainers>
   api: OpsBlock<OpsApi>
+  reliability: OpsBlock<OpsReliability>
   deployments: OpsBlock<OpsDeployments>
 }
 
