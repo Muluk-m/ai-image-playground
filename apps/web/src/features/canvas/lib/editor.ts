@@ -13,7 +13,6 @@ import {
   type ImageEl,
   newElementId,
   type PlaceholderEl,
-  ZOOM_MIN,
 } from './canvasDoc'
 import { Box } from './geometry'
 import { loadImage } from './imageCache'
@@ -353,7 +352,7 @@ export class CanvasEditor {
       (viewport.width - padding * 2) / bounds.w,
       (viewport.height - padding * 2) / bounds.h,
     )
-    const clamped = Math.max(ZOOM_MIN, zoom)
+    const clamped = Math.max(0.001, zoom)
     const target = {
       x: bounds.midX - viewport.width / clamped / 2,
       y: bounds.midY - viewport.height / clamped / 2,

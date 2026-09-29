@@ -1,6 +1,7 @@
 import { FolderOpen, Images, Maximize2, Paperclip } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
@@ -253,15 +254,17 @@ export default function CanvasToolbar({
   return (
     // Canvas coordinates are local to the visible workspace, independent of the sidebar.
     <div className="studio-toolbar" data-canvas-toolbar="side">
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         className="pointer-events-auto absolute left-[58px] top-0 z-10 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-sidebar px-3 py-2 text-xs font-medium text-foreground shadow-lg disabled:opacity-40 md:hidden"
         disabled={!doc.elements.length}
         onClick={onFitContent}
       >
         <Maximize2 size={15} aria-hidden="true" />
         {t('toolbar.fitContent')}
-      </button>
+      </Button>
       <div
         className={`${PILL} studio-tools flex flex-col items-center gap-1`}
         role="group"

@@ -129,6 +129,9 @@ describe('画布工作区', () => {
     workspace.fitInitialView()
     expect(workspace.doc.camera.zoom).toBeLessThan(0.05)
     expect((20000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(320)
+    const fittedZoom = workspace.doc.camera.zoom
+    workspace.doc.zoomAt(160, 300, fittedZoom * 1.25)
+    expect(workspace.doc.camera.zoom).toBeCloseTo(fittedZoom * 1.25)
     workspace.dispose()
   })
 
