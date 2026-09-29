@@ -23,7 +23,8 @@ export function collectTemplateAssetIds(
   if (indexes.length === 0) return []
 
   const assetByImageId = getAssetsByImageId(assets)
-  return Array.from({ length: Math.max(...indexes) + 1 }, (_, index) => {
+  const lastIndex = indexes.reduce((max, index) => Math.max(max, index), -1)
+  return Array.from({ length: lastIndex + 1 }, (_, index) => {
     if (!indexes.includes(index)) return null
     const imageId = inputImages[index]?.id
     return (imageId && assetByImageId[imageId]?.id) ?? null
