@@ -143,6 +143,7 @@ export default function AgentComposer({
     submitting,
     error: draftError,
     unsent,
+    recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const setDraft = session.update
   // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
@@ -465,7 +466,9 @@ export default function AgentComposer({
     browsingRef.current = null
     const releaseSubmission = session.beginSubmission()
     let accepted = false
+    let returnedToDraft = false
     const restore = (cancelled = false) => {
+      returnedToDraft = true
       useStore
         .getState()
         .showToast(
@@ -474,24 +477,34 @@ export default function AgentComposer({
         )
       // 这几秒里用户要是已经开始打下一句，别把它冲掉。
       setDraft((current) =>
-        current.prompt.trim() || current.references.length ? current : snapshot,
+        current.prompt.trim() || current.references.length
+          ? current
+          : { ...snapshot, submission: undefined },
       )
     }
     void useAgentStore
       .getState()
       .send(
-        submission.text,
-        submission.references,
+        snapshot.submission?.text ?? submission.text,
+        snapshot.submission?.references ?? submission.references,
         () => {
           accepted = true
           rememberAgentPrompt(snapshot.prompt)
           releaseSubmission()
         },
-        mode,
+        snapshot.submission?.mode ?? mode,
+        snapshot.submission?.id,
+        snapshot.submission,
+        undefined,
+        async (retry) => {
+          returnedToDraft = true
+          useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
+          return session.returnUnsent({ ...snapshot, submission: retry })
+        },
       )
       .then(
         (outcome) => {
-          if (!accepted) restore(outcome === 'cancelled')
+          if (!accepted && !returnedToDraft) restore(outcome === 'cancelled')
         },
         () => restore(),
       )
@@ -565,7 +578,7 @@ export default function AgentComposer({
           {draftError}
         </p>
       )}
-      {unsent && !hasDraftContent(draft) && (
+      {unsent && (recoverable || !hasDraftContent(draft)) && (
         <div role="status" className={`flex items-center gap-2 px-1 ${CARD_NOTE}`}>
           <span className="min-w-0 flex-1">{t('draft.unsent')}</span>
           <button type="button" className={GHOST_LINK} onClick={session.restoreUnsent}>

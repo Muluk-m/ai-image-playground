@@ -493,6 +493,14 @@ describe('发送反馈', () => {
     expect(state().reconnecting).toBe(false)
   })
 
+  it('发送准备完成前中止，不再向服务端发起轮', async () => {
+    useAgentStore.setState({ conversationId: CONVERSATION })
+    const sending = state().send('画一只橘猫')
+    await state().abort()
+    expect(await sending).toBe('cancelled')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(false)
+  })
+
   it('发送响应尚未到达时记住中止，收到轮标识后立即中止该轮', async () => {
     useAgentStore.setState({ conversationId: CONVERSATION })
     let release!: () => void
@@ -504,6 +512,9 @@ describe('发送反馈', () => {
       return turnStream(TURN_START, TURN_END)
     }
     const sending = state().send('画一只橘猫')
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/turns'))).toBe(true),
+    )
     await state().abort()
     const phaseAfterClick = agentActivityPhase(state())
     release()

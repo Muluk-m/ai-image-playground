@@ -5,7 +5,7 @@ import {
   type OpsBackups,
   type OpsRestoreDrill,
 } from '@image-playground/shared'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import {
@@ -16,7 +16,7 @@ import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
 
 /**
- * 应用层的四条告警：队列积压、备份断了、备份恢复演练没过或断了、后端心跳断了。由 worker 的维护循环每 5 分钟看一次。
+ * 应用层的告警由 worker 的维护循环检查；接口与业务失败只读现有的汇总/事实表。
  * 宿主机那两条不在这里，由采集容器自己发（ADR 0007）。
  *
  * worker 不判断自己的心跳：发告警的就是它，它挂了这条本来也发不出来。
@@ -48,7 +48,7 @@ async function attempt<T>(block: string, read: () => Promise<T>): Promise<T | un
 export async function observeApp(options: ObserveOptions): Promise<AlertObservation> {
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
-  const [queue, backup, restoreDrill, heartbeats] = await Promise.all([
+  const [queue, backup, restoreDrill, heartbeats, api, failures] = await Promise.all([
     attempt('queue', async () => {
       const candidates = await Promise.all([
         selectRunnableTasks('openai-compat', 1, options.now, {
@@ -83,8 +83,39 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
         .limit(1)
       return { bff: row?.last_seen_at ?? null }
     }),
+    attempt('api', async () => {
+      const rows = (await db.execute(sql`
+        SELECT COALESCE(SUM(requests), 0) AS requests,
+          COALESCE(SUM(server_errors), 0) AS server_errors
+        FROM api_minutes WHERE minute >= NOW() - INTERVAL '15 minutes'
+      `)) as unknown as Array<Record<string, unknown>>
+      return {
+        requests: Number(rows[0]?.requests ?? 0),
+        server_errors: Number(rows[0]?.server_errors ?? 0),
+      }
+    }),
+    attempt('failures', async () => {
+      const [generationRaw, agentRaw] = await Promise.all([
+        db.execute(sql`
+          SELECT COUNT(*) AS count FROM tasks
+          WHERE kind = 'queue' AND status = 'failed'
+            AND error_type IS DISTINCT FROM 'content_policy'
+            AND completed_at >= NOW() - INTERVAL '15 minutes'
+        `),
+        db.execute(sql`
+          SELECT COUNT(*) AS count FROM agent_turns
+          WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
+        `),
+      ])
+      const generationRows = generationRaw as unknown as Array<Record<string, unknown>>
+      const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
+      return {
+        generation_system: Number(generationRows[0]?.count ?? 0),
+        agent: Number(agentRows[0]?.count ?? 0),
+      }
+    }),
   ])
-  return { queue, backup, restoreDrill, heartbeats }
+  return { queue, backup, restoreDrill, heartbeats, api, failures }
 }
 
 interface AppAlertingOptions {
@@ -99,7 +130,10 @@ interface AppAlertingOptions {
  */
 export function createAppAlerting(options: AppAlertingOptions): (now?: number) => Promise<void> {
   let state: AlertState = {}
+  let pending = false
   return async (now = Date.now()) => {
+    if (pending) return
+    pending = true
     try {
       const observation = await observeApp({
         now,
@@ -114,6 +148,8 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
         { event: 'ops.alert_failed', err: error instanceof Error ? error.message : String(error) },
         'operations alert round failed; it will be retried on the next scan',
       )
+    } finally {
+      pending = false
     }
   }
 }
