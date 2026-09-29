@@ -128,7 +128,7 @@ it('把整段草稿摊在卡上直接可改，而不是藏在「查看提示词�
   expect(field().disabled).toBe(false)
   expect(host.textContent).not.toContain('查看提示词')
   expect(host.textContent).toContain('确认后生成 2 张')
-  expect(host.textContent).toContain('gpt-image-1')
+  expect(host.textContent).not.toContain('gpt-image-1')
 })
 
 it('确认提交的是用户改过的那份字，卡就地换成已提交', async () => {
