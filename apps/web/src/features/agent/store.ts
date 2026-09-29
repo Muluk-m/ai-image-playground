@@ -71,7 +71,7 @@ import {
 } from './lib/artifactDelivery'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
-import { bindNewAgentDraft } from './lib/drafts'
+import { agentDraft, bindNewAgentDraft } from './lib/drafts'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -1342,18 +1342,26 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (journaled) await forgetOutgoing(journaled.projectId, journaled.id)
       }
       const returnUnsent = async (withdrawn = false) => {
+        if (!onUnsent && !withdrawn) return
         // 已撤回的 id 是服务端终态，再用它只会再次得到 cancelled。只有用户从草稿再发才开新 id。
-        if (!onUnsent) {
-          if (withdrawn) await settleJournal()
-          return
-        }
-        const returned = await onUnsent({
+        const unsent: UnsentTurnSubmission = {
           ...submissionInput,
           id: withdrawn ? crypto.randomUUID() : messageId,
           text: trimmed,
           mode,
           clarificationAnswer,
-        })
+        }
+        let returned: boolean
+        if (onUnsent) returned = await onUnsent(unsent)
+        else {
+          // 刷新补发时输入框可能尚未挂载，恢复仍归属原项目，不能把终态日志直接丢掉。
+          const draft = agentDraft(conversationId, sourceProject?.id)
+          await draft.ready
+          returned = await draft.returnUnsent({
+            ...returnQueuedToDraft({ prompt: '', references: [] }, [unsent]),
+            submission: unsent,
+          })
+        }
         if (returned) await settleJournal()
       }
       if (get().turn === 'running' && conversationId) {
@@ -1369,7 +1377,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         )
         if (accepted === true) await settleJournal()
         else await returnUnsent(accepted === 'cancelled')
-        return
+        return accepted === 'cancelled' ? 'cancelled' : undefined
       }
       if (get().turn === 'running') {
         settleJournal()
@@ -1541,7 +1549,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           // 服务端说这句话已不在队里：没被收下，草稿留着，与起轮请求失败同样收场。
           fail(i18next.t('error.queueFailed', { ns: 'agent' }))
           await turnDelivery.settled()
-          return
+          return 'cancelled'
         }
         if (outcome.kind === 'queued') {
           // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。

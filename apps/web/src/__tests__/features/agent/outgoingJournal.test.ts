@@ -7,6 +7,7 @@ import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentComposer from '../../../features/agent/components/AgentComposer'
+import { DraftSession } from '../../../features/agent/lib/drafts'
 import {
   forgetOutgoing,
   outgoingMessages,
@@ -426,9 +427,10 @@ it.each([
       { status: 202 },
     )
   const returned = vi.fn(async (_snapshot: UnsentTurnSubmission) => true)
-  await useAgentStore
+  const outcome = await useAgentStore
     .getState()
     .send('已撤回', [], undefined, 'image', 'withdrawn-client-id', undefined, undefined, returned)
+  expect(outcome).toBe('cancelled')
   expect(returned).toHaveBeenCalledOnce()
   const snapshot = returned.mock.calls[0]?.[0]
   const posted = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
@@ -437,4 +439,30 @@ it.each([
   expect(snapshot?.id).not.toBe('withdrawn-client-id')
   expect(await outgoingMessages(PROJECT)).toEqual([])
   reload(CONVERSATION)
+})
+
+it('刷新补发遇到已撤回时，先持久化到所属项目草稿再删除日志', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const draft = currentProjectDraft(CONVERSATION)
+  await draft.ready
+  turnResponse = () =>
+    Response.json(
+      {
+        state: 'cancelled',
+        queued: { id: 'withdrawn', text: '刷新补发', createdAt: 1, references: [] },
+      },
+      { status: 202 },
+    )
+  const outcome = await useAgentStore
+    .getState()
+    .send('刷新补发', [], undefined, 'image', 'withdrawn-original-id')
+  expect(outcome).toBe('cancelled')
+  expect(await outgoingMessages(PROJECT)).toEqual([])
+  const restored = new DraftSession(draft.key)
+  await restored.ready
+  expect(restored.getSnapshot().unsent).toMatchObject({
+    prompt: '刷新补发',
+    submission: { text: '刷新补发' },
+  })
+  expect(restored.getSnapshot().unsent?.submission?.id).not.toBe('withdrawn-original-id')
 })

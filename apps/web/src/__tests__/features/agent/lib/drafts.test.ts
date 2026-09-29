@@ -327,3 +327,19 @@ it('发送失败接回时不会覆盖等待期间的新选区', async () => {
   expect(session.getSnapshot().draft).toEqual(selection)
   expect(session.getSnapshot().unsent?.prompt).toBe('失败消息')
 })
+
+it('空输入框接回失败消息时也保留尚未恢复的旧草稿', async () => {
+  const key = `old-unsent-${crypto.randomUUID()}`
+  const before = new DraftSession(key)
+  await before.ready
+  before.update({ prompt: '旧草稿', references: [] })
+  await before.flush()
+  const current = new DraftSession(key)
+  await current.ready
+  expect(await current.returnUnsent({ prompt: '本次失败', references: [] })).toBe(true)
+  const restored = new DraftSession(key)
+  await restored.ready
+  expect(restored.getSnapshot().draft.prompt).toBe('本次失败')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('旧草稿')
+  expect(restored.getSnapshot().recoverable).toBe(true)
+})
