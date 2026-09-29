@@ -112,6 +112,7 @@ import {
   captureTurnSubmission,
   type TurnSubmissionReplay,
   type TurnSubmissionSnapshot,
+  type UnsentTurnSubmission,
 } from './lib/turnSubmission'
 import type {
   AgentPanelMessage,
@@ -247,6 +248,8 @@ export interface AgentState {
     replay?: TurnSubmissionReplay,
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
+    /** 输入框接回失败消息后，日志停止自动重发；先等草稿落盘。 */
+    onUnsent?: (submission: UnsentTurnSubmission) => Promise<void>,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -750,6 +753,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             canvas: message.canvas,
             params: message.params,
             canvasReferenceIds: message.canvasReferenceIds,
+            clarificationAnswer: message.clarificationAnswer,
           },
           message.modelOverride,
         )
@@ -890,7 +894,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
         if (current()) set({ error: i18next.t('error.queueFailed', { ns: 'agent' }) })
-        return false
+        return 'cancelled' as const
       }
       if (outcome.kind === 'alreadyRunning') {
         // 老服务端没有排队：忙时照旧是插话。
@@ -1275,6 +1279,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       clientMessageId,
       replay,
       modelOverride,
+      onUnsent,
     ) {
       const turnParams = replay?.params ?? {
         ...currentTurnParams(),
@@ -1307,7 +1312,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         return 'cancelled'
       const active = get().activeTurn
       // 末尾还有没作答的澄清：这句话就是在回答它（卡片与输入框同一个口径），服务端把它排在队首。
-      const clarificationAnswer = answerableClarificationId(get().messages) !== null
+      const clarificationAnswer =
+        replay?.clarificationAnswer ?? answerableClarificationId(get().messages) !== null
       const messageId = clientMessageId ?? crypto.randomUUID()
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
@@ -1330,8 +1336,19 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           await updateOutgoingInput(journaled.projectId, journaled.id, prepared)
         return prepared
       }
-      const settleJournal = () => {
-        if (journaled) void forgetOutgoing(journaled.projectId, journaled.id)
+      const settleJournal = async () => {
+        if (journaled) await forgetOutgoing(journaled.projectId, journaled.id)
+      }
+      const returnUnsent = async () => {
+        if (!onUnsent) return
+        await onUnsent({
+          ...captured.snapshot,
+          id: messageId,
+          text: trimmed,
+          mode,
+          clarificationAnswer,
+        })
+        await settleJournal()
       }
       if (get().turn === 'running' && conversationId) {
         const accepted = await queueMessage(
@@ -1344,8 +1361,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           messageId,
           prepare,
         )
-        if (accepted) settleJournal()
-        return
+        if (accepted) await settleJournal()
+        else await returnUnsent()
+        return accepted === 'cancelled' ? 'cancelled' : undefined
       }
       if (get().turn === 'running') {
         settleJournal()
@@ -1512,10 +1530,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           return
         }
         if (refused) {
+          submission.cancelled = true
           // 服务端说这句话已不在队里：没被收下，草稿留着，与起轮请求失败同样收场。
           fail(i18next.t('error.queueFailed', { ns: 'agent' }))
           await turnDelivery.settled()
-          return
+          return 'cancelled'
         }
         if (outcome.kind === 'queued') {
           // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。
@@ -1543,7 +1562,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           setTimeout(() => void get().refreshConversations(), titleRewriteMs)
         }
       } finally {
-        if (accepted || submission.cancelled) settleJournal()
+        if (accepted || submission.cancelled) await settleJournal()
+        else await returnUnsent()
         settleSubmission()
         if (pendingStart === submission) pendingStart = null
       }
