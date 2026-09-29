@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from '../../components/Sidebar'
 import { useLibraryStore } from '../../features/library/store'
+import { installAppRouting } from '../../lib/appRoute'
 import { useStore } from '../../store'
 
 vi.mock('../../lib/channels/videoChannels', async (importOriginal) => ({
@@ -87,4 +88,18 @@ it('宽屏侧栏可收起并重新展开', () => {
 
 it('品牌在侧栏里，不再挂在顶栏上', () => {
   expect(host.textContent).toContain('幕芽')
+})
+
+it('画布左上角 Logo 返回创作首页并更新地址', () => {
+  window.history.replaceState(null, '', '/p/canvas-example')
+  act(() => useStore.setState({ appMode: 'canvas', sidebarExpanded: false }))
+  const stop = installAppRouting()
+  try {
+    act(() => entry('主页').click())
+    expect(useStore.getState().appMode).toBe('image')
+    expect(window.location.pathname).toBe('/image')
+  } finally {
+    stop()
+    window.history.replaceState(null, '', '/')
+  }
 })
