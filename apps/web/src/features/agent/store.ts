@@ -1519,6 +1519,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
             .catch(() => {})
         const refused = outcome.kind === 'queued' && outcome.body.state === 'cancelled'
+        withdrawn = refused
         accepted = outcome.kind === 'frames' || (outcome.kind === 'queued' && !refused)
         if (!turnDelivery.isCurrent()) {
           if (outcome.kind === 'queued' && !refused) onAccepted?.()
@@ -1537,7 +1538,6 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           return
         }
         if (refused) {
-          withdrawn = true
           // 服务端说这句话已不在队里：没被收下，草稿留着，与起轮请求失败同样收场。
           fail(i18next.t('error.queueFailed', { ns: 'agent' }))
           await turnDelivery.settled()
