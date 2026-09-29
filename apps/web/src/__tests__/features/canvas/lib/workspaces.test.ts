@@ -85,6 +85,42 @@ describe('画布工作区', () => {
     workspace.dispose()
   })
 
+  it('旧版手机画布有一张图可见时仍会框住其他离屏内容', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'visible-artwork',
+        type: 'text',
+        text: '可见',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        fontSize: 24,
+        fill: '#000',
+      },
+      {
+        id: 'hidden-artwork',
+        type: 'text',
+        text: '离屏',
+        x: 1000,
+        y: 0,
+        width: 100,
+        height: 100,
+        fontSize: 24,
+        fill: '#000',
+      },
+    ])
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(390, 700)
+    workspace.fitInitialView()
+    expect((1100 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(390)
+    workspace.dispose()
+  })
+
   it('轻微缩窄窗口但裁切了原本完整的图片时重新适配', async () => {
     const key = freshSceneKey()
     const saved = new CanvasDoc()
@@ -202,13 +238,20 @@ describe('画布工作区', () => {
     const key = freshSceneKey()
     const stale = new CanvasWorkspace(key)
     await stale.ready
-    await saveSceneRecord(key, 99)
+    const latest = new CanvasWorkspace(key)
+    await latest.ready
+    latest.doc.setViewport(1200, 800)
+    latest.doc.setCamera({ x: 99 })
+    await latest.flush()
+    latest.dispose()
     stale.doc.setViewport(900, 600)
     stale.doc.setSelection([])
     stale.doc.setTool('pen')
     stale.doc.notifyAssetLoaded()
     await stale.flush()
     expect((await readPersistedScene(key))?.camera.x).toBe(99)
+    expect((await readPersistedScene(key))?.viewport).toEqual({ width: 1200, height: 800 })
+    stale.dispose()
   })
 
   it('绑定事务失败保留草稿，重试原子转存后后续编辑只写新会话', async () => {
