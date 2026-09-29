@@ -68,6 +68,10 @@ export class SceneRecord {
     return this.currentKey
   }
 
+  get restoredViewport(): PersistedScene['viewport'] {
+    return this.stored?.viewport
+  }
+
   getSnapshot = (): SceneRecordStatus => this.status
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)

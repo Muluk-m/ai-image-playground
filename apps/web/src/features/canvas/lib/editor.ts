@@ -346,7 +346,7 @@ export class CanvasEditor {
     if (els.length === 0) return
     const bounds = Box.Common(els.map(elementBounds))
     const { viewport } = this.doc
-    const padding = 96
+    const padding = Math.min(96, Math.max(16, Math.min(viewport.width, viewport.height) * 0.08))
     const zoom = Math.min(
       1,
       (viewport.width - padding * 2) / bounds.w,

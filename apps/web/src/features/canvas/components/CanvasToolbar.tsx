@@ -1,4 +1,4 @@
-import { FolderOpen, Images, Paperclip } from 'lucide-react'
+import { FolderOpen, Images, Maximize2, Paperclip } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { useTranslation } from '../../../i18n'
@@ -133,10 +133,12 @@ const PILL =
 /** 工具与缩放共用画布左侧工具栏，窄矮视口内可滚动。 */
 export default function CanvasToolbar({
   doc,
+  onFitContent,
   onImportImages,
   onImportFolder,
 }: {
   doc: CanvasDoc
+  onFitContent: () => void
   onImportImages: () => void
   onImportFolder: () => void
 }) {
@@ -222,6 +224,13 @@ export default function CanvasToolbar({
   )
   const zoom = (
     <>
+      <ToolButton
+        title={t('toolbar.fitContent')}
+        onClick={onFitContent}
+        disabled={!doc.elements.length}
+      >
+        <Maximize2 size={18} aria-hidden="true" />
+      </ToolButton>
       <ToolButton title={t('toolbar.zoomOut')} onClick={() => zoomStep(-1)}>
         <span className="text-base leading-none">−</span>
       </ToolButton>
