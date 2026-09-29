@@ -82,32 +82,36 @@ export class DraftSession {
   private async restore() {
     try {
       const db = await openDatabase()
-      const stored = await new Promise<AgentDraft | undefined>((resolve, reject) => {
-        const request = db.transaction('drafts').objectStore('drafts').get(this.key)
-        request.onsuccess = () => {
-          if (request.result || !this.fallbackKey) {
-            resolve(request.result)
-            return
+      const stored = await new Promise<(AgentDraft & { unsent?: AgentDraft }) | undefined>(
+        (resolve, reject) => {
+          const request = db.transaction('drafts').objectStore('drafts').get(this.key)
+          request.onsuccess = () => {
+            if (request.result || !this.fallbackKey) {
+              resolve(request.result)
+              return
+            }
+            const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
+            fallback.onsuccess = () => resolve(fallback.result)
+            fallback.onerror = () => reject(fallback.error)
           }
-          const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
-          fallback.onsuccess = () => resolve(fallback.result)
-          fallback.onerror = () => reject(fallback.error)
-        }
-        request.onerror = () => reject(request.error)
-      })
+          request.onerror = () => reject(request.error)
+        },
+      )
       if (
         this.revision === 0 &&
         stored &&
         typeof stored.prompt === 'string' &&
         Array.isArray(stored.references)
       ) {
+        const { unsent, ...draft } = stored
         // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
-        if (hasDraftContent(stored))
+        if (unsent || hasDraftContent(draft))
           this.publish({
             draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
-            unsent: stored,
+            unsent: unsent ?? draft,
+            ...(unsent ? { draft } : {}),
           })
-        else this.publish({ draft: stored })
+        else this.publish({ draft })
       }
     } catch {
       this.publish({ error: i18next.t('draft.unreadable', { ns: 'agent' }) })
@@ -135,6 +139,18 @@ export class DraftSession {
     this.timer = setTimeout(() => {
       void this.flush()
     }, 300)
+  }
+
+  /** 发送失败时接回原消息；新输入保留，失败消息进待恢复区。落盘失败不确认交接。 */
+  async returnUnsent(draft: AgentDraft): Promise<boolean> {
+    if (!hasDraftContent(this.snapshot.draft)) this.update(draft)
+    else {
+      if (this.snapshot.unsent) return false
+      this.revision += 1
+      this.publish({ unsent: draft })
+    }
+    await this.flush()
+    return this.snapshot.error === null
   }
 
   /** 把没发出去的那份放回输入框；输入框里此刻跟着选区带进来的图保留。 */
@@ -199,7 +215,11 @@ export class DraftSession {
     const revision = this.revision
     // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。
     const { draft: current, unsent } = this.snapshot
-    const draft = unsent && !hasDraftContent(current) ? withMode(unsent, current.mode) : current
+    const draft = unsent?.submission
+      ? { ...current, unsent }
+      : unsent && !hasDraftContent(current)
+        ? withMode(unsent, current.mode)
+        : current
     const key = this.key
     const previousKey = this.previousKey
     this.writes = this.writes.then(async () => {

@@ -259,3 +259,36 @@ describe('未发送的草稿', () => {
     expect(restored.getSnapshot().draft).toEqual(draft)
   })
 })
+
+it('发送失败接回时保留已输入的下一句，两份草稿都能落盘恢复', async () => {
+  const key = `handoff-${crypto.randomUUID()}`
+  const session = new DraftSession(key)
+  await session.ready
+  session.update({ prompt: '下一句', references: [] })
+  const failed = {
+    prompt: '没发出去的上一句',
+    references: [],
+    submission: {
+      id: 'original-id',
+      text: '没发出去的上一句',
+      mode: 'image' as const,
+      references: [],
+      params: { model: 'gpt-image-2', size: '1536x1024' },
+      clarificationAnswer: false,
+    },
+  }
+  expect(await session.returnUnsent(failed)).toBe(true)
+  expect(session.getSnapshot().draft.prompt).toBe('下一句')
+  expect(session.getSnapshot().unsent).toEqual(failed)
+  const restored = new DraftSession(key)
+  await restored.ready
+  expect(restored.getSnapshot().draft.prompt).toBe('下一句')
+  expect(restored.getSnapshot().unsent).toEqual(failed)
+  restored.update({ prompt: '', references: [] })
+  restored.restoreUnsent()
+  expect(restored.getSnapshot().draft).toEqual(failed)
+  await restored.flush()
+  const again = new DraftSession(key)
+  await again.ready
+  expect(again.getSnapshot().unsent).toEqual(failed)
+})

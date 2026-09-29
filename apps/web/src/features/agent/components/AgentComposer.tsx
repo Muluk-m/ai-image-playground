@@ -86,7 +86,6 @@ import {
   setReferenceMask,
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
-import type { UnsentTurnSubmission } from '../lib/turnSubmission'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
@@ -428,7 +427,7 @@ export default function AgentComposer({
     const releaseSubmission = session.beginSubmission()
     let accepted = false
     let returnedToDraft = false
-    const restore = (cancelled = false, retry?: UnsentTurnSubmission) => {
+    const restore = (cancelled = false) => {
       returnedToDraft = true
       useStore
         .getState()
@@ -440,7 +439,7 @@ export default function AgentComposer({
       setDraft((current) =>
         current.prompt.trim() || current.references.length
           ? current
-          : { ...snapshot, submission: retry },
+          : { ...snapshot, submission: undefined },
       )
     }
     void useAgentStore
@@ -458,8 +457,9 @@ export default function AgentComposer({
         snapshot.submission,
         undefined,
         async (retry) => {
-          restore(false, retry)
-          await session.flush()
+          returnedToDraft = true
+          useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
+          return session.returnUnsent({ ...snapshot, submission: retry })
         },
       )
       .then(

@@ -249,7 +249,7 @@ export interface AgentState {
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
     /** 输入框接回失败消息后，日志停止自动重发；先等草稿落盘。 */
-    onUnsent?: (submission: UnsentTurnSubmission) => Promise<void>,
+    onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -1330,8 +1330,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           clarificationAnswer,
           createdAt: Date.now(),
         })
+      let submissionInput = captured.snapshot
       const prepare = async () => {
         const prepared = await captured.prepare()
+        if (prepared) submissionInput = prepared
         if (prepared && journaled)
           await updateOutgoingInput(journaled.projectId, journaled.id, prepared)
         return prepared
@@ -1341,14 +1343,14 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }
       const returnUnsent = async () => {
         if (!onUnsent) return
-        await onUnsent({
-          ...captured.snapshot,
+        const returned = await onUnsent({
+          ...submissionInput,
           id: messageId,
           text: trimmed,
           mode,
           clarificationAnswer,
         })
-        await settleJournal()
+        if (returned) await settleJournal()
       }
       if (get().turn === 'running' && conversationId) {
         const accepted = await queueMessage(
