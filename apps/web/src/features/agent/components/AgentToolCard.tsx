@@ -1,17 +1,13 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import {
-  ArrowUpRight,
-  Download,
-  Ellipsis,
-  Images,
-  Maximize2,
-  Pencil,
-  RotateCcw,
-} from 'lucide-react'
+import { ArrowUpRight, Download, Ellipsis, Images, Maximize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
+import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
+import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
+import { ToolError } from '../../../components/assistant-ui/elements/tool-error'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
+import { Button } from '../../../components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
@@ -470,23 +466,81 @@ export default function AgentToolCard({
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
   }
+  if (message.status === 'awaiting_confirmation') {
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1}>
+        <AgentPromptDraft message={message} />
+      </div>
+    )
+  }
+  if (message.status === 'failed' && !message.artifacts?.length && !message.fetchedImages?.length) {
+    return (
+      <ToolError
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        name={message.title}
+        message={note ?? t('tool.notFinished')}
+        actions={
+          <>
+            <FailureAction message={message} />
+            <RetryRemaining message={message} />
+          </>
+        }
+      >
+        {message.prompt && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            onClick={() => setPromptOpen(true)}
+          >
+            {t('tool.viewPrompt')}
+          </Button>
+        )}
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+        <WakeSkippedNote message={message} />
+        <RetryRecord message={message} />
+      </ToolError>
+    )
+  }
   if (
-    message.status === 'failed' &&
-    (message.toolName === 'webFetch' || message.toolName === 'webSearch') &&
+    !progress &&
     !message.artifacts?.length &&
-    !message.fetchedImages?.length
+    !message.fetchedImages?.length &&
+    message.status !== 'failed'
   ) {
     return (
-      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-step-failure">
-        <span className="studio-agent-step-failure-mark" aria-hidden="true">
-          !
-        </span>
-        <div className="studio-agent-step-failure-body">
-          <span className="studio-agent-step-failure-title">{message.title}</span>
-          <span className="studio-agent-step-failure-note">{note ?? t('tool.notFinished')}</span>
+      <ToolCall
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        label={message.title}
+        activeLabel={message.title}
+        running={status === 'running' || status === 'queued'}
+      >
+        <div className="flex flex-col gap-2">
+          <ToolStatus label={statusLabel} status={status} />
+          {note && <p className={CARD_NOTE}>{note}</p>}
+          {message.prompt && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-start"
+              onClick={() => setPromptOpen(true)}
+            >
+              {t('tool.viewPrompt')}
+            </Button>
+          )}
+          <AgentJobCancel message={message} />
+          <WakeSkippedNote message={message} />
+          <RetryRecord message={message} />
         </div>
-        <FailureAction message={message} />
-      </div>
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </ToolCall>
     )
   }
   if (imageGenerating && progress) {
@@ -606,70 +660,70 @@ export default function AgentToolCard({
         </div>
         {previews.some((preview) => preview.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
-            <div className="studio-agent-inline-footer">
-              <button
-                type="button"
-                onClick={() => onPreviewResult(message.id, previews[0].artifact.artifactId)}
-              >
-                <Pencil size={15} aria-hidden="true" />
-                {t('tool.editResult')}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void useAgentStore
-                    .getState()
-                    .send(
-                      t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
-                      [],
-                      undefined,
-                      'image',
-                    )
-                }
-              >
-                <RotateCcw size={15} aria-hidden="true" />
-                {t('tool.regenerate')}
-              </button>
+            <MessageActions
+              className="mt-3"
+              editLabel={t('tool.editResult')}
+              regenerateLabel={t('tool.regenerate')}
+              onEdit={() => onPreviewResult(message.id, previews[0].artifact.artifactId)}
+              onRegenerate={() =>
+                void useAgentStore
+                  .getState()
+                  .send(
+                    t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
+                    [],
+                    undefined,
+                    'image',
+                  )
+              }
+            >
               {(message.prompt || onViewCanvas) && (
-                <div className="studio-agent-inline-more">
-                  <button
-                    type="button"
-                    aria-label={t('tool.moreActions')}
-                    aria-expanded={moreOpen}
-                    onClick={() => setMoreOpen((open) => !open)}
-                  >
-                    <Ellipsis size={17} aria-hidden="true" />
-                  </button>
-                  {moreOpen && (
-                    <div className="studio-agent-inline-menu">
-                      {message.prompt && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPromptOpen(true)
-                            setMoreOpen(false)
-                          }}
-                        >
-                          {t('tool.viewPrompt')}
-                        </button>
-                      )}
-                      {onViewCanvas && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onViewCanvas(
-                              tiles.filter((tile) => tile.media !== 'video').map((tile) => tile.id),
-                            )
-                          }
-                        >
-                          {t('tool.editGroupOnCanvas')}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="size-8 rounded-xl"
+                      aria-label={t('tool.moreActions')}
+                    >
+                      <Ellipsis size={17} aria-hidden="true" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-48 rounded-xl p-1.5">
+                    {message.prompt && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start"
+                        onClick={() => {
+                          setPromptOpen(true)
+                          setMoreOpen(false)
+                        }}
+                      >
+                        {t('tool.viewPrompt')}
+                      </Button>
+                    )}
+                    {onViewCanvas && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start"
+                        onClick={() => {
+                          setMoreOpen(false)
+                          onViewCanvas(
+                            tiles.filter((tile) => tile.media !== 'video').map((tile) => tile.id),
+                          )
+                        }}
+                      >
+                        {t('tool.editGroupOnCanvas')}
+                      </Button>
+                    )}
+                  </PopoverContent>
+                </Popover>
               )}
-            </div>
+            </MessageActions>
           )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
@@ -755,11 +809,7 @@ export default function AgentToolCard({
     )
   }
   return (
-    <div
-      id={agentToolCardDomId(message.id)}
-      tabIndex={-1}
-      className={message.status === 'awaiting_confirmation' ? 'studio-agent-confirm-card' : CARD}
-    >
+    <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
       {message.retryOf && (
         <span className="self-start rounded-md border border-border px-1.5 text-[10px] leading-4 text-muted-foreground">
           {t('retry.record')}
@@ -786,18 +836,16 @@ export default function AgentToolCard({
         )}
         <ToolStatus label={statusLabel} status={status} />
       </div>
-      {message.status === 'awaiting_confirmation' ? (
-        <AgentPromptDraft message={message} />
-      ) : (
-        message.prompt && (
-          <button
-            type="button"
-            className={`self-start ${GHOST_LINK}`}
-            onClick={() => setPromptOpen(true)}
-          >
-            {t('tool.viewPrompt')}
-          </button>
-        )
+      {message.prompt && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="self-start"
+          onClick={() => setPromptOpen(true)}
+        >
+          {t('tool.viewPrompt')}
+        </Button>
       )}
       {promptOpen && message.prompt && (
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
@@ -807,9 +855,9 @@ export default function AgentToolCard({
       <AgentJobCancel message={message} />
       <WakeSkippedNote message={message} />
       {message.status === 'failed' ? (
-        <ErrorState
-          title={t('tool.notFinished')}
-          detail={note ?? undefined}
+        <ToolError
+          name={t('tool.notFinished')}
+          message={note ?? t('tool.notFinished')}
           actions={
             <>
               <FailureAction message={message} />

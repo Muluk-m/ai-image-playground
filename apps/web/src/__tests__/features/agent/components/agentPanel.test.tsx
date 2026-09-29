@@ -858,11 +858,13 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('要哪种风格？')
     const option = [
-      ...host.querySelectorAll<HTMLButtonElement>('.studio-clarification-options > button'),
-    ].find((button) => button.querySelector('span:last-child')?.textContent === '扁平插画')!
+      ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
+    ].find((button) => button.textContent === '扁平插画')!
     act(() => option.click())
 
     expect(send).toHaveBeenCalledWith('扁平插画')
+    // A resolved/no-op send (e.g. login gate) must not invent a committed answer.
+    expect(host.querySelector('[data-slot="option-list"][data-state="receipt"]')).toBeNull()
   })
 
   it('方案都不对时点「其他」，在卡片里写一句就是下一条消息', () => {
@@ -953,9 +955,9 @@ describe('AgentPanel', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(host.textContent).toContain('要哪种风格？')
-    expect(
-      host.querySelector('.studio-clarification-answered-detail span:last-child')?.textContent,
-    ).toBe('扁平插画')
+    expect(host.querySelector('.studio-clarification-answered-detail')?.textContent).toContain(
+      '扁平插画',
+    )
     expect(host.querySelector('.studio-clarification-answered-detail button')).toBeNull()
     expect(texts('button')).not.toContain('其他…')
   })
@@ -985,8 +987,8 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('已回答')
     expect(host.querySelector('.studio-clarification-answered--unknown button')).toBeNull()
     const next = [
-      ...host.querySelectorAll<HTMLButtonElement>('.studio-clarification-options > button'),
-    ].find((button) => button.querySelector('span:last-child')?.textContent === '竖版')!
+      ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
+    ].find((button) => button.textContent === '竖版')!
     expect(next.disabled).toBe(false)
   })
 

@@ -1,5 +1,7 @@
 import { ArrowUp, Check, ChevronDown, CircleHelp, PencilLine } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
+import { OptionList } from '../../../components/assistant-ui/elements/option-list'
+import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 import { clarificationAnswer } from '../lib/panelMessages'
@@ -18,7 +20,8 @@ function AnsweredClarification({
   const chosen = t('clarification.chosen', { answer })
   return (
     <div className="studio-clarification-answered">
-      <button
+      <Button
+        variant="ghost"
         type="button"
         aria-expanded={expanded}
         title={chosen}
@@ -27,17 +30,20 @@ function AnsweredClarification({
         <Check size={15} aria-hidden="true" />
         <span>{chosen}</span>
         <ChevronDown size={14} className={expanded ? 'rotate-180' : ''} aria-hidden="true" />
-      </button>
+      </Button>
       {expanded && (
         <div className="studio-clarification-answered-detail">
           <p>{message.question}</p>
-          <div>
-            {message.options.map((option) => (
-              <span key={option} data-selected={option === answer}>
-                {option}
-              </span>
-            ))}
-          </div>
+          <OptionList
+            options={[...new Set([...message.options, answer])].map((option) => ({
+              id: option,
+              label: option,
+            }))}
+            choice={[answer]}
+          />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {message.options.filter((option) => option !== answer).join(' · ')}
+          </p>
         </div>
       )}
     </div>
@@ -79,25 +85,24 @@ export default function AgentClarification({
     )
 
   return (
-    <section className="studio-clarification" aria-label={message.question}>
-      <div className="studio-clarification-heading">
-        <span className="studio-clarification-mark" aria-hidden="true">
-          <CircleHelp size={18} />
-        </span>
-        <h3>{message.question}</h3>
-      </div>
-      <div className="studio-clarification-options">
-        {message.options.map((option, index) => (
-          <button
-            key={option}
-            type="button"
-            disabled={locked}
-            onClick={() => void useAgentStore.getState().send(option)}
-          >
-            <span className="studio-clarification-option-index">{index + 1}</span>
-            <span>{option}</span>
-          </button>
-        ))}
+    <section className="flex w-full max-w-md flex-col gap-3" aria-label={message.question}>
+      <h3 className="flex items-start gap-2 text-sm font-medium leading-relaxed">
+        <CircleHelp
+          size={16}
+          className="mt-0.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        {message.question}
+      </h3>
+      <OptionList
+        options={message.options.map((option) => ({ id: option, label: option }))}
+        pending={locked}
+        aria-label={message.question}
+        onConfirm={([option]) => {
+          void useAgentStore.getState().send(option)
+        }}
+      />
+      <div className="flex flex-col gap-2">
         {writing && !answered ? (
           <form className="studio-clarification-other-form" onSubmit={submitOther}>
             <Input
@@ -111,20 +116,26 @@ export default function AgentClarification({
                 if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault()
               }}
             />
-            <button type="submit" disabled={locked || !written} aria-label={t('composer.send')}>
+            <Button
+              variant="ghost"
+              type="submit"
+              disabled={locked || !written}
+              aria-label={t('composer.send')}
+            >
               <ArrowUp size={17} aria-hidden="true" />
-            </button>
+            </Button>
           </form>
         ) : (
-          <button
+          <Button
+            variant="ghost"
             type="button"
             disabled={locked}
-            className="studio-clarification-other"
+            className="h-8 justify-start self-start rounded-lg px-3 text-xs text-muted-foreground"
             onClick={() => setWriting(true)}
           >
             <PencilLine size={16} aria-hidden="true" />
             <span>{t('clarification.other')}</span>
-          </button>
+          </Button>
         )}
       </div>
     </section>
