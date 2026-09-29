@@ -29,6 +29,10 @@ function formatDuration(value: number | null): string {
   return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(1)} s`
 }
 
+function cacheRate(readTokens: number, inputTokens: number): string {
+  return inputTokens > 0 ? `${((readTokens / inputTokens) * 100).toFixed(1)}%` : '—'
+}
+
 function OverviewPage() {
   const [range, setRange] = useRangeSearch()
   const query = useOverview(range)
@@ -55,7 +59,7 @@ function OverviewContent({
   range: Range
   onRangeChange: (next: Range) => void
 }) {
-  const { summary, volume, volume_bucket, failures, models } = data
+  const { summary, volume, volume_bucket, failures, models, agent_cache } = data
   const successPercent = Math.round(summary.success_rate * 1000) / 10
   const multiplier = summary.total === 0 ? null : summary.upstream_invocations / summary.total
 
@@ -86,6 +90,62 @@ function OverviewContent({
       </section>
 
       <PrivateAdminOverviewPanel />
+
+      <Card>
+        <CardHeader className="p-4">
+          <CardTitle className="text-sm">Agent 输入缓存 · {RANGE_LABEL[range]}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 p-4 pt-0">
+          <div>
+            <p className="font-mono text-2xl font-semibold tabular-nums">
+              {cacheRate(agent_cache.cache_read_tokens, agent_cache.input_tokens)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              缓存命中率 = 缓存读取 token / 输入 token · {agent_cache.calls.toLocaleString('zh-CN')}{' '}
+              次已上报用量的对话调用
+            </p>
+          </div>
+          {agent_cache.models.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>模型</TableHead>
+                  <TableHead className="text-right">调用</TableHead>
+                  <TableHead className="text-right">缓存读取</TableHead>
+                  <TableHead className="text-right">输入 token</TableHead>
+                  <TableHead className="text-right">命中率</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agent_cache.models.map((model) => (
+                  <TableRow key={model.model}>
+                    <TableCell className="max-w-[240px] truncate font-mono text-xs">
+                      {model.model}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {model.calls.toLocaleString('zh-CN')}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {model.cache_read_tokens.toLocaleString('zh-CN')}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {model.input_tokens.toLocaleString('zh-CN')}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {cacheRate(model.cache_read_tokens, model.input_tokens)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-sm text-muted-foreground">当前范围内暂无可统计的 Agent 用量</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            网关未上报缓存明细时可能显示 0%，请结合上游用量数据判断。
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-4">
