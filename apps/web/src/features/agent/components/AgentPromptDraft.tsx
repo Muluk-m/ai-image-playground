@@ -29,7 +29,6 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
   const noteId = useId()
   const ready = prompt.trim().length > 0
   const count = agentDraftOutputCount(message)
-  const model = message.snapshot?.target?.model
   // 被拒时那一个出路（去充值、去登录、让助手换个做法）；其余失败原样再点一次即可。
   const refused = failure?.reason === 'refused' ? failure.code : undefined
   const action = agentToolFailureAction(refused)
@@ -90,11 +89,9 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
         <span className={CARD_NOTE}>
           {!ready
             ? t('confirm.empty')
-            : `${
-                message.toolName === 'generateVideo'
-                  ? t('confirm.outputsVideo', { count })
-                  : t('confirm.outputsImage', { count })
-              }${model ? ` · ${t('confirm.model', { name: model })}` : ''}`}
+            : message.toolName === 'generateVideo'
+              ? t('confirm.outputsVideo', { count })
+              : t('confirm.outputsImage', { count })}
         </span>
       </div>
       {failure && (
