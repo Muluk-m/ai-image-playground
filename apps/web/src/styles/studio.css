@@ -459,6 +459,28 @@
 .studio-agent-inline-actions button:hover { background: rgb(255 255 255 / .15); }
 .studio-agent-inline-prompt { align-self: flex-start; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .studio-agent-inline-prompt:hover { color: hsl(var(--foreground)); }
+.studio-agent-inline-footer { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.studio-agent-inline-footer > button, .studio-agent-inline-more > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 12px; border: 1px solid hsl(var(--border) / .78); border-radius: 9px; background: hsl(var(--muted) / .66); color: hsl(var(--foreground)); font-size: 12px; font-weight: 500; transition: background .15s ease, border-color .15s ease; }
+.studio-agent-inline-footer button:hover { border-color: hsl(var(--foreground) / .22); background: hsl(var(--muted)); }
+.studio-agent-inline-more { position: relative; }
+.studio-agent-inline-more > button { width: 36px; padding: 0; }
+.studio-agent-inline-menu { position: absolute; z-index: 5; bottom: calc(100% + 5px); left: 0; display: flex; flex-direction: column; min-width: 150px; padding: 5px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--popover)); box-shadow: 0 12px 30px rgb(0 0 0 / .2); }
+.studio-agent-inline-menu button { padding: 8px 10px; border-radius: 6px; color: hsl(var(--popover-foreground)); font-size: 12px; text-align: left; white-space: nowrap; }
+.studio-agent-inline-menu button:hover { background: hsl(var(--muted)); }
+.studio-agent-confirm-card { display: flex; flex-direction: column; gap: 11px; width: min(680px, 100%); padding: 16px; border: 1px solid hsl(var(--border) / .8); border-radius: 16px; background: hsl(var(--card)); box-shadow: 0 8px 28px rgb(0 0 0 / .08); }
+.studio-agent-confirm-card > div:first-of-type p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-agent-confirm-hint { color: hsl(var(--muted-foreground)); font-size: 12px; }
+.studio-agent-confirm-field { width: 100%; min-height: 132px; max-height: 236px; resize: vertical; overflow-y: auto; padding: 12px 14px; border: 1px solid hsl(var(--border) / .8); border-radius: 10px; outline: none; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; line-height: 1.65; }
+.studio-agent-confirm-field:focus-visible { border-color: hsl(var(--primary) / .7); box-shadow: 0 0 0 3px hsl(var(--primary) / .12); }
+.studio-agent-confirm-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 2px; }
+.studio-agent-step-failure { display: flex; align-items: center; gap: 10px; width: min(680px, 100%); min-height: 44px; padding: 8px 12px; border: 1px solid hsl(var(--border) / .65); border-radius: 10px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.studio-agent-step-failure-mark { display: grid; flex: 0 0 18px; width: 18px; height: 18px; place-items: center; border: 1px solid hsl(var(--destructive) / .5); border-radius: 50%; color: hsl(var(--destructive)); font-size: 11px; font-weight: 700; }
+.studio-agent-step-failure-body { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.studio-agent-step-failure-title, .studio-agent-step-failure-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-agent-step-failure-title { flex: 0 1 auto; color: hsl(var(--foreground)); font-weight: 500; }
+.studio-agent-step-failure-note { flex: 1 1 auto; }
+.studio-agent-step-failure > button { flex: 0 0 auto; font-size: 12px; }
+@media (max-width: 640px) { .studio-agent-step-failure-body { flex-direction: column; align-items: flex-start; gap: 1px; } .studio-agent-step-failure-note { max-width: 100%; } }
 @media (hover: none) { .studio-agent-inline-actions { opacity: 1; transform: none; } }
 
 .studio-assets-overlay { position: fixed; inset: 0; z-index: 900; display: flex; justify-content: flex-end; background: rgb(0 0 0 / .46); }
