@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
+import { projectRepository } from '../../../features/canvas/lib/projectRepository'
 import { projectRouteSegment } from '../../../features/canvas/lib/projectRoute'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
 import { setClientStorageScope } from '../../../lib/authScope'
 
 const getCloudProject = vi.hoisted(() => vi.fn())
+const listCloudProjects = vi.hoisted(() => vi.fn(async () => ({ projects: [], nextCursor: null })))
 vi.mock('../../../features/canvas/lib/projectClient', () => ({
   cloudProjectsEnabled: () => true,
-  listCloudProjects: vi.fn(async () => ({ projects: [], nextCursor: null })),
+  listCloudProjects,
   getCloudProject,
   restoreDeletedCloudProject: vi.fn(),
   ensureCloudProjectConversation: vi.fn(),
@@ -24,6 +26,8 @@ vi.mock('../../../features/canvas/lib/projectClient', () => ({
 }))
 
 afterEach(() => {
+  listCloudProjects.mockReset()
+  listCloudProjects.mockResolvedValue({ projects: [], nextCursor: null })
   setClientStorageScope(null)
   window.history.replaceState(null, '', '/')
   useCanvasProjectStore.setState({
@@ -32,6 +36,27 @@ afterEach(() => {
     loaded: false,
     cloudError: null,
   })
+})
+
+it('opens a cached route before the cloud catalog finishes loading', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create('Cached')
+  window.history.replaceState(null, '', `/p/${projectRouteSegment(project.id)}`)
+  let finishCatalog!: (page: { projects: []; nextCursor: null }) => void
+  listCloudProjects.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishCatalog = resolve
+      }),
+  )
+
+  await useCanvasProjectStore.getState().load()
+
+  expect(useCanvasProjectStore.getState().loaded).toBe(true)
+  expect(useCanvasProjectStore.getState().activeId).toBe(project.id)
+  expect(listCloudProjects).toHaveBeenCalledOnce()
+  finishCatalog({ projects: [], nextCursor: null })
+  await vi.waitFor(() => expect(useCanvasProjectStore.getState().cloudLoading).toBe(false))
 })
 
 it('地址上那个云端项目读不回来时目录照常可用，只标云端没刷上', async () => {

@@ -131,8 +131,17 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
             projects.push(await projectRepository.create(UNTITLED_PROJECT, legacy))
         }
         set({ projects })
-        await get().refreshCloud()
-        projects = [...get().projects]
+        const initialRoute = readProjectRoute()
+        const cachedRouteId = initialRoute ? resolveProjectRoute(initialRoute, projects) : null
+        const hasCachedRoute = projects.some(
+          (one) => one.id === cachedRouteId && !one.cloud?.deleted,
+        )
+        // A known project can open from IndexedDB while the cloud catalog refreshes in the
+        // background. Unknown links still need the catalog before their route can be resolved.
+        if (!hasCachedRoute) {
+          await get().refreshCloud()
+          projects = [...get().projects]
+        }
         const remembered = safeLocalStorage.getItem(scopedStorageName(CANVAS_PROJECT_KEY))
         const conversationId = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
         const route = readProjectRoute()
@@ -182,6 +191,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         }
         set({ projects, loaded: true, error: null })
         if (readProjectRoute() === route) get().activate(active.id, true)
+        if (hasCachedRoute) void get().refreshCloud()
       } catch {
         set({ error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
         throw new Error('Project catalog unavailable')
