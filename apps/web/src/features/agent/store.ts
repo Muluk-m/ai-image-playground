@@ -1145,14 +1145,29 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         )
           return
         set({ conversations })
-        if (useCanvasProjectStore.getState().loaded)
-          await importConversationProjects(
-            conversations,
-            () =>
-              !changingProject &&
-              revision === conversationListRevision &&
-              request === conversationListRequest,
-          )
+        if (useCanvasProjectStore.getState().loaded) {
+          const isCurrentScope = accountScope()
+          const canImport = () =>
+            isCurrentScope() &&
+            !changingProject &&
+            revision === conversationListRevision &&
+            request === conversationListRequest
+          // Cached canvas routes become ready before their cloud catalog. Do not manufacture
+          // legacy projects for conversations whose real project is still being imported.
+          if (useCanvasProjectStore.getState().cloudLoading) {
+            const unsubscribe = useCanvasProjectStore.subscribe((projectState) => {
+              if (projectState.cloudLoading) return
+              unsubscribe()
+              if (canImport()) void importConversationProjects(conversations, canImport)
+            })
+            if (!useCanvasProjectStore.getState().cloudLoading) {
+              unsubscribe()
+              if (canImport()) void importConversationProjects(conversations, canImport)
+            }
+          } else {
+            await importConversationProjects(conversations, canImport)
+          }
+        }
       } catch {
         // 列表读不回来不该拖垮面板，留着上一份。
       }

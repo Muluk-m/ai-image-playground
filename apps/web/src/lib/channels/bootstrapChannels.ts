@@ -10,11 +10,17 @@ let preloaded: { baseUrl: string; promise: Promise<DiscoveredChannel[]> } | unde
 export function preloadChannels(bffEnabled: boolean, bffBaseUrl: string): void {
   setChannels([])
   if (!bffEnabled) return
+  const requestId = ++latestRequestId
   const controller = new AbortController()
   const timeout = globalThis.setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS)
-  const promise = fetchDiscoveredChannels(bffBaseUrl, { signal: controller.signal }).finally(() => {
-    globalThis.clearTimeout(timeout)
-  })
+  const promise = fetchDiscoveredChannels(bffBaseUrl, { signal: controller.signal })
+    .then((channels) => {
+      if (requestId === latestRequestId) setChannels(channels)
+      return channels
+    })
+    .finally(() => {
+      globalThis.clearTimeout(timeout)
+    })
   // AuthGate handles a failed preload as a required startup failure and retries it.
   void promise.catch(() => {})
   preloaded = { baseUrl: bffBaseUrl, promise }

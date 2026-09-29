@@ -33,6 +33,7 @@ const CAPABILITY_TIMEOUT_MS = 5000
 export async function bootstrapClientCapabilities(
   bffEnabled: boolean,
   bffBaseUrl: string,
+  required = false,
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
   currentBffEnabled = bffEnabled
@@ -46,16 +47,18 @@ export async function bootstrapClientCapabilities(
         cache: 'no-store',
         signal: controller.signal,
       }).then(async (response) => (response.ok ? parseManifest(await response.json()) : null)),
-      new Promise<null>((resolve) => {
+      new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
           controller.abort()
-          resolve(null)
+          reject(new Error('capability_request_timeout'))
         }, CAPABILITY_TIMEOUT_MS)
       }),
     ])
+    if (!parsed && required) throw new Error('capability_manifest_unavailable')
     if (parsed) currentManifest = parsed
-  } catch {
+  } catch (error) {
     // A missing capability response must never enable a feature.
+    if (required) throw error
   } finally {
     if (timeout) clearTimeout(timeout)
   }
