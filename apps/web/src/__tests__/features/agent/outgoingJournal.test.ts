@@ -13,6 +13,7 @@ import {
   rememberOutgoing,
 } from '../../../features/agent/lib/outgoingJournal'
 import { currentProjectDraft } from '../../../features/agent/lib/projectLifecycle'
+import type { UnsentTurnSubmission } from '../../../features/agent/lib/turnSubmission'
 import { useAgentStore } from '../../../features/agent/store'
 import {
   currentCanvasWorkspace,
@@ -408,4 +409,32 @@ it.each([
     host.remove()
     useStore.setState({ params: original })
   }
+})
+
+it.each([
+  false,
+  true,
+])('已撤回的服务端消息退回原参数，但下次手动发送换新 id（排队=%s）', async (queued) => {
+  if (queued) useAgentStore.setState({ turn: 'running', activeTurn: { turnId: 'existing-turn' } })
+  turnResponse = () =>
+    Response.json(
+      {
+        turnId: 'existing-turn',
+        state: 'cancelled',
+        queued: { id: 'withdrawn', text: '已撤回', createdAt: 1, references: [] },
+      },
+      { status: 202 },
+    )
+  const returned = vi.fn(async (_snapshot: UnsentTurnSubmission) => true)
+  await useAgentStore
+    .getState()
+    .send('已撤回', [], undefined, 'image', 'withdrawn-client-id', undefined, undefined, returned)
+  expect(returned).toHaveBeenCalledOnce()
+  const snapshot = returned.mock.calls[0]?.[0]
+  const posted = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+  const body = JSON.parse(String(posted?.[1]?.body))
+  expect(snapshot).toMatchObject({ text: '已撤回', params: body.params })
+  expect(snapshot?.id).not.toBe('withdrawn-client-id')
+  expect(await outgoingMessages(PROJECT)).toEqual([])
+  reload(CONVERSATION)
 })

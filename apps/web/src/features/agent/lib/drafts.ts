@@ -38,6 +38,7 @@ export interface DraftSnapshot {
    * 决定之前照旧留在存储里，不会因为这次没理它就丢了。
    */
   readonly unsent: AgentDraft | null
+  readonly recoverable: boolean
 }
 
 /** 草稿独立于输入框的挂载周期；每个账号、会话各保留一份。 */
@@ -48,6 +49,7 @@ export class DraftSession {
     submitting: false,
     error: null,
     unsent: null,
+    recoverable: false,
   }
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -56,6 +58,7 @@ export class DraftSession {
   private savedRevision = 0
   private submission = 0
   private previousKey: string | undefined
+  private remainingUnsent: AgentDraft[] = []
 
   readonly ready: Promise<void>
 
@@ -82,33 +85,35 @@ export class DraftSession {
   private async restore() {
     try {
       const db = await openDatabase()
-      const stored = await new Promise<(AgentDraft & { unsent?: AgentDraft }) | undefined>(
-        (resolve, reject) => {
-          const request = db.transaction('drafts').objectStore('drafts').get(this.key)
-          request.onsuccess = () => {
-            if (request.result || !this.fallbackKey) {
-              resolve(request.result)
-              return
-            }
-            const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
-            fallback.onsuccess = () => resolve(fallback.result)
-            fallback.onerror = () => reject(fallback.error)
+      const stored = await new Promise<
+        (AgentDraft & { unsent?: AgentDraft; remainingUnsent?: AgentDraft[] }) | undefined
+      >((resolve, reject) => {
+        const request = db.transaction('drafts').objectStore('drafts').get(this.key)
+        request.onsuccess = () => {
+          if (request.result || !this.fallbackKey) {
+            resolve(request.result)
+            return
           }
-          request.onerror = () => reject(request.error)
-        },
-      )
+          const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
+          fallback.onsuccess = () => resolve(fallback.result)
+          fallback.onerror = () => reject(fallback.error)
+        }
+        request.onerror = () => reject(request.error)
+      })
       if (
         this.revision === 0 &&
         stored &&
         typeof stored.prompt === 'string' &&
         Array.isArray(stored.references)
       ) {
-        const { unsent, ...draft } = stored
+        const { unsent, remainingUnsent = [], ...draft } = stored
+        this.remainingUnsent = remainingUnsent
         // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
         if (unsent || hasDraftContent(draft))
           this.publish({
             draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
             unsent: unsent ?? draft,
+            recoverable: Boolean(unsent || draft.submission),
             ...(unsent ? { draft } : {}),
           })
         else this.publish({ draft })
@@ -143,11 +148,12 @@ export class DraftSession {
 
   /** 发送失败时接回原消息；新输入保留，失败消息进待恢复区。落盘失败不确认交接。 */
   async returnUnsent(draft: AgentDraft): Promise<boolean> {
-    if (!hasDraftContent(this.snapshot.draft)) this.update(draft)
+    const current = this.snapshot.draft
+    if (!current.prompt.trim() && current.references.length === 0) this.update(draft)
     else {
-      if (this.snapshot.unsent) return false
+      if (this.snapshot.unsent) this.remainingUnsent.push(draft)
       this.revision += 1
-      this.publish({ unsent: draft })
+      this.publish({ unsent: this.snapshot.unsent ?? draft, recoverable: true })
     }
     await this.flush()
     return this.snapshot.error === null
@@ -157,10 +163,15 @@ export class DraftSession {
   restoreUnsent = () => {
     const unsent = this.snapshot.unsent
     if (!unsent) return
-    const kept = this.snapshot.draft.references.filter(
+    const current = this.snapshot.draft
+    // 恢复入口也能在正在写字时使用；把当前这句排在待恢复区末尾，避免互相覆盖。
+    const keepCurrent = this.snapshot.recoverable && hasDraftContent(current)
+    if (keepCurrent) this.remainingUnsent.push(current)
+    const kept = (keepCurrent ? [] : current.references).filter(
       (one) => one.origin === 'selection' && !unsent.references.some((old) => old.id === one.id),
     )
-    this.publish({ unsent: null })
+    const next = this.remainingUnsent.shift() ?? null
+    this.publish({ unsent: next, recoverable: Boolean(next) })
     this.update(
       withMode(
         {
@@ -176,7 +187,8 @@ export class DraftSession {
   /** 丢掉没发出去的那份：存储里换成输入框此刻的内容。 */
   discardUnsent = () => {
     if (!this.snapshot.unsent) return
-    this.publish({ unsent: null })
+    const next = this.remainingUnsent.shift() ?? null
+    this.publish({ unsent: next, recoverable: Boolean(next) })
     this.revision += 1
     void this.flush()
   }
@@ -215,11 +227,12 @@ export class DraftSession {
     const revision = this.revision
     // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。
     const { draft: current, unsent } = this.snapshot
-    const draft = unsent?.submission
-      ? { ...current, unsent }
-      : unsent && !hasDraftContent(current)
-        ? withMode(unsent, current.mode)
-        : current
+    const draft =
+      unsent && this.snapshot.recoverable
+        ? { ...current, unsent, remainingUnsent: [...this.remainingUnsent] }
+        : unsent && !hasDraftContent(current)
+          ? withMode(unsent, current.mode)
+          : current
     const key = this.key
     const previousKey = this.previousKey
     this.writes = this.writes.then(async () => {

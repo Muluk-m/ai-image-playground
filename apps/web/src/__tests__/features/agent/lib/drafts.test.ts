@@ -292,3 +292,38 @@ it('发送失败接回时保留已输入的下一句，两份草稿都能落盘�
   await again.ready
   expect(again.getSnapshot().unsent).toEqual(failed)
 })
+
+it('多条失败消息保留为可逐条恢复的草稿，恢复时也保住正在输入的内容', async () => {
+  const key = `multiple-unsent-${crypto.randomUUID()}`
+  const session = new DraftSession(key)
+  await session.ready
+  session.update({ prompt: '正在写的消息', references: [] })
+  expect(await session.returnUnsent({ prompt: '失败一', references: [] })).toBe(true)
+  expect(await session.returnUnsent({ prompt: '失败二', references: [] })).toBe(true)
+  const restored = new DraftSession(key)
+  await restored.ready
+  expect(restored.getSnapshot().recoverable).toBe(true)
+  restored.restoreUnsent()
+  expect(restored.getSnapshot().draft.prompt).toBe('失败一')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('失败二')
+  restored.accept(restored.getSnapshot().draft)
+  restored.restoreUnsent()
+  expect(restored.getSnapshot().draft.prompt).toBe('失败二')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('正在写的消息')
+  await restored.flush()
+})
+
+it('发送失败接回时不会覆盖等待期间的新选区', async () => {
+  const session = new DraftSession(`changed-selection-${crypto.randomUUID()}`)
+  await session.ready
+  const selection = {
+    prompt: '',
+    references: [
+      { id: 'new-selection', dataUrl: 'data:image/png;base64,AQ==', origin: 'selection' as const },
+    ],
+  }
+  session.update(selection)
+  expect(await session.returnUnsent({ prompt: '失败消息', references: [] })).toBe(true)
+  expect(session.getSnapshot().draft).toEqual(selection)
+  expect(session.getSnapshot().unsent?.prompt).toBe('失败消息')
+})

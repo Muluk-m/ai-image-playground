@@ -136,6 +136,7 @@ export default function AgentComposer({
     submitting,
     error: draftError,
     unsent,
+    recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const setDraft = session.update
   // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
@@ -538,7 +539,7 @@ export default function AgentComposer({
           {draftError}
         </p>
       )}
-      {unsent && !hasDraftContent(draft) && (
+      {unsent && (recoverable || !hasDraftContent(draft)) && (
         <div role="status" className={`flex items-center gap-2 px-1 ${CARD_NOTE}`}>
           <span className="min-w-0 flex-1">{t('draft.unsent')}</span>
           <button type="button" className={GHOST_LINK} onClick={session.restoreUnsent}>
