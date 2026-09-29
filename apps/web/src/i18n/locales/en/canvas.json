@@ -16,6 +16,7 @@
     "zoomOut": "Zoom out",
     "zoomIn": "Zoom in",
     "resetZoom": "Reset to 100%",
+    "fitContent": "Fit canvas content",
     "groupAria": "Canvas tools"
   },
   "shortcuts": {

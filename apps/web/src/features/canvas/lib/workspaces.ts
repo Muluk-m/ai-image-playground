@@ -26,8 +26,9 @@ export class CanvasWorkspace {
     },
   })
   cloud: CloudProjectSession | undefined
-  /** 云端那份第一次落到这台机器上：等画布量出尺寸，把内容一次性框进视野。 */
+  /** 云端首次落地或跨设备打开：等画布量出尺寸，把内容一次性框进视野。 */
   private needsInitialFit = false
+  private initialViewResolved = false
   ready: Promise<unknown>
   private disposed = false
   private refreshing = false
@@ -126,11 +127,19 @@ export class CanvasWorkspace {
       (error) => console.warn('[canvas] 工作台图片放置失败', error),
     )
   }
-  /** 第一次把云端那份铺开时框进视野；画布还没量出尺寸就等它量出来。返回取消等待的函数。 */
+  /** 首次打开时按实际视口判断是否需要框住内容；画布还没量出尺寸就等它量出来。 */
   fitInitialView(): () => void {
-    if (!this.needsInitialFit) return () => {}
+    if (this.initialViewResolved) return () => {}
     const fit = () => {
       if (this.doc.viewport.width <= 1 || this.doc.viewport.height <= 1) return
+      const previous = this.record.restoredViewport
+      const { width, height } = this.doc.viewport
+      const narrowed =
+        this.doc.elements.length > 0 &&
+        width <= 640 &&
+        (!previous || previous.width > width * 1.5 || previous.height > height * 1.5)
+      this.initialViewResolved = true
+      if (!this.needsInitialFit && !narrowed) return unsubscribe()
       this.needsInitialFit = false
       unsubscribe()
       this.editor.scrollToElements(this.doc.elements.map((one) => one.id))

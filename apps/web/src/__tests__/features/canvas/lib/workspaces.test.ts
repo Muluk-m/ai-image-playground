@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import {
+  persistedScene,
+  readPersistedScene,
+  writePersistedScene,
+} from '../../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
 import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
@@ -19,10 +24,82 @@ vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast: 
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   setClientStorageScope(null)
 })
 
 describe('画布工作区', () => {
+  it('旧版未记录视口的本机存档在手机上也会框住内容', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'legacy-artwork',
+        type: 'text',
+        text: '旧版画布',
+        x: 800,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    await writePersistedScene(persistedScene(saved), key)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(performance.now() + 1000)
+      return 1
+    })
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(320, 600)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera.zoom).toBeLessThan(0.32)
+    expect((800 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeGreaterThan(0)
+    workspace.dispose()
+  })
+
+  it('手机打开桌面保存的画布时框住内容，同尺寸再次打开保留相机位置', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'artwork',
+        type: 'text',
+        text: '画布内容',
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setViewport(1200, 800)
+    await writePersistedScene(persistedScene(saved), key)
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(performance.now() + 1000)
+      return 1
+    })
+    const mobile = new CanvasWorkspace(key)
+    await mobile.ready
+    mobile.doc.setViewport(320, 600)
+    mobile.fitInitialView()
+    expect(mobile.doc.camera.zoom).toBeLessThan(0.32)
+    expect(mobile.doc.camera.zoom).toBeGreaterThan(0.2)
+    expect((1000 - mobile.doc.camera.x) * mobile.doc.camera.zoom).toBeLessThan(320)
+    await mobile.flush()
+    mobile.dispose()
+
+    const reopened = new CanvasWorkspace(key)
+    await reopened.ready
+    reopened.doc.setViewport(320, 600)
+    reopened.doc.setCamera({ x: 150, zoom: 0.4 })
+    reopened.fitInitialView()
+    expect(reopened.doc.camera).toMatchObject({ x: 150, zoom: 0.4 })
+    reopened.dispose()
+  })
+
   it('未编辑的旧标签页不覆盖其它标签页的新存档', async () => {
     const key = freshSceneKey()
     const stale = new CanvasWorkspace(key)
