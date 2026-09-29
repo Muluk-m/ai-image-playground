@@ -149,8 +149,10 @@ export class DraftSession {
   /** 发送失败时接回原消息；新输入保留，失败消息进待恢复区。落盘失败不确认交接。 */
   async returnUnsent(draft: AgentDraft): Promise<boolean> {
     const current = this.snapshot.draft
-    if (!current.prompt.trim() && current.references.length === 0) this.update(draft)
-    else {
+    if (!current.prompt.trim() && current.references.length === 0) {
+      if (this.snapshot.unsent) this.publish({ recoverable: true })
+      this.update(draft)
+    } else {
       if (this.snapshot.unsent) this.remainingUnsent.push(draft)
       this.revision += 1
       this.publish({ unsent: this.snapshot.unsent ?? draft, recoverable: true })
