@@ -20,6 +20,7 @@ import {
   replaceReferences,
 } from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
+import type { UnsentTurnSubmission } from './turnSubmission'
 
 /** 输入框附上的一张参考图。`id` 是画布对象 id 或素材的图片 id，模型据此指认要改哪一张。 */
 export interface AgentReference extends InputImage {
@@ -34,6 +35,8 @@ export interface AgentReference extends InputImage {
 }
 
 export interface AgentDraft extends ReferenceDraft<AgentReference> {
+  /** 原样再发沿用的快照；用户编辑文字或参考图后失效。 */
+  readonly submission?: UnsentTurnSubmission
   /**
    * 这份草稿上次停在什么创作类型。轮的类型现在由项目的画布类型定，这里只剩存储里的历史值，
    * 草稿层自己原样保管（`withMode`），没有人再据它决定发什么。
