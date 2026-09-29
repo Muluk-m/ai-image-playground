@@ -41,7 +41,7 @@ describe('layouts', () => {
     expect([horizontal.width, horizontal.height]).toEqual([300_000, 1])
     const collage = collageLayout(sizes, 500, 0)
     expect([collage.width, collage.height]).toEqual([500, 300])
-    expect(collage.placements.at(-1)).toMatchObject({ index: 149_999, x: 499, y: 299 })
+    expect(collage.placements[149_999]).toMatchObject({ index: 149_999, x: 499, y: 299 })
   })
 
   it('stitches vertically at the narrowest width without enlarging', () => {
