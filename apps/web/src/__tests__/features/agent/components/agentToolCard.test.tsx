@@ -101,12 +101,11 @@ it('shows the assistant-ui image element only while an image result is pending',
     expect(
       host.querySelector('[data-slot="image-generation"]')?.getAttribute('data-generating'),
     ).toBe('true')
-    expect(host.querySelectorAll('[data-slot="image-generation"] .grid-cols-8 span')).toHaveLength(
-      64,
+    expect(host.textContent).not.toContain('正在后台生成')
+    expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(
+      '已提交',
     )
-    expect(host.querySelector('[data-slot="tool-status"]')?.getAttribute('data-status')).toBe(
-      'running',
-    )
+    expect(host.textContent?.match(/一只橘猫/g)).toHaveLength(1)
 
     act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
     expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
@@ -125,6 +124,7 @@ describe('后台任务的进度与取消', () => {
     turnId: 't',
     toolCallId: 'c',
     title: '一只橘猫',
+    toolName: 'generateImage' as const,
     status: 'submitted' as const,
     job: { taskId: 'task-1', media: 'image' as const },
   }
@@ -141,7 +141,8 @@ describe('后台任务的进度与取消', () => {
     try {
       act(() => root.render(<AgentToolCard message={submitted} />))
       const bar = host.querySelector('[role="progressbar"]')!
-      expect(bar.getAttribute('aria-valuenow')).toBe('3')
+      expect(bar.hasAttribute('aria-valuenow')).toBe(false)
+      expect(bar.getAttribute('aria-valuetext')).toBe('生成中 · 已用 0:42')
       expect(host.textContent).toContain('生成中 · 已用 0:42')
 
       act(() => vi.advanceTimersByTime(3_000))
