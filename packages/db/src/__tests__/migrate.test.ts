@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(45)
+    expect(rows).toHaveLength(46)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -93,13 +93,22 @@ describe('runMigrations', () => {
     )
   })
 
+  it('indexes model calls by time for the Admin cache summary', async () => {
+    const rows = (await connection.client.unsafe(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = 'agent_model_calls'
+    `)) as IndexMetadata[]
+    expect(rows.map((row) => row.indexname)).toContain('idx_agent_model_calls_started_at')
+  })
+
   it('is idempotent across process restarts', async () => {
     await runMigrations(databaseUrl)
     await runMigrations(databaseUrl)
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(45)
+    expect(rows).toHaveLength(46)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -150,6 +159,7 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0046_agent_model_calls_started_at.down.sql',
       '0045_retired_domain_migration.down.sql',
       '0044_archive_retry_budget.down.sql',
       '0043_queue_provider_time.down.sql',
@@ -227,6 +237,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(45)
+    expect(restored).toHaveLength(46)
   })
 })
