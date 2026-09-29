@@ -342,6 +342,7 @@ export default function AgentPanel({
                 const footer =
                   lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
                 const trail = grouping.trails.get(index)
+                if (grouping.absorbed.has(index) && !trail && !footer) return null
                 return (
                   <div
                     key={message.id}
