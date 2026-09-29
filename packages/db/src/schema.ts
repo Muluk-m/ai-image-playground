@@ -751,6 +751,7 @@ export const agent_model_calls = pgTable(
   },
   (t) => [
     index('idx_agent_model_calls_turn').on(t.conversation_id, t.turn_id),
+    index('idx_agent_model_calls_started_at').on(t.started_at),
     check(
       'agent_model_calls_purpose_check',
       sql`${t.purpose} IN ('conversation', 'compaction', 'handoff', 'web_search')`,
