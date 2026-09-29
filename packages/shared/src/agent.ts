@@ -287,6 +287,7 @@ export type AgentToolStatus =
  * - `authentication_required`：没登录，出路是登录。
  * - `invalid_params`：模型给的参数本身不成立（图片 id 不存在、违反选区约束、张数越界），
  *   出路是让智能体换个做法重新处理。
+ * - `source_unavailable`：网页或图片来源拒绝访问、重定向失败或超出读取上限；换来源。
  * - `content_policy`：上游按内容安全策略拒绝了这次生成。原样重试稳定复现，出路是改提示词，
  *   在智能体这一侧就是让它改写后再提交。
  * - `model_unavailable`：当时要用的模型已下线或没有可用模型，同样交给智能体。
@@ -304,6 +305,7 @@ export type AgentToolErrorCode =
   | 'quota_exceeded'
   | 'authentication_required'
   | 'invalid_params'
+  | 'source_unavailable'
   | 'content_policy'
   | 'model_unavailable'
   | 'cancelled'
@@ -318,6 +320,7 @@ export const AGENT_TOOL_ERROR_CODES: readonly AgentToolErrorCode[] = [
   'quota_exceeded',
   'authentication_required',
   'invalid_params',
+  'source_unavailable',
   'content_policy',
   'model_unavailable',
   'cancelled',

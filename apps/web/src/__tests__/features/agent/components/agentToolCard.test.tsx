@@ -362,6 +362,7 @@ describe('失败卡按错误码给出路', () => {
     ['quota_exceeded', '今天的生成额度已经用完', '去充值'],
     ['authentication_required', '需要先登录才能生成', '去登录'],
     ['invalid_params', '这次的参数不成立，没有提交', '让助手重新处理'],
+    ['source_unavailable', '来源网站拒绝或无法提供内容，请换个公开来源', '让助手重新处理'],
     ['model_unavailable', '要用的模型暂时不可用', '让助手重新处理'],
   ] as const)('%s 显示译文与「%s」对应的出路', (code, text, action) => {
     const { host, unmount } = render(failed(code))

@@ -203,7 +203,7 @@ it('页面里一张商品图也没有时说清是被挡了', async () => {
 
   const error = await failure(run({ url: LISTING_URL }))
 
-  expect(error.code).toBe('upstream_error')
+  expect(error.code).toBe('source_unavailable')
   expect(error.message).toContain('验证码')
 })
 
@@ -212,7 +212,7 @@ it('解析出了地址却一张都取不下来时，不留下半张卡', async (
 
   const error = await failure(run({ url: LISTING_URL }))
 
-  expect(error.code).toBe('upstream_error')
+  expect(error.code).toBe('source_unavailable')
   expect(await db.select().from(schema.media_objects)).toHaveLength(0)
 })
 
