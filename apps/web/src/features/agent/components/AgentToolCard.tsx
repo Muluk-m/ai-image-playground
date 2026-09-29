@@ -421,10 +421,12 @@ export default function AgentToolCard({
   message,
   onViewCanvas,
   onPreviewResult,
+  compactFetched = false,
 }: {
   message: AgentToolMessage
   onViewCanvas?: (objectIds?: readonly string[]) => void
   onPreviewResult?: (messageId: string, objectId?: string) => void
+  compactFetched?: boolean
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
@@ -489,7 +491,29 @@ export default function AgentToolCard({
       </div>
     )
   }
-  if (status === 'succeeded' && (previews.length > 0 || fetched.length > 0) && onPreviewResult) {
+  if (
+    status === 'succeeded' &&
+    (previews.length > 0 ||
+      fetched.length > 0 ||
+      (compactFetched && message.fetchedImages?.length)) &&
+    onPreviewResult
+  ) {
+    const fetchedTiles = fetched.length
+      ? fetched.map((preview) => ({
+          id: preview.objectId,
+          source: preview.source,
+          media: 'image' as const,
+          original: () =>
+            resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+        }))
+      : compactFetched
+        ? (message.fetchedImages ?? []).map((image, index) => ({
+            id: fetchedCanvasId(message.toolCallId, index),
+            source: null,
+            media: 'image' as const,
+            original: () => resolveMediaSource(`aip-media:${image.imageId}`, 'original', true),
+          }))
+        : []
     const tiles = [
       ...previews.map((preview) => ({
         id: preview.artifact.artifactId,
@@ -497,15 +521,14 @@ export default function AgentToolCard({
         media: preview.artifact.media,
         original: () => previewArtifactBitmap(preview.artifact),
       })),
-      ...fetched.map((preview) => ({
-        id: preview.objectId,
-        source: preview.source,
-        media: 'image' as const,
-        original: () => resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
-      })),
+      ...fetchedTiles,
     ]
     return (
-      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-inline-result">
+      <div
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        className={`studio-agent-inline-result${compactFetched ? ' studio-agent-inline-result--fetched' : ''}`}
+      >
         <div className="studio-agent-inline-meta">
           <ToolStatus label={statusLabel} status={status} />
           <span title={message.title}>{message.title}</span>
@@ -571,6 +594,17 @@ export default function AgentToolCard({
             </div>
           ))}
         </div>
+        {compactFetched && message.fetchedImages?.[0] && (
+          <a
+            href={message.fetchedImages[0].sourceUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            title={t('fetchedImage.sourceTitle')}
+            className="studio-agent-inline-source"
+          >
+            {sourceHost(message.fetchedImages[0].sourceUrl)}
+          </a>
+        )}
         {previews.some((preview) => preview.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
             <div className="studio-agent-inline-footer">
