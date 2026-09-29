@@ -47,7 +47,8 @@ export function agentToolFailureAction(
     case 'authentication_required':
       return isClientCapabilityEnabled('accounts:login') ? 'login' : null
     case 'invalid_params':
-    // 原样重试稳定复现，唯一的出路是改写提示词——那正是「让助手重新处理」要做的事。
+    case 'source_unavailable':
+    // 原样重试会重复失败：参数、来源、提示词或模型需要改变。
     case 'content_policy':
     case 'model_unavailable':
       return 'reprocess'
@@ -82,6 +83,8 @@ export function agentToolFailureText(code: AgentToolErrorCode | undefined): stri
       return t('agentTool.authentication_required')
     case 'invalid_params':
       return t('agentTool.invalid_params')
+    case 'source_unavailable':
+      return t('agentTool.source_unavailable')
     case 'content_policy':
       return t('agentTool.content_policy')
     case 'model_unavailable':
