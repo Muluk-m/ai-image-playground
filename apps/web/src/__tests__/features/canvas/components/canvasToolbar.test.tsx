@@ -81,9 +81,9 @@ describe('画布工具条', () => {
       },
     ])
     render(undefined, undefined, doc, fit)
-    act(() =>
-      toolbar().querySelector<HTMLButtonElement>('button[aria-label="适应画布内容"]')!.click(),
-    )
+    const mobileFit = toolbar().querySelector<HTMLButtonElement>(':scope > button')!
+    expect(mobileFit.textContent).toContain('适合屏幕')
+    act(() => mobileFit.click())
     expect(fit).toHaveBeenCalledOnce()
   })
 

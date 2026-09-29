@@ -594,7 +594,12 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <FilmExportStatus />
               <CanvasToolbar
                 doc={doc}
-                onFitContent={() => editor.scrollToElements(doc.elements.map((one) => one.id))}
+                onFitContent={() =>
+                  editor.scrollToElements(
+                    doc.elements.map((one) => one.id),
+                    false,
+                  )
+                }
                 onImportImages={() => fileInput.current?.click()}
                 onImportFolder={() => folderInput.current?.click()}
               />

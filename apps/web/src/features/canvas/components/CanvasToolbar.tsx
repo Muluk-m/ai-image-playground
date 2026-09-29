@@ -224,13 +224,15 @@ export default function CanvasToolbar({
   )
   const zoom = (
     <>
-      <ToolButton
-        title={t('toolbar.fitContent')}
-        onClick={onFitContent}
-        disabled={!doc.elements.length}
-      >
-        <Maximize2 size={18} aria-hidden="true" />
-      </ToolButton>
+      <div className="hidden md:block">
+        <ToolButton
+          title={t('toolbar.fitContent')}
+          onClick={onFitContent}
+          disabled={!doc.elements.length}
+        >
+          <Maximize2 size={18} aria-hidden="true" />
+        </ToolButton>
+      </div>
       <ToolButton title={t('toolbar.zoomOut')} onClick={() => zoomStep(-1)}>
         <span className="text-base leading-none">−</span>
       </ToolButton>
@@ -240,7 +242,7 @@ export default function CanvasToolbar({
         onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
         className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 w-9 px-0 text-[10px]`}
       >
-        {Math.round(camera.zoom * 100)}%
+        {camera.zoom < 0.01 ? '<1%' : `${Math.round(camera.zoom * 100)}%`}
       </button>
       <ToolButton title={t('toolbar.zoomIn')} onClick={() => zoomStep(1)}>
         <span className="text-base leading-none">＋</span>
@@ -251,6 +253,15 @@ export default function CanvasToolbar({
   return (
     // Canvas coordinates are local to the visible workspace, independent of the sidebar.
     <div className="studio-toolbar" data-canvas-toolbar="side">
+      <button
+        type="button"
+        className="pointer-events-auto absolute left-[58px] top-0 z-10 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-sidebar px-3 py-2 text-xs font-medium text-foreground shadow-lg disabled:opacity-40 md:hidden"
+        disabled={!doc.elements.length}
+        onClick={onFitContent}
+      >
+        <Maximize2 size={15} aria-hidden="true" />
+        {t('toolbar.fitContent')}
+      </button>
       <div
         className={`${PILL} studio-tools flex flex-col items-center gap-1`}
         role="group"

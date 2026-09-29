@@ -46,16 +46,16 @@ describe('画布工作区', () => {
       },
     ])
     await writePersistedScene(persistedScene(saved), key)
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      callback(performance.now() + 1000)
-      return 1
-    })
+    vi.stubGlobal('requestAnimationFrame', vi.fn())
     const workspace = new CanvasWorkspace(key)
     await workspace.ready
     workspace.doc.setViewport(320, 600)
     workspace.fitInitialView()
     expect(workspace.doc.camera.zoom).toBeLessThan(0.32)
     expect((800 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeGreaterThan(0)
+    expect(requestAnimationFrame).not.toHaveBeenCalled()
+    workspace.doc.setCamera({ x: 123, zoom: 0.5 })
+    expect(workspace.doc.camera).toMatchObject({ x: 123, zoom: 0.5 })
     workspace.dispose()
   })
 
@@ -77,10 +77,7 @@ describe('画布工作区', () => {
     ])
     saved.setViewport(1200, 800)
     await writePersistedScene(persistedScene(saved), key)
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      callback(performance.now() + 1000)
-      return 1
-    })
+    vi.stubGlobal('requestAnimationFrame', vi.fn())
     const mobile = new CanvasWorkspace(key)
     await mobile.ready
     mobile.doc.setViewport(320, 600)
@@ -97,7 +94,42 @@ describe('画布工作区', () => {
     reopened.doc.setCamera({ x: 150, zoom: 0.4 })
     reopened.fitInitialView()
     expect(reopened.doc.camera).toMatchObject({ x: 150, zoom: 0.4 })
+    await reopened.flush()
     reopened.dispose()
+
+    const desktop = new CanvasWorkspace(key)
+    await desktop.ready
+    desktop.doc.setViewport(1200, 800)
+    desktop.fitInitialView()
+    expect(desktop.doc.camera.zoom).toBe(1)
+    desktop.dispose()
+  })
+
+  it('多图大画布适应手机视口时可缩到 5% 以下', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'wide-artwork',
+        type: 'text',
+        text: '大画布',
+        x: 0,
+        y: 0,
+        width: 20000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setViewport(1200, 800)
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(320, 600)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera.zoom).toBeLessThan(0.05)
+    expect((20000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(320)
+    workspace.dispose()
   })
 
   it('未编辑的旧标签页不覆盖其它标签页的新存档', async () => {
