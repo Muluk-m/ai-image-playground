@@ -73,7 +73,7 @@ function type(html: string): void {
 }
 
 /** 换一版 InputBar 挂上：beforeEach 已经挂了直出那一版。 */
-function remount(target: 'generate' | 'canvas'): void {
+function remount(target: 'generate' | 'chat' | 'canvas'): void {
   act(() => root.unmount())
   host.remove()
   useStore.setState({ createTarget: target })
@@ -123,6 +123,14 @@ describe('首屏「画布」档的参数 chip', () => {
     expect(chip('更多')).toBeNull()
     expect(chip('质量')).toBeNull()
     expect(chip('格式')).toBeNull()
+  })
+
+  it('对话创作与画布创作都走 Agent 输入，但保留各自入口', () => {
+    remount('chat')
+    expect(chip('数量')).toBeNull()
+    expect(chip('比例') ?? chip('尺寸')).not.toBeNull()
+    expect(editor().getAttribute('data-placeholder')).toContain('讨论思路')
+    expect(useStore.getState().createTarget).toBe('chat')
   })
 
   it('Gemini 模型下留的是比例与分辨率，思考强度归智能体', () => {

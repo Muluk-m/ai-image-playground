@@ -58,7 +58,7 @@ beforeEach(() => {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-it('says a submitted background job is still generating and will land on the canvas', () => {
+it('says a submitted background job is still generating and will appear in the conversation', () => {
   const host = document.createElement('div')
   const root = createRoot(host)
   try {
@@ -76,7 +76,7 @@ it('says a submitted background job is still generating and will land on the can
         />,
       ),
     )
-    expect(host.textContent).toContain('已在后台生成，完成后自动放入画布')
+    expect(host.textContent).toContain('正在后台生成，完成后会在这里显示')
   } finally {
     act(() => root.unmount())
   }
@@ -101,12 +101,11 @@ it('shows the assistant-ui image element only while an image result is pending',
     expect(
       host.querySelector('[data-slot="image-generation"]')?.getAttribute('data-generating'),
     ).toBe('true')
-    expect(host.querySelectorAll('[data-slot="image-generation"] .grid-cols-8 span')).toHaveLength(
-      64,
+    expect(host.textContent).not.toContain('正在后台生成')
+    expect(host.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe(
+      '已提交',
     )
-    expect(host.querySelector('[data-slot="tool-status"]')?.getAttribute('data-status')).toBe(
-      'running',
-    )
+    expect(host.textContent?.match(/一只橘猫/g)).toHaveLength(1)
 
     act(() => root.render(<AgentToolCard message={{ ...message, status: 'succeeded' }} />))
     expect(host.querySelector('[data-slot="image-generation"]')).toBeNull()
@@ -125,6 +124,7 @@ describe('后台任务的进度与取消', () => {
     turnId: 't',
     toolCallId: 'c',
     title: '一只橘猫',
+    toolName: 'generateImage' as const,
     status: 'submitted' as const,
     job: { taskId: 'task-1', media: 'image' as const },
   }
@@ -141,7 +141,8 @@ describe('后台任务的进度与取消', () => {
     try {
       act(() => root.render(<AgentToolCard message={submitted} />))
       const bar = host.querySelector('[role="progressbar"]')!
-      expect(bar.getAttribute('aria-valuenow')).toBe('3')
+      expect(bar.hasAttribute('aria-valuenow')).toBe(false)
+      expect(bar.getAttribute('aria-valuetext')).toBe('生成中 · 已用 0:42')
       expect(host.textContent).toContain('生成中 · 已用 0:42')
 
       act(() => vi.advanceTimersByTime(3_000))
@@ -279,7 +280,12 @@ it('keeps the complete multiline prompt available and copies it without the titl
     )
     expect(host.textContent).not.toContain('复制')
     expect(host.textContent).not.toContain('存为模板')
-    act(() => host.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('[aria-expanded]')!.click())
+    act(() =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '查看提示词')!
+        .click(),
+    )
     const dialog = document.querySelector('[role="dialog"]')!
     expect(dialog.querySelector('[aria-label="完整提示词"]')?.textContent).toBe(prompt)
     const copy = Array.from(dialog.querySelectorAll('button')).find(
@@ -341,6 +347,22 @@ describe('失败卡按错误码给出路', () => {
   const buttons = (host: HTMLElement) =>
     Array.from(host.querySelectorAll('button')).map((button) => button.textContent)
 
+  it('网页读取失败收成一行，仍保留重试入口', () => {
+    const { host, unmount } = render({
+      ...failed('invalid_params'),
+      toolName: 'webFetch',
+      title: '读取网页：www.mi.com',
+    })
+    try {
+      expect(host.querySelector('[data-slot="tool-error"]')).not.toBeNull()
+      expect(host.querySelector('[data-slot="error-state"]')).toBeNull()
+      expect(host.textContent).toContain('这次的参数不成立')
+      expect(buttons(host)).toContain('让助手重新处理')
+    } finally {
+      unmount()
+    }
+  })
+
   it.each([
     ['insufficient_credits', '积分不够，这次没有生成', '去充值'],
     ['quota_exceeded', '今天的生成额度已经用完', '去充值'],
@@ -352,7 +374,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed(code))
     try {
       expect(host.textContent).toContain(text)
-      expect(host.querySelector('[data-slot="error-state"]')?.getAttribute('role')).toBe('alert')
+      expect(host.querySelector('[data-slot="tool-error"]')?.getAttribute('role')).toBe('alert')
       // 界面不读服务端文字（ADR 0006）。
       expect(host.textContent).not.toContain('服务端写的那句话')
       expect(buttons(host)).toEqual([action])

@@ -123,7 +123,7 @@ export interface AgentCanvasSink {
    */
   focusPending?(ref: { readonly messageId: string; readonly taskId?: string }): boolean
   /** 画布是位图的单源，对象被删掉就没有缩略图了。 */
-  thumbnail(objectId: string): Promise<string | null>
+  thumbnail(objectId: string, scale?: number): Promise<string | null>
 }
 
 let sink: AgentCanvasSink | null = null

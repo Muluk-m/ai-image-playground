@@ -300,13 +300,16 @@ it('草稿保存失败时拒绝切项目，错误与内容保留', async () => {
   expect(useCanvasProjectStore.getState().activeId).toBe(id)
 })
 
-it('主动新建的空项目保持画布视图，重复新建不堆积空项目', async () => {
+it('主动新建的空对话保持对话入口，重复新建不堆积空项目', async () => {
   const first = useCanvasProjectStore.getState().activeId!
   expect(await state().createProject()).toBe(true)
   expect(useCanvasProjectStore.getState().activeId).toBe(first)
   expect(
     useCanvasProjectStore.getState().projects.find((one) => one.id === first)?.workspaceOpened,
   ).toBe(true)
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === first)?.experience,
+  ).toBe('chat')
   expect(await state().createProject()).toBe(true)
   expect(useCanvasProjectStore.getState().projects).toHaveLength(1)
   const { projectRepository } = await import('../../../features/canvas/lib/projectRepository')

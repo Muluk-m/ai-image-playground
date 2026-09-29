@@ -141,3 +141,23 @@ describe('云端项目文档里的画布类型', () => {
     expect(isProjectDocument({ version: 1, elements: [], kind: null })).toBe(false)
   })
 })
+
+describe('云端项目文档里的工作台入口', () => {
+  it('accepts distinct chat and canvas projects with a source link', () => {
+    expect(isProjectDocument({ version: 1, elements: [], experience: 'chat' })).toBe(true)
+    expect(
+      isProjectDocument({
+        version: 1,
+        elements: [],
+        experience: 'canvas',
+        sourceProjectId: 'source-1',
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps older documents valid and rejects malformed identities', () => {
+    expect(isProjectDocument({ version: 1, elements: [] })).toBe(true)
+    expect(isProjectDocument({ version: 1, elements: [], experience: 'mixed' })).toBe(false)
+    expect(isProjectDocument({ version: 1, elements: [], sourceProjectId: '' })).toBe(false)
+  })
+})

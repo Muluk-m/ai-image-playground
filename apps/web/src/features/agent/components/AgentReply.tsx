@@ -1,9 +1,9 @@
-import { Check, Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { useTranslation } from '../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
-import { REPLY, REPLY_ACTION } from '../agentStyles'
+import { REPLY } from '../agentStyles'
 import AgentMarkdown from './AgentMarkdown'
 
 interface Props {
@@ -25,12 +25,10 @@ function CopyReplyButton({ text }: { text: string }) {
   }, [copied])
 
   return (
-    <button
-      type="button"
-      aria-label={copied ? t('reply.copied') : t('reply.copyAria')}
-      title={t('reply.copyAria')}
-      className={`${REPLY_ACTION} ${copied ? 'opacity-100' : ''}`}
-      onClick={() => {
+    <MessageActions
+      copied={copied}
+      copyLabel={copied ? t('reply.copied') : t('reply.copyAria')}
+      onCopy={() => {
         void copyTextToClipboard(text).then(
           () => setCopied(true),
           (error) =>
@@ -39,16 +37,7 @@ function CopyReplyButton({ text }: { text: string }) {
               .showToast(getClipboardFailureMessage(t('reply.copyFailed'), error), 'error'),
         )
       }}
-    >
-      {copied ? (
-        <>
-          <Check className="h-3 w-3" aria-hidden="true" />
-          {t('reply.copied')}
-        </>
-      ) : (
-        <Copy className="h-3 w-3" aria-hidden="true" />
-      )}
-    </button>
+    />
   )
 }
 
@@ -56,7 +45,10 @@ function CopyReplyButton({ text }: { text: string }) {
 export default function AgentReply({ text, streaming }: Props) {
   return (
     <div className="group flex max-w-full flex-col items-start gap-0.5">
-      <div className={`${REPLY} break-words`} data-streaming={streaming || undefined}>
+      <div
+        className={`${REPLY} studio-agent-reply break-words`}
+        data-streaming={streaming || undefined}
+      >
         <AgentMarkdown text={text} />
       </div>
       {/* 流式中原文还在变，说完才给复制。 */}

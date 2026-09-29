@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Composer,
   ComposerActions,
@@ -60,6 +61,7 @@ import {
   getLeadingAgentSkill,
   getSlashSkillQuery,
 } from '../lib/agentSkillMentions'
+import { previewArtifactBitmap } from '../lib/artifactSource'
 import {
   attachAssetToDraft,
   attachReferences,
@@ -68,6 +70,7 @@ import {
   setAgentComposerAttach,
 } from '../lib/attachments'
 import { setAgentComposerFill } from '../lib/composerFill'
+import { conversationImages } from '../lib/conversationImages'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
@@ -115,8 +118,12 @@ export default function AgentComposer({
   doc,
   editor,
   welcome = false,
+  showLooks = true,
+  showCanvasReferences = true,
 }: {
   welcome?: boolean
+  showLooks?: boolean
+  showCanvasReferences?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
@@ -126,6 +133,13 @@ export default function AgentComposer({
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
+  const messages = useAgentStore(
+    useShallow((state) =>
+      state.messages.filter(
+        (message) => message.kind === 'tool' && Boolean(message.artifacts?.length),
+      ),
+    ),
+  )
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -213,6 +227,11 @@ export default function AgentComposer({
   // `@` 候选里的「画布图 n」是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
 
+  const results = useMemo(
+    () => conversationImages(messages, doc),
+    [messages, doc, version, i18n.language],
+  )
+
   // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
   // 哪些是这么带进来的归 selection 自己记，输入框只管把画布和草稿的入口交给它。
   const [selection] = useState(createSelectionReferences)
@@ -230,7 +249,7 @@ export default function AgentComposer({
   const transportRef = useRef(transport)
   transportRef.current = transport
   useEffect(() => {
-    if (loading) return
+    if (loading || !showCanvasReferences) return
     // 撞的是哪道上限由准入定夺，文案跟着它走——输入框不再自己数一遍两道上限。
     const overflow = selection.follow(doc, setDraft, editor, session.key, transportRef.current)
     if (overflow.refusal)
@@ -238,7 +257,7 @@ export default function AgentComposer({
         .getState()
         .showToast(referenceLimitMessage(overflow.refusal, transportRef.current), 'error')
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
-  }, [selection, selectionKey, loading, session])
+  }, [selection, selectionKey, loading, session, showCanvasReferences])
 
   // 做不了视频的部署里视频轮不该出现，存下来的旧草稿也按图片算——
   // 服务端在那种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
@@ -317,7 +336,8 @@ export default function AgentComposer({
       ? buildAgentMentionGroups({
           query: promptEditor.query.query,
           references: draft.references,
-          canvas,
+          results,
+          canvas: showCanvasReferences ? canvas : [],
           assets,
         })
       : promptEditor.query?.kind === 'command'
@@ -351,7 +371,35 @@ export default function AgentComposer({
     const active = getAtImageQuery(promptEditor.visible, at)
     if (!active) return
 
-    // 只有素材要等图取回来；另外两支就在手边，别让它们也隔一个微任务才插胶囊。
+    if (value.type === 'result') {
+      const image = results.find((one) => one.id === value.imageId)
+      if (!image) return
+      const dataUrl = image.source ?? (await previewArtifactBitmap(image.artifact))
+      // Loading an older result must not overwrite newer typing or attach to a switched chat.
+      if (
+        useAgentStore.getState().conversationId !== conversationId ||
+        session.getSnapshot().draft !== draft ||
+        promptEditor.cursor() !== at ||
+        getAtImageQuery(promptEditor.visible, promptEditor.cursor())?.start !== active.start
+      )
+        return
+      if (!dataUrl) {
+        useStore.getState().showToast(t('mentions.resultUnavailable'), 'error')
+        return
+      }
+      applyAttach(
+        attachReference(
+          draft,
+          { id: image.id, dataUrl, name: image.label },
+          active.start,
+          at,
+          transportRef.current,
+        ),
+      )
+      return
+    }
+
+    // 素材需要取图；已有引用和画布图片直接插入胶囊。
     if (value.type === 'asset') {
       const attached = await attachAssetToDraft(
         draft,
@@ -360,7 +408,13 @@ export default function AgentComposer({
         at,
         transportRef.current,
       )
-      if (attached) applyAttach(attached)
+      if (
+        attached &&
+        useAgentStore.getState().conversationId === conversationId &&
+        session.getSnapshot().draft === draft &&
+        promptEditor.cursor() === at
+      )
+        applyAttach(attached)
       return
     }
     const reference =
@@ -647,7 +701,9 @@ export default function AgentComposer({
             aria-label={t('composer.editorAria')}
             disabled={loading}
             aria-busy={loading}
-            placeholder={t('composer.placeholder')}
+            placeholder={t(
+              showCanvasReferences ? 'composer.placeholder' : 'composer.chatPlaceholder',
+            )}
             className={EDITOR_CLASS}
           />
         </div>
@@ -754,7 +810,9 @@ export default function AgentComposer({
           </ComposerActions>
         </ComposerToolbar>
       </ComposerBar>
-      {mode === 'image' && <LookChips onPick={(look) => selectSkill(look.skillName)} />}
+      {showLooks && mode === 'image' && (
+        <LookChips onPick={(look) => selectSkill(look.skillName)} />
+      )}
     </Composer>
   )
 }

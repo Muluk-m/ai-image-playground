@@ -269,7 +269,7 @@ describe('生成进度', () => {
   }
 
   function progressText(container: HTMLElement): string {
-    return container.querySelector('[role="progressbar"] p')?.textContent ?? ''
+    return container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext') ?? ''
   }
 
   it('转圈的占位与对话里的结果卡说同一个阶段与已用时间', async () => {

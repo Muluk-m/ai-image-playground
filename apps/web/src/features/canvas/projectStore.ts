@@ -41,7 +41,11 @@ interface ProjectState {
   refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
   /** 画布类型建出来就定死；除了视频入口，其余新建都是图片画布。 */
-  create(kind?: ProjectKind): Promise<CanvasProject>
+  create(
+    kind?: ProjectKind,
+    experience?: 'chat' | 'canvas',
+    sourceProjectId?: string,
+  ): Promise<CanvasProject>
   activate(id: string, replaceRoute?: boolean): void
   resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
@@ -197,7 +201,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     })()
     return loading
   },
-  async create(kind = 'image' as ProjectKind) {
+  async create(
+    kind = 'image' as ProjectKind,
+    experience?: 'chat' | 'canvas',
+    sourceProjectId?: string,
+  ) {
     await get().load()
     const project = await projectRepository.create(
       UNTITLED_PROJECT,
@@ -205,6 +213,8 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       cloudProjectsEnabled(),
       true,
       kind,
+      experience,
+      sourceProjectId,
     )
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)

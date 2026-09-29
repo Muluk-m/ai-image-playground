@@ -28,6 +28,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 }
 let currentManifest = disabledManifest()
 let currentBffEnabled = false
+let projectDocumentIdentity = false
 const CAPABILITY_TIMEOUT_MS = 5000
 
 export async function bootstrapClientCapabilities(
@@ -37,16 +38,21 @@ export async function bootstrapClientCapabilities(
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
   currentBffEnabled = bffEnabled
+  projectDocumentIdentity = false
   if (!bffEnabled) return currentManifest
 
   const controller = new AbortController()
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    const parsed = await Promise.race([
+    const result = await Promise.race([
       fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
         cache: 'no-store',
         signal: controller.signal,
-      }).then(async (response) => (response.ok ? parseManifest(await response.json()) : null)),
+      }).then(async (response) => {
+        if (!response.ok) return null
+        const body: unknown = await response.json()
+        return { body, parsed: parseManifest(body) }
+      }),
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
           controller.abort()
@@ -54,8 +60,15 @@ export async function bootstrapClientCapabilities(
         }, CAPABILITY_TIMEOUT_MS)
       }),
     ])
-    if (!parsed && required) throw new Error('capability_manifest_unavailable')
-    if (parsed) currentManifest = parsed
+    if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
+    if (result?.parsed) currentManifest = result.parsed
+    const body = result?.body
+    projectDocumentIdentity =
+      result?.parsed !== null &&
+      typeof body === 'object' &&
+      body !== null &&
+      'projectDocumentIdentity' in body &&
+      body.projectDocumentIdentity === true
   } catch (error) {
     // A missing capability response must never enable a feature.
     if (required) throw error
@@ -63,6 +76,11 @@ export async function bootstrapClientCapabilities(
     if (timeout) clearTimeout(timeout)
   }
   return currentManifest
+}
+
+/** Older APIs reject the new document fields; send them only after the server advertises support. */
+export function supportsProjectDocumentIdentity(): boolean {
+  return projectDocumentIdentity
 }
 
 export function getClientCapabilityManifest(): Readonly<ClientCapabilityManifest> {

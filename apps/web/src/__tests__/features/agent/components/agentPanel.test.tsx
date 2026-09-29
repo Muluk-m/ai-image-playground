@@ -152,6 +152,61 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('把同一轮连续获取的网图收进一条缩略图带，保留预览和来源', async () => {
+    const onPreviewResult = vi.fn()
+    const image = (id: string, turnId = 'turn-1'): AgentToolMessage => ({
+      kind: 'tool',
+      id,
+      turnId,
+      toolCallId: `call-${id}`,
+      toolName: 'fetchImage',
+      title: '获取图片：i02.appmifile.com',
+      status: 'succeeded',
+      delivery: 'unavailable',
+      fetchedImages: [
+        {
+          imageId: `11111111-2222-4333-8444-55555555555${id}`,
+          sourceUrl: `https://i02.appmifile.com/${id}.png`,
+          mime: 'image/png',
+        },
+      ],
+    })
+    useAgentStore.setState({
+      messages: [
+        image('1'),
+        image('2'),
+        {
+          kind: 'text',
+          id: 'reply',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '找到两张参考图',
+          streaming: false,
+        },
+      ],
+    })
+    act(() => {
+      const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
+      root.render(
+        <AgentPanel
+          doc={new CanvasDoc()}
+          editor={editor}
+          presentation="page"
+          onPreviewResult={onPreviewResult}
+        />,
+      )
+    })
+    await settle()
+
+    const strip = host.querySelector('.studio-agent-fetched-strip')!
+    expect(strip.querySelectorAll('.studio-agent-fetched-strip-item')).toHaveLength(2)
+    expect(strip.querySelectorAll('.studio-agent-inline-result--fetched')).toHaveLength(2)
+    expect(strip.querySelectorAll('a[href^="https://i02.appmifile.com/"]')).toHaveLength(2)
+    expect(host.textContent).toContain('找到两张参考图')
+    act(() => strip.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(onPreviewResult).toHaveBeenCalledWith('1', 'fetched_call-1_0')
+  })
+
   it('发送中的引用显示本条消息的缩略图，确认起轮后不丢失或串成下一轮的图', async () => {
     vi.stubGlobal(
       'fetch',
@@ -383,8 +438,8 @@ describe('AgentPanel', () => {
     )
     const line = host.querySelector<HTMLElement>('[data-tool="loadSkill"]')
     expect(line?.textContent).toBe('读取技能：storyboard-short')
-    // 结果卡有边框底座，技能那一行没有；这里数的就是「出了几张卡」。
-    expect(host.querySelectorAll('.rounded-xl.border')).toHaveLength(1)
+    expect(host.querySelector('#agent-tool-card-tool-skill')).toBeNull()
+    expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
   })
 
   it('没读到的那次不显示成读到了', () => {
@@ -857,12 +912,14 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('要哪种风格？')
-    const option = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '扁平插画',
-    )!
+    const option = [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
+    ].find((button) => button.textContent === '扁平插画')!
     act(() => option.click())
 
     expect(send).toHaveBeenCalledWith('扁平插画')
+    // A resolved/no-op send (e.g. login gate) must not invent a committed answer.
+    expect(host.querySelector('[data-slot="option-list"][data-state="receipt"]')).toBeNull()
   })
 
   it('方案都不对时点「其他」，在卡片里写一句就是下一条消息', () => {
@@ -886,9 +943,9 @@ describe('AgentPanel', () => {
     )!
     act(() => other.click())
     const field = host.querySelector('input[aria-label="其他回答"]') as HTMLInputElement
-    const submit = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '发送' && button.getAttribute('type') === 'submit',
-    ) as HTMLButtonElement
+    const submit = host.querySelector<HTMLButtonElement>(
+      '.studio-clarification-other-form button[type="submit"]',
+    )!
     // 空着不能发：一条空回答只会让助手再问一遍。
     expect(submit.disabled).toBe(true)
 
@@ -953,10 +1010,10 @@ describe('AgentPanel', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(host.textContent).toContain('要哪种风格？')
-    const option = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '扁平插画',
-    ) as HTMLButtonElement
-    expect(option.disabled).toBe(true)
+    expect(host.querySelector('.studio-clarification-answered-detail')?.textContent).toContain(
+      '扁平插画',
+    )
+    expect(host.querySelector('.studio-clarification-answered-detail button')).toBeNull()
     expect(texts('button')).not.toContain('其他…')
   })
 
@@ -983,13 +1040,10 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('要哪种风格？')
     expect(host.textContent).toContain('已回答')
-    const option = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '扁平插画',
-    ) as HTMLButtonElement
-    expect(option.disabled).toBe(true)
-    const next = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '竖版',
-    ) as HTMLButtonElement
+    expect(host.querySelector('.studio-clarification-answered--unknown button')).toBeNull()
+    const next = [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
+    ].find((button) => button.textContent === '竖版')!
     expect(next.disabled).toBe(false)
   })
 
@@ -1348,6 +1402,34 @@ describe('AgentPanel', () => {
     expect(host.querySelector('strong')?.textContent).toBe('横向一排')
     expect(host.textContent).not.toContain('**')
     expect(host.textContent).not.toContain('展开')
+  })
+
+  it('历史中的空助手消息不留下对话块和空白间距', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'assistant-empty',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '  ',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'assistant-visible',
+          turnId: 'turn-2',
+          role: 'assistant',
+          text: '下一条可见回复',
+          streaming: false,
+        },
+      ],
+      turns: {},
+    })
+    render()
+
+    expect(host.querySelector('[data-agent-message-id="assistant-empty"]')).toBeNull()
+    expect(host.querySelector('[data-agent-message-id="assistant-visible"]')).not.toBeNull()
   })
 
   it('面板宽度跟着 store，右缘有拖宽手柄', () => {

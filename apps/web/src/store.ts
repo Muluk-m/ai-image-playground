@@ -602,8 +602,8 @@ interface AppState {
    * 首屏输入框把这句话交给谁：`generate` 直接出图；`canvas` 新建一个画布项目、打开它，
    * 把这句话和参考图作为第一轮发给智能体。只是首屏的一个开关，不落盘。
    */
-  createTarget: 'generate' | 'canvas'
-  setCreateTarget: (target: 'generate' | 'canvas') => void
+  createTarget: 'generate' | 'chat' | 'canvas'
+  setCreateTarget: (target: 'generate' | 'chat' | 'canvas') => void
   /**
    * 侧栏此刻摊开还是收成图标条。默认由入口决定：工作台（画布 / 视频）收起，库页摊开；
    * 用户按折叠键就以他的选择为准，换入口时回到默认。
@@ -614,9 +614,9 @@ interface AppState {
    * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
    * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
    */
-  pendingCanvasImages: string[]
-  queueCanvasImages: (dataUrls: string[]) => void
-  consumeCanvasImages: () => string[]
+  pendingCanvasImages: Array<string | { dataUrl: string; groupId?: string }>
+  queueCanvasImages: (images: Array<string | { dataUrl: string; groupId?: string }>) => void
+  consumeCanvasImages: () => Array<string | { dataUrl: string; groupId?: string }>
   detailTaskId: string | null
   setDetailTaskId: (id: string | null) => void
   lightboxImageId: string | null

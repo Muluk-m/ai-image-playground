@@ -4,7 +4,7 @@ import type { PreparedSubmission } from '../store'
 /** This tab's one interrupted send. Separate from scoped workspace storage so login adoption cannot move it. */
 export type PendingSubmission =
   | { kind: 'image'; input: PreparedSubmission }
-  | { kind: 'heroCanvas'; draft: AgentDraft }
+  | { kind: 'heroCanvas'; draft: AgentDraft; experience?: 'chat' | 'canvas' }
 
 const DATABASE = 'image-playground:pending-send'
 const STORE = 'submission'
