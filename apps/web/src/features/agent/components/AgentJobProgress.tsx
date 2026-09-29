@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { ThinkingIndicator } from '../../../components/assistant-ui/elements/thinking-indicator'
 import { i18next, useTranslation } from '../../../i18n'
-import { CARD_NOTE, GHOST_LINK, INK_3 } from '../agentStyles'
+import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
 import {
   type AgentJobPhase,
   type AgentToolProgress,
@@ -50,18 +51,13 @@ export default function AgentJobProgress({ progress }: { progress: AgentToolProg
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
   return (
-    <div
+    <ThinkingIndicator
       role="progressbar"
       aria-label={t('job.progressAria')}
       aria-valuetext={text ?? undefined}
-      className={`flex items-center gap-2 text-xs ${INK_3}`}
-    >
-      <span
-        aria-hidden="true"
-        className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary/70 motion-reduce:animate-none"
-      />
-      <span className="tabular-nums">{text}</span>
-    </div>
+      label={text ?? ''}
+      className="text-xs"
+    />
   )
 }
 
