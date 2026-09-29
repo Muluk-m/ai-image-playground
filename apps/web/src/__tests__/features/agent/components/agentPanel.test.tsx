@@ -383,8 +383,8 @@ describe('AgentPanel', () => {
     )
     const line = host.querySelector<HTMLElement>('[data-tool="loadSkill"]')
     expect(line?.textContent).toBe('读取技能：storyboard-short')
-    // 结果卡有边框底座，技能那一行没有；这里数的就是「出了几张卡」。
-    expect(host.querySelectorAll('.rounded-xl.border')).toHaveLength(1)
+    expect(host.querySelector('#agent-tool-card-tool-skill')).toBeNull()
+    expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
   })
 
   it('没读到的那次不显示成读到了', () => {
