@@ -183,9 +183,15 @@ it('连点两下只提交一次', async () => {
   }
   render()
 
-  act(() => confirmButton().click())
-  act(() => confirmButton().click())
-  expect(confirmButton().disabled).toBe(true)
+  const button = confirmButton()
+  act(() => {
+    button.click()
+    button.click()
+  })
+  expect(host.querySelector('[data-slot="approval-card"] [role="status"]')?.textContent).toContain(
+    '提交中',
+  )
+  expect(field().disabled).toBe(true)
 
   await act(async () => {
     release()
