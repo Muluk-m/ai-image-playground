@@ -147,6 +147,32 @@ describe('画布工作区', () => {
     workspace.dispose()
   })
 
+  it('旧存档在 100% 缩放下平移查看局部时保留工作视角', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'panned-artwork',
+        type: 'text',
+        text: '局部编辑',
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setCamera({ x: 100, y: 0, zoom: 1 })
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(390, 700)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera).toEqual({ x: 100, y: 0, zoom: 1 })
+    workspace.dispose()
+  })
+
   it('视口尚未量出有效尺寸时跳过内容适配', async () => {
     const key = freshSceneKey()
     const workspace = new CanvasWorkspace(key)

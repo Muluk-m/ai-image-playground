@@ -166,8 +166,7 @@ export class CanvasWorkspace {
         this.doc.camera.x === 0 && this.doc.camera.y === 0 && this.doc.camera.zoom === 1
       const legacyNeedsFit =
         current.bestVisible === 0 ||
-        (this.doc.camera.zoom <= 1 && current.bestVisible < 0.6) ||
-        (width <= 1024 && defaultCamera && !current.allVisible)
+        (defaultCamera && (current.bestVisible < 0.6 || (width <= 1024 && !current.allVisible)))
       const viewportChanged =
         this.doc.elements.length > 0 &&
         (old
