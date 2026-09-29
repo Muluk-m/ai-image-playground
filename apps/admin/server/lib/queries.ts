@@ -296,7 +296,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
   const { db } = getHandle()
   const since = new Date(Date.now() - rangeMs(range))
 
-  const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw] = await Promise.all([
+  const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw, cacheRowsRaw] = await Promise.all([
     db.execute(sql`
       SELECT
         COUNT(*) AS total,
@@ -334,9 +334,32 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       GROUP BY model
       ORDER BY count DESC, model
     `),
+    db.execute(sql`
+      SELECT
+        model,
+        COUNT(*) AS calls,
+        SUM((usage->>'inputTokens')::bigint) AS input_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens
+      FROM agent_model_calls
+      WHERE started_at >= ${since}
+        AND purpose = 'conversation'
+        AND usage IS NOT NULL
+        AND cache_read_tokens IS NOT NULL
+        AND (usage->>'inputTokens')::bigint > 0
+      GROUP BY model
+      ORDER BY input_tokens DESC, model
+    `),
   ])
 
   const summary = (summaryRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  const agentCacheModels = (cacheRowsRaw as unknown as Array<Record<string, unknown>>).map(
+    (row) => ({
+      model: String(row.model),
+      calls: Number(row.calls),
+      input_tokens: Number(row.input_tokens),
+      cache_read_tokens: Number(row.cache_read_tokens),
+    }),
+  )
   const completed = Number(summary.completed ?? 0)
   const failed = Number(summary.failed ?? 0)
   const terminal = completed + failed
@@ -356,6 +379,12 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       error_type: String(row.error_type),
       count: Number(row.count),
     })),
+    agent_cache: {
+      calls: agentCacheModels.reduce((sum, model) => sum + model.calls, 0),
+      input_tokens: agentCacheModels.reduce((sum, model) => sum + model.input_tokens, 0),
+      cache_read_tokens: agentCacheModels.reduce((sum, model) => sum + model.cache_read_tokens, 0),
+      models: agentCacheModels,
+    },
     models: (modelRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       model: String(row.model),
       count: Number(row.count),
