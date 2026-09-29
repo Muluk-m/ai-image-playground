@@ -1,5 +1,7 @@
-import { useId, useState } from 'react'
-import { Button } from '../../../components/ui/button'
+import { ImageIcon } from 'lucide-react'
+import { useId, useRef, useState } from 'react'
+import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
 import { agentDraftOutputCount } from '../lib/promptDraft'
@@ -22,6 +24,7 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
   const { t } = useTranslation('agent')
   const prompt = useAgentStore((state) => state.promptDrafts[message.id] ?? message.prompt ?? '')
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [failure, setFailure] = useState<AgentPromptConfirmFailure | null>(null)
   const noteId = useId()
   const ready = prompt.trim().length > 0
@@ -32,7 +35,8 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
   const action = agentToolFailureAction(refused)
 
   const confirm = () => {
-    if (!ready || submitting) return
+    if (!ready || submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     setFailure(null)
     void useAgentStore
@@ -41,6 +45,10 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
       .then((result) => {
         // 成交后这张卡就地换成提交后的样子，这个组件随之卸下；没成就留在原处，改过的字还在。
         if (!result.ok) setFailure(result)
+      })
+      .catch(() => setFailure({ ok: false, reason: 'failed' }))
+      .finally(() => {
+        submittingRef.current = false
         setSubmitting(false)
       })
   }
@@ -53,23 +61,32 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
   }
 
   return (
-    <>
-      <p id={noteId} className="studio-agent-confirm-hint">
+    <ApprovalCard
+      state={submitting ? 'running' : 'request'}
+      title={t('confirm.submit')}
+      subtitle={message.title}
+      icon={<ImageIcon className="size-4" />}
+      onAllowOnce={confirm}
+      allowOnceLabel={t('confirm.submit')}
+      statusLabel={t('confirm.submitting')}
+      disabled={!ready || submitting}
+    >
+      <p id={noteId} className="text-xs leading-relaxed text-muted-foreground">
         {t('confirm.pending')}
       </p>
-      <textarea
+      <Textarea
         aria-label={t('confirm.fieldAria')}
         aria-describedby={noteId}
         aria-invalid={ready ? undefined : true}
         value={prompt}
-        rows={6}
+        rows={7}
         disabled={submitting}
-        className="studio-agent-confirm-field"
+        className="max-h-64 min-h-32 w-full resize-y rounded-xl border border-input/60 bg-background/60 p-3 text-[13px] leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
         onChange={(event) =>
           useAgentStore.getState().setPromptDraft(message.id, event.target.value)
         }
       />
-      <div className="studio-agent-confirm-footer">
+      <div className="flex items-center gap-2">
         <span className={CARD_NOTE}>
           {!ready
             ? t('confirm.empty')
@@ -79,9 +96,6 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
                   : t('confirm.outputsImage', { count })
               }${model ? ` · ${t('confirm.model', { name: model })}` : ''}`}
         </span>
-        <Button type="button" size="sm" disabled={!ready || submitting} onClick={confirm}>
-          {submitting ? t('confirm.submitting') : t('confirm.submit')}
-        </Button>
       </div>
       {failure && (
         <p role="alert" className={CARD_NOTE}>
@@ -103,6 +117,6 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
           {agentToolFailureActionLabel(action, refused)}
         </button>
       )}
-    </>
+    </ApprovalCard>
   )
 }
