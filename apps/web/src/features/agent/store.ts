@@ -1341,11 +1341,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const settleJournal = async () => {
         if (journaled) await forgetOutgoing(journaled.projectId, journaled.id)
       }
-      const returnUnsent = async () => {
-        if (!onUnsent) return
+      const returnUnsent = async (withdrawn = false) => {
+        // 已撤回的 id 是服务端终态，再用它只会再次得到 cancelled。只有用户从草稿再发才开新 id。
+        if (!onUnsent) {
+          if (withdrawn) await settleJournal()
+          return
+        }
         const returned = await onUnsent({
           ...submissionInput,
-          id: messageId,
+          id: withdrawn ? crypto.randomUUID() : messageId,
           text: trimmed,
           mode,
           clarificationAnswer,
@@ -1363,9 +1367,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           messageId,
           prepare,
         )
-        if (accepted) await settleJournal()
-        else await returnUnsent()
-        return accepted === 'cancelled' ? 'cancelled' : undefined
+        if (accepted === true) await settleJournal()
+        else await returnUnsent(accepted === 'cancelled')
+        return
       }
       if (get().turn === 'running') {
         settleJournal()
@@ -1412,6 +1416,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const submission = { cancelled: false, delivery: turnDelivery, settled: submitted }
       pendingStart = submission
       let accepted = false
+      let withdrawn = false
       const cancelUnsent = async () => {
         if (turnDelivery.isCurrent())
           set((state) => ({
@@ -1532,11 +1537,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           return
         }
         if (refused) {
-          submission.cancelled = true
+          withdrawn = true
           // 服务端说这句话已不在队里：没被收下，草稿留着，与起轮请求失败同样收场。
           fail(i18next.t('error.queueFailed', { ns: 'agent' }))
           await turnDelivery.settled()
-          return 'cancelled'
+          return
         }
         if (outcome.kind === 'queued') {
           // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。
@@ -1565,7 +1570,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
       } finally {
         if (accepted || submission.cancelled) await settleJournal()
-        else await returnUnsent()
+        else await returnUnsent(withdrawn)
         settleSubmission()
         if (pendingStart === submission) pendingStart = null
       }

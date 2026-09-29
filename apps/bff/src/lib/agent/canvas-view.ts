@@ -164,7 +164,7 @@ function boundsOf(element: ProjectElement): ArrangeBox | null {
 interface CanvasEntry {
   readonly id: string
   readonly type: string
-  readonly description: string
+  readonly describe: () => string
   readonly searchable: string
   readonly bounds: ArrangeBox | null
   readonly dx: number
@@ -197,7 +197,7 @@ class AgentCanvasView {
       picked.length > next
         ? `\n（还有 ${picked.length - next} 个没展开；下次以 offset ${next} 继续）`
         : ''
-    return `${head}：\n${shown.map((entry) => entry.description).join('\n')}${more}`
+    return `${head}：\n${shown.map((entry) => entry.describe()).join('\n')}${more}`
   }
 
   arrange(requested: readonly ArrangeGroupInput[]): {
@@ -277,7 +277,7 @@ export async function loadAgentCanvas(context: AgentToolContext): Promise<AgentC
       (element): CanvasEntry => ({
         id: element.id,
         type: element.type,
-        description: describeLiveElement(element),
+        describe: () => describeLiveElement(element),
         searchable: (element.type === 'text'
           ? (element.text ?? '')
           : element.type === 'image'
@@ -305,7 +305,7 @@ export async function loadAgentCanvas(context: AgentToolContext): Promise<AgentC
     (element): CanvasEntry => ({
       id: element.id,
       type: element.type,
-      description: describeElement(element),
+      describe: () => describeElement(element),
       searchable: (element.type === 'text'
         ? element.text
         : element.type === 'image'
