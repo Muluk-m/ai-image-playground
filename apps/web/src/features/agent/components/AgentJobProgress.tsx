@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react'
 import { i18next, useTranslation } from '../../../i18n'
 import { CARD_NOTE, GHOST_LINK, INK_3 } from '../agentStyles'
 import {
-  AGENT_JOB_STEPS,
   type AgentJobPhase,
   type AgentToolProgress,
-  agentJobStep,
   agentToolProgress,
   formatElapsed,
 } from '../lib/jobProgress'
@@ -47,42 +45,34 @@ export function useAgentJobProgressText(progress: AgentToolProgress | null): str
   return i18next.t('job.progress', { ns: 'agent', phase, elapsed: formatElapsed(elapsed) })
 }
 
-/** 分阶段进度：四格刻度标出走到哪一步，下面一句说阶段与已用时间。 */
+/** 服务端只提供阶段，没有完成百分比；使用不定进度，避免把第三阶段画成 75%。 */
 export default function AgentJobProgress({ progress }: { progress: AgentToolProgress }) {
   const { t } = useTranslation('agent')
   const text = useAgentJobProgressText(progress)
-  const reached = AGENT_JOB_STEPS.indexOf(agentJobStep(progress.phase))
   return (
     <div
       role="progressbar"
       aria-label={t('job.progressAria')}
-      aria-valuemin={1}
-      aria-valuemax={AGENT_JOB_STEPS.length}
-      aria-valuenow={reached + 1}
       aria-valuetext={text ?? undefined}
-      className="flex flex-col gap-1"
+      className={`flex items-center gap-2 text-xs ${INK_3}`}
     >
-      <div className="flex gap-1" aria-hidden="true">
-        {AGENT_JOB_STEPS.map((step, index) => (
-          <span
-            key={step}
-            className={`h-1 flex-1 rounded-full ${
-              index < reached
-                ? 'bg-primary'
-                : index === reached
-                  ? 'animate-pulse bg-primary'
-                  : 'bg-border'
-            }`}
-          />
-        ))}
-      </div>
-      <p className={`text-[11px] tabular-nums ${INK_3}`}>{text}</p>
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary/70 motion-reduce:animate-none"
+      />
+      <span className="tabular-nums">{text}</span>
     </div>
   )
 }
 
 /** 后台任务还在跑时单独取消它；取消失败就在原处说一声，卡保持原样。 */
-export function AgentJobCancel({ message }: { message: AgentToolMessage }) {
+export function AgentJobCancel({
+  message,
+  className = GHOST_LINK,
+}: {
+  message: AgentToolMessage
+  className?: string
+}) {
   const { t } = useTranslation('agent')
   const [state, setState] = useState<'idle' | 'cancelling' | 'failed'>('idle')
   if (message.status !== 'submitted' || !message.job) return null
@@ -91,7 +81,7 @@ export function AgentJobCancel({ message }: { message: AgentToolMessage }) {
       <button
         type="button"
         disabled={state === 'cancelling'}
-        className={`${GHOST_LINK} disabled:opacity-50`}
+        className={`${className} disabled:opacity-50`}
         onClick={() => {
           setState('cancelling')
           useAgentStore
