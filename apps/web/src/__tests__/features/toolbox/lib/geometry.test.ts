@@ -33,6 +33,17 @@ describe('resizedSize', () => {
 })
 
 describe('layouts', () => {
+  it('computes large batch layouts without expanding the batch into function arguments', () => {
+    const sizes = Array.from({ length: 150_000 }, () => ({ width: 2, height: 1 }))
+    const vertical = stitchLayout(sizes, 'vertical', 0)
+    expect([vertical.width, vertical.height]).toEqual([2, 150_000])
+    const horizontal = stitchLayout(sizes, 'horizontal', 0)
+    expect([horizontal.width, horizontal.height]).toEqual([300_000, 1])
+    const collage = collageLayout(sizes, 500, 0)
+    expect([collage.width, collage.height]).toEqual([500, 300])
+    expect(collage.placements.at(-1)).toMatchObject({ index: 149_999, x: 499, y: 299 })
+  })
+
   it('stitches vertically at the narrowest width without enlarging', () => {
     const layout = stitchLayout(
       [
