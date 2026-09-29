@@ -93,7 +93,7 @@ export const fetchListingImages = defineAgentTool({
     // 一张都没解析出来：要么是验证码页，要么页面结构变了，两种都不是换个参数能救的。
     if (parsed.images.length === 0) {
       throw new AgentToolError(
-        'upstream_error',
+        'source_unavailable',
         '这一页没拿到商品图（多半被亚马逊挡成了验证码页）。可以让用户把图片直链发过来，再用 fetchImage 取。',
       )
     }
@@ -115,7 +115,10 @@ export const fetchListingImages = defineAgentTool({
         )
       } catch (error) {
         // 一张取不下来不该把整套废掉：记下来，其余照常交付。中止与配额用尽要往上抛。
-        if (error instanceof AgentToolError && error.code === 'invalid_params') {
+        if (
+          error instanceof AgentToolError &&
+          (error.code === 'invalid_params' || error.code === 'source_unavailable')
+        ) {
           failures.push(url)
           continue
         }
@@ -125,7 +128,7 @@ export const fetchListingImages = defineAgentTool({
       }
     }
     if (images.length === 0) {
-      throw new AgentToolError('upstream_error', '解析出了商品图地址，但一张也没取下来。')
+      throw new AgentToolError('source_unavailable', '解析出了商品图地址，但一张也没取下来。')
     }
 
     const resolved = await Promise.all(
