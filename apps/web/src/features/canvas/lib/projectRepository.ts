@@ -43,7 +43,10 @@ export interface CanvasProject {
 }
 
 export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
-  return project.experience ?? (!project.conversationId && project.hasContent ? 'canvas' : 'chat')
+  return (
+    project.experience ??
+    (!project.conversationId && (project.hasContent || project.workspaceOpened) ? 'canvas' : 'chat')
+  )
 }
 
 /** 默认名只在界面区分入口；存储和同步仍使用统一的未命名项目标识。 */

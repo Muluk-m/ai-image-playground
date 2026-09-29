@@ -42,7 +42,7 @@ export default function ProjectGrid({
     .filter(
       (project) =>
         project.name.toLowerCase().includes(search.trim().toLowerCase()) &&
-        (!recent || project.hasContent) &&
+        (!recent || project.hasContent || project.workspaceOpened) &&
         (!experience || projectExperience(project) === experience),
     )
     .slice(0, recent ? 5 : undefined)

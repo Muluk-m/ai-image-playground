@@ -591,7 +591,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-artifact-pane-next { right: 3px; }
 }
 
-.studio-artifact-edit-dialog { display: flex; flex-direction: column; width: min(1120px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow: hidden; border: 1px solid hsl(var(--foreground) / .11); border-radius: 22px; background: hsl(var(--card)); box-shadow: 0 32px 100px rgb(0 0 0 / .5); }
+.studio-artifact-edit-dialog { display: flex; flex-direction: column; width: min(1120px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid hsl(var(--foreground) / .11); border-radius: 22px; background: hsl(var(--card)); box-shadow: 0 32px 100px rgb(0 0 0 / .5); }
 .studio-artifact-edit-dialog > header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; min-height: 64px; padding: 0 24px; border-bottom: 1px solid hsl(var(--foreground) / .07); }
 .studio-artifact-edit-dialog h2 { font-size: 16px; font-weight: 600; }
 .studio-artifact-edit-dialog > header button { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 9px; color: hsl(var(--muted-foreground)); }

@@ -16,6 +16,7 @@ export async function resumePendingSubmission(): Promise<void> {
   } else if (!(await startCanvasFromComposer(pending.draft, pending.experience ?? 'canvas'))) {
     if (!useStore.getState().prompt.trim()) {
       useStore.setState({
+        createTarget: pending.experience ?? 'canvas',
         prompt: pending.draft.prompt,
         inputImages: pending.draft.references.map(({ id, dataUrl }) => ({ id, dataUrl })),
       })

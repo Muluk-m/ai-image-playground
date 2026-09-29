@@ -54,14 +54,7 @@ export default function ProjectNavigation() {
   const matches = (query ? catalog : recent).filter((project) =>
     projectEntryName(project).toLocaleLowerCase().includes(query),
   )
-  const visible = (
-    query
-      ? matches
-      : [
-          ...matches.filter((project) => projectExperience(project) === 'chat'),
-          ...matches.filter((project) => projectExperience(project) === 'canvas'),
-        ]
-  ).slice(0, query ? 30 : 10)
+  const visible = matches.slice(0, query ? 30 : 10)
   const allProjects = () => {
     setOpen(false)
     useLibraryStore.getState().openProjects()
