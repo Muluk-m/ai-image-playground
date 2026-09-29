@@ -111,14 +111,6 @@ export async function removeConversation(
   if (!response.ok) throw await requestError(response)
 }
 
-export async function adoptAgentConversations(
-  fetcher: Fetcher = authenticatedBffFetch,
-): Promise<number> {
-  const response = await fetcher(url('/conversations/adopt'), jsonInit({ deviceId: getDeviceId() }))
-  if (!response.ok) throw await requestError(response)
-  return ((await response.json()) as { adopted: number }).adopted
-}
-
 /** 会话快照（见 `AgentConversationSnapshot`）。`cursor` 缺席说明是老服务端，只能按轮续播。 */
 export interface AgentConversationState {
   readonly messages: AgentMessageView[]
