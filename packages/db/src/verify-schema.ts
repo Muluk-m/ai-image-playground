@@ -69,6 +69,7 @@ export const EXPECTED_INDEXES = [
   'agent_conversations_pkey',
   'agent_model_calls_pkey',
   'idx_agent_model_calls_turn',
+  'idx_agent_model_calls_started_at',
   'agent_messages_conversation_id_id_pk',
   'agent_turn_events_conversation_id_seq_pk',
   'agent_turns_conversation_id_turn_id_pk',
@@ -135,7 +136,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 45
+const EXPECTED_MIGRATION_COUNT = 46
 
 export interface SchemaVerificationResult {
   tables: number
