@@ -336,6 +336,16 @@ export default function AgentPanel({
                   lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
                 const trail = grouping.trails.get(index)
                 if (grouping.absorbed.has(index) && !trail && !footer) return null
+                // 历史里可能落下一条空的助手文本。它不显示内容，也不该留下块间距。
+                if (
+                  message.kind === 'text' &&
+                  message.role === 'assistant' &&
+                  !message.streaming &&
+                  !message.text.trim() &&
+                  !trail &&
+                  !footer
+                )
+                  return null
                 return (
                   <div
                     key={message.id}
