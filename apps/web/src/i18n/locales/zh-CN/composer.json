@@ -29,6 +29,8 @@
   },
   "editor": {
     "placeholder": "描述你想生成的图片，@ 指定参考图，{槽位} 批量生成...",
+    "chatPlaceholder": "说说你想创作什么，或先和助手讨论思路…",
+    "canvasPlaceholder": "描述你想在画布中创作的内容，@ 引用素材…",
     "clearPrompt": "清空提示词"
   },
   "image": {

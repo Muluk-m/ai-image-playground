@@ -34,6 +34,8 @@
   },
   "editor": {
     "placeholder": "Describe the image, @ to pick a reference image, {slot} to batch generate...",
+    "chatPlaceholder": "Tell the assistant what you want to create, or discuss an idea first…",
+    "canvasPlaceholder": "Describe what to create on the canvas, @ mention an asset…",
     "clearPrompt": "Clear prompt"
   },
   "image": {

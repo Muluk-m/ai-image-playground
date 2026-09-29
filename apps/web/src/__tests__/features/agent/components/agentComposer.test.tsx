@@ -359,6 +359,7 @@ describe('智能体输入框', () => {
 
   it('纯对话输入框不列出画布图，也不自动带入画布选区', () => {
     act(() => root.render(<AgentComposer doc={doc} showCanvasReferences={false} />))
+    expect(editor().getAttribute('data-placeholder')).toContain('引用素材')
     type('把@')
     expect(options().map((one) => one.textContent)).not.toContain('画布图1')
     expect(editor().querySelector('img')).toBeNull()
