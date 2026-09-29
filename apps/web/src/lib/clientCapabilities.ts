@@ -29,32 +29,51 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 let currentManifest = disabledManifest()
 let currentBffEnabled = false
 let projectDocumentIdentity = false
+const CAPABILITY_TIMEOUT_MS = 5000
 
 export async function bootstrapClientCapabilities(
   bffEnabled: boolean,
   bffBaseUrl: string,
+  required = false,
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
   currentBffEnabled = bffEnabled
   projectDocumentIdentity = false
   if (!bffEnabled) return currentManifest
 
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    const response = await fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
-      cache: 'no-store',
-    })
-    if (!response.ok) return currentManifest
-    const body: unknown = await response.json()
-    const parsed = parseManifest(body)
-    if (parsed) currentManifest = parsed
+    const result = await Promise.race([
+      fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      }).then(async (response) => {
+        if (!response.ok) return null
+        const body: unknown = await response.json()
+        return { body, parsed: parseManifest(body) }
+      }),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort()
+          reject(new Error('capability_request_timeout'))
+        }, CAPABILITY_TIMEOUT_MS)
+      }),
+    ])
+    if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
+    if (result?.parsed) currentManifest = result.parsed
+    const body = result?.body
     projectDocumentIdentity =
-      parsed !== null &&
+      result?.parsed !== null &&
       typeof body === 'object' &&
       body !== null &&
       'projectDocumentIdentity' in body &&
       body.projectDocumentIdentity === true
-  } catch {
+  } catch (error) {
     // A missing capability response must never enable a feature.
+    if (required) throw error
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
   return currentManifest
 }

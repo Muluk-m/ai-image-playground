@@ -986,6 +986,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
   let conversationListRevision = 0
   let conversationListRequest = 0
+  let cancelPendingConversationImport: (() => void) | undefined
   let changingProject = false
   const changeProject = async (action: () => Promise<boolean>) => {
     if (changingProject) return false
@@ -1145,6 +1146,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
 
     async refreshConversations() {
+      cancelPendingConversationImport?.()
+      cancelPendingConversationImport = undefined
       const revision = conversationListRevision
       const request = ++conversationListRequest
       try {
@@ -1156,14 +1159,46 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         )
           return
         set({ conversations })
-        if (useCanvasProjectStore.getState().loaded)
-          await importConversationProjects(
-            conversations,
-            () =>
-              !changingProject &&
-              revision === conversationListRevision &&
-              request === conversationListRequest,
-          )
+        if (useCanvasProjectStore.getState().loaded) {
+          const isCurrentScope = accountScope()
+          const canImport = () =>
+            isCurrentScope() &&
+            !changingProject &&
+            revision === conversationListRevision &&
+            request === conversationListRequest
+          // Cached canvas routes become ready before their cloud catalog. Do not manufacture
+          // legacy projects for conversations whose real project is still being imported.
+          if (
+            useCanvasProjectStore.getState().cloudLoading ||
+            useCanvasProjectStore.getState().cloudError
+          ) {
+            let stop = () => {}
+            const unsubscribe = useCanvasProjectStore.subscribe((projectState) => {
+              if (!isCurrentScope()) {
+                stop()
+                return
+              }
+              if (projectState.cloudLoading || projectState.cloudError) return
+              stop()
+              if (canImport())
+                void importConversationProjects(conversations, canImport).catch(() => {})
+            })
+            stop = () => {
+              unsubscribe()
+              if (cancelPendingConversationImport === stop)
+                cancelPendingConversationImport = undefined
+            }
+            cancelPendingConversationImport = stop
+            const latest = useCanvasProjectStore.getState()
+            if (!latest.cloudLoading && !latest.cloudError) {
+              stop()
+              if (canImport())
+                void importConversationProjects(conversations, canImport).catch(() => {})
+            }
+          } else {
+            await importConversationProjects(conversations, canImport)
+          }
+        }
       } catch {
         // 列表读不回来不该拖垮面板，留着上一份。
       }
