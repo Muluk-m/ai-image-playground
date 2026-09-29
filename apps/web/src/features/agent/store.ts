@@ -981,6 +981,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
   let conversationListRevision = 0
   let conversationListRequest = 0
+  let cancelPendingConversationImport: (() => void) | undefined
   let changingProject = false
   const changeProject = async (action: () => Promise<boolean>) => {
     if (changingProject) return false
@@ -1134,6 +1135,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
 
     async refreshConversations() {
+      cancelPendingConversationImport?.()
+      cancelPendingConversationImport = undefined
       const revision = conversationListRevision
       const request = ++conversationListRequest
       try {
@@ -1154,15 +1157,32 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             request === conversationListRequest
           // Cached canvas routes become ready before their cloud catalog. Do not manufacture
           // legacy projects for conversations whose real project is still being imported.
-          if (useCanvasProjectStore.getState().cloudLoading) {
+          if (
+            useCanvasProjectStore.getState().cloudLoading ||
+            useCanvasProjectStore.getState().cloudError
+          ) {
+            let stop = () => {}
             const unsubscribe = useCanvasProjectStore.subscribe((projectState) => {
-              if (projectState.cloudLoading) return
-              unsubscribe()
-              if (canImport()) void importConversationProjects(conversations, canImport)
+              if (!isCurrentScope()) {
+                stop()
+                return
+              }
+              if (projectState.cloudLoading || projectState.cloudError) return
+              stop()
+              if (canImport())
+                void importConversationProjects(conversations, canImport).catch(() => {})
             })
-            if (!useCanvasProjectStore.getState().cloudLoading) {
+            stop = () => {
               unsubscribe()
-              if (canImport()) void importConversationProjects(conversations, canImport)
+              if (cancelPendingConversationImport === stop)
+                cancelPendingConversationImport = undefined
+            }
+            cancelPendingConversationImport = stop
+            const latest = useCanvasProjectStore.getState()
+            if (!latest.cloudLoading && !latest.cloudError) {
+              stop()
+              if (canImport())
+                void importConversationProjects(conversations, canImport).catch(() => {})
             }
           } else {
             await importConversationProjects(conversations, canImport)

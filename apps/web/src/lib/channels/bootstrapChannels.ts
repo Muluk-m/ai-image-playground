@@ -8,9 +8,10 @@ let preloaded: { baseUrl: string; promise: Promise<DiscoveredChannel[]> } | unde
 
 /** Start public discovery alongside capabilities; AuthGate consumes the same response. */
 export function preloadChannels(bffEnabled: boolean, bffBaseUrl: string): void {
+  const requestId = ++latestRequestId
+  preloaded = undefined
   setChannels([])
   if (!bffEnabled) return
-  const requestId = ++latestRequestId
   const controller = new AbortController()
   const timeout = globalThis.setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS)
   const promise = fetchDiscoveredChannels(bffBaseUrl, { signal: controller.signal })
