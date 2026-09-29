@@ -12,6 +12,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 const { arrangeCanvas } = await import('../../../../lib/agent/tools/arrangeCanvas')
+const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
 type AgentToolContext = Parameters<typeof arrangeCanvas.create>[0]
 
@@ -240,5 +241,47 @@ it('refuses to calculate a layout from an incomplete live canvas', async () => {
 it('refuses to invent a layout when this turn has no server canvas', async () => {
   await expect(run('conv-1', null, [{ items: [{ elementId: 'el-a' }] }])).rejects.toMatchObject({
     name: 'AgentToolError',
+  })
+})
+
+it('empty live canvas wins over a persisted project for both tools', async () => {
+  await project({ version: 1, elements: [image('old-image', MEDIA_A, 0)] })
+  const ctx = { ...context('conv-1', USER), canvas: { elements: [] } }
+  const read = await readCanvas.create(ctx).execute('read', {}, undefined, undefined)
+  expect(read.content).toEqual([
+    { type: 'text', text: '图片画布（用户此刻看见的，共 0 个元素）：没有可列的元素。' },
+  ])
+  await expect(
+    arrangeCanvas.create(ctx).execute(
+      'arrange',
+      {
+        groups: [{ items: [{ elementId: 'old-image' }] }],
+      },
+      undefined,
+      undefined,
+    ),
+  ).rejects.toThrow('在画布上找不到')
+})
+
+it('arrangement respects live obstacle bounds and image offsets', async () => {
+  const ctx: AgentToolContext = {
+    ...context('conv-1', null),
+    canvas: {
+      elements: [
+        { id: 'photo', type: 'image', x: 10, y: 20, width: 200, height: 150, dx: 12, dy: 18 },
+        { id: 'shape', type: 'shape', x: 0, y: 0, width: 400, height: 30 },
+      ],
+    },
+  }
+  const result = await arrangeCanvas.create(ctx).execute(
+    'arrange',
+    {
+      groups: [{ items: [{ elementId: 'photo' }] }],
+    },
+    undefined,
+    undefined,
+  )
+  expect(result.details).toEqual({
+    canvasEdit: { edits: [{ elementId: 'photo', x: 572, y: 63.5, section: '' }] },
   })
 })

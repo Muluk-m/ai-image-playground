@@ -1,7 +1,6 @@
 import type {
   AgentActiveTurnView,
   AgentBackgroundJobProgress,
-  AgentCanvasSnapshot,
   AgentConversationView,
   AgentMessageView,
   AgentMode,
@@ -15,7 +14,6 @@ import type {
 import {
   AGENT_IMAGE_MAX_N,
   AGENT_QUEUE_MAX_PENDING,
-  AGENT_TURN_MAX_INLINE_REFERENCES,
   PROJECT_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -37,12 +35,9 @@ import {
   conversationSceneKey,
   currentCanvasWorkspace,
   importConversationProjects,
-  openCanvasCloudSession,
   openProject,
-  peekCanvasWorkspace,
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
-import { liveCanvasSnapshot } from '../canvas/lib/canvasSnapshot'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import { type CanvasProject, projectExperience } from '../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
@@ -61,7 +56,6 @@ import {
   fetchConversations,
   fetchMessages,
   followTurn,
-  inlineReferenceCount,
   interjectQueuedMessage,
   interjectTurn,
   removeConversation,
@@ -77,7 +71,7 @@ import {
 } from './lib/artifactDelivery'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
-import { bindNewAgentDraft } from './lib/drafts'
+import { agentDraft, bindNewAgentDraft } from './lib/drafts'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -92,6 +86,7 @@ import {
   type OutgoingMessage,
   outgoingMessages,
   rememberOutgoing,
+  updateOutgoingInput,
 } from './lib/outgoingJournal'
 import {
   answerableClarificationId,
@@ -113,6 +108,12 @@ import {
 import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
+import {
+  captureTurnSubmission,
+  type TurnSubmissionReplay,
+  type TurnSubmissionSnapshot,
+  type UnsentTurnSubmission,
+} from './lib/turnSubmission'
 import type {
   AgentPanelMessage,
   AgentPanelTab,
@@ -248,10 +249,12 @@ export interface AgentState {
      * 同一条，不会排第二次，也不会重复扣费。缺席即新生成一个。
      */
     clientMessageId?: string,
-    /** 仅供本机未确认消息重发：沿用首次发话保存的画布。 */
-    replay?: { canvas?: AgentCanvasSnapshot },
+    /** 仅供本机未确认消息重发：沿用首次发话的画布与设置。 */
+    replay?: TurnSubmissionReplay,
     /** 快捷编辑在校验遮罩能力时固定的模型，避免上传期间切换模型造成校验与起轮不一致。 */
     modelOverride?: string,
+    /** 输入框接回失败消息后，日志停止自动重发；先等草稿落盘。 */
+    onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -299,39 +302,8 @@ const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   messages: dropUnsettledMessages(state.messages),
 })
 
-/**
- * 画布上的图换成云端媒体引用（`aip-media:`），`agentClient` 发送时就只带 id。
- *
- * 本机画布存的是原图 data URL——用户传的图、智能体产物落画布时都是整张原图——上传之后 id 只在
- * 同步会话的绑定表里。不换的话一轮十张主图就是几十 MB 的请求体，慢，然后失败。
- * 画过遮罩、烧过批注的那张是新像素，云端没有它，照旧内联；认不出的（没开云项目、同步失败）也照旧。
- */
-async function withCloudMedia(
-  references: readonly AgentTurnReference[],
-): Promise<readonly AgentTurnReference[]> {
-  const cloud = openCanvasCloudSession()
-  const local = references.flatMap((one) =>
-    'dataUrl' in one && !one.maskDataUrl && one.dataUrl.startsWith('data:image/')
-      ? [one.dataUrl]
-      : [],
-  )
-  if (!cloud || local.length === 0) return references
-  const ids = await cloud.mediaIdsFor(local)
-  return references.map((one) => {
-    const id = 'dataUrl' in one && !one.maskDataUrl ? ids.get(one.dataUrl) : undefined
-    return id ? { ...one, dataUrl: `aip-media:${id}` } : one
-  })
-}
-
-/**
- * 这一份参考图能不能发出去。上传没成、离线、同步被打回时，圈中的图换不成 id，就只剩内联
- * 这一条路；服务端对内联张数有硬上限，超了必被 4xx 打回。照发的代价不是一次失败，而是
- * 先把几十 MB 传上几分钟：那几分钟里面板一直挂着「发送中」，最后才说失败。所以发之前就拦。
- */
 const REFERENCES_NOT_UPLOADED = () => i18next.t('error.referencesNotUploaded', { ns: 'agent' })
 
-const sendableReferences = (references: readonly AgentTurnReference[]) =>
-  inlineReferenceCount(references) <= AGENT_TURN_MAX_INLINE_REFERENCES
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
 
@@ -784,6 +756,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           message.id,
           {
             canvas: message.canvas,
+            params: message.params,
+            canvasReferenceIds: message.canvasReferenceIds,
+            clarificationAnswer: message.clarificationAnswer,
           },
           message.modelOverride,
         )
@@ -891,59 +866,49 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
   }
 
-  /** 发话这一刻的画布。必须在任何 await 之前拍，上传期间换项目不能把别的画布带进这一轮。 */
-  const canvasAtSend = (conversationId: string | null, project: CanvasProject | undefined) => {
-    const workspace = peekCanvasWorkspace()
-    const sceneKey = project?.sceneKey ?? canvasSceneKey(conversationId)
-    if (!workspace || workspace.record.key !== sceneKey) return undefined
-    const { loading, loadFailed } = workspace.record.getSnapshot()
-    if (loading || loadFailed) return undefined
-    if (conversationId && project?.conversationId && project.conversationId !== conversationId)
-      return undefined
-    return liveCanvasSnapshot(workspace.doc, (fileId, source) =>
-      workspace.cloud?.knownMediaId(fileId, source),
-    )
-  }
-
   /** 智能体忙时发的话进服务端的排队列表，当前回复结束后按顺序处理。 */
   const queueMessage = async (
     conversationId: string,
     active: AgentActiveTurnView | null,
     text: string,
-    references: readonly AgentTurnReference[],
     onAccepted: (() => void) | undefined,
     mode: AgentMode,
     clarificationAnswer: boolean,
     clientMessageId: string,
-    canvas: ReturnType<typeof canvasAtSend>,
-    modelOverride?: string,
+    prepare: () => Promise<TurnSubmissionSnapshot | null>,
   ) => {
     const current = () => get().conversationId === conversationId
     try {
-      const sent = await withCloudMedia(references)
-      if (!sendableReferences(sent)) {
+      const prepared = await prepare()
+      if (!prepared) {
         if (current()) set({ error: REFERENCES_NOT_UPLOADED() })
-        return
+        return false
       }
+      if (!current()) return false
       const outcome = await startTurn(
         conversationId,
         text,
-        sent,
-        modelOverride ? { ...currentTurnParams(), model: modelOverride } : currentTurnParams(),
+        prepared.references,
+        prepared.params,
         mode,
         undefined,
         clientMessageId,
         clarificationAnswer,
-        canvas,
+        prepared.canvas,
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
         if (current()) set({ error: i18next.t('error.queueFailed', { ns: 'agent' }) })
-        return
+        return 'cancelled' as const
       }
       if (outcome.kind === 'alreadyRunning') {
         // 老服务端没有排队：忙时照旧是插话。
-        await interjectTurn(conversationId, active?.turnId ?? outcome.turnId, text, sent)
+        await interjectTurn(
+          conversationId,
+          active?.turnId ?? outcome.turnId,
+          text,
+          prepared.references,
+        )
       } else if (
         outcome.kind === 'frames' ||
         (outcome.kind === 'queued' && outcome.body.state === 'consumed')
@@ -953,7 +918,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (outcome.kind === 'frames') void outcome.frames.return(undefined)
       }
       onAccepted?.()
-      if (!current()) return
+      if (!current()) return true
       set((state) => ({
         error: null,
         ...(outcome.kind === 'queued' &&
@@ -961,8 +926,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           ? { queue: addQueuedMessage(state.queue, outcome.body.queued) }
           : {}),
       }))
+      return true
     } catch (thrown) {
-      if (!current()) return
+      if (!current()) return false
       const code = thrown instanceof AgentRequestError ? thrown.code : undefined
       set({
         error:
@@ -974,6 +940,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
                 ? i18next.t('error.invalidReference', { ns: 'agent' })
                 : i18next.t('error.queueFailed', { ns: 'agent' }),
       })
+      return false
     }
   }
 
@@ -1323,7 +1290,22 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       clientMessageId,
       replay,
       modelOverride,
+      onUnsent,
     ) {
+      const turnParams = replay?.params ?? {
+        ...currentTurnParams(),
+        ...(modelOverride ? { model: modelOverride } : {}),
+      }
+      const conversationId = get().conversationId
+      const sourceProject = currentCanvasProject()
+      const captured = captureTurnSubmission({
+        references,
+        params: turnParams,
+        conversationId,
+        project: sourceProject,
+        replay,
+      })
+      references = captured.snapshot.references
       // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
       // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
       if (get().stopping && abortInFlight) await abortInFlight
@@ -1334,13 +1316,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 别把这句话上屏再被打回。没开积分计费的部署照旧按 deviceId 放匿名设备对话过。
       if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
 
+      if (
+        get().conversationId !== conversationId ||
+        currentCanvasProject()?.id !== sourceProject?.id
+      )
+        return 'cancelled'
       const active = get().activeTurn
-      const conversationId = get().conversationId
       // 末尾还有没作答的澄清：这句话就是在回答它（卡片与输入框同一个口径），服务端把它排在队首。
-      const clarificationAnswer = answerableClarificationId(get().messages) !== null
-      const sourceProject = currentCanvasProject()
+      const clarificationAnswer =
+        replay?.clarificationAnswer ?? answerableClarificationId(get().messages) !== null
       const messageId = clientMessageId ?? crypto.randomUUID()
-      const canvas = replay ? replay.canvas : canvasAtSend(conversationId, sourceProject)
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
@@ -1350,34 +1335,60 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           projectId: journaled.projectId,
           conversationId,
           text: trimmed,
-          references: [...references],
+          ...captured.snapshot,
           mode,
           ...(modelOverride ? { modelOverride } : {}),
           clarificationAnswer,
-          ...(canvas ? { canvas } : {}),
           createdAt: Date.now(),
         })
-      const settleJournal = () => {
-        if (journaled) void forgetOutgoing(journaled.projectId, journaled.id)
+      let submissionInput = captured.snapshot
+      const prepare = async () => {
+        const prepared = await captured.prepare()
+        if (prepared) submissionInput = prepared
+        if (prepared && journaled)
+          await updateOutgoingInput(journaled.projectId, journaled.id, prepared)
+        return prepared
+      }
+      const settleJournal = async () => {
+        if (journaled) await forgetOutgoing(journaled.projectId, journaled.id)
+      }
+      const returnUnsent = async (withdrawn = false) => {
+        if (!onUnsent && !withdrawn) return
+        // 已撤回的 id 是服务端终态，再用它只会再次得到 cancelled。只有用户从草稿再发才开新 id。
+        const unsent: UnsentTurnSubmission = {
+          ...submissionInput,
+          id: withdrawn ? crypto.randomUUID() : messageId,
+          text: trimmed,
+          mode,
+          clarificationAnswer,
+        }
+        let returned: boolean
+        if (onUnsent) returned = await onUnsent(unsent)
+        else {
+          // 刷新补发时输入框可能尚未挂载，恢复仍归属原项目，不能把终态日志直接丢掉。
+          const draft = agentDraft(conversationId, sourceProject?.id)
+          await draft.ready
+          returned = await draft.returnUnsent({
+            ...returnQueuedToDraft({ prompt: '', references: [] }, [unsent]),
+            submission: unsent,
+          })
+        }
+        if (returned) await settleJournal()
       }
       if (get().turn === 'running' && conversationId) {
-        try {
-          await queueMessage(
-            conversationId,
-            active,
-            trimmed,
-            references,
-            onAccepted,
-            mode,
-            clarificationAnswer,
-            messageId,
-            canvas,
-            modelOverride,
-          )
-        } finally {
-          settleJournal()
-        }
-        return
+        const accepted = await queueMessage(
+          conversationId,
+          active,
+          trimmed,
+          onAccepted,
+          mode,
+          clarificationAnswer,
+          messageId,
+          prepare,
+        )
+        if (accepted === true) await settleJournal()
+        else await returnUnsent(accepted === 'cancelled')
+        return accepted === 'cancelled' ? 'cancelled' : undefined
       }
       if (get().turn === 'running') {
         settleJournal()
@@ -1423,6 +1434,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       })
       const submission = { cancelled: false, delivery: turnDelivery, settled: submitted }
       pendingStart = submission
+      let accepted = false
+      let withdrawn = false
       const cancelUnsent = async () => {
         if (turnDelivery.isCurrent())
           set((state) => ({
@@ -1483,28 +1496,27 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           return
         }
         if (submission.cancelled) return await cancelUnsent()
-        const turnParams = modelOverride
-          ? { ...currentTurnParams(), model: modelOverride }
-          : currentTurnParams()
-        const sent = await withCloudMedia(references)
-        if (!sendableReferences(sent)) {
+        const prepared = await prepare()
+        if (!prepared) {
           if (turnDelivery.isCurrent()) fail(REFERENCES_NOT_UPLOADED())
           await turnDelivery.settled()
           return
         }
+        if (submission.cancelled) return await cancelUnsent()
+        if (!turnDelivery.isCurrent()) return
         // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
         let outcome: StartTurnOutcome
         try {
           outcome = await startTurn(
             target,
             trimmed,
-            sent,
-            turnParams,
+            prepared.references,
+            prepared.params,
             mode,
             undefined,
             messageId,
             clarificationAnswer,
-            canvas,
+            prepared.canvas,
           )
         } catch (thrown) {
           if (turnDelivery.isCurrent())
@@ -1526,6 +1538,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
             .catch(() => {})
         const refused = outcome.kind === 'queued' && outcome.body.state === 'cancelled'
+        withdrawn = refused
+        accepted = outcome.kind === 'frames' || (outcome.kind === 'queued' && !refused)
         if (!turnDelivery.isCurrent()) {
           if (outcome.kind === 'queued' && !refused) onAccepted?.()
           if (outcome.kind === 'frames') {
@@ -1546,7 +1560,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           // 服务端说这句话已不在队里：没被收下，草稿留着，与起轮请求失败同样收场。
           fail(i18next.t('error.queueFailed', { ns: 'agent' }))
           await turnDelivery.settled()
-          return
+          return 'cancelled'
         }
         if (outcome.kind === 'queued') {
           // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。
@@ -1574,7 +1588,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           setTimeout(() => void get().refreshConversations(), titleRewriteMs)
         }
       } finally {
-        settleJournal()
+        if (accepted || submission.cancelled) await settleJournal()
+        else await returnUnsent(withdrawn)
         settleSubmission()
         if (pendingStart === submission) pendingStart = null
       }

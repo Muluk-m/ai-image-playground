@@ -25,6 +25,11 @@ export const OPS_THRESHOLDS = {
   /** 最近这段时间 5xx 占比超过这个比例、且请求数不少于下面的数，看板标红。 */
   API_SERVER_ERROR_RATIO: 0.05,
   API_MIN_REQUESTS_FOR_RATIO: 20,
+  /** 低流量时也要捕获绝对数量明显异常的 5xx。 */
+  API_SERVER_ERROR_ABSOLUTE: 5,
+  /** 最近 15 分钟的系统性业务失败；内容策略拒绝不属于服务事故。 */
+  GENERATION_SYSTEM_FAILURES: 3,
+  AGENT_TURN_FAILURES: 3,
   /** 看板判断「最近」接口情况的窗口。 */
   API_RECENT_WINDOW_MS: 15 * 60 * 1000,
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
