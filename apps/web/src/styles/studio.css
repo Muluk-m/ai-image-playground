@@ -663,6 +663,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-sidebar--page .studio-agent-log { display: block; padding: 24px 0 14px; }
 .studio-agent-log-content { display: flex; flex-direction: column; gap: 20px; width: min(1400px, calc(100% - 96px)); min-height: 100%; margin-inline: auto; }
 .studio-agent-message-block { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.studio-agent-message-block:empty { display: none; }
 .studio-sidebar--page .studio-agent-composer,
 .studio-sidebar--page .studio-agent-pending-drafts,
 .studio-sidebar--page .studio-agent-message-queue { width: min(1400px, calc(100% - 96px)); margin-inline: auto; }
