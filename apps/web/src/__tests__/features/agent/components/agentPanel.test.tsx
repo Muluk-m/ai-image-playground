@@ -1347,6 +1347,34 @@ describe('AgentPanel', () => {
     expect(host.textContent).not.toContain('展开')
   })
 
+  it('历史中的空助手消息不留下对话块和空白间距', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'assistant-empty',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '  ',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'assistant-visible',
+          turnId: 'turn-2',
+          role: 'assistant',
+          text: '下一条可见回复',
+          streaming: false,
+        },
+      ],
+      turns: {},
+    })
+    render()
+
+    expect(host.querySelector('[data-agent-message-id="assistant-empty"]')).toBeNull()
+    expect(host.querySelector('[data-agent-message-id="assistant-visible"]')).not.toBeNull()
+  })
+
   it('面板宽度跟着 store，右缘有拖宽手柄', () => {
     useAgentStore.setState({ panelWidth: 420 })
     render()
