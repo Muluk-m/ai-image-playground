@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
+import { webcrypto } from 'node:crypto'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -9,10 +10,23 @@ import {
   rememberOutgoing,
 } from '../../../features/agent/lib/outgoingJournal'
 import { useAgentStore } from '../../../features/agent/store'
-import type { CanvasProject } from '../../../features/canvas/lib/projectRepository'
+import {
+  currentCanvasWorkspace,
+  peekCanvasWorkspace,
+} from '../../../features/canvas/lib/activeProject'
+import {
+  type CanvasProject,
+  projectRepository,
+} from '../../../features/canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../../features/canvas/projectStore'
-import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
+import {
+  AGENT_CONVERSATION_KEY,
+  scopedStorageName,
+  setClientStorageScope,
+} from '../../../lib/authScope'
+import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
+import { useStore } from '../../../store'
 
 const CONVERSATION = 'conversation-1'
 const PROJECT = 'project-1'
@@ -186,4 +200,151 @@ it('重发仍使用发话时保存的画布目录', async () => {
   const body = JSON.parse(String(sent?.[1]?.body))
   expect(body.canvas).toEqual(canvas)
   expect(body.params.model).toBe('gpt-image-2.5-flare')
+  await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+})
+
+it('发送失败后换了设置，刷新重发仍沿用原轮的完整参数', async () => {
+  const original = useStore.getState().params
+  useStore.setState({ params: { ...original, size: '1536x1024', quality: 'high' } })
+  useAgentStore.setState({ thinkingDepth: 'deep', autoSubmit: true })
+  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  await useAgentStore
+    .getState()
+    .send('保留这次设置', [], undefined, 'image', undefined, undefined, 'gpt-image-2')
+  const first = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+  const initial = JSON.parse(String(first?.[1]?.body))
+  expect(initial.params).toMatchObject({
+    model: 'gpt-image-2',
+    size: '1536x1024',
+    quality: 'high',
+    thinkingDepth: 'deep',
+    autoSubmit: true,
+  })
+  useStore.setState({ params: { ...original, size: '1024x1536', quality: 'low' } })
+  useAgentStore.setState({ thinkingDepth: 'fast', autoSubmit: false })
+  reload(CONVERSATION)
+  fetchMock.mockClear()
+  turnResponse = COMPLETED_TURN
+  localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+  await useAgentStore.getState().load()
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+  )
+  const resent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+  expect(JSON.parse(String(resent?.[1]?.body)).params).toEqual(initial.params)
+  await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+  useStore.setState({ params: original })
+})
+
+it.each([
+  false,
+  true,
+])('等待原图同步后，引用与发话时画布一致且不带入后续编辑（排队=%s）', async (queued) => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(crypto.randomUUID())
+  const source = 'data:image/png;base64,AQID'
+  const marked = 'data:image/png;base64,BAUG'
+  const mask = 'data:image/png;base64,BwgJ'
+  const mediaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  let releaseUpload: (response: Response) => void = () => {}
+  let uploading = false
+  const project = await projectRepository.create('发送时画布', undefined, true)
+  await projectRepository.update(project.id, { conversationId: CONVERSATION })
+  useCanvasProjectStore.setState({
+    projects: [{ ...project, conversationId: CONVERSATION }],
+    activeId: project.id,
+    loaded: true,
+  })
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+    if (url === source)
+      return new Response(
+        Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
+        { headers: { 'content-type': 'image/png' } },
+      )
+    if (url.endsWith('/uploads')) {
+      uploading = true
+      return new Promise<Response>((resolve) => {
+        releaseUpload = resolve
+      })
+    }
+    if (url.includes('/api/projects/') && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body))
+      return Response.json({
+        id: project.id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: body.document.elements.length,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const workspace = currentCanvasWorkspace()
+  try {
+    await workspace.ready
+    await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'))
+    workspace.doc.addElements(
+      ['photo', 'marked', 'masked'].map((id) => ({
+        id,
+        type: 'image' as const,
+        fileId: 'original',
+        x: 10,
+        y: 20,
+        width: 30,
+        height: 40,
+        rotation: 0,
+      })),
+      { files: { original: source } },
+    )
+    if (queued) useAgentStore.setState({ turn: 'running' })
+    const sending = useAgentStore.getState().send('改这张图', [
+      { imageId: 'photo', dataUrl: source },
+      { imageId: 'marked', dataUrl: marked },
+      { imageId: 'masked', dataUrl: source, maskDataUrl: mask },
+    ])
+    await vi.waitFor(() => expect(uploading).toBe(true))
+    workspace.doc.updateElements([{ id: 'photo', patch: { x: 900 } }])
+    releaseUpload(Response.json({ id: mediaId, status: 'ready' }))
+    await sending
+    const sent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    const body = JSON.parse(String(sent?.[1]?.body))
+    expect(body.references).toEqual([
+      { imageId: 'photo', mediaId },
+      { imageId: 'marked', dataUrl: marked },
+      { imageId: 'masked', dataUrl: source, maskDataUrl: mask },
+    ])
+    expect(body.canvas.elements).toEqual([
+      { id: 'photo', type: 'image', x: 10, y: 20, width: 30, height: 40, mediaId },
+      { id: 'marked', type: 'image', x: 10, y: 20, width: 30, height: 40 },
+      { id: 'masked', type: 'image', x: 10, y: 20, width: 30, height: 40 },
+    ])
+  } finally {
+    workspace.dispose()
+    setClientStorageScope(null)
+    peekCanvasWorkspace()
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('排队发送失败后仍保留原输入，刷新后用同一消息身份重发', async () => {
+  useAgentStore.setState({ turn: 'running' })
+  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  await useAgentStore.getState().send('接着处理下一张')
+  const [saved] = await outgoingMessages(PROJECT)
+  expect(saved).toMatchObject({ text: '接着处理下一张', conversationId: CONVERSATION })
+  reload(CONVERSATION)
+  turnResponse = COMPLETED_TURN
+  fetchMock.mockClear()
+  localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+  await useAgentStore.getState().load()
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+  )
+  const resent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+  expect(JSON.parse(String(resent?.[1]?.body)).clientMessageId).toBe(saved!.id)
+  await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
 })
