@@ -68,12 +68,33 @@ export function buildImageResponsesBody(
   }
 }
 
+/** 单条事件最多缓冲多少字符。一张 4K PNG 的 base64 约 3300 万字符，留一倍余量。 */
+const EVENT_BUFFER_LIMIT_CHARS = 64_000_000
+let eventBufferLimit = EVENT_BUFFER_LIMIT_CHARS
+
+/** 测试注入点；undefined 恢复默认上限。 */
+export function setImageResponsesBufferLimitForTesting(chars?: number): void {
+  eventBufferLimit = chars ?? EVENT_BUFFER_LIMIT_CHARS
+}
+
 /** 按 SSE 规范切事件。eventsource-parser 用片段列表缓存未收完的行，几 MB 的图片 base64 不会被反复拼接。 */
 async function* readEvents(body: ReadableStream<Uint8Array>, signal: AbortSignal) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   const ready: string[] = []
-  const parser = createParser({ onEvent: (event) => ready.push(event.data) })
+  let overflow: Error | undefined
+  // 超限时解析器只回调 onError、这次 feed 并不抛错，得自己接住再抛。
+  const parser = createParser({
+    maxBufferSize: eventBufferLimit,
+    onEvent: (event) => ready.push(event.data),
+    onError: (error) => {
+      overflow = error
+    },
+  })
+  const feed = (text: string) => {
+    parser.feed(text)
+    if (overflow) throw overflow
+  }
   const abort = () => {
     void reader.cancel(signal.reason).catch(() => {})
   }
@@ -85,11 +106,11 @@ async function* readEvents(body: ReadableStream<Uint8Array>, signal: AbortSignal
       signal.throwIfAborted()
       if (chunk.done) {
         // 末尾事件后面可能没有空行；reset({ consume }) 只收残行不派发，补一个空行才会交出它。
-        parser.feed(`${decoder.decode()}\n\n`)
+        feed(`${decoder.decode()}\n\n`)
         yield* ready.splice(0)
         return
       }
-      parser.feed(decoder.decode(chunk.value, { stream: true }))
+      feed(decoder.decode(chunk.value, { stream: true }))
       yield* ready.splice(0)
     }
   } finally {
