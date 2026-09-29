@@ -27,6 +27,8 @@
     "templates": "模板",
     "collapse": "收起侧栏",
     "expand": "展开侧栏",
+    "chats": "对话",
+    "newChat": "新建对话",
     "canvases": "画布",
     "allCanvases": "全部",
     "newCanvas": "新建画布",
@@ -89,7 +91,8 @@
   },
   "createTarget": {
     "aria": "这句话交给谁",
-    "generate": "生成",
-    "canvas": "画布"
+    "generate": "快速生成",
+    "chat": "对话创作",
+    "canvas": "画布创作"
   }
 }

@@ -14,16 +14,18 @@ import { useLibraryStore } from '../../library/store'
 import { renameProject } from '../lib/activeProject'
 import { projectCatalog } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
-import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
+import { type CanvasProject, projectDisplayName, projectExperience } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectTrash from './ProjectTrash'
 
 export default function ProjectGrid({
   search = '',
   recent = false,
+  experience,
 }: {
   search?: string
   recent?: boolean
+  experience?: 'chat' | 'canvas'
 }) {
   const { t } = useTranslation('canvas')
   const projects = useCanvasProjectStore((state) => state.projects)
@@ -40,7 +42,8 @@ export default function ProjectGrid({
     .filter(
       (project) =>
         project.name.toLowerCase().includes(search.trim().toLowerCase()) &&
-        (!recent || project.hasContent),
+        (!recent || project.hasContent || project.workspaceOpened) &&
+        (!experience || projectExperience(project) === experience),
     )
     .slice(0, recent ? 5 : undefined)
   const enter = async (project?: CanvasProject, kind?: 'image' | 'video') => {
@@ -49,7 +52,7 @@ export default function ProjectGrid({
     try {
       const opened = project
         ? await useAgentStore.getState().selectProject(project.id)
-        : await useAgentStore.getState().createProject(kind)
+        : await useAgentStore.getState().createProject(kind, false, 'canvas')
       if (opened) {
         // 挑中或建出项目就落到画布——项目的唯一去处就是它自己的工作台。
         useStore.getState().setAppMode('canvas')
@@ -62,7 +65,7 @@ export default function ProjectGrid({
   if (trash) return <ProjectTrash onBack={() => setTrash(false)} onOpen={enter} />
   return (
     <>
-      {cloudProjectsEnabled() && (
+      {cloudProjectsEnabled() && !recent && (
         /* 工具条：一排同形状的胶囊按钮（回收站 / 刷新 / 加载更多），不要下划线链接混排。 */
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {!recent && (
@@ -128,17 +131,6 @@ export default function ProjectGrid({
             </div>
           </div>
         )}
-        {!search && recent && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void enter(undefined, 'image')}
-            className="group flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground transition hover:border-primary/60 hover:bg-muted disabled:opacity-50"
-          >
-            <PlusIcon className="h-8 w-8 transition group-hover:text-primary" />
-            <span className="text-sm font-medium">{t('grid.newProject')}</span>
-          </button>
-        )}
         {visible.map((project) => (
           <article
             key={project.id}
@@ -167,7 +159,13 @@ export default function ProjectGrid({
                 )}
                 <span className="absolute left-3 top-3 flex items-center gap-1.5">
                   <span className="rounded-full bg-background/85 px-2 py-1 text-[10px] text-muted-foreground">
-                    {t(project.kind === 'video' ? 'project.kindVideo' : 'project.kindImage')}
+                    {t(
+                      projectExperience(project) === 'chat'
+                        ? 'grid.chat'
+                        : project.kind === 'video'
+                          ? 'project.kindVideo'
+                          : 'grid.canvas',
+                    )}
                   </span>
                   {project.id === activeId && (
                     <span className="rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">

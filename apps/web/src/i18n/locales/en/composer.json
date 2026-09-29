@@ -34,6 +34,8 @@
   },
   "editor": {
     "placeholder": "Describe the image, @ to pick a reference image, {slot} to batch generate...",
+    "chatPlaceholder": "Tell the assistant what you want to create, or discuss an idea first…",
+    "canvasPlaceholder": "Describe what to create on the canvas, @ mention an asset…",
     "clearPrompt": "Clear prompt"
   },
   "image": {
@@ -80,7 +82,7 @@
     "configureApiFirst": "Configure the API first",
     "apiNotConfigured": "Configure the API in Settings first",
     "startCanvas": "Start creating",
-    "skillNeedsCanvas": "Skills only run on the canvas. Switch to Canvas to send"
+    "skillNeedsCanvas": "Skills run in projects. Switch to Chat or Canvas to send"
   },
   "search": {
     "favoriteOnly": "Favorites only",

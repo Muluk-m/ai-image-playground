@@ -214,7 +214,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   )
   // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
   const createTarget = useStore((s) => s.createTarget)
-  const toCanvas = inline && createTarget === 'canvas'
+  const toCanvas = inline && createTarget !== 'generate'
   const apiReady = toCanvas || hasSubmitApiConfig
   // 技能只有画布里的智能体认得。生成档开头挂着 `/技能` 时不提交：否则这行命令会被当成提示词直接拿去出图。
   const skills = useAgentSkills('image')
@@ -230,7 +230,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
         : null
   const submit = () => {
-    if (toCanvas) void startCanvasFromComposer()
+    if (toCanvas)
+      void startCanvasFromComposer(undefined, createTarget === 'chat' ? 'chat' : 'canvas')
     else if (activeLook) void submitWithLook(activeLook, lookBody)
     else submitTask()
   }
@@ -1358,7 +1359,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 )}
                 <PromptEditor
                   editor={promptEditor}
-                  placeholder={t('editor.placeholder')}
+                  placeholder={t(
+                    toCanvas
+                      ? createTarget === 'chat'
+                        ? 'editor.chatPlaceholder'
+                        : 'editor.canvasPlaceholder'
+                      : 'editor.placeholder',
+                  )}
                   className={TEXTAREA_CLASS}
                   onClick={(e) => {
                     const el = e.currentTarget

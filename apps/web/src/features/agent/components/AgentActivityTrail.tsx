@@ -1,9 +1,15 @@
 import type { AgentToolName, AgentWebSource } from '@image-playground/shared'
 import { Globe, type LucideIcon, Search } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import AgentSkillIcon from '../lib/agentSkillIcons'
+import {
+  agentToolFailureAction,
+  agentToolFailureActionLabel,
+  agentToolFailureText,
+  runAgentToolFailureAction,
+} from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 
@@ -44,11 +50,17 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
   const text = skill && !skill.found ? t('tool.skillNotFound', { name: skill.label }) : step.title
   const Icon = step.toolName ? STEP_ICON[step.toolName] : undefined
   const sources = step.sources?.slice(0, MAX_SOURCES) ?? []
+  const failed = step.status === 'failed'
+  const errorCode = step.errorCode
+  const failure = failed
+    ? (agentToolFailureText(errorCode) ?? step.message ?? t('tool.notFinished'))
+    : null
+  const action = failed ? agentToolFailureAction(errorCode) : null
   return (
     <div
+      data-agent-message-id={step.id}
       {...(step.toolName === 'loadSkill' ? { 'data-tool': 'loadSkill' } : {})}
-      className={`flex shrink-0 items-center gap-2 text-[11.5px] ${active ? 'text-foreground/85' : 'text-muted-foreground'}`}
-      // 行高必须钉死成 ROW：滚动偏移按 ROW 算，行比它矮时每多一步就多推上去几像素，倒数第二行被推出窗口。
+      className={`flex shrink-0 items-center gap-2 text-[11.5px] ${failed ? 'text-destructive' : active ? 'text-foreground/85' : 'text-muted-foreground'}`}
       style={{ height: ROW }}
     >
       {step.toolName === 'loadSkill' ? (
@@ -62,6 +74,26 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
         />
       )}
       <span className={`min-w-0 truncate ${active ? 'agent-shimmer relative' : ''}`}>{text}</span>
+      {failure && (
+        <span className="min-w-0 truncate" title={failure}>
+          {failure}
+        </span>
+      )}
+      {action && errorCode && (
+        <button
+          type="button"
+          className="ml-auto shrink-0 underline underline-offset-2 hover:text-foreground"
+          onClick={() =>
+            runAgentToolFailureAction(action, {
+              code: errorCode,
+              title: step.title,
+              send: (message) => void useAgentStore.getState().send(message),
+            })
+          }
+        >
+          {agentToolFailureActionLabel(action, errorCode)}
+        </button>
+      )}
       {sources.length > 0 && (
         <span
           aria-label={t('trail.sources')}
@@ -111,15 +143,41 @@ function sourceLabel(source: AgentWebSource): string {
 export default function AgentActivityTrail({
   steps,
   spent,
+  revealId,
 }: {
   steps: readonly AgentToolMessage[]
   spent: boolean
+  revealId?: string | null
 }) {
   // 历史里早就翻篇的那些一上来就不渲染，不放收起动画；这一轮当场翻篇的才收。
   // `collapsed` 必须能回到 false：翻篇态不是单调的，同一条活动轨在下一次渲染里
   // 完全可能又变回「还在跑」（批处理里先看到后续消息、再看到工具起跑）。只往一个方向锁，
   // 那一整段过程就再也不出现了。
+  const revealed = steps.some((step) => step.id === revealId)
   const [collapsed, setCollapsed] = useState(spent)
+  const windowRef = useRef<HTMLOutputElement>(null)
+  const previousCount = useRef(0)
+  const followLatest = useRef(true)
+  const previousFailures = useRef(new Set<string>())
+  const previousReveal = useRef<string | null>(null)
+  const failureIds = steps.filter((step) => step.status === 'failed').map((step) => step.id)
+  const failureSignature = JSON.stringify(failureIds)
+  useLayoutEffect(() => {
+    const window = windowRef.current
+    if (!window) return
+    const appended = steps.length > previousCount.current
+    const newlyFailed = [...failureIds].reverse().find((id) => !previousFailures.current.has(id))
+    const attention = revealed && revealId !== previousReveal.current ? revealId : newlyFailed
+    if (attention) {
+      const index = steps.findIndex((step) => step.id === attention)
+      window.scrollTop = index * (ROW + GAP)
+    } else if (previousCount.current === 0 || (appended && followLatest.current)) {
+      window.scrollTop = window.scrollHeight
+    }
+    previousFailures.current = new Set(failureIds)
+    previousReveal.current = revealed ? (revealId ?? null) : null
+    previousCount.current = steps.length
+  }, [steps.length, collapsed, failureSignature, revealed, revealId])
   useEffect(() => {
     if (!spent) {
       setCollapsed(false)
@@ -129,39 +187,29 @@ export default function AgentActivityTrail({
     return () => clearTimeout(timer)
   }, [spent])
 
-  if (collapsed || steps.length === 0) return null
+  if ((!revealed && collapsed) || steps.length === 0) return null
   // 最后一步还没结束才算「正在做」；都做完了就全是历史，等着收起。
   const last = steps[steps.length - 1]!
   const running = !spent && (last.status === 'running' || last.status === 'submitted')
-  const overflowing = steps.length > VISIBLE
-  const offset = overflowing ? (steps.length - VISIBLE) * (ROW + GAP) : 0
-
   return (
     <output
+      ref={windowRef}
       aria-live="polite"
       aria-label={last.title}
-      // `shrink-0` 不能省：对话列表是纵向 flex，内容一溢出，带 overflow-hidden 的它会被压到 0 高，
+      onScroll={(event) => {
+        const window = event.currentTarget
+        followLatest.current =
+          window.scrollHeight - window.clientHeight - window.scrollTop <= ROW / 2
+      }}
+      // `shrink-0` 不能省：对话列表是纵向 flex，内容一溢出，滚动窗口会被压到 0 高，
       // 步骤照常排版却一个像素也画不出来——长对话里活动轨与来源链接就是这么「消失」的。
-      className="shrink-0 overflow-hidden transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
+      className="block shrink-0 overflow-y-auto overscroll-contain transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
       style={{
-        height: spent ? 0 : WINDOW,
-        opacity: spent ? 0 : 1,
-        // 只有真的滚上去了才在顶部渐隐。不分青红皂白地挂着，头一两步正好落在渐隐区里，
-        // 叠上「做完变暗」就什么都看不见——那块空白就是这么来的。渐隐只占行高的一小截：
-        // 盖掉大半行，窗口看上去就只剩一行。
-        ...(overflowing
-          ? {
-              maskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.4}px)`,
-              WebkitMaskImage: `linear-gradient(transparent 0, #000 ${ROW * 0.4}px)`,
-            }
-          : {}),
+        height: spent && !revealed ? 0 : WINDOW,
+        opacity: spent && !revealed ? 0 : 1,
       }}
     >
-      <div
-        className="flex flex-col justify-end transition-transform duration-300 ease-out motion-reduce:transition-none"
-        // 像聊天一样贴底排：第一步出现在窗口下沿，后来的把它往上顶。
-        style={{ gap: GAP, minHeight: WINDOW, transform: `translateY(${-offset}px)` }}
-      >
+      <div className="flex flex-col justify-end" style={{ gap: GAP, minHeight: WINDOW }}>
         {steps.map((step, index) => (
           <Step key={step.id} step={step} active={running && index === steps.length - 1} />
         ))}

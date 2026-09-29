@@ -1,7 +1,9 @@
-import { useId, useState } from 'react'
-import { Button } from '../../../components/ui/button'
+import { ImageIcon } from 'lucide-react'
+import { useId, useRef, useState } from 'react'
+import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
-import { CARD_NOTE, DRAFT_FIELD, GHOST_LINK } from '../agentStyles'
+import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
@@ -15,19 +17,6 @@ import type { AgentToolMessage } from '../types'
 type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }>
 
 /**
- * 草稿框的高度：整段提示词尽量一眼读完，长到十六行才交给滚动条。面板只有 340px 宽，
- * 一行装得下约四十四个半角宽度——中日韩字符是半角的两倍，按宽度而不是字数估算折行。
- */
-function draftRows(text: string): number {
-  const lines = text.split('\n').reduce((rows, line) => {
-    let width = 0
-    for (const char of line) width += (char.codePointAt(0) ?? 0) > 0xff ? 2 : 1
-    return rows + Math.max(1, Math.ceil(width / 44))
-  }, 0)
-  return Math.min(16, Math.max(4, lines))
-}
-
-/**
  * 生成工具拟好、还没提交的那份提示词：整段摊在卡上直接可改，点「确认生成」才提交生成任务。
  * 模型自己补的细节（颜色、材质、光线……）因此在花钱之前就露在用户眼前，能当场改掉。
  */
@@ -35,17 +24,18 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
   const { t } = useTranslation('agent')
   const prompt = useAgentStore((state) => state.promptDrafts[message.id] ?? message.prompt ?? '')
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [failure, setFailure] = useState<AgentPromptConfirmFailure | null>(null)
   const noteId = useId()
   const ready = prompt.trim().length > 0
   const count = agentDraftOutputCount(message)
-  const model = message.snapshot?.target?.model
   // 被拒时那一个出路（去充值、去登录、让助手换个做法）；其余失败原样再点一次即可。
   const refused = failure?.reason === 'refused' ? failure.code : undefined
   const action = agentToolFailureAction(refused)
 
   const confirm = () => {
-    if (!ready || submitting) return
+    if (!ready || submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     setFailure(null)
     void useAgentStore
@@ -54,6 +44,10 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
       .then((result) => {
         // 成交后这张卡就地换成提交后的样子，这个组件随之卸下；没成就留在原处，改过的字还在。
         if (!result.ok) setFailure(result)
+      })
+      .catch(() => setFailure({ ok: false, reason: 'failed' }))
+      .finally(() => {
+        submittingRef.current = false
         setSubmitting(false)
       })
   }
@@ -66,35 +60,39 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
   }
 
   return (
-    <>
-      <p id={noteId} className={CARD_NOTE}>
+    <ApprovalCard
+      state={submitting ? 'running' : 'request'}
+      title={t('confirm.submit')}
+      subtitle={message.title}
+      icon={<ImageIcon className="size-4" />}
+      onAllowOnce={confirm}
+      allowOnceLabel={t('confirm.submit')}
+      statusLabel={t('confirm.submitting')}
+      disabled={!ready || submitting}
+    >
+      <p id={noteId} className="text-xs leading-relaxed text-muted-foreground">
         {t('confirm.pending')}
       </p>
-      <textarea
+      <Textarea
         aria-label={t('confirm.fieldAria')}
         aria-describedby={noteId}
         aria-invalid={ready ? undefined : true}
         value={prompt}
-        rows={draftRows(prompt)}
+        rows={7}
         disabled={submitting}
-        className={DRAFT_FIELD}
+        className="max-h-64 min-h-32 w-full resize-y rounded-xl border border-input/60 bg-background/60 p-3 text-[13px] leading-relaxed outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
         onChange={(event) =>
           useAgentStore.getState().setPromptDraft(message.id, event.target.value)
         }
       />
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
         <span className={CARD_NOTE}>
           {!ready
             ? t('confirm.empty')
-            : `${
-                message.toolName === 'generateVideo'
-                  ? t('confirm.outputsVideo', { count })
-                  : t('confirm.outputsImage', { count })
-              }${model ? ` · ${t('confirm.model', { name: model })}` : ''}`}
+            : message.toolName === 'generateVideo'
+              ? t('confirm.outputsVideo', { count })
+              : t('confirm.outputsImage', { count })}
         </span>
-        <Button type="button" size="sm" disabled={!ready || submitting} onClick={confirm}>
-          {submitting ? t('confirm.submitting') : t('confirm.submit')}
-        </Button>
       </div>
       {failure && (
         <p role="alert" className={CARD_NOTE}>
@@ -116,6 +114,6 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
           {agentToolFailureActionLabel(action, refused)}
         </button>
       )}
-    </>
+    </ApprovalCard>
   )
 }

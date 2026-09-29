@@ -128,7 +128,7 @@ it('把整段草稿摊在卡上直接可改，而不是藏在「查看提示词�
   expect(field().disabled).toBe(false)
   expect(host.textContent).not.toContain('查看提示词')
   expect(host.textContent).toContain('确认后生成 2 张')
-  expect(host.textContent).toContain('gpt-image-1')
+  expect(host.textContent).not.toContain('gpt-image-1')
 })
 
 it('确认提交的是用户改过的那份字，卡就地换成已提交', async () => {
@@ -183,9 +183,15 @@ it('连点两下只提交一次', async () => {
   }
   render()
 
-  act(() => confirmButton().click())
-  act(() => confirmButton().click())
-  expect(confirmButton().disabled).toBe(true)
+  const button = confirmButton()
+  act(() => {
+    button.click()
+    button.click()
+  })
+  expect(host.querySelector('[data-slot="approval-card"] [role="status"]')?.textContent).toContain(
+    '提交中',
+  )
+  expect(field().disabled).toBe(true)
 
   await act(async () => {
     release()
