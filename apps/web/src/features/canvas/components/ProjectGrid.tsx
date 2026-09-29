@@ -21,9 +21,11 @@ import ProjectTrash from './ProjectTrash'
 export default function ProjectGrid({
   search = '',
   recent = false,
+  experience,
 }: {
   search?: string
   recent?: boolean
+  experience?: 'chat' | 'canvas'
 }) {
   const { t } = useTranslation('canvas')
   const projects = useCanvasProjectStore((state) => state.projects)
@@ -40,7 +42,8 @@ export default function ProjectGrid({
     .filter(
       (project) =>
         project.name.toLowerCase().includes(search.trim().toLowerCase()) &&
-        (!recent || project.hasContent),
+        (!recent || project.hasContent) &&
+        (!experience || projectExperience(project) === experience),
     )
     .slice(0, recent ? 5 : undefined)
   const enter = async (project?: CanvasProject, kind?: 'image' | 'video') => {

@@ -97,6 +97,7 @@
   "createTarget": {
     "aria": "Where this prompt goes",
     "generate": "Quick generate",
-    "canvas": "Project studio"
+    "chat": "Chat",
+    "canvas": "Canvas"
   }
 }
