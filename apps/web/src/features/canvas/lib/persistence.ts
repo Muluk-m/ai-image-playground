@@ -106,6 +106,7 @@ export function writePersistedScene(
   key: string,
   removeKey?: string,
   preserveStructure = false,
+  preserveCamera = false,
 ): Promise<void> {
   return openCanvasDatabase().then(
     (db) =>
@@ -121,7 +122,7 @@ export function writePersistedScene(
               previous && preserveStructure
                 ? {
                     ...previous,
-                    camera: scene.camera,
+                    camera: preserveCamera ? previous.camera : scene.camera,
                     viewport: scene.viewport ?? previous.viewport,
                   }
                 : previous?.cloud && !scene.cloud

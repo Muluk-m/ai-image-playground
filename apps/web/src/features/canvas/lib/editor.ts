@@ -346,17 +346,17 @@ export class CanvasEditor {
     if (els.length === 0) return
     const bounds = Box.Common(els.map(elementBounds))
     const { viewport } = this.doc
-    const padding = Math.min(96, Math.max(16, Math.min(viewport.width, viewport.height) * 0.08))
+    const shortSide = Math.min(viewport.width, viewport.height)
+    const padding = Math.min(96, Math.max(16, shortSide * 0.08), shortSide / 4)
     const zoom = Math.min(
       1,
       (viewport.width - padding * 2) / bounds.w,
       (viewport.height - padding * 2) / bounds.h,
     )
-    const clamped = Math.max(0.001, zoom)
     const target = {
-      x: bounds.midX - viewport.width / clamped / 2,
-      y: bounds.midY - viewport.height / clamped / 2,
-      zoom: clamped,
+      x: bounds.midX - viewport.width / zoom / 2,
+      y: bounds.midY - viewport.height / zoom / 2,
+      zoom,
     }
     if (animate) this.animateCamera(target)
     else {
