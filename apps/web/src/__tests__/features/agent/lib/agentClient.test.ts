@@ -20,7 +20,6 @@ vi.mock('../../../../lib/cloudMedia', () => ({
 import {
   AgentRequestError,
   type AgentTurnStream,
-  adoptAgentConversations,
   fetchConversations,
   fetchMessages,
   followTurn,
@@ -49,15 +48,6 @@ function headerOf(init: RequestInit | undefined, name: string): string | null {
 }
 
 describe('agentClient 的设备标识传输位置', () => {
-  it('认领旧对话携带设备标识，供服务端幂等改挂', async () => {
-    const { calls, fetcher } = recordingFetcher({ adopted: 1 })
-
-    await adoptAgentConversations(fetcher)
-
-    expect(calls[0]!.url).toBe('https://bff.test/api/agent/conversations/adopt')
-    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ deviceId: DEVICE })
-  })
-
   it('列会话把设备标识放请求头，不放 query string', async () => {
     const { calls, fetcher } = recordingFetcher({ conversations: [] })
 
