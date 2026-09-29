@@ -25,7 +25,7 @@ const App = lazy(() => import('../App'))
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 
-function LoadingScreen() {
+export function LoadingScreen() {
   const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen" aria-live="polite">
@@ -38,7 +38,7 @@ function LoadingScreen() {
   )
 }
 
-function ProblemScreen({
+export function ProblemScreen({
   title,
   description,
   retry,
