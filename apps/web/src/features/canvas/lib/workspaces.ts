@@ -173,7 +173,9 @@ export class CanvasWorkspace {
             ) > 1.5 ||
             (old.allVisible && !current.allVisible) ||
             (old.bestVisible >= 0.6 && current.bestVisible < 0.6)
-          : current.bestVisible < 0.6)
+          : width <= 1024
+            ? !current.allVisible
+            : current.bestVisible < 0.6)
       this.initialViewResolved = true
       if (!this.needsInitialFit && !viewportChanged) return unsubscribe()
       this.needsInitialFit = false

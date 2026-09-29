@@ -97,6 +97,10 @@ function dbGet(key: string, migrateLegacy: boolean): Promise<unknown> {
   )
 }
 
+function sameCamera(a: Camera, b: Camera): boolean {
+  return a.x === b.x && a.y === b.y && a.zoom === b.zoom
+}
+
 /**
  * 把一份场景写进 IndexedDB。合并规则只有这一处：`preserveStructure` 表示这次只动过相机，
  * 旧标签页不能把另一标签页的新结构与修订基线写回旧值。
@@ -123,7 +127,10 @@ export function writePersistedScene(
                 ? {
                     ...previous,
                     camera: preserveCamera ? previous.camera : scene.camera,
-                    viewport: scene.viewport ?? previous.viewport,
+                    viewport:
+                      preserveCamera && !sameCamera(previous.camera, scene.camera)
+                        ? previous.viewport
+                        : (scene.viewport ?? previous.viewport),
                   }
                 : previous?.cloud && !scene.cloud
                   ? { ...scene, cloud: previous.cloud }
