@@ -2,7 +2,6 @@
 import 'fake-indexeddb/auto'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { trackConversationAdoption } from '../../../auth/conversationAdoption'
 import { agentDraft } from '../../../features/agent/lib/drafts'
 import { useAgentStore } from '../../../features/agent/store'
 import {
@@ -48,7 +47,6 @@ beforeEach(async () => {
   })
 })
 afterEach(async () => {
-  trackConversationAdoption(Promise.resolve())
   await currentCanvasWorkspace().flush()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -204,81 +202,7 @@ it('失效会话保留原项目和画布，只移除失效绑定', async () => {
   expect(currentCanvasWorkspace().doc.camera.x).toBe(99)
 })
 
-it('认领失败期间的 404 不删除旧项目的会话绑定', async () => {
-  const id = useCanvasProjectStore.getState().activeId!
-  await useCanvasProjectStore.getState().update(id, { conversationId: 'legacy' })
-  trackConversationAdoption(Promise.reject(new Error('adoption unavailable')))
-  const original = fetchMock.getMockImplementation()!
-  fetchMock.mockImplementation(async (input, init) =>
-    String(input).includes('/conversations/legacy/messages')
-      ? new Response('{}', { status: 404 })
-      : original(input, init),
-  )
-
-  await state().selectProject(id)
-  await vi.waitFor(() => expect(state().historyLoading).toBe(false))
-
-  expect(
-    useCanvasProjectStore.getState().projects.find((one) => one.id === id)?.conversationId,
-  ).toBe('legacy')
-  expect(
-    fetchMock.mock.calls.some(([input]) =>
-      String(input).includes('/conversations/legacy/messages'),
-    ),
-  ).toBe(true)
-  expect(state().historyFailed).toBe(true)
-})
-
-it('慢认领不阻塞已经可读的会话历史', async () => {
-  const id = useCanvasProjectStore.getState().activeId!
-  await useCanvasProjectStore.getState().update(id, { conversationId: 'existing' })
-  let finishAdoption!: () => void
-  trackConversationAdoption(new Promise<void>((resolve) => (finishAdoption = resolve)))
-
-  try {
-    await state().selectProject(id)
-    await vi.waitFor(() => expect(state().historyLoading).toBe(false))
-    expect(state().conversationId).toBe('existing')
-    expect(state().historyFailed).toBe(false)
-  } finally {
-    finishAdoption()
-  }
-})
-
-it('认领期间先发出的历史请求迟到 404 时重新读取', async () => {
-  const id = useCanvasProjectStore.getState().activeId!
-  await useCanvasProjectStore.getState().update(id, { conversationId: 'legacy' })
-  let finishAdoption!: () => void
-  trackConversationAdoption(new Promise<void>((resolve) => (finishAdoption = resolve)))
-  let finishFirstRead!: (response: Response) => void
-  let reads = 0
-  const original = fetchMock.getMockImplementation()!
-  fetchMock.mockImplementation(async (input, init) => {
-    if (!String(input).includes('/conversations/legacy/messages')) return original(input, init)
-    reads += 1
-    if (reads === 1)
-      return new Promise<Response>((resolve) => {
-        finishFirstRead = resolve
-      })
-    return Response.json({ messages: [], turns: [], activeTurn: null })
-  })
-
-  const opening = state().selectProject(id)
-  await vi.waitFor(() => expect(reads).toBe(1))
-  finishAdoption()
-  finishFirstRead(new Response('{}', { status: 404 }))
-  await opening
-  await vi.waitFor(() => expect(reads).toBe(2))
-  await vi.waitFor(() => expect(state().historyLoading).toBe(false))
-
-  expect(state().conversationId).toBe('legacy')
-  expect(state().historyFailed).toBe(false)
-  expect(
-    useCanvasProjectStore.getState().projects.find((one) => one.id === id)?.conversationId,
-  ).toBe('legacy')
-})
-
-it('迟到的旧会话列表不覆盖认领后刷出的新列表', async () => {
+it('迟到的旧会话列表不覆盖新列表', async () => {
   let finishFirst!: (response: Response) => void
   fetchMock.mockImplementationOnce(
     () =>

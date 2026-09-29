@@ -406,7 +406,7 @@ export const agent_device_claims = pgTable('agent_device_claims', {
 })
 
 /**
- * 智能体会话。归属 `user_id` 或 `device_id`，二者互斥：设备登录后会话改挂到用户。
+ * 智能体会话。归属 `user_id` 或 `device_id`，由创建时的身份决定。
  * 删除以墓碑传播，`deleted_at` 非空的会话从读路径消失。
  */
 export const agent_conversations = pgTable(

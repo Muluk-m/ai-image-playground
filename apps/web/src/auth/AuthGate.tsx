@@ -1,7 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { RefreshCw, WifiOff } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { adoptAgentConversations } from '../features/agent/lib/agentClient'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
@@ -17,7 +16,6 @@ import { recoverStorageUser, rememberStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
-import { trackConversationAdoption } from './conversationAdoption'
 import { LoginDialog } from './LoginDialog'
 import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './loginPrompt'
 import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
@@ -67,12 +65,6 @@ function ProblemScreen({
       </section>
     </main>
   )
-}
-
-/** 会话存在服务端，本地那套领养搬不动它，得让 BFF 另外改挂一次。 */
-async function adoptDeviceConversations(): Promise<number> {
-  if (!isClientCapabilityEnabled('agent:chat')) return 0
-  return adoptAgentConversations()
 }
 
 export function AuthGate() {
@@ -138,20 +130,7 @@ export function AuthGate() {
           setAdoptedTaskCount(adopted)
           rememberStorageUser(currentUser.id)
           setUser(currentUser)
-          const adoption = adoptDeviceConversations()
-          trackConversationAdoption(adoption)
           setPhase('ready')
-          // 服务端对话认领不碰本机 store。让工作台先出现；认领完成后刷新已打开的会话目录。
-          void adoption
-            .then(async () => {
-              if (cancelled) return
-              const { useAgentStore } = await import('../features/agent/store')
-              if (cancelled || !useAgentStore.getState().loaded) return
-              await useAgentStore.getState().refreshConversations()
-              if (!cancelled && useAgentStore.getState().historyFailed)
-                await useAgentStore.getState().retryHistory()
-            })
-            .catch(() => undefined)
         }
       } catch {
         if (cancelled) return

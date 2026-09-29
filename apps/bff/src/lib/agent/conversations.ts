@@ -117,16 +117,6 @@ export async function listAgentConversations(owner: AgentOwner): Promise<AgentCo
   return rows.map(conversationView)
 }
 
-/** 幂等靠改挂本身：设备名下的行一次搬空，重复登录再扫就是空集。 */
-export async function adoptDeviceConversations(deviceId: string, userId: string): Promise<number> {
-  const rows = await db
-    .update(schema.agent_conversations)
-    .set({ user_id: userId, device_id: null })
-    .where(eq(schema.agent_conversations.device_id, deviceId))
-    .returning({ id: schema.agent_conversations.id })
-  return rows.length
-}
-
 export async function setAgentConversationTitle(
   executor: Executor,
   id: string,

@@ -89,8 +89,6 @@ overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人
   **宿主菜单的「点外面就关」必须放行 portal 出去的浮层**（`isInFloatingLayer`）：下拉内容挂在
   body 上，不放行的话 pointerdown 先把菜单连同下拉一起卸载，随后的 pointerup 落在脱离文档的
   选项上，选择根本不会提交。标签页标题随语言变，静态 meta 不变。
-- `lib/localCompatibility/` 刻意零依赖（它在 App 与 store 之前跑，还单独打进旧域名的入口），
-  里面的两条中文报错不迁移。
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
   切换时同步更新 `document.documentElement.lang`（`index.html` 里写死的 `zh-CN` 只是初值）。
 - **测试里 locale 必须钉死**：jsdom 的 `navigator.languages` 是 `['en-US']`，不钉死的话所有断言
