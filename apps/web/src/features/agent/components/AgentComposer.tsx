@@ -60,6 +60,7 @@ import {
   getLeadingAgentSkill,
   getSlashSkillQuery,
 } from '../lib/agentSkillMentions'
+import { previewArtifactBitmap } from '../lib/artifactSource'
 import {
   attachAssetToDraft,
   attachReferences,
@@ -68,6 +69,7 @@ import {
   setAgentComposerAttach,
 } from '../lib/attachments'
 import { setAgentComposerFill } from '../lib/composerFill'
+import { conversationImages } from '../lib/conversationImages'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
@@ -130,6 +132,7 @@ export default function AgentComposer({
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
+  const messages = useAgentStore((state) => state.messages)
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -215,6 +218,11 @@ export default function AgentComposer({
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   // `@` 候选里的「画布图 n」是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
+
+  const results = useMemo(
+    () => conversationImages(messages, doc),
+    [messages, doc, version, i18n.language],
+  )
 
   // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
   // 哪些是这么带进来的归 selection 自己记，输入框只管把画布和草稿的入口交给它。
@@ -320,6 +328,7 @@ export default function AgentComposer({
       ? buildAgentMentionGroups({
           query: promptEditor.query.query,
           references: draft.references,
+          results,
           canvas: showCanvasReferences ? canvas : [],
           assets,
         })
@@ -354,7 +363,33 @@ export default function AgentComposer({
     const active = getAtImageQuery(promptEditor.visible, at)
     if (!active) return
 
-    // 只有素材要等图取回来；另外两支就在手边，别让它们也隔一个微任务才插胶囊。
+    if (value.type === 'result') {
+      const image = results.find((one) => one.id === value.imageId)
+      if (!image) return
+      const dataUrl = image.source ?? (await previewArtifactBitmap(image.artifact))
+      // Loading an older result must not overwrite newer typing or attach to a switched chat.
+      if (
+        useAgentStore.getState().conversationId !== conversationId ||
+        session.getSnapshot().draft !== draft
+      )
+        return
+      if (!dataUrl) {
+        useStore.getState().showToast(t('mentions.resultUnavailable'), 'error')
+        return
+      }
+      applyAttach(
+        attachReference(
+          draft,
+          { id: image.id, dataUrl, name: image.label },
+          active.start,
+          at,
+          transportRef.current,
+        ),
+      )
+      return
+    }
+
+    // 素材需要取图；已有引用和画布图片直接插入胶囊。
     if (value.type === 'asset') {
       const attached = await attachAssetToDraft(
         draft,

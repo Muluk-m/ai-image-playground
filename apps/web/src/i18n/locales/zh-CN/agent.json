@@ -247,6 +247,9 @@
     "done": "完成"
   },
   "mentions": {
+    "headingResults": "会话图片",
+    "resultImage": "产物图{{index}}",
+    "resultUnavailable": "图片暂时无法读取，请稍后重试",
     "canvasImage": "画布图{{index}}",
     "headingReferences": "本次参考图",
     "headingCanvas": "画布",

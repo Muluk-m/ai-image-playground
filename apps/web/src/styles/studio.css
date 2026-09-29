@@ -83,8 +83,8 @@
   position: absolute; inset: 56px 0 0; height: calc(100% - 56px);
   visibility: hidden; pointer-events: none;
 }
-.studio-layout[data-project-view="canvas"] > .studio-chat-column { order: 2; margin: 0 12px 12px 0; }
-.studio-layout[data-project-view="canvas"] > .studio-canvas { order: 1; height: auto; }
+.studio-layout[data-project-view="canvas"] > .studio-chat-column { order: 1; margin: 0 0 12px 12px; }
+.studio-layout[data-project-view="canvas"] > .studio-canvas { order: 2; height: auto; }
 .studio-result-shelf {
   position: absolute; left: 74px; top: 14px; z-index: 405;
   width: min(430px, calc(100% - 160px)); overflow: hidden;
