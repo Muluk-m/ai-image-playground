@@ -11,7 +11,7 @@ const distance = (points: Contact[]) =>
   Math.hypot(points[0]!.x - points[1]!.x, points[0]!.y - points[1]!.y)
 
 export function touchCamera(camera: Camera, from: Point, to: Point, ratio = 1): Camera {
-  const zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, camera.zoom * ratio))
+  const zoom = Math.max(Math.min(ZOOM_MIN, camera.zoom), Math.min(ZOOM_MAX, camera.zoom * ratio))
   return {
     x: camera.x + from.x / camera.zoom - to.x / zoom,
     y: camera.y + from.y / camera.zoom - to.y / zoom,

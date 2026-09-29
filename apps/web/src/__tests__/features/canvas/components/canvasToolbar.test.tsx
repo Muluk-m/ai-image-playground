@@ -30,11 +30,17 @@ async function enableAgent(enabled: boolean): Promise<void> {
   vi.unstubAllGlobals()
 }
 
-function render(onImportImages = () => {}, onImportFolder = () => {}): void {
+function render(
+  onImportImages = () => {},
+  onImportFolder = () => {},
+  doc = new CanvasDoc(),
+  onFitContent = () => {},
+): void {
   act(() => {
     root.render(
       <CanvasToolbar
-        doc={new CanvasDoc()}
+        doc={doc}
+        onFitContent={onFitContent}
         onImportImages={onImportImages}
         onImportFolder={onImportFolder}
       />,
@@ -58,6 +64,29 @@ afterEach(() => {
 })
 
 describe('画布工具条', () => {
+  it('有内容时可一键适应画布内容', () => {
+    const doc = new CanvasDoc()
+    const fit = vi.fn()
+    doc.addElements([
+      {
+        id: 'artwork',
+        type: 'text',
+        text: '作品',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        fontSize: 24,
+        fill: '#000',
+      },
+    ])
+    render(undefined, undefined, doc, fit)
+    const mobileFit = toolbar().querySelector<HTMLButtonElement>(':scope > button')!
+    expect(mobileFit.textContent).toContain('适合屏幕')
+    act(() => mobileFit.click())
+    expect(fit).toHaveBeenCalledOnce()
+  })
+
   it('对话与画布分栏后，工具条不再重复预留面板宽度', async () => {
     await enableAgent(true)
     useAgentStore.setState({ open: true, panelWidth: 300 })
