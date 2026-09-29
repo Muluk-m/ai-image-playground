@@ -92,6 +92,7 @@
   "createTarget": {
     "aria": "这句话交给谁",
     "generate": "快速生成",
-    "canvas": "项目创作"
+    "chat": "对话创作",
+    "canvas": "画布创作"
   }
 }

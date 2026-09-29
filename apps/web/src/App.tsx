@@ -145,8 +145,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                   </div>
                 </div>
                 <InspirationChips />
-                {createTarget === 'canvas' ? (
-                  <HeroCanvasProjects />
+                {createTarget !== 'generate' ? (
+                  <HeroCanvasProjects experience={createTarget} />
                 ) : (
                   <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} hero />
                 )}

@@ -21,7 +21,10 @@ async function fillWhenMounted(text: string): Promise<boolean> {
  * 首屏「画布」档的发送：新建一个画布项目、切过去，把首屏输入框里的话和参考图作为第一轮发出去。
  * 输入框只在服务端收下之后才清空——发失败了那句话还在原地，用户不用重打。
  */
-export async function startCanvasFromComposer(savedDraft?: AgentDraft): Promise<boolean> {
+export async function startCanvasFromComposer(
+  savedDraft?: AgentDraft,
+  experience: 'chat' | 'canvas' = 'canvas',
+): Promise<boolean> {
   const { prompt, inputImages } = useStore.getState()
   const draft: AgentDraft = savedDraft ?? {
     prompt,
@@ -31,13 +34,13 @@ export async function startCanvasFromComposer(savedDraft?: AgentDraft): Promise<
   if (!submission.text) return false
   // Do not create and navigate to an empty project before asking the visitor to log in.
   if (agentPanelPresent() && isClientCapabilityEnabled('billing:credits') && accountRequired()) {
-    await queuePendingSubmission({ kind: 'heroCanvas', draft })
+    await queuePendingSubmission({ kind: 'heroCanvas', draft, experience })
     requireAccount()
     return false
   }
   const agent = useAgentStore.getState()
   // 空壳项目会被复用，不会为每一句话堆一个空项目；有内容的就新建。
-  if (!(await agent.createProject())) return false
+  if (!(await agent.createProject(undefined, false, experience))) return false
   useStore.getState().setAppMode('canvas')
   if (!agentPanelPresent()) {
     // 没有智能体的部署：画布只有直出生成栏，这句话填进去由用户按下生成；参考图走画布选区，不带。
