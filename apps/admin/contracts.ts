@@ -188,6 +188,17 @@ export interface OverviewResult {
   volume: TaskVolumeBucket[]
   volume_bucket: VolumeBucketUnit
   failures: Array<{ error_type: string; count: number }>
+  agent_cache: {
+    calls: number
+    input_tokens: number
+    cache_read_tokens: number
+    models: Array<{
+      model: string
+      calls: number
+      input_tokens: number
+      cache_read_tokens: number
+    }>
+  }
   models: Array<{
     model: string
     count: number

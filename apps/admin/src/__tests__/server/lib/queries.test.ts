@@ -131,6 +131,85 @@ await writer.db.insert(writer.schema.users).values([
 await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%' OR id = 't3'`
 await writer.client`UPDATE tasks SET user_id = 'user-history' WHERE id = 'hist-60d'`
 await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id = 'chat-turn-1'`
+await writer.db.insert(writer.schema.agent_conversations).values({
+  id: 'cache-stat-conversation',
+  device_id: 'dev-cache-stat',
+  title: 'cache stats',
+  created_at: now,
+  updated_at: now,
+})
+await writer.db.insert(writer.schema.agent_model_calls).values([
+  {
+    id: 'cache-today-a',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-a',
+    status: 'completed',
+    usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 40 },
+    cache_read_tokens: 40,
+    started_at: now,
+  },
+  {
+    id: 'cache-today-b',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-b',
+    status: 'completed',
+    usage: { inputTokens: 900, outputTokens: 10, cachedInputTokens: 600 },
+    cache_read_tokens: 600,
+    started_at: now,
+  },
+  {
+    id: 'cache-five-days-ago',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-a',
+    status: 'completed',
+    usage: { inputTokens: 100, outputTokens: 10 },
+    cache_read_tokens: 0,
+    started_at: now - 5 * dayMs,
+  },
+  {
+    id: 'cache-old',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-old',
+    status: 'completed',
+    usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 100 },
+    cache_read_tokens: 100,
+    started_at: now - 60 * dayMs,
+  },
+  {
+    id: 'cache-side-call',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'compaction',
+    model: 'model-side',
+    status: 'completed',
+    usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 100 },
+    cache_read_tokens: 100,
+    started_at: now,
+  },
+  {
+    id: 'cache-no-usage',
+    conversation_id: 'cache-stat-conversation',
+    turn_id: 'cache-turn',
+    device_id: 'dev-cache-stat',
+    purpose: 'conversation',
+    model: 'model-unknown',
+    status: 'failed',
+    started_at: now,
+  },
+])
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { listDevices, getDeviceDetail, getOverview, getTask, getUserDetail, getUserTasks } =
@@ -164,6 +243,28 @@ describe('listDevices', () => {
 })
 
 describe('getOverview', () => {
+  it('weights cache hit rate by input tokens and filters by range and reported usage', async () => {
+    const today = (await getOverview('1d')).agent_cache
+    expect(today).toEqual({
+      calls: 2,
+      input_tokens: 1000,
+      cache_read_tokens: 640,
+      models: [
+        { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
+        { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
+      ],
+    })
+
+    const week = (await getOverview('7d')).agent_cache
+    expect(week).toMatchObject({ calls: 3, input_tokens: 1100, cache_read_tokens: 640 })
+    expect(week.models.find((model) => model.model === 'model-a')).toEqual({
+      model: 'model-a',
+      calls: 2,
+      input_tokens: 200,
+      cache_read_tokens: 40,
+    })
+  })
+
   it('reports upstream invocation multiplier per requested image', async () => {
     const result = await getOverview('7d')
     const model = result.models.find((entry) => entry.model === 'normalized-multiplier')
