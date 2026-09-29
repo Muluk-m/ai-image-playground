@@ -371,6 +371,7 @@ export default function AgentPanel({
           doc={doc}
           editor={editor}
           showLooks={presentation !== 'page' || messages.length === 0}
+          showCanvasReferences={presentation !== 'page'}
         />
       )}
     </div>
