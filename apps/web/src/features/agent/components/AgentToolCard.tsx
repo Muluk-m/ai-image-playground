@@ -489,6 +489,39 @@ export default function AgentToolCard({
       </div>
     )
   }
+  if (imageGenerating && progress) {
+    return (
+      <div
+        id={agentToolCardDomId(message.id)}
+        tabIndex={-1}
+        className="studio-agent-generation-card"
+      >
+        <ImageGeneration generating={progress.phase !== 'delivering'} aria-hidden="true" />
+        <div className="studio-agent-generation-body">
+          <p className="studio-agent-generation-title" title={message.title}>
+            {message.title}
+          </p>
+          <AgentJobProgress progress={progress} />
+          <div className="studio-agent-generation-actions">
+            {message.prompt && (
+              <button
+                type="button"
+                className="studio-agent-generation-action"
+                onClick={() => setPromptOpen(true)}
+              >
+                {t('tool.viewPrompt')}
+              </button>
+            )}
+            <AgentJobCancel message={message} className="studio-agent-generation-action" />
+          </div>
+          <RetryRecord message={message} />
+        </div>
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </div>
+    )
+  }
   if (status === 'succeeded' && (previews.length > 0 || fetched.length > 0) && onPreviewResult) {
     const tiles = [
       ...previews.map((preview) => ({
@@ -768,15 +801,6 @@ export default function AgentToolCard({
       )}
       {promptOpen && message.prompt && (
         <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
-      )}
-      {imageGenerating && (
-        <ImageGeneration
-          prompt={message.prompt || message.title}
-          generating={progress?.phase !== 'delivering'}
-          aria-label={
-            progress?.phase === 'delivering' ? t('tool.delivering') : t('tool.imageGenerating')
-          }
-        />
       )}
       {progress && <AgentJobProgress progress={progress} />}
       {note && message.status !== 'failed' && <p className={CARD_NOTE}>{note}</p>}
