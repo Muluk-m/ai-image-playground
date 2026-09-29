@@ -83,6 +83,7 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
             version: CURRENT_VERSION,
             last_seen_at: NOW - 12_000,
             last_successful_poll_at: null,
+            alerts_configured: null,
           },
           {
             service: 'worker',
@@ -90,6 +91,7 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
             version: CURRENT_VERSION,
             last_seen_at: NOW - 8_000,
             last_successful_poll_at: NOW - 2_000,
+            alerts_configured: true,
           },
         ],
       },
@@ -147,6 +149,45 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
           { at: NOW - 45 * minute, requests: 300, server_errors: 1, p95_ms: 420 },
         ],
         error_routes: [{ route: 'POST /v1/queue/:provider/:model/submit', count: 1 }],
+      },
+    },
+    reliability: {
+      ok: true,
+      data: {
+        recent: { generation_system: 0, agent_failed: 0 },
+        windows: [
+          {
+            range: '24h',
+            requests: 300,
+            server_errors: 1,
+            availability: 299 / 300,
+            last_api_sample_at: NOW - minute,
+            generation_completed: 10,
+            generation_failed: 1,
+            agent_completed: 8,
+            agent_failed: 0,
+          },
+          {
+            range: '7d',
+            requests: 2000,
+            server_errors: 2,
+            availability: 1998 / 2000,
+            last_api_sample_at: NOW - minute,
+            generation_completed: 50,
+            generation_failed: 2,
+            agent_completed: 30,
+            agent_failed: 0,
+          },
+        ],
+        exceptions: [
+          {
+            source: 'generation',
+            key: 'upstream_error',
+            count: 1,
+            last_at: NOW - hour,
+            example_task_id: 'ops-stuck',
+          },
+        ],
       },
     },
     deployments: {
@@ -381,6 +422,7 @@ describe('运维看板', () => {
                   version: 'ae5da35c',
                   last_seen_at: NOW - 5 * minute,
                   last_successful_poll_at: null,
+                  alerts_configured: null,
                 },
               ],
             },
@@ -392,6 +434,37 @@ describe('运维看板', () => {
     const alert = within(block('服务')).getByRole('list', { name: '需要处理' }).textContent ?? ''
     expect(alert).toContain('后端的心跳已经断了 5 分钟')
     expect(alert).toContain('worker 还没有心跳')
+  })
+
+  it('worker 没配告警 webhook 时在服务栏提示', () => {
+    const base = snapshot().services
+    if (!base.ok) throw new Error('fixture')
+    const services = base.data.services.map((service) =>
+      service.service === 'worker' ? { ...service, alerts_configured: false } : service,
+    )
+    render(
+      <OpsBoard snapshot={snapshot({ services: { ok: true, data: { services } } })} range="7d" />,
+    )
+    expect(within(block('服务')).getByText(/应用告警 webhook 未配置/)).toBeTruthy()
+  })
+
+  it('近 15 分钟生成和 Agent 失败达告警线时突出显示', () => {
+    const base = snapshot().reliability
+    if (!base.ok) throw new Error('fixture')
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          reliability: {
+            ok: true,
+            data: { ...base.data, recent: { generation_system: 3, agent_failed: 3 } },
+          },
+        })}
+        range="7d"
+      />,
+    )
+    const alert = within(block('SLA 与异常')).getByRole('list', { name: '需要处理' })
+    expect(alert.textContent).toContain('非内容策略的生成失败')
+    expect(alert.textContent).toContain('Agent 轮次失败')
   })
 
   it('发布流程留着的旧实例不算出事：新版本在跑就行，旧的标成旧版本实例', () => {
@@ -412,6 +485,7 @@ describe('运维看板', () => {
                     'eae490e868102405bd6c7867cbdfbdd4e5057cfb+17faf6165e2d984fe02f16fe017544e8b219dbf5',
                   last_seen_at: NOW - 20_000,
                   last_successful_poll_at: null,
+                  alerts_configured: null,
                 },
                 ...base.data.services.slice(1),
               ],
@@ -441,6 +515,7 @@ describe('运维看板', () => {
                   version: old,
                   last_seen_at: NOW - 5_000,
                   last_successful_poll_at: null,
+                  alerts_configured: null,
                 },
                 {
                   service: 'worker',
@@ -448,6 +523,7 @@ describe('运维看板', () => {
                   version: CURRENT_VERSION,
                   last_seen_at: NOW - 5_000,
                   last_successful_poll_at: NOW - 1_000,
+                  alerts_configured: true,
                 },
               ],
             },
