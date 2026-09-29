@@ -1,61 +1,58 @@
-import { Brush, Eraser, Undo2, Upload, X } from 'lucide-react'
-import { useRef, useState } from 'react'
-import {
-  ACTIVE_SEGMENT,
-  IDLE_SEGMENT,
-  LABEL,
-  OUTLINE_BUTTON,
-  PANEL_TITLE,
-  PRIMARY_BUTTON,
-  SEGMENT,
-} from '../../../components/panelStyles'
-import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { Brush, Eraser, Scan, Undo2, Upload, Wand2, X } from 'lucide-react'
+import { useRef, useState, useSyncExternalStore } from 'react'
+import { LABEL, OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { useTranslation } from '../../../i18n'
-import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
-import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
-import { useStore } from '../../../store'
 import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { fileToDataUrl } from '../lib/importImages'
-import { submitCanvasInpaint } from '../lib/submitInpaint'
+import { sendImageEditToAgent } from '../lib/sendImageEditToAgent'
 import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 
-/**
- * 局部重绘的操作面板。**不是模态**（不走 Overlay）：用户要一边看着画布涂抹一边写描述，
- * 罩住画布就没法用了。它只占画布底部一条，左侧工具条与右下小地图各有自己的列，互不压。
- */
-export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
+/** 图片快捷菜单展开后的区域标记与要求输入。 */
+export default function InpaintPanel({
+  editor,
+  onDone,
+  onSendingChange,
+}: {
+  editor: CanvasEditor
+  onDone: () => void
+  onSendingChange: (sending: boolean) => void
+}) {
   const { t } = useTranslation(['canvas', 'common'])
+  useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const session = useInpaintSession()
-  const settings = useStore((state) => state.settings)
   const fileRef = useRef<HTMLInputElement>(null)
+  const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
-  const guard = usePrivateSubmissionGuard({
-    model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
-    quantity: 1,
-  })
 
   if (!session.imageId) return null
   const painted = session.strokes.length > 0
   // 擦除没有「改成什么」：描述与参考图由固定指令代替，面板只剩画笔与完成。
   const erasing = session.kind === 'erase'
+  const element = editor.getElement(session.imageId)
+  const image = element?.type === 'image' ? element : null
 
   const submit = async () => {
-    if (pending || !session.imageId) return
+    if (pendingRef.current || !image) return
+    pendingRef.current = true
+    onSendingChange(true)
     setPending(true)
+    let sent = false
     try {
-      const started = await submitCanvasInpaint(editor, {
-        imageId: session.imageId,
+      const instruction = erasing
+        ? '请移除 [image 1] 中标记区域内的内容，用周围背景自然填补；未标记区域保持不变。'
+        : `请只修改 [image 1] 中标记的区域：${session.prompt.trim()}。未标记区域保持不变。`
+      sent = await sendImageEditToAgent(editor, image, instruction, {
         strokes: session.strokes,
-        kind: session.kind,
-        prompt: session.prompt,
         ...(session.reference ? { referenceDataUrl: session.reference.dataUrl } : {}),
       })
-      if (started) session.close()
     } finally {
+      pendingRef.current = false
+      onSendingChange(false)
       setPending(false)
     }
+    if (sent) onDone()
   }
 
   const pickReference = async (file: File | undefined) => {
@@ -68,41 +65,28 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
   }
 
   return (
-    <div
-      role="dialog"
-      aria-label={t('inpaint.title')}
-      className="absolute bottom-4 left-1/2 z-[430] w-[min(30rem,calc(100%-6rem))] -translate-x-1/2 rounded-2xl border border-border bg-card/95 p-3 shadow-2xl backdrop-blur"
-      onPointerDown={(event) => event.stopPropagation()}
-      onKeyDown={(event) => event.stopPropagation()}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className={PANEL_TITLE}>{t(erasing ? 'erase.title' : 'inpaint.title')}</h3>
-        <button
-          type="button"
-          aria-label={t('common:action.close')}
-          className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={session.close}
-        >
-          <X className="h-4 w-4" />
-        </button>
+    <div className="p-3">
+      <div className="mb-2">
+        <h3 className={`${PANEL_TITLE} inline-flex items-center gap-1.5`}>
+          {!erasing && <Wand2 className="h-4 w-4 text-[#159cf6]" />}
+          {t(erasing ? 'erase.title' : 'inpaint.title')}
+        </h3>
       </div>
 
-      <div className="mb-2 flex items-center gap-2">
-        <div
-          role="radiogroup"
-          aria-label={t('inpaint.toolAria')}
-          className="flex gap-1 rounded-lg bg-muted p-1"
-        >
-          {(['brush', 'eraser'] as const).map((tool) => (
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div role="radiogroup" aria-label={t('inpaint.toolAria')} className="flex gap-1">
+          {(erasing ? (['brush', 'eraser'] as const) : (['rect', 'brush'] as const)).map((tool) => (
             <button
               key={tool}
               type="button"
               role="radio"
               aria-checked={session.tool === tool}
-              className={`${SEGMENT} inline-flex items-center gap-1 ${session.tool === tool ? ACTIVE_SEGMENT : IDLE_SEGMENT}`}
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition ${session.tool === tool && !erasing ? 'border-[#159cf6] bg-[#159cf6]/10 text-[#159cf6]' : session.tool === tool ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'}`}
               onClick={() => session.setTool(tool)}
             >
-              {tool === 'brush' ? (
+              {tool === 'rect' ? (
+                <Scan className="h-3.5 w-3.5" />
+              ) : tool === 'brush' ? (
                 <Brush className="h-3.5 w-3.5" />
               ) : (
                 <Eraser className="h-3.5 w-3.5" />
@@ -111,28 +95,64 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
             </button>
           ))}
         </div>
-        <label className="flex min-w-0 flex-1 items-center gap-2">
-          <span className={`${LABEL} shrink-0 whitespace-nowrap`}>{t('inpaint.brushSize')}</span>
-          <input
-            type="range"
-            min={MIN_BRUSH_PX}
-            max={MAX_BRUSH_PX}
-            value={session.brushPx}
-            className="w-full accent-primary"
-            onChange={(event) => session.setBrushPx(Number(event.target.value))}
-          />
-        </label>
+        {session.tool !== 'rect' && (
+          <label className="flex min-w-24 flex-1 items-center gap-2">
+            <span className={`${LABEL} shrink-0 whitespace-nowrap`}>{t('inpaint.brushSize')}</span>
+            <input
+              type="range"
+              min={MIN_BRUSH_PX}
+              max={MAX_BRUSH_PX}
+              value={session.brushPx}
+              className="w-full accent-primary"
+              onChange={(event) => session.setBrushPx(Number(event.target.value))}
+            />
+          </label>
+        )}
         <button
           type="button"
           disabled={!painted}
           aria-label={t('inpaint.undo')}
           title={t('inpaint.undo')}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+          className="ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
           onClick={session.undo}
         >
           <Undo2 className="h-4 w-4" />
         </button>
       </div>
+
+      {!erasing && (
+        <div
+          className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5"
+          aria-label={t('inpaint.regions')}
+        >
+          {session.strokes.map((stroke, index) => (
+            <div
+              key={`${index}-${stroke.points[0]?.x}`}
+              className={`inline-flex items-center rounded-full border text-xs ${session.selectedStroke === index ? 'border-[#159cf6] bg-[#159cf6]/15 text-[#8bd1ff]' : 'border-border bg-muted/60 text-muted-foreground'}`}
+            >
+              <button
+                type="button"
+                aria-pressed={session.selectedStroke === index}
+                className="min-h-7 rounded-l-full pl-2.5 pr-1"
+                onClick={() => session.selectStroke(index)}
+              >
+                {stroke.shape === 'rect' ? '▧' : '✎'} {t('inpaint.regionName', { no: index + 1 })}
+              </button>
+              <button
+                type="button"
+                aria-label={t('inpaint.removeRegion', { no: index + 1 })}
+                className="grid h-7 w-7 place-items-center rounded-r-full hover:bg-[#159cf6]/10"
+                onClick={() => session.removeStroke(index)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          {!painted && (
+            <span className="text-xs text-muted-foreground">{t('inpaint.paintFirst')}</span>
+          )}
+        </div>
+      )}
 
       {!erasing && (
         <div className="mb-2 flex items-start gap-2">
@@ -164,17 +184,12 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
         </div>
       )}
 
-      <p className="mb-2 text-[11px] text-muted-foreground">
-        {painted
-          ? erasing
-            ? t('erase.continueHint')
-            : ''
-          : t(erasing ? 'erase.paintFirst' : 'inpaint.paintFirst')}
-      </p>
-      {guard.blocked && guard.disabledReason && (
-        <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
+      {erasing && (
+        <p className="mb-2 text-xs text-muted-foreground">
+          {t(painted ? 'erase.continueHint' : 'erase.paintFirst')}
+        </p>
       )}
-      <SubmissionBillingAction blockedAction={guard.blockedAction} className="mb-1.5 text-[11px]" />
+      {!image && <p className="mb-1.5 text-xs text-destructive">{t('inpaint.sourceGone')}</p>}
 
       <div className="flex items-center justify-between gap-2">
         {erasing ? (
@@ -198,17 +213,16 @@ export default function InpaintPanel({ editor }: { editor: CanvasEditor }) {
           }}
         />
         <div className="flex items-center gap-2">
-          <button type="button" className={OUTLINE_BUTTON} onClick={session.close}>
+          <button type="button" className={OUTLINE_BUTTON} disabled={pending} onClick={onDone}>
             {t('common:action.cancel')}
           </button>
           <button
             type="button"
-            disabled={pending || !painted || guard.blocked || (!erasing && !session.prompt.trim())}
-            title={guard.disabledReason}
+            disabled={pending || !painted || !image || (!erasing && !session.prompt.trim())}
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
           >
-            {t(erasing ? 'erase.submit' : 'inpaint.submit')}
+            {t('imageToolbar.sendToAgent')}
           </button>
         </div>
       </div>

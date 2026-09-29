@@ -1,5 +1,6 @@
 import { INSPIRATION_KINDS, INSPIRATION_STATUSES } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import {
   createInspirationCategory,
   createInspirationItem,
@@ -87,6 +88,7 @@ export const publicInspirationRoutes = new Elysia({ prefix: '/api/inspirations' 
 
 export const internalInspirationRoutes = new Elysia({ prefix: '/internal/admin' })
   .use(requireInternalService)
+  .get('/inspirations/asset-base', () => ({ baseUrl: config.publicAssets.baseUrl }))
   .get('/inspirations', ({ query }) => listInspirationItems(query), {
     query: t.Object({
       status: t.Optional(t.String({ maxLength: 32 })),

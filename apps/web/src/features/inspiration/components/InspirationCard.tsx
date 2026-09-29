@@ -18,6 +18,8 @@ interface Props {
 export default function InspirationCard({ item, pinned, onClick }: Props) {
   const togglePin = useStore((s) => s.toggleInspirationPin)
   const { t } = useTranslation('inspiration')
+  const reference = item.referenceImages?.[0]
+  const referenceCount = item.referenceImages?.length ?? 0
 
   const handlePinClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation()
@@ -25,6 +27,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       onClick()
@@ -38,18 +41,47 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       onClick={onClick}
       onKeyDown={handleKeyDown}
       title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
-      className="group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring/60 dark:hover:shadow-blue-500/10"
+      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring/60"
     >
-      <div className="relative aspect-[3/4] overflow-hidden bg-muted">
-        <img
-          src={item.thumbnailUrl}
-          alt={item.title}
-          loading="lazy"
-          className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.06]"
-        />
+      <div
+        className={`relative overflow-hidden bg-muted ${reference ? 'aspect-[4/3]' : 'aspect-[3/4]'}`}
+      >
+        {reference ? (
+          <div className="grid h-full grid-cols-2 gap-0.5 bg-border/70">
+            <div className="relative min-w-0 overflow-hidden bg-muted">
+              <img
+                src={reference.url}
+                alt={t('card.beforeAlt', { title: item.title })}
+                loading="lazy"
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+                {t('card.before')}
+              </span>
+            </div>
+            <div className="relative min-w-0 overflow-hidden bg-muted">
+              <img
+                src={item.thumbnailUrl}
+                alt={t('card.afterAlt', { title: item.title })}
+                loading="lazy"
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+                {t('card.after')}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <img
+            src={item.thumbnailUrl}
+            alt={item.title}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+          />
+        )}
 
-        <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-white backdrop-blur-sm">
-          {item.category}
+        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+          {reference ? t('card.imageEdit') : item.category}
         </span>
 
         <button
@@ -65,17 +97,23 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
         >
           <StarIcon width={14} height={14} filled={pinned} aria-hidden />
         </button>
-
-        <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 transition duration-300 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-          <p className="line-clamp-6 p-3 text-[11px] leading-relaxed text-white/95">
-            {item.prompt}
-          </p>
-        </div>
       </div>
 
-      <div className="px-3 py-2.5">
-        <div className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition group-hover:text-primary">
+      <div className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3">
+        <div className="line-clamp-2 text-sm font-semibold leading-snug text-foreground transition group-hover:text-primary">
           {item.title}
+        </div>
+        {item.description && (
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            {item.description}
+          </p>
+        )}
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-[11px] text-muted-foreground">
+          <span className="truncate">
+            {item.category}
+            {referenceCount > 0 && ` · ${t('card.referenceCount', { count: referenceCount })}`}
+          </span>
+          <span className="shrink-0 font-medium text-primary">{t('card.viewCase')} →</span>
         </div>
       </div>
     </div>

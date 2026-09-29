@@ -259,3 +259,87 @@ describe('未发送的草稿', () => {
     expect(restored.getSnapshot().draft).toEqual(draft)
   })
 })
+
+it('发送失败接回时保留已输入的下一句，两份草稿都能落盘恢复', async () => {
+  const key = `handoff-${crypto.randomUUID()}`
+  const session = new DraftSession(key)
+  await session.ready
+  session.update({ prompt: '下一句', references: [] })
+  const failed = {
+    prompt: '没发出去的上一句',
+    references: [],
+    submission: {
+      id: 'original-id',
+      text: '没发出去的上一句',
+      mode: 'image' as const,
+      references: [],
+      params: { model: 'gpt-image-2', size: '1536x1024' },
+      clarificationAnswer: false,
+    },
+  }
+  expect(await session.returnUnsent(failed)).toBe(true)
+  expect(session.getSnapshot().draft.prompt).toBe('下一句')
+  expect(session.getSnapshot().unsent).toEqual(failed)
+  const restored = new DraftSession(key)
+  await restored.ready
+  expect(restored.getSnapshot().draft.prompt).toBe('下一句')
+  expect(restored.getSnapshot().unsent).toEqual(failed)
+  restored.update({ prompt: '', references: [] })
+  restored.restoreUnsent()
+  expect(restored.getSnapshot().draft).toEqual(failed)
+  await restored.flush()
+  const again = new DraftSession(key)
+  await again.ready
+  expect(again.getSnapshot().unsent).toEqual(failed)
+})
+
+it('多条失败消息保留为可逐条恢复的草稿，恢复时也保住正在输入的内容', async () => {
+  const key = `multiple-unsent-${crypto.randomUUID()}`
+  const session = new DraftSession(key)
+  await session.ready
+  session.update({ prompt: '正在写的消息', references: [] })
+  expect(await session.returnUnsent({ prompt: '失败一', references: [] })).toBe(true)
+  expect(await session.returnUnsent({ prompt: '失败二', references: [] })).toBe(true)
+  const restored = new DraftSession(key)
+  await restored.ready
+  expect(restored.getSnapshot().recoverable).toBe(true)
+  restored.restoreUnsent()
+  expect(restored.getSnapshot().draft.prompt).toBe('失败一')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('失败二')
+  restored.accept(restored.getSnapshot().draft)
+  restored.restoreUnsent()
+  expect(restored.getSnapshot().draft.prompt).toBe('失败二')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('正在写的消息')
+  await restored.flush()
+})
+
+it('发送失败接回时不会覆盖等待期间的新选区', async () => {
+  const session = new DraftSession(`changed-selection-${crypto.randomUUID()}`)
+  await session.ready
+  const selection = {
+    prompt: '',
+    references: [
+      { id: 'new-selection', dataUrl: 'data:image/png;base64,AQ==', origin: 'selection' as const },
+    ],
+  }
+  session.update(selection)
+  expect(await session.returnUnsent({ prompt: '失败消息', references: [] })).toBe(true)
+  expect(session.getSnapshot().draft).toEqual(selection)
+  expect(session.getSnapshot().unsent?.prompt).toBe('失败消息')
+})
+
+it('空输入框接回失败消息时也保留尚未恢复的旧草稿', async () => {
+  const key = `old-unsent-${crypto.randomUUID()}`
+  const before = new DraftSession(key)
+  await before.ready
+  before.update({ prompt: '旧草稿', references: [] })
+  await before.flush()
+  const current = new DraftSession(key)
+  await current.ready
+  expect(await current.returnUnsent({ prompt: '本次失败', references: [] })).toBe(true)
+  const restored = new DraftSession(key)
+  await restored.ready
+  expect(restored.getSnapshot().draft.prompt).toBe('本次失败')
+  expect(restored.getSnapshot().unsent?.prompt).toBe('旧草稿')
+  expect(restored.getSnapshot().recoverable).toBe(true)
+})

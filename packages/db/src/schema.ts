@@ -1,4 +1,5 @@
 import type {
+  AgentCanvasSnapshot,
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
@@ -389,23 +390,7 @@ export const canvas_projects = pgTable(
 )
 
 /**
- * 匿名设备的持有性证明，只为「领养」这一个动作存在。
- *
- * 设备标识全程由客户端自述，知道它就能读它的会话——这是既有模型，本表不改它。改的是
- * 领养：它把「读」升级成了「永久占有」（会话改挂到账号下，原设备再也看不到），所以这一个
- * 动作要求浏览器证明自己**持有**这个设备标识，而不只是知道它。
- *
- * 首次见到某个设备标识时登记一行，同时下发 HttpOnly cookie。**已登记的设备不再改绑**：
- * 一个从日志或分享链接里泄漏出去的设备标识，换个浏览器拿不到证明，也就领养不走。
- */
-export const agent_device_claims = pgTable('agent_device_claims', {
-  device_id: text('device_id').primaryKey(),
-  token_hash: text('token_hash').notNull(),
-  created_at: epochMs('created_at').notNull(),
-})
-
-/**
- * 智能体会话。归属 `user_id` 或 `device_id`，二者互斥：设备登录后会话改挂到用户。
+ * 智能体会话。归属 `user_id` 或 `device_id`，由创建时的身份决定。
  * 删除以墓碑传播，`deleted_at` 非空的会话从读路径消失。
  */
 export const agent_conversations = pgTable(
@@ -495,6 +480,8 @@ export interface AgentInboxUserMessagePayload {
   readonly referenceCount: number
   /** 对澄清卡片的答复；`kind` 为 `clarification_answer` 的记录才有。 */
   readonly clarificationAnswer?: true
+  /** 发话时浏览器里的画布。缺席即这一轮只认服务端已经同步的那份。 */
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 /**
@@ -522,6 +509,8 @@ export interface AgentInboxResumePayload {
    * 授权原文、改图计划与要复核的产物都沿用提交那一轮的，不把用户更早的请求重做一遍。
    */
   readonly wake?: Pick<AgentInboxTaskResultPayload, 'turnId' | 'taskIds'>
+  /** 被打断那一轮发话时的画布。续跑仍认它，不退回当时还没同步完的服务端文档。 */
+  readonly canvas?: AgentCanvasSnapshot
 }
 
 export type AgentInboxPayload =
@@ -762,6 +751,7 @@ export const agent_model_calls = pgTable(
   },
   (t) => [
     index('idx_agent_model_calls_turn').on(t.conversation_id, t.turn_id),
+    index('idx_agent_model_calls_started_at').on(t.started_at),
     check(
       'agent_model_calls_purpose_check',
       sql`${t.purpose} IN ('conversation', 'compaction', 'handoff', 'web_search')`,
@@ -911,32 +901,6 @@ export type AgentMessageRow = typeof agent_messages.$inferSelect
 export type AgentGenerationDraftRow = typeof agent_generation_drafts.$inferSelect
 export type AgentTurnEventRow = typeof agent_turn_events.$inferSelect
 export type AgentTurnRow = typeof agent_turns.$inferSelect
-
-/** Short-lived encrypted cross-origin handoff; source browser retains its original data. */
-export const domain_migrations = pgTable('domain_migrations', {
-  id: text('id').primaryKey(),
-  proof_hash: text('proof_hash').notNull(),
-  upload_hash: text('upload_hash').notNull(),
-  source_session_hash: text('source_session_hash'),
-  source_user_id: text('source_user_id'),
-  created_at: epochMs('created_at').notNull(),
-  expires_at: epochMs('expires_at').notNull(),
-  chunks: integer('chunks').notNull().default(0),
-  bytes: integer('bytes').notNull().default(0),
-  sealed: integer('sealed').notNull().default(0),
-})
-
-export const domain_migration_chunks = pgTable(
-  'domain_migration_chunks',
-  {
-    migration_id: text('migration_id')
-      .notNull()
-      .references(() => domain_migrations.id, { onDelete: 'cascade' }),
-    sequence: integer('sequence').notNull(),
-    ciphertext: text('ciphertext').notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.migration_id, t.sequence] })],
-)
 
 export const generation_records = pgTable(
   'generation_records',

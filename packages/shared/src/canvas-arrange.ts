@@ -12,8 +12,8 @@ export const ARRANGE_LABEL_LINE = 1.3
 export const ARRANGE_LABEL_GAP = 6
 export const ARRANGE_CAPTION_MAX = 24
 export const ARRANGE_SECTION_MAX = 24
-/** 一次整理最多搬多少张。再多就让模型拆成两次，避免一条结果盖住整张画布。 */
-export const ARRANGE_MAX_ITEMS = 80
+/** 一次整理最多搬多少张。再多就让模型拆成两次。一张真实画布可以过百张，80 装不下。 */
+export const ARRANGE_MAX_ITEMS = 200
 
 export function arrangeCaptionHeight(): number {
   return ARRANGE_CAPTION_FONT * ARRANGE_LABEL_LINE + ARRANGE_LABEL_GAP

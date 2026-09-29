@@ -77,6 +77,12 @@ export function openCanvasCloudSession(): CloudProjectSession | undefined {
   return current?.cloud
 }
 
+/** 已经打开的画布。没有就不创建：发送路径上新建工作区会抢在绑定项目之前占住当前项。 */
+export function peekCanvasWorkspace(): CanvasWorkspace | undefined {
+  ensureCurrentAccount()
+  return current
+}
+
 export function currentCanvasWorkspace(): CanvasWorkspace {
   ensureCurrentAccount()
   if (!current) {

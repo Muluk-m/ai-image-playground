@@ -109,12 +109,42 @@ it('把网页压成 markdown，链接与图片候选都还原成绝对地址', a
   expect(sources).toEqual([{ title: 'Oak Lounge Chair — Example', url: PAGE_URL }])
 })
 
+it('抓商品网页时带浏览器请求头，仍通过安全抓取路径', async () => {
+  let headers: Headers | undefined
+  _setSafeFetchForTesting({
+    resolve: async () => PUBLIC,
+    fetch: async (_url, init) => {
+      headers = new Headers(init.headers)
+      return new Response(HTML, { headers: { 'content-type': 'text/html' } })
+    },
+  })
+
+  await run({ url: PAGE_URL })
+
+  expect(headers?.get('User-Agent')).toContain('Mozilla/5.0')
+  expect(headers?.get('User-Agent')).toContain('Chrome/')
+  expect(headers?.get('Accept-Language')).toBe('zh-CN,zh;q=0.9,en;q=0.8')
+})
+
 it('地址指向内网时交回一个模型能换掉的失败', async () => {
   serve(HTML, 'text/html', [{ address: '169.254.169.254', family: 4 }])
 
   await expect(run({ url: 'https://metadata.example.com/latest' })).rejects.toMatchObject({
     name: 'AgentToolError',
-    code: 'invalid_params',
+    code: 'source_unavailable',
+  })
+})
+
+it('来源返回 HTTP 403 时归为来源不可用，并告诉模型换来源', async () => {
+  _setSafeFetchForTesting({
+    resolve: async () => PUBLIC,
+    fetch: async () => new Response('', { status: 403 }),
+  })
+
+  await expect(run({ url: 'https://www.mi.com/' })).rejects.toMatchObject({
+    name: 'AgentToolError',
+    code: 'source_unavailable',
+    message: expect.stringContaining('不要原样重试'),
   })
 })
 

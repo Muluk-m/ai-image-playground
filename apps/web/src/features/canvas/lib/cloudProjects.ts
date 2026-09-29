@@ -1,12 +1,12 @@
 import { isProjectDocument, type ProjectDocument, projectKind } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { supportsProjectDocumentIdentity } from '../../../lib/clientCapabilities'
-import { MediaRequestError } from '../../../lib/cloudMedia'
+import { MediaRequestError, mediaIdentity } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import {
-  isLocalAgentFailure,
+  isLocalPlaceholder,
   type LoadedBindings,
   prepareProjectMedia,
   projectDocument,
@@ -228,9 +228,9 @@ export class CloudProjectSession implements CloudSceneStrategy {
         .catch(() => {})
     }
   }
-  /** 换上云端版本；只在这台设备上的失败占位不在云端文档里，原样留下。 */
+  /** 换上云端版本；只在这台设备上的占位框不在云端文档里，原样留下。 */
   private restoreRemote(scene: ReturnType<typeof projectScene>) {
-    const local = this.editor.doc.elements.filter(isLocalAgentFailure)
+    const local = this.editor.doc.elements.filter(isLocalPlaceholder)
     this.applyingRemote = true
     try {
       this.editor.doc.restore([...scene.elements, ...local], scene.files, this.editor.doc.camera)
@@ -548,6 +548,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
    * 又容易失败。生成产物服务端本来就有同一份，同步时按 sha256 秒回，不用真传字节。
    * 认不出的（同步失败、离线、不是画布上的图）不在结果里，调用方照旧内联。
    */
+  /** 已经知道的云端媒体编号。不发起上传。 */
+  knownMediaId(fileId: string, source: string | undefined): string | undefined {
+    const binding = this.mediaBindings.get(fileId)
+    return (binding && binding.source === source ? binding.id : undefined) ?? mediaIdentity(source)
+  }
+
   async mediaIdsFor(sources: readonly string[]): Promise<ReadonlyMap<string, string>> {
     const lookup = () => {
       const found = new Map<string, string>()

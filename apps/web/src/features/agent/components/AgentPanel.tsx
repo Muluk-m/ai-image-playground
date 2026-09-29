@@ -20,7 +20,7 @@ import { answerableClarificationId } from '../lib/panelMessages'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
-import type { AgentPanelMessage } from '../types'
+import type { AgentPanelMessage, AgentToolMessage } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentActivityTrail from './AgentActivityTrail'
 import AgentClarification from './AgentClarification'
@@ -75,6 +75,44 @@ function renderMessage(
   }
   if (message.role === 'user') return <AgentUserMessage message={message} skills={skills} />
   return <AgentReply text={message.text} streaming={message.streaming} />
+}
+
+/** 连续取回的单张网图属于同一批素材，在对话里共用一条缩略图带。 */
+function fetchedImageRuns(messages: readonly AgentPanelMessage[]) {
+  const starts = new Map<number, readonly AgentToolMessage[]>()
+  const absorbed = new Set<number>()
+  for (let index = 0; index < messages.length; ) {
+    const first = messages[index]
+    if (
+      first?.kind !== 'tool' ||
+      first.toolName !== 'fetchImage' ||
+      first.status !== 'succeeded' ||
+      first.delivery === 'pending' ||
+      first.fetchedImages?.length !== 1
+    ) {
+      index += 1
+      continue
+    }
+    const start = index
+    const run: AgentToolMessage[] = []
+    while (index < messages.length) {
+      const message = messages[index]
+      if (
+        message?.kind !== 'tool' ||
+        message.turnId !== first.turnId ||
+        message.toolName !== 'fetchImage' ||
+        message.status !== 'succeeded' ||
+        message.delivery === 'pending' ||
+        message.fetchedImages?.length !== 1
+      )
+        break
+      run.push(message)
+      absorbed.add(index)
+      index += 1
+    }
+    starts.set(start, run)
+  }
+  return { starts, absorbed }
 }
 
 export default function AgentPanel({
@@ -215,8 +253,16 @@ export default function AgentPanel({
   // 页脚跟在本轮最后一条消息后面。重试记录自成一轮、按时间追加在对话末尾，可能夹在一轮的
   // 消息中间，所以按「这一轮的最后一条」认，而不只看下一条换没换轮。
   const lastOfTurn = new Map(messages.map((message, index) => [message.turnId, index]))
+  const jobsByTurn = new Map<string, AgentToolMessage[]>()
+  for (const message of messages) {
+    if (message.kind !== 'tool' || !message.job) continue
+    const jobs = jobsByTurn.get(message.turnId) ?? []
+    jobs.push(message)
+    jobsByTurn.set(message.turnId, jobs)
+  }
   // 连续的过程步（读画布、看图、读技能）折成一条固定高度的活动轨，不再一步一张空卡。
   const grouping = groupPanelMessages(messages)
+  const fetchedRuns = presentation === 'page' && onPreviewResult ? fetchedImageRuns(messages) : null
 
   return (
     <div
@@ -332,6 +378,36 @@ export default function AgentPanel({
                 </div>
               )}
               {messages.map((message, index) => {
+                const fetchedRun = fetchedRuns?.starts.get(index)
+                if (fetchedRuns?.absorbed.has(index) && !fetchedRun) return null
+                if (fetchedRun) {
+                  const lastIndex = index + fetchedRun.length - 1
+                  const footer =
+                    lastOfTurn.get(message.turnId) === lastIndex ? turns[message.turnId] : null
+                  return (
+                    <div key={message.id} className="studio-agent-message-block">
+                      <div className="studio-agent-fetched-strip">
+                        {fetchedRun.map((image) => (
+                          <div
+                            key={image.id}
+                            data-agent-message-id={image.id}
+                            className="studio-agent-fetched-strip-item"
+                          >
+                            <AgentToolCard
+                              message={image}
+                              onViewCanvas={onViewCanvas}
+                              onPreviewResult={onPreviewResult}
+                              compactFetched
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {footer && (
+                        <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                      )}
+                    </div>
+                  )
+                }
                 const footer =
                   lastOfTurn.get(message.turnId) === index ? turns[message.turnId] : null
                 const trail = grouping.trails.get(index)
@@ -355,7 +431,9 @@ export default function AgentPanel({
                     {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
                     {!grouping.absorbed.has(index) &&
                       renderMessage(message, answerableId, skills, onViewCanvas, onPreviewResult)}
-                    {footer && <AgentTurnCost footer={footer} />}
+                    {footer && (
+                      <AgentTurnCost footer={footer} jobs={jobsByTurn.get(message.turnId)} />
+                    )}
                   </div>
                 )
               })}

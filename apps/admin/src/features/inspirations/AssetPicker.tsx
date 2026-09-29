@@ -9,6 +9,28 @@ import { assetUrl, MAX_REFERENCE_IMAGES } from './constants'
 
 /** 公开桶只收这四种，跟 BFF createInspirationUploadTarget 的白名单一致。 */
 const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
+const SHARED_REFERENCE_ASSET_HOSTS = new Set([
+  'cms-r2.deepclick.com',
+  'muvloom-inspiration-assets.deepclick.com',
+])
+
+function trustedReferenceUrl(raw: string, assetBaseUrl: string): string | null {
+  try {
+    const url = new URL(raw.trim())
+    const configuredOrigin = assetBaseUrl ? new URL(assetBaseUrl).origin : null
+    if (
+      url.protocol !== 'https:' ||
+      (!SHARED_REFERENCE_ASSET_HOSTS.has(url.hostname) && url.origin !== configuredOrigin) ||
+      url.username ||
+      url.password
+    ) {
+      return null
+    }
+    return url.href
+  } catch {
+    return null
+  }
+}
 
 /**
  * 上传两步走：拿预签名 PUT → 直传公开桶，成功后把**绝对地址**交给表单。
@@ -116,12 +138,42 @@ export function AssetPicker({ label, hint, value, onChange, clearable }: AssetPi
 interface ReferenceImageFieldsProps {
   value: InspirationReferenceInput[]
   onChange: (next: InspirationReferenceInput[]) => void
+  assetBaseUrl: string
+  assetBaseStatus?: 'loading' | 'error' | 'ready'
+  onRetryAssetBase?: () => void
 }
 
 /** 参考图：主站「玩同款」会把它们塞进 composer，所以名字是给用户看的，必填。 */
-export function ReferenceImageFields({ value, onChange }: ReferenceImageFieldsProps) {
+export function ReferenceImageFields({
+  value,
+  onChange,
+  assetBaseUrl,
+  assetBaseStatus = 'ready',
+  onRetryAssetBase,
+}: ReferenceImageFieldsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const { busy, error, upload } = useAssetUpload()
+  const [existingUrl, setExistingUrl] = useState('')
+  const [existingName, setExistingName] = useState('')
+  const [existingError, setExistingError] = useState<string | null>(null)
+
+  function addExistingImage() {
+    if (assetBaseStatus !== 'ready') return
+    const key = trustedReferenceUrl(existingUrl, assetBaseUrl)
+    const name = existingName.trim()
+    if (!name || !key) {
+      setExistingError('填写素材名及本站公开素材的 https 地址')
+      return
+    }
+    if (value.some((reference) => reference.key === key)) {
+      setExistingError('这张参考图已经添加')
+      return
+    }
+    onChange([...value, { key, name }])
+    setExistingUrl('')
+    setExistingName('')
+    setExistingError(null)
+  }
 
   return (
     <div className="space-y-3">
@@ -185,6 +237,43 @@ export function ReferenceImageFields({ value, onChange }: ReferenceImageFieldsPr
         )}
         添加参考图
       </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={existingName}
+          onChange={(event) => setExistingName(event.target.value)}
+          placeholder="已有图片的素材名"
+          aria-label="已有图片的素材名"
+          className="min-w-36 flex-1"
+        />
+        <Input
+          value={existingUrl}
+          onChange={(event) => setExistingUrl(event.target.value)}
+          placeholder="已有图片的 https 地址"
+          aria-label="已有图片的 https 地址"
+          className="min-w-52 flex-[2] font-mono text-xs"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || value.length >= MAX_REFERENCE_IMAGES || assetBaseStatus !== 'ready'}
+          onClick={addExistingImage}
+        >
+          引用已有图片
+        </Button>
+      </div>
+      {assetBaseStatus === 'loading' && (
+        <p className="text-xs text-muted-foreground">正在读取本站公开素材配置…</p>
+      )}
+      {assetBaseStatus === 'error' && (
+        <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
+          <span>公开素材配置加载失败，请重试</span>
+          <Button type="button" variant="outline" size="sm" onClick={onRetryAssetBase}>
+            重试
+          </Button>
+        </div>
+      )}
+      {existingError ? <p className="text-xs text-destructive">{existingError}</p> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   )

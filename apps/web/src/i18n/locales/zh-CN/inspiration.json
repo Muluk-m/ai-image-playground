@@ -5,7 +5,8 @@
     "searchPlaceholder": "搜索标题 / 提示词 / 标签"
   },
   "filter": {
-    "all": "全部"
+    "all": "全部",
+    "imageEdit": "图生图 · 看前后对比"
   },
   "list": {
     "loading": "加载中…",
@@ -14,15 +15,26 @@
   "card": {
     "titleHint": "{{title}}\n推荐模型：{{model}}",
     "pin": "置顶",
-    "unpin": "取消置顶"
+    "unpin": "取消置顶",
+    "imageEdit": "图生图",
+    "before": "原图",
+    "after": "效果",
+    "beforeAlt": "{{title}}的输入原图",
+    "afterAlt": "{{title}}的生成效果",
+    "referenceCount": "{{count}} 张参考图",
+    "viewCase": "查看案例"
   },
   "detail": {
     "back": "返回列表",
-    "openOriginalHint": "点击在新标签查看原图",
-    "openOriginal": "查看原图",
+    "openOriginalHint": "在新标签查看效果图大图",
+    "openOriginal": "查看大图",
+    "openBefore": "查看输入原图大图",
+    "openAfter": "查看生成效果大图",
+    "source": "查看来源",
     "promptLabel": "完整提示词",
     "copyPrompt": "复制提示词",
     "apply": "使用此提示词",
+    "applyWithReference": "用原图试同款",
     "promptCopied": "提示词已复制",
     "copyFailed": "复制失败，请手动选择文本"
   },

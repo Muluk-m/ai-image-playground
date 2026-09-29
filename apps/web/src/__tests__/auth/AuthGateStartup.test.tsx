@@ -73,8 +73,10 @@ async function boot(expectReady = true) {
   // Match main.tsx: static AuthGate imports precede capability discovery and identity lookup.
   const { AuthGate } = await import('../../auth/AuthGate')
   const { loadRuntimeConfig } = await import('../../lib/runtimeConfig')
+  const { preloadChannels } = await import('../../lib/channels/bootstrapChannels')
   const { bootstrapClientCapabilities } = await import('../../lib/clientCapabilities')
   await loadRuntimeConfig()
+  preloadChannels(true, 'https://bff.example.com')
   await bootstrapClientCapabilities(true, 'https://bff.example.com')
   await act(async () =>
     root.render(
@@ -99,6 +101,9 @@ describe('authenticated startup coach state', () => {
     await boot()
 
     expect(coachDismissed()).toBe('true')
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/api/channels')),
+    ).toHaveLength(1)
   })
 
   it('does not inherit an anonymous visitor’s dismissal for a user who has not seen the coach', async () => {
@@ -120,11 +125,15 @@ describe('fallback startup', () => {
     fetchMock.mockImplementation(async (...args) => {
       if (String(args[0]).endsWith('/api/capabilities'))
         return Response.json({ ...allCapabilitiesOff(), 'accounts:local-recovery': true })
+      if (String(args[0]).endsWith('/api/channels'))
+        return Response.json({ channels: [{ id: 'public-model', models: [] }] })
       return original(...args)
     })
     await boot()
     expect(coachDismissed()).toBe('true')
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/auth/'))).toBe(false)
+    const { getStoredChannels } = await import('../../lib/channels/channelStore')
+    expect(getStoredChannels().map((channel) => channel.id)).toEqual(['public-model'])
     const { scopedStorageName } = await import('../../lib/authScope')
     expect(scopedStorageName('image-playground')).toBe('image-playground:user-alice')
     const { AUTH_SESSION_EXPIRED_EVENT } = await import('../../lib/authClient')
@@ -154,6 +163,21 @@ describe('connection recovery', () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 2100)))
     expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
   }, 7000)
+})
+
+it('opens an agent-enabled workspace without a migration request', async () => {
+  const fetchMock = vi.mocked(fetch)
+  const original = fetchMock.getMockImplementation()!
+  fetchMock.mockImplementation(async (...args) => {
+    if (String(args[0]).endsWith('/api/capabilities'))
+      return Response.json({ ...allCapabilitiesOff(), 'accounts:login': true, 'agent:chat': true })
+    return original(...args)
+  })
+
+  await boot()
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/conversations/adopt'))).toBe(
+    false,
+  )
 })
 
 describe('anonymous startup', () => {

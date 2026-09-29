@@ -94,7 +94,29 @@ function validateManifest(payload: unknown): InspirationManifest | null {
     const kind = INSPIRATION_KINDS.includes(r.kind as InspirationKind)
       ? (r.kind as InspirationKind)
       : 'showcase'
-    return [{ ...(entry as InspirationManifest['items'][number]), kind }]
+    const referenceImages = Array.isArray(r.referenceImages)
+      ? r.referenceImages.flatMap((reference) => {
+          if (!reference || typeof reference !== 'object') return []
+          const image = reference as Record<string, unknown>
+          if (typeof image.url !== 'string' || typeof image.name !== 'string') return []
+          try {
+            const url = new URL(image.url)
+            if (
+              url.protocol !== 'https:' ||
+              !url.hostname ||
+              url.username ||
+              url.password ||
+              !image.name.trim()
+            ) {
+              return []
+            }
+            return [{ url: url.href, name: image.name.trim() }]
+          } catch {
+            return []
+          }
+        })
+      : []
+    return [{ ...(entry as InspirationManifest['items'][number]), kind, referenceImages }]
   })
   if (items.length === 0) return null
 

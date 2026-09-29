@@ -130,6 +130,58 @@ describe('只在本机的失败占位', () => {
 
     expect(projectDocument(doc)).toEqual({ version: 1, elements: [] })
   })
+
+  it('不把本机生成队列的失败和等待占位写进云端文档', () => {
+    const doc = new CanvasDoc()
+    doc.addElements([
+      {
+        id: 'note',
+        type: 'text',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        text: '保留',
+        fontSize: 20,
+        fill: '#fff',
+      },
+      {
+        id: 'failed',
+        type: 'placeholder',
+        x: 100,
+        y: 0,
+        width: 360,
+        height: 360,
+        status: 'error',
+        message: '',
+        meta: {
+          taskId: 'task-1',
+          clientRequestId: 'request-1',
+          source: 'builtin-edge',
+          prompt: '重新构图',
+        },
+      },
+      {
+        id: 'waiting',
+        type: 'placeholder',
+        x: 500,
+        y: 0,
+        width: 360,
+        height: 360,
+        status: 'loading',
+        message: '',
+        meta: {
+          taskId: 'task-2',
+          clientRequestId: 'request-2',
+          source: 'builtin-edge',
+          prompt: '重新构图',
+        },
+      },
+    ])
+
+    expect(projectDocument(doc)).toEqual({ version: 1, elements: [doc.getElement('note')] })
+    expect(doc.elements).toHaveLength(3)
+  })
 })
 
 describe('本机原图上云', () => {
@@ -175,6 +227,50 @@ describe('本机原图上云', () => {
     await prepareProjectMedia(doc, {}, new Map(), new AbortController().signal)
 
     expect(declared).toEqual(['image/webp'])
+    vi.unstubAllGlobals()
+  })
+
+  it('PNG 标签包着 ICO 字节时先转成 PNG，避免卡住整份画布', async () => {
+    const source = 'data:image/png;base64,AAABAAEA'
+    const doc = new CanvasDoc()
+    doc.addElements(
+      [
+        {
+          id: 'icon',
+          type: 'image',
+          fileId: 'icon-file',
+          x: 0,
+          y: 0,
+          width: 32,
+          height: 32,
+          rotation: 0,
+        },
+      ],
+      { files: { 'icon-file': source } },
+    )
+    const declared: { contentType: string; bytes: number }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === source)
+          return new Response(Uint8Array.from([0, 0, 1, 0, 1, 0]), {
+            headers: { 'content-type': 'image/png' },
+          })
+        if (url.endsWith('/uploads')) {
+          declared.push(JSON.parse(init!.body as string))
+          return Response.json({ id: 'icon-media', status: 'ready' })
+        }
+        throw new Error(`unexpected request: ${url}`)
+      }),
+    )
+    const persisted = {}
+
+    await prepareProjectMedia(doc, persisted, new Map(), new AbortController().signal)
+
+    expect(declared).toEqual([
+      expect.objectContaining({ contentType: 'image/png', bytes: PNG_BYTES.length }),
+    ])
+    expect(persisted).toMatchObject({ 'icon-file': { id: 'icon-media' } })
     vi.unstubAllGlobals()
   })
 

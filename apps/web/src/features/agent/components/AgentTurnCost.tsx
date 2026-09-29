@@ -1,15 +1,13 @@
-import { agentTurnCostTotal } from '@image-playground/shared'
+import { agentTurnCostTotal, type AgentTurnCost as TurnCost } from '@image-playground/shared'
+import { ChevronDown, ImageIcon, MessageCircle, VideoIcon } from 'lucide-react'
 import { Fragment, type ReactNode, useState } from 'react'
 import Credits from '../../../components/Credits'
-import { GiftIcon } from '../../../components/icons'
-import ViewportTooltip from '../../../components/ViewportTooltip'
 import { formatElapsed } from '../../../hooks/useElapsed'
-import { useTooltip } from '../../../hooks/useTooltip'
 import { useTranslation } from '../../../i18n'
 import { formatCount } from '../../../i18n/format'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { CARD_NOTE } from '../agentStyles'
-import type { AgentTurnFooter } from '../types'
+import { turnCostWithJobs } from '../lib/turnCost'
+import type { AgentToolMessage, AgentTurnFooter } from '../types'
 
 const BREAKDOWN = [
   ['chat', 'label.chat'],
@@ -17,68 +15,52 @@ const BREAKDOWN = [
   ['video', 'cost.video'],
 ] as const
 
-export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
+export default function AgentTurnCost({
+  footer,
+  jobs = [],
+}: {
+  footer: AgentTurnFooter
+  jobs?: readonly AgentToolMessage[]
+}) {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
-  const cost = footer.cost
+  const cost = footer.cost ? turnCostWithJobs(footer.cost, jobs) : undefined
   const total = cost ? agentTurnCostTotal(cost) : null
-  const chatFree = isClientCapabilityEnabled('billing:chat-free')
+  const failed = footer.stopReason === 'failed'
+  const waivedChat =
+    footer.stopReason === 'completed' && cost?.chat === 0 && cost.chatWaived !== undefined
+
+  if (waivedChat && cost && total)
+    return <ChatFreeReceipt cost={cost} durationMs={footer.durationMs} />
 
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
-  const failed = footer.stopReason === 'failed'
-  const waivedChat = chatFree && cost?.chat === 0 && !failed
   if (failed)
     parts.push(
       <span>
         {t(
           footer.error === 'agent_turn_interrupted'
             ? 'cost.interrupted'
-            : // 这一份请求太大，服务端没有发它——说清是「没发出去」，不是「跑挂了」。
-              footer.error === 'agent_context_overflow'
+            : footer.error === 'agent_context_overflow'
               ? 'cost.contextOverflow'
               : 'cost.failed',
         )}
       </span>,
     )
-  // 停止后说了一半的回复照样留着，页脚标明它是被停下的，不是说完了。
   if (footer.stopReason === 'aborted') parts.push(<span>{t('cost.stopped')}</span>)
   if (footer.durationMs !== undefined) {
     parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
   }
-  if (waivedChat && cost) {
+  if (total) {
     parts.push(
-      <span className="inline-flex items-center gap-1">
-        {t('cost.imageCredits')}{' '}
-        {cost.image > 0 ? <Credits credits={cost.image} /> : t('cost.billedByTask')}
-      </span>,
-    )
-    if (cost.video > 0)
-      parts.push(
-        <span className="inline-flex items-center gap-1">
-          {t('cost.video')} <Credits credits={cost.video} />
-        </span>,
-      )
-    parts.push(
-      <span className="inline-flex items-center gap-1.5">
-        <del className="decoration-1 opacity-70">{t('cost.chatCredits')}</del>
-        <span>{t('cost.waived')}</span>
-        <ChatFreeMark />
-      </span>,
-    )
-  } else if (total === 0) parts.push(<span>{failed ? t('cost.noCredits') : t('cost.free')}</span>)
-  if (total && !waivedChat) {
-    parts.push(
-      <span className="inline-flex items-center gap-1.5">
-        <button
-          type="button"
-          aria-expanded={open}
-          className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-          onClick={() => setOpen(!open)}
-        >
-          {t('cost.spent')} <Credits credits={total} />
-        </button>
-      </span>,
+      <button
+        type="button"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+        onClick={() => setOpen(!open)}
+      >
+        {t('cost.spent')} <Credits credits={total} />
+      </button>,
     )
   }
 
@@ -107,24 +89,99 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   )
 }
 
-/** 免费标记解释被划掉的对话积分。 */
-function ChatFreeMark() {
+function ChatFreeReceipt({ cost, durationMs }: { cost: TurnCost; durationMs?: number }) {
   const { t } = useTranslation('agent')
-  const tooltip = useTooltip()
+  const [open, setOpen] = useState(false)
+  const spent = agentTurnCostTotal(cost)
+  const waived = cost.chatWaived
+  const knownWaiver = typeof waived === 'number' && waived > 0
+
   return (
-    <span className="relative inline-flex">
+    <div className={`flex flex-wrap items-center gap-1.5 ${CARD_NOTE}`}>
+      {durationMs !== undefined && (
+        <span className="mr-0.5 tabular-nums">{formatElapsed(durationMs)}</span>
+      )}
+      {cost.image > 0 && (
+        <span
+          role="group"
+          aria-label={t('cost.imageSpentAria', { amount: formatCount(cost.image) })}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 text-foreground"
+        >
+          <ImageIcon className="h-3 w-3" aria-hidden="true" />
+          <Credits credits={cost.image} />
+        </span>
+      )}
+      {cost.video > 0 && (
+        <span
+          role="group"
+          aria-label={t('cost.videoSpentAria', { amount: formatCount(cost.video) })}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 text-foreground"
+        >
+          <VideoIcon className="h-3 w-3" aria-hidden="true" />
+          <Credits credits={cost.video} />
+        </span>
+      )}
       <span
-        {...tooltip.handlers}
-        tabIndex={0}
-        role="img"
-        aria-label={t('cost.chatFree')}
-        className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 p-1 text-primary"
+        role="group"
+        aria-label={
+          knownWaiver
+            ? t('cost.waivedAria', { amount: formatCount(waived) })
+            : t('cost.waivedUnknownAria')
+        }
+        className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-1 text-primary"
       >
-        <GiftIcon className="h-3 w-3" />
+        <MessageCircle className="h-3 w-3" aria-hidden="true" />
+        {knownWaiver && <Credits credits={waived} struck />}
+        <span className="font-semibold">{t('cost.waivedShort')}</span>
       </span>
-      <ViewportTooltip visible={tooltip.visible} className="whitespace-nowrap">
-        {t('cost.chatFree')}
-      </ViewportTooltip>
-    </span>
+      <button
+        type="button"
+        aria-label={t('cost.receiptToggle')}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="ml-auto rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="basis-full rounded-lg border border-border bg-muted/60 px-2.5 py-2 tabular-nums">
+          {knownWaiver && <ReceiptRow label={t('cost.original')} amount={spent + waived} />}
+          <ReceiptRow label={t('cost.chatWaiver')} amount={knownWaiver ? waived : null} negative />
+          <div className="my-1 border-t border-border" />
+          <ReceiptRow label={t('cost.paid')} amount={spent} strong />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReceiptRow({
+  label,
+  amount,
+  negative = false,
+  strong = false,
+}: {
+  label: string
+  amount: number | null
+  negative?: boolean
+  strong?: boolean
+}) {
+  const { t } = useTranslation('agent')
+  return (
+    <div
+      className={`flex items-center justify-between py-0.5 ${strong ? 'font-semibold text-foreground' : ''}`}
+    >
+      <span>{label}</span>
+      <span className={`inline-flex items-center gap-0.5 ${negative ? 'text-primary' : ''}`}>
+        {amount === null ? (
+          t('cost.waivedShort')
+        ) : (
+          <>
+            {negative && '−'}
+            <Credits credits={amount} />
+          </>
+        )}
+      </span>
+    </div>
   )
 }

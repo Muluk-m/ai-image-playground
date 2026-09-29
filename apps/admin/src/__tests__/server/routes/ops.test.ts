@@ -87,6 +87,28 @@ await writer.db.insert(writer.schema.tasks).values([
   // 对话轮也是 tasks 里的一行，但不属于生成队列，看板的队列一栏不数它。
   { ...base, id: 'ops-chat-turn', kind: 'chat', status: 'queued', submitted_at: now - 30 * minute },
 ])
+await writer.db.insert(writer.schema.tasks).values({
+  ...base,
+  id: 'ops-failed',
+  status: 'failed',
+  error_type: 'upstream_error',
+  submitted_at: now - 8 * minute,
+  completed_at: now - 7 * minute,
+})
+await writer.db.insert(writer.schema.agent_conversations).values({
+  id: 'ops-conversation',
+  device_id: 'ops-device',
+  title: 'test',
+  created_at: now - 10 * minute,
+  updated_at: now - 1 * minute,
+})
+await writer.db.insert(writer.schema.agent_turns).values({
+  conversation_id: 'ops-conversation',
+  turn_id: 'ops-turn',
+  duration_ms: 1000,
+  stop_reason: 'failed',
+  created_at: now - 6 * minute,
+})
 
 // 重新部署换了实例：每个服务只该报最新的那个实例。
 await writer.db.insert(writer.schema.service_heartbeats).values([
@@ -99,7 +121,7 @@ await writer.db.insert(writer.schema.service_heartbeats).values([
     instance: 'worker-new',
     version: 'bbbbbbb',
     last_seen_at: now - 20_000,
-    detail: { last_successful_poll_at: now - 1_000 },
+    detail: { last_successful_poll_at: now - 1_000, alerts_configured: true },
   },
 ])
 
@@ -278,6 +300,7 @@ describe('GET /api/ops', () => {
         version: 'bbbbbbb',
         last_seen_at: now - 10_000,
         last_successful_poll_at: null,
+        alerts_configured: null,
       },
       {
         service: 'bff',
@@ -285,6 +308,7 @@ describe('GET /api/ops', () => {
         version: 'aaaaaaa',
         last_seen_at: now - 30_000,
         last_successful_poll_at: null,
+        alerts_configured: null,
       },
       {
         service: 'worker',
@@ -292,6 +316,7 @@ describe('GET /api/ops', () => {
         version: 'bbbbbbb',
         last_seen_at: now - 20_000,
         last_successful_poll_at: now - 1_000,
+        alerts_configured: true,
       },
     ])
   })
@@ -372,6 +397,37 @@ describe('GET /api/ops', () => {
     expect(body.api.data.error_routes).toEqual([
       { route: 'POST /v1/queue/:provider/:model/submit', count: 2 },
     ])
+  })
+
+  it('shows request availability and grouped generation and Agent failures without error messages', async () => {
+    const cookie = await login()
+    const body = (await (
+      await app.handle(new Request('http://localhost/api/ops', { headers: { cookie } }))
+    ).json()) as OpsSnapshot
+    if (!body.reliability.ok) throw new Error(body.reliability.error)
+    expect(body.reliability.data.recent).toEqual({ generation_system: 1, agent_failed: 1 })
+    expect(body.reliability.data.windows[0]).toMatchObject({
+      range: '24h',
+      requests: 50,
+      server_errors: 2,
+      availability: 0.96,
+      generation_completed: 1,
+      generation_failed: 1,
+      agent_failed: 1,
+    })
+    expect(body.reliability.data.exceptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'api', count: 2 }),
+        expect.objectContaining({
+          source: 'generation',
+          key: 'upstream_error',
+          count: 1,
+          example_task_id: 'ops-failed',
+        }),
+        expect.objectContaining({ source: 'agent', key: 'turn_failed', count: 1 }),
+      ]),
+    )
+    expect(JSON.stringify(body.reliability.data)).not.toContain('ops-device')
   })
 
   it('reads recent deployments from the deploy log, newest first, skipping lines it cannot read', async () => {

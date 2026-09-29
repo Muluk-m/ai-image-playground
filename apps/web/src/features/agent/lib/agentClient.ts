@@ -111,14 +111,6 @@ export async function removeConversation(
   if (!response.ok) throw await requestError(response)
 }
 
-export async function adoptAgentConversations(
-  fetcher: Fetcher = authenticatedBffFetch,
-): Promise<number> {
-  const response = await fetcher(url('/conversations/adopt'), jsonInit({ deviceId: getDeviceId() }))
-  if (!response.ok) throw await requestError(response)
-  return ((await response.json()) as { adopted: number }).adopted
-}
-
 /** 会话快照（见 `AgentConversationSnapshot`）。`cursor` 缺席说明是老服务端，只能按轮续播。 */
 export interface AgentConversationState {
   readonly messages: AgentMessageView[]
@@ -255,6 +247,8 @@ export async function startTurn(
   clientMessageId: string = crypto.randomUUID(),
   /** 这是对澄清卡片的答复：服务端把它排在其他排队消息前面。 */
   clarificationAnswer = false,
+  /** 发话时屏幕上的画布。没有打开画布就不带。 */
+  canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
   const init = jsonInit({
@@ -266,6 +260,7 @@ export async function startTurn(
     // 图片是服务端的默认；只有视频才值得占一个字段，老服务端也认得出这是新东西。
     ...(mode && mode !== 'image' ? { mode } : {}),
     ...(params ? { params } : {}),
+    ...(canvas ? { canvas } : {}),
   })
   const path = url(`/conversations/${conversationId}/turns`)
   let response: Response

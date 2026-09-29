@@ -41,7 +41,21 @@ async function login(): Promise<string> {
 }
 
 describe('Admin inspiration writes', () => {
+  it('forwards the trusted asset base request only after admin login', async () => {
+    const denied = await app.handle(new Request('http://localhost/api/inspirations/asset-base'))
+    expect(denied.status).toBe(401)
+
+    requests.length = 0
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/inspirations/asset-base', { headers: { cookie } }),
+    )
+    expect(response.status).toBe(200)
+    expect(requests).toEqual([{ path: '/internal/admin/inspirations/asset-base', operator: null }])
+  })
+
   it('attributes forwarded mutations to the authenticated operator', async () => {
+    requests.length = 0
     const cookie = await login()
     const response = await app.handle(
       new Request('http://localhost/api/inspirations', {

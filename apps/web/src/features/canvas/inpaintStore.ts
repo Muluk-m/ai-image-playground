@@ -8,9 +8,9 @@ export interface InpaintReference {
 }
 
 /** 笔宽用**屏幕像素**存：画布缩放时手感恒定；转成页面单位是落笔那一刻按相机算的。 */
-const DEFAULT_BRUSH_PX = 48
-export const MIN_BRUSH_PX = 8
-export const MAX_BRUSH_PX = 160
+const DEFAULT_BRUSH_PX = 18
+export const MIN_BRUSH_PX = 4
+export const MAX_BRUSH_PX = 80
 
 /** 涂抹会话干的是哪件事：按描述重画，还是把涂掉的东西抹干净。 */
 export type PaintEditKind = 'inpaint' | 'erase'
@@ -25,16 +25,19 @@ export const useInpaintSession = create<{
   imageId: string | null
   kind: PaintEditKind
   strokes: MaskStroke[]
-  tool: 'brush' | 'eraser'
+  selectedStroke: number | null
+  tool: 'rect' | 'brush' | 'eraser'
   brushPx: number
   prompt: string
   reference: InpaintReference | null
   submitting: boolean
   open(imageId: string, kind: PaintEditKind): void
   close(): void
-  setTool(tool: 'brush' | 'eraser'): void
+  setTool(tool: 'rect' | 'brush' | 'eraser'): void
   setBrushPx(px: number): void
   addStroke(stroke: MaskStroke): void
+  selectStroke(index: number): void
+  removeStroke(index: number): void
   undo(): void
   clearStrokes(): void
   setPrompt(prompt: string): void
@@ -44,7 +47,8 @@ export const useInpaintSession = create<{
   imageId: null,
   kind: 'inpaint',
   strokes: [],
-  tool: 'brush',
+  selectedStroke: null,
+  tool: 'rect',
   brushPx: DEFAULT_BRUSH_PX,
   prompt: '',
   reference: null,
@@ -55,17 +59,51 @@ export const useInpaintSession = create<{
       imageId,
       kind,
       strokes: [],
-      tool: 'brush',
+      selectedStroke: null,
+      tool: kind === 'inpaint' ? 'rect' : 'brush',
       prompt: '',
       reference: null,
       submitting: false,
     }),
-  close: () => set({ imageId: null, strokes: [], prompt: '', reference: null, submitting: false }),
+  close: () =>
+    set({
+      imageId: null,
+      strokes: [],
+      selectedStroke: null,
+      prompt: '',
+      reference: null,
+      submitting: false,
+    }),
   setTool: (tool) => set({ tool }),
   setBrushPx: (px) => set({ brushPx: Math.min(MAX_BRUSH_PX, Math.max(MIN_BRUSH_PX, px)) }),
-  addStroke: (stroke) => set((state) => ({ strokes: [...state.strokes, stroke] })),
-  undo: () => set((state) => ({ strokes: state.strokes.slice(0, -1) })),
-  clearStrokes: () => set({ strokes: [] }),
+  addStroke: (stroke) =>
+    set((state) => ({ strokes: [...state.strokes, stroke], selectedStroke: state.strokes.length })),
+  selectStroke: (index) =>
+    set((state) => ({ selectedStroke: state.strokes[index] ? index : null })),
+  removeStroke: (index) =>
+    set((state) => {
+      if (!state.strokes[index]) return state
+      const strokes = state.strokes.filter((_, current) => current !== index)
+      const selectedStroke = !strokes.length
+        ? null
+        : state.selectedStroke === null
+          ? null
+          : state.selectedStroke > index
+            ? state.selectedStroke - 1
+            : state.selectedStroke === index
+              ? Math.min(index, strokes.length - 1)
+              : state.selectedStroke
+      return {
+        strokes,
+        selectedStroke,
+      }
+    }),
+  undo: () =>
+    set((state) => {
+      const strokes = state.strokes.slice(0, -1)
+      return { strokes, selectedStroke: strokes.length ? strokes.length - 1 : null }
+    }),
+  clearStrokes: () => set({ strokes: [], selectedStroke: null }),
   setPrompt: (prompt) => set({ prompt }),
   setReference: (reference) => set({ reference }),
   setSubmitting: (submitting) => set({ submitting }),

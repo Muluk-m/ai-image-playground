@@ -12,11 +12,12 @@ const UPSTREAM_MIME = /^data:image\/(jpe?g|png|gif|webp)[;,]/i
 
 /** 部分画布来源把 ICO / WebP 标成 PNG；仅看 data URL 头会把小图直接放行。 */
 function hasMatchingImageSignature(dataUrl: string): boolean {
-  const match = /^data:image\/(jpe?g|png|gif|webp);base64,([a-z0-9+/]{16,})/i.exec(dataUrl)
+  // 文件头只需 24 字节；无上限的量词会在大图上先耗尽正则调用栈，事后 slice 已来不及。
+  const match = /^data:image\/(jpe?g|png|gif|webp);base64,([a-z0-9+/]{16,32})/i.exec(dataUrl)
   if (!match) return false
   let header: string
   try {
-    header = atob(match[2]!.slice(0, 32))
+    header = atob(match[2]!)
   } catch {
     return false
   }

@@ -154,7 +154,7 @@ ${pages.join('\n')}
 
 function robots(origin: string | null, indexing: boolean): string {
   if (!indexing) return 'User-agent: *\nDisallow: /\n'
-  const lines = ['User-agent: *', 'Allow: /', 'Disallow: /local-compat', 'Disallow: /p/']
+  const lines = ['User-agent: *', 'Allow: /', 'Disallow: /p/']
   if (origin) lines.push('', `Sitemap: ${origin}/sitemap.xml`)
   return `${lines.join('\n')}\n`
 }

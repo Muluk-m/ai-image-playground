@@ -33,17 +33,12 @@ function boundedMeta(meta: Record<string, string>): Record<string, string> {
 }
 
 /**
- * 只在这台设备上的失败占位：智能体的调用提交就被拒（积分不够、没登录……），服务端没为它预留
- * 云端位置。它不进云端文档（云端文档不收占位框，带上它整份项目会停在「媒体未上传」），
- * 换回云端版本时原样留在本机画布上，由用户自己删。
+ * 没有云端预留位置的占位框只存在于本机，包括生成队列留下的失败框和提交前的框。
+ * 项目文档只接受带 cloudGeneration 的云端生成占位；本机框随场景缓存保留，
+ * 换回云端版本时仍应留在画布上。
  */
-export function isLocalAgentFailure(element: CanvasEl): boolean {
-  return (
-    element.type === 'placeholder' &&
-    element.status === 'error' &&
-    Boolean(element.meta.agent) &&
-    !element.meta.cloudGeneration
-  )
+export function isLocalPlaceholder(element: CanvasEl): boolean {
+  return element.type === 'placeholder' && !element.meta.cloudGeneration
 }
 
 export function projectDocument(
@@ -52,7 +47,7 @@ export function projectDocument(
   kind: ProjectKind = 'image',
   identity?: { experience?: 'chat' | 'canvas'; sourceProjectId?: string },
 ): ProjectDocument | null {
-  const elements = doc.elements.filter((element) => !isLocalAgentFailure(element))
+  const elements = doc.elements.filter((element) => !isLocalPlaceholder(element))
   const mapped = elements.map((element) => {
     if (element.type === 'placeholder' && element.meta.cloudGeneration) {
       return {
@@ -91,7 +86,6 @@ export function projectDocument(
 }
 
 const MEDIA_CONCURRENCY = 4
-const CLOUD_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 async function digest(bytes: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
@@ -138,12 +132,10 @@ export async function prepareProjectMedia(
       return
     }
     if (!uploadMissing) return
-    // 申报按字节来：服务端解出的格式与申报不符就整张打回，而 data URL 上那行标签不保真。
-    // 云媒体只收 png/jpeg/webp；SVG、GIF 这类照原样上传次次被 400 打回，项目就永远同步不完，
-    // 所以先栅格化成 PNG。绑定仍记原图的哈希，下次按原图认。
-    const labeled = response.headers.get('content-type')?.split(';')[0]
-    let contentType =
-      imageMimeFromBytes(bytes) ?? (labeled && CLOUD_MEDIA_TYPES.has(labeled) ? labeled : undefined)
+    // 只按字节申报格式。data URL 的 PNG 标签可能包着 ICO 等非云媒体格式；信任标签会让
+    // 完成上传时被拒，进而卡住整份画布。认不出 PNG/JPEG/WebP 时先栅格化成 PNG。
+    // 绑定仍记原图的哈希，下次按原图认。
+    let contentType = imageMimeFromBytes(bytes)
     let body = bytes
     if (!contentType) {
       body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()

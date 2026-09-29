@@ -85,7 +85,7 @@ C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才�
 
 ```sh
 AGENT_CHAT_MODEL=gpt-6-luna
-# 只作未登记旧模型的窗口兜底；三档模型用 thinking.config.json 的真实窗口
+# 只作未登记旧模型的窗口兜底；三档模型用 thinking.config.json 的统一预算窗口
 AGENT_CHAT_CONTEXT_WINDOW=128000
 AGENT_CHAT_MAX_TOKENS=8000
 AGENT_SUMMARY_MODEL=gpt-5.6-luna
@@ -99,7 +99,7 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 三档模型的压缩、出站硬闸与预扣都读取本轮所选模型的 `contextWindow`。
 
 三档模型分别是低 `gpt-6-luna`、中 `gpt-6-sol`、深 `claude-opus-5-5`。
-模型窗口分别为 105 万、105 万、100 万 token。Claude 对话、摘要或搜索模型用
+三档模型统一按 100 万 token 的预算窗口处理。Claude 对话、摘要或搜索模型用
 `UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
 
 生图与生视频模型必须是 `channels.json` 里的模型，且在单价表里 active，否则工具提交会被拒。
@@ -111,7 +111,7 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 supported」，是确定性错误因而不重试，三次就把熔断器打开，压缩从此再没成功过一次。
 配之前拿它打一次 `/v1/chat/completions`，别只看 `/v1/models`。
 摘要使用自己的模型窗口，扣除提示词、上一版摘要、1500 token 输出和估算缓冲后再分段。
-三档对话模型及 `gpt-5.6-luna` 已登记窗口；其他摘要模型应设置
+三档对话模型及 `gpt-5.6-luna` 已登记 100 万 token 的预算窗口；其他摘要模型应设置
 `AGENT_SUMMARY_CONTEXT_WINDOW`，网关实际窗口较小时也用它覆盖登记值。
 
 ## 五、开能力，同时把阈值写死
@@ -159,8 +159,7 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 
 | 模型 | 窗口 | 压缩触发点 |
 | --- | ---: | ---: |
-| gpt-6-luna / gpt-6-sol | 1050000 | 1034000 |
-| claude-opus-5-5 | 1000000 | 984000 |
+| gpt-6-luna / gpt-6-sol / claude-opus-5-5 | 1000000 | 984000 |
 
 每轮实际计费仍按上游真实用量结算；长会话接近窗口时，输入消耗可能显著增加。
 摘要模型独立于对话模型，摘要每段不超过 32000 token，并按实际序列化文本及摘要模型的

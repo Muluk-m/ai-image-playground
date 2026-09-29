@@ -42,7 +42,7 @@ function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
     reasoning: !!depth,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    // 当前模型的真实窗口；压缩、硬闸和预扣都从这里读同一个值。
+    // 当前档位配置的预算窗口；压缩、硬闸和预扣都从这里读同一个值。
     contextWindow: profile.contextWindow,
     maxTokens: config.agent.maxTokens,
     compat: {

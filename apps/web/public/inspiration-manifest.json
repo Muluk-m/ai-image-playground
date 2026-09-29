@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updatedAt": "2026-09-10T05:01:19.451479Z",
+  "version": 45,
+  "updatedAt": "2026-09-28T13:26:01.211380Z",
   "categories": [
     "插画与艺术",
     "产品营销",
@@ -26,6 +26,93 @@
     "YouTube 缩略图"
   ],
   "items": [
+    {
+      "id": "gpt-image-2-travel-journal-edit",
+      "kind": "showcase",
+      "title": "旅行照片变手绘手账",
+      "description": "把真实旅行照片转成有路线标注、手写感细节的旅行手账插画。",
+      "prompt": "以我上传的旅行照片为原图，保留人物身份、姿态、取景角度与城市地标，把画面转为精致的手绘旅行手账插画。用温暖的水彩、彩铅和轻微纸张纹理表现光线与建筑；在留白处加入克制的日期、地点和旅行小标注。画面要像真实旅人的手账跨页，文字清楚可读，不要改变人物数量或主要场景。",
+      "thumbnailUrl": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/travel-journal-after.png",
+      "imageUrl": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/travel-journal-after.png",
+      "params": {
+        "size": "auto",
+        "quality": "high",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "插画与艺术",
+      "tags": [
+        "图生图",
+        "旅行",
+        "手绘",
+        "插画"
+      ],
+      "author": "Selina · Muvloom 改编",
+      "sourceUrl": "https://x.com/selinatasnim1/status/2097923838449516732",
+      "referenceImages": [
+        {
+          "url": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/2d30546e-213a-475c-84dd-e0a00a70d1e9.png",
+          "name": "旅行照片原图"
+        }
+      ]
+    },
+    {
+      "id": "gpt-image-2-room-sketch-render",
+      "kind": "showcase",
+      "title": "空间草图变写实效果图",
+      "description": "让手绘室内草图变成保留原构图和软装布局的摄影级空间效果图。",
+      "prompt": "以我上传的室内手绘草图为唯一空间参考，生成真实的室内摄影效果图。准确保留墙面、门窗、家具、吊灯、地毯与画面透视关系；把线稿转成自然的木材、织物、墙漆和玻璃质感。使用柔和日光和合理的阴影，整体为温暖、可居住的现代住宅。不要增删主要家具，不要改变房间结构或相机视角。",
+      "thumbnailUrl": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/room-render-after.png",
+      "imageUrl": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/room-render-after.png",
+      "params": {
+        "size": "auto",
+        "quality": "high",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "建筑与空间",
+      "tags": [
+        "图生图",
+        "草图",
+        "室内设计",
+        "写实"
+      ],
+      "author": "安伈 XinAn · Muvloom 改编",
+      "sourceUrl": "https://x.com/AnXin_37/status/2097554757506539972",
+      "referenceImages": [
+        {
+          "url": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/room-sketch-before.png",
+          "name": "室内空间草图"
+        }
+      ]
+    },
+    {
+      "id": "gpt-image-2-dumplings-editorial-poster",
+      "kind": "showcase",
+      "title": "饺子主题杂志海报",
+      "description": "以蒸汽、食物微距摄影和透明数字排版制作美食海报。",
+      "prompt": "设计一张 4:5 竖版美食编辑海报。主视觉是黑色陶盘中热气腾腾的饺子，厨师的手正在撒香草，右侧露出竹蒸笼。让巨大的半透明数字 03 融入上升的蒸汽中，像空间结构一样与摄影叠合；底部用高挑、字距宽的英文衬线字排出 DUMPLINGS。整体以深色背景、细腻食物微距、克制的铜色与奶油色构成高级杂志设计。不要卡通风格，不要堆砌道具。",
+      "thumbnailUrl": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/dumplings-poster.png",
+      "imageUrl": "https://muvloom-inspiration-assets.deepclick.com/inspirations/2026-09-28/curated-gpt-image-2/dumplings-poster.png",
+      "params": {
+        "size": "auto",
+        "quality": "high",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "海报与字体",
+      "tags": [
+        "文生图",
+        "美食",
+        "海报",
+        "排版"
+      ],
+      "author": "Mira · Muvloom 改编",
+      "sourceUrl": "https://x.com/miratechtool/status/2102276163317965292"
+    },
     {
       "id": "i25-01",
       "title": "街头潮牌广告 · 精准文字",
@@ -6401,72 +6488,6 @@
       "sourceUrl": "https://x.com/alanlovelq"
     },
     {
-      "id": "awesome-147",
-      "title": "综合应用场景图",
-      "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case147.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case147.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "摄影与写实",
-      "tags": [
-        "产品",
-        "科技",
-        "商业",
-        "故事"
-      ],
-      "author": "@alanlovelq",
-      "sourceUrl": "https://x.com/alanlovelq"
-    },
-    {
-      "id": "awesome-146",
-      "title": "综合应用场景图",
-      "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case146.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case146.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "UI 与界面",
-      "tags": [
-        "产品",
-        "科技",
-        "商业",
-        "故事"
-      ],
-      "author": "@alanlovelq",
-      "sourceUrl": "https://x.com/alanlovelq"
-    },
-    {
-      "id": "awesome-145",
-      "title": "综合应用场景图",
-      "prompt": "A {argument name=\"platform\" default=\"Taobao\"} product detail page for {argument name=\"robot model\" default=\"T-800 robot\"}, displaying: front, side, and back three-view drawings of the robot, product price, product details, functions, and usage scenarios, etc.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case145.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case145.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "UI 与界面",
-      "tags": [
-        "产品",
-        "科技",
-        "商业",
-        "故事"
-      ],
-      "author": "@alanlovelq",
-      "sourceUrl": "https://x.com/alanlovelq"
-    },
-    {
       "id": "awesome-144",
       "title": "主题海报版式设计",
       "prompt": "A luxurious cosmetic product advertisement featuring a single elegant glass jar with a shiny gold lid resting on a round, light-colored marble slab. The jar has gold text reading {argument name=\"brand name\" default=\"LUMIÉRE\"} and {argument name=\"product type\" default=\"MOISTURE RICH CREAM\"} with \"AGING CARE*\" below it. The background consists of soft, draped, shimmering champagne-colored silk fabric with delicate white flowers on the left. The lighting is warm, ethereal, and sun-drenched with soft bokeh. At the top center, elegant dark brown Japanese typography reads {argument name=\"main headline\" default=\"肌に、静かな贅沢を。\"} above a small decorative gold divider and the text {argument name=\"subheadline\" default=\"高保湿×エイジングケア*\"}. To the right of the jar, a thin gold circle contains Japanese text meaning 'With dense moisture, high-quality firmness and radiance'. At the bottom center is a dark rectangular call-to-action button with a thin gold border containing the text {argument name=\"button text\" default=\"詳しく見る\"} and a right-pointing chevron. In the bottom right corner, tiny fine print contains Japanese text meaning '*Care according to age'.",
@@ -7773,102 +7794,6 @@
       "sourceUrl": "https://x.com/A9Quant"
     },
     {
-      "id": "awesome-87",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case87.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case87.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "商业",
-        "社交",
-        "旅行"
-      ],
-      "author": "@MrLarus",
-      "sourceUrl": "https://x.com/MrLarus"
-    },
-    {
-      "id": "awesome-86",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case86.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case86.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "商业",
-        "社交",
-        "旅行"
-      ],
-      "author": "@MrLarus",
-      "sourceUrl": "https://x.com/MrLarus"
-    },
-    {
-      "id": "awesome-85",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case85.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case85.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "商业",
-        "社交",
-        "旅行"
-      ],
-      "author": "@MrLarus",
-      "sourceUrl": "https://x.com/MrLarus"
-    },
-    {
-      "id": "awesome-84",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-design character relationship map poster based on {argument name=\"theme\" default=\"Demon Slayer\"}. This image should not be a simple illustration, but a character relationship map that combines information visualization, narrative structure, poster design sense, and stylistic fidelity.\n\nPlease automatically complete the following:\n- Identify the work and core settings corresponding to the theme\n- Extract the most representative 6–12 key characters, not exceeding 15 if necessary\n- Identify and display key character relationships, including blood ties, romance, friendship, alliances, hostility, master-disciple, etc.\n- Automatically choose a composition method based on the work's characteristics, such as protagonist-centered, dual-core confrontation, faction-based, family tree, or chronological evolution\n- Automatically refine the work's style DNA, including color, worldview symbols, textures, mood, typography, and representative elements\n- Transform these stylistic elements into an overall visual design for the relationship map, rather than simply copying an official poster\n- Use different colors, line types, and arrows to distinguish different relationships, ensuring clear lines and layers without clutter\n- Make core characters most prominent, followed by important characters, and subordinate characters weakened to form a clear visual hierarchy\n- Ensure every character name is legible, with identity or faction labels if necessary\n\nThe final product should satisfy:\n- Immediate understanding of character hierarchy and key relationships\n- Obvious alignment with the original work's temperament and setting\n- Combines the clarity of an infographic with the premium design of a poster\n- Unified, exquisite, complete, and suitable for social media sharing or poster display\n- Avoids a cheap flowchart feel, messy piling, and information overload.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case84.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case84.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "商业",
-        "社交",
-        "旅行"
-      ],
-      "author": "@MrLarus",
-      "sourceUrl": "https://x.com/MrLarus"
-    },
-    {
       "id": "awesome-83",
       "title": "信息图可视化设计",
       "prompt": "{\n  \"type\": \"sports match infographic poster\",\n  \"theme\": \"UEFA Champions League\",\n  \"background\": \"dark blue and purple cosmic sky, glowing blue hexagonal lines, illuminated stadium reflecting on water at bottom\",\n  \"header\": {\n    \"logo\": \"UEFA Champions League\",\n    \"title\": \"{argument name=\\\"stage\\\" default=\\\"HALBFINALE\\\"}\",\n    \"subtitle\": \"DAS ZIEL: {argument name=\\\"location\\\" default=\\\"BUDAPEST 2026\\\"}\",\n    \"venue\": \"PUSKÁS ARÉNA\"\n  },\n  \"matchup\": {\n    \"player_left\": \"{argument name=\\\"team 1 player\\\" default=\\\"Harry Kane\\\"} in red FC Bayern kit\",\n    \"player_right\": \"{argument name=\\\"team 2 player\\\" default=\\\"Ousmane Dembélé\\\"} in blue PSG kit\",\n    \"center_logos\": \"FC Bayern München and Paris Saint-Germain with VS\",\n    \"date_box\": \"calendar icon, MITTWOCH, {argument name=\\\"date\\\" default=\\\"06.05.2026\\\"}\"\n  },\n  \"facts_section\": {\n    \"title\": \"FACTS\",\n    \"count\": 5,\n    \"items\": [\n      \"Trophy icon: DIE KÖNIGSKLASSE 2025/26\",\n      \"Bar chart icon: KANE IN TOPFORM\",\n      \"Lightning bolt icon: DEMBÉLÉ ÜBERFLIEGER\",\n      \"Two people icon: BISHER 14 DUELLE\",\n      \"Stadium icon: BUDAPEST RUFT\"\n    ]\n  },\n  \"footer\": {\n    \"trophy\": \"Champions League trophy on right\",\n    \"stadium_image\": \"Puskás Aréna at night\",\n    \"tagline\": \"EIN TRAUM. EIN ZIEL. EIN TITEL.\",\n    \"bottom_text\": \"ROAD TO BUDAPEST 2026\"\n  }\n}",
@@ -7988,83 +7913,11 @@
       "sourceUrl": "https://x.com/WOZ1Tx2JZ3kCeBj"
     },
     {
-      "id": "awesome-77",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-quality vertical \"Popular Science Encyclopedia Image\" based on {argument name=\"theme\" default=\"animals\"}.\n\nThis image is not a regular poster or a simple illustration, but a modular popular science infographic that possesses a sense of \"illustration book, encyclopedia, information structure, and collectability.\" The overall style should reference a combination of high-end natural history illustrations, modern encyclopedia pages, lifestyle knowledge cards, and highly shareable social media infographics.\n\nPlease include in the frame:\n- A clear and beautiful main visual of the subject\n- Several magnified details of local characteristics\n- Multiple rounded modular information sections\n- Clear title hierarchies and key labels\n- Concise yet rich encyclopedic content\n- Visual ratings, key point summaries, or Top 5 modules\n\nContent columns should be automatically adapted based on the theme, prioritized from these directions: basic profile, classification information, appearance characteristics, habits/ecology, formation mechanism/structure, growth or use conditions, care or maintenance suggestions, risks and precautions, suitable audience or scenarios, pros and cons comparison, and quick rating cards.\n\nVisual requirements:\nLight-colored clean background, soft color palette, light shadows, exquisite small icons, rounded information boxes, neat layout, high information density but not crowded, good reading experience. The overall result must look like a real science encyclopedia card suitable for publishing, reading, collecting, and serialized production, rather than an advertisement.\n\nPlease do not make it a regular commercial promotional poster. Highlight the features of \"knowledge organization + modular information + illustration-style display.\"",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case77.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case77.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "科技",
-        "商业",
-        "教育"
-      ],
-      "author": "@alanlovelq",
-      "sourceUrl": "https://x.com/alanlovelq"
-    },
-    {
-      "id": "awesome-76",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-quality vertical \"Popular Science Encyclopedia Image\" based on {argument name=\"theme\" default=\"animals\"}.\n\nThis image is not a regular poster or a simple illustration, but a modular popular science infographic that possesses a sense of \"illustration book, encyclopedia, information structure, and collectability.\" The overall style should reference a combination of high-end natural history illustrations, modern encyclopedia pages, lifestyle knowledge cards, and highly shareable social media infographics.\n\nPlease include in the frame:\n- A clear and beautiful main visual of the subject\n- Several magnified details of local characteristics\n- Multiple rounded modular information sections\n- Clear title hierarchies and key labels\n- Concise yet rich encyclopedic content\n- Visual ratings, key point summaries, or Top 5 modules\n\nContent columns should be automatically adapted based on the theme, prioritized from these directions: basic profile, classification information, appearance characteristics, habits/ecology, formation mechanism/structure, growth or use conditions, care or maintenance suggestions, risks and precautions, suitable audience or scenarios, pros and cons comparison, and quick rating cards.\n\nVisual requirements:\nLight-colored clean background, soft color palette, light shadows, exquisite small icons, rounded information boxes, neat layout, high information density but not crowded, good reading experience. The overall result must look like a real science encyclopedia card suitable for publishing, reading, collecting, and serialized production, rather than an advertisement.\n\nPlease do not make it a regular commercial promotional poster. Highlight the features of \"knowledge organization + modular information + illustration-style display.\"",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case76.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case76.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "科技",
-        "商业",
-        "教育"
-      ],
-      "author": "@alanlovelq",
-      "sourceUrl": "https://x.com/alanlovelq"
-    },
-    {
       "id": "awesome-75",
       "title": "关系图谱信息图",
       "prompt": "Please generate a high-quality vertical \"Popular Science Encyclopedia Image\" based on {argument name=\"theme\" default=\"animals\"}.\n\nThis image is not a regular poster or a simple illustration, but a modular popular science infographic that possesses a sense of \"illustration book, encyclopedia, information structure, and collectability.\" The overall style should reference a combination of high-end natural history illustrations, modern encyclopedia pages, lifestyle knowledge cards, and highly shareable social media infographics.\n\nPlease include in the frame:\n- A clear and beautiful main visual of the subject\n- Several magnified details of local characteristics\n- Multiple rounded modular information sections\n- Clear title hierarchies and key labels\n- Concise yet rich encyclopedic content\n- Visual ratings, key point summaries, or Top 5 modules\n\nContent columns should be automatically adapted based on the theme, prioritized from these directions: basic profile, classification information, appearance characteristics, habits/ecology, formation mechanism/structure, growth or use conditions, care or maintenance suggestions, risks and precautions, suitable audience or scenarios, pros and cons comparison, and quick rating cards.\n\nVisual requirements:\nLight-colored clean background, soft color palette, light shadows, exquisite small icons, rounded information boxes, neat layout, high information density but not crowded, good reading experience. The overall result must look like a real science encyclopedia card suitable for publishing, reading, collecting, and serialized production, rather than an advertisement.\n\nPlease do not make it a regular commercial promotional poster. Highlight the features of \"knowledge organization + modular information + illustration-style display.\"",
       "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case75.jpg?w=320&q=85",
       "imageUrl": "https://cms-r2.deepclick.com/image-playground/case75.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "图表与信息图",
-      "tags": [
-        "UI",
-        "信息图",
-        "海报",
-        "科技",
-        "商业",
-        "教育"
-      ],
-      "author": "@alanlovelq",
-      "sourceUrl": "https://x.com/alanlovelq"
-    },
-    {
-      "id": "awesome-74",
-      "title": "关系图谱信息图",
-      "prompt": "Please generate a high-quality vertical \"Popular Science Encyclopedia Image\" based on {argument name=\"theme\" default=\"animals\"}.\n\nThis image is not a regular poster or a simple illustration, but a modular popular science infographic that possesses a sense of \"illustration book, encyclopedia, information structure, and collectability.\" The overall style should reference a combination of high-end natural history illustrations, modern encyclopedia pages, lifestyle knowledge cards, and highly shareable social media infographics.\n\nPlease include in the frame:\n- A clear and beautiful main visual of the subject\n- Several magnified details of local characteristics\n- Multiple rounded modular information sections\n- Clear title hierarchies and key labels\n- Concise yet rich encyclopedic content\n- Visual ratings, key point summaries, or Top 5 modules\n\nContent columns should be automatically adapted based on the theme, prioritized from these directions: basic profile, classification information, appearance characteristics, habits/ecology, formation mechanism/structure, growth or use conditions, care or maintenance suggestions, risks and precautions, suitable audience or scenarios, pros and cons comparison, and quick rating cards.\n\nVisual requirements:\nLight-colored clean background, soft color palette, light shadows, exquisite small icons, rounded information boxes, neat layout, high information density but not crowded, good reading experience. The overall result must look like a real science encyclopedia card suitable for publishing, reading, collecting, and serialized production, rather than an advertisement.\n\nPlease do not make it a regular commercial promotional poster. Highlight the features of \"knowledge organization + modular information + illustration-style display.\"",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case74.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case74.jpg",
       "params": {
         "size": "auto",
         "n": 1
@@ -8842,77 +8695,11 @@
       "sourceUrl": "https://x.com/wtry1102"
     },
     {
-      "id": "awesome-40",
-      "title": "综合应用场景图",
-      "prompt": "Create {argument name=\"quantity\" default=\"24\"} LINE stickers of {argument name=\"animals\" default=\"animals\"} in a quirky hand-drawn style. Target {argument name=\"target audience\" default=\"Japanese Gen Z\"} with a trendy style that can aim for top downloads.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case40.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case40.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "插画与艺术",
-      "tags": [
-        "UI",
-        "科技",
-        "商业",
-        "故事"
-      ],
-      "author": "@midori_tatsuta",
-      "sourceUrl": "https://x.com/midori_tatsuta"
-    },
-    {
-      "id": "awesome-39",
-      "title": "综合应用场景图",
-      "prompt": "Create {argument name=\"quantity\" default=\"24\"} LINE stickers of {argument name=\"animals\" default=\"animals\"} in a quirky hand-drawn style. Target {argument name=\"target audience\" default=\"Japanese Gen Z\"} with a trendy style that can aim for top downloads.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case39.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case39.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "插画与艺术",
-      "tags": [
-        "UI",
-        "科技",
-        "商业",
-        "故事"
-      ],
-      "author": "@midori_tatsuta",
-      "sourceUrl": "https://x.com/midori_tatsuta"
-    },
-    {
       "id": "awesome-38",
       "title": "综合应用场景图",
       "prompt": "Create {argument name=\"quantity\" default=\"24\"} LINE stickers of {argument name=\"animals\" default=\"animals\"} in a quirky hand-drawn style. Target {argument name=\"target audience\" default=\"Japanese Gen Z\"} with a trendy style that can aim for top downloads.",
       "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case38.jpg?w=320&q=85",
       "imageUrl": "https://cms-r2.deepclick.com/image-playground/case38.jpg",
-      "params": {
-        "size": "auto",
-        "n": 1
-      },
-      "recommendedModel": "gpt-image-2.5-flare",
-      "recommendedProvider": "openai-compat",
-      "category": "插画与艺术",
-      "tags": [
-        "UI",
-        "科技",
-        "商业",
-        "故事"
-      ],
-      "author": "@midori_tatsuta",
-      "sourceUrl": "https://x.com/midori_tatsuta"
-    },
-    {
-      "id": "awesome-37",
-      "title": "综合应用场景图",
-      "prompt": "Create {argument name=\"quantity\" default=\"24\"} LINE stickers of {argument name=\"animals\" default=\"animals\"} in a quirky hand-drawn style. Target {argument name=\"target audience\" default=\"Japanese Gen Z\"} with a trendy style that can aim for top downloads.",
-      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case37.jpg?w=320&q=85",
-      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case37.jpg",
       "params": {
         "size": "auto",
         "n": 1
