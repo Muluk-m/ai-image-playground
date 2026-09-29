@@ -260,6 +260,9 @@
     "done": "Done"
   },
   "mentions": {
+    "headingResults": "Conversation images",
+    "resultImage": "Result {{index}}",
+    "resultUnavailable": "Unable to load this image. Please try again.",
     "canvasImage": "Canvas image {{index}}",
     "headingReferences": "Reference images",
     "headingCanvas": "Canvas",

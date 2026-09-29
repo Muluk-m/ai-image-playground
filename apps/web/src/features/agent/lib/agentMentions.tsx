@@ -5,12 +5,14 @@ import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { assetOptions, inputImageOptions, labelMatches } from '../../library/lib/assetMentions'
 import type { AssetRecord } from '../../library/types'
+import { type ConversationImage, ConversationImageThumbnail } from './conversationImages'
 import type { AgentReference } from './references'
 
-/** `@` 候选选中后交还给输入框的身份。三条路最终都收敛成同一条引用。 */
+/** `@` 候选选中后交还给输入框的身份，各来源最终都收敛成同一条引用。 */
 export type AgentMentionValue =
   | { type: 'reference'; index: number }
   | { type: 'canvas'; imageId: string }
+  | { type: 'result'; imageId: string }
   | { type: 'asset'; id: string }
 
 export interface CanvasImage {
@@ -34,10 +36,12 @@ export function buildAgentMentionGroups({
   query,
   references,
   canvas,
+  results = [],
   assets,
 }: {
   query: string
   references: readonly AgentReference[]
+  results?: readonly ConversationImage[]
   canvas: readonly CanvasImage[]
   assets: AssetRecord[]
 }): SuggestionMenuGroup<AgentMentionValue>[] {
@@ -50,7 +54,12 @@ export function buildAgentMentionGroups({
   )
 
   const canvasOptions = canvas
-    .filter((image) => !attached.has(image.imageId) && labelMatches(query, image.label))
+    .filter(
+      (image) =>
+        !attached.has(image.imageId) &&
+        !results.some((result) => result.id === image.imageId) &&
+        labelMatches(query, image.label),
+    )
     .map((image) => ({
       key: `canvas:${image.imageId}`,
       label: image.label,
@@ -63,6 +72,22 @@ export function buildAgentMentionGroups({
       key: 'references',
       heading: i18next.t('mentions.headingReferences', { ns: 'agent' }),
       options: referenceOptions,
+    },
+    {
+      key: 'results',
+      heading: i18next.t('mentions.headingResults', { ns: 'agent' }),
+      options: results
+        .filter(
+          (image) =>
+            !attached.has(image.id) &&
+            (labelMatches(query, image.label) || labelMatches(query, image.title)),
+        )
+        .map((image) => ({
+          key: `result:${image.id}`,
+          label: image.label,
+          thumbnail: <ConversationImageThumbnail image={image} />,
+          value: { type: 'result', imageId: image.id } as const,
+        })),
     },
     {
       key: 'canvas',

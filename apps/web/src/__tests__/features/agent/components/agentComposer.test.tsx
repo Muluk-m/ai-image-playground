@@ -20,6 +20,11 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+const resultBitmap = vi.hoisted(() => vi.fn())
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  previewArtifactBitmap: resultBitmap,
+}))
+
 const PIXEL = 'data:image/png;base64,aGk='
 const PREPARED = 'data:image/png;base64,cHJlcA=='
 const MASK = 'data:image/png;base64,bWFzaw=='
@@ -93,6 +98,7 @@ async function save(result: {
 }
 
 beforeEach(async () => {
+  resultBitmap.mockReset().mockResolvedValue(PIXEL)
   const session = agentDraft(null)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
   session.update(EMPTY_DRAFT)
@@ -103,6 +109,7 @@ beforeEach(async () => {
     async () => {},
   )
   useAgentStore.setState({
+    messages: [],
     turn: 'idle',
     stopping: false,
     activeTurn: null,
@@ -362,6 +369,114 @@ describe('智能体输入框', () => {
     expect(editor().getAttribute('data-placeholder')).toContain('引用素材')
     type('把@')
     expect(options().map((one) => one.textContent)).not.toContain('画布图1')
+    expect(editor().querySelector('img')).toBeNull()
+  })
+
+  it('纯对话可以引用尚未放入画布的生成图片并把原图交给下一轮', async () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'result',
+          turnId: 't',
+          toolCallId: 'call',
+          title: '手机产品图',
+          toolName: 'generateImage',
+          status: 'succeeded',
+          artifacts: [
+            {
+              artifactId: 'result-image',
+              media: 'image',
+              taskId: 'task',
+              outputIndex: 0,
+              mime: 'image/png',
+            },
+          ],
+        },
+      ],
+    })
+    act(() => root.render(<AgentComposer doc={doc} showCanvasReferences={false} />))
+    type('把@')
+    expect(host.textContent).toContain('会话图片')
+    expect(options().map((one) => one.textContent)).toContain('产物图1')
+    await act(async () => pick('产物图1'))
+    expect(editor().querySelector('img')?.getAttribute('src')).toBe(PIXEL)
+    type('的背景换成白色')
+    await act(async () => click('发送并拟提示词'))
+    expect(send).toHaveBeenCalledWith('把[image 1]的背景换成白色', [
+      { imageId: 'result-image', dataUrl: PIXEL, name: '产物图1' },
+    ])
+  })
+
+  it('会话产物与画布对象去重，重复引用只附上一张图', async () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'result',
+          turnId: 't',
+          toolCallId: 'call',
+          title: '手机产品图',
+          status: 'succeeded',
+          artifacts: [
+            {
+              artifactId: 'canvas-1',
+              media: 'image',
+              taskId: 'task',
+              outputIndex: 0,
+              mime: 'image/png',
+            },
+          ],
+        },
+      ],
+    })
+    render()
+    type('把@')
+    expect(options().map((one) => one.textContent)).not.toContain('画布图1')
+    pick('产物图1')
+    type('和@')
+    pick('产物图1')
+    await act(async () => click('发送并拟提示词'))
+    expect(send).toHaveBeenCalledWith('把[image 1]和[image 1]', [
+      { imageId: 'canvas-1', dataUrl: PIXEL, name: '产物图1' },
+    ])
+  })
+
+  it('读取历史产物期间输入新文字，不覆盖正在编辑的草稿', async () => {
+    let resolve!: (value: string) => void
+    resultBitmap.mockImplementation(
+      () =>
+        new Promise<string>((done) => {
+          resolve = done
+        }),
+    )
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'result',
+          turnId: 't',
+          toolCallId: 'call',
+          title: '手机产品图',
+          status: 'succeeded',
+          artifacts: [
+            {
+              artifactId: 'old-result',
+              media: 'image',
+              taskId: 'task',
+              outputIndex: 0,
+              mime: 'image/png',
+            },
+          ],
+        },
+      ],
+    })
+    act(() => root.render(<AgentComposer doc={doc} showCanvasReferences={false} />))
+    type('把@')
+    pick('产物图1')
+    type('稍后再改')
+    await act(async () => resolve(PIXEL))
+    expect(editor().textContent).toContain('稍后再改')
     expect(editor().querySelector('img')).toBeNull()
   })
 
