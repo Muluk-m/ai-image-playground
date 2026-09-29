@@ -140,4 +140,42 @@ describe('AgentPanel 活动轨', () => {
     expect(link.target).toBe('_blank')
     expect(link.rel).toBe('noreferrer noopener')
   })
+
+  it('联网读取失败仍在固定高度的操作区显示原因和处理入口', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            ...step('t1', 'webSearch', '搜索：小米手机'),
+            status: 'succeeded',
+          } as AgentPanelMessage,
+          {
+            ...step('t2', 'webFetch', '读取网页：www.mi.com'),
+            status: 'failed',
+            errorCode: 'source_unavailable',
+          } as AgentPanelMessage,
+          {
+            ...step('t3', 'webFetch', '读取网页：www.mi.com'),
+            status: 'failed',
+            errorCode: 'source_unavailable',
+          } as AgentPanelMessage,
+          {
+            kind: 'text',
+            id: 'r1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            text: '我换一个来源',
+          } as AgentPanelMessage,
+        ],
+      }),
+    )
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    const trail = log.querySelector<HTMLElement>('output[aria-live="polite"]')!
+    expect(trail.style.height).toBe('44px')
+    expect(trail.className).toContain('overflow-y-auto')
+    expect(trail.textContent).toContain('读取网页：www.mi.com')
+    expect(trail.querySelectorAll('button')).toHaveLength(2)
+    expect(log.querySelector('.studio-agent-step-failure')).toBeNull()
+  })
 })
