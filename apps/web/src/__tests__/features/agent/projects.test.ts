@@ -236,6 +236,10 @@ it('云端目录未补齐时先显示缓存画布，延后导入会话以免产�
   await state().refreshConversations()
   expect(useCanvasProjectStore.getState().projects).toHaveLength(initial.length)
 
+  useCanvasProjectStore.setState({ cloudLoading: false, cloudError: '暂时失败' })
+  expect(useCanvasProjectStore.getState().projects).toHaveLength(initial.length)
+  useCanvasProjectStore.setState({ cloudLoading: true, cloudError: null })
+
   useCanvasProjectStore.setState({
     projects: [
       ...initial,

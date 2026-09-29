@@ -64,3 +64,21 @@ it('retries discovery after a failed startup preload', async () => {
   expect(fetchSpy).toHaveBeenCalledTimes(2)
   expect(getStoredChannels().map((channel) => channel.id)).toEqual(['recovered'])
 })
+
+it('ignores an old channel preload after the backend is disabled', async () => {
+  let finish!: (response: Response) => void
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve
+        }),
+    ),
+  )
+  preloadChannels(true, 'https://old.example.com')
+  preloadChannels(false, '')
+  finish(Response.json({ channels: [{ id: 'stale' }] }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(getStoredChannels()).toEqual([])
+})
