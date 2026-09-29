@@ -339,26 +339,31 @@ export class CanvasEditor {
     this.doc.setSelection(ids)
   }
 
-  /** 平滑移动镜头到一组元素（结果落在视口外时的反馈）。 */
-  scrollToElements(ids: string[]): void {
+  /** 移动镜头到一组元素；结果反馈使用动画，初始视野与手动适应立即生效。 */
+  scrollToElements(ids: string[], animate = true): void {
     const idSet = new Set(ids)
     const els = this.doc.elements.filter((el) => idSet.has(el.id))
     if (els.length === 0) return
     const bounds = Box.Common(els.map(elementBounds))
     const { viewport } = this.doc
-    const padding = 96
+    if (viewport.width <= 1 || viewport.height <= 1) return
+    const shortSide = Math.min(viewport.width, viewport.height)
+    const padding = Math.min(96, Math.max(16, shortSide * 0.08), shortSide / 4)
     const zoom = Math.min(
       1,
       (viewport.width - padding * 2) / bounds.w,
       (viewport.height - padding * 2) / bounds.h,
     )
-    const clamped = Math.max(0.05, zoom)
     const target = {
-      x: bounds.midX - viewport.width / clamped / 2,
-      y: bounds.midY - viewport.height / clamped / 2,
-      zoom: clamped,
+      x: bounds.midX - viewport.width / zoom / 2,
+      y: bounds.midY - viewport.height / zoom / 2,
+      zoom,
     }
-    this.animateCamera(target)
+    if (animate) this.animateCamera(target)
+    else {
+      cancelAnimationFrame(this.cameraAnimHandle)
+      this.doc.setCamera(target)
+    }
   }
 
   /** 把选中的图放大到视口上方，给紧贴图片下方展开的操作框留出空间。 */

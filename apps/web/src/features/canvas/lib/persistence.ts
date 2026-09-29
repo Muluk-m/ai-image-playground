@@ -24,6 +24,7 @@ export interface PersistedScene {
   /** fileId → dataUrl，只存仍被引用的。 */
   files: Record<string, string>
   camera: Camera
+  viewport?: { width: number; height: number }
   cloud?: CloudSceneCheckpoint
 }
 
@@ -96,6 +97,10 @@ function dbGet(key: string, migrateLegacy: boolean): Promise<unknown> {
   )
 }
 
+function sameCamera(a: Camera, b: Camera): boolean {
+  return a.x === b.x && a.y === b.y && a.zoom === b.zoom
+}
+
 /**
  * 把一份场景写进 IndexedDB。合并规则只有这一处：`preserveStructure` 表示这次只动过相机，
  * 旧标签页不能把另一标签页的新结构与修订基线写回旧值。
@@ -105,6 +110,7 @@ export function writePersistedScene(
   key: string,
   removeKey?: string,
   preserveStructure = false,
+  preserveCamera = false,
 ): Promise<void> {
   return openCanvasDatabase().then(
     (db) =>
@@ -118,7 +124,14 @@ export function writePersistedScene(
             // 旧标签页的相机保存不能把另一标签页的新结构和修订基线写回旧值。
             store.put(
               previous && preserveStructure
-                ? { ...previous, camera: scene.camera }
+                ? {
+                    ...previous,
+                    camera: preserveCamera ? previous.camera : scene.camera,
+                    viewport:
+                      preserveCamera && !sameCamera(previous.camera, scene.camera)
+                        ? previous.viewport
+                        : (scene.viewport ?? previous.viewport),
+                  }
                 : previous?.cloud && !scene.cloud
                   ? { ...scene, cloud: previous.cloud }
                   : scene,
@@ -136,7 +149,7 @@ export function writePersistedScene(
 
 /** 要落盘的那一份：files 只保留仍被 image 元素引用的（删图后不积累孤儿大文件）。 */
 export function persistedScene(doc: CanvasDoc, cloud?: CloudSceneCheckpoint): PersistedScene {
-  const { elements, files, camera } = doc
+  const { elements, files, camera, viewport } = doc
   const kept: Record<string, string> = {}
   for (const el of elements) {
     if (el.type === 'image' && files[el.fileId]) kept[el.fileId] = files[el.fileId]
@@ -146,6 +159,7 @@ export function persistedScene(doc: CanvasDoc, cloud?: CloudSceneCheckpoint): Pe
     elements: [...elements],
     files: kept,
     camera: { ...camera },
+    ...(viewport.width > 1 && viewport.height > 1 ? { viewport: { ...viewport } } : {}),
     ...(cloud ? { cloud } : {}),
   }
 }
