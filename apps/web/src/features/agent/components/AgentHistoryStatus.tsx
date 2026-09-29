@@ -9,15 +9,18 @@ export default function AgentHistoryStatus() {
   return (
     <div
       role={failed ? 'alert' : 'status'}
-      className="mx-1 rounded-xl border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground"
+      className={`studio-agent-history-state ${failed ? 'studio-agent-history-state--failed' : ''}`}
     >
-      <p>{loading ? t('history.loading') : t('history.failed')}</p>
+      {loading && (
+        <span className="studio-agent-history-pulse" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      )}
+      <span>{loading ? t('history.loading') : t('history.failed')}</span>
       {failed && (
-        <button
-          type="button"
-          className="mt-2 font-medium text-primary hover:underline"
-          onClick={() => void useAgentStore.getState().retryHistory()}
-        >
+        <button type="button" onClick={() => void useAgentStore.getState().retryHistory()}>
           {t('history.retry')}
         </button>
       )}
