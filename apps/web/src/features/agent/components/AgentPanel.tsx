@@ -155,6 +155,7 @@ export default function AgentPanel({
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
+  const [locatedId, setLocatedId] = useState<string | null>(null)
   const searchResults = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     if (!query) return []
@@ -169,10 +170,13 @@ export default function AgentPanel({
     })
   }, [messages, search])
   const locateMessage = (id: string) => {
-    const target = Array.from(
-      logRef.current?.querySelectorAll<HTMLElement>('[data-agent-message-id]') ?? [],
-    ).find((one) => one.dataset.agentMessageId === id)
-    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setLocatedId(id)
+    requestAnimationFrame(() => {
+      const target = Array.from(
+        logRef.current?.querySelectorAll<HTMLElement>('[data-agent-message-id]') ?? [],
+      ).find((one) => one.dataset.agentMessageId === id)
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
     followLatest.current = false
   }
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -368,7 +372,13 @@ export default function AgentPanel({
             className={`studio-agent-log relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
             {...dropZoneProps}
           >
-            <div className={presentation === 'page' ? 'studio-agent-log-content' : 'contents'}>
+            <div
+              className={
+                presentation === 'page'
+                  ? 'studio-agent-log-content'
+                  : 'flex shrink-0 flex-col gap-2.5'
+              }
+            >
               {messages.length === 0 && !historyLoading && !historyFailed && (
                 <div className="studio-chat-empty">
                   <span className="studio-spark">✧</span>
@@ -428,7 +438,13 @@ export default function AgentPanel({
                     data-agent-message-id={message.id}
                     className="studio-agent-message-block"
                   >
-                    {trail && <AgentActivityTrail steps={trail.steps} spent={trail.spent} />}
+                    {trail && (
+                      <AgentActivityTrail
+                        steps={trail.steps}
+                        spent={trail.spent}
+                        revealId={locatedId}
+                      />
+                    )}
                     {!grouping.absorbed.has(index) &&
                       renderMessage(message, answerableId, skills, onViewCanvas, onPreviewResult)}
                     {footer && (

@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Composer,
   ComposerActions,
@@ -132,7 +133,13 @@ export default function AgentComposer({
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
-  const messages = useAgentStore((state) => state.messages)
+  const messages = useAgentStore(
+    useShallow((state) =>
+      state.messages.filter(
+        (message) => message.kind === 'tool' && Boolean(message.artifacts?.length),
+      ),
+    ),
+  )
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -371,7 +378,9 @@ export default function AgentComposer({
       // Loading an older result must not overwrite newer typing or attach to a switched chat.
       if (
         useAgentStore.getState().conversationId !== conversationId ||
-        session.getSnapshot().draft !== draft
+        session.getSnapshot().draft !== draft ||
+        promptEditor.cursor() !== at ||
+        getAtImageQuery(promptEditor.visible, promptEditor.cursor())?.start !== active.start
       )
         return
       if (!dataUrl) {
@@ -399,7 +408,13 @@ export default function AgentComposer({
         at,
         transportRef.current,
       )
-      if (attached) applyAttach(attached)
+      if (
+        attached &&
+        useAgentStore.getState().conversationId === conversationId &&
+        session.getSnapshot().draft === draft &&
+        promptEditor.cursor() === at
+      )
+        applyAttach(attached)
       return
     }
     const reference =

@@ -134,7 +134,12 @@ export default function AgentArtifactEditDialog({
     const context = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !context) return
     undoRef.current.push(context.getImageData(0, 0, canvas.width, canvas.height))
-    if (undoRef.current.length > 20) undoRef.current.shift()
+    // Bound full-resolution history to 32 MiB, including the snapshots moved to redo.
+    const limit = Math.max(
+      1,
+      Math.min(20, Math.floor((32 * 1024 * 1024) / (canvas.width * canvas.height * 4))),
+    )
+    while (undoRef.current.length > limit) undoRef.current.shift()
     redoRef.current = []
     setCanUndo(true)
     setCanRedo(false)

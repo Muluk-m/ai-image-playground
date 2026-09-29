@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderOpen, Search } from 'lucide-react'
+import { ArrowLeft, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
@@ -117,6 +117,7 @@ function CanvasLoading({ label }: { label: string }) {
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
+  const { t: tShell } = useTranslation('shell')
   const mobile = useMobileWorkspace()
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
@@ -364,6 +365,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               >
                 <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
               </button>
+              {!(sidebarExpanded ?? projectView === 'chat') && (
+                <button
+                  type="button"
+                  onClick={() => useStore.getState().toggleSidebar()}
+                  aria-label={tShell('header.nav')}
+                  className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
+                >
+                  <PanelLeftOpen size={16} />
+                </button>
+              )}
               <ProjectNavigation />
               {projectView === 'canvas' && project?.sourceProjectId && (
                 <button
@@ -446,6 +457,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     >
                       <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                     </button>
+                    {!(sidebarExpanded ?? projectView === 'chat') && (
+                      <button
+                        type="button"
+                        onClick={() => useStore.getState().toggleSidebar()}
+                        aria-label={tShell('header.nav')}
+                        className="hidden h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-card hover:text-foreground md:grid"
+                      >
+                        <PanelLeftOpen size={16} />
+                      </button>
+                    )}
                     <ProjectNavigation />
                   </div>
                 )}

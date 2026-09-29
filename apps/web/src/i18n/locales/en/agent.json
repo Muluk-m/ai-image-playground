@@ -122,7 +122,8 @@
       "succeeded": "Completed",
       "failed": "Failed",
       "deliveryFailed": "Placement failed"
-    }
+    },
+    "downloadFailed": "Download failed. Please try again."
   },
   "confirm": {
     "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",

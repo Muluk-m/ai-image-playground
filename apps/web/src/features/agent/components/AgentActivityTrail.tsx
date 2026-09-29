@@ -58,6 +58,7 @@ function Step({ step, active }: { step: AgentToolMessage; active: boolean }) {
   const action = failed ? agentToolFailureAction(errorCode) : null
   return (
     <div
+      data-agent-message-id={step.id}
       {...(step.toolName === 'loadSkill' ? { 'data-tool': 'loadSkill' } : {})}
       className={`flex shrink-0 items-center gap-2 text-[11.5px] ${failed ? 'text-destructive' : active ? 'text-foreground/85' : 'text-muted-foreground'}`}
       style={{ height: ROW }}
@@ -142,27 +143,37 @@ function sourceLabel(source: AgentWebSource): string {
 export default function AgentActivityTrail({
   steps,
   spent,
+  revealId,
 }: {
   steps: readonly AgentToolMessage[]
   spent: boolean
+  revealId?: string | null
 }) {
   // 历史里早就翻篇的那些一上来就不渲染，不放收起动画；这一轮当场翻篇的才收。
   // `collapsed` 必须能回到 false：翻篇态不是单调的，同一条活动轨在下一次渲染里
   // 完全可能又变回「还在跑」（批处理里先看到后续消息、再看到工具起跑）。只往一个方向锁，
   // 那一整段过程就再也不出现了。
+  const revealed = steps.some((step) => step.id === revealId)
   const [collapsed, setCollapsed] = useState(spent)
   const windowRef = useRef<HTMLOutputElement>(null)
   const previousCount = useRef(0)
   const followLatest = useRef(true)
+  const previousFailure = useRef<string | null>(null)
+  const failureId = steps.find((step) => step.status === 'failed')?.id ?? null
   useLayoutEffect(() => {
     const window = windowRef.current
     if (!window) return
     const appended = steps.length > previousCount.current
-    if (previousCount.current === 0 || (appended && followLatest.current)) {
+    const attention = revealed ? revealId : failureId !== previousFailure.current ? failureId : null
+    if (attention) {
+      const index = steps.findIndex((step) => step.id === attention)
+      window.scrollTop = index * (ROW + GAP)
+    } else if (previousCount.current === 0 || (appended && followLatest.current)) {
       window.scrollTop = window.scrollHeight
     }
+    previousFailure.current = failureId
     previousCount.current = steps.length
-  }, [steps.length, collapsed])
+  }, [steps.length, collapsed, failureId, revealed, revealId])
   useEffect(() => {
     if (!spent) {
       setCollapsed(false)
@@ -172,7 +183,7 @@ export default function AgentActivityTrail({
     return () => clearTimeout(timer)
   }, [spent])
 
-  if (collapsed || steps.length === 0) return null
+  if ((!revealed && collapsed) || steps.length === 0) return null
   // 最后一步还没结束才算「正在做」；都做完了就全是历史，等着收起。
   const last = steps[steps.length - 1]!
   const running = !spent && (last.status === 'running' || last.status === 'submitted')
@@ -190,8 +201,8 @@ export default function AgentActivityTrail({
       // 步骤照常排版却一个像素也画不出来——长对话里活动轨与来源链接就是这么「消失」的。
       className="block shrink-0 overflow-y-auto overscroll-contain transition-[height,opacity] duration-[420ms] ease-out motion-reduce:transition-none"
       style={{
-        height: spent ? 0 : WINDOW,
-        opacity: spent ? 0 : 1,
+        height: spent && !revealed ? 0 : WINDOW,
+        opacity: spent && !revealed ? 0 : 1,
       }}
     >
       <div className="flex flex-col justify-end" style={{ gap: GAP, minHeight: WINDOW }}>

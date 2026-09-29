@@ -120,7 +120,8 @@
       "succeeded": "已完成",
       "failed": "失败",
       "deliveryFailed": "放入失败"
-    }
+    },
+    "downloadFailed": "下载失败，请重试"
   },
   "confirm": {
     "pending": "核对下面这段提示词（可以直接改），然后点「确认生成」。",

@@ -4,6 +4,7 @@ import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
 import { useCanvasComposer } from '../composerStore'
 import { currentCanvasProject } from '../projectStore'
+import { projectExperience } from './projectRepository'
 
 /**
  * 全局的「生成视频 / 用作首帧」：把图放上一张视频画布（放完即选中）。画布类型建后不可改，
@@ -18,7 +19,8 @@ export async function startVideoFromImage(imageId: string): Promise<void> {
     main.showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
     return
   }
-  if (currentCanvasProject()?.kind !== 'video') {
+  const project = currentCanvasProject()
+  if (!project || project.kind !== 'video' || projectExperience(project) !== 'canvas') {
     if (!(await useAgentStore.getState().createProject('video', true, 'canvas'))) return
     main.showToast(i18next.t('toast.videoCanvasOpened', { ns: 'store' }), 'success')
   }
