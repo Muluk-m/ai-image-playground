@@ -152,6 +152,61 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('把同一轮连续获取的网图收进一条缩略图带，保留预览和来源', async () => {
+    const onPreviewResult = vi.fn()
+    const image = (id: string, turnId = 'turn-1'): AgentToolMessage => ({
+      kind: 'tool',
+      id,
+      turnId,
+      toolCallId: `call-${id}`,
+      toolName: 'fetchImage',
+      title: '获取图片：i02.appmifile.com',
+      status: 'succeeded',
+      delivery: 'unavailable',
+      fetchedImages: [
+        {
+          imageId: `11111111-2222-4333-8444-55555555555${id}`,
+          sourceUrl: `https://i02.appmifile.com/${id}.png`,
+          mime: 'image/png',
+        },
+      ],
+    })
+    useAgentStore.setState({
+      messages: [
+        image('1'),
+        image('2'),
+        {
+          kind: 'text',
+          id: 'reply',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text: '找到两张参考图',
+          streaming: false,
+        },
+      ],
+    })
+    act(() => {
+      const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
+      root.render(
+        <AgentPanel
+          doc={new CanvasDoc()}
+          editor={editor}
+          presentation="page"
+          onPreviewResult={onPreviewResult}
+        />,
+      )
+    })
+    await settle()
+
+    const strip = host.querySelector('.studio-agent-fetched-strip')!
+    expect(strip.querySelectorAll('.studio-agent-fetched-strip-item')).toHaveLength(2)
+    expect(strip.querySelectorAll('.studio-agent-inline-result--fetched')).toHaveLength(2)
+    expect(strip.querySelectorAll('a[href^="https://i02.appmifile.com/"]')).toHaveLength(2)
+    expect(host.textContent).toContain('找到两张参考图')
+    act(() => strip.querySelector<HTMLButtonElement>('.studio-agent-inline-open')!.click())
+    expect(onPreviewResult).toHaveBeenCalledWith('1', 'fetched_call-1_0')
+  })
+
   it('发送中的引用显示本条消息的缩略图，确认起轮后不丢失或串成下一轮的图', async () => {
     vi.stubGlobal(
       'fetch',

@@ -449,6 +449,14 @@
 .studio-agent-inline-gallery[data-count="1"] { max-width: 420px; grid-template-columns: minmax(0, 1fr); }
 .studio-agent-inline-gallery[data-count="2"] { max-width: 525px; }
 .studio-agent-inline-gallery[data-count="3"] { max-width: 790px; }
+.studio-agent-fetched-strip { display: flex; gap: 10px; width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding: 2px 0 8px; scrollbar-width: thin; }
+.studio-agent-fetched-strip-item { flex: 0 0 184px; min-width: 0; }
+.studio-agent-inline-result--fetched { gap: 6px; }
+.studio-agent-inline-result--fetched .studio-agent-inline-meta [data-slot="tool-status"] { display: none; }
+.studio-agent-inline-result--fetched .studio-agent-inline-gallery[data-count="1"] { max-width: none; }
+.studio-agent-inline-result--fetched .studio-agent-inline-tile { aspect-ratio: 4 / 3; }
+.studio-agent-inline-source { overflow: hidden; align-self: flex-start; max-width: 100%; color: hsl(var(--muted-foreground)); font-size: 11px; text-decoration: underline dotted; text-underline-offset: 2px; text-overflow: ellipsis; white-space: nowrap; }
+.studio-agent-inline-source:hover { color: hsl(var(--foreground)); }
 .studio-agent-inline-tile { position: relative; overflow: hidden; min-width: 0; aspect-ratio: 16 / 10; border-radius: 8px; background: hsl(var(--muted)); }
 .studio-agent-inline-open { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
 .studio-agent-inline-open img { width: 100%; height: 100%; object-fit: contain; transition: transform .2s ease; }
@@ -585,6 +593,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-agent-inline-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
   .studio-agent-inline-tile { aspect-ratio: 4 / 3; }
   .studio-agent-inline-gallery[data-count="1"] { max-width: 360px; grid-template-columns: minmax(0, 1fr); }
+  .studio-agent-fetched-strip-item { flex-basis: 148px; }
   .studio-agent-inline-actions { right: 4px; bottom: 4px; }
   .studio-agent-inline-actions button { width: 30px; height: 30px; }
   .studio-assets-drawer { width: 100%; border-left: 0; padding-top: env(safe-area-inset-top, 0px); }
