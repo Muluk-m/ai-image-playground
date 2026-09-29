@@ -60,9 +60,13 @@ function getAllByPath(source: unknown, path: string | undefined): unknown[] {
     for (const item of current) {
       if (item == null) continue
       if (key === '*') {
-        if (Array.isArray(item)) next.push(...item)
-        else if (typeof item === 'object')
-          next.push(...Object.values(item as Record<string, unknown>))
+        // 上游列表的大小不受本机控制，不能把每个成员展开成函数参数。
+        const values = Array.isArray(item)
+          ? item
+          : typeof item === 'object'
+            ? Object.values(item)
+            : []
+        for (const value of values) next.push(value)
         continue
       }
       if (/^\d+$/.test(key) && Array.isArray(item)) {
@@ -659,18 +663,25 @@ function buildTaskPath(path: string, taskId: string): string {
     .replace(/\{taskId\}/g, encodeURIComponent(taskId))
 }
 
-function resolveTemplateValue(value: unknown, context: Record<string, unknown>): unknown {
+function resolveTemplateValue(
+  value: unknown,
+  context: Record<string, unknown>,
+  depth = 0,
+): unknown {
+  // 配置可从 JSON 导入；在递归及后续 JSON.stringify 耗尽调用栈之前拒绝异常嵌套。
+  if (depth > 64)
+    throw new Error(i18next.getFixedT(null, 'errors')('customProvider.template_too_deep'))
   if (typeof value === 'string' && value.startsWith('$')) {
     return getByPath(context, value.slice(1))
   }
   if (Array.isArray(value)) {
     return value
-      .map((item) => resolveTemplateValue(item, context))
+      .map((item) => resolveTemplateValue(item, context, depth + 1))
       .filter((item) => item !== undefined && item !== null)
   }
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => [key, resolveTemplateValue(item, context)] as const)
+      .map(([key, item]) => [key, resolveTemplateValue(item, context, depth + 1)] as const)
       .filter(
         ([, item]) =>
           item !== undefined && item !== null && (!Array.isArray(item) || item.length > 0),
