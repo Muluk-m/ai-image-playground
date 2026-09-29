@@ -357,6 +357,13 @@ describe('智能体输入框', () => {
     expect(editor().textContent).not.toContain('@图1')
   })
 
+  it('纯对话输入框不列出画布图，也不自动带入画布选区', () => {
+    act(() => root.render(<AgentComposer doc={doc} showCanvasReferences={false} />))
+    type('把@')
+    expect(options().map((one) => one.textContent)).not.toContain('画布图1')
+    expect(editor().querySelector('img')).toBeNull()
+  })
+
   // 选区带进来的引用有自己的一套规则（撤走、手动移除、批注的竞态），归
   // `lib/selectionReferences` 与它的用例管；这里只验输入框把画布接上去了。
   it('画布选区接到引用区上：选中的图连同压着的批注成为这一轮的参考图', async () => {

@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
-import { CARD_NOTE, DRAFT_FIELD, GHOST_LINK } from '../agentStyles'
+import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
 import { agentDraftOutputCount } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
@@ -13,19 +13,6 @@ import { type AgentPromptConfirmResult, useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 
 type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }>
-
-/**
- * 草稿框的高度：整段提示词尽量一眼读完，长到十六行才交给滚动条。面板只有 340px 宽，
- * 一行装得下约四十四个半角宽度——中日韩字符是半角的两倍，按宽度而不是字数估算折行。
- */
-function draftRows(text: string): number {
-  const lines = text.split('\n').reduce((rows, line) => {
-    let width = 0
-    for (const char of line) width += (char.codePointAt(0) ?? 0) > 0xff ? 2 : 1
-    return rows + Math.max(1, Math.ceil(width / 44))
-  }, 0)
-  return Math.min(16, Math.max(4, lines))
-}
 
 /**
  * 生成工具拟好、还没提交的那份提示词：整段摊在卡上直接可改，点「确认生成」才提交生成任务。
@@ -67,7 +54,7 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
 
   return (
     <>
-      <p id={noteId} className={CARD_NOTE}>
+      <p id={noteId} className="studio-agent-confirm-hint">
         {t('confirm.pending')}
       </p>
       <textarea
@@ -75,14 +62,14 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
         aria-describedby={noteId}
         aria-invalid={ready ? undefined : true}
         value={prompt}
-        rows={draftRows(prompt)}
+        rows={6}
         disabled={submitting}
-        className={DRAFT_FIELD}
+        className="studio-agent-confirm-field"
         onChange={(event) =>
           useAgentStore.getState().setPromptDraft(message.id, event.target.value)
         }
       />
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="studio-agent-confirm-footer">
         <span className={CARD_NOTE}>
           {!ready
             ? t('confirm.empty')

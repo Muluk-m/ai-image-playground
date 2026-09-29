@@ -116,9 +116,11 @@ export default function AgentComposer({
   editor,
   welcome = false,
   showLooks = true,
+  showCanvasReferences = true,
 }: {
   welcome?: boolean
   showLooks?: boolean
+  showCanvasReferences?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
@@ -231,7 +233,7 @@ export default function AgentComposer({
   const transportRef = useRef(transport)
   transportRef.current = transport
   useEffect(() => {
-    if (loading) return
+    if (loading || !showCanvasReferences) return
     // 撞的是哪道上限由准入定夺，文案跟着它走——输入框不再自己数一遍两道上限。
     const overflow = selection.follow(doc, setDraft, editor, session.key, transportRef.current)
     if (overflow.refusal)
@@ -239,7 +241,7 @@ export default function AgentComposer({
         .getState()
         .showToast(referenceLimitMessage(overflow.refusal, transportRef.current), 'error')
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
-  }, [selection, selectionKey, loading, session])
+  }, [selection, selectionKey, loading, session, showCanvasReferences])
 
   // 做不了视频的部署里视频轮不该出现，存下来的旧草稿也按图片算——
   // 服务端在那种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
@@ -318,7 +320,7 @@ export default function AgentComposer({
       ? buildAgentMentionGroups({
           query: promptEditor.query.query,
           references: draft.references,
-          canvas,
+          canvas: showCanvasReferences ? canvas : [],
           assets,
         })
       : promptEditor.query?.kind === 'command'
