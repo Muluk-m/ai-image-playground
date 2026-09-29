@@ -309,6 +309,13 @@
       "when": 1790228400000,
       "tag": "0044_archive_retry_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790646808782,
+      "tag": "0045_retired_domain_migration",
+      "breakpoints": true
     }
   ]
 }
