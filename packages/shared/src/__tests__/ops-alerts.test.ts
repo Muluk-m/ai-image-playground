@@ -45,6 +45,34 @@ describe('阈值两侧', () => {
   })
 })
 
+describe('用户错误告警', () => {
+  it('接口 5xx 越线后去重，并在恢复时通知', () => {
+    const bad = { api: { requests: 100, server_errors: 6 } }
+    const good = { api: { requests: 100, server_errors: 0 } }
+    expect(
+      run([
+        [T0, bad],
+        [T0 + minute, bad],
+        [T0 + 2 * minute, good],
+      ]),
+    ).toEqual([['firing:api'], [], ['resolved:api']])
+  })
+
+  it('内容策略拒绝不进入系统失败计数；生成与 Agent 达阈值分别告警', () => {
+    expect(
+      run([
+        [T0, { failures: { generation_system: 2, agent: 2 } }],
+        [T0 + minute, { failures: { generation_system: 3, agent: 3 } }],
+        [T0 + 2 * minute, { failures: { generation_system: 0, agent: 0 } }],
+      ]),
+    ).toEqual([
+      [],
+      ['firing:generation', 'firing:agent'],
+      ['resolved:generation', 'resolved:agent'],
+    ])
+  })
+})
+
 describe('内存要持续吃紧才报', () => {
   it('一次瞬时偏低不报，连续 5 分钟才报', () => {
     const low = { host: host(30, 0.05) }

@@ -7,7 +7,16 @@ import { type HostSample, OPS_THRESHOLDS, type OpsRestoreDrill } from './ops'
  * 只有少数几条「不处理就会出事故」的固定规则，阈值与运维看板变红的线是同一组常量。
  */
 
-export type AlertRule = 'disk' | 'memory' | 'queue' | 'backup' | 'restore' | 'heartbeat:bff'
+export type AlertRule =
+  | 'disk'
+  | 'memory'
+  | 'queue'
+  | 'backup'
+  | 'restore'
+  | 'heartbeat:bff'
+  | 'api'
+  | 'generation'
+  | 'agent'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
@@ -23,6 +32,8 @@ export interface AlertObservation {
   backup?: { latest_modified_at: number | null }
   restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
+  api?: { requests: number; server_errors: number }
+  failures?: { generation_system: number; agent: number }
 }
 
 interface RuleState {
@@ -86,7 +97,35 @@ function readings(
   now: number,
 ): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
-  const { host, queue, backup, restoreDrill, heartbeats } = observation
+  const { host, queue, backup, restoreDrill, heartbeats, api, failures } = observation
+
+  if (api) {
+    const ratio = api.requests > 0 ? api.server_errors / api.requests : 0
+    out.api = {
+      breached:
+        api.server_errors >= OPS_THRESHOLDS.API_SERVER_ERROR_ABSOLUTE ||
+        (api.requests >= OPS_THRESHOLDS.API_MIN_REQUESTS_FOR_RATIO &&
+          ratio > OPS_THRESHOLDS.API_SERVER_ERROR_RATIO),
+      sustainMs: 0,
+      firingText: `近 15 分钟用户接口 ${api.server_errors}/${api.requests} 次返回 5xx（${percent(ratio)}）`,
+      resolvedText: '已恢复：近 15 分钟用户接口 5xx 回到告警线内',
+    }
+  }
+
+  if (failures) {
+    out.generation = {
+      breached: failures.generation_system >= OPS_THRESHOLDS.GENERATION_SYSTEM_FAILURES,
+      sustainMs: 0,
+      firingText: `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败`,
+      resolvedText: '已恢复：生成系统失败回到告警线内',
+    }
+    out.agent = {
+      breached: failures.agent >= OPS_THRESHOLDS.AGENT_TURN_FAILURES,
+      sustainMs: 0,
+      firingText: `近 15 分钟有 ${failures.agent} 次 Agent 轮次失败`,
+      resolvedText: '已恢复：Agent 轮次失败回到告警线内',
+    }
+  }
 
   if (host) {
     const used = 1 - host.disk_available_bytes / host.disk_total_bytes
