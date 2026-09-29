@@ -1,5 +1,13 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
-import { ArrowUpRight, Download, Images, Maximize2 } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Download,
+  Ellipsis,
+  Images,
+  Maximize2,
+  Pencil,
+  RotateCcw,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
@@ -420,6 +428,7 @@ export default function AgentToolCard({
 }) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const previews = useArtifactPreviews(message, Boolean(onPreviewResult))
   const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
   // 取回来的网图取不到预览时不算「可以放入画布」：放进去的那一步同样取不到字节。
@@ -460,6 +469,25 @@ export default function AgentToolCard({
   const viewCanvas = () => {
     if (onViewCanvas) onViewCanvas(canvasIds)
     else agentCanvasSink()?.focus(canvasIds)
+  }
+  if (
+    message.status === 'failed' &&
+    (message.toolName === 'webFetch' || message.toolName === 'webSearch') &&
+    !message.artifacts?.length &&
+    !message.fetchedImages?.length
+  ) {
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-step-failure">
+        <span className="studio-agent-step-failure-mark" aria-hidden="true">
+          !
+        </span>
+        <div className="studio-agent-step-failure-body">
+          <span className="studio-agent-step-failure-title">{message.title}</span>
+          <span className="studio-agent-step-failure-note">{note ?? t('tool.notFinished')}</span>
+        </div>
+        <FailureAction message={message} />
+      </div>
+    )
   }
   if (status === 'succeeded' && (previews.length > 0 || fetched.length > 0) && onPreviewResult) {
     const tiles = [
@@ -543,27 +571,73 @@ export default function AgentToolCard({
             </div>
           ))}
         </div>
-        {tiles.length > 1 && tiles.some((tile) => tile.media !== 'video') && onViewCanvas && (
-          <button
-            type="button"
-            className="studio-agent-inline-prompt"
-            onClick={() =>
-              onViewCanvas(tiles.filter((tile) => tile.media !== 'video').map((tile) => tile.id))
-            }
-          >
-            <Images size={14} aria-hidden="true" />
-            {t('tool.editGroupOnCanvas')}
-          </button>
-        )}
-        {message.prompt && (
-          <button
-            type="button"
-            className="studio-agent-inline-prompt"
-            onClick={() => setPromptOpen(true)}
-          >
-            {t('tool.viewPrompt')}
-          </button>
-        )}
+        {previews.some((preview) => preview.artifact.media === 'image') &&
+          (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
+            <div className="studio-agent-inline-footer">
+              <button
+                type="button"
+                onClick={() => onPreviewResult(message.id, previews[0].artifact.artifactId)}
+              >
+                <Pencil size={15} aria-hidden="true" />
+                {t('tool.editResult')}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void useAgentStore
+                    .getState()
+                    .send(
+                      t('tool.regenerateRequest', { prompt: message.prompt || message.title }),
+                      [],
+                      undefined,
+                      'image',
+                    )
+                }
+              >
+                <RotateCcw size={15} aria-hidden="true" />
+                {t('tool.regenerate')}
+              </button>
+              {(message.prompt || onViewCanvas) && (
+                <div className="studio-agent-inline-more">
+                  <button
+                    type="button"
+                    aria-label={t('tool.moreActions')}
+                    aria-expanded={moreOpen}
+                    onClick={() => setMoreOpen((open) => !open)}
+                  >
+                    <Ellipsis size={17} aria-hidden="true" />
+                  </button>
+                  {moreOpen && (
+                    <div className="studio-agent-inline-menu">
+                      {message.prompt && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPromptOpen(true)
+                            setMoreOpen(false)
+                          }}
+                        >
+                          {t('tool.viewPrompt')}
+                        </button>
+                      )}
+                      {onViewCanvas && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onViewCanvas(
+                              tiles.filter((tile) => tile.media !== 'video').map((tile) => tile.id),
+                            )
+                          }
+                        >
+                          {t('tool.editGroupOnCanvas')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         {promptOpen && message.prompt && (
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
         )}
@@ -648,7 +722,11 @@ export default function AgentToolCard({
     )
   }
   return (
-    <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
+    <div
+      id={agentToolCardDomId(message.id)}
+      tabIndex={-1}
+      className={message.status === 'awaiting_confirmation' ? 'studio-agent-confirm-card' : CARD}
+    >
       {message.retryOf && (
         <span className="self-start rounded-md border border-border px-1.5 text-[10px] leading-4 text-muted-foreground">
           {t('retry.record')}

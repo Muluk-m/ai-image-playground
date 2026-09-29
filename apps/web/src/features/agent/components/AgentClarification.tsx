@@ -72,7 +72,9 @@ export default function AgentClarification({
     return (
       <div className="studio-clarification-answered studio-clarification-answered--unknown">
         <Check size={15} aria-hidden="true" />
-        <span>{message.question}</span>
+        <span>
+          {t('clarification.answered')} · {message.question}
+        </span>
       </div>
     )
 

@@ -857,9 +857,9 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('要哪种风格？')
-    const option = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '扁平插画',
-    )!
+    const option = [
+      ...host.querySelectorAll<HTMLButtonElement>('.studio-clarification-options > button'),
+    ].find((button) => button.querySelector('span:last-child')?.textContent === '扁平插画')!
     act(() => option.click())
 
     expect(send).toHaveBeenCalledWith('扁平插画')
@@ -886,9 +886,9 @@ describe('AgentPanel', () => {
     )!
     act(() => other.click())
     const field = host.querySelector('input[aria-label="其他回答"]') as HTMLInputElement
-    const submit = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '发送' && button.getAttribute('type') === 'submit',
-    ) as HTMLButtonElement
+    const submit = host.querySelector<HTMLButtonElement>(
+      '.studio-clarification-other-form button[type="submit"]',
+    )!
     // 空着不能发：一条空回答只会让助手再问一遍。
     expect(submit.disabled).toBe(true)
 
@@ -953,10 +953,10 @@ describe('AgentPanel', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(host.textContent).toContain('要哪种风格？')
-    const option = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '扁平插画',
-    ) as HTMLButtonElement
-    expect(option.disabled).toBe(true)
+    expect(
+      host.querySelector('.studio-clarification-answered-detail span:last-child')?.textContent,
+    ).toBe('扁平插画')
+    expect(host.querySelector('.studio-clarification-answered-detail button')).toBeNull()
     expect(texts('button')).not.toContain('其他…')
   })
 
@@ -983,13 +983,10 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('要哪种风格？')
     expect(host.textContent).toContain('已回答')
-    const option = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '扁平插画',
-    ) as HTMLButtonElement
-    expect(option.disabled).toBe(true)
-    const next = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '竖版',
-    ) as HTMLButtonElement
+    expect(host.querySelector('.studio-clarification-answered--unknown button')).toBeNull()
+    const next = [
+      ...host.querySelectorAll<HTMLButtonElement>('.studio-clarification-options > button'),
+    ].find((button) => button.querySelector('span:last-child')?.textContent === '竖版')!
     expect(next.disabled).toBe(false)
   })
 

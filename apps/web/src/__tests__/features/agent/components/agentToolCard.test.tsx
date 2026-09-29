@@ -341,6 +341,22 @@ describe('失败卡按错误码给出路', () => {
   const buttons = (host: HTMLElement) =>
     Array.from(host.querySelectorAll('button')).map((button) => button.textContent)
 
+  it('网页读取失败收成一行，仍保留重试入口', () => {
+    const { host, unmount } = render({
+      ...failed('invalid_params'),
+      toolName: 'webFetch',
+      title: '读取网页：www.mi.com',
+    })
+    try {
+      expect(host.querySelector('.studio-agent-step-failure')).not.toBeNull()
+      expect(host.querySelector('[data-slot="error-state"]')).toBeNull()
+      expect(host.textContent).toContain('这次的参数不成立')
+      expect(buttons(host)).toContain('让助手重新处理')
+    } finally {
+      unmount()
+    }
+  })
+
   it.each([
     ['insufficient_credits', '积分不够，这次没有生成', '去充值'],
     ['quota_exceeded', '今天的生成额度已经用完', '去充值'],
