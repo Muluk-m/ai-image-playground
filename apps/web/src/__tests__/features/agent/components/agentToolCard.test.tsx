@@ -280,7 +280,12 @@ it('keeps the complete multiline prompt available and copies it without the titl
     )
     expect(host.textContent).not.toContain('复制')
     expect(host.textContent).not.toContain('存为模板')
-    act(() => host.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('[aria-expanded]')!.click())
+    act(() =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === '查看提示词')!
+        .click(),
+    )
     const dialog = document.querySelector('[role="dialog"]')!
     expect(dialog.querySelector('[aria-label="完整提示词"]')?.textContent).toBe(prompt)
     const copy = Array.from(dialog.querySelectorAll('button')).find(
@@ -349,7 +354,7 @@ describe('失败卡按错误码给出路', () => {
       title: '读取网页：www.mi.com',
     })
     try {
-      expect(host.querySelector('.studio-agent-step-failure')).not.toBeNull()
+      expect(host.querySelector('[data-slot="tool-error"]')).not.toBeNull()
       expect(host.querySelector('[data-slot="error-state"]')).toBeNull()
       expect(host.textContent).toContain('这次的参数不成立')
       expect(buttons(host)).toContain('让助手重新处理')
@@ -369,7 +374,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed(code))
     try {
       expect(host.textContent).toContain(text)
-      expect(host.querySelector('[data-slot="error-state"]')?.getAttribute('role')).toBe('alert')
+      expect(host.querySelector('[data-slot="tool-error"]')?.getAttribute('role')).toBe('alert')
       // 界面不读服务端文字（ADR 0006）。
       expect(host.textContent).not.toContain('服务端写的那句话')
       expect(buttons(host)).toEqual([action])
