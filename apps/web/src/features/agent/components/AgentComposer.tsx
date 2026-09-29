@@ -638,7 +638,9 @@ export default function AgentComposer({
             aria-label={t('composer.editorAria')}
             disabled={loading}
             aria-busy={loading}
-            placeholder={t('composer.placeholder')}
+            placeholder={t(
+              showCanvasReferences ? 'composer.placeholder' : 'composer.chatPlaceholder',
+            )}
             className={EDITOR_CLASS}
           />
         </div>
