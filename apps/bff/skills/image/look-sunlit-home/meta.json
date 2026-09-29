@@ -1,0 +1,14 @@
+{
+  "icon": "house",
+  "summary": "窗边晨光里的真实居家陈列",
+  "template": {
+    "purpose": "scene",
+    "model": "gpt-image-2.5-sunburst",
+    "size": "3:4",
+    "slotCount": 1,
+    "cover": "cover.webp",
+    "references": [
+      "cover.webp"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "icon": "shapes",
+  "summary": "大胆色块和斜向硬光的活动海报",
+  "template": {
+    "purpose": "poster",
+    "model": "gpt-image-2.5-sunburst",
+    "size": "3:4",
+    "slotCount": 1,
+    "cover": "cover.webp",
+    "references": [
+      "cover.webp"
+    ]
+  }
+}
