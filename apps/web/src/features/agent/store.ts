@@ -44,7 +44,7 @@ import {
 } from '../canvas/lib/activeProject'
 import { liveCanvasSnapshot } from '../canvas/lib/canvasSnapshot'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
-import type { CanvasProject } from '../canvas/lib/projectRepository'
+import { type CanvasProject, projectExperience } from '../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
 import {
   currentCanvasProject,
@@ -228,7 +228,12 @@ export interface AgentState {
   startNewConversation(): void
   retryHistory(): Promise<void>
   /** 画布类型建项目时定死：视频入口建视频画布，其余入口建图片画布。 */
-  createProject(kind?: ProjectKind): Promise<boolean>
+  createProject(
+    kind?: ProjectKind,
+    reuseEmpty?: boolean,
+    experience?: 'chat' | 'canvas',
+    sourceProjectId?: string,
+  ): Promise<boolean>
   selectProject(projectId: string, isCurrent?: () => boolean): Promise<boolean>
   deleteProject(projectId: string): Promise<boolean>
   /** onAccepted 只在服务端接收后触发，输入框此时才清掉已提交草稿。 */
@@ -1006,7 +1011,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     },
     open: (conversationId) => void openConversation(conversationId),
   }
-  const createProject = async (reuseEmpty = true, kind: ProjectKind = 'image') => {
+  const createProject = async (
+    reuseEmpty = true,
+    kind: ProjectKind = 'image',
+    experience: 'chat' | 'canvas' = 'chat',
+    sourceProjectId?: string,
+  ) => {
     const saved = await saveCurrentProject(get().conversationId)
     if (!saved.ok) throw new Error(saved.reason)
     const current = currentCanvasProject()
@@ -1015,6 +1025,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (
       reuseEmpty &&
       current?.kind === kind &&
+      projectExperience(current) === experience &&
       !current.conversationId &&
       !current.hasContent &&
       !current.customName &&
@@ -1029,7 +1040,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       showProject(current, showPanel)
       return true
     }
-    const project = await useCanvasProjectStore.getState().create(kind)
+    const project = await useCanvasProjectStore.getState().create(kind, experience, sourceProjectId)
     showProject(project, showPanel)
     return true
   }
@@ -1205,10 +1216,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }
     },
 
-    async createProject(kind) {
+    async createProject(kind, reuseEmpty = true, experience = 'chat', sourceProjectId) {
       return changeProject(async () => {
         try {
-          return await createProject(true, kind)
+          return await createProject(reuseEmpty, kind, experience, sourceProjectId)
         } catch {
           useStore.getState().showToast(i18next.t('project.createFailed', { ns: 'agent' }), 'error')
           return false

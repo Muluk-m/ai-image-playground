@@ -1,10 +1,12 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
+import { ArrowUpRight, Download, Images, Maximize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { ToolStatus } from '../../../components/assistant-ui/elements/tool-status'
 import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -20,7 +22,9 @@ import {
   type AgentFetchedPreview,
   artifactPreview,
   fetchedImagePreview,
+  INLINE_RESULT_THUMBNAIL_SCALE,
 } from '../lib/artifactPreview'
+import { previewArtifactBitmap } from '../lib/artifactSource'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { agentRerunBlock, agentRetryRemaining, agentRetrySlotTasks } from '../lib/retry'
 import {
@@ -78,11 +82,14 @@ function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
   return message.artifacts ?? NO_ARTIFACTS
 }
 
-function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactPreview[] {
+function useArtifactPreviews(
+  message: AgentToolMessage,
+  inline: boolean,
+): readonly AgentArtifactPreview[] {
   const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>([])
   const artifacts = previewable(message)
   // 交付状态变了就重问一遍；卡重新挂载（折叠面板、切页签）也重问，所以画布上删掉的图能被发现。
-  const key = `${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
+  const key = `${inline}:${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
 
   useEffect(() => {
     let alive = true
@@ -90,7 +97,11 @@ function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactP
       setPreviews([])
       return
     }
-    void Promise.all(artifacts.map(artifactPreview)).then((next) => {
+    void Promise.all(
+      artifacts.map((artifact) =>
+        artifactPreview(artifact, inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined),
+      ),
+    ).then((next) => {
       if (alive) setPreviews(next)
     })
     return () => {
@@ -102,7 +113,15 @@ function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactP
   return previews
 }
 
-function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
+function Thumbnail({
+  preview,
+  onViewCanvas,
+  onPreview,
+}: {
+  preview: AgentArtifactPreview
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreview?: (id: string) => void
+}) {
   const { artifact, source, onCanvas } = preview
   if (!source) return null
   const badge = artifact.media === 'video' && (
@@ -111,6 +130,13 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
     </span>
   )
   const image = <img src={source} alt="" className="h-full w-full object-cover" />
+  if (onPreview)
+    return (
+      <button type="button" className={THUMBNAIL} onClick={() => onPreview(artifact.artifactId)}>
+        {image}
+        {badge}
+      </button>
+    )
   // 不在画布上就没有可定位的对象，那张图只是看一眼，不做成按钮。
   if (!onCanvas)
     return (
@@ -123,7 +149,11 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
     <button
       type="button"
       className={THUMBNAIL}
-      onClick={() => agentCanvasSink()?.focus([artifact.artifactId])}
+      onClick={() =>
+        onViewCanvas
+          ? onViewCanvas([artifact.artifactId])
+          : agentCanvasSink()?.focus([artifact.artifactId])
+      }
     >
       {image}
       {badge}
@@ -132,10 +162,13 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 }
 
 /** 取回来的那几张网图此刻的样子；交付还在途时先不取图，那一份正在下载。 */
-function useFetchedPreviews(message: AgentToolMessage): readonly AgentFetchedPreview[] {
+function useFetchedPreviews(
+  message: AgentToolMessage,
+  inline: boolean,
+): readonly AgentFetchedPreview[] {
   const [previews, setPreviews] = useState<readonly AgentFetchedPreview[]>([])
   const images = message.delivery === 'pending' ? undefined : message.fetchedImages
-  const key = `${message.delivery}:${(images ?? []).map((one) => one.imageId).join(' ')}`
+  const key = `${inline}:${message.delivery}:${(images ?? []).map((one) => one.imageId).join(' ')}`
 
   useEffect(() => {
     let alive = true
@@ -145,7 +178,11 @@ function useFetchedPreviews(message: AgentToolMessage): readonly AgentFetchedPre
     }
     void Promise.all(
       images.map((image, index) =>
-        fetchedImagePreview(image, fetchedCanvasId(message.toolCallId, index)),
+        fetchedImagePreview(
+          image,
+          fetchedCanvasId(message.toolCallId, index),
+          inline ? INLINE_RESULT_THUMBNAIL_SCALE : undefined,
+        ),
       ),
     ).then((next) => {
       if (alive) setPreviews(next)
@@ -169,7 +206,15 @@ function sourceHost(url: string): string {
 }
 
 /** 取回来的网图：缩略图加一个回到来源的链接——版权在对方那里，来源不能只留在模型的话里。 */
-function FetchedImages({ previews }: { previews: readonly AgentFetchedPreview[] }) {
+function FetchedImages({
+  previews,
+  onViewCanvas,
+  onPreview,
+}: {
+  previews: readonly AgentFetchedPreview[]
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreview?: (id: string) => void
+}) {
   const { t } = useTranslation('agent')
   if (!previews.length) return null
   return (
@@ -178,12 +223,25 @@ function FetchedImages({ previews }: { previews: readonly AgentFetchedPreview[] 
         {previews.map(({ objectId, source, onCanvas }) => {
           if (!source) return null
           const bitmap = <img src={source} alt="" className="h-full w-full object-cover" />
+          if (onPreview)
+            return (
+              <button
+                key={objectId}
+                type="button"
+                className={THUMBNAIL}
+                onClick={() => onPreview(objectId)}
+              >
+                {bitmap}
+              </button>
+            )
           return onCanvas ? (
             <button
               key={objectId}
               type="button"
               className={THUMBNAIL}
-              onClick={() => agentCanvasSink()?.focus([objectId])}
+              onClick={() =>
+                onViewCanvas ? onViewCanvas([objectId]) : agentCanvasSink()?.focus([objectId])
+              }
             >
               {bitmap}
             </button>
@@ -351,17 +409,25 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
+export default function AgentToolCard({
+  message,
+  onViewCanvas,
+  onPreviewResult,
+}: {
+  message: AgentToolMessage
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreviewResult?: (messageId: string, objectId?: string) => void
+}) {
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
-  const previews = useArtifactPreviews(message)
-  const fetched = useFetchedPreviews(message)
+  const previews = useArtifactPreviews(message, Boolean(onPreviewResult))
+  const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
   // 取回来的网图取不到预览时不算「可以放入画布」：放进去的那一步同样取不到字节。
   const offCanvas =
     previews.some((preview) => !preview.onCanvas) ||
     fetched.some((preview) => !preview.onCanvas && preview.source)
   const progress = useAgentToolProgress(message)
-  const note = useStatusNote(message, offCanvas, progress !== null)
+  const note = useStatusNote(message, onPreviewResult ? false : offCanvas, progress !== null)
   const imageGenerating =
     progress !== null &&
     (message.toolName === 'generateImage' || message.toolName === 'editImage') &&
@@ -388,6 +454,199 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
           : status === 'running'
             ? t('tool.status.running')
             : t('tool.status.succeeded')
+  const canvasIds = previews
+    .filter((preview) => preview.onCanvas)
+    .map((preview) => preview.artifact.artifactId)
+  const viewCanvas = () => {
+    if (onViewCanvas) onViewCanvas(canvasIds)
+    else agentCanvasSink()?.focus(canvasIds)
+  }
+  if (status === 'succeeded' && (previews.length > 0 || fetched.length > 0) && onPreviewResult) {
+    const tiles = [
+      ...previews.map((preview) => ({
+        id: preview.artifact.artifactId,
+        source: preview.source,
+        media: preview.artifact.media,
+        original: () => previewArtifactBitmap(preview.artifact),
+      })),
+      ...fetched.map((preview) => ({
+        id: preview.objectId,
+        source: preview.source,
+        media: 'image' as const,
+        original: () => resolveMediaSource(`aip-media:${preview.image.imageId}`, 'original', true),
+      })),
+    ]
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-inline-result">
+        <div className="studio-agent-inline-meta">
+          <ToolStatus label={statusLabel} status={status} />
+          <span title={message.title}>{message.title}</span>
+        </div>
+        <div className="studio-agent-inline-gallery" data-count={tiles.length}>
+          {tiles.map((tile, index) => (
+            <div className="studio-agent-inline-tile" key={tile.id}>
+              <button
+                type="button"
+                className="studio-agent-inline-open"
+                aria-label={t('tool.openResultNumber', { number: index + 1 })}
+                onClick={() => onPreviewResult(message.id, tile.id)}
+              >
+                {tile.source ? (
+                  <img
+                    src={tile.source}
+                    alt={t('tool.resultNumber', { number: index + 1 })}
+                    loading="lazy"
+                  />
+                ) : (
+                  <span>{t('tool.previewUnavailable')}</span>
+                )}
+                {tile.media === 'video' && <PlayBadge />}
+              </button>
+              <div className="studio-agent-inline-actions">
+                <button
+                  type="button"
+                  title={t('tool.previewResult')}
+                  aria-label={t('tool.openResultNumber', { number: index + 1 })}
+                  onClick={() => onPreviewResult(message.id, tile.id)}
+                >
+                  <Maximize2 size={16} />
+                </button>
+                {tile.media !== 'video' && (
+                  <button
+                    type="button"
+                    title={t('tool.downloadResult')}
+                    aria-label={t('tool.downloadResult')}
+                    onClick={() =>
+                      void tile.original().then((source) => {
+                        if (!source) return
+                        const link = document.createElement('a')
+                        link.href = source
+                        link.download = `muvloom-${tile.id}.png`
+                        link.click()
+                      })
+                    }
+                  >
+                    <Download size={16} />
+                  </button>
+                )}
+                {tile.media !== 'video' && onViewCanvas && (
+                  <button
+                    type="button"
+                    title={t('tool.editOnCanvas')}
+                    aria-label={t('tool.editOnCanvas')}
+                    onClick={() => onViewCanvas([tile.id])}
+                  >
+                    <Images size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {tiles.length > 1 && tiles.some((tile) => tile.media !== 'video') && onViewCanvas && (
+          <button
+            type="button"
+            className="studio-agent-inline-prompt"
+            onClick={() =>
+              onViewCanvas(tiles.filter((tile) => tile.media !== 'video').map((tile) => tile.id))
+            }
+          >
+            <Images size={14} aria-hidden="true" />
+            {t('tool.editGroupOnCanvas')}
+          </button>
+        )}
+        {message.prompt && (
+          <button
+            type="button"
+            className="studio-agent-inline-prompt"
+            onClick={() => setPromptOpen(true)}
+          >
+            {t('tool.viewPrompt')}
+          </button>
+        )}
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+        <WakeSkippedNote message={message} />
+      </div>
+    )
+  }
+  if (status === 'succeeded' && previews.length > 0 && fetched.length === 0 && !message.retryOf) {
+    return (
+      <div id={agentToolCardDomId(message.id)} tabIndex={-1} className="studio-agent-result-card">
+        <div className="studio-agent-result-media" data-multiple={previews.length > 1 || undefined}>
+          {previews.map((preview) =>
+            onPreviewResult ? (
+              <button
+                key={preview.artifact.artifactId}
+                type="button"
+                className={THUMBNAIL}
+                aria-label={t('tool.previewResult')}
+                onClick={() => onPreviewResult(message.id, preview.artifact.artifactId)}
+              >
+                {preview.source && (
+                  <img src={preview.source} alt="" className="h-full w-full object-cover" />
+                )}
+                {preview.artifact.media === 'video' && <PlayBadge />}
+              </button>
+            ) : (
+              <Thumbnail
+                key={preview.artifact.artifactId}
+                preview={preview}
+                onViewCanvas={onViewCanvas}
+              />
+            ),
+          )}
+        </div>
+        <div className="studio-agent-result-body">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-foreground">{t('tool.resultTitle')}</span>
+            <ToolStatus label={statusLabel} status={status} />
+          </div>
+          <p className="studio-agent-result-description" title={message.title}>
+            {message.title}
+          </p>
+          {note && <p className={CARD_NOTE}>{note}</p>}
+          <WakeSkippedNote message={message} />
+          <div className="studio-agent-result-actions">
+            {onPreviewResult ? (
+              <button type="button" onClick={() => onPreviewResult(message.id)}>
+                <Images className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('tool.previewResult')}
+              </button>
+            ) : canvasIds.length > 0 ? (
+              <button type="button" title={t('tool.locateTitle')} onClick={viewCanvas}>
+                <Images className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('tool.openCanvas')}
+                <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+              </button>
+            ) : null}
+            {message.prompt && !onPreviewResult && (
+              <button type="button" onClick={() => setPromptOpen(true)}>
+                {t('tool.viewPrompt')}
+              </button>
+            )}
+            {offCanvas && !onPreviewResult && (
+              <button
+                type="button"
+                onClick={() =>
+                  void useAgentStore
+                    .getState()
+                    .placeOnCanvas(message.id)
+                    .then(() => onViewCanvas?.())
+                }
+              >
+                {t('tool.place')}
+              </button>
+            )}
+          </div>
+        </div>
+        {promptOpen && message.prompt && (
+          <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
+        )}
+      </div>
+    )
+  }
   return (
     <div id={agentToolCardDomId(message.id)} tabIndex={-1} className={CARD}>
       {message.retryOf && (
@@ -396,18 +655,18 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
         </span>
       )}
       <div className="flex items-start justify-between gap-2">
-        {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
+        {!message.prompt && !onPreviewResult && previews.some((preview) => preview.onCanvas) ? (
           <button
             type="button"
             title={t('tool.locateTitle')}
             className={`${CARD_TITLE} min-w-0 text-left`}
-            onClick={() =>
-              agentCanvasSink()?.focus(
-                previews
-                  .filter((preview) => preview.onCanvas)
-                  .map((preview) => preview.artifact.artifactId),
-              )
-            }
+            onClick={() => {
+              const ids = previews
+                .filter((preview) => preview.onCanvas)
+                .map((preview) => preview.artifact.artifactId)
+              if (onViewCanvas) onViewCanvas(ids)
+              else agentCanvasSink()?.focus(ids)
+            }}
           >
             {message.title}
           </button>
@@ -463,16 +722,30 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {previews.map((preview) => (
-            <Thumbnail key={preview.artifact.artifactId} preview={preview} />
+            <Thumbnail
+              key={preview.artifact.artifactId}
+              preview={preview}
+              onViewCanvas={onViewCanvas}
+              onPreview={onPreviewResult ? (id) => onPreviewResult(message.id, id) : undefined}
+            />
           ))}
         </div>
       )}
-      <FetchedImages previews={fetched} />
-      {offCanvas && (
+      <FetchedImages
+        previews={fetched}
+        onViewCanvas={onViewCanvas}
+        onPreview={onPreviewResult ? (id) => onPreviewResult(message.id, id) : undefined}
+      />
+      {offCanvas && !onPreviewResult && (
         <button
           type="button"
           className={`self-start ${GHOST_LINK}`}
-          onClick={() => void useAgentStore.getState().placeOnCanvas(message.id)}
+          onClick={() =>
+            void useAgentStore
+              .getState()
+              .placeOnCanvas(message.id)
+              .then(() => onViewCanvas?.())
+          }
         >
           {t('tool.place')}
         </button>

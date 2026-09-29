@@ -27,6 +27,8 @@
     "templates": "Templates",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
+    "chats": "Chats",
+    "newChat": "New chat",
     "canvases": "Canvases",
     "allCanvases": "All",
     "newCanvas": "New canvas",
@@ -94,7 +96,7 @@
   },
   "createTarget": {
     "aria": "Where this prompt goes",
-    "generate": "Generate",
-    "canvas": "Canvas"
+    "generate": "Quick generate",
+    "canvas": "Project studio"
   }
 }

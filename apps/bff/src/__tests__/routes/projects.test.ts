@@ -113,6 +113,35 @@ it('画布类型建项目时定死，后来的写入改不动它', async () => {
   expect((await (await request(`/${legacy}`, deviceB)).json()).document).not.toHaveProperty('kind')
 })
 
+it('新前端可读取对话和画布身份，老前端继续收到旧格式文档', async () => {
+  const id = crypto.randomUUID()
+  const sourceProjectId = crypto.randomUUID()
+  const created = await request(`/${id}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 0,
+    name: '衍生画布',
+    document: { ...document, experience: 'canvas', sourceProjectId },
+  })
+  expect(created.status).toBe(200)
+  const modern = await (await request(`/${id}?identity=1`, deviceB)).json()
+  expect(modern.document).toMatchObject({ experience: 'canvas', sourceProjectId })
+  const legacy = await (await request(`/${id}`, deviceB)).json()
+  expect(legacy.document).not.toHaveProperty('experience')
+  expect(legacy.document).not.toHaveProperty('sourceProjectId')
+  const list = await (await request('', deviceB)).json()
+  expect(list.projects[0]).toMatchObject({ id, experience: 'canvas', sourceProjectId })
+
+  // 旧前端保存后仍保留身份，随后新前端继续能取回。
+  await request(`/${id}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 1,
+    name: '衍生画布',
+    document,
+  })
+  const afterLegacyWrite = await (await request(`/${id}?identity=1`, deviceB)).json()
+  expect(afterLegacyWrite.document).toMatchObject({ experience: 'canvas', sourceProjectId })
+})
+
 it('拒绝不完整媒体、未知格式及超出边界的结构，保留原文档', async () => {
   const id = crypto.randomUUID()
   const write = (doc: unknown) =>

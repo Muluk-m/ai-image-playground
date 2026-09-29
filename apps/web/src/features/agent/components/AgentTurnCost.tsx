@@ -65,7 +65,7 @@ export default function AgentTurnCost({
   }
 
   return (
-    <div className={`flex flex-wrap items-center gap-1 ${CARD_NOTE}`}>
+    <div className={`studio-agent-turn-cost flex flex-wrap items-center gap-1 ${CARD_NOTE}`}>
       {parts.map((part, index) => (
         <Fragment key={index}>
           {index > 0 && <span aria-hidden="true">·</span>}

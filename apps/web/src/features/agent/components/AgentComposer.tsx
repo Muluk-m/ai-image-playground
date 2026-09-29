@@ -115,8 +115,10 @@ export default function AgentComposer({
   doc,
   editor,
   welcome = false,
+  showLooks = true,
 }: {
   welcome?: boolean
+  showLooks?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
@@ -741,7 +743,9 @@ export default function AgentComposer({
           </ComposerActions>
         </ComposerToolbar>
       </ComposerBar>
-      {mode === 'image' && <LookChips onPick={(look) => selectSkill(look.skillName)} />}
+      {showLooks && mode === 'image' && (
+        <LookChips onPick={(look) => selectSkill(look.skillName)} />
+      )}
     </Composer>
   )
 }

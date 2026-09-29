@@ -108,6 +108,8 @@
     "restoring": "Restoring your projects…",
     "reload": "Reload",
     "untitled": "Untitled project",
+    "untitledChat": "Untitled chat",
+    "untitledCanvas": "Untitled canvas",
     "kindImage": "Image",
     "kindVideo": "Video",
     "routeUnavailable": "This project can't be opened right now. Check the account, or try again on the original device.",
@@ -131,7 +133,10 @@
     "canvasAria": "Creation canvas",
     "untitled": "My canvas",
     "backToProjects": "Back to projects",
-    "backHome": "Back to home"
+    "backHome": "Back to home",
+    "assets": "Assets",
+    "sourceChat": "Back to source chat",
+    "imageTransferFailed": "Could not add this image to a new canvas. Please retry."
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
@@ -202,6 +207,8 @@
     "delete": "Delete"
   },
   "grid": {
+    "chat": "Chat",
+    "canvas": "Canvas",
     "loadingCloud": "Loading projects…",
     "retryCloud": "Retry loading projects",
     "refreshCloud": "Refresh projects",
