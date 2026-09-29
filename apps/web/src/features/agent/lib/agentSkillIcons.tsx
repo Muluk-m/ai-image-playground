@@ -2,9 +2,11 @@ import { DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
 import {
   Aperture,
   Brush,
+  Camera,
   Clapperboard,
   Flame,
   Focus,
+  House,
   ImagePlay,
   ImagePlus,
   Images,
@@ -18,12 +20,14 @@ import {
   PersonStanding,
   Replace,
   ScanSearch,
+  Shapes,
   ShoppingBag,
   ShoppingCart,
   Sparkles,
   Sprout,
   WandSparkles,
   Waves,
+  ZoomIn,
 } from 'lucide-react'
 
 /**
@@ -38,9 +42,11 @@ import {
 const AGENT_SKILL_ICONS: Readonly<Record<string, LucideIcon>> = {
   aperture: Aperture,
   brush: Brush,
+  camera: Camera,
   clapperboard: Clapperboard,
   flame: Flame,
   focus: Focus,
+  house: House,
   'image-play': ImagePlay,
   'image-plus': ImagePlus,
   images: Images,
@@ -53,12 +59,14 @@ const AGENT_SKILL_ICONS: Readonly<Record<string, LucideIcon>> = {
   'person-standing': PersonStanding,
   replace: Replace,
   'scan-search': ScanSearch,
+  shapes: Shapes,
   'shopping-bag': ShoppingBag,
   'shopping-cart': ShoppingCart,
   sparkles: Sparkles,
   sprout: Sprout,
   'wand-sparkles': WandSparkles,
   waves: Waves,
+  'zoom-in': ZoomIn,
 }
 
 /** 白名单里认得的全部图标名，给测试对着技能目录点名。 */
