@@ -14,6 +14,7 @@ import {
   type OpsHost,
   type OpsQueue,
   type OpsRange,
+  type OpsReliability,
   type OpsServices,
   type OpsSnapshot,
 } from '../../contracts'
@@ -78,8 +79,8 @@ export async function buildOpsSnapshot(
   timeoutMs: number = BLOCK_TIMEOUT_MS,
   range: OpsRange = DEFAULT_OPS_RANGE,
 ): Promise<OpsSnapshot> {
-  const [queue, database, backup, services, host, containers, api, deployments] = await Promise.all(
-    [
+  const [queue, database, backup, services, host, containers, api, reliability, deployments] =
+    await Promise.all([
       settle('queue', sources.queue, timeoutMs),
       settle('database', sources.database, timeoutMs),
       settle('backup', sources.backup, timeoutMs),
@@ -87,9 +88,9 @@ export async function buildOpsSnapshot(
       settle('host', () => sources.host(range), timeoutMs),
       settle('containers', sources.containers, timeoutMs),
       settle('api', sources.api, timeoutMs),
+      settle('reliability', sources.reliability, timeoutMs),
       settle('deployments', sources.deployments, timeoutMs),
-    ],
-  )
+    ])
   return {
     generated_at: Date.now(),
     host,
@@ -99,6 +100,7 @@ export async function buildOpsSnapshot(
     backup,
     containers,
     api,
+    reliability,
     deployments,
   }
 }
@@ -314,6 +316,107 @@ async function readApi(): Promise<OpsApi> {
   }
 }
 
+/** 请求可用率只覆盖 BFF 已采集的用户 API；生成与 Agent 是独立的业务结果。 */
+async function readReliability(): Promise<OpsReliability> {
+  const { db } = getDbHandle()
+  const [apiRaw, generationRaw, agentRaw, apiErrorsRaw, generationErrorsRaw, agentErrorsRaw] =
+    await Promise.all([
+      db.execute(sql`
+        SELECT
+          COALESCE(SUM(requests) FILTER (WHERE minute >= NOW() - INTERVAL '24 hours'), 0) AS day_requests,
+          COALESCE(SUM(server_errors) FILTER (WHERE minute >= NOW() - INTERVAL '24 hours'), 0) AS day_errors,
+          MAX(minute) FILTER (WHERE minute >= NOW() - INTERVAL '24 hours') AS day_latest,
+          COALESCE(SUM(requests), 0) AS week_requests,
+          COALESCE(SUM(server_errors), 0) AS week_errors,
+          MAX(minute) AS week_latest
+        FROM api_minutes WHERE minute >= NOW() - INTERVAL '7 days'
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'completed' AND completed_at >= NOW() - INTERVAL '24 hours') AS day_completed,
+          COUNT(*) FILTER (WHERE status = 'failed' AND completed_at >= NOW() - INTERVAL '24 hours') AS day_failed,
+          COUNT(*) FILTER (WHERE status = 'failed' AND error_type IS DISTINCT FROM 'content_policy'
+            AND completed_at >= NOW() - INTERVAL '15 minutes') AS recent_system_failed,
+          COUNT(*) FILTER (WHERE status = 'completed') AS week_completed,
+          COUNT(*) FILTER (WHERE status = 'failed') AS week_failed
+        FROM queue_tasks
+        WHERE completed_at >= NOW() - INTERVAL '7 days' AND status IN ('completed', 'failed')
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE stop_reason = 'completed' AND created_at >= NOW() - INTERVAL '24 hours') AS day_completed,
+          COUNT(*) FILTER (WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '24 hours') AS day_failed,
+          COUNT(*) FILTER (WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes') AS recent_failed,
+          COUNT(*) FILTER (WHERE stop_reason = 'completed') AS week_completed,
+          COUNT(*) FILTER (WHERE stop_reason = 'failed') AS week_failed
+        FROM agent_turns WHERE created_at >= NOW() - INTERVAL '7 days'
+      `),
+      db.execute(sql`
+        SELECT route.key AS key, SUM(route.value::int) AS count, MAX(minute) AS last_at
+        FROM api_minutes, jsonb_each_text(server_error_routes) AS route
+        WHERE minute >= NOW() - INTERVAL '24 hours' AND server_error_routes IS NOT NULL
+        GROUP BY route.key ORDER BY count DESC, route.key ASC LIMIT 10
+      `),
+      db.execute(sql`
+        SELECT COALESCE(error_type, 'unknown') AS key, COUNT(*) AS count,
+          MAX(completed_at) AS last_at, (ARRAY_AGG(id ORDER BY completed_at DESC))[1] AS example_task_id
+        FROM queue_tasks
+        WHERE status = 'failed' AND completed_at >= NOW() - INTERVAL '24 hours'
+        GROUP BY COALESCE(error_type, 'unknown') ORDER BY count DESC, key ASC LIMIT 10
+      `),
+      db.execute(sql`
+        SELECT 'turn_failed' AS key, COUNT(*) AS count, MAX(created_at) AS last_at
+        FROM agent_turns
+        WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '24 hours'
+        HAVING COUNT(*) > 0
+      `),
+    ])
+
+  const api = (apiRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  const generation = (generationRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  const agent = (agentRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  const number = (value: unknown) => Number(value ?? 0)
+  const at = (value: unknown) => (value == null ? null : new Date(String(value)).getTime())
+  const window = (range: '24h' | '7d', prefix: 'day' | 'week') => {
+    const requests = number(api[`${prefix}_requests`])
+    const server_errors = number(api[`${prefix}_errors`])
+    return {
+      range,
+      requests,
+      server_errors,
+      availability: requests > 0 ? (requests - server_errors) / requests : null,
+      last_api_sample_at: at(api[`${prefix}_latest`]),
+      generation_completed: number(generation[`${prefix}_completed`]),
+      generation_failed: number(generation[`${prefix}_failed`]),
+      agent_completed: number(agent[`${prefix}_completed`]),
+      agent_failed: number(agent[`${prefix}_failed`]),
+    }
+  }
+  const groups = (
+    source: 'api' | 'generation' | 'agent',
+    raw: unknown,
+  ): OpsReliability['exceptions'] =>
+    (raw as Array<Record<string, unknown>>).map((row) => ({
+      source,
+      key: String(row.key),
+      count: number(row.count),
+      last_at: at(row.last_at) ?? 0,
+      ...(row.example_task_id ? { example_task_id: String(row.example_task_id) } : {}),
+    }))
+  return {
+    recent: {
+      generation_system: number(generation.recent_system_failed),
+      agent_failed: number(agent.recent_failed),
+    },
+    windows: [window('24h', 'day'), window('7d', 'week')],
+    exceptions: [
+      ...groups('api', apiErrorsRaw),
+      ...groups('generation', generationErrorsRaw),
+      ...groups('agent', agentErrorsRaw),
+    ].sort((a, b) => b.count - a.count || b.last_at - a.last_at),
+  }
+}
+
 /** 部署日志每行：`<UTC 时间> <名字> public=<sha> private=<sha|-> image=<tag> by=<账号> result=<ok|failed>`。 */
 export function parseDeploymentLog(text: string, limit = 15): OpsDeployment[] {
   const entries: OpsDeployment[] = []
@@ -369,7 +472,10 @@ async function readServices(): Promise<OpsServices> {
   `)) as unknown as Array<Record<string, unknown>>
   return {
     services: rows.map((row) => {
-      const detail = (row.detail ?? {}) as { last_successful_poll_at?: unknown }
+      const detail = (row.detail ?? {}) as {
+        last_successful_poll_at?: unknown
+        alerts_configured?: unknown
+      }
       const polledAt = Number(detail.last_successful_poll_at)
       return {
         service: row.service as 'bff' | 'worker',
@@ -377,6 +483,8 @@ async function readServices(): Promise<OpsServices> {
         version: String(row.version),
         last_seen_at: Math.round(Number(row.last_seen_ms)),
         last_successful_poll_at: Number.isFinite(polledAt) && polledAt > 0 ? polledAt : null,
+        alerts_configured:
+          typeof detail.alerts_configured === 'boolean' ? detail.alerts_configured : null,
       }
     }),
   }
@@ -426,5 +534,6 @@ const defaultSources: OpsSources = {
   host: readHost,
   containers: readContainers,
   api: readApi,
+  reliability: readReliability,
   deployments: readDeployments,
 }

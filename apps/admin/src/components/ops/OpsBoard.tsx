@@ -12,6 +12,7 @@ import {
 } from '@/components/ops/DeploymentsBlock'
 import { LazyHostTrendChart } from '@/components/ops/LazyHostTrendChart'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
+import { ReliabilityBlock, reliabilityProblems } from '@/components/ops/ReliabilityBlock'
 import { bytes, elapsed, fuzzyTime, isoTime, shortId } from '@/lib/format'
 import type {
   OpsBackups,
@@ -165,6 +166,13 @@ function servicesProblems(
         `${SERVICE_LABEL[name]}没有实例在跑最近部署的版本 ${shortSha(current.public_sha)}`,
       )
     }
+    if (
+      name === 'worker' &&
+      alive.some((one) => one.alerts_configured === false) &&
+      !alive.some((one) => one.alerts_configured === true)
+    ) {
+      problems.push('应用告警 webhook 未配置，异常不会主动推送')
+    }
   }
   return problems
 }
@@ -212,6 +220,11 @@ function ServicesBody({
             {service.last_successful_poll_at !== null ? (
               <span className="w-full text-xs text-muted-foreground">
                 最后一次成功轮询：{fuzzyTime(service.last_successful_poll_at, now)}
+              </span>
+            ) : null}
+            {service.service === 'worker' && service.alerts_configured !== null ? (
+              <span className="w-full text-xs text-muted-foreground">
+                应用告警：{service.alerts_configured ? 'webhook 已配置（投递未验证）' : '未配置'}
               </span>
             ) : null}
           </li>
@@ -350,6 +363,7 @@ export function opsAlerts(snapshot: OpsSnapshot): string[] {
     ...(snapshot.containers.ok ? containersProblems(snapshot.containers.data) : []),
     ...(snapshot.services.ok ? servicesProblems(snapshot.services.data, now, deployments) : []),
     ...(snapshot.api.ok ? apiProblems(snapshot.api.data) : []),
+    ...(snapshot.reliability.ok ? reliabilityProblems(snapshot.reliability.data) : []),
     ...(snapshot.queue.ok ? queueProblems(snapshot.queue.data) : []),
     ...(snapshot.backup.ok ? backupProblems(snapshot.backup.data, now) : []),
     ...(snapshot.deployments.ok ? deploymentsProblems(snapshot.deployments.data) : []),
@@ -361,6 +375,7 @@ export function OpsBoard({ snapshot, range }: { snapshot: OpsSnapshot; range: Op
   const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
   return (
     <section className="grid gap-4 xl:grid-cols-2">
+      <ReliabilityBlock block={snapshot.reliability} now={snapshot.generated_at} />
       <OpsBlockCard
         title="宿主机"
         block={snapshot.host}

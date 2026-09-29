@@ -95,6 +95,7 @@ vi.mock('../../lib/api-client', () => {
         backup: unavailable,
         containers: unavailable,
         api: unavailable,
+        reliability: unavailable,
         deployments: unavailable,
       }
     }
