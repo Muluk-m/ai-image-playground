@@ -3,9 +3,10 @@ import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import AgentActivityTrail from '../../../../features/agent/components/AgentActivityTrail'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { useAgentStore } from '../../../../features/agent/store'
-import type { AgentPanelMessage } from '../../../../features/agent/types'
+import type { AgentPanelMessage, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
@@ -178,4 +179,39 @@ describe('AgentPanel 活动轨', () => {
     expect(trail.querySelectorAll('button')).toHaveLength(2)
     expect(log.querySelector('.studio-agent-step-failure')).toBeNull()
   })
+})
+
+it('scrolls to a newly failed step without requiring another appended message', () => {
+  const steps = Array.from({ length: 4 }, (_, index) =>
+    step(`f${index}`, 'webFetch', `Fetch ${index}`),
+  ) as AgentToolMessage[]
+  steps[0] = { ...steps[0]!, status: 'failed' }
+  act(() => root.render(<AgentActivityTrail steps={steps} spent={false} />))
+  const trail = host.querySelector('output')!
+  expect(trail.scrollTop).toBe(0)
+  steps[3] = { ...steps[3]!, status: 'failed' }
+  act(() => root.render(<AgentActivityTrail steps={[...steps]} spent={false} />))
+  expect(trail.scrollTop).toBeGreaterThan(0)
+})
+
+it('does not pull a manually scrolled activity trail back to an old search target', () => {
+  const steps = Array.from({ length: 4 }, (_, index) =>
+    step(`r${index}`, 'webFetch', `Fetch ${index}`),
+  ) as AgentToolMessage[]
+  act(() => root.render(<AgentActivityTrail steps={steps} spent={false} revealId="r0" />))
+  const trail = host.querySelector('output')!
+  Object.defineProperty(trail, 'scrollHeight', { value: 200 })
+  Object.defineProperty(trail, 'clientHeight', { value: 44 })
+  trail.scrollTop = 40
+  act(() => trail.dispatchEvent(new Event('scroll')))
+  act(() =>
+    root.render(
+      <AgentActivityTrail
+        steps={[...steps, step('r4', 'webFetch', 'Fetch 4') as AgentToolMessage]}
+        spent={false}
+        revealId="r0"
+      />,
+    ),
+  )
+  expect(trail.scrollTop).toBe(40)
 })

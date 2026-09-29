@@ -1004,8 +1004,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       !draft.references.length &&
       !unsent
     ) {
-      await useCanvasProjectStore.getState().update(current.id, { workspaceOpened: true })
-      showProject(current, showPanel)
+      await useCanvasProjectStore
+        .getState()
+        .update(current.id, { workspaceOpened: true, experience })
+      showProject({ ...current, experience }, showPanel)
       return true
     }
     const project = await useCanvasProjectStore.getState().create(kind, experience, sourceProjectId)

@@ -158,22 +158,26 @@ export default function AgentActivityTrail({
   const windowRef = useRef<HTMLOutputElement>(null)
   const previousCount = useRef(0)
   const followLatest = useRef(true)
-  const previousFailure = useRef<string | null>(null)
-  const failureId = steps.find((step) => step.status === 'failed')?.id ?? null
+  const previousFailures = useRef(new Set<string>())
+  const previousReveal = useRef<string | null>(null)
+  const failureIds = steps.filter((step) => step.status === 'failed').map((step) => step.id)
+  const failureSignature = JSON.stringify(failureIds)
   useLayoutEffect(() => {
     const window = windowRef.current
     if (!window) return
     const appended = steps.length > previousCount.current
-    const attention = revealed ? revealId : failureId !== previousFailure.current ? failureId : null
+    const newlyFailed = [...failureIds].reverse().find((id) => !previousFailures.current.has(id))
+    const attention = revealed && revealId !== previousReveal.current ? revealId : newlyFailed
     if (attention) {
       const index = steps.findIndex((step) => step.id === attention)
       window.scrollTop = index * (ROW + GAP)
     } else if (previousCount.current === 0 || (appended && followLatest.current)) {
       window.scrollTop = window.scrollHeight
     }
-    previousFailure.current = failureId
+    previousFailures.current = new Set(failureIds)
+    previousReveal.current = revealed ? (revealId ?? null) : null
     previousCount.current = steps.length
-  }, [steps.length, collapsed, failureId, revealed, revealId])
+  }, [steps.length, collapsed, failureSignature, revealed, revealId])
   useEffect(() => {
     if (!spent) {
       setCollapsed(false)
