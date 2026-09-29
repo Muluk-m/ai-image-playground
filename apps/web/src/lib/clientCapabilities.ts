@@ -28,6 +28,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 }
 let currentManifest = disabledManifest()
 let currentBffEnabled = false
+const CAPABILITY_TIMEOUT_MS = 5000
 
 export async function bootstrapClientCapabilities(
   bffEnabled: boolean,
@@ -37,15 +38,26 @@ export async function bootstrapClientCapabilities(
   currentBffEnabled = bffEnabled
   if (!bffEnabled) return currentManifest
 
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    const response = await fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
-      cache: 'no-store',
-    })
-    if (!response.ok) return currentManifest
-    const parsed = parseManifest(await response.json())
+    const parsed = await Promise.race([
+      fetch(`${bffBaseUrl.replace(/\/+$/, '')}/api/capabilities`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      }).then(async (response) => (response.ok ? parseManifest(await response.json()) : null)),
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort()
+          resolve(null)
+        }, CAPABILITY_TIMEOUT_MS)
+      }),
+    ])
     if (parsed) currentManifest = parsed
   } catch {
     // A missing capability response must never enable a feature.
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
   return currentManifest
 }

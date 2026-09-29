@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { bootstrapChannels } from '../../../lib/channels/bootstrapChannels'
+import { bootstrapChannels, preloadChannels } from '../../../lib/channels/bootstrapChannels'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -28,4 +28,39 @@ it('keeps an aborted older channel response from replacing the latest list', asy
   await older
 
   expect(getStoredChannels().map((channel) => channel.id)).toEqual(['new'])
+})
+
+it('uses the startup channel response for the authenticated gate', async () => {
+  const fetchSpy = vi.fn(async () => Response.json({ channels: [{ id: 'ready' }] }))
+  vi.stubGlobal('fetch', fetchSpy)
+  preloadChannels(true, 'https://bff.example.com')
+  await bootstrapChannels(true, 'https://bff.example.com', true)
+  expect(fetchSpy).toHaveBeenCalledOnce()
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['ready'])
+})
+
+it('shares the preload across a cancelled StrictMode mount', async () => {
+  const fetchSpy = vi.fn(async () => Response.json({ channels: [{ id: 'ready' }] }))
+  vi.stubGlobal('fetch', fetchSpy)
+  preloadChannels(true, 'https://strict.example.com')
+  const firstController = new AbortController()
+  const first = bootstrapChannels(true, 'https://strict.example.com', true, firstController.signal)
+  firstController.abort()
+  await bootstrapChannels(true, 'https://strict.example.com', true)
+  await first
+  expect(fetchSpy).toHaveBeenCalledOnce()
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['ready'])
+})
+
+it('retries discovery after a failed startup preload', async () => {
+  const fetchSpy = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ error: 'unavailable' }, { status: 503 }))
+    .mockResolvedValueOnce(Response.json({ channels: [{ id: 'recovered' }] }))
+  vi.stubGlobal('fetch', fetchSpy)
+  preloadChannels(true, 'https://retry.example.com')
+  await expect(bootstrapChannels(true, 'https://retry.example.com', true)).rejects.toThrow()
+  await bootstrapChannels(true, 'https://retry.example.com', true)
+  expect(fetchSpy).toHaveBeenCalledTimes(2)
+  expect(getStoredChannels().map((channel) => channel.id)).toEqual(['recovered'])
 })
