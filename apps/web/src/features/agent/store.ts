@@ -190,6 +190,7 @@ export interface AgentState {
   /** 智能体忙时发出、服务端还排着的消息，按处理顺序。 */
   queue: AgentQueuedMessageView[]
   error: string | null
+  errorDiagnostic: Record<string, unknown> | null
   loaded: boolean
   historyLoading: boolean
   historyFailed: boolean
@@ -294,11 +295,48 @@ export interface AgentState {
   confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
 
-const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
+function turnFailureText(code?: string): string {
+  switch (code) {
+    case 'agent_upstream_error':
+      return i18next.t('error.upstream', { ns: 'agent' })
+    case 'agent_context_overflow':
+      return i18next.t('error.contextOverflow', { ns: 'agent' })
+    case 'agent_tool_failed':
+      return i18next.t('error.toolFailed', { ns: 'agent' })
+    default:
+      return TURN_FAILED()
+  }
+}
+
+function requestDiagnostic(
+  thrown: unknown,
+  conversationId: string | null,
+): Record<string, unknown> {
+  return {
+    conversationId,
+    occurredAt: new Date().toISOString(),
+    message: thrown instanceof Error ? thrown.message : TURN_FAILED(),
+    ...(thrown instanceof AgentRequestError
+      ? {
+          code: thrown.code,
+          httpStatus: thrown.status,
+          requestId: thrown.requestId,
+          serverMessage: thrown.serverMessage,
+        }
+      : {}),
+  }
+}
+
+const failPatch = (
+  state: AgentState,
+  message = TURN_FAILED(),
+  diagnostic: Record<string, unknown> | null = null,
+) => ({
   turn: 'failed' as const,
   stopping: false,
   activeTurn: null,
   error: message,
+  errorDiagnostic: diagnostic,
   messages: dropUnsettledMessages(state.messages),
 })
 
@@ -377,6 +415,7 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
   reconnecting: false,
   activeTurn: null,
   error: null,
+  errorDiagnostic: null,
   historyLoading: false,
   historyFailed: false,
 })
@@ -470,7 +509,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (event.type !== 'turnEnd') return panel
         // 被打断、已经排上中断续跑的轮不是失败：不出失败横幅，续上的那一轮随后开始（ADR 0006）。
         if (event.stopReason === 'failed' && event.error !== 'agent_turn_interrupted')
-          return { ...failPatch(state), turns: panel.turns }
+          return {
+            ...failPatch(state, turnFailureText(event.error), {
+              ...event.failure,
+              code: event.error ?? 'agent_run_failed',
+              conversationId,
+              turnId: event.turnId,
+              durationMs: event.durationMs,
+            }),
+            turns: panel.turns,
+          }
         return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
       })
     // 扣费在轮与工具各自收尾时发生，顶栏余额属于用户而不属于某个项目：切了项目之后
@@ -504,7 +552,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
   }
 
-  const fail = (message?: string) => set((state) => failPatch(state, message))
+  const fail = (message?: string, thrown?: unknown) =>
+    set((state) => failPatch(state, message, requestDiagnostic(thrown, state.conversationId)))
 
   const followers = new Map<string, TurnArtifactDelivery>()
 
@@ -551,14 +600,14 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         turnDelivery.isCurrent() &&
         (hasWaitingMessages(get().queue) || expected)
       if (stream.outcome === 'rateLimited') {
-        if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
+        if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED(), stream.lastError)
       } else if (stream.outcome === 'gone' || stream.outcome === 'unreachable') {
         // 轮没了或者一直接不上：面板还停在进行中就得给个交代。
-        if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+        if (turnDelivery.isCurrent() && get().turn === 'running') fail(undefined, stream.lastError)
       }
     } catch (thrown) {
       // 归约自己出了错：不能让面板永远停在进行中。
-      if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+      if (turnDelivery.isCurrent() && get().turn === 'running') fail(undefined, thrown)
       throw thrown
     } finally {
       await turnDelivery.settled()
@@ -633,6 +682,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             stopping: false,
             reconnecting: false,
             error: null,
+            errorDiagnostic: null,
             activeTurn: { turnId: options.join },
           }
         : {}),
@@ -666,6 +716,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 换会话：草稿卡上改过的字、任务进度这些都跟着那个会话走，不带进新的。
       ...(same ? { conversationId } : sessionReset(conversationId)),
       error: null,
+      errorDiagnostic: null,
       turn: 'idle',
       stopping: false,
       reconnecting: false,
@@ -711,7 +762,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
       return
     }
-    set({ turn: 'running', error: null, activeTurn: { turnId: active } })
+    set({ turn: 'running', error: null, errorDiagnostic: null, activeTurn: { turnId: active } })
     await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
   }
 
@@ -844,6 +895,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               reconnecting: false,
               activeTurn: null,
               error: null,
+              errorDiagnostic: null,
             })
             adoptSnapshot(conversationId, history)
             return
@@ -921,6 +973,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!current()) return true
       set((state) => ({
         error: null,
+        errorDiagnostic: null,
         ...(outcome.kind === 'queued' &&
         (outcome.body.state === 'pending' || outcome.body.state === 'failed')
           ? { queue: addQueuedMessage(state.queue, outcome.body.queued) }
@@ -1070,6 +1123,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     reconnecting: false,
     activeTurn: null,
     error: null,
+    errorDiagnostic: null,
     loaded: false,
     historyLoading: false,
     historyFailed: false,
@@ -1407,6 +1461,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         stopping: false,
         reconnecting: false,
         error: null,
+        errorDiagnostic: null,
         activeTurn: null,
         messages: [
           ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
@@ -1445,6 +1500,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             stopping: false,
             activeTurn: null,
             error: null,
+            errorDiagnostic: null,
             messages: state.messages.filter((one) => one.kind !== 'text' || !one.pending),
           }))
         await turnDelivery.settled()
@@ -1492,8 +1548,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               }
             }
           }
-        } catch {
-          if (turnDelivery.isCurrent()) fail()
+        } catch (thrown) {
+          if (turnDelivery.isCurrent()) fail(undefined, thrown)
           await turnDelivery.settled()
           return
         }
@@ -1530,6 +1586,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
                   : thrown instanceof AgentRequestError && thrown.code === 'invalid_reference'
                     ? i18next.t('error.invalidReference', { ns: 'agent' })
                     : undefined,
+              thrown,
             )
           await turnDelivery.settled()
           return
@@ -1707,6 +1764,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         const { [placeholderId ?? '']: _cleared, ...retryRefusals } = state.retryRefusals
         return {
           error: null,
+          errorDiagnostic: null,
           retryRefusals,
           messages: shown ? state.messages : [...state.messages, card],
         }
@@ -1797,6 +1855,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         const { [messageId]: _confirmed, ...promptDrafts } = state.promptDrafts
         return {
           error: null,
+          errorDiagnostic: null,
           promptDrafts,
           messages: state.messages.map((one) => (one.id === card.id ? card : one)),
         }

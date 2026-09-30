@@ -410,7 +410,7 @@ describe('AgentPanel', () => {
     expect(log.querySelectorAll('[data-skill-name]')).toHaveLength(1)
   })
 
-  it('读取技能只出一行脚注，不出结果卡', () => {
+  it('读取技能使用可展开的工具调用组件', () => {
     render()
     act(() =>
       useAgentStore.setState({
@@ -436,9 +436,13 @@ describe('AgentPanel', () => {
         ],
       }),
     )
-    const line = host.querySelector<HTMLElement>('[data-tool="loadSkill"]')
+    const line = host.querySelector<HTMLElement>(
+      '#agent-tool-card-tool-skill button[aria-expanded]',
+    )
     expect(line?.textContent).toBe('读取技能：storyboard-short')
-    expect(host.querySelector('#agent-tool-card-tool-skill')).toBeNull()
+    expect(host.querySelector('#agent-tool-card-tool-skill')?.getAttribute('data-slot')).toBe(
+      'tool-call',
+    )
     expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
   })
 
@@ -461,7 +465,9 @@ describe('AgentPanel', () => {
         ],
       }),
     )
-    expect(host.querySelector('[data-tool="loadSkill"]')?.textContent).toBe('没找到技能：nope')
+    expect(
+      host.querySelector('#agent-tool-card-tool-skill button[aria-expanded]')?.textContent,
+    ).toBe('没找到技能：nope')
   })
 
   it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {
