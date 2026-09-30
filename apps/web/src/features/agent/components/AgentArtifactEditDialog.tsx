@@ -104,10 +104,38 @@ export default function AgentArtifactEditDialog({
   const marked = action === 'inpaint' || action === 'erase'
   useEffect(() => {
     if (!marked || typeof Worker === 'undefined') return
-    const worker = new Worker(new URL('../lib/regionBounds.worker.ts', import.meta.url), {
-      type: 'module',
-    })
+    let worker: Worker
+    try {
+      worker = new Worker(new URL('../lib/regionBounds.worker.ts', import.meta.url), {
+        type: 'module',
+      })
+    } catch {
+      regionWorkerRef.current = null
+      return
+    }
     regionWorkerRef.current = worker
+    const recover = () => {
+      worker.terminate()
+      regionWorkerRef.current = null
+      regionWorkerBusyRef.current = false
+      queuedRegionsRef.current = null
+      regionVersionRef.current++
+      const canvas = maskRef.current
+      const context = canvas?.getContext('2d', { willReadFrequently: true })
+      if (canvas && context) {
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height)
+        const shapes = marksRef.current
+          .filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
+          .map((mark) => ({ id: mark.id, points: mark.points }))
+        setVisibleRegions(visibleRegionBounds(pixels.data, canvas.width, canvas.height, shapes))
+      }
+      setRegionsPending(false)
+    }
+    worker.onerror = (event) => {
+      event.preventDefault()
+      recover()
+    }
+    worker.onmessageerror = recover
     worker.onmessage = (event: MessageEvent<{ version: number; regions: VisibleRegion[] }>) => {
       regionWorkerBusyRef.current = false
       const next = queuedRegionsRef.current

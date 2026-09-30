@@ -22,19 +22,41 @@ export function visibleRegionBounds(
     const startY = Math.max(0, Math.floor(Math.min(...points.map((p) => p.y)) * height))
     const endY = Math.min(height, Math.ceil(Math.max(...points.map((p) => p.y)) * height))
     for (let y = startY; y < endY; y++) {
-      const scanY = (y + 0.5) / height
-      const crossings: number[] = []
-      for (let i = 0; i < points.length; i++) {
-        const a = points[i]!,
-          b = points[(i + 1) % points.length]!
-        if (a.y > scanY !== b.y > scanY)
-          crossings.push((a.x + ((scanY - a.y) * (b.x - a.x)) / (b.y - a.y)) * width)
+      // Project coverage across the pixel row, including antialiased slivers whose
+      // interior never contains a pixel center. Merge spans before scanning alpha.
+      const low = y / height,
+        high = (y + 1) / height
+      const epsilon = 1e-10
+      const levels = [low + epsilon, high - epsilon, (low + high) / 2]
+      for (const point of points)
+        if (point.y > low && point.y < high) levels.push(point.y - epsilon, point.y + epsilon)
+      const spans: [number, number][] = []
+      for (const scanY of levels) {
+        const crossings: { x: number; winding: number }[] = []
+        for (let i = 0; i < points.length; i++) {
+          const a = points[i]!,
+            b = points[(i + 1) % points.length]!
+          if (a.y > scanY !== b.y > scanY)
+            crossings.push({
+              x: (a.x + ((scanY - a.y) * (b.x - a.x)) / (b.y - a.y)) * width,
+              winding: a.y < b.y ? 1 : -1,
+            })
+        }
+        crossings.sort((a, b) => a.x - b.x)
+        let winding = 0,
+          start = 0
+        for (const crossing of crossings) {
+          const before = winding
+          winding += crossing.winding
+          if (before === 0 && winding !== 0) start = crossing.x
+          else if (before !== 0 && winding === 0)
+            spans.push([Math.max(0, Math.floor(start)), Math.min(width, Math.ceil(crossing.x))])
+        }
       }
-      crossings.sort((a, b) => a - b)
-      for (let i = 0; i + 1 < crossings.length; i += 2) {
-        const startX = Math.max(0, Math.ceil(crossings[i]! - 0.5))
-        const endX = Math.min(width, Math.ceil(crossings[i + 1]! - 0.5))
-        for (let x = startX; x < endX; x++) {
+      spans.sort((a, b) => a[0] - b[0])
+      let scanned = -1
+      for (const [start, end] of spans) {
+        for (let x = Math.max(start, scanned); x < end; x++) {
           if (pixels[(y * width + x) * 4 + 3]! < 255) {
             left = Math.min(left, x)
             top = Math.min(top, y)
@@ -42,6 +64,7 @@ export function visibleRegionBounds(
             bottom = Math.max(bottom, y)
           }
         }
+        scanned = Math.max(scanned, end)
       }
     }
     return right < 0
