@@ -70,6 +70,7 @@ describe('inspectable read-only tools', () => {
     const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
     expect(log.querySelectorAll('[data-slot="tool-call"]')).toHaveLength(2)
     expect(log.textContent).toContain('看图：4 张')
+    expect(log.querySelector('[data-agent-message-id="t2"] [data-slot="tool-call"]')).not.toBeNull()
   })
 
   it('keeps completed tool calls inspectable after the assistant replies', () => {
