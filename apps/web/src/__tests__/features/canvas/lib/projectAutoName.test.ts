@@ -69,6 +69,31 @@ it('会话有了标题就给还叫未命名的项目改名，云端来的那份�
   expect(named(mine.id)?.name).toBe('我自己起的名字')
 })
 
+it('同一会话的云端与旧本机记录都补名，旧错误 customName 标记不锁住默认名', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+  await bootstrapClientCapabilities(false, '')
+  const cloudProject = await projectRepository.importCloud({
+    ...cloud,
+    id: crypto.randomUUID(),
+    name: '已有标题',
+    conversationId: 'shared-title',
+    coverMediaId: null,
+  })
+  const legacy = await projectRepository.create(UNTITLED_PROJECT, {
+    sceneKey: 'legacy-shared-title',
+    conversationId: 'shared-title',
+  })
+  await projectRepository.update(legacy.id, { customName: true })
+  await importConversationProjects([conversation('shared-title', '手机产品形象')])
+  const projects = useCanvasProjectStore.getState().projects
+  expect(projects.find((one) => one.id === cloudProject.id)?.name).toBe('已有标题')
+  expect(projects.find((one) => one.id === legacy.id)).toMatchObject({
+    name: '手机产品形象',
+    customName: false,
+  })
+})
+
 it('本机与云端项目都按会话标题自动命名，改过名的不动，一个项目失败不挡后面的', async () => {
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })

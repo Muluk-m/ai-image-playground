@@ -692,11 +692,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         : {}),
     })
     const project = currentCanvasProject()
-    if (
-      project?.conversationId === conversationId &&
-      project.name === UNTITLED_PROJECT &&
-      !project.customName
-    ) {
+    if (project?.conversationId === conversationId && project.name === UNTITLED_PROJECT) {
       const first = history.messages.find(
         (message) => message.kind === 'text' && message.role === 'user',
       )
@@ -1507,7 +1503,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (
         (firstTurn || sourceProject?.name === UNTITLED_PROJECT) &&
         sourceProject &&
-        !sourceProject.customName
+        (!sourceProject.customName || sourceProject.name === UNTITLED_PROJECT)
       ) {
         const titled = firstMessageTitle(trimmed)
         if (titled && titled !== sourceProject.name)
