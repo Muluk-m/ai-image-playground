@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { AgentTurnSource } from './turn-preparation'
 
@@ -25,22 +25,33 @@ export async function loadAgentExperience(
   }
   if (source.kind === 'message') return source.message.canvas ? 'canvas' : 'chat'
   if (source.kind === 'resume' && source.resume.canvas) return 'canvas'
-  const originTurnId =
+  let originTurnId =
     source.kind === 'wake'
       ? source.wake.turnId
       : (source.resume.wake?.turnId ?? source.resume.interruptedTurnId)
-  const [message] = await db
-    .select({ payload: schema.agent_inbox.payload })
-    .from(schema.agent_inbox)
-    .where(
-      and(
-        eq(schema.agent_inbox.conversation_id, conversationId),
-        eq(schema.agent_inbox.status, 'consumed'),
-        eq(schema.agent_inbox.consumed_turn_id, originTurnId),
-        inArray(schema.agent_inbox.kind, ['user_message', 'clarification_answer']),
-      ),
-    )
-    .orderBy(desc(schema.agent_inbox.seq))
-    .limit(1)
-  return message && 'canvas' in message.payload && message.payload.canvas ? 'canvas' : 'chat'
+  const visited = new Set<string>()
+  // 任务可能由上一轮唤醒里的后续编辑提交；沿已消费的来源追到用户消息，不能读队尾。
+  while (!visited.has(originTurnId)) {
+    visited.add(originTurnId)
+    const rows = await db
+      .select({ payload: schema.agent_inbox.payload })
+      .from(schema.agent_inbox)
+      .where(
+        and(
+          eq(schema.agent_inbox.conversation_id, conversationId),
+          eq(schema.agent_inbox.status, 'consumed'),
+          eq(schema.agent_inbox.consumed_turn_id, originTurnId),
+        ),
+      )
+      .orderBy(desc(schema.agent_inbox.seq))
+    const origin = rows.find((row) => 'text' in row.payload) ?? rows[0]
+    if (!origin) break
+    const payload = origin.payload
+    if ('canvas' in payload && payload.canvas) return 'canvas'
+    if ('text' in payload) return 'chat'
+    if ('interruptedTurnId' in payload)
+      originTurnId = payload.wake?.turnId ?? payload.interruptedTurnId
+    else originTurnId = payload.turnId
+  }
+  return 'chat'
 }

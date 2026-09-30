@@ -668,6 +668,22 @@ describe('unsynced project experience is bound to the originating message', () =
         wake: { id: 'wake', turnId: SUBMITTING_TURN, taskIds: [TASK_ID], deviceId: DEVICE },
       }),
     ).toBe('canvas')
+    await db.insert(schema.agent_inbox).values({
+      conversation_id: conversationId,
+      id: crypto.randomUUID(),
+      seq: 50,
+      kind: 'task_result',
+      status: 'consumed',
+      consumed_turn_id: 'wake-turn',
+      payload: { turnId: SUBMITTING_TURN, taskIds: [TASK_ID], deviceId: DEVICE },
+      created_at: Date.now(),
+    })
+    expect(
+      await loadAgentExperience(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'next-wake', turnId: 'wake-turn', taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toBe('canvas')
     expect(
       await loadAgentExperience(conversationId, USER_ID, {
         kind: 'resume',
