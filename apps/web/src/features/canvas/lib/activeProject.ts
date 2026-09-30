@@ -259,19 +259,24 @@ export async function renameProject(id: string, name: string): Promise<void> {
  */
 export async function autoNameProject(id: string, name: string): Promise<void> {
   const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  if (!project || (project.customName && project.name !== UNTITLED_PROJECT)) return
   const session =
     project?.cloud && cloudProjectsEnabled() && workspaces.get(project.sceneKey)?.cloud
   if (session) {
-    await session.rename(name, false)
+    await session.rename(name, false, project)
     return
   }
   useCanvasProjectStore.getState().updateListed(
-    await projectRepository.update(id, {
-      name,
-      customName: false,
-      hasContent: true,
-      ...(project?.cloud ? { cloud: { ...project.cloud, nameDirty: true } } : {}),
-    }),
+    await projectRepository.update(
+      id,
+      {
+        name,
+        customName: false,
+        hasContent: true,
+        ...(project?.cloud ? { cloud: { ...project.cloud, nameDirty: true } } : {}),
+      },
+      project,
+    ),
   )
 }
 

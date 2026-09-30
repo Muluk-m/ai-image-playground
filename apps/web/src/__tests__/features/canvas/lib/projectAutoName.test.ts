@@ -2,6 +2,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
+  autoNameProject,
   currentCanvasWorkspace,
   forgetCanvasWorkspace,
   importConversationProjects,
@@ -204,4 +205,28 @@ it('打开着的云端项目自动命名后把新名字推上服务端', async (
     cloud: { revision: 3, nameDirty: false },
   })
   forgetCanvasWorkspace(project.sceneKey)
+})
+
+it('a delayed automatic name cannot replace a manual name committed after it was requested', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create(UNTITLED_PROJECT)
+  useCanvasProjectStore.setState({ projects: [project], loaded: true })
+  const update = projectRepository.update.bind(projectRepository)
+  let release!: () => void
+  const wait = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.spyOn(projectRepository, 'update').mockImplementationOnce(async (...args) => {
+    await wait
+    return update(...args)
+  })
+  const automatic = autoNameProject(project.id, '迟到的自动标题')
+  await update(project.id, { name: '我的手动名称', customName: true })
+  release()
+  await automatic
+  expect((await projectRepository.list()).find((one) => one.id === project.id)).toMatchObject({
+    name: '我的手动名称',
+    customName: true,
+  })
+  vi.restoreAllMocks()
 })

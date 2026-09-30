@@ -319,6 +319,7 @@ export const projectRepository = {
         | 'cloud'
       >
     >,
+    expectedName?: Pick<CanvasProject, 'name' | 'customName'>,
   ): Promise<CanvasProject> {
     const storageKey = key(id)
     const db = await openCanvasDatabase()
@@ -333,6 +334,13 @@ export const projectRepository = {
           return
         }
         const stored = request.result as StoredProject
+        if (
+          expectedName &&
+          (stored.name !== expectedName.name || stored.customName !== expectedName.customName)
+        ) {
+          result = stored
+          return
+        }
         const backend = getRecoveryBackend()
         // 画布类型建项目时定死：补丁类型里没有它，真混进来了也按存档为准。
         const { kind: _fixed, ...safe } = patch as Partial<CanvasProject>
