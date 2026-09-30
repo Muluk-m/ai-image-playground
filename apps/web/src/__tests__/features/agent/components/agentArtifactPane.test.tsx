@@ -146,10 +146,12 @@ it('previews, switches and enlarges results without entering the canvas', async 
       ).click(),
     )
     expect(send).toHaveBeenCalledWith(
-      expect.stringContaining('加一盏灯'),
+      '加一盏灯',
       [
         {
           imageId: 'second',
+          name: message.title,
+          editAction: 'inpaint',
           dataUrl: 'data:image/png;base64,edited',
           maskDataUrl: 'data:image/png;base64,mask',
         },

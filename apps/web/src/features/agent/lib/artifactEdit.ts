@@ -1,3 +1,4 @@
+import type { AgentMarkedRegion } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { assertUsableMaskCoverage, classifyMaskAlpha } from '../../../lib/mask'
 import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
@@ -13,6 +14,7 @@ export interface CropRect {
 
 export interface ArtifactEditInput {
   readonly dataUrl: string
+  readonly regions?: readonly AgentMarkedRegion[]
   readonly maskDataUrl?: string
 }
 

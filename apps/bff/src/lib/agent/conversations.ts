@@ -6,6 +6,7 @@ import type {
   AgentMessageView,
   AgentToolCallSnapshot,
 } from '@image-playground/shared'
+import { agentConversationTitle } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
@@ -114,7 +115,39 @@ export async function listAgentConversations(owner: AgentOwner): Promise<AgentCo
     .from(schema.agent_conversations)
     .where(and(ownerWhere(owner), isNull(schema.agent_conversations.deleted_at)))
     .orderBy(desc(schema.agent_conversations.updated_at))
-  return rows.map(conversationView)
+  // Older conversations may have missed first-turn naming. Recover a display title from
+  // their first user message in one query; empty drafts and existing titles stay intact.
+  const unnamed = rows.filter((row) => !row.title.trim()).map((row) => row.id)
+  const firstMessages = unnamed.length
+    ? await db
+        .selectDistinctOn([schema.agent_messages.conversation_id], {
+          conversationId: schema.agent_messages.conversation_id,
+          content: schema.agent_messages.content,
+        })
+        .from(schema.agent_messages)
+        .where(
+          and(
+            inArray(schema.agent_messages.conversation_id, unnamed),
+            eq(schema.agent_messages.role, 'user'),
+            isNull(schema.agent_messages.deleted_at),
+          ),
+        )
+        .orderBy(asc(schema.agent_messages.conversation_id), asc(schema.agent_messages.seq))
+    : []
+  const recovered = new Map(
+    firstMessages.map((message) => [
+      message.conversationId,
+      agentConversationTitle(
+        message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join(' '),
+      ),
+    ]),
+  )
+  return rows.map((row) =>
+    conversationView({
+      ...row,
+      title: row.title.trim() ? row.title : (recovered.get(row.id) ?? row.title),
+    }),
+  )
 }
 
 export async function setAgentConversationTitle(

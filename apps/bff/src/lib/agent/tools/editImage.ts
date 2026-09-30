@@ -13,8 +13,24 @@ const MAX_REFERENCES = 4
 const parameters = Type.Object({
   prompt: Type.String({
     description:
-      '无选区时忠实表达用户要求；有选区时只写简短任务摘要，执行指令由服务端从用户原文与选区绑定生成。不得新增用户未授权的要求。有遮罩时以目标图圈选范围为编辑边界，仅修改用户要求的对象，保留其它内容（包括圈内未要求修改的文字与背景）。保留范围不能覆盖本次修改目标。参考图有圈选时，明确描述参考选区的位置和对象。用用户说话的语言写。',
+      '无选区时忠实表达用户要求；有选区时结合原图和用户意图写完整、具体的执行说明：明确每个修改对象、对应位置、修改动作、用户指定的结果及与原图融合的方法。多个区域配同一个要求时在一次编辑里全部处理；用户区分了区域时逐一对应。对象定位放在 selectionBindings，融合方法用 integration 选择；服务端依据用户原文、选区与这些执行方法生成最终指令，不使用摘要自行增加修改属性。不得新增用户未授权的要求。有遮罩时以目标图圈选范围为编辑边界，仅修改用户要求的对象，保留其它内容（包括圈内未要求修改的文字与背景）。保留范围不能覆盖本次修改目标。参考图有圈选时，明确描述参考选区的位置和对象。用用户说话的语言写。',
   }),
+  integration: Type.Optional(
+    Type.Array(
+      Type.Union([
+        Type.Literal('typography'),
+        Type.Literal('perspective'),
+        Type.Literal('lighting'),
+        Type.Literal('material'),
+        Type.Literal('background'),
+      ]),
+      {
+        maxItems: 5,
+        description:
+          '有选区时选择实现用户要求所需的融合处理：文字替换 typography；尺度与遮挡 perspective；原图光照 lighting；表面贴合 material；擦除缺口 background。这些仅组织执行方法，不授权新的颜色、材质、位置或设计属性。',
+      },
+    ),
+  ),
   imageIds: Type.Array(Type.String(), {
     minItems: 1,
     maxItems: MAX_REFERENCES,
@@ -121,6 +137,7 @@ export const editImage = defineAgentTool({
         params.selectionBindings,
         snapshot?.instructions ?? '',
         params.requestQuote,
+        params.integration,
       )
       if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
       if (snapshot !== context.authorization?.())
