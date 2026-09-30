@@ -18,7 +18,7 @@ import Overlay from '../../../components/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
-import { classifyMaskAlpha, fillMaskLasso } from '../../../lib/mask'
+import { classifyMaskAlpha, fillMaskLasso, isUsableMaskLasso } from '../../../lib/mask'
 import { prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
 import { useStore } from '../../../store'
 import {
@@ -52,10 +52,17 @@ export default function AgentArtifactEditDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const lassoRef = useRef<Point[]>([])
+  const previewFrameRef = useRef<number | null>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const maskRef = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<HTMLCanvasElement>(null)
-  const pointerRef = useRef<{ id: number; last: Point; start?: Point; pan?: Point } | null>(null)
+  const pointerRef = useRef<{
+    id: number
+    last: Point
+    start?: Point
+    pan?: Point
+    before?: ImageData
+  } | null>(null)
   const undoRef = useRef<ImageData[]>([])
   const redoRef = useRef<ImageData[]>([])
   const [working, setWorking] = useState('')
@@ -112,8 +119,14 @@ export default function AgentArtifactEditDialog({
     const update = () => {
       const style = getComputedStyle(stage)
       setStageSize({
-        x: stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-        y: stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+        x: Math.max(
+          1,
+          stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        ),
+        y: Math.max(
+          1,
+          stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+        ),
       })
     }
     update()
@@ -122,7 +135,8 @@ export default function AgentArtifactEditDialog({
     return () => observer.disconnect()
   }, [])
 
-  const redrawPreview = () => {
+  const redrawPreviewNow = () => {
+    previewFrameRef.current = null
     const mask = maskRef.current
     const preview = previewRef.current
     const context = preview?.getContext('2d')
@@ -132,15 +146,15 @@ export default function AgentArtifactEditDialog({
     context.fillStyle = 'rgba(59, 130, 246, .58)'
     context.fillRect(0, 0, preview.width, preview.height)
     context.globalCompositeOperation = 'destination-out'
-    context.drawImage(mask, 0, 0)
+    context.drawImage(mask, 0, 0, preview.width, preview.height)
     context.restore()
     const path = lassoRef.current
     if (path.length > 1) {
       context.save()
       context.beginPath()
       context.moveTo(path[0]!.x * preview.width, path[0]!.y * preview.height)
-      for (const point of path.slice(1))
-        context.lineTo(point.x * preview.width, point.y * preview.height)
+      for (let index = 1; index < path.length; index++)
+        context.lineTo(path[index]!.x * preview.width, path[index]!.y * preview.height)
       context.closePath()
       context.fillStyle = 'rgba(59, 130, 246, .35)'
       context.fill()
@@ -151,6 +165,18 @@ export default function AgentArtifactEditDialog({
       context.restore()
     }
   }
+
+  const redrawPreview = () => {
+    if (previewFrameRef.current === null)
+      previewFrameRef.current = requestAnimationFrame(redrawPreviewNow)
+  }
+  useEffect(
+    () => () => {
+      if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current)
+      previewFrameRef.current = null
+    },
+    [source],
+  )
 
   const syncMarkPresent = () => {
     const canvas = maskRef.current
@@ -172,8 +198,12 @@ export default function AgentArtifactEditDialog({
       return
     }
     if (!mask || !preview) return
-    mask.width = preview.width = image.naturalWidth
-    mask.height = preview.height = image.naturalHeight
+    mask.width = image.naturalWidth
+    mask.height = image.naturalHeight
+    // Only the visual overlay is reduced. The exported mask stays at source resolution.
+    const previewScale = Math.min(1, 1024 / Math.max(image.naturalWidth, image.naturalHeight))
+    preview.width = Math.max(1, Math.round(image.naturalWidth * previewScale))
+    preview.height = Math.max(1, Math.round(image.naturalHeight * previewScale))
     const context = mask.getContext('2d')
     if (!context) return
     context.fillStyle = '#fff'
@@ -198,11 +228,11 @@ export default function AgentArtifactEditDialog({
     return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) }
   }
 
-  const rememberMask = () => {
+  const rememberMask = (before?: ImageData) => {
     const canvas = maskRef.current
     const context = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !context) return
-    undoRef.current.push(context.getImageData(0, 0, canvas.width, canvas.height))
+    undoRef.current.push(before ?? context.getImageData(0, 0, canvas.width, canvas.height))
     // Bound full-resolution history to 32 MiB, including the snapshots moved to redo.
     const limit = Math.max(
       1,
@@ -251,9 +281,14 @@ export default function AgentArtifactEditDialog({
       pan: { x: event.clientX - pan.x, y: event.clientY - pan.y },
     }
     if (marked && tool !== 'pan') {
-      rememberMask()
       if (tool === 'lasso' || tool === 'rectangle') lassoRef.current = [point]
-      else paint(point, point)
+      else {
+        const mask = maskRef.current
+        const context = mask?.getContext('2d', { willReadFrequently: true })
+        if (mask && context)
+          pointerRef.current.before = context.getImageData(0, 0, mask.width, mask.height)
+        paint(point, point)
+      }
     }
   }
 
@@ -269,8 +304,15 @@ export default function AgentArtifactEditDialog({
     if (!point) return
     if (marked) {
       if (tool === 'lasso') {
-        lassoRef.current.push(point)
-        redrawPreview()
+        const path = lassoRef.current
+        const last = path[path.length - 1]!
+        const box = imageRef.current!.getBoundingClientRect()
+        if (Math.hypot((point.x - last.x) * box.width, (point.y - last.y) * box.height) >= 2) {
+          // Keep long touch gestures bounded without allocating a copy each frame.
+          if (path.length >= 2048) lassoRef.current = path.filter((_, index) => index % 2 === 0)
+          lassoRef.current.push(point)
+          redrawPreview()
+        }
       } else if (tool === 'rectangle') {
         const first = pointer.start!
         lassoRef.current = [first, { x: point.x, y: first.y }, point, { x: first.x, y: point.y }]
@@ -296,22 +338,19 @@ export default function AgentArtifactEditDialog({
     if (marked && tool !== 'pan') {
       const canvas = maskRef.current
       const context = canvas?.getContext('2d')
-      if (canvas && context && event.type !== 'pointerup') {
-        const previous = undoRef.current.pop()
-        if (previous) context.putImageData(previous, 0, 0)
-        setCanUndo(undoRef.current.length > 0)
-        lassoRef.current = []
-        redrawPreview()
-      } else if (canvas && context && lassoRef.current.length) {
-        if (event.type === 'pointerup')
-          fillMaskLasso(
-            context,
-            lassoRef.current.map((point) => ({
-              x: point.x * canvas.width,
-              y: point.y * canvas.height,
-            })),
-            false,
-          )
+      if (canvas && context) {
+        if (event.type !== 'pointerup') {
+          if (pointer.before) context.putImageData(pointer.before, 0, 0)
+        } else if (lassoRef.current.length) {
+          const points = lassoRef.current.map((point) => ({
+            x: point.x * canvas.width,
+            y: point.y * canvas.height,
+          }))
+          if (isUsableMaskLasso(points)) {
+            rememberMask()
+            fillMaskLasso(context, points, false)
+          }
+        } else if (pointer.before) rememberMask(pointer.before)
         lassoRef.current = []
         redrawPreview()
       }
