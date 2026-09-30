@@ -12,7 +12,9 @@ export default function AgentActivityTrail({
   return (
     <div className="flex shrink-0 flex-col gap-2">
       {steps.map((step) => (
-        <AgentToolCard key={step.id} message={step} />
+        <div key={step.id} data-agent-message-id={step.id}>
+          <AgentToolCard message={step} />
+        </div>
       ))}
     </div>
   )
