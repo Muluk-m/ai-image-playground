@@ -1,3 +1,4 @@
+import type { ImageContent } from '@earendil-works/pi-ai'
 import { Type } from 'typebox'
 import type { ResolvedAgentImage } from '../images'
 import { toRegionDataUrl } from '../modelImage'
@@ -48,6 +49,7 @@ type ViewParams = {
 interface Looked {
   readonly found: ResolvedAgentImage[]
   readonly missing: string[]
+  readonly regionDetails: ImageContent[]
 }
 
 async function look(
@@ -60,12 +62,28 @@ async function look(
     imageIds.map(async (id) => {
       const image = await context.images.resolve(id, variant)
       if (!image || !region) return { id, image }
-      return { id, image: { ...image, dataUrl: await toRegionDataUrl(image.dataUrl, region) } }
+      const dataUrl = await toRegionDataUrl(image.dataUrl, region)
+      // Cropping changes coordinates. Preserve the original selection evidence and binding;
+      // the bounded region is an additional detail image, never a new mask target.
+      if (image.maskDataUrl)
+        return {
+          id,
+          image,
+          regionDetail: {
+            type: 'image' as const,
+            mimeType: dataUrl.slice(5, dataUrl.indexOf(';')),
+            data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+          },
+        }
+      return { id, image: { ...image, dataUrl } }
     }),
   )
   return {
     found: resolved.flatMap((one) => (one.image ? [one.image] : [])),
     missing: resolved.flatMap((one) => (one.image ? [] : [one.id])),
+    regionDetails: resolved.flatMap((one) =>
+      'regionDetail' in one && one.regionDetail ? [one.regionDetail] : [],
+    ),
   }
 }
 
@@ -92,7 +110,7 @@ export const viewImage = defineAgentTool({
         ],
         details: {},
       }
-    const { found, missing } = await look(context, params)
+    const { found, missing, regionDetails } = await look(context, params)
     // 取不到只是 id 写错或那张图已经没了：把名单交回去让模型换 id，别把整轮停下。
     const missingLine = missing.length
       ? `这些 id 取不到图，请核对后重试：${missing.join('、')}。`
@@ -106,9 +124,10 @@ export const viewImage = defineAgentTool({
       content: [
         {
           type: 'text',
-          text: `已取到 ${found.length} 张图的${what}。${missingLine}${evidence.manifest}`,
+          text: `已取到 ${found.length} 张图的${what}。${missingLine}${evidence.manifest}${regionDetails.length ? '\n最后一张为请求区域的细节图；原图选区与选区 ID 保持不变。' : ''}`,
         },
         ...evidence.content,
+        ...regionDetails,
       ],
       details: {},
     }
