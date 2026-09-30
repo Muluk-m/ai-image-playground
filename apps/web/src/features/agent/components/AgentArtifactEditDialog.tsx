@@ -32,6 +32,18 @@ import {
 
 type MarkTool = 'lasso' | 'rectangle' | 'brush' | 'eraser' | 'pan'
 type Point = { x: number; y: number }
+type Mark = { id: number; tool: Exclude<MarkTool, 'pan'>; points: Point[]; width: number }
+type MarkSnapshot = { pixels: ImageData; marks: Mark[] }
+function markBounds(mark: Mark) {
+  const xs = mark.points.map((point) => point.x)
+  const ys = mark.points.map((point) => point.y)
+  return {
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+  }
+}
 const DEFAULT_CROP: CropRect = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
 
 export default function AgentArtifactEditDialog({
@@ -62,16 +74,21 @@ export default function AgentArtifactEditDialog({
     last: Point
     start?: Point
     pan?: Point
+    points?: Point[]
+    width?: number
     before?: ImageData
   } | null>(null)
-  const undoRef = useRef<ImageData[]>([])
-  const redoRef = useRef<ImageData[]>([])
+  const marksRef = useRef<Mark[]>([])
+  const nextMarkRef = useRef(1)
+  const [marks, setMarks] = useState<Mark[]>([])
+  const undoRef = useRef<MarkSnapshot[]>([])
+  const redoRef = useRef<MarkSnapshot[]>([])
   const [working, setWorking] = useState('')
   const [loading, setLoading] = useState(true)
   const [instruction, setInstruction] = useState('')
   const [drawing, setDrawing] = useState(false)
-  const [tool, setTool] = useState<MarkTool>('lasso')
-  const [brush, setBrush] = useState(36)
+  const [tool, setTool] = useState<MarkTool>('brush')
+  const [brush, setBrush] = useState(10)
   const [ready, setReady] = useState(false)
   const [imageSize, setImageSize] = useState<Point>({ x: 0, y: 0 })
   const [stageSize, setStageSize] = useState<Point>({ x: 800, y: 440 })
@@ -215,6 +232,8 @@ export default function AgentArtifactEditDialog({
     context.fillRect(0, 0, mask.width, mask.height)
     undoRef.current = []
     redoRef.current = []
+    marksRef.current = []
+    setMarks([])
     setCanUndo(false)
     setCanRedo(false)
     setMarkPresent(false)
@@ -237,13 +256,18 @@ export default function AgentArtifactEditDialog({
     const canvas = maskRef.current
     const context = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !context) return
-    undoRef.current.push(before ?? context.getImageData(0, 0, canvas.width, canvas.height))
+    undoRef.current.push({
+      pixels: before ?? context.getImageData(0, 0, canvas.width, canvas.height),
+      marks: marksRef.current,
+    })
     // Bound full-resolution history to 32 MiB, including the snapshots moved to redo.
     const limit = Math.max(
       1,
       Math.min(20, Math.floor((32 * 1024 * 1024) / (canvas.width * canvas.height * 4))),
     )
-    while (undoRef.current.length > limit) undoRef.current.shift()
+    while (undoRef.current.length > limit) {
+      undoRef.current.shift()
+    }
     redoRef.current = []
     setCanUndo(true)
     setCanRedo(false)
@@ -275,7 +299,17 @@ export default function AgentArtifactEditDialog({
   }
 
   const start = (event: PointerEvent<HTMLDivElement>) => {
-    if (busy || !ready || !working || event.button !== 0 || pointerRef.current) return
+    if (
+      busy ||
+      !ready ||
+      !working ||
+      event.button !== 0 ||
+      pointerRef.current ||
+      ((tool === 'rectangle' || tool === 'lasso') &&
+        marksRef.current.filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
+          .length >= 32)
+    )
+      return
     const point = pointOnImage(event)
     if (!point) return
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -283,6 +317,12 @@ export default function AgentArtifactEditDialog({
     pointerRef.current = {
       id: event.pointerId,
       tool,
+      points: [point],
+      width: Math.max(
+        4,
+        (brush * (maskRef.current?.width ?? 1)) /
+          Math.max(1, imageRef.current!.getBoundingClientRect().width),
+      ),
       last: point,
       start: point,
       pan: { x: event.clientX - pan.x, y: event.clientY - pan.y },
@@ -329,7 +369,10 @@ export default function AgentArtifactEditDialog({
         const first = pointer.start!
         lassoRef.current = [first, { x: point.x, y: first.y }, point, { x: first.x, y: point.y }]
         redrawPreview()
-      } else paint(pointer.last, point, pointer.tool)
+      } else {
+        pointer.points!.push(point)
+        paint(pointer.last, point, pointer.tool)
+      }
     }
     if (action === 'crop' && pointer.start) {
       const x = Math.min(pointer.start.x, point.x)
@@ -362,8 +405,28 @@ export default function AgentArtifactEditDialog({
           if (isUsableMaskLasso(points)) {
             rememberMask()
             fillMaskLasso(context, points, false)
+            const mark: Mark = {
+              id: nextMarkRef.current++,
+              tool: pointer.tool as 'rectangle' | 'lasso',
+              points: [...lassoRef.current],
+              width: 0,
+            }
+            marksRef.current = [...marksRef.current, mark]
+            setMarks(marksRef.current)
           }
-        } else if (pointer.before) rememberMask(pointer.before)
+        } else if (pointer.before) {
+          rememberMask(pointer.before)
+          marksRef.current = [
+            ...marksRef.current,
+            {
+              id: nextMarkRef.current++,
+              tool: pointer.tool as 'brush' | 'eraser',
+              points: pointer.points!,
+              width: pointer.width!,
+            },
+          ]
+          setMarks(marksRef.current)
+        }
         lassoRef.current = []
         redrawPreview()
       }
@@ -390,20 +453,70 @@ export default function AgentArtifactEditDialog({
     const to = direction === 'undo' ? redoRef.current : undoRef.current
     const previous = from.pop()
     if (!previous) return
-    to.push(context.getImageData(0, 0, canvas.width, canvas.height))
-    context.putImageData(previous, 0, 0)
+    to.push({
+      pixels: context.getImageData(0, 0, canvas.width, canvas.height),
+      marks: marksRef.current,
+    })
+    marksRef.current = previous.marks
+    setMarks(marksRef.current)
+    context.putImageData(previous.pixels, 0, 0)
     setCanUndo(undoRef.current.length > 0)
     setCanRedo(redoRef.current.length > 0)
     redrawPreview()
     syncMarkPresent()
   }
 
+  const removeRegion = (id: number) => {
+    if (pointerRef.current || busy) return
+    const canvas = maskRef.current
+    const context = canvas?.getContext('2d')
+    if (!canvas || !context) return
+    rememberMask()
+    marksRef.current = marksRef.current.filter((mark) => mark.id !== id)
+    setMarks(marksRef.current)
+    context.clearRect(0, 0, canvas.width, canvas.height)
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    for (const mark of marksRef.current) {
+      const points = mark.points.map((point) => ({
+        x: point.x * canvas.width,
+        y: point.y * canvas.height,
+      }))
+      if (mark.tool === 'rectangle' || mark.tool === 'lasso') fillMaskLasso(context, points, false)
+      else {
+        context.save()
+        context.globalCompositeOperation =
+          mark.tool === 'eraser' ? 'source-over' : 'destination-out'
+        context.strokeStyle = context.fillStyle = '#fff'
+        context.lineWidth = mark.width
+        context.lineCap = context.lineJoin = 'round'
+        context.beginPath()
+        context.moveTo(points[0]!.x, points[0]!.y)
+        for (const point of points) context.lineTo(point.x, point.y)
+        context.stroke()
+        for (const point of points) {
+          context.beginPath()
+          context.arc(point.x, point.y, mark.width / 2, 0, Math.PI * 2)
+          context.fill()
+        }
+        context.restore()
+      }
+    }
+    redrawPreview()
+    syncMarkPresent()
+  }
+  const regions = marks.filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
+
   const generate = () => {
     const image = imageRef.current
     if (!image || !working || busy || !ready || pointerRef.current) return
     try {
       let input: ArtifactEditInput
-      if (marked) input = exportMarkedImage(working, maskRef.current!, image)
+      if (marked)
+        input = {
+          ...exportMarkedImage(working, maskRef.current!, image),
+          regions: regions.map(markBounds),
+        }
       else if (action === 'crop') input = cropImage(image, crop)
       else input = extendImage(image, extension)
       onGenerate(input, instruction.trim())
@@ -482,6 +595,23 @@ export default function AgentArtifactEditDialog({
             >
               <img ref={imageRef} src={working} alt="" onLoad={initializeMask} draggable={false} />
               {marked && <canvas ref={previewRef} aria-hidden="true" />}
+              {regions.map((region, index) => {
+                const bounds = markBounds(region)
+                return (
+                  <div
+                    key={region.id}
+                    className="studio-artifact-edit-region"
+                    style={{
+                      left: `${bounds.x * 100}%`,
+                      top: `${bounds.y * 100}%`,
+                      width: `${bounds.width * 100}%`,
+                      height: `${bounds.height * 100}%`,
+                    }}
+                  >
+                    <span>{index + 1}</span>
+                  </div>
+                )
+              })}
               {marked && <canvas ref={maskRef} hidden aria-hidden="true" />}
               {action === 'crop' && (
                 <div
@@ -610,6 +740,8 @@ export default function AgentArtifactEditDialog({
                   const context = canvas?.getContext('2d')
                   if (!canvas || !context) return
                   rememberMask()
+                  marksRef.current = []
+                  setMarks([])
                   context.fillStyle = '#fff'
                   context.fillRect(0, 0, canvas.width, canvas.height)
                   redrawPreview()
@@ -692,6 +824,23 @@ export default function AgentArtifactEditDialog({
           )}
         </div>
         <div className="studio-artifact-edit-composer">
+          {regions.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {regions.map((region, index) => (
+                <Button
+                  key={region.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || drawing}
+                  onClick={() => removeRegion(region.id)}
+                  aria-label={t('tool.removeRegion', { number: index + 1 })}
+                >
+                  {t('tool.region', { number: index + 1 })}
+                  <X size={14} />
+                </Button>
+              ))}
+            </div>
+          )}
           <textarea
             value={instruction}
             onChange={(event) => setInstruction(event.target.value)}
