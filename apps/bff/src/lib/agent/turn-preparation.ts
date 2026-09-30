@@ -196,7 +196,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     loadPrivateBffOverlay(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
     ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
-    loadAgentExperience(conversationId, userId),
+    loadAgentExperience(conversationId, userId, source),
   ])
   const audience: AgentTurnAudience = { ...loadedAudience, experience }
   const content =
