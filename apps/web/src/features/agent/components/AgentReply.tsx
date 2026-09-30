@@ -26,6 +26,7 @@ function CopyReplyButton({ text }: { text: string }) {
 
   return (
     <MessageActions
+      className="absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
       copied={copied}
       copyLabel={copied ? t('reply.copied') : t('reply.copyAria')}
       onCopy={() => {
@@ -44,7 +45,9 @@ function CopyReplyButton({ text }: { text: string }) {
 /** 助手回复整段展示、按 Markdown 渲染；对话面板不折叠回复，折叠只会让人多点一下。 */
 export default function AgentReply({ text, streaming }: Props) {
   return (
-    <div className="group flex max-w-full flex-col items-start gap-0.5">
+    <div
+      className={`group relative min-w-0 max-w-full self-start ${!streaming && text ? 'pr-10' : ''}`}
+    >
       <div
         className={`${REPLY} studio-agent-reply break-words`}
         data-streaming={streaming || undefined}

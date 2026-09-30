@@ -88,7 +88,7 @@
     "erasePlaceholder": "Optional details to preserve or fill in",
     "cropPlaceholder": "Optional details for the cropped composition",
     "outpaintPlaceholder": "Optional details for the extended scene",
-    "editInstruction": "Additional instructions for the Agent",
+    "editInstruction": "Edit instructions",
     "markBrush": "Paint selection",
     "markEraser": "Erase selection",
     "panImage": "Pan image",
@@ -97,11 +97,11 @@
     "brushSize": "Brush size",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
-    "markHint": "Paint the area to change on the image first",
+    "markHint": "Blue marks the edit area. Lasso fills the enclosed area; the brush paints only its strokes.",
     "cropHint": "Drag on the image to select the area to keep",
     "outpaintHint": "The Agent will fill the transparent borders naturally",
     "extendBy": "Expand each side",
-    "generateEdit": "Generate with Agent",
+    "generateEdit": "Generate",
     "submittingEdit": "Submitting…",
     "agentUnavailable": "Agent is unavailable. Try again shortly.",
     "openResultNumber": "Open result {{number}}",
@@ -123,7 +123,11 @@
       "failed": "Failed",
       "deliveryFailed": "Load failed"
     },
-    "downloadFailed": "Download failed. Please try again."
+    "downloadFailed": "Download failed. Please try again.",
+    "markLasso": "Lasso",
+    "markRectangle": "Rectangle selection",
+    "clearMark": "Clear selection",
+    "fitImage": "Fit to window"
   },
   "confirm": {
     "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",
@@ -508,6 +512,28 @@
       "poster": "Poster",
       "scene": "Scene",
       "detail": "Detail"
+    }
+  },
+  "diagnostic": {
+    "title": "Error details",
+    "copyDetails": "Copy details",
+    "raw": "Original JSON",
+    "missing": "This older record did not save the original error details. The specific cause is unavailable.",
+    "unknown": "No specific error cause was recorded.",
+    "fields": {
+      "code": "Error code",
+      "message": "Error details",
+      "serverMessage": "Server message",
+      "occurredAt": "Time",
+      "durationMs": "Duration",
+      "httpStatus": "HTTP status",
+      "model": "Model",
+      "requestId": "Request ID",
+      "conversationId": "Conversation ID",
+      "turnId": "Turn ID",
+      "toolCallId": "Tool call ID",
+      "toolName": "Tool",
+      "taskId": "Task ID"
     }
   }
 }
