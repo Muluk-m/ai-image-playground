@@ -84,7 +84,7 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
       </PopoverTrigger>
       <PopoverContent
         aria-label={t('diagnostic.title')}
-        className="z-[1300] max-h-[min(80dvh,640px)] w-[min(480px,calc(100vw-32px))] overflow-y-auto rounded-xl p-4 text-sm"
+        className="border-border bg-card text-foreground z-[1300] max-h-[min(80dvh,640px)] w-[min(480px,calc(100vw-32px))] overflow-y-auto rounded-xl p-4 text-sm"
       >
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="font-semibold">{t('diagnostic.title')}</h2>
