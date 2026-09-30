@@ -73,7 +73,7 @@ function draftText(words: MediaWords, count: number): string {
  * 明白「这一张已经在跑、已经计费」，别再为同一件事提交第二次。
  */
 function submittedText(words: MediaWords, count: number): string {
-  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，产物会自动落到画布上。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，结果会自动展示。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
 }
 
 /**

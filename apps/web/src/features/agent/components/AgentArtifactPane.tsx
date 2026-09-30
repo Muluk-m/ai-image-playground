@@ -71,7 +71,7 @@ export default function AgentArtifactPane({
   selectedId?: string
   onSelect: (id: string) => void
   onClose: () => void
-  onViewCanvas: (objectIds?: readonly string[]) => void
+  onViewCanvas?: (objectIds?: readonly string[]) => void
 }) {
   const { t } = useTranslation('agent')
   const [source, setSource] = useState<string | null>(null)
@@ -352,7 +352,7 @@ export default function AgentArtifactPane({
               </button>
             </div>
           )}
-          {active.media === 'image' && (
+          {active.media === 'image' && onViewCanvas && (
             <div className="studio-artifact-pane-canvas-action">
               <button
                 type="button"

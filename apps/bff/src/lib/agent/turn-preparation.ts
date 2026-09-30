@@ -31,6 +31,7 @@ import {
   setAgentConversationTitle,
 } from './conversations'
 import type { TurnExecution } from './execution'
+import { loadAgentExperience } from './experience'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import {
   consecutiveAgentWakes,
@@ -191,11 +192,13 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   const history = listAgentHistoryWindow(conversationId, owner)
   // 可能抛的那两件事先落定，再让来源去备内容：用户消息那一路会把参考图写进对象存储，跟它们
   // 并排跑的话，它们抛出时那些字节还没有任何东西指着，也没有谁去清。
-  const [overlay, audience] = await Promise.all([
+  const [overlay, loadedAudience, experience] = await Promise.all([
     loadPrivateBffOverlay(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
     ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
+    loadAgentExperience(conversationId, userId),
   ])
+  const audience: AgentTurnAudience = { ...loadedAudience, experience }
   const content =
     source.kind === 'wake'
       ? await wakeContent(conversationId, owner, turnId, history, source.wake)
@@ -203,6 +206,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         ? await resumeContent(conversationId, owner, turnId, history, source.resume)
         : await messageContent(conversationId, owner, turnId, history, source)
   if ('kind' in content) return content
+  // chat 不把旧客户端残留的画布上下文带给模型或图片解析器。
+  const turnContent = experience === 'chat' ? { ...content, canvas: undefined } : content
 
   // 内容备齐时参考图已经落进对象存储，而估算、定价与取件事务每一步都可能抛：这一段统一收尾，
   // 不留孤儿对象。范围到事务提交为止——提交之后那条用户消息已经指着这些图了。
@@ -317,7 +322,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       userId,
       deviceId: content.deviceId,
       ...(content.params ? { params: content.params } : {}),
-      ...(content.canvas ? { canvas: content.canvas } : {}),
+      ...(turnContent.canvas ? { canvas: turnContent.canvas } : {}),
       ...(content.wake ? { wake: content.wake } : {}),
       reservedCredits: committed.reserved?.reservedCredits,
       settle: chatTurnSettle(

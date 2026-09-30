@@ -577,3 +577,43 @@ describe('用户消息落库', () => {
     expect(await nextAgentInboxEntry(conversation.id)).toBeNull()
   })
 })
+
+describe('project experience across all turn sources', () => {
+  for (const kind of ['message', 'wake', 'resume'] as const) {
+    it(`uses chat tools and drops stale canvas context on ${kind}`, async () => {
+      const conversationId = await conversationWithResult()
+      const now = Date.now()
+      await db.insert(schema.canvas_projects).values({
+        id: crypto.randomUUID(),
+        user_id: USER_ID,
+        name: 'Chat',
+        revision: 1,
+        document: { version: 1, experience: 'chat', elements: [] },
+        element_count: 0,
+        conversation_id: conversationId,
+        receipts: [],
+        created_at: now,
+        updated_at: now,
+      })
+      const source =
+        kind === 'message'
+          ? await queuedMessage(conversationId, 'xiaoai')
+          : kind === 'wake'
+            ? await queuedWake(conversationId)
+            : await queuedResume(conversationId, SUBMITTING_TURN)
+      const stale =
+        source.kind === 'message'
+          ? { ...source, message: { ...source.message, canvas: { elements: [] } } }
+          : source
+      const turn = preparedTurn((await prepare(conversationId, stale)).prepared)
+      expect(turn.input.audience.experience).toBe('chat')
+      expect(turn.canvas).toBeUndefined()
+      const call = await runPrepared(turn)
+      const names = call.tools?.map((tool) => tool.function.name) ?? []
+      expect(names).toContain('viewImage')
+      expect(names).not.toContain('readCanvas')
+      expect(names).not.toContain('arrangeCanvas')
+      expect(sentPromptText(call)).not.toContain('自动放在用户的画布上')
+    })
+  }
+})

@@ -26,10 +26,11 @@ import type { TurnAuthorizationText } from '../turn-authorization'
  * 这一轮的工具清单要按谁来筛。不是每个工具都对所有人在场：存素材、存模板要写进这个人的
  * 素材库，没登录就没有可写的地方，清单里也就不该出现它们。
  *
- * 只带 userId：能力开关是部署的事，各工具自己问（见 `lib/capabilities.ts`）。
+ * experience 区分对话与画布；能力开关由各工具自行查询。
  */
 export interface AgentToolAudience {
   readonly userId: string | null
+  readonly experience?: 'chat' | 'canvas'
 }
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
@@ -39,6 +40,7 @@ export interface AgentToolContext {
   readonly conversationId: string
   readonly turnId: string
   readonly userId: string | null
+  readonly experience?: 'chat' | 'canvas'
   readonly deviceId: string
   /**
    * 用户发话时浏览器里的画布。服务端项目文档会漏掉还没上传完的图，
