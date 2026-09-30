@@ -230,6 +230,54 @@ describe('message reference thumbnails', () => {
     expect((await request('GET', `${path}/-1`, { deviceId: DEVICE })).status).toBe(400)
   })
 
+  it('returns a thumbnail even when a tiny valid selection vanishes after downsampling', async () => {
+    const conversationId = await startConversation()
+    const image = await sharp({
+      create: { width: 1920, height: 1920, channels: 4, background: '#ff0000' },
+    })
+      .png()
+      .toBuffer()
+    const mask = await sharp({
+      create: { width: 1920, height: 1920, channels: 4, background: '#ffffff' },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 1, height: 1, channels: 4, background: '#ffffff' },
+          })
+            .png()
+            .toBuffer(),
+          left: 600,
+          top: 600,
+          blend: 'dest-out',
+        },
+      ])
+      .png()
+      .toBuffer()
+    const references = await archiveAgentReferences(conversationId, 'tiny-mark', [
+      {
+        imageId: 'tiny',
+        dataUrl: `data:image/png;base64,${image.toString('base64')}`,
+        maskDataUrl: `data:image/png;base64,${mask.toString('base64')}`,
+      },
+    ])
+    const message = await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'tiny-mark',
+      role: 'user',
+      content: [{ type: 'text', text: '改这一处', references }],
+    })
+    const response = await app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${conversationId}/messages/${message.id}/references/0`,
+        { headers: { [DEVICE_ID_HEADER]: DEVICE } },
+      ),
+    )
+    expect(response.status).toBe(200)
+    const metadata = await sharp(new Uint8Array(await response.arrayBuffer())).metadata()
+    expect([metadata.width, metadata.height]).toEqual([96, 96])
+  })
+
   it('returns the saved mask and numbered regions in both message preview sizes', async () => {
     const conversationId = await startConversation()
     const image = await sharp({

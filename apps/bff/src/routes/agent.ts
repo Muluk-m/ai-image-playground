@@ -381,12 +381,17 @@ export const agentRoutes = new Elysia()
               .png()
               .toBuffer()
           }
-          const annotated = await selectionPreview({
-            dataUrl: `data:${reference.image.mime};base64,${Buffer.from(source).toString('base64')}`,
-            maskDataUrl: `data:${marked.mime};base64,${Buffer.from(mask).toString('base64')}`,
-            regions: reference.regions,
-          })
-          visibleBytes = Buffer.from(annotated.data, 'base64')
+          if (!original && (await sharp(mask).stats()).channels.at(-1)?.min === 255) {
+            // A valid tiny mark may vanish when quantized to thumbnail pixels.
+            visibleBytes = source
+          } else {
+            const annotated = await selectionPreview({
+              dataUrl: `data:${reference.image.mime};base64,${Buffer.from(source).toString('base64')}`,
+              maskDataUrl: `data:${marked.mime};base64,${Buffer.from(mask).toString('base64')}`,
+              regions: reference.regions,
+            })
+            visibleBytes = Buffer.from(annotated.data, 'base64')
+          }
         }
         const image = original
           ? visibleBytes
