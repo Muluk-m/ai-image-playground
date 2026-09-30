@@ -25,6 +25,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 const billing = installRecordingTaskHooks()
 
 const { prepareAgentTurn } = await import('../../../lib/agent/turn-preparation')
+const { loadAgentExperience } = await import('../../../lib/agent/experience')
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { claimConversation, ConversationExecutionLost, releaseConversation, turnExecution } =
   await import('../../../lib/agent/execution')
@@ -575,5 +576,119 @@ describe('用户消息落库', () => {
       .where(eq(schema.agent_conversations.id, conversation.id))
     expect(row?.title).toBe('把背景换成浅木色')
     expect(await nextAgentInboxEntry(conversation.id)).toBeNull()
+  })
+})
+
+describe('project experience across all turn sources', () => {
+  for (const kind of ['message', 'wake', 'resume'] as const) {
+    it(`uses chat tools and drops stale canvas context on ${kind}`, async () => {
+      const conversationId = await conversationWithResult()
+      const now = Date.now()
+      await db.insert(schema.canvas_projects).values({
+        id: crypto.randomUUID(),
+        user_id: USER_ID,
+        name: 'Chat',
+        revision: 1,
+        document: { version: 1, experience: 'chat', elements: [] },
+        element_count: 0,
+        conversation_id: conversationId,
+        receipts: [],
+        created_at: now,
+        updated_at: now,
+      })
+      const source =
+        kind === 'message'
+          ? await queuedMessage(conversationId, 'xiaoai')
+          : kind === 'wake'
+            ? await queuedWake(conversationId)
+            : await queuedResume(conversationId, SUBMITTING_TURN)
+      const stale =
+        source.kind === 'message'
+          ? { ...source, message: { ...source.message, canvas: { elements: [] } } }
+          : source
+      const turn = preparedTurn((await prepare(conversationId, stale)).prepared)
+      expect(turn.input.audience.experience).toBe('chat')
+      expect(turn.canvas).toBeUndefined()
+      const call = await runPrepared(turn)
+      const names = call.tools?.map((tool) => tool.function.name) ?? []
+      expect(names).toContain('viewImage')
+      expect(names).not.toContain('readCanvas')
+      expect(names).not.toContain('arrangeCanvas')
+      expect(sentPromptText(call)).not.toContain('自动放在用户的画布上')
+    })
+  }
+})
+
+describe('unsynced project experience is bound to the originating message', () => {
+  it('ignores later pending and cancelled canvas messages when preparing chat', async () => {
+    const conversationId = await conversationWithResult()
+    const source = await queuedMessage(conversationId, 'chat')
+    const later = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: 'later canvas',
+      deviceId: DEVICE,
+      references: [],
+      canvas: { elements: [] },
+    })
+    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+    if (later.kind !== 'queued') throw Error('expected queued')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'cancelled' })
+      .where(eq(schema.agent_inbox.id, later.entry.view.id))
+    expect(await loadAgentExperience(conversationId, USER_ID, source)).toBe('chat')
+  })
+
+  it('keeps a canvas message on canvas even when a newer message has no snapshot', async () => {
+    const conversationId = await conversationWithResult()
+    const source = await queuedMessage(conversationId, 'canvas')
+    const canvasSource = { ...source, message: { ...source.message, canvas: { elements: [] } } }
+    await queuedMessage(conversationId, 'later chat')
+    expect(await loadAgentExperience(conversationId, USER_ID, canvasSource)).toBe('canvas')
+  })
+
+  it('resolves wakes and resumes from the consumed origin, ignoring later queue entries', async () => {
+    const conversationId = await conversationWithResult()
+    const origin = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: 'canvas origin',
+      deviceId: DEVICE,
+      references: [],
+      canvas: { elements: [] },
+    })
+    if (origin.kind !== 'queued') throw Error('expected queued')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'consumed', consumed_turn_id: SUBMITTING_TURN })
+      .where(eq(schema.agent_inbox.id, origin.entry.view.id))
+    await queuedMessage(conversationId, 'later chat')
+    expect(
+      await loadAgentExperience(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'wake', turnId: SUBMITTING_TURN, taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toBe('canvas')
+    await db.insert(schema.agent_inbox).values({
+      conversation_id: conversationId,
+      id: crypto.randomUUID(),
+      seq: 50,
+      kind: 'task_result',
+      status: 'consumed',
+      consumed_turn_id: 'wake-turn',
+      payload: { turnId: SUBMITTING_TURN, taskIds: [TASK_ID], deviceId: DEVICE },
+      created_at: Date.now(),
+    })
+    expect(
+      await loadAgentExperience(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'next-wake', turnId: 'wake-turn', taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toBe('canvas')
+    expect(
+      await loadAgentExperience(conversationId, USER_ID, {
+        kind: 'resume',
+        resume: { id: 'resume', interruptedTurnId: SUBMITTING_TURN, deviceId: DEVICE },
+      }),
+    ).toBe('canvas')
   })
 })

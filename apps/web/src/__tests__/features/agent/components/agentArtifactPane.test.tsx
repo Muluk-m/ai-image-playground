@@ -251,3 +251,19 @@ it('keeps the preview open when a higher dialog consumes Escape', async () => {
     act(() => root.unmount())
   }
 })
+
+it('keeps chat result actions inside the conversation when no canvas callback is supplied', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(<AgentArtifactPane message={message} onSelect={vi.fn()} onClose={vi.fn()} />),
+    )
+    expect(document.body.querySelector('.studio-artifact-pane-canvas-action')).toBeNull()
+    expect(document.body.textContent).toContain('局部重绘')
+    expect(document.body.textContent).toContain('下载')
+    expect(document.body.textContent).not.toContain('在画布中编辑')
+  } finally {
+    act(() => root.unmount())
+  }
+})
