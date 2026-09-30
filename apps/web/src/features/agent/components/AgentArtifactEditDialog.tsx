@@ -58,6 +58,7 @@ export default function AgentArtifactEditDialog({
   const previewRef = useRef<HTMLCanvasElement>(null)
   const pointerRef = useRef<{
     id: number
+    tool: MarkTool
     last: Point
     start?: Point
     pan?: Point
@@ -68,6 +69,7 @@ export default function AgentArtifactEditDialog({
   const [working, setWorking] = useState('')
   const [loading, setLoading] = useState(true)
   const [instruction, setInstruction] = useState('')
+  const [drawing, setDrawing] = useState(false)
   const [tool, setTool] = useState<MarkTool>('lasso')
   const [brush, setBrush] = useState(36)
   const [ready, setReady] = useState(false)
@@ -93,6 +95,9 @@ export default function AgentArtifactEditDialog({
     let active = true
     setLoading(true)
     setReady(false)
+    setDrawing(false)
+    pointerRef.current = null
+    lassoRef.current = []
     setWorking('')
     setImageSize({ x: 0, y: 0 })
     setMarkPresent(false)
@@ -244,12 +249,12 @@ export default function AgentArtifactEditDialog({
     setCanRedo(false)
   }
 
-  const paint = (from: Point, to: Point) => {
+  const paint = (from: Point, to: Point, gestureTool = tool) => {
     const canvas = maskRef.current
     const context = canvas?.getContext('2d')
     if (!canvas || !context) return
     context.save()
-    context.globalCompositeOperation = tool === 'eraser' ? 'source-over' : 'destination-out'
+    context.globalCompositeOperation = gestureTool === 'eraser' ? 'source-over' : 'destination-out'
     context.strokeStyle = '#fff'
     context.fillStyle = '#fff'
     context.lineWidth = Math.max(
@@ -276,10 +281,12 @@ export default function AgentArtifactEditDialog({
     event.currentTarget.setPointerCapture(event.pointerId)
     pointerRef.current = {
       id: event.pointerId,
+      tool,
       last: point,
       start: point,
       pan: { x: event.clientX - pan.x, y: event.clientY - pan.y },
     }
+    setDrawing(true)
     if (marked && tool !== 'pan') {
       if (tool === 'lasso' || tool === 'rectangle') lassoRef.current = [point]
       else {
@@ -297,15 +304,19 @@ export default function AgentArtifactEditDialog({
     setCursor(point)
     const pointer = pointerRef.current
     if (busy || !pointer || pointer.id !== event.pointerId) return
-    if (tool === 'pan' && marked) {
+    if (pointer.tool === 'pan' && marked) {
       setPan({ x: event.clientX - pointer.pan!.x, y: event.clientY - pointer.pan!.y })
       return
     }
     if (!point) return
     if (marked) {
-      if (tool === 'lasso') {
+      if (pointer.tool === 'lasso') {
         const path = lassoRef.current
-        const last = path[path.length - 1]!
+        const last = path[path.length - 1]
+        if (!last) {
+          lassoRef.current = [point]
+          return
+        }
         const box = imageRef.current!.getBoundingClientRect()
         if (Math.hypot((point.x - last.x) * box.width, (point.y - last.y) * box.height) >= 2) {
           // Keep long touch gestures bounded without allocating a copy each frame.
@@ -313,11 +324,11 @@ export default function AgentArtifactEditDialog({
           lassoRef.current.push(point)
           redrawPreview()
         }
-      } else if (tool === 'rectangle') {
+      } else if (pointer.tool === 'rectangle') {
         const first = pointer.start!
         lassoRef.current = [first, { x: point.x, y: first.y }, point, { x: first.x, y: point.y }]
         redrawPreview()
-      } else paint(pointer.last, point)
+      } else paint(pointer.last, point, pointer.tool)
     }
     if (action === 'crop' && pointer.start) {
       const x = Math.min(pointer.start.x, point.x)
@@ -335,7 +346,8 @@ export default function AgentArtifactEditDialog({
   const stop = (event: PointerEvent<HTMLDivElement>) => {
     const pointer = pointerRef.current
     if (pointer?.id !== event.pointerId) return
-    if (marked && tool !== 'pan') {
+    setDrawing(false)
+    if (marked && pointer.tool !== 'pan') {
       const canvas = maskRef.current
       const context = canvas?.getContext('2d')
       if (canvas && context) {
@@ -369,6 +381,7 @@ export default function AgentArtifactEditDialog({
   }
 
   const restore = (direction: 'undo' | 'redo') => {
+    if (pointerRef.current) return
     const canvas = maskRef.current
     const context = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !context) return
@@ -512,6 +525,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 type="button"
                 variant="ghost"
+                disabled={busy || drawing}
                 aria-label={t('tool.markLasso')}
                 title={t('tool.markLasso')}
                 aria-pressed={tool === 'lasso'}
@@ -522,6 +536,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 type="button"
                 variant="ghost"
+                disabled={busy || drawing}
                 aria-label={t('tool.markRectangle')}
                 title={t('tool.markRectangle')}
                 aria-pressed={tool === 'rectangle'}
@@ -532,6 +547,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 variant="ghost"
                 type="button"
+                disabled={busy || drawing}
                 aria-label={t('tool.markBrush')}
                 title={t('tool.markBrush')}
                 aria-pressed={tool === 'brush'}
@@ -542,6 +558,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 variant="ghost"
                 type="button"
+                disabled={busy || drawing}
                 aria-label={t('tool.markEraser')}
                 title={t('tool.markEraser')}
                 aria-pressed={tool === 'eraser'}
@@ -552,6 +569,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 variant="ghost"
                 type="button"
+                disabled={busy || drawing}
                 aria-label={t('tool.panImage')}
                 title={t('tool.panImage')}
                 aria-pressed={tool === 'pan'}
@@ -565,7 +583,7 @@ export default function AgentArtifactEditDialog({
                 type="button"
                 aria-label={t('tool.undoMark')}
                 onClick={() => restore('undo')}
-                disabled={!canUndo}
+                disabled={!canUndo || busy || drawing}
               >
                 <Undo2 size={18} />
               </Button>
@@ -574,7 +592,7 @@ export default function AgentArtifactEditDialog({
                 type="button"
                 aria-label={t('tool.redoMark')}
                 onClick={() => restore('redo')}
-                disabled={!canRedo}
+                disabled={!canRedo || busy || drawing}
               >
                 <Redo2 size={18} />
               </Button>
@@ -583,8 +601,9 @@ export default function AgentArtifactEditDialog({
                 variant="ghost"
                 aria-label={t('tool.clearMark')}
                 title={t('tool.clearMark')}
-                disabled={!markPresent || busy}
+                disabled={!markPresent || busy || drawing}
                 onClick={() => {
+                  if (pointerRef.current) return
                   const canvas = maskRef.current
                   const context = canvas?.getContext('2d')
                   if (!canvas || !context) return
@@ -605,7 +624,7 @@ export default function AgentArtifactEditDialog({
                   max={150}
                   value={[brush]}
                   onValueChange={([value]) => setBrush(value)}
-                  disabled={tool !== 'brush' && tool !== 'eraser'}
+                  disabled={busy || drawing || (tool !== 'brush' && tool !== 'eraser')}
                   className="w-20"
                 />
               </label>
@@ -638,6 +657,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 variant="ghost"
                 type="button"
+                disabled={busy || drawing}
                 aria-label={t('tool.zoomOut')}
                 onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
               >
@@ -646,6 +666,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 type="button"
                 variant="ghost"
+                disabled={busy || drawing}
                 aria-label={t('tool.fitImage')}
                 title={t('tool.fitImage')}
                 onClick={() => {
@@ -659,6 +680,7 @@ export default function AgentArtifactEditDialog({
               <Button
                 variant="ghost"
                 type="button"
+                disabled={busy || drawing}
                 aria-label={t('tool.zoomIn')}
                 onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
               >
@@ -690,6 +712,7 @@ export default function AgentArtifactEditDialog({
               onClick={generate}
               disabled={
                 busy ||
+                drawing ||
                 loading ||
                 !working ||
                 !ready ||
