@@ -490,5 +490,27 @@
       "scene": "场景图",
       "detail": "详情图"
     }
+  },
+  "diagnostic": {
+    "title": "错误详情",
+    "copyDetails": "复制详情",
+    "raw": "原始 JSON",
+    "missing": "这条旧记录未保存原始错误详情，无法确认具体原因。",
+    "unknown": "未记录具体错误原因。",
+    "fields": {
+      "code": "错误代码",
+      "message": "错误详情",
+      "serverMessage": "服务端信息",
+      "occurredAt": "发生时间",
+      "durationMs": "耗时",
+      "httpStatus": "HTTP 状态",
+      "model": "模型",
+      "requestId": "请求 ID",
+      "conversationId": "会话 ID",
+      "turnId": "轮次 ID",
+      "toolCallId": "工具调用 ID",
+      "toolName": "工具",
+      "taskId": "任务 ID"
+    }
   }
 }
