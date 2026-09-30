@@ -339,12 +339,15 @@ describe('撤回', () => {
 
   it('请求失败时留着那一条并提示重试', async () => {
     useAgentStore.setState({ conversationId: CONVERSATION, queue: [QUEUED] })
+    useAgentStore.setState({ errorDiagnostic: { turnId: 'stale-turn' } })
     withdrawResponse = () => new Response('{}', { status: 503 })
 
     await state().withdrawQueued(QUEUED.id)
 
     expect(state().queue).toEqual([QUEUED])
     expect(state().error).toBe('撤回未成功，请重试。')
+    expect(state().errorDiagnostic).toMatchObject({ httpStatus: 503 })
+    expect(state().errorDiagnostic).not.toHaveProperty('turnId')
   })
 })
 
@@ -367,12 +370,14 @@ describe('升级为插话', () => {
   it('那一轮刚好收尾时照旧排着，并说明会在下一轮处理', async () => {
     busy()
     useAgentStore.setState({ queue: [QUEUED] })
+    useAgentStore.setState({ errorDiagnostic: { turnId: 'stale-turn' } })
     interjectResponse = () => Response.json({ result: 'not_running' })
 
     await state().interjectQueued(QUEUED.id)
 
     expect(state().queue).toEqual([QUEUED])
     expect(state().error).toBe('当前回复已经结束，这条消息会在下一轮处理。')
+    expect(state().errorDiagnostic).toBeNull()
   })
 
   it('另一台设备收到升级事件时同样从列表里拿掉', async () => {

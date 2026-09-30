@@ -305,7 +305,13 @@
     "queueInterjectTooLate": "当前回复已经结束，这条消息会在下一轮处理。",
     "queueInterjectConsumed": "这条消息已经在处理了。",
     "queueInterjectFailed": "插话未成功，请重试。",
-    "retryFailed": "重试没能提交，请稍后再试。"
+    "retryFailed": "重试没能提交，请稍后再试。",
+    "upstream": "对话模型调用失败，请稍后重试。",
+    "contextOverflow": "本轮内容超出模型容量，请减少文字或参考图后重试。",
+    "toolFailed": "工具执行失败，请查看失败卡片。",
+    "copyLog": "复制原始日志",
+    "copied": "已复制",
+    "copyFailed": "复制失败，请重试"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",

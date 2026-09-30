@@ -168,7 +168,12 @@ describe('一轮对话', () => {
     await state().send('把背景换成浅木色')
 
     expect(state().turn).toBe('failed')
-    expect(state().error).toBe('这一轮没有跑完')
+    expect(state().error).toBe('对话模型调用失败，请稍后重试。')
+    expect(state().errorDiagnostic).toMatchObject({
+      code: 'agent_upstream_error',
+      turnId: 'turn-1',
+      conversationId: CONVERSATION,
+    })
     expect(state().messages.map((message) => message.kind === 'text' && message.role)).toEqual([
       'user',
     ])

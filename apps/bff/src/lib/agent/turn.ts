@@ -6,6 +6,7 @@ import type {
   AgentStoredReference,
   AgentTurnCost,
   AgentTurnErrorCode,
+  AgentTurnFailure,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnUsage,
@@ -51,6 +52,7 @@ import {
   isAgentToolName,
 } from './tools'
 import { createTurnAuthorization } from './turn-authorization'
+import { agentTurnFailure } from './turn-failure'
 import {
   type AgentTurnInput,
   expandSkillInvocation,
@@ -211,6 +213,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     tools: turnTools,
   })
   // 这两个在 `new Agent` 之前声明：streamFn 的闭包要写它们，读的人也该先看见它们。
+  let failure: AgentTurnFailure | undefined
   let error: AgentTurnErrorCode | undefined
   let aborted = false
   const agent = new Agent({
@@ -250,6 +253,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
             log.warn(entry, 'agent request exceeded the input budget and was not sent')
           }
           error ??= 'agent_context_overflow'
+          failure ??= agentTurnFailure(error, thrown, model.id)
         }
         throw thrown
       }
@@ -404,8 +408,14 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       }
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。工具失败时的中止也走这里，
       // 那时 error 已经写好，别让它把更准的那个原因盖掉。
-      if (event.message.stopReason === 'error' && !aborted) error ??= 'agent_upstream_error'
-      else await closeOpen()
+      if (event.message.stopReason === 'error' && !aborted) {
+        error ??= 'agent_upstream_error'
+        failure ??= agentTurnFailure(error, event.message.errorMessage, model.id)
+        log.warn(
+          { event: 'agent.upstream_failed', conversationId, turnId, failure },
+          'agent upstream call failed',
+        )
+      } else await closeOpen()
       open = null
       flushQueued()
     }
@@ -461,14 +471,15 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       const pending = openTools.get(event.toolCallId)
       if (!pending) return
       openTools.delete(event.toolCallId)
-      const failure = event.isError ? toolFailures.take(event.toolCallId, aborted) : null
-      const { block, abortsTurn } = agentToolEnd(pending.start, event.result, failure)
+      const toolFailure = event.isError ? toolFailures.take(event.toolCallId, aborted) : null
+      const { block, abortsTurn } = agentToolEnd(pending.start, event.result, toolFailure)
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
       if (block.status === 'awaiting_confirmation') drafted = true
       if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'
+        failure = agentTurnFailure(error, block.message, model.id)
         agent.abort()
       }
     }
@@ -562,6 +573,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (aborted || error) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')
       error = 'agent_run_failed'
+      failure = agentTurnFailure(error, thrown, model.id)
     })
     .then(async () => {
       acceptingInterjections = false
@@ -602,6 +614,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           durationMs,
           stopReason,
           ...(cost ? { cost } : {}),
+          ...(error ? { failure: failure ?? agentTurnFailure(error, error, model.id) } : {}),
         })
       } catch (thrown) {
         // 页脚丢一轮不该把已经流给用户的这一轮拖成报错。
@@ -615,7 +628,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         turnId,
         durationMs,
         stopReason,
-        ...(error ? { error } : {}),
+        ...(error ? { error, failure: failure ?? agentTurnFailure(error, error, model.id) } : {}),
         usage,
         cost,
       })
@@ -638,6 +651,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         durationMs: Date.now() - startedAt,
         stopReason: 'failed',
         error: 'agent_run_failed',
+        failure: agentTurnFailure('agent_run_failed', err, model.id),
         usage: null,
       })
       // 落不了库也无妨：连着的消费者已经收到终帧，之后的读取由补写兜底。

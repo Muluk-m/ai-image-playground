@@ -148,6 +148,19 @@ describe('tools filtered by creation mode', () => {
     for (const line of agentToolGuidance(mode)) expect(prompt).toContain(line)
   })
 
+  it.each(['image', 'video'] as const)('does not assume a canvas in %s turns', (mode) => {
+    for (const autoSubmit of [false, true]) {
+      const prompt = turnInitialState([], mode, autoSubmit, 0, {
+        userId: null,
+        looks: [],
+        experience: 'chat',
+      }).systemPrompt
+      expect(prompt).toContain('不要承诺结果已写入画布')
+      expect(prompt).not.toContain('产物自动放入画布')
+      expect(prompt).not.toContain('画布旁的助手')
+    }
+  })
+
   it('still recognises tool names the current mode cannot call', () => {
     // 历史里的生视频结果在图片轮也要认得出来，否则那张卡就渲染不出来了。
     expect(isAgentToolName('generateVideo')).toBe(true)
@@ -245,7 +258,7 @@ describe('chat tools are isolated from canvas tools', () => {
       ).toEqual(names)
       const prompt = turnInitialState([], mode, false, 0, audience).systemPrompt
       expect(prompt).toContain('对话中的创作助手')
-      expect(prompt).toContain('对话结果卡')
+      expect(prompt).toContain('对话的产物卡片')
       expect(prompt).not.toContain('自动放入画布')
       expect(prompt).not.toContain('画布旁的助手')
       for (const line of agentToolGuidance(mode, audience)) expect(prompt).toContain(line)

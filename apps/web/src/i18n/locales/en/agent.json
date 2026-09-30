@@ -319,7 +319,13 @@
     "queueInterjectTooLate": "The current reply has already ended. This message will be handled next.",
     "queueInterjectConsumed": "That message is already being handled.",
     "queueInterjectFailed": "Couldn't interject it. Please retry.",
-    "retryFailed": "The retry couldn't be submitted. Please try again shortly."
+    "retryFailed": "The retry couldn't be submitted. Please try again shortly.",
+    "upstream": "The conversation model call failed. Please try again later.",
+    "contextOverflow": "This request exceeds the model capacity. Reduce the text or reference images and try again.",
+    "toolFailed": "A tool failed. Check the failed tool card.",
+    "copyLog": "Copy original log",
+    "copied": "Copied",
+    "copyFailed": "Copy failed. Try again."
   },
   "project": {
     "createFailed": "Could not create the project. Your current work is kept, please retry.",
