@@ -29,21 +29,16 @@ import {
   exportMarkedImage,
   extendImage,
 } from '../lib/artifactEdit'
+import {
+  type RegionBoundsRequest,
+  type VisibleRegion,
+  visibleRegionBounds,
+} from '../lib/regionBounds'
 
 type MarkTool = 'lasso' | 'rectangle' | 'brush' | 'eraser' | 'pan'
 type Point = { x: number; y: number }
 type Mark = { id: number; tool: Exclude<MarkTool, 'pan'>; points: Point[]; width: number }
 type MarkSnapshot = { pixels: ImageData; marks: Mark[] }
-function markBounds(mark: Mark) {
-  const xs = mark.points.map((point) => point.x)
-  const ys = mark.points.map((point) => point.y)
-  return {
-    x: Math.min(...xs),
-    y: Math.min(...ys),
-    width: Math.max(...xs) - Math.min(...xs),
-    height: Math.max(...ys) - Math.min(...ys),
-  }
-}
 const DEFAULT_CROP: CropRect = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
 
 export default function AgentArtifactEditDialog({
@@ -76,13 +71,17 @@ export default function AgentArtifactEditDialog({
     pan?: Point
     points?: Point[]
     width?: number
+    limitReported?: boolean
     before?: ImageData
   } | null>(null)
   const marksRef = useRef<Mark[]>([])
   const nextMarkRef = useRef(1)
-  const [visibleRegions, setVisibleRegions] = useState<
-    { id: number; bounds: ReturnType<typeof markBounds> }[]
-  >([])
+  const [visibleRegions, setVisibleRegions] = useState<VisibleRegion[]>([])
+  const regionWorkerRef = useRef<Worker | null>(null)
+  const regionVersionRef = useRef(0)
+  const regionWorkerBusyRef = useRef(false)
+  const queuedRegionsRef = useRef<RegionBoundsRequest | null>(null)
+  const [regionsPending, setRegionsPending] = useState(false)
   const undoRef = useRef<MarkSnapshot[]>([])
   const redoRef = useRef<MarkSnapshot[]>([])
   const [working, setWorking] = useState('')
@@ -103,6 +102,33 @@ export default function AgentArtifactEditDialog({
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const marked = action === 'inpaint' || action === 'erase'
+  useEffect(() => {
+    if (!marked || typeof Worker === 'undefined') return
+    const worker = new Worker(new URL('../lib/regionBounds.worker.ts', import.meta.url), {
+      type: 'module',
+    })
+    regionWorkerRef.current = worker
+    worker.onmessage = (event: MessageEvent<{ version: number; regions: VisibleRegion[] }>) => {
+      regionWorkerBusyRef.current = false
+      const next = queuedRegionsRef.current
+      queuedRegionsRef.current = null
+      if (next) {
+        regionWorkerBusyRef.current = true
+        worker.postMessage(next, [next.pixels.buffer])
+        return
+      }
+      if (event.data.version !== regionVersionRef.current) return
+      setVisibleRegions(event.data.regions)
+      setRegionsPending(false)
+    }
+    return () => {
+      worker.terminate()
+      regionWorkerRef.current = null
+      regionVersionRef.current++
+      regionWorkerBusyRef.current = false
+      queuedRegionsRef.current = null
+    }
+  }, [marked, source])
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -205,51 +231,32 @@ export default function AgentArtifactEditDialog({
   const syncMarkPresent = () => {
     const canvas = maskRef.current
     const context = canvas?.getContext('2d', { willReadFrequently: true })
-    if (canvas && context) {
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height)
-      setMarkPresent(classifyMaskAlpha(pixels) !== 'empty')
-      setVisibleRegions(
-        marksRef.current.flatMap((mark) => {
-          if (mark.tool !== 'rectangle' && mark.tool !== 'lasso') return []
-          const bounds = markBounds(mark)
-          let left = canvas.width,
-            top = canvas.height,
-            right = -1,
-            bottom = -1
-          for (
-            let y = Math.floor(bounds.y * canvas.height);
-            y < Math.min(canvas.height, Math.ceil((bounds.y + bounds.height) * canvas.height));
-            y++
-          ) {
-            for (
-              let x = Math.floor(bounds.x * canvas.width);
-              x < Math.min(canvas.width, Math.ceil((bounds.x + bounds.width) * canvas.width));
-              x++
-            ) {
-              if (pixels.data[(y * canvas.width + x) * 4 + 3]! < 255) {
-                left = Math.min(left, x)
-                top = Math.min(top, y)
-                right = Math.max(right, x)
-                bottom = Math.max(bottom, y)
-              }
-            }
-          }
-          return right < 0
-            ? []
-            : [
-                {
-                  id: mark.id,
-                  bounds: {
-                    x: left / canvas.width,
-                    y: top / canvas.height,
-                    width: (right - left + 1) / canvas.width,
-                    height: (bottom - top + 1) / canvas.height,
-                  },
-                },
-              ]
-        }),
-      )
-    }
+    if (!canvas || !context) return
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height)
+    setMarkPresent(classifyMaskAlpha(pixels) !== 'empty')
+    const shapes = marksRef.current
+      .filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
+      .map((mark) => ({ id: mark.id, points: mark.points }))
+    const version = ++regionVersionRef.current
+    if (!shapes.length) {
+      queuedRegionsRef.current = null
+      setVisibleRegions([])
+      setRegionsPending(false)
+    } else if (regionWorkerRef.current) {
+      setRegionsPending(true)
+      const request = {
+        version,
+        pixels: pixels.data,
+        width: canvas.width,
+        height: canvas.height,
+        shapes,
+      }
+      if (regionWorkerBusyRef.current) queuedRegionsRef.current = request
+      else {
+        regionWorkerBusyRef.current = true
+        regionWorkerRef.current.postMessage(request, [pixels.data.buffer])
+      }
+    } else setVisibleRegions(visibleRegionBounds(pixels.data, canvas.width, canvas.height, shapes))
   }
 
   const initializeMask = () => {
@@ -277,6 +284,9 @@ export default function AgentArtifactEditDialog({
     redoRef.current = []
     marksRef.current = []
     setVisibleRegions([])
+    setRegionsPending(false)
+    regionVersionRef.current++
+    queuedRegionsRef.current = null
     setCanUndo(false)
     setCanRedo(false)
     setMarkPresent(false)
@@ -347,13 +357,21 @@ export default function AgentArtifactEditDialog({
 
   const start = (event: PointerEvent<HTMLDivElement>) => {
     if (
+      !busy &&
+      tool !== 'pan' &&
+      (marksRef.current.length >= 256 ||
+        marksRef.current.reduce((count, mark) => count + mark.points.length, 0) >= 131072)
+    ) {
+      showToast(t('tool.markCapacity'), 'error')
+      return
+    }
+
+    if (
       busy ||
       !ready ||
       !working ||
       event.button !== 0 ||
       pointerRef.current ||
-      marksRef.current.length >= 256 ||
-      marksRef.current.reduce((count, mark) => count + mark.points.length, 0) >= 131072 ||
       ((tool === 'rectangle' || tool === 'lasso') &&
         marksRef.current.filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
           .length >= 32)
@@ -427,7 +445,13 @@ export default function AgentArtifactEditDialog({
           ) < 2
         )
           return
-        if (pointer.points!.length >= 4096) return
+        if (pointer.points!.length >= 4096) {
+          if (!pointer.limitReported) {
+            pointer.limitReported = true
+            showToast(t('tool.markCapacity'), 'error')
+          }
+          return
+        }
         pointer.points!.push(point)
         paint(pointer.last, point, pointer.tool, pointer.width)
       }
@@ -563,7 +587,7 @@ export default function AgentArtifactEditDialog({
 
   const generate = () => {
     const image = imageRef.current
-    if (!image || !working || busy || !ready || pointerRef.current) return
+    if (!image || !working || busy || !ready || regionsPending || pointerRef.current) return
     try {
       let input: ArtifactEditInput
       if (marked)
@@ -917,6 +941,7 @@ export default function AgentArtifactEditDialog({
               disabled={
                 busy ||
                 drawing ||
+                regionsPending ||
                 loading ||
                 !working ||
                 !ready ||

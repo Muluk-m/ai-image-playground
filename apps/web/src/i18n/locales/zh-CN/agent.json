@@ -123,7 +123,8 @@
     "removeRegion": "删除区域 {{number}}",
     "markRectangle": "矩形选区",
     "clearMark": "清空选区",
-    "fitImage": "适应窗口"
+    "fitImage": "适应窗口",
+    "markCapacity": "标注过多，请撤销部分标注或清空选区后重画；仍可移动图片查看。"
   },
   "confirm": {
     "pending": "核对下面这段提示词（可以直接改），然后点「确认生成」。",
