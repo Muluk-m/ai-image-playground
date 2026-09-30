@@ -600,10 +600,10 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-dialog h2 { font-size: 16px; font-weight: 600; }
 .studio-artifact-edit-dialog > header button { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 9px; color: hsl(var(--muted-foreground)); }
 .studio-artifact-edit-dialog > header button:hover { background: hsl(var(--foreground) / .07); color: hsl(var(--foreground)); }
-.studio-artifact-edit-stage { position: relative; display: flex; flex: 1 1 auto; min-height: min(440px, 52dvh); align-items: center; justify-content: center; overflow: hidden; padding: 52px 58px 70px; background: hsl(var(--background) / .8); }
+.studio-artifact-edit-stage { position: relative; display: flex; flex: 1 1 auto; height: min(560px, 60dvh); min-height: 260px; align-items: center; justify-content: center; overflow: hidden; padding: 52px 58px 70px; background: hsl(var(--background) / .8); }
 .studio-artifact-edit-image { position: relative; display: inline-grid; max-width: 100%; max-height: 100%; place-items: center; transform-origin: center; }
 .studio-artifact-edit-image[data-action="crop"] { overflow: hidden; }
-.studio-artifact-edit-image > img { position: relative; z-index: 1; display: block; max-width: 100%; max-height: min(51dvh, 580px); object-fit: contain; user-select: none; }
+.studio-artifact-edit-image > img { position: relative; z-index: 1; display: block; max-width: 100%; width: 100%; height: 100%; max-height: none; object-fit: contain; user-select: none; }
 .studio-artifact-edit-image > canvas { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .studio-artifact-edit-hit { position: absolute; z-index: 4; inset: 0; cursor: crosshair; touch-action: none; }
 .studio-artifact-edit-crop { position: absolute; z-index: 3; border: 1px solid hsl(var(--foreground)); box-shadow: 0 0 0 100vmax rgb(0 0 0 / .48), inset 0 0 0 1px rgb(0 0 0 / .28); pointer-events: none; }
@@ -612,7 +612,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-crop::after { right: -4px; bottom: -4px; }
 .studio-artifact-edit-outpaint { position: absolute; z-index: 0; border: 1px dashed hsl(var(--primary) / .8); border-radius: 8px; background: repeating-conic-gradient(hsl(var(--foreground) / .045) 0% 25%, transparent 0% 50%) 0 / 16px 16px; pointer-events: none; }
 .studio-artifact-edit-toolbar, .studio-artifact-edit-zoom, .studio-artifact-edit-hint { position: absolute; z-index: 6; display: flex; align-items: center; gap: 3px; border: 1px solid hsl(var(--foreground) / .1); border-radius: 12px; background: hsl(var(--card) / .92); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(12px); }
-.studio-artifact-edit-toolbar { bottom: 17px; left: 18px; min-height: 44px; padding: 4px; }
+.studio-artifact-edit-toolbar { bottom: 17px; left: 18px; max-width: calc(100% - 36px); flex-wrap: wrap; min-height: 44px; padding: 4px; }
 .studio-artifact-edit-toolbar button, .studio-artifact-edit-zoom button { display: grid; min-width: 36px; height: 34px; place-items: center; border-radius: 8px; color: hsl(var(--muted-foreground)); }
 .studio-artifact-edit-toolbar button:hover:not(:disabled), .studio-artifact-edit-zoom button:hover:not(:disabled) { background: hsl(var(--foreground) / .08); color: hsl(var(--foreground)); }
 .studio-artifact-edit-toolbar button[aria-pressed="true"] { background: hsl(var(--primary) / .15); color: hsl(var(--primary)); }
@@ -620,7 +620,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-tool-divider { width: 1px; height: 20px; margin-inline: 3px; background: hsl(var(--foreground) / .12); }
 .studio-artifact-edit-toolbar label { display: flex; align-items: center; gap: 7px; padding-inline: 7px; color: hsl(var(--muted-foreground)); font-size: 11px; white-space: nowrap; }
 .studio-artifact-edit-toolbar input { width: 88px; accent-color: hsl(var(--primary)); }
-.studio-artifact-edit-zoom { right: 18px; bottom: 17px; padding: 4px; }
+.studio-artifact-edit-zoom { right: 18px; top: 12px; padding: 4px; }
 .studio-artifact-edit-zoom span { min-width: 42px; color: hsl(var(--foreground)); font-size: 12px; text-align: center; }
 .studio-artifact-edit-hint { bottom: 18px; left: 18px; gap: 8px; padding: 10px 12px; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .studio-artifact-edit-extension { color: hsl(var(--muted-foreground)); font-size: 12px; }
@@ -636,15 +636,15 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-composer > div > button:disabled { cursor: not-allowed; opacity: .5; }
 .studio-artifact-edit-dialog button:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
 @media (max-width: 767px) {
-  .studio-artifact-edit-dialog { width: calc(100% + 32px); max-height: 100dvh; min-height: 100dvh; margin-inline: -16px; border: 0; border-radius: 0; }
+  .studio-artifact-edit-dialog { width: calc(100% + 32px); height: 100dvh; max-height: 100dvh; min-height: 0; overflow: hidden; margin-inline: -16px; border: 0; border-radius: 0; }
   .studio-artifact-edit-dialog > header { min-height: 58px; padding-inline: 16px; }
-  .studio-artifact-edit-stage { min-height: 0; padding: 42px 12px 82px; }
-  .studio-artifact-edit-image > img { max-height: 56dvh; }
+  .studio-artifact-edit-stage { height: auto; min-height: 160px; flex: 1 1 0; padding: 52px 12px 110px; }
+  .studio-artifact-edit-image > img { max-height: none; }
   .studio-artifact-edit-toolbar { left: 8px; bottom: 10px; }
   .studio-artifact-edit-toolbar label { padding-inline: 3px; }
-  .studio-artifact-edit-toolbar label span { display: none; }
+  .studio-artifact-edit-toolbar label > span:first-child { display: none; }
   .studio-artifact-edit-toolbar input { width: 58px; }
-  .studio-artifact-edit-zoom { right: 8px; bottom: 61px; }
+  .studio-artifact-edit-zoom { right: 8px; top: 10px; }
   .studio-artifact-edit-composer { padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px)); }
   .studio-artifact-edit-composer > div > span { max-width: 55%; }
 }
@@ -759,3 +759,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-agent-generation-glow, .studio-agent-generation-track > span { animation: none; }
   .studio-agent-generation-track > span { width: 100%; opacity: .4; }
 }
+
+.studio-artifact-edit-cursor { position: absolute; z-index: 5; border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
+.studio-artifact-edit-hit[data-tool="pan"] { cursor: grab; }
+.studio-artifact-edit-hit[data-tool="brush"], .studio-artifact-edit-hit[data-tool="eraser"] { cursor: none; }

@@ -17,7 +17,11 @@ const Slider = React.forwardRef<
     </SliderPrimitive.Track>
     {/* p-0/bg-background 是显式的：Radix 把滑块渲染成 <span>，但作用域 CSS 给块级元素设的
         内边距同样会漏进来，和 checkbox 那颗按钮是同一类问题。 */}
-    <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full border border-primary/50 bg-background p-0 shadow transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" />
+    <SliderPrimitive.Thumb
+      aria-label={props['aria-label']}
+      aria-labelledby={props['aria-labelledby']}
+      className="block h-4 w-4 rounded-full border border-primary/50 bg-background p-0 shadow transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+    />
   </SliderPrimitive.Root>
 ))
 Slider.displayName = SliderPrimitive.Root.displayName

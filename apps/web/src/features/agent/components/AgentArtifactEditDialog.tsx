@@ -1,8 +1,24 @@
-import { Brush, Crop, Eraser, Hand, Minus, Plus, Redo2, Undo2, X } from 'lucide-react'
+import {
+  Brush,
+  Crop,
+  Eraser,
+  Hand,
+  Lasso,
+  Maximize,
+  Minus,
+  Plus,
+  Redo2,
+  Square,
+  Trash2,
+  Undo2,
+  X,
+} from 'lucide-react'
 import { type PointerEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../../../components/Overlay'
+import { Button } from '../../../components/ui/button'
+import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
-import { classifyMaskAlpha } from '../../../lib/mask'
+import { classifyMaskAlpha, fillMaskLasso } from '../../../lib/mask'
 import { prepareMaskTargetDataUrl } from '../../../lib/maskPreprocess'
 import { useStore } from '../../../store'
 import {
@@ -14,7 +30,7 @@ import {
   extendImage,
 } from '../lib/artifactEdit'
 
-type MarkTool = 'brush' | 'eraser' | 'pan'
+type MarkTool = 'lasso' | 'rectangle' | 'brush' | 'eraser' | 'pan'
 type Point = { x: number; y: number }
 const DEFAULT_CROP: CropRect = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
 
@@ -34,6 +50,8 @@ export default function AgentArtifactEditDialog({
   const { t } = useTranslation('agent')
   const showToast = useStore((state) => state.showToast)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const lassoRef = useRef<Point[]>([])
   const imageRef = useRef<HTMLImageElement>(null)
   const maskRef = useRef<HTMLCanvasElement>(null)
   const previewRef = useRef<HTMLCanvasElement>(null)
@@ -43,8 +61,12 @@ export default function AgentArtifactEditDialog({
   const [working, setWorking] = useState('')
   const [loading, setLoading] = useState(true)
   const [instruction, setInstruction] = useState('')
-  const [tool, setTool] = useState<MarkTool>('brush')
+  const [tool, setTool] = useState<MarkTool>('lasso')
   const [brush, setBrush] = useState(36)
+  const [ready, setReady] = useState(false)
+  const [imageSize, setImageSize] = useState<Point>({ x: 0, y: 0 })
+  const [stageSize, setStageSize] = useState<Point>({ x: 800, y: 440 })
+  const [cursor, setCursor] = useState<Point | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 })
   const [crop, setCrop] = useState<CropRect>(DEFAULT_CROP)
@@ -63,6 +85,12 @@ export default function AgentArtifactEditDialog({
   useEffect(() => {
     let active = true
     setLoading(true)
+    setReady(false)
+    setWorking('')
+    setImageSize({ x: 0, y: 0 })
+    setMarkPresent(false)
+    setPan({ x: 0, y: 0 })
+    setZoom(1)
     void prepareMaskTargetDataUrl(source)
       .then((prepared) => {
         if (active) setWorking(prepared.dataUrl)
@@ -78,6 +106,22 @@ export default function AgentArtifactEditDialog({
     }
   }, [source, showToast])
 
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const update = () => {
+      const style = getComputedStyle(stage)
+      setStageSize({
+        x: stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        y: stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+      })
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [])
+
   const redrawPreview = () => {
     const mask = maskRef.current
     const preview = previewRef.current
@@ -85,11 +129,27 @@ export default function AgentArtifactEditDialog({
     if (!mask || !preview || !context) return
     context.clearRect(0, 0, preview.width, preview.height)
     context.save()
-    context.fillStyle = 'rgba(173, 220, 126, .42)'
+    context.fillStyle = 'rgba(59, 130, 246, .58)'
     context.fillRect(0, 0, preview.width, preview.height)
     context.globalCompositeOperation = 'destination-out'
     context.drawImage(mask, 0, 0)
     context.restore()
+    const path = lassoRef.current
+    if (path.length > 1) {
+      context.save()
+      context.beginPath()
+      context.moveTo(path[0]!.x * preview.width, path[0]!.y * preview.height)
+      for (const point of path.slice(1))
+        context.lineTo(point.x * preview.width, point.y * preview.height)
+      context.closePath()
+      context.fillStyle = 'rgba(59, 130, 246, .35)'
+      context.fill()
+      context.strokeStyle = '#fff'
+      context.lineWidth =
+        (2 * preview.width) / Math.max(1, imageRef.current?.getBoundingClientRect().width ?? 1)
+      context.stroke()
+      context.restore()
+    }
   }
 
   const syncMarkPresent = () => {
@@ -105,7 +165,13 @@ export default function AgentArtifactEditDialog({
     const image = imageRef.current
     const mask = maskRef.current
     const preview = previewRef.current
-    if (!image || !mask || !preview || !image.naturalWidth) return
+    if (!image || !image.naturalWidth) return
+    setImageSize({ x: image.naturalWidth, y: image.naturalHeight })
+    if (!marked) {
+      setReady(true)
+      return
+    }
+    if (!mask || !preview) return
     mask.width = preview.width = image.naturalWidth
     mask.height = preview.height = image.naturalHeight
     const context = mask.getContext('2d')
@@ -117,6 +183,9 @@ export default function AgentArtifactEditDialog({
     setCanUndo(false)
     setCanRedo(false)
     setMarkPresent(false)
+    lassoRef.current = []
+    setImageSize({ x: image.naturalWidth, y: image.naturalHeight })
+    setReady(true)
     redrawPreview()
   }
 
@@ -153,7 +222,10 @@ export default function AgentArtifactEditDialog({
     context.globalCompositeOperation = tool === 'eraser' ? 'source-over' : 'destination-out'
     context.strokeStyle = '#fff'
     context.fillStyle = '#fff'
-    context.lineWidth = Math.max(4, (brush / 1000) * Math.min(canvas.width, canvas.height))
+    context.lineWidth = Math.max(
+      4,
+      (brush * canvas.width) / Math.max(1, imageRef.current?.getBoundingClientRect().width ?? 1),
+    )
     context.lineCap = 'round'
     context.lineJoin = 'round'
     context.beginPath()
@@ -168,7 +240,7 @@ export default function AgentArtifactEditDialog({
   }
 
   const start = (event: PointerEvent<HTMLDivElement>) => {
-    if (busy || !working) return
+    if (busy || !ready || !working || event.button !== 0 || pointerRef.current) return
     const point = pointOnImage(event)
     if (!point) return
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -180,20 +252,31 @@ export default function AgentArtifactEditDialog({
     }
     if (marked && tool !== 'pan') {
       rememberMask()
-      paint(point, point)
+      if (tool === 'lasso' || tool === 'rectangle') lassoRef.current = [point]
+      else paint(point, point)
     }
   }
 
   const move = (event: PointerEvent<HTMLDivElement>) => {
+    const point = pointOnImage(event)
+    setCursor(point)
     const pointer = pointerRef.current
-    if (!pointer || pointer.id !== event.pointerId) return
+    if (busy || !pointer || pointer.id !== event.pointerId) return
     if (tool === 'pan' && marked) {
       setPan({ x: event.clientX - pointer.pan!.x, y: event.clientY - pointer.pan!.y })
       return
     }
-    const point = pointOnImage(event)
     if (!point) return
-    if (marked) paint(pointer.last, point)
+    if (marked) {
+      if (tool === 'lasso') {
+        lassoRef.current.push(point)
+        redrawPreview()
+      } else if (tool === 'rectangle') {
+        const first = pointer.start!
+        lassoRef.current = [first, { x: point.x, y: first.y }, point, { x: first.x, y: point.y }]
+        redrawPreview()
+      } else paint(pointer.last, point)
+    }
     if (action === 'crop' && pointer.start) {
       const x = Math.min(pointer.start.x, point.x)
       const y = Math.min(pointer.start.y, point.y)
@@ -210,7 +293,30 @@ export default function AgentArtifactEditDialog({
   const stop = (event: PointerEvent<HTMLDivElement>) => {
     const pointer = pointerRef.current
     if (pointer?.id !== event.pointerId) return
-    if (marked && tool !== 'pan') syncMarkPresent()
+    if (marked && tool !== 'pan') {
+      const canvas = maskRef.current
+      const context = canvas?.getContext('2d')
+      if (canvas && context && event.type !== 'pointerup') {
+        const previous = undoRef.current.pop()
+        if (previous) context.putImageData(previous, 0, 0)
+        setCanUndo(undoRef.current.length > 0)
+        lassoRef.current = []
+        redrawPreview()
+      } else if (canvas && context && lassoRef.current.length) {
+        if (event.type === 'pointerup')
+          fillMaskLasso(
+            context,
+            lassoRef.current.map((point) => ({
+              x: point.x * canvas.width,
+              y: point.y * canvas.height,
+            })),
+            false,
+          )
+        lassoRef.current = []
+        redrawPreview()
+      }
+      syncMarkPresent()
+    }
     if (
       action === 'crop' &&
       pointer.start &&
@@ -241,10 +347,10 @@ export default function AgentArtifactEditDialog({
 
   const generate = () => {
     const image = imageRef.current
-    if (!image || !working || busy) return
+    if (!image || !working || busy || !ready || pointerRef.current) return
     try {
       let input: ArtifactEditInput
-      if (marked) input = exportMarkedImage(working, maskRef.current!)
+      if (marked) input = exportMarkedImage(working, maskRef.current!, image)
       else if (action === 'crop') input = cropImage(image, crop)
       else input = extendImage(image, extension)
       onGenerate(input, instruction.trim())
@@ -262,19 +368,46 @@ export default function AgentArtifactEditDialog({
         aria-modal="true"
         aria-labelledby="artifact-edit-title"
         tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Tab') {
+            const items = [
+              ...event.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not(:disabled), textarea, [role="slider"]:not([aria-disabled="true"])',
+              ),
+            ]
+            const first = items[0],
+              last = items[items.length - 1]
+            if (
+              event.shiftKey &&
+              (document.activeElement === first || document.activeElement === event.currentTarget)
+            ) {
+              event.preventDefault()
+              last?.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault()
+              first?.focus()
+            }
+          }
+          if (event.target instanceof HTMLTextAreaElement || busy || !marked) return
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+            event.preventDefault()
+            restore(event.shiftKey ? 'redo' : 'undo')
+          }
+        }}
       >
         <header>
           <h2 id="artifact-edit-title">{t(`tool.${action}`)}</h2>
-          <button
+          <Button
+            variant="ghost"
             type="button"
             onClick={onClose}
             disabled={busy}
             aria-label={t('tool.closePreview')}
           >
             <X size={22} />
-          </button>
+          </Button>
         </header>
-        <div className="studio-artifact-edit-stage">
+        <div ref={stageRef} className="studio-artifact-edit-stage">
           {loading && <span role="status">{t('tool.loadingPreview')}</span>}
           {working && (
             <div
@@ -282,7 +415,15 @@ export default function AgentArtifactEditDialog({
               data-action={action}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                width: action === 'outpaint' ? `${100 / (1 + extension * 2)}%` : undefined,
+                width: imageSize.x
+                  ? Math.min(
+                      stageSize.x / (action === 'outpaint' ? 1 + extension * 2 : 1),
+                      (stageSize.y * imageSize.x) /
+                        imageSize.y /
+                        (action === 'outpaint' ? 1 + extension * 2 : 1),
+                    )
+                  : undefined,
+                aspectRatio: imageSize.x ? `${imageSize.x} / ${imageSize.y}` : undefined,
               }}
             >
               <img ref={imageRef} src={working} alt="" onLoad={initializeMask} draggable={false} />
@@ -305,8 +446,21 @@ export default function AgentArtifactEditDialog({
                   style={{ inset: `${-extension * 100}%` }}
                 />
               )}
+              {cursor && marked && (tool === 'brush' || tool === 'eraser') && (
+                <div
+                  className="studio-artifact-edit-cursor"
+                  style={{
+                    left: `${cursor.x * 100}%`,
+                    top: `${cursor.y * 100}%`,
+                    width: brush / zoom,
+                    height: brush / zoom,
+                  }}
+                />
+              )}
               <div
                 className="studio-artifact-edit-hit"
+                data-tool={tool}
+                onPointerLeave={() => setCursor(null)}
                 onPointerDown={start}
                 onPointerMove={move}
                 onPointerUp={stop}
@@ -316,7 +470,28 @@ export default function AgentArtifactEditDialog({
           )}
           {marked && working && (
             <div className="studio-artifact-edit-toolbar">
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={t('tool.markLasso')}
+                title={t('tool.markLasso')}
+                aria-pressed={tool === 'lasso'}
+                onClick={() => setTool('lasso')}
+              >
+                <Lasso size={18} />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={t('tool.markRectangle')}
+                title={t('tool.markRectangle')}
+                aria-pressed={tool === 'rectangle'}
+                onClick={() => setTool('rectangle')}
+              >
+                <Square size={18} />
+              </Button>
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.markBrush')}
                 title={t('tool.markBrush')}
@@ -324,8 +499,9 @@ export default function AgentArtifactEditDialog({
                 onClick={() => setTool('brush')}
               >
                 <Brush size={18} />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.markEraser')}
                 title={t('tool.markEraser')}
@@ -333,8 +509,9 @@ export default function AgentArtifactEditDialog({
                 onClick={() => setTool('eraser')}
               >
                 <Eraser size={18} />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.panImage')}
                 title={t('tool.panImage')}
@@ -342,33 +519,55 @@ export default function AgentArtifactEditDialog({
                 onClick={() => setTool('pan')}
               >
                 <Hand size={18} />
-              </button>
+              </Button>
               <span className="studio-artifact-edit-tool-divider" />
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.undoMark')}
                 onClick={() => restore('undo')}
                 disabled={!canUndo}
               >
                 <Undo2 size={18} />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.redoMark')}
                 onClick={() => restore('redo')}
                 disabled={!canRedo}
               >
                 <Redo2 size={18} />
-              </button>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={t('tool.clearMark')}
+                title={t('tool.clearMark')}
+                disabled={!markPresent || busy}
+                onClick={() => {
+                  const canvas = maskRef.current
+                  const context = canvas?.getContext('2d')
+                  if (!canvas || !context) return
+                  rememberMask()
+                  context.fillStyle = '#fff'
+                  context.fillRect(0, 0, canvas.width, canvas.height)
+                  redrawPreview()
+                  syncMarkPresent()
+                }}
+              >
+                <Trash2 size={18} />
+              </Button>
               <label>
                 <span>{t('tool.brushSize')}</span>
-                <input
-                  type="range"
-                  min="10"
-                  max="150"
-                  value={brush}
-                  onChange={(event) => setBrush(Number(event.target.value))}
-                  disabled={tool === 'pan'}
+                <Slider
+                  aria-label={t('tool.brushSize')}
+                  min={10}
+                  max={150}
+                  value={[brush]}
+                  onValueChange={([value]) => setBrush(value)}
+                  disabled={tool !== 'brush' && tool !== 'eraser'}
+                  className="w-20"
                 />
               </label>
             </div>
@@ -383,34 +582,49 @@ export default function AgentArtifactEditDialog({
             <div className="studio-artifact-edit-toolbar studio-artifact-edit-extension">
               <span>{t('tool.extendBy')}</span>
               {[0.15, 0.25, 0.4].map((value) => (
-                <button
+                <Button
+                  variant="ghost"
                   type="button"
                   key={value}
                   aria-pressed={extension === value}
                   onClick={() => setExtension(value)}
                 >
                   {Math.round(value * 100)}%
-                </button>
+                </Button>
               ))}
             </div>
           )}
           {marked && (
             <div className="studio-artifact-edit-zoom">
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.zoomOut')}
                 onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}
               >
                 <Minus size={16} />
-              </button>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={t('tool.fitImage')}
+                title={t('tool.fitImage')}
+                onClick={() => {
+                  setZoom(1)
+                  setPan({ x: 0, y: 0 })
+                }}
+              >
+                <Maximize size={16} />
+              </Button>
               <span>{Math.round(zoom * 100)}%</span>
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 aria-label={t('tool.zoomIn')}
                 onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
               >
                 <Plus size={16} />
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -431,13 +645,20 @@ export default function AgentArtifactEditDialog({
                   ? t('tool.outpaintHint')
                   : t('tool.cropHint')}
             </span>
-            <button
+            <Button
+              variant="ghost"
               type="button"
               onClick={generate}
-              disabled={busy || loading || !working || (marked && !markPresent)}
+              disabled={
+                busy ||
+                loading ||
+                !working ||
+                !ready ||
+                (marked && (!markPresent || (action === 'inpaint' && !instruction.trim())))
+              }
             >
               {busy ? t('tool.submittingEdit') : t('tool.generateEdit')}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
