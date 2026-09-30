@@ -105,7 +105,7 @@ function wakeResultLines(
         '等用户点头再提交，不要擅自重提。',
     )
   if (reviewed.length > 0) lines.push(continuePlan ? `${REVIEW_LINE}${DEFERRED_LINE}` : REVIEW_LINE)
-  lines.push('产物已经自动放在用户的画布上，不要让用户自己去保存。')
+  lines.push('结果会自动展示，用户可以直接预览。')
   return lines
 }
 

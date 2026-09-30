@@ -185,6 +185,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const turnTools = agentTurnTools(
     {
       mode,
+      experience: audience.experience,
       conversationId,
       turnId,
       userId: prepared.userId,

@@ -51,9 +51,10 @@ const VIDEO_CHANNEL: InternalChannel = {
 let root = ''
 
 /** 注册表里这一轮在场的工具；澄清工具不在注册表里，所以这里把它滤掉。 */
-function toolNames(mode: AgentMode): string[] {
+function toolNames(mode: AgentMode, experience?: 'chat' | 'canvas'): string[] {
   return agentTurnTools({
     mode,
+    experience,
     conversationId: 'c1',
     turnId: 't1',
     userId: null,
@@ -222,4 +223,32 @@ describe('explicit /skill invocation', () => {
   it('leaves a slash in the middle of a sentence alone', () => {
     expect(expandSkillInvocation('把 16/9 改成 9/16', 'video')).toBe('把 16/9 改成 9/16')
   })
+})
+
+describe('chat tools are isolated from canvas tools', () => {
+  for (const mode of ['image', 'video'] as const) {
+    it(`keeps runtime, declarations and guidance aligned in ${mode} chat`, () => {
+      const audience = { userId: null, looks: [], experience: 'chat' as const }
+      const names = toolNames(mode, 'chat')
+      expect(names).toContain('viewImage')
+      expect(names).toContain('editImage')
+      expect(names).toContain('generateImage')
+      for (const name of ['readCanvas', 'editCanvasObject', 'arrangeCanvas', 'arrangeTimeline']) {
+        expect(names).not.toContain(name)
+        expect(isAgentToolName(name)).toBe(true)
+      }
+      expect(
+        agentToolDeclarations(mode, audience)
+          .map((tool) => tool.name)
+          .filter((name) => name !== 'askClarification')
+          .sort(),
+      ).toEqual(names)
+      const prompt = turnInitialState([], mode, false, 0, audience).systemPrompt
+      expect(prompt).toContain('对话中的创作助手')
+      expect(prompt).toContain('对话结果卡')
+      expect(prompt).not.toContain('自动放入画布')
+      expect(prompt).not.toContain('画布旁的助手')
+      for (const line of agentToolGuidance(mode, audience)) expect(prompt).toContain(line)
+    })
+  }
 })

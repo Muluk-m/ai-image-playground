@@ -478,7 +478,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     presentation={projectView === 'chat' ? 'page' : 'side'}
                     searchOpen={searchOpen && projectView === 'chat'}
                     onCloseSearch={() => setSearchOpen(false)}
-                    onViewCanvas={openCanvas}
+                    onViewCanvas={projectView === 'chat' ? undefined : openCanvas}
                     onPreviewResult={projectView === 'chat' ? previewResult : undefined}
                   />
                 ) : (
@@ -558,7 +558,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   setSelectedResultId(null)
                   setSelectedExternalResult(null)
                 }}
-                onViewCanvas={openCanvas}
+                onViewCanvas={projectView === 'chat' ? undefined : openCanvas}
               />
             )}
             {assetDrawerOpen && projectView === 'chat' && (
