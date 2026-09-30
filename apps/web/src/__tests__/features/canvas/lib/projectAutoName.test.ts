@@ -230,3 +230,11 @@ it('a delayed automatic name cannot replace a manual name committed after it was
   })
   vi.restoreAllMocks()
 })
+
+it('concurrent automatic titles keep the latest requested title', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create(UNTITLED_PROJECT)
+  useCanvasProjectStore.setState({ projects: [project], loaded: true })
+  await Promise.all([autoNameProject(project.id, '标题 A'), autoNameProject(project.id, '标题 B')])
+  expect((await projectRepository.list()).find((one) => one.id === project.id)?.name).toBe('标题 B')
+})
