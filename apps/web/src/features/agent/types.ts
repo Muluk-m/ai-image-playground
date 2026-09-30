@@ -15,6 +15,7 @@ import type {
   AgentToolStatus,
   AgentTurnCost,
   AgentTurnErrorCode,
+  AgentTurnFailure,
   AgentTurnReference,
   AgentTurnStopReason,
   AgentWakeSkipReason,
@@ -107,6 +108,7 @@ export interface AgentTurnFooter {
   readonly durationMs?: number
   readonly stopReason?: AgentTurnStopReason
   /** 失败的轮才有；`agent_turn_interrupted` 即被服务重启打断、已经自动续上，不当失败报。 */
+  readonly failure?: AgentTurnFailure
   readonly error?: AgentTurnErrorCode
   readonly cost?: AgentTurnCost
 }

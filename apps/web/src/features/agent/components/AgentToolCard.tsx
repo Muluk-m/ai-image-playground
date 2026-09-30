@@ -39,6 +39,7 @@ import {
 } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
@@ -509,6 +510,16 @@ export default function AgentToolCard({
           <>
             <FailureAction message={message} />
             <RetryRemaining message={message} />
+            <AgentCopyDiagnostic
+              diagnostic={{
+                code: message.errorCode,
+                message: message.message,
+                turnId: message.turnId,
+                toolCallId: message.toolCallId,
+                toolName: message.toolName,
+                taskId: message.job?.taskId,
+              }}
+            />
           </>
         }
       >
@@ -541,13 +552,29 @@ export default function AgentToolCard({
       <ToolCall
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
-        label={message.title}
+        label={
+          message.skill?.found === false
+            ? t('tool.skillNotFound', { name: message.skill.label })
+            : message.title
+        }
         activeLabel={message.title}
         running={status === 'running' || status === 'queued'}
       >
         <div className="flex flex-col gap-2">
           <ToolStatus label={statusLabel} status={status} />
           {note && <p className={CARD_NOTE}>{note}</p>}
+          {message.sources?.map((source) => (
+            <a
+              key={source.url}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={GHOST_LINK}
+              title={source.title}
+            >
+              {sourceHost(source.url)}
+            </a>
+          ))}
           {message.prompt && (
             <Button
               variant="ghost"
@@ -951,6 +978,16 @@ export default function AgentToolCard({
             <>
               <FailureAction message={message} />
               <RetryRemaining message={message} />
+              <AgentCopyDiagnostic
+                diagnostic={{
+                  code: message.errorCode,
+                  message: message.message,
+                  turnId: message.turnId,
+                  toolCallId: message.toolCallId,
+                  toolName: message.toolName,
+                  taskId: message.job?.taskId,
+                }}
+              />
             </>
           }
         />
