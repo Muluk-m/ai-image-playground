@@ -509,5 +509,27 @@
       "scene": "Scene",
       "detail": "Detail"
     }
+  },
+  "diagnostic": {
+    "title": "Error details",
+    "copyDetails": "Copy details",
+    "raw": "Original JSON",
+    "missing": "This older record did not save the original error details. The specific cause is unavailable.",
+    "unknown": "No specific error cause was recorded.",
+    "fields": {
+      "code": "Error code",
+      "message": "Error details",
+      "serverMessage": "Server message",
+      "occurredAt": "Time",
+      "durationMs": "Duration",
+      "httpStatus": "HTTP status",
+      "model": "Model",
+      "requestId": "Request ID",
+      "conversationId": "Conversation ID",
+      "turnId": "Turn ID",
+      "toolCallId": "Tool call ID",
+      "toolName": "Tool",
+      "taskId": "Task ID"
+    }
   }
 }
