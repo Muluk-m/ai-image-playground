@@ -135,6 +135,36 @@ afterAll(async () => {
   await closeDb()
 })
 
+it('recovers missing list titles from the first user message without changing named conversations or empty drafts', async () => {
+  const unnamed = await startConversation()
+  const draft = await startConversation()
+  const named = await startConversation()
+  const other = await startConversation(OTHER_DEVICE)
+  for (const conversationId of [unnamed, named, other]) {
+    await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'title-test',
+      role: 'assistant',
+      content: [{ type: 'text', text: '助手话术' }],
+    })
+    await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'title-test',
+      role: 'user',
+      content: [{ type: 'text', text: '把手机字标换成 xm' }],
+    })
+  }
+  await db
+    .update(schema.agent_conversations)
+    .set({ title: '自定义标题' })
+    .where(eq(schema.agent_conversations.id, named))
+  const listed = await listConversations()
+  expect(listed.find((one) => one.id === unnamed)?.title).toBe('把手机字标换成 xm')
+  expect(listed.find((one) => one.id === named)?.title).toBe('自定义标题')
+  expect(listed.find((one) => one.id === draft)?.title).toBe('')
+  expect(listed.some((one) => one.id === other)).toBe(false)
+})
+
 describe('message reference thumbnails', () => {
   it('reads the selected message snapshot in reference order and returns a bounded thumbnail', async () => {
     const conversationId = await startConversation()
