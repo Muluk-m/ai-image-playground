@@ -105,7 +105,7 @@ function wakeResultLines(
         '等用户点头再提交，不要擅自重提。',
     )
   if (reviewed.length > 0) lines.push(continuePlan ? `${REVIEW_LINE}${DEFERRED_LINE}` : REVIEW_LINE)
-  lines.push('结果会自动展示，用户可以直接预览。')
+  if (reviewed.length > 0) lines.push('成功产物已显示在对应的对话产物卡片中。')
   return lines
 }
 

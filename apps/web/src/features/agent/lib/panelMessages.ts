@@ -351,6 +351,7 @@ export function reduceAgentPanelEvent(
         durationMs: event.durationMs,
         stopReason: event.stopReason,
         ...(event.error ? { error: event.error } : {}),
+        ...(event.failure ? { failure: event.failure } : {}),
         ...(event.cost ? { cost: event.cost } : {}),
       })
       // 失败的轮不留半截内容；轮状态与错误文案由 store 收口。

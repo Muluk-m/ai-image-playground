@@ -26,6 +26,7 @@ import AgentActivityTrail from './AgentActivityTrail'
 import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
 import AgentConnectionHint from './AgentConnectionHint'
+import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentMessageQueue from './AgentMessageQueue'
@@ -143,6 +144,8 @@ export default function AgentPanel({
   const videoSkills = useAgentSkills('video')
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
+  const errorDiagnostic = useAgentStore((state) => state.errorDiagnostic)
+  const diagnosticConversationId = useAgentStore((state) => state.conversationId)
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const { setOpen, setTab, load, setPanelWidth } = useAgentStore.getState()
   useEffect(() => {
@@ -456,7 +459,20 @@ export default function AgentPanel({
               <AgentActivity />
               <AgentHistoryStatus />
               {error && !historyFailed && (
-                <ErrorState title={t('panel.errorTitle')} detail={error} />
+                <ErrorState
+                  title={t('panel.errorTitle')}
+                  detail={error}
+                  actions={
+                    <AgentCopyDiagnostic
+                      diagnostic={
+                        errorDiagnostic ?? {
+                          conversationId: diagnosticConversationId,
+                          message: error,
+                        }
+                      }
+                    />
+                  }
+                />
               )}
             </div>
           </div>

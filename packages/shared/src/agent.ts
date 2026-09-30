@@ -1036,6 +1036,15 @@ export type AgentTurnErrorCode =
   | 'agent_turn_interrupted'
   | 'agent_context_overflow'
 
+/** 失败诊断只保留错误文本与调用标识，不包含请求内容或认证信息。 */
+export interface AgentTurnFailure {
+  readonly code: AgentTurnErrorCode
+  readonly message: string
+  readonly model?: string
+  readonly requestId?: string
+  readonly occurredAt: string
+}
+
 /** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
   readonly type: 'turnEnd'
@@ -1043,6 +1052,7 @@ export interface AgentTurnEndEvent {
   readonly durationMs: number
   readonly stopReason: AgentTurnStopReason
   readonly error?: AgentTurnErrorCode
+  readonly failure?: AgentTurnFailure
   /** 本轮对话 token 的结算依据；null 表示上游没报，这一轮按 token 结不了账。 */
   readonly usage: AgentTurnUsage | null
   /** 结算后的实际消耗；不计费的部署里缺席。失败与中止的轮全是 0。 */
@@ -1071,6 +1081,7 @@ export interface AgentTurnSummaryView {
   readonly stopReason: AgentTurnStopReason
   /** 只在失败的轮上：被打断并排上了中断续跑时是 `agent_turn_interrupted`，其余缺席。 */
   readonly error?: AgentTurnErrorCode
+  readonly failure?: AgentTurnFailure
   readonly cost?: AgentTurnCost
 }
 

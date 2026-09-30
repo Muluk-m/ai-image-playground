@@ -225,6 +225,11 @@ describe('POST /api/agent/conversations/:id/turns', () => {
       type: 'turnEnd',
       stopReason: 'failed',
       error: 'agent_upstream_error',
+      failure: {
+        code: 'agent_upstream_error',
+        model: 'fixture-agent-model',
+        message: expect.stringContaining('429'),
+      },
     })
 
     const messages = await readMessages(conversationId)

@@ -46,6 +46,8 @@ export class AgentRequestError extends Error {
     readonly code?: string,
     /** 服务端拒绝时给的工具错误码（如重试没能提交）；界面只按它给出路（ADR 0006）。 */
     readonly toolErrorCode?: AgentToolErrorCode,
+    readonly serverMessage?: string,
+    readonly requestId?: string,
   ) {
     super(`Agent request failed with ${status}`)
     this.name = 'AgentRequestError'
@@ -56,11 +58,14 @@ async function requestError(response: Response): Promise<AgentRequestError> {
   const body = (await response.json().catch(() => null)) as {
     error?: string
     code?: unknown
+    message?: unknown
   } | null
   return new AgentRequestError(
     response.status,
     body?.error,
     isAgentToolErrorCode(body?.code) ? body.code : undefined,
+    typeof body?.message === 'string' ? body.message.slice(0, 4000) : undefined,
+    response.headers.get('x-request-id') ?? undefined,
   )
 }
 
@@ -348,6 +353,7 @@ export interface AgentTurnStream {
   readonly events: AsyncGenerator<AgentTurnEvent>
   /** 流走完之后的终局；走完之前是 `null`。 */
   readonly outcome: AgentTurnOutcome | null
+  readonly lastError: unknown
 }
 
 /**
@@ -364,6 +370,7 @@ export function followTurn(
     onReconnectingChange,
   }: FollowTurnOptions = {},
 ): AgentTurnStream {
+  let lastError: unknown
   let outcome: AgentTurnOutcome | null = null
   let reconnecting = false
   const setReconnecting = (value: boolean) => {
@@ -414,6 +421,7 @@ export function followTurn(
             }
           }
         } catch (thrown) {
+          lastError = thrown
           if (!shouldContinue()) return
           if (thrown instanceof AgentRequestError && thrown.status === 404) {
             outcome = 'gone'
@@ -444,6 +452,9 @@ export function followTurn(
   }
   return {
     events: follow(),
+    get lastError() {
+      return lastError
+    },
     get outcome() {
       return outcome
     },
