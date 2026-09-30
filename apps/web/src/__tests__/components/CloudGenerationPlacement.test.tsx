@@ -18,6 +18,7 @@ const urls: string[] = []
 const toasts: string[] = []
 let holdDecode = false
 let releaseDecode: (() => void) | undefined
+let generationResponse: GenerationDetail | null
 const detail: GenerationDetail = {
   id: '11111111-1111-4111-8111-111111111111',
   provider: 'openai-compat',
@@ -60,6 +61,7 @@ beforeEach(async () => {
   urls.length = 0
   holdDecode = false
   releaseDecode = undefined
+  generationResponse = detail
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.stubGlobal(
     'fetch',
@@ -72,8 +74,13 @@ beforeEach(async () => {
           expiresAt: Date.now() + 600000,
         })
       if (input.startsWith('https://media.example/'))
-        return new Response(new Blob(['image'], { type: 'image/png' }))
-      if (input.includes('/api/generations/')) return Response.json(detail)
+        return new Response(new Uint8Array([1, 2, 3]), {
+          headers: { 'Content-Type': 'image/png' },
+        })
+      if (input.includes('/api/generations/'))
+        return generationResponse
+          ? Response.json(generationResponse)
+          : new Response(null, { status: 503 })
       return Response.json({ conversations: [] })
     }),
   )
@@ -94,6 +101,7 @@ beforeEach(async () => {
   toasts.length = 0
   useStore.setState({
     appMode: 'image',
+    pendingCanvasImages: [],
     showToast: (message: string) => {
       toasts.push(message)
     },
@@ -112,6 +120,40 @@ afterEach(async () => {
 })
 /** 作品卡上的「送入画布」就是这个 store 动作；平台记录走显式放置。 */
 const task = () => taskFromGeneration({ ...detail, cover: detail.outputs[0]! })
+it('places the displayed cover by media identity even when it is not output zero', async () => {
+  const cover = {
+    ...detail.outputs[0]!,
+    index: 1,
+    artifactId: 'second-output',
+    mediaId: '33333333-3333-4333-8333-333333333333',
+  }
+  generationResponse = { ...detail, cover, outputs: [...detail.outputs, cover] }
+  const { outputs: _outputs, ...summary } = generationResponse
+  await sendTaskToCanvas(taskFromGeneration(summary))
+  expect(currentCanvasWorkspace().doc.elements).toHaveLength(1)
+  expect(currentCanvasWorkspace().doc.elements[0]?.id).toBe(cover.artifactId)
+})
+
+it('resolves cloud media references in older local records before queuing the original', async () => {
+  await sendTaskToCanvas({ ...task(), remoteOnly: undefined })
+  expect(useStore.getState().appMode).toBe('canvas')
+  expect(useStore.getState().pendingCanvasImages[0]).toMatch(/^data:image\/png;base64,/)
+  expect(toasts).toEqual([])
+})
+
+it('does not report a deleted image when the generation detail request fails', async () => {
+  generationResponse = null
+  await sendTaskToCanvas(task())
+  expect(toasts).toEqual(['放入画布失败，稍后再试'])
+  expect(useStore.getState().appMode).toBe('image')
+  expect(currentCanvasWorkspace().doc.elements).toHaveLength(0)
+})
+
+it('does not substitute another output when the selected media is absent', async () => {
+  await sendTaskToCanvas(task(), 'aip-media:44444444-4444-4444-8444-444444444444')
+  expect(toasts).toEqual(['图片已不存在，无法送入画布'])
+  expect(currentCanvasWorkspace().doc.elements).toHaveLength(0)
+})
 async function place() {
   await act(async () => {
     await sendTaskToCanvas(task())
