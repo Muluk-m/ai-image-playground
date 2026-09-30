@@ -57,25 +57,23 @@ export function captureTurnSubmission(input: {
       input.project.conversationId !== input.conversationId
     )
   const chat = input.project && projectExperience(input.project) === 'chat'
-  const canvas = chat
-    ? undefined
-    : input.replay
-      ? input.replay.canvas
-      : readable
-        ? liveCanvasSnapshot(workspace.doc, (fileId, source) => cloud?.knownMediaId(fileId, source))
-        : undefined
-  const canvasReferenceIds = chat
-    ? []
-    : input.replay
-      ? input.replay.canvasReferenceIds
-      : input.references.flatMap((reference) => {
-          if (!readable || !('dataUrl' in reference) || reference.maskDataUrl) return []
-          const element = workspace.doc.elements.find((one) => one.id === reference.imageId)
-          return element?.type === 'image' &&
-            workspace.doc.files[element.fileId] === reference.dataUrl
-            ? [element.id]
-            : []
-        })
+  let canvas: AgentCanvasSnapshot | undefined
+  let canvasReferenceIds: readonly string[] | undefined = []
+  if (!chat && input.replay) {
+    canvas = input.replay.canvas
+    canvasReferenceIds = input.replay.canvasReferenceIds
+  } else if (!chat && readable) {
+    canvas = liveCanvasSnapshot(workspace.doc, (fileId, source) =>
+      cloud?.knownMediaId(fileId, source),
+    )
+    canvasReferenceIds = input.references.flatMap((reference) => {
+      if (!('dataUrl' in reference) || reference.maskDataUrl) return []
+      const element = workspace.doc.elements.find((one) => one.id === reference.imageId)
+      return element?.type === 'image' && workspace.doc.files[element.fileId] === reference.dataUrl
+        ? [element.id]
+        : []
+    })
+  }
   const snapshot: TurnSubmissionSnapshot = structuredClone({
     references: input.references,
     params: input.replay?.params ?? input.params,
