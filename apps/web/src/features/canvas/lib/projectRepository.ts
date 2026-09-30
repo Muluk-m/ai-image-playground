@@ -319,7 +319,7 @@ export const projectRepository = {
         | 'cloud'
       >
     >,
-    expectedName?: Pick<CanvasProject, 'name' | 'customName'>,
+    expectedName?: Pick<CanvasProject, 'name' | 'customName'> & { isCurrent?: () => boolean },
   ): Promise<CanvasProject> {
     const storageKey = key(id)
     const db = await openCanvasDatabase()
@@ -336,7 +336,10 @@ export const projectRepository = {
         const stored = request.result as StoredProject
         if (
           expectedName &&
-          (stored.name !== expectedName.name || stored.customName !== expectedName.customName)
+          ((expectedName.isCurrent && !expectedName.isCurrent()) ||
+            (stored.customName &&
+              stored.name !== UNTITLED_PROJECT &&
+              (stored.name !== expectedName.name || stored.customName !== expectedName.customName)))
         ) {
           result = stored
           return

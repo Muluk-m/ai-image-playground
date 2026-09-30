@@ -297,7 +297,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   }
   private async metadata(
     patch: Parameters<typeof projectRepository.update>[1],
-    expectedName?: Pick<CanvasProject, 'name' | 'customName'>,
+    expectedName?: Parameters<typeof projectRepository.update>[2],
   ) {
     this.current()
     this.project = await projectRepository.update(this.project.id, patch, expectedName)
@@ -522,7 +522,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
   rename(
     name: string,
     custom = true,
-    expectedName?: Pick<CanvasProject, 'name' | 'customName'>,
+    expectedName?: Parameters<typeof projectRepository.update>[2],
   ): Promise<void> {
     return this.serialize(async () => {
       // 先把欠着的那次恢复元数据补写掉，否则它会把新名字盖回去。
