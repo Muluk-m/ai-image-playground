@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
@@ -57,6 +58,73 @@ beforeEach(() => {
 })
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+it('fits square and landscape results to their actual ratios without fixed-ratio side bars', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'ratios',
+            turnId: 'turn',
+            toolCallId: 'call',
+            title: 'Logo variations',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: [
+              {
+                artifactId: 'square',
+                taskId: 'task',
+                outputIndex: 0,
+                media: 'image',
+                mime: 'image/png',
+                width: 1024,
+                height: 1024,
+              },
+              {
+                artifactId: 'wide',
+                taskId: 'task',
+                outputIndex: 1,
+                media: 'image',
+                mime: 'image/png',
+                width: 1600,
+                height: 900,
+              },
+              {
+                artifactId: 'legacy',
+                taskId: 'task',
+                outputIndex: 2,
+                media: 'image',
+                mime: 'image/png',
+              },
+            ],
+          }}
+          onPreviewResult={vi.fn()}
+        />,
+      ),
+    )
+    const tiles = host.querySelectorAll<HTMLElement>('.studio-agent-inline-tile')
+    expect(tiles[0]!.style.aspectRatio).toBe('1')
+    expect(Number(tiles[1]!.style.aspectRatio)).toBeCloseTo(16 / 9)
+    const image = tiles[2]!.querySelector('img')!
+    Object.defineProperties(image, {
+      naturalWidth: { value: 600 },
+      naturalHeight: { value: 900 },
+    })
+    act(() => image.dispatchEvent(new Event('load')))
+    expect(Number(tiles[2]!.style.aspectRatio)).toBeCloseTo(2 / 3)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
 
 it('says a submitted background job is still generating and will appear in the conversation', () => {
   const host = document.createElement('div')

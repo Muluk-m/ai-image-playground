@@ -445,7 +445,7 @@
 .studio-agent-inline-result { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .studio-agent-inline-meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .studio-agent-inline-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-agent-inline-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(205px, 100%), 1fr)); gap: 5px; min-width: 0; }
+.studio-agent-inline-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(205px, 100%), 1fr)); align-items: start; gap: 5px; min-width: 0; }
 .studio-agent-inline-gallery[data-count="1"] { max-width: 420px; grid-template-columns: minmax(0, 1fr); }
 .studio-agent-inline-gallery[data-count="2"] { max-width: 525px; }
 .studio-agent-inline-gallery[data-count="3"] { max-width: 790px; }
@@ -459,8 +459,12 @@
 .studio-agent-inline-source:hover { color: hsl(var(--foreground)); }
 .studio-agent-inline-tile { position: relative; overflow: hidden; min-width: 0; aspect-ratio: 16 / 10; border-radius: 8px; background: hsl(var(--muted)); }
 .studio-agent-inline-open { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
-.studio-agent-inline-open img { width: 100%; height: 100%; object-fit: contain; transition: transform .2s ease; }
-.studio-agent-inline-tile:hover .studio-agent-inline-open img { transform: scale(1.025); }
+.studio-agent-inline-open img { width: 100%; height: 100%; object-fit: contain; }
+/* Preserve alpha in the bitmap; the same neutral surface makes both white and
+   black transparent artwork readable in cards and the full-size viewer. */
+:where(.studio-agent-inline-open, .studio-artifact-pane-image, .studio-artifact-pane-thumb) img {
+  background: repeating-conic-gradient(#666 0% 25%, #737373 0% 50%) 0 / 16px 16px;
+}
 .studio-agent-inline-actions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 2px; padding: 3px; border: 1px solid rgb(255 255 255 / .13); border-radius: 10px; background: rgb(15 16 15 / .78); color: white; opacity: 0; transform: translateY(4px); transition: opacity .15s ease, transform .15s ease; backdrop-filter: blur(12px); }
 .studio-agent-inline-tile:hover .studio-agent-inline-actions, .studio-agent-inline-tile:focus-within .studio-agent-inline-actions { opacity: 1; transform: none; }
 .studio-agent-inline-actions button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 7px; }
