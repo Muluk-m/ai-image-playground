@@ -80,7 +80,9 @@ export default function AgentArtifactEditDialog({
   } | null>(null)
   const marksRef = useRef<Mark[]>([])
   const nextMarkRef = useRef(1)
-  const [marks, setMarks] = useState<Mark[]>([])
+  const [visibleRegions, setVisibleRegions] = useState<
+    { id: number; bounds: ReturnType<typeof markBounds> }[]
+  >([])
   const undoRef = useRef<MarkSnapshot[]>([])
   const redoRef = useRef<MarkSnapshot[]>([])
   const [working, setWorking] = useState('')
@@ -203,10 +205,51 @@ export default function AgentArtifactEditDialog({
   const syncMarkPresent = () => {
     const canvas = maskRef.current
     const context = canvas?.getContext('2d', { willReadFrequently: true })
-    if (canvas && context)
-      setMarkPresent(
-        classifyMaskAlpha(context.getImageData(0, 0, canvas.width, canvas.height)) !== 'empty',
+    if (canvas && context) {
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height)
+      setMarkPresent(classifyMaskAlpha(pixels) !== 'empty')
+      setVisibleRegions(
+        marksRef.current.flatMap((mark) => {
+          if (mark.tool !== 'rectangle' && mark.tool !== 'lasso') return []
+          const bounds = markBounds(mark)
+          let left = canvas.width,
+            top = canvas.height,
+            right = -1,
+            bottom = -1
+          for (
+            let y = Math.floor(bounds.y * canvas.height);
+            y < Math.min(canvas.height, Math.ceil((bounds.y + bounds.height) * canvas.height));
+            y++
+          ) {
+            for (
+              let x = Math.floor(bounds.x * canvas.width);
+              x < Math.min(canvas.width, Math.ceil((bounds.x + bounds.width) * canvas.width));
+              x++
+            ) {
+              if (pixels.data[(y * canvas.width + x) * 4 + 3]! < 255) {
+                left = Math.min(left, x)
+                top = Math.min(top, y)
+                right = Math.max(right, x)
+                bottom = Math.max(bottom, y)
+              }
+            }
+          }
+          return right < 0
+            ? []
+            : [
+                {
+                  id: mark.id,
+                  bounds: {
+                    x: left / canvas.width,
+                    y: top / canvas.height,
+                    width: (right - left + 1) / canvas.width,
+                    height: (bottom - top + 1) / canvas.height,
+                  },
+                },
+              ]
+        }),
       )
+    }
   }
 
   const initializeMask = () => {
@@ -233,7 +276,7 @@ export default function AgentArtifactEditDialog({
     undoRef.current = []
     redoRef.current = []
     marksRef.current = []
-    setMarks([])
+    setVisibleRegions([])
     setCanUndo(false)
     setCanRedo(false)
     setMarkPresent(false)
@@ -263,7 +306,14 @@ export default function AgentArtifactEditDialog({
     // Bound full-resolution history to 32 MiB, including the snapshots moved to redo.
     const limit = Math.max(
       1,
-      Math.min(20, Math.floor((32 * 1024 * 1024) / (canvas.width * canvas.height * 4))),
+      Math.min(
+        20,
+        Math.floor(
+          (32 * 1024 * 1024) /
+            (canvas.width * canvas.height * 4 +
+              marksRef.current.reduce((bytes, mark) => bytes + mark.points.length * 64, 0)),
+        ),
+      ),
     )
     while (undoRef.current.length > limit) {
       undoRef.current.shift()
@@ -273,7 +323,7 @@ export default function AgentArtifactEditDialog({
     setCanRedo(false)
   }
 
-  const paint = (from: Point, to: Point, gestureTool = tool) => {
+  const paint = (from: Point, to: Point, gestureTool = tool, width = pointerRef.current?.width) => {
     const canvas = maskRef.current
     const context = canvas?.getContext('2d')
     if (!canvas || !context) return
@@ -281,10 +331,7 @@ export default function AgentArtifactEditDialog({
     context.globalCompositeOperation = gestureTool === 'eraser' ? 'source-over' : 'destination-out'
     context.strokeStyle = '#fff'
     context.fillStyle = '#fff'
-    context.lineWidth = Math.max(
-      4,
-      (brush * canvas.width) / Math.max(1, imageRef.current?.getBoundingClientRect().width ?? 1),
-    )
+    context.lineWidth = width ?? 4
     context.lineCap = 'round'
     context.lineJoin = 'round'
     context.beginPath()
@@ -305,6 +352,8 @@ export default function AgentArtifactEditDialog({
       !working ||
       event.button !== 0 ||
       pointerRef.current ||
+      marksRef.current.length >= 256 ||
+      marksRef.current.reduce((count, mark) => count + mark.points.length, 0) >= 131072 ||
       ((tool === 'rectangle' || tool === 'lasso') &&
         marksRef.current.filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
           .length >= 32)
@@ -370,8 +419,17 @@ export default function AgentArtifactEditDialog({
         lassoRef.current = [first, { x: point.x, y: first.y }, point, { x: first.x, y: point.y }]
         redrawPreview()
       } else {
+        const box = imageRef.current!.getBoundingClientRect()
+        if (
+          Math.hypot(
+            (point.x - pointer.last.x) * box.width,
+            (point.y - pointer.last.y) * box.height,
+          ) < 2
+        )
+          return
+        if (pointer.points!.length >= 4096) return
         pointer.points!.push(point)
-        paint(pointer.last, point, pointer.tool)
+        paint(pointer.last, point, pointer.tool, pointer.width)
       }
     }
     if (action === 'crop' && pointer.start) {
@@ -412,7 +470,6 @@ export default function AgentArtifactEditDialog({
               width: 0,
             }
             marksRef.current = [...marksRef.current, mark]
-            setMarks(marksRef.current)
           }
         } else if (pointer.before) {
           rememberMask(pointer.before)
@@ -425,7 +482,6 @@ export default function AgentArtifactEditDialog({
               width: pointer.width!,
             },
           ]
-          setMarks(marksRef.current)
         }
         lassoRef.current = []
         redrawPreview()
@@ -458,7 +514,6 @@ export default function AgentArtifactEditDialog({
       marks: marksRef.current,
     })
     marksRef.current = previous.marks
-    setMarks(marksRef.current)
     context.putImageData(previous.pixels, 0, 0)
     setCanUndo(undoRef.current.length > 0)
     setCanRedo(redoRef.current.length > 0)
@@ -473,7 +528,6 @@ export default function AgentArtifactEditDialog({
     if (!canvas || !context) return
     rememberMask()
     marksRef.current = marksRef.current.filter((mark) => mark.id !== id)
-    setMarks(marksRef.current)
     context.clearRect(0, 0, canvas.width, canvas.height)
     context.fillStyle = '#fff'
     context.fillRect(0, 0, canvas.width, canvas.height)
@@ -505,7 +559,7 @@ export default function AgentArtifactEditDialog({
     redrawPreview()
     syncMarkPresent()
   }
-  const regions = marks.filter((mark) => mark.tool === 'rectangle' || mark.tool === 'lasso')
+  const regions = visibleRegions
 
   const generate = () => {
     const image = imageRef.current
@@ -515,7 +569,7 @@ export default function AgentArtifactEditDialog({
       if (marked)
         input = {
           ...exportMarkedImage(working, maskRef.current!, image),
-          regions: regions.map(markBounds),
+          regions: regions.map((region) => region.bounds),
         }
       else if (action === 'crop') input = cropImage(image, crop)
       else input = extendImage(image, extension)
@@ -596,7 +650,7 @@ export default function AgentArtifactEditDialog({
               <img ref={imageRef} src={working} alt="" onLoad={initializeMask} draggable={false} />
               {marked && <canvas ref={previewRef} aria-hidden="true" />}
               {regions.map((region, index) => {
-                const bounds = markBounds(region)
+                const bounds = region.bounds
                 return (
                   <div
                     key={region.id}
@@ -741,7 +795,6 @@ export default function AgentArtifactEditDialog({
                   if (!canvas || !context) return
                   rememberMask()
                   marksRef.current = []
-                  setMarks([])
                   context.fillStyle = '#fff'
                   context.fillRect(0, 0, canvas.width, canvas.height)
                   redrawPreview()

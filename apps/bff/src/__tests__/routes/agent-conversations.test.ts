@@ -165,6 +165,26 @@ it('recovers missing list titles from the first user message without changing na
   expect(listed.some((one) => one.id === other)).toBe(false)
 })
 
+it('rejects region rectangles that extend beyond the image', async () => {
+  const conversationId = await startConversation()
+  const result = await request('POST', `/api/agent/conversations/${conversationId}/turns`, {
+    body: {
+      deviceId: DEVICE,
+      text: '改标志',
+      references: [
+        {
+          imageId: 'bad-region',
+          dataUrl: 'data:image/png;base64,aGk=',
+          regions: [{ x: 0.9, y: 0, width: 0.2, height: 0.5 }],
+          editAction: 'inpaint',
+        },
+      ],
+    },
+  })
+  expect(result.status).toBe(422)
+  expect(result.json).toEqual({ error: 'invalid_reference' })
+})
+
 describe('message reference thumbnails', () => {
   it('reads the selected message snapshot in reference order and returns a bounded thumbnail', async () => {
     const conversationId = await startConversation()

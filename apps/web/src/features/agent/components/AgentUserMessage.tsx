@@ -1,6 +1,6 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
 import { ImageIcon, LoaderCircle } from 'lucide-react'
-import { memo, type ReactNode, useEffect, useState } from 'react'
+import { memo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
 import Overlay from '../../../components/Overlay'
@@ -104,9 +104,19 @@ function ReferenceThumbnail({
       : 'mediaId' in reference
         ? reference.mediaId
         : undefined
-  const identity = `${scope}:${conversationId}:${messageId}:${index}:${remote}`
-  const [preview, setPreview] = useState<{ identity: string; source?: string }>()
-  const [openIdentity, setOpenIdentity] = useState<string>()
+  const mask =
+    'maskDataUrl' in reference
+      ? reference.maskDataUrl
+      : 'mask' in reference
+        ? reference.mask?.object
+        : undefined
+  const regionsVersion = 'regions' in reference ? JSON.stringify(reference.regions) : ''
+  const identity = useMemo(
+    () => ({}),
+    [scope, conversationId, messageId, index, remote, local, mask, regionsVersion],
+  )
+  const [preview, setPreview] = useState<{ identity: typeof identity; source?: string }>()
+  const [openIdentity, setOpenIdentity] = useState<typeof identity>()
   useEffect(() => {
     if (local !== undefined || !conversationId || !remote) return
     const controller = new AbortController()
@@ -128,8 +138,10 @@ function ReferenceThumbnail({
       if (source) URL.revokeObjectURL(source)
     }
   }, [local, conversationId, messageId, index, remote, identity])
-  const mask = 'maskDataUrl' in reference ? reference.maskDataUrl : undefined
-  const [markedPreview, setMarkedPreview] = useState<{ identity: string; source?: string }>()
+  const [markedPreview, setMarkedPreview] = useState<{
+    identity: typeof identity
+    source?: string
+  }>()
   useEffect(() => {
     if (!local || !mask) return
     let active = true
@@ -186,7 +198,6 @@ function ReferenceThumbnail({
       </button>
       {openIdentity === identity && (
         <ReferencePreview
-          key={identity}
           local={localPreview}
           conversationId={conversationId}
           messageId={messageId}
