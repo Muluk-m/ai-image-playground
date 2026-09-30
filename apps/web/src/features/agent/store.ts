@@ -39,7 +39,11 @@ import {
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
-import { type CanvasProject, projectExperience } from '../canvas/lib/projectRepository'
+import {
+  type CanvasProject,
+  projectExperience,
+  UNTITLED_PROJECT,
+} from '../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
 import {
   currentCanvasProject,
@@ -687,6 +691,20 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           }
         : {}),
     })
+    const project = currentCanvasProject()
+    if (
+      project?.conversationId === conversationId &&
+      project.name === UNTITLED_PROJECT &&
+      !project.customName
+    ) {
+      const first = history.messages.find(
+        (message) => message.kind === 'text' && message.role === 'user',
+      )
+      if (first?.kind === 'text') {
+        const title = firstMessageTitle(first.text)
+        if (title) void autoNameProject(project.id, title).catch(() => {})
+      }
+    }
     void delivery.restore(get().messages)
     jobs.resume(conversationId, get().messages)
   }
@@ -1486,7 +1504,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }))
       // 标题这一刻就跟上：Agent 也会取名，但那是一轮跑完之后的事，中间几十秒顶栏挂着
       // 「未命名项目」，项目列表里连着几条也分不出谁是谁。用户自己改过名的不动。
-      if (firstTurn && sourceProject && !sourceProject.customName) {
+      if (
+        (firstTurn || sourceProject?.name === UNTITLED_PROJECT) &&
+        sourceProject &&
+        !sourceProject.customName
+      ) {
         const titled = firstMessageTitle(trimmed)
         if (titled && titled !== sourceProject.name)
           void autoNameProject(sourceProject.id, titled).catch(() => {})
