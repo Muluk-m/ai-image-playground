@@ -125,7 +125,8 @@
     "removeRegion": "Remove region {{number}}",
     "markRectangle": "Rectangle selection",
     "clearMark": "Clear selection",
-    "fitImage": "Fit to window"
+    "fitImage": "Fit to window",
+    "markCapacity": "Too many marks. Undo some marks or clear the selection to redraw. You can still pan the image."
   },
   "confirm": {
     "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",
