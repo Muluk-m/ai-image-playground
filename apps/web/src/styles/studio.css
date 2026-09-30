@@ -335,31 +335,31 @@
   inset: 0;
 }
 .studio-home-backdrop__ambient {
-  background: radial-gradient(ellipse 35% 30% at 18% 59%, hsl(var(--primary) / .16), transparent 76%);
-  animation: studio-home-grid-scan 24s ease-in-out infinite alternate;
+  background: radial-gradient(ellipse 36% 27% at 18% 56%, hsl(var(--primary) / .07), transparent 78%);
+  animation: studio-home-grid-scan 28s ease-in-out infinite alternate;
 }
 .studio-home-backdrop__grid,
 .studio-home-backdrop__hover {
   background-image:
-    linear-gradient(hsl(var(--foreground) / .07) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--foreground) / .07) 1px, transparent 1px);
-  background-size: 54px 54px;
+    linear-gradient(hsl(var(--foreground) / .025) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / .025) 1px, transparent 1px);
+  background-size: 60px 60px;
 }
 .studio-home-backdrop__grid {
-  mask-image: radial-gradient(ellipse 76% 73% at 50% 42%, #000 20%, transparent 91%);
+  mask-image: radial-gradient(ellipse 74% 65% at 50% 35%, #000 0%, transparent 88%);
 }
 .studio-home-backdrop__hover {
   background-image:
-    linear-gradient(hsl(var(--primary) / .35) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--primary) / .35) 1px, transparent 1px);
-  mask-image: radial-gradient(circle 190px at var(--pointer-x, 50%) var(--pointer-y, 40%), #000 0%, transparent 100%);
+    linear-gradient(hsl(var(--foreground) / .1) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / .1) 1px, transparent 1px);
+  mask-image: radial-gradient(circle 220px at var(--pointer-x, 50%) var(--pointer-y, 40%), #000 0%, transparent 100%);
   opacity: 0;
   transition: opacity .22s ease-out;
 }
 .studio-home-backdrop__hover::before {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle 190px at var(--pointer-x, 50%) var(--pointer-y, 40%), hsl(var(--primary) / .12), transparent 72%);
+  background: radial-gradient(circle 220px at var(--pointer-x, 50%) var(--pointer-y, 40%), hsl(var(--primary) / .05), transparent 74%);
   content: '';
 }
 .studio-home-backdrop[data-pointer-active="true"] .studio-home-backdrop__hover { opacity: 1; }
