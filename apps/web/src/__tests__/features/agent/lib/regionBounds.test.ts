@@ -93,3 +93,26 @@ it('uses the same nonzero winding rule as Canvas when a lasso loops twice', () =
     { id: 1, bounds: { x: 0.2, y: 0.2, width: 0.1, height: 0.1 } },
   ])
 })
+
+it('bounds dense same-row lasso work across 32 regions', () => {
+  const width = 1920,
+    height = 1920
+  const pixels = new Uint8ClampedArray(width * height * 4).fill(255)
+  pixels[960 * 4 + 3] = 254
+  const points = Array.from({ length: 2048 }, (_, i) => ({
+    x: i < 1024 ? i / 1024 : (2047 - i) / 1024,
+    y: i < 1024 ? 0.0001 : 0.0002,
+  }))
+  const started = performance.now()
+  const regions = visibleRegionBounds(
+    pixels,
+    width,
+    height,
+    Array.from({ length: 32 }, (_, i) => ({ id: i + 1, points })),
+  )
+  expect(regions).toHaveLength(32)
+  expect(regions[0]?.bounds).toEqual({ x: 0.5, y: 0, width: 1 / width, height: 1 / height })
+  // Generous headroom for CI; the old repeated scan takes millions of edge
+  // visits per region and exceeds this by orders of magnitude.
+  expect(performance.now() - started).toBeLessThan(1000)
+})

@@ -21,26 +21,57 @@ export function visibleRegionBounds(
       bottom = -1
     const startY = Math.max(0, Math.floor(Math.min(...points.map((p) => p.y)) * height))
     const endY = Math.min(height, Math.ceil(Math.max(...points.map((p) => p.y)) * height))
+    const epsilon = 1e-10
+    const vertexLevels = new Map<number, Set<number>>()
+    for (const point of points) {
+      const row = Math.floor(point.y * height)
+      if (point.y > row / height && point.y < (row + 1) / height) {
+        const levels = vertexLevels.get(row) ?? new Set<number>()
+        levels.add(point.y - epsilon)
+        levels.add(point.y + epsilon)
+        vertexLevels.set(row, levels)
+      }
+    }
+    // Sorted edge events keep dense, nearly horizontal lassos from revisiting
+    // every vertex at every sample. Only edges crossing this height are scanned.
+    const edges = points
+      .flatMap((a, i) => {
+        const b = points[(i + 1) % points.length]!
+        return a.y === b.y ? [] : [{ a, b, low: Math.min(a.y, b.y), high: Math.max(a.y, b.y) }]
+      })
+      .sort((a, b) => a.low - b.low)
+    const active = new Set<(typeof edges)[number]>()
+    let nextEdge = 0
     for (let y = startY; y < endY; y++) {
       // Project coverage across the pixel row, including antialiased slivers whose
       // interior never contains a pixel center. Merge spans before scanning alpha.
       const low = y / height,
         high = (y + 1) / height
-      const epsilon = 1e-10
-      const levels = [low + epsilon, high - epsilon, (low + high) / 2]
-      for (const point of points)
-        if (point.y > low && point.y < high) levels.push(point.y - epsilon, point.y + epsilon)
+      const levels = [
+        ...new Set([
+          low + epsilon,
+          high - epsilon,
+          (low + high) / 2,
+          ...(vertexLevels.get(y) ?? []),
+        ]),
+      ]
+        .filter((level) => level > low && level < high)
+        .sort((a, b) => a - b)
       const spans: [number, number][] = []
       for (const scanY of levels) {
+        while (nextEdge < edges.length && edges[nextEdge]!.low <= scanY)
+          active.add(edges[nextEdge++]!)
         const crossings: { x: number; winding: number }[] = []
-        for (let i = 0; i < points.length; i++) {
-          const a = points[i]!,
-            b = points[(i + 1) % points.length]!
-          if (a.y > scanY !== b.y > scanY)
-            crossings.push({
-              x: (a.x + ((scanY - a.y) * (b.x - a.x)) / (b.y - a.y)) * width,
-              winding: a.y < b.y ? 1 : -1,
-            })
+        for (const edge of active) {
+          if (edge.high <= scanY) {
+            active.delete(edge)
+            continue
+          }
+          const { a, b } = edge
+          crossings.push({
+            x: (a.x + ((scanY - a.y) * (b.x - a.x)) / (b.y - a.y)) * width,
+            winding: a.y < b.y ? 1 : -1,
+          })
         }
         crossings.sort((a, b) => a.x - b.x)
         let winding = 0,
