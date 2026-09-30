@@ -148,6 +148,15 @@ describe('tools filtered by creation mode', () => {
     for (const line of agentToolGuidance(mode)) expect(prompt).toContain(line)
   })
 
+  it.each(['image', 'video'] as const)('does not assume a canvas in %s turns', (mode) => {
+    for (const autoSubmit of [false, true]) {
+      const prompt = turnInitialState([], mode, autoSubmit).systemPrompt
+      expect(prompt).toContain('不要假定用户当前打开了画布')
+      expect(prompt).not.toContain('产物自动放入画布')
+      expect(prompt).not.toContain('画布旁的助手')
+    }
+  })
+
   it('still recognises tool names the current mode cannot call', () => {
     // 历史里的生视频结果在图片轮也要认得出来，否则那张卡就渲染不出来了。
     expect(isAgentToolName('generateVideo')).toBe(true)
