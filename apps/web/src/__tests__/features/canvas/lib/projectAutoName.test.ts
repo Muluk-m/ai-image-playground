@@ -238,3 +238,23 @@ it('concurrent automatic titles keep the latest requested title', async () => {
   await Promise.all([autoNameProject(project.id, '标题 A'), autoNameProject(project.id, '标题 B')])
   expect((await projectRepository.list()).find((one) => one.id === project.id)?.name).toBe('标题 B')
 })
+
+it('a stale automatic title from another tab loses to a newer persisted reservation', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create(UNTITLED_PROJECT)
+  const old = await projectRepository.reserveAutomaticName(project.id)
+  const latest = await projectRepository.reserveAutomaticName(project.id)
+  await projectRepository.update(
+    project.id,
+    { name: '另一个标签页的新标题', customName: false },
+    { ...latest!.project, version: latest!.version },
+  )
+  await projectRepository.update(
+    project.id,
+    { name: '迟到的旧标题', customName: false },
+    { ...old!.project, version: old!.version },
+  )
+  expect((await projectRepository.list()).find((one) => one.id === project.id)?.name).toBe(
+    '另一个标签页的新标题',
+  )
+})

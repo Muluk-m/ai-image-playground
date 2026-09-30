@@ -257,18 +257,11 @@ export async function renameProject(id: string, name: string): Promise<void> {
  * 开着的云端项目就地改并推上去；没开着的落本机并标 `nameDirty`——为了补个名字
  * 把一堆旧项目的文档逐个拉起来推一遍，代价太大，等它下次打开顺手带上去。
  */
-const automaticNameVersions = new Map<string, number>()
-
 export async function autoNameProject(id: string, name: string): Promise<void> {
-  const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
-  if (!project || (project.customName && project.name !== UNTITLED_PROJECT)) return
-  const version = (automaticNameVersions.get(id) ?? 0) + 1
-  automaticNameVersions.set(id, version)
-  const expectedName = {
-    name: project.name,
-    customName: project.customName,
-    isCurrent: () => automaticNameVersions.get(id) === version,
-  }
+  const reserved = await projectRepository.reserveAutomaticName(id)
+  if (!reserved) return
+  const { project, version } = reserved
+  const expectedName = { name: project.name, customName: project.customName, version }
   const session =
     project?.cloud && cloudProjectsEnabled() && workspaces.get(project.sceneKey)?.cloud
   if (session) {
