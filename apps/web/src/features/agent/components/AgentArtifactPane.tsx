@@ -181,15 +181,13 @@ export default function AgentArtifactPane({
       useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
       return
     }
-    const instruction = [t(`tool.${editAction}Instruction`), customInstruction]
-      .filter(Boolean)
-      .join('\n')
+    const instruction = customInstruction || t(`tool.${editAction}`)
     setEditBusy(true)
     let accepted = false
     void agent
       .send(
         instruction,
-        [{ imageId: active.id, ...input }],
+        [{ imageId: active.id, name: message.title, editAction, ...input }],
         () => {
           accepted = true
           setEditAction(null)

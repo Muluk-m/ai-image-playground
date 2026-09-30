@@ -154,6 +154,16 @@ export interface AgentSkillSummary {
  */
 export type AgentTurnReference = AgentInlineReference | AgentMediaReference
 
+export type AgentImageEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
+
+/** Numbered selection bounds in normalized image coordinates; the mask remains authoritative. */
+export interface AgentMarkedRegion {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
 export interface AgentInlineReference {
   /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
   readonly imageId: string
@@ -162,6 +172,8 @@ export interface AgentInlineReference {
   readonly name?: string
   /** 用户在这张图上画的遮罩；改图时自动带上，模型无从指定。 */
   readonly maskDataUrl?: string
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 /**
@@ -182,6 +194,8 @@ export interface AgentStoredInlineReference {
   readonly name?: string
   readonly image: StoredImageRef
   readonly mask?: StoredImageRef
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 /** 云媒体那一路的快照：字节留在 R2，会话只按 id 认领它（见 `media_references`）。 */

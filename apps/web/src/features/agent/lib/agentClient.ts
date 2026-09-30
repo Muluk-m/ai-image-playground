@@ -141,11 +141,11 @@ export async function fetchMessageReference(
   conversationId: string,
   messageId: string,
   index: number,
-  options: { signal: AbortSignal; variant?: 'thumbnail' | 'original' },
+  options: { signal: AbortSignal; variant?: 'thumbnail' | 'original' | 'annotated' },
 ): Promise<Blob> {
   const response = await authenticatedBffFetch(
     url(
-      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/references/${index}${options.variant === 'original' ? '?variant=original' : ''}`,
+      `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/references/${index}${options.variant && options.variant !== 'thumbnail' ? `?variant=${options.variant}` : ''}`,
     ),
     { headers: deviceHeaders(), signal: options.signal },
   )

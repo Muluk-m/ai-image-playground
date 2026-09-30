@@ -26,6 +26,8 @@ export interface ResolvedAgentImage {
   readonly dataUrl: string
   /** 本轮附图或系统续作计划中的遮罩；普通历史引用只有原图。 */
   readonly maskDataUrl?: string
+  readonly editAction?: import('@image-playground/shared').AgentImageEditAction
+  readonly regions?: readonly import('@image-playground/shared').AgentMarkedRegion[]
 }
 
 /**
@@ -134,6 +136,8 @@ export async function resolveTurnReferences(
         imageId: reference.imageId,
         dataUrl: reference.dataUrl,
         ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+        ...(reference.regions ? { regions: reference.regions } : {}),
+        ...(reference.editAction ? { editAction: reference.editAction } : {}),
       })
       continue
     }
@@ -630,6 +634,8 @@ export async function archiveAgentReferences(
       stored.push({
         imageId: reference.imageId,
         ...(reference.name ? { name: reference.name } : {}),
+        ...(reference.regions ? { regions: reference.regions } : {}),
+        ...(reference.editAction ? { editAction: reference.editAction } : {}),
         image: archived.input_images![0] as StoredImageRef,
         ...(archived.mask ? { mask: archived.mask as StoredImageRef } : {}),
       })
@@ -709,6 +715,10 @@ export function createAgentImageSource(input: {
         imageId,
         dataUrl: hydrated.input_images![0]!,
         ...(hydrated.mask ? { maskDataUrl: hydrated.mask } : {}),
+        ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
+        ...('editAction' in reference && reference.editAction
+          ? { editAction: reference.editAction }
+          : {}),
       }
     }
     const output = outputs.get(imageId)

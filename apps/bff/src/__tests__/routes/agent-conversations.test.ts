@@ -210,6 +210,70 @@ describe('message reference thumbnails', () => {
     expect((await request('GET', `${path}/-1`, { deviceId: DEVICE })).status).toBe(400)
   })
 
+  it('returns the saved mask and numbered regions in both message preview sizes', async () => {
+    const conversationId = await startConversation()
+    const image = await sharp({
+      create: { width: 100, height: 100, channels: 4, background: '#ff0000' },
+    })
+      .png()
+      .toBuffer()
+    const mask = await sharp({
+      create: { width: 100, height: 100, channels: 4, background: '#ffffff' },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 50, height: 50, channels: 4, background: '#ffffff' },
+          })
+            .png()
+            .toBuffer(),
+          left: 0,
+          top: 0,
+          blend: 'dest-out',
+        },
+      ])
+      .png()
+      .toBuffer()
+    const references = await archiveAgentReferences(conversationId, 'marked-reference-turn', [
+      {
+        imageId: 'marked',
+        dataUrl: `data:image/png;base64,${image.toString('base64')}`,
+        maskDataUrl: `data:image/png;base64,${mask.toString('base64')}`,
+        regions: [{ x: 0, y: 0, width: 0.5, height: 0.5 }],
+      },
+    ])
+    expect('regions' in references[0]! && references[0].regions).toEqual([
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+    ])
+    const message = await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'marked-reference-turn',
+      role: 'user',
+      content: [{ type: 'text', text: '区域1改为蓝色', references }],
+    })
+    for (const variant of ['thumbnail', 'annotated']) {
+      const response = await app.handle(
+        new Request(
+          `http://localhost/api/agent/conversations/${conversationId}/messages/${message.id}/references/0?variant=${variant}`,
+          { headers: { [DEVICE_ID_HEADER]: DEVICE } },
+        ),
+      )
+      expect(response.status).toBe(200)
+      const { data, info } = await sharp(new Uint8Array(await response.arrayBuffer()))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      const pixel = (x: number, y: number) => [
+        ...data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 3),
+      ]
+      const selected = pixel(Math.round(info.width * 0.3), Math.round(info.height * 0.3))
+      const untouched = pixel(Math.round(info.width * 0.8), Math.round(info.height * 0.8))
+      expect(selected[2]).toBeGreaterThan(100)
+      expect(untouched[0]).toBeGreaterThan(240)
+      expect(untouched[2]).toBeLessThan(10)
+    }
+  })
+
   it.each([
     'thumbnail',
     'original',

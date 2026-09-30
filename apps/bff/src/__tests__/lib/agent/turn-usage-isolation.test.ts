@@ -24,7 +24,8 @@ process.env.AGENT_SUMMARY_MODEL = 'fixture-summary-model'
 // 窗口至少要到 6930 才装得下。
 // 同日 arrangeCanvas 的声明和指引，加上 readCanvas 目录那两句，再抬约 548。
 // 下沿约 7478，按原先约 350 的带宽上沿约 7828，取中。
-process.env.AGENT_CHAT_CONTEXT_WINDOW = '7650'
+// 2026-09-30 多区域编辑与具体执行说明扩大固定上下文约 400 tokens，保持摘要重建测试的余量。
+process.env.AGENT_CHAT_CONTEXT_WINDOW = '8150'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,

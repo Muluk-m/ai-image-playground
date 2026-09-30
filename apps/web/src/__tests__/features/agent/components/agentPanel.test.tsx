@@ -318,7 +318,7 @@ describe('AgentPanel', () => {
       },
     )
     const fetcher = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).endsWith('/messages/history-user/references/0?variant=original'))
+      if (String(input).endsWith('/messages/history-user/references/0?variant=annotated'))
         return new Response('original pixels', { headers: { 'content-type': 'image/png' } })
       if (String(input).endsWith('/messages/history-user/references/0'))
         return new Response('archived pixels', { headers: { 'content-type': 'image/webp' } })
@@ -352,13 +352,13 @@ describe('AgentPanel', () => {
     await settle()
     const log = host.querySelector('[aria-label="对话记录"]')!
     expect(log.querySelector('img')?.getAttribute('src')).toBe('blob:archived-reference')
-    expect(log.textContent).toBe('换一身衣服')
+    expect(log.textContent).toBe('@图1换一身衣服')
     vi.stubGlobal('matchMedia', () => ({
       matches: false,
       addEventListener() {},
       removeEventListener() {},
     }))
-    expect(fetcher.mock.calls.some(([input]) => String(input).includes('variant=original'))).toBe(
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes('variant=annotated'))).toBe(
       false,
     )
     act(() => log.querySelector<HTMLImageElement>('img')!.closest('button')!.click())
