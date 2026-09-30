@@ -279,6 +279,7 @@ export default function AgentArtifactEditDialog({
     const point = pointOnImage(event)
     if (!point) return
     event.currentTarget.setPointerCapture(event.pointerId)
+    dialogRef.current?.focus({ preventScroll: true })
     pointerRef.current = {
       id: event.pointerId,
       tool,
@@ -440,10 +441,11 @@ export default function AgentArtifactEditDialog({
               first?.focus()
             }
           }
-          if (event.target instanceof HTMLTextAreaElement || busy || !marked) return
+          if (event.target instanceof HTMLTextAreaElement || !marked) return
           if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
             event.preventDefault()
-            restore(event.shiftKey ? 'redo' : 'undo')
+            event.stopPropagation()
+            if (!busy) restore(event.shiftKey ? 'redo' : 'undo')
           }
         }}
       >
