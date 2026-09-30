@@ -403,14 +403,14 @@ export class CanvasEditor {
   }
 
   /**
-   * 把一组元素栅格化为 PNG dataUrl（白色不透明背景，避免上游模型收到透明通道）。
+   * 把一组元素栅格化为 PNG dataUrl。模型输入默认铺白底；预览可保留透明通道。
    * - `scale < 1` 用于低成本预览缩略图
    * - `bounds` 提供时裁剪到该页面坐标范围（标注溢出图片时裁回图内）；缺省取元素联合包围盒
    * 用离屏 Konva stage 渲染，与画布显示共用同一份属性映射，所见即所得。
    */
   async toImage(
     ids: string[],
-    opts: { scale?: number; bounds?: Box } = {},
+    opts: { scale?: number; bounds?: Box; background?: 'white' | 'transparent' } = {},
   ): Promise<string | null> {
     const scale = opts.scale ?? 1
     const idSet = new Set(ids)
@@ -427,15 +427,16 @@ export class CanvasEditor {
     try {
       const layer = new Konva.Layer()
       stage.add(layer)
-      layer.add(
-        new Konva.Rect({
-          x: bounds.x,
-          y: bounds.y,
-          width: bounds.w,
-          height: bounds.h,
-          fill: '#ffffff',
-        }),
-      )
+      if (opts.background !== 'transparent')
+        layer.add(
+          new Konva.Rect({
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.w,
+            height: bounds.h,
+            fill: '#ffffff',
+          }),
+        )
       const nodes = await Promise.all(els.map((el) => buildExportNode(el, this.doc.files)))
       for (const node of nodes) {
         if (node) layer.add(node as Konva.Shape)
