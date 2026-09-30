@@ -1079,6 +1079,9 @@ describe('单张重试', () => {
 
   it('重试被拒（积分不够）：不追加记录，占位按拒绝的码给出路', async () => {
     await openFailedConversation()
+    useAgentStore.setState({
+      errorDiagnostic: { turnId: 'stale-turn', requestId: 'stale-request' },
+    })
     retryResponse = () =>
       Response.json({ error: 'retry_refused', code: 'insufficient_credits' }, { status: 409 })
 
@@ -1090,6 +1093,8 @@ describe('单张重试', () => {
     expect(revived).toEqual([])
     expect(state().error).toBeTruthy()
     expect(state().retryRefusals).toEqual({ 'placeholder-9': { code: 'insufficient_credits' } })
+    expect(state().errorDiagnostic).toMatchObject({ httpStatus: 409, conversationId: CONVERSATION })
+    expect(state().errorDiagnostic).not.toHaveProperty('turnId')
   })
 
   it('云端占位的重试被拒：画布不改写云端文档，拒绝的码盖在占位上，下次重试提交成了就揭掉', async () => {

@@ -742,7 +742,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
           if (!isCurrent()) return
           openProject(project.id)
-          set({ ...sessionReset(null), error: CONVERSATION_GONE() })
+          set({ ...sessionReset(null), error: CONVERSATION_GONE(), errorDiagnostic: null })
         } catch {
           if (isCurrent()) {
             set({ historyLoading: false, historyFailed: true })
@@ -870,7 +870,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     // 切过去的那个项目。
     const draft = currentProjectDraft(conversationId)
     try {
-      if (current()) set({ stopping: true, error: null })
+      if (current()) set({ stopping: true, error: null, errorDiagnostic: null })
       const returned = await abortWithRetry(conversationId, turnId)
       // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
       if (returned.length) {
@@ -904,7 +904,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           /* 保留在运行的轮，让用户重试。 */
         }
       }
-      if (current()) set({ stopping: false, error: i18next.t('error.stopFailed', { ns: 'agent' }) })
+      if (current())
+        set({
+          stopping: false,
+          error: i18next.t('error.stopFailed', { ns: 'agent' }),
+          errorDiagnostic: requestDiagnostic(error, conversationId),
+        })
     }
   }
 
@@ -933,7 +938,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     try {
       const prepared = await prepare()
       if (!prepared) {
-        if (current()) set({ error: REFERENCES_NOT_UPLOADED() })
+        if (current()) set({ error: REFERENCES_NOT_UPLOADED(), errorDiagnostic: null })
         return false
       }
       if (!current()) return false
@@ -950,7 +955,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
-        if (current()) set({ error: i18next.t('error.queueFailed', { ns: 'agent' }) })
+        if (current())
+          set({ error: i18next.t('error.queueFailed', { ns: 'agent' }), errorDiagnostic: null })
         return 'cancelled' as const
       }
       if (outcome.kind === 'alreadyRunning') {
@@ -984,6 +990,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!current()) return false
       const code = thrown instanceof AgentRequestError ? thrown.code : undefined
       set({
+        errorDiagnostic: requestDiagnostic(thrown, conversationId),
         error:
           code === 'queue_full'
             ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
@@ -1635,7 +1642,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           set({ stopping: false })
           await openConversation(target, outcome.turnId)
           if (get().conversationId === target)
-            set({ error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }) })
+            set({
+              error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }),
+              errorDiagnostic: null,
+            })
           return
         }
         onAccepted?.()
@@ -1662,11 +1672,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (pendingStart?.delivery.isCurrent()) {
           pendingStart.cancelled = true
           abortInFlight = pendingStart.settled
-          set({ stopping: true, error: null })
+          set({ stopping: true, error: null, errorDiagnostic: null })
         }
         return
       }
-      set({ stopping: true, error: null })
+      set({ stopping: true, error: null, errorDiagnostic: null })
       const settling = requestAbort(conversationId, active.turnId)
       // 界面已经放行；下一句要等的是「请求回来 + 终帧落地」，`abort()` 自己只等请求。
       const settled = settling.then(() => turnSettledAfterAbort(conversationId))
@@ -1687,13 +1697,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         // 三种结局都意味着它不再排着：撤回了、被处理了、或者本来就没有。
         set((state) => ({
           queue: removeQueuedMessage(state.queue, queueId),
+          errorDiagnostic: null,
           error:
             result === 'already_consumed'
               ? i18next.t('error.queueAlreadyConsumed', { ns: 'agent' })
               : null,
         }))
-      } catch {
-        if (current()) set({ error: i18next.t('error.queueWithdrawFailed', { ns: 'agent' }) })
+      } catch (thrown) {
+        if (current())
+          set({
+            error: i18next.t('error.queueWithdrawFailed', { ns: 'agent' }),
+            errorDiagnostic: requestDiagnostic(thrown, conversationId),
+          })
       }
     },
 
@@ -1706,19 +1721,27 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (!current()) return
         // 那一轮刚好收尾：它照旧排着，下一轮处理。
         if (result === 'not_running') {
-          set({ error: i18next.t('error.queueInterjectTooLate', { ns: 'agent' }) })
+          set({
+            error: i18next.t('error.queueInterjectTooLate', { ns: 'agent' }),
+            errorDiagnostic: null,
+          })
           return
         }
         // 其余结局都意味着它不再排着：插进去了、被处理了、撤回了或者本来就没有。
         set((state) => ({
           queue: removeQueuedMessage(state.queue, queueId),
+          errorDiagnostic: null,
           error:
             result === 'already_consumed'
               ? i18next.t('error.queueInterjectConsumed', { ns: 'agent' })
               : null,
         }))
-      } catch {
-        if (current()) set({ error: i18next.t('error.queueInterjectFailed', { ns: 'agent' }) })
+      } catch (thrown) {
+        if (current())
+          set({
+            error: i18next.t('error.queueInterjectFailed', { ns: 'agent' }),
+            errorDiagnostic: requestDiagnostic(thrown, conversationId),
+          })
       }
     },
 
@@ -1752,6 +1775,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
         set({
           error: agentToolFailureText(code) ?? i18next.t('error.retryFailed', { ns: 'agent' }),
+          errorDiagnostic: requestDiagnostic(thrown, conversationId),
         })
         return false
       }
