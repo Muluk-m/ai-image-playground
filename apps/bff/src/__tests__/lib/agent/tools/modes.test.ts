@@ -150,8 +150,12 @@ describe('tools filtered by creation mode', () => {
 
   it.each(['image', 'video'] as const)('does not assume a canvas in %s turns', (mode) => {
     for (const autoSubmit of [false, true]) {
-      const prompt = turnInitialState([], mode, autoSubmit).systemPrompt
-      expect(prompt).toContain('不要假定用户当前打开了画布')
+      const prompt = turnInitialState([], mode, autoSubmit, 0, {
+        userId: null,
+        looks: [],
+        experience: 'chat',
+      }).systemPrompt
+      expect(prompt).toContain('不要承诺结果已写入画布')
       expect(prompt).not.toContain('产物自动放入画布')
       expect(prompt).not.toContain('画布旁的助手')
     }
@@ -254,7 +258,7 @@ describe('chat tools are isolated from canvas tools', () => {
       ).toEqual(names)
       const prompt = turnInitialState([], mode, false, 0, audience).systemPrompt
       expect(prompt).toContain('对话中的创作助手')
-      expect(prompt).toContain('对话结果卡')
+      expect(prompt).toContain('对话的产物卡片')
       expect(prompt).not.toContain('自动放入画布')
       expect(prompt).not.toContain('画布旁的助手')
       for (const line of agentToolGuidance(mode, audience)) expect(prompt).toContain(line)
