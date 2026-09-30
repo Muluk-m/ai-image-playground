@@ -178,8 +178,12 @@ async function modelImage(
   if (!image) return image
   const { reduced, ...rest } = image
   const normalized = await toModelImageDataUrl(rest.dataUrl)
+  // A selection ID binds the original pixels and mask. Resizing only the image
+  // breaks both coordinate validation and the identity used by editImage.
   const dataUrl =
-    variant === 'preview' && !reduced ? await toPreviewDataUrl(normalized) : normalized
+    variant === 'preview' && !reduced && !rest.maskDataUrl
+      ? await toPreviewDataUrl(normalized)
+      : normalized
   return dataUrl === rest.dataUrl ? rest : { ...rest, dataUrl }
 }
 
