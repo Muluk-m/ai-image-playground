@@ -26,3 +26,23 @@ it('bounds upstream diagnostic size', () => {
     4000,
   )
 })
+
+it('redacts URL credentials, fragments and complete quoted or Basic credentials', () => {
+  const failure = agentTurnFailure(
+    'agent_upstream_error',
+    '401 https://user:privatepassword@example.com/v1?token=signed#privatefragment Authorization: Basic dXNlcjpwYXNz "password": "my secret value" token=private-token',
+    'fixture',
+  )
+  expect(failure.message).toContain('https://example.com/v1')
+  for (const secret of [
+    'user:',
+    'privatepassword',
+    'signed',
+    'privatefragment',
+    'dXNlcjpwYXNz',
+    'my secret value',
+    'secret value',
+    'private-token',
+  ])
+    expect(failure.message).not.toContain(secret)
+})
