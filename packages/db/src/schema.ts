@@ -9,6 +9,7 @@ import type {
   AgentToolCallSnapshot,
   AgentTurnCost,
   AgentTurnEvent,
+  AgentTurnFailure,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnStopReason,
@@ -714,6 +715,7 @@ export const agent_turns = pgTable(
     stop_reason: text('stop_reason').$type<AgentTurnStopReason>().notNull(),
     /** 结算后的实际消耗；不计费的部署里是 null，那里的页脚只有耗时。 */
     cost: bunJsonb('cost').$type<AgentTurnCost>(),
+    failure: bunJsonb('failure').$type<AgentTurnFailure>(),
     created_at: epochMs('created_at').notNull(),
   },
   (t) => [

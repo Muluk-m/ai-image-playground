@@ -99,6 +99,25 @@ describe('轮的持久事实', () => {
     ])
   })
 
+  it('preserves the failure diagnostic after stream events expire', async () => {
+    const conversationId = await conversation()
+    const failure = {
+      code: 'agent_upstream_error' as const,
+      message: '400: unsupported model',
+      model: 'fixture-model',
+      occurredAt: '2026-09-30T04:31:34.965Z',
+    }
+    await recordAgentTurnSummary({
+      conversationId,
+      turnId: 'failed-turn',
+      durationMs: 62,
+      stopReason: 'failed',
+      failure,
+    })
+    const [summary] = await listAgentTurnSummaries(conversationId)
+    expect(summary).toMatchObject({ error: failure.code, failure })
+  })
+
   it('不计费的部署只留耗时，消耗那一项缺席', async () => {
     const conversationId = await conversation()
     await recordAgentTurnSummary({
