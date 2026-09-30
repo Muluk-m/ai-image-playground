@@ -190,6 +190,12 @@ function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | n
   for (const one of raw) {
     const editAction = one.editAction && isEditAction(one.editAction) ? one.editAction : undefined
     if (one.editAction && !editAction) return null
+    if (
+      one.regions?.some(
+        (region) => region.x + region.width > 1 + 1e-9 || region.y + region.height > 1 + 1e-9,
+      )
+    )
+      return null
     const name = one.name ? { name: one.name } : {}
     if (one.mediaId && !one.dataUrl)
       references.push({ imageId: one.imageId, ...name, mediaId: one.mediaId })
@@ -361,9 +367,22 @@ export const agentRoutes = new Elysia()
         const marked = query.variant !== 'original' ? reference.mask : undefined
         if (marked) {
           const maskStore = marked.store === 'durable' ? durableMediaStore() : objectStore()
-          const mask = await maskStore.read(marked.object)
+          let mask = await maskStore.read(marked.object)
+          let source = bytes
+          if (!original) {
+            const resized = await sharp(bytes)
+              .rotate()
+              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+              .png()
+              .toBuffer({ resolveWithObject: true })
+            source = resized.data
+            mask = await sharp(mask)
+              .resize(resized.info.width, resized.info.height)
+              .png()
+              .toBuffer()
+          }
           const annotated = await selectionPreview({
-            dataUrl: `data:${reference.image.mime};base64,${Buffer.from(bytes).toString('base64')}`,
+            dataUrl: `data:${reference.image.mime};base64,${Buffer.from(source).toString('base64')}`,
             maskDataUrl: `data:${marked.mime};base64,${Buffer.from(mask).toString('base64')}`,
             regions: reference.regions,
           })

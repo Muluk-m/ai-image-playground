@@ -469,9 +469,8 @@ export function activeAgentReferences(
       const block = message.content[index]!
       if (block.type === 'text' && block.references?.length) {
         return block.references.map((reference) => {
-          if (!('mask' in reference) || !reference.mask || at >= selectionHistoryStart)
-            return reference
-          const { mask: _mask, ...original } = reference
+          if (!('image' in reference) || at >= selectionHistoryStart) return reference
+          const { mask: _mask, regions: _regions, editAction: _action, ...original } = reference
           return original
         })
       }
@@ -668,8 +667,8 @@ export function createAgentImageSource(input: {
     for (const block of message.content) {
       if (block.type !== 'text') continue
       for (const reference of block.references ?? []) {
-        if ('mask' in reference && reference.mask && index < selectionHistoryStart) {
-          const { mask: _mask, ...original } = reference
+        if ('image' in reference && index < selectionHistoryStart) {
+          const { mask: _mask, regions: _regions, editAction: _action, ...original } = reference
           references.set(reference.imageId, original)
         } else {
           references.set(reference.imageId, reference)
