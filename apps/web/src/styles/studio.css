@@ -831,3 +831,6 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-artifact-edit-dialog { overflow-y: auto; }
   .studio-artifact-edit-stage { flex: 0 0 260px; }
 }
+
+.studio-artifact-edit-region { position: absolute; z-index: 3; border: 2px solid #159cf6; pointer-events: none; }
+.studio-artifact-edit-region > span { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; width: 22px; height: 22px; border: 2px solid white; border-radius: 50%; background: #159cf6; color: white; font-size: 12px; font-weight: 600; }

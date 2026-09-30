@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { forbidGlobalFetch, waitFor } from '../helpers/upstreamStubs'
@@ -90,11 +90,18 @@ describe('认领', () => {
   it('starts the archive retry clock at the first durable checkpoint', async () => {
     await insertQueuedTask('checkpoint-clock')
     const execution = await claimTaskExecution('checkpoint-clock')
-    const before = Date.now()
+    // Checkpoint timestamps come from PostgreSQL; Docker and the host can have different clocks.
+    const databaseNow = async () => {
+      const [row] = await db.execute(
+        sql`SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now`,
+      )
+      return Number(row!.now)
+    }
+    const before = await databaseNow()
     expect(await execution!.saveCheckpoint({ outputs: [] })).toBe(true)
     const started = (await readTask('checkpoint-clock'))?.archive_retry_started_at
     expect(started).toBeGreaterThanOrEqual(before)
-    expect(started).toBeLessThanOrEqual(Date.now())
+    expect(started).toBeLessThanOrEqual(await databaseNow())
     expect(await execution!.requeueArchive(Date.now() + 60_000, { outputs: [] })).toBe(true)
     expect((await readTask('checkpoint-clock'))?.archive_retry_started_at).toBe(started)
     execution!.release()
