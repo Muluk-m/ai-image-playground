@@ -313,6 +313,65 @@
   .studio-direct-card textarea { font-size: 16px; }
 }
 
+/* 首页轻网格：静态网格、缓慢移动的环境光和指针附近的局部亮区。 */
+.studio-home-backdrop {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 680px;
+  overflow: hidden;
+  pointer-events: none;
+  background: hsl(var(--background));
+}
+.studio-home-backdrop::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 42%, hsl(var(--background)) 100%);
+  content: '';
+}
+.studio-home-backdrop__ambient,
+.studio-home-backdrop__grid,
+.studio-home-backdrop__hover {
+  position: absolute;
+  inset: 0;
+}
+.studio-home-backdrop__ambient {
+  background: radial-gradient(ellipse 35% 30% at 18% 59%, hsl(var(--primary) / .16), transparent 76%);
+  animation: studio-home-grid-scan 24s ease-in-out infinite alternate;
+}
+.studio-home-backdrop__grid,
+.studio-home-backdrop__hover {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / .07) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / .07) 1px, transparent 1px);
+  background-size: 54px 54px;
+}
+.studio-home-backdrop__grid {
+  mask-image: radial-gradient(ellipse 76% 73% at 50% 42%, #000 20%, transparent 91%);
+}
+.studio-home-backdrop__hover {
+  background-image:
+    linear-gradient(hsl(var(--primary) / .35) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--primary) / .35) 1px, transparent 1px);
+  mask-image: radial-gradient(circle 190px at var(--pointer-x, 50%) var(--pointer-y, 40%), #000 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity .22s ease-out;
+}
+.studio-home-backdrop__hover::before {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 190px at var(--pointer-x, 50%) var(--pointer-y, 40%), hsl(var(--primary) / .12), transparent 72%);
+  content: '';
+}
+.studio-home-backdrop[data-pointer-active="true"] .studio-home-backdrop__hover { opacity: 1; }
+@keyframes studio-home-grid-scan {
+  from { transform: translateX(-30%); opacity: .4; }
+  to { transform: translateX(170%); opacity: .68; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-home-backdrop__ambient { animation: none; }
+  .studio-home-backdrop__hover { display: none; }
+}
+
 /* 首屏标题的高亮半句：品牌绿渐变 + 柔光，暗底上才有「发光」的观感。 */
 .studio-hero-accent {
   background: linear-gradient(100deg, #eaffd6, #a6ef7c 45%, #6fd36a);
@@ -320,6 +379,10 @@
   background-clip: text;
   color: transparent;
   text-shadow: 0 0 38px hsl(var(--primary) / 0.32);
+}
+:root:not(.dark) .studio-hero-accent {
+  background-image: linear-gradient(100deg, #275b24, #387d30 55%, #27652c);
+  text-shadow: none;
 }
 
 /* 模式切与主按钮的高亮态：亮绿渐变 + 内描边 + 外发光。 */
