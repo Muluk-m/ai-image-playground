@@ -218,7 +218,7 @@
     "sendAndCreateTitle": "Send: the assistant drafts a prompt first; generation starts only after you confirm",
     "tooManyReferences_one": "At most {{count}} reference image per turn",
     "tooManyReferences_other": "At most {{count}} reference images per turn",
-    "tooManyUploads_one": "At most {{count}} uploaded or library image per turn (images selected on the canvas don't count)",
+    "tooManyUploads_one": "At most {{count}} uploaded or library image per turn",
     "tooManyUploads_other": "At most {{count}} uploaded or library images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",
     "modeAria": "Creation type",
