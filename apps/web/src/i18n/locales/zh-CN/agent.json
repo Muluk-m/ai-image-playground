@@ -86,7 +86,7 @@
     "erasePlaceholder": "可补充想保留或补全的细节",
     "cropPlaceholder": "可补充裁剪后希望呈现的画面",
     "outpaintPlaceholder": "可补充希望扩展出的场景",
-    "editInstruction": "给 Agent 的补充要求",
+    "editInstruction": "编辑要求",
     "markBrush": "涂抹标注",
     "markEraser": "擦除标注",
     "panImage": "移动图片",
@@ -95,11 +95,11 @@
     "brushSize": "笔刷大小",
     "zoomIn": "放大",
     "zoomOut": "缩小",
-    "markHint": "先在图片上涂抹要处理的区域",
+    "markHint": "蓝色区域为重绘区；圈选会填满内部，笔刷只涂经过的区域。",
     "cropHint": "拖动图片，框选要保留的区域",
     "outpaintHint": "透明边缘会交给 Agent 自然补全",
     "extendBy": "四周扩展",
-    "generateEdit": "交给 Agent 生成",
+    "generateEdit": "生成",
     "submittingEdit": "正在提交…",
     "agentUnavailable": "Agent 暂时不可用，请稍后重试",
     "openResultNumber": "查看第 {{number}} 个产物",
@@ -121,7 +121,11 @@
       "failed": "失败",
       "deliveryFailed": "载入失败"
     },
-    "downloadFailed": "下载失败，请重试"
+    "downloadFailed": "下载失败，请重试",
+    "markLasso": "圈选",
+    "markRectangle": "矩形选区",
+    "clearMark": "清空选区",
+    "fitImage": "适应窗口"
   },
   "confirm": {
     "pending": "核对下面这段提示词（可以直接改），然后点「确认生成」。",
