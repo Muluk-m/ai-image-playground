@@ -430,6 +430,7 @@ export default function AgentToolCard({
   const downloadingRef = useRef(new Set<string>())
   const [downloading, setDownloading] = useState<ReadonlySet<string>>(new Set())
   const [downloadFailed, setDownloadFailed] = useState(false)
+  const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
   const downloadTile = async (tile: { id: string; original: () => Promise<string | null> }) => {
     if (downloadingRef.current.has(tile.id)) return
     downloadingRef.current.add(tile.id)
@@ -628,6 +629,10 @@ export default function AgentToolCard({
         id: preview.artifact.artifactId,
         source: preview.source,
         media: preview.artifact.media,
+        ratio:
+          preview.artifact.width && preview.artifact.height
+            ? preview.artifact.width / preview.artifact.height
+            : undefined,
         original: () => previewArtifactBitmap(preview.artifact),
       })),
       ...fetchedTiles,
@@ -644,7 +649,13 @@ export default function AgentToolCard({
         </div>
         <div className="studio-agent-inline-gallery" data-count={tiles.length}>
           {tiles.map((tile, index) => (
-            <div className="studio-agent-inline-tile" key={tile.id}>
+            <div
+              className="studio-agent-inline-tile"
+              key={tile.id}
+              style={{
+                aspectRatio: imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined),
+              }}
+            >
               <button
                 type="button"
                 className="studio-agent-inline-open"
@@ -656,6 +667,14 @@ export default function AgentToolCard({
                     src={tile.source}
                     alt={t('tool.resultNumber', { number: index + 1 })}
                     loading="lazy"
+                    onLoad={(event) => {
+                      const { naturalWidth, naturalHeight } = event.currentTarget
+                      if (naturalWidth && naturalHeight)
+                        setImageRatios((ratios) => ({
+                          ...ratios,
+                          [tile.id]: naturalWidth / naturalHeight,
+                        }))
+                    }}
                   />
                 ) : (
                   <span>{t('tool.previewUnavailable')}</span>
