@@ -279,3 +279,34 @@ it('确认制作草稿时发送当前卡片修订，防止旧卡覆盖已编辑�
     { deviceId: expect.any(String), messageId: 'tool-1', prompt: CORRECTED, draftRevision: 2 },
   ])
 })
+
+it('制作面板回执复用后台交付，保留正在回复的消息并拒绝跨会话串写', async () => {
+  history = () => []
+  await state().selectConversation(CONVERSATION)
+  useAgentStore.setState({
+    messages: [
+      {
+        kind: 'text',
+        id: 'stream',
+        turnId: 'active',
+        streaming: true,
+        role: 'assistant',
+        text: '正在整理剧本',
+      },
+    ],
+    turn: 'running',
+    activeTurn: { turnId: 'active' },
+  })
+  jobsResponse = () => [finishedJob]
+  state().acceptGenerationReceipt(CONVERSATION, confirmed)
+  state().acceptGenerationReceipt(CONVERSATION, confirmed)
+  expect(state().messages.some((message) => message.id === 'stream')).toBe(true)
+  expect(state().turn).toBe('running')
+  expect(state().activeTurn).toEqual({ turnId: 'active' })
+  expect(reserved).toHaveLength(1)
+  await vi.waitFor(() => expect(toolCard().delivery).toBe('placed'))
+  expect(placed).toEqual([{ artifactId: 'agent_image_1' }])
+  state().acceptGenerationReceipt(OTHER, { ...confirmed, id: 'other-tool' })
+  expect(state().messages.some((message) => message.id === 'other-tool')).toBe(false)
+  expect(posted).toEqual([])
+})

@@ -179,7 +179,9 @@
     "lastFrame": "Last frame",
     "addReference": "Add reference",
     "retry": "Retry this candidate",
-    "cancel": "Cancel this task"
+    "cancel": "Cancel this task",
+    "duplicateFrame": "Choose only one first frame and one last frame.",
+    "preview": "Open candidate"
   },
   "export": {
     "title": "Export resources",

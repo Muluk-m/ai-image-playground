@@ -2,10 +2,29 @@
 import type { ProductionDocument, ProductionGenerationView } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ProductionGenerations from '../../../features/production/components/ProductionGenerations'
+import { chooseOption, stubPointerApis } from '../../helpers/radix'
 
 const request = vi.hoisted(() => vi.fn())
+const guard = vi.hoisted(() =>
+  vi.fn<
+    (input: { model: string; quantity: number; unitMultiplier?: number }) => {
+      blocked: boolean
+      estimatedCredits?: number
+      disabledReason?: string
+    }
+  >(),
+)
+vi.mock('../../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/privateOverlay')>()),
+  usePrivateSubmissionGuard: guard,
+}))
+beforeEach(() => {
+  guard.mockReset()
+  guard.mockReturnValue({ blocked: false })
+  stubPointerApis()
+})
 vi.mock('../../../lib/authClient', () => ({ authenticatedBffFetch: request }))
 vi.mock('../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.local' }))
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -283,5 +302,218 @@ it('retries one failed candidate once, restores its independent retry and cancel
   } finally {
     await act(async () => root.unmount())
     host.remove()
+  }
+})
+
+it('creates the saved clip snapshot before applying changed parameters to the new pending candidate', async () => {
+  const writes: { method: string; body: Record<string, unknown> }[] = []
+  request.mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method) {
+      const body = JSON.parse(String(init.body))
+      writes.push({ method: init.method, body })
+      return new Response(
+        JSON.stringify({
+          generation: {
+            ...candidate,
+            ...body,
+            status: 'awaiting_confirmation',
+            draftRevision: init.method === 'PATCH' ? 2 : 1,
+            taskId: undefined,
+            artifacts: [],
+          },
+        }),
+      )
+    }
+    return new Response(JSON.stringify({ generations: [] }))
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="conversation"
+          document={doc}
+          target={{ kind: 'clip', id: 'clip' }}
+          initialDraft={{
+            prompt: '保存的计划',
+            model: candidate.model,
+            video: candidate.video,
+            references: [],
+          }}
+          onSaved={() => {}}
+        />,
+      ),
+    )
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === '新候选')!
+        .click(),
+    )
+    await act(async () => {
+      const input = host.querySelector('textarea')!
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+        input,
+        '修改后的候选提示词',
+      )
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === '创建待确认草稿')!
+        .click(),
+    )
+    expect(writes.map((one) => [one.method, one.body.prompt])).toEqual([
+      ['POST', '保存的计划'],
+      ['PATCH', '修改后的候选提示词'],
+    ])
+    expect(writes[1].body.draftRevision).toBe(1)
+    expect(host.querySelector('textarea')?.value).toBe('修改后的候选提示词')
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it('recalculates the pending draft price for its edited resolution and blocks confirmation when credits are insufficient', async () => {
+  guard.mockImplementation((input) => ({
+    blocked: input.quantity * (input.unitMultiplier ?? 1) > 7,
+    estimatedCredits: input.quantity * 10 * (input.unitMultiplier ?? 1),
+    disabledReason: '积分不足',
+  }))
+  request.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        generations: [
+          { ...candidate, status: 'awaiting_confirmation', artifacts: [], taskId: undefined },
+        ],
+      }),
+    ),
+  )
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="conversation"
+          document={doc}
+          target={{ kind: 'clip', id: 'clip' }}
+          onSaved={() => {}}
+        />,
+      ),
+    )
+    const confirm = host.querySelector<HTMLButtonElement>('[aria-label="确认生成"]')!
+    expect(confirm.disabled).toBe(false)
+    chooseOption('清晰度', '1080p')
+    expect(guard).toHaveBeenLastCalledWith({
+      model: 'grok-imagine-video',
+      quantity: 5,
+      unitMultiplier: 1.6,
+    })
+    expect(confirm.disabled).toBe(true)
+    expect(confirm.textContent).toContain('80')
+    expect(host.textContent).toContain('积分不足')
+    await act(async () => confirm.click())
+    expect(request.mock.calls.some(([url]) => url.endsWith('/confirmations'))).toBe(false)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it('does not apply a late adoption response after switching to another conversation', async () => {
+  let finish: ((value: Response) => void) | undefined
+  request.mockImplementation(async (url: string) => {
+    if (url.endsWith('/adopt'))
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    return new Response(
+      JSON.stringify({ generations: url.includes('/conversation/') ? [candidate] : [] }),
+    )
+  })
+  const onSaved = vi.fn()
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="conversation"
+          document={doc}
+          target={{ kind: 'clip', id: 'clip' }}
+          onSaved={onSaved}
+        />,
+      ),
+    )
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === '采用此结果')!
+        .click(),
+    )
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="other"
+          document={{ ...doc, id: 'otherdoc', conversationId: 'other' }}
+          target={{ kind: 'clip', id: 'other' }}
+          onSaved={onSaved}
+        />,
+      ),
+    )
+    await act(async () =>
+      finish!(new Response(JSON.stringify({ document: { ...doc, revision: 4 } }))),
+    )
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(host.querySelectorAll('video')).toHaveLength(0)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it('polls an accepted task until completion and stops polling the completed candidate', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  let reads = 0
+  request.mockImplementation(async () => {
+    reads++
+    return new Response(
+      JSON.stringify({
+        generations: [reads === 1 ? { ...candidate, status: 'queued', artifacts: [] } : candidate],
+      }),
+    )
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="conversation"
+          document={doc}
+          target={{ kind: 'clip', id: 'clip' }}
+          onSaved={() => {}}
+        />,
+      ),
+    )
+    expect(host.textContent).toContain('排队中')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(host.querySelector('video')).not.toBeNull()
+    expect(reads).toBe(2)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000)
+    })
+    expect(reads).toBe(2)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    vi.useRealTimers()
   }
 })

@@ -4,6 +4,7 @@ import type {
   ProductionGenerationView,
 } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
@@ -11,9 +12,11 @@ import {
   AgentRequestError,
   cancelJob,
   confirmToolPrompt,
+  fetchMessages,
   retryToolCall,
 } from '../../agent/lib/agentClient'
 import { previewArtifactBitmap } from '../../agent/lib/artifactSource'
+import { useAgentStore } from '../../agent/store'
 import type { ProductionResponse } from '../lib/productionClient'
 import {
   adoptGeneration,
@@ -48,7 +51,28 @@ function CandidatePreview({ artifact }: { artifact: AgentToolArtifact }) {
   return bitmap ? <img src={bitmap} alt="" /> : <span>…</span>
 }
 
-export default function ProductionGenerations({
+interface ProductionGenerationsProps {
+  conversationId: string
+  document: ProductionDocument
+  target: { kind: 'look' | 'location' | 'clip'; id: string }
+  onSaved: (next: ProductionResponse) => void
+  refreshKey?: string
+  initialDraft?: GenerationFields
+  preparationBlocked?: string
+  onPreviewArtifact?: (generation: ProductionGenerationView, artifact: AgentToolArtifact) => void
+  adoptedArtifactId?: string
+}
+
+export default function ProductionGenerations(props: ProductionGenerationsProps) {
+  return (
+    <GenerationSession
+      key={`${props.conversationId}:${props.document.id}:${props.target.kind}:${props.target.id}`}
+      {...props}
+    />
+  )
+}
+
+function GenerationSession({
   conversationId,
   document,
   target,
@@ -57,16 +81,8 @@ export default function ProductionGenerations({
   initialDraft,
   preparationBlocked,
   adoptedArtifactId,
-}: {
-  conversationId: string
-  document: ProductionDocument
-  target: { kind: 'look' | 'location' | 'clip'; id: string }
-  onSaved: (next: ProductionResponse) => void
-  refreshKey?: string
-  initialDraft?: GenerationFields
-  preparationBlocked?: string
-  adoptedArtifactId?: string
-}) {
+  onPreviewArtifact,
+}: ProductionGenerationsProps) {
   const { t } = useTranslation('production')
   const [generations, setGenerations] = useState<readonly ProductionGenerationView[]>([])
   const [error, setError] = useState(false)
@@ -82,12 +98,34 @@ export default function ProductionGenerations({
       alive.current = false
     }
   }, [])
+  const syncMessages = async (ids: readonly string[]) => {
+    if (useAgentStore.getState().conversationId !== conversationId) return
+    const snapshot = await fetchMessages(conversationId)
+    for (const message of snapshot.messages) {
+      if (ids.includes(message.id))
+        useAgentStore.getState().acceptGenerationReceipt(conversationId, message)
+    }
+  }
   const operations = useRef(new Map<string, string>())
+  const readEpoch = useRef(0)
+  const read = async (signal?: AbortSignal) => {
+    const epoch = ++readEpoch.current
+    const next = await listGenerations(conversationId, signal)
+    if (!alive.current || signal?.aborted || epoch !== readEpoch.current) return null
+    setGenerations(next.generations)
+    setUncertain((previous) => {
+      const remaining = [...previous].filter(
+        (id) => !next.generations.some((item) => item.messageId === id),
+      )
+      return remaining.length === previous.size ? previous : new Set(remaining)
+    })
+    return next
+  }
   useEffect(() => {
     const controller = new AbortController()
-    void listGenerations(conversationId, controller.signal)
+    void read(controller.signal)
       .then((next) => {
-        if (!controller.signal.aborted) {
+        if (next && !controller.signal.aborted) {
           setGenerations(next.generations)
           setError(false)
         }
@@ -97,6 +135,27 @@ export default function ProductionGenerations({
       })
     return () => controller.abort()
   }, [conversationId, document.revision, refreshKey, retry])
+  useEffect(() => {
+    if (
+      busy ||
+      (!uncertain.size &&
+        !generations.some((item) => item.status === 'queued' || item.status === 'in_progress'))
+    )
+      return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      void read(controller.signal).catch(() => {
+        if (!controller.signal.aborted) {
+          setError(true)
+          setGenerations((previous) => [...previous])
+        }
+      })
+    }, 2500)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [generations, busy, uncertain])
   const asset =
     target.kind === 'location'
       ? document.content.locations?.find((item) => item.id === target.id)
@@ -135,19 +194,33 @@ export default function ProductionGenerations({
   const create = async (fields: GenerationFields) => {
     if (inFlight.current || preparationBlocked) return
     inFlight.current = true
+    readEpoch.current++
     setBusy('new')
     setError(false)
     try {
       const key = JSON.stringify({ revision: document.revision, target, fields })
       const operationId = operations.current.get(key) ?? crypto.randomUUID()
       operations.current.set(key, operationId)
-      const next = await createGeneration(conversationId, {
-        ...fields,
+      const sourceFields = target.kind === 'clip' && initialDraft ? initialDraft : fields
+      let next = await createGeneration(conversationId, {
+        ...sourceFields,
         operationId,
         baseRevision: document.revision,
         target: target.kind,
         targetId: target.id,
       })
+      const signature = (value: GenerationFields) =>
+        JSON.stringify([value.model, value.prompt, value.params, value.video, value.references])
+      if (signature(sourceFields) !== signature(fields)) {
+        next = await editGeneration(
+          conversationId,
+          next.generation.draftId,
+          next.generation.draftRevision,
+          fields,
+        )
+      }
+      await syncMessages([next.generation.messageId])
+      operations.current.delete(key)
       if (alive.current) {
         setGenerations((previous) => [
           ...previous.filter((item) => item.draftId !== next.generation.draftId),
@@ -165,6 +238,7 @@ export default function ProductionGenerations({
   const confirm = async (generation: ProductionGenerationView, fields: GenerationFields) => {
     if (inFlight.current || preparationBlocked) return
     inFlight.current = true
+    readEpoch.current++
     setBusy(generation.draftId)
     setError(false)
     let submitted = false
@@ -176,22 +250,23 @@ export default function ProductionGenerations({
         fields,
       )
       submitted = true
-      await confirmToolPrompt(
+      const message = await confirmToolPrompt(
         conversationId,
         generation.messageId,
         saved.generation.prompt,
         undefined,
         saved.generation.draftRevision,
       )
+      useAgentStore.getState().acceptGenerationReceipt(conversationId, message)
     } catch (cause) {
       setError(true)
       if (submitted && (!(cause instanceof AgentRequestError) || cause.status >= 500))
         setUncertain((previous) => new Set([...previous, generation.messageId]))
     } finally {
       try {
-        const receipt = await listGenerations(conversationId)
-        setGenerations(receipt.generations)
-        const result = receipt.generations.find((item) => item.messageId === generation.messageId)
+        const receipt = await read()
+        if (receipt) await syncMessages([generation.messageId])
+        const result = receipt?.generations.find((item) => item.messageId === generation.messageId)
         if (result && result.status !== 'awaiting_confirmation') {
           setUncertain(
             (previous) => new Set([...previous].filter((id) => id !== generation.messageId)),
@@ -208,17 +283,21 @@ export default function ProductionGenerations({
   const taskAction = async (generation: ProductionGenerationView, cancel: boolean) => {
     if (inFlight.current) return
     inFlight.current = true
+    readEpoch.current++
     setBusy(generation.messageId)
     setError(false)
     try {
       if (cancel && generation.taskId) await cancelJob(conversationId, generation.taskId)
-      else await retryToolCall(conversationId, generation.messageId, undefined)
+      else {
+        const message = await retryToolCall(conversationId, generation.messageId, undefined)
+        useAgentStore.getState().acceptGenerationReceipt(conversationId, message)
+      }
     } catch {
       setError(true)
     } finally {
       try {
-        const receipt = await listGenerations(conversationId)
-        if (alive.current) setGenerations(receipt.generations)
+        const receipt = await read()
+        if (receipt) await syncMessages(receipt.generations.map((item) => item.messageId))
       } catch {
         setError(true)
       }
@@ -229,6 +308,7 @@ export default function ProductionGenerations({
   const adopt = async (generation: ProductionGenerationView, artifact: AgentToolArtifact) => {
     if (inFlight.current) return
     inFlight.current = true
+    readEpoch.current++
     setBusy(artifact.artifactId)
     setError(false)
     try {
@@ -258,16 +338,16 @@ export default function ProductionGenerations({
     <section className="production-generations" aria-label={t('generation.title')}>
       <header>
         <strong>{t('generation.title')}</strong>
-        <button
+        <Button
           type="button"
           disabled={busy !== null || Boolean(preparationBlocked)}
           onClick={startCandidate}
         >
           {t('generation.new')}
-        </button>
-        <button type="button" onClick={() => setRetry((v) => v + 1)}>
+        </Button>
+        <Button type="button" onClick={() => setRetry((v) => v + 1)}>
           {t('generation.refresh')}
-        </button>
+        </Button>
       </header>
       {preparationBlocked && <p role="status">{preparationBlocked}</p>}
       {creating && (
@@ -281,13 +361,13 @@ export default function ProductionGenerations({
       )}
       {error && <p role="alert">{t('generation.failed')}</p>}
       {!candidates.length && !error && <p>{t('generation.empty')}</p>}
-      {candidates.map((generation, index) => (
+      {candidates.map((generation) => (
         <article
           className="production-generation"
           key={`${generation.draftId}:${generation.taskId ?? 'draft'}`}
         >
           <header>
-            <strong>{t('generation.candidate', { number: index + 1 })}</strong>
+            <strong>{t('generation.candidate', { number: generation.messageId.slice(-6) })}</strong>
             <span>
               {t(`generation.status.${generation.status}`, { defaultValue: generation.status })}
             </span>
@@ -308,23 +388,23 @@ export default function ProductionGenerations({
             <p>{generation.prompt}</p>
           )}
           {generation.status === 'failed' && (
-            <button
+            <Button
               type="button"
               disabled={busy !== null}
               onClick={() => void taskAction(generation, false)}
             >
               {t('generation.retry')}
-            </button>
+            </Button>
           )}
           {(generation.status === 'queued' || generation.status === 'in_progress') &&
             generation.taskId && (
-              <button
+              <Button
                 type="button"
                 disabled={busy !== null}
                 onClick={() => void taskAction(generation, true)}
               >
                 {t('generation.cancel')}
-              </button>
+              </Button>
             )}
           <small>
             {generation.model} · V{generation.production.revision}
@@ -333,14 +413,35 @@ export default function ProductionGenerations({
           </small>
           {generation.artifacts.map((artifact) => (
             <div className="production-generation-result" key={artifact.artifactId}>
-              <CandidatePreview artifact={artifact} />
-              <button
+              {onPreviewArtifact && artifact.media !== 'video' ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-auto p-0"
+                  aria-label={t('generation.preview')}
+                  onClick={() => onPreviewArtifact(generation, artifact)}
+                >
+                  <CandidatePreview artifact={artifact} />
+                </Button>
+              ) : (
+                <CandidatePreview artifact={artifact} />
+              )}
+              {onPreviewArtifact && artifact.media === 'video' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onPreviewArtifact(generation, artifact)}
+                >
+                  {t('generation.preview')}
+                </Button>
+              )}
+              <Button
                 type="button"
                 disabled={busy !== null || adopted === artifact.artifactId}
                 onClick={() => void adopt(generation, artifact)}
               >
                 {t(adopted === artifact.artifactId ? 'generation.adopted' : 'generation.adopt')}
-              </button>
+              </Button>
             </div>
           ))}
         </article>
