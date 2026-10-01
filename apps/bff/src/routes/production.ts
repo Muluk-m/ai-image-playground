@@ -1,5 +1,7 @@
 import { Elysia, t } from 'elysia'
 import {
+  adoptProductionProposal,
+  discardProductionProposal,
   ProductionError,
   readProduction,
   restoreProduction,
@@ -28,6 +30,7 @@ export const productionRoutes = new Elysia()
     return {
       document: record?.document ?? null,
       history: query.history === 'true' ? (record?.history ?? []) : [],
+      ...(query.proposals === 'true' ? { proposals: record?.proposals ?? [] } : {}),
     }
   })
   .put(
@@ -71,5 +74,32 @@ export const productionRoutes = new Elysia()
         baseRevision: t.Integer({ minimum: 0 }),
         revision: t.Integer({ minimum: 1 }),
       }),
+    },
+  )
+
+  .post(
+    '/api/agent/conversations/:id/production/proposals/:proposalId/adopt',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await adoptProductionProposal(params.id, authUser.id, params.proposalId, body)
+      return {
+        document: record.document,
+        history: record.history,
+        proposals: record.proposals ?? [],
+      }
+    },
+    {
+      body: t.Object({
+        operationId: t.String({ minLength: 1, maxLength: 128 }),
+        baseRevision: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/production/proposals/:proposalId/discard',
+    async ({ params, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await discardProductionProposal(params.id, authUser.id, params.proposalId)
+      return { document: record.document, history: [], proposals: record.proposals ?? [] }
     },
   )

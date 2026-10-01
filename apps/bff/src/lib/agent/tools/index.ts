@@ -26,7 +26,7 @@ import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
-import { readProduction, writeProduction } from './production'
+import { proposeProductionEdit, readProduction, writeProduction } from './production'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
 import { saveAsset } from './saveAsset'
@@ -59,6 +59,7 @@ export type {
 const TOOLS: readonly AgentToolSpec[] = [
   readProduction,
   writeProduction,
+  proposeProductionEdit,
   generateImage,
   editImage,
   viewImage,
