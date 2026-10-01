@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
+import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
 import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
@@ -71,6 +72,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [
+      startupGuardPlugin(),
       react(),
       themeBootPlugin(),
       seoPlugin({ publicDir: resolve(__dirname, 'public') }),

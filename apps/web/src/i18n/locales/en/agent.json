@@ -400,6 +400,8 @@
     "recent": "Recent projects",
     "results": "Search results",
     "newHint": "Start a new creative project",
+    "expand": "Show {{remaining}} more",
+    "collapse": "Show less",
     "chats": "Chats",
     "canvases": "Canvases",
     "newChat": "New chat",
