@@ -7,11 +7,11 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { APP_MODE_PATHS, LEGACY_PROJECTS_PATH } from '../../lib/appPaths'
 
 const root = resolve(__dirname, '../../../../..')
-const { verifyPagesRelease } = await import(
+const { verifyPagesRelease, verifyPagesReleaseWithRetry } = await import(
   pathToFileURL(join(root, 'scripts/verify-pages-release.mjs')).href
 )
 let dist: string
-const html = '<script type="module" src="/assets/main-123.js"></script>'
+const html = `<meta name="aip-html-build" content="${'a'.repeat(64)}"><script id="startup-guard">guard()</script><script type="module" src="/assets/main-123.js"></script>`
 beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'pages-release-'))
   await mkdir(join(dist, 'assets'))
@@ -94,4 +94,48 @@ it('rejects a broken project deep link even if the home page works', async () =>
       url.pathname.startsWith('/p/') ? new Response('Not found', { status: 404 }) : good(url),
     ),
   ).rejects.toThrow('Application deep link')
+})
+
+it('rejects an old HTML build even if its entry script URL is unchanged', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === '/'
+        ? new Response(html.replace('a'.repeat(64), 'b'.repeat(64)), {
+            headers: { 'content-type': 'text/html' },
+          })
+        : good(url),
+    ),
+  ).rejects.toThrow('Homepage references another release')
+})
+it('rejects HTML without the expected independent startup guard', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === '/'
+        ? new Response(html.replace('guard()', ''), { headers: { 'content-type': 'text/html' } })
+        : good(url),
+    ),
+  ).rejects.toThrow('Homepage references another release')
+})
+it('waits for propagation using the same ordinary URLs', async () => {
+  let attempts = 0
+  await verifyPagesReleaseWithRetry('https://example.test', dist, {
+    intervalMs: 1,
+    timeoutMs: 1000,
+    fetcher: (url: URL) => {
+      expect(url.search).toBe('')
+      if (url.pathname === '/' && ++attempts === 1)
+        return Promise.resolve(new Response('Old version', { status: 503 }))
+      return good(url)
+    },
+  })
+  expect(attempts).toBe(2)
+})
+it('stops retrying a persistently broken release at the deadline', async () => {
+  await expect(
+    verifyPagesReleaseWithRetry('https://example.test', dist, {
+      intervalMs: 2,
+      timeoutMs: 15,
+      fetcher: () => Promise.resolve(new Response('Old version', { status: 503 })),
+    }),
+  ).rejects.toThrow()
 })
