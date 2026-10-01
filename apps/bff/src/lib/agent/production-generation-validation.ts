@@ -1,6 +1,12 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { AgentDraftSubmission } from '@image-playground/db'
-import { type ProductionGenerationDraftInput, productionClipVideo } from '@image-playground/shared'
+import {
+  GEMINI_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_THINKING_LEVELS,
+  type ProductionGenerationDraftInput,
+  productionClipVideo,
+} from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
@@ -46,18 +52,26 @@ export function validateImageParameters(
   )
     throw new ProductionError('production_invalid')
   if (provider === 'gemini') {
+    if (
+      !model.trim().toLowerCase().startsWith('gemini') &&
+      (params.gemini_image_size || params.gemini_thinking_level)
+    )
+      throw new ProductionError('production_invalid')
     if (params.output_format || params.output_compression !== undefined)
       throw new ProductionError('production_invalid')
     if (
       params.gemini_aspect_ratio &&
-      !['1:1', '16:9', '9:16', '4:3', '3:4'].includes(params.gemini_aspect_ratio)
+      !GEMINI_ASPECT_RATIOS.some((value) => value === params.gemini_aspect_ratio)
     )
       throw new ProductionError('production_invalid')
-    if (params.gemini_image_size && !['1K', '2K', '4K'].includes(params.gemini_image_size))
+    if (
+      params.gemini_image_size &&
+      !GEMINI_IMAGE_SIZES.some((value) => value === params.gemini_image_size)
+    )
       throw new ProductionError('production_invalid')
     if (
       params.gemini_thinking_level &&
-      !['minimal', 'low', 'medium', 'high'].includes(params.gemini_thinking_level)
+      !GEMINI_THINKING_LEVELS.some((value) => value === params.gemini_thinking_level)
     )
       throw new ProductionError('production_invalid')
   }
