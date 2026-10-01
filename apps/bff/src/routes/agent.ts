@@ -32,6 +32,7 @@ import {
   cancelAgentConversationJobs,
   cancelAgentJob,
 } from '../lib/agent/background-jobs'
+import { discardConversationBatchDrafts } from '../lib/agent/batch-plans'
 import {
   confirmAgentGeneration,
   discardConversationDraftInputs,
@@ -99,6 +100,7 @@ import { objectStore } from '../lib/objectStore'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { MediaError } from '../lib/projectMedia'
 import { resolveAuthUser } from '../lib/user-auth'
+import { agentBatchRoutes } from './agent-batches'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
 function ownerOf(authUser: AuthUserView | null, deviceId: string): AgentOwner {
@@ -267,6 +269,7 @@ async function conversationBusy(conversationId: string): Promise<boolean> {
 }
 
 export const agentRoutes = new Elysia()
+  .use(agentBatchRoutes)
   .use(badRequestOnValidation())
   .onBeforeHandle(() => {
     if (!isCapabilityEnabled('agent:chat')) return capabilityUnavailable('agent:chat')
@@ -816,6 +819,7 @@ export const agentRoutes = new Elysia()
         // 墓碑与取消也同一次提交，没有「删完又冒出一条任务」的缝。
         await db.transaction(async (tx) => {
           await lockConversation(tx, conversation.id, owner.kind === 'user' ? owner.userId : null)
+          await discardConversationBatchDrafts(conversation.id, tx)
           await softDeleteAgentConversation(conversation.id, owner, tx)
           // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
           await cancelAgentConversationJobs(conversation.id, tx)
