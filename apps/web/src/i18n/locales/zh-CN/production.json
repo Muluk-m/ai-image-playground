@@ -208,7 +208,7 @@
     "tooLarge": "原件超过打包上限，请减少选择或单独下载。",
     "unknownSize": "部分原件大小未知，请重试检查，或取消选择这些原件。",
     "download": "下载 ZIP 资源包",
-    "partial_other": "仍导出可用资源（缺失 {{count}} 项）",
+    "partialFiles_other": "仍导出可用资源（缺失 {{count}} 项）",
     "retry": "重新检查原件",
     "textOnly": "仅导出制作文档",
     "inspecting": "正在检查原件…",
