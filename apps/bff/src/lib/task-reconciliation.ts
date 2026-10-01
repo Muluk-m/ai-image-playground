@@ -221,6 +221,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
   }, RECONCILIATION_HEARTBEAT_MS)
   try {
     let reason: string | undefined
+    let candidateRecoveryFailed = false
     let update: TerminalTaskUpdate | undefined
     const taskIds = claim.taskIds
     if (command.action === 'confirm_no_result') {
@@ -238,20 +239,26 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
           // Recover protected output from saved candidates before depending on the provider's retention.
           let missing = await missingGenerationOutputs(taskId, task.provider, checkpoint)
           if (missing.size && task.request_payload.preserve_outside_mask) {
-            const hydrated = await hydrateInputImages(task.request_payload)
-            transform = await protectMaskedOutput(
-              hydrated.input_images?.[0] ?? '',
-              hydrated.mask ?? '',
-              task.request_payload.masked_original_size,
-            )
-            checkpoint = await spoolGenerationOutputs(
-              taskId,
-              task.provider,
-              checkpoint,
-              transform,
-              controller.signal,
-            )
-            missing = await missingGenerationOutputs(taskId, task.provider, checkpoint)
+            try {
+              const hydrated = await hydrateInputImages(task.request_payload)
+              transform = await protectMaskedOutput(
+                hydrated.input_images?.[0] ?? '',
+                hydrated.mask ?? '',
+                task.request_payload.masked_original_size,
+              )
+              checkpoint = await spoolGenerationOutputs(
+                taskId,
+                task.provider,
+                checkpoint,
+                transform,
+                controller.signal,
+              )
+            } catch {
+              // Missing output is already confirmed; a bad candidate must not prevent read-only upstream recovery.
+              candidateRecoveryFailed = true
+            }
+            if (!candidateRecoveryFailed)
+              missing = await missingGenerationOutputs(taskId, task.provider, checkpoint)
           }
           // A successful listing proves loss; storage unavailability must not discard the checkpoint.
           if (missing.size) checkpoint = null
@@ -383,6 +390,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
           digest,
           status,
           ...(reason ? { reason } : {}),
+          ...(candidateRecoveryFailed ? { candidateRecovery: 'failed' } : {}),
           upstreamTaskIds: taskIds,
         },
       })

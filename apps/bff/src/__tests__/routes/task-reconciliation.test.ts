@@ -906,7 +906,11 @@ it.each([
   }
 })
 
-it('recovers a saved masked candidate before querying an expired provider result', async () => {
+it.each([
+  'saved',
+  'corrupt',
+  'listing-error',
+] as const)('recovers a masked result using the %s candidate or the original provider request', async (mode) => {
   const durable = new DurableFixture()
   setDurableMediaStoreForTesting(durable)
   const pixels = Buffer.alloc(96 * 96 * 4)
@@ -952,7 +956,11 @@ it('recovers a saved masked candidate before querying an expired provider result
   try {
     await execution!.recordDispatchIntent()
     await execution!.recordUpstreamTaskIds(['imgtask_expired_masked'], false)
-    await durable.write(`${id}/candidate/0`, candidate, 'image/png')
+    await durable.write(
+      `${id}/candidate/0`,
+      mode !== 'corrupt' ? candidate : Buffer.from('corrupt candidate'),
+      'image/png',
+    )
     const checkpoint = generationSourceCheckpoint(id, 'openai-compat', {
       data: [{ b64_json: candidate.toString('base64') }],
     })
@@ -961,27 +969,51 @@ it('recovers a saved masked candidate before querying an expired provider result
   } finally {
     execution!.release()
   }
+  let outputListings = 0
+  const listPrefix = durable.listPrefix.bind(durable)
+  durable.listPrefix = async (prefix) => {
+    if (mode === 'listing-error' && prefix === `${id}/out/` && ++outputListings === 2)
+      throw new Error('temporary listing outage after protected output persisted')
+    return listPrefix(prefix)
+  }
   let queries = 0
-  setUpstreamFetchForTesting(
-    Object.assign(
-      async () => {
-        queries++
-        return Response.json({ error: 'expired' }, { status: 404 })
-      },
-      { preconnect() {} },
-    ),
-  )
-  const response = await operate(id, 'POST', {
+  setUpstreamFetchForTesting(async (url) => {
+    queries++
+    expect(String(url)).not.toEndWith('/async')
+    return mode !== 'corrupt'
+      ? Response.json({ error: 'expired' }, { status: 404 })
+      : Response.json({
+          status: 'completed',
+          result: { data: [{ b64_json: candidate.toString('base64') }] },
+        })
+  })
+  let response = await operate(id, 'POST', {
     commandId: 'restore-candidate',
     operatorId: 'operator',
     action: 'lookup',
     evidence: 'Use locally saved original candidate before remote lookup',
   })
+  if (mode === 'listing-error') {
+    expect(await response.json()).toMatchObject({
+      status: 'reconciling',
+      reason: 'archive_incomplete',
+    })
+    expect(queries).toBe(0)
+    expect(billing.settlements).toHaveLength(0)
+    response = await operate(id, 'POST', {
+      commandId: 'retry-after-listing-recovered',
+      operatorId: 'operator',
+      action: 'lookup',
+      evidence: 'Object listing is available again',
+    })
+  }
   expect(await response.json()).toMatchObject({ status: 'completed' })
-  expect(queries).toBe(0)
+  expect(queries).toBe(mode === 'corrupt' ? 1 : 0)
   expect(
     [
-      ...(await sharp(await durable.read(`${id}/out/0`))
+      ...(await sharp(
+        Buffer.from(await (await request(`/v1/queue/requests/${id}/image/0`)).arrayBuffer()),
+      )
         .raw()
         .toBuffer()),
     ].slice(0, 8),
