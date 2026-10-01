@@ -45,9 +45,11 @@ export async function imageSelection(
 ): Promise<ImageSelection | undefined> {
   if (!reference.maskDataUrl) return undefined
   try {
-    await sharp(Buffer.from(reference.dataUrl.split(',')[1]!, 'base64'), {
+    const originalMetadata = await sharp(Buffer.from(reference.dataUrl.split(',')[1]!, 'base64'), {
       limitInputPixels: settings.maxPixels,
     }).metadata()
+    if ((originalMetadata.orientation ?? 1) !== 1)
+      throw new Error('图片方向与选区无法对应，请重新添加图片并圈选')
     const normalized = await toModelImageDataUrl(reference.dataUrl)
     const raw = Buffer.from(normalized.split(',')[1]!, 'base64')
     const mask = Buffer.from(reference.maskDataUrl.split(',')[1]!, 'base64')

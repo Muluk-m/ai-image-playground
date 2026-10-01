@@ -11,7 +11,8 @@ import type {
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import { db } from '../../db/client'
+import { and, eq } from 'drizzle-orm'
+import { db, schema } from '../../db/client'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
@@ -30,6 +31,7 @@ import { ConversationExecutionLost, type TurnExecution } from './execution'
 import {
   type AgentImageReference,
   archiveAgentReferences,
+  claimConversationMedia,
   createAgentImageSource,
   removeAgentTurnReferences,
   requireAgentImages,
@@ -52,6 +54,7 @@ import {
   requestOverheadTokens,
 } from './request-budget'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
+import { InvalidSelectionError } from './selection-preview'
 import type { AgentTurnAudience } from './skills'
 import { agentThinking } from './thinking'
 import {
@@ -127,6 +130,7 @@ export interface PreparedAgentTurn {
 interface OpenAssistantMessage {
   readonly id: string
   text: string
+  persisted?: boolean
 }
 
 interface OpenToolCall {
@@ -399,15 +403,29 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const store = (message: OpenAssistantMessage) =>
     write(async (executor) => {
       if (!message.text) return
-      remember(
-        await appendAgentMessage(executor, {
-          id: message.id,
-          conversationId,
-          turnId,
-          role: 'assistant',
-          content: [{ type: 'text', text: message.text }],
-        }),
-      )
+      if (message.persisted) {
+        await executor
+          .update(schema.agent_messages)
+          .set({ content: [{ type: 'text', text: message.text }] })
+          .where(
+            and(
+              eq(schema.agent_messages.conversation_id, conversationId),
+              eq(schema.agent_messages.id, message.id),
+            ),
+          )
+        const previous = storedMessages.get(message.id)
+        if (previous) remember({ ...previous, content: [{ type: 'text', text: message.text }] })
+      } else {
+        remember(
+          await appendAgentMessage(executor, {
+            id: message.id,
+            conversationId,
+            turnId,
+            role: 'assistant',
+            content: [{ type: 'text', text: message.text }],
+          }),
+        )
+      }
       storedAny = true
     })
 
@@ -574,12 +592,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     async interject(text, references = [], options = {}) {
       if (!acceptingInterjections || aborted) return null
       const evidence = await turnVisualEvidence(
-        await resolveTurnReferences(references, conversationId, prepared.userId),
+        await resolveTurnReferences(references, conversationId, prepared.userId, !options.claim),
       )
       if (!acceptingInterjections || aborted) return null
       await execution.assert()
       const messageId = options.messageId ?? crypto.randomUUID()
-      const archiveId = `${turnId}/interjections/${messageId}`
+      const archiveId = `${turnId}/interjections/${messageId}${options.claim ? '' : `/${crypto.randomUUID()}`}`
       const stored = await archiveAgentReferences(conversationId, archiveId, references)
       // 上传期间本轮可能已结束；拒收并只清理本次上传，不能误删首轮或其它插话的引用。
       const reject = async () => {
@@ -591,6 +609,84 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (options.claim && !(await options.claim())) return reject()
       // 取走之后到这里之间本轮可能刚好收尾：交由调用方放回收件箱。
       if (!acceptingInterjections || aborted) return reject()
+      if (!options.claim) {
+        // Reserve the visible assistant message's position without ending its stream.
+        const current = open
+        let persistedCurrent = false
+        const refused = new Error('interjection_not_accepted')
+        let outcome: 'accepted' | 'duplicate' | 'rejected'
+        try {
+          const admission = writes
+            .then(() =>
+              execution.write(async (tx) => {
+                const [existing] = await tx
+                  .select({ id: schema.agent_messages.id })
+                  .from(schema.agent_messages)
+                  .where(
+                    and(
+                      eq(schema.agent_messages.conversation_id, conversationId),
+                      eq(schema.agent_messages.id, messageId),
+                    ),
+                  )
+                  .limit(1)
+                if (existing) return 'duplicate' as const
+                if (!acceptingInterjections || aborted) return 'rejected' as const
+                if (
+                  !(await claimConversationMedia(conversationId, prepared.userId, references, tx))
+                )
+                  throw new InvalidSelectionError('参考图或选区不可用，请重新添加')
+                // Stopping while waiting for the media owner lock must roll back every claim.
+                if (!acceptingInterjections || aborted) throw refused
+                if (current?.text && !current.persisted) {
+                  remember(
+                    await appendAgentMessage(tx, {
+                      id: current.id,
+                      conversationId,
+                      turnId,
+                      role: 'assistant',
+                      content: [{ type: 'text', text: current.text }],
+                    }),
+                  )
+                  persistedCurrent = true
+                }
+                remember(
+                  await appendAgentMessage(tx, {
+                    id: messageId,
+                    conversationId,
+                    turnId,
+                    role: 'user',
+                    content: [
+                      { type: 'text', text, ...(stored.length ? { references: stored } : {}) },
+                    ],
+                  }),
+                )
+                return 'accepted' as const
+              }),
+            )
+            .then((result) => {
+              if (persistedCurrent && current) {
+                current.persisted = true
+                storedAny = true
+              }
+              return result
+            })
+          // A refused admission is handled by this request; later stream writes still run.
+          writes = admission.then(
+            () => {},
+            () => {},
+          )
+          outcome = await admission
+        } catch (error) {
+          if (error === refused) return reject()
+          await reject()
+          throw error
+        }
+        if (outcome === 'rejected') return reject()
+        if (outcome === 'duplicate') {
+          await reject()
+          return messageId
+        }
+      }
       const active = references.length ? references : images.references
       const steered = turnModelPrompt(
         turnPromptText(expandSkillInvocation(text, mode, audience), active, references.length > 0),
@@ -600,10 +696,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       // 授权原文仍是用户打的那句：`/skill-name` 展开出来的是给模型看的指引，不是他的许可。
       pending.push({ references, text, active })
       steeringReferences.set(steered.text, pending)
-      queued.push({ id: messageId, text, references: stored })
+      if (options.claim) queued.push({ id: messageId, text, references: stored })
       if (!open) flushQueued()
       events.emit({ type: 'interjection', messageId, text })
-      await execution.assert()
+      if (options.claim) await execution.assert()
       agent.steer({
         role: 'user',
         content: [{ type: 'text', text: steered.text }, ...steered.content],

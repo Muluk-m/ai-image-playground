@@ -73,7 +73,7 @@ import {
   attachmentUploadRevision,
   attachmentUploadState,
   primeAttachmentUploads,
-  retryAttachmentUpload,
+  retryAttachmentUploads,
   subscribeAttachmentUploads,
 } from '../lib/attachmentUploads'
 import { setAgentComposerFill } from '../lib/composerFill'
@@ -168,8 +168,8 @@ export default function AgentComposer({
     const state = attachmentUploadState(reference)
     return state !== undefined && state !== 'ready'
   })
-  const retryUpload = (source: string) => {
-    void retryAttachmentUpload(source).catch(() => {})
+  const retryUpload = (reference: AgentReference) => {
+    void retryAttachmentUploads(reference).catch(() => {})
   }
   // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
   useEffect(
@@ -694,7 +694,7 @@ export default function AgentComposer({
                       type="button"
                       className={GHOST_LINK}
                       aria-label={t('composer.retryUploadAria', { label })}
-                      onClick={() => retryUpload(reference.dataUrl)}
+                      onClick={() => retryUpload(reference)}
                     >
                       {t('composer.retryUpload')}
                     </button>

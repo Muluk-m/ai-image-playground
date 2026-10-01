@@ -4,8 +4,13 @@ import type { AgentMessageView } from '@image-playground/shared'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = 'postgres://unused/model-history'
-const { modelHistoryTransform, modelHistorySkillsMatch, readModelHistory, writeModelHistory } =
-  await import('../../../lib/agent/model-history')
+const {
+  canRetainModelHistory,
+  modelHistoryTransform,
+  modelHistorySkillsMatch,
+  readModelHistory,
+  writeModelHistory,
+} = await import('../../../lib/agent/model-history')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 
 const product: AgentMessageView[] = [
@@ -173,6 +178,38 @@ describe('durable model history cache', () => {
       await readModelHistory({ ...identity, history: [{ ...product[0]!, id: 'next-user' }] }),
     ).toBeUndefined()
   }, 10_000)
+
+  it('keeps cloud mask bindings scoped to the originating request', () => {
+    const history = {
+      coveredCount: 0,
+      compaction: { summary: null, anchor: null, verbatim: null, failureCount: 0, openedAt: null },
+      messages: product,
+    }
+    expect(canRetainModelHistory(history)).toBe(true)
+    expect(
+      canRetainModelHistory({
+        ...history,
+        messages: [
+          {
+            ...product[0]!,
+            content: [
+              {
+                type: 'text',
+                text: '只改选区',
+                references: [
+                  {
+                    imageId: 'photo',
+                    mediaId: '11111111-1111-4111-8111-111111111111',
+                    maskMediaId: '22222222-2222-4222-8222-222222222222',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(false)
+  })
 
   it('never restores unfinished calls or request-scoped selection bindings', async () => {
     await writeModelHistory(identity, messages.slice(0, 2))
