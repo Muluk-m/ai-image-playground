@@ -4,7 +4,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/deploy-common.sh"
 target=${1:-}
-case "$target" in internal) editions=internal ;; paid) editions=paid ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|all /absolute/release-directory" >&2; exit 2 ;; esac
+case "$target" in internal) editions=internal ;; paid) editions=paid ;; test) editions='test' ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|test|all /absolute/release-directory" >&2; exit 2 ;; esac
 release=${2:-}
 case "$release" in /*) ;; *) echo "Prebuilt release required. Run build-vps-release.sh on macmini2 first." >&2; exit 2 ;; esac
 [ -f "$release/SHA256SUMS" ] || { echo "Incomplete release: no checksums" >&2; exit 1; }
@@ -16,8 +16,16 @@ INTERNAL_PROJECT=${INTERNAL_PROJECT:-image-playground-internal}
 INTERNAL_IMAGE=${INTERNAL_IMAGE:-ai-image-playground:vps-main}
 PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
+TEST_PROJECT='image-playground-test'
+# shellcheck disable=SC2034  # edition_var reads the target alias.
+TEST_IMAGE='ai-image-playground:test'
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-2}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
+if [ "$target" = test ]; then
+  sh "$repo_root/scripts/check-test-isolation.sh" runtime "$config_root/apps/$TEST_PROJECT"
+  MIGRATOR_ENV_FILE=$config_root/apps/$TEST_PROJECT/migrate.env
+  export MIGRATOR_ENV_FILE
+fi
 public_sha=-
 private_sha=-
 current_edition=
@@ -41,10 +49,12 @@ present=$(cd "$release" && find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' 
 [ "$listed" = "$present" ] || { echo "Release files not covered by SHA256SUMS" >&2; exit 1; }
 # Require exactly one record per requested edition and only inert, well-formed fields. The sixth
 # column, the registry digest, is `-` or absent in archive releases.
-awk -F '\t' -v repo="$ghcr_repository@sha256:" '
-  (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|backup)$/ || seen[$1]++ { exit 1 }
+awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
+  target == "test" && $1 != "test" && $1 != "backup" { exit 1 }
+  $1 == "test" && $2 !~ /^ai-image-playground:test-/ { exit 1 }
+  (NF != 5 && NF != 6) || $1 !~ /^(internal|paid|test|backup)$/ || seen[$1]++ { exit 1 }
   NF == 6 && $6 != "-" && (index($6, repo) != 1 || substr($6, length(repo) + 1) !~ /^[0-9a-f]+$/ || length($6) != length(repo) + 64) { exit 1 }
-  $2 !~ /^ai-image-playground:(vps-main|paid|backup)-[0-9a-f-]+$/ { exit 1 }
+  $2 !~ /^ai-image-playground:(vps-main|paid|test|backup)-[0-9a-f-]+$/ { exit 1 }
   $3 !~ /^sha256:[0-9a-f]+$/ || length($3) != 71 { exit 1 }
   $4 !~ /^[0-9a-f]+$/ || length($4) != 40 { exit 1 }
   $5 != "-" && ($5 !~ /^[0-9a-f]+$/ || length($5) != 40) { exit 1 }
@@ -78,7 +88,7 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   fi
   [ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || { echo "Wrong image platform: $image" >&2; exit 1; }
   version=$public_sha
-  if [ "$edition" = paid ]; then
+  if [ "$edition" = paid ] || [ "$edition" = test ]; then
     [ "$private_sha" != - ] || exit 1
     version=$public_sha+$private_sha
   fi
@@ -130,7 +140,9 @@ EOF
   current_edition=
   prune_old_images "$(edition_var "$prefix" IMAGE)" "$image"
 done
-docker tag "$backup_image" ai-image-playground-pg-backup:local
-prune_old_images ai-image-playground:backup "$backup_image"
-prune_old_releases "$release"
+if [ "$target" != test ]; then
+  docker tag "$backup_image" ai-image-playground-pg-backup:local
+  prune_old_images ai-image-playground:backup "$backup_image"
+  prune_old_releases "$release"
+fi
 echo "Deployed prebuilt release: $release"
