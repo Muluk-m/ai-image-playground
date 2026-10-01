@@ -18,6 +18,7 @@ type Uploadable = {
 interface Entry {
   state: MediaUploadState
   result?: MediaUploadResult
+  errorCode?: string
   promise: Promise<MediaUploadResult>
   controller: AbortController
 }
@@ -71,6 +72,12 @@ export function attachmentUploadState(reference: Uploadable): MediaUploadState |
   )
 }
 
+export function attachmentUploadError(reference: Uploadable): string | undefined {
+  return sourcesToUpload(reference)
+    .map((source) => currentEntries().get(source)?.errorCode)
+    .find(Boolean)
+}
+
 function start(source: string, retry = false): Promise<MediaUploadResult> {
   const cache = currentEntries()
   const previous = cache.get(source)
@@ -88,20 +95,26 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
       entry.state = state
       changed()
     },
-  }).then((result) => {
-    if (!result) throw new Error('attachment_upload_missing')
-    entry.result = result
-    changed()
-    // Draft pixels live in the draft store; keep only a bounded upload cache in memory.
-    if (cache.size > 64) {
-      for (const [key, value] of cache) {
-        if (cache.size <= 64) break
-        if (key !== source && (value.state === 'ready' || value.state === 'failed'))
-          cache.delete(key)
-      }
-    }
-    return result
   })
+    .then((result) => {
+      if (!result) throw new Error('attachment_upload_missing')
+      entry.result = result
+      changed()
+      // Draft pixels live in the draft store; keep only a bounded upload cache in memory.
+      if (cache.size > 64) {
+        for (const [key, value] of cache) {
+          if (cache.size <= 64) break
+          if (key !== source && (value.state === 'ready' || value.state === 'failed'))
+            cache.delete(key)
+        }
+      }
+      return result
+    })
+    .catch((error: unknown) => {
+      entry.errorCode = error instanceof Error ? error.message : 'attachment_upload_failed'
+      changed()
+      throw error
+    })
   return entry.promise
 }
 
