@@ -39,9 +39,30 @@ Explicit-failure retry, dependency blocking, insufficient-credit pause, authenti
 
 A production Web build against the controlled PostgreSQL fixture showed 100 items in five 20-item pages. Confirming admitted three tasks, pausing kept the count at three after those completed, and reloading retained the paused state, page 5 and 21 settled test credits. Resuming reached 98 successes, one definite failure and one unknown outcome without a final wake. Selecting only the definite failure quoted seven credits and created exactly one new attempt after explicit confirmation. The unknown item offered no retry selection.
 
-After that retry, 101 generation submissions and reservations produced 99 successes and 693 settled test credits. Two identical audited reconciliation commands for the unknown attempt yielded one consumed batch/version notice and one additional Agent turn (three model calls total). Reloading displayed the final summary without adding a generation call, reservation or model call. The final summary was observed after reload; this run does not establish immediate live delivery of that summary. API cursor pages were `[17,17,17,17,17,15]`, with 100 distinct items. The UI's attempt counter was corrected from an invalid `101 / 100` ratio to a cumulative submission count.
+After that retry, 101 generation submissions and reservations produced 99 successes and 693 settled test credits. Two identical audited reconciliation commands for the unknown attempt yielded one consumed batch/version notice and one additional Agent turn (three model calls total). Reloading displayed the final summary without adding a generation call, reservation or model call. A final rerun with Bun 1.4.2 (matching the production runtime) and the current Web build displayed the final summary automatically while the conversation remained open, without reload or another user message. It retained exactly 101 generation calls/reservations, 693 settled test credits, three model calls and one consumed notice for version 2. The browser selected and confirmed only failed item 017; the unknown outcome was reconciled through the audited fixture endpoint. The screenshot `final-live-bun142.png` records that live summary. API cursor pages were `[17,17,17,17,17,15]`, with 100 distinct items. The UI's attempt counter was corrected from an invalid `101 / 100` ratio to a cumulative submission count.
 
 The first fixture startup lacked a project binding, so the fixture conversation was bound through the real project API before browser execution. The reusable fixture now creates and binds the project before planning. Tiny distinct-color images and mocked upstream prices establish control and accounting behavior, not production generation quality or large-image throughput.
+
+## Real provider small-image analysis
+
+On 2026-10-02 (Asia/Shanghai), the candidate source mirror on macmini2 using Bun 1.3.14 completed one real `gpt-5.6-luna` analysis through the configured OpenAI-compatible gateway. Run `muq0m4xf_9a81e105` used two 512 × 512 synthetic originals: a red square with a white 7 and a blue circle with a white 3. The model identified both colors, shapes and digits correctly and compared them. The real PostgreSQL task completed, the batch closed, and HTTP reads returned both findings with preview evidence and no missing image IDs.
+
+| Evidence | Observed |
+| --- | ---: |
+| Real analysis HTTP requests / retries | 1 / 0 |
+| Final serialized request body | 13,053 B |
+| Visual blocks | 2 |
+| Reported input / output tokens | 756 / 141 |
+| Configured maximum output tokens | 1,024 |
+| Time to response headers | 6,261 ms |
+| Holds / task ledger entries / generation tasks or archives | 0 / 0 / 0 |
+| Reserved / actual user credits | 0 / 0 |
+
+The preceding preparation run `muq0kvvr_762e7986` completed media upload, quotation and confirmation with zero provider dispatches. The live run used the current private billing hooks and an isolated price catalogue with `chat-free` enabled: independent task, attempt, quote and known usage were retained, while the exemption correctly avoided a hold or user charge. This verifies the exemption path, not production catalogue rates or non-exempt settlement.
+
+The fixed human-authored plan called the production plan-creation function; no model planner was mocked or invoked. Upload reservation/completion, binary PUT and confirmation used real HTTP, but the isolated object service ran on loopback rather than R2. The session was issued for a synthetic test account. No ordinary chat call, aggregate wake pickup, image generation or retry was executed. These boundaries exclude natural-language planning, production login, cloud storage and full 100-image model analysis from this result.
+
+The successful body was 13,053 bytes. Neither the probe's 1 MiB application guard nor the proposed 16 MiB production guard was exercised at its limit; this sample does not establish either gateway limit. Raw evidence is retained under `.scratch/provider-compat/runs/<runId>/evidence.json`. Its Git revision fields come from an rsync mirror and are not a reliable source revision; preserve the run evidence with the candidate source snapshot. Final database and execution regressions were subsequently repeated under Bun 1.4.2 to match production. This provider sample predates the final read-only pagination transaction fix.
 
 ## Release acceptance still required
 
