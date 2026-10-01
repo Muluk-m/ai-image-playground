@@ -147,10 +147,8 @@ export interface AgentSkillSummary {
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
  * 所以顺序不能在传输途中被重排。
  *
- * 两种形态由字节在哪儿决定，不由来源决定：像素只在这台浏览器里（拖进来的文件、
- * 烧了批注的合成图、遮罩编辑器的产出）就内联；字节已经在云媒体里（画布上选中的原图）
- * 就只带 id。后者曾经也内联：一次把八张原图下回浏览器再 base64 传上去，
- * 请求体几十 MB、要传几分钟，还白占一遍出站带宽。
+ * 启用附件上传后，原件与遮罩先就绪再传媒体身份；旧客户端与纯静态入口仍可内联。
+ * 批注、裁剪、扩图产生的新像素必须拥有自己的媒体身份，不能沿用画布原图绑定。
  */
 export type AgentTurnReference = AgentInlineReference | AgentMediaReference
 
@@ -179,12 +177,15 @@ export interface AgentInlineReference {
 /**
  * 字节在云媒体里的参考图（`media_objects.id`）。
  *
- * 它没有遮罩：画遮罩与烧批注都产出新像素，那张图在 R2 里并不存在，只能内联。
+ * 原件和遮罩分别使用不可变媒体身份，编辑动作与区域属于同一份发话快照。
  */
 export interface AgentMediaReference {
   readonly imageId: string
   readonly mediaId: string
   readonly name?: string
+  readonly maskMediaId?: string
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 export type AgentStoredReference = AgentStoredInlineReference | AgentStoredMediaReference
@@ -199,11 +200,7 @@ export interface AgentStoredInlineReference {
 }
 
 /** 云媒体那一路的快照：字节留在 R2，会话只按 id 认领它（见 `media_references`）。 */
-export interface AgentStoredMediaReference {
-  readonly imageId: string
-  readonly name?: string
-  readonly mediaId: string
-}
+export type AgentStoredMediaReference = AgentMediaReference
 
 /**
  * 一轮里生效的生成参数：用户在输入框的参数浮层里选，随起轮一起送到服务端，

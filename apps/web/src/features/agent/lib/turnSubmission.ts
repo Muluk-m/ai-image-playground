@@ -126,9 +126,7 @@ export function captureTurnSubmission(input: {
                 ...snapshot.canvas,
                 elements: snapshot.canvas.elements.map((element) => {
                   const mediaId = media.get(element.id)
-                  return element.type === 'image' && !element.mediaId && mediaId
-                    ? { ...element, mediaId }
-                    : element
+                  return element.type === 'image' && mediaId ? { ...element, mediaId } : element
                 }),
               },
             }

@@ -5,6 +5,7 @@ import type {
   AgentConfirmationResponse,
   AgentConversationSnapshot,
   AgentImageEditAction,
+  AgentMarkedRegion,
   AgentMessageQueuedBody,
   AgentQueueFullBody,
   AgentRetryRefusedBody,
@@ -63,10 +64,10 @@ import {
 } from '../lib/agent/events'
 import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
 import {
-  claimConversationMedia,
   readConversationMedia,
   readyCanvasMediaIds,
   removeAgentConversationReferences,
+  validateConversationMediaSelections,
 } from '../lib/agent/images'
 import { type InboxEntry, queuedAgentMessages } from '../lib/agent/inbox'
 import { withAgentLifecycle } from '../lib/agent/lifecycle'
@@ -119,6 +120,50 @@ function referenceHeaders(contentType: string): Record<string, string> {
   }
 }
 
+/** The history preview paints a mark without changing the separately served original. */
+async function renderReferenceImage(
+  image: { readonly bytes: Uint8Array; readonly contentType: string },
+  original: boolean,
+  marked?: { readonly bytes: Uint8Array; readonly contentType: string },
+  regions?: readonly AgentMarkedRegion[],
+): Promise<Response> {
+  let visibleBytes = image.bytes
+  if (marked) {
+    let mask = marked.bytes
+    let source = image.bytes
+    if (!original) {
+      const resized = await sharp(source)
+        .rotate()
+        .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer({ resolveWithObject: true })
+      source = resized.data
+      mask = await sharp(mask).resize(resized.info.width, resized.info.height).png().toBuffer()
+    }
+    if (!original && (await sharp(mask).stats()).channels.at(-1)?.min === 255) {
+      // A valid tiny mark may vanish when quantized to thumbnail pixels.
+      visibleBytes = source
+    } else {
+      const annotated = await selectionPreview({
+        dataUrl: `data:${image.contentType};base64,${Buffer.from(source).toString('base64')}`,
+        maskDataUrl: `data:${marked.contentType};base64,${Buffer.from(mask).toString('base64')}`,
+        regions,
+      })
+      visibleBytes = Buffer.from(annotated.data, 'base64')
+    }
+  }
+  const bytes = original
+    ? visibleBytes
+    : await sharp(visibleBytes)
+        .rotate()
+        .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer()
+  return new Response(bytes as Uint8Array<ArrayBuffer>, {
+    headers: referenceHeaders(original ? (marked ? 'image/png' : image.contentType) : 'image/webp'),
+  })
+}
+
 /**
  * 参数浮层里选的生成参数。全部可选：没选的项由部署默认补齐，选了坏值也不该让整轮失败——
  * 映射那一步会把认不得的值丢掉（见 `lib/agent/tools/queueParams.ts`）。
@@ -145,7 +190,7 @@ const paramsSchema = t.Optional(
  *
  * 两路合成一个对象、由 `turnReferences` 分辨，而不是写成 `t.Union`：exact-mirror 没有
  * TypeCompiler 时不支持 Union，路由一编译就是一条启动期告警，而且那条路由从此不再做
- * 请求体裁剪。云媒体那一路没有遮罩：画遮罩、烧批注都产出新像素，那张图在 R2 里并不存在。
+ * 请求体裁剪。原件与遮罩分别携带内联字节或已就绪的媒体身份。
  */
 const referencesSchema = t.Optional(
   t.Array(
@@ -153,6 +198,7 @@ const referencesSchema = t.Optional(
       imageId: t.String({ minLength: 1, maxLength: 128 }),
       dataUrl: t.Optional(imageDataUrlSchema()),
       mediaId: t.Optional(t.String({ format: 'uuid' })),
+      maskMediaId: t.Optional(t.String({ format: 'uuid' })),
       name: t.Optional(t.String({ maxLength: 200 })),
       maskDataUrl: t.Optional(imageDataUrlSchema()),
       editAction: t.Optional(t.String({ pattern: '^(inpaint|erase|crop|outpaint)$' })),
@@ -191,6 +237,7 @@ function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | n
   for (const one of raw) {
     const editAction = one.editAction && isEditAction(one.editAction) ? one.editAction : undefined
     if (one.editAction && !editAction) return null
+    if ((one.mediaId && one.maskDataUrl) || (one.dataUrl && one.maskMediaId)) return null
     if (
       one.regions?.some(
         (region) => region.x + region.width > 1 + 1e-9 || region.y + region.height > 1 + 1e-9,
@@ -199,7 +246,14 @@ function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | n
       return null
     const name = one.name ? { name: one.name } : {}
     if (one.mediaId && !one.dataUrl)
-      references.push({ imageId: one.imageId, ...name, mediaId: one.mediaId })
+      references.push({
+        imageId: one.imageId,
+        ...name,
+        mediaId: one.mediaId,
+        ...(one.maskMediaId ? { maskMediaId: one.maskMediaId } : {}),
+        ...(one.regions ? { regions: one.regions } : {}),
+        ...(editAction ? { editAction } : {}),
+      })
     else if (one.dataUrl && !one.mediaId) {
       inline += 1
       references.push({
@@ -349,63 +403,41 @@ export const agentRoutes = new Elysia()
       if (!reference) return status(404, { error: 'reference_not_found' })
       const original = query.variant === 'original' || query.variant === 'annotated'
       try {
-        // 云媒体那一路没有副本：缩略图直接用上传时就备好的预览，别把原件拉回来再缩一遍。
         if ('mediaId' in reference) {
+          const masked = query.variant !== 'original' && reference.maskMediaId
           const media = await readConversationMedia(
             reference.mediaId,
             conversation.id,
             authUser?.id ?? null,
-            original ? 'original' : 'preview',
+            original || masked ? 'original' : 'preview',
           )
           if (!media) return status(404, { error: 'reference_not_found' })
-          return new Response(media.bytes as Uint8Array<ArrayBuffer>, {
-            headers: referenceHeaders(media.contentType),
-          })
+          // Ordinary media retain their stored preview; selections render against original pixels.
+          if (!masked)
+            return new Response(media.bytes as Uint8Array<ArrayBuffer>, {
+              headers: referenceHeaders(media.contentType),
+            })
+          const mask = await readConversationMedia(
+            masked,
+            conversation.id,
+            authUser?.id ?? null,
+            'original',
+          )
+          if (!mask) return status(404, { error: 'reference_not_found' })
+          return await renderReferenceImage(media, original, mask, reference.regions)
         }
         const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
         const bytes = await store.read(reference.image.object)
-        let visibleBytes = bytes
         const marked = query.variant !== 'original' ? reference.mask : undefined
-        if (marked) {
-          const maskStore = marked.store === 'durable' ? durableMediaStore() : objectStore()
-          let mask = await maskStore.read(marked.object)
-          let source = bytes
-          if (!original) {
-            const resized = await sharp(bytes)
-              .rotate()
-              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
-              .png()
-              .toBuffer({ resolveWithObject: true })
-            source = resized.data
-            mask = await sharp(mask)
-              .resize(resized.info.width, resized.info.height)
-              .png()
-              .toBuffer()
-          }
-          if (!original && (await sharp(mask).stats()).channels.at(-1)?.min === 255) {
-            // A valid tiny mark may vanish when quantized to thumbnail pixels.
-            visibleBytes = source
-          } else {
-            const annotated = await selectionPreview({
-              dataUrl: `data:${reference.image.mime};base64,${Buffer.from(source).toString('base64')}`,
-              maskDataUrl: `data:${marked.mime};base64,${Buffer.from(mask).toString('base64')}`,
-              regions: reference.regions,
-            })
-            visibleBytes = Buffer.from(annotated.data, 'base64')
-          }
-        }
-        const image = original
-          ? visibleBytes
-          : await sharp(visibleBytes)
-              .rotate()
-              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
-              .webp({ quality: 80 })
-              .toBuffer()
-        return new Response(image, {
-          headers: referenceHeaders(
-            original ? (marked ? 'image/png' : reference.image.mime) : 'image/webp',
-          ),
-        })
+        const maskStore = marked?.store === 'durable' ? durableMediaStore() : objectStore()
+        return await renderReferenceImage(
+          { bytes, contentType: reference.image.mime },
+          original,
+          marked
+            ? { bytes: await maskStore.read(marked.object), contentType: marked.mime }
+            : undefined,
+          reference.regions,
+        )
       } catch {
         return status(502, { error: 'object_storage_error' })
       }
@@ -901,15 +933,30 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       const forwarded = await forwardActiveTurn(conversation.id, request, body)
       if (forwarded) return forwarded
+      const submittedId = body.clientMessageId ? `interjection:${body.clientMessageId}` : undefined
+      if (submittedId) {
+        const [existing] = await db
+          .select({ id: schema.agent_messages.id })
+          .from(schema.agent_messages)
+          .where(
+            and(
+              eq(schema.agent_messages.conversation_id, conversation.id),
+              eq(schema.agent_messages.id, submittedId),
+              eq(schema.agent_messages.role, 'user'),
+            ),
+          )
+          .limit(1)
+        if (existing) return { messageId: existing.id }
+      }
       const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
       const references = turnReferences(body.references ?? [])
       if (!references) return status(422, { error: 'invalid_reference' })
-      if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
+      if (!(await validateConversationMediaSelections(authUser?.id ?? null, references)))
         return status(422, { error: 'invalid_reference' })
       let messageId: string | null
       try {
-        messageId = await activeTurn.interject(body.text, references)
+        messageId = await activeTurn.interject(body.text, references, { messageId: submittedId })
       } catch (error) {
         if (error instanceof InvalidSelectionError)
           return status(422, { error: 'invalid_selection' })
@@ -923,6 +970,7 @@ export const agentRoutes = new Elysia()
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
         references: referencesSchema,
+        clientMessageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
       }),
     },
   )

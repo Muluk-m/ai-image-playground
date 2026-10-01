@@ -982,6 +982,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           active?.turnId ?? outcome.turnId,
           text,
           prepared.references,
+          undefined,
+          clientMessageId,
         )
       } else if (
         outcome.kind === 'frames' ||
@@ -1423,9 +1425,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       let submissionInput = captured.snapshot
       const prepare = async () => {
         const prepared = await captured.prepare()
-        if (prepared) submissionInput = prepared
+        // Unaccepted uploads can expire; retain the captured pixels for a fresh upload on retry.
+        if (prepared) submissionInput = { ...prepared, references: captured.snapshot.references }
         if (prepared && journaled)
-          await updateOutgoingInput(journaled.projectId, journaled.id, prepared)
+          await updateOutgoingInput(journaled.projectId, journaled.id, submissionInput)
         return prepared
       }
       const settleJournal = async () => {

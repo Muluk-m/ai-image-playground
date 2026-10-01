@@ -38,6 +38,7 @@ export function canRetainModelHistory(history: AgentHistoryWindow): boolean {
           (block.references ?? []).every(
             (reference) =>
               !('mask' in reference && reference.mask) &&
+              !('maskMediaId' in reference && reference.maskMediaId) &&
               !('regions' in reference && reference.regions?.length) &&
               !('editAction' in reference && reference.editAction),
           ),

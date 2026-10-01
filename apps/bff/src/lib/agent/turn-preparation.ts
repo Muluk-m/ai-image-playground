@@ -258,6 +258,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       content.references.every(
         (reference) =>
           !('maskDataUrl' in reference && reference.maskDataUrl) &&
+          !('maskMediaId' in reference && reference.maskMediaId) &&
           !('regions' in reference && reference.regions?.length) &&
           !('editAction' in reference && reference.editAction),
       )

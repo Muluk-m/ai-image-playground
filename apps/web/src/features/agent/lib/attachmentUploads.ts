@@ -55,19 +55,20 @@ function currentEntries() {
   return entries
 }
 
-function requiresUpload(reference: Uploadable): boolean {
-  return (
-    attachmentUploadsEnabled() &&
-    !reference.maskDataUrl &&
-    !reference.editAction &&
-    !reference.regions?.length &&
-    !mediaIdentity(reference.dataUrl)
+function sourcesToUpload(reference: Uploadable): string[] {
+  if (!attachmentUploadsEnabled()) return []
+  return [reference.dataUrl, ...(reference.maskDataUrl ? [reference.maskDataUrl] : [])].filter(
+    (source) => !mediaIdentity(source),
   )
 }
 
 export function attachmentUploadState(reference: Uploadable): MediaUploadState | undefined {
-  if (!requiresUpload(reference)) return undefined
-  return currentEntries().get(reference.dataUrl)?.state ?? 'queued'
+  const sources = sourcesToUpload(reference)
+  if (!sources.length) return undefined
+  const states = sources.map((source) => currentEntries().get(source)?.state ?? 'queued')
+  return (['failed', 'uploading', 'verifying', 'queued', 'ready'] as const).find((state) =>
+    states.includes(state),
+  )
 }
 
 function start(source: string, retry = false): Promise<MediaUploadResult> {
@@ -106,7 +107,7 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
 
 export function primeAttachmentUploads(references: readonly Uploadable[]): void {
   for (const reference of references) {
-    if (requiresUpload(reference)) void start(reference.dataUrl).catch(() => {})
+    for (const source of sourcesToUpload(reference)) void start(source).catch(() => {})
   }
 }
 
@@ -116,19 +117,24 @@ export function retryAttachmentUpload(source: string): Promise<MediaUploadResult
   return start(source, true)
 }
 
+export async function retryAttachmentUploads(reference: Uploadable): Promise<void> {
+  await Promise.all(sourcesToUpload(reference).map((source) => start(source, true)))
+}
+
 /** All references belong to one captured turn. A failed member rejects the entire turn. */
 export async function prepareAttachmentReferences(
   references: readonly AgentTurnReference[],
 ): Promise<AgentTurnReference[]> {
   const prepared = await Promise.allSettled(
     references.map(async (reference) => {
-      if (!('dataUrl' in reference) || !requiresUpload(reference)) return reference
-      const result = await start(reference.dataUrl)
-      return {
-        imageId: reference.imageId,
-        mediaId: result.id,
-        ...(reference.name ? { name: reference.name } : {}),
-      }
+      if (!('dataUrl' in reference) || !attachmentUploadsEnabled()) return reference
+      const identity = async (source: string) => mediaIdentity(source) ?? (await start(source)).id
+      const [mediaId, maskMediaId] = await Promise.all([
+        identity(reference.dataUrl),
+        reference.maskDataUrl ? identity(reference.maskDataUrl) : undefined,
+      ])
+      const { dataUrl: _source, maskDataUrl: _mask, ...rest } = reference
+      return { ...rest, mediaId, ...(maskMediaId ? { maskMediaId } : {}) }
     }),
   )
   return prepared.map((result) => {
