@@ -203,6 +203,8 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       onUpstreamTaskIds: (taskIds) =>
         execution.recordUpstreamTaskIds(taskIds, resume !== undefined),
       onRequestDispatched: (dispatchId) => execution.recordDispatchStarted(dispatchId),
+      onUpstreamTaskId: (dispatchId, upstreamTaskId) =>
+        execution.recordDispatchTaskId(dispatchId, upstreamTaskId),
       onRequestId: (dispatchId, requestId) =>
         execution.recordDispatchRequestId(dispatchId, requestId),
       beforeRequest: async () => {

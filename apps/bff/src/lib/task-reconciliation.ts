@@ -7,7 +7,11 @@ import { finishTask, heldBy, type TerminalTaskUpdate } from '../db/task-transiti
 import { protectMaskedOutput } from './agent/masked-output'
 import { isCapabilityEnabled } from './capabilities'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
-import { archiveGenerationOutputs, spoolGenerationOutputs } from './generationMedia'
+import {
+  archiveGenerationOutputs,
+  missingGenerationOutputs,
+  spoolGenerationOutputs,
+} from './generationMedia'
 import { archiveOutputImages, hydrateInputImages } from './imageArchive'
 import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
 import { callUpstream } from './upstream'
@@ -31,6 +35,7 @@ export async function readTaskReconciliation(taskId: string) {
       intendedAt: schema.task_dispatches.intended_at,
       dispatchedAt: schema.task_dispatches.dispatched_at,
       upstreamRequestId: schema.task_dispatches.upstream_request_id,
+      upstreamTaskId: schema.task_dispatches.upstream_task_id,
     })
     .from(schema.task_dispatches)
     .where(eq(schema.task_dispatches.task_id, taskId))
@@ -49,7 +54,12 @@ export async function readTaskReconciliation(taskId: string) {
     taskId,
     status: task.status,
     enabled: task.reconciliation_required,
-    upstreamTaskIds: task.upstream_task_ids ?? [],
+    upstreamTaskIds: [
+      ...new Set([
+        ...(task.upstream_task_ids ?? []),
+        ...dispatches.flatMap((row) => (row.upstreamTaskId ? [row.upstreamTaskId] : [])),
+      ]),
+    ],
     dispatches,
     decisions: audits.map(({ details }) => details),
   }
@@ -112,7 +122,14 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
     if (prior) {
       if (prior.details.digest !== digest)
         throw new ReconciliationError('reconciliation_command_conflict')
-      return { kind: 'replay' as const, result: { taskId, status: prior.details.status } }
+      return {
+        kind: 'replay' as const,
+        result: {
+          taskId,
+          status: prior.details.status,
+          ...(typeof prior.details.reason === 'string' ? { reason: prior.details.reason } : {}),
+        },
+      }
     }
     if (task.status !== 'reconciling' || !task.reconciliation_required)
       throw new ReconciliationError('task_not_reconciling')
@@ -125,12 +142,26 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
     if (started && started.details.digest !== digest)
       throw new ReconciliationError('reconciliation_command_conflict')
     if (task.execution_token && task.lease_expires_at && task.lease_expires_at > Date.now()) {
-      if (started) return { kind: 'replay' as const, result: { taskId, status: 'reconciling' } }
+      if (started)
+        return {
+          kind: 'replay' as const,
+          result: { taskId, status: 'reconciling', reason: 'reconciliation_in_progress' },
+        }
       throw new ReconciliationError('reconciliation_busy')
     }
     if (command.action === 'confirm_success' && !validResult(task, command.result, true))
       throw new ReconciliationError('reconciliation_result_required', 400)
-    if (command.action !== 'lookup' && task.upstream_task_ids?.length) {
+    const dispatches = await tx
+      .select({ taskId: schema.task_dispatches.upstream_task_id })
+      .from(schema.task_dispatches)
+      .where(eq(schema.task_dispatches.task_id, taskId))
+    const taskIds = [
+      ...new Set([
+        ...(task.upstream_task_ids ?? []),
+        ...dispatches.flatMap((row) => (row.taskId ? [row.taskId] : [])),
+      ]),
+    ]
+    if (command.action !== 'lookup' && taskIds.length) {
       const audits = await tx
         .select({ details: schema.operator_audits.details })
         .from(schema.operator_audits)
@@ -164,7 +195,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
         },
       })
       .onConflictDoNothing()
-    return { kind: 'claimed' as const, task }
+    return { kind: 'claimed' as const, task, taskIds }
   })
   if (claim.kind === 'replay') return claim.result
   const { task } = claim
@@ -191,7 +222,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
   try {
     let reason: string | undefined
     let update: TerminalTaskUpdate | undefined
-    const taskIds = task.upstream_task_ids ?? []
+    const taskIds = claim.taskIds
     if (command.action === 'confirm_no_result') {
       update = {
         status: 'failed',
@@ -200,8 +231,9 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
         errorMessage: '核查确认未产生可交付结果',
       }
     } else {
-      let payload: unknown = command.result
-      if (command.action === 'lookup') {
+      const checkpoint = command.action === 'lookup' && task.archive_payload
+      let payload: unknown = checkpoint || command.result
+      if (command.action === 'lookup' && !checkpoint) {
         if (!taskIds.length) reason = 'manual_verification_required'
         else {
           try {
@@ -245,7 +277,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
               : undefined
             const cloud = Boolean(task.user_id && isCapabilityEnabled('accounts:sync'))
             // Each lease owns its output prefix; a late expired operator cannot overwrite a successor's originals.
-            const archiveId = `${taskId}/reconciliation/${token}`
+            const archiveId = checkpoint ? taskId : `${taskId}/reconciliation/${token}`
             const archived = cloud
               ? await spoolGenerationOutputs(
                   archiveId,
@@ -265,6 +297,8 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
                     }).stats()
                   },
                 })
+            if (cloud && (await missingGenerationOutputs(archiveId, task.provider, archived)).size)
+              throw new Error('archive_checkpoint_incomplete')
             const [stillOwned] = await db
               .select({ id: schema.tasks.id })
               .from(schema.tasks)

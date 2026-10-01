@@ -95,6 +95,7 @@ export interface TaskExecution {
   recordDispatchIntent(): Promise<string | null>
   recordDispatchStarted(id: string): Promise<void>
   recordDispatchRequestId(id: string, requestId: string): Promise<void>
+  recordDispatchTaskId(id: string, taskId: string): Promise<void>
   /** 落上游异步任务 id；补提交缺口时不推锚点，否则重试等于领一份新的超时预算。 */
   recordUpstreamTaskIds(taskIds: readonly string[], anchorAlreadySet: boolean): Promise<void>
   /** 回读本次执行落下的上游提交；不归本次执行时给 undefined。 */
@@ -234,17 +235,34 @@ class TaskExecutionHandle implements TaskExecution {
       )
   }
 
+  /** The old lease may report its own response, but this never grants permission to settle. */
+  async recordDispatchTaskId(id: string, taskId: string): Promise<void> {
+    await db
+      .update(schema.task_dispatches)
+      .set({ upstream_task_id: taskId })
+      .where(
+        and(
+          eq(schema.task_dispatches.id, id),
+          eq(schema.task_dispatches.task_id, this.taskId),
+          eq(schema.task_dispatches.execution_token, this.#token),
+        ),
+      )
+  }
+
   async recordUpstreamTaskIds(
     taskIds: readonly string[],
     anchorAlreadySet: boolean,
   ): Promise<void> {
-    await db
+    const updated = await db
       .update(schema.tasks)
       .set({
         upstream_task_ids: [...taskIds],
         ...(anchorAlreadySet ? {} : { upstream_submitted_at: Date.now() }),
       })
       .where(this.#own())
+      .returning({ id: schema.tasks.id })
+    // A late response remains dispatch evidence, but the former owner must not start polling.
+    if (!updated.length) this.abort()
   }
 
   async readUpstreamSubmission(): Promise<UpstreamSubmission | undefined> {

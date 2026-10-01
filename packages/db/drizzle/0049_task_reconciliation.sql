@@ -8,7 +8,8 @@ CREATE TABLE task_dispatches (
   execution_token text NOT NULL,
   intended_at timestamptz NOT NULL,
   dispatched_at timestamptz,
-  upstream_request_id text
+  upstream_request_id text,
+  upstream_task_id text
 );
 --> statement-breakpoint
 CREATE INDEX idx_task_dispatches_task ON task_dispatches(task_id, intended_at);

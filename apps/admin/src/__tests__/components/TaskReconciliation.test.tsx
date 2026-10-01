@@ -1,0 +1,46 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import { TaskReconciliation } from '../../components/TaskReconciliation'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+it('keeps an uncertain command immutable, retries its ID and starts a fresh command for a new decision', async () => {
+  const commands: Record<string, unknown>[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url, init?: RequestInit) => {
+      if (init?.method !== 'POST')
+        return Response.json({ upstreamTaskIds: [], dispatches: [], decisions: [] })
+      commands.push(JSON.parse(String(init.body)))
+      if (commands.length === 1) throw new TypeError('connection lost')
+      if (commands.length === 2)
+        return Response.json({
+          taskId: 'task-1',
+          status: 'reconciling',
+          reason: 'manual_verification_required',
+        })
+      return Response.json({ taskId: 'task-1', status: 'failed' })
+    }),
+  )
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <TaskReconciliation taskId="task-1" />
+    </QueryClientProvider>,
+  )
+  fireEvent.change(screen.getByLabelText('核查依据'), { target: { value: 'provider case 1' } })
+  fireEvent.click(screen.getByRole('button', { name: '查询原请求' }))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('结果尚不确定'))
+  expect(screen.getByRole('button', { name: '确认未产生结果' })).toBeDisabled()
+  expect(screen.getByLabelText('核查依据')).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '重试原核查' }))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('需要向上游核实'))
+  expect(commands[1]).toEqual(commands[0])
+  fireEvent.click(screen.getByRole('button', { name: '确认未产生结果' }))
+  await waitFor(() => expect(commands).toHaveLength(3))
+  expect(commands[2]?.commandId).not.toBe(commands[0]?.commandId)
+  expect(commands[2]?.action).toBe('confirm_no_result')
+})
