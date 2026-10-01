@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAgentStore } from '../../../features/agent/store'
+import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -72,6 +74,7 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
+  setClientStorageScope(crypto.randomUUID())
   turnResponses = []
   resumeRequests = []
   posted = []
@@ -85,10 +88,13 @@ beforeEach(() => {
     queue: [],
     error: null,
     loaded: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
   })
 })
 
 afterEach(() => {
+  setClientStorageScope(null)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
@@ -124,7 +130,7 @@ describe('断线重连', () => {
 
 describe('刷新后重新挂上', () => {
   it('读回历史时挂回仍在进行的那一轮', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () =>
       Response.json({
         messages: [
@@ -190,7 +196,7 @@ describe('先取快照再接增量', () => {
   ]
 
   it('快照带游标时从游标之后接会话级增量，不再把这一轮从头按轮要一遍', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () =>
       Response.json({
         messages: [USER_MESSAGE],
@@ -227,7 +233,7 @@ describe('先取快照再接增量', () => {
       error: null,
       loaded: false,
     })
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () =>
       Response.json({
         messages: [USER_MESSAGE],

@@ -1,5 +1,6 @@
 {
   "agentQueue": {
+    "stop_failed": "Could not confirm the stop. Please retry.",
     "fallback": "Message recovery failed. Please try again.",
     "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
   },
