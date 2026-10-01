@@ -95,6 +95,41 @@ export async function createAgentBatchPlan(
   const userId = context.userId
   const target = resolveAgentModel('image', context.params?.model)
   if (!target) throw new AgentToolError('model_unavailable', '暂时没有可用的生图模型')
+  // Current references preserve active selections; older attachments contribute originals only.
+  const archivedMessages = await db
+    .select({ content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .innerJoin(
+      schema.agent_conversations,
+      eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
+    )
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, context.conversationId),
+        eq(schema.agent_messages.role, 'user'),
+        isNull(schema.agent_messages.deleted_at),
+        eq(schema.agent_conversations.user_id, userId),
+        isNull(schema.agent_conversations.deleted_at),
+      ),
+    )
+    .orderBy(asc(schema.agent_messages.seq))
+  const references = new Map<string, AgentMediaReference>()
+  for (const message of archivedMessages) {
+    for (const block of message.content) {
+      if (block.type !== 'text') continue
+      for (const reference of block.references ?? []) {
+        if ('mediaId' in reference)
+          references.set(reference.imageId, {
+            imageId: reference.imageId,
+            mediaId: reference.mediaId,
+            ...(reference.name ? { name: reference.name } : {}),
+          })
+      }
+    }
+  }
+  for (const reference of context.images.references) {
+    if ('mediaId' in reference) references.set(reference.imageId, reference)
+  }
   const keys = new Set<string>()
   const { autoSubmit: _autoSubmit, ...params } = context.params ?? {}
   const items: AgentBatchItem[] = input.items.map((item, ordinal) => {
@@ -104,7 +139,7 @@ export async function createAgentBatchPlan(
     keys.add(item.key)
     const inputs = item.imageIds.map((imageId): AgentMediaReference => {
       const identified = context.images.identify(imageId)
-      const reference = context.images.references.find((one) => one.imageId === identified)
+      const reference = references.get(identified)
       if (!reference || !('mediaId' in reference))
         invalid(`图片 ${imageId} 没有可持久保存的完整输入，请重新附上原图。`)
       return { ...reference, imageId: identified }
