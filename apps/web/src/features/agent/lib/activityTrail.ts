@@ -13,6 +13,7 @@ const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   readLibrary: true,
   readCanvas: true,
   loadSkill: true,
+  planImageBatch: undefined,
   generateImage: undefined,
   editImage: undefined,
   generateVideo: undefined,

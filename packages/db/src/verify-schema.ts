@@ -1,6 +1,9 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
+  'agent_batches',
+  'agent_batch_plans',
+  'agent_batch_items',
   'admin_user_notes',
   'inspiration_categories',
   'inspiration_items',

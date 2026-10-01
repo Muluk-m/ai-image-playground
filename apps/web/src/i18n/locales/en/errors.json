@@ -86,5 +86,9 @@
     "model_unavailable": "The model it needed isn't available right now",
     "cancelled": "Stopped",
     "fallback": "Didn't finish"
+  },
+  "agentBatch": {
+    "fallback": "Could not update the plan. Your changes are preserved. Try again.",
+    "batch_version_conflict": "This plan has a newer version. Refresh before editing."
   }
 }

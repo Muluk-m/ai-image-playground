@@ -1,4 +1,6 @@
 import type {
+  AgentBatchEstimates,
+  AgentBatchItem,
   AgentCanvasSnapshot,
   AgentCompactionRecord,
   AgentContentBlock,
@@ -35,6 +37,7 @@ import {
   customType,
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   pgTable,
@@ -1150,7 +1153,7 @@ export const media_references = pgTable(
       .notNull()
       .references(() => media_objects.id, { onDelete: 'restrict' }),
     owner_kind: text('owner_kind')
-      .$type<'project' | 'asset' | 'conversation' | 'generation'>()
+      .$type<'project' | 'asset' | 'conversation' | 'generation' | 'batch'>()
       .notNull(),
     owner_id: text('owner_id').notNull(),
     created_at: epochMs('created_at').notNull(),
@@ -1160,7 +1163,7 @@ export const media_references = pgTable(
     index('idx_media_references_media').on(t.media_id),
     check(
       'media_references_owner_kind_check',
-      sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation')`,
+      sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation', 'batch')`,
     ),
   ],
 )
@@ -1180,5 +1183,81 @@ export const generation_images = pgTable(
   (t) => [
     primaryKey({ columns: [t.generation_id, t.role, t.position] }),
     check('generation_images_role_check', sql`${t.role} IN ('input', 'mask', 'output')`),
+  ],
+)
+
+export const agent_batches = pgTable(
+  'agent_batches',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id').references(() => agent_conversations.id, {
+      onDelete: 'set null',
+    }),
+    origin_turn_id: text('origin_turn_id').notNull(),
+    tool_call_id: text('tool_call_id').notNull(),
+    experience: text('experience').$type<'chat' | 'canvas'>().notNull(),
+    project_id: text('project_id'),
+    project_revision: integer('project_revision'),
+    current_version: integer('current_version').notNull().default(1),
+    status: text('status').$type<'draft' | 'cancelled'>().notNull().default('draft'),
+    dispatch_generation: integer('dispatch_generation').notNull().default(0),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_agent_batches_call').on(t.conversation_id, t.origin_turn_id, t.tool_call_id),
+    index('idx_agent_batches_owner_conversation').on(
+      t.user_id,
+      t.conversation_id,
+      t.created_at,
+      t.id,
+    ),
+    check('agent_batches_status_check', sql`${t.status} IN ('draft', 'cancelled')`),
+    check('agent_batches_experience_check', sql`${t.experience} IN ('chat', 'canvas')`),
+  ],
+)
+
+export const agent_batch_plans = pgTable(
+  'agent_batch_plans',
+  {
+    batch_id: text('batch_id')
+      .notNull()
+      .references(() => agent_batches.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    rule: text('rule').notNull(),
+    digest: text('digest').notNull(),
+    item_count: integer('item_count').notNull(),
+    estimate_snapshot: bunJsonb('estimate_snapshot').$type<AgentBatchEstimates>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.batch_id, t.version] })],
+)
+
+export const agent_batch_items = pgTable(
+  'agent_batch_items',
+  {
+    batch_id: text('batch_id')
+      .notNull()
+      .references(() => agent_batches.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    key: text('key').notNull(),
+    ordinal: integer('ordinal').notNull(),
+    kind: text('kind').$type<'generation'>().notNull(),
+    inputs: bunJsonb('inputs').$type<AgentBatchItem['inputs']>().notNull(),
+    prompt: text('prompt').notNull(),
+    params: bunJsonb('params').$type<AgentBatchItem['params']>().notNull(),
+    dependencies: bunJsonb('dependencies').$type<AgentBatchItem['dependencies']>().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.batch_id, t.version, t.key] }),
+    uniqueIndex('idx_agent_batch_items_order').on(t.batch_id, t.version, t.ordinal),
+    foreignKey({
+      columns: [t.batch_id, t.version],
+      foreignColumns: [agent_batch_plans.batch_id, agent_batch_plans.version],
+    }).onDelete('cascade'),
   ],
 )

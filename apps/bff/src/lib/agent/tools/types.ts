@@ -88,6 +88,7 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  readonly batchId?: string
   readonly executedPrompt?: string
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]

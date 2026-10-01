@@ -213,6 +213,12 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
   applyCapabilityDependencies(capabilities)
   if (!capabilities['accounts:sync'] || quotas['sync:attachment-lease-seconds'] <= 0)
     capabilities['agent:attachments'] = false
+  if (
+    !capabilities['agent:chat'] ||
+    !capabilities['agent:attachments'] ||
+    !capabilities['accounts:login']
+  )
+    capabilities['agent:batch-plans'] = false
   assertCapabilityCompatibility(capabilities)
   return {
     capabilities,
