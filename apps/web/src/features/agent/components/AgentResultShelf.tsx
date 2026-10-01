@@ -18,7 +18,7 @@ function resultIds(message: AgentToolMessage): string[] {
 export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
   const { t } = useTranslation('agent')
   const messages = useAgentStore((state) => state.messages)
-  useSyncExternalStore(doc.subscribe, () => doc.version)
+  const files = useSyncExternalStore(doc.subscribe, () => doc.files)
   const [expanded, setExpanded] = useState(true)
   const [visibleCount, setVisibleCount] = useState(8)
   const [previews, setPreviews] = useState<Record<string, string | null>>({})
@@ -36,29 +36,44 @@ export default function AgentResultShelf({ doc }: { doc: CanvasDoc }) {
     [messages],
   )
   const visibleGroups = groups.slice(0, visibleCount)
-  const signature = visibleGroups.map((message) => message.id).join(' ')
+  const signature = visibleGroups.map((message) => `${message.id}:${message.delivery}`).join(' ')
+  const elementSignature = useSyncExternalStore(doc.subscribe, () => {
+    const ids = new Set(visibleGroups.flatMap(resultIds))
+    return JSON.stringify(
+      doc.elements
+        .filter((element) => ids.has(element.id))
+        .map((element) =>
+          element.type === 'image'
+            ? [element.id, element.fileId, element.width, element.height, element.rotation]
+            : [element.id, element.type],
+        ),
+    )
+  })
 
   useEffect(() => {
     let active = true
-    void Promise.all(
-      visibleGroups.map(async (message) => {
-        const first = message.artifacts?.[0]
-        const fetched = message.fetchedImages?.[0]
-        const preview = await (first
-          ? artifactPreview(first)
-          : fetched
-            ? fetchedImagePreview(fetched, fetchedCanvasId(message.toolCallId, 0))
-            : Promise.resolve(null)
-        ).catch(() => null)
-        return [message.id, preview?.source ?? null] as const
-      }),
-    ).then((items) => {
-      if (active) setPreviews(Object.fromEntries(items))
-    })
+    const timer = setTimeout(() => {
+      void Promise.all(
+        visibleGroups.map(async (message) => {
+          const first = message.artifacts?.[0]
+          const fetched = message.fetchedImages?.[0]
+          const preview = await (first
+            ? artifactPreview(first)
+            : fetched
+              ? fetchedImagePreview(fetched, fetchedCanvasId(message.toolCallId, 0))
+              : Promise.resolve(null)
+          ).catch(() => null)
+          return [message.id, preview?.source ?? null] as const
+        }),
+      ).then((items) => {
+        if (active) setPreviews(Object.fromEntries(items))
+      })
+    }, 150)
     return () => {
+      clearTimeout(timer)
       active = false
     }
-  }, [signature])
+  }, [signature, elementSignature, files])
 
   if (!groups.length) return null
   const onSelect = async (message: AgentToolMessage) => {

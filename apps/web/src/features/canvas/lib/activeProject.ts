@@ -258,19 +258,27 @@ export async function renameProject(id: string, name: string): Promise<void> {
  * 把一堆旧项目的文档逐个拉起来推一遍，代价太大，等它下次打开顺手带上去。
  */
 export async function autoNameProject(id: string, name: string): Promise<void> {
-  const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  const reserved = await projectRepository.reserveAutomaticName(id)
+  if (!reserved) return
+  const { project, version } = reserved
+  const expectedName = { name: project.name, customName: project.customName, version }
   const session =
     project?.cloud && cloudProjectsEnabled() && workspaces.get(project.sceneKey)?.cloud
   if (session) {
-    await session.rename(name, false)
+    await session.rename(name, false, expectedName)
     return
   }
   useCanvasProjectStore.getState().updateListed(
-    await projectRepository.update(id, {
-      name,
-      hasContent: true,
-      ...(project?.cloud ? { cloud: { ...project.cloud, nameDirty: true } } : {}),
-    }),
+    await projectRepository.update(
+      id,
+      {
+        name,
+        customName: false,
+        hasContent: true,
+        ...(project?.cloud ? { cloud: { ...project.cloud, nameDirty: true } } : {}),
+      },
+      expectedName,
+    ),
   )
 }
 
@@ -300,12 +308,20 @@ export async function importConversationProjects(
     if (!isCurrent()) return
     const existing = useCanvasProjectStore
       .getState()
-      .projects.find((one) => one.conversationId === conversation.id)
-    if (existing) {
-      if (existing.cloud?.deleted) continue
-      // 自动命名是顺带做的：一个项目改不动（本机没这条记录），后面的项目不该跟着没名字。
-      if (!existing.customName && conversation.title && existing.name !== conversation.title)
-        await autoNameProject(existing.id, conversation.title).catch(() => {})
+      .projects.filter((one) => one.conversationId === conversation.id)
+    if (existing.length) {
+      // Legacy and cloud records may share a conversation. Name every existing record;
+      // older clients also marked the canonical default name as custom by mistake.
+      for (const project of existing) {
+        if (!isCurrent()) return
+        if (project.cloud?.deleted) continue
+        if (
+          (!project.customName || project.name === UNTITLED_PROJECT) &&
+          conversation.title &&
+          project.name !== conversation.title
+        )
+          await autoNameProject(project.id, conversation.title).catch(() => {})
+      }
       continue
     }
     const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {

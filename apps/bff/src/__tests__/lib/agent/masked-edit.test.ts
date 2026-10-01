@@ -85,3 +85,37 @@ it('does not replace a disconnected selection with its entire bounding rectangle
   expect(pixels[7]).toBe(0)
   expect(pixels[11]).toBe(255)
 })
+
+it('compiles task-specific typography and surface integration beside the original authorization', async () => {
+  const request = await prepareMaskedEdit(
+    [image],
+    [{ imageId: 'target', selectionId: selection.id }],
+    '把两处字标都换成小写 xm',
+    undefined,
+    ['typography', 'material'],
+  )
+  expect(request!.prompt).toContain('把两处字标都换成小写 xm')
+  expect(request!.prompt).toContain('文字处理：准确使用用户指定文字和大小写')
+  expect(request!.prompt).toContain('表面融合')
+  expect(request!.prompt).toContain('一次编辑统一处理')
+  expect(request!.mask).toBe(maskDataUrl)
+})
+
+it('maps region numbers without merging disconnected selected pixels', async () => {
+  const regions = [
+    { x: 0, y: 0, width: 0.2, height: 1 },
+    { x: 0.8, y: 0, width: 0.2, height: 1 },
+  ]
+  const evidence = await referenceEvidence([{ ...image, regions }])
+  expect(evidence.manifest).toContain('区域 1')
+  expect(evidence.manifest).toContain('区域 2')
+  const request = await prepareMaskedEdit(
+    [{ ...image, regions, editAction: 'erase' }],
+    [{ imageId: 'target', selectionId: selection.id }],
+    '区域1换xm，区域2换AI',
+  )
+  expect(request!.prompt).toContain('区域 1')
+  expect(request!.prompt).toContain('区域 2')
+  expect(request!.prompt).toContain('用户选择的编辑动作：擦除')
+  expect(request!.mask).toBe(maskDataUrl)
+})

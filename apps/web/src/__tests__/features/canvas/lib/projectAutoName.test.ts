@@ -2,6 +2,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
+  autoNameProject,
   currentCanvasWorkspace,
   forgetCanvasWorkspace,
   importConversationProjects,
@@ -67,6 +68,31 @@ it('会话有了标题就给还叫未命名的项目改名，云端来的那份�
   // 云端项目的自动名还没推上去，目录得先信本机这一份。
   expect(named(listedCloud.id)?.cloud?.nameDirty).toBe(true)
   expect(named(mine.id)?.name).toBe('我自己起的名字')
+})
+
+it('同一会话的云端与旧本机记录都补名，旧错误 customName 标记不锁住默认名', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+  await bootstrapClientCapabilities(false, '')
+  const cloudProject = await projectRepository.importCloud({
+    ...cloud,
+    id: crypto.randomUUID(),
+    name: '已有标题',
+    conversationId: 'shared-title',
+    coverMediaId: null,
+  })
+  const legacy = await projectRepository.create(UNTITLED_PROJECT, {
+    sceneKey: 'legacy-shared-title',
+    conversationId: 'shared-title',
+  })
+  await projectRepository.update(legacy.id, { customName: true })
+  await importConversationProjects([conversation('shared-title', '手机产品形象')])
+  const projects = useCanvasProjectStore.getState().projects
+  expect(projects.find((one) => one.id === cloudProject.id)?.name).toBe('已有标题')
+  expect(projects.find((one) => one.id === legacy.id)).toMatchObject({
+    name: '手机产品形象',
+    customName: false,
+  })
 })
 
 it('本机与云端项目都按会话标题自动命名，改过名的不动，一个项目失败不挡后面的', async () => {
@@ -179,4 +205,56 @@ it('打开着的云端项目自动命名后把新名字推上服务端', async (
     cloud: { revision: 3, nameDirty: false },
   })
   forgetCanvasWorkspace(project.sceneKey)
+})
+
+it('a delayed automatic name cannot replace a manual name committed after it was requested', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create(UNTITLED_PROJECT)
+  useCanvasProjectStore.setState({ projects: [project], loaded: true })
+  const update = projectRepository.update.bind(projectRepository)
+  let release!: () => void
+  const wait = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.spyOn(projectRepository, 'update').mockImplementationOnce(async (...args) => {
+    await wait
+    return update(...args)
+  })
+  const automatic = autoNameProject(project.id, '迟到的自动标题')
+  await update(project.id, { name: '我的手动名称', customName: true })
+  release()
+  await automatic
+  expect((await projectRepository.list()).find((one) => one.id === project.id)).toMatchObject({
+    name: '我的手动名称',
+    customName: true,
+  })
+  vi.restoreAllMocks()
+})
+
+it('concurrent automatic titles keep the latest requested title', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create(UNTITLED_PROJECT)
+  useCanvasProjectStore.setState({ projects: [project], loaded: true })
+  await Promise.all([autoNameProject(project.id, '标题 A'), autoNameProject(project.id, '标题 B')])
+  expect((await projectRepository.list()).find((one) => one.id === project.id)?.name).toBe('标题 B')
+})
+
+it('a stale automatic title from another tab loses to a newer persisted reservation', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const project = await projectRepository.create(UNTITLED_PROJECT)
+  const old = await projectRepository.reserveAutomaticName(project.id)
+  const latest = await projectRepository.reserveAutomaticName(project.id)
+  await projectRepository.update(
+    project.id,
+    { name: '另一个标签页的新标题', customName: false },
+    { ...latest!.project, version: latest!.version },
+  )
+  await projectRepository.update(
+    project.id,
+    { name: '迟到的旧标题', customName: false },
+    { ...old!.project, version: old!.version },
+  )
+  expect((await projectRepository.list()).find((one) => one.id === project.id)?.name).toBe(
+    '另一个标签页的新标题',
+  )
 })

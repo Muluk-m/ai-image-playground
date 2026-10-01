@@ -74,9 +74,9 @@ let send: ReturnType<
   >
 >
 
-function render(): void {
+function render(productionMode = false): void {
   act(() => {
-    root.render(<AgentComposer doc={doc} />)
+    root.render(<AgentComposer doc={doc} productionMode={productionMode} />)
   })
 }
 
@@ -333,4 +333,15 @@ describe('`/` 技能候选', () => {
     type('/story')
     expect(host.querySelectorAll('[role="option"]')).toHaveLength(0)
   })
+})
+
+it('视频制作入口在图片项目里重新挂载后仍发送视频轮，不改变项目类型', async () => {
+  openProject('image')
+  render(true)
+  await settle()
+  expect(useAgentStore.getState().mode).toBe('video')
+  type('继续修改剧本')
+  click('发送并拟提示词')
+  expect(send).toHaveBeenCalledWith('继续修改剧本', [], 'video')
+  expect(useCanvasProjectStore.getState().projects[0]?.kind).toBe('image')
 })

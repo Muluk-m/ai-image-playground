@@ -8,9 +8,20 @@ import { selectionSettings as settings } from './selection-settings'
 interface Reference {
   readonly dataUrl: string
   readonly maskDataUrl?: string
+  readonly editAction?: import('@image-playground/shared').AgentImageEditAction
+  readonly regions?: readonly import('@image-playground/shared').AgentMarkedRegion[]
 }
 
 export class InvalidSelectionError extends Error {}
+
+export function editActionIntent(action: NonNullable<Reference['editAction']>) {
+  return {
+    inpaint: '局部重绘：结合原图和正文要求编辑所有指定区域',
+    erase: '擦除：移除指定内容并结合邻近画面补全；正文可补充保留要求',
+    crop: '裁剪后生成：输入已经按用户构图裁切，以此构图完成正文要求，不重复裁切',
+    outpaint: '扩图：输入已扩展透明边缘，结合原图场景与正文补全透明区域',
+  }[action]
+}
 
 export interface ImageSelection {
   readonly id: string
@@ -79,8 +90,27 @@ export async function imageSelection(
     const id = `selection_${createHash('sha256').update(raw).update(mask).digest('hex')}`
     if (!render)
       return { id, bounds, crop: '', preview: { type: 'image', mimeType: 'image/png', data: '' } }
+    const regionLabels = (reference.regions ?? [])
+      .map((region, index) => {
+        const x = region.x * info.width,
+          y = region.y * info.height
+        const radius = Math.max(8, Math.min(info.width, info.height) * 0.014)
+        return `<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${index + 1}</text>`
+      })
+      .join('')
     const preview = await sharp(raw)
-      .composite([{ input: overlay, raw: { width: info.width, height: info.height, channels: 4 } }])
+      .composite([
+        { input: overlay, raw: { width: info.width, height: info.height, channels: 4 } },
+        ...(regionLabels
+          ? [
+              {
+                input: Buffer.from(
+                  `<svg width="${info.width}" height="${info.height}" xmlns="http://www.w3.org/2000/svg">${regionLabels}</svg>`,
+                ),
+              },
+            ]
+          : []),
+      ])
       .png()
       .toBuffer()
     // 参考裁片只携带原色选区；不把定位用的蓝色或总包围框内的未选对象送入生图参考。
@@ -123,6 +153,8 @@ export function evidenceBlocks<T>(
 /** 清单里一个引用要交代的全部：它是哪张图，有没有选区、选区是哪一个、圈在哪。 */
 export interface EvidenceListing {
   readonly imageId: string
+  readonly editAction?: Reference['editAction']
+  readonly regions?: Reference['regions']
   readonly selection?: { readonly id: string; readonly bounds: ImageSelection['bounds'] }
 }
 
@@ -136,12 +168,16 @@ export function evidenceManifest(references: readonly EvidenceListing[]): string
   if (references.length === 0) return ''
   const descriptions: string[] = []
   let blocks = 0
-  for (const { imageId, selection } of references) {
+  for (const { imageId, selection, regions, editAction } of references) {
     const first = blocks + 1
     blocks += evidenceBlocks(1, selection && { preview: 1, crop: 1 }).length
+    if (editAction)
+      descriptions.push(
+        `图片 ${imageId} 的编辑动作：${editActionIntent(editAction)}（用户在编辑器选择）；正文是该动作的具体要求。`,
+      )
     descriptions.push(
       selection
-        ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。`
+        ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。${regions?.length ? `区域编号按以下归一化坐标对应：${regions.map((region, index) => `区域 ${index + 1} ${JSON.stringify(region)}`).join('；')}。编号仅用于定位，以遮罩覆盖像素为准。` : ''}`
         : `视觉输入 ${first}：图片 ${imageId} 原图`,
     )
   }
@@ -163,6 +199,8 @@ export async function referenceEvidence(references: readonly (Reference & { imag
     )
     listed.push({
       imageId: reference.imageId,
+      regions: reference.regions,
+      editAction: reference.editAction,
       ...(selection ? { selection: { id: selection.id, bounds: selection.bounds } } : {}),
     })
   }

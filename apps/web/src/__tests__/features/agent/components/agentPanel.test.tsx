@@ -318,7 +318,7 @@ describe('AgentPanel', () => {
       },
     )
     const fetcher = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).endsWith('/messages/history-user/references/0?variant=original'))
+      if (String(input).endsWith('/messages/history-user/references/0?variant=annotated'))
         return new Response('original pixels', { headers: { 'content-type': 'image/png' } })
       if (String(input).endsWith('/messages/history-user/references/0'))
         return new Response('archived pixels', { headers: { 'content-type': 'image/webp' } })
@@ -352,13 +352,13 @@ describe('AgentPanel', () => {
     await settle()
     const log = host.querySelector('[aria-label="对话记录"]')!
     expect(log.querySelector('img')?.getAttribute('src')).toBe('blob:archived-reference')
-    expect(log.textContent).toBe('换一身衣服')
+    expect(log.textContent).toBe('@图1换一身衣服')
     vi.stubGlobal('matchMedia', () => ({
       matches: false,
       addEventListener() {},
       removeEventListener() {},
     }))
-    expect(fetcher.mock.calls.some(([input]) => String(input).includes('variant=original'))).toBe(
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes('variant=annotated'))).toBe(
       false,
     )
     act(() => log.querySelector<HTMLImageElement>('img')!.closest('button')!.click())
@@ -410,7 +410,7 @@ describe('AgentPanel', () => {
     expect(log.querySelectorAll('[data-skill-name]')).toHaveLength(1)
   })
 
-  it('读取技能只出一行脚注，不出结果卡', () => {
+  it('读取技能使用可展开的工具调用组件', () => {
     render()
     act(() =>
       useAgentStore.setState({
@@ -436,9 +436,13 @@ describe('AgentPanel', () => {
         ],
       }),
     )
-    const line = host.querySelector<HTMLElement>('[data-tool="loadSkill"]')
+    const line = host.querySelector<HTMLElement>(
+      '#agent-tool-card-tool-skill button[aria-expanded]',
+    )
     expect(line?.textContent).toBe('读取技能：storyboard-short')
-    expect(host.querySelector('#agent-tool-card-tool-skill')).toBeNull()
+    expect(host.querySelector('#agent-tool-card-tool-skill')?.getAttribute('data-slot')).toBe(
+      'tool-call',
+    )
     expect(host.querySelector('#agent-tool-card-tool-image')?.textContent).toContain('一只橘猫')
   })
 
@@ -461,7 +465,9 @@ describe('AgentPanel', () => {
         ],
       }),
     )
-    expect(host.querySelector('[data-tool="loadSkill"]')?.textContent).toBe('没找到技能：nope')
+    expect(
+      host.querySelector('#agent-tool-card-tool-skill button[aria-expanded]')?.textContent,
+    ).toBe('没找到技能：nope')
   })
 
   it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {

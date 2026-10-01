@@ -26,6 +26,8 @@ vi.mock('../../lib/api-client', () => {
       calls: 2,
       input_tokens: 1000,
       cache_read_tokens: 640,
+      first_call: { calls: 1, input_tokens: 900, cache_read_tokens: 600 },
+      continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
       models: [
         { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
         { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
@@ -225,6 +227,8 @@ describe('time range placement', () => {
     renderAt('/overview')
     expect(await screen.findByText('Agent 输入缓存 · 7 天')).toBeInTheDocument()
     expect(screen.getByText('64.0%')).toBeInTheDocument()
+    expect(screen.getByText('每轮首调')).toBeInTheDocument()
+    expect(screen.getByText('轮内续调')).toBeInTheDocument()
     expect(
       within(screen.getByRole('row', { name: /model-b/ })).getByText('66.7%'),
     ).toBeInTheDocument()

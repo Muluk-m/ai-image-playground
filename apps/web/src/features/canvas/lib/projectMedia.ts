@@ -6,8 +6,9 @@ import {
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
 import { imageDataUrlToPngBlob } from '../../../lib/canvasImage'
-import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
+import { mediaIdentity } from '../../../lib/cloudMedia'
 import { imageMimeFromBytes } from '../../../lib/imageBytes'
+import { uploadMediaBytes } from '../../../lib/uploadMedia'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
 
 export interface MediaBinding {
@@ -93,12 +94,6 @@ async function digest(bytes: ArrayBuffer): Promise<string> {
   ).join('')
 }
 
-interface Upload {
-  id: string
-  status: 'ready' | 'pending'
-  uploadUrl?: string
-}
-
 export async function prepareProjectMedia(
   doc: CanvasDoc,
   persisted: MediaBindings,
@@ -142,40 +137,15 @@ export async function prepareProjectMedia(
       contentType = 'image/png'
       current()
     }
-    const upload = await mediaJson<Upload>('/uploads', {
-      method: 'POST',
+    const mediaId = await uploadMediaBytes(
+      body,
+      contentType,
+      body === bytes ? sha256 : await digest(body),
       signal,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        bytes: body.byteLength,
-        contentType,
-        sha256: body === bytes ? sha256 : await digest(body),
-      }),
-    })
+    )
     current()
-    if (upload.status !== 'ready') {
-      if (!upload.uploadUrl) throw new Error('invalid_media_upload')
-      const sent = await fetch(upload.uploadUrl, {
-        method: 'PUT',
-        credentials: 'omit',
-        signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
-        headers: { 'content-type': contentType },
-        body,
-      })
-      if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
-      current()
-      const complete = await mediaJson<Upload>(`/${upload.id}/complete`, {
-        method: 'POST',
-        signal,
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      if (complete.status !== 'ready' || complete.id !== upload.id)
-        throw new Error('invalid_media_confirmation')
-    }
-    current()
-    persisted[fileId] = { id: upload.id, sha256 }
-    loaded.set(fileId, { id: upload.id, sha256, source })
+    persisted[fileId] = { id: mediaId, sha256 }
+    loaded.set(fileId, { id: mediaId, sha256, source })
   }
   // 大画布一次要补传几十上百张：串行时整批要等最慢的那条链一张张走完。并发几张，
   // 一张失败也让其余的传完再报错，下次同步只剩失败的那几张。

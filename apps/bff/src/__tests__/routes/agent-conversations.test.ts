@@ -135,6 +135,56 @@ afterAll(async () => {
   await closeDb()
 })
 
+it('recovers missing list titles from the first user message without changing named conversations or empty drafts', async () => {
+  const unnamed = await startConversation()
+  const draft = await startConversation()
+  const named = await startConversation()
+  const other = await startConversation(OTHER_DEVICE)
+  for (const conversationId of [unnamed, named, other]) {
+    await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'title-test',
+      role: 'assistant',
+      content: [{ type: 'text', text: '助手话术' }],
+    })
+    await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'title-test',
+      role: 'user',
+      content: [{ type: 'text', text: '把手机字标换成 xm' }],
+    })
+  }
+  await db
+    .update(schema.agent_conversations)
+    .set({ title: '自定义标题' })
+    .where(eq(schema.agent_conversations.id, named))
+  const listed = await listConversations()
+  expect(listed.find((one) => one.id === unnamed)?.title).toBe('把手机字标换成 xm')
+  expect(listed.find((one) => one.id === named)?.title).toBe('自定义标题')
+  expect(listed.find((one) => one.id === draft)?.title).toBe('')
+  expect(listed.some((one) => one.id === other)).toBe(false)
+})
+
+it('rejects region rectangles that extend beyond the image', async () => {
+  const conversationId = await startConversation()
+  const result = await request('POST', `/api/agent/conversations/${conversationId}/turns`, {
+    body: {
+      deviceId: DEVICE,
+      text: '改标志',
+      references: [
+        {
+          imageId: 'bad-region',
+          dataUrl: 'data:image/png;base64,aGk=',
+          regions: [{ x: 0.9, y: 0, width: 0.2, height: 0.5 }],
+          editAction: 'inpaint',
+        },
+      ],
+    },
+  })
+  expect(result.status).toBe(422)
+  expect(result.json).toEqual({ error: 'invalid_reference' })
+})
+
 describe('message reference thumbnails', () => {
   it('reads the selected message snapshot in reference order and returns a bounded thumbnail', async () => {
     const conversationId = await startConversation()
@@ -178,6 +228,118 @@ describe('message reference thumbnails', () => {
     expect(original.headers.get('content-security-policy')).toContain('sandbox')
     expect((await request('GET', `${path}/2`, { deviceId: DEVICE })).status).toBe(404)
     expect((await request('GET', `${path}/-1`, { deviceId: DEVICE })).status).toBe(400)
+  })
+
+  it('returns a thumbnail even when a tiny valid selection vanishes after downsampling', async () => {
+    const conversationId = await startConversation()
+    const image = await sharp({
+      create: { width: 1920, height: 1920, channels: 4, background: '#ff0000' },
+    })
+      .png()
+      .toBuffer()
+    const mask = await sharp({
+      create: { width: 1920, height: 1920, channels: 4, background: '#ffffff' },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 1, height: 1, channels: 4, background: '#ffffff' },
+          })
+            .png()
+            .toBuffer(),
+          left: 600,
+          top: 600,
+          blend: 'dest-out',
+        },
+      ])
+      .png()
+      .toBuffer()
+    const references = await archiveAgentReferences(conversationId, 'tiny-mark', [
+      {
+        imageId: 'tiny',
+        dataUrl: `data:image/png;base64,${image.toString('base64')}`,
+        maskDataUrl: `data:image/png;base64,${mask.toString('base64')}`,
+      },
+    ])
+    const message = await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'tiny-mark',
+      role: 'user',
+      content: [{ type: 'text', text: '改这一处', references }],
+    })
+    const response = await app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${conversationId}/messages/${message.id}/references/0`,
+        { headers: { [DEVICE_ID_HEADER]: DEVICE } },
+      ),
+    )
+    expect(response.status).toBe(200)
+    const metadata = await sharp(new Uint8Array(await response.arrayBuffer())).metadata()
+    expect([metadata.width, metadata.height]).toEqual([96, 96])
+  })
+
+  it('returns the saved mask and numbered regions in both message preview sizes', async () => {
+    const conversationId = await startConversation()
+    const image = await sharp({
+      create: { width: 100, height: 100, channels: 4, background: '#ff0000' },
+    })
+      .png()
+      .toBuffer()
+    const mask = await sharp({
+      create: { width: 100, height: 100, channels: 4, background: '#ffffff' },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 50, height: 50, channels: 4, background: '#ffffff' },
+          })
+            .png()
+            .toBuffer(),
+          left: 0,
+          top: 0,
+          blend: 'dest-out',
+        },
+      ])
+      .png()
+      .toBuffer()
+    const references = await archiveAgentReferences(conversationId, 'marked-reference-turn', [
+      {
+        imageId: 'marked',
+        dataUrl: `data:image/png;base64,${image.toString('base64')}`,
+        maskDataUrl: `data:image/png;base64,${mask.toString('base64')}`,
+        regions: [{ x: 0, y: 0, width: 0.5, height: 0.5 }],
+      },
+    ])
+    expect('regions' in references[0]! && references[0].regions).toEqual([
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+    ])
+    const message = await appendAgentMessage(db, {
+      conversationId,
+      turnId: 'marked-reference-turn',
+      role: 'user',
+      content: [{ type: 'text', text: '区域1改为蓝色', references }],
+    })
+    for (const variant of ['thumbnail', 'annotated']) {
+      const response = await app.handle(
+        new Request(
+          `http://localhost/api/agent/conversations/${conversationId}/messages/${message.id}/references/0?variant=${variant}`,
+          { headers: { [DEVICE_ID_HEADER]: DEVICE } },
+        ),
+      )
+      expect(response.status).toBe(200)
+      const { data, info } = await sharp(new Uint8Array(await response.arrayBuffer()))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      const pixel = (x: number, y: number) => [
+        ...data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 3),
+      ]
+      const selected = pixel(Math.round(info.width * 0.3), Math.round(info.height * 0.3))
+      const untouched = pixel(Math.round(info.width * 0.8), Math.round(info.height * 0.8))
+      expect(selected[2]).toBeGreaterThan(100)
+      expect(untouched[0]).toBeGreaterThan(240)
+      expect(untouched[2]).toBeLessThan(10)
+    }
   })
 
   it.each([

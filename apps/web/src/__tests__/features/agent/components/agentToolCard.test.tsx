@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeLoginPrompt } from '../../../../auth/loginPrompt'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
+import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { notifyPrivateSubmissionError } from '../../../../lib/privateOverlay'
@@ -57,6 +58,73 @@ beforeEach(() => {
 })
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+it('fits square and landscape results to their actual ratios without fixed-ratio side bars', async () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  setAgentCanvasSink({
+    has: () => true,
+    thumbnail: async () => 'data:image/png;base64,preview',
+  } as unknown as AgentCanvasSink)
+  try {
+    await act(async () =>
+      root.render(
+        <AgentToolCard
+          message={{
+            kind: 'tool',
+            id: 'ratios',
+            turnId: 'turn',
+            toolCallId: 'call',
+            title: 'Logo variations',
+            status: 'succeeded',
+            delivery: 'placed',
+            artifacts: [
+              {
+                artifactId: 'square',
+                taskId: 'task',
+                outputIndex: 0,
+                media: 'image',
+                mime: 'image/png',
+                width: 1024,
+                height: 1024,
+              },
+              {
+                artifactId: 'wide',
+                taskId: 'task',
+                outputIndex: 1,
+                media: 'image',
+                mime: 'image/png',
+                width: 1600,
+                height: 900,
+              },
+              {
+                artifactId: 'legacy',
+                taskId: 'task',
+                outputIndex: 2,
+                media: 'image',
+                mime: 'image/png',
+              },
+            ],
+          }}
+          onPreviewResult={vi.fn()}
+        />,
+      ),
+    )
+    const tiles = host.querySelectorAll<HTMLElement>('.studio-agent-inline-tile')
+    expect(tiles[0]!.style.aspectRatio).toBe('1')
+    expect(Number(tiles[1]!.style.aspectRatio)).toBeCloseTo(16 / 9)
+    const image = tiles[2]!.querySelector('img')!
+    Object.defineProperties(image, {
+      naturalWidth: { value: 600 },
+      naturalHeight: { value: 900 },
+    })
+    act(() => image.dispatchEvent(new Event('load')))
+    expect(Number(tiles[2]!.style.aspectRatio)).toBeCloseTo(2 / 3)
+  } finally {
+    act(() => root.unmount())
+    setAgentCanvasSink(null)
+  }
+})
 
 it('says a submitted background job is still generating and will appear in the conversation', () => {
   const host = document.createElement('div')
@@ -377,7 +445,7 @@ describe('失败卡按错误码给出路', () => {
       expect(host.querySelector('[data-slot="tool-error"]')?.getAttribute('role')).toBe('alert')
       // 界面不读服务端文字（ADR 0006）。
       expect(host.textContent).not.toContain('服务端写的那句话')
-      expect(buttons(host)).toEqual([action])
+      expect(buttons(host)).toEqual([action, '错误详情'])
     } finally {
       unmount()
     }
@@ -394,7 +462,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed(code))
     try {
       expect(host.textContent).toContain(text)
-      expect(buttons(host)).toEqual([])
+      expect(buttons(host)).toEqual(['错误详情'])
     } finally {
       unmount()
     }
@@ -407,7 +475,7 @@ describe('失败卡按错误码给出路', () => {
     setChannels([RETRY_CHANNEL])
     const { host, unmount } = render(localEditFailure())
     try {
-      expect(buttons(host)).toEqual(['让助手重新处理'])
+      expect(buttons(host)).toEqual(['让助手重新处理', '错误详情'])
       act(() => host.querySelector('button')!.click())
       expect(send).toHaveBeenCalledWith(
         '「一只橘猫」没有完成：它是按当时的选区或方案改的，原样重做会改错地方。请换个做法重新处理。',
@@ -436,7 +504,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed())
     try {
       expect(host.textContent).toContain('服务端写的那句话')
-      expect(buttons(host)).toEqual([])
+      expect(buttons(host)).toEqual(['错误详情'])
     } finally {
       unmount()
     }
@@ -483,7 +551,7 @@ describe('失败卡按错误码给出路', () => {
     for (const code of ['insufficient_credits', 'quota_exceeded'] as const) {
       const { host, unmount } = render(failed(code))
       try {
-        expect(buttons(host)).toEqual([])
+        expect(buttons(host)).toEqual(['错误详情'])
       } finally {
         unmount()
       }
@@ -495,7 +563,7 @@ describe('失败卡按错误码给出路', () => {
     const { host, unmount } = render(failed('authentication_required'))
     try {
       expect(host.textContent).toContain('需要先登录才能生成')
-      expect(buttons(host)).toEqual([])
+      expect(buttons(host)).toEqual(['错误详情'])
     } finally {
       unmount()
     }

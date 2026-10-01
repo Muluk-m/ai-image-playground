@@ -92,6 +92,18 @@ describe('canvas touch navigation', () => {
       touchCamera({ x: 0, y: 0, zoom: 1 }, { x: 100, y: 100 }, { x: 200, y: 200 }, 100),
     ).toEqual({ x: 100 - 200 / ZOOM_MAX, y: 100 - 200 / ZOOM_MAX, zoom: ZOOM_MAX })
   })
+  it('allows gradual pinch zoom after fitting a large canvas below the normal limit', () => {
+    const fitted = touchCamera(
+      { x: 0, y: 0, zoom: 0.01 },
+      { x: 100, y: 100 },
+      { x: 100, y: 100 },
+      1.25,
+    )
+    expect(fitted.zoom).toBeCloseTo(0.0125)
+    expect(touchCamera(fitted, { x: 100, y: 100 }, { x: 100, y: 100 }, 0.01).zoom).toBeCloseTo(
+      0.0125,
+    )
+  })
   it('selects on tap, drags selected objects with one undo, and pans over unselected images', () => {
     hit.mockReturnValue('image')
     touch('touchstart', [[30, 40]])

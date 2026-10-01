@@ -65,7 +65,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   return messagesResponse()
 })
 
-function openProject(conversationId: string | null): void {
+function openProject(conversationId: string | null, experience: 'chat' | 'canvas' = 'chat'): void {
   const project: CanvasProject = {
     id: PROJECT,
     name: '项目',
@@ -76,6 +76,7 @@ function openProject(conversationId: string | null): void {
     updatedAt: 0,
     hasContent: false,
     kind: 'image',
+    experience,
   }
   useCanvasProjectStore.setState({ projects: [project], activeId: PROJECT, loaded: true })
 }
@@ -182,6 +183,7 @@ it('服务端已经收下的那条不再重发，本机那份丢掉', async () =
 })
 
 it('重发仍使用发话时保存的画布目录', async () => {
+  openProject(CONVERSATION, 'canvas')
   const canvas = {
     elements: [{ id: 'at-send', type: 'image' as const, x: 1, y: 2, width: 10, height: 10 }],
   }
@@ -248,6 +250,7 @@ it.each([
   false,
   true,
 ])('等待原图同步后，引用与发话时画布一致且不带入后续编辑（排队=%s）', async (queued) => {
+  openProject(CONVERSATION, 'canvas')
   vi.stubGlobal('crypto', webcrypto)
   setClientStorageScope(crypto.randomUUID())
   const source = 'data:image/png;base64,AQID'
@@ -256,7 +259,14 @@ it.each([
   const mediaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   let releaseUpload: (response: Response) => void = () => {}
   let uploading = false
-  const project = await projectRepository.create('发送时画布', undefined, true)
+  const project = await projectRepository.create(
+    '发送时画布',
+    undefined,
+    true,
+    true,
+    'image',
+    'canvas',
+  )
   await projectRepository.update(project.id, { conversationId: CONVERSATION })
   useCanvasProjectStore.setState({
     projects: [{ ...project, conversationId: CONVERSATION }],

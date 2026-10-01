@@ -26,6 +26,8 @@ export interface ResolvedAgentImage {
   readonly dataUrl: string
   /** 本轮附图或系统续作计划中的遮罩；普通历史引用只有原图。 */
   readonly maskDataUrl?: string
+  readonly editAction?: import('@image-playground/shared').AgentImageEditAction
+  readonly regions?: readonly import('@image-playground/shared').AgentMarkedRegion[]
 }
 
 /**
@@ -134,6 +136,8 @@ export async function resolveTurnReferences(
         imageId: reference.imageId,
         dataUrl: reference.dataUrl,
         ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+        ...(reference.regions ? { regions: reference.regions } : {}),
+        ...(reference.editAction ? { editAction: reference.editAction } : {}),
       })
       continue
     }
@@ -178,8 +182,12 @@ async function modelImage(
   if (!image) return image
   const { reduced, ...rest } = image
   const normalized = await toModelImageDataUrl(rest.dataUrl)
+  // A selection ID binds the original pixels and mask. Resizing only the image
+  // breaks both coordinate validation and the identity used by editImage.
   const dataUrl =
-    variant === 'preview' && !reduced ? await toPreviewDataUrl(normalized) : normalized
+    variant === 'preview' && !reduced && !rest.maskDataUrl
+      ? await toPreviewDataUrl(normalized)
+      : normalized
   return dataUrl === rest.dataUrl ? rest : { ...rest, dataUrl }
 }
 
@@ -461,9 +469,8 @@ export function activeAgentReferences(
       const block = message.content[index]!
       if (block.type === 'text' && block.references?.length) {
         return block.references.map((reference) => {
-          if (!('mask' in reference) || !reference.mask || at >= selectionHistoryStart)
-            return reference
-          const { mask: _mask, ...original } = reference
+          if (!('image' in reference) || at >= selectionHistoryStart) return reference
+          const { mask: _mask, regions: _regions, editAction: _action, ...original } = reference
           return original
         })
       }
@@ -626,6 +633,8 @@ export async function archiveAgentReferences(
       stored.push({
         imageId: reference.imageId,
         ...(reference.name ? { name: reference.name } : {}),
+        ...(reference.regions ? { regions: reference.regions } : {}),
+        ...(reference.editAction ? { editAction: reference.editAction } : {}),
         image: archived.input_images![0] as StoredImageRef,
         ...(archived.mask ? { mask: archived.mask as StoredImageRef } : {}),
       })
@@ -658,8 +667,8 @@ export function createAgentImageSource(input: {
     for (const block of message.content) {
       if (block.type !== 'text') continue
       for (const reference of block.references ?? []) {
-        if ('mask' in reference && reference.mask && index < selectionHistoryStart) {
-          const { mask: _mask, ...original } = reference
+        if ('image' in reference && index < selectionHistoryStart) {
+          const { mask: _mask, regions: _regions, editAction: _action, ...original } = reference
           references.set(reference.imageId, original)
         } else {
           references.set(reference.imageId, reference)
@@ -705,6 +714,10 @@ export function createAgentImageSource(input: {
         imageId,
         dataUrl: hydrated.input_images![0]!,
         ...(hydrated.mask ? { maskDataUrl: hydrated.mask } : {}),
+        ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
+        ...('editAction' in reference && reference.editAction
+          ? { editAction: reference.editAction }
+          : {}),
       }
     }
     const output = outputs.get(imageId)

@@ -49,6 +49,8 @@ location。第二行原本直接露的是 `description`，而 `description` 是�
 `isAgentToolName` / `agentToolStart` / `agentToolEnd` **不**按 mode 过滤：历史里的生视频结果在图片轮
 也要认得出来，否则那张卡就渲染不出来了。
 
+**对话与画布分别装配工具。** 每次起轮（用户消息、任务完成唤醒、中断续跑）从当前用户的项目文档读取 `experience`。chat 不注册 readCanvas / editCanvasObject / arrangeCanvas / arrangeTimeline；实际工具、声明估算与系统指引使用同一份筛选。没有云项目时，普通消息只认本条消息的快照；唤醒与续跑只认原轮已消费的消息或续跑保存的快照，未处理、撤回或失败的消息不能改变入口。chat 不发送隐藏画布快照，结果直接在对话中预览、下载和编辑；生成回执与完成通知不再承诺放入画布。历史中的旧画布工具记录仍可识别与展示。
+
 **做不了视频的部署里没有视频轮。** `generateVideo` 不可用时（能力关着，或者没有能解析出来的视频
 模型），起轮与技能清单端点都把 `video` 解析成 `image`（`resolveAgentMode`），整轮按图片装配。
 另一条路是「保留视频轮、只把视频技能清空」，但那会多出一个要一直记着的状态：mode 是视频、却没有
