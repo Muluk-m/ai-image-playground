@@ -151,7 +151,8 @@ export async function updatePendingBatchPhase(
     const archivedSources = await readBatchSourceItems(
       tx,
       id,
-      plan.confirmation.sourceVersions ?? [],
+      plan.confirmation.sourceVersions ??
+        (plan.confirmation.sourceVersion ? [plan.confirmation.sourceVersion] : []),
     )
     const historicalDependencies = new Set(archivedSources.map((source) => source.item.key))
     const keys = new Set<string>()

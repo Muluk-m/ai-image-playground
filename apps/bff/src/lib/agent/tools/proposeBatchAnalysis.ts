@@ -57,7 +57,10 @@ export const proposeBatchAnalysis = defineAgentTool({
     const sources = await readBatchSourceItems(
       db,
       input.batchId,
-      current.batch.confirmation?.sourceVersions ?? [],
+      current.batch.confirmation?.sourceVersions ??
+        (current.batch.confirmation?.sourceVersion
+          ? [current.batch.confirmation.sourceVersion]
+          : []),
     )
     const references = [...current.items, ...sources.map((source) => source.item)].flatMap(
       (item) => item.inputs,
