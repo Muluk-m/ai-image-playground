@@ -12,6 +12,14 @@
 4. `pages`：先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒），再无 `private/` 发布内部版、克隆同一私有提交后发布付费版，最后发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。
 5. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
+### 前端启动验收
+
+`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识及独立启动脚本、所有构建 JS/CSS 的 MIME 与内容摘要，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开付费站，确认工作台挂载、启动遮罩消失且无 JavaScript 异常。
+
+静态资源缺失不得回退首页：web 使用顶层 `404.html` 关闭 Pages 默认 SPA 回退，`_redirects` 只列真实业务路由。增加路由须同步规则与测试。`/assets/*` 使用 `max-age=0, must-revalidate`，保留 ETag 校验但不允许长期复用错误响应；不重新加路径级 `immutable`。
+
+2026-10-01 启动故障的错误脚本缓存已单 URL 清除。旧的浏览器缓存仍可需要强制刷新；新版本通过独立内联脚本在入口加载失败或 30 秒未完成时显示重试，不清理账号、IndexedDB 或用户作品。
+
 ### Secrets（仓库 `Muluk-m/ai-image-playground`）
 
 | Secret | 用途 |
