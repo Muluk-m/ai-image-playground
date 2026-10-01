@@ -496,6 +496,15 @@ describe('这一轮的观众', () => {
     expect(systemPrompt).not.toContain('把素材放进岩壁场景')
   })
 
+  it('模板使用顺序变化时系统提示词仍逐字相同', () => {
+    const second = { ...audience.looks[0]!, name: 'look-l2', title: '第二个模板' }
+    const firstOrder = { ...audience, looks: [audience.looks[0]!, second] }
+    const usedOrder = { ...audience, looks: [second, audience.looks[0]!] }
+    expect(turnInitialState([], 'image', false, 0, firstOrder).systemPrompt).toBe(
+      turnInitialState([], 'image', false, 0, usedOrder).systemPrompt,
+    )
+  })
+
   it('没有观众的那一轮一条模板都不露', () => {
     expect(turnInitialState([], 'image').systemPrompt).not.toContain('look-l1')
   })
