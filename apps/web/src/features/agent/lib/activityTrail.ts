@@ -9,6 +9,8 @@ import type { AgentPanelMessage, AgentToolMessage } from '../types'
  * 认不出的新工具一律按「会有产物」处理：多一张卡只是噪音，少一张是丢东西。
  */
 const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
+  readProduction: true,
+  writeProduction: undefined,
   viewImage: true,
   readLibrary: true,
   readCanvas: true,

@@ -333,11 +333,13 @@ export function ensureAgentSkills(): Promise<SkillIndex> {
 
 /** 这个 mode 看得见的技能。`ensureAgentSkills()` 之前一律是空的。 */
 export function agentSkills(mode: AgentMode): readonly AgentSkill[] {
-  return index[mode]
+  return index[mode].filter(
+    (skill) => skill.name !== 'video-production' || isCapabilityEnabled('agent:production'),
+  )
 }
 
 export function findAgentSkill(mode: AgentMode, name: string): AgentSkill | undefined {
-  return index[mode].find((skill) => skill.name === name)
+  return agentSkills(mode).find((skill) => skill.name === name)
 }
 
 /**
@@ -352,7 +354,7 @@ export function titleSourceText(text: string, mode: AgentMode): string {
 }
 
 export function agentSkillSummaries(mode: AgentMode): AgentSkillSummary[] {
-  return index[mode].map(agentSkillSummary)
+  return agentSkills(mode).map(agentSkillSummary)
 }
 
 /** 一条技能发给界面的那一份。模板的图片在这里换成地址：前端拼不出这条路，也不该拼。 */
@@ -395,7 +397,7 @@ export function visibleAgentSkills(
   mode: AgentMode,
   audience: AgentTurnAudience,
 ): readonly AgentSkill[] {
-  return mode === 'image' ? [...index[mode], ...audience.looks] : index[mode]
+  return mode === 'image' ? [...agentSkills(mode), ...audience.looks] : agentSkills(mode)
 }
 
 /**
