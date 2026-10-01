@@ -221,6 +221,7 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
     !capabilities['accounts:login']
   )
     capabilities['agent:batch-plans'] = false
+  if (!capabilities['agent:batch-plans']) capabilities['agent:batch-execution'] = false
   for (const [key, maximum] of [
     ['agent:attachment-logical-references', 100],
     ['agent:attachment-image-pixels', MEDIA_IMAGE_MAX_PIXELS],

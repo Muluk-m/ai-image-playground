@@ -107,7 +107,10 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                       <FuzzyTime ts={t.submitted_at} />
                     </span>
                   </span>
-                  <span className="truncate font-mono text-xs">{t.model}</span>
+                  <span className="truncate font-mono text-xs">
+                    {t.kind === 'analysis' ? '图片分析 · ' : ''}
+                    {t.model}
+                  </span>
                   <span className="min-h-8 text-xs text-muted-foreground">
                     <PromptCell text={t.prompt} lines={2} />
                   </span>
@@ -161,7 +164,10 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                     ) : null}
                   </div>
                 </div>
-                <div className="w-[140px] shrink-0 truncate font-mono text-xs">{t.model}</div>
+                <div className="w-[140px] shrink-0 truncate font-mono text-xs">
+                  {t.kind === 'analysis' ? '图片分析 · ' : ''}
+                  {t.model}
+                </div>
                 <div className="min-w-0 flex-1">
                   <PromptCell text={t.prompt} />
                 </div>

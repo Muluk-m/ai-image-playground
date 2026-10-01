@@ -93,8 +93,15 @@
     "fallback": "Didn't finish"
   },
   "agentBatch": {
+    "storage_restore_failed": "Local operation history could not be restored. Results are read-only. Try restoring again.",
+    "output_unavailable": "The result could not be loaded. Please try again.",
+    "batch_price_changed": "Prices changed. Review the latest estimate.",
     "fallback": "Could not update the plan. Your changes are preserved. Try again.",
-    "batch_version_conflict": "This plan has a newer version. Refresh before editing."
+    "batch_version_conflict": "This plan has a newer version. Refresh before editing.",
+    "insufficient_credits": "Insufficient credits. The batch is paused.",
+    "input_limit": "Inputs exceed the current limit. The batch is paused.",
+    "upstream_auth": "Generation service authentication failed. The batch is paused.",
+    "model_unavailable": "The selected model or channel is unavailable. The batch is paused."
   },
   "attachment": {
     "attachment_capability_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",

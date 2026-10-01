@@ -1,8 +1,14 @@
 import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
-import { eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { advanceAgentBatches } from '../lib/agent/batch-execution'
 import { log } from '../lib/logger'
+import {
+  abortRunningAnalysisTask,
+  runAnalysisTask,
+  runningAnalysisTaskIds,
+} from './analysis-runner'
 import { selectRunnableTasks } from './runnable-tasks'
 import { abortRunningTask, failCrashedExecution, runningTaskIds } from './task-execution'
 import { runTask } from './task-runner'
@@ -13,6 +19,8 @@ export interface TaskSchedulerOptions {
   pollIntervalMs?: number
   concurrency?: Partial<Record<QueueProvider, number>>
   executeTask?: ExecuteTask
+  executeAnalysisTask?: ExecuteTask
+  analysisConcurrency?: number
   clock?: () => number
 }
 
@@ -22,15 +30,22 @@ export class TaskScheduler {
   private readonly pollIntervalMs: number
   private readonly concurrency: Record<QueueProvider, number>
   private readonly executeTask: ExecuteTask
+  private readonly executeAnalysisTask: ExecuteTask
+  private readonly analysisConcurrency: number
+  private readonly analysisActive = new Map<string, Promise<void>>()
   private readonly clock: () => number
   private readonly active = new Map<QueueProvider, Map<string, Promise<void>>>(
     PROVIDERS.map((provider) => [provider, new Map()]),
   )
   private timer: ReturnType<typeof setInterval> | null = null
   private ticking = false
+  private tickCompletion: Promise<void> | null = null
   private stopped = true
   private draining = false
   private lastSuccessfulPollTimestamp: number | null = null
+  private batchCursor: string | null = null
+  private batchAdvance: Promise<void> | null = null
+  private dispatchGeneration = 0
 
   constructor(options: TaskSchedulerOptions = {}) {
     this.pollIntervalMs = options.pollIntervalMs ?? config.worker.pollIntervalMs
@@ -40,6 +55,11 @@ export class TaskScheduler {
       gemini: options.concurrency?.gemini ?? config.worker.concurrency.gemini,
     }
     this.executeTask = options.executeTask ?? runTask
+    this.executeAnalysisTask = options.executeAnalysisTask ?? runAnalysisTask
+    this.analysisConcurrency =
+      options.analysisConcurrency ?? config.operator.quotas['agent:analysis-concurrency']
+    if (!Number.isSafeInteger(this.analysisConcurrency) || this.analysisConcurrency < 1)
+      throw new Error('analysis concurrency must be a positive integer')
     this.clock = options.clock ?? Date.now
   }
 
@@ -55,6 +75,7 @@ export class TaskScheduler {
   }
 
   drain(): void {
+    this.dispatchGeneration++
     this.draining = true
   }
 
@@ -62,18 +83,19 @@ export class TaskScheduler {
     return {
       draining: this.draining,
       active: this.activeCount(),
-      safeToStop: this.draining && !this.ticking && this.activeCount() === 0,
+      safeToStop: this.draining && !this.ticking && !this.batchAdvance && this.activeCount() === 0,
     }
   }
 
   stop(): void {
+    this.dispatchGeneration++
     this.stopped = true
     if (this.timer) clearInterval(this.timer)
     this.timer = null
   }
 
   activeCount(): number {
-    let count = 0
+    let count = this.analysisActive.size
     for (const tasks of this.active.values()) count += tasks.size
     return count
   }
@@ -84,8 +106,16 @@ export class TaskScheduler {
 
   /** 最多等 timeoutMs 让 inflight 跑完，返回是否真的等空了。 */
   async waitForIdle(timeoutMs: number): Promise<boolean> {
-    const promises = Array.from(this.active.values()).flatMap((tasks) => Array.from(tasks.values()))
-    const settled = Promise.allSettled(promises)
+    const settled = (async () => {
+      // A stopped poll can still own a database query; restarting before it exits loses the first tick.
+      await this.tickCompletion
+      const promises = Array.from(this.active.values()).flatMap((tasks) =>
+        Array.from(tasks.values()),
+      )
+      promises.push(...this.analysisActive.values())
+      if (this.batchAdvance) promises.push(this.batchAdvance)
+      await Promise.allSettled(promises)
+    })()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
@@ -99,8 +129,17 @@ export class TaskScheduler {
     }
   }
 
-  async tick(now = this.clock()): Promise<void> {
-    if (this.stopped || this.ticking) return
+  tick(now = this.clock()): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    if (this.tickCompletion) return this.tickCompletion
+    const operation = this.poll(now).finally(() => {
+      if (this.tickCompletion === operation) this.tickCompletion = null
+    })
+    this.tickCompletion = operation
+    return operation
+  }
+
+  private async poll(now: number): Promise<void> {
     this.ticking = true
     try {
       await this.abortTasksCancelledInDatabase()
@@ -108,6 +147,7 @@ export class TaskScheduler {
         this.lastSuccessfulPollTimestamp = this.clock()
         return
       }
+      this.advanceBatches()
       for (const provider of PROVIDERS) {
         if (this.stopped || this.draining) return
         const active = this.active.get(provider)!
@@ -118,6 +158,17 @@ export class TaskScheduler {
         if (this.stopped || this.draining) return
         for (const task of selected) this.launch(provider, task.id)
       }
+      const availableAnalysis = this.analysisConcurrency - this.analysisActive.size
+      if (availableAnalysis > 0 && !this.stopped && !this.draining) {
+        const selected = await db
+          .select({ id: schema.tasks.id })
+          .from(schema.tasks)
+          .where(and(eq(schema.tasks.kind, 'analysis'), eq(schema.tasks.status, 'queued')))
+          .orderBy(asc(schema.tasks.submitted_at), asc(schema.tasks.id))
+          .limit(availableAnalysis)
+        if (!this.stopped && !this.draining)
+          for (const task of selected) this.launchAnalysis(task.id)
+      }
       this.lastSuccessfulPollTimestamp = this.clock()
     } catch (err) {
       log.error(
@@ -127,6 +178,31 @@ export class TaskScheduler {
     } finally {
       this.ticking = false
     }
+  }
+
+  /** Slow media preparation must not occupy the queue poll or its cancellation checks. */
+  private advanceBatches(): void {
+    if (this.batchAdvance || this.stopped || this.draining) return
+    const generation = this.dispatchGeneration
+    const canDispatch = () =>
+      generation === this.dispatchGeneration && !this.stopped && !this.draining
+    const operation = advanceAgentBatches(this.batchCursor, canDispatch)
+      .then((cursor) => {
+        if (canDispatch()) this.batchCursor = cursor
+      })
+      .catch((error: unknown) => {
+        log.error(
+          {
+            event: 'worker.batch_advance_failed',
+            err: error instanceof Error ? error.message : String(error),
+          },
+          'batch advancement failed',
+        )
+      })
+      .finally(() => {
+        if (this.batchAdvance === operation) this.batchAdvance = null
+      })
+    this.batchAdvance = operation
   }
 
   private launch(provider: QueueProvider, id: string): void {
@@ -145,8 +221,24 @@ export class TaskScheduler {
     active.set(id, promise)
   }
 
+  private launchAnalysis(id: string): void {
+    if (this.analysisActive.has(id)) return
+    const promise = Promise.resolve()
+      .then(() => this.executeAnalysisTask(id))
+      .catch((error) => {
+        // Its persisted call decides recovery; generation crash handling must never settle this task.
+        log.error(
+          { event: 'analysis.crashed', taskId: id, err: String(error) },
+          'analysis consumer crashed',
+        )
+      })
+      .finally(() => this.analysisActive.delete(id))
+    this.analysisActive.set(id, promise)
+  }
+
   private async abortTasksCancelledInDatabase(): Promise<void> {
-    const ids = runningTaskIds()
+    const analysisIds = new Set(runningAnalysisTaskIds())
+    const ids = [...runningTaskIds(), ...analysisIds]
     if (ids.length === 0) return
 
     const rows = await db
@@ -157,6 +249,10 @@ export class TaskScheduler {
 
     for (const id of ids) {
       if (statuses.get(id) === 'in_progress') continue
+      if (analysisIds.has(id)) {
+        abortRunningAnalysisTask(id)
+        continue
+      }
       if (abortRunningTask(id)) {
         log.info({ event: 'task.cancel_observed', taskId: id }, 'worker observed cancellation')
       }

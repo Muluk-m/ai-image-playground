@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type { AgentBatchPage, AgentBatchUpdate } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -75,7 +76,11 @@ beforeEach(() => {
         saved = {
           ...saved,
           batch: { ...saved.batch, version: 2, rule: body.rule, digest: 'b'.repeat(64) },
-          items: body.items,
+          items: body.items.map((item) => {
+            if (item.kind !== 'generation')
+              throw new Error('unexpected analysis update in generation fixture')
+            return item
+          }),
         }
       }
       if (init?.method === 'POST' && url.endsWith('/cancel')) {
@@ -112,6 +117,7 @@ async function render() {
   ])
   if (message.kind !== 'tool') throw new Error('expected tool message')
   await act(async () => root.render(<AgentToolCard message={message} />))
+  await vi.waitFor(() => expect(host.querySelector('details')).not.toBeNull())
 }
 
 function change(field: HTMLTextAreaElement | HTMLInputElement, value: string) {
@@ -126,16 +132,35 @@ function change(field: HTMLTextAreaElement | HTMLInputElement, value: string) {
   })
 }
 
-it('完整显示100项和费用，展开编辑后保存，刷新恢复服务端新版本', async () => {
+function expectScopeAcrossPages(first: number, last: number) {
+  const button = (label: string) =>
+    [...host.querySelectorAll('button')].find((one) => one.textContent === label)!
+  const names: (string | null)[] = []
+  const count = last - first + 1
+  const pages = Math.ceil(count / 20)
+  for (let page = 0; page < pages; page += 1) {
+    expect(host.querySelectorAll('details')).toHaveLength(Math.min(20, count - page * 20))
+    names.push(
+      ...[...host.querySelectorAll('summary img')].map((image) => image.getAttribute('alt')),
+    )
+    expect(button('下一页').disabled).toBe(page === pages - 1)
+    if (page < pages - 1) act(() => button('下一页').click())
+  }
+  expect(names).toEqual(Array.from({ length: count }, (_, index) => `商品 ${first + index}`))
+  for (let page = pages - 1; page > 0; page -= 1) act(() => button('上一页').click())
+  expect(button('上一页').disabled).toBe(true)
+}
+
+it('分页可查完整100项和费用，展开编辑后保存，刷新恢复服务端新版本', async () => {
   await render()
-  expect(host.querySelectorAll('details')).toHaveLength(100)
-  expect(host.textContent).toContain('商品 100')
+  expectScopeAcrossPages(1, 100)
   expect(host.querySelector('[aria-label="700 积分"]')).not.toBeNull()
   const second = host.querySelectorAll('details')[1]!
   act(() => second.querySelector('summary')!.click())
   expect(second.open).toBe(true)
   const prompt = second.querySelector('textarea')!
   expect(prompt.value).toBe('第 2 张换白底')
+  await vi.waitFor(() => expect(prompt.disabled).toBe(false))
   change(prompt, '第二张改浅灰底，包装保持原色')
   const save = [...host.querySelectorAll('button')].find(
     (button) => button.textContent === '保存计划',
@@ -167,8 +192,9 @@ it('修改范围和参数遇到版本冲突时保留草稿，显式刷新后可�
     (button) => button.textContent === '移除此项',
   )
   expect(remove).toBeDefined()
+  await vi.waitFor(() => expect(remove!.disabled).toBe(false))
   act(() => remove!.click())
-  expect(host.querySelectorAll('details')).toHaveLength(99)
+  expectScopeAcrossPages(2, 100)
   expect(host.querySelector('summary')!.textContent).toContain('商品 2')
   const remaining = host.querySelector('details')!
   act(() => remaining.querySelector('summary')!.click())
@@ -194,7 +220,7 @@ it('修改范围和参数遇到版本冲突时保留草稿，显式刷新后可�
     params: { size: '1536x1024' },
   })
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('计划已有新版本')
-  expect(host.querySelectorAll('details')).toHaveLength(99)
+  expectScopeAcrossPages(2, 100)
   expect(host.querySelector('details textarea')?.getAttribute('disabled')).toBeNull()
   expect(host.querySelector<HTMLTextAreaElement>('details textarea')!.value).toBe(
     '保留这段本地修改',
@@ -205,10 +231,11 @@ it('修改范围和参数遇到版本冲突时保留草稿，显式刷新后可�
   await act(async () => button('载入最新版本').click())
   expect(host.querySelector('[role="alert"]')).toBeNull()
   expect(host.textContent).toContain('版本 2')
-  expect(host.querySelectorAll('details')).toHaveLength(100)
+  expectScopeAcrossPages(1, 100)
   expect(host.querySelector<HTMLTextAreaElement>('details textarea')!.value).toBe(
     '服务端新版本提示词',
   )
+  await vi.waitFor(() => expect(button('取消计划').disabled).toBe(false))
   await act(async () => button('取消计划').click())
   expect(cancellations).toEqual([{ expectedVersion: 2 }])
   expect(host.textContent).toContain('已取消')
@@ -227,6 +254,7 @@ it('展开计划项可审查非默认 Gemini 比例及每项完整输出参数',
     items: [
       {
         ...saved.items[0]!,
+        kind: 'generation',
         params: {
           model: 'gemini-image',
           provider: 'gemini',
@@ -237,6 +265,7 @@ it('展开计划项可审查非默认 Gemini 比例及每项完整输出参数',
       },
       {
         ...saved.items[1]!,
+        kind: 'generation',
         params: {
           model: 'image-model',
           provider: 'openai-compat',

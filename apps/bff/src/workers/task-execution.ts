@@ -362,13 +362,13 @@ export async function claimTaskExecution(
       .limit(1)
     if (!candidate) return null
     if (candidate.userId) {
-      // The user row serializes claims across worker instances. Count and status update must
-      // share this transaction, otherwise two workers can both see the last free account slot.
+      // Serialize account counts/claims while permitting FK KEY SHARE: a finishing task may
+      // hold user_change_heads before inserting user_changes, which references this user.
       await tx
         .select({ id: schema.users.id })
         .from(schema.users)
         .where(eq(schema.users.id, candidate.userId))
-        .for('update')
+        .for('no key update')
       const limits = await accountGenerationLimits(
         tx,
         candidate.userId,

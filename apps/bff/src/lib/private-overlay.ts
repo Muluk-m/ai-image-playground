@@ -47,6 +47,14 @@ export interface ChatPricing {
 }
 
 export interface PrivateTaskHooks {
+  /** Immutable token quote under the caller's price lock; absent in older overlays. */
+  quoteTokenTask?(input: {
+    tx: BffTransaction
+    userId: string
+    model: string
+    estimatedInputTokens: number
+  }): Promise<{ estimatedCredits: number; pricing: AgentBatchPriceSnapshot } | null>
+
   /** Read-only quote. Missing hooks/prices are unavailable, never a zero-cost authorization. */
   quoteTask?(input: {
     tx: BffTransaction
