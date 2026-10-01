@@ -9,7 +9,7 @@ import { assetObjectKey } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
 import { ProductionError, readProduction } from './production'
 import { productionMediaReferences, productionReferenceKey } from './production-asset-validation'
-import { productionGenerationBindings } from './production-generation'
+import { productionGenerationMetadata } from './production-generation'
 
 export const PRODUCTION_EXPORT_BATCH_MAX = 500
 interface ExportOriginal {
@@ -41,11 +41,10 @@ async function authorizeExport(
   for (const clip of snapshot.content.clips ?? [])
     if (clip.adopted)
       allowed.add(productionReferenceKey({ kind: 'artifact', artifactId: clip.adopted.artifactId }))
-  const candidates = await productionGenerationBindings(conversationId, userId, [
+  const candidates = await productionGenerationMetadata(conversationId, userId, [
     ...new Set(
       references.flatMap((reference) => {
-        if (reference.kind !== 'artifact' || allowed.has(productionReferenceKey(reference)))
-          return []
+        if (reference.kind !== 'artifact') return []
         const parsed = parseProjectArtifactId(reference.artifactId)
         return parsed ? [parsed.generationId] : []
       }),
@@ -56,7 +55,7 @@ async function authorizeExport(
     if (reference.kind !== 'artifact') return notFound()
     const parsed = parseProjectArtifactId(reference.artifactId)
     if (!parsed) return notFound()
-    const binding = candidates.get(parsed.generationId)
+    const binding = candidates.get(parsed.generationId)?.production
     const member = binding?.documentId === record.document.id && binding.revision <= revision
     if (!member) return notFound()
     const [task] = await db
@@ -83,6 +82,13 @@ async function authorizeExport(
     )
       return notFound()
   }
+  return new Map(
+    [...candidates].filter(
+      ([, metadata]) =>
+        metadata.production.documentId === record.document.id &&
+        metadata.production.revision <= revision,
+    ),
+  )
 }
 async function openStored(key: string, mime: string, durable = false): Promise<ExportOriginal> {
   try {
@@ -175,7 +181,7 @@ export async function inspectProductionExport(
   revision: number,
   references: readonly ProductionMediaReference[],
 ) {
-  await authorizeExport(conversationId, userId, revision, references)
+  const candidates = await authorizeExport(conversationId, userId, revision, references)
   const items = []
   for (let start = 0; start < references.length; start += 8) {
     items.push(
@@ -184,6 +190,10 @@ export async function inspectProductionExport(
           const original = await exportOriginal(conversationId, userId, reference)
           return {
             reference,
+            generation: (reference.kind === 'artifact' &&
+              candidates.get(parseProjectArtifactId(reference.artifactId)?.generationId ?? '')) || {
+              source: 'imported' as const,
+            },
             bytes: original.reader?.size ?? null,
             mime: original.mime,
             status: original.reader ? ('available' as const) : ('missing' as const),

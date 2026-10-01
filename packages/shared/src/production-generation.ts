@@ -61,3 +61,19 @@ export interface ProductionGenerationView {
   readonly sourceChanged?: boolean
   readonly artifacts: readonly AgentToolArtifact[]
 }
+
+/** Frozen, safe submission fields for an explicitly selected export resource. */
+export type ProductionExportGenerationMetadata =
+  | { readonly source: 'imported' }
+  | ({ readonly source: 'production'; readonly taskId: string } & Pick<
+      ProductionGenerationView,
+      | 'draftId'
+      | 'draftRevision'
+      | 'production'
+      | 'model'
+      | 'prompt'
+      | 'params'
+      | 'video'
+      | 'references'
+      | 'retryOf'
+    >)

@@ -80,7 +80,15 @@ it('inspects only snapshot resources without reading bytes, streams originals, a
     )
     expect(inspected.status).toBe(200)
     expect(await inspected.json()).toEqual({
-      items: [{ reference, bytes: 3, mime: 'image/png', status: 'available' }],
+      items: [
+        {
+          reference,
+          bytes: 3,
+          mime: 'image/png',
+          status: 'available',
+          generation: { source: 'imported' },
+        },
+      ],
     })
     expect(storage.events).toEqual([`open:${key}`])
     expect(
@@ -130,7 +138,15 @@ it('inspects only snapshot resources without reading bytes, streams originals, a
       '/export/inspect',
     )
     expect(await expired.json()).toEqual({
-      items: [{ reference, bytes: null, mime: 'image/png', status: 'missing' }],
+      items: [
+        {
+          reference,
+          bytes: null,
+          mime: 'image/png',
+          status: 'missing',
+          generation: { source: 'imported' },
+        },
+      ],
     })
     expect(
       (await request(owner, undefined, '/export/reference?revision=1&kind=asset&id=original'))
@@ -208,7 +224,30 @@ it('exports owned completed video candidates by frozen document membership and r
     )
     expect(inspected.status).toBe(200)
     expect(await inspected.json()).toEqual({
-      items: [{ reference, bytes: 8, mime: 'video/mp4', status: 'available' }],
+      items: [
+        {
+          reference,
+          bytes: 8,
+          mime: 'video/mp4',
+          status: 'available',
+          generation: {
+            source: 'production',
+            draftId: 'draft-video-result',
+            taskId: 'video-result',
+            draftRevision: 1,
+            model: 'grok-imagine-video',
+            prompt: '列车',
+            references: [],
+            production: {
+              documentId: created.document.id,
+              revision: 1,
+              target: 'clip',
+              targetId: 'clip',
+              snapshot: { name: '列车', description: '列车', references: [], shotIds: [] },
+            },
+          },
+        },
+      ],
     })
     expect(storage.events).toEqual(['open:video-original'])
     const response = await request(
