@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { resetTestDatabase } from '../testing'
 import { EXPECTED_INDEXES, EXPECTED_TABLES, verifySchema } from '../verify-schema'
@@ -10,7 +11,7 @@ describe('verifySchema', () => {
     await expect(verifySchema(databaseUrl)).resolves.toMatchObject({
       tables: EXPECTED_TABLES.length,
       indexes: EXPECTED_INDEXES.length,
-      migrations: 52,
+      migrations: journal.entries.length,
     })
   })
 

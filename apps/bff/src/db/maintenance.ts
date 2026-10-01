@@ -15,6 +15,7 @@ import {
   type SQL,
 } from 'drizzle-orm'
 import { config } from '../config'
+import { snapshotAgentBatchesBeforePurge } from '../lib/agent/batch-progress'
 import { settleAgentConversationJobs } from '../lib/agent/conversations'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { log } from '../lib/logger'
@@ -269,11 +270,23 @@ export async function purgeOldTasks(
   // 智能体的后台任务只在有人读会话时结算；没人读过的会话若直接清行，结果就只剩「任务丢失了」。
   // 清之前先把它们所在的会话结算一遍，结算失败的会话这一轮不清，留给下次。
   const unsettled = await settleAgentJobsBeforePurge(expired)
+  await snapshotAgentBatchesBeforePurge(expired)
   const deleted = await db
     .delete(schema.tasks)
     .where(
       and(
         expired,
+        notExists(
+          db
+            .select({ id: schema.agent_batch_attempts.task_id })
+            .from(schema.agent_batch_attempts)
+            .where(
+              and(
+                eq(schema.agent_batch_attempts.task_id, schema.tasks.id),
+                isNull(schema.agent_batch_attempts.terminal_snapshot),
+              ),
+            ),
+        ),
         unsettled.length === 0
           ? undefined
           : or(

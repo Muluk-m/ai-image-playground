@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { runMigrations } from '../migrate'
 import { resetTestDatabase } from '../testing'
@@ -25,7 +26,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(52)
+    expect(rows).toHaveLength(journal.entries.length)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -108,7 +109,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(52)
+    expect(rows).toHaveLength(journal.entries.length)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -159,6 +160,7 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0054_agent_batch_retry.down.sql',
       '0052_agent_batch_execution.down.sql',
       '0051_agent_batch_plans.down.sql',
       '0050_agent_call_dispatch.down.sql',
@@ -243,6 +245,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(52)
+    expect(restored).toHaveLength(journal.entries.length)
   })
 })

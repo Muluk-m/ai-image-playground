@@ -144,7 +144,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
               onPointerLeave={() => homeBackdropRef.current?.removeAttribute('data-pointer-active')}
             >
               <div ref={homeBackdropRef} aria-hidden="true" className="studio-home-backdrop">
-                <div className="studio-home-backdrop__ambient" />
+                <div className="studio-home-backdrop__grain" />
                 <div className="studio-home-backdrop__grid" />
                 <div className="studio-home-backdrop__hover" />
               </div>

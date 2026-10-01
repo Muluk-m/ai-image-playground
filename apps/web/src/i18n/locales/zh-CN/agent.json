@@ -223,6 +223,7 @@
     "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）",
     "assetViewsUnavailable": "素材部分视角无法读取，请重试后再添加。",
     "attachmentReadFailed": "部分图片无法读取，本次未添加，请重新选择。",
+    "uploadUnsupported": "请先转换为 PNG、JPEG 或 WebP 格式。",
     "retryUpload": "重试",
     "retryUploadAria": "重试上传 {{label}}",
     "upload": {

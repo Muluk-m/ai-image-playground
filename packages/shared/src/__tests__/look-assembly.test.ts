@@ -87,45 +87,29 @@ describe('assembleLookRequest', () => {
     expect(result).toMatchObject({ ok: true, inputImageIds: ['lamp-detail'] })
   })
 
-  it('输入图满 4 张后余下的参考图被裁掉', () => {
+  it('完整输入超过统一上限时拒绝，不裁掉参考图', () => {
     const result = assembleLookRequest({
       look: {
         body: BODY,
         slotCount: 1,
-        referenceImageIds: ['ref-a', 'ref-b', 'ref-c', 'ref-d', 'ref-e'],
+        referenceImageIds: Array.from({ length: 16 }, (_, i) => `ref-${i}`),
       },
       assets: [CUP],
     })
-
-    expect(result).toEqual({
-      ok: true,
-      inputImageIds: ['cup-sheet', 'ref-a', 'ref-b', 'ref-c'],
-      prompt: prompt(['输入 1 = 素材「白瓷杯」', '参考图：输入 2、输入 3、输入 4']),
-    })
+    expect(result).toEqual({ ok: false, reason: 'input_limit_exceeded', required: 17, limit: 16 })
   })
 
-  it('素材位多过输入上限时只带得下前几条，参考图一张都排不上', () => {
+  it('五个素材位和全部参考图在统一上限内完整发送', () => {
     const assets = ['a', 'b', 'c', 'd', 'e'].map((id) => ({
       id,
-      name: id.toUpperCase(),
-      views: [{ imageId: `${id}-front`, label: 'front' }],
+      name: id,
+      views: [{ imageId: id, label: 'front' }],
     }))
-
     const result = assembleLookRequest({
-      look: { body: BODY, slotCount: 5, referenceImageIds: ['ref-a'] },
+      look: { body: BODY, slotCount: 5, referenceImageIds: ['ref'] },
       assets,
     })
-
-    expect(result).toEqual({
-      ok: true,
-      inputImageIds: ['a-front', 'b-front', 'c-front', 'd-front'],
-      prompt: prompt([
-        '输入 1 = 素材「A」',
-        '输入 2 = 素材「B」',
-        '输入 3 = 素材「C」',
-        '输入 4 = 素材「D」',
-      ]),
-    })
+    expect(result).toMatchObject({ ok: true, inputImageIds: ['a', 'b', 'c', 'd', 'e', 'ref'] })
   })
 
   it('已经作为素材送进去的那张不再占一个参考图位', () => {
@@ -172,13 +156,49 @@ describe('assembleLookRequest', () => {
     })
   })
 
-  it('maxInputs 收紧时素材也照样裁', () => {
+  it('maxInputs 收紧时拒绝残缺输入', () => {
     expect(
       assembleLookRequest({
         look: { body: BODY, slotCount: 2, referenceImageIds: ['ref-a'] },
         assets: [CUP, { id: 'box', name: '包装盒', views: [{ imageId: 'box-1', label: 'none' }] }],
         maxInputs: 1,
       }),
-    ).toMatchObject({ ok: true, inputImageIds: ['cup-sheet'] })
+    ).toEqual({ ok: false, reason: 'input_limit_exceeded', required: 3, limit: 1 })
   })
+  it('遮罩目标排第一时引用序号跟着真实顺序走', () => {
+    const result = assembleLookRequest({
+      look: { body: BODY, slotCount: 2, referenceImageIds: [] },
+      assets: [CUP, { id: 'box', name: '盒子', views: [{ imageId: 'box', label: 'front' }] }],
+      firstImageId: 'box',
+    })
+    expect(result).toMatchObject({ ok: true, inputImageIds: ['box', 'cup-sheet'] })
+    if (result.ok) expect(result.prompt).toContain('输入 2 = 素材「白瓷杯」')
+  })
+})
+
+it('eight slots and eight unique references fit the platform boundary exactly', () => {
+  const assets = Array.from({ length: 8 }, (_, i) => ({
+    id: `a${i}`,
+    name: `Asset ${i}`,
+    views: [{ imageId: `i${i}`, label: 'front' }],
+  }))
+  const result = assembleLookRequest({
+    assets,
+    look: {
+      body: BODY,
+      slotCount: 8,
+      referenceImageIds: Array.from({ length: 8 }, (_, i) => `r${i}`),
+    },
+  })
+  expect(result.ok).toBe(true)
+  if (result.ok) expect(result.inputImageIds).toHaveLength(16)
+})
+
+it('a mask target takes precedence over the preferred sheet view', () => {
+  const result = assembleLookRequest({
+    look: { body: BODY, slotCount: 1, referenceImageIds: [] },
+    assets: [CUP],
+    firstImageId: 'cup-front',
+  })
+  expect(result).toMatchObject({ ok: true, inputImageIds: ['cup-front'] })
 })

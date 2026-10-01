@@ -18,6 +18,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_turn')
@@ -40,7 +41,7 @@ await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
-const PIXEL = 'data:image/png;base64,aGk='
+const PIXEL = TEST_IMAGE.pngDataUrl
 
 async function post(path: string, body: unknown) {
   const response = await app.handle(
@@ -120,6 +121,82 @@ afterAll(async () => {
 })
 
 describe('POST /api/agent/conversations/:id/turns', () => {
+  it('reports truncated output as failed, retains usage and does not retry or execute tools', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      recordingAgentFetch(calls, () => {
+        const response = controlledCompletion()
+        response.push('还没说完')
+        response.pushToolCall(0, {
+          id: 'truncated-call',
+          name: 'viewImage',
+          args: { imageIds: ['image 1'] },
+        })
+        response.finish('length')
+        return response.responseFor()
+      }),
+    )
+    const conversationId = await startConversation()
+    const { frames } = await runTurn(conversationId, '说明方案')
+    expect(frames.at(-1)?.event).toMatchObject({
+      type: 'turnEnd',
+      stopReason: 'failed',
+      error: 'agent_upstream_error',
+      usage: { inputTokens: 12, outputTokens: 4 },
+      failure: { message: '模型输出达到长度上限，回复未完成。请缩小请求或手动继续。' },
+    })
+    expect(calls).toHaveLength(1)
+    expect(types(frames)).not.toContain('toolStart')
+    expect(
+      (await readMessages(conversationId)).filter((message) => message.role === 'assistant'),
+    ).toHaveLength(0)
+    expect((await db.select().from(schema.agent_model_calls))[0]?.status).toBe('failed')
+    for (const tool of calls[0]!.tools ?? []) expect(tool.function).not.toHaveProperty('strict')
+  })
+
+  it('reuses the exact previous text-only model input and timestamps across turns', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('收到')))
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '记住这个文字方案')
+    await runTurn(conversationId, '接着分析')
+
+    expect(calls).toHaveLength(2)
+    expect(calls[1]!.messages.slice(0, calls[0]!.messages.length)).toEqual(calls[0]!.messages)
+    expect(calls[1]!.tools).toEqual(calls[0]!.tools)
+    expect(calls[1]!.messages.at(-2)).toMatchObject({ role: 'assistant', content: '收到' })
+    expect(
+      (await db.select().from(schema.agent_model_calls)).map((call) => call.input_image_count),
+    ).toEqual([0, 0])
+  })
+
+  it('replays prior image tool observations without pixels or another tool execution', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'look-native',
+            name: 'viewImage',
+            args: { imageIds: ['image 1'] },
+          }),
+        () => completionStream('已看图'),
+        () => completionStream('继续回答'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '看看图片', [{ imageId: 'image-1', dataUrl: PIXEL }])
+    await runTurn(conversationId, '继续')
+    expect(calls).toHaveLength(3)
+    expect(JSON.stringify(calls[2]!.messages)).not.toContain('image_url')
+    expect(JSON.stringify(calls[2]!.messages)).toContain('已看图')
+    expect(JSON.stringify(calls[2]!.messages)).toContain('image-1')
+    const stored = await readMessages(conversationId)
+    expect(
+      stored.flatMap((message) => message.content).filter((block) => block.type === 'toolResult'),
+    ).toHaveLength(1)
+  })
+
   it('streams one turn and stores both messages', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(

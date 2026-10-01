@@ -5,6 +5,7 @@ import {
   batchExecutionAvailable,
   confirmAgentBatch,
   controlAgentBatch,
+  quoteAgentBatchRetry,
   repriceAgentBatch,
 } from '../lib/agent/batch-execution'
 import {
@@ -98,6 +99,26 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
                 imageId: t.String({ minLength: 1, maxLength: 128 }),
                 mediaId: t.String({ format: 'uuid' }),
                 name: t.Optional(t.String({ maxLength: 200 })),
+                maskMediaId: t.Optional(t.String({ format: 'uuid' })),
+                editAction: t.Optional(
+                  t.Union([
+                    t.Literal('inpaint'),
+                    t.Literal('erase'),
+                    t.Literal('crop'),
+                    t.Literal('outpaint'),
+                  ]),
+                ),
+                regions: t.Optional(
+                  t.Array(
+                    t.Object({
+                      x: t.Number({ minimum: 0, maximum: 1 }),
+                      y: t.Number({ minimum: 0, maximum: 1 }),
+                      width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+                      height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+                    }),
+                    { maxItems: 32 },
+                  ),
+                ),
               }),
               { minItems: 1, maxItems: 100 },
             ),
@@ -203,6 +224,28 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
       body: t.Object({
         commandId: t.String({ minLength: 1, maxLength: 128 }),
         expectedVersion: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/batches/:id/retry-quote',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!batchExecutionAvailable(authUser.id))
+        return capabilityUnavailable('agent:batch-execution')
+      await quoteAgentBatchRetry(authUser.id, params.id, body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+        itemKeys: t.Array(t.String({ minLength: 1, maxLength: 128 }), {
+          minItems: 1,
+          maxItems: 100,
+        }),
       }),
     },
   )

@@ -21,7 +21,7 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, not, sql } from 'dr
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner, MediaError } from '../projectMedia'
-import { claimConversationMedia } from './images'
+import { claimConversationMedia, validateConversationMediaSelections } from './images'
 
 /**
  * 会话收件箱（`agent_inbox`）里的用户消息与唤醒。忙时发的话排在这里，当前回复可以结束时由
@@ -126,6 +126,25 @@ export async function enqueueAgentUserMessage(
   message: EnqueueUserMessage,
   now = Date.now(),
 ): Promise<EnqueueResult> {
+  const [duplicate] = await db
+    .select({ id: inbox.id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        eq(inbox.client_message_id, message.clientMessageId),
+      ),
+    )
+    .limit(1)
+  if (!duplicate) {
+    const [owner] = await db
+      .select({ userId: schema.agent_conversations.user_id })
+      .from(schema.agent_conversations)
+      .where(eq(schema.agent_conversations.id, conversationId))
+      .limit(1)
+    if (!(await validateConversationMediaSelections(owner?.userId ?? null, message.references)))
+      throw new MediaError(422, 'invalid_reference')
+  }
   return db.transaction(async (tx) => {
     const [owner] = await tx
       .select({ userId: schema.agent_conversations.user_id })

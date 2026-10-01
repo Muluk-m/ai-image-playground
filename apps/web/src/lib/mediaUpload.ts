@@ -1,5 +1,4 @@
 import { accountScope } from './authScope'
-import { imageDataUrlToPngBlob } from './canvasImage'
 import { MediaRequestError, mediaJson } from './cloudMedia'
 import { imageMimeFromBytes } from './imageBytes'
 
@@ -69,13 +68,9 @@ export async function uploadMediaSource(
         return options.known
       }
       if (options.uploadMissing === false) return undefined
-      let contentType = imageMimeFromBytes(bytes)
-      let body = bytes
-      if (!contentType) {
-        body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
-        contentType = 'image/png'
-        current()
-      }
+      const contentType = imageMimeFromBytes(bytes)
+      if (!contentType) throw new MediaRequestError(422, 'media_unsupported_image')
+      const body = bytes
       options.onState?.('uploading')
       const upload = await mediaJson<Upload>('/uploads', {
         method: 'POST',
@@ -84,7 +79,7 @@ export async function uploadMediaSource(
         body: JSON.stringify({
           bytes: body.byteLength,
           contentType,
-          sha256: body === bytes ? sha256 : await digest(body),
+          sha256,
           ...(options.purpose ? { purpose: options.purpose } : {}),
         }),
       })

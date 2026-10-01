@@ -46,7 +46,11 @@ export function returnQueuedToDraft(
       ...(reference.name ? { name: reference.name } : {}),
       ...('maskDataUrl' in reference && reference.maskDataUrl
         ? { maskDataUrl: reference.maskDataUrl }
-        : {}),
+        : 'mediaId' in reference && reference.maskMediaId
+          ? { maskDataUrl: `aip-media:${reference.maskMediaId}` }
+          : {}),
+      ...(reference.editAction ? { editAction: reference.editAction } : {}),
+      ...(reference.regions ? { regions: reference.regions } : {}),
     })
   }
   return { ...draft, prompt, references }

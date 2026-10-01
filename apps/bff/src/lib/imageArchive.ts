@@ -8,8 +8,9 @@ import type {
 } from '@image-playground/shared'
 import { MaskedOutputError } from './agent/masked-output'
 import { durableMediaStore } from './durableMediaStore'
-import { type ObjectStore, objectStore } from './objectStore'
+import { type ObjectStore, objectStore, readObjectWithinLimit } from './objectStore'
 import { isAbortError } from './queueProvider'
+import { SafeFetchError } from './safeFetch'
 
 export type OutputTransform = (bytes: Uint8Array) => Promise<{
   bytes: Uint8Array
@@ -83,6 +84,7 @@ export async function archiveInputImages(
 
 export async function hydrateInputImages(
   request: SubmitRequest | PersistedSubmitRequest,
+  options: { maxBytes?: number } = {},
 ): Promise<HydratedSubmitRequest> {
   const {
     preserve_outside_mask: _boundary,
@@ -93,19 +95,19 @@ export async function hydrateInputImages(
   if (request.input_images) {
     const inputs: string[] = []
     for (const input of request.input_images) {
-      inputs.push(isStoredImageRef(input) ? await hydrateObjectRef(input) : input)
+      inputs.push(isStoredImageRef(input) ? await hydrateObjectRef(input, options.maxBytes) : input)
     }
     hydrated.input_images = inputs
   }
   if (request.mask) {
     hydrated.mask = isStoredImageRef(request.mask)
-      ? await hydrateObjectRef(request.mask)
+      ? await hydrateObjectRef(request.mask, options.maxBytes)
       : request.mask
   }
   const video = request.video as PersistedVideoRequest | undefined
   const source = video?.source_video
   if (video && source) {
-    hydrated.video = { ...video, source_video: await hydrateObjectRef(source) }
+    hydrated.video = { ...video, source_video: await hydrateObjectRef(source, options.maxBytes) }
   }
   return hydrated
 }
@@ -259,9 +261,9 @@ async function archiveOutputs(
   }
 }
 
-async function fetchSourceImage(
+export async function fetchSourceImage(
   url: string,
-  context: ArchiveContext,
+  context: Pick<ArchiveOptions, 'maxBytes' | 'signal'>,
 ): Promise<{ bytes: Uint8Array; mime?: string }> {
   try {
     const signal = context.signal
@@ -324,14 +326,17 @@ async function archiveGeminiOutput(
   await archiveOutputs(taskId, entries, 'image/png', transform, context)
 }
 
-async function hydrateObjectRef(ref: StoredImageRef): Promise<string> {
+async function hydrateObjectRef(ref: StoredImageRef, maxBytes?: number): Promise<string> {
   try {
-    const bytes = await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(
-      ref.object,
-    )
+    const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
+    const bytes =
+      maxBytes === undefined
+        ? await store.read(ref.object)
+        : await readObjectWithinLimit(store, ref.object, maxBytes)
     const mime = detectMediaMime(bytes) ?? ref.mime
     return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
   } catch (error) {
+    if (error instanceof SafeFetchError && error.code === 'too_large') throw error
     throw new ObjectStorageError(`Object storage read failed for ${ref.object}`, { cause: error })
   }
 }

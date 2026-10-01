@@ -14,6 +14,7 @@ CREATE TABLE "agent_batch_attempts" (
   "task_id" text NOT NULL,
   "price_snapshot" jsonb,
   "reserved_credits" integer NOT NULL,
+  "terminal_snapshot" jsonb,
   "submitted_at" timestamptz NOT NULL,
   PRIMARY KEY ("batch_id", "version", "item_key", "attempt"),
   FOREIGN KEY ("batch_id", "version", "item_key") REFERENCES "agent_batch_items" ("batch_id", "version", "key") ON DELETE RESTRICT
