@@ -7,7 +7,8 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
     navigator.serviceWorker.getRegistrations().then(registrations=>Promise.all(registrations.map(registration=>registration.unregister()))).catch(()=>{});
   }}catch{}
   let stopped=false;
-  const stop=()=>{stopped=true;clearTimeout(timer);window.removeEventListener('error',onError,true);window.removeEventListener('unhandledrejection',fail);document.removeEventListener('click',onClick);document.getElementById('boot')?.remove()};
+  let stylesheetFailed=false;
+  const stop=()=>{stopped=true;clearTimeout(timer);window.removeEventListener('error',onError,true);window.removeEventListener('unhandledrejection',fail);document.removeEventListener('click',onClick);if(stylesheetFailed){document.getElementById('boot-retry').onclick=()=>location.reload()}else{document.getElementById('boot')?.remove()}};
   const fail=()=>{
     if(stopped)return;
     const boot=document.getElementById('boot');
@@ -25,6 +26,7 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
   };
   const onError=(event)=>{
     const target=event.target;
+    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet')){stylesheetFailed=true;fail();return}
     if((target instanceof HTMLScriptElement&&target.type==='module')||event instanceof ErrorEvent)fail();
   };
   const onClick=(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry'))location.reload()};
