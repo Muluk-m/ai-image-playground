@@ -134,6 +134,7 @@ export default function AgentPanel({
   searchOpen = false,
   onCloseSearch,
   onPreviewProduction,
+  productionMode = false,
 }: {
   doc: CanvasDoc
   editor: CanvasEditor
@@ -144,6 +145,7 @@ export default function AgentPanel({
   searchOpen?: boolean
   onCloseSearch?: () => void
   onPreviewProduction?: () => void
+  productionMode?: boolean
 }) {
   const { t } = useTranslation('agent')
   const open = useAgentStore((state) => state.open)
@@ -506,6 +508,7 @@ export default function AgentPanel({
       {tab === 'chat' && <AgentMessageQueue />}
       {tab === 'chat' && (
         <AgentComposer
+          productionMode={productionMode}
           doc={doc}
           editor={editor}
           showLooks={presentation !== 'page' || messages.length === 0}

@@ -1,12 +1,14 @@
 import type {
   ProductionDocument,
   ProductionMutation,
+  ProductionProposal,
   ProductionRevision,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 export interface ProductionResponse {
+  proposals?: readonly ProductionProposal[]
   document: ProductionDocument | null
   history: readonly ProductionRevision[]
 }
@@ -76,5 +78,32 @@ export function restoreProduction(
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ operationId, baseRevision, revision }),
+  })
+}
+
+export function fetchProductionProposals(
+  conversationId: string,
+  signal?: AbortSignal,
+): Promise<ProductionResponse> {
+  return request(conversationId, '?proposals=true', { signal, cache: 'no-store' })
+}
+export function adoptProductionProposal(
+  conversationId: string,
+  proposalId: string,
+  operationId: string,
+  baseRevision: number,
+): Promise<ProductionResponse> {
+  return request(conversationId, `/proposals/${encodeURIComponent(proposalId)}/adopt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ operationId, baseRevision }),
+  })
+}
+export function discardProductionProposal(
+  conversationId: string,
+  proposalId: string,
+): Promise<ProductionResponse> {
+  return request(conversationId, `/proposals/${encodeURIComponent(proposalId)}/discard`, {
+    method: 'POST',
   })
 }

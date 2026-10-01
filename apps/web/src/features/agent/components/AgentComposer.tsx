@@ -48,6 +48,8 @@ import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
+import ProductionQuoteChip from '../../production/components/ProductionQuoteChip'
+import { useProductionSelection } from '../../production/lib/productionContext'
 import { CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
   type AgentMentionValue,
@@ -120,10 +122,12 @@ export default function AgentComposer({
   welcome = false,
   showLooks = true,
   showCanvasReferences = true,
+  productionMode = false,
 }: {
   welcome?: boolean
   showLooks?: boolean
   showCanvasReferences?: boolean
+  productionMode?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
@@ -143,6 +147,8 @@ export default function AgentComposer({
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
+  const selectedProduction = useProductionSelection(conversationId)
+  const previousProduction = useRef({ conversationId, selection: selectedProduction })
   const session = currentProjectDraft(conversationId)
   const {
     draft,
@@ -187,6 +193,16 @@ export default function AgentComposer({
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
   // 收成一条「已选 N 张画布图」。手动附上的照旧逐张显示。
+  useEffect(() => {
+    if (
+      previousProduction.current.conversationId === conversationId &&
+      previousProduction.current.selection !== selectedProduction
+    ) {
+      setDraft((current) => (current.submission ? { ...current, submission: undefined } : current))
+    }
+    previousProduction.current = { conversationId, selection: selectedProduction }
+  }, [conversationId, selectedProduction, setDraft])
+
   const selected = draft.references.filter((one) => one.origin === 'selection')
   const selectionSummary = selected.length > AGENT_TURN_ATTACHED_MEDIA_MAX ? selected : []
   const referenceNames = referenceDisplayNames(draft.references)
@@ -266,7 +282,7 @@ export default function AgentComposer({
   const projectKind = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId)?.kind === 'video' ? 'video' : 'image',
   )
-  const mode = videoAvailable ? projectKind : 'image'
+  const mode = productionMode ? 'video' : videoAvailable ? projectKind : 'image'
   // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
   const setSessionMode = useAgentStore((state) => state.setMode)
   useEffect(() => {
@@ -609,6 +625,13 @@ export default function AgentComposer({
         </div>
       )}
       <ComposerBar dragActive={dragging}>
+        {productionMode && (
+          <ProductionQuoteChip
+            conversationId={conversationId}
+            frozenContext={draft.submission?.params?.production}
+            onRemove={() => setDraft((current) => ({ ...current, submission: undefined }))}
+          />
+        )}
         {draft.references.length > 0 && (
           <ComposerAttachments>
             {selectionSummary.length > 0 && (
@@ -773,10 +796,15 @@ export default function AgentComposer({
             <Button
               type="button"
               size="icon"
-              variant={autoSubmit ? 'default' : 'secondary'}
-              aria-pressed={autoSubmit}
+              variant={!productionMode && autoSubmit ? 'default' : 'secondary'}
+              aria-pressed={!productionMode && autoSubmit}
+              disabled={productionMode}
               aria-label={t('composer.autoSubmitAria')}
-              title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
+              title={t(
+                !productionMode && autoSubmit
+                  ? 'composer.autoSubmitOnTitle'
+                  : 'composer.autoSubmitOffTitle',
+              )}
               className="h-8 w-8 shrink-0 rounded-full"
               onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
             >

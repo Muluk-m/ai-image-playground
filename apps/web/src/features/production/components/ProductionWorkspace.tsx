@@ -191,6 +191,7 @@ export default function ProductionWorkspace({
           />
         ) : (
           <ProductionDocumentPane
+            refreshKey={refreshKey}
             key={doc.id}
             document={doc}
             onClose={() => setContentOpen(false)}

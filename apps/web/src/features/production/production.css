@@ -79,3 +79,16 @@
 :where(.production-asset-danger)>button { align-self:flex-start; color:hsl(var(--destructive)); }
 .production-reference-image { display:flex; align-items:center; justify-content:center; min-width:0; width:100%; min-height:64px; }
 :where(.production-asset-cover)>.production-reference-image { height:100%; }
+.production-quote-floating { position: fixed; z-index: 80; display: flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); box-shadow: 0 5px 24px #0002; font-size: 12px; }
+.production-quote-chip { display: flex; align-items: center; gap: 8px; margin: 8px; border-left: 3px solid #8b75e8; border-radius: 8px; background: hsl(var(--muted)); padding: 8px; font-size: 12px; }
+:where(.production-quote-chip) button:first-child { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; text-align: left; }
+:where(.production-quote-chip) strong { display: block; font-weight: 500; }
+:where(.production-quote-chip) button > span { min-width: 0; }
+:where(.production-quote-chip) span > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; color: hsl(var(--muted-foreground)); }
+.production-proposals { padding: 16px 24px; border-bottom: 1px solid hsl(var(--border)); max-height: 42vh; overflow-y: auto; background: hsl(var(--muted) / .35); font-size: 12px; }
+:where(.production-proposals) header, :where(.production-proposals) footer { display: flex; align-items: center; gap: 8px; }
+:where(.production-proposals) article { margin-top: 12px; padding: 12px; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); }
+.production-proposal-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+:where(.production-proposal-compare) p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 12px; line-height: 1.8; }
+:where(.production-proposal-compare) span { color: hsl(var(--muted-foreground)); }
+:where(.production-proposals) button { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: 8px; }
