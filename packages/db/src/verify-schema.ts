@@ -1,4 +1,5 @@
 import { SQL } from 'bun'
+import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
   'agent_batches',
@@ -142,7 +143,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 48
+const EXPECTED_MIGRATION_COUNT = journal.entries.length
 
 export interface SchemaVerificationResult {
   tables: number
