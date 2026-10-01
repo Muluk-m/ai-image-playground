@@ -237,6 +237,7 @@ export async function draftQueueTask(
     details: {
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,
+      ...(input.videoRecord ? { video: input.videoRecord } : {}),
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     },
   }

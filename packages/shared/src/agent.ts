@@ -540,6 +540,8 @@ export interface AgentSaveResponse {
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
 export interface AgentToolResultBlock {
+  /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
+  readonly video?: VideoGenerationRecord
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName

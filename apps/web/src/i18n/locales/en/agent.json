@@ -536,5 +536,23 @@
       "toolName": "Tool",
       "taskId": "Task ID"
     }
+  },
+  "video": {
+    "parameters": "Video parameters",
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "firstFrame": "First frame",
+    "lastFrame": "Last frame",
+    "references_one": "{{count}} reference image",
+    "references_other": "{{count}} reference images",
+    "estimatedCost": "Estimated cost",
+    "playbackFailed": "This video could not be played. Try reloading it.",
+    "reload": "Reload video",
+    "downloading": "Downloading…",
+    "downloadFailed": "Video download failed. Please try again.",
+    "notSubmitted": "Video generation was not submitted",
+    "retrying": "Submitting retry…",
+    "retry": "Retry video generation",
+    "retryFailed": "The retry could not be submitted. Please try again."
   }
 }

@@ -517,5 +517,21 @@
       "toolName": "工具",
       "taskId": "任务 ID"
     }
+  },
+  "video": {
+    "parameters": "视频参数",
+    "seconds_other": "{{count}} 秒",
+    "firstFrame": "首帧",
+    "lastFrame": "尾帧",
+    "references_other": "{{count}} 张参考图",
+    "estimatedCost": "预估消耗",
+    "playbackFailed": "视频暂时无法播放，请重新加载。",
+    "reload": "重新加载",
+    "downloading": "下载中…",
+    "downloadFailed": "视频下载失败，请重试。",
+    "notSubmitted": "未提交视频生成",
+    "retrying": "正在提交重试…",
+    "retry": "重试视频生成",
+    "retryFailed": "重试未成功，请稍后再试。"
   }
 }

@@ -246,6 +246,7 @@ describe('chat tools are isolated from canvas tools', () => {
       expect(names).toContain('viewImage')
       expect(names).toContain('editImage')
       expect(names).toContain('generateImage')
+      expect(names).toContain('generateVideo')
       for (const name of ['readCanvas', 'editCanvasObject', 'arrangeCanvas', 'arrangeTimeline']) {
         expect(names).not.toContain(name)
         expect(isAgentToolName(name)).toBe(true)
@@ -258,6 +259,8 @@ describe('chat tools are isolated from canvas tools', () => {
       ).toEqual(names)
       const prompt = turnInitialState([], mode, false, 0, audience).systemPrompt
       expect(prompt).toContain('对话中的创作助手')
+      expect(prompt).not.toContain('这一轮用户要的是图片。')
+      expect(prompt).toContain('用户明确要求视频才使用生视频工具')
       expect(prompt).toContain('对话的产物卡片')
       expect(prompt).not.toContain('自动放入画布')
       expect(prompt).not.toContain('画布旁的助手')

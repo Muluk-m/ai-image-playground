@@ -1,4 +1,4 @@
-import { ImageIcon } from 'lucide-react'
+import { ImageIcon, VideoIcon } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import { Textarea } from '../../../components/ui/textarea'
@@ -13,6 +13,7 @@ import {
 } from '../lib/toolFailure'
 import { type AgentPromptConfirmResult, useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import { AgentVideoDetails, AgentVideoEstimate } from './AgentVideoDetails'
 
 type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }>
 
@@ -64,7 +65,13 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
       state={submitting ? 'running' : 'request'}
       title={t('confirm.submit')}
       subtitle={message.title}
-      icon={<ImageIcon className="size-4" />}
+      icon={
+        message.toolName === 'generateVideo' ? (
+          <VideoIcon className="size-4" />
+        ) : (
+          <ImageIcon className="size-4" />
+        )
+      }
       onAllowOnce={confirm}
       allowOnceLabel={t('confirm.submit')}
       statusLabel={t('confirm.submitting')}
@@ -73,6 +80,12 @@ export default function AgentPromptDraft({ message }: { message: AgentToolMessag
       <p id={noteId} className="text-xs leading-relaxed text-muted-foreground">
         {t('confirm.pending')}
       </p>
+      {message.video && (
+        <>
+          <AgentVideoDetails video={message.video} />
+          <AgentVideoEstimate video={message.video} />
+        </>
+      )}
       <Textarea
         aria-label={t('confirm.fieldAria')}
         aria-describedby={noteId}
