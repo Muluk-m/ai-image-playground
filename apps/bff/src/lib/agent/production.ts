@@ -14,6 +14,7 @@ import {
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
+import type { BffTransaction } from '../private-overlay'
 import { validateProductionAssets } from './production-asset-validation'
 import { reconcileProductionReferences } from './production-references'
 
@@ -296,7 +297,10 @@ function replaceProductionTarget(
 export async function updateProductionRecord(
   conversationId: string,
   userId: string,
-  change: (record: ProductionRecord) => ProductionRecord | Promise<ProductionRecord>,
+  change: (
+    record: ProductionRecord,
+    executor: BffTransaction,
+  ) => ProductionRecord | Promise<ProductionRecord>,
 ): Promise<ProductionRecord> {
   assertEnabled()
   return db.transaction(async (tx) => {
@@ -306,7 +310,7 @@ export async function updateProductionRecord(
       .where(owned(conversationId, userId))
       .for('update')
     if (!row?.production) throw new ProductionError('production_not_found')
-    const updated = await change(row.production)
+    const updated = await change(row.production, tx)
     if (
       !(await reconcileProductionReferences(
         tx,

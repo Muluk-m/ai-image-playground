@@ -50,6 +50,7 @@ export type AgentToolName =
   | 'readProduction'
   | 'writeProduction'
   | 'proposeProductionEdit'
+  | 'proposeProductionAssets'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
