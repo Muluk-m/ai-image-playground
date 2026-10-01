@@ -394,6 +394,7 @@ export const generateVideo = defineAgentTool({
           toolCallId,
           target,
           prompt: params.prompt,
+          referenceIds: [...(source ? [source] : []), ...references].map((one) => one.imageId),
           ...(inputImages.length ? { inputImages } : {}),
           video: {
             duration_seconds: preset.duration,

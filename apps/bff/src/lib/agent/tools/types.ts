@@ -97,6 +97,7 @@ export interface AgentToolDetails {
    * 这次调用只拟了稿：请求已经准备齐全、存成待确认的草稿，但没有提交任何任务，也没有花钱。
    * 卡片停在「等待确认」，用户确认后由 `confirmations.ts` 按冻结的材料提交。
    */
+  readonly productionDraftRevision?: number
   readonly awaitingConfirmation?: true
   /** 读取技能这一步读到了什么；只有那个工具会填。 */
   readonly skill?: AgentSkillOutcome

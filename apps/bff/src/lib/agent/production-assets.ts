@@ -7,6 +7,8 @@ import {
   type ProductionMediaReference,
   type ProductionRecord,
 } from '@image-playground/shared'
+import { desc, eq } from 'drizzle-orm'
+import { db, schema } from '../../db/client'
 import { decodeDataUrl } from '../imageArchive'
 import { readAssetImage } from '../sync-assets'
 import { createAgentImageSource, readConversationMedia } from './images'
@@ -129,7 +131,18 @@ export async function previewProductionReference(
 ): Promise<Response> {
   const record = await readProduction(conversationId, userId)
   if (!record) throw new ProductionError('production_not_found')
+  const generationDrafts = await db
+    .select({ submission: schema.agent_generation_drafts.submission })
+    .from(schema.agent_generation_drafts)
+    .where(eq(schema.agent_generation_drafts.conversation_id, conversationId))
+    .orderBy(desc(schema.agent_generation_drafts.created_at))
+    .limit(100)
   const allowed = [
+    ...generationDrafts
+      .filter((draft) => draft.submission.production?.documentId === record.document.id)
+      .flatMap((draft) =>
+        (draft.submission.productionReferences ?? []).map((one) => one.reference),
+      ),
     ...productionMediaReferences(record.document.content),
     ...(record.storyboardProposals ?? [])
       .filter((proposal) => proposal.status === 'pending')

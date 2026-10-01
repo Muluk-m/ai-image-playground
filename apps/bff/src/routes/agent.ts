@@ -129,8 +129,11 @@ const paramsSchema = t.Optional(
       t.Object({
         documentId: t.String({ minLength: 1, maxLength: 128 }),
         revision: t.Integer({ minimum: 1 }),
-        target: t.String({ pattern: '^(setting|outline|scene|shots|shot)$' }),
+        target: t.String({ pattern: '^(setting|outline|scene|shots|shot|look|location|clip)$' }),
         sceneId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        lookId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        locationId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        clipId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
         shotId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
         quote: t.Optional(
           t.Object({

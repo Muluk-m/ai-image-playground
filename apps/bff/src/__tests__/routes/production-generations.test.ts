@@ -5,7 +5,13 @@ import { join } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
-import { TEST_IMAGE_CHANNEL } from '../helpers/agentStubs'
+import {
+  completionStream,
+  scriptedAgentFetch,
+  TEST_IMAGE_CHANNEL,
+  toolCallCompletion,
+} from '../helpers/agentStubs'
+import { silenceChatUpstream } from '../helpers/chatStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
@@ -16,6 +22,7 @@ await writeFile(
     capabilities: {
       'agent:chat': true,
       'agent:production': true,
+      'generation:video': true,
       'billing:credits': true,
       'accounts:login': true,
       'accounts:sync': true,
@@ -25,6 +32,9 @@ await writeFile(
 process.env.DATABASE_URL = await resetTestDatabase('production_generations')
 process.env.OPERATOR_CONFIG_FILE = join(temp, 'operator.json')
 process.env.PORT = '0'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-key'
+process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 const billing = installRecordingTaskHooks()
 const { productionRoutes } = await import('../../routes/production')
 const { syncRoutes } = await import('../../routes/sync')
@@ -35,6 +45,8 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { createAgentConversation } = await import('../../lib/agent/conversations')
+const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+await silenceChatUpstream()
 const storage = new InMemoryObjectStore()
 setObjectStoreForTesting(storage)
 _setChannelsForTesting([
@@ -152,7 +164,7 @@ it('edits a reference draft, confirms exactly once and explicitly adopts its own
     setting: '',
     outline: '',
     scenes: [],
-    locations: [{ id: 'room', name: '房间', description: '晚霞照进来', reference }],
+    locations: [{ id: 'room', name: '房间', description: '晚霞照进来' }],
   }
   await request(owner, 'PUT', '', { operationId: 'initial', baseRevision: 0, content })
   const { generation } = await (
@@ -166,6 +178,9 @@ it('edits a reference draft, confirms exactly once and explicitly adopts its own
       references: [{ reference }],
     })
   ).json()
+  expect(
+    (await request(owner, 'GET', '/references/preview?kind=asset&id=production-ref')).status,
+  ).toBe(200)
   const edited = await request(owner, 'PATCH', `/generations/${generation.draftId}`, {
     draftRevision: 1,
     prompt: '傍晚室内场景图',
@@ -204,7 +219,7 @@ it('edits a reference draft, confirms exactly once and explicitly adopts its own
   expect(completed.artifacts).toHaveLength(1)
   expect(
     (await (await request(owner, 'GET')).json()).document.content.locations[0].reference,
-  ).toEqual(reference)
+  ).toBeUndefined()
   const adopt = () =>
     request(owner, 'POST', `/generations/${generation.draftId}/adopt`, {
       operationId: 'adopt-candidate',
@@ -532,6 +547,151 @@ it('confirms a clip once and adopts only its completed video candidate', async (
     artifactId: completed.artifacts[0].artifactId,
   })
   expect((await (await adopt()).json()).document.revision).toBe(2)
+})
+it('binds an Agent image draft to the selected production look without auto submitting', async () => {
+  billing.reset()
+  const owner = await account('context-owner')
+  const content = {
+    title: '角色',
+    setting: '',
+    outline: '',
+    scenes: [],
+    characters: [
+      {
+        id: 'c',
+        name: '林',
+        description: '',
+        looks: [{ id: 'look', name: '雨衣', description: '黄色雨衣' }],
+      },
+    ],
+  }
+  const { document } = await (
+    await request(owner, 'PUT', '', { operationId: 'init', baseRevision: 0, content })
+  ).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'image-context',
+            name: 'generateImage',
+            args: { prompt: '黄色雨衣角色三视图' },
+          }),
+        () => completionStream('请确认。'),
+      ],
+    ),
+  )
+  try {
+    const turn = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: 'production-device',
+          text: '为选中的雨衣造型生成三视图',
+          params: {
+            model: TEST_IMAGE_CHANNEL.models[0]!.id,
+            autoSubmit: true,
+            productionMode: true,
+            production: { documentId: document.id, revision: 1, target: 'look', lookId: 'look' },
+          },
+        }),
+      }),
+    )
+    expect(turn.status).toBe(200)
+    await turn.text()
+    const { generations } = await (await request(owner, 'GET', '/generations')).json()
+    expect(generations).toHaveLength(1)
+    expect(generations[0]).toMatchObject({
+      status: 'awaiting_confirmation',
+      draftRevision: 1,
+      production: { target: 'look', targetId: 'look' },
+    })
+    expect(
+      billing.reservations.filter((one) => one.model === TEST_IMAGE_CHANNEL.models[0]!.id),
+    ).toHaveLength(0)
+  } finally {
+    setAgentFetchForTesting()
+  }
+})
+it('binds an Agent video draft to the frozen clip selection', async () => {
+  billing.reset()
+  const owner = await account('video-context-owner')
+  const clip = {
+    id: 'clip',
+    name: '开场',
+    shotIds: ['shot'],
+    prompt: '雨夜街道',
+    model: 'grok-imagine-video',
+    video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    references: [],
+    sourceRevision: 0,
+  }
+  const { document } = await (
+    await request(owner, 'PUT', '', {
+      operationId: 'init',
+      baseRevision: 0,
+      content: {
+        title: '雨夜',
+        setting: '',
+        outline: '',
+        scenes: [],
+        shots: [{ id: 'shot', description: '雨夜', lookIds: [] }],
+        clips: [clip],
+      },
+    })
+  ).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'video-context',
+            name: 'generateVideo',
+            args: {
+              prompt: clip.prompt,
+              durationSeconds: 5,
+              aspectRatio: '16:9',
+              resolution: '720p',
+            },
+          }),
+        () => completionStream('请确认。'),
+      ],
+    ),
+  )
+  try {
+    const turn = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: 'production-device',
+          mode: 'video',
+          text: '生成选中的视频片段',
+          params: {
+            model: clip.model,
+            productionMode: true,
+            production: { documentId: document.id, revision: 1, target: 'clip', clipId: 'clip' },
+          },
+        }),
+      }),
+    )
+    expect(turn.status).toBe(200)
+    await turn.text()
+    const { generations } = await (await request(owner, 'GET', '/generations')).json()
+    expect(generations).toHaveLength(1)
+    expect(generations[0].production).toMatchObject({
+      target: 'clip',
+      targetId: 'clip',
+      snapshot: { shotIds: ['shot'] },
+    })
+    expect(generations[0].video).toEqual(clip.video)
+    expect(billing.reservations.filter((one) => one.model === clip.model)).toHaveLength(0)
+  } finally {
+    setAgentFetchForTesting()
+  }
 })
 afterAll(async () => {
   setObjectStoreForTesting()
