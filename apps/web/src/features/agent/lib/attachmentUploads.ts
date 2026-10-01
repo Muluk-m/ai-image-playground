@@ -98,6 +98,7 @@ onLocalAttachmentUploadChanged((change) => {
           changed()
         } else if (
           saved?.state === 'failed' &&
+          (previous.state === 'ready' || previous.state === 'failed') &&
           (previous.state !== 'failed' || previous.errorCode !== saved.errorCode)
         ) {
           previous.controller.abort()
@@ -204,6 +205,7 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
   const entry: Entry = { state: 'queued', controller, promise: undefined! }
   cache.set(source, entry)
   const backend = getRuntimeConfig().bff.baseUrl
+  const ownerScope = scope
   entry.promise = (async () => {
     const saved = await readAttachmentUpload(source, backend)
     controller.signal.throwIfAborted()
@@ -242,6 +244,26 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
     const errorCode = error instanceof Error ? error.message : 'attachment_upload_failed'
     if (!controller.signal.aborted && errorCode !== 'attachment_capability_unavailable')
       await saveAttachmentUpload(source, backend, { state: 'failed', errorCode }).catch(() => {})
+    // Callers may already hold this promise when another page finishes the same source.
+    // Reuse its durable success, but never revive a released or differently scoped source.
+    if (scope === ownerScope && backend === getRuntimeConfig().bff.baseUrl && cache.has(source)) {
+      const saved = await readAttachmentUpload(source, backend).catch(() => undefined)
+      if (
+        scope === ownerScope &&
+        backend === getRuntimeConfig().bff.baseUrl &&
+        cache.has(source) &&
+        saved?.state === 'ready' &&
+        saved.result.leaseExpiresAt !== undefined &&
+        saved.result.leaseExpiresAt > Date.now() + 30_000
+      ) {
+        enforceLocalCapability()
+        entry.result = saved.result
+        entry.state = 'ready'
+        entry.errorCode = undefined
+        changed()
+        return saved.result
+      }
+    }
     entry.errorCode = errorCode
     entry.state = 'failed'
     changed()

@@ -169,3 +169,82 @@ it.each([
     act(() => root.unmount())
   }
 })
+
+async function holdUpload(result: { id: string; leaseExpiresAt: number }) {
+  let entered = false
+  let release = () => {}
+  let signal: AbortSignal | undefined
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/uploads'))
+      return Response.json({
+        id: result.id,
+        status: 'pending',
+        uploadUrl: 'https://storage.test/pending',
+      })
+    if (url === 'https://storage.test/pending') {
+      entered = true
+      signal = init?.signal ?? undefined
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(new Response(null, { status: 200 }))
+        signal?.addEventListener('abort', () => reject(signal?.reason), { once: true })
+      })
+    }
+    if (url.endsWith('/complete'))
+      return Response.json({
+        id: result.id,
+        status: 'ready',
+        leaseExpiresAt: result.leaseExpiresAt,
+      })
+    throw new Error(`Unexpected network ${url}`)
+  })
+  return { entered: () => entered, aborted: () => signal?.aborted, release: () => release() }
+}
+
+it('跨页成功收敛到发送方已持有的进行中上传 Promise', async () => {
+  const { peer, uploads, source, result } = await pages()
+  const gate = await holdUpload(result)
+  const sending = uploads.prepareAttachmentReferences([{ imageId: 'original', dataUrl: source }])
+  const outcome = sending.then(
+    (value) => ({ value }),
+    (error) => ({ error }),
+  )
+  try {
+    await vi.waitFor(() => expect(gate.entered()).toBe(true))
+    await peer.saveAttachmentUpload(source, 'http://bff.test', { state: 'ready', result })
+    await vi.waitFor(() => expect(uploads.attachmentUploadState({ dataUrl: source })).toBe('ready'))
+    gate.release()
+    expect(await outcome).toEqual({ value: [{ imageId: 'original', mediaId: result.id }] })
+  } finally {
+    gate.release()
+    await outcome
+  }
+})
+
+it('重试上传期间页面激活不会用旧持久失败中止新请求', async () => {
+  const { local, uploads, source, result } = await pages()
+  await local.saveAttachmentUpload(source, 'http://bff.test', {
+    state: 'failed',
+    errorCode: 'media_upload_failed',
+  })
+  await expect(
+    uploads.prepareAttachmentReferences([{ imageId: 'original', dataUrl: source }]),
+  ).rejects.toThrow('media_upload_failed')
+  const gate = await holdUpload(result)
+  const retried = uploads.retryAttachmentUpload(source)
+  const outcome = retried.then(
+    (value) => ({ value }),
+    (error) => ({ error }),
+  )
+  try {
+    await vi.waitFor(() => expect(gate.entered()).toBe(true))
+    window.dispatchEvent(new Event('focus'))
+    await local.readAttachmentUpload(source, 'http://bff.test')
+    expect(gate.aborted()).toBe(false)
+    gate.release()
+    expect(await outcome).toMatchObject({ value: { id: result.id } })
+  } finally {
+    gate.release()
+    await outcome
+  }
+})
