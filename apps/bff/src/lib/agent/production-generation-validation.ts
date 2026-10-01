@@ -1,5 +1,6 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { AgentDraftSubmission } from '@image-playground/db'
-import type { ProductionGenerationDraftInput } from '@image-playground/shared'
+import { type ProductionGenerationDraftInput, productionClipVideo } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
@@ -83,6 +84,26 @@ export async function validateProductionConfirmation(
     .limit(1)
   const document = conversation?.production?.document
   if (!document || document.id !== binding.documentId) return false
+  if (binding.target === 'clip') {
+    const clip = document.content.clips?.find((one) => one.id === binding.targetId)
+    if (
+      !clip ||
+      clip.model !== binding.snapshot.model ||
+      !isDeepStrictEqual(productionClipVideo(clip), binding.snapshot.video) ||
+      clip.prompt !== binding.snapshot.description ||
+      JSON.stringify(clip.shotIds) !== JSON.stringify(binding.snapshot.shotIds) ||
+      clip.shotIds.some((id) => !document.content.shots?.some((shot) => shot.id === id)) ||
+      JSON.stringify(clip.references.map((one) => one.reference)) !==
+        JSON.stringify(binding.snapshot.references)
+    )
+      return false
+    return validateProductionMediaReferences(
+      conversationId,
+      userId,
+      (submission.productionReferences ?? []).map((one) => one.reference),
+      executor,
+    )
+  }
   const target =
     binding.target === 'look'
       ? document.content.characters

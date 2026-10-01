@@ -9,6 +9,7 @@ import {
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 import { productionReferenceSchema } from './production-asset-schema'
+import { productionVideoSchema } from './production-clip-schema'
 
 export const productionGenerationParamsSchema = t.Object({
   size: t.Optional(t.String({ maxLength: 32 })),
@@ -23,6 +24,7 @@ const generationFields = {
   prompt: t.String({ minLength: 1, maxLength: 8000 }),
   model: t.String({ minLength: 1, maxLength: 128 }),
   params: t.Optional(productionGenerationParamsSchema),
+  video: t.Optional(productionVideoSchema),
   references: t.Array(
     t.Object({
       reference: productionReferenceSchema,
@@ -30,7 +32,7 @@ const generationFields = {
         t.Union([t.Literal('first-frame'), t.Literal('last-frame'), t.Literal('reference')]),
       ),
     }),
-    { maxItems: 14 },
+    { maxItems: 16 },
   ),
 }
 export const productionGenerationRoutes = new Elysia()
