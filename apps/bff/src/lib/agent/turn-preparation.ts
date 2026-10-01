@@ -1,4 +1,9 @@
-import type { AgentMode, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
+import type {
+  AgentMessageView,
+  AgentMode,
+  AgentTurnParams,
+  AgentTurnReference,
+} from '@image-playground/shared'
 import {
   AGENT_CONVERSATION_TITLE_MAX_CHARS,
   AGENT_MAX_CONSECUTIVE_WAKES,
@@ -43,16 +48,23 @@ import {
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
 import { agentModel } from './model'
+import { canRetainModelHistory, modelHistoryFingerprint, readModelHistory } from './model-history'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
   loadAgentTurnAudience,
   titleSourceText,
+  visibleAgentSkills,
 } from './skills'
-import { createSubmissionReplay, resolveAgentMode } from './tools'
+import { agentToolDeclarations, createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
-import { type AgentTurnInput, clarificationChainStart, estimateTurnInputTokens } from './turn-input'
+import {
+  type AgentTurnInput,
+  clarificationChainStart,
+  estimateTurnInputTokens,
+  turnInitialStateOf,
+} from './turn-input'
 import { wakePlan } from './wake'
 import {
   mergedWakePrompt,
@@ -156,7 +168,7 @@ interface TurnContent {
   readonly queueId?: string
   readonly wake?: PreparedAgentTurn['wake']
   /** 取走与预扣之外，这一来源还要在同一事务里写的东西。 */
-  readonly write?: (tx: BffTransaction) => Promise<void>
+  readonly write?: (tx: BffTransaction) => Promise<AgentMessageView>
   /**
    * 事务没成的收尾：已经落进对象存储的参考图要清掉。**失败自己吞掉**——从这里抛出去会盖掉
    * 真正的失败原因（见 `removeAgentTurnReferences`）。
@@ -168,6 +180,7 @@ interface TurnContent {
 
 /** 取件事务落定的那一份：预扣的结果（这一轮不计费时没有），与这一轮最终按哪一份轮输入走。 */
 interface CommittedTurnStart {
+  readonly storedUserMessage?: AgentMessageView
   readonly reserved: ChatTaskReserved | undefined
   readonly input: AgentTurnInput
   readonly estimatedInputTokens: number
@@ -243,8 +256,44 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
     const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
     const currentTime = new Date().toISOString()
+    let modelHistory: AgentTurnInput['modelHistory']
+    if (
+      source.kind === 'message' &&
+      !content.wakes?.note &&
+      canRetainModelHistory(window) &&
+      content.references.every(
+        (reference) =>
+          !('maskDataUrl' in reference && reference.maskDataUrl) &&
+          !('regions' in reference && reference.regions?.length) &&
+          !('editAction' in reference && reference.editAction),
+      )
+    ) {
+      const signature = modelHistoryFingerprint({
+        conversationId,
+        owner,
+        model: { id: model.id, api: model.api, provider: model.provider, baseUrl: model.baseUrl },
+        thinkingDepth: content.params?.thinkingDepth,
+        system: turnInitialStateOf(turnInputOf(window, content, audience, skillTexts, currentTime))
+          .systemPrompt,
+        tools: agentToolDeclarations(content.mode, audience),
+        skills: visibleAgentSkills(content.mode, audience)
+          .map(({ name, content }) => ({ name, content }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      })
+      const messages = await readModelHistory({
+        conversationId,
+        signature,
+        history: window.messages,
+        skillTexts,
+      })
+      modelHistory = { signature, messages }
+      log.info(
+        { event: 'agent.model_history_loaded', conversationId, turnId, reused: !!messages },
+        'agent model history selected',
+      )
+    }
     const estimated = (one: TurnContent): EstimatedTurnInput => {
-      const input = turnInputOf(window, one, audience, skillTexts, currentTime)
+      const input = { ...turnInputOf(window, one, audience, skillTexts, currentTime), modelHistory }
       return { input, estimatedInputTokens: estimateTurnInputTokens(input, model) }
     }
     const withNote = estimated(content)
@@ -297,8 +346,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         for (const id of content.wakes.ids)
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
-      await content.write?.(tx)
+      const storedUserMessage = await content.write?.(tx)
       return {
+        storedUserMessage,
         reserved,
         input: chosen.input,
         estimatedInputTokens: chosen.estimatedInputTokens,
@@ -323,6 +373,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       conversationId,
       turnId,
       userMessageId: content.userMessageId,
+      storedUserMessage: committed.storedUserMessage,
       ...(content.queueId ? { queueId: content.queueId } : {}),
       input: committed.input,
       userId,
@@ -536,7 +587,7 @@ async function messageContent(
           owner,
           agentConversationTitle(titleText),
         )
-      await appendAgentMessage(tx, {
+      return appendAgentMessage(tx, {
         id: message.id,
         conversationId,
         turnId,

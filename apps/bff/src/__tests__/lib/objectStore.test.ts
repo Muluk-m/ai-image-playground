@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { normalizeKeyPrefix } from '../../lib/objectKeyPrefix'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
@@ -46,6 +46,7 @@ class FakeS3Client {
       return span ? stored.slice(span.begin, span.end) : stored.slice()
     }
     return {
+      presign: (options: { expiresIn?: number; method?: string }) => this.presign(key, options),
       arrayBuffer: async () => bytes().buffer,
       stat: async () => {
         this.statted.push(key)
@@ -82,6 +83,83 @@ function store(client: FakeS3Client, prefix: string) {
 }
 
 describe('S3ObjectStore key prefix', () => {
+  it('uses cancellable signed HEAD metadata without starting an uncancellable stat', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { headers: { 'content-length': '12' } }),
+    )
+    try {
+      expect((await subject.open('agent/c/cache.json', controller.signal)).size).toBe(12)
+      expect(transport.mock.calls[0]?.[0]).toContain(
+        'paid/agent/c/cache.json?expiresIn=60&method=HEAD',
+      )
+      expect(transport.mock.calls[0]?.[1]).toMatchObject({
+        method: 'HEAD',
+        signal: controller.signal,
+      })
+      expect(client.statted).toHaveLength(0)
+      transport.mockResolvedValueOnce(new Response(null))
+      await expect(subject.open('missing-size', controller.signal)).rejects.toThrow(
+        'Invalid object size',
+      )
+      transport.mockImplementation(
+        Object.assign(
+          (_url: RequestInfo | URL, options?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              })
+            }),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const waiting = subject.open('stalled', controller.signal)
+      controller.abort(new Error('deadline'))
+      await expect(waiting).rejects.toThrow('deadline')
+      await expect(subject.open('preaborted', controller.signal)).rejects.toThrow('deadline')
+      expect(transport).toHaveBeenCalledTimes(3)
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
+  it('uploads cancellable cache writes using a signed PUT with the same prefix and content type', async () => {
+    const subject = store(new FakeS3Client(), 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 200 }),
+    )
+    try {
+      await subject.write(
+        'agent/c/model-context-v1.json',
+        new TextEncoder().encode('{}'),
+        'application/json',
+        controller.signal,
+      )
+      expect(transport.mock.calls[0]?.[0]).toBe(
+        'https://r2.example.test/paid/agent/c/model-context-v1.json?expiresIn=60&method=PUT',
+      )
+      expect(transport.mock.calls[0]?.[1]).toMatchObject({
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        signal: controller.signal,
+      })
+      transport.mockResolvedValue(new Response(null, { status: 503 }))
+      await expect(
+        subject.write('cache', new Uint8Array(), 'application/json', controller.signal),
+      ).rejects.toThrow('Object upload failed (503)')
+      controller.abort(new Error('deadline'))
+      await expect(
+        subject.write('cache', new Uint8Array(), 'application/json', controller.signal),
+      ).rejects.toThrow('deadline')
+      expect(transport).toHaveBeenCalledTimes(2)
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
   it('前缀只加在 bucket 里，调用方的 key 不变', async () => {
     const client = new FakeS3Client()
     const subject = store(client, 'image-playground/')

@@ -366,6 +366,8 @@ export interface AgentTurnInput {
   readonly audience: AgentTurnAudience
   /** 历史里读过的技能正文，按 `toolCallId` 接回回放（见 `replayedSkillTexts`）。缺席即不补。 */
   readonly skillTexts?: ReadonlyMap<string, string>
+  /** 可丢弃的原生历史缓存；准备阶段读定，预扣与实发使用相同消息。 */
+  readonly modelHistory?: { readonly signature: string; readonly messages?: AgentMessage[] }
 }
 
 /** 这一份轮输入给 pi 的 initialState；估算与实发从同一处取，免得两边各挑一遍字段。 */
@@ -373,7 +375,7 @@ export function turnInitialStateOf(input: AgentTurnInput): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
-  return turnInitialState(
+  const state = turnInitialState(
     input.history.messages,
     input.mode,
     input.autoSubmit,
@@ -381,6 +383,7 @@ export function turnInitialStateOf(input: AgentTurnInput): {
     input.audience,
     input.skillTexts,
   )
+  return { ...state, messages: input.modelHistory?.messages ?? state.messages }
 }
 
 /**

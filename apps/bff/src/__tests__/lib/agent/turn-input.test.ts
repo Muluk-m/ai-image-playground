@@ -25,6 +25,7 @@ const {
   estimatedTurnInput,
   expandSkillInvocation,
   turnInitialState,
+  turnInitialStateOf,
   turnModelPrompt,
   turnPromptBody,
   turnPromptText,
@@ -338,6 +339,24 @@ const REAL_MASKED = {
 
 /** 估算路径与实发路径必须同形；不同形的地方要在这里写明白，别等它悄悄变成漂移。 */
 describe('estimated and sent turn input', () => {
+  it('uses the same native history in reservation and actual initial state', () => {
+    const native = turnInitialState(RICH_HISTORY, 'image').messages
+    native[0] = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '原轮的时间和原文' },
+        { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+      ],
+      timestamp: 1,
+    }
+    const prepared = input(RICH_HISTORY, '继续', [], {
+      modelHistory: { signature: 'verified', messages: native },
+    })
+    expect(turnInitialStateOf(prepared).messages).toEqual(native)
+    expect(estimatedTurnInput(prepared).slice(1, -1)).toEqual(native)
+    expect(estimatedTurnInput(prepared).at(-1)).toMatchObject({ role: 'user' })
+  })
+
   it('opens with the same system prompt the agent starts from', () => {
     const estimated = estimatedTurnInput(input(RICH_HISTORY, '再来一张'))
     expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY, 'image').systemPrompt)
