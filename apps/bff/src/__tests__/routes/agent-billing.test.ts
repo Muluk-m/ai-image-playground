@@ -19,6 +19,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { waitFor } from '../helpers/upstreamStubs'
@@ -47,7 +48,7 @@ const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-billing-user'
 let sessionToken = ''
 let storage: InMemoryObjectStore
-const REFERENCE = { imageId: 'canvas-original', dataUrl: 'data:image/png;base64,aGk=' }
+const REFERENCE = { imageId: 'canvas-original', dataUrl: TEST_IMAGE.pngDataUrl }
 
 async function post(path: string, body: unknown, signedIn = true): Promise<Response> {
   return app.handle(

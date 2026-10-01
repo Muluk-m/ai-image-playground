@@ -536,6 +536,29 @@ export interface AgentSaveResponse {
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
+/** Visual conclusions are accepted only after these pixels were dispatched to the model. */
+export interface AgentVisualEvidence {
+  readonly imageId: string
+  readonly source: string
+  readonly representation:
+    | 'original'
+    | 'preview'
+    | 'region'
+    | 'selection-location'
+    | 'selection-crop'
+    | 'tool-output'
+  readonly width: number | null
+  readonly height: number | null
+  readonly bytes: number
+  readonly selection: boolean
+}
+
+export interface AgentVisualObservation {
+  readonly imageId: string
+  readonly observation: string
+  readonly evidence: readonly AgentVisualEvidence[]
+}
+
 export interface AgentToolResultBlock {
   readonly type: 'toolResult'
   readonly toolCallId: string
@@ -578,6 +601,7 @@ export interface AgentToolResultBlock {
   readonly sources?: readonly AgentWebSource[]
   /** 取图这一步存下的网图。缺席即这条不是取图工具，或者没有取到。 */
   readonly fetchedImages?: readonly AgentFetchedImage[]
+  readonly visualObservations?: readonly AgentVisualObservation[]
 }
 
 /**
@@ -1204,6 +1228,8 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
     return block.saveCard.status === 'saved'
       ? `${title}：用户已保存，记录 id ${block.saveCard.recordId ?? '未知'}`
       : `${title}：卡片已经给到用户，他还没按下保存`
+  if (block.visualObservations?.length)
+    return `${title}：完成；已观察结论：${block.visualObservations.map((entry) => `图片 ${entry.imageId}：${entry.observation}`).join('；')}。需要像素时用 viewImage 重读。`
   if (block.fetchedImages?.length)
     return `${title}：完成，${block.fetchedImages
       .map((image) => `图片 ${image.imageId}（来自 ${image.sourceUrl}）`)

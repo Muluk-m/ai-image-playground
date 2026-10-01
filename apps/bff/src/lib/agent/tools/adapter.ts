@@ -10,6 +10,7 @@ import type {
 import { agentTextFromBlocks } from '@image-playground/shared'
 import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
+import { registerVisualBlock } from '../visual-input'
 import type {
   AgentToolArgs,
   AgentToolDeclaration,
@@ -96,12 +97,27 @@ export function defineAgentTool<P extends TSchema>(
           },
         }
       : {}),
-    create: (context) =>
-      asPiTool<P, AgentToolDetails>({
+    create: (context) => {
+      const execute = definition.execute(context)
+      return asPiTool<P, AgentToolDetails>({
         ...declaration(),
         label: definition.label,
-        execute: definition.execute(context),
-      }),
+        execute: async (...args) => {
+          const result = await execute(...args)
+          for (const [index, block] of result.content.entries()) {
+            if (block.type === 'image')
+              await registerVisualBlock(block, {
+                imageId: `tool:${args[0]}:${index}`,
+                source: definition.name,
+                representation: 'tool-output',
+                selection: false,
+              })
+          }
+          context.visualWorkset?.admit(result.content.filter((block) => block.type === 'image'))
+          return result
+        },
+      })
+    },
   }
 }
 
@@ -179,5 +195,8 @@ export function toolResultBlock(
     ...(details?.saveCard ? { saveCard: details.saveCard } : {}),
     ...(details?.sources?.length ? { sources: details.sources } : {}),
     ...(details?.fetchedImages?.length ? { fetchedImages: details.fetchedImages } : {}),
+    ...(details?.visualObservations?.length
+      ? { visualObservations: details.visualObservations }
+      : {}),
   }
 }

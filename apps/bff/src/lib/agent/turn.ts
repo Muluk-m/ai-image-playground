@@ -33,6 +33,7 @@ import {
   archiveAgentReferences,
   claimConversationMedia,
   createAgentImageSource,
+  type ResolvedAgentImage,
   removeAgentTurnReferences,
   requireAgentImages,
   resolveTurnReferences,
@@ -67,6 +68,7 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
+import { AgentToolError } from './tools/errors'
 import { replayedSkillTexts } from './tools/loadSkill'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
@@ -81,6 +83,8 @@ import {
 } from './turn-input'
 import { recordAgentTurnSummary } from './turn-summary'
 import { createAgentUsageLedger } from './usage-ledger'
+import { assertVisualBytes } from './visual-resources'
+import { createVisualWorkset } from './visual-workset'
 
 export interface AgentTurnSettlement {
   readonly outcome: TaskOutcome
@@ -200,6 +204,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     images.masked,
     prepared.wake?.plan,
   )
+  const visualWorkset = createVisualWorkset()
   const toolFailures = createToolFailureLog()
   const initialState = turnInitialStateOf(input)
   const turnTools = agentTurnTools(
@@ -211,6 +216,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       userId: prepared.userId,
       deviceId: prepared.deviceId,
       images,
+      visualWorkset,
       authorization: () => authorization.current(),
       maskedEditPlan,
       assertExecution: execution.assert,
@@ -304,7 +310,30 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       const callId = await ledger.begin('conversation', model.id, context)
       modelCallId = callId
       return agentStreamFn(prepared.params?.thinkingDepth, {
-        onDispatch: (bytes) => ledger.dispatched(callId, bytes),
+        onDispatch: async (bytes) => {
+          const evidence = visualWorkset.dispatched(context.messages)
+          if (evidence.length)
+            log.info(
+              {
+                event: 'agent.visual_input',
+                conversationId,
+                turnId,
+                blocks: evidence.length,
+                evidence: evidence.map(
+                  ({ source, representation, width, height, bytes, selection }) => ({
+                    source,
+                    representation,
+                    width,
+                    height,
+                    bytes,
+                    selection,
+                  }),
+                ),
+              },
+              'agent visual evidence dispatched',
+            )
+          await ledger.dispatched(callId, bytes)
+        },
         onRejected: async (rejection) => {
           error = 'agent_request_budget_exceeded'
           failure = agentTurnFailure(error, rejection, model.id)
@@ -318,7 +347,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     toolExecution: 'sequential',
     // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
     shouldStopAfterTurn: () => clarified || drafted || aborted || !!error,
-    transformContext: retained?.transform ?? compact,
+    transformContext: (messages) =>
+      visualWorkset.transform(messages, retained?.transform ?? compact),
   })
 
   /** 终帧发过没有。收尾半路抛错时据此补一个，续播的消费者不能一直等下去。 */
@@ -593,6 +623,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (!acceptingInterjections || aborted) return null
       const evidence = await turnVisualEvidence(
         await resolveTurnReferences(references, conversationId, prepared.userId, !options.claim),
+        'interjection',
       )
       if (!acceptingInterjections || aborted) return null
       await execution.assert()
@@ -719,11 +750,28 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   void requireAgentImages(images, shownImageRequests(input.references))
     .then(async (references) => {
       if (aborted) return
-      // 唤醒要复核的产物跟在参考图后面；取不到的那张（任务行已清掉）就不附，模型照结果文字说。
-      const reviewed = (
-        await Promise.all(input.reviewImageIds.map((id) => images.resolve(id)))
-      ).filter((image) => image !== null)
-      const evidence = await turnVisualEvidence([...references, ...reviewed])
+      // Stop before reading the rest of an oversized review batch; missing evidence cannot count as reviewed.
+      const reviewed: ResolvedAgentImage[] = []
+      const imageBytes = (image: ResolvedAgentImage) =>
+        Buffer.byteLength(image.dataUrl, 'utf8') +
+        Buffer.byteLength(image.maskDataUrl ?? '', 'utf8')
+      let preparedBytes = references.reduce((sum, image) => sum + imageBytes(image), 0)
+      assertVisualBytes(preparedBytes)
+      for (const id of input.reviewImageIds) {
+        const image = await images.resolve(id)
+        if (!image)
+          throw new AgentToolError(
+            'invalid_params',
+            `复核图片 ${id} 无法读取，联合复核未完成。请重新添加有效图片或选择需要复核的范围。`,
+          )
+        preparedBytes += imageBytes(image)
+        assertVisualBytes(preparedBytes)
+        reviewed.push(image)
+      }
+      const reviewSet = new Set(reviewed)
+      const evidence = await turnVisualEvidence([...references, ...reviewed], (image) =>
+        reviewSet.has(image) ? 'result-review' : 'initial',
+      )
       if (aborted) return
       // 正文与预扣估算读的是同一份轮输入（`turnPromptBody`）：`/skill-name` 的展开范围、
       // 引用清单与并进来的唤醒说明的位置，两条路因此只有一种拼法。

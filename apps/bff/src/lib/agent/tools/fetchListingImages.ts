@@ -4,7 +4,7 @@ import { safeFetch } from '../../safeFetch'
 import { fetchAndClaimImage, fetchedImageSize } from '../fetched-image'
 import { parseListingPage, parseListingUrl } from '../listing'
 import { agentSaveToolsAvailable } from '../saves'
-import { referenceEvidence } from '../selection-preview'
+import { prepareVisualEvidence } from '../visual-input'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 import { safeFetchToolError } from './webError'
@@ -134,7 +134,11 @@ export const fetchListingImages = defineAgentTool({
     const resolved = await Promise.all(
       images.map((image) => context.images.resolve(image.imageId, 'preview')),
     )
-    const evidence = await referenceEvidence(resolved.filter((image) => image !== null))
+    const evidence = await prepareVisualEvidence(
+      resolved.filter((image) => image !== null),
+      'fetchListingImages',
+      'preview',
+    )
     const listed = images
       .map((image, index) => `${index + 1}. 图片 id ${image.imageId}${fetchedImageSize(image)}`)
       .join('\n')

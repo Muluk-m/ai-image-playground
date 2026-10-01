@@ -22,6 +22,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
@@ -52,7 +53,7 @@ type InternalChannel = import('../../lib/channels').InternalChannel
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-video-user'
-const PIXEL = 'data:image/png;base64,aGk='
+const PIXEL = TEST_IMAGE.pngDataUrl
 
 const GROK = 'grok-imagine-video'
 const VEO = 'veo-3.1-lite-generate-preview'

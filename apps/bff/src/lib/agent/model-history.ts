@@ -75,13 +75,8 @@ function isCompleteHistory(value: unknown): value is AgentMessage[] {
     for (const block of message.content) {
       if (!isObject(block)) return false
       if (block.type === 'text' && typeof block.text === 'string') continue
-      if (
-        message.role !== 'assistant' &&
-        block.type === 'image' &&
-        typeof block.data === 'string' &&
-        typeof block.mimeType === 'string'
-      )
-        continue
+      // JSON 丢失视觉工作集的证据与释放身份；旧缓存也必须退回产品文字历史。
+      if (block.type === 'image') return false
       if (message.role !== 'assistant') return false
       if (block.type === 'thinking' && typeof block.thinking === 'string') continue
       if (
@@ -196,7 +191,7 @@ export async function readModelHistory(
         !isCompleteHistory(snapshot.messages)
       )
         return undefined
-      // 图片头虽是合法字符串，仍可能无法解析；估算失败必须在缓存边界内回退。
+      // 估算失败必须在缓存边界内回退，不让缓存影响本轮可用性。
       if (snapshot.messages.some((message) => !Number.isFinite(estimateMessageTokens(message))))
         return undefined
       return snapshot.messages

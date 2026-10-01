@@ -30,10 +30,7 @@ const identity = {
 const messages: AgentMessage[] = [
   {
     role: 'user',
-    content: [
-      { type: 'text', text: '当前时间：2026-10-01\n看看这张图' },
-      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
-    ],
+    content: [{ type: 'text', text: '当前时间：2026-10-01\n看看这张图' }],
     timestamp: 1,
   },
   {
@@ -59,10 +56,7 @@ const messages: AgentMessage[] = [
     role: 'toolResult',
     toolCallId: 'call-1',
     toolName: 'viewImage',
-    content: [
-      { type: 'text', text: '原图' },
-      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
-    ],
+    content: [{ type: 'text', text: '原图' }],
     isError: false,
     timestamp: 3,
   },
@@ -75,7 +69,7 @@ beforeEach(() => {
 afterEach(() => setObjectStoreForTesting())
 
 describe('durable model history cache', () => {
-  it('restores paired tools, exact timestamps and image bytes through the storage boundary', async () => {
+  it('restores text-only paired tools and exact timestamps through the storage boundary', async () => {
     await writeModelHistory(identity, messages)
     expect(await readModelHistory(identity)).toEqual(messages)
     await writeModelHistory(identity, messages)
@@ -129,16 +123,30 @@ describe('durable model history cache', () => {
     ).toBe(false)
   })
 
-  it('falls back when valid JSON contains an image header that breaks token estimation', async () => {
-    await writeModelHistory(identity, messages)
-    const header = Buffer.alloc(16)
-    Buffer.from('89504e470d0a1a0a', 'hex').copy(header)
-    for (const object of store.objects.values()) {
-      const snapshot = JSON.parse(Buffer.from(object.bytes).toString())
-      snapshot.messages[0].content[1].data = header.toString('base64')
-      object.bytes = Buffer.from(JSON.stringify(snapshot))
+  it('never writes image blocks, including already released buffers, to native history', async () => {
+    for (const data of ['aGk=', '']) {
+      const visualMessages = structuredClone(messages)
+      const first = visualMessages[0]!
+      if (first.role !== 'user' || !Array.isArray(first.content)) throw new Error('invalid fixture')
+      first.content.push({ type: 'image', data, mimeType: 'image/png' })
+      await writeModelHistory(identity, visualMessages)
+      expect(store.objects.size).toBe(0)
+      expect(await readModelHistory(identity)).toBeUndefined()
     }
-    expect(await readModelHistory(identity)).toBeUndefined()
+  })
+
+  it('rejects legacy cached user and tool images rather than restoring untracked pixels', async () => {
+    for (const index of [0, 2]) {
+      for (const data of ['aGk=', '']) {
+        await writeModelHistory(identity, messages)
+        for (const object of store.objects.values()) {
+          const snapshot = JSON.parse(Buffer.from(object.bytes).toString())
+          snapshot.messages[index].content.push({ type: 'image', data, mimeType: 'image/png' })
+          object.bytes = Buffer.from(JSON.stringify(snapshot))
+        }
+        expect(await readModelHistory(identity)).toBeUndefined()
+      }
+    }
   })
 
   it('cancels a stalled metadata request at the read deadline', async () => {
