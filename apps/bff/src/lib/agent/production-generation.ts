@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type {
   AgentToolResultBlock,
+  ProductionContent,
   ProductionGenerationBinding,
   ProductionGenerationDraftInput,
   ProductionGenerationView,
@@ -12,7 +13,7 @@ import {
   videoPromptRejection,
   videoRequestRejection,
 } from '@image-playground/shared'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
 import { extractMeta } from '../extractImages'
@@ -20,7 +21,7 @@ import { archiveInputImages } from '../imageArchive'
 import { objectStore } from '../objectStore'
 import { asQueueProvider } from '../queueProvider'
 import { saveGenerationDraft } from './confirmations'
-import { appendAgentMessage } from './conversations'
+import { appendAgentMessage, listAgentMessages } from './conversations'
 import {
   applyProductionMutation,
   ProductionError,
@@ -28,6 +29,7 @@ import {
   updateProductionRecord,
 } from './production'
 import { productionReferenceId } from './production-asset-validation'
+import { productionDependencyChanges } from './production-dependencies'
 import { referenceDataUrl, targetSnapshot } from './production-generation-binding'
 import { validateImageParameters } from './production-generation-validation'
 import { validateProductionMediaReferences } from './production-references'
@@ -57,11 +59,81 @@ function validateVideoInput(
   )
     throw new ProductionError('production_invalid')
 }
+type CandidateMessage = {
+  id: string
+  content: readonly import('@image-playground/shared').AgentContentBlock[]
+}
+function draftCandidates(draft: typeof drafts.$inferSelect, messages: readonly CandidateMessage[]) {
+  const root = messages.find((message) =>
+    message.content.some(
+      (block) => block.type === 'toolResult' && block.toolCallId === draft.tool_call_id,
+    ),
+  )
+  const known = new Set(root ? [root.id] : [])
+  const candidates: {
+    messageId: string
+    card: AgentToolResultBlock | undefined
+    taskId: string | null
+  }[] = [
+    {
+      messageId: root?.id ?? '',
+      card: root?.content.find(
+        (block): block is AgentToolResultBlock =>
+          block.type === 'toolResult' && block.toolCallId === draft.tool_call_id,
+      ),
+      taskId: draft.task_id,
+    },
+  ]
+  let added = true
+  while (added) {
+    added = false
+    for (const message of messages) {
+      if (known.has(message.id)) continue
+      const card = message.content.find(
+        (block): block is AgentToolResultBlock =>
+          block.type === 'toolResult' && !!block.retryOf && known.has(block.retryOf.messageId),
+      )
+      if (!card) continue
+      known.add(message.id)
+      added = true
+      candidates.push({ messageId: message.id, card, taskId: card.job?.taskId ?? null })
+    }
+  }
+  return candidates
+}
+function generationSourceChanged(
+  content: ProductionContent,
+  binding: ProductionGenerationBinding,
+  artifacts: ProductionGenerationView['artifacts'],
+) {
+  try {
+    let current = targetSnapshot(content, binding, false)
+    const before = binding.snapshot
+    if (before.dependencies && productionDependencyChanges(content, before.dependencies).length)
+      return true
+    if (binding.target !== 'clip' && current.references.length === 1) {
+      const ref = current.references[0]
+      if (
+        ref?.kind === 'artifact' &&
+        artifacts.some((artifact) => artifact.artifactId === ref.artifactId)
+      )
+        current = { ...current, references: before.references }
+    }
+    return Object.entries(before).some(
+      ([key, value]) =>
+        key !== 'dependencies' && !isDeepStrictEqual(current[key as keyof typeof current], value),
+    )
+  } catch {
+    return true
+  }
+}
 export async function listProductionGenerations(
   conversationId: string,
   userId: string,
+  onlyDraftId?: string,
 ): Promise<ProductionGenerationView[]> {
-  await readProduction(conversationId, userId)
+  const record = await readProduction(conversationId, userId)
+  if (!record) throw new ProductionError('production_not_found')
   const rows = await db
     .select()
     .from(drafts)
@@ -69,65 +141,59 @@ export async function listProductionGenerations(
       and(
         eq(drafts.conversation_id, conversationId),
         sql`${drafts.submission} -> 'production' IS NOT NULL`,
+        onlyDraftId ? eq(drafts.id, onlyDraftId) : undefined,
       ),
     )
     .orderBy(desc(drafts.created_at))
-    .limit(100)
+    .limit(onlyDraftId ? 1 : 100)
+  const messages = await listAgentMessages(conversationId, { kind: 'user', userId })
   const result: ProductionGenerationView[] = []
   for (const draft of rows) {
-    if (!draft.submission.production) continue
-    const messages = await db
-      .select()
-      .from(schema.agent_messages)
-      .where(
-        and(
-          eq(schema.agent_messages.conversation_id, conversationId),
-          eq(schema.agent_messages.turn_id, draft.turn_id),
-        ),
-      )
-      .limit(100)
-    const message = messages.find((item) =>
-      item.content.some(
-        (block) => block.type === 'toolResult' && block.toolCallId === draft.tool_call_id,
-      ),
-    )
-    const card = message?.content.find(
-      (block): block is AgentToolResultBlock =>
-        block.type === 'toolResult' && block.toolCallId === draft.tool_call_id,
-    )
-    let artifacts: ProductionGenerationView['artifacts'] = []
-    let status = 'awaiting_confirmation'
-    if (draft.task_id) {
-      const [task] = await db
-        .select()
-        .from(schema.tasks)
-        .where(
-          and(
-            eq(schema.tasks.id, draft.task_id),
-            eq(schema.tasks.user_id, userId),
-            eq(schema.tasks.agent_conversation_id, conversationId),
-          ),
-        )
-        .limit(1)
-      status = task?.status ?? 'missing'
-      const provider = task && asQueueProvider(task.provider)
-      if (task?.status === 'completed' && provider)
-        artifacts = queueArtifacts(task.id, draft.media, extractMeta(provider, task.result_payload))
+    const binding = draft.submission.production
+    if (!binding) continue
+    for (const candidate of draftCandidates(draft, messages)) {
+      let artifacts: ProductionGenerationView['artifacts'] = []
+      let status = 'awaiting_confirmation'
+      if (candidate.taskId) {
+        const [task] = await db
+          .select()
+          .from(schema.tasks)
+          .where(
+            and(
+              eq(schema.tasks.id, candidate.taskId),
+              eq(schema.tasks.user_id, userId),
+              eq(schema.tasks.agent_conversation_id, conversationId),
+            ),
+          )
+          .limit(1)
+        status = task?.status ?? 'missing'
+        const provider = task && asQueueProvider(task.provider)
+        if (task?.status === 'completed' && provider)
+          artifacts = queueArtifacts(
+            task.id,
+            draft.media,
+            extractMeta(provider, task.result_payload),
+          )
+      }
+      result.push({
+        draftId: draft.id,
+        messageId: candidate.messageId,
+        draftRevision: draft.submission.productionDraftRevision ?? 1,
+        production: binding,
+        model: draft.model,
+        prompt: draft.prompt,
+        params: draft.submission.productionParams,
+        ...(draft.request.video ? { video: draft.request.video } : {}),
+        references: draft.submission.productionReferences ?? [],
+        status: candidate.card?.status === 'failed' && !candidate.taskId ? 'failed' : status,
+        ...(candidate.taskId ? { taskId: candidate.taskId } : {}),
+        artifacts,
+        ...(candidate.card?.errorCode ? { errorCode: candidate.card.errorCode } : {}),
+        ...(candidate.card?.message ? { error: candidate.card.message } : {}),
+        ...(candidate.card?.retryOf ? { retryOf: candidate.card.retryOf } : {}),
+        sourceChanged: generationSourceChanged(record.document.content, binding, artifacts),
+      })
     }
-    result.push({
-      draftId: draft.id,
-      messageId: message?.id ?? '',
-      draftRevision: draft.submission.productionDraftRevision ?? 1,
-      production: draft.submission.production,
-      model: draft.model,
-      prompt: draft.prompt,
-      params: draft.submission.productionParams,
-      ...(draft.request.video ? { video: draft.request.video } : {}),
-      references: draft.submission.productionReferences ?? [],
-      status: card?.status === 'failed' && !draft.task_id ? 'failed' : status,
-      ...(draft.task_id ? { taskId: draft.task_id } : {}),
-      artifacts,
-    })
   }
   return result
 }
@@ -156,7 +222,7 @@ export async function createProductionGenerationDraft(
   if (replay) {
     if (replay.submission.productionFingerprint !== requestFingerprint)
       throw new ProductionError('production_operation_reused')
-    return (await listProductionGenerations(conversationId, userId)).find(
+    return (await listProductionGenerations(conversationId, userId, replay.id)).find(
       (item) => item.draftId === replay.id,
     )!
   }
@@ -303,7 +369,7 @@ export async function createProductionGenerationDraft(
       return id
     },
   )
-  return (await listProductionGenerations(conversationId, userId)).find(
+  return (await listProductionGenerations(conversationId, userId, draftId)).find(
     (item) => item.draftId === draftId,
   )!
 }
@@ -463,7 +529,7 @@ export async function editProductionGenerationDraft(
     if (error instanceof ProductionError) throw error
     throw new ProductionError('production_invalid')
   }
-  return (await listProductionGenerations(conversationId, userId)).find(
+  return (await listProductionGenerations(conversationId, userId, draftId)).find(
     (item) => item.draftId === draftId,
   )!
 }
@@ -482,12 +548,21 @@ export async function adoptProductionGeneration(
       .limit(1)
     const binding = draft?.submission.production
     const artifact = parseProjectArtifactId(input.artifactId)
+    if (!draft || !binding || !artifact || binding.documentId !== record.document.id)
+      throw new ProductionError('production_not_found')
+    const messages = await tx
+      .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversationId),
+          isNull(schema.agent_messages.deleted_at),
+        ),
+      )
     if (
-      !draft ||
-      !binding ||
-      !artifact ||
-      artifact.generationId !== draft.task_id ||
-      binding.documentId !== record.document.id
+      !draftCandidates(draft, messages).some(
+        (candidate) => candidate.taskId === artifact.generationId,
+      )
     )
       throw new ProductionError('production_not_found')
     if (
