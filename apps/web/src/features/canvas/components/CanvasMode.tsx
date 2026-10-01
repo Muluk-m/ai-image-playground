@@ -1,9 +1,11 @@
-import { ArrowLeft, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
+import { ArrowLeft, Clapperboard, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
+import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
@@ -21,6 +23,8 @@ import { conversationStarted } from '../../agent/lib/panelMessages'
 import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
+import ProductionWorkspace from '../../production/components/ProductionWorkspace'
+import { openProductionContent } from '../../production/lib/productionContext'
 import {
   backToCurrentProject,
   currentCanvasWorkspace,
@@ -118,6 +122,7 @@ function CanvasLoading({ label }: { label: string }) {
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const { t: tShell } = useTranslation('shell')
+  const { t: tProduction } = useTranslation('production')
   const mobile = useMobileWorkspace()
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
@@ -132,6 +137,19 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>()
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
+  const productionViewKey = scopedStorageName(`production-view:${workspace.id}`)
+  const [productionOpen, setProductionOpen] = useState(
+    () => safeLocalStorage.getItem(productionViewKey) === 'true',
+  )
+  const productionEnabled = isClientCapabilityEnabled('agent:production')
+  const productionVisible = productionEnabled && productionOpen && projectView === 'chat'
+  const conversationId = useAgentStore((state) => state.conversationId)
+  const previewProduction = () => {
+    if (!productionEnabled) return
+    setProductionOpen(true)
+    safeLocalStorage.setItem(productionViewKey, 'true')
+    openProductionContent(conversationId)
+  }
   const [searchOpen, setSearchOpen] = useState(false)
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
   const focusedResult = useRef<string | null>(null)
@@ -391,6 +409,26 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               )}
               {projectView === 'chat' && (
                 <>
+                  {productionEnabled && (
+                    <button
+                      type="button"
+                      className="studio-assets-trigger"
+                      aria-pressed={productionOpen}
+                      title={tProduction('entry')}
+                      onClick={() => {
+                        const next = !productionOpen
+                        setProductionOpen(next)
+                        safeLocalStorage.setItem(productionViewKey, String(next))
+                        if (next) {
+                          useAgentStore.getState().setMode('video')
+                          setSelectedResultId(null)
+                        }
+                      }}
+                    >
+                      <Clapperboard size={17} />
+                      <span className="ml-1 text-xs">{tProduction('entry')}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="studio-assets-trigger studio-search-trigger"
@@ -415,6 +453,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
           )}
           <div
             className="studio-layout"
+            data-production-open={productionVisible}
             data-project-view={hasAgent ? projectView : undefined}
             data-mobile-view={projectView}
             inert={loading || loadFailed}
@@ -471,16 +510,46 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   </div>
                 )}
                 {hasAgent ? (
-                  <AgentPanel
-                    doc={doc}
-                    editor={editor}
-                    mobile={mobile}
-                    presentation={projectView === 'chat' ? 'page' : 'side'}
-                    searchOpen={searchOpen && projectView === 'chat'}
-                    onCloseSearch={() => setSearchOpen(false)}
-                    onViewCanvas={projectView === 'chat' ? undefined : openCanvas}
-                    onPreviewResult={projectView === 'chat' ? previewResult : undefined}
-                  />
+                  productionVisible ? (
+                    <ProductionWorkspace
+                      conversationId={conversationId}
+                      refreshKey={messages
+                        .filter(
+                          (message) =>
+                            message.kind === 'tool' &&
+                            (message.toolName === 'writeProduction' ||
+                              message.toolName === 'readProduction'),
+                        )
+                        .map(
+                          (message) =>
+                            `${message.id}:${message.kind === 'tool' ? message.status : ''}`,
+                        )
+                        .join(',')}
+                    >
+                      <AgentPanel
+                        doc={doc}
+                        editor={editor}
+                        mobile={mobile}
+                        presentation="page"
+                        searchOpen={searchOpen}
+                        onCloseSearch={() => setSearchOpen(false)}
+                        onPreviewResult={previewResult}
+                        onPreviewProduction={previewProduction}
+                      />
+                    </ProductionWorkspace>
+                  ) : (
+                    <AgentPanel
+                      doc={doc}
+                      editor={editor}
+                      mobile={mobile}
+                      presentation={projectView === 'chat' ? 'page' : 'side'}
+                      searchOpen={searchOpen && projectView === 'chat'}
+                      onCloseSearch={() => setSearchOpen(false)}
+                      onViewCanvas={projectView === 'chat' ? undefined : openCanvas}
+                      onPreviewResult={projectView === 'chat' ? previewResult : undefined}
+                      onPreviewProduction={previewProduction}
+                    />
+                  )
                 ) : (
                   <aside
                     className="studio-sidebar studio-sidebar--direct"
@@ -549,7 +618,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </svg>
               </button>
             )}
-            {selectedResultId && activeResult && projectView === 'chat' && (
+            {selectedResultId && activeResult && projectView === 'chat' && !productionVisible && (
               <AgentArtifactPane
                 message={activeResult}
                 selectedId={selectedArtifactId}
