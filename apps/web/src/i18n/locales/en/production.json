@@ -190,7 +190,9 @@
     "retryFrom": "Retry of candidate {{number}}",
     "unavailable": "No image model is available",
     "previewLoading": "Loading media…",
-    "previewUnavailable": "This media cannot be read right now. Refresh status and try again."
+    "previewUnavailable": "This media cannot be read right now. Refresh status and try again.",
+    "resetImageParameters": "Reset image parameters",
+    "invalidImageParameters": "The selected model or image parameters are unavailable. Update them to continue."
   },
   "export": {
     "title": "Export resources",

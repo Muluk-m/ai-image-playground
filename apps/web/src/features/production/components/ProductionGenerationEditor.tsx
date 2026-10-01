@@ -7,6 +7,7 @@ import {
 } from '@image-playground/shared'
 import { useId, useState } from 'react'
 import Credits from '../../../components/Credits'
+import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
 import {
   Select,
@@ -19,8 +20,11 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { DEFAULT_PARAMS, type TaskParams } from '../../../types'
 import type { GenerationFields } from '../lib/productionGenerationClient'
 import ProductionReferenceEditor from './ProductionReferenceEditor'
+
+const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRewrite'])
 
 function Choice({
   label,
@@ -81,10 +85,46 @@ export default function ProductionGenerationEditor({
   const [addingReference, setAddingReference] = useState(false)
   const models = getStoredChannels()
     .flatMap((channel) => channel.models)
-    .filter((model) => model.media === (value.video ? 'video' : 'image'))
+    .filter((model) => (model.media ?? 'image') === (value.video ? 'video' : 'image'))
   const modelIds = Array.from(new Set([fields.model, ...models.map((model) => model.id)])).filter(
     Boolean,
   )
+  const imageChannel = fields.video
+    ? undefined
+    : getStoredChannels().find((channel) =>
+        channel.models.some(
+          (model) => model.id === fields.model && (model.media ?? 'image') === 'image',
+        ),
+      )
+  const imageModel = imageChannel?.models.find((model) => model.id === fields.model)
+  const imageParams = {
+    ...DEFAULT_PARAMS,
+    ...Object.fromEntries(
+      Object.entries(fields.params ?? {}).filter(([, value]) => value !== undefined),
+    ),
+  } as TaskParams
+  const imageInvalid =
+    !fields.video &&
+    (!imageModel?.capabilities.includes('generate') ||
+      (fields.references.length > 0 && !imageModel.capabilities.includes('edit')) ||
+      (fields.params?.quality &&
+        fields.params.quality !== 'auto' &&
+        !imageModel.capabilities.includes('quality')) ||
+      (fields.params?.size &&
+        fields.params.size !== 'auto' &&
+        !imageModel.capabilities.includes('size')) ||
+      (imageChannel?.kind === 'gemini-queue'
+        ? Boolean(fields.params?.output_format || fields.params?.output_compression !== undefined)
+        : Boolean(
+            fields.params?.gemini_aspect_ratio ||
+              fields.params?.gemini_image_size ||
+              fields.params?.gemini_thinking_level,
+          )) ||
+      (fields.params?.output_compression !== undefined &&
+        (!Number.isInteger(fields.params.output_compression) ||
+          fields.params.output_compression < 0 ||
+          fields.params.output_compression > 100 ||
+          !['jpeg', 'webp'].includes(fields.params.output_format ?? ''))))
   const support = fields.video ? VIDEO_MODEL_SUPPORT[fields.model] : undefined
   const sourceVideo = fields.video
   const first = fields.references.findIndex((item) => item.usage === 'first-frame')
@@ -120,6 +160,7 @@ export default function ProductionGenerationEditor({
     !fields.prompt.trim() ||
     !fields.model ||
     Boolean(invalid) ||
+    Boolean(imageInvalid) ||
     duplicateFrame ||
     (charging && guard.blocked)
   const videoField = <K extends keyof VideoRequest>(key: K, next: VideoRequest[K]) =>
@@ -148,6 +189,58 @@ export default function ProductionGenerationEditor({
         }))}
         onChange={(model) => setFields({ ...fields, model })}
       />
+      {!fields.video && imageChannel && (
+        <fieldset disabled={busy} className="flex flex-wrap gap-2" key={fields.model}>
+          <ParamControls
+            unsupported={UNSUPPORTED}
+            controlled={{
+              profile: {
+                id: `production:${imageChannel.id}`,
+                source: 'builtin-edge',
+                channelId: imageChannel.id,
+                selectedModelId: fields.model,
+              },
+              params: imageParams,
+              onChange: (patch) => {
+                if (busy) return
+                setFields((current) => {
+                  const {
+                    size,
+                    quality,
+                    output_format,
+                    output_compression,
+                    gemini_aspect_ratio,
+                    gemini_image_size,
+                    gemini_thinking_level,
+                  } = { ...current.params, ...patch }
+                  return {
+                    ...current,
+                    params: {
+                      ...current.params,
+                      size,
+                      quality,
+                      output_format,
+                      output_compression: output_compression ?? undefined,
+                      gemini_aspect_ratio,
+                      gemini_image_size,
+                      gemini_thinking_level,
+                    },
+                  }
+                })
+              },
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setFields((current) => ({ ...current, params: {} }))}
+          >
+            {t('generation.resetImageParameters')}
+          </Button>
+        </fieldset>
+      )}
+      {imageInvalid && <p role="alert">{t('generation.invalidImageParameters')}</p>}
       {fields.video && support && (
         <div className="production-generation-params">
           <Choice
