@@ -25,6 +25,7 @@ import {
 } from '../lib/productionClient'
 import { setProductionPanelContext } from '../lib/productionContext'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
 import ProductionProposals from './ProductionProposals'
 import ProductionQuotableText from './ProductionQuotableText'
 
@@ -44,11 +45,15 @@ export default function ProductionDocumentPane({
   const { t } = useTranslation('production')
   const [tab, setTab] = useState<ProductionTab>('scenes')
   const [collapsed, setCollapsed] = useState(false)
+  const [removeSceneId, setRemoveSceneId] = useState<string | null>(null)
   const [history, setHistory] = useState<readonly ProductionRevision[] | null>(null)
   const [historyError, setHistoryError] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const edit = useProductionEditor(document, onSaved)
   const content = edit.content
+  useEffect(() => {
+    if (!edit.editing) setRemoveSceneId(null)
+  }, [edit.editing])
   useEffect(() => {
     setProductionPanelContext(
       document.conversationId,
@@ -249,16 +254,41 @@ export default function ProductionDocumentPane({
                       type="button"
                       aria-label={t('removeScene')}
                       disabled={edit.saving}
-                      onClick={() =>
-                        edit.update({
-                          ...content,
-                          scenes: content.scenes.filter((one) => one.id !== scene.id),
-                        })
-                      }
+                      onClick={() => setRemoveSceneId(scene.id)}
                     >
                       <Trash2 size={15} />
                     </button>
                   </div>
+                  {removeSceneId === scene.id && (
+                    <div className="production-scene-delete" role="alert">
+                      <ProductionDeleteImpactNotice
+                        content={content}
+                        target={{ kind: 'scene', id: scene.id }}
+                      />
+                      <div className="production-reference-actions">
+                        <button
+                          type="button"
+                          disabled={edit.saving}
+                          onClick={() => {
+                            edit.update({
+                              ...content,
+                              scenes: content.scenes.filter((one) => one.id !== scene.id),
+                            })
+                            setRemoveSceneId(null)
+                          }}
+                        >
+                          {t('asset.deleteConfirm')}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={edit.saving}
+                          onClick={() => setRemoveSceneId(null)}
+                        >
+                          {t('cancel')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <Textarea
                     aria-label={t('sceneBody')}
                     value={scene.body}
