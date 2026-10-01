@@ -1,4 +1,4 @@
-import { expect, it } from 'bun:test'
+import { afterEach, expect, it } from 'bun:test'
 import sharp from 'sharp'
 
 process.env.PORT = '0'
@@ -50,4 +50,23 @@ it('writes no manifest at all when the turn has no reference', async () => {
   expect(evidence.content).toEqual([])
   expect(evidence.manifest).toBe('')
   expect(evidenceManifest([{ imageId: 'img-1' }])).toContain('视觉输入 1：图片 img-1 原图')
+})
+
+const { config } = await import('../../../config')
+const { InvalidSelectionError } = await import('../../../lib/agent/selection-preview')
+const originalOperator = config.operator
+afterEach(() => {
+  config.operator = originalOperator
+})
+it('classifies oversized selected originals as invalid selections', async () => {
+  config.operator = {
+    ...originalOperator,
+    quotas: { ...originalOperator.quotas, 'agent:request-max-bytes': 8 },
+  }
+  await expect(
+    selectionPreview({
+      dataUrl: 'data:image/png;base64,AAAA',
+      maskDataUrl: 'data:image/png;base64,AAAA',
+    }),
+  ).rejects.toBeInstanceOf(InvalidSelectionError)
 })

@@ -7,16 +7,56 @@ import { AgentToolError } from './tools/errors'
 const preparation = new AsyncLocalStorage<boolean>()
 let active = 0
 const waiting: (() => void)[] = []
+const signals = new AsyncLocalStorage<AbortSignal | undefined>()
+
+/** Propagate tool cancellation without holding a preparation slot during long-running tools. */
+export function withVisualSignal<T>(
+  signal: AbortSignal | undefined,
+  work: () => Promise<T>,
+): Promise<T> {
+  return signals.run(signal, work)
+}
+
+async function acquire(limit: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  if (active < limit) {
+    active++
+    return
+  }
+  const queueLimit = config.operator.quotas['agent:visual-prepare-queue']
+  if (!Number.isSafeInteger(queueLimit) || queueLimit < 1)
+    throw new AgentToolError('invalid_params', '图片准备队列配置无效，请联系运营人员。')
+  if (waiting.length >= queueLimit)
+    throw new AgentToolError('quota_exceeded', '图片准备队列已满，本次图片尚未读取；请稍后重试。')
+  await new Promise<void>((resolve, reject) => {
+    const cancel = () => {
+      const index = waiting.indexOf(ready)
+      if (index >= 0) waiting.splice(index, 1)
+      reject(signal?.reason)
+    }
+    const ready = () => {
+      signal?.removeEventListener('abort', cancel)
+      active++
+      resolve()
+    }
+    waiting.push(ready)
+    signal?.addEventListener('abort', cancel, { once: true })
+  })
+}
 
 /** One slot covers reading and its derived buffers; nested image operations share the slot. */
-export async function withVisualPreparation<T>(work: () => Promise<T>): Promise<T> {
+export async function withVisualPreparation<T>(
+  work: () => Promise<T>,
+  signal = signals.getStore(),
+): Promise<T> {
+  signal?.throwIfAborted()
   if (preparation.getStore()) return work()
   const limit = config.operator.quotas['agent:visual-prepare-concurrency']
   if (!Number.isSafeInteger(limit) || limit < 1)
     throw new AgentToolError('invalid_params', '图片准备并发配置无效，请联系运营人员。')
-  while (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve))
-  active += 1
+  await acquire(limit, signal)
   try {
+    signal?.throwIfAborted()
     return await preparation.run(true, work)
   } catch (error) {
     if (error instanceof SafeFetchError && error.code === 'too_large')

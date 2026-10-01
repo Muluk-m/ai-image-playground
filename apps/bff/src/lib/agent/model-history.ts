@@ -5,6 +5,7 @@ import { log } from '../logger'
 import { objectStore } from '../objectStore'
 import { isObject } from '../type-guards'
 import { type CompactionSettings, compactionBudget, contextSizeTokens } from './compaction'
+import type { AgentContextTransform } from './compaction-transform'
 import type { AgentHistoryWindow } from './conversations'
 import { estimateMessageTokens } from './token-estimate'
 
@@ -270,12 +271,15 @@ export function modelHistoryTransform(input: {
   readonly replay: AgentMessage[]
   readonly settings: CompactionSettings
   readonly overheadTokens: number
-  readonly compact: (messages: AgentMessage[]) => Promise<AgentMessage[]>
+  readonly compact: AgentContextTransform
 }) {
   let fellBack = false
   return {
     reusable: () => !fellBack,
-    transform: async (messages: AgentMessage[]) => {
+    transform: async (
+      messages: AgentMessage[],
+      accepts?: (messages: readonly AgentMessage[]) => boolean,
+    ) => {
       if (
         !fellBack &&
         contextSizeTokens(messages, input.overheadTokens) <=
@@ -283,7 +287,7 @@ export function modelHistoryTransform(input: {
       )
         return messages
       fellBack = true
-      return input.compact([...input.replay, ...messages.slice(input.nativePrefixLength)])
+      return input.compact([...input.replay, ...messages.slice(input.nativePrefixLength)], accepts)
     },
   }
 }

@@ -11,6 +11,7 @@ import { agentTextFromBlocks } from '@image-playground/shared'
 import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
 import { registerVisualBlock } from '../visual-input'
+import { withVisualSignal } from '../visual-resources'
 import type {
   AgentToolArgs,
   AgentToolDeclaration,
@@ -102,20 +103,21 @@ export function defineAgentTool<P extends TSchema>(
       return asPiTool<P, AgentToolDetails>({
         ...declaration(),
         label: definition.label,
-        execute: async (...args) => {
-          const result = await execute(...args)
-          for (const [index, block] of result.content.entries()) {
-            if (block.type === 'image')
-              await registerVisualBlock(block, {
-                imageId: `tool:${args[0]}:${index}`,
-                source: definition.name,
-                representation: 'tool-output',
-                selection: false,
-              })
-          }
-          context.visualWorkset?.admit(result.content.filter((block) => block.type === 'image'))
-          return result
-        },
+        execute: async (...args) =>
+          withVisualSignal(args[2], async () => {
+            const result = await execute(...args)
+            for (const [index, block] of result.content.entries()) {
+              if (block.type === 'image')
+                await registerVisualBlock(block, {
+                  imageId: `tool:${args[0]}:${index}`,
+                  source: definition.name,
+                  representation: 'tool-output',
+                  selection: false,
+                })
+            }
+            context.visualWorkset?.admit(result.content.filter((block) => block.type === 'image'))
+            return result
+          }),
       })
     },
   }
