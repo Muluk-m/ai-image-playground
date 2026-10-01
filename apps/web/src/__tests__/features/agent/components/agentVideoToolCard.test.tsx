@@ -18,7 +18,10 @@ const fixtures = vi.hoisted(() => ({
     send: vi.fn(),
     confirmPrompt: vi.fn(),
     setPromptDraft: vi.fn(),
+    placeOnCanvas: vi.fn(async () => {}),
   },
+  canvasAvailable: false,
+  has: vi.fn(() => false),
   fetch: vi.fn(),
   download: vi.fn(),
 }))
@@ -31,6 +34,9 @@ vi.mock('../../../../features/agent/store', () => ({
 vi.mock('../../../../lib/privateOverlay', () => ({
   usePrivateSubmissionGuard: () => ({ blocked: false, estimatedCredits: 80 }),
   notifyPrivateSubmissionError: vi.fn(),
+}))
+vi.mock('../../../../features/agent/lib/canvasSink', () => ({
+  agentCanvasSink: () => (fixtures.canvasAvailable ? { has: fixtures.has } : null),
 }))
 vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: fixtures.fetch }))
 vi.mock('../../../../lib/downloadImages', () => ({ downloadBlob: fixtures.download }))
@@ -55,6 +61,7 @@ let root: Root
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 beforeEach(() => {
   vi.clearAllMocks()
+  fixtures.canvasAvailable = false
   fixtures.state.messages = []
   fixtures.state.jobProgress = {
     [base.id]: { stage: 'running', phase: 'generating', submittedAt: Date.now() - 42_000 },
@@ -214,4 +221,58 @@ it('allows a queued retry to be withdrawn', async () => {
   })
   await act(async () => button('撤回').click())
   expect(fixtures.state.cancelJob).toHaveBeenCalledWith(base.id)
+})
+
+it.each([
+  'failed',
+  'placed',
+] as const)('restores a %s delivery to the canvas without generating or charging again', async (delivery) => {
+  fixtures.canvasAvailable = true
+  const message: AgentToolMessage = {
+    ...base,
+    status: 'succeeded',
+    delivery,
+    artifacts: [
+      {
+        artifactId: 'clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+      },
+    ],
+  }
+  await act(async () => root.render(<AgentToolCard message={message} />))
+  expect(host.querySelector('video')).not.toBeNull()
+  expect(host.textContent).toContain(
+    delivery === 'failed' ? '产物已生成，但载入失败' : '产物不在当前画布上',
+  )
+  await act(async () => {
+    button('放入画布').click()
+    button('放入画布').click()
+  })
+  expect(fixtures.state.placeOnCanvas).toHaveBeenCalledExactlyOnceWith(base.id)
+  expect(fixtures.state.retry).not.toHaveBeenCalled()
+  expect(fixtures.state.confirmPrompt).not.toHaveBeenCalled()
+})
+
+it('keeps canvas recovery out of Chat video results', async () => {
+  fixtures.canvasAvailable = true
+  await render({
+    ...base,
+    status: 'succeeded',
+    delivery: 'failed',
+    artifacts: [
+      {
+        artifactId: 'clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+      },
+    ],
+  })
+  expect(button('放入画布')).toBeUndefined()
+  expect(host.textContent).not.toContain('载入失败')
+  expect(host.querySelector('video')).not.toBeNull()
 })
