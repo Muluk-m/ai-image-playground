@@ -202,4 +202,13 @@
 :where(.production-scene-delete) { margin:12px 0; padding:16px; border:1px solid hsl(var(--destructive)/.2); border-radius:10px; background:hsl(var(--destructive)/.04); }
 .production-asset-generation { display:flex; flex-direction:column; gap:14px; border-top:1px solid hsl(var(--border)); padding-top:20px; }
 :where(.production-asset-generation) .production-look-tabs>span { align-self:center; font-size:11px; color:hsl(var(--muted-foreground)); }
-.production-workspace > .studio-artifact-pane { border:1px solid hsl(var(--border)); border-radius:16px; overflow:hidden; }
+/* Embedded media must stay inside its production column, including below overlay breakpoints. */
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] { position:relative; inset:auto; z-index:auto; width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(120px,1fr) auto minmax(0,auto); grid-template-areas:"viewer" "strip" "foot"; border:1px solid hsl(var(--border)); border-radius:16px; overflow:hidden; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] .studio-artifact-pane-viewer { padding:52px 40px 12px; overflow:hidden; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] .studio-artifact-pane-image img { max-height:100%; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] .studio-artifact-pane-back { top:8px; left:8px; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] .studio-artifact-pane-strip { padding:8px 12px; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] .studio-artifact-pane-foot { max-height:40dvh; padding:16px; gap:14px; border-top:1px solid hsl(var(--border)); overflow-y:auto; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"] .studio-artifact-pane-foot::before { display:none; }
+.production-workspace > .studio-artifact-pane[data-presentation="panel"][data-editing="true"] { display:flex; flex-direction:column; }
+@media(max-width:700px) { .production-workspace > .studio-artifact-pane[data-presentation="panel"] { flex:1; height:auto; } }

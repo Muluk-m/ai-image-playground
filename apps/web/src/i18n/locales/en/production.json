@@ -192,7 +192,9 @@
     "previewLoading": "Loading media…",
     "previewUnavailable": "This media cannot be read right now. Refresh status and try again.",
     "resetImageParameters": "Reset image parameters",
-    "invalidImageParameters": "The selected model or image parameters are unavailable. Update them to continue."
+    "invalidImageParameters": "The selected model or image parameters are unavailable. Update them to continue.",
+    "reviewDraft": "Review generation draft",
+    "draftUnavailable": "This generation draft is unavailable. Its source may have been deleted. Refresh and try again."
   },
   "export": {
     "title": "Export resources",

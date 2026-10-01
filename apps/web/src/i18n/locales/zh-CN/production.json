@@ -191,7 +191,9 @@
     "previewLoading": "正在加载素材…",
     "previewUnavailable": "暂时无法读取此素材，请刷新状态后重试。",
     "resetImageParameters": "重置图片参数",
-    "invalidImageParameters": "当前模型或图片参数不可用，请修改后继续。"
+    "invalidImageParameters": "当前模型或图片参数不可用，请修改后继续。",
+    "reviewDraft": "查看生成草稿",
+    "draftUnavailable": "无法打开此生成草稿。来源对象可能已删除，请刷新后重试。"
   },
   "export": {
     "title": "导出资源包",

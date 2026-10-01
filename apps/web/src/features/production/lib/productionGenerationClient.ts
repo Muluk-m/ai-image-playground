@@ -30,10 +30,10 @@ export async function generationRequest<T>(
   }
   return response.json() as Promise<T>
 }
-export function listGenerations(conversationId: string, signal?: AbortSignal) {
+export function listGenerations(conversationId: string, signal?: AbortSignal, messageId?: string) {
   return generationRequest<{ generations: readonly ProductionGenerationView[] }>(
     conversationId,
-    '',
+    messageId ? `?messageId=${encodeURIComponent(messageId)}` : '',
     { signal, cache: 'no-store' },
   )
 }

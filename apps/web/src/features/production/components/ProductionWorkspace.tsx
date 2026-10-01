@@ -16,7 +16,11 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../../i18n'
-import { activateProduction, setProductionPanelContext } from '../lib/productionContext'
+import {
+  activateProduction,
+  type ProductionPane,
+  setProductionPanelContext,
+} from '../lib/productionContext'
 import { useProductionDocument } from '../lib/useProductionDocument'
 import '../production.css'
 import { useProductionAssets } from '../lib/useProductionAssets'
@@ -26,6 +30,7 @@ import ProductionAssets from './ProductionAssets'
 import ProductionClipPane from './ProductionClipPane'
 import ProductionDocumentPane from './ProductionDocumentPane'
 import ProductionExportPane from './ProductionExportPane'
+import ProductionGenerationPane from './ProductionGenerationPane'
 import ProductionGenerations from './ProductionGenerations'
 import ProductionShotPane from './ProductionShotPane'
 
@@ -48,6 +53,9 @@ export default function ProductionWorkspace({
 }) {
   const { t } = useTranslation('production')
   const production = useProductionDocument(conversationId, refreshKey)
+  const [generationTarget, setGenerationTarget] = useState<Exclude<ProductionPane, string> | null>(
+    null,
+  )
   const [showShots, setShowShots] = useState(false)
   const [showClips, setShowClips] = useState(false)
   const [showExport, setShowExport] = useState(false)
@@ -65,12 +73,17 @@ export default function ProductionWorkspace({
   const [assetsDrawerOpen, setAssetsDrawerOpen] = useState(false)
   useEffect(() => {
     setContentOpen(true)
+    setGenerationTarget(null)
     setShowShots(false)
     setShowClips(false)
     setShowExport(false)
     setAssetTarget(null)
     setProposalId(null)
   }, [conversationId])
+  const openAssets = () => {
+    setAssetsOpen(true)
+    setAssetsDrawerOpen(true)
+  }
   const assetsTrigger = useRef<HTMLButtonElement>(null)
   const assetsPane = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -82,6 +95,8 @@ export default function ProductionWorkspace({
     () =>
       activateProduction(conversationId, (pane) => {
         onCloseArtifact?.()
+        setAssetsDrawerOpen(false)
+        setGenerationTarget(typeof pane === 'object' ? pane : null)
         setShowShots(pane === 'storyboard')
         setShowClips(false)
         setShowExport(false)
@@ -111,10 +126,7 @@ export default function ProductionWorkspace({
           ref={assetsTrigger}
           aria-expanded={assetsDrawerOpen}
           aria-label={t('openAssets')}
-          onClick={() => {
-            setAssetsOpen(true)
-            setAssetsDrawerOpen(true)
-          }}
+          onClick={openAssets}
         >
           <PanelLeftOpen size={17} />
         </button>
@@ -158,6 +170,7 @@ export default function ProductionWorkspace({
             onClick={() => {
               onCloseArtifact?.()
               setContentOpen(true)
+              setGenerationTarget(null)
               setShowShots(false)
               setShowClips(false)
               setShowExport(false)
@@ -175,6 +188,7 @@ export default function ProductionWorkspace({
             aria-label={t('storyboard.title')}
             onClick={() => {
               onCloseArtifact?.()
+              setGenerationTarget(null)
               setShowShots(true)
               setShowClips(false)
               setShowExport(false)
@@ -193,6 +207,7 @@ export default function ProductionWorkspace({
             aria-label={t('clip.title')}
             onClick={() => {
               onCloseArtifact?.()
+              setGenerationTarget(null)
               setShowClips(true)
               setShowExport(false)
               setShowShots(false)
@@ -213,6 +228,7 @@ export default function ProductionWorkspace({
               setShowClips(false)
               setShowExport(false)
               setProposalId(null)
+              setGenerationTarget(null)
               setAssetTarget(target)
               setContentOpen(true)
               setAssetsDrawerOpen(false)
@@ -230,6 +246,7 @@ export default function ProductionWorkspace({
                   setShowShots(false)
                   setShowClips(false)
                   setShowExport(false)
+                  setGenerationTarget(null)
                   setProposalId(one.id)
                   setContentOpen(true)
                   setAssetsDrawerOpen(false)
@@ -245,6 +262,7 @@ export default function ProductionWorkspace({
             aria-label={t('export.title')}
             onClick={() => {
               onCloseArtifact?.()
+              setGenerationTarget(null)
               setShowExport(true)
               setContentOpen(true)
               setAssetsDrawerOpen(false)
@@ -269,11 +287,7 @@ export default function ProductionWorkspace({
           </span>
           <div>
             {doc && !assetsOpen && (
-              <button
-                type="button"
-                aria-label={t('openAssets')}
-                onClick={() => setAssetsOpen(true)}
-              >
+              <button type="button" aria-label={t('openAssets')} onClick={openAssets}>
                 <PanelLeftOpen size={17} />
               </button>
             )}
@@ -301,7 +315,19 @@ export default function ProductionWorkspace({
       {artifactPane ||
         (doc &&
           contentOpen &&
-          (showExport ? (
+          (generationTarget ? (
+            <ProductionGenerationPane
+              key={`${doc.id}:${generationTarget.messageId}`}
+              document={doc}
+              target={generationTarget}
+              onPreviewArtifact={onPreviewArtifact}
+              onSaved={production.accept}
+              onClose={() => {
+                setGenerationTarget(null)
+                setContentOpen(false)
+              }}
+            />
+          ) : showExport ? (
             <ProductionExportPane
               key={doc.id}
               document={doc}

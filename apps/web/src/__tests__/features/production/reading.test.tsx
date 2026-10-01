@@ -111,3 +111,34 @@ it('closes the asset drawer with Escape and returns focus to its trigger without
     host.remove()
   }
 })
+
+it('reopens closed assets through the chat header and returns focus after Escape', async () => {
+  const { host, root, render } = arrange()
+  try {
+    await act(async () => render())
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="收起资产库"]')!.click(),
+    )
+    const headerOpen = host.querySelector<HTMLButtonElement>(
+      '.production-chat-header [aria-label="打开资产库"]',
+    )!
+    expect(headerOpen).not.toBeNull()
+    await act(async () => headerOpen.click())
+    expect(host.querySelector('.production-workspace')?.getAttribute('data-assets-drawer')).toBe(
+      'true',
+    )
+    expect(host.querySelector('.production-assets')?.contains(document.activeElement)).toBe(true)
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    )
+    expect(host.querySelector('.production-workspace')?.getAttribute('data-assets-drawer')).toBe(
+      'false',
+    )
+    expect(document.activeElement).toBe(host.querySelector('.production-assets-trigger'))
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

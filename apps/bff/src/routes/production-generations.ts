@@ -51,10 +51,18 @@ export const productionGenerationRoutes = new Elysia()
   })
   .get(
     '/api/agent/conversations/:id/production/generations',
-    async ({ params, authUser, status }) => {
+    async ({ params, query, authUser, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
-      return { generations: await listProductionGenerations(params.id, authUser.id) }
+      return {
+        generations: await listProductionGenerations(
+          params.id,
+          authUser.id,
+          undefined,
+          query.messageId,
+        ),
+      }
     },
+    { query: t.Object({ messageId: t.Optional(t.String({ minLength: 1, maxLength: 128 })) }) },
   )
   .post(
     '/api/agent/conversations/:id/production/generations',
