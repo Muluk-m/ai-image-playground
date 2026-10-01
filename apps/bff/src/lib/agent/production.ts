@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  isProductionShots,
   PRODUCTION_HISTORY_MAX,
   PRODUCTION_PROPOSALS_MAX,
   PRODUCTION_RECEIPTS_MAX,
@@ -17,6 +18,7 @@ import { isCapabilityEnabled } from '../capabilities'
 import type { BffTransaction } from '../private-overlay'
 import { productionMediaReferences, validateProductionAssets } from './production-asset-validation'
 import { reconcileProductionReferences } from './production-references'
+import { hasValidProductionShotReferences } from './production-shot-validation'
 
 export class ProductionError extends Error {
   constructor(
@@ -40,6 +42,7 @@ export function validateProductionContent(value: unknown): value is ProductionCo
   const c = value as Partial<ProductionContent>
   return (
     validateProductionAssets(c) &&
+    (c.shots === undefined || isProductionShots(c.shots)) &&
     typeof c.title === 'string' &&
     c.title.length <= 200 &&
     typeof c.setting === 'string' &&
@@ -183,6 +186,15 @@ export function applyProductionMutation(
   }
   if ((current?.document.revision ?? 0) !== mutation.baseRevision)
     throw new ProductionError('production_conflict', current?.document)
+  if (
+    source !== 'restore' &&
+    !hasValidProductionShotReferences(
+      mutation.content,
+      mutation.content.shots ?? [],
+      current?.document.content.shots,
+    )
+  )
+    throw new ProductionError('production_invalid')
   const now = Date.now()
   const revision = mutation.baseRevision + 1
   const record: ProductionRecord = {
@@ -231,6 +243,8 @@ export async function proposeProductionEdit(
     }
     if (record.document.id !== context.documentId || record.document.revision !== context.revision)
       throw new ProductionError('production_conflict', record.document)
+    if (context.target !== 'setting' && context.target !== 'outline' && context.target !== 'scene')
+      throw new ProductionError('production_invalid')
     const before = productionTargetText(record.document.content, context)
     let after = replacement
     if (context.quote) {
@@ -288,6 +302,8 @@ function replaceProductionTarget(
   text: string,
 ): ProductionContent {
   productionTargetText(content, target)
+  if (target.target !== 'scene' && target.target !== 'setting' && target.target !== 'outline')
+    throw new ProductionError('production_invalid')
   return target.target === 'scene'
     ? {
         ...content,

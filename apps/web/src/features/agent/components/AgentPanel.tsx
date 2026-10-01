@@ -59,15 +59,23 @@ function renderMessage(
   skills: readonly AgentSkillSummary[],
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string) => void,
-  onPreviewProduction?: () => void,
+  onPreviewProduction?: (pane?: 'script' | 'storyboard') => void,
 ) {
   if (message.kind === 'tool') {
     if (
-      message.toolName === 'writeProduction' &&
+      (message.toolName === 'writeProduction' || message.toolName === 'proposeStoryboard') &&
       message.status === 'succeeded' &&
       onPreviewProduction
     )
-      return <ProductionResultCard title={message.title} onOpen={onPreviewProduction} />
+      return (
+        <ProductionResultCard
+          title={message.title}
+          pane={message.toolName === 'proposeStoryboard' ? 'storyboard' : 'script'}
+          onOpen={() =>
+            onPreviewProduction(message.toolName === 'proposeStoryboard' ? 'storyboard' : 'script')
+          }
+        />
+      )
     // 保存卡片是一张可操作的卡，不是一件产出：它有自己的样子与自己的那一下。
     if (message.saveCard) return <AgentSaveCard card={message.saveCard} message={message} />
     // 读技能这类过程步已经被 groupPanelMessages 折进活动轨；走到这里的只剩带产物 / 会失败的调用。
@@ -144,7 +152,7 @@ export default function AgentPanel({
   presentation?: 'page' | 'side'
   searchOpen?: boolean
   onCloseSearch?: () => void
-  onPreviewProduction?: () => void
+  onPreviewProduction?: (pane?: 'script' | 'storyboard') => void
   productionMode?: boolean
 }) {
   const { t } = useTranslation('agent')

@@ -131,6 +131,11 @@ export async function previewProductionReference(
   if (!record) throw new ProductionError('production_not_found')
   const allowed = [
     ...productionMediaReferences(record.document.content),
+    ...(record.storyboardProposals ?? [])
+      .filter((proposal) => proposal.status === 'pending')
+      .flatMap((proposal) =>
+        proposal.shots.flatMap((shot) => (shot.keyframe ? [shot.keyframe] : [])),
+      ),
     ...(record.assetProposals ?? [])
       .filter((proposal) => proposal.status === 'pending')
       .flatMap((proposal) =>

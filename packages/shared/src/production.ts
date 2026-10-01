@@ -5,6 +5,7 @@ export interface ProductionScene {
   readonly body: string
 }
 export interface ProductionContent {
+  readonly shots?: readonly import('./production-storyboard').ProductionShot[]
   readonly title: string
   readonly setting: string
   readonly outline: string
@@ -34,6 +35,7 @@ export interface ProductionRevision {
 }
 export interface ProductionRecord {
   readonly assetProposals?: readonly ProductionAssetProposal[]
+  readonly storyboardProposals?: readonly import('./production-storyboard').ProductionStoryboardProposal[]
   readonly proposals?: readonly ProductionProposal[]
   readonly document: ProductionDocument
   readonly history: readonly ProductionRevision[]
@@ -51,14 +53,15 @@ export const PRODUCTION_RECEIPTS_MAX = 200
 export interface ProductionContext {
   readonly documentId: string
   readonly revision: number
-  readonly target: 'setting' | 'outline' | 'scene'
+  readonly target: 'setting' | 'outline' | 'scene' | 'shots' | 'shot'
+  readonly shotId?: string
   readonly sceneId?: string
   readonly quote?: { readonly start: number; readonly end: number; readonly text: string }
 }
 export interface ProductionProposal {
   readonly id: string
   readonly baseRevision: number
-  readonly target: ProductionContext['target']
+  readonly target: 'setting' | 'outline' | 'scene'
   readonly sceneId?: string
   readonly before: string
   readonly after: string

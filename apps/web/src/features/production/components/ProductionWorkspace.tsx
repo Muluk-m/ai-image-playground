@@ -1,4 +1,11 @@
-import { FileText, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Sparkles } from 'lucide-react'
+import {
+  Clapperboard,
+  FileText,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightOpen,
+  Sparkles,
+} from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { activateProduction } from '../lib/productionContext'
@@ -9,6 +16,7 @@ import ProductionAssetPane, { type ProductionAssetTarget } from './ProductionAss
 import ProductionAssetProposalPane from './ProductionAssetProposalPane'
 import ProductionAssets from './ProductionAssets'
 import ProductionDocumentPane from './ProductionDocumentPane'
+import ProductionShotPane from './ProductionShotPane'
 
 export default function ProductionWorkspace({
   conversationId,
@@ -21,6 +29,7 @@ export default function ProductionWorkspace({
 }) {
   const { t } = useTranslation('production')
   const production = useProductionDocument(conversationId, refreshKey)
+  const [showShots, setShowShots] = useState(false)
   const [proposalId, setProposalId] = useState<string | null>(null)
   const assets = useProductionAssets(
     conversationId,
@@ -33,20 +42,22 @@ export default function ProductionWorkspace({
   const [contentOpen, setContentOpen] = useState(true)
   const [assetsOpen, setAssetsOpen] = useState(true)
   const [assetsDrawerOpen, setAssetsDrawerOpen] = useState(false)
+  useEffect(() => {
+    setContentOpen(true)
+    setShowShots(false)
+    setAssetTarget(null)
+    setProposalId(null)
+  }, [conversationId])
   useEffect(
     () =>
-      activateProduction(conversationId, () => {
+      activateProduction(conversationId, (pane) => {
+        setShowShots(pane === 'storyboard')
         setAssetTarget(null)
         setProposalId(null)
         setContentOpen(true)
       }),
     [conversationId],
   )
-  useEffect(() => {
-    setContentOpen(true)
-    setAssetTarget(null)
-    setProposalId(null)
-  }, [conversationId])
   const doc = production.document
   return (
     <div
@@ -89,6 +100,7 @@ export default function ProductionWorkspace({
             aria-label={t('openScript')}
             onClick={() => {
               setContentOpen(true)
+              setShowShots(false)
               setAssetTarget(null)
               setProposalId(null)
               setAssetsDrawerOpen(false)
@@ -97,9 +109,25 @@ export default function ProductionWorkspace({
             <FileText size={16} />
             <span>{doc.content.title || t('untitled')}</span>
           </button>
+          <button
+            type="button"
+            className="production-document-link"
+            aria-label={t('storyboard.title')}
+            onClick={() => {
+              setShowShots(true)
+              setAssetTarget(null)
+              setProposalId(null)
+              setContentOpen(true)
+              setAssetsDrawerOpen(false)
+            }}
+          >
+            <Clapperboard size={16} />
+            <span>{t('storyboard.title')}</span>
+          </button>
           <ProductionAssets
             document={doc}
             onSelect={(target) => {
+              setShowShots(false)
               setProposalId(null)
               setAssetTarget(target)
               setContentOpen(true)
@@ -114,6 +142,7 @@ export default function ProductionWorkspace({
                 className="production-document-link"
                 key={one.id}
                 onClick={() => {
+                  setShowShots(false)
                   setProposalId(one.id)
                   setContentOpen(true)
                   setAssetsDrawerOpen(false)
@@ -180,6 +209,14 @@ export default function ProductionWorkspace({
               setProposalId(null)
               setContentOpen(false)
             }}
+          />
+        ) : showShots ? (
+          <ProductionShotPane
+            key={doc.id}
+            document={doc}
+            onClose={() => setContentOpen(false)}
+            onSaved={production.accept}
+            refreshKey={refreshKey}
           />
         ) : assetTarget ? (
           <ProductionAssetPane
