@@ -231,7 +231,18 @@
     "queue": "Queue",
     "autoSubmitAria": "Direct generation mode",
     "autoSubmitOnTitle": "Direct generation: the assistant starts generating — and charging — as soon as it drafts a prompt, with no per-draft confirmation",
-    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)"
+    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)",
+    "assetViewsUnavailable": "Some asset views could not be read. Retry before attaching the asset.",
+    "attachmentReadFailed": "Some images could not be read. No files were attached; please select them again.",
+    "retryUpload": "Retry",
+    "retryUploadAria": "Retry uploading {{label}}",
+    "upload": {
+      "queued": "Queued",
+      "uploading": "Uploading",
+      "verifying": "Verifying",
+      "ready": "Ready",
+      "failed": "Upload failed"
+    }
   },
   "queue": {
     "title_one": "{{count}} queued",

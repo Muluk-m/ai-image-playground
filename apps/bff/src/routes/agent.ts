@@ -97,6 +97,7 @@ import {
 } from '../lib/http'
 import { objectStore } from '../lib/objectStore'
 import { reservationFailureResponse } from '../lib/private-overlay'
+import { MediaError } from '../lib/projectMedia'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
@@ -622,9 +623,6 @@ export const agentRoutes = new Elysia()
         if (isCapabilityEnabled('billing:credits') && owner.kind !== 'user')
           return status(401, { error: 'unauthorized' })
         if (bffDrain.status().draining) return status(503, { error: 'instance_draining' })
-        // 按 id 附来的图先认领：认领不上就是越权或图已经不在，这一轮还没开始，打回最便宜。
-        if (!(await claimConversationMedia(conversation.id, authUser?.id ?? null, references)))
-          return status(422, { error: 'invalid_reference' })
         if (canvas) {
           const ready = await readyCanvasMediaIds(
             authUser?.id ?? null,
@@ -643,16 +641,22 @@ export const agentRoutes = new Elysia()
           }
         }
         // 每条消息先进收件箱，再按顺序开轮：忙时它排在后面，闲时它当场就是下一条。
-        const sent = await sendToConversationInbox(conversation.id, {
-          clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
-          text: body.text,
-          references,
-          deviceId: body.deviceId,
-          ...(body.mode ? { mode: body.mode } : {}),
-          ...(body.params ? { params: body.params } : {}),
-          ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
-          ...(canvas ? { canvas } : {}),
-        })
+        let sent: Awaited<ReturnType<typeof sendToConversationInbox>>
+        try {
+          sent = await sendToConversationInbox(conversation.id, {
+            clientMessageId: body.clientMessageId ?? crypto.randomUUID(),
+            text: body.text,
+            references,
+            deviceId: body.deviceId,
+            ...(body.mode ? { mode: body.mode } : {}),
+            ...(body.params ? { params: body.params } : {}),
+            ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
+            ...(canvas ? { canvas } : {}),
+          })
+        } catch (error) {
+          if (error instanceof MediaError) return status(error.status, { error: error.message })
+          throw error
+        }
         if (sent.kind === 'full') {
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
           return status(409, full)

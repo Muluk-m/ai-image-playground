@@ -9,6 +9,7 @@ import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
+import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { withRequestContext } from './lib/request-context'
 
 // 与 Cloudflare 的请求体上限对齐：生产流量经它进来，超过的本来就到不了这里；直连源站时
@@ -98,6 +99,12 @@ startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
   { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
   ...(syncEnabled
     ? [
+        {
+          event: 'periodic.purge_attachments_failed',
+          run: async () => {
+            await purgeExpiredAttachmentMedia()
+          },
+        },
         {
           event: 'periodic.purge_asset_owners_failed',
           run: async () => {
