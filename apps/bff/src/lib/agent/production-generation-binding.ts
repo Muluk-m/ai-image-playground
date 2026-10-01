@@ -11,6 +11,7 @@ import { readAssetImage } from '../sync-assets'
 import { createAgentImageSource, readConversationMedia } from './images'
 import { ProductionError, readProduction } from './production'
 
+import { productionClipDependencies } from './production-dependencies'
 import { validateProductionMediaReferences } from './production-references'
 import { AgentToolError } from './tools/errors'
 
@@ -32,6 +33,7 @@ export function targetSnapshot(
       description: clip.prompt,
       references: clip.references.map((one) => one.reference),
       shotIds: [...clip.shotIds],
+      dependencies: productionClipDependencies(content, clip.shotIds),
       model: clip.model,
       video: productionClipVideo(clip),
     }
@@ -46,6 +48,13 @@ export function targetSnapshot(
         : undefined
   if (!target) throw new ProductionError('production_not_found')
   return {
+    ...(input.target === 'look'
+      ? {
+          character: content.characters
+            ?.filter((character) => character.looks.some((look) => look.id === input.targetId))
+            .map(({ id, name, description }) => ({ id, name, description }))[0],
+        }
+      : {}),
     name: target.name,
     description: target.description,
     references: target.reference ? [target.reference] : [],

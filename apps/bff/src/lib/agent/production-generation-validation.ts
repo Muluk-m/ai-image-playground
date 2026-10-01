@@ -6,6 +6,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { modelCapabilities } from '../channels'
 import { ProductionError } from './production'
+import { productionDependencyChanges } from './production-dependencies'
 import { validateProductionMediaReferences } from './production-references'
 export function validateImageParameters(
   model: string,
@@ -84,6 +85,22 @@ export async function validateProductionConfirmation(
     .limit(1)
   const document = conversation?.production?.document
   if (!document || document.id !== binding.documentId) return false
+  if (
+    binding.snapshot.dependencies &&
+    productionDependencyChanges(document.content, binding.snapshot.dependencies).length
+  )
+    return false
+  if (binding.snapshot.character) {
+    const character = document.content.characters?.find(
+      (one) => one.id === binding.snapshot.character!.id,
+    )
+    if (
+      !character ||
+      character.name !== binding.snapshot.character.name ||
+      character.description !== binding.snapshot.character.description
+    )
+      return false
+  }
   if (binding.target === 'clip') {
     const clip = document.content.clips?.find((one) => one.id === binding.targetId)
     if (

@@ -1,5 +1,11 @@
-import type { AgentToolArtifact, AgentTurnParams } from './agent'
+import type {
+  AgentToolArtifact,
+  AgentToolErrorCode,
+  AgentToolRetryOrigin,
+  AgentTurnParams,
+} from './agent'
 import type { ProductionMediaReference } from './production'
+import type { ProductionDependency } from './production-dependencies'
 import type { VideoRequest } from './video-presets'
 
 export interface ProductionGenerationReference {
@@ -16,6 +22,12 @@ export interface ProductionGenerationBinding {
     readonly description: string
     readonly references: readonly ProductionMediaReference[]
     readonly shotIds?: readonly string[]
+    readonly character?: {
+      readonly id: string
+      readonly name: string
+      readonly description: string
+    }
+    readonly dependencies?: readonly ProductionDependency[]
     readonly model?: string
     readonly video?: VideoRequest
   }
@@ -43,5 +55,9 @@ export interface ProductionGenerationView {
   readonly references: readonly ProductionGenerationReference[]
   readonly status: string
   readonly taskId?: string
+  readonly errorCode?: AgentToolErrorCode
+  readonly error?: string
+  readonly retryOf?: AgentToolRetryOrigin
+  readonly sourceChanged?: boolean
   readonly artifacts: readonly AgentToolArtifact[]
 }

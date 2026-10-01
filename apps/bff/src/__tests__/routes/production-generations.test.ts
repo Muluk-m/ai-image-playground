@@ -693,6 +693,137 @@ it('binds an Agent video draft to the frozen clip selection', async () => {
     setAgentFetchForTesting()
   }
 })
+it('projects retry descendants with their frozen target and adopts the retry result explicitly', async () => {
+  billing.reset()
+  const owner = await account('retry-projection-owner')
+  const content = {
+    title: '场景',
+    setting: '',
+    outline: '',
+    scenes: [],
+    locations: [{ id: 'room', name: '房间', description: '晚霞' }],
+  }
+  await request(owner, 'PUT', '', { operationId: 'init', baseRevision: 0, content })
+  const { generation } = await (
+    await request(owner, 'POST', '/generations', {
+      operationId: 'create',
+      baseRevision: 1,
+      target: 'location',
+      targetId: 'room',
+      prompt: '房间',
+      model: TEST_IMAGE_CHANNEL.models[0]!.id,
+      references: [],
+    })
+  ).json()
+  await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/confirmations`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'production-device',
+        messageId: generation.messageId,
+        prompt: '房间',
+        draftRevision: 1,
+      }),
+    }),
+  )
+  const submitted = (await (await request(owner, 'GET', '/generations')).json()).generations[0]
+  await workerSettles(submitted.taskId, {
+    status: 'failed',
+    errorType: 'upstream_timeout',
+    errorMessage: 'upstream timeout',
+  })
+  const failed = (await (await request(owner, 'GET', '/generations')).json()).generations[0]
+  expect(failed.errorCode).toBe('timeout')
+  const retried = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/retries`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: 'production-device', messageId: generation.messageId }),
+    }),
+  )
+  expect(retried.status).toBe(200)
+  const views = (await (await request(owner, 'GET', '/generations')).json()).generations
+  expect(views).toHaveLength(2)
+  const retry = views.find((one: { taskId: string }) => one.taskId !== submitted.taskId)
+  expect(retry.production).toEqual(generation.production)
+  expect(retry.retryOf.messageId).toBe(generation.messageId)
+  await workerSettles(retry.taskId, {
+    status: 'completed',
+    resultPayload: { data: [{ b64_json: 'aGk=', mime: 'image/png' }] },
+  })
+  const completed = (await (await request(owner, 'GET', '/generations')).json()).generations.find(
+    (one: { taskId: string }) => one.taskId === retry.taskId,
+  )
+  expect(completed.sourceChanged).toBe(false)
+  const adopted = await request(owner, 'POST', `/generations/${generation.draftId}/adopt`, {
+    operationId: 'retry-adopt',
+    baseRevision: 1,
+    artifactId: completed.artifacts[0].artifactId,
+  })
+  expect(adopted.status).toBe(200)
+  expect(
+    (await (await request(owner, 'GET', '/generations')).json()).generations.find(
+      (one: { taskId: string }) => one.taskId === retry.taskId,
+    ).sourceChanged,
+  ).toBe(false)
+  const current = (await (await request(owner, 'GET')).json()).document
+  await request(owner, 'PUT', '', {
+    operationId: 'change',
+    baseRevision: current.revision,
+    content: {
+      ...current.content,
+      locations: current.content.locations.map((one: { description: string }) => ({
+        ...one,
+        description: '深夜',
+      })),
+    },
+  })
+  expect(
+    (await (await request(owner, 'GET', '/generations')).json()).generations.find(
+      (one: { taskId: string }) => one.taskId === retry.taskId,
+    ).sourceChanged,
+  ).toBe(true)
+})
+it('replays and edits an older draft after it leaves the bounded candidate list', async () => {
+  const owner = await account('older-draft-owner')
+  await request(owner, 'PUT', '', {
+    operationId: 'init',
+    baseRevision: 0,
+    content: {
+      title: '场景',
+      setting: '',
+      outline: '',
+      scenes: [],
+      locations: [{ id: 'room', name: '房间', description: '' }],
+    },
+  })
+  const input = {
+    operationId: 'oldest',
+    baseRevision: 1,
+    target: 'location',
+    targetId: 'room',
+    prompt: '房间',
+    model: TEST_IMAGE_CHANNEL.models[0]!.id,
+    references: [],
+  }
+  const { generation } = await (await request(owner, 'POST', '/generations', input)).json()
+  for (let index = 0; index < 100; index++)
+    expect(
+      (await request(owner, 'POST', '/generations', { ...input, operationId: `later-${index}` }))
+        .status,
+    ).toBe(200)
+  const replay = await (await request(owner, 'POST', '/generations', input)).json()
+  expect(replay.generation.draftId).toBe(generation.draftId)
+  const edited = await request(owner, 'PATCH', `/generations/${generation.draftId}`, {
+    draftRevision: 1,
+    prompt: '晨光房间',
+    model: input.model,
+    references: [],
+  })
+  expect(edited.status).toBe(200)
+  expect((await edited.json()).generation.draftRevision).toBe(2)
+})
 afterAll(async () => {
   setObjectStoreForTesting()
   await close()
