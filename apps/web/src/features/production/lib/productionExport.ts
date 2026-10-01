@@ -1,6 +1,7 @@
 import type {
   AgentToolArtifact,
   ProductionDocument,
+  ProductionGenerationView,
   ProductionMediaReference,
 } from '@image-playground/shared'
 import { strToU8, Zip, ZipPassThrough } from 'fflate'
@@ -11,7 +12,8 @@ import { getCachedMedia, getImage } from '../../../lib/db'
 import { imageMimeFromBytes } from '../../../lib/imageBytes'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
-export const PRODUCTION_EXPORT_MAX_BYTES = 500 * 1024 * 1024
+// Remote byte-path profiling: 500 MiB peaked at 2.03 GiB RSS; keep the first release bounded.
+export const PRODUCTION_EXPORT_MAX_BYTES = 128 * 1024 * 1024
 export interface ProductionExportResource {
   key: string
   reference: ProductionMediaReference
@@ -22,6 +24,19 @@ export interface ProductionExportSnapshot {
   document: ProductionDocument
   resources: ProductionExportResource[]
   scope: string
+  generations?: readonly Pick<
+    ProductionGenerationView,
+    | 'draftId'
+    | 'draftRevision'
+    | 'production'
+    | 'model'
+    | 'prompt'
+    | 'params'
+    | 'video'
+    | 'references'
+    | 'taskId'
+    | 'artifacts'
+  >[]
 }
 export interface ProductionExportItem extends ProductionExportResource {
   bytes: number | null
@@ -46,6 +61,7 @@ function assertScope(snapshot: ProductionExportSnapshot) {
 export function freezeProductionExport(
   document: ProductionDocument,
   extraCandidates: readonly AgentToolArtifact[] = [],
+  generations: readonly ProductionGenerationView[] = [],
 ): ProductionExportSnapshot {
   const frozen = structuredClone(document)
   const map = new Map<string, ProductionExportResource>()
@@ -79,6 +95,33 @@ export function freezeProductionExport(
     )
   return {
     document: frozen,
+    generations: structuredClone(
+      generations.map(
+        ({
+          draftId,
+          draftRevision,
+          production,
+          model,
+          prompt,
+          params,
+          video,
+          references,
+          taskId,
+          artifacts,
+        }) => ({
+          draftId,
+          draftRevision,
+          production,
+          model,
+          prompt,
+          params,
+          video,
+          references,
+          taskId,
+          artifacts,
+        }),
+      ),
+    ),
     resources: [...map.values()],
     scope: scopedStorageName('production-export'),
   }
@@ -425,6 +468,11 @@ export async function buildProductionZip(
       complete: missing.length === 0,
       selection: plan.items.map((one) => one.key),
       content,
+      generations: plan.snapshot.generations?.filter((generation) =>
+        generation.artifacts.some((artifact) =>
+          plan.items.some((item) => item.key === `artifact:${artifact.artifactId}`),
+        ),
+      ),
       resources: resources.map(
         ({ key, reference, name, owners, path, bytes, mime, actualDurationSeconds }) => ({
           key,

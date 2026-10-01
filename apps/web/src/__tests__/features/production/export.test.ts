@@ -189,3 +189,52 @@ it('reports corrupt media as missing and never writes empty or mislabeled image 
   expect(result.missing.every((one) => one.reason === 'corrupt')).toBe(true)
   expect(Object.keys(entries).filter((path) => path.startsWith('images/'))).toHaveLength(0)
 })
+it('exports the selected candidate actual submission separately from its edited clip plan', async () => {
+  fixtures()
+  const candidate = {
+    draftId: 'draft',
+    messageId: 'message',
+    draftRevision: 2,
+    production: {
+      documentId: 'doc',
+      revision: 3,
+      target: 'clip' as const,
+      targetId: 'clip',
+      snapshot: { name: '来信', description: '旧分镜', references: [] },
+    },
+    model: 'actual-model',
+    prompt: '实际提交提示词',
+    references: [],
+    status: 'completed' as const,
+    taskId: 'task',
+    video: {
+      duration_seconds: 5 as const,
+      aspect_ratio: '16:9' as const,
+      resolution: '720p' as const,
+    },
+    artifacts: [
+      {
+        artifactId: 'candidate-image',
+        taskId: 'task',
+        outputIndex: 0,
+        media: 'image' as const,
+        mime: 'image/png',
+      },
+    ],
+  }
+  const snapshot = freezeProductionExport(doc, candidate.artifacts, [candidate])
+  candidate.prompt = '后来修改的文本'
+  const plan = await inspectProductionExport(snapshot, new AbortController().signal)
+  const result = await buildProductionZip(plan, {
+    signal: new AbortController().signal,
+    allowPartial: false,
+  })
+  const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()))
+  expect(JSON.parse(strFromU8(files['manifest.json']!)).generations).toEqual([
+    expect.objectContaining({
+      model: 'actual-model',
+      prompt: '实际提交提示词',
+      production: expect.objectContaining({ revision: 3 }),
+    }),
+  ])
+})
