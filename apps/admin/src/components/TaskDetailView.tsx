@@ -5,6 +5,7 @@ import { FuzzyTime } from '@/components/FuzzyTime'
 import { ErrorState, PendingState } from '@/components/Page'
 import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
+import { TaskReconciliation } from '@/components/TaskReconciliation'
 import { Button } from '@/components/ui/button'
 import { duration, isoTime } from '@/lib/format'
 import { useTask } from '@/lib/queries'
@@ -58,6 +59,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
         </span>
       </header>
 
+      {task.status === 'reconciling' ? <TaskReconciliation taskId={task.id} /> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Request */}
         <section className="min-w-0 rounded-md border bg-card p-3 sm:p-4">

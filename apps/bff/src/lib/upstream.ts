@@ -123,7 +123,9 @@ export interface UpstreamCallParams {
   request: HydratedSubmitRequest
   signal?: AbortSignal
   /** Runs immediately before each upstream invocation is dispatched. Polling does not count. */
-  beforeRequest?: () => Promise<void>
+  beforeRequest?: () => Promise<string | void>
+  onRequestDispatched?: (dispatchId: string) => Promise<void>
+  onRequestId?: (dispatchId: string, requestId: string) => Promise<void>
   /** 异步提交拿到 id 后、开始轮询**之前**调用；必须在这一步之内把 id 持久化。 */
   onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
   /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
@@ -141,6 +143,7 @@ export interface UpstreamResume {
 
 interface UpstreamResponse {
   readonly ok: boolean
+  readonly headers?: { get(name: string): string | null }
   readonly status: number
   readonly body?: ReadableStream<Uint8Array> | null
   text(): Promise<string>
@@ -228,7 +231,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   ): Promise<UpstreamResponse> => {
     try {
       if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
-      if (counted) await beforeRequest?.()
+      const dispatchId = counted ? await beforeRequest?.() : undefined
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -242,7 +245,21 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       deadline.signal.addEventListener('abort', relayAbort, { once: true })
       if (deadline.signal.aborted) relayAbort()
       try {
-        return await responsePromise
+        const recorded = dispatchId ? params.onRequestDispatched?.(dispatchId) : undefined
+        const response = await responsePromise.then(
+          async (value) => {
+            await recorded
+            return value
+          },
+          async (error) => {
+            await recorded
+            throw error
+          },
+        )
+        const requestId =
+          response.headers?.get('x-request-id') ?? response.headers?.get('request-id')
+        if (dispatchId && requestId) await params.onRequestId?.(dispatchId, requestId)
+        return response
       } finally {
         deadline.signal.removeEventListener('abort', relayAbort)
       }

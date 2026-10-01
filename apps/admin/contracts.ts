@@ -222,6 +222,7 @@ export interface OpsStuckTask {
 export interface OpsQueue {
   queued: number
   in_progress: number
+  reconciling?: number
   /** 最老的排队任务已经等了多久；队列为空时是 null。 */
   oldest_queued_wait_ms: number | null
   /** 运行超过这个时长即视为卡住，与 worker 回收无主任务用的是同一个阈值。 */

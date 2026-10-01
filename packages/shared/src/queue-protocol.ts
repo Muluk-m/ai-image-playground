@@ -13,9 +13,22 @@ export type QueueProvider = 'openai-compat' | 'gemini'
 /** 普通生图与 Agent 共用的默认审核强度；上游仍会执行自身的内容安全策略。 */
 export const DEFAULT_IMAGE_MODERATION = 'low' as const
 
-export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
+export const TASK_STATUSES = [
+  'queued',
+  'in_progress',
+  'reconciling',
+  'completed',
+  'failed',
+  'cancelled',
+] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
-export const TASK_PROGRESS_PHASES = ['queued', 'generating', 'reconnecting', 'confirming'] as const
+export const TASK_PROGRESS_PHASES = [
+  'queued',
+  'generating',
+  'reconnecting',
+  'confirming',
+  'reconciling',
+] as const
 export type TaskProgressPhase = (typeof TASK_PROGRESS_PHASES)[number]
 
 /**

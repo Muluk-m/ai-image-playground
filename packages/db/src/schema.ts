@@ -776,6 +776,7 @@ export const tasks = pgTable(
     provider: text('provider').$type<QueueProvider>().notNull(),
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
+    reconciliation_required: boolean('reconciliation_required').notNull().default(false),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */
@@ -819,6 +820,10 @@ export const tasks = pgTable(
     kind: text('kind').$type<TaskKind>().notNull().default('queue'),
   },
   (t) => [
+    check(
+      'tasks_reconciling_check',
+      sql`${t.status} <> 'reconciling' OR ${t.reconciliation_required}`,
+    ),
     check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat')`),
     index('idx_tasks_status').on(t.status),
     index('idx_tasks_queued_provider_time')
@@ -878,6 +883,7 @@ export const daily_quota = pgTable(
 // operational view. Keeping them out also preserves the committed view shape across additive
 // task migrations, so existing read-only grants do not need the view to be dropped and recreated.
 const {
+  reconciliation_required: _reconciliationRequired,
   archive_payload: _archivePayload,
   archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
@@ -886,6 +892,21 @@ const {
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
   qb.select(queueTaskColumns).from(tasks).where(eq(tasks.kind, 'queue')),
+)
+
+export const task_dispatches = pgTable(
+  'task_dispatches',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    execution_token: text('execution_token').notNull(),
+    intended_at: epochMs('intended_at').notNull(),
+    dispatched_at: epochMs('dispatched_at'),
+    upstream_request_id: text('upstream_request_id'),
+  },
+  (t) => [index('idx_task_dispatches_task').on(t.task_id, t.intended_at)],
 )
 
 export type Task = typeof tasks.$inferSelect

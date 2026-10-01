@@ -138,6 +138,40 @@ export async function requeueTaskArchive(
   })
 }
 
+/** Quarantine an uncertain dispatch without finalizing its billing hold. */
+export async function reconcileTasks(
+  access: SQL,
+  reason: string,
+  executor?: BffTransaction,
+): Promise<string[]> {
+  const reconcile = async (tx: BffTransaction) => {
+    const rows = await tx
+      .update(schema.tasks)
+      .set({
+        status: 'reconciling',
+        error_type: 'upstream_result_unknown',
+        error_message: reason,
+        execution_token: null,
+        lease_expires_at: null,
+        next_retry_at: null,
+        completed_at: null,
+      })
+      .where(
+        and(
+          access,
+          eq(schema.tasks.reconciliation_required, true),
+          eq(schema.tasks.status, 'in_progress'),
+          gt(schema.tasks.upstream_invocation_count, 0),
+        ),
+      )
+      .returning({ id: schema.tasks.id })
+    const ids = rows.map((row) => row.id)
+    await publishGenerations(tx, ids)
+    return ids
+  }
+  return executor ? reconcile(executor) : db.transaction(reconcile)
+}
+
 export type TerminalTaskUpdate = {
   status: 'completed' | 'failed' | 'cancelled'
   completedAt: number
@@ -163,9 +197,10 @@ export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
   fence: SQL,
+  reconciliation?: { tx: BffTransaction },
 ): Promise<boolean> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  return db.transaction(async (tx) => {
+  const finish = async (tx: BffTransaction) => {
     const [finished] = await tx
       .update(schema.tasks)
       .set({
@@ -180,7 +215,16 @@ export async function finishTask(
         upstream_body: update.upstreamBody,
         completed_at: update.completedAt,
       })
-      .where(stillRunning(id, fence))
+      .where(
+        reconciliation
+          ? and(
+              eq(schema.tasks.id, id),
+              eq(schema.tasks.status, 'reconciling'),
+              eq(schema.tasks.reconciliation_required, true),
+              fence,
+            )
+          : stillRunning(id, fence),
+      )
       .returning({
         id: schema.tasks.id,
         userId: schema.tasks.user_id,
@@ -211,7 +255,8 @@ export async function finishTask(
     await agentJobsEnded(tx, [finished.id], update.completedAt)
     await publishGenerations(tx, [finished.id])
     return true
-  })
+  }
+  return reconciliation ? finish(reconciliation.tx) : db.transaction(finish)
 }
 /**
  * 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。
@@ -225,6 +270,13 @@ export async function cancelTasks(
 ) {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   const cancel = async (tx: BffTransaction) => {
+    // Serialize cancellation with the dispatch-intent write; no request can slip between them.
+    await tx
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
+      .for('update')
+    await reconcileTasks(access, '已提交的请求仍待核查，预扣暂时保留', tx)
     const rows = await tx
       .update(schema.tasks)
       .set({ status: 'cancelled', completed_at: Date.now() })

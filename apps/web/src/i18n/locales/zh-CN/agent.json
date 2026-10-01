@@ -426,6 +426,7 @@
       "generating": "生成中",
       "reconnecting": "重新连接中",
       "confirming": "保存结果中",
+      "reconciling": "待核查",
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",

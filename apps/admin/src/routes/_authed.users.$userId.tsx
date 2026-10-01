@@ -36,6 +36,7 @@ const TASK_FILTERS = [
   { value: 'completed', label: '成功' },
   { value: 'failed', label: '失败' },
   { value: 'in_progress', label: '执行中' },
+  { value: 'reconciling', label: '待核查' },
   { value: 'queued', label: '排队中' },
 ] as const
 
