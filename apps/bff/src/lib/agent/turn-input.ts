@@ -15,12 +15,7 @@ import {
 } from './images'
 import { agentModel } from './model'
 import { requestOverheadTokens } from './request-budget'
-import {
-  type EvidenceListing,
-  evidenceBlocks,
-  evidenceManifest,
-  referenceEvidence,
-} from './selection-preview'
+import { type EvidenceListing, evidenceBlocks, evidenceManifest } from './selection-preview'
 import {
   type AgentSkill,
   type AgentTurnAudience,
@@ -31,6 +26,7 @@ import {
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations, agentToolGuidance } from './tools'
+import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**
  * 「这一轮送给模型的输入长什么样」只由本模块回答，因为它有两个读者：起轮前的预扣估算
@@ -64,6 +60,7 @@ const PLACEHOLDER_SELECTION = {
 function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
   return references.map((reference) => ({
     imageId: reference.imageId,
+    representation: 'mediaId' in reference && !referenceHasMask(reference) ? 'preview' : 'original',
     ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
     ...('editAction' in reference && reference.editAction
       ? { editAction: reference.editAction }
@@ -320,8 +317,9 @@ export interface TurnVisualEvidence {
 /** 视觉证据要读图片字节，所以只有实发路径走得起；预扣估算改用占位块。 */
 export function turnVisualEvidence(
   images: readonly ResolvedAgentImage[],
+  source: VisualEvidenceSource = 'initial',
 ): Promise<TurnVisualEvidence> {
-  return referenceEvidence(images)
+  return prepareVisualEvidence(images, source)
 }
 
 /** 交给 `agent.prompt` / `agent.steer` 的那一份：文字在前，视觉证据的清单收尾。 */

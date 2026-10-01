@@ -19,6 +19,7 @@ import {
   toolCallCompletion,
 } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { waitFor } from '../helpers/upstreamStubs'
@@ -47,7 +48,7 @@ const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-billing-user'
 let sessionToken = ''
 let storage: InMemoryObjectStore
-const REFERENCE = { imageId: 'canvas-original', dataUrl: 'data:image/png;base64,aGk=' }
+const REFERENCE = { imageId: 'canvas-original', dataUrl: TEST_IMAGE.pngDataUrl }
 
 async function post(path: string, body: unknown, signedIn = true): Promise<Response> {
   return app.handle(
@@ -538,4 +539,33 @@ it('counts a fully cached input even when uncached input and output are zero', a
     usage: { inputTokens: 10000, cachedInputTokens: 10000, outputTokens: 0 },
   })
   expect(settlements[0]?.actualUsage?.unitMultiplier).toBe(1)
+})
+
+it('本地字节拒绝结算为零真实派发和零用量，不制造未知账单', async () => {
+  const { config } = await import('../../config')
+  const operator = config.operator
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('不该派发')))
+  try {
+    config.operator = {
+      ...operator,
+      quotas: { ...operator.quotas, 'agent:request-max-bytes': 1 },
+    }
+    const { frames } = await runTurn(await startConversation(), '比较猫咪🐈')
+    expect(calls).toHaveLength(0)
+    expect(frames.at(-1)?.event).toMatchObject({
+      type: 'turnEnd',
+      error: 'agent_request_budget_exceeded',
+      usage: { inputTokens: 0, outputTokens: 0 },
+      cost: { chat: 0 },
+    })
+    expect(settlements).toHaveLength(1)
+    expect(settlements[0]).toMatchObject({
+      outcome: 'failed',
+      upstreamInvocationCount: 0,
+      actualUsage: { tokens: { input: 0, output: 0 } },
+    })
+  } finally {
+    config.operator = operator
+  }
 })

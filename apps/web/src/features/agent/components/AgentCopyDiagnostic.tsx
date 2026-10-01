@@ -45,11 +45,13 @@ export default function AgentCopyDiagnostic({ diagnostic }: { diagnostic: object
   const summary =
     record.code === 'agent_upstream_error'
       ? t('error.upstream')
-      : record.code === 'agent_context_overflow'
-        ? t('error.contextOverflow')
-        : record.code === 'agent_tool_failed'
-          ? t('error.toolFailed')
-          : t('error.turnFailed')
+      : record.code === 'agent_request_budget_exceeded'
+        ? t('error.requestBudgetExceeded')
+        : record.code === 'agent_context_overflow'
+          ? t('error.contextOverflow')
+          : record.code === 'agent_tool_failed'
+            ? t('error.toolFailed')
+            : t('error.turnFailed')
   const raw = JSON.stringify(diagnostic, null, 2)
   const readable = [
     t('diagnostic.title'),

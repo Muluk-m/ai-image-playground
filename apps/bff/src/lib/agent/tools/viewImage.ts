@@ -2,7 +2,7 @@ import type { ImageContent } from '@earendil-works/pi-ai'
 import { Type } from 'typebox'
 import type { ResolvedAgentImage } from '../images'
 import { toRegionDataUrl } from '../modelImage'
-import { referenceEvidence } from '../selection-preview'
+import { prepareVisualEvidence, registerVisualBlock } from '../visual-input'
 import { defineAgentTool } from './adapter'
 import type { AgentToolContext } from './types'
 
@@ -13,6 +13,26 @@ import type { AgentToolContext } from './types'
 const MAX_IMAGES = 4
 
 const parameters = Type.Object({
+  releaseImages: Type.Optional(
+    Type.Array(
+      Type.Object({
+        imageId: Type.String(),
+        observation: Type.String({ minLength: 1, maxLength: 2000 }),
+      }),
+      {
+        maxItems: 100,
+        description:
+          '仅释放上一步实际看过、已完成独立检查且后续不再需要像素的图片，写下真实观察结论。当前目标、活动选区和未完成联合比较不得释放；必要时可重读。',
+      },
+    ),
+  ),
+  retainImageIds: Type.Optional(
+    Type.Array(Type.String(), {
+      maxItems: 100,
+      description:
+        '本步以及后续联合比较必须保留像素的图片 id；省略沿用上一组，明确传空数组表示比较已完成。',
+    }),
+  ),
   imageIds: Type.Array(Type.String({ description: '图片 id。' }), {
     minItems: 1,
     maxItems: MAX_IMAGES,
@@ -65,17 +85,21 @@ async function look(
       const dataUrl = await toRegionDataUrl(image.dataUrl, region)
       // Cropping changes coordinates. Preserve the original selection evidence and binding;
       // the bounded region is an additional detail image, never a new mask target.
-      if (image.maskDataUrl)
-        return {
-          id,
-          image,
-          regionDetail: {
-            type: 'image' as const,
-            mimeType: dataUrl.slice(5, dataUrl.indexOf(';')),
-            data: dataUrl.slice(dataUrl.indexOf(',') + 1),
-          },
+      if (image.maskDataUrl) {
+        const regionDetail: ImageContent = {
+          type: 'image',
+          mimeType: dataUrl.slice(5, dataUrl.indexOf(';')),
+          data: dataUrl.slice(dataUrl.indexOf(',') + 1),
         }
-      return { id, image: { ...image, dataUrl } }
+        await registerVisualBlock(regionDetail, {
+          imageId: image.imageId,
+          source: 'viewImage',
+          representation: 'region',
+          selection: true,
+        })
+        return { id, image, regionDetail }
+      }
+      return { id, image: { ...image, dataUrl, visualVariant: 'region' as const } }
     }),
   )
   return {
@@ -118,7 +142,19 @@ export const viewImage = defineAgentTool({
     if (found.length === 0)
       return { content: [{ type: 'text', text: `没有取到任何图。${missingLine}` }], details: {} }
     // 块数与清单措辞复用参考图那一套：有选区的图照样出定位图与裁片，两条路不会各数各的。
-    const evidence = await referenceEvidence(found)
+    const evidence = await prepareVisualEvidence(
+      found,
+      'viewImage',
+      params.region ? 'region' : params.detail === 'full' ? 'original' : 'preview',
+    )
+    const visualObservations = context.visualWorkset?.release(
+      (params.releaseImages ?? []).map((entry) => ({
+        ...entry,
+        imageId: context.images.identify(entry.imageId),
+      })),
+      params.retainImageIds?.map((id) => context.images.identify(id)),
+      [...evidence.content, ...regionDetails],
+    )
     const what = params.region ? '局部' : params.detail === 'full' ? '原图' : '缩略图'
     return {
       content: [
@@ -129,7 +165,7 @@ export const viewImage = defineAgentTool({
         ...evidence.content,
         ...regionDetails,
       ],
-      details: {},
+      details: { ...(visualObservations?.length ? { visualObservations } : {}) },
     }
   },
 })

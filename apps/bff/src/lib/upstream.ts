@@ -118,12 +118,17 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
 }
 
 export interface UpstreamCallParams {
+  /** New producers must preserve any unknown branch, irrespective of rejection order. */
+  reconciliationRequired?: boolean
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
   signal?: AbortSignal
   /** Runs immediately before each upstream invocation is dispatched. Polling does not count. */
-  beforeRequest?: () => Promise<void>
+  beforeRequest?: () => Promise<string | void>
+  onRequestDispatched?: (dispatchId: string) => Promise<void>
+  onRequestId?: (dispatchId: string, requestId: string) => Promise<void>
+  onUpstreamTaskId?: (dispatchId: string, taskId: string) => Promise<void>
   /** 异步提交拿到 id 后、开始轮询**之前**调用；必须在这一步之内把 id 持久化。 */
   onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
   /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
@@ -141,6 +146,7 @@ export interface UpstreamResume {
 
 interface UpstreamResponse {
   readonly ok: boolean
+  readonly headers?: { get(name: string): string | null }
   readonly status: number
   readonly body?: ReadableStream<Uint8Array> | null
   text(): Promise<string>
@@ -221,6 +227,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
    * `counted` 区分「一次上游调用」与「一次轮询」：只有前者过记账回调。异步模式下
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
+  const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
   const performFetch = async (
     url: string,
     init: UpstreamFetchInit,
@@ -228,7 +235,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   ): Promise<UpstreamResponse> => {
     try {
       if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
-      if (counted) await beforeRequest?.()
+      const dispatchId = counted ? await beforeRequest?.() : undefined
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -242,7 +249,19 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       deadline.signal.addEventListener('abort', relayAbort, { once: true })
       if (deadline.signal.aborted) relayAbort()
       try {
-        return await responsePromise
+        const recorded = dispatchId ? params.onRequestDispatched?.(dispatchId) : undefined
+        let response: UpstreamResponse
+        try {
+          ;[response] = await Promise.all([responsePromise, recorded])
+        } catch (error) {
+          requestAbort.abort()
+          throw error
+        }
+        if (dispatchId) dispatchIdentities.set(response, dispatchId)
+        const requestId =
+          response.headers?.get('x-request-id') ?? response.headers?.get('request-id')
+        if (dispatchId && requestId) await params.onRequestId?.(dispatchId, requestId)
+        return response
       } finally {
         deadline.signal.removeEventListener('abort', relayAbort)
       }
@@ -296,22 +315,42 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const missing = count - resumeIds.length
         if (missing <= 0) return [...resumeIds]
         if (finalLookup || resume?.pollOnly) return [...resumeIds]
+        const acceptedIds: (string | undefined)[] = Array.from({ length: missing })
         const settled = await Promise.allSettled(
-          Array.from({ length: missing }, async () =>
-            protocol.readTaskId(
-              (await parseResponse(await performFetch(protocol.submitUrl, makeInit()))).payload,
-            ),
-          ),
+          Array.from({ length: missing }, async (_, index) => {
+            const response = await performFetch(protocol.submitUrl, makeInit())
+            const taskId = protocol.readTaskId((await parseResponse(response)).payload)
+            // Acceptance is evidence even when its per-dispatch database write fails.
+            acceptedIds[index] = taskId
+            const dispatchId = dispatchIdentities.get(response)
+            if (dispatchId) await params.onUpstreamTaskId?.(dispatchId, taskId)
+            return taskId
+          }),
         )
-        const taskIds = [
-          ...resumeIds,
-          ...settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : [])),
-        ]
-        // 先落库再抛：部分失败时成功那几个已经计费，丢了 id 就没人收。
-        if (taskIds.length > resumeIds.length) await onUpstreamTaskIds?.(taskIds)
-        const failure = settled.find((one) => one.status === 'rejected')
+        const accepted = acceptedIds.flatMap((id) => (id ? [id] : []))
+        const taskIds = [...resumeIds, ...accepted]
+        // Attempt the aggregate checkpoint even if a per-dispatch write rejected.
+        if (accepted.length) {
+          try {
+            await onUpstreamTaskIds?.(taskIds)
+          } catch (error) {
+            throw new UpstreamResultUnknownError(
+              '上游已受理任务，但任务编号保存失败，结果待核查。',
+              { cause: error, requiresReconciliation: true },
+            )
+          }
+        }
+        const failure = fanOutFailure(settled, params.reconciliationRequired)
         if (failure) {
           warnIfAsyncTasksDisabled(failure.reason)
+          if (taskIds.length > 0) {
+            const detail =
+              failure.reason instanceof Error ? failure.reason.message.slice(0, 200) : '提交失败'
+            throw new UpstreamResultUnknownError(
+              `部分提交被拒绝，已受理任务的最终结果待核查：${detail}`,
+              { cause: failure.reason, requiresReconciliation: true },
+            )
+          }
           throw failure.reason
         }
         return taskIds
@@ -372,13 +411,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             count,
             async () => parseResponse(await performFetch(url, makeInit())),
             merge,
+            params.reconciliationRequired,
           )
         }
         const protocol = imageTaskProtocol(base, url)
         // 已提交任务只恢复当时的调用数，不能按新路由补发或误判旧原生批次。
         const expectedCount = resume?.invocationCount ?? count
         const taskIds = await collectTaskIds(protocol, expectedCount, makeInit)
-        const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
+        const results = await collectFanOutResults(
+          taskIds.map((id) => pollAsyncTask(protocol, id)),
+          params.reconciliationRequired,
+        )
         const result = results.length === 1 ? results[0]! : merge(results)
         if (taskIds.length < expectedCount) throw new UpstreamPartialResultError(result.payload)
         return result
@@ -436,6 +479,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
               true,
             ),
           mergeOpenAIImageResults,
+          params.reconciliationRequired,
         )
       }
 
@@ -526,6 +570,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           return parseResponse(res)
         },
         mergeGeminiCandidateResults,
+        params.reconciliationRequired,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -571,10 +616,38 @@ async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
+  reconciliationRequired = false,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
-  return merge(await Promise.all(Array.from({ length: count }, run)))
+  return merge(
+    await collectFanOutResults(Array.from({ length: count }, run), reconciliationRequired),
+  )
+}
+
+function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = false) {
+  const failures = settled.filter((one): one is PromiseRejectedResult => one.status === 'rejected')
+  return (
+    (preserveUnknown
+      ? failures.find((one) => one.reason instanceof UpstreamResultUnknownError)
+      : undefined) ?? failures[0]
+  )
+}
+
+async function collectFanOutResults<T>(
+  requests: Promise<T>[],
+  preserveUnknown = false,
+): Promise<T[]> {
+  if (!preserveUnknown) return Promise.all(requests)
+  const settled = await Promise.allSettled(requests)
+  const failure = fanOutFailure(settled, true)
+  if (failure && settled.some((one) => one.status === 'fulfilled')) {
+    throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
+      cause: failure.reason,
+    })
+  }
+  if (failure) throw failure.reason
+  return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
 }
 
 /** Google 直连认自己的 key 头；其余上游都是 Bearer。 */

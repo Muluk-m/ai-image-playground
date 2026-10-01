@@ -183,6 +183,7 @@
     "failed": "本轮失败",
     "interrupted": "已中断，已自动续上",
     "contextOverflow": "这一轮的内容太长，没有发出去",
+    "requestBudgetExceeded": "请求未发送，未产生本次模型调用费用",
     "stopped": "已停止"
   },
   "composer": {
@@ -219,7 +220,19 @@
     "queue": "加入排队",
     "autoSubmitAria": "出图模式",
     "autoSubmitOnTitle": "出图模式：助手拟好提示词直接开始生成并扣费，不再逐张等你确认",
-    "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）"
+    "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）",
+    "assetViewsUnavailable": "素材部分视角无法读取，请重试后再添加。",
+    "attachmentReadFailed": "部分图片无法读取，本次未添加，请重新选择。",
+    "uploadUnsupported": "请先转换为 PNG、JPEG 或 WebP 格式。",
+    "retryUpload": "重试",
+    "retryUploadAria": "重试上传 {{label}}",
+    "upload": {
+      "queued": "排队中",
+      "uploading": "上传中",
+      "verifying": "校验中",
+      "ready": "已就绪",
+      "failed": "上传失败"
+    }
   },
   "queue": {
     "title_other": "排队中 {{count}} 条",
@@ -311,6 +324,7 @@
     "retryFailed": "重试没能提交，请稍后再试。",
     "upstream": "对话模型调用失败，请稍后重试。",
     "contextOverflow": "本轮内容超出模型容量，请减少文字或参考图后重试。",
+    "requestBudgetExceeded": "请求体积超出限制或无法安全发送。请减少参考图、缩短文字，或拆分请求；仍失败请联系管理员。",
     "toolFailed": "工具执行失败，请查看失败卡片。",
     "copyLog": "复制原始日志",
     "copied": "已复制",
@@ -424,6 +438,7 @@
       "generating": "生成中",
       "reconnecting": "重新连接中",
       "confirming": "保存结果中",
+      "reconciling": "待核查",
       "delivering": "载入结果"
     },
     "progress": "{{phase}} · 已用 {{elapsed}}",
@@ -517,5 +532,39 @@
       "toolName": "工具",
       "taskId": "任务 ID"
     }
+  },
+  "batch": {
+    "version": "版本 {{version}}",
+    "title": "计划名称",
+    "rule": "统一规则",
+    "prompt": "提示词",
+    "save": "保存计划",
+    "confirm": "确认生成",
+    "executionUnavailable": "暂未开放执行",
+    "analysisCost": "分析预估",
+    "generationCost": "生成预估",
+    "unavailable": "费用暂不可用",
+    "staleQuote": "保存后更新费用",
+    "loading": "正在读取计划",
+    "cancelled": "已取消",
+    "scope_other": "{{count}} 项",
+    "size": "尺寸",
+    "remove": "移除此项",
+    "refresh": "载入最新版本",
+    "cancel": "取消计划",
+    "model": "模型",
+    "quality": "画质",
+    "aspectRatio": "宽高比",
+    "thinking": "思考强度",
+    "outputFormat": "输出格式",
+    "compression": "压缩质量",
+    "inputImage": "输入图 {{index}}",
+    "valueAuto": "自动",
+    "valueHigh": "高",
+    "valueMedium": "中",
+    "valueLow": "低",
+    "valueMinimal": "最低",
+    "valueStandard": "标准",
+    "valueHd": "高清"
   }
 }

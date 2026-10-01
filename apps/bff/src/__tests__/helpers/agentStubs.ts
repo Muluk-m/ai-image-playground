@@ -8,6 +8,7 @@ import {
   PROMPT_REWRITE_GUARD_PREFIX,
   parseAgentFrame,
 } from '@image-playground/shared'
+import { TEST_IMAGE } from './imageFixtures'
 
 /**
  * 落库的那一句。确认提交时会钉上创作页同款的防改写 guard（`lib/agent/prompt-shaping.ts`），
@@ -103,7 +104,9 @@ export const TEST_IMAGE_CHANNEL = {
   defaults: { apiMode: 'images' as const, timeout: 600 },
 }
 
-export const TEST_RESULT_PAYLOAD = { data: [{ b64_json: 'aGk=', mime: 'image/png' }] }
+export const TEST_RESULT_PAYLOAD = {
+  data: [{ b64_json: TEST_IMAGE.png.toString('base64'), mime: 'image/png' }],
+}
 
 export function eventsOfType<T extends AgentTurnEvent['type']>(
   frames: { event: AgentTurnEvent }[],

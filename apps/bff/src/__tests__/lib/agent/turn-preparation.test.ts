@@ -8,6 +8,7 @@ import { AGENT_MAX_CONSECUTIVE_WAKES } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { type AgentCall, completionStream, recordingAgentFetch } from '../../helpers/agentStubs'
 import { silenceChatUpstream } from '../../helpers/chatStubs'
+import { TEST_IMAGE } from '../../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../../helpers/privateOverlayStub'
 
@@ -58,7 +59,7 @@ const SUBMITTING_TURN = 'turn-submitting'
 const TASK_ID = 'task-1'
 const REFERENCE: AgentTurnReference = {
   imageId: 'canvas-original',
-  dataUrl: 'data:image/png;base64,aGk=',
+  dataUrl: TEST_IMAGE.pngDataUrl,
 }
 
 let calls: AgentCall[]
@@ -91,6 +92,25 @@ function resultBlock(artifacts: readonly string[]): AgentToolResultBlock {
 /** 一个会话，外加提交那一轮的用户原话与结果卡：唤醒与续跑都点名它。 */
 async function conversationWithResult(artifacts: readonly string[] = []): Promise<string> {
   const conversation = await createAgentConversation(USER, '画一只橘猫')
+  if (artifacts.length) {
+    const data = []
+    for (const [index] of artifacts.entries()) {
+      const object = `${TASK_ID}/out/${index}`
+      await storage.write(object, TEST_IMAGE.png, 'image/png')
+      data.push({ object, mime: 'image/png' })
+    }
+    await db.insert(schema.tasks).values({
+      id: TASK_ID,
+      user_id: USER_ID,
+      provider: 'openai-compat',
+      model: 'gpt-image-1',
+      status: 'completed',
+      submitted_at: Date.now(),
+      agent_conversation_id: conversation.id,
+      request_payload: { prompt: '一只橘猫' },
+      result_payload: { data },
+    })
+  }
   await appendAgentMessage(db, {
     conversationId: conversation.id,
     turnId: SUBMITTING_TURN,

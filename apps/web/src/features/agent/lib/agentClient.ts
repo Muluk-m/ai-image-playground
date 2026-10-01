@@ -3,6 +3,8 @@ import type {
   AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentBackgroundJobView,
+  AgentBatchPage,
+  AgentBatchUpdate,
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
@@ -599,11 +601,12 @@ export async function interjectTurn(
   text: string,
   references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
+  clientMessageId: string = crypto.randomUUID(),
 ): Promise<string> {
   references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
-    jsonInit({ deviceId: getDeviceId(), text, references }),
+    jsonInit({ deviceId: getDeviceId(), text, references, clientMessageId }),
   )
   if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { messageId: string }).messageId
@@ -644,7 +647,52 @@ async function resolveReferences(
       resolved.push({ ...rest, mediaId })
       continue
     }
-    resolved.push({ ...reference, dataUrl: await resolveMediaSource(reference.dataUrl) })
+    resolved.push({
+      ...reference,
+      dataUrl: await resolveMediaSource(reference.dataUrl),
+      ...(reference.maskDataUrl
+        ? { maskDataUrl: await resolveMediaSource(reference.maskDataUrl) }
+        : {}),
+    })
   }
   return resolved
+}
+
+/** The complete fixed scope is bounded to 100 items by the plan API. */
+export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
+    {
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function updateBatchPlan(
+  batchId: string,
+  update: AgentBatchUpdate,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(url(`/batches/${encodeURIComponent(batchId)}`), {
+    ...jsonInit(update, 'PATCH'),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function cancelBatchPlan(
+  batchId: string,
+  expectedVersion: number,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/cancel`),
+    {
+      ...jsonInit({ expectedVersion }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
 }

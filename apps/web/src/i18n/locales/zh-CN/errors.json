@@ -86,5 +86,9 @@
     "model_unavailable": "要用的模型暂时不可用",
     "cancelled": "已中止",
     "fallback": "没有完成"
+  },
+  "agentBatch": {
+    "fallback": "计划操作失败，当前内容已保留，请重试。",
+    "batch_version_conflict": "计划已有新版本，请刷新后再修改。"
   }
 }

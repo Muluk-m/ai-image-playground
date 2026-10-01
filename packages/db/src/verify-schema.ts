@@ -1,6 +1,10 @@
 import { SQL } from 'bun'
+import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
+  'agent_batches',
+  'agent_batch_plans',
+  'agent_batch_items',
   'admin_user_notes',
   'inspiration_categories',
   'inspiration_items',
@@ -32,6 +36,7 @@ export const EXPECTED_TABLES = [
   'host_samples',
   'service_heartbeats',
   'tasks',
+  'task_dispatches',
   'user_asset_objects',
   'user_assets',
   'email_verification_codes',
@@ -125,6 +130,8 @@ export const EXPECTED_INDEXES = [
   'operator_audits_pkey',
   'service_heartbeats_service_instance_pk',
   'tasks_pkey',
+  'task_dispatches_pkey',
+  'idx_task_dispatches_task',
   'user_asset_objects_user_id_image_id_pk',
   'user_assets_user_id_id_pk',
   'user_identities_pkey',
@@ -136,7 +143,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 46
+const EXPECTED_MIGRATION_COUNT = journal.entries.length
 
 export interface SchemaVerificationResult {
   tables: number

@@ -109,7 +109,9 @@ function ReferenceThumbnail({
       ? reference.maskDataUrl
       : 'mask' in reference
         ? reference.mask?.object
-        : undefined
+        : 'mediaId' in reference
+          ? reference.maskMediaId
+          : undefined
   const regionsVersion = 'regions' in reference ? JSON.stringify(reference.regions) : ''
   const identity = useMemo(
     () => ({}),
@@ -220,7 +222,8 @@ export default memo(function AgentUserMessage({
   const masked = message.references?.some(
     (reference) =>
       ('maskDataUrl' in reference && reference.maskDataUrl) ||
-      ('mask' in reference && reference.mask),
+      ('mask' in reference && reference.mask) ||
+      ('mediaId' in reference && reference.maskMediaId),
   )
   // Compatibility for existing edit messages; the transport text remains untouched.
   const prefixes = [

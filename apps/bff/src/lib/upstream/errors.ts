@@ -6,9 +6,19 @@ import { isObject } from '../type-guards'
  * `upstream_result_unknown`，避免自动重试重复执行。
  */
 export class UpstreamResultUnknownError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  readonly retryable = false
+  readonly upstreamStatus: number | undefined
+  readonly upstreamPayload: unknown
+  readonly requiresReconciliation: boolean
+
+  constructor(message: string, options?: ErrorOptions & { requiresReconciliation?: boolean }) {
     super(message, options)
     this.name = 'UpstreamResultUnknownError'
+    const cause = isObject(options?.cause) ? options.cause : undefined
+    this.upstreamStatus =
+      typeof cause?.upstreamStatus === 'number' ? cause.upstreamStatus : undefined
+    this.upstreamPayload = cause?.upstreamPayload
+    this.requiresReconciliation = options?.requiresReconciliation ?? false
   }
 }
 

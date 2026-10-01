@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm'
 import { config } from '../config'
 import { settleAgentConversationJobs } from '../lib/agent/conversations'
+import { durableMediaStore } from '../lib/durableMediaStore'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -24,6 +25,7 @@ import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { db, schema } from './client'
 import {
   finishTask,
+  reconcileTasks,
   requeueTask,
   requeueTaskArchive,
   requeueTasksForPolling,
@@ -112,6 +114,7 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
     .select({
       id: schema.tasks.id,
       kind: schema.tasks.kind,
+      reconciliationRequired: schema.tasks.reconciliation_required,
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
       archivePayload: schema.tasks.archive_payload,
@@ -134,6 +137,13 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
     )!
     if (candidate.archivePayload) {
       if (await requeueTaskArchive(candidate.id, now, candidate.archivePayload, guard)) requeued++
+      continue
+    }
+    if (candidate.reconciliationRequired && candidate.invocationCount > 0) {
+      await reconcileTasks(
+        and(eq(schema.tasks.id, candidate.id), guard)!,
+        '执行连接中断，上游结果待核查',
+      )
       continue
     }
     if (candidate.upstreamTaskIds?.length) {
@@ -289,11 +299,15 @@ export async function purgeOldTasks(
         ),
       ),
     )
-    .returning({ id: schema.tasks.id })
+    .returning({
+      id: schema.tasks.id,
+      reconciliationRequired: schema.tasks.reconciliation_required,
+    })
 
   for (const task of deleted) {
     try {
       await objectStore().deletePrefix(`${task.id}/`)
+      if (task.reconciliationRequired) await durableMediaStore().deletePrefix(`${task.id}/`)
     } catch (error) {
       log.warn(
         { event: 'object_store.cleanup_failed', taskId: task.id, err: String(error) },

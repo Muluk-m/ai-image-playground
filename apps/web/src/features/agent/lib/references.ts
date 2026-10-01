@@ -1,7 +1,9 @@
 import {
   AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_TURN_MAX_REFERENCES,
+  type AgentImageEditAction,
   type AgentInlineReference,
+  type AgentMarkedRegion,
   type AgentMode,
 } from '@image-playground/shared'
 import { mediaIdentity } from '../../../lib/cloudMedia'
@@ -20,6 +22,7 @@ import {
   replaceReferences,
 } from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
+import { attachmentUploadsEnabled } from './attachmentUploads'
 import type { UnsentTurnSubmission } from './turnSubmission'
 
 /** 输入框附上的一张参考图。`id` 是画布对象 id 或素材的图片 id，模型据此指认要改哪一张。 */
@@ -27,6 +30,8 @@ export interface AgentReference extends InputImage {
   /** 素材名；有名字时胶囊显示名字而不是序号。 */
   readonly name?: string
   readonly maskDataUrl?: string
+  readonly editAction?: AgentImageEditAction
+  readonly regions?: readonly AgentMarkedRegion[]
   /**
    * `'selection'` 即跟着画布选区自动带进来的，缺席即用户手动附上的。随草稿落盘：输入框重挂、
    * 发送失败放回来都还认得出。老草稿里没有这一项，读回来按手动算。
@@ -119,7 +124,7 @@ export function agentAdmission(
     acceptsReferences: true,
     inline: {
       limit: AGENT_TURN_MAX_INLINE_REFERENCES,
-      sendsById: (reference) => sendsById(reference, transport),
+      sendsById: (reference) => attachmentUploadsEnabled() || sendsById(reference, transport),
     },
   }
 }
@@ -199,7 +204,11 @@ export function setReferenceMask(
 
 /** 去掉遮罩，参考图本身留着——图仍是编辑器那张，尺寸换回去反而对不上后续重画。 */
 export function clearReferenceMask(draft: AgentDraft, id: string): AgentDraft {
-  return mapReference(draft, id, ({ maskDataUrl: _dropped, ...rest }) => rest)
+  return mapReference(
+    draft,
+    id,
+    ({ maskDataUrl: _dropped, editAction: _action, regions: _regions, ...rest }) => rest,
+  )
 }
 
 function mapReference(
@@ -233,6 +242,8 @@ export function draftForSubmit(draft: AgentDraft): AgentSubmission {
       dataUrl: reference.dataUrl,
       ...(reference.name ? { name: reference.name } : {}),
       ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+      ...(reference.editAction ? { editAction: reference.editAction } : {}),
+      ...(reference.regions ? { regions: reference.regions } : {}),
     })),
   }
 }
