@@ -11,6 +11,7 @@ interface ReconciliationResult {
   reason?: string
 }
 interface ReconciliationView {
+  status: string
   upstreamTaskIds: string[]
   dispatches: {
     id: string
@@ -75,6 +76,13 @@ function TaskReconciliationForm({ taskId }: { taskId: string }) {
   })
   const refresh = async () => {
     const records = await query.refetch()
+    if (!records.isSuccess) return
+    await queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+    if (records.data.status !== 'reconciling') {
+      setUnresolved(null)
+      setNotice(null)
+      return
+    }
     const recorded =
       unresolved && records.data?.decisions.find((row) => row.commandId === unresolved.commandId)
     if (recorded) {
@@ -84,7 +92,6 @@ function TaskReconciliationForm({ taskId }: { taskId: string }) {
           ? (reasons[recorded.reason ?? ''] ?? '核查尚未完成，请查看记录后继续处理。')
           : null,
       )
-      await queryClient.invalidateQueries({ queryKey: ['task', taskId] })
     }
   }
   const decision = useMutation({
@@ -137,11 +144,12 @@ function TaskReconciliationForm({ taskId }: { taskId: string }) {
       ...(parsed ? { result: parsed } : {}),
     })
   }
-  const locked = decision.isPending || unresolved !== null
+  const terminal = ['completed', 'failed', 'cancelled'].includes(query.data?.status ?? '')
+  const locked = decision.isPending || unresolved !== null || terminal
   return (
     <section className="space-y-3 rounded-md border border-amber-500/40 p-4 text-sm">
       <h3 className="font-semibold">结果核查</h3>
-      <p className="text-muted-foreground">预扣保留中</p>
+      <p className="text-muted-foreground">{terminal ? '核查已结束' : '预扣保留中'}</p>
       {query.isError ? <p role="alert">核查记录加载失败，请刷新后重试。</p> : null}
       {query.data ? (
         <>
