@@ -340,6 +340,7 @@ it('视频制作入口在图片项目里重新挂载后仍发送视频轮，不�
   render(true)
   await settle()
   expect(useAgentStore.getState().mode).toBe('video')
+  expect(host.querySelector('[aria-label="出图模式"]')).toBeNull()
   type('继续修改剧本')
   click('发送并拟提示词')
   expect(send).toHaveBeenCalledWith('继续修改剧本', [], 'video')

@@ -793,24 +793,21 @@ export default function AgentComposer({
           </div>
           <ComposerActions className="min-w-0">
             {/* 模式只是状态展示、点不动，挤在按钮排里反而像可点控件——交给参数 chip 说明。 */}
-            <Button
-              type="button"
-              size="icon"
-              variant={!productionMode && autoSubmit ? 'default' : 'secondary'}
-              aria-pressed={!productionMode && autoSubmit}
-              disabled={productionMode}
-              aria-label={t('composer.autoSubmitAria')}
-              title={t(
-                !productionMode && autoSubmit
-                  ? 'composer.autoSubmitOnTitle'
-                  : 'composer.autoSubmitOffTitle',
-              )}
-              className="h-8 w-8 shrink-0 rounded-full"
-              onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
-            >
-              <Zap aria-hidden="true" />
-            </Button>
-            <AgentParamsChip />
+            {!productionMode && (
+              <Button
+                type="button"
+                size="icon"
+                variant={autoSubmit ? 'default' : 'secondary'}
+                aria-pressed={autoSubmit}
+                aria-label={t('composer.autoSubmitAria')}
+                title={t(autoSubmit ? 'composer.autoSubmitOnTitle' : 'composer.autoSubmitOffTitle')}
+                className="h-8 w-8 shrink-0 rounded-full"
+                onClick={() => useAgentStore.getState().setAutoSubmit(!autoSubmit)}
+              >
+                <Zap aria-hidden="true" />
+              </Button>
+            )}
+            <AgentParamsChip generationControls={!productionMode} />
             <ComposerSend
               streaming={stopMode}
               idle={!historyBlocked && !loading && !submitting && Boolean(draft.prompt.trim())}
