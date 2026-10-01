@@ -46,7 +46,7 @@ const reasons: Record<string, string> = {
   reconciliation_evidence_required: '请填写核查依据。',
   reconciliation_result_required: '请提供包含可交付图片的上游结果 JSON。',
   analysis_result_required:
-    '请提供完整 findings 和已核实的 usage（inputTokens、outputTokens，可选 cachedInputTokens）。',
+    '请提供完整 findings 和已核实的 usage（inputTokens、outputTokens，可选 cachedInputTokens）；联合比较还需提供 comparison。',
   reconciliation_lease_lost: '本次核查已失去执行权，请刷新记录确认最新结果。',
   task_not_reconciling: '任务已不在待核查状态，请刷新记录。',
   reconciliation_kind_unsupported: '该任务类型暂不支持此核查入口。',
@@ -185,7 +185,8 @@ function TaskReconciliationForm({ taskId }: { taskId: string }) {
       />
       {query.data?.kind === 'analysis' ? (
         <p className="text-xs text-muted-foreground">
-          请核实原分析请求的逐图结论和 token 用量；未知用量不能填写为 0。
+          请核实原分析请求的逐图结论和 token 用量；未知用量不能填写为 0。 联合比较还需提供
+          comparison：status 为 completed，imageIds 列出全部比较图片，text 填写已核实的比较结论。
         </p>
       ) : null}
       <Label htmlFor={`result-${taskId}`}>
