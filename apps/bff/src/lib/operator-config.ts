@@ -219,6 +219,7 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
     !capabilities['accounts:login']
   )
     capabilities['agent:batch-plans'] = false
+  if (!capabilities['agent:batch-plans']) capabilities['agent:batch-execution'] = false
   assertCapabilityCompatibility(capabilities)
   return {
     capabilities,

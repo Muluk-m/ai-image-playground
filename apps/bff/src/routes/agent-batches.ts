@@ -2,6 +2,12 @@ import { and, asc, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import {
+  batchExecutionAvailable,
+  confirmAgentBatch,
+  controlAgentBatch,
+  repriceAgentBatch,
+} from '../lib/agent/batch-execution'
+import {
   BatchPlanError,
   batchPlansAvailable,
   cancelAgentBatchPlan,
@@ -125,5 +131,78 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
     {
       params: t.Object({ id: t.String() }),
       body: t.Object({ expectedVersion: t.Integer({ minimum: 1 }) }),
+    },
+  )
+
+  .post(
+    '/api/agent/batches/:id/confirm',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!batchExecutionAvailable(authUser.id))
+        return capabilityUnavailable('agent:batch-execution')
+      await confirmAgentBatch(authUser.id, params.id, body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+        expectedDigest: t.String({ pattern: '^[a-f0-9]{64}$' }),
+        deviceId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/batches/:id/pause',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      await controlAgentBatch(authUser.id, params.id, 'pause', body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )
+  .post(
+    '/api/agent/batches/:id/resume',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!batchExecutionAvailable(authUser.id))
+        return capabilityUnavailable('agent:batch-execution')
+      await controlAgentBatch(authUser.id, params.id, 'resume', body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+        expectedDigest: t.String({ pattern: '^[a-f0-9]{64}$' }),
+        deviceId: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/batches/:id/reprice',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!batchExecutionAvailable(authUser.id))
+        return capabilityUnavailable('agent:batch-execution')
+      await repriceAgentBatch(authUser.id, params.id, body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+      }),
     },
   )

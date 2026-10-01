@@ -1,6 +1,7 @@
 import type {
   AgentBatchEstimates,
   AgentBatchItem,
+  AgentBatchPriceSnapshot,
   AgentCanvasSnapshot,
   AgentCompactionRecord,
   AgentContentBlock,
@@ -1202,12 +1203,20 @@ export const agent_batches = pgTable(
     project_id: text('project_id'),
     project_revision: integer('project_revision'),
     current_version: integer('current_version').notNull().default(1),
-    status: text('status').$type<'draft' | 'cancelled'>().notNull().default('draft'),
+    status: text('status')
+      .$type<'draft' | 'cancelled' | 'running' | 'paused' | 'closed'>()
+      .notNull()
+      .default('draft'),
+    pause_reason: text('pause_reason').$type<'price_changed' | 'insufficient_credits'>(),
+    confirmed_version: integer('confirmed_version'),
+    confirmation_command_id: text('confirmation_command_id'),
+    device_id: text('device_id'),
     dispatch_generation: integer('dispatch_generation').notNull().default(0),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
   },
   (t) => [
+    uniqueIndex('idx_agent_batches_confirmation').on(t.user_id, t.confirmation_command_id),
     uniqueIndex('idx_agent_batches_call').on(t.conversation_id, t.origin_turn_id, t.tool_call_id),
     index('idx_agent_batches_owner_conversation').on(
       t.user_id,
@@ -1215,7 +1224,10 @@ export const agent_batches = pgTable(
       t.created_at,
       t.id,
     ),
-    check('agent_batches_status_check', sql`${t.status} IN ('draft', 'cancelled')`),
+    check(
+      'agent_batches_status_check',
+      sql`${t.status} IN ('draft', 'cancelled', 'running', 'paused', 'closed')`,
+    ),
     check('agent_batches_experience_check', sql`${t.experience} IN ('chat', 'canvas')`),
   ],
 )
@@ -1260,4 +1272,44 @@ export const agent_batch_items = pgTable(
       foreignColumns: [agent_batch_plans.batch_id, agent_batch_plans.version],
     }).onDelete('cascade'),
   ],
+)
+
+export const agent_batch_attempts = pgTable(
+  'agent_batch_attempts',
+  {
+    batch_id: text('batch_id').notNull(),
+    version: integer('version').notNull(),
+    item_key: text('item_key').notNull(),
+    attempt: integer('attempt').notNull(),
+    task_id: text('task_id').notNull(),
+    price_snapshot: bunJsonb('price_snapshot').$type<AgentBatchPriceSnapshot | null>(),
+    reserved_credits: integer('reserved_credits').notNull(),
+    submitted_at: epochMs('submitted_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.batch_id, t.version, t.item_key, t.attempt] }),
+    uniqueIndex('idx_agent_batch_attempts_task').on(t.task_id),
+    foreignKey({
+      columns: [t.batch_id, t.version, t.item_key],
+      foreignColumns: [
+        agent_batch_items.batch_id,
+        agent_batch_items.version,
+        agent_batch_items.key,
+      ],
+    }).onDelete('restrict'),
+  ],
+)
+
+export const agent_batch_commands = pgTable(
+  'agent_batch_commands',
+  {
+    batch_id: text('batch_id')
+      .notNull()
+      .references(() => agent_batches.id, { onDelete: 'cascade' }),
+    command_id: text('command_id').notNull(),
+    kind: text('kind').$type<'pause' | 'resume' | 'reprice'>().notNull(),
+    request_hash: text('request_hash').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.batch_id, t.command_id] })],
 )

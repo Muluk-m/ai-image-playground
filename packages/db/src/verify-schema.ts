@@ -1,6 +1,8 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
+  'agent_batch_attempts',
+  'agent_batch_commands',
   'agent_batches',
   'agent_batch_plans',
   'agent_batch_items',
@@ -49,6 +51,16 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'agent_batches_pkey',
+  'agent_batch_plans_pkey',
+  'agent_batch_items_pkey',
+  'agent_batch_attempts_pkey',
+  'agent_batch_commands_pkey',
+  'idx_agent_batches_call',
+  'idx_agent_batches_owner_conversation',
+  'idx_agent_batch_items_order',
+  'idx_agent_batches_confirmation',
+  'idx_agent_batch_attempts_task',
   'admin_user_notes_pkey',
   'inspiration_categories_pkey',
   'inspiration_categories_name_unique',
