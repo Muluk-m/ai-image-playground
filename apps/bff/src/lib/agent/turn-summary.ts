@@ -1,5 +1,6 @@
 import type {
   AgentTurnCost,
+  AgentTurnFailure,
   AgentTurnStopReason,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
@@ -14,6 +15,7 @@ export interface AgentTurnSummaryRecord {
   readonly turnId: string
   readonly durationMs: number
   readonly stopReason: AgentTurnStopReason
+  readonly failure?: AgentTurnFailure
   /** 结算后的实际消耗；不计费的部署里缺席，页脚那边只剩耗时。 */
   readonly cost?: AgentTurnCost
 }
@@ -34,6 +36,7 @@ export async function recordAgentTurnSummary(
     duration_ms: record.durationMs,
     stop_reason: record.stopReason,
     cost: record.cost ?? null,
+    failure: record.failure ?? null,
     created_at: now,
   }
   await db
@@ -41,7 +44,12 @@ export async function recordAgentTurnSummary(
     .values(row)
     .onConflictDoUpdate({
       target: [schema.agent_turns.conversation_id, schema.agent_turns.turn_id],
-      set: { duration_ms: row.duration_ms, stop_reason: row.stop_reason, cost: row.cost },
+      set: {
+        duration_ms: row.duration_ms,
+        stop_reason: row.stop_reason,
+        cost: row.cost,
+        failure: row.failure,
+      },
     })
 }
 
@@ -74,6 +82,7 @@ export async function listAgentTurnSummaries(
       durationMs: schema.agent_turns.duration_ms,
       stopReason: schema.agent_turns.stop_reason,
       cost: schema.agent_turns.cost,
+      failure: schema.agent_turns.failure,
       createdAt: schema.agent_turns.created_at,
       // 被打断的轮排过一次中断续跑：页脚标「已中断」而不是「失败」。
       resumed: sql<boolean>`EXISTS (SELECT 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${schema.agent_turns.conversation_id} AND ${inbox.client_message_id} = ${agentResumeKey('')} || ${schema.agent_turns.turn_id})`,
@@ -85,6 +94,7 @@ export async function listAgentTurnSummaries(
     turnId: row.turnId,
     durationMs: row.durationMs,
     stopReason: row.stopReason,
+    ...(row.failure ? { error: row.failure.code, failure: row.failure } : {}),
     ...(row.stopReason === 'failed' && row.resumed
       ? { error: 'agent_turn_interrupted' as const }
       : {}),

@@ -189,6 +189,62 @@ it('第一句话上屏就是项目名，图片哨兵不进标题', async () => {
   expect(name()).toBe('我的项目')
 })
 
+it('已有消息的未命名对话在下一次发送时补名字', async () => {
+  const id = useCanvasProjectStore.getState().activeId!
+  useAgentStore.setState({
+    messages: [
+      {
+        kind: 'text',
+        id: 'old',
+        turnId: 'old-turn',
+        role: 'user',
+        text: '早先的请求',
+        streaming: false,
+      },
+    ],
+  })
+  turnResponse = async () => Response.json({ error: 'agent_turn_failed' }, { status: 500 })
+  await state().send('把两个字标换成 xm')
+  await vi.waitFor(() =>
+    expect(useCanvasProjectStore.getState().projects.find((one) => one.id === id)?.name).toBe(
+      '把两个字标换成 xm',
+    ),
+  )
+})
+
+it('打开旧的未命名对话从用户消息补标题，不用助手文字', async () => {
+  const id = useCanvasProjectStore.getState().activeId!
+  await useCanvasProjectStore.getState().update(id, { conversationId: 'old-unnamed' })
+  fetchMock.mockImplementationOnce(async () =>
+    Response.json({
+      messages: [
+        {
+          id: 'assistant',
+          turnId: 'old',
+          role: 'assistant',
+          content: [{ type: 'text', text: '助手话术' }],
+          createdAt: 1,
+        },
+        {
+          id: 'user',
+          turnId: 'old',
+          role: 'user',
+          content: [{ type: 'text', text: '把[image 1]的标志换成 xm' }],
+          createdAt: 2,
+        },
+      ],
+      turns: [],
+      activeTurn: null,
+    }),
+  )
+  await state().selectProject(id)
+  await vi.waitFor(() =>
+    expect(useCanvasProjectStore.getState().projects.find((one) => one.id === id)?.name).toBe(
+      '把的标志换成 xm',
+    ),
+  )
+})
+
 it('失效会话保留原项目和画布，只移除失效绑定', async () => {
   const id = useCanvasProjectStore.getState().activeId!
   await useCanvasProjectStore.getState().update(id, { conversationId: 'gone' })
@@ -300,13 +356,16 @@ it('草稿保存失败时拒绝切项目，错误与内容保留', async () => {
   expect(useCanvasProjectStore.getState().activeId).toBe(id)
 })
 
-it('主动新建的空项目保持画布视图，重复新建不堆积空项目', async () => {
+it('主动新建的空对话保持对话入口，重复新建不堆积空项目', async () => {
   const first = useCanvasProjectStore.getState().activeId!
   expect(await state().createProject()).toBe(true)
   expect(useCanvasProjectStore.getState().activeId).toBe(first)
   expect(
     useCanvasProjectStore.getState().projects.find((one) => one.id === first)?.workspaceOpened,
   ).toBe(true)
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === first)?.experience,
+  ).toBe('chat')
   expect(await state().createProject()).toBe(true)
   expect(useCanvasProjectStore.getState().projects).toHaveLength(1)
   const { projectRepository } = await import('../../../features/canvas/lib/projectRepository')

@@ -102,3 +102,38 @@ it('refuses a region that comes with more than one image id', async () => {
   expect(result.content.some((block) => block.type === 'image')).toBe(false)
   expect(result.content[0]).toMatchObject({ text: expect.stringContaining('region 只能配一个') })
 })
+
+it('keeps image and mask coordinates and selection identity when viewing a large masked reference', async () => {
+  const correctMask = `data:image/png;base64,${(
+    await sharp({ create: { width: 4000, height: 1000, channels: 4, background: '#ffffffff' } })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 200, height: 200, channels: 4, background: '#ffffffff' },
+          })
+            .png()
+            .toBuffer(),
+          left: 1000,
+          top: 200,
+          blend: 'dest-out',
+        },
+      ])
+      .png()
+      .toBuffer()
+  ).toString('base64')}`
+  const ctx = context()
+  ctx.images.attach([{ imageId: 'selected', dataUrl: WIDE, maskDataUrl: correctMask }])
+  const { imageSelection } = await import('../../../../lib/agent/selection-preview')
+  const selection = await imageSelection({ dataUrl: WIDE, maskDataUrl: correctMask }, false)
+  for (const params of [{}, { region: { x: 0.25, y: 0.2, width: 0.05, height: 0.2 } }]) {
+    const result = await viewImage
+      .create(ctx)
+      .execute('selected-view', { imageIds: ['selected'], ...params }, undefined, undefined)
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining(selection!.id) })
+    const images = result.content.filter((block) => block.type === 'image')
+    expect(images).toHaveLength('region' in params ? 4 : 3)
+    expect((await sizeOf(images[0]!)).width).toBe(4000)
+    expect((await sizeOf(images[1]!)).width).toBe(4000)
+    expect((await sizeOf(images[2]!)).width).toBe(200)
+  }
+})

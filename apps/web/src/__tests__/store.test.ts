@@ -1469,7 +1469,7 @@ describe('submitPrepared 显式参数提交接缝', () => {
     expect(useStore.getState().tasks[0].origin).toBeUndefined()
   })
 
-  it('不经 composer 校验：超过 16 张仍提交且不弹提示', async () => {
+  it('显式提交同样拦截超过 16 张的槽位展开结果', async () => {
     const ids = await submitPrepared({
       prompt: '{场景}',
       slotValues: { 场景: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] },
@@ -1477,9 +1477,9 @@ describe('submitPrepared 显式参数提交接缝', () => {
       params: { ...DEFAULT_PARAMS, n: 2 },
     })
 
-    expect(ids).toHaveLength(18)
-    expect(useStore.getState().tasks).toHaveLength(18)
-    expect(useStore.getState().showToast).not.toHaveBeenCalled()
+    expect(ids).toEqual([])
+    expect(useStore.getState().tasks).toHaveLength(0)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(expect.any(String), 'error')
   })
 
   it('只产出一条任务时复用传入的幂等键，分发成多条时各自唯一', async () => {

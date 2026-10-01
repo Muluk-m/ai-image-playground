@@ -53,7 +53,18 @@ const checkAppAlerts = createAppAlerting({
     deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
   }),
 })
+let privateMaintenance: Promise<void> | undefined
 const staleScanTimer = setInterval(() => {
+  if (!scheduler.drainStatus().draining && !privateMaintenance) {
+    privateMaintenance = loadPrivateBffOverlay()
+      .then((overlay) => overlay.taskHooks.runWorkerMaintenance?.(Date.now()))
+      .catch((err) =>
+        log.warn({ event: 'worker.private_maintenance_failed', err }, 'private maintenance failed'),
+      )
+      .finally(() => {
+        privateMaintenance = undefined
+      })
+  }
   void checkAppAlerts()
   // 运维看板的两张小表都靠这个循环保持小：过期的心跳实例，和 7 天前的宿主机采样。
   Promise.all([purgeStaleHeartbeats(), purgeOldHostSamples()]).catch((err) => {
@@ -115,7 +126,17 @@ async function gracefulShutdown(signal: string): Promise<void> {
     'stopping task worker',
   )
 
-  if (!(await scheduler.waitForIdle(drainTimeoutMs))) {
+  let maintenanceTimeout: ReturnType<typeof setTimeout> | undefined
+  const [idle] = await Promise.all([
+    scheduler.waitForIdle(drainTimeoutMs),
+    Promise.race([
+      privateMaintenance,
+      new Promise<void>((resolve) => {
+        maintenanceTimeout = setTimeout(resolve, drainTimeoutMs)
+      }),
+    ]).finally(() => clearTimeout(maintenanceTimeout)),
+  ])
+  if (!idle) {
     // id 必须在 abort 之前取：runner settle 之后会把自己从 runningTasks 摘掉。
     const aborted = runningTaskIds()
     abortAllRunningTasks()

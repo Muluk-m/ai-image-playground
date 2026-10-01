@@ -40,14 +40,23 @@ export function ReliabilityBlock({ block, now }: { block: OpsBlock<OpsReliabilit
               <div key={window.range} className="rounded-md border p-3">
                 <p className="mb-3 text-sm font-medium">
                   近 {window.range === '24h' ? '24 小时' : '7 天'}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {window.requests.toLocaleString('zh-CN')} 次接口请求
+                  </span>
                 </p>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Kpi
                     variant="inline"
                     label="接口可用率"
                     value={availability(window.availability)}
-                    note={`${window.requests} 请求 · ${window.server_errors} 次 5xx`}
-                    tone={window.server_errors > 0 ? 'danger' : 'default'}
+                    note={`${window.server_errors} 次 5xx`}
+                    tone={
+                      window.requests >= OPS_THRESHOLDS.API_MIN_REQUESTS_FOR_RATIO &&
+                      window.availability !== null &&
+                      1 - window.availability > OPS_THRESHOLDS.API_SERVER_ERROR_RATIO
+                        ? 'danger'
+                        : 'default'
+                    }
                   />
                   <Kpi
                     variant="inline"

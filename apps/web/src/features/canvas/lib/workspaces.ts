@@ -2,14 +2,37 @@ import { i18next } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useCanvasProjectStore } from '../projectStore'
 import { createAgentCanvasSink } from './agentCanvasSink'
-import { CanvasDoc } from './canvasDoc'
+import { type Camera, CanvasDoc, type CanvasEl } from './canvasDoc'
 import { CloudProjectSession } from './cloudProjects'
-import { CanvasEditor } from './editor'
+import { CanvasEditor, elementBounds } from './editor'
 import { placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets } from './placement'
 import { cloudProjectsEnabled } from './projectClient'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 import { SceneRecord, type SceneRecordStatus } from './sceneRecord'
+
+function contentVisibility(
+  elements: readonly CanvasEl[],
+  camera: Camera,
+  viewport: { width: number; height: number },
+): { allVisible: boolean; bestVisible: number } {
+  let allVisible = true
+  let bestVisible = 0
+  for (const element of elements) {
+    const bounds = elementBounds(element)
+    const left = (bounds.x - camera.x) * camera.zoom
+    const top = (bounds.y - camera.y) * camera.zoom
+    const right = (bounds.maxX - camera.x) * camera.zoom
+    const bottom = (bounds.maxY - camera.y) * camera.zoom
+    if (left < -4 || top < -4 || right > viewport.width + 4 || bottom > viewport.height + 4)
+      allVisible = false
+    const visibleWidth = Math.max(0, Math.min(right, viewport.width) - Math.max(left, 0))
+    const visibleHeight = Math.max(0, Math.min(bottom, viewport.height) - Math.max(top, 0))
+    const area = Math.max(1e-6, (right - left) * (bottom - top))
+    bestVisible = Math.max(bestVisible, (visibleWidth * visibleHeight) / area)
+  }
+  return { allVisible, bestVisible }
+}
 
 /** 一个项目在这台设备上打开着的那份画布：文档、编辑器、产物出口，以及它的存档与云端会话。 */
 export class CanvasWorkspace {
@@ -26,8 +49,9 @@ export class CanvasWorkspace {
     },
   })
   cloud: CloudProjectSession | undefined
-  /** 云端那份第一次落到这台机器上：等画布量出尺寸，把内容一次性框进视野。 */
+  /** 云端首次落地或跨设备打开：等画布量出尺寸，把内容一次性框进视野。 */
   private needsInitialFit = false
+  private initialViewResolved = false
   ready: Promise<unknown>
   private disposed = false
   private refreshing = false
@@ -126,14 +150,43 @@ export class CanvasWorkspace {
       (error) => console.warn('[canvas] 工作台图片放置失败', error),
     )
   }
-  /** 第一次把云端那份铺开时框进视野；画布还没量出尺寸就等它量出来。返回取消等待的函数。 */
+  /** 首次打开时按实际视口判断是否需要框住内容；画布还没量出尺寸就等它量出来。 */
   fitInitialView(): () => void {
-    if (!this.needsInitialFit) return () => {}
+    if (this.initialViewResolved) return () => {}
     const fit = () => {
       if (this.doc.viewport.width <= 1 || this.doc.viewport.height <= 1) return
+      const previous = this.record.restoredViewport
+      const { width, height } = this.doc.viewport
+      const current = contentVisibility(this.doc.elements, this.doc.camera, this.doc.viewport)
+      const old =
+        previous && previous.width > 1 && previous.height > 1
+          ? contentVisibility(this.doc.elements, this.doc.camera, previous)
+          : null
+      const defaultCamera =
+        this.doc.camera.x === 0 && this.doc.camera.y === 0 && this.doc.camera.zoom === 1
+      const legacyNeedsFit =
+        current.bestVisible === 0 ||
+        (defaultCamera && (current.bestVisible < 0.6 || (width <= 1024 && !current.allVisible)))
+      const viewportChanged =
+        this.doc.elements.length > 0 &&
+        (old
+          ? Math.max(
+              width / previous!.width,
+              previous!.width / width,
+              height / previous!.height,
+              previous!.height / height,
+            ) > 1.5 ||
+            (old.allVisible && !current.allVisible) ||
+            (old.bestVisible >= 0.6 && current.bestVisible < 0.6)
+          : legacyNeedsFit)
+      this.initialViewResolved = true
+      if (!this.needsInitialFit && !viewportChanged) return unsubscribe()
       this.needsInitialFit = false
       unsubscribe()
-      this.editor.scrollToElements(this.doc.elements.map((one) => one.id))
+      this.editor.scrollToElements(
+        this.doc.elements.map((one) => one.id),
+        false,
+      )
     }
     const unsubscribe = this.doc.subscribe(fit)
     fit()

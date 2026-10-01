@@ -295,9 +295,12 @@ export class CloudProjectSession implements CloudSceneStrategy {
       this.update(navigator.onLine === false ? 'offline' : 'local')
     return saved
   }
-  private async metadata(patch: Parameters<typeof projectRepository.update>[1]) {
+  private async metadata(
+    patch: Parameters<typeof projectRepository.update>[1],
+    expectedName?: Parameters<typeof projectRepository.update>[2],
+  ) {
     this.current()
-    this.project = await projectRepository.update(this.project.id, patch)
+    this.project = await projectRepository.update(this.project.id, patch, expectedName)
     this.current()
     this.publish(this.project)
   }
@@ -516,15 +519,22 @@ export class CloudProjectSession implements CloudSceneStrategy {
   /**
    * 改名并推上去。`custom` 为假是会话标题给的自动名：不算用户起的名字，标题再变还能跟着改。
    */
-  rename(name: string, custom = true): Promise<void> {
+  rename(
+    name: string,
+    custom = true,
+    expectedName?: Parameters<typeof projectRepository.update>[2],
+  ): Promise<void> {
     return this.serialize(async () => {
       // 先把欠着的那次恢复元数据补写掉，否则它会把新名字盖回去。
       await this.saveRecoveryMetadata()
-      await this.metadata({
-        name,
-        customName: custom,
-        cloud: { revision: this.baseline.revision, nameDirty: true },
-      })
+      await this.metadata(
+        {
+          name,
+          customName: custom,
+          cloud: { revision: this.baseline.revision, nameDirty: true },
+        },
+        expectedName,
+      )
       this.markChanged()
       await this.push()
     })

@@ -36,6 +36,7 @@ export default function ProjectNavigation() {
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [visibleCounts, setVisibleCounts] = useState({ chat: 5, canvas: 5 })
   // 哪一项正在打开。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 只把按钮置灰的话点下去像没反应。`'new'` 是「新建」那一项。
   const [pending, setPending] = useState<string | 'new' | null>(null)
@@ -54,14 +55,13 @@ export default function ProjectNavigation() {
   const matches = (query ? catalog : recent).filter((project) =>
     projectEntryName(project).toLocaleLowerCase().includes(query),
   )
-  const visible = (
-    query
-      ? matches
-      : [
-          ...matches.filter((project) => projectExperience(project) === 'chat'),
-          ...matches.filter((project) => projectExperience(project) === 'canvas'),
-        ]
-  ).slice(0, query ? 30 : 10)
+  const currentExperience = current ? projectExperience(current) : 'chat'
+  const groupOrder: ('chat' | 'canvas')[] =
+    currentExperience === 'canvas' ? ['canvas', 'chat'] : ['chat', 'canvas']
+  const groups = groupOrder.map((experience) => {
+    const items = matches.filter((project) => projectExperience(project) === experience)
+    return { experience, items, visible: items.slice(0, visibleCounts[experience]) }
+  })
   const allProjects = () => {
     setOpen(false)
     useLibraryStore.getState().openProjects()
@@ -92,6 +92,7 @@ export default function ProjectNavigation() {
             setOpen(value)
             if (value) {
               setSearch('')
+              setVisibleCounts({ chat: 5, canvas: 5 })
               void useCanvasProjectStore.getState().refreshCloud()
             }
           }}
@@ -120,7 +121,10 @@ export default function ProjectNavigation() {
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setVisibleCounts({ chat: 5, canvas: 5 })
+                }}
                 placeholder={t('navigation.search')}
                 aria-label={t('navigation.search')}
                 className="pl-9 text-xs"
@@ -130,62 +134,97 @@ export default function ProjectNavigation() {
               {query ? t('navigation.results') : t('navigation.recent')}
             </p>
             <div className="min-h-0 overflow-y-auto" aria-busy={busy}>
-              {visible.map((project, index) => (
-                <div key={project.id}>
-                  {!query &&
-                    (index === 0 ||
-                      projectExperience(visible[index - 1]) !== projectExperience(project)) && (
-                      <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
-                        {t(
-                          projectExperience(project) === 'chat'
-                            ? 'navigation.chats'
-                            : 'navigation.canvases',
-                        )}
-                      </p>
+              {groups
+                .filter((group) => group.items.length > 0)
+                .map((group) => (
+                  <section
+                    key={group.experience}
+                    aria-label={t(
+                      group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases',
                     )}
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => void enter(project.id)}
-                    aria-current={project.id === activeId ? 'true' : undefined}
-                    className={`h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left ${project.id === activeId ? 'bg-accent' : ''}`}
                   >
-                    {/* 云端项目的封面是 `aip-media:` 这种要换签名 URL 的引用，交给 MediaImage；
+                    <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
+                      {t(group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases')}
+                    </p>
+                    {group.visible.map((project) => (
+                      <Button
+                        key={project.id}
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => void enter(project.id)}
+                        aria-current={project.id === activeId ? 'true' : undefined}
+                        className={`h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left ${project.id === activeId ? 'bg-accent' : ''}`}
+                      >
+                        {/* 云端项目的封面是 `aip-media:` 这种要换签名 URL 的引用，交给 MediaImage；
                       本机项目的封面是 data URL，同一条路直出。取不到封面就露出底下的文件夹图标，
                       不把认不出的地址塞进 <img>——那只会得到一个碎图。 */}
-                    <span className="relative flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
-                      {projectExperience(project) === 'chat' ? (
-                        <MessageCircle aria-hidden="true" />
-                      ) : (
-                        <LayoutDashboard aria-hidden="true" />
-                      )}
-                      {project.cover && (
-                        <MediaImage
-                          src={project.cover}
-                          alt=""
-                          loading="lazy"
-                          className="absolute inset-0 h-full w-full object-cover"
-                        />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs">{projectEntryName(project)}</span>
-                      <time
-                        dateTime={new Date(project.updatedAt).toISOString()}
-                        className="mt-0.5 block text-[10px] font-normal text-muted-foreground"
-                      >
-                        {formatDateMinute(project.updatedAt)}
-                      </time>
-                    </span>
-                    {project.id === pending ? (
-                      <LoaderCircle className="animate-spin text-primary" aria-hidden="true" />
-                    ) : (
-                      project.id === activeId && <Check className="text-primary" />
+                        <span className="relative flex h-10 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                          {projectExperience(project) === 'chat' ? (
+                            <MessageCircle aria-hidden="true" />
+                          ) : (
+                            <LayoutDashboard aria-hidden="true" />
+                          )}
+                          {project.cover && (
+                            <MediaImage
+                              src={project.cover}
+                              alt=""
+                              loading="lazy"
+                              className="absolute inset-0 h-full w-full object-cover"
+                            />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs">
+                            {projectEntryName(project)}
+                          </span>
+                          <time
+                            dateTime={new Date(project.updatedAt).toISOString()}
+                            className="mt-0.5 block text-[10px] font-normal text-muted-foreground"
+                          >
+                            {formatDateMinute(project.updatedAt)}
+                          </time>
+                        </span>
+                        {project.id === pending ? (
+                          <LoaderCircle className="animate-spin text-primary" aria-hidden="true" />
+                        ) : (
+                          project.id === activeId && <Check className="text-primary" />
+                        )}
+                      </Button>
+                    ))}
+                    {group.items.length > 5 && (
+                      <div className="flex items-center">
+                        {group.visible.length < group.items.length && (
+                          <Button
+                            variant="ghost"
+                            className="justify-start px-3 text-xs text-muted-foreground"
+                            onClick={() =>
+                              setVisibleCounts((value) => ({
+                                ...value,
+                                [group.experience]: value[group.experience] + 5,
+                              }))
+                            }
+                          >
+                            {t('navigation.expand', {
+                              remaining: Math.min(5, group.items.length - group.visible.length),
+                            })}
+                          </Button>
+                        )}
+                        {visibleCounts[group.experience] > 5 && (
+                          <Button
+                            variant="ghost"
+                            className="justify-start px-3 text-xs text-muted-foreground"
+                            onClick={() =>
+                              setVisibleCounts((value) => ({ ...value, [group.experience]: 5 }))
+                            }
+                          >
+                            {t('navigation.collapse')}
+                          </Button>
+                        )}
+                      </div>
                     )}
-                  </Button>
-                </div>
-              ))}
-              {!visible.length && (
+                  </section>
+                ))}
+              {!matches.length && (
                 <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                   {t('canvas:grid.noMatch')}
                 </p>

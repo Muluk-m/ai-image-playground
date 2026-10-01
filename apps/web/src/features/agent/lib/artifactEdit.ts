@@ -1,3 +1,5 @@
+import type { AgentMarkedRegion } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { assertUsableMaskCoverage, classifyMaskAlpha } from '../../../lib/mask'
 import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
 
@@ -12,11 +14,22 @@ export interface CropRect {
 
 export interface ArtifactEditInput {
   readonly dataUrl: string
+  readonly regions?: readonly AgentMarkedRegion[]
   readonly maskDataUrl?: string
 }
 
 /** The mask contract is opaque = keep, transparent = regenerate. */
-export function exportMarkedImage(source: string, mask: HTMLCanvasElement): ArtifactEditInput {
+export function exportMarkedImage(
+  source: string,
+  mask: HTMLCanvasElement,
+  image: HTMLImageElement,
+): ArtifactEditInput {
+  if (
+    !image.naturalWidth ||
+    image.naturalWidth !== mask.width ||
+    image.naturalHeight !== mask.height
+  )
+    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'composer' }))
   const context = mask.getContext('2d', { willReadFrequently: true })
   if (!context) throw new Error('Mask canvas is unavailable')
   assertUsableMaskCoverage(classifyMaskAlpha(context.getImageData(0, 0, mask.width, mask.height)))

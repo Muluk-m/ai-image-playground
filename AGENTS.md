@@ -6,7 +6,7 @@
 
 - **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS，再发布两套 Pages。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
 - 前端两套 Pages、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
-- **测试环境：推 `test` 分支即由 `.github/workflows/deploy-test.yml` 发布到 https://test.muvloom.online（独立 Pages 项目 `muvloom-test`，与付费站同账号，发的是付费形态的包）。** 流程是「`ci-check-test-branch.sh` 确认 test 不落后 main → lint / typecheck / apps/web build → 克隆 overlay → `scripts/pages-release.sh test`」。**落后 main 直接失败，CI 不自动合**：无人看管地解冲突会让测试站跑着一份哪里都不存在的代码；红灯时把 main 合进 test 再推一次。只发前端，**`TEST_BFF_BASE_URL` 目前就是付费站的生产 API，测试站读写生产数据**。别在 `test` 上直接改代码，也别拿它当长期集成分支。细节见[测试环境手册](docs/deploy/test-environment.md)。
+- **测试环境：推 `test` 分支由 `.github/workflows/deploy-test.yml` 发布独立测试后端，再发布 https://test.muvloom.online。** 先确认 test 不落后 main，完成检查、测试与镜像构建；后端使用 `image-playground-test`、独立数据库与 R2 桶，前端固定连接 `https://test-api.muvloom.online`，拒绝回退生产。前后端使用同一公开提交与 `private.lock` 指定 overlay。别在 test 直接开发；细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只有 `scripts/pages-release.sh` 一个入口，用 `internal|paid|test` 选目标，每个目标的 Pages 项目与域名在 `pages.env` 里各自写死。底层的 `scripts/pages-deploy.sh` 不直接调——漏掉分支参数曾把未合并的分支发到生产。
 - macmini2 旧备用已停止，Tunnel 禁用；配置、镜像及数据卷保留。启停与历史数据状态见[灾备附录](docs/deploy/cold-recovery.md#附录旧备用服务)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)，不定时同步备用 PG；新实例只用 R2。保持原域名、会话密钥和账号命名空间，切回前核对两端增量；不得直接覆盖原库或自动绑定匿名数据。
@@ -102,8 +102,7 @@ overlay 反过来只允许通过上面三个接缝与三个**宿主面**引公�
 也可手动跑）把 lock 抬到它：先把这对组合构建一遍，通过才提交，并显式触发一次生产部署——
 所以 overlay 合并**会**上线，不必等公开 main 另有提交。本地 `private/` 用
 `scripts/sync-private-overlay.sh` 对齐到 lock；两边错位时 typecheck / 全量测试会红（overlay 引了
-公开树没有的宿主面成员），那是版本没对上，不是代码坏了。测试环境仍取 overlay main HEAD（预览下
-一版），所以 test 可能比生产多出尚未钉住的 overlay 提交。
+公开树没有的宿主面成员），那是版本没对上，不是代码坏了。测试环境也使用 private.lock，前后端固定同一 overlay 提交。
 
 私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，

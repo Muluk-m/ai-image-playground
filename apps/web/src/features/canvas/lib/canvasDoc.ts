@@ -314,8 +314,8 @@ export class CanvasDoc {
 
   /** 以视口内某个屏幕点为锚缩放（滚轮 / 捏合 / 缩放控件共用）。 */
   zoomAt(screenX: number, screenY: number, nextZoom: number): void {
-    const zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, nextZoom))
     const { camera } = this
+    const zoom = Math.max(Math.min(ZOOM_MIN, camera.zoom), Math.min(ZOOM_MAX, nextZoom))
     const pageX = camera.x + screenX / camera.zoom
     const pageY = camera.y + screenY / camera.zoom
     this.setCamera({ x: pageX - screenX / zoom, y: pageY - screenY / zoom, zoom })

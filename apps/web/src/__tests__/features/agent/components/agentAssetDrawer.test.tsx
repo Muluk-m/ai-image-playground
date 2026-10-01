@@ -128,8 +128,36 @@ it('loads only the visible page and fetches older conversation histories as the 
   expect(fixture.fetchMessages).toHaveBeenCalledTimes(1)
   expect(fixture.fetchMessages).toHaveBeenCalledWith('other-1')
 
+  // Streaming replies replace messages without invalidating loaded history or its cursor.
+  await act(async () =>
+    root.render(
+      <AgentAssetDrawer
+        messages={Array.from({ length: 30 }, (_, index) => item(`current-${index}`))}
+        onClose={() => {}}
+        onPreview={() => {}}
+      />,
+    ),
+  )
+  expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(48)
+  expect(fixture.fetchMessages).toHaveBeenCalledTimes(1)
+
+  await act(async () =>
+    root.render(
+      <AgentAssetDrawer
+        messages={[
+          item('new-result'),
+          ...Array.from({ length: 30 }, (_, index) => item(`current-${index}`)),
+        ]}
+        onClose={() => {}}
+        onPreview={() => {}}
+      />,
+    ),
+  )
+  expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(49)
+  expect(fixture.fetchMessages).toHaveBeenCalledTimes(1)
+
   await scrollToEnd()
-  expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(62)
+  expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(63)
   expect(fixture.fetchMessages).toHaveBeenCalledTimes(2)
   expect(fixture.fetchMessages).toHaveBeenLastCalledWith('other-2')
   expect(document.querySelector('.studio-assets-end')).toBeNull()

@@ -25,7 +25,7 @@ concurrency:
 
 env:
   LLM_URL: https://sub2api.qiliangjia.org/v1/chat/completions
-  LLM_MODEL: gpt-6-sol
+  LLM_MODEL: gpt-6.1-sol
   # 低于这一级的意见只进 Job Summary，不刷到 PR 上。
   MIN_SEVERITY: P1
 

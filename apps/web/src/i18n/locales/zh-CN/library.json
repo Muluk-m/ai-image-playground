@@ -34,10 +34,26 @@
     "deleteTitle": "删除素材",
     "deleteMessage": "确定删除素材「{{name}}」吗？",
     "viewCount_other": "{{count}} 张",
-    "kind": { "product": "产品", "person": "人物" },
-    "background": { "transparent": "透明底", "solid": "白底" },
-    "view": { "front": "正面", "side": "侧面", "back": "背面", "detail": "细节", "sheet": "拼图", "none": "未标注" },
-    "source": { "upload": "上传", "generated": "生成" },
+    "kind": {
+      "product": "产品",
+      "person": "人物"
+    },
+    "background": {
+      "transparent": "透明底",
+      "solid": "白底"
+    },
+    "view": {
+      "front": "正面",
+      "side": "侧面",
+      "back": "背面",
+      "detail": "细节",
+      "sheet": "拼图",
+      "none": "未标注"
+    },
+    "source": {
+      "upload": "上传",
+      "generated": "生成"
+    },
     "cover": "封面",
     "addView": "追加视角",
     "views": "视角"
@@ -59,7 +75,12 @@
     "mine": "我的模板",
     "builtin": "预置模板",
     "builtinTag": "预置",
-    "purpose": { "hero": "主图", "poster": "海报", "scene": "场景图", "detail": "详情图" },
+    "purpose": {
+      "hero": "主图",
+      "poster": "海报",
+      "scene": "场景图",
+      "detail": "详情图"
+    },
     "slots_other": "{{count}} 个素材位",
     "generate": "用它出图",
     "tune": "继续调试",
@@ -71,7 +92,10 @@
     "more": "更多模板",
     "applied": "已切到 {{model}} · {{size}}",
     "slotMismatch": "这个模板需要 {{count}} 条素材",
-    "empty": "还没有自己的模板"
+    "empty": "还没有自己的模板",
+    "inputLimit": "需要 {{count}} 张输入图，最多支持 {{max}} 张。请减少模板参考图。",
+    "inputsUnavailable": "无法加载图片「{{image}}」，请检查后重试。",
+    "prepareFailed": "准备生成失败，请重试"
   },
   "lookDetail": {
     "cover": "封面",

@@ -25,6 +25,7 @@ const {
   estimatedTurnInput,
   expandSkillInvocation,
   turnInitialState,
+  turnInitialStateOf,
   turnModelPrompt,
   turnPromptBody,
   turnPromptText,
@@ -338,6 +339,24 @@ const REAL_MASKED = {
 
 /** 估算路径与实发路径必须同形；不同形的地方要在这里写明白，别等它悄悄变成漂移。 */
 describe('estimated and sent turn input', () => {
+  it('uses the same native history in reservation and actual initial state', () => {
+    const native = turnInitialState(RICH_HISTORY, 'image').messages
+    native[0] = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '原轮的时间和原文' },
+        { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+      ],
+      timestamp: 1,
+    }
+    const prepared = input(RICH_HISTORY, '继续', [], {
+      modelHistory: { signature: 'verified', messages: native },
+    })
+    expect(turnInitialStateOf(prepared).messages).toEqual(native)
+    expect(estimatedTurnInput(prepared).slice(1, -1)).toEqual(native)
+    expect(estimatedTurnInput(prepared).at(-1)).toMatchObject({ role: 'user' })
+  })
+
   it('opens with the same system prompt the agent starts from', () => {
     const estimated = estimatedTurnInput(input(RICH_HISTORY, '再来一张'))
     expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY, 'image').systemPrompt)
@@ -494,6 +513,15 @@ describe('这一轮的观众', () => {
     expect(systemPrompt).toContain('<location>skill://look-l1/SKILL.md</location>')
     // 正文要模型自己调 loadSkill 才进上下文，常驻里一个字都不该有。
     expect(systemPrompt).not.toContain('把素材放进岩壁场景')
+  })
+
+  it('模板使用顺序变化时系统提示词仍逐字相同', () => {
+    const second = { ...audience.looks[0]!, name: 'look-l2', title: '第二个模板' }
+    const firstOrder = { ...audience, looks: [audience.looks[0]!, second] }
+    const usedOrder = { ...audience, looks: [second, audience.looks[0]!] }
+    expect(turnInitialState([], 'image', false, 0, firstOrder).systemPrompt).toBe(
+      turnInitialState([], 'image', false, 0, usedOrder).systemPrompt,
+    )
   })
 
   it('没有观众的那一轮一条模板都不露', () => {
