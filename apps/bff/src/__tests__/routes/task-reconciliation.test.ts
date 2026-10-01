@@ -806,3 +806,102 @@ it('replays the original unresolved reason for the same reconciliation command',
   expect(dispatches).toBe(1)
   expect(billing.settlements).toHaveLength(0)
 })
+
+it('queries the original ID when a durable archive checkpoint has lost its object', async () => {
+  const durable = new DurableFixture()
+  setDurableMediaStoreForTesting(durable)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+    prompt: 'missing checkpoint object',
+    device_id: 'test-device-reconcile',
+    client_request_id: crypto.randomUUID(),
+  })
+  const { request_id: id } = await submitted.json()
+  await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+  const { claimTaskExecution } = await import('../../workers/task-execution')
+  const { spoolGenerationOutputs } = await import('../../lib/generationMedia')
+  const execution = await claimTaskExecution(id)
+  expect(execution).not.toBeNull()
+  try {
+    await execution!.recordDispatchIntent()
+    await execution!.recordUpstreamTaskIds(['imgtask_lost_checkpoint'], false)
+    const checkpoint = await spoolGenerationOutputs(
+      id,
+      'openai-compat',
+      { data: [{ b64_json: PNG_BASE64 }] },
+      undefined,
+      execution!.signal,
+    )
+    expect(await execution!.saveCheckpoint(checkpoint)).toBe(true)
+    durable.objects.clear()
+    await execution!.reconcile('checkpoint object disappeared')
+  } finally {
+    execution!.release()
+  }
+  const urls: string[] = []
+  setUpstreamFetchForTesting(async (url) => {
+    urls.push(String(url))
+    return Response.json({ status: 'completed', result: { data: [{ b64_json: PNG_BASE64 }] } })
+  })
+  const checked = await operate(id, 'POST', {
+    commandId: 'lookup-lost-checkpoint',
+    operatorId: 'operator',
+    action: 'lookup',
+    evidence: 'Restore original accepted request',
+  })
+  expect(await checked.json()).toMatchObject({ status: 'completed' })
+  expect(urls).toHaveLength(1)
+  expect(urls[0]).toContain('imgtask_lost_checkpoint')
+  expect(urls[0]).not.toEndWith('/async')
+  expect(billing.settlements).toHaveLength(1)
+  expect((await request(`/v1/queue/requests/${id}/image/0`)).status).toBe(200)
+})
+
+it.each([
+  'aggregate-evidence',
+  'partial-fanout',
+] as const)('quarantines a legacy task with accepted upstream evidence after %s failure', async (mode) => {
+  let submits = 0
+  setUpstreamFetchForTesting(async (url) => {
+    if (!String(url).endsWith('/async'))
+      throw new Error('must not poll during uncertain submission')
+    submits++
+    return submits === 1
+      ? Response.json({ task_id: 'imgtask_legacy_accepted', status: 'processing' }, { status: 202 })
+      : Response.json({ error: { message: 'second request refused' } }, { status: 500 })
+  })
+  if (mode === 'aggregate-evidence') {
+    await db.execute(
+      sql`CREATE FUNCTION reject_dispatch_identity() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture dispatch identity persistence failure'; END $$`,
+    )
+    await db.execute(
+      sql`CREATE TRIGGER reject_dispatch_identity BEFORE UPDATE ON tasks FOR EACH ROW WHEN (NEW.upstream_task_ids IS NOT NULL) EXECUTE FUNCTION reject_dispatch_identity()`,
+    )
+  }
+  try {
+    const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+      prompt: 'accepted legacy request',
+      n: mode === 'partial-fanout' ? 2 : 1,
+      device_id: 'test-device-reconcile',
+      client_request_id: crypto.randomUUID(),
+    })
+    expect(submitted.status).toBe(200)
+    const { request_id: id } = await submitted.json()
+    expect(await (await operate(id)).json()).toMatchObject({ enabled: false })
+    await runTask(id)
+    expect(await (await operate(id)).json()).toMatchObject({
+      enabled: true,
+      status: 'reconciling',
+      upstreamTaskIds: mode === 'partial-fanout' ? ['imgtask_legacy_accepted'] : [],
+    })
+    expect(billing.settlements).toHaveLength(0)
+    await recoverTasksByIds([id])
+    await runTask(id)
+    expect(submits).toBe(mode === 'partial-fanout' ? 2 : 1)
+    expect(billing.settlements).toHaveLength(0)
+  } finally {
+    if (mode === 'aggregate-evidence') {
+      await db.execute(sql`DROP TRIGGER reject_dispatch_identity ON tasks`)
+      await db.execute(sql`DROP FUNCTION reject_dispatch_identity()`)
+    }
+  }
+})
