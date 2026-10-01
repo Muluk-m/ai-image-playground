@@ -453,6 +453,7 @@ it('同一原图更换遮罩后计划更新保留精确选择，并同时保护�
 it('历史选区失效后按原图拟定的计划仍可编辑，并保持当前计划的输入快照', async () => {
   const mediaId = await upload('#bc6723')
   const maskMediaId = await upload('#00000040')
+  const laterMediaId = await upload('#53ac87')
   const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
   const conversationPath = `agent/conversations/${conversation.id}`
   setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已收到选区')]))
@@ -487,7 +488,7 @@ it('历史选区失效后按原图拟定的计划仍可编辑，并保持当前�
               items: [
                 {
                   key: 'original',
-                  imageIds: ['historical-product'],
+                  imageIds: ['historical-product', 'later-product'],
                   prompt: '完整原图换白色背景',
                   dependencies: [],
                 },
@@ -500,7 +501,8 @@ it('历史选区失效后按原图拟定的计划仍可编辑，并保持当前�
   )
   const originalTurn = await request(`${conversationPath}/turns`, {
     deviceId: DEVICE,
-    text: '不沿用上轮选区，按这张完整原图拟定换背景计划',
+    text: '不沿用上轮选区，按两张完整原图拟定换背景计划',
+    references: [{ imageId: 'later-product', mediaId: laterMediaId }],
   })
   expect(originalTurn.status).toBe(200)
   expect(eventsOfType(parseFrames(await originalTurn.text()), 'turnEnd')[0]?.stopReason).toBe(
@@ -510,7 +512,10 @@ it('历史选区失效后按原图拟定的计划仍可编辑，并保持当前�
   expect(batches).toHaveLength(1)
   const path = `agent/batches/${batches[0].id}`
   const original = (await (await request(path)).json()) as AgentBatchPage
-  expect(original.items[0]?.inputs).toEqual([{ imageId: 'historical-product', mediaId }])
+  expect(original.items[0]?.inputs).toEqual([
+    { imageId: 'historical-product', mediaId },
+    { imageId: 'later-product', mediaId: laterMediaId },
+  ])
   const updateResponse = await request(
     path,
     {
