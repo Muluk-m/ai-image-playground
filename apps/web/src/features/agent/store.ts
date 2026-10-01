@@ -1868,7 +1868,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
       let view: AgentMessageView
       try {
-        view = await confirmToolPrompt(conversationId, messageId, text)
+        view = await confirmToolPrompt(
+          conversationId,
+          messageId,
+          text,
+          undefined,
+          draft.productionDraftRevision,
+        )
       } catch (thrown) {
         if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
         if (thrown.status === 404) return { ok: false, reason: 'gone' }

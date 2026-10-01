@@ -270,3 +270,12 @@ it('确认之后重读历史：慢一步的草稿不把已提交的卡拉回拟�
   await vi.advanceTimersByTimeAsync(3_000)
   expect(toolCard().status).toBe('succeeded')
 })
+
+it('确认制作草稿时发送当前卡片修订，防止旧卡覆盖已编辑的生成计划', async () => {
+  history = () => [{ ...draftMessage, content: [{ ...drafted, productionDraftRevision: 2 }] }]
+  await state().selectConversation(CONVERSATION)
+  expect(await state().confirmPrompt('tool-1', CORRECTED)).toEqual({ ok: true })
+  expect(posted).toEqual([
+    { deviceId: expect.any(String), messageId: 'tool-1', prompt: CORRECTED, draftRevision: 2 },
+  ])
+})

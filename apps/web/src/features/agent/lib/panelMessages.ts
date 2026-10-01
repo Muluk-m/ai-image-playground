@@ -53,6 +53,9 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     title: block.title,
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
+    ...(block.productionDraftRevision !== undefined
+      ? { productionDraftRevision: block.productionDraftRevision }
+      : {}),
     ...(block.artifacts ? { artifacts: block.artifacts } : {}),
     ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
     ...(block.skill ? { skill: block.skill } : {}),
