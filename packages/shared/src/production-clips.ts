@@ -6,6 +6,7 @@ export interface ProductionClipReference {
   readonly usage: 'first-frame' | 'last-frame' | 'reference'
 }
 export interface ProductionClipPlan {
+  readonly dependencies?: readonly import('./production-dependencies').ProductionDependency[]
   readonly id: string
   readonly name: string
   readonly shotIds: readonly string[]

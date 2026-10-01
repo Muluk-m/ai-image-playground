@@ -2,6 +2,7 @@ import type { ProductionMediaReference } from './production'
 
 /** 有序数组决定顺序，镜头身份不随排序或标题改变。 */
 export interface ProductionShot {
+  readonly dependencies?: readonly import('./production-dependencies').ProductionDependency[]
   readonly id: string
   readonly scriptSceneId?: string
   readonly locationId?: string
