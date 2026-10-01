@@ -1,15 +1,18 @@
 import { assembleLookRequest } from '@image-playground/shared'
+import { create } from 'zustand'
 import { i18next } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getProfileModels } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { referenceAdmission, referenceRefusalMessage } from '../../../lib/referenceDraft'
-import { ensureImageCached, storeImageFromFile, submitTask, useStore } from '../../../store'
+import { ensureImageCached, storeImageFromFile, submitPrepared, useStore } from '../../../store'
 import { lookImageUrl } from '../components/LookImage'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import { useActiveLook } from './activeLook'
 import type { LookItem } from './looks'
+
+export const useLookSubmission = create<{ submitting: boolean }>(() => ({ submitting: false }))
 
 /** 参考图条里出现过的素材：按首次出现的顺序，一条素材只算一次。 */
 export function assetsForInputImages(
@@ -64,6 +67,7 @@ async function referenceImageIds(look: LookItem): Promise<string[]> {
  * 用户在输入框里打的字接在正文后面；发完把输入框还原成他打的那几个字。
  */
 export async function submitWithLook(look: LookItem, body: string): Promise<boolean> {
+  if (useLookSubmission.getState().submitting) return false
   const store = useStore.getState()
   const check = checkLookSubmission(look, store.inputImages, useLibraryStore.getState().assets)
   if (!check.ok) return false
@@ -78,11 +82,45 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
     store.showToast(referenceRefusalMessage('noEdit'), 'error')
     return false
   }
+  const frozen = structuredClone({
+    look,
+    body,
+    assets: check.assets,
+    prompt: store.prompt,
+    params: store.params,
+    slotValues: store.slotValues,
+    maskDraft: store.maskDraft,
+    profile: getActiveApiProfile(store.settings),
+  })
+  useLookSubmission.setState({ submitting: true })
+  let edited = false
+  const unwatch = useStore.subscribe((next, prev) => {
+    if (
+      next.prompt !== prev.prompt ||
+      next.inputImages !== prev.inputImages ||
+      next.params !== prev.params ||
+      next.maskDraft !== prev.maskDraft ||
+      next.slotValues !== prev.slotValues
+    )
+      edited = true
+  })
+  const unwatchLook = useActiveLook.subscribe((next, prev) => {
+    if (next.look !== prev.look) edited = true
+  })
   try {
     const assembled = assembleLookRequest({
-      look: { body, slotCount: look.slotCount, referenceImageIds: await referenceImageIds(look) },
+      look: {
+        body: frozen.body,
+        slotCount: frozen.look.slotCount,
+        referenceImageIds: await referenceImageIds(frozen.look),
+      },
       maxInputs: admission.limit,
-      assets: check.assets.map((asset) => ({ id: asset.id, name: asset.name, views: asset.views })),
+      firstImageId: frozen.maskDraft?.targetImageId,
+      assets: frozen.assets.map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        views: asset.views,
+      })),
     })
     if (!assembled.ok) {
       store.showToast(
@@ -101,21 +139,31 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
       return false
     }
 
-    const typed = store.prompt
+    const typed = frozen.prompt
     const images = []
     for (const id of assembled.inputImageIds) {
       const dataUrl = await ensureImageCached(id)
       if (!dataUrl) throw new Error(id)
       images.push({ id, dataUrl })
     }
-    // 组装好的正文按新这条参考图的序号写成，所以条与提示词一起换，不能分两步。
-    store.replaceInputImages(images, {
+    const ids = await submitPrepared({
       prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
+      inputImages: images,
+      params: { ...frozen.params, size: frozen.look.size },
+      slotValues: frozen.slotValues,
+      maskDraft: frozen.maskDraft,
+      profileId: frozen.profile.id,
+      profile: frozen.profile,
+      modelId: frozen.look.model,
     })
-    await submitTask()
-    const after = useStore.getState()
-    if (after.prompt !== '') after.setPrompt(typed)
-    useActiveLook.getState().set(null)
+    if (!ids.length) return false
+    if (!edited) {
+      if (store.settings.clearInputAfterSubmit) {
+        store.setPrompt('')
+        store.clearInputImages()
+      }
+      useActiveLook.getState().set(null)
+    }
     if (look.record) void useLibraryStore.getState().noteLookUsed(look.record.id)
     return true
   } catch (error) {
@@ -127,5 +175,9 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
       'error',
     )
     return false
+  } finally {
+    unwatch()
+    unwatchLook()
+    useLookSubmission.setState({ submitting: false })
   }
 }

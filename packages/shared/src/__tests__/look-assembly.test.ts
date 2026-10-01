@@ -165,4 +165,13 @@ describe('assembleLookRequest', () => {
       }),
     ).toEqual({ ok: false, reason: 'input_limit_exceeded', required: 3, limit: 1 })
   })
+  it('遮罩目标排第一时引用序号跟着真实顺序走', () => {
+    const result = assembleLookRequest({
+      look: { body: BODY, slotCount: 2, referenceImageIds: [] },
+      assets: [CUP, { id: 'box', name: '盒子', views: [{ imageId: 'box', label: 'front' }] }],
+      firstImageId: 'box',
+    })
+    expect(result).toMatchObject({ ok: true, inputImageIds: ['box', 'cup-sheet'] })
+    if (result.ok) expect(result.prompt).toContain('输入 2 = 素材「白瓷杯」')
+  })
 })

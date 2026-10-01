@@ -14,10 +14,16 @@ import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 import { useStore } from '../../../../store'
 import { DEFAULT_PARAMS } from '../../../../types'
 
-const storage = vi.hoisted(() => ({ images: new Map<string, { id: string; dataUrl: string }>() }))
+const storage = vi.hoisted(() => ({
+  images: new Map<string, { id: string; dataUrl: string }>(),
+  read: undefined as undefined | (() => Promise<void>),
+}))
 vi.mock('../../../../lib/db', async (original) => ({
   ...(await original<typeof import('../../../../lib/db')>()),
-  getImage: async (id: string) => storage.images.get(id),
+  getImage: async (id: string) => {
+    await storage.read?.()
+    return storage.images.get(id)
+  },
   storeImage: async (dataUrl: string) => {
     const id =
       [...storage.images.values()].find((x) => x.dataUrl === dataUrl)?.id ?? crypto.randomUUID()
@@ -45,6 +51,7 @@ function look(references: LookItem['references'] = []): LookItem {
 beforeEach(async () => {
   await bootstrapClientCapabilities(false, '')
   storage.images.clear()
+  storage.read = undefined
   useStore.setState({
     settings: normalizeSettings({
       ...DEFAULT_SETTINGS,
@@ -87,4 +94,41 @@ describe('template submission through generation entry', () => {
     expect(useStore.getState().prompt).toBe('my words')
     expect(useStore.getState().toast?.message).toContain('missing')
   })
+})
+
+it('freezes the submission and preserves a newer draft while preventing duplicate sends', async () => {
+  const imageId = crypto.randomUUID()
+  const dataUrl = 'data:image/png;base64,YQ=='
+  storage.images.set(imageId, { id: imageId, dataUrl })
+  useStore.setState({ inputImages: [{ id: imageId, dataUrl }] })
+  const assets = useLibraryStore.getState().assets
+  useLibraryStore.setState({
+    assets: assets.map((asset) => ({
+      ...asset,
+      views: [{ imageId, label: 'front', source: 'upload' }],
+    })),
+  })
+  let release!: () => void
+  storage.read = () =>
+    new Promise<void>((resolve) => {
+      release = resolve
+    })
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline after task creation'))
+  const template = look()
+  useActiveLook.getState().set(template)
+  const sending = submitWithLook(template, 'template')
+  await vi.waitFor(() => expect(release).toBeDefined())
+  const repeated = submitWithLook(template, 'template')
+  useStore.getState().setPrompt('next draft')
+  useStore.getState().setParams({ n: 3 })
+  useActiveLook.getState().set({ ...template, name: 'Next template' })
+  storage.read = undefined
+  release()
+  expect(await sending).toBe(true)
+  expect(await repeated).toBe(false)
+  expect(useStore.getState().tasks).toHaveLength(1)
+  expect(useStore.getState().tasks[0].prompt).toContain('my words')
+  expect(useStore.getState().tasks[0].params.n).toBe(1)
+  expect(useStore.getState().prompt).toBe('next draft')
+  expect(useActiveLook.getState().look?.name).toBe('Next template')
 })
