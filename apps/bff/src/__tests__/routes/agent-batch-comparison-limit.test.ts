@@ -65,6 +65,8 @@ afterAll(async () => {
 it.each([
   'initial',
   'followup',
+  'http-proposal',
+  'http-edit',
 ] as const)('returns explicit choices without decomposing or charging an over-budget joint comparison: %s', async (phase) => {
   const operator = config.operator
   const agent = config.agent
@@ -104,7 +106,7 @@ it.each([
       dispatched++
       throw new Error('over-budget comparison must not call the model')
     })
-    if (phase === 'followup') {
+    if (phase !== 'initial') {
       const empty = {
         status: 'available' as const,
         estimatedCredits: 0,
@@ -118,8 +120,8 @@ it.each([
         origin_turn_id: 'origin',
         tool_call_id: 'plan',
         experience: 'chat',
-        status: 'running',
-        confirmed_version: 1,
+        status: phase === 'http-edit' ? 'draft' : 'running',
+        confirmed_version: phase === 'http-edit' ? null : 1,
         created_at: now,
         updated_at: now,
       })
@@ -144,6 +146,50 @@ it.each([
         params: { model: config.agent.model, estimatedInputTokens: 0, evidence: [] },
         dependencies: [],
       })
+    }
+    if (phase === 'http-proposal' || phase === 'http-edit') {
+      const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+      const cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession(id, tx))}`
+      const { app } = await import('../../app')
+      const item = {
+        key: phase === 'http-edit' ? 'original' : 'followup',
+        ordinal: 0,
+        kind: 'analysis',
+        inputs: references,
+        prompt: '精细联合比较，不能使用逐图摘要代替',
+        dependencies: [],
+        params: { model: config.agent.model, intent: 'joint_comparison' },
+      }
+      const response = await app.handle(
+        new Request(
+          `http://localhost/api/agent/batches/${id}${phase === 'http-edit' ? '' : '/analysis-proposal'}`,
+          {
+            method: phase === 'http-edit' ? 'PATCH' : 'POST',
+            headers: { cookie, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              commandId: 'joint-http',
+              expectedVersion: 1,
+              title: 'joint comparison',
+              rule: 'compare originals',
+              items: [item],
+            }),
+          },
+        ),
+      )
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({
+        analysisLimit: {
+          reason: 'context_overflow',
+          requiredImageIds: ['first', 'second'],
+          jointComparisonCompleted: false,
+          choices: ['select_images', 'select_regions'],
+        },
+      })
+      expect(billing.reservations).toHaveLength(0)
+      expect(
+        await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.user_id, id)),
+      ).toHaveLength(0)
+      return
     }
     const { proposeBatchAnalysis } = await import('../../lib/agent/tools/proposeBatchAnalysis')
     const tool = (phase === 'initial' ? planImageBatch : proposeBatchAnalysis).create({
