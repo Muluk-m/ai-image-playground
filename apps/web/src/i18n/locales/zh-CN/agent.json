@@ -537,8 +537,18 @@
     "actualCost": "已结算费用",
     "chargeUnknown": "待结算",
     "viewResult": "查看结果 {{index}}",
-    "itemStatus": {"pending": "待处理", "queued": "排队中", "in_progress": "生成中", "completed": "已完成", "failed": "生成失败", "cancelled": "已取消", "reconciling": "待核查"},
-
+    "itemStatus": {
+      "pending": "待处理",
+      "queued": "排队中",
+      "in_progress": "生成中",
+      "completed": "已完成",
+      "failed": "生成失败",
+      "cancelled": "已取消",
+      "reconciling": "待核查",
+      "ready": "待派发",
+      "in_flight": "执行中",
+      "blocked": "依赖受阻"
+    },
     "reprice": "更新报价",
     "commandPending": "操作结果待核对",
     "checkCommand": "核对操作结果",
@@ -579,6 +589,30 @@
     "valueLow": "低",
     "valueMinimal": "最低",
     "valueStandard": "标准",
-    "valueHd": "高清"
+    "valueHd": "高清",
+    "dependencyItem": "依赖：第 {{index}} 项",
+    "selectRetry": "选择重试第 {{index}} 项",
+    "attempt": "第 {{number}} 次",
+    "previousAttempts": "历史尝试",
+    "retryCost": "本次重试预估",
+    "quoteRetry": "获取重试报价",
+    "confirmRetry": "确认重试",
+    "retryKeepsPaused": "确认后批次仍暂停",
+    "retryConfirmedPaused": "已确认，批次已暂停",
+    "analysisKind": "图像分析",
+    "confirmExecution": "确认执行",
+    "retryItem": "本次重试",
+    "unknownInput": "图片",
+    "analysisRetryCost": "本次分析重试预估",
+    "analysisCoverage": "已检查 {{reviewed}} / {{total}}",
+    "analysisMissing": "未覆盖：{{name}}",
+    "representation": {
+      "original": "原图",
+      "preview": "预览",
+      "region": "局部",
+      "selection-location": "选区位置",
+      "selection-crop": "选区细节",
+      "tool-output": "生成结果"
+    }
   }
 }

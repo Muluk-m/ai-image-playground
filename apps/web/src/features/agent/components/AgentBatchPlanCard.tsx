@@ -1,6 +1,12 @@
-import type { AgentBatchEstimate, AgentBatchItem, AgentBatchPage } from '@image-playground/shared'
-import { Layers, MessageSquare, PauseCircle, PlayCircle } from 'lucide-react'
+import type {
+  AgentBatchEstimate,
+  AgentBatchGenerationItem,
+  AgentBatchPage,
+  AgentBatchUpdate,
+} from '@image-playground/shared'
+import { Layers, MessageSquare, PauseCircle, PlayCircle, RotateCcw, Scan } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Checkbox } from '../../../components/Checkbox'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
@@ -17,7 +23,10 @@ import {
   updateBatchPlan,
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
-import AgentBatchItemResult, { AgentBatchItemStatus } from './AgentBatchItemResult'
+import AgentBatchItemResult, {
+  AgentBatchAnalysisEvidence,
+  AgentBatchItemStatus,
+} from './AgentBatchItemResult'
 
 function hasActiveWork(page: AgentBatchPage | null): boolean {
   return (
@@ -41,7 +50,7 @@ function Estimate({ value }: { value: AgentBatchEstimate }) {
 }
 
 /** Provider parameter names stay in the protocol; the review card uses user-facing labels. */
-function OutputParameters({ params }: { params: AgentBatchItem['params'] }) {
+function OutputParameters({ params }: { params: AgentBatchGenerationItem['params'] }) {
   const { t } = useTranslation('agent')
   const level = (value: string) => {
     switch (value) {
@@ -95,6 +104,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const { t } = useTranslation(['agent', 'errors'])
   const [page, setPage] = useState<AgentBatchPage | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [selectedRetries, setSelectedRetries] = useState<readonly string[]>([])
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
@@ -132,6 +142,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       if (!commands.current()) return
       setPage(result)
       setDirty(false)
+      setSelectedRetries([])
     } catch (cause) {
       if (!commands.current()) return
       setError(
@@ -230,11 +241,22 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         expectedVersion: page.batch.version,
         title: page.batch.title,
         rule: page.batch.rule,
-        items: page.items,
+        items: page.items.map((item): AgentBatchUpdate['items'][number] => {
+          const base = {
+            key: item.key,
+            ordinal: item.ordinal,
+            inputs: item.inputs,
+            prompt: item.prompt,
+            dependencies: item.dependencies,
+          }
+          return item.kind === 'analysis'
+            ? { ...base, kind: 'analysis', params: { model: item.params.model } }
+            : { ...base, kind: 'generation', params: item.params }
+        }),
       }),
     )
   const editable = page.batch.status === 'draft' && !busy && restored && !pending
-  const command = (action: AgentBatchCommand['action']) =>
+  const command = (action: Exclude<AgentBatchCommand['action'], 'retry-quote'>) =>
     apply(
       () =>
         commands.execute(
@@ -250,6 +272,11 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         ),
       true,
     )
+  const pricedItems = page.batch.retryItemKeys?.length
+    ? page.items.filter((item) => page.batch.retryItemKeys!.includes(item.key))
+    : page.items
+  const hasAnalysis = pricedItems.some((item) => item.kind === 'analysis')
+  const hasGeneration = pricedItems.some((item) => item.kind === 'generation')
   const confirmable =
     page.batch.executionEnabled &&
     restored &&
@@ -258,8 +285,33 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     !busy &&
     !page.nextCursor &&
     page.items.length === page.batch.itemCount &&
-    page.batch.estimate.generation.status === 'available'
+    (!hasGeneration || page.batch.estimate.generation.status === 'available') &&
+    (!hasAnalysis || page.batch.estimate.analysis.status === 'available')
   const priceChanged = page.batch.status === 'paused' && page.batch.pauseReason === 'price_changed'
+  const retryConfirmation = Boolean(
+    page.batch.confirmationRequired && page.batch.retryItemKeys?.length,
+  )
+  const retryEligible = (item: AgentBatchPage['items'][number]) =>
+    page.batch.executionEnabled &&
+    !page.batch.confirmationRequired &&
+    page.batch.status !== 'draft' &&
+    page.batch.status !== 'cancelled' &&
+    (item.progress ?? item.execution?.status) === 'failed' &&
+    item.execution?.errorCode !== 'result_unknown'
+  const retryKeys = page.items
+    .filter((item) => retryEligible(item) && selectedRetries.includes(item.key))
+    .map((item) => item.key)
+  const quoteRetry = () =>
+    apply(
+      () =>
+        commands.execute({
+          action: 'retry-quote',
+          commandId: crypto.randomUUID(),
+          expectedVersion: page.batch.version,
+          itemKeys: retryKeys,
+        }),
+      true,
+    )
   const TargetIcon = page.batch.experience === 'canvas' ? Layers : MessageSquare
   return (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
@@ -319,7 +371,19 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
             <summary className="cursor-pointer py-1 focus-visible:outline-ring">
               <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
                 <span className="shrink-0 tabular-nums">{index + 1}.</span>
-                <AgentBatchItemStatus execution={item.execution} />
+                <AgentBatchItemStatus execution={item.execution} progress={item.progress} />
+                {item.kind === 'analysis' && (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+                    <Scan aria-hidden className="h-3 w-3" />
+                    {t('batch.analysisKind')}
+                  </span>
+                )}
+                {page.batch.retryItemKeys?.includes(item.key) && (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+                    <RotateCcw aria-hidden className="h-3 w-3" />
+                    {t('batch.retryItem')}
+                  </span>
+                )}
                 {item.inputs.map((input, inputIndex) => {
                   const name = input.name ?? t('batch.inputImage', { index: inputIndex + 1 })
                   return (
@@ -340,7 +404,55 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               </span>
             </summary>
             <div className="grid gap-2 py-2">
-              <AgentBatchItemResult execution={item.execution} />
+              {item.blockedBy?.length ? (
+                <div className="flex flex-wrap gap-1">
+                  {item.blockedBy.map((key) => (
+                    <span key={key} className="rounded-md border border-border bg-muted px-2 py-1">
+                      {t('batch.dependencyItem', {
+                        index: page.items.findIndex((entry) => entry.key === key) + 1,
+                      })}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {retryEligible(item) && (
+                <Checkbox
+                  checked={selectedRetries.includes(item.key)}
+                  disabled={busy || !restored || Boolean(pending)}
+                  aria-label={t('batch.selectRetry', { index: index + 1 })}
+                  label={t('batch.selectRetry', { index: index + 1 })}
+                  onChange={(checked) =>
+                    setSelectedRetries((selected) =>
+                      checked
+                        ? [...selected, item.key]
+                        : selected.filter((key) => key !== item.key),
+                    )
+                  }
+                />
+              )}
+              {item.execution && (
+                <div className="grid gap-1">
+                  <span>{t('batch.attempt', { number: item.execution.attempt })}</span>
+                  <AgentBatchItemStatus execution={item.execution} />
+                  <AgentBatchItemResult execution={item.execution} inputs={item.inputs} />
+                </div>
+              )}
+              {item.attempts?.some((attempt) => attempt.attempt !== item.execution?.attempt) ? (
+                <details className="rounded-md border border-border p-2">
+                  <summary className="cursor-pointer">{t('batch.previousAttempts')}</summary>
+                  <div className="grid gap-3 pt-2">
+                    {item.attempts
+                      .filter((attempt) => attempt.attempt !== item.execution?.attempt)
+                      .map((attempt) => (
+                        <div key={attempt.attempt} className="grid gap-1">
+                          <span>{t('batch.attempt', { number: attempt.attempt })}</span>
+                          <AgentBatchItemStatus execution={attempt} />
+                          <AgentBatchItemResult execution={attempt} inputs={item.inputs} />
+                        </div>
+                      ))}
+                  </div>
+                </details>
+              ) : null}
               <label className="grid gap-1">
                 {t('batch.prompt')}
                 <Textarea
@@ -358,33 +470,50 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                   }}
                 />
               </label>
-              <OutputParameters params={item.params} />
-              <label className="grid gap-1">
-                {t('batch.size')}
-                <Input
-                  aria-label={t('batch.size')}
-                  value={
-                    item.params.provider === 'gemini'
-                      ? (item.params.gemini_image_size ?? '')
-                      : (item.params.size ?? '')
-                  }
-                  disabled={!editable}
-                  maxLength={32}
-                  onChange={(event) => {
-                    const params =
-                      item.params.provider === 'gemini'
-                        ? { ...item.params, gemini_image_size: event.target.value }
-                        : { ...item.params, size: event.target.value }
-                    setPage({
-                      ...page,
-                      items: page.items.map((entry) =>
-                        entry.key === item.key ? { ...entry, params } : entry,
-                      ),
-                    })
-                    setDirty(true)
-                  }}
-                />
-              </label>
+              {item.kind === 'analysis' ? (
+                <div className="grid gap-2">
+                  <dl className="flex justify-between">
+                    <dt>{t('batch.model')}</dt>
+                    <dd>{item.params.model}</dd>
+                  </dl>
+                  <AgentBatchAnalysisEvidence
+                    evidence={item.params.evidence}
+                    inputs={item.inputs}
+                  />
+                </div>
+              ) : (
+                <>
+                  <OutputParameters params={item.params} />
+                  <label className="grid gap-1">
+                    {t('batch.size')}
+                    <Input
+                      aria-label={t('batch.size')}
+                      value={
+                        item.params.provider === 'gemini'
+                          ? (item.params.gemini_image_size ?? '')
+                          : (item.params.size ?? '')
+                      }
+                      disabled={!editable}
+                      maxLength={32}
+                      onChange={(event) => {
+                        const params =
+                          item.params.provider === 'gemini'
+                            ? { ...item.params, gemini_image_size: event.target.value }
+                            : { ...item.params, size: event.target.value }
+                        setPage({
+                          ...page,
+                          items: page.items.map((entry) =>
+                            entry.key === item.key && entry.kind === 'generation'
+                              ? { ...entry, params }
+                              : entry,
+                          ),
+                        })
+                        setDirty(true)
+                      }}
+                    />
+                  </label>
+                </>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -411,14 +540,24 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         ))}
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
-        <div className="flex justify-between">
-          <span>{t('batch.analysisCost')}</span>
-          <Estimate value={page.batch.estimate.analysis} />
-        </div>
-        <div className="flex justify-between">
-          <span>{t('batch.generationCost')}</span>
-          <Estimate value={page.batch.estimate.generation} />
-        </div>
+        {(!page.batch.retryItemKeys?.length || hasAnalysis) && (
+          <div className="flex justify-between">
+            <span>
+              {page.batch.retryItemKeys?.length
+                ? t('batch.analysisRetryCost')
+                : t('batch.analysisCost')}
+            </span>
+            <Estimate value={page.batch.estimate.analysis} />
+          </div>
+        )}
+        {hasGeneration && (
+          <div className="flex justify-between">
+            <span>
+              {page.batch.retryItemKeys?.length ? t('batch.retryCost') : t('batch.generationCost')}
+            </span>
+            <Estimate value={page.batch.estimate.generation} />
+          </div>
+        )}
         {typeof page.batch.actualCredits === 'number' && page.batch.status !== 'draft' && (
           <div className="flex justify-between">
             <span>{t('batch.actualCost')}</span>
@@ -427,6 +566,20 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         )}
         {dirty && <p>{t('batch.staleQuote')}</p>}
         {priceChanged && <p role="status">{t('errors:agentBatch.batch_price_changed')}</p>}
+        {page.batch.status === 'paused' &&
+          page.batch.pauseReason &&
+          page.batch.pauseReason !== 'price_changed' && (
+            <p role="status">{t(`errors:agentBatch.${page.batch.pauseReason}`)}</p>
+          )}
+        {retryConfirmation && page.batch.retryRequiresResume && (
+          <p>{t('batch.retryKeepsPaused')}</p>
+        )}
+        {!page.batch.confirmationRequired &&
+        page.batch.status === 'paused' &&
+        page.batch.retryItemKeys?.length &&
+        page.batch.retryRequiresResume ? (
+          <p role="status">{t('batch.retryConfirmedPaused')}</p>
+        ) : null}
       </div>
       {pending && (
         <div className="grid justify-items-start gap-1">
@@ -453,7 +606,21 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </Button>
         </div>
       )}
-      {page.batch.status === 'cancelled' ? (
+      {page.items.some(retryEligible) && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!retryKeys.length || busy || !restored || Boolean(pending)}
+          onClick={() => void quoteRetry()}
+        >
+          {t('batch.quoteRetry')}
+        </Button>
+      )}
+      {retryConfirmation ? (
+        <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
+          {t('batch.confirmRetry')}
+        </Button>
+      ) : page.batch.status === 'cancelled' ? (
         <p className={CARD_NOTE}>{t('batch.cancelled')}</p>
       ) : page.batch.status === 'running' ? (
         <Button
@@ -468,7 +635,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       ) : priceChanged ? (
         page.batch.confirmationRequired ? (
           <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
-            {t('batch.confirm')}
+            {page.items.some((item) => item.kind === 'analysis')
+              ? t('batch.confirmExecution')
+              : t('batch.confirm')}
           </Button>
         ) : (
           <Button
@@ -510,7 +679,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
             {t('batch.cancel')}
           </Button>
           <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
-            {t('batch.confirm')}
+            {page.items.some((item) => item.kind === 'analysis')
+              ? t('batch.confirmExecution')
+              : t('batch.confirm')}
           </Button>
           {!page.batch.executionEnabled && (
             <span className={CARD_NOTE}>{t('batch.executionUnavailable')}</span>

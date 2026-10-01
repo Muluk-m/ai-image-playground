@@ -9,14 +9,20 @@ import type {
   AgentBatchUpdate,
   AgentBatchView,
   AgentMediaReference,
+  AnalysisIntent,
 } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
+import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { prepareAnalysisTask, quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
+import { queueTaskOutcome } from '../taskSubmission'
+import { readBatchAnalysisSummary } from './batch-analysis-summary'
+import { batchItem } from './batch-items'
 import { lockConversation } from './confirmations'
 import { AgentToolError } from './tools/errors'
-import { resolveAgentModel } from './tools/queueTask'
+import { queueArtifacts, resolveAgentModel } from './tools/queueTask'
 import type { AgentToolAudience, AgentToolContext } from './tools/types'
 
 export function batchPlansAvailable(audience?: AgentToolAudience): boolean {
@@ -33,6 +39,8 @@ interface PlanInput {
   readonly rule: string
   readonly items: readonly {
     readonly key: string
+    readonly kind?: 'generation' | 'analysis'
+    readonly intent?: AnalysisIntent
     readonly imageIds: readonly string[]
     readonly prompt: string
     readonly dependencies: readonly string[]
@@ -95,8 +103,6 @@ export async function createAgentBatchPlan(
 ): Promise<string> {
   if (!batchPlansAvailable(context) || !context.userId) invalid('请登录后使用批次计划。')
   const userId = context.userId
-  const target = resolveAgentModel('image', context.params?.model)
-  if (!target) throw new AgentToolError('model_unavailable', '暂时没有可用的生图模型')
   const requestedIds = [
     ...new Set(
       input.items.flatMap((item) => item.imageIds.map((id) => context.images.identify(id))),
@@ -155,7 +161,8 @@ export async function createAgentBatchPlan(
   }
   const keys = new Set<string>()
   const { autoSubmit: _autoSubmit, ...params } = context.params ?? {}
-  const items: AgentBatchItem[] = input.items.map((item, ordinal) => {
+  const items: AgentBatchItem[] = []
+  for (const [ordinal, item] of input.items.entries()) {
     if (!item.key.trim() || keys.has(item.key) || !item.prompt.trim())
       invalid('处理项编号不能重复，提示词不能为空。')
     if (item.dependencies.some((key) => !keys.has(key))) invalid('依赖必须指向前面的处理项。')
@@ -167,16 +174,39 @@ export async function createAgentBatchPlan(
         invalid(`图片 ${imageId} 没有可持久保存的完整输入，请重新附上原图。`)
       return { ...reference, imageId: identified }
     })
-    return {
+    const common = {
       key: item.key,
       ordinal,
-      kind: 'generation',
       inputs,
       prompt: item.prompt,
-      params: { ...params, ...target },
       dependencies: item.dependencies,
     }
-  })
+    if (item.kind === 'analysis') {
+      if (!isCapabilityEnabled('agent:batch-analysis') || !config.agent.model)
+        invalid('图片分析暂未开放。')
+      const prepared = await prepareAnalysisTask({
+        userId,
+        model: config.agent.model,
+        prompt: item.prompt,
+        inputs,
+        intent: item.intent,
+      })
+      items.push({
+        ...common,
+        kind: 'analysis',
+        params: {
+          model: prepared.model,
+          intent: prepared.intent,
+          estimatedInputTokens: prepared.estimatedInputTokens,
+          evidence: prepared.evidence,
+        },
+      })
+    } else {
+      const target = resolveAgentModel('image', context.params?.model)
+      if (!target) throw new AgentToolError('model_unavailable', '暂时没有可用的生图模型')
+      items.push({ ...common, kind: 'generation', params: { ...params, ...target } })
+    }
+  }
   const now = Date.now()
   return db.transaction(async (tx) => {
     await lockConversation(tx, context.conversationId, userId)
@@ -359,6 +389,10 @@ export async function readAgentBatchPlan(
       attempt: schema.agent_batch_attempts.attempt,
       taskId: schema.agent_batch_attempts.task_id,
       status: schema.tasks.status,
+      provider: schema.tasks.provider,
+      resultPayload: schema.tasks.result_payload,
+      errorMessage: schema.tasks.error_message,
+      errorType: schema.tasks.error_type,
       snapshot: schema.agent_batch_attempts.terminal_snapshot,
     })
     .from(schema.agent_batch_attempts)
@@ -393,20 +427,53 @@ export async function readAgentBatchPlan(
       ),
     ),
   }
+  const analysisResults = new Map(
+    (
+      await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.batch_id, id))
+    ).map((one) => [one.task_id, one]),
+  )
   const history = new Map<string, AgentBatchItemExecution[]>()
   for (const one of attempts) {
+    const live =
+      !one.snapshot && one.provider
+        ? queueTaskOutcome({
+            status: one.status,
+            provider: one.provider,
+            result_payload: one.resultPayload,
+            error_message: one.errorMessage,
+            error_type: one.errorType,
+          })
+        : null
+    const analysis = analysisResults.get(one.taskId)
     const entry: AgentBatchItemExecution = {
       taskId: one.taskId,
       status: one.status,
       attempt: one.attempt,
-      actualCredits: terminal.includes(one) ? (credits[one.taskId] ?? null) : null,
+      actualCredits: analysis
+        ? analysis.actual_credits
+        : terminal.includes(one)
+          ? (credits[one.taskId] ?? null)
+          : null,
+      ...(analysis
+        ? {
+            artifacts: [],
+            analysis: {
+              findings: analysis.findings,
+              coverage: analysis.coverage,
+              evidence: analysis.evidence,
+            },
+          }
+        : {}),
       ...(one.snapshot
         ? {
             artifacts: one.snapshot.artifacts,
             errorCode: one.snapshot.errorCode,
             message: one.snapshot.message,
+            ...(one.snapshot.analysis ? { analysis: one.snapshot.analysis } : {}),
           }
-        : {}),
+        : live?.kind === 'completed'
+          ? { artifacts: queueArtifacts(one.taskId, 'image', live.result) }
+          : {}),
     }
     history.set(one.itemKey, [...(history.get(one.itemKey) ?? []), entry])
   }
@@ -448,7 +515,9 @@ export async function readAgentBatchPlan(
       item.dependencies.every((key) => targetExecution(key)?.status === 'completed')
     return { progress: ready ? 'ready' : 'pending' }
   }
+  const analysisSummary = await readBatchAnalysisSummary(id, plan.version)
   return {
+    ...(analysisSummary ? { analysisSummary } : {}),
     batch: {
       id: batch.id,
       conversationId: batch.conversation_id,
@@ -475,8 +544,8 @@ export async function readAgentBatchPlan(
       createdAt: batch.created_at,
     } satisfies AgentBatchView,
     items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
-      ...item,
-      ...progressOf(item),
+      ...batchItem(item),
+      ...progressOf(batchItem(item)),
       ...(execution.has(item.key)
         ? { execution: execution.get(item.key)!, attempts: history.get(item.key)! }
         : {}),
@@ -495,6 +564,22 @@ export async function updateAgentBatchPlan(
   id: string,
   input: AgentBatchUpdate,
 ): Promise<void> {
+  const preparedAnalysis = new Map<string, Awaited<ReturnType<typeof prepareAnalysisTask>>>()
+  for (const item of input.items) {
+    if (item.kind !== 'analysis') continue
+    if (!isCapabilityEnabled('agent:batch-analysis') || item.params.model !== config.agent.model)
+      throw new BatchPlanError('batch_execution_unavailable', 422)
+    preparedAnalysis.set(
+      item.key,
+      await prepareAnalysisTask({
+        userId,
+        model: item.params.model,
+        prompt: item.prompt,
+        inputs: item.inputs,
+        intent: item.params.intent,
+      }),
+    )
+  }
   await db.transaction(async (tx) => {
     const [origin] = await tx
       .select({ conversationId: schema.agent_batches.conversation_id })
@@ -535,7 +620,11 @@ export async function updateAgentBatchPlan(
         ),
       )
     const currentItems = await tx
-      .select({ inputs: schema.agent_batch_items.inputs })
+      .select({
+        key: schema.agent_batch_items.key,
+        inputs: schema.agent_batch_items.inputs,
+        params: schema.agent_batch_items.params,
+      })
       .from(schema.agent_batch_items)
       .where(
         and(
@@ -559,14 +648,39 @@ export async function updateAgentBatchPlan(
       )
         throw new BatchPlanError('invalid_batch_plan', 422)
       keys.add(item.key)
-      const target = resolveAgentModel('image', item.params.model)
-      if (!target || target.model !== item.params.model || target.provider !== item.params.provider)
-        throw new BatchPlanError('invalid_batch_plan', 422)
       const inputs = item.inputs.map((reference) => {
         const stored = references.find((one) => sameArchivedReference(one, reference))
         if (!stored) throw new BatchPlanError('invalid_batch_plan', 422)
         return stored
       })
+      if (item.kind === 'analysis') {
+        const prepared = preparedAnalysis.get(item.key)
+        if (!prepared) throw new BatchPlanError('invalid_batch_plan', 422)
+        const previousParams = currentItems.find((previous) => previous.key === item.key)?.params
+        const intent =
+          item.params.intent ??
+          (previousParams && 'estimatedInputTokens' in previousParams
+            ? previousParams.intent
+            : undefined) ??
+          'inspection'
+        return {
+          key: item.key,
+          ordinal,
+          kind: 'analysis',
+          inputs,
+          prompt: item.prompt,
+          dependencies: item.dependencies,
+          params: {
+            model: prepared.model,
+            intent,
+            estimatedInputTokens: prepared.estimatedInputTokens,
+            evidence: prepared.evidence,
+          },
+        }
+      }
+      const target = resolveAgentModel('image', item.params.model)
+      if (!target || target.model !== item.params.model || target.provider !== item.params.provider)
+        throw new BatchPlanError('invalid_batch_plan', 422)
       return {
         key: item.key,
         kind: 'generation',
@@ -712,49 +826,44 @@ export async function discardConversationBatchDrafts(
   await tx.delete(schema.agent_batches).where(inArray(schema.agent_batches.id, ids))
 }
 
-async function quoteBatchPlan(
+export async function quoteBatchPlan(
   tx: BffTransaction,
   userId: string,
   items: readonly AgentBatchItem[],
 ): Promise<AgentBatchEstimates> {
-  if (!isCapabilityEnabled('billing:credits'))
-    return { analysis: emptyEstimate, generation: emptyEstimate }
-  const { taskHooks } = await loadPrivateBffOverlay()
-  const unavailable: AgentBatchEstimates = {
-    analysis: emptyEstimate,
-    generation: { status: 'unavailable', reason: 'price_unavailable' },
+  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const quoteKind = async (kind: AgentBatchItem['kind']) => {
+    const selected = items.filter((item) => item.kind === kind)
+    if (!selected.length) return emptyEstimate
+    const snapshots: AgentBatchPriceSnapshot[] = []
+    let estimatedCredits = 0
+    let estimatedChargeCredits = 0
+    for (const item of selected) {
+      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
+      const quote =
+        item.kind === 'analysis'
+          ? await quoteAnalysisTask(
+              {
+                tx,
+                userId,
+                model: item.params.model,
+                estimatedInputTokens: item.params.estimatedInputTokens,
+              },
+              hooks,
+            )
+          : await hooks.quoteTask?.({
+              tx,
+              userId,
+              model: item.params.model,
+              quantity: 1,
+              unitMultiplier: 1,
+            })
+      if (!quote) return { status: 'unavailable' as const, reason: 'price_unavailable' as const }
+      estimatedCredits += quote.estimatedCredits
+      estimatedChargeCredits += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0
+      snapshots.push({ ...quote.pricing, itemKey: item.key })
+    }
+    return { status: 'available' as const, estimatedCredits, estimatedChargeCredits, snapshots }
   }
-  if (!taskHooks.quoteTask) return unavailable
-  const quotes = new Map<
-    string,
-    { estimatedCredits: number; pricing: AgentBatchPriceSnapshot } | null
-  >()
-  const snapshots: AgentBatchPriceSnapshot[] = []
-  let estimatedCredits = 0
-  for (const item of items) {
-    if (!quotes.has(item.params.model))
-      quotes.set(
-        item.params.model,
-        await taskHooks.quoteTask({
-          tx,
-          userId,
-          model: item.params.model,
-          quantity: 1,
-          unitMultiplier: 1,
-        }),
-      )
-    const quote = quotes.get(item.params.model)
-    if (!quote) return unavailable
-    estimatedCredits += quote.estimatedCredits
-    snapshots.push({ ...quote.pricing, itemKey: item.key })
-  }
-  return {
-    analysis: emptyEstimate,
-    generation: {
-      status: 'available',
-      estimatedCredits,
-      estimatedChargeCredits: estimatedCredits,
-      snapshots,
-    },
-  }
+  return { analysis: await quoteKind('analysis'), generation: await quoteKind('generation') }
 }

@@ -556,8 +556,18 @@
     "actualCost": "Settled cost",
     "chargeUnknown": "Awaiting settlement",
     "viewResult": "View result {{index}}",
-    "itemStatus": {"pending": "Pending", "queued": "Queued", "in_progress": "Generating", "completed": "Completed", "failed": "Generation failed", "cancelled": "Cancelled", "reconciling": "Awaiting reconciliation"},
-
+    "itemStatus": {
+      "pending": "Pending",
+      "queued": "Queued",
+      "in_progress": "Generating",
+      "completed": "Completed",
+      "failed": "Generation failed",
+      "cancelled": "Cancelled",
+      "reconciling": "Awaiting reconciliation",
+      "ready": "Ready",
+      "in_flight": "In progress",
+      "blocked": "Dependency blocked"
+    },
     "reprice": "Update estimate",
     "commandPending": "Operation awaiting confirmation",
     "checkCommand": "Check operation result",
@@ -599,6 +609,30 @@
     "valueLow": "Low",
     "valueMinimal": "Minimal",
     "valueStandard": "Standard",
-    "valueHd": "HD"
+    "valueHd": "HD",
+    "dependencyItem": "Dependency: item {{index}}",
+    "selectRetry": "Select item {{index}} for retry",
+    "attempt": "Attempt {{number}}",
+    "previousAttempts": "Earlier attempts",
+    "retryCost": "This retry estimate",
+    "quoteRetry": "Get retry estimate",
+    "confirmRetry": "Confirm retry",
+    "retryKeepsPaused": "The batch stays paused after confirmation",
+    "retryConfirmedPaused": "Confirmed; batch remains paused",
+    "analysisKind": "Image analysis",
+    "confirmExecution": "Confirm execution",
+    "retryItem": "This retry",
+    "unknownInput": "Image",
+    "analysisRetryCost": "This analysis retry estimate",
+    "analysisCoverage": "Reviewed {{reviewed}} / {{total}}",
+    "analysisMissing": "Not covered: {{name}}",
+    "representation": {
+      "original": "Original",
+      "preview": "Preview",
+      "region": "Region",
+      "selection-location": "Selection location",
+      "selection-crop": "Selection detail",
+      "tool-output": "Generated result"
+    }
   }
 }

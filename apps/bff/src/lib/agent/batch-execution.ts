@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentBatchEstimates,
+  type AgentBatchGenerationItem,
   type AgentBatchItem,
   type AgentBatchPriceSnapshot,
   QUEUE_MAX_INPUT_IMAGES,
@@ -8,6 +10,12 @@ import {
 import { and, asc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import {
+  type PreparedAnalysisTask,
+  prepareAnalysisTask,
+  quoteAnalysisTask,
+  reserveAnalysisTask,
+} from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
@@ -19,8 +27,9 @@ import {
   type PreparedQueueTask,
   prepareQueueTask,
 } from '../taskSubmission'
+import { batchItem } from './batch-items'
 import { BatchPlanError, batchPlansAvailable } from './batch-plans'
-import { reconcileAgentBatchProgress } from './batch-progress'
+import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from './batch-progress'
 import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
 import { prepareMaskedEdit } from './masked-edit'
@@ -82,6 +91,18 @@ export async function confirmAgentBatch(
   if (!batchExecutionAvailable(userId)) throw new BatchPlanError('batch_execution_unavailable', 422)
   await db.transaction(async (tx) => {
     const batch = await lockOwnedBatch(tx, userId, id)
+    // The owner lock serializes confirmations across this account's batches.
+    const [commandOwner] = await tx
+      .select({ id: schema.agent_batches.id })
+      .from(schema.agent_batches)
+      .where(
+        and(
+          eq(schema.agent_batches.user_id, userId),
+          eq(schema.agent_batches.confirmation_command_id, input.commandId),
+        ),
+      )
+    if (commandOwner && commandOwner.id !== id)
+      throw new BatchPlanError('batch_version_conflict', 409)
     const [plan] = await tx
       .select()
       .from(schema.agent_batch_plans)
@@ -108,10 +129,8 @@ export async function confirmAgentBatch(
       throw new BatchPlanError('batch_version_conflict', 409)
     if (plan.item_count > config.operator.quotas['agent:batch-max-items'])
       throw new BatchPlanError('batch_size_exceeded', 422)
-    if (plan.estimate_snapshot.generation.status !== 'available')
-      throw new BatchPlanError('batch_price_changed', 409)
     const items = await tx
-      .select({ inputs: schema.agent_batch_items.inputs })
+      .select({ inputs: schema.agent_batch_items.inputs, kind: schema.agent_batch_items.kind })
       .from(schema.agent_batch_items)
       .where(
         and(
@@ -119,7 +138,18 @@ export async function confirmAgentBatch(
           eq(schema.agent_batch_items.version, plan.version),
         ),
       )
-    if (items.some((item) => item.inputs.length > QUEUE_MAX_INPUT_IMAGES))
+    if (items.some((item) => plan.estimate_snapshot[item.kind].status !== 'available'))
+      throw new BatchPlanError('batch_price_changed', 409)
+    if (
+      items.some((item) => item.kind === 'analysis') &&
+      !isCapabilityEnabled('agent:batch-analysis')
+    )
+      throw new BatchPlanError('batch_execution_unavailable', 422)
+    if (
+      items.some(
+        (item) => item.kind === 'generation' && item.inputs.length > QUEUE_MAX_INPUT_IMAGES,
+      )
+    )
       throw new BatchPlanError('batch_input_limit', 422)
     await tx
       .update(schema.agent_batches)
@@ -172,7 +202,7 @@ function hasWindow(attempts: Awaited<ReturnType<typeof batchAttempts>>) {
 
 async function prepareItem(
   batch: BatchRow,
-  item: AgentBatchItem,
+  item: AgentBatchGenerationItem,
   attempt: number,
 ): Promise<CreateQueueTaskInput> {
   const images: ResolvedAgentImage[] = []
@@ -245,7 +275,8 @@ async function currentQuote(
   batch: BatchRow,
   item: AgentBatchItem,
 ): Promise<{ pricing: AgentBatchPriceSnapshot | null; credits: number }> {
-  if (!isCapabilityEnabled('billing:credits')) return { pricing: null, credits: 0 }
+  if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits'))
+    return { pricing: null, credits: 0 }
   const [plan] = await tx
     .select()
     .from(schema.agent_batch_plans)
@@ -255,25 +286,37 @@ async function currentQuote(
         eq(schema.agent_batch_plans.version, batch.confirmed_version!),
       ),
     )
-  const estimate = plan?.estimate_snapshot.generation
+  const estimate = plan?.estimate_snapshot[item.kind]
   const expected =
     estimate?.status === 'available'
       ? estimate.snapshots.find((one) => one.itemKey === item.key)
       : undefined
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   // The quote hook holds the price row FOR SHARE until createQueueTask reserves in this transaction.
-  const quote = await hooks.quoteTask?.({
-    tx,
-    userId: batch.user_id,
-    model: item.params.model,
-    quantity: 1,
-    unitMultiplier: 1,
-  })
+  const quote =
+    item.kind === 'analysis'
+      ? await quoteAnalysisTask(
+          {
+            tx,
+            userId: batch.user_id,
+            model: item.params.model,
+            estimatedInputTokens: item.params.estimatedInputTokens,
+          },
+          hooks,
+        )
+      : await hooks.quoteTask?.({
+          tx,
+          userId: batch.user_id,
+          model: item.params.model,
+          quantity: 1,
+          unitMultiplier: 1,
+        })
   if (
     !expected ||
     !quote ||
     quote.pricing.pricingVersion !== expected.pricingVersion ||
-    quote.estimatedCredits > expected.baseUnitCredits * expected.quantity * expected.unitMultiplier
+    quote.estimatedCredits >
+      Math.ceil(expected.baseUnitCredits * expected.quantity * expected.unitMultiplier)
   )
     throw new BatchPlanError('batch_price_changed', 409)
   return { pricing: { ...quote.pricing, itemKey: item.key }, credits: quote.estimatedCredits }
@@ -358,6 +401,7 @@ async function dispatchPreparedBatch(
         ),
       )
       .orderBy(asc(schema.agent_batch_items.ordinal))
+      .then((rows) => rows.map(batchItem))
     const [plan] = await db
       .select()
       .from(schema.agent_batch_plans)
@@ -386,13 +430,35 @@ async function dispatchPreparedBatch(
     )
     if (!item) return
     let prepared: PreparedQueueTask | undefined
+    let preparedAnalysis: PreparedAnalysisTask | undefined
+    let input: CreateQueueTaskInput | undefined
     let committed = false
     try {
-      const input = await prepareItem(batch, item, targetAttempt(item.key))
-      if (!canDispatch()) return
-      const preparation = await prepareQueueTask(input)
-      if (preparation.kind !== 'prepared') throw new BatchPlanError('invalid_batch_plan', 422)
-      prepared = preparation.prepared
+      if (item.kind === 'analysis') {
+        if (
+          !isCapabilityEnabled('agent:batch-analysis') ||
+          item.params.model !== config.agent.model
+        )
+          throw new BatchPlanError('batch_execution_unavailable', 422)
+        preparedAnalysis = await prepareAnalysisTask({
+          userId,
+          model: item.params.model,
+          prompt: item.prompt,
+          inputs: item.inputs,
+          intent: item.params.intent,
+        })
+        if (
+          preparedAnalysis.estimatedInputTokens !== item.params.estimatedInputTokens ||
+          !isDeepStrictEqual(preparedAnalysis.evidence, item.params.evidence)
+        )
+          throw new BatchPlanError('batch_input_limit', 422)
+      } else {
+        input = await prepareItem(batch, item, targetAttempt(item.key))
+        if (!canDispatch()) return
+        const preparation = await prepareQueueTask(input)
+        if (preparation.kind !== 'prepared') throw new BatchPlanError('invalid_batch_plan', 422)
+        prepared = preparation.prepared
+      }
       committed = await db.transaction(async (tx) => {
         const current = await lockOwnedBatch(tx, userId, id)
         if (
@@ -403,6 +469,7 @@ async function dispatchPreparedBatch(
           !batchExecutionAvailable(userId)
         )
           return false
+        if (await pauseBatchForAnalysisAuthentication(tx, current)) return false
         const currentAttempts = await batchAttempts(tx, current)
         // A task may fail while this item's bytes are being prepared, after the last progress scan.
         if (currentAttempts.some((one) => one.unrecordedAuthenticationFailure)) {
@@ -424,25 +491,70 @@ async function dispatchPreparedBatch(
           )
         )
           return false
-        const model = resolveAgentModel('image', item.params.model)
-        if (!model || model.model !== item.params.model || model.provider !== item.params.provider)
+        if (item.kind === 'generation') {
+          const model = resolveAgentModel('image', item.params.model)
+          if (
+            !model ||
+            model.model !== item.params.model ||
+            model.provider !== item.params.provider
+          )
+            throw new BatchPlanError('batch_execution_unavailable', 422)
+        } else if (
+          !isCapabilityEnabled('agent:batch-analysis') ||
+          item.params.model !== config.agent.model
+        )
           throw new BatchPlanError('batch_execution_unavailable', 422)
         const quote = await currentQuote(tx, current, item)
-        const submitted = await createQueueTask({ ...input, prepared: preparation.prepared, tx })
-        if (submitted.kind === 'insufficient_credits')
-          throw new BatchPlanError('batch_insufficient_credits', 422)
-        if (submitted.kind !== 'created') throw new BatchPlanError('batch_submission_refused', 422)
+        let taskId: string
+        let submittedAt: number
+        let reservedCredits: number
+        if (item.kind === 'analysis') {
+          if (!preparedAnalysis || !quote.pricing)
+            throw new BatchPlanError('batch_price_changed', 409)
+          taskId = crypto.randomUUID()
+          submittedAt = Date.now()
+          const reservation = await reserveAnalysisTask({
+            tx,
+            taskHooks: (await loadPrivateBffOverlay()).taskHooks,
+            taskId,
+            userId,
+            deviceId: current.device_id!,
+            batchId: id,
+            version: current.confirmed_version!,
+            itemKey: item.key,
+            attempt: targetAttempt(item.key),
+            originConversationId: current.conversation_id,
+            originTurnId: current.origin_turn_id,
+            prepared: preparedAnalysis,
+            pricing: quote.pricing,
+          })
+          if (reservation.kind === 'insufficient_credits')
+            throw new BatchPlanError('batch_insufficient_credits', 422)
+          if (reservation.kind !== 'reserved')
+            throw new BatchPlanError('batch_submission_refused', 422)
+          reservedCredits = reservation.credits
+        } else {
+          if (!input || !prepared) throw new BatchPlanError('invalid_batch_plan', 422)
+          const submitted = await createQueueTask({ ...input, prepared, tx })
+          if (submitted.kind === 'insufficient_credits')
+            throw new BatchPlanError('batch_insufficient_credits', 422)
+          if (submitted.kind !== 'created')
+            throw new BatchPlanError('batch_submission_refused', 422)
+          taskId = submitted.taskId
+          submittedAt = submitted.submittedAt
+          reservedCredits = quote.credits
+        }
         await tx.insert(schema.agent_batch_attempts).values({
           batch_id: id,
           version: current.confirmed_version!,
           item_key: item.key,
           attempt: targetAttempt(item.key),
-          task_id: submitted.taskId,
+          task_id: taskId,
           price_snapshot: quote.pricing,
-          reserved_credits: quote.credits,
-          submitted_at: submitted.submittedAt,
+          reserved_credits: reservedCredits,
+          submitted_at: submittedAt,
         })
-        return submitted.taskId === preparation.prepared.taskId
+        return item.kind === 'analysis' || taskId === prepared?.taskId
       })
     } catch (error) {
       const inputLimit =
@@ -456,7 +568,9 @@ async function dispatchPreparedBatch(
           ? 'price_changed'
           : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
             ? 'insufficient_credits'
-            : null
+            : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
+              ? 'model_unavailable'
+              : null
       if (!pauseReason) throw error
       await db.transaction(async (tx) => {
         const current = await lockOwnedBatch(tx, userId, id)
@@ -607,13 +721,18 @@ export async function repriceAgentBatch(
         ),
       )
       .orderBy(asc(schema.agent_batch_items.ordinal))
+      .then((rows) => rows.map(batchItem))
     const attempts = await tx
       .select()
       .from(schema.agent_batch_attempts)
       .where(eq(schema.agent_batch_attempts.batch_id, id))
     const hooks = (await loadPrivateBffOverlay()).taskHooks
-    const snapshots: AgentBatchPriceSnapshot[] = []
-    let estimatedCredits = 0
+    const snapshots: Record<AgentBatchItem['kind'], AgentBatchPriceSnapshot[]> = {
+      analysis: [],
+      generation: [],
+    }
+    const totals = { analysis: 0, generation: 0 }
+    const charges = { analysis: 0, generation: 0 }
     for (const item of items) {
       const accepted = attempts.find(
         (one) =>
@@ -622,34 +741,52 @@ export async function repriceAgentBatch(
             (Object.hasOwn(plan.attempt_targets, item.key) ? plan.attempt_targets[item.key]! : 1),
       )
       if (accepted) {
-        estimatedCredits += accepted.reserved_credits
-        if (accepted.price_snapshot) snapshots.push(accepted.price_snapshot)
+        totals[item.kind] += accepted.reserved_credits
+        charges[item.kind] += accepted.reserved_credits
+        if (accepted.price_snapshot) snapshots[item.kind].push(accepted.price_snapshot)
         continue
       }
-      if (!isCapabilityEnabled('billing:credits')) continue
-      const quote = await hooks.quoteTask?.({
-        tx,
-        userId,
-        model: item.params.model,
-        quantity: 1,
-        unitMultiplier: 1,
-      })
+      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
+      const quote =
+        item.kind === 'analysis'
+          ? await quoteAnalysisTask(
+              {
+                tx,
+                userId,
+                model: item.params.model,
+                estimatedInputTokens: item.params.estimatedInputTokens,
+              },
+              hooks,
+            )
+          : await hooks.quoteTask?.({
+              tx,
+              userId,
+              model: item.params.model,
+              quantity: 1,
+              unitMultiplier: 1,
+            })
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)
-      estimatedCredits += quote.estimatedCredits
-      snapshots.push({ ...quote.pricing, itemKey: item.key })
+      totals[item.kind] += quote.estimatedCredits
+      charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0
+      snapshots[item.kind].push({ ...quote.pricing, itemKey: item.key })
     }
     const estimate: AgentBatchEstimates = {
-      analysis: plan.estimate_snapshot.analysis,
+      analysis: {
+        status: 'available',
+        estimatedCredits: totals.analysis,
+        estimatedChargeCredits: charges.analysis,
+        snapshots: snapshots.analysis,
+      },
       generation: {
         status: 'available',
-        estimatedCredits,
-        estimatedChargeCredits: estimatedCredits,
-        snapshots,
+        estimatedCredits: totals.generation,
+        estimatedChargeCredits: charges.generation,
+        snapshots: snapshots.generation,
       },
     }
     const version = batch.current_version + 1
     const now = Date.now()
-    const content = items.map(({ batch_id: _batch, version: _version, ...item }) => item)
+    const content = items
     const digest = createHash('sha256')
       .update(JSON.stringify({ title: plan.title, rule: plan.rule, items: content, estimate }))
       .digest('hex')
@@ -753,18 +890,24 @@ export async function quoteAgentBatchRetry(
         ),
       )
       .orderBy(asc(schema.agent_batch_items.ordinal))
+      .then((rows) => rows.map(batchItem))
     const attempts = await tx
       .select()
       .from(schema.agent_batch_attempts)
       .where(eq(schema.agent_batch_attempts.batch_id, id))
     let targets = { ...plan.attempt_targets }
-    const snapshots: AgentBatchPriceSnapshot[] =
-      plan.estimate_snapshot.generation.status === 'available'
-        ? plan.estimate_snapshot.generation.snapshots.filter(
-            (one) => !one.itemKey || !keys.includes(one.itemKey),
-          )
+    const previousSnapshots = (kind: AgentBatchItem['kind']) => {
+      const estimate = plan.estimate_snapshot[kind]
+      return estimate.status === 'available'
+        ? estimate.snapshots.filter((one) => !one.itemKey || !keys.includes(one.itemKey))
         : []
-    let estimatedCredits = 0
+    }
+    const snapshots = {
+      analysis: previousSnapshots('analysis'),
+      generation: previousSnapshots('generation'),
+    }
+    const totals = { analysis: 0, generation: 0 }
+    const charges = { analysis: 0, generation: 0 }
     const hooks = (await loadPrivateBffOverlay()).taskHooks
     for (const key of keys) {
       const item = items.find((one) => one.key === key)
@@ -779,32 +922,55 @@ export async function quoteAgentBatchRetry(
         latest.terminal_snapshot.errorCode === 'result_unknown'
       )
         throw new BatchPlanError('batch_retry_unavailable', 409)
-      const model = resolveAgentModel('image', item.params.model)
-      if (!model || model.model !== item.params.model || model.provider !== item.params.provider)
+      if (item.kind === 'generation') {
+        const model = resolveAgentModel('image', item.params.model)
+        if (!model || model.model !== item.params.model || model.provider !== item.params.provider)
+          throw new BatchPlanError('batch_execution_unavailable', 422)
+      } else if (
+        !isCapabilityEnabled('agent:batch-analysis') ||
+        item.params.model !== config.agent.model
+      )
         throw new BatchPlanError('batch_execution_unavailable', 422)
       targets = { ...targets, [key]: latest.attempt + 1 }
-      if (!isCapabilityEnabled('billing:credits')) continue
-      const quote = await hooks.quoteTask?.({
-        tx,
-        userId,
-        model: item.params.model,
-        quantity: 1,
-        unitMultiplier: 1,
-      })
+      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
+      const quote =
+        item.kind === 'analysis'
+          ? await quoteAnalysisTask(
+              {
+                tx,
+                userId,
+                model: item.params.model,
+                estimatedInputTokens: item.params.estimatedInputTokens,
+              },
+              hooks,
+            )
+          : await hooks.quoteTask?.({
+              tx,
+              userId,
+              model: item.params.model,
+              quantity: 1,
+              unitMultiplier: 1,
+            })
       if (!quote) throw new BatchPlanError('batch_price_changed', 409)
-      estimatedCredits += quote.estimatedCredits
-      snapshots.push({ ...quote.pricing, itemKey: key })
+      totals[item.kind] += quote.estimatedCredits
+      charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0
+      snapshots[item.kind].push({ ...quote.pricing, itemKey: key })
     }
     const estimate: AgentBatchEstimates = {
-      analysis: plan.estimate_snapshot.analysis,
+      analysis: {
+        status: 'available',
+        estimatedCredits: totals.analysis,
+        estimatedChargeCredits: charges.analysis,
+        snapshots: snapshots.analysis,
+      },
       generation: {
         status: 'available',
-        estimatedCredits,
-        estimatedChargeCredits: estimatedCredits,
-        snapshots,
+        estimatedCredits: totals.generation,
+        estimatedChargeCredits: charges.generation,
+        snapshots: snapshots.generation,
       },
     }
-    const content = items.map(({ batch_id: _batch, version: _version, ...item }) => item)
+    const content = items
     const version = batch.current_version + 1
     const now = Date.now()
     const digest = createHash('sha256')
