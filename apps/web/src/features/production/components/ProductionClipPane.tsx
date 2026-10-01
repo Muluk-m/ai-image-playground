@@ -7,6 +7,7 @@ import {
   VIDEO_DURATIONS,
   VIDEO_RESOLUTIONS,
   type VideoRequest,
+  videoDurationsForResolution,
   videoPromptRejection,
   videoRateMultiplier,
   videoRequestRejection,
@@ -40,7 +41,7 @@ function Choice({
 }: {
   label: string
   value: string
-  options: readonly { value: string; label: string }[]
+  options: readonly { value: string; label: string; disabled?: boolean }[]
   onChange: (value: string) => void
 }) {
   return (
@@ -55,7 +56,7 @@ function Choice({
             <SelectItem value={value}>{value}</SelectItem>
           )}
           {options.map((one) => (
-            <SelectItem key={one.value} value={one.value}>
+            <SelectItem key={one.value} value={one.value} disabled={one.disabled}>
               {one.label}
             </SelectItem>
           ))}
@@ -310,6 +311,12 @@ export default function ProductionClipPane({
                 options={VIDEO_DURATIONS.map((value) => ({
                   value: String(value),
                   label: tv('shared.seconds', { seconds: value }),
+                  disabled:
+                    !option ||
+                    !videoDurationsForResolution(
+                      option.support,
+                      selected.video.resolution,
+                    ).includes(value),
                 }))}
                 onChange={(value) => changeVideo({ duration_seconds: Number(value) })}
               />

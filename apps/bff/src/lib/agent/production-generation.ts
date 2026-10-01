@@ -198,9 +198,26 @@ export async function listProductionGenerations(
   conversationId: string,
   userId: string,
   onlyDraftId?: string,
+  onlyMessageId?: string,
 ): Promise<ProductionGenerationView[]> {
   const record = await readProduction(conversationId, userId)
   if (!record) throw new ProductionError('production_not_found')
+  let toolCallId: string | undefined
+  if (onlyMessageId) {
+    const [message] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(
+        and(
+          eq(schema.agent_messages.id, onlyMessageId),
+          eq(schema.agent_messages.conversation_id, conversationId),
+          isNull(schema.agent_messages.deleted_at),
+        ),
+      )
+      .limit(1)
+    toolCallId = message?.content.find((block) => block.type === 'toolResult')?.toolCallId
+    if (!toolCallId) return []
+  }
   const rows = await db
     .select()
     .from(drafts)
@@ -209,10 +226,11 @@ export async function listProductionGenerations(
         eq(drafts.conversation_id, conversationId),
         sql`${drafts.submission} -> 'production' IS NOT NULL`,
         onlyDraftId ? eq(drafts.id, onlyDraftId) : undefined,
+        toolCallId ? eq(drafts.tool_call_id, toolCallId) : undefined,
       ),
     )
     .orderBy(desc(drafts.created_at))
-    .limit(onlyDraftId ? 1 : 100)
+    .limit(onlyDraftId || onlyMessageId ? 1 : 100)
   const messages = await listAgentMessages(conversationId, { kind: 'user', userId })
   const result: ProductionGenerationView[] = []
   for (const draft of rows) {

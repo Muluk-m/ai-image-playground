@@ -3,8 +3,10 @@ import { useId, useRef, useState } from 'react'
 import { ApprovalCard } from '../../../components/assistant-ui/elements/approval-card'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
+import ProductionDraftCard from '../../production/components/ProductionDraftCard'
+import type { ProductionPane } from '../../production/lib/productionContext'
 import { CARD_NOTE, GHOST_LINK } from '../agentStyles'
-import { agentDraftOutputCount } from '../lib/promptDraft'
+import { agentDraftOutputCount, isProductionDraft } from '../lib/promptDraft'
 import {
   agentToolFailureAction,
   agentToolFailureActionLabel,
@@ -20,7 +22,18 @@ type AgentPromptConfirmFailure = Extract<AgentPromptConfirmResult, { ok: false }
  * 生成工具拟好、还没提交的那份提示词：整段摊在卡上直接可改，点「确认生成」才提交生成任务。
  * 模型自己补的细节（颜色、材质、光线……）因此在花钱之前就露在用户眼前，能当场改掉。
  */
-export default function AgentPromptDraft({ message }: { message: AgentToolMessage }) {
+export default function AgentPromptDraft({
+  message,
+  onPreviewProduction,
+}: {
+  message: AgentToolMessage
+  onPreviewProduction?: (pane?: ProductionPane) => void
+}) {
+  if (isProductionDraft(message))
+    return <ProductionDraftCard message={message} onOpen={onPreviewProduction} />
+  return <StandardPromptDraft message={message} />
+}
+function StandardPromptDraft({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation('agent')
   const prompt = useAgentStore((state) => state.promptDrafts[message.id] ?? message.prompt ?? '')
   const [submitting, setSubmitting] = useState(false)

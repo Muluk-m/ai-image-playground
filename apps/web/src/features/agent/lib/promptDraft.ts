@@ -27,3 +27,9 @@ export function agentDraftReservation(
     ...(message.anchorObjectId ? { anchorObjectId: message.anchorObjectId } : {}),
   }
 }
+
+export function isProductionDraft(message: AgentToolMessage): boolean {
+  return (
+    message.productionDraftRevision !== undefined || Boolean(message.snapshot?.params?.production)
+  )
+}
