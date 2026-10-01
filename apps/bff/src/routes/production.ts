@@ -22,6 +22,7 @@ import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 import { productionAssetFields } from './production-asset-schema'
 import { productionClipSchema } from './production-clip-schema'
+import { productionExportRoutes } from './production-export'
 import { productionGenerationRoutes } from './production-generations'
 import { productionShotsSchema } from './production-storyboard-schema'
 
@@ -255,3 +256,4 @@ export const productionRoutes = new Elysia()
       }),
     },
   )
+  .use(productionExportRoutes)
