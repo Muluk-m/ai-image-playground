@@ -634,6 +634,7 @@
     "nextPage": "下一页",
     "pagePosition": "第 {{current}} / {{total}} 页",
     "sourceAnalysisTitle": "来源分析 · 版本 {{version}}",
+    "sourceAnalysisVersionsTitle": "来源分析 · 版本 {{versions}}",
     "excludedScope": "本次不包含",
     "excludedItems": "未纳入的处理项：{{items}}",
     "excludedPending": "未完成的来源分析仍需单独处理。",

@@ -656,6 +656,7 @@
     "nextPage": "Next page",
     "pagePosition": "Page {{current}} / {{total}}",
     "sourceAnalysisTitle": "Source analysis · Version {{version}}",
+    "sourceAnalysisVersionsTitle": "Source analysis · Versions {{versions}}",
     "excludedScope": "Not included in this confirmation",
     "excludedItems": "Excluded items: {{items}}",
     "excludedPending": "Unresolved source analysis still needs separate attention.",

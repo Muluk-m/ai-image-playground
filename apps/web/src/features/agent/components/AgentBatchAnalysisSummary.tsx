@@ -9,16 +9,25 @@ export default function AgentBatchAnalysisSummary({
   summary,
   items,
   sourceVersion,
+  sourceVersions,
 }: {
   summary: AnalysisSummary
   items: AgentBatchPage['items']
   sourceVersion?: number
+  sourceVersions?: readonly number[]
 }) {
   const { t } = useTranslation('agent')
+  const versions = sourceVersions?.length
+    ? sourceVersions
+    : sourceVersion === undefined
+      ? []
+      : [sourceVersion]
   const title =
-    sourceVersion === undefined
-      ? t('batch.summaryTitle')
-      : t('batch.sourceAnalysisTitle', { version: sourceVersion })
+    versions.length > 1
+      ? t('batch.sourceAnalysisVersionsTitle', { versions: versions.join(' · ') })
+      : versions.length === 1
+        ? t('batch.sourceAnalysisTitle', { version: versions[0] })
+        : t('batch.summaryTitle')
   const inputs = items.flatMap((item) => item.inputs)
   const name = (imageId: string) =>
     inputs.find((input) => input.imageId === imageId)?.name ??
@@ -79,12 +88,18 @@ export default function AgentBatchAnalysisSummary({
           <ul className="max-h-64 space-y-3 overflow-y-auto overscroll-contain pt-2">
             {summary.findings.map((finding) => (
               <li
-                key={`${finding.taskId}:${finding.attempt}:${finding.imageId}`}
+                key={`${finding.version ?? 'legacy'}:${finding.taskId}:${finding.attempt}:${finding.imageId}`}
                 className="grid gap-1"
               >
                 <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
                   <span>{name(finding.imageId)}</span>
-                  <span>{t('batch.attempt', { number: finding.attempt })}</span>
+                  <span title={finding.taskId}>
+                    {(finding.version ?? (versions.length === 1 ? versions[0] : undefined)) !==
+                      undefined && (
+                      <>{t('batch.version', { version: finding.version ?? versions[0] })} · </>
+                    )}
+                    {t('batch.attempt', { number: finding.attempt })}
+                  </span>
                 </div>
                 <p className="whitespace-pre-wrap break-words">{finding.text}</p>
                 <AgentBatchAnalysisEvidence evidence={finding.evidence} inputs={inputs} />
