@@ -44,3 +44,33 @@ it('keeps an uncertain command immutable, retries its ID and starts a fresh comm
   expect(commands[2]?.commandId).not.toBe(commands[0]?.commandId)
   expect(commands[2]?.action).toBe('confirm_no_result')
 })
+
+it('refreshes task state when another operator resolves an uncertain command', async () => {
+  let status = 'reconciling'
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url, init?: RequestInit) => {
+      if (init?.method === 'POST') throw new TypeError('connection lost')
+      return Response.json({ status, upstreamTaskIds: [], dispatches: [], decisions: [] })
+    }),
+  )
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const invalidate = vi.spyOn(client, 'invalidateQueries')
+  render(
+    <QueryClientProvider client={client}>
+      <TaskReconciliation taskId="task-other-operator" />
+    </QueryClientProvider>,
+  )
+  fireEvent.change(screen.getByLabelText('核查依据'), { target: { value: 'operator A checking' } })
+  fireEvent.click(screen.getByRole('button', { name: '查询原请求' }))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('结果尚不确定'))
+  status = 'completed'
+  fireEvent.click(screen.getByRole('button', { name: '刷新核查记录' }))
+  await waitFor(() =>
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['task', 'task-other-operator'] }),
+  )
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: '重试原核查' })).not.toBeInTheDocument(),
+  )
+  expect(screen.getByRole('button', { name: '确认未产生结果' })).toBeDisabled()
+})
