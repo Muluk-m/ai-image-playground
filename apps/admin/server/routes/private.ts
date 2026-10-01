@@ -5,7 +5,7 @@ import { requireAuth } from '../lib/middleware'
 const PRIVATE_API_PREFIX = '/api/private'
 const SAFE_PRIVATE_PATH = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/
 
-async function forwardPrivateOperation(request: Request): Promise<Response> {
+async function forwardPrivateOperation(request: Request, operatorId: string): Promise<Response> {
   const token = config.auth.internalApiToken
   if (!token) {
     return Response.json({ error: 'internal_service_unconfigured' }, { status: 503 })
@@ -25,6 +25,7 @@ async function forwardPrivateOperation(request: Request): Promise<Response> {
   const headers = new Headers({
     accept: 'application/json',
     authorization: `Bearer ${token}`,
+    'x-admin-operator': operatorId,
   })
   const contentType = request.headers.get('content-type')
   if (contentType) headers.set('content-type', contentType)
@@ -45,7 +46,7 @@ async function forwardPrivateOperation(request: Request): Promise<Response> {
 
 export const privateRoutes = new Elysia({ prefix: PRIVATE_API_PREFIX })
   .use(requireAuth)
-  .all('/*', ({ request }) => forwardPrivateOperation(request))
+  .all('/*', ({ request, admin }) => forwardPrivateOperation(request, admin.operatorId))
 
 export const extensionRoutes = new Elysia({ prefix: '/api' })
   .use(requireAuth)
