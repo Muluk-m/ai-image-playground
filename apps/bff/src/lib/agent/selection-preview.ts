@@ -95,7 +95,7 @@ export async function imageSelection(
         const x = region.x * info.width,
           y = region.y * info.height
         const radius = Math.max(8, Math.min(info.width, info.height) * 0.014)
-        return `<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${index + 1}</text>`
+        return `<rect x="${x}" y="${y}" width="${region.width * info.width}" height="${region.height * info.height}" fill="none" stroke="#159cf6" stroke-width="${radius / 5}"/><circle cx="${x + radius}" cy="${y + radius}" r="${radius}" fill="#159cf6" stroke="white" stroke-width="${radius / 6}"/><text x="${x + radius}" y="${y + radius * 1.35}" text-anchor="middle" fill="white" font-size="${radius * 1.3}" font-family="sans-serif">${region.number ?? index + 1}</text>`
       })
       .join('')
     const preview = await sharp(raw)
@@ -177,7 +177,7 @@ export function evidenceManifest(references: readonly EvidenceListing[]): string
       )
     descriptions.push(
       selection
-        ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。${regions?.length ? `区域编号按以下归一化坐标对应：${regions.map((region, index) => `区域 ${index + 1} ${JSON.stringify(region)}`).join('；')}。编号仅用于定位，以遮罩覆盖像素为准。` : ''}`
+        ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。${regions?.length ? `区域编号按以下归一化坐标对应：${regions.map((region, index) => `区域 ${region.number ?? index + 1} ${JSON.stringify(region)}`).join('；')}。编号仅用于定位，以遮罩覆盖像素为准。` : ''}`
         : `视觉输入 ${first}：图片 ${imageId} 原图`,
     )
   }

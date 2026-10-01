@@ -45,3 +45,18 @@ describe('smart edit regions', () => {
     })
   })
 })
+
+it('never reuses a removed stroke identity within a session', () => {
+  const session = useInpaintSession.getState()
+  session.open('image-1', 'inpaint')
+  session.addStroke(rect(0))
+  session.addStroke(rect(20))
+  session.removeStroke(0)
+  expect(useInpaintSession.getState().strokeIds).toEqual([2])
+  session.undo()
+  session.addStroke(rect(40))
+  expect(useInpaintSession.getState().strokeIds).toEqual([3])
+  session.clearStrokes()
+  session.addStroke(rect(60))
+  expect(useInpaintSession.getState().strokeIds).toEqual([4])
+})
