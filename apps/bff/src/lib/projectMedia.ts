@@ -19,6 +19,7 @@ import { PREVIEW_RESIZE } from './agent/modelImage'
 import { isCapabilityEnabled } from './capabilities'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
+import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
 import type { BffTransaction } from './private-overlay'
 
@@ -212,7 +213,7 @@ export async function completeMedia(userId: string, id: string) {
       let metadata: Metadata
       let preview: Buffer
       try {
-        const image = sharp(bytes, { limitInputPixels: 40_000_000, failOn: 'warning' })
+        const image = sharp(bytes, { limitInputPixels: MEDIA_IMAGE_MAX_PIXELS, failOn: 'warning' })
         metadata = await image.metadata()
         if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
         if (`image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type)

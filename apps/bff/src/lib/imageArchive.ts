@@ -114,6 +114,7 @@ interface ArchiveOptions {
   store?: ObjectStore
   retainOnFailure?: boolean
   maxBytes?: number
+  validateBytes?: (bytes: Uint8Array) => Promise<void>
   signal?: AbortSignal
 }
 type ArchiveContext = ArchiveOptions & { store: ObjectStore }
@@ -209,9 +210,15 @@ async function archiveOutputs(
       if (!encoded && !sourceUrl && !item.object) continue
       const index = imageIndex++
       if (!encoded && !sourceUrl) continue
+      if (
+        encoded &&
+        Buffer.byteLength(encoded, 'base64') > (context.maxBytes ?? Number.POSITIVE_INFINITY)
+      )
+        throw new SourceImageFetchError('source image exceeds size limit')
       const source = encoded
         ? { bytes: Buffer.from(encoded, 'base64'), mime: undefined }
         : await fetchSourceImage(sourceUrl!, context)
+      await context.validateBytes?.(source.bytes)
       const declared = typeof item[mimeKey] === 'string' ? (item[mimeKey] as string) : undefined
       const mime = detectMediaMime(source.bytes) ?? declared ?? source.mime ?? fallbackMime
       const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${index}`, mime }

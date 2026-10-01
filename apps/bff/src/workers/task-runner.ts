@@ -194,6 +194,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       return
     }
     const upstreamCall: UpstreamCallParams = {
+      reconciliationRequired: task.reconciliation_required,
       provider: task.provider,
       model: task.model,
       request: hydratedRequest,
