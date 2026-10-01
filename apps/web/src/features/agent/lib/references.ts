@@ -6,6 +6,7 @@ import {
   type AgentMarkedRegion,
   type AgentMode,
 } from '@image-playground/shared'
+import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import {
   createMentionLabels,
@@ -120,7 +121,9 @@ export function agentAdmission(
   transport: ReferenceTransport = INLINE_ONLY,
 ): ReferenceAdmission<AgentReference> {
   return {
-    limit: AGENT_TURN_MAX_REFERENCES,
+    limit:
+      (attachmentUploadsEnabled() && getAttachmentLimits()?.logicalReferences) ||
+      AGENT_TURN_MAX_REFERENCES,
     acceptsReferences: true,
     inline: {
       limit: AGENT_TURN_MAX_INLINE_REFERENCES,

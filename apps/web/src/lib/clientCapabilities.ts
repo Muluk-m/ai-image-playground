@@ -1,4 +1,5 @@
 import {
+  type AttachmentLimits,
   CAPABILITIES,
   type CapabilityKey,
   type ClientCapabilityKey,
@@ -29,6 +30,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 let currentManifest = disabledManifest()
 let currentBffEnabled = false
 let projectDocumentIdentity = false
+let attachmentLimits: AttachmentLimits | undefined
 const CAPABILITY_TIMEOUT_MS = 5000
 
 export async function bootstrapClientCapabilities(
@@ -39,6 +41,7 @@ export async function bootstrapClientCapabilities(
   currentManifest = disabledManifest()
   currentBffEnabled = bffEnabled
   projectDocumentIdentity = false
+  attachmentLimits = undefined
   if (!bffEnabled) return currentManifest
 
   const controller = new AbortController()
@@ -63,6 +66,26 @@ export async function bootstrapClientCapabilities(
     if (!result?.parsed && required) throw new Error('capability_manifest_unavailable')
     if (result?.parsed) currentManifest = result.parsed
     const body = result?.body
+    if (
+      result?.parsed?.['agent:attachments'] &&
+      typeof body === 'object' &&
+      body !== null &&
+      'attachmentLimits' in body
+    ) {
+      const limits = body.attachmentLimits as AttachmentLimits | null
+      if (
+        limits &&
+        [
+          limits.logicalReferences,
+          limits.imageBytes,
+          limits.imagePixels,
+          limits.uploadConcurrency,
+        ].every((value) => Number.isSafeInteger(value) && value > 0) &&
+        limits.logicalReferences <= 100 &&
+        limits.uploadConcurrency <= 4
+      )
+        attachmentLimits = limits
+    }
     projectDocumentIdentity =
       result?.parsed !== null &&
       typeof body === 'object' &&
@@ -99,4 +122,8 @@ export function isClientCapabilityEnabled(key: CapabilityKey): boolean {
  */
 export function isByokGenerationEnabled(): boolean {
   return !currentBffEnabled || isClientCapabilityEnabled('generation:byok')
+}
+
+export function getAttachmentLimits(): Readonly<AttachmentLimits> | undefined {
+  return attachmentLimits
 }

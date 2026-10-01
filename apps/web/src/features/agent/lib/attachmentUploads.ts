@@ -2,6 +2,14 @@ import type { AgentTurnReference } from '@image-playground/shared'
 import { isUserStorageScope, scopedStorageName } from '../../../lib/authScope'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { mediaIdentity } from '../../../lib/cloudMedia'
+import { BASE_DB_NAME } from '../../../lib/db'
+import {
+  hasLocalAttachmentSources,
+  localAttachmentFailure,
+  onLocalAttachmentReleased,
+  readAttachmentUpload,
+  saveAttachmentUpload,
+} from '../../../lib/localAttachmentSources'
 import {
   type MediaUploadResult,
   type MediaUploadState,
@@ -31,6 +39,19 @@ const changed = () => {
   revision++
   for (const listener of listeners) listener()
 }
+onLocalAttachmentReleased(({ sources, storageScope }) => {
+  if (storageScope !== scopedStorageName(BASE_DB_NAME)) return
+  let removed = false
+  for (const source of sources) {
+    const entry = entries.get(source)
+    if (!entry) continue
+    entry.controller.abort()
+    entries.delete(source)
+    removed = true
+  }
+  if (removed) changed()
+})
+
 export const subscribeAttachmentUploads = (listener: () => void) => {
   listeners.add(listener)
   return () => {
@@ -66,6 +87,7 @@ function sourcesToUpload(reference: Uploadable): string[] {
 }
 
 export function attachmentUploadState(reference: Uploadable): MediaUploadState | undefined {
+  if (!attachmentUploadsEnabled() && hasLocalAttachmentSources(reference)) return 'failed'
   const sources = sourcesToUpload(reference)
   if (!sources.length) return undefined
   const states = sources.map((source) => currentEntries().get(source)?.state ?? 'queued')
@@ -75,6 +97,8 @@ export function attachmentUploadState(reference: Uploadable): MediaUploadState |
 }
 
 export function attachmentUploadError(reference: Uploadable): string | undefined {
+  if (!attachmentUploadsEnabled() && hasLocalAttachmentSources(reference))
+    return 'attachment_capability_unavailable'
   return sourcesToUpload(reference)
     .map((source) => currentEntries().get(source)?.errorCode)
     .find(Boolean)
@@ -90,26 +114,49 @@ function start(source: string, retry = false): Promise<MediaUploadResult> {
   const controller = new AbortController()
   const entry: Entry = { state: 'queued', controller, promise: undefined! }
   cache.set(source, entry)
-  entry.promise = uploadMediaSource(source, {
-    signal: controller.signal,
-    purpose: 'conversation-attachment',
-    onState(state) {
-      entry.state = state
-      changed()
-    },
-  })
-    .then((result) => {
-      if (!result) throw new Error('attachment_upload_missing')
-      entry.result = result
+  const backend = getRuntimeConfig().bff.baseUrl
+  entry.promise = (async () => {
+    const saved = await readAttachmentUpload(source, backend)
+    controller.signal.throwIfAborted()
+    if (saved?.state === 'failed' && (!retry || localAttachmentFailure(source)))
+      throw new Error(saved.errorCode)
+    if (
+      saved?.state === 'ready' &&
+      saved.result.leaseExpiresAt !== undefined &&
+      saved.result.leaseExpiresAt > Date.now() + 30_000
+    ) {
+      entry.state = 'ready'
+      entry.result = saved.result
       changed()
       pruneEntries()
-      return result
+      return saved.result
+    }
+    const result = await uploadMediaSource(source, {
+      signal: controller.signal,
+      purpose: 'conversation-attachment',
+      onState(state) {
+        if (state === 'ready' || state === 'failed') return
+        entry.state = state
+        changed()
+      },
     })
-    .catch((error: unknown) => {
-      entry.errorCode = error instanceof Error ? error.message : 'attachment_upload_failed'
-      changed()
-      throw error
-    })
+    if (!result) throw new Error('attachment_upload_missing')
+    await saveAttachmentUpload(source, backend, { state: 'ready', result })
+    controller.signal.throwIfAborted()
+    entry.result = result
+    entry.state = 'ready'
+    changed()
+    pruneEntries()
+    return result
+  })().catch(async (error: unknown) => {
+    const errorCode = error instanceof Error ? error.message : 'attachment_upload_failed'
+    if (!controller.signal.aborted)
+      await saveAttachmentUpload(source, backend, { state: 'failed', errorCode }).catch(() => {})
+    entry.errorCode = errorCode
+    entry.state = 'failed'
+    changed()
+    throw error
+  })
   return entry.promise
 }
 
@@ -167,6 +214,8 @@ export async function retryAttachmentUploads(reference: Uploadable): Promise<voi
 export async function prepareAttachmentReferences(
   references: readonly AgentTurnReference[],
 ): Promise<AgentTurnReference[]> {
+  if (!attachmentUploadsEnabled() && hasLocalAttachmentSources(references))
+    throw new Error('attachment_capability_unavailable')
   const release = primeAttachmentUploads(references.filter((reference) => 'dataUrl' in reference))
   try {
     const prepared = await Promise.allSettled(

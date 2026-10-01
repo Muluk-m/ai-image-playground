@@ -653,3 +653,1026 @@ it('刷新补发遇到已撤回时，先持久化到所属项目草稿再删除�
   })
   expect(restored.getSnapshot().unsent?.submission?.id).not.toBe('withdrawn-original-id')
 })
+
+it('keeps all 100 selected attachments and sends only after retrying the failed upload', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  const registrations: string[] = []
+  const putAttempts = new Map<string, number>()
+  let failedMediaId: string | undefined
+  let finishTurn!: (response: Response) => void
+  const turnGate = new Promise<Response>((resolve) => {
+    finishTurn = resolve
+  })
+  turnResponse = () => turnGate
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 20 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.startsWith('data:image/'))
+      return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
+    if (url.endsWith('/uploads')) {
+      const { sha256 } = JSON.parse(String(init?.body)) as { sha256: string }
+      registrations.push(sha256)
+      const id = `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`
+      failedMediaId ??= id
+      return Response.json({
+        id,
+        status: 'pending',
+        uploadUrl: `https://storage.test/${id}`,
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    if (url.startsWith('https://storage.test/')) {
+      const id = url.split('/').slice(-1)[0]!
+      const count = (putAttempts.get(id) ?? 0) + 1
+      putAttempts.set(id, count)
+      return new Response(null, { status: id === failedMediaId && count === 1 ? 503 : 200 })
+    }
+    if (url.endsWith('/complete'))
+      return Response.json({ id: url.split('/').slice(-2)[0], status: 'ready' })
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '检查这 100 张图片', references: [] })
+  const files = Array.from(
+    { length: 100 },
+    (_, index) =>
+      new File(
+        [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, index])],
+        `photo-${index + 1}.png`,
+        { type: 'image/png' },
+      ),
+  )
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(input, 'files', { configurable: true, value: files })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      useStore.getState().confirmDialog?.action()
+      useStore.getState().setConfirmDialog(null)
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(100))
+      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 5000 })
+    })
+    expect(session.getSnapshot().draft.references.map((reference) => reference.name)).toEqual(
+      Array.from({ length: 100 }, (_, index) => `photo-${index + 1}`),
+    )
+    expect(JSON.stringify(session.getSnapshot().draft)).not.toContain('base64,')
+    const send = host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
+    expect(send.disabled).toBe(true)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    const retry = [...host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (button) => button.textContent === '重试',
+    )
+    expect(retry).toHaveLength(1)
+    await act(async () => {
+      retry[0]!.click()
+      await vi.waitFor(() => expect(send.disabled).toBe(false))
+    })
+    expect([...putAttempts.values()].filter((count) => count > 1)).toEqual([2])
+    expect(new Set(registrations).size).toBe(100)
+    await act(async () => {
+      send.click()
+      await vi.waitFor(() =>
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+      )
+    })
+    const request = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))!
+    const body = JSON.parse(String(request[1]?.body))
+    expect(body.references).toHaveLength(100)
+    expect(
+      body.references.every(
+        (reference: { mediaId?: string; dataUrl?: string }) =>
+          reference.mediaId && !reference.dataUrl,
+      ),
+    ).toBe(true)
+    expect(JSON.stringify(await outgoingMessages(PROJECT))).not.toContain('base64,')
+    await act(async () => {
+      finishTurn(COMPLETED_TURN())
+      await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    })
+  } finally {
+    finishTurn(COMPLETED_TURN())
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+}, 15_000)
+
+it('keeps an oversized attachment in the selected scope until the user explicitly removes it', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  const registered: number[] = []
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.endsWith('/uploads')) {
+      const { sha256, bytes } = JSON.parse(String(init?.body))
+      registered.push(bytes)
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '检查完整这组图片', references: [] })
+  const files = Array.from(
+    { length: 3 },
+    (_, index) =>
+      new File(
+        [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, index])],
+        `photo-${index + 1}.png`,
+        { type: 'image/png' },
+      ),
+  )
+  Object.defineProperty(files[2], 'size', { value: 10 * 1024 * 1024 + 1 })
+  const reads: Blob[] = []
+  const originalRead = FileReader.prototype.readAsArrayBuffer
+  const reader = vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementation(function (
+    this: FileReader,
+    file,
+  ) {
+    reads.push(file)
+    return originalRead.call(this, file)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(input, 'files', { value: files })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(3))
+      await vi.waitFor(() => expect(registered).toHaveLength(2))
+    })
+    expect(session.getSnapshot().draft.references.map((reference) => reference.name)).toEqual([
+      'photo-1',
+      'photo-2',
+      'photo-3',
+    ])
+    expect(reads).not.toContain(files[2])
+    const send = host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
+    expect(send.disabled).toBe(true)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 photo-3"]')!.click()
+      await vi.waitFor(() => expect(send.disabled).toBe(false))
+      send.click()
+      await vi.waitFor(() =>
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+      )
+    })
+    const request = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))!
+    expect(JSON.parse(String(request[1]?.body)).references).toHaveLength(2)
+  } finally {
+    reader.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('retains local originals during draft to journal handoff and releases only their last durable owner', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  const { readLocalAttachment } = await import('../../../lib/localAttachmentSources')
+  let finishTurn!: (response: Response) => void
+  turnResponse = () =>
+    new Promise<Response>((resolve) => {
+      finishTurn = resolve
+    })
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.endsWith('/uploads')) {
+      const { sha256 } = JSON.parse(String(init?.body))
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '检查这两张图', references: [] })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(input, 'files', {
+        value: Array.from(
+          { length: 2 },
+          (_, index) =>
+            new File(
+              [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, index])],
+              `ownership-${index}.png`,
+              { type: 'image/png' },
+            ),
+        ),
+      })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(2))
+      await vi.waitFor(() =>
+        expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+          false,
+        ),
+      )
+    })
+    const [shared, exclusive] = session.getSnapshot().draft.references
+    await session.flush()
+    const other = new DraftSession(scopedStorageName('agent-project-draft:other-owner'))
+    await other.ready
+    other.update({ prompt: '另一个尚未发送的草稿', references: [shared!] })
+    await other.flush()
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toHaveLength(1))
+      await vi.waitFor(() => expect(finishTurn).toBeTypeOf('function'))
+    })
+    expect(session.getSnapshot().draft.references).toEqual([])
+    await session.flush()
+    expect(new Uint8Array((await readLocalAttachment(exclusive!.dataUrl)).data)).toEqual(
+      Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1]),
+    )
+    await act(async () => {
+      finishTurn(COMPLETED_TURN())
+      await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    })
+    await vi.waitFor(async () => {
+      await expect(readLocalAttachment(exclusive!.dataUrl)).rejects.toThrow(
+        'attachment_source_missing',
+      )
+    })
+    expect((await readLocalAttachment(shared!.dataUrl)).data.byteLength).toBe(9)
+    other.update({ prompt: '', references: [] })
+    await other.flush()
+    await expect(readLocalAttachment(shared!.dataUrl)).rejects.toThrow('attachment_source_missing')
+  } finally {
+    finishTurn?.(COMPLETED_TURN())
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('restores the original draft without dispatch when its durable outgoing journal cannot be written', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  const { readLocalAttachment } = await import('../../../lib/localAttachmentSources')
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.endsWith('/uploads')) {
+      const { sha256 } = JSON.parse(String(init?.body))
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '这张图不要丢', references: [] })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  let failure: ReturnType<typeof vi.spyOn> | undefined
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(input, 'files', {
+        value: [
+          new File([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 7])], 'keep.png', {
+            type: 'image/png',
+          }),
+        ],
+      })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(1))
+      await vi.waitFor(() =>
+        expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+          false,
+        ),
+      )
+    })
+    const original = session.getSnapshot().draft.references[0]!
+    await session.flush()
+    const transaction = IDBDatabase.prototype.transaction
+    let failures = 0
+    failure = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (
+      this: IDBDatabase,
+      stores,
+      mode,
+      options,
+    ) {
+      if (
+        mode === 'readwrite' &&
+        (typeof stores === 'string' ? stores === 'outgoing' : stores.includes('outgoing'))
+      ) {
+        failures++
+        throw new DOMException('No disk space for the outgoing command', 'QuotaExceededError')
+      }
+      return transaction.call(this, stores, mode, options)
+    })
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      await vi.waitFor(() => expect(failures).toBeGreaterThan(0))
+      await vi.waitFor(() =>
+        expect(
+          session.getSnapshot().draft.references.length === 1 ||
+            fetchMock.mock.calls.some(([url]) => String(url).includes('/turns')),
+        ).toBe(true),
+      )
+    })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    expect(session.getSnapshot().draft).toMatchObject({
+      prompt: '这张图不要丢',
+      references: [original],
+    })
+    await session.flush()
+    const recovered = new DraftSession(session.key)
+    await recovered.ready
+    expect(recovered.getSnapshot().unsent?.references).toEqual([original])
+    expect(new Uint8Array((await readLocalAttachment(original.dataUrl)).data)[8]).toBe(7)
+    expect(await outgoingMessages(PROJECT)).toEqual([])
+  } finally {
+    failure?.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('keeps every selected position when one original cannot be stored and restores its failed placeholder', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  let registrations = 0
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.endsWith('/uploads')) {
+      registrations++
+      const { sha256 } = JSON.parse(String(init?.body))
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '这三张必须完整保留', references: [] })
+  const put = IDBObjectStore.prototype.put
+  let sourceWrites = 0
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    value,
+    key,
+  ) {
+    if (this.name === 'attachment_sources' && ++sourceWrites === 2) {
+      this.transaction.abort()
+      throw new DOMException('Original storage is full', 'QuotaExceededError')
+    }
+    return key === undefined ? put.call(this, value) : put.call(this, value, key)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(input, 'files', {
+        value: Array.from(
+          { length: 3 },
+          (_, index) =>
+            new File(
+              [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, index])],
+              `stored-${index + 1}.png`,
+              { type: 'image/png' },
+            ),
+        ),
+      })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(3))
+      await vi.waitFor(() => expect(registrations).toBe(2))
+    })
+    const selected = session.getSnapshot().draft.references
+    expect(selected.map((reference) => reference.name)).toEqual([
+      'stored-1',
+      'stored-2',
+      'stored-3',
+    ])
+    expect(JSON.stringify(selected)).not.toContain('base64,')
+    expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+      true,
+    )
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    await session.flush()
+    const restored = new DraftSession(session.key)
+    await restored.ready
+    expect(restored.getSnapshot().unsent?.references).toEqual(selected)
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="移除参考图 stored-2"]')!.click()
+      await vi.waitFor(() =>
+        expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+          false,
+        ),
+      )
+    })
+  } finally {
+    failure.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('rejects a 101 image selection before reading or uploading any original', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '保留这段输入', references: [] })
+  const reads = vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementation(() => {})
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(input, 'files', {
+        value: Array.from(
+          { length: 101 },
+          (_, index) =>
+            new File(
+              [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, index])],
+              `excess-${index + 1}.png`,
+              { type: 'image/png' },
+            ),
+        ),
+      })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      useStore.getState().confirmDialog?.action()
+      useStore.getState().setConfirmDialog(null)
+    })
+    expect(reads).not.toHaveBeenCalled()
+    expect(session.getSnapshot().draft).toMatchObject({ prompt: '保留这段输入', references: [] })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/uploads'))).toBe(false)
+  } finally {
+    reads.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('stores mixed canvas library and mask inputs as local handles before drafts or journals are persisted', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  const sources = Array.from(
+    { length: 4 },
+    (_, index) =>
+      `data:image/png;base64,${btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10, index))}`,
+  )
+  let registrations = 0
+  let finishTurn!: (response: Response) => void
+  const gate = new Promise<Response>((resolve) => {
+    finishTurn = resolve
+  })
+  turnResponse = () => gate
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.startsWith('data:image/'))
+      return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
+    if (url.endsWith('/uploads')) {
+      registrations++
+      const { sha256 } = JSON.parse(String(init?.body))
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({
+    prompt: '按序检查图片并编辑最后一张',
+    references: [
+      { id: 'canvas-original', name: '画布原图', dataUrl: sources[0]! },
+      { id: 'library-original', name: '素材原图', dataUrl: sources[1]! },
+      {
+        id: 'mask-target',
+        name: '带遮罩原图',
+        dataUrl: sources[2]!,
+        maskDataUrl: sources[3]!,
+        editAction: 'inpaint',
+      },
+    ],
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    expect(JSON.stringify(session.getSnapshot().draft)).not.toContain('base64,')
+    await session.flush()
+    const recovered = new DraftSession(session.key)
+    await recovered.ready
+    expect(JSON.stringify(recovered.getSnapshot().unsent)).not.toContain('base64,')
+    expect(recovered.getSnapshot().unsent?.references.map((reference) => reference.id)).toEqual([
+      'canvas-original',
+      'library-original',
+      'mask-target',
+    ])
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      await vi.waitFor(() => expect(registrations).toBe(4))
+      await vi.waitFor(() =>
+        expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+          false,
+        ),
+      )
+      host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      await vi.waitFor(() =>
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+      )
+    })
+    const request = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))!
+    const body = JSON.parse(String(request[1]?.body))
+    expect(body.references.map((reference: { imageId: string }) => reference.imageId)).toEqual([
+      'canvas-original',
+      'library-original',
+      'mask-target',
+    ])
+    expect(body.references[2]).toMatchObject({
+      mediaId: expect.any(String),
+      maskMediaId: expect.any(String),
+      editAction: 'inpaint',
+    })
+    expect(JSON.stringify(await outgoingMessages(PROJECT))).not.toContain('base64,')
+  } finally {
+    await act(async () => {
+      finishTurn(COMPLETED_TURN())
+      await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    })
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('binds a persisted local original to the captured canvas but never binds different pixels with the same image id', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(crypto.randomUUID())
+  const original = `data:image/png;base64,${btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10, 1))}`
+  const burned = `data:image/png;base64,${btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10, 2))}`
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.startsWith('data:image/'))
+      return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
+    if (url.endsWith('/uploads')) {
+      const { sha256 } = JSON.parse(String(init?.body))
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create(
+    '句柄原图匹配',
+    undefined,
+    false,
+    true,
+    'image',
+    'canvas',
+  )
+  await projectRepository.update(project.id, { conversationId: CONVERSATION })
+  useCanvasProjectStore.setState({
+    projects: [{ ...project, conversationId: CONVERSATION }],
+    activeId: project.id,
+    loaded: true,
+  })
+  const workspace = currentCanvasWorkspace()
+  const session = currentProjectDraft(CONVERSATION)
+  try {
+    await workspace.ready
+    await session.ready
+    workspace.doc.addElements(
+      ['photo', 'burned'].map((id) => ({
+        id,
+        type: 'image' as const,
+        fileId: 'original',
+        x: 10,
+        y: 20,
+        width: 30,
+        height: 40,
+        rotation: 0,
+      })),
+      { files: { original } },
+    )
+    session.update({
+      prompt: '检查两张图',
+      references: [
+        { id: 'photo', dataUrl: original },
+        { id: 'burned', dataUrl: burned },
+      ],
+    })
+    await session.flush()
+    const sending = useAgentStore
+      .getState()
+      .send('检查两张图', draftForSubmit(session.getSnapshot().draft).references)
+    workspace.doc.updateElements([{ id: 'photo', patch: { x: 999 } }])
+    await sending
+    const request = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))!
+    const body = JSON.parse(String(request[1]?.body))
+    expect(body.canvas.elements[0]).toMatchObject({
+      id: 'photo',
+      x: 10,
+      mediaId: body.references[0].mediaId,
+    })
+    expect(body.canvas.elements[1]).not.toHaveProperty('mediaId')
+    expect(body.references[0].mediaId).not.toBe(body.references[1].mediaId)
+  } finally {
+    session.update({ prompt: '', references: [] })
+    await session.flush()
+    workspace.dispose()
+    setClientStorageScope(null)
+    peekCanvasWorkspace()
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('reserves a selected group before reads so an overlapping selection cannot exceed its scope', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope(crypto.randomUUID())
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({ prompt: '完整这组', references: [] })
+  const pending: { reader: FileReader; file: Blob }[] = []
+  const read = FileReader.prototype.readAsArrayBuffer
+  const blocked = vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementation(function (
+    this: FileReader,
+    file,
+  ) {
+    pending.push({ reader: this, file })
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+    await act(async () => {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      const files = Array.from(
+        { length: 100 },
+        (_, index) =>
+          new File(
+            [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, index])],
+            `reserved-${index + 1}.png`,
+            { type: 'image/png' },
+          ),
+      )
+      Object.defineProperty(input, 'files', { configurable: true, value: files })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      useStore.getState().confirmDialog?.action()
+      useStore.getState().setConfirmDialog(null)
+      Object.defineProperty(input, 'files', {
+        configurable: true,
+        value: [new File([new Uint8Array([1])], 'extra.png', { type: 'image/png' })],
+      })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(session.getSnapshot().draft.references).toHaveLength(100)
+    await session.flush()
+    const restored = new DraftSession(session.key)
+    await restored.ready
+    expect(restored.getSnapshot().unsent?.references).toHaveLength(100)
+    expect(
+      restored.getSnapshot().unsent?.references.some((reference) => reference.name === 'extra'),
+    ).toBe(false)
+    expect(blocked).toHaveBeenCalledTimes(1)
+    expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+      true,
+    )
+  } finally {
+    blocked.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+    for (const item of pending) read.call(item.reader, item.file)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+function pauseOutgoingRetention() {
+  let entered!: () => void
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  let release = () => {}
+  let paused = false
+  const get = IDBObjectStore.prototype.get
+  const spy = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (
+      !paused &&
+      this.name === 'attachment_owners' &&
+      typeof query === 'string' &&
+      query.startsWith('outgoing:')
+    ) {
+      paused = true
+      const tx = this.transaction
+      let complete: IDBTransaction['oncomplete'] = null
+      Object.defineProperty(tx, 'oncomplete', {
+        configurable: true,
+        set: (handler: IDBTransaction['oncomplete']) => {
+          complete = handler
+        },
+        get: () => (event: Event) => {
+          release = () => {
+            complete?.call(tx, event)
+          }
+          entered()
+        },
+      })
+    }
+    return get.call(this, query)
+  })
+  return { waiting, release: () => release(), restore: () => spy.mockRestore() }
+}
+
+async function mountDurableAttachmentDraft() {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const account = crypto.randomUUID()
+  setClientStorageScope(account)
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities'))
+      return Response.json({
+        'agent:attachments': true,
+        attachmentLimits: {
+          logicalReferences: 100,
+          imageBytes: 10 * 1024 * 1024,
+          imagePixels: 40_000_000,
+          uploadConcurrency: 4,
+        },
+      })
+    if (url.startsWith('data:image/'))
+      return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
+    if (url.endsWith('/uploads')) {
+      const { sha256 } = JSON.parse(String(init?.body))
+      return Response.json({
+        id: `${sha256.slice(0, 8)}-aaaa-4aaa-8aaa-${sha256.slice(8, 20)}`,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  session.update({
+    prompt: '保留完整的原输入',
+    references: [{ id: 'retained', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }],
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  await act(async () => root.render(createElement(AgentComposer, { doc: new CanvasDoc() })))
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+        false,
+      ),
+    )
+  })
+  await session.flush()
+  return { account, session, host, root }
+}
+
+it('keeps the original durable draft until its outgoing command has committed', async () => {
+  const ui = await mountDurableAttachmentDraft()
+  const original = ui.session.getSnapshot().draft
+  const barrier = pauseOutgoingRetention()
+  try {
+    await act(async () => {
+      ui.host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      await barrier.waiting
+      await ui.session.flush()
+    })
+    expect(await outgoingMessages(PROJECT)).toEqual([])
+    const recovered = new DraftSession(ui.session.key)
+    await recovered.ready
+    expect(recovered.getSnapshot().unsent).toMatchObject(original)
+    expect(recovered.getSnapshot().unsent?.submission?.id).toEqual(expect.any(String))
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+  } finally {
+    await act(async () => {
+      barrier.release()
+      await vi.waitFor(() => expect(ui.session.getSnapshot().submitting).toBe(false))
+      await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    })
+    barrier.restore()
+    act(() => ui.root.unmount())
+    ui.host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('does not journal or dispatch an old account draft after switching accounts during retention', async () => {
+  const ui = await mountDurableAttachmentDraft()
+  const original = ui.session.getSnapshot().draft
+  const barrier = pauseOutgoingRetention()
+  const writes: string[] = []
+  const put = IDBObjectStore.prototype.put
+  const journalWrites = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    value,
+    key,
+  ) {
+    if (this.name === 'outgoing' && typeof key === 'string') writes.push(key)
+    return key === undefined ? put.call(this, value) : put.call(this, value, key)
+  })
+  try {
+    await act(async () => {
+      ui.host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.click()
+      await barrier.waiting
+    })
+    setClientStorageScope(crypto.randomUUID())
+    await act(async () => {
+      barrier.release()
+      await vi.waitFor(() => expect(ui.session.getSnapshot().submitting).toBe(false))
+    })
+    expect(writes).not.toContain(scopedStorageName(`agent-outgoing:${PROJECT}`))
+    expect(await outgoingMessages(PROJECT)).toEqual([])
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    setClientStorageScope(ui.account)
+    const recovered = new DraftSession(ui.session.key)
+    await recovered.ready
+    expect(recovered.getSnapshot().unsent).toMatchObject(original)
+  } finally {
+    barrier.release()
+    barrier.restore()
+    journalWrites.mockRestore()
+    act(() => ui.root.unmount())
+    ui.host.remove()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})

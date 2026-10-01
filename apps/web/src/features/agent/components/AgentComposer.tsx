@@ -37,11 +37,19 @@ import {
 } from '../../../components/ui/select'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
+import { accountScope } from '../../../lib/authScope'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
-import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
+import { getAttachmentLimits } from '../../../lib/clientCapabilities'
+import { blobDataUrl, mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
+import {
+  attachmentSourceOwner,
+  hasLocalAttachmentSources,
+  localAttachmentIdentity,
+  readLocalAttachment,
+} from '../../../lib/localAttachmentSources'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
@@ -74,6 +82,7 @@ import {
   attachmentUploadError,
   attachmentUploadRevision,
   attachmentUploadState,
+  attachmentUploadsEnabled,
   primeAttachmentUploads,
   retryAttachmentUploads,
   subscribeAttachmentUploads,
@@ -138,7 +147,7 @@ export default function AgentComposer({
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
 }) {
-  const { t, i18n } = useTranslation('agent')
+  const { t, i18n } = useTranslation(['agent', 'errors'])
   const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
@@ -222,14 +231,49 @@ export default function AgentComposer({
       useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
     }
-    const images = acceptImageFiles(files)
+    const images =
+      attachmentUploadsEnabled() && getAttachmentLimits()
+        ? files.filter((file) => file.type.startsWith('image/'))
+        : acceptImageFiles(files)
     if (images.length === 0) return
+    const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+    if (
+      limits &&
+      session.getSnapshot().draft.references.length + images.length > limits.logicalReferences
+    ) {
+      useStore
+        .getState()
+        .showToast(t('composer.tooManyReferences', { count: limits.logicalReferences }), 'error')
+      return
+    }
+    const currentAccount = accountScope()
     confirmImageBatch(images.length, () => {
-      void filesToReferences(images)
-        .then((added) => {
-          setDraft((current) => attachReferences(current, added, transportRef.current))
-        })
-        .catch(() => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error'))
+      if (!currentAccount()) return
+      const currentLimits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+      if (
+        limits &&
+        (!currentLimits ||
+          session.getSnapshot().draft.references.length + images.length >
+            currentLimits.logicalReferences)
+      ) {
+        useStore.getState().showToast(
+          t('composer.tooManyReferences', {
+            count: currentLimits?.logicalReferences ?? limits.logicalReferences,
+          }),
+          'error',
+        )
+        return
+      }
+      const added = filesToReferences(images)
+      if (Array.isArray(added)) {
+        setDraft((current) => attachReferences(current, added, transportRef.current))
+      } else {
+        void added
+          .then((references) => {
+            setDraft((current) => attachReferences(current, references, transportRef.current))
+          })
+          .catch(() => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error'))
+      }
     })
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
@@ -485,26 +529,49 @@ export default function AgentComposer({
    * 遮罩编辑器是工作台那台，这里只借会话：图直接交过去（画布对象的 id 进不了图片存储），
    * 画完的遮罩回到这份草稿里，工作台自己的遮罩草稿一概不动。
    */
+  const openingMask = useRef(false)
   const editMask = (reference: AgentReference) => {
-    const open = (target: string) =>
+    if (openingMask.current) return
+    const sameAccount = accountScope()
+    const current = () =>
+      sameAccount() && session.getSnapshot().draft.references.includes(reference)
+    const resolve = async (source: string): Promise<string> => {
+      if (localAttachmentIdentity(source)) {
+        const original = await readLocalAttachment(source)
+        if (!current()) throw new Error('media_scope_changed')
+        return blobDataUrl(new Blob([original.data], { type: original.contentType }))
+      }
+      return mediaIdentity(source) ? resolveMediaSource(source, 'original', true) : source
+    }
+    openingMask.current = true
+    void (async () => {
+      const target = await resolve(reference.dataUrl)
+      const mask = reference.maskDataUrl ? await resolve(reference.maskDataUrl) : null
+      if (!current()) return
       useStore.getState().openMaskEditorSession(reference.id, {
-        maskDataUrl: reference.maskDataUrl ?? null,
+        maskDataUrl: mask,
         keepSemantics: false,
         targetDataUrl: target,
         onSave: ({ maskDataUrl, targetDataUrl }) => {
-          setDraft((current) =>
-            setReferenceMask(current, reference.id, { maskDataUrl, dataUrl: targetDataUrl }),
+          if (!current()) return
+          setDraft((draft) =>
+            setReferenceMask(draft, reference.id, {
+              maskDataUrl,
+              dataUrl: targetDataUrl === target ? reference.dataUrl : targetDataUrl,
+            }),
           )
         },
         onRemove: () => {
-          setDraft((current) => clearReferenceMask(current, reference.id))
+          if (current()) setDraft((draft) => clearReferenceMask(draft, reference.id))
         },
       })
-    if (mediaIdentity(reference.dataUrl))
-      void resolveMediaSource(reference.dataUrl).then(open, () =>
-        useStore.getState().showToast(t('composer.sendFailedToast'), 'error'),
-      )
-    else open(reference.dataUrl)
+    })()
+      .catch(() => {
+        if (current()) useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
+      })
+      .finally(() => {
+        openingMask.current = false
+      })
   }
 
   /**
@@ -522,10 +589,12 @@ export default function AgentComposer({
     if (!submission.text.trim()) return
     // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
     const snapshot = draft
-    session.accept(snapshot)
-    selection.sent()
-    browsingRef.current = null
+    const handoff = hasLocalAttachmentSources(snapshot)
+      ? attachmentSourceOwner(`sending:${crypto.randomUUID()}`)
+      : undefined
     const releaseSubmission = session.beginSubmission()
+    const sameAccount = accountScope()
+    let stagedId: string | undefined
     let accepted = false
     let returnedToDraft = false
     const restore = (cancelled = false) => {
@@ -543,14 +612,22 @@ export default function AgentComposer({
           : { ...snapshot, submission: undefined },
       )
     }
-    void useAgentStore
-      .getState()
-      .send(
+    const acceptLocalDraft = () => {
+      if (stagedId) session.acceptSubmission(stagedId)
+      else session.accept(snapshot)
+      selection.sent()
+      browsingRef.current = null
+    }
+    const send = () => {
+      if (!sameAccount()) throw new Error('media_scope_changed')
+      if (!handoff) acceptLocalDraft()
+      return useAgentStore.getState().send(
         snapshot.submission?.text ?? submission.text,
         snapshot.submission?.references ?? submission.references,
         () => {
           accepted = true
-          rememberAgentPrompt(snapshot.prompt)
+          if (handoff) acceptLocalDraft()
+          if (sameAccount()) rememberAgentPrompt(snapshot.prompt)
           releaseSubmission()
         },
         snapshot.submission?.mode ?? mode,
@@ -562,14 +639,30 @@ export default function AgentComposer({
           useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
           return session.returnUnsent({ ...snapshot, submission: retry })
         },
+        handoff
+          ? {
+              stage: async (command) => {
+                if (!sameAccount()) throw new Error('media_scope_changed')
+                stagedId = command.id
+                await session.stageSubmission(snapshot, command)
+              },
+              committed: () => acceptLocalDraft(),
+            }
+          : undefined,
       )
+    }
+    void (handoff ? handoff.retain(snapshot).then(send) : send())
       .then(
         (outcome) => {
           if (!accepted && !returnedToDraft) restore(outcome === 'cancelled')
         },
         () => restore(),
       )
-      .finally(releaseSubmission)
+      .finally(async () => {
+        await session.flush()
+        if (!session.getSnapshot().error) await handoff?.release().catch(() => {})
+        releaseSubmission()
+      })
   }
 
   /**
@@ -692,6 +785,7 @@ export default function AgentComposer({
               const label = referenceNames[index] ?? getImageMentionLabel(index)
               const masked = Boolean(reference.maskDataUrl)
               const uploadState = attachmentUploadState(uploadReference(reference))
+              const uploadError = attachmentUploadError(uploadReference(reference))
               return (
                 <div
                   key={reference.id}
@@ -712,22 +806,34 @@ export default function AgentComposer({
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
                     <span role="status" className="text-xs text-muted-foreground">
-                      {attachmentUploadError(uploadReference(reference)) ===
-                      'media_unsupported_image'
-                        ? t('composer.uploadUnsupported')
-                        : t(`composer.upload.${uploadState}`)}
+                      {uploadError === 'attachment_capability_unavailable'
+                        ? t('errors:attachment.attachment_capability_unavailable')
+                        : uploadError === 'media_unsupported_image'
+                          ? t('errors:attachment.media_unsupported_image')
+                          : uploadError === 'media_image_too_large'
+                            ? t('errors:attachment.media_image_too_large')
+                            : uploadError === 'attachment_storage_failed'
+                              ? t('errors:attachment.attachment_storage_failed')
+                              : uploadError === 'attachment_read_failed'
+                                ? t('errors:attachment.attachment_read_failed')
+                                : uploadState === 'failed'
+                                  ? t('errors:attachment.fallback')
+                                  : t(`composer.upload.${uploadState}`)}
                     </span>
                   )}
-                  {uploadState === 'failed' && (
-                    <button
-                      type="button"
-                      className={GHOST_LINK}
-                      aria-label={t('composer.retryUploadAria', { label })}
-                      onClick={() => retryUpload(reference)}
-                    >
-                      {t('composer.retryUpload')}
-                    </button>
-                  )}
+                  {uploadState === 'failed' &&
+                    !['attachment_storage_failed', 'attachment_capability_unavailable'].includes(
+                      uploadError ?? '',
+                    ) && (
+                      <button
+                        type="button"
+                        className={GHOST_LINK}
+                        aria-label={t('composer.retryUploadAria', { label })}
+                        onClick={() => retryUpload(reference)}
+                      >
+                        {t('composer.retryUpload')}
+                      </button>
+                    )}
                   <button
                     type="button"
                     aria-label={

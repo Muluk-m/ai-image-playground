@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import {
+  type AttachmentLimits,
   CAPABILITIES,
   type CapabilityKey,
   type CapabilityValues,
@@ -11,6 +12,7 @@ import {
   RETIRED_CAPABILITIES,
   RETIRED_QUOTAS,
 } from '@image-playground/shared'
+import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
 import { isObject } from './type-guards'
 
 export type OperatorValueSource = 'default' | 'file' | `preset:${string}`
@@ -219,6 +221,23 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
     !capabilities['accounts:login']
   )
     capabilities['agent:batch-plans'] = false
+  for (const [key, maximum] of [
+    ['agent:attachment-logical-references', 100],
+    ['agent:attachment-image-pixels', MEDIA_IMAGE_MAX_PIXELS],
+    ['agent:attachment-upload-concurrency', 4],
+  ] as const) {
+    if (quotas[key] > maximum) throw new Error(`${key} must not exceed ${maximum}`)
+  }
+  if (
+    !capabilities['agent:attachments'] ||
+    !capabilities['agent:chat'] ||
+    quotas['sync:asset-image-bytes'] <= 0 ||
+    quotas['agent:attachment-logical-references'] <= 0 ||
+    quotas['agent:attachment-image-bytes'] <= 0 ||
+    quotas['agent:attachment-image-pixels'] <= 0 ||
+    quotas['agent:attachment-upload-concurrency'] <= 0
+  )
+    capabilities['agent:bulk-attachments'] = false
   assertCapabilityCompatibility(capabilities)
   return {
     capabilities,
@@ -265,8 +284,25 @@ export function hasCapability(config: ResolvedOperatorConfig, key: CapabilityKey
   return evaluateCapability(config, key)
 }
 
+export const BULK_ATTACHMENT_MAX_REFERENCES = 100
+
+export function attachmentLimits(config: ResolvedOperatorConfig): AttachmentLimits | undefined {
+  if (!config.capabilities['agent:bulk-attachments']) return undefined
+  return {
+    logicalReferences: config.quotas['agent:attachment-logical-references'],
+    imageBytes: Math.min(
+      config.quotas['agent:attachment-image-bytes'],
+      config.quotas['sync:asset-image-bytes'],
+      100_000_000,
+    ),
+    imagePixels: config.quotas['agent:attachment-image-pixels'],
+    uploadConcurrency: config.quotas['agent:attachment-upload-concurrency'],
+  }
+}
+
 export function clientCapabilityManifest(config: ResolvedOperatorConfig): ClientCapabilityManifest {
   const manifest = {} as Record<ClientCapabilityKey, boolean>
   for (const key of clientCapabilityKeys) manifest[key] = config.capabilities[key]
-  return manifest
+  const limits = attachmentLimits(config)
+  return { ...manifest, ...(limits ? { attachmentLimits: limits } : {}) }
 }

@@ -29,7 +29,7 @@ vi.mock('../../../../lib/canvasImage', async (original) => ({
 const png = (index: number) =>
   `data:image/png;base64,${btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10, index))}`
 
-async function setup() {
+async function setup(bulk = false) {
   vi.stubGlobal('crypto', webcrypto)
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   setClientStorageScope(crypto.randomUUID())
@@ -37,7 +37,20 @@ async function setup() {
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/capabilities'))
-      return Response.json({ 'agent:attachments': true, 'accounts:sync': true })
+      return Response.json({
+        'agent:attachments': true,
+        'accounts:sync': true,
+        ...(bulk
+          ? {
+              attachmentLimits: {
+                logicalReferences: 100,
+                imageBytes: 10 * 1024 * 1024,
+                imagePixels: 40_000_000,
+                uploadConcurrency: 4,
+              },
+            }
+          : {}),
+      })
     if (url.startsWith('data:image/'))
       return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
     if (url.endsWith('/api/media/uploads')) {
@@ -158,8 +171,11 @@ it('admits nine local files when attachments send media identities', async () =>
   }
 })
 
-it('uses an existing cloud canvas binding for ICO pixels without uploading a conversation original', async () => {
-  const uploads = await setup()
+it.each([
+  false,
+  true,
+])('uses an existing cloud canvas binding for ICO pixels without uploading a conversation original (bulk=%s)', async (bulk) => {
+  const uploads = await setup(bulk)
   const project = await projectRepository.create(
     '图标项目',
     undefined,
