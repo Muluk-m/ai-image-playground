@@ -8,7 +8,7 @@ import type {
   AgentBatchView,
   AgentMediaReference,
 } from '@image-playground/shared'
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
@@ -95,13 +95,31 @@ export async function createAgentBatchPlan(
   const userId = context.userId
   const target = resolveAgentModel('image', context.params?.model)
   if (!target) throw new AgentToolError('model_unavailable', '暂时没有可用的生图模型')
-  // Current references preserve active selections; older attachments contribute originals only.
-  const archivedMessages = await db
-    .select({ content: schema.agent_messages.content })
+  const requestedIds = [
+    ...new Set(
+      input.items.flatMap((item) => item.imageIds.map((id) => context.images.identify(id))),
+    ),
+  ]
+  // Project only the newest requested bindings; inline replacements must shadow older media too.
+  const referenceId = sql<string>`ref.value->>'imageId'`
+  const archivedReferences = await db
+    .selectDistinctOn([referenceId], {
+      imageId: referenceId,
+      mediaId: sql<string | null>`ref.value->>'mediaId'`,
+      name: sql<string | null>`ref.value->>'name'`,
+    })
     .from(schema.agent_messages)
     .innerJoin(
       schema.agent_conversations,
       eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
+    )
+    .innerJoin(
+      sql`jsonb_array_elements(${schema.agent_messages.content}) WITH ORDINALITY AS block(value, position)`,
+      sql`true`,
+    )
+    .innerJoin(
+      sql`jsonb_array_elements(CASE WHEN jsonb_typeof(block.value->'references') = 'array' THEN block.value->'references' ELSE '[]'::jsonb END) WITH ORDINALITY AS ref(value, position)`,
+      sql`true`,
     )
     .where(
       and(
@@ -110,25 +128,28 @@ export async function createAgentBatchPlan(
         isNull(schema.agent_messages.deleted_at),
         eq(schema.agent_conversations.user_id, userId),
         isNull(schema.agent_conversations.deleted_at),
+        sql`block.value->>'type' = 'text'`,
+        inArray(referenceId, requestedIds),
       ),
     )
-    .orderBy(asc(schema.agent_messages.seq))
+    .orderBy(
+      referenceId,
+      desc(schema.agent_messages.seq),
+      sql`block.position DESC`,
+      sql`ref.position DESC`,
+    )
   const references = new Map<string, AgentMediaReference>()
-  for (const message of archivedMessages) {
-    for (const block of message.content) {
-      if (block.type !== 'text') continue
-      for (const reference of block.references ?? []) {
-        if ('mediaId' in reference)
-          references.set(reference.imageId, {
-            imageId: reference.imageId,
-            mediaId: reference.mediaId,
-            ...(reference.name ? { name: reference.name } : {}),
-          })
-      }
-    }
+  for (const reference of archivedReferences) {
+    if (reference.mediaId)
+      references.set(reference.imageId, {
+        imageId: reference.imageId,
+        mediaId: reference.mediaId,
+        ...(reference.name ? { name: reference.name } : {}),
+      })
   }
   for (const reference of context.images.references) {
     if ('mediaId' in reference) references.set(reference.imageId, reference)
+    else references.delete(reference.imageId)
   }
   const keys = new Set<string>()
   const { autoSubmit: _autoSubmit, ...params } = context.params ?? {}
