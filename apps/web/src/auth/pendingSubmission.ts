@@ -2,9 +2,10 @@ import type { AgentDraft } from '../features/agent/lib/references'
 import type { PreparedSubmission } from '../store'
 
 /** This tab's one interrupted send. Separate from scoped workspace storage so login adoption cannot move it. */
-export type PendingSubmission =
-  | { kind: 'image'; input: PreparedSubmission }
+export type PendingSubmission = (
+  | { kind: 'image'; input: PreparedSubmission; template?: true }
   | { kind: 'heroCanvas'; draft: AgentDraft; experience?: 'chat' | 'canvas' }
+) & { sourcePath?: string; ownerScope?: string }
 
 const DATABASE = 'image-playground:pending-send'
 const STORE = 'submission'
@@ -45,20 +46,61 @@ async function access<T>(
   })
 }
 
-export async function queuePendingSubmission(submission: PendingSubmission): Promise<void> {
-  const key = sessionStorage.getItem(TAB_KEY) ?? crypto.randomUUID()
-  await access<void>('readwrite', (store) => {
-    store.put(submission, key)
-  })
-  sessionStorage.setItem(TAB_KEY, key)
+let loginNavigationId: string | null = null
+
+/** Only the login action may carry this intent through a full-page navigation. */
+export function preservePendingSubmissionForLogin(): void {
+  loginNavigationId = pendingSubmissionId()
 }
 
-export async function discardPendingSubmission(): Promise<void> {
-  const key = sessionStorage.getItem(TAB_KEY)
-  if (!key) return
-  sessionStorage.removeItem(TAB_KEY)
+export function consumePendingLoginNavigation(id: string): boolean {
+  const permitted = loginNavigationId === id && pendingSubmissionId() === id
+  if (loginNavigationId === id) loginNavigationId = null
+  return permitted
+}
+
+const removalListeners = new Set<(id: string) => void>()
+
+export function subscribePendingSubmissionRemoval(listener: (id: string) => void): () => void {
+  removalListeners.add(listener)
+  return () => {
+    removalListeners.delete(listener)
+  }
+}
+
+export function pendingSubmissionId(): string | null {
+  return sessionStorage.getItem(TAB_KEY)
+}
+
+export async function queuePendingSubmission(
+  submission: PendingSubmission,
+  id: string = crypto.randomUUID(),
+): Promise<string> {
+  // Publish ownership before awaiting storage so cancellation can invalidate an in-flight write.
+  const previous = pendingSubmissionId()
+  sessionStorage.setItem(TAB_KEY, id)
+  if (previous) for (const listener of removalListeners) listener(previous)
+  try {
+    await access<void>('readwrite', (store) => {
+      if (previous && previous !== id) store.delete(previous)
+      store.put(submission, id)
+    })
+    if (pendingSubmissionId() !== id) await discardPendingSubmission(id)
+    return id
+  } catch (error) {
+    if (pendingSubmissionId() === id) sessionStorage.removeItem(TAB_KEY)
+    for (const listener of removalListeners) listener(id)
+    throw error
+  }
+}
+
+export async function discardPendingSubmission(expectedId?: string): Promise<void> {
+  const id = expectedId ?? pendingSubmissionId()
+  if (!id) return
+  if (pendingSubmissionId() === id) sessionStorage.removeItem(TAB_KEY)
+  for (const listener of removalListeners) listener(id)
   await access<void>('readwrite', (store) => {
-    store.delete(key)
+    store.delete(id)
   })
 }
 
@@ -82,6 +124,8 @@ export async function takePendingSubmission(): Promise<PendingSubmission | undef
       store.delete(key)
     }
   })
-  sessionStorage.removeItem(TAB_KEY)
-  return pending
+  const owned = pendingSubmissionId() === key
+  if (owned) sessionStorage.removeItem(TAB_KEY)
+  for (const listener of removalListeners) listener(key)
+  return owned ? pending : undefined
 }
