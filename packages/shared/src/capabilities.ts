@@ -9,6 +9,7 @@ export const CAPABILITIES = {
   'agent:chat': { defaultValue: false, clientExposed: true },
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
+  'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
@@ -53,7 +54,17 @@ export type ClientCapabilityKey = {
 }[CapabilityKey]
 
 export type CapabilityValues = { readonly [Key in CapabilityKey]: boolean }
-export type ClientCapabilityManifest = { readonly [Key in ClientCapabilityKey]: boolean }
+export type ClientCapabilityManifest = { readonly [Key in ClientCapabilityKey]: boolean } & {
+  readonly attachmentLimits?: AttachmentLimits
+}
+/** Limits apply to immutable uploaded originals, independently of model preview budgets. */
+export interface AttachmentLimits {
+  readonly logicalReferences: number
+  readonly imageBytes: number
+  readonly imagePixels: number
+  readonly uploadConcurrency: number
+}
+
 export interface AdminCapabilityManifest {
   readonly accounts_login: boolean
   readonly operator_console: boolean
@@ -64,6 +75,11 @@ export const QUOTAS = {
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
   'agent:visual-prepare-queue': { defaultValue: 100 },
   'agent:visual-max-pixels': { defaultValue: 16_777_216 },
+  /** Zero keeps bulk intake closed until operators validate and configure resource budgets. */
+  'agent:attachment-logical-references': { defaultValue: 0 },
+  'agent:attachment-image-bytes': { defaultValue: 0 },
+  'agent:attachment-image-pixels': { defaultValue: 0 },
+  'agent:attachment-upload-concurrency': { defaultValue: 0 },
   /** Application memory/transport protection; operators must verify tighter gateway limits. */
   'agent:request-max-bytes': { defaultValue: 16 * 1024 * 1024 },
   'agent:compaction-buffer-tokens': { defaultValue: 13_000 },

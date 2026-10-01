@@ -1,4 +1,9 @@
 {
+  "agentQueue": {
+    "stop_failed": "Could not confirm the stop. Please retry.",
+    "fallback": "Message recovery failed. Please try again.",
+    "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
+  },
   "customProvider": {
     "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again",
     "fallback": "The custom provider request failed. Check its settings and try again"
@@ -90,5 +95,13 @@
   "agentBatch": {
     "fallback": "Could not update the plan. Your changes are preserved. Try again.",
     "batch_version_conflict": "This plan has a newer version. Refresh before editing."
+  },
+  "attachment": {
+    "attachment_capability_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",
+    "media_unsupported_image": "Convert this image to PNG, JPEG or WebP first.",
+    "media_image_too_large": "This image exceeds the upload size limit. Remove it and select another image.",
+    "attachment_storage_failed": "This image could not be saved on this device. Free some space, remove it and select it again.",
+    "attachment_read_failed": "This image could not be read. Remove it and select it again.",
+    "fallback": "The image upload failed. Retry or remove it and select it again."
   }
 }

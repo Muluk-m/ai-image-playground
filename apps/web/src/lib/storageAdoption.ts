@@ -10,6 +10,9 @@ import {
   DB_STORE_NAMES,
   type DbStoreName,
   openNamedDb,
+  STORE_ATTACHMENT_METADATA,
+  STORE_ATTACHMENT_OWNERS,
+  STORE_ATTACHMENT_SOURCES,
   STORE_MEDIA,
   STORE_PLATFORM_GENERATIONS,
 } from './db'
@@ -20,7 +23,14 @@ const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
 // 图片是整张 data URL，一次全读进内存会在大库上炸掉标签页；任务行小得多，不必切这么碎。
 // 云媒体与平台记录这两张缓存表不在这里：它们是可再取的派生数据，认领只搬用户真正拥有的东西。
-type OwnedStore = Exclude<DbStoreName, typeof STORE_MEDIA | typeof STORE_PLATFORM_GENERATIONS>
+type OwnedStore = Exclude<
+  DbStoreName,
+  | typeof STORE_MEDIA
+  | typeof STORE_PLATFORM_GENERATIONS
+  | typeof STORE_ATTACHMENT_SOURCES
+  | typeof STORE_ATTACHMENT_METADATA
+  | typeof STORE_ATTACHMENT_OWNERS
+>
 const BATCH_SIZE: Record<OwnedStore, number> = {
   tasks: 200,
   images: 10,
@@ -65,7 +75,14 @@ async function runAdoption(): Promise<number> {
   try {
     target = await openNamedDb(scopedDbName)
     for (const storeName of DB_STORE_NAMES) {
-      if (storeName === STORE_MEDIA || storeName === STORE_PLATFORM_GENERATIONS) continue
+      if (
+        storeName === STORE_MEDIA ||
+        storeName === STORE_PLATFORM_GENERATIONS ||
+        storeName === STORE_ATTACHMENT_SOURCES ||
+        storeName === STORE_ATTACHMENT_METADATA ||
+        storeName === STORE_ATTACHMENT_OWNERS
+      )
+        continue
       const copied = await copyStore(source, target, storeName)
       if (storeName === 'tasks') adoptedTasks = copied.length
       if (storeName === 'templates') adoptedTemplates = copied

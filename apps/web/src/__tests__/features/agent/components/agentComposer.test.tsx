@@ -86,6 +86,17 @@ function click(label: string): void {
   })
 }
 
+async function openMask(label: string): Promise<void> {
+  const previous = useStore.getState().maskEditorSession
+  await act(async () => {
+    click(label)
+    await vi.waitFor(() => {
+      expect(useStore.getState().maskEditorSession).not.toBeNull()
+      expect(useStore.getState().maskEditorSession).not.toBe(previous)
+    })
+  })
+}
+
 async function save(result: {
   maskDataUrl: string
   targetImageId: string
@@ -296,7 +307,7 @@ describe('智能体输入框', () => {
     render()
     type('把@')
     pick('画布图1')
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'prepared', targetDataUrl: PREPARED })
     act(() => root.render(null))
     render()
@@ -337,6 +348,9 @@ describe('智能体输入框', () => {
     await act(async () => click('发送并拟提示词'))
     expect(editor().textContent).toBe('重试这段内容')
     expect(useStore.getState().toast?.message).toContain('草稿已放回')
+    await act(async () => {
+      await vi.waitFor(() => expect(agentDraft(null).getSnapshot().submitting).toBe(false))
+    })
 
     let finish!: () => void
     useAgentStore.setState({
@@ -541,12 +555,12 @@ describe('智能体输入框', () => {
     ])
   })
 
-  it('给已引用的画布图开遮罩编辑器，直接把图交过去而不是按 id 回存储里找', () => {
+  it('给已引用的画布图开遮罩编辑器，直接把图交过去而不是按 id 回存储里找', async () => {
     render()
     type('把@')
     pick('画布图1')
 
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
 
     const state = useStore.getState()
     expect(state.maskEditorImageId).toBe('canvas-1')
@@ -561,7 +575,7 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type('的桌面换成木纹')
 
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
     click('发送并拟提示词')
@@ -574,10 +588,10 @@ describe('智能体输入框', () => {
     render()
     type('把@')
     pick('画布图1')
-    click('给参考图 @图1 画遮罩')
+    await openMask('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
-    click('修改参考图 @图1 的遮罩')
+    await openMask('修改参考图 @图1 的遮罩')
     expect(useStore.getState().maskEditorSession?.maskDataUrl).toBe(MASK)
 
     await act(async () => {

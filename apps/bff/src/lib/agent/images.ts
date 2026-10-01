@@ -7,12 +7,14 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_TURN_ATTACHED_MEDIA_MAX, parseProjectArtifactId } from '@image-playground/shared'
 import { and, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm'
+import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, fetchSourceImage, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
 import { objectStore, readObjectWithinLimit } from '../objectStore'
+import { attachmentLimits } from '../operator-config'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { asQueueProvider } from '../queueProvider'
@@ -607,12 +609,29 @@ export async function addConversationMediaClaims(
   mediaIds: readonly string[],
 ): Promise<void> {
   if (mediaIds.length === 0) return
-  const accepted = await claimConversationMedia(
+  const accepted = await claimReadyConversationMedia(
     conversationId,
     userId,
     mediaIds.map((mediaId) => ({ imageId: mediaId, mediaId })),
+    false,
   )
   if (!accepted) throw new Error('media_not_ready')
+}
+
+function withinAttachmentBudget(
+  media: readonly { bytes: number; width: number | null; height: number | null }[],
+): boolean {
+  const limits = attachmentLimits(config.operator)
+  return (
+    !limits ||
+    media.every(
+      (image) =>
+        image.bytes <= limits.imageBytes &&
+        image.width !== null &&
+        image.height !== null &&
+        image.width * image.height <= limits.imagePixels,
+    )
+  )
 }
 
 /** Decode before acquiring transaction locks; ready media bytes are immutable. */
@@ -621,18 +640,24 @@ export async function validateConversationMediaSelections(
   references: readonly AgentTurnReference[],
 ): Promise<boolean> {
   const masked = references.filter((reference) => 'mediaId' in reference && reference.maskMediaId)
-  if (!masked.length) return true
+  const inspected = attachmentLimits(config.operator)
+    ? references.filter((reference) => 'mediaId' in reference)
+    : masked
+  if (!inspected.length) return true
   if (!userId) return false
   const ids = [
     ...new Set(
-      masked.flatMap((reference) =>
-        'mediaId' in reference ? [reference.mediaId, reference.maskMediaId!] : [],
+      inspected.flatMap((reference) =>
+        'mediaId' in reference
+          ? [reference.mediaId, ...(reference.maskMediaId ? [reference.maskMediaId] : [])]
+          : [],
       ),
     ),
   ]
   const owned = await db
     .select({
       id: schema.media_objects.id,
+      bytes: schema.media_objects.bytes,
       width: schema.media_objects.width,
       height: schema.media_objects.height,
       objectKey: schema.media_objects.object_key,
@@ -646,7 +671,7 @@ export async function validateConversationMediaSelections(
         eq(schema.media_objects.status, 'ready'),
       ),
     )
-  if (owned.length !== ids.length) return false
+  if (owned.length !== ids.length || !withinAttachmentBudget(owned)) return false
   const byId = new Map(owned.map((media) => [media.id, media]))
   for (const reference of references) {
     if (!('mediaId' in reference) || !reference.maskMediaId) continue
@@ -698,6 +723,17 @@ export async function claimConversationMedia(
   references: readonly AgentTurnReference[],
   executor?: BffTransaction,
 ): Promise<boolean> {
+  return claimReadyConversationMedia(conversationId, userId, references, true, executor)
+}
+
+/** Tool results already passed their own visual/storage admission policy. */
+async function claimReadyConversationMedia(
+  conversationId: string,
+  userId: string | null,
+  references: readonly AgentTurnReference[],
+  enforceAttachmentBudget: boolean,
+  executor?: BffTransaction,
+): Promise<boolean> {
   const mediaIds = [
     ...new Set(
       references.flatMap((one) =>
@@ -707,12 +743,18 @@ export async function claimConversationMedia(
   ]
   if (mediaIds.length === 0) return true
   if (!userId) return false
-  if (!executor && !(await validateConversationMediaSelections(userId, references))) return false
+  if (
+    enforceAttachmentBudget &&
+    !executor &&
+    !(await validateConversationMediaSelections(userId, references))
+  )
+    return false
   const claim = async (tx: BffTransaction) => {
     await lockMediaOwner(tx, userId)
     const owned = await tx
       .select({
         id: schema.media_objects.id,
+        bytes: schema.media_objects.bytes,
         width: schema.media_objects.width,
         height: schema.media_objects.height,
         objectKey: schema.media_objects.object_key,
@@ -726,7 +768,11 @@ export async function claimConversationMedia(
           eq(schema.media_objects.status, 'ready'),
         ),
       )
-    if (owned.length !== mediaIds.length) return false
+    if (
+      owned.length !== mediaIds.length ||
+      (enforceAttachmentBudget && !withinAttachmentBudget(owned))
+    )
+      return false
     const byId = new Map(owned.map((media) => [media.id, media]))
     for (const reference of references) {
       if (!('mediaId' in reference) || !reference.maskMediaId) continue
