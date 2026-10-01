@@ -110,3 +110,17 @@ it('changes the HTML identity when only the recovery markup changes', () => {
     second?.match(/aip-html-build" content="([^"]+)/)?.[1],
   )
 })
+
+it('keeps recovery available when required styles fail even if React commits', () => {
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = '/assets/main-missing.css'
+  document.head.append(link)
+  link.dispatchEvent(new Event('error'))
+  document.dispatchEvent(new Event('app:boot-ready'))
+  expect(document.getElementById('boot-error')?.hidden).toBe(false)
+  expect(document.getElementById('boot-retry')?.onclick).toBeTypeOf('function')
+  vi.advanceTimersByTime(60000)
+  expect(document.getElementById('boot')?.dataset.state).toBe('error')
+  link.remove()
+})
