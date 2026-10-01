@@ -96,6 +96,7 @@ it('explains independent analysis evidence and token usage for manual reconcilia
   )
   expect(await screen.findByLabelText('分析结果 JSON（findings 和 usage）')).toBeInTheDocument()
   expect(
-    screen.getByText('请核实原分析请求的逐图结论和 token 用量；未知用量不能填写为 0。'),
+    screen.getByText(/请核实原分析请求的逐图结论和 token 用量；未知用量不能填写为 0。/),
   ).toBeInTheDocument()
+  expect(screen.getByText(/联合比较还需提供 comparison/)).toBeInTheDocument()
 })
