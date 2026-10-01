@@ -12,6 +12,7 @@ vi.mock('../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.lo
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 afterEach(() => {
   request.mockReset()
+  localStorage.clear()
   window.getSelection()?.removeAllRanges()
 })
 const documentFixture = {
