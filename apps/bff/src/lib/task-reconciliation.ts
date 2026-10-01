@@ -231,9 +231,18 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
         errorMessage: '核查确认未产生可交付结果',
       }
     } else {
-      const checkpoint = command.action === 'lookup' && task.archive_payload
+      let checkpoint = command.action === 'lookup' && task.archive_payload
+      if (checkpoint && taskIds.length && task.user_id && isCapabilityEnabled('accounts:sync')) {
+        try {
+          // A successful listing proves loss; storage unavailability must not discard the checkpoint.
+          if ((await missingGenerationOutputs(taskId, task.provider, checkpoint)).size)
+            checkpoint = null
+        } catch {
+          reason = 'archive_incomplete'
+        }
+      }
       let payload: unknown = checkpoint || command.result
-      if (command.action === 'lookup' && !checkpoint) {
+      if (!reason && command.action === 'lookup' && !checkpoint) {
         if (!taskIds.length) reason = 'manual_verification_required'
         else {
           try {

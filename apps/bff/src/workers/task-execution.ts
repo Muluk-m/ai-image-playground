@@ -106,7 +106,7 @@ export interface TaskExecution {
   saveCheckpoint(payload: TaskRow['archive_payload']): Promise<boolean>
   /** 写终态并触发结算、唤醒与产物发布。 */
   finish(update: TerminalTaskUpdate): Promise<boolean>
-  reconcile(reason: string): Promise<boolean>
+  reconcile(reason: string, options?: { requireReconciliation?: boolean }): Promise<boolean>
   /** 退回 queued 等下一次尝试。 */
   requeue(attemptJustFailed: number, nextRetryAt: number): Promise<boolean>
   /** 退回 queued 只重试保存：结果还在，不消耗模型尝试次数。 */
@@ -297,8 +297,21 @@ class TaskExecutionHandle implements TaskExecution {
     return saveArchiveCheckpoint(this.taskId, payload, this.#fence())
   }
 
-  async reconcile(reason: string): Promise<boolean> {
-    return (await reconcileTasks(this.#own(), reason)).length > 0
+  async reconcile(
+    reason: string,
+    options: { requireReconciliation?: boolean } = {},
+  ): Promise<boolean> {
+    if (!options.requireReconciliation)
+      return (await reconcileTasks(this.#own(), reason)).length > 0
+    return db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.tasks)
+        .set({ reconciliation_required: true })
+        .where(this.#own())
+        .returning({ id: schema.tasks.id })
+      if (!updated.length) return false
+      return (await reconcileTasks(this.#own(), reason, tx)).length > 0
+    })
   }
 
   finish(update: TerminalTaskUpdate): Promise<boolean> {

@@ -315,9 +315,12 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     if (err instanceof UpstreamPartialResultError && cloudArchive && !archivePayload) {
       archivePayload = generationSourceCheckpoint(id, task.provider, err.payload)
     }
-    if (task.reconciliation_required && err instanceof UpstreamResultUnknownError) {
+    if (
+      err instanceof UpstreamResultUnknownError &&
+      (task.reconciliation_required || err.requiresReconciliation)
+    ) {
       if (archivePayload) await execution.saveCheckpoint(archivePayload)
-      await execution.reconcile(err.message)
+      await execution.reconcile(err.message, { requireReconciliation: err.requiresReconciliation })
       return
     }
     const rejectedMaskedOutput =

@@ -315,30 +315,40 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const missing = count - resumeIds.length
         if (missing <= 0) return [...resumeIds]
         if (finalLookup || resume?.pollOnly) return [...resumeIds]
+        const acceptedIds: (string | undefined)[] = Array.from({ length: missing })
         const settled = await Promise.allSettled(
-          Array.from({ length: missing }, async () => {
+          Array.from({ length: missing }, async (_, index) => {
             const response = await performFetch(protocol.submitUrl, makeInit())
             const taskId = protocol.readTaskId((await parseResponse(response)).payload)
+            // Acceptance is evidence even when its per-dispatch database write fails.
+            acceptedIds[index] = taskId
             const dispatchId = dispatchIdentities.get(response)
             if (dispatchId) await params.onUpstreamTaskId?.(dispatchId, taskId)
             return taskId
           }),
         )
-        const taskIds = [
-          ...resumeIds,
-          ...settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : [])),
-        ]
-        // 先落库再抛：部分失败时成功那几个已经计费，丢了 id 就没人收。
-        if (taskIds.length > resumeIds.length) await onUpstreamTaskIds?.(taskIds)
+        const accepted = acceptedIds.flatMap((id) => (id ? [id] : []))
+        const taskIds = [...resumeIds, ...accepted]
+        // Attempt the aggregate checkpoint even if a per-dispatch write rejected.
+        if (accepted.length) {
+          try {
+            await onUpstreamTaskIds?.(taskIds)
+          } catch (error) {
+            throw new UpstreamResultUnknownError(
+              '上游已受理任务，但任务编号保存失败，结果待核查。',
+              { cause: error, requiresReconciliation: true },
+            )
+          }
+        }
         const failure = fanOutFailure(settled, params.reconciliationRequired)
         if (failure) {
           warnIfAsyncTasksDisabled(failure.reason)
-          if (params.reconciliationRequired && taskIds.length > 0) {
+          if (taskIds.length > 0) {
             const detail =
               failure.reason instanceof Error ? failure.reason.message.slice(0, 200) : '提交失败'
             throw new UpstreamResultUnknownError(
               `部分提交被拒绝，已受理任务的最终结果待核查：${detail}`,
-              { cause: failure.reason },
+              { cause: failure.reason, requiresReconciliation: true },
             )
           }
           throw failure.reason
