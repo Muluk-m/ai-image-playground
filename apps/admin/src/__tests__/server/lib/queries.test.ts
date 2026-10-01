@@ -154,7 +154,7 @@ await writer.db.insert(writer.schema.agent_model_calls).values([
   {
     id: 'cache-today-b',
     conversation_id: 'cache-stat-conversation',
-    turn_id: 'cache-turn',
+    turn_id: 'cache-turn-b',
     device_id: 'dev-cache-stat',
     purpose: 'conversation',
     model: 'model-b',
@@ -178,7 +178,7 @@ await writer.db.insert(writer.schema.agent_model_calls).values([
   {
     id: 'cache-old',
     conversation_id: 'cache-stat-conversation',
-    turn_id: 'cache-turn',
+    turn_id: 'cache-old-turn',
     device_id: 'dev-cache-stat',
     purpose: 'conversation',
     model: 'model-old',
@@ -249,6 +249,8 @@ describe('getOverview', () => {
       calls: 2,
       input_tokens: 1000,
       cache_read_tokens: 640,
+      first_call: { calls: 1, input_tokens: 900, cache_read_tokens: 600 },
+      continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
       models: [
         { model: 'model-b', calls: 1, input_tokens: 900, cache_read_tokens: 600 },
         { model: 'model-a', calls: 1, input_tokens: 100, cache_read_tokens: 40 },
@@ -256,7 +258,13 @@ describe('getOverview', () => {
     })
 
     const week = (await getOverview('7d')).agent_cache
-    expect(week).toMatchObject({ calls: 3, input_tokens: 1100, cache_read_tokens: 640 })
+    expect(week).toMatchObject({
+      calls: 3,
+      input_tokens: 1100,
+      cache_read_tokens: 640,
+      first_call: { calls: 2, input_tokens: 1000, cache_read_tokens: 600 },
+      continuation: { calls: 1, input_tokens: 100, cache_read_tokens: 40 },
+    })
     expect(week.models.find((model) => model.model === 'model-a')).toEqual({
       model: 'model-a',
       calls: 2,

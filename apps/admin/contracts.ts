@@ -192,6 +192,8 @@ export interface OverviewResult {
     calls: number
     input_tokens: number
     cache_read_tokens: number
+    first_call: { calls: number; input_tokens: number; cache_read_tokens: number }
+    continuation: { calls: number; input_tokens: number; cache_read_tokens: number }
     models: Array<{
       model: string
       calls: number
