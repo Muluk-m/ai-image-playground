@@ -45,6 +45,35 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges()
 })
 describe('inline region references', () => {
+  it('keeps a terminal line box for continued typing after a newline', () => {
+    act(() => rerender('第一行\n'))
+    expect(editable().lastChild?.nodeName).toBe('BR')
+    editable().focus()
+    setContentEditableCursor(editable(), 4)
+    act(() => prompt.editor.insertText('第二行'))
+    expect(prompt.serialize()).toBe('第一行\n第二行')
+  })
+  it('preserves Enter and Shift+Enter paragraph breaks without committing IME', () => {
+    editable().focus()
+    setContentEditableCursor(editable(), 2)
+    act(() =>
+      editable().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+    )
+    expect(prompt.serialize()).toBe('前文\n后文')
+    act(() =>
+      editable().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }),
+      ),
+    )
+    expect(prompt.serialize()).toBe('前文\n\n后文')
+    act(() => editable().dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })))
+    act(() =>
+      editable().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }),
+      ),
+    )
+    expect(prompt.serialize()).toBe('前文\n\n后文')
+  })
   it('inserts once at the saved caret without replacing surrounding prose', () => {
     editable().focus()
     setContentEditableCursor(editable(), 2)

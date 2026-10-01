@@ -7,6 +7,7 @@ import {
   getVisiblePrompt,
 } from '../lib/promptImageMentions'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
+import { Button } from './ui/button'
 
 /** The editor's mention slots are stable region identities, never current array positions. */
 export function useRegionPrompt({
@@ -66,7 +67,10 @@ export function useRegionPrompt({
         <span className="region-prompt-chip" data-invalid={!active.has(number) || undefined}>
           <Scan size={12} aria-hidden="true" />
           <span>{labels(index)}</span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-5 rounded p-0 [&_svg]:size-3"
             type="button"
             aria-label={t('inpaint.removeRegion', { no: number })}
             onPointerDown={(event) => event.preventDefault()}
@@ -76,12 +80,15 @@ export function useRegionPrompt({
             }}
           >
             <X size={12} aria-hidden="true" />
-          </button>
+          </Button>
         </span>
       )
     },
     onEdit: () => {
       if (document.activeElement === editor.ref.current) caret.current = editor.selection().end
+    },
+    onKeyDown: (event) => {
+      if (event.key === 'Enter') editor.insertText('\n')
     },
   })
   useEffect(() => {
