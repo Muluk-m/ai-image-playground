@@ -22,7 +22,7 @@ export default function InspirationProviderTabs() {
             key={tab.value}
             type="button"
             onClick={() => setProvider(tab.value)}
-            className={`rounded-full px-3 py-1 transition ${
+            className={`rounded-full px-3 py-1 transition ${tab.value === 'all' ? 'shrink-0 whitespace-nowrap' : ''} ${
               active
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
