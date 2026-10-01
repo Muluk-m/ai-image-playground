@@ -7,6 +7,7 @@ import {
   type AgentTurnSummaryView,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import {
@@ -264,6 +265,143 @@ describe('失败', () => {
 })
 
 describe('插话', () => {
+  it('助手收尾期间迟到的插话明确拒绝，不保存幽灵消息或额外调用模型', async () => {
+    const conversationId = await startConversation()
+    const live = await startTurn(conversationId, '先聊聊')
+    upstream.push('收到')
+    const seen = await readFrames(live, 3)
+    const start = seen[0]!.event
+    const turnId = start.type === 'turnStart' ? start.turnId : ''
+    const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
+    const second = controlledCompletion()
+    const hold = async (key: number) => {
+      let release!: () => void
+      let acquired!: () => void
+      const released = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const locked = new Promise<void>((resolve) => {
+        acquired = resolve
+      })
+      const holding = db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${key})`)
+        acquired()
+        await released
+      })
+      await locked
+      return async () => {
+        release()
+        await holding
+      }
+    }
+    const waitBlocked = (key: number) =>
+      waitFor(async () => {
+        const rows = await db.execute(
+          sql`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = ${key}::oid AND NOT granted`,
+        )
+        return rows.length > 0
+      })
+    const releaseAssistant = await hold(8731043)
+    await db.execute(sql`CREATE FUNCTION hold_interjection_write() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.role = 'assistant' THEN
+          PERFORM pg_advisory_xact_lock(8731043);
+        END IF;
+        RETURN NEW;
+      END $$`)
+    await db.execute(
+      sql`CREATE TRIGGER hold_interjection_write BEFORE INSERT ON agent_messages FOR EACH ROW EXECUTE FUNCTION hold_interjection_write()`,
+    )
+    let releaseArchive!: () => void
+    let archiving!: () => void
+    const archived = new Promise<void>((resolve) => {
+      archiving = resolve
+    })
+    const archiveGate = new Promise<void>((resolve) => {
+      releaseArchive = resolve
+    })
+    class DelayedArchive extends InMemoryObjectStore {
+      override async write(
+        key: string,
+        bytes: Uint8Array,
+        contentType: string,
+        signal?: AbortSignal,
+      ) {
+        if (key.includes('/interjections/')) {
+          archiving()
+          await archiveGate
+        }
+        await super.write(key, bytes, contentType, signal)
+      }
+    }
+    setObjectStoreForTesting(new DelayedArchive())
+    const png = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#cccccc' } })
+      .png()
+      .toBuffer()
+    const interjected = post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+      {
+        deviceId: DEVICE,
+        clientMessageId: 'late-commit',
+        text: '改成狗',
+        references: [
+          { imageId: 'new-reference', dataUrl: `data:image/png;base64,${png.toString('base64')}` },
+        ],
+      },
+    )
+    try {
+      await archived
+      setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => second.responseFor(signal)))
+      upstream.finish()
+      await waitBlocked(8731043)
+      releaseArchive()
+      // Flush the admission's promise continuations while the previous message write is held.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      await releaseAssistant()
+      const response = await interjected
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: 'turn_finished' })
+      expect((await drainFrames(await resumed)).at(-1)!.event).toMatchObject({
+        type: 'turnEnd',
+        stopReason: 'completed',
+      })
+      expect(calls).toHaveLength(1)
+      const { messages } = await readState(conversationId)
+      expect(messages.map((message) => message.role)).toEqual(['user', 'assistant'])
+      expect(messages[0]!.content).toEqual([{ type: 'text', text: '先聊聊' }])
+      expect(messages[1]!.content).toEqual([{ type: 'text', text: '收到' }])
+    } finally {
+      releaseArchive()
+      await releaseAssistant()
+      await interjected
+      if (calls.length > 1) second.finish()
+      await db.execute(sql`DROP TRIGGER hold_interjection_write ON agent_messages`)
+      await db.execute(sql`DROP FUNCTION hold_interjection_write()`)
+    }
+  })
+
+  it('插话提前保存过助手片段后上游失败，刷新历史仍不保留半截回复', async () => {
+    const conversationId = await startConversation()
+    const live = await startTurn(conversationId, '画一只猫')
+    upstream.push('好的，我先')
+    const seen = await readFrames(live, 3)
+    const start = seen[0]!.event
+    const turnId = start.type === 'turnStart' ? start.turnId : ''
+    const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
+    const interjected = await post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+      { deviceId: DEVICE, text: '改成狗' },
+    )
+    expect(interjected.status).toBe(200)
+    upstream.fail()
+    const rest = await drainFrames(await resumed)
+    expect(rest.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'failed' })
+    const { messages, activeTurn } = await readState(conversationId)
+    expect(activeTurn).toBeNull()
+    expect(messages.map((message) => message.role)).toEqual(['user', 'user'])
+    expect(messages[1]!.content).toEqual([{ type: 'text', text: '改成狗' }])
+  })
+
   it('新参考图与遮罩随插话归档，模型可见，下一轮仍可改图', async () => {
     const second = controlledCompletion()
     const conversationId = await startConversation()

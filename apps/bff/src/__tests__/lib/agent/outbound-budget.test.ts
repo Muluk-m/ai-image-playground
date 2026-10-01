@@ -80,3 +80,25 @@ it('已序列化多字节 body 在真实字节边界放行，非法配额拒发'
   }
   expect(dispatches).toBe(1)
 })
+
+it('does not record an already cancelled request as dispatched', async () => {
+  const signal = AbortSignal.abort()
+  let calls = 0
+  let recorded = 0
+  const fetch = guardedAgentFetch(
+    async () => {
+      calls++
+      return new Response()
+    },
+    {
+      onDispatch: async () => {
+        recorded++
+      },
+    },
+  )
+  await expect(fetch('http://gateway.test', { body: '{}', signal })).rejects.toMatchObject({
+    name: 'AbortError',
+  })
+  expect(calls).toBe(0)
+  expect(recorded).toBe(0)
+})
