@@ -94,10 +94,78 @@ type StoredDraft = AgentDraft & {
   returnedQueueIds?: string[]
 }
 
+function draftObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function validDraftReference(value: unknown, submitted = false): boolean {
+  if (!draftObject(value)) return false
+  if (typeof value[submitted ? 'imageId' : 'id'] !== 'string') return false
+  if (
+    submitted
+      ? typeof value.dataUrl !== 'string' && typeof value.mediaId !== 'string'
+      : typeof value.dataUrl !== 'string'
+  )
+    return false
+  for (const key of ['name', 'maskDataUrl', 'maskMediaId'])
+    if (value[key] !== undefined && typeof value[key] !== 'string') return false
+  if (value.origin !== undefined && value.origin !== 'selection') return false
+  if (
+    value.editAction !== undefined &&
+    !['inpaint', 'erase', 'crop', 'outpaint'].includes(String(value.editAction))
+  )
+    return false
+  return (
+    value.regions === undefined ||
+    (Array.isArray(value.regions) &&
+      value.regions.every(
+        (region) =>
+          draftObject(region) &&
+          ['x', 'y', 'width', 'height'].every(
+            (key) => typeof region[key] === 'number' && Number.isFinite(region[key]),
+          ),
+      ))
+  )
+}
+
+function validDraft(value: unknown): value is AgentDraft {
+  if (
+    !draftObject(value) ||
+    typeof value.prompt !== 'string' ||
+    !Array.isArray(value.references) ||
+    !value.references.every((reference) => validDraftReference(reference))
+  )
+    return false
+  if (value.mode !== undefined && value.mode !== 'image' && value.mode !== 'video') return false
+  if (value.submission === undefined) return true
+  const submission = value.submission
+  return (
+    draftObject(submission) &&
+    typeof submission.id === 'string' &&
+    typeof submission.text === 'string' &&
+    (submission.mode === 'image' || submission.mode === 'video') &&
+    typeof submission.clarificationAnswer === 'boolean' &&
+    Array.isArray(submission.references) &&
+    submission.references.every((reference) => validDraftReference(reference, true)) &&
+    (submission.params === undefined || draftObject(submission.params)) &&
+    (submission.canvas === undefined || draftObject(submission.canvas)) &&
+    (submission.canvasReferenceIds === undefined ||
+      (Array.isArray(submission.canvasReferenceIds) &&
+        submission.canvasReferenceIds.every((id) => typeof id === 'string')))
+  )
+}
+
 function validStoredDraft(value: unknown): value is StoredDraft {
-  if (!value || typeof value !== 'object') return false
+  if (!validDraft(value)) return false
   const row = value as StoredDraft
-  return typeof row.prompt === 'string' && Array.isArray(row.references)
+  return (
+    (row.unsent === undefined || validDraft(row.unsent)) &&
+    (row.remainingUnsent === undefined ||
+      (Array.isArray(row.remainingUnsent) && row.remainingUnsent.every(validDraft))) &&
+    (row.returnedQueueIds === undefined ||
+      (Array.isArray(row.returnedQueueIds) &&
+        row.returnedQueueIds.every((id) => typeof id === 'string')))
+  )
 }
 
 export interface DraftSnapshot {
@@ -208,6 +276,8 @@ export class DraftSession {
     // Only explicit recovery creates a copy; it remains owned by this draft's deletion lifecycle.
     const recoveryKey = `invalid:${crypto.randomUUID()}:${this.key}`
     const owner = attachmentSourceOwner(`draft:${recoveryKey}`)
+    const originalOwner = attachmentSourceOwner(`draft:${key}`)
+    let archived = false
     await owner
       .withDocument(async () => {
         await owner.retain(raw)
@@ -224,12 +294,16 @@ export class DraftSession {
             store.put(raw, recoveryKey)
             store.delete(key)
           }
-          tx.oncomplete = () => resolve()
+          tx.oncomplete = () => {
+            archived = true
+            resolve()
+          }
           tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('draft_changed'))
         })
+        await originalOwner.release()
       })
       .catch(async (error: unknown) => {
-        await owner.release().catch(() => {})
+        if (!archived) await owner.release().catch(() => {})
         throw error
       })
   }
