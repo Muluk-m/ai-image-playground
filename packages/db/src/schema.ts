@@ -908,6 +908,7 @@ export const task_dispatches = pgTable(
     intended_at: epochMs('intended_at').notNull(),
     dispatched_at: epochMs('dispatched_at'),
     upstream_request_id: text('upstream_request_id'),
+    upstream_task_id: text('upstream_task_id'),
   },
   (t) => [index('idx_task_dispatches_task').on(t.task_id, t.intended_at)],
 )

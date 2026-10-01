@@ -128,6 +128,7 @@ export interface UpstreamCallParams {
   beforeRequest?: () => Promise<string | void>
   onRequestDispatched?: (dispatchId: string) => Promise<void>
   onRequestId?: (dispatchId: string, requestId: string) => Promise<void>
+  onUpstreamTaskId?: (dispatchId: string, taskId: string) => Promise<void>
   /** 异步提交拿到 id 后、开始轮询**之前**调用；必须在这一步之内把 id 持久化。 */
   onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
   /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
@@ -226,6 +227,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
    * `counted` 区分「一次上游调用」与「一次轮询」：只有前者过记账回调。异步模式下
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
+  const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
   const performFetch = async (
     url: string,
     init: UpstreamFetchInit,
@@ -248,16 +250,14 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       if (deadline.signal.aborted) relayAbort()
       try {
         const recorded = dispatchId ? params.onRequestDispatched?.(dispatchId) : undefined
-        const response = await responsePromise.then(
-          async (value) => {
-            await recorded
-            return value
-          },
-          async (error) => {
-            await recorded
-            throw error
-          },
-        )
+        let response: UpstreamResponse
+        try {
+          ;[response] = await Promise.all([responsePromise, recorded])
+        } catch (error) {
+          requestAbort.abort()
+          throw error
+        }
+        if (dispatchId) dispatchIdentities.set(response, dispatchId)
         const requestId =
           response.headers?.get('x-request-id') ?? response.headers?.get('request-id')
         if (dispatchId && requestId) await params.onRequestId?.(dispatchId, requestId)
@@ -316,11 +316,13 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         if (missing <= 0) return [...resumeIds]
         if (finalLookup || resume?.pollOnly) return [...resumeIds]
         const settled = await Promise.allSettled(
-          Array.from({ length: missing }, async () =>
-            protocol.readTaskId(
-              (await parseResponse(await performFetch(protocol.submitUrl, makeInit()))).payload,
-            ),
-          ),
+          Array.from({ length: missing }, async () => {
+            const response = await performFetch(protocol.submitUrl, makeInit())
+            const taskId = protocol.readTaskId((await parseResponse(response)).payload)
+            const dispatchId = dispatchIdentities.get(response)
+            if (dispatchId) await params.onUpstreamTaskId?.(dispatchId, taskId)
+            return taskId
+          }),
         )
         const taskIds = [
           ...resumeIds,

@@ -664,3 +664,145 @@ it('retains an accepted asynchronous sibling when another submission is definite
   expect(lookups).toBe(1)
   expect(billing.settlements).toHaveLength(0)
 })
+
+it.each([
+  'recovery',
+  'lookup',
+] as const)('delivers a durable archive checkpoint through %s without asking the provider again', async (path) => {
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+    prompt: 'already archived result',
+    device_id: 'test-device-reconcile',
+    client_request_id: crypto.randomUUID(),
+  })
+  const { request_id: id } = await submitted.json()
+  await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+  const { claimTaskExecution } = await import('../../workers/task-execution')
+  const { spoolGenerationOutputs } = await import('../../lib/generationMedia')
+  const execution = await claimTaskExecution(id)
+  expect(execution).not.toBeNull()
+  try {
+    await execution!.recordDispatchIntent()
+    const checkpoint = await spoolGenerationOutputs(
+      id,
+      'openai-compat',
+      { data: [{ b64_json: PNG_BASE64 }] },
+      undefined,
+      execution!.signal,
+    )
+    expect(await execution!.saveCheckpoint(checkpoint)).toBe(true)
+    if (path === 'lookup') await execution!.reconcile('worker lost the final response')
+  } finally {
+    execution!.release()
+  }
+  if (path === 'recovery') {
+    expect(await recoverTasksByIds([id])).toMatchObject({ requeued: 1 })
+    await runTask(id)
+  } else {
+    const checked = await operate(id, 'POST', {
+      commandId: 'checkpoint-lookup',
+      operatorId: 'operator',
+      action: 'lookup',
+      evidence: 'Inspect the already saved original',
+    })
+    expect(checked.status).toBe(200)
+    expect(await checked.json()).toMatchObject({ status: 'completed' })
+  }
+  expect(await (await request(`/v1/queue/requests/${id}/status`)).json()).toMatchObject({
+    status: 'completed',
+  })
+  const original = await request(`/v1/queue/requests/${id}/image/0`)
+  expect(original.status).toBe(200)
+  expect(new Uint8Array(await original.arrayBuffer())).toEqual(
+    new Uint8Array(Buffer.from(PNG_BASE64, 'base64')),
+  )
+  expect(dispatches).toBe(0)
+  expect(billing.settlements).toHaveLength(1)
+  expect(billing.settlements[0]).toMatchObject({
+    taskId: id,
+    outcome: 'completed',
+    upstreamInvocationCount: 1,
+  })
+})
+
+it('keeps a provider task ID arriving after cancellation as evidence without letting the old executor settle', async () => {
+  let release!: () => void
+  let reached!: () => void
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const started = new Promise<void>((resolve) => {
+    reached = resolve
+  })
+  let submissions = 0
+  let lookups = 0
+  setUpstreamFetchForTesting(async (url) => {
+    if (String(url).endsWith('/async')) {
+      submissions++
+      reached()
+      await waiting
+      return Response.json({ task_id: 'imgtask_late_reply', status: 'processing' }, { status: 202 })
+    }
+    lookups++
+    expect(String(url)).toContain('imgtask_late_reply')
+    return Response.json({ status: 'completed', result: { data: [{ b64_json: PNG_BASE64 }] } })
+  })
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+    prompt: 'late submit acknowledgement',
+    device_id: 'test-device-reconcile',
+    client_request_id: crypto.randomUUID(),
+  })
+  const { request_id: id } = await submitted.json()
+  await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+  const running = runTask(id)
+  await started
+  try {
+    expect(await (await request(`/v1/queue/requests/${id}/cancel`, 'PUT')).json()).toMatchObject({
+      status: 'reconciling',
+    })
+  } finally {
+    release()
+    await running
+  }
+  expect(await (await operate(id)).json()).toMatchObject({
+    status: 'reconciling',
+    upstreamTaskIds: ['imgtask_late_reply'],
+    dispatches: [{ upstreamTaskId: 'imgtask_late_reply' }],
+  })
+  expect(billing.settlements).toHaveLength(0)
+  const result = await operate(id, 'POST', {
+    commandId: 'late-id-lookup',
+    operatorId: 'operator',
+    action: 'lookup',
+    evidence: 'Query the late accepted provider ID',
+  })
+  expect(await result.json()).toMatchObject({ status: 'completed' })
+  expect(submissions).toBe(1)
+  expect(lookups).toBe(1)
+  expect(billing.settlements).toHaveLength(1)
+})
+
+it('replays the original unresolved reason for the same reconciliation command', async () => {
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+    prompt: 'unknown outcome',
+    device_id: 'test-device-reconcile',
+    client_request_id: crypto.randomUUID(),
+  })
+  const { request_id: id } = await submitted.json()
+  await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+  await runTask(id)
+  const command = {
+    commandId: 'same-lookup',
+    operatorId: 'operator',
+    action: 'lookup',
+    evidence: 'Check the original attempt',
+  }
+  const first = await (await operate(id, 'POST', command)).json()
+  expect(first).toEqual({
+    taskId: id,
+    status: 'reconciling',
+    reason: 'manual_verification_required',
+  })
+  expect(await (await operate(id, 'POST', command)).json()).toEqual(first)
+  expect(dispatches).toBe(1)
+  expect(billing.settlements).toHaveLength(0)
+})

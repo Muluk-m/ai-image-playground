@@ -1176,3 +1176,37 @@ describe('callUpstream 取消传播', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 })
+
+it('handles a dispatch evidence write rejection while the upstream response is still pending', async () => {
+  let release!: (response: Response) => void
+  let started!: () => void
+  const entered = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const response = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  setUpstreamFetchForTesting(async () => {
+    started()
+    return response
+  })
+  const result = callUpstream({
+    provider: 'openai-compat',
+    model: 'fixture-recorded-rejection',
+    request: { prompt: 'test' },
+    reconciliationRequired: true,
+    beforeRequest: async () => 'dispatch-1',
+    onRequestDispatched: async () => {
+      throw new Error('dispatch evidence write unavailable')
+    },
+  }).catch((error) => error)
+  try {
+    await entered
+    // The transport has not returned: the accounting rejection must already have a handler.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  } finally {
+    release(Response.json({ data: [{ b64_json: TINY_PNG_B64 }] }))
+    setUpstreamFetchForTesting()
+  }
+  expect(await result).toBeInstanceOf(UpstreamResultUnknownError)
+})

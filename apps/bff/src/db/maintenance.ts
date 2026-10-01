@@ -135,15 +135,15 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
         ? eq(schema.tasks.execution_token, candidate.executionToken)
         : isNull(schema.tasks.execution_token),
     )!
+    if (candidate.archivePayload) {
+      if (await requeueTaskArchive(candidate.id, now, candidate.archivePayload, guard)) requeued++
+      continue
+    }
     if (candidate.reconciliationRequired && candidate.invocationCount > 0) {
       await reconcileTasks(
         and(eq(schema.tasks.id, candidate.id), guard)!,
         '执行连接中断，上游结果待核查',
       )
-      continue
-    }
-    if (candidate.archivePayload) {
-      if (await requeueTaskArchive(candidate.id, now, candidate.archivePayload, guard)) requeued++
       continue
     }
     if (candidate.upstreamTaskIds?.length) {
