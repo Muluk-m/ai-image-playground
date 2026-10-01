@@ -1,4 +1,10 @@
 import {
+  type AgentToolArtifact,
+  type ProductionContext,
+  type ProductionGenerationView,
+  productionClipVideo,
+} from '@image-playground/shared'
+import {
   Clapperboard,
   FileText,
   Film,
@@ -10,7 +16,7 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../../i18n'
-import { activateProduction } from '../lib/productionContext'
+import { activateProduction, setProductionPanelContext } from '../lib/productionContext'
 import { useProductionDocument } from '../lib/useProductionDocument'
 import '../production.css'
 import { useProductionAssets } from '../lib/useProductionAssets'
@@ -20,16 +26,25 @@ import ProductionAssets from './ProductionAssets'
 import ProductionClipPane from './ProductionClipPane'
 import ProductionDocumentPane from './ProductionDocumentPane'
 import ProductionExportPane from './ProductionExportPane'
+import ProductionGenerations from './ProductionGenerations'
 import ProductionShotPane from './ProductionShotPane'
 
 export default function ProductionWorkspace({
   conversationId,
   refreshKey,
   children,
+  artifactPane,
+  artifactContext,
+  onCloseArtifact,
+  onPreviewArtifact,
 }: {
   conversationId: string | null
   refreshKey: string
   children: ReactNode
+  artifactPane?: ReactNode
+  artifactContext?: ProductionContext
+  onCloseArtifact?: () => void
+  onPreviewArtifact?: (generation: ProductionGenerationView, artifact: AgentToolArtifact) => void
 }) {
   const { t } = useTranslation('production')
   const production = useProductionDocument(conversationId, refreshKey)
@@ -66,6 +81,7 @@ export default function ProductionWorkspace({
   useEffect(
     () =>
       activateProduction(conversationId, (pane) => {
+        onCloseArtifact?.()
         setShowShots(pane === 'storyboard')
         setShowClips(false)
         setShowExport(false)
@@ -76,11 +92,16 @@ export default function ProductionWorkspace({
     [conversationId],
   )
   const doc = production.document
+  useEffect(() => {
+    if (!artifactPane || !artifactContext || !doc || artifactContext.documentId !== doc.id) return
+    setProductionPanelContext(doc.conversationId, { ...artifactContext, revision: doc.revision })
+    return () => setProductionPanelContext(doc.conversationId, null)
+  }, [artifactPane, artifactContext, doc?.id, doc?.revision, doc?.conversationId])
   return (
     <div
       className="production-workspace"
       data-assets-drawer={assetsDrawerOpen}
-      data-content-open={Boolean(doc && contentOpen)}
+      data-content-open={Boolean(artifactPane || (doc && contentOpen))}
       data-assets-open={Boolean(doc && assetsOpen)}
     >
       {doc && (
@@ -135,6 +156,7 @@ export default function ProductionWorkspace({
             className="production-document-link"
             aria-label={t('openScript')}
             onClick={() => {
+              onCloseArtifact?.()
               setContentOpen(true)
               setShowShots(false)
               setShowClips(false)
@@ -152,6 +174,7 @@ export default function ProductionWorkspace({
             className="production-document-link"
             aria-label={t('storyboard.title')}
             onClick={() => {
+              onCloseArtifact?.()
               setShowShots(true)
               setShowClips(false)
               setShowExport(false)
@@ -169,6 +192,7 @@ export default function ProductionWorkspace({
             className="production-document-link"
             aria-label={t('clip.title')}
             onClick={() => {
+              onCloseArtifact?.()
               setShowClips(true)
               setShowExport(false)
               setShowShots(false)
@@ -184,6 +208,7 @@ export default function ProductionWorkspace({
           <ProductionAssets
             document={doc}
             onSelect={(target) => {
+              onCloseArtifact?.()
               setShowShots(false)
               setShowClips(false)
               setShowExport(false)
@@ -201,6 +226,7 @@ export default function ProductionWorkspace({
                 className="production-document-link"
                 key={one.id}
                 onClick={() => {
+                  onCloseArtifact?.()
                   setShowShots(false)
                   setShowClips(false)
                   setShowExport(false)
@@ -218,6 +244,7 @@ export default function ProductionWorkspace({
             className="production-document-link"
             aria-label={t('export.title')}
             onClick={() => {
+              onCloseArtifact?.()
               setShowExport(true)
               setContentOpen(true)
               setAssetsDrawerOpen(false)
@@ -271,55 +298,80 @@ export default function ProductionWorkspace({
         )}
         {children}
       </section>
-      {doc &&
-        contentOpen &&
-        (showExport ? (
-          <ProductionExportPane key={doc.id} document={doc} onClose={() => setContentOpen(false)} />
-        ) : proposal ? (
-          <ProductionAssetProposalPane
-            proposal={proposal}
-            conversationId={doc.conversationId}
-            busy={assets.busy}
-            failed={assets.failed}
-            onAdopt={() => void assets.act(proposal.id, 'adopt')}
-            onDiscard={() => void assets.act(proposal.id, 'discard')}
-            onClose={() => {
-              setProposalId(null)
-              setContentOpen(false)
-            }}
-          />
-        ) : showClips ? (
-          <ProductionClipPane
-            key={doc.id}
-            document={doc}
-            onClose={() => setContentOpen(false)}
-            onSaved={production.accept}
-          />
-        ) : showShots ? (
-          <ProductionShotPane
-            key={doc.id}
-            document={doc}
-            onClose={() => setContentOpen(false)}
-            onSaved={production.accept}
-            refreshKey={refreshKey}
-          />
-        ) : assetTarget ? (
-          <ProductionAssetPane
-            key={`${doc.id}:${assetTarget.kind}:${assetTarget.id ?? 'new'}`}
-            document={doc}
-            target={assetTarget}
-            onSaved={production.accept}
-            onClose={() => setContentOpen(false)}
-          />
-        ) : (
-          <ProductionDocumentPane
-            refreshKey={refreshKey}
-            key={doc.id}
-            document={doc}
-            onClose={() => setContentOpen(false)}
-            onSaved={production.accept}
-          />
-        ))}
+      {artifactPane ||
+        (doc &&
+          contentOpen &&
+          (showExport ? (
+            <ProductionExportPane
+              key={doc.id}
+              document={doc}
+              onClose={() => setContentOpen(false)}
+            />
+          ) : proposal ? (
+            <ProductionAssetProposalPane
+              proposal={proposal}
+              conversationId={doc.conversationId}
+              busy={assets.busy}
+              failed={assets.failed}
+              onAdopt={() => void assets.act(proposal.id, 'adopt')}
+              onDiscard={() => void assets.act(proposal.id, 'discard')}
+              onClose={() => {
+                setProposalId(null)
+                setContentOpen(false)
+              }}
+            />
+          ) : showClips ? (
+            <ProductionClipPane
+              renderGenerations={(clip, preparationBlocked) => (
+                <ProductionGenerations
+                  onPreviewArtifact={onPreviewArtifact}
+                  key={clip.id}
+                  conversationId={doc.conversationId}
+                  document={doc}
+                  target={{ kind: 'clip', id: clip.id }}
+                  onSaved={production.accept}
+                  refreshKey={refreshKey}
+                  preparationBlocked={preparationBlocked}
+                  adoptedArtifactId={clip.adopted?.artifactId}
+                  initialDraft={{
+                    prompt: clip.prompt,
+                    model: clip.model,
+                    video: productionClipVideo(clip),
+                    references: clip.references,
+                  }}
+                />
+              )}
+              key={doc.id}
+              document={doc}
+              onClose={() => setContentOpen(false)}
+              onSaved={production.accept}
+            />
+          ) : showShots ? (
+            <ProductionShotPane
+              key={doc.id}
+              document={doc}
+              onClose={() => setContentOpen(false)}
+              onSaved={production.accept}
+              refreshKey={refreshKey}
+            />
+          ) : assetTarget ? (
+            <ProductionAssetPane
+              onPreviewArtifact={onPreviewArtifact}
+              key={`${doc.id}:${assetTarget.kind}:${assetTarget.id ?? 'new'}`}
+              document={doc}
+              target={assetTarget}
+              onSaved={production.accept}
+              onClose={() => setContentOpen(false)}
+            />
+          ) : (
+            <ProductionDocumentPane
+              refreshKey={refreshKey}
+              key={doc.id}
+              document={doc}
+              onClose={() => setContentOpen(false)}
+              onSaved={production.accept}
+            />
+          )))}
     </div>
   )
 }

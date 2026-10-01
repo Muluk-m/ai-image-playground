@@ -25,8 +25,8 @@ import {
 } from '../lib/productionClient'
 import { setProductionPanelContext } from '../lib/productionContext'
 import { useProductionEditor } from '../lib/useProductionEditor'
-import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
 import { type ProductionTab, useProductionReading } from '../lib/useProductionReading'
+import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
 import ProductionProposals from './ProductionProposals'
 import ProductionQuotableText from './ProductionQuotableText'
 
