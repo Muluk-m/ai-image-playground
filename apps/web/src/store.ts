@@ -2,7 +2,7 @@ import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { accountRequired, requireAccount } from './auth/loginPrompt'
-import { queuePendingSubmission } from './auth/pendingSubmission'
+import { discardPendingSubmission, queuePendingSubmission } from './auth/pendingSubmission'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
@@ -1341,7 +1341,22 @@ export interface PreparedSubmission {
  * 显式参数提交入口，composer 与套内逐镜提交共用：归一化、槽位展开、数量分发、
  * 落库并发起，返回创建的任务 id。composer 专属的校验与状态回写在 submitTask 里。
  */
-export async function submitPrepared(input: PreparedSubmission): Promise<string[]> {
+export interface PreparedSubmissionOptions {
+  signal?: AbortSignal
+  isCurrent?: () => boolean
+  pendingId?: string
+  sourcePath?: string
+  ownerScope?: string
+  template?: true
+  onLoginQueued?: () => void
+}
+
+export async function submitPrepared(
+  input: PreparedSubmission,
+  options: PreparedSubmissionOptions = {},
+): Promise<string[]> {
+  const current = () => !options.signal?.aborted && (options.isCurrent?.() ?? true)
+  if (!current()) return []
   const { settings, showToast } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
   const selectedProfile =
@@ -1404,16 +1419,26 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
       if (target.id !== input.inputImages[0]?.id)
         throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
       const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
+      if (!current()) return []
       if (coverage === 'full') {
         const confirmed = await new Promise<boolean>((resolve) => {
-          useStore.getState().setConfirmDialog({
+          const finish = (confirmed: boolean) => {
+            options.signal?.removeEventListener('abort', abort)
+            if (useStore.getState().confirmDialog === dialog)
+              useStore.getState().setConfirmDialog(null)
+            resolve(confirmed)
+          }
+          const abort = () => finish(false)
+          const dialog = {
             title: i18next.t('mask.fullTitle', { ns: 'store' }),
             message: i18next.t('mask.fullMessage', { ns: 'store' }),
             confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
-            tone: 'warning',
-            action: () => resolve(true),
-            cancelAction: () => resolve(false),
-          })
+            tone: 'warning' as const,
+            action: () => finish(true),
+            cancelAction: () => finish(false),
+          }
+          options.signal?.addEventListener('abort', abort, { once: true })
+          useStore.getState().setConfirmDialog(dialog)
         })
         if (!confirmed) return []
       }
@@ -1439,7 +1464,22 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   // Login reloads the workspace after adopting anonymous data. Keep the exact attempted request,
   // including references and parameters, so the original click is sent once in the new scope.
   if (profile.source === 'builtin-edge' && accountRequired()) {
-    await queuePendingSubmission({ kind: 'image', input })
+    if (!current()) return []
+    const id = await queuePendingSubmission(
+      {
+        kind: 'image',
+        input,
+        ...(options.template ? { template: true } : {}),
+        ...(options.sourcePath ? { sourcePath: options.sourcePath } : {}),
+        ...(options.ownerScope ? { ownerScope: options.ownerScope } : {}),
+      },
+      options.pendingId,
+    )
+    if (!current()) {
+      await discardPendingSubmission(id)
+      return []
+    }
+    options.onLoginQueued?.()
     requireAccount()
     return []
   }
@@ -1454,6 +1494,7 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     return []
   }
 
+  if (!current()) return []
   const inputImageDataUrls = input.inputImages.map((img) => img.dataUrl)
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {

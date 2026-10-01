@@ -1,6 +1,11 @@
-import { assembleLookRequest } from '@image-playground/shared'
-import { create } from 'zustand'
+import { assembleLookRequest, pickLookAssetImageId } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
+import { getImageDimensions } from '../../../lib/canvasImage'
+import { remapImageMentionsForOrder } from '../../../lib/promptImageMentions'
+import { beginLookSubmission } from './lookSubmissionOperation'
+
+export { cancelLookSubmission, useLookSubmission } from './lookSubmissionOperation'
+
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getProfileModels } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
@@ -11,8 +16,6 @@ import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import { useActiveLook } from './activeLook'
 import type { LookItem } from './looks'
-
-export const useLookSubmission = create<{ submitting: boolean }>(() => ({ submitting: false }))
 
 /** 参考图条里出现过的素材：按首次出现的顺序，一条素材只算一次。 */
 export function assetsForInputImages(
@@ -45,14 +48,19 @@ export function checkLookSubmission(
 }
 
 /** 预置模板的参考图在 BFF 上：先搬进本机 image store 才能当参考图提交。 */
-async function referenceImageIds(look: LookItem): Promise<string[]> {
+async function referenceImageIds(
+  look: LookItem,
+  signal: AbortSignal,
+  onImage: (name: string) => void,
+): Promise<string[]> {
   const ids: string[] = []
   for (const ref of look.references) {
+    onImage(ref.kind === 'image' ? ref.imageId : (ref.url.split('/').pop() ?? look.name))
     if (ref.kind === 'image') {
       ids.push(ref.imageId)
       continue
     }
-    const response = await fetch(lookImageUrl(ref.url))
+    const response = await fetch(lookImageUrl(ref.url), { signal })
     if (!response.ok) throw new Error(ref.url)
     const blob = await response.blob()
     if (!blob.type.startsWith('image/') || blob.size === 0) throw new Error(ref.url)
@@ -67,11 +75,13 @@ async function referenceImageIds(look: LookItem): Promise<string[]> {
  * 用户在输入框里打的字接在正文后面；发完把输入框还原成他打的那几个字。
  */
 export async function submitWithLook(look: LookItem, body: string): Promise<boolean> {
-  if (useLookSubmission.getState().submitting) return false
   const store = useStore.getState()
   const check = checkLookSubmission(look, store.inputImages, useLibraryStore.getState().assets)
   if (!check.ok) return false
-  const admission = referenceAdmission(getActiveApiProfile(store.settings))
+  const admission = referenceAdmission({
+    ...getActiveApiProfile(store.settings),
+    selectedModelId: look.model,
+  })
   if (
     !getProfileModels(getActiveApiProfile(store.settings), getPublicChannels()).includes(look.model)
   ) {
@@ -87,32 +97,25 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
     body,
     assets: check.assets,
     prompt: store.prompt,
+    inputImages: store.inputImages,
     params: store.params,
     slotValues: store.slotValues,
     maskDraft: store.maskDraft,
     profile: getActiveApiProfile(store.settings),
   })
-  useLookSubmission.setState({ submitting: true })
-  let edited = false
-  const unwatch = useStore.subscribe((next, prev) => {
-    if (
-      next.prompt !== prev.prompt ||
-      next.inputImages !== prev.inputImages ||
-      next.params !== prev.params ||
-      next.maskDraft !== prev.maskDraft ||
-      next.slotValues !== prev.slotValues
-    )
-      edited = true
-  })
-  const unwatchLook = useActiveLook.subscribe((next, prev) => {
-    if (next.look !== prev.look) edited = true
-  })
+  const operation = beginLookSubmission()
+  if (!operation) return false
+  let preparingImage = look.name
   try {
     const assembled = assembleLookRequest({
       look: {
         body: frozen.body,
         slotCount: frozen.look.slotCount,
-        referenceImageIds: await referenceImageIds(frozen.look),
+        referenceImageIds: await operation.wait(
+          referenceImageIds(frozen.look, operation.signal, (name) => {
+            preparingImage = name
+          }),
+        ),
       },
       maxInputs: admission.limit,
       firstImageId: frozen.maskDraft?.targetImageId,
@@ -139,25 +142,52 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
       return false
     }
 
-    const typed = frozen.prompt
     const images = []
     for (const id of assembled.inputImageIds) {
-      const dataUrl = await ensureImageCached(id)
+      preparingImage =
+        frozen.assets.find((asset) => asset.views.some((view) => view.imageId === id))?.name ?? id
+      const dataUrl = await operation.wait(ensureImageCached(id))
       if (!dataUrl) throw new Error(id)
+      const dimensions = await operation.wait(getImageDimensions(dataUrl))
+      if (!dimensions.width || !dimensions.height) throw new Error(id)
       images.push({ id, dataUrl })
     }
-    const ids = await submitPrepared({
-      prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
-      inputImages: images,
-      params: { ...frozen.params, size: frozen.look.size },
-      slotValues: frozen.slotValues,
-      maskDraft: frozen.maskDraft,
-      profileId: frozen.profile.id,
-      profile: frozen.profile,
-      modelId: frozen.look.model,
-    })
+    const equivalentImageIds: Record<string, string> = {}
+    for (const asset of frozen.assets) {
+      const selected = pickLookAssetImageId(asset)
+      if (selected) for (const view of asset.views) equivalentImageIds[view.imageId] = selected
+    }
+    const typed = remapImageMentionsForOrder(
+      frozen.prompt,
+      frozen.inputImages,
+      images,
+      equivalentImageIds,
+    )
+    const ids = await operation.wait(
+      submitPrepared(
+        {
+          prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
+          inputImages: images,
+          params: { ...frozen.params, size: frozen.look.size },
+          slotValues: frozen.slotValues,
+          maskDraft: frozen.maskDraft,
+          profileId: frozen.profile.id,
+          profile: frozen.profile,
+          modelId: frozen.look.model,
+        },
+        {
+          signal: operation.signal,
+          isCurrent: operation.isCurrent,
+          pendingId: operation.id,
+          sourcePath: operation.sourcePath,
+          ownerScope: operation.ownerScope,
+          onLoginQueued: operation.markPending,
+          template: true,
+        },
+      ),
+    )
     if (!ids.length) return false
-    if (!edited) {
+    if (!operation.isEdited()) {
       if (store.settings.clearInputAfterSubmit) {
         store.setPrompt('')
         store.clearInputImages()
@@ -166,18 +196,14 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
     }
     if (look.record) void useLibraryStore.getState().noteLookUsed(look.record.id)
     return true
-  } catch (error) {
+  } catch {
+    if (operation.signal.aborted && operation.signal.reason?.name !== 'TimeoutError') return false
     store.showToast(
-      i18next.t('look.inputsUnavailable', {
-        ns: 'library',
-        image: error instanceof Error ? error.message : look.name,
-      }),
+      i18next.t('look.inputsUnavailable', { ns: 'library', image: preparingImage }),
       'error',
     )
     return false
   } finally {
-    unwatch()
-    unwatchLook()
-    useLookSubmission.setState({ submitting: false })
+    operation.finish()
   }
 }

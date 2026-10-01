@@ -94,7 +94,8 @@
     "slotMismatch": "这个模板需要 {{count}} 条素材",
     "empty": "还没有自己的模板",
     "inputLimit": "需要 {{count}} 张输入图，最多支持 {{max}} 张。请减少模板参考图。",
-    "inputsUnavailable": "无法加载图片「{{image}}」，请检查后重试。"
+    "inputsUnavailable": "无法加载图片「{{image}}」，请检查后重试。",
+    "prepareFailed": "准备生成失败，请重试"
   },
   "lookDetail": {
     "cover": "封面",
