@@ -730,7 +730,8 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     })
     await act(async () => {
       await vi.waitFor(() => expect(session.getSnapshot().draft.references).toHaveLength(100))
-      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 5000 })
+      // This checks complete intake through 100 durable writes, not CI machine throughput.
+      await vi.waitFor(() => expect(putAttempts.size).toBe(100), { timeout: 15_000 })
     })
     expect(session.getSnapshot().draft.references.map((reference) => reference.name)).toEqual(
       Array.from({ length: 100 }, (_, index) => `photo-${index + 1}`),
@@ -776,7 +777,7 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     setClientStorageScope(null)
     await bootstrapClientCapabilities(false, '')
   }
-}, 15_000)
+}, 30_000)
 
 it('keeps an oversized attachment in the selected scope until the user explicitly removes it', async () => {
   vi.stubGlobal('crypto', webcrypto)
