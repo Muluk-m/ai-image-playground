@@ -221,7 +221,7 @@ export interface ControlledCompletion {
   responseFor(signal?: AbortSignal): Response
   push(content: string): void
   pushToolCall(index: number, call: ToolCallSpec): void
-  finish(): void
+  finish(reason?: 'stop' | 'length'): void
   /** 上游流到一半断掉：已推的帧读完之后才报错，所以要等消费者收到它们再调。 */
   fail(message?: string): void
 }
@@ -281,10 +281,10 @@ export function controlledCompletion(
         choices: [{ index: 0, delta: { tool_calls: [{ index, function: { arguments: tail } }] } }],
       })
     },
-    finish() {
+    finish(reason = 'stop') {
       send({
         id: 'completion-1',
-        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        choices: [{ index: 0, delta: {}, finish_reason: reason }],
         ...(usage ? { usage } : {}),
       })
       controller.enqueue(encoder.encode('data: [DONE]\n\n'))

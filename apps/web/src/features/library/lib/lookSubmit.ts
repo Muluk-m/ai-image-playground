@@ -1,5 +1,16 @@
-import { assembleLookRequest } from '@image-playground/shared'
-import { ensureImageCached, storeImageFromFile, submitTask, useStore } from '../../../store'
+import { assembleLookRequest, pickLookAssetImageId } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
+import { getImageDimensions } from '../../../lib/canvasImage'
+import { remapImageMentionsForOrder } from '../../../lib/promptImageMentions'
+import { beginLookSubmission } from './lookSubmissionOperation'
+
+export { cancelLookSubmission, useLookSubmission } from './lookSubmissionOperation'
+
+import { getActiveApiProfile } from '../../../lib/apiProfiles'
+import { getProfileModels } from '../../../lib/channels/profileSelectors'
+import { getPublicChannels } from '../../../lib/channels/publicChannels'
+import { referenceAdmission, referenceRefusalMessage } from '../../../lib/referenceDraft'
+import { ensureImageCached, storeImageFromFile, submitPrepared, useStore } from '../../../store'
 import { lookImageUrl } from '../components/LookImage'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
@@ -37,16 +48,22 @@ export function checkLookSubmission(
 }
 
 /** 预置模板的参考图在 BFF 上：先搬进本机 image store 才能当参考图提交。 */
-async function referenceImageIds(look: LookItem): Promise<string[]> {
+async function referenceImageIds(
+  look: LookItem,
+  signal: AbortSignal,
+  onImage: (name: string) => void,
+): Promise<string[]> {
   const ids: string[] = []
   for (const ref of look.references) {
+    onImage(ref.kind === 'image' ? ref.imageId : (ref.url.split('/').pop() ?? look.name))
     if (ref.kind === 'image') {
       ids.push(ref.imageId)
       continue
     }
-    const response = await fetch(lookImageUrl(ref.url))
-    if (!response.ok) continue
+    const response = await fetch(lookImageUrl(ref.url), { signal })
+    if (!response.ok) throw new Error(ref.url)
     const blob = await response.blob()
+    if (!blob.type.startsWith('image/') || blob.size === 0) throw new Error(ref.url)
     const file = new File([blob], ref.url.split('/').pop() ?? 'reference', { type: blob.type })
     ids.push((await storeImageFromFile(file)).id)
   }
@@ -61,26 +78,133 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
   const store = useStore.getState()
   const check = checkLookSubmission(look, store.inputImages, useLibraryStore.getState().assets)
   if (!check.ok) return false
-  const assembled = assembleLookRequest({
-    look: { body, slotCount: look.slotCount, referenceImageIds: await referenceImageIds(look) },
-    assets: check.assets.map((asset) => ({ id: asset.id, name: asset.name, views: asset.views })),
+  const admission = referenceAdmission({
+    ...getActiveApiProfile(store.settings),
+    selectedModelId: look.model,
   })
-  if (!assembled.ok) return false
-
-  const typed = store.prompt
-  const images = []
-  for (const id of assembled.inputImageIds) {
-    const dataUrl = await ensureImageCached(id)
-    if (dataUrl) images.push({ id, dataUrl })
+  if (
+    !getProfileModels(getActiveApiProfile(store.settings), getPublicChannels()).includes(look.model)
+  ) {
+    store.showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
+    return false
   }
-  // 组装好的正文按新这条参考图的序号写成，所以条与提示词一起换，不能分两步。
-  store.replaceInputImages(images, {
-    prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
+  if (!admission.acceptsReferences) {
+    store.showToast(referenceRefusalMessage('noEdit'), 'error')
+    return false
+  }
+  const frozen = structuredClone({
+    look,
+    body,
+    assets: check.assets,
+    prompt: store.prompt,
+    inputImages: store.inputImages,
+    params: store.params,
+    slotValues: store.slotValues,
+    maskDraft: store.maskDraft,
+    profile: getActiveApiProfile(store.settings),
   })
-  await submitTask()
-  const after = useStore.getState()
-  if (after.prompt !== '') after.setPrompt(typed)
-  useActiveLook.getState().set(null)
-  if (look.record) void useLibraryStore.getState().noteLookUsed(look.record.id)
-  return true
+  const operation = beginLookSubmission()
+  if (!operation) return false
+  let preparingImage = look.name
+  try {
+    const assembled = assembleLookRequest({
+      look: {
+        body: frozen.body,
+        slotCount: frozen.look.slotCount,
+        referenceImageIds: await operation.wait(
+          referenceImageIds(frozen.look, operation.signal, (name) => {
+            preparingImage = name
+          }),
+        ),
+      },
+      maxInputs: admission.limit,
+      firstImageId: frozen.maskDraft?.targetImageId,
+      assets: frozen.assets.map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        views: asset.views,
+      })),
+    })
+    if (!assembled.ok) {
+      store.showToast(
+        assembled.reason === 'input_limit_exceeded'
+          ? i18next.t('look.inputLimit', {
+              ns: 'library',
+              count: assembled.required,
+              max: assembled.limit,
+            })
+          : i18next.t('look.inputsUnavailable', {
+              ns: 'library',
+              image: assembled.assetId ?? look.name,
+            }),
+        'error',
+      )
+      return false
+    }
+
+    const images = []
+    for (const id of assembled.inputImageIds) {
+      preparingImage =
+        frozen.assets.find((asset) => asset.views.some((view) => view.imageId === id))?.name ?? id
+      const dataUrl = await operation.wait(ensureImageCached(id))
+      if (!dataUrl) throw new Error(id)
+      const dimensions = await operation.wait(getImageDimensions(dataUrl))
+      if (!dimensions.width || !dimensions.height) throw new Error(id)
+      images.push({ id, dataUrl })
+    }
+    const equivalentImageIds: Record<string, string> = {}
+    for (const asset of frozen.assets) {
+      const selected = pickLookAssetImageId(asset, frozen.maskDraft?.targetImageId)
+      if (selected) for (const view of asset.views) equivalentImageIds[view.imageId] = selected
+    }
+    const typed = remapImageMentionsForOrder(
+      frozen.prompt,
+      frozen.inputImages,
+      images,
+      equivalentImageIds,
+    )
+    const ids = await operation.wait(
+      submitPrepared(
+        {
+          prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
+          inputImages: images,
+          params: { ...frozen.params, size: frozen.look.size },
+          slotValues: frozen.slotValues,
+          maskDraft: frozen.maskDraft,
+          profileId: frozen.profile.id,
+          profile: frozen.profile,
+          modelId: frozen.look.model,
+        },
+        {
+          signal: operation.signal,
+          isCurrent: operation.isCurrent,
+          pendingId: operation.id,
+          sourcePath: operation.sourcePath,
+          ownerScope: operation.ownerScope,
+          onLoginQueued: operation.markPending,
+          onConfirmationPending: operation.setConfirmationPending,
+          template: true,
+        },
+      ),
+    )
+    if (!ids.length) return false
+    if (!operation.isEdited()) {
+      if (store.settings.clearInputAfterSubmit) {
+        store.setPrompt('')
+        store.clearInputImages()
+      }
+      useActiveLook.getState().set(null)
+    }
+    if (look.record) void useLibraryStore.getState().noteLookUsed(look.record.id)
+    return true
+  } catch {
+    if (operation.signal.aborted && operation.signal.reason?.name !== 'TimeoutError') return false
+    store.showToast(
+      i18next.t('look.inputsUnavailable', { ns: 'library', image: preparingImage }),
+      'error',
+    )
+    return false
+  } finally {
+    operation.finish()
+  }
 }
