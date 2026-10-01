@@ -76,6 +76,7 @@ export default function AgentArtifactPane({
   onViewCanvas?: (objectIds?: readonly string[]) => void
 }) {
   const { t } = useTranslation('agent')
+  const { t: tv } = useTranslation('video')
   const [source, setSource] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
@@ -326,7 +327,9 @@ export default function AgentArtifactPane({
         {message.prompt && (
           <section className="studio-artifact-pane-prompt">
             <div>
-              <span>{t('tool.imagePrompt')}</span>
+              <span>
+                {active.media === 'video' ? tv('landing.promptAria') : t('tool.imagePrompt')}
+              </span>
               <button
                 type="button"
                 onClick={() => void navigator.clipboard.writeText(message.prompt ?? '')}

@@ -137,6 +137,28 @@ it('keeps an unsupported saved duration visible and requires correction before s
       [...host.querySelectorAll('button')].find((one) => one.textContent === '保存')!.disabled,
     ).toBe(true)
     expect(request).not.toHaveBeenCalled()
+    const originalScroll = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = () => {}
+    try {
+      await act(async () =>
+        host
+          .querySelector<HTMLElement>('[role="combobox"][aria-label="时长"]')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+      )
+      const durationOptions = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      expect(
+        durationOptions.find((one) => one.textContent === '6 秒')?.getAttribute('aria-disabled'),
+      ).toBe('true')
+      expect(
+        durationOptions.find((one) => one.textContent === '4 秒')?.getAttribute('aria-disabled'),
+      ).toBe('true')
+      expect(
+        durationOptions.find((one) => one.textContent === '5 秒')?.getAttribute('aria-disabled'),
+      ).not.toBe('true')
+      expect(host.textContent).toContain('预计片长 6 秒')
+    } finally {
+      Element.prototype.scrollIntoView = originalScroll
+    }
   } finally {
     await act(async () => root.unmount())
     host.remove()

@@ -1,11 +1,18 @@
-import type { ProductionContext } from '@image-playground/shared'
+import type { ProductionContext, ProductionGenerationBinding } from '@image-playground/shared'
 import { useSyncExternalStore } from 'react'
 
-let pendingOpen: { conversationId: string | null; pane?: 'script' | 'storyboard' } | null = null
+export type ProductionPane =
+  | 'script'
+  | 'storyboard'
+  | (Pick<ProductionGenerationBinding, 'documentId' | 'target' | 'targetId'> & {
+      messageId: string
+    })
+
+let pendingOpen: { conversationId: string | null; pane?: ProductionPane } | null = null
 let active: {
   token: symbol
   conversationId: string | null
-  open: (pane?: 'script' | 'storyboard') => void
+  open: (pane?: ProductionPane) => void
 } | null = null
 const selected = new Map<string, ProductionContext>()
 const panels = new Map<string, ProductionContext>()
@@ -44,7 +51,7 @@ export function setProductionPanelContext(
 }
 export function activateProduction(
   conversationId: string | null,
-  open: (pane?: 'script' | 'storyboard') => void,
+  open: (pane?: ProductionPane) => void,
 ): () => void {
   const token = Symbol('production')
   active = { token, conversationId, open }
@@ -57,10 +64,7 @@ export function activateProduction(
     if (active?.token === token) active = null
   }
 }
-export function openProductionContent(
-  conversationId: string | null,
-  pane?: 'script' | 'storyboard',
-): void {
+export function openProductionContent(conversationId: string | null, pane?: ProductionPane): void {
   if (active?.conversationId === conversationId) active.open(pane)
   else pendingOpen = { conversationId, pane }
 }
