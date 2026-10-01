@@ -1,6 +1,6 @@
 # Test environment: every push to `test` is checked, then released to test.muvloom.online.
-# That site is its own Cloudflare Pages project, so nothing here can reach a production domain
-# even if a project name is wrong. Production is deploy.yml.
+# The backend and Pages targets are guarded against production resource reuse.
+# Production remains deploy.yml.
 # Runbook: docs/deploy/test-environment.md.
 name: Deploy test
 on:
@@ -23,7 +23,18 @@ jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aip_test
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/aip_test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,14 +58,98 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       # The same build the release job runs, failing here instead of half way through an upload.
-      # The bff suite is not run: this workflow ships no backend, and `Web checks` covers it on
-      # every pull request into main.
+      - run: pnpm test
       - run: pnpm --dir apps/web build
       - run: pnpm --dir apps/admin build
 
+  backend:
+    name: Backend images and VPS rollout
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      private_sha: ${{ steps.overlay.outputs.commit }}
+    steps:
+      - name: Require secrets
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          missing=
+          for name in PRIVATE_OVERLAY_SSH_KEY VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_SSH_HOST VPS_SSH_USER; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # Pin the same overlay for image and Pages builds.
+      - name: Read the pinned overlay commit
+        id: lock
+        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
+      - name: Check out the private overlay at the pinned commit
+        id: overlay
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ steps.lock.outputs.sha }}
+          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          path: private
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the release images
+        id: build
+        env:
+          PUBLIC_SHA: ${{ github.sha }}
+          PRIVATE_SHA: ${{ steps.overlay.outputs.commit }}
+        run: |
+          release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
+          ./scripts/build-vps-release.sh test "$RUNNER_TEMP/$release_id"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+      - name: Ship the release to the VPS and roll it out
+        env:
+          RELEASE_ID: ${{ steps.build.outputs.release_id }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
+          # The key is bound to scripts/ci-receive.sh on the VPS; the command below is all it accepts.
+          tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
+            ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID test $GITHUB_RUN_ID"
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/vps-key"
+
   publish:
     name: Release test.muvloom.online
-    needs: checks
+    needs: [checks, backend]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -90,20 +185,22 @@ jobs:
           {
             printf '%s\n' "$PAGES_ENV"
             echo "TEST_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/TEST-cloudflare.env"
+            echo "TEST_BFF_BASE_URL=https://test-api.muvloom.online"
+            echo "TEST_BFF_BASE_URLS_BY_ORIGIN="
             echo "TEST_EXTRA_ASSETS_DIR="
             echo "TEST_NOTIFY_UPDATE="
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      # The test site is the paid shape, so it needs the overlay. Its main HEAD: the test
-      # environment exists to show what the next production release would look like.
+      # Match the backend overlay exactly; both builds use the same checked source pair.
       #
       # 与生产一样用 `actions/checkout`：它把 github.com 的 host key 硬编码在源码里，不像
       # 手搓那版每次都去匿名调 `api.github.com/meta`（限额 60 次/小时且按发起 IP 计，runner
       # 出口 IP 共享）。调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
-      - name: Check out the private overlay at its main HEAD
+      - name: Check out the private overlay at the backend commit
         uses: actions/checkout@v4
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
+          ref: ${{ needs.backend.outputs.private_sha }}
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           path: private
           persist-credentials: false
@@ -115,6 +212,20 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       # The overlay packages are workspace members; install their dependencies too.
       - run: pnpm install --frozen-lockfile
+      - name: Require isolated test API and matching backend version
+        env:
+          PUBLIC_SHA: ${{ github.sha }}
+          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
+        run: |
+          scripts/check-test-isolation.sh pages "$PAGES_ENV_FILE"
+          . "$PAGES_ENV_FILE"
+          expected="$PUBLIC_SHA+$PRIVATE_SHA"
+          for attempt in $(seq 1 30); do
+            actual=$(curl -fsS --max-time 10 "$TEST_BFF_BASE_URL/health" | jq -r .version) || actual=
+            [ "$actual" != "$expected" ] || break
+            sleep 10
+          done
+          [ "$actual" = "$expected" ] || { echo "::error::Test API is not serving the checked release"; exit 1; }
       - run: ./scripts/pages-release.sh test
       - name: Remove secrets from the runner
         if: always()

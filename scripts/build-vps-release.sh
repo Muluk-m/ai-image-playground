@@ -13,7 +13,7 @@ if [ "$(uname -s)" != Darwin ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
   exit 1
 fi
 target=${1:-}
-case "$target" in internal) editions=internal ;; paid) editions=paid ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|all /absolute/output-directory" >&2; exit 2 ;; esac
+case "$target" in internal) editions=internal ;; paid) editions=paid ;; test) editions='test' ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|test|all /absolute/output-directory" >&2; exit 2 ;; esac
 transport=${RELEASE_TRANSPORT:-registry}
 case "$transport" in registry|archive) ;; *) echo "RELEASE_TRANSPORT must be registry or archive, not $transport" >&2; exit 2 ;; esac
 output=${2:?An unused absolute output directory is required}
@@ -22,7 +22,7 @@ case "$output" in /*) ;; *) exit 2 ;; esac
 [ -z "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ] || { echo "Commit tracked source changes before building." >&2; exit 1; }
 public_sha=$(git -C "$repo_root" rev-parse HEAD)
 private_sha=-
-case "$target" in paid|all)
+case "$target" in paid|test|all)
   [ -z "$(git -C "$repo_root/private" status --porcelain --untracked-files=no)" ] || { echo "Commit private source changes before building." >&2; exit 1; }
   private_sha=$(git -C "$repo_root/private" rev-parse HEAD)
 ;; esac
@@ -78,7 +78,7 @@ push_image() {
 }
 mkdir -p "$output/scripts/lib" "$output/deploy"
 cp "$snapshot/public/scripts/vps-deploy.sh" "$snapshot/public/scripts/app-compose.sh" \
-  "$snapshot/public/scripts/rollout-runtime.sh" "$output/scripts/"
+  "$snapshot/public/scripts/rollout-runtime.sh" "$snapshot/public/scripts/check-test-isolation.sh" "$output/scripts/"
 cp "$snapshot/public/scripts/lib/deploy-common.sh" "$output/scripts/lib/"
 cp "$snapshot/public/deploy/compose.app.yaml" "$output/deploy/"
 : > "$output/images.tsv"
@@ -88,10 +88,10 @@ for edition in $editions; do
   image=ai-image-playground:vps-main-$(printf %.12s "$public_sha")
   registry_tag=internal-$(printf %.12s "$public_sha")
   set --
-  if [ "$edition" = paid ]; then
+  if [ "$edition" = paid ] || [ "$edition" = test ]; then
     version=$public_sha+$private_sha
-    image=ai-image-playground:paid-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
-    registry_tag=paid-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
+    image=ai-image-playground:$edition-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
+    registry_tag=$edition-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
     set -- --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true
   fi
   docker buildx build --builder "$builder" --platform linux/amd64 --load \
