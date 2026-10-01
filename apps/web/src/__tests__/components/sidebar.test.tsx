@@ -4,6 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from '../../components/Sidebar'
+import type { CanvasProject } from '../../features/canvas/lib/projectRepository'
+import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { useLibraryStore } from '../../features/library/store'
 import { installAppRouting } from '../../lib/appRoute'
 import { useStore } from '../../store'
@@ -102,4 +104,42 @@ it('画布左上角 Logo 返回创作首页并更新地址', () => {
     stop()
     window.history.replaceState(null, '', '/')
   }
+})
+
+function seed(experience: 'chat' | 'canvas', count: number): CanvasProject[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${experience}-${index}`,
+    name: `${experience}-${index}`,
+    customName: true,
+    conversationId: null,
+    sceneKey: `${experience}-${index}`,
+    createdAt: index,
+    updatedAt: 100 - index,
+    hasContent: true,
+    kind: 'image',
+    experience,
+  }))
+}
+
+it('对话与画布各自超过五条时折叠，点开列出全部，再点收起', () => {
+  act(() =>
+    useCanvasProjectStore.setState({
+      projects: [...seed('chat', 7), ...seed('canvas', 5)],
+      cloudCatalog: {},
+      loaded: true,
+    }),
+  )
+  const rows = (prefix: string) =>
+    [...host.querySelectorAll('span.truncate')].filter((one) => one.textContent?.startsWith(prefix))
+  expect(rows('chat-')).toHaveLength(5)
+  expect(rows('canvas-')).toHaveLength(5)
+  // 画布正好五条，不出折叠开关。
+  expect(host.querySelectorAll('button[aria-expanded]')).toHaveLength(1)
+
+  act(() => entry('展开更多 (2)').click())
+  expect(rows('chat-')).toHaveLength(7)
+  expect(entry('收起').getAttribute('aria-expanded')).toBe('true')
+
+  act(() => entry('收起').click())
+  expect(rows('chat-')).toHaveLength(5)
 })
