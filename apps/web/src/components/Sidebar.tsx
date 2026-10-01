@@ -130,10 +130,11 @@ export default function Sidebar() {
         </button>
       )}
       {expanded ? (
+        // 子项一律不收缩：列表展开变长时由整栏滚动，而不是把每一行压扁。
         <nav
           aria-label={t('header.nav')}
           style={{ width: 'var(--app-sidebar-size)' }}
-          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto overflow-x-hidden border-r border-border bg-sidebar px-2.5 pb-4 pt-3 md:flex"
+          className="fixed bottom-0 left-0 top-0 z-30 hidden flex-col gap-0.5 overflow-y-auto [&>*]:shrink-0 overflow-x-hidden border-r border-border bg-sidebar px-2.5 pb-4 pt-3 md:flex"
         >
           <div className="mb-2 flex items-center gap-1">
             <button
@@ -291,7 +292,7 @@ export default function Sidebar() {
             href={GUIDE_PATHS[currentLocale()]}
             target="_blank"
             rel="noopener"
-            className={`${ITEM} ${IDLE_ITEM} shrink-0`}
+            className={`${ITEM} ${IDLE_ITEM}`}
           >
             <BookOpen className="h-4 w-4" aria-hidden="true" />
             {t('nav.guide')}
