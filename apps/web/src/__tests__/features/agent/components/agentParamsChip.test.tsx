@@ -247,3 +247,22 @@ it('selects and remembers thinking depth independently of the image model', () =
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
   expect(trigger().textContent).toContain('思考：深度')
 })
+
+it('制作模式仅调整思考深度，不显示图片摘要或修改全局图片参数', () => {
+  const initialParams = useStore.getState().params
+  act(() => root.render(<AgentParamsChip generationControls={false} />))
+  const button = host.querySelector<HTMLButtonElement>('button')!
+  expect(button.textContent).not.toContain('自动尺寸')
+  expect(button.textContent).not.toContain('内置渠道模型')
+  act(() => button.click())
+  expect(host.querySelectorAll('fieldset')).toHaveLength(1)
+  expect(host.textContent).not.toContain('比例')
+  expect(host.textContent).not.toContain('尺寸')
+  const deep = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (one) => one.textContent === '深度',
+  )!
+  expect(deep).toBeDefined()
+  act(() => deep.click())
+  expect(useAgentStore.getState().thinkingDepth).toBe('deep')
+  expect(useStore.getState().params).toEqual(initialParams)
+})

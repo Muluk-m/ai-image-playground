@@ -50,7 +50,11 @@ function useSummary(): { readonly parts: string[]; readonly byok: boolean } {
   }, [params, settings, t])
 }
 
-export default function AgentParamsChip() {
+export default function AgentParamsChip({
+  generationControls = true,
+}: {
+  generationControls?: boolean
+}) {
   const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -62,7 +66,11 @@ export default function AgentParamsChip() {
     medium: t('params.thinkingMedium'),
     deep: t('params.thinkingDeep'),
   }
-  const summary = [t('params.thinkingSummary', { label: labels[depth] }), ...generation.parts]
+  const summary = [
+    t('params.thinkingSummary', { label: labels[depth] }),
+    ...(generationControls ? generation.parts : []),
+  ]
+  const title = t(generationControls ? 'params.title' : 'params.thinkingLegend')
   const insidePointerRef = useRef<Event | null>(null)
   useCloseOnEscape(open, () => setOpen(false))
 
@@ -91,7 +99,7 @@ export default function AgentParamsChip() {
       <button
         type="button"
         aria-expanded={open}
-        aria-label={t('params.title')}
+        aria-label={title}
         className={`flex min-w-0 max-w-full items-center h-8 gap-1.5 rounded-full bg-muted px-2.5 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
@@ -107,7 +115,7 @@ export default function AgentParamsChip() {
           className={`studio-agent-params absolute bottom-full right-0 z-10 mb-2 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
         >
           <div className="mb-2 flex items-center justify-between">
-            <p className={`text-xs font-semibold ${INK}`}>{t('params.title')}</p>
+            <p className={`text-xs font-semibold ${INK}`}>{title}</p>
             <button
               type="button"
               aria-label={t('params.closeAria')}
@@ -137,12 +145,18 @@ export default function AgentParamsChip() {
               ))}
             </div>
           </fieldset>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <ParamControls unsupported={UNSUPPORTED} />
-          </div>
-          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
-          {generation.byok && (
-            <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.byokNote')}</p>
+          {generationControls && (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <ParamControls unsupported={UNSUPPORTED} />
+              </div>
+              <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
+              {generation.byok && (
+                <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>
+                  {t('params.byokNote')}
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
