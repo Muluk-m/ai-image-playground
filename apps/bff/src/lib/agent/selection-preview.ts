@@ -45,8 +45,8 @@ async function prepareSelection(
   render = true,
 ): Promise<ImageSelection | undefined> {
   if (!reference.maskDataUrl) return undefined
-  assertVisualBytes(Buffer.byteLength(reference.dataUrl, 'utf8'))
   try {
+    assertVisualBytes(Buffer.byteLength(reference.dataUrl, 'utf8'))
     const originalMetadata = await sharp(Buffer.from(reference.dataUrl.split(',')[1]!, 'base64'), {
       limitInputPixels: settings.maxPixels,
     }).metadata()

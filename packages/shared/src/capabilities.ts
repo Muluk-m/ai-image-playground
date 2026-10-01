@@ -62,6 +62,7 @@ export interface AdminCapabilityManifest {
 export const QUOTAS = {
   /** Application resource guard, not a provider throughput guarantee. */
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
+  'agent:visual-prepare-queue': { defaultValue: 100 },
   'agent:visual-max-pixels': { defaultValue: 16_777_216 },
   /** Application memory/transport protection; operators must verify tighter gateway limits. */
   'agent:request-max-bytes': { defaultValue: 16 * 1024 * 1024 },

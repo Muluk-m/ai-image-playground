@@ -2,6 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ImageContent, Message } from '@earendil-works/pi-ai'
 import type { AgentVisualObservation } from '@image-playground/shared'
 import { config } from '../../config'
+import type { AgentContextTransform } from './compaction-transform'
 import { AgentToolError } from './tools/errors'
 import { visualEvidenceOf } from './visual-input'
 
@@ -115,10 +116,7 @@ export function createVisualWorkset() {
       }
       return observations
     },
-    async transform(
-      messages: AgentMessage[],
-      compact: (messages: AgentMessage[]) => Promise<AgentMessage[]>,
-    ) {
+    async transform(messages: AgentMessage[], compact: AgentContextTransform) {
       const prepared = messages.map((message) => {
         if (
           (message.role !== 'user' && message.role !== 'toolResult') ||
@@ -134,10 +132,13 @@ export function createVisualWorkset() {
         }
       })
       admit(images(prepared))
-      const compacted = await compact(prepared)
-      const remaining = new Set(images(compacted))
-      // Text compaction cannot silently discard a comparison or a selection. The hard gate may refuse it.
-      return images(prepared).every((block) => remaining.has(block)) ? compacted : prepared
+      const protectedBlocks = images(prepared)
+      const accepts = (candidate: readonly AgentMessage[]) => {
+        const remaining = new Set(images(candidate))
+        return protectedBlocks.every((block) => remaining.has(block))
+      }
+      const compacted = await compact(prepared, accepts)
+      return accepts(compacted) ? compacted : prepared
     },
   }
 }

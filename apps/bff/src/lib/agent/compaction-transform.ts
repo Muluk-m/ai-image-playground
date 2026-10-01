@@ -15,6 +15,11 @@ import { summarizeCompaction, summaryChunkBudget, summaryRequestFits } from './c
 import { saveAgentCompaction } from './conversations'
 import { AgentRequestBudgetError } from './outbound-budget'
 
+export type AgentContextTransform = (
+  messages: AgentMessage[],
+  accepts?: (messages: readonly AgentMessage[]) => boolean,
+) => Promise<AgentMessage[]>
+
 export interface CompactionTransformInput {
   readonly conversationId: string
   readonly turnId: string
@@ -108,16 +113,14 @@ function changed(next: Persisted, previous: Persisted): boolean {
  * 最长的那一份，原样发出去必然超预算（#400 验收第 2 条：摘要失败也不能回退发送完整历史）。
  * 所以兜底走按预算截尾，超不超由 `assertRequestWithinBudget` 在出站前最后判。
  */
-export function createCompactionTransform(
-  input: CompactionTransformInput,
-): (messages: AgentMessage[]) => Promise<AgentMessage[]> {
+export function createCompactionTransform(input: CompactionTransformInput): AgentContextTransform {
   // 起轮时已经读过一次（有界历史查询要靠锚点才知道从哪读起），这里不再读第二遍。
   let current: Persisted = fromRecord(input.compaction)
   // 兜底预算在这里算一次：它要在 catch 里用，而 catch 自己不能再抛。
   // 与塑形用的是同一个算式，「兜底也不超阈值」才成立。
   const fallbackBudget = messageBudget(input.settings, input.overheadTokens)
 
-  return async (messages) => {
+  return async (messages, accepts = () => true) => {
     try {
       const identified = identify(messages, input)
       const result = await shapeAgentContext({
@@ -133,6 +136,8 @@ export function createCompactionTransform(
         summaryFits: summaryRequestFits,
       })
 
+      // A visual workset can veto a fold before either in-memory or durable state advances.
+      if (!accepts(result.messages)) return messages
       const next: Persisted = { state: result.state, breaker: result.breaker }
       // 熔断器打开是运营要知道的事，不是一次普通失败。它一开，这个会话此后只走降级截尾，
       // 摘要再不会试——线上就这么静默跑过一段：摘要模型下架了，没有任何一条日志越过 warn。
@@ -173,7 +178,8 @@ export function createCompactionTransform(
     } catch (error) {
       if (error instanceof AgentRequestBudgetError) throw error
       log.warn({ event: 'agent.compaction_failed', err: error }, 'agent compaction failed')
-      return truncateToBudget(messages, fallbackBudget)
+      const fallback = truncateToBudget(messages, fallbackBudget)
+      return accepts(fallback) ? fallback : messages
     }
   }
 }
