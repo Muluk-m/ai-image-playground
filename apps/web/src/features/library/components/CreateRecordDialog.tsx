@@ -226,7 +226,7 @@ export default function CreateRecordDialog(props: Props) {
                 onChange={(e) => setName(e.target.value.slice(0, NAME_MAX))}
                 placeholder={t(`${ns}.namePlaceholder`)}
                 maxLength={NAME_MAX}
-                className={FIELD}
+                className={`${FIELD} pr-14`}
               />
               <span className="pointer-events-none absolute right-3 top-3 text-[11px] text-muted-foreground">
                 {name.length}/{NAME_MAX}
