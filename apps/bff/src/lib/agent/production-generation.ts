@@ -13,7 +13,7 @@ import {
   videoPromptRejection,
   videoRequestRejection,
 } from '@image-playground/shared'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
 import { extractMeta } from '../extractImages'
@@ -100,6 +100,53 @@ function draftCandidates(draft: typeof drafts.$inferSelect, messages: readonly C
     }
   }
   return candidates
+}
+/** Resolve only explicitly requested task identities through the server-created draft/retry lineage. */
+export async function productionGenerationBindings(
+  conversationId: string,
+  userId: string,
+  taskIds: readonly string[],
+): Promise<ReadonlyMap<string, ProductionGenerationBinding>> {
+  await readProduction(conversationId, userId)
+  const result = new Map<string, ProductionGenerationBinding>()
+  if (!taskIds.length) return result
+  const owned = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(
+      and(
+        inArray(schema.tasks.id, [...taskIds]),
+        eq(schema.tasks.user_id, userId),
+        eq(schema.tasks.agent_conversation_id, conversationId),
+      ),
+    )
+  const wanted = new Set(owned.map((task) => task.id))
+  if (!wanted.size) return result
+  const rows = await db
+    .select()
+    .from(drafts)
+    .where(
+      and(
+        eq(drafts.conversation_id, conversationId),
+        sql`${drafts.submission} -> 'production' IS NOT NULL`,
+      ),
+    )
+  const messages = await db
+    .select({ id: schema.agent_messages.id, content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+  for (const draft of rows) {
+    if (!draft.submission.production) continue
+    for (const candidate of draftCandidates(draft, messages))
+      if (candidate.taskId && wanted.has(candidate.taskId))
+        result.set(candidate.taskId, draft.submission.production)
+  }
+  return result
 }
 function generationSourceChanged(
   content: ProductionContent,

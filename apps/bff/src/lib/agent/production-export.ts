@@ -9,6 +9,7 @@ import { assetObjectKey } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
 import { ProductionError, readProduction } from './production'
 import { productionMediaReferences, productionReferenceKey } from './production-asset-validation'
+import { productionGenerationBindings } from './production-generation'
 
 export const PRODUCTION_EXPORT_BATCH_MAX = 500
 interface ExportOriginal {
@@ -40,25 +41,23 @@ async function authorizeExport(
   for (const clip of snapshot.content.clips ?? [])
     if (clip.adopted)
       allowed.add(productionReferenceKey({ kind: 'artifact', artifactId: clip.adopted.artifactId }))
+  const candidates = await productionGenerationBindings(conversationId, userId, [
+    ...new Set(
+      references.flatMap((reference) => {
+        if (reference.kind !== 'artifact' || allowed.has(productionReferenceKey(reference)))
+          return []
+        const parsed = parseProjectArtifactId(reference.artifactId)
+        return parsed ? [parsed.generationId] : []
+      }),
+    ),
+  ])
   for (const reference of references) {
     if (allowed.has(productionReferenceKey(reference))) continue
     if (reference.kind !== 'artifact') return notFound()
     const parsed = parseProjectArtifactId(reference.artifactId)
     if (!parsed) return notFound()
-    const drafts = await db
-      .select({ submission: schema.agent_generation_drafts.submission })
-      .from(schema.agent_generation_drafts)
-      .where(
-        and(
-          eq(schema.agent_generation_drafts.conversation_id, conversationId),
-          eq(schema.agent_generation_drafts.task_id, parsed.generationId),
-        ),
-      )
-    const member = drafts.some(
-      ({ submission }) =>
-        submission?.production?.documentId === record.document.id &&
-        submission.production.revision <= revision,
-    )
+    const binding = candidates.get(parsed.generationId)
+    const member = binding?.documentId === record.document.id && binding.revision <= revision
     if (!member) return notFound()
     const [task] = await db
       .select({
