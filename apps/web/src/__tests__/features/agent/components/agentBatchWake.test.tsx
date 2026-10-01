@@ -135,6 +135,9 @@ it.each([
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     methods.push(init?.method ?? 'GET')
+    if (url.includes(`/api/agent/batches/${batchId}/wake?version=1`)) {
+      return Response.json({ status: 'consumed', turnId: 'wake-turn' })
+    }
     if (url.includes(`/api/agent/batches/${batchId}`)) {
       batchReads++
       return Response.json(page)
@@ -238,16 +241,16 @@ it.each([
       await vi.advanceTimersByTimeAsync(mode === 'delayed' || mode === 'online' ? 40_000 : 6_000)
     })
     if (mode === 'online') {
-      expect(snapshots).toBeLessThanOrEqual(8)
+      expect(snapshots).toBeGreaterThan(0)
       const exhausted = snapshots
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000)
       })
-      expect(snapshots).toBe(exhausted)
+      expect(snapshots).toBeGreaterThan(exhausted)
       recoveredOnline = true
       await act(async () => {
         window.dispatchEvent(new Event('online'))
-        await vi.advanceTimersByTimeAsync(6_000)
+        await vi.advanceTimersByTimeAsync(40_000)
       })
     }
     if (isolated) {

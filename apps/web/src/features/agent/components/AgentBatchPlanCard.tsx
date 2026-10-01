@@ -46,8 +46,9 @@ function hasActiveWork(page: AgentBatchPage | null): boolean {
     (page?.batch.status === 'paused' &&
       page.items.some(
         (item) =>
-          item.execution &&
-          ['queued', 'in_progress', 'reconciling'].includes(item.execution.status),
+          item.progress === 'reconciling' ||
+          (item.execution &&
+            ['queued', 'in_progress', 'reconciling'].includes(item.execution.status)),
       ))
   )
 }
@@ -125,20 +126,29 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const commands = useMemo(() => batchCommands(batchId), [batchId])
   const [pending, setPending] = useState<AgentBatchCommand | null>(null)
   const [restored, setRestored] = useState(false)
+  const [restorationFailed, setRestorationFailed] = useState(false)
   const [error, setError] = useState<'fallback' | 'batch_version_conflict' | null>(null)
   useEffect(() => {
     let active = true
     setRestored(false)
-    void Promise.all([fetchBatchPlan(batchId), commands.read()])
-      .then(([result, command]) => {
+    setRestorationFailed(false)
+    void fetchBatchPlan(batchId)
+      .then((result) => {
+        if (active && commands.current()) setPage(result)
+      })
+      .catch(() => {
+        if (active && commands.current()) setError('fallback')
+      })
+    void commands
+      .read()
+      .then((command) => {
         if (active && commands.current()) {
-          setPage(result)
           setPending(command)
           setRestored(true)
         }
       })
       .catch(() => {
-        if (active && commands.current()) setError('fallback')
+        if (active && commands.current()) setRestorationFailed(true)
       })
     return () => {
       active = false
@@ -170,11 +180,12 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           if (commands.current()) {
             setPending(command)
             setRestored(true)
+            setRestorationFailed(false)
           }
         } catch {
           if (commands.current()) {
             setRestored(false)
-            setError('fallback')
+            setRestorationFailed(true)
           }
         }
       working.current = false
@@ -404,6 +415,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       // Page position is optional; the in-memory view remains usable without storage.
     }
   }
+  const displayError = restorationFailed ? 'storage_restore_failed' : error
   const TargetIcon = page.batch.experience === 'canvas' ? Layers : MessageSquare
   return (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
@@ -810,10 +822,10 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </Button>
         </div>
       )}
-      {error && !pending && (
+      {displayError && (restorationFailed || !pending) && (
         <div className="grid justify-items-start gap-1">
           <p role="alert" className="text-xs text-destructive">
-            {t(`errors:agentBatch.${error}`)}
+            {t(`errors:agentBatch.${displayError}`)}
           </p>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void refresh()}>
             {t('batch.refresh')}

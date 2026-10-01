@@ -5,6 +5,7 @@ import type {
   AgentBackgroundJobView,
   AgentBatchPage,
   AgentBatchUpdate,
+  AgentBatchWakeReceipt,
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
@@ -659,6 +660,18 @@ async function resolveReferences(
 }
 
 /** The complete fixed scope is bounded to 100 items by the plan API. */
+export async function fetchBatchWakeReceipt(
+  batchId: string,
+  version: number,
+): Promise<AgentBatchWakeReceipt> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/wake?version=${version}`),
+    { headers: deviceHeaders(), signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchWakeReceipt
+}
+
 export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
