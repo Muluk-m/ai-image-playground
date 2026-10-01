@@ -1,5 +1,6 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
+import type { AgentBatchAnalysisLimit } from './agent-batch'
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef, TaskErrorType, TaskProgressPhase } from './queue-protocol'
 import type {
@@ -48,6 +49,9 @@ export function isAgentMode(value: unknown): value is AgentMode {
 /** 智能体可调用的工具。 */
 export type AgentToolName =
   | 'planImageBatch'
+  | 'proposeBatchGeneration'
+  | 'readBatchAnalysis'
+  | 'proposeBatchAnalysis'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
@@ -563,6 +567,7 @@ export interface AgentVisualObservation {
 }
 
 export interface AgentToolResultBlock {
+  readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
   readonly type: 'toolResult'
   readonly toolCallId: string

@@ -45,7 +45,14 @@ interface AgentBatchItemBase {
   readonly prompt: string
   readonly dependencies: readonly string[]
 }
+export interface AgentBatchAnalysisSource {
+  readonly itemKey: string
+  readonly taskId: string
+  readonly attempt: number
+}
+
 export interface AgentBatchGenerationItem extends AgentBatchItemBase {
+  readonly sourceAnalysis?: readonly AgentBatchAnalysisSource[]
   readonly kind: 'generation'
   readonly params: Omit<AgentTurnParams, 'autoSubmit'> & {
     readonly model: string
@@ -88,7 +95,42 @@ export interface AgentBatchItemExecution {
   readonly message?: string | null
 }
 
+export interface AgentBatchConfirmation {
+  readonly sourceVersion?: number
+  readonly excludedItemKeys?: readonly string[]
+  readonly excludedImageIds?: readonly string[]
+  readonly phase: 'analysis' | 'generation' | 'mixed'
+  readonly itemKeys: readonly string[]
+  readonly requiresResume: boolean
+}
+
+export interface AgentBatchAnalysisProposal {
+  readonly commandId: string
+  readonly expectedVersion: number
+  readonly items: readonly (Pick<
+    AgentBatchAnalysisItem,
+    'key' | 'inputs' | 'prompt' | 'dependencies'
+  > & {
+    readonly params: Pick<AnalysisInputSnapshot, 'model' | 'intent'>
+  })[]
+}
+
+export interface AgentBatchGenerationProposal {
+  readonly excludedItemKeys?: readonly string[]
+  readonly excludedImageIds?: readonly string[]
+  readonly commandId: string
+  readonly expectedVersion: number
+  readonly items: readonly {
+    readonly key: string
+    readonly inputImageIds: readonly string[]
+    readonly sourceItemKeys: readonly string[]
+    readonly prompt: string
+    readonly params: AgentBatchGenerationItem['params']
+  }[]
+}
+
 export interface AgentBatchView {
+  readonly confirmation?: AgentBatchConfirmation
   readonly id: string
   readonly conversationId: string | null
   readonly originTurnId: string
@@ -146,6 +188,7 @@ export interface AgentBatchAnalysisSummary {
 }
 
 export interface AgentBatchPage {
+  readonly sourceAnalysisSummary?: AgentBatchAnalysisSummary
   readonly analysisSummary?: AgentBatchAnalysisSummary
   readonly batch: AgentBatchView
   readonly items: readonly (AgentBatchItem & {
@@ -177,4 +220,11 @@ export interface AgentBatchUpdate {
         readonly params: Pick<AnalysisInputSnapshot, 'model' | 'intent'>
       })
   )[]
+}
+
+export interface AgentBatchAnalysisLimit {
+  readonly reason: 'context_overflow' | 'visual_limit'
+  readonly requiredImageIds: readonly string[]
+  readonly jointComparisonCompleted: false
+  readonly choices: readonly ('select_images' | 'select_regions')[]
 }

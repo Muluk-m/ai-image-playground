@@ -162,7 +162,7 @@ it('confirms one fixed batch once, pauses remaining work, and restores the same 
       release()
     })
     await vi.waitFor(() => expect(button('暂停后续')?.disabled).toBe(false))
-    expect(host.textContent).toContain('已提交 1 / 2')
+    expect(host.textContent).toContain('累计提交 1 次')
     expect(host.querySelector<HTMLTextAreaElement>('details textarea')!.disabled).toBe(true)
     await act(async () => button('暂停后续')!.click())
     await vi.waitFor(() => expect(button('继续执行')?.disabled).toBe(false))
@@ -174,11 +174,11 @@ it('confirms one fixed batch once, pauses remaining work, and restores the same 
     act(() => root.unmount())
     root = createRoot(host)
     await act(async () => root.render(<AgentToolCard message={message} />))
-    await vi.waitFor(() => expect(host.textContent).toContain('已提交 1 / 2'))
+    await vi.waitFor(() => expect(host.textContent).toContain('累计提交 1 次'))
     expect(host.textContent).toContain('原画布')
     await vi.waitFor(() => expect(button('继续执行')?.disabled).toBe(false))
     await act(async () => button('继续执行')!.click())
-    await vi.waitFor(() => expect(host.textContent).toContain('已提交 2 / 2'))
+    await vi.waitFor(() => expect(host.textContent).toContain('累计提交 2 次'))
     expect(commands[2]).toEqual({
       action: 'resume',
       body: {
@@ -189,7 +189,7 @@ it('confirms one fixed batch once, pauses remaining work, and restores the same 
       },
     })
     expect(new Set(commands.map((command) => command.body.commandId)).size).toBe(3)
-    expect(host.textContent).toContain('已提交 2 / 2')
+    expect(host.textContent).toContain('累计提交 2 次')
     expect(host.querySelectorAll('details')).toHaveLength(2)
   } finally {
     release()
@@ -251,7 +251,7 @@ it('restores an uncertain confirmation after reload and checks the exact same co
     saved = { ...saved, batch: { ...saved.batch, version: 2, digest: 'b'.repeat(64) } }
     await act(async () => root.render(<AgentToolCard message={message} />))
     await vi.waitFor(() => expect(button('核对操作结果')).toBeDefined())
-    expect(host.textContent).toContain('已提交 1 / 2')
+    expect(host.textContent).toContain('累计提交 1 次')
     expect(button('暂停后续')?.disabled ?? true).toBe(true)
     await act(async () => button('核对操作结果')!.click())
     await vi.waitFor(() => expect(button('核对操作结果')).toBeUndefined())
@@ -355,7 +355,7 @@ it('requires a new price review and explicit confirmation while preserving alrea
     [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === label)
   try {
     await act(async () => root.render(<AgentToolCard message={message} />))
-    await vi.waitFor(() => expect(host.textContent).toContain('已提交 1 / 2'))
+    await vi.waitFor(() => expect(host.textContent).toContain('累计提交 1 次'))
     expect(button('继续执行')).toBeUndefined()
     expect(button('更新报价')?.disabled).toBe(false)
     await act(async () => button('更新报价')!.click())
@@ -365,7 +365,7 @@ it('requires a new price review and explicit confirmation while preserving alrea
     ])
     expect(host.textContent).toContain('27')
     expect(host.textContent).toContain('版本 2')
-    expect(host.textContent).toContain('已提交 1 / 2')
+    expect(host.textContent).toContain('累计提交 1 次')
     expect(saved.items[0]?.execution?.taskId).toBe('accepted-before-price-change')
     await act(async () => button('确认生成')!.click())
     await vi.waitFor(() => expect(button('暂停后续')?.disabled).toBe(false))
@@ -379,7 +379,7 @@ it('requires a new price review and explicit confirmation while preserving alrea
       },
     })
     expect(commands[0]?.body.commandId).not.toBe(commands[1]?.body.commandId)
-    expect(host.textContent).toContain('已提交 2 / 2')
+    expect(host.textContent).toContain('累计提交 2 次')
     expect(saved.items[0]?.execution?.taskId).toBe('accepted-before-price-change')
   } finally {
     act(() => root.unmount())

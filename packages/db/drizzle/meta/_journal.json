@@ -379,6 +379,13 @@
       "when": 1790853000006,
       "tag": "0054_agent_batch_retry",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790853000007,
+      "tag": "0055_agent_batch_confirmation",
+      "breakpoints": true
     }
   ]
 }

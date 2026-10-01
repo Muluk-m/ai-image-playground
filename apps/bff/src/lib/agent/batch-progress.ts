@@ -237,7 +237,14 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     if (!plan || plan.itemCount < 1 || plan.itemCount > 100) return
     const items = schema.agent_batch_items
     const attempts = schema.agent_batch_attempts
-    // Old attempts and artifact JSON are irrelevant to this confirmed version's completion.
+    // Earlier phases may still have unresolved charges even when the current scope is terminal.
+    const [unresolved] = await tx
+      .select({ taskId: attempts.task_id })
+      .from(attempts)
+      .where(and(eq(attempts.batch_id, batchId), isNull(attempts.terminal_snapshot)))
+      .limit(1)
+    if (unresolved) return
+    // Completion targets stay bounded to the confirmed version; artifact bodies are unnecessary.
     const approved = await tx
       .select({
         itemKey: items.key,

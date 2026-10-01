@@ -27,6 +27,9 @@ import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import { planImageBatch } from './planImageBatch'
+import { proposeBatchAnalysis } from './proposeBatchAnalysis'
+import { proposeBatchGeneration } from './proposeBatchGeneration'
+import { readBatchAnalysis } from './readBatchAnalysis'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
 import { saveAsset } from './saveAsset'
@@ -58,6 +61,9 @@ export type {
 
 const TOOLS: readonly AgentToolSpec[] = [
   planImageBatch,
+  proposeBatchGeneration,
+  proposeBatchAnalysis,
+  readBatchAnalysis,
   generateImage,
   editImage,
   viewImage,

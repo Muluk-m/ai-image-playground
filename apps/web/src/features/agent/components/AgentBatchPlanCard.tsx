@@ -13,7 +13,9 @@ import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
+import { scopedStorageName } from '../../../lib/authScope'
 import { getDeviceId } from '../../../lib/deviceId'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { CARD, CARD_NOTE } from '../agentStyles'
 import {
   type AgentBatchCommand,
@@ -23,10 +25,19 @@ import {
   updateBatchPlan,
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
+import AgentBatchAnalysisSummary from './AgentBatchAnalysisSummary'
 import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
   AgentBatchItemStatus,
 } from './AgentBatchItemResult'
+
+function readReviewPage(key: string): number {
+  try {
+    return Number(sessionStorage.getItem(key) ?? 0)
+  } catch {
+    return 0
+  }
+}
 
 function hasActiveWork(page: AgentBatchPage | null): boolean {
   return (
@@ -105,6 +116,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [page, setPage] = useState<AgentBatchPage | null>(null)
   const [dirty, setDirty] = useState(false)
   const [selectedRetries, setSelectedRetries] = useState<readonly string[]>([])
+  const [reviewPage, setReviewPage] = useState<{ key: string; index: number }>()
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
   const operations = useRef(0)
@@ -168,9 +180,13 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       setBusy(false)
     }
   }
+  const markDirty = () => {
+    operations.current++
+    setDirty(true)
+  }
   const watch = hasActiveWork(page)
   useEffect(() => {
-    if (!watch) return
+    if (!watch || dirty) return
     let active = true
     let visible = true
     let reading = false
@@ -222,7 +238,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       observer?.disconnect()
       document.removeEventListener('visibilitychange', visibility)
     }
-  }, [watch, batchId, commands])
+  }, [watch, batchId, commands, dirty])
   const refresh = () => apply(() => fetchBatchPlan(batchId), true)
   if (!page)
     return (
@@ -255,7 +271,26 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         }),
       }),
     )
-  const editable = page.batch.status === 'draft' && !busy && restored && !pending
+  const phaseConfirmation = page.batch.confirmationRequired ? page.batch.confirmation : undefined
+  const editable =
+    (page.batch.status === 'draft' ||
+      (page.batch.status === 'paused' &&
+        Boolean(phaseConfirmation) &&
+        !page.batch.retryItemKeys?.length)) &&
+    !busy &&
+    restored &&
+    !pending &&
+    !page.nextCursor
+  const itemEditable = (item: AgentBatchPage['items'][number]) =>
+    editable &&
+    !item.execution &&
+    (!phaseConfirmation || phaseConfirmation.itemKeys.includes(item.key))
+  const canSave =
+    editable &&
+    dirty &&
+    Boolean(page.batch.title.trim()) &&
+    Boolean(page.batch.rule.trim()) &&
+    page.items.every((item) => item.prompt.trim())
   const command = (action: Exclude<AgentBatchCommand['action'], 'retry-quote'>) =>
     apply(
       () =>
@@ -272,11 +307,22 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         ),
       true,
     )
-  const pricedItems = page.batch.retryItemKeys?.length
-    ? page.items.filter((item) => page.batch.retryItemKeys!.includes(item.key))
+  const confirmationKeys = page.batch.retryItemKeys?.length
+    ? page.batch.retryItemKeys
+    : phaseConfirmation?.itemKeys
+  const pricedItems = confirmationKeys?.length
+    ? page.items.filter((item) => confirmationKeys.includes(item.key))
     : page.items
   const hasAnalysis = pricedItems.some((item) => item.kind === 'analysis')
   const hasGeneration = pricedItems.some((item) => item.kind === 'generation')
+  const confirmLabel =
+    phaseConfirmation?.phase === 'analysis'
+      ? t('batch.confirmAnalysis')
+      : phaseConfirmation?.phase === 'generation'
+        ? t('batch.confirm')
+        : hasAnalysis
+          ? t('batch.confirmExecution')
+          : t('batch.confirm')
   const confirmable =
     page.batch.executionEnabled &&
     restored &&
@@ -285,6 +331,9 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     !busy &&
     !page.nextCursor &&
     page.items.length === page.batch.itemCount &&
+    (!phaseConfirmation ||
+      (phaseConfirmation.itemKeys.length > 0 &&
+        phaseConfirmation.itemKeys.every((key) => page.items.some((item) => item.key === key)))) &&
     (!hasGeneration || page.batch.estimate.generation.status === 'available') &&
     (!hasAnalysis || page.batch.estimate.analysis.status === 'available')
   const priceChanged = page.batch.status === 'paused' && page.batch.pauseReason === 'price_changed'
@@ -312,11 +361,33 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         }),
       true,
     )
+  const pageSize = 20
+  const pageKey = scopedStorageName(
+    `agent-batch-page:${bffBaseUrl()}:${batchId}:${page.batch.version}`,
+  )
+  const rememberedPage = reviewPage?.key === pageKey ? reviewPage.index : readReviewPage(pageKey)
+  const pageCount = Math.max(1, Math.ceil(page.items.length / pageSize))
+  const pageIndex = Math.min(
+    pageCount - 1,
+    Number.isSafeInteger(rememberedPage) ? Math.max(0, rememberedPage) : 0,
+  )
+  const firstItem = pageIndex * pageSize
+  const visibleItems = page.items.slice(firstItem, firstItem + pageSize)
+  const showPage = (index: number) => {
+    if (!commands.current()) return
+    const next = Math.max(0, Math.min(pageCount - 1, index))
+    setReviewPage({ key: pageKey, index: next })
+    try {
+      sessionStorage.setItem(pageKey, String(next))
+    } catch {
+      // Page position is optional; the in-memory view remains usable without storage.
+    }
+  }
   const TargetIcon = page.batch.experience === 'canvas' ? Layers : MessageSquare
   return (
     <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{t('batch.scope', { count: page.items.length })}</span>
+        <span>{t('batch.scope', { count: page.batch.itemCount })}</span>
         <span>{t('batch.version', { version: page.batch.version })}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -330,7 +401,6 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           <span>
             {t('batch.submitted', {
               count: page.batch.submittedCount ?? 0,
-              total: page.batch.itemCount,
             })}
           </span>
         ) : null}
@@ -341,6 +411,45 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </span>
         )}
       </div>
+      {page.analysisSummary && (
+        <AgentBatchAnalysisSummary summary={page.analysisSummary} items={page.items} />
+      )}
+      {page.sourceAnalysisSummary && (
+        <AgentBatchAnalysisSummary
+          summary={page.sourceAnalysisSummary}
+          items={page.items}
+          sourceVersion={page.batch.confirmation?.sourceVersion}
+        />
+      )}
+      {Boolean(
+        page.batch.confirmation?.excludedItemKeys?.length ||
+          page.batch.confirmation?.excludedImageIds?.length,
+      ) && (
+        <div className="grid gap-1 rounded-lg border border-border bg-muted p-2 text-xs">
+          <span className="font-medium">{t('batch.excludedScope')}</span>
+          {page.batch.confirmation?.excludedImageIds?.map((imageId) => {
+            const name = page.items
+              .flatMap((item) => item.inputs)
+              .find((input) => input.imageId === imageId)?.name
+            const index = page.sourceAnalysisSummary?.requiredImageIds.indexOf(imageId) ?? -1
+            return (
+              <span key={imageId}>
+                {name ?? (index >= 0 ? t('batch.inputImage', { index: index + 1 }) : imageId)}
+              </span>
+            )
+          })}
+          {page.batch.confirmation?.excludedItemKeys?.length ? (
+            <span>
+              {t('batch.excludedItems', {
+                items: page.batch.confirmation.excludedItemKeys.join(' · '),
+              })}
+            </span>
+          ) : null}
+          {Boolean(page.sourceAnalysisSummary?.unresolvedItemKeys.length) && (
+            <span className="text-muted-foreground">{t('batch.excludedPending')}</span>
+          )}
+        </div>
+      )}
       <label className="grid gap-1 text-xs">
         {t('batch.title')}
         <Input
@@ -349,7 +458,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           maxLength={120}
           onChange={(event) => {
             setPage({ ...page, batch: { ...page.batch, title: event.target.value } })
-            setDirty(true)
+            markDirty()
           }}
         />
       </label>
@@ -361,21 +470,26 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           maxLength={4000}
           onChange={(event) => {
             setPage({ ...page, batch: { ...page.batch, rule: event.target.value } })
-            setDirty(true)
+            markDirty()
           }}
         />
       </label>
       <div className="max-h-96 overflow-y-auto divide-y divide-border rounded-lg border border-border bg-background">
-        {page.items.map((item, index) => (
+        {visibleItems.map((item, index) => (
           <details key={item.key} className="px-2 py-1.5 text-xs">
             <summary className="cursor-pointer py-1 focus-visible:outline-ring">
               <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
-                <span className="shrink-0 tabular-nums">{index + 1}.</span>
+                <span className="shrink-0 tabular-nums">{firstItem + index + 1}.</span>
                 <AgentBatchItemStatus execution={item.execution} progress={item.progress} />
                 {item.kind === 'analysis' && (
                   <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
                     <Scan aria-hidden className="h-3 w-3" />
                     {t('batch.analysisKind')}
+                  </span>
+                )}
+                {phaseConfirmation?.itemKeys.includes(item.key) && (
+                  <span className="rounded-md border border-border bg-muted px-2 py-1">
+                    {t('batch.confirmationItem')}
                   </span>
                 )}
                 {page.batch.retryItemKeys?.includes(item.key) && (
@@ -419,8 +533,8 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                 <Checkbox
                   checked={selectedRetries.includes(item.key)}
                   disabled={busy || !restored || Boolean(pending)}
-                  aria-label={t('batch.selectRetry', { index: index + 1 })}
-                  label={t('batch.selectRetry', { index: index + 1 })}
+                  aria-label={t('batch.selectRetry', { index: firstItem + index + 1 })}
+                  label={t('batch.selectRetry', { index: firstItem + index + 1 })}
                   onChange={(checked) =>
                     setSelectedRetries((selected) =>
                       checked
@@ -457,7 +571,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                 {t('batch.prompt')}
                 <Textarea
                   value={item.prompt}
-                  disabled={!editable}
+                  disabled={!itemEditable(item)}
                   maxLength={4000}
                   onChange={(event) => {
                     setPage({
@@ -466,10 +580,40 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                         entry.key === item.key ? { ...entry, prompt: event.target.value } : entry,
                       ),
                     })
-                    setDirty(true)
+                    markDirty()
                   }}
                 />
               </label>
+              {item.kind === 'generation' && item.sourceAnalysis?.length ? (
+                <div className="grid gap-2 rounded-md bg-muted p-2">
+                  <span className="font-medium">{t('batch.generationSource')}</span>
+                  {item.sourceAnalysis.map((source) => {
+                    const findings =
+                      page.sourceAnalysisSummary?.findings.filter(
+                        (finding) =>
+                          finding.itemKey === source.itemKey &&
+                          finding.taskId === source.taskId &&
+                          finding.attempt === source.attempt,
+                      ) ?? []
+                    return (
+                      <div key={`${source.taskId}:${source.attempt}`} className="grid gap-1">
+                        <span className="text-muted-foreground">
+                          {t('batch.attempt', { number: source.attempt })}
+                        </span>
+                        {findings.length ? (
+                          findings.map((finding) => (
+                            <p key={finding.imageId} className="whitespace-pre-wrap break-words">
+                              {finding.text}
+                            </p>
+                          ))
+                        ) : (
+                          <span>{t('batch.sourceUnavailable')}</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
               {item.kind === 'analysis' ? (
                 <div className="grid gap-2">
                   <dl className="flex justify-between">
@@ -493,7 +637,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                           ? (item.params.gemini_image_size ?? '')
                           : (item.params.size ?? '')
                       }
-                      disabled={!editable}
+                      disabled={!itemEditable(item)}
                       maxLength={32}
                       onChange={(event) => {
                         const params =
@@ -508,7 +652,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                               : entry,
                           ),
                         })
-                        setDirty(true)
+                        markDirty()
                       }}
                     />
                   </label>
@@ -519,7 +663,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                 variant="ghost"
                 className="justify-self-start"
                 disabled={
-                  !editable ||
+                  !itemEditable(item) ||
                   page.items.length <= 1 ||
                   page.items.some((entry) => entry.dependencies.includes(item.key))
                 }
@@ -530,7 +674,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                       .filter((entry) => entry.key !== item.key)
                       .map((entry, ordinal) => ({ ...entry, ordinal })),
                   })
-                  setDirty(true)
+                  markDirty()
                 }}
               >
                 {t('batch.remove')}
@@ -539,8 +683,34 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           </details>
         ))}
       </div>
+      {pageCount > 1 && (
+        <nav
+          aria-label={t('batch.pagination')}
+          className="flex items-center justify-between gap-2 text-xs"
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pageIndex === 0}
+            onClick={() => showPage(pageIndex - 1)}
+          >
+            {t('batch.previousPage')}
+          </Button>
+          <span className="tabular-nums">
+            {t('batch.pagePosition', { current: pageIndex + 1, total: pageCount })}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pageIndex + 1 === pageCount}
+            onClick={() => showPage(pageIndex + 1)}
+          >
+            {t('batch.nextPage')}
+          </Button>
+        </nav>
+      )}
       <div className="grid gap-1 text-xs text-muted-foreground">
-        {(!page.batch.retryItemKeys?.length || hasAnalysis) && (
+        {(!confirmationKeys?.length || hasAnalysis) && (
           <div className="flex justify-between">
             <span>
               {page.batch.retryItemKeys?.length
@@ -570,6 +740,15 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           page.batch.pauseReason &&
           page.batch.pauseReason !== 'price_changed' && (
             <p role="status">{t(`errors:agentBatch.${page.batch.pauseReason}`)}</p>
+          )}
+        {phaseConfirmation?.requiresResume && !retryConfirmation && (
+          <p>{t('batch.phaseKeepsPaused')}</p>
+        )}
+        {!page.batch.confirmationRequired &&
+          page.batch.status === 'paused' &&
+          page.batch.confirmation?.requiresResume &&
+          !page.batch.retryItemKeys?.length && (
+            <p role="status">{t('batch.phaseConfirmedPaused')}</p>
           )}
         {retryConfirmation && page.batch.retryRequiresResume && (
           <p>{t('batch.retryKeepsPaused')}</p>
@@ -620,6 +799,15 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
           {t('batch.confirmRetry')}
         </Button>
+      ) : phaseConfirmation ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" disabled={!canSave} onClick={() => void save()}>
+            {t('batch.save')}
+          </Button>
+          <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
+            {confirmLabel}
+          </Button>
+        </div>
       ) : page.batch.status === 'cancelled' ? (
         <p className={CARD_NOTE}>{t('batch.cancelled')}</p>
       ) : page.batch.status === 'running' ? (
@@ -635,9 +823,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       ) : priceChanged ? (
         page.batch.confirmationRequired ? (
           <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
-            {page.items.some((item) => item.kind === 'analysis')
-              ? t('batch.confirmExecution')
-              : t('batch.confirm')}
+            {confirmLabel}
           </Button>
         ) : (
           <Button
@@ -656,18 +842,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         </Button>
       ) : page.batch.status === 'draft' ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={
-              !editable ||
-              !dirty ||
-              !page.batch.title.trim() ||
-              !page.batch.rule.trim() ||
-              page.items.some((item) => !item.prompt.trim())
-            }
-            onClick={() => void save()}
-          >
+          <Button size="sm" variant="outline" disabled={!canSave} onClick={() => void save()}>
             {t('batch.save')}
           </Button>
           <Button
@@ -679,9 +854,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
             {t('batch.cancel')}
           </Button>
           <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
-            {page.items.some((item) => item.kind === 'analysis')
-              ? t('batch.confirmExecution')
-              : t('batch.confirm')}
+            {confirmLabel}
           </Button>
           {!page.batch.executionEnabled && (
             <span className={CARD_NOTE}>{t('batch.executionUnavailable')}</span>
