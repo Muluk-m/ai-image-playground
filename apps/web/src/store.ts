@@ -1424,7 +1424,12 @@ export async function submitPrepared(
       if (coverage === 'full') {
         options.onConfirmationPending?.(true)
         const confirmed = await new Promise<boolean>((resolve) => {
+          let settled = false
+          let unsubscribe: (() => void) | undefined
           const finish = (confirmed: boolean) => {
+            if (settled) return
+            settled = true
+            unsubscribe?.()
             options.signal?.removeEventListener('abort', abort)
             if (useStore.getState().confirmDialog === dialog)
               useStore.getState().setConfirmDialog(null)
@@ -1441,6 +1446,9 @@ export async function submitPrepared(
           }
           options.signal?.addEventListener('abort', abort, { once: true })
           useStore.getState().setConfirmDialog(dialog)
+          unsubscribe = useStore.subscribe((state) => {
+            if (state.confirmDialog !== dialog) finish(false)
+          })
         }).finally(() => options.onConfirmationPending?.(false))
         if (!confirmed) return []
       }
