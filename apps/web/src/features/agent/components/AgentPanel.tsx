@@ -145,6 +145,7 @@ export default function AgentPanel({
   const videoSkills = useAgentSkills('video')
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
+  const returnedMessagesError = useAgentStore((state) => state.returnedMessagesError)
   const returnedMessagesPending = useAgentStore((state) => state.returnedMessagesPending)
   const errorDiagnostic = useAgentStore((state) => state.errorDiagnostic)
   const diagnosticConversationId = useAgentStore((state) => state.conversationId)
@@ -465,7 +466,7 @@ export default function AgentPanel({
                   title={t('panel.errorTitle')}
                   detail={
                     returnedMessagesPending
-                      ? t('errors:agentQueue.return_handoff_failed')
+                      ? t(`errors:agentQueue.${returnedMessagesError ?? 'fallback'}`)
                       : (error ?? undefined)
                   }
                   actions={

@@ -200,6 +200,7 @@ export interface AgentState {
   historyLoading: boolean
   historyFailed: boolean
   returnedMessagesPending: boolean
+  returnedMessagesError: ReturnedMessagesErrorCode | null
   /** 对话面板宽度（CSS 像素），用户拖过就记住。 */
   panelWidth: number
   /**
@@ -306,6 +307,21 @@ export interface AgentState {
    */
   confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
+
+type ReturnedMessagesErrorCode = 'stop_failed' | 'return_handoff_failed' | 'fallback'
+
+class ReturnedMessagesPersistenceError extends Error {
+  readonly code: 'return_handoff_failed' | 'fallback'
+  readonly cause: unknown
+  constructor(code: 'return_handoff_failed' | 'fallback', cause: unknown) {
+    super(code)
+    this.code = code
+    this.cause = cause
+  }
+}
+
+const returnedMessagesErrorText = (code: ReturnedMessagesErrorCode) =>
+  i18next.getFixedT(null, 'errors')(`agentQueue.${code}`)
 
 function turnFailureText(code?: string): string {
   switch (code) {
@@ -433,6 +449,7 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
   historyLoading: false,
   historyFailed: false,
   returnedMessagesPending: false,
+  returnedMessagesError: null,
 })
 
 function readPanelWidth(): number {
@@ -749,6 +766,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       historyLoading: true,
       historyFailed: false,
       returnedMessagesPending: false,
+      returnedMessagesError: null,
     })
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let state: AgentConversationState
@@ -909,9 +927,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (!receipts.current()) return false
     const returned = await abortWithRetry(conversationId, pointer.turnId, receipts.current)
     if (!receipts.current()) return false
-    if (returned.length && !(await draft.returnQueued(returned)))
-      throw new Error('draft_handoff_failed')
-    await receipts.forget(pointer.turnId)
+    try {
+      if (returned.length && !(await draft.returnQueued(returned)))
+        throw new Error('draft_handoff_failed')
+      await receipts.forget(pointer.turnId)
+    } catch (error) {
+      throw new ReturnedMessagesPersistenceError(
+        returned.length ? 'return_handoff_failed' : 'fallback',
+        error,
+      )
+    }
     if (receipts.current() && get().conversationId === conversationId)
       set((state) => ({
         queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
@@ -930,15 +955,37 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           cached.key === pointer.draftKey
             ? cached
             : new DraftSession(pointer.draftKey, undefined, pointer.projectId)
-        if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
+        try {
+          if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
+        } catch (error) {
+          // A stopped turn with no returned messages has no receipt. Verify history before
+          // retiring its pointer, then continue with later receipts instead of blocking them.
+          if (error instanceof AgentRequestError && error.status === 404) {
+            const history = await fetchMessages(conversationId)
+            if (!receipts.current()) return
+            if (!history.activeTurn) {
+              await receipts.forget(pointer.turnId)
+              continue
+            }
+          }
+          throw error
+        }
       }
-      if (current() && get().returnedMessagesPending)
-        set({ returnedMessagesPending: false, error: null, errorDiagnostic: null })
+      const pending = (await receipts.read()).length > 0
+      if (current())
+        set({
+          returnedMessagesPending: pending,
+          returnedMessagesError: pending ? 'fallback' : null,
+          error: null,
+          errorDiagnostic: null,
+        })
     } catch (error) {
+      const code = error instanceof ReturnedMessagesPersistenceError ? error.code : 'fallback'
       if (current())
         set({
           returnedMessagesPending: true,
-          error: i18next.t('agentQueue.return_handoff_failed', { ns: 'errors' }),
+          returnedMessagesError: code,
+          error: returnedMessagesErrorText(code),
           errorDiagnostic: requestDiagnostic(error, conversationId),
         })
     }
@@ -952,13 +999,20 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     const draft = currentProjectDraft(conversationId)
     const pointer = { turnId, draftKey: draft.key, projectId: currentCanvasProject()?.id }
     let remembered = false
+    let stopped = false
     try {
       if (current()) set({ stopping: true, error: null, errorDiagnostic: null })
       // The server emits queue-withdrawn before returning the receipt. Persist its identity first.
       await receipts.remember(pointer)
       remembered = true
       if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
-      if (shown()) set({ returnedMessagesPending: false })
+      stopped = true
+      const pending = (await receipts.read()).length > 0
+      if (shown())
+        set({
+          returnedMessagesPending: pending,
+          returnedMessagesError: pending ? get().returnedMessagesError : null,
+        })
     } catch (error) {
       if (!shown()) return
       if (!remembered) {
@@ -977,6 +1031,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (!shown()) return
           if (!history.activeTurn) {
             await receipts.forget(turnId)
+            const pending = (await receipts.read()).length > 0
             if (!shown()) return
             resetDelivery()
             set({
@@ -986,7 +1041,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               activeTurn: null,
               error: null,
               errorDiagnostic: null,
-              returnedMessagesPending: false,
+              returnedMessagesPending: pending,
+              returnedMessagesError: pending ? get().returnedMessagesError : null,
             })
             adoptSnapshot(conversationId, history)
             return
@@ -995,11 +1051,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           /* Keep the receipt available for explicit retry. */
         }
       }
+      const code =
+        error instanceof ReturnedMessagesPersistenceError
+          ? error.code
+          : stopped
+            ? 'fallback'
+            : 'stop_failed'
       if (shown())
         set({
           stopping: current() ? false : get().stopping,
           returnedMessagesPending: true,
-          error: i18next.t('agentQueue.return_handoff_failed', { ns: 'errors' }),
+          returnedMessagesError: code,
+          error: returnedMessagesErrorText(code),
           errorDiagnostic: requestDiagnostic(error, conversationId),
         })
     }
@@ -1229,6 +1292,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     historyLoading: false,
     historyFailed: false,
     returnedMessagesPending: false,
+    returnedMessagesError: null,
     panelWidth: readPanelWidth(),
     jobProgress: {},
     toolStartedAt: {},
