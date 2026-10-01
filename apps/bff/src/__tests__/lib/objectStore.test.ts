@@ -83,6 +83,48 @@ function store(client: FakeS3Client, prefix: string) {
 }
 
 describe('S3ObjectStore key prefix', () => {
+  it('uses cancellable signed HEAD metadata without starting an uncancellable stat', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'paid/')
+    const controller = new AbortController()
+    const transport = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { headers: { 'content-length': '12' } }),
+    )
+    try {
+      expect((await subject.open('agent/c/cache.json', controller.signal)).size).toBe(12)
+      expect(transport.mock.calls[0]?.[0]).toContain(
+        'paid/agent/c/cache.json?expiresIn=60&method=HEAD',
+      )
+      expect(transport.mock.calls[0]?.[1]).toMatchObject({
+        method: 'HEAD',
+        signal: controller.signal,
+      })
+      expect(client.statted).toHaveLength(0)
+      transport.mockResolvedValueOnce(new Response(null))
+      await expect(subject.open('missing-size', controller.signal)).rejects.toThrow(
+        'Invalid object size',
+      )
+      transport.mockImplementation(
+        Object.assign(
+          (_url: RequestInfo | URL, options?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              })
+            }),
+          { preconnect: globalThis.fetch.preconnect },
+        ),
+      )
+      const waiting = subject.open('stalled', controller.signal)
+      controller.abort(new Error('deadline'))
+      await expect(waiting).rejects.toThrow('deadline')
+      await expect(subject.open('preaborted', controller.signal)).rejects.toThrow('deadline')
+      expect(transport).toHaveBeenCalledTimes(3)
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
   it('uploads cancellable cache writes using a signed PUT with the same prefix and content type', async () => {
     const subject = store(new FakeS3Client(), 'paid/')
     const controller = new AbortController()

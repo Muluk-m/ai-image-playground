@@ -124,6 +124,35 @@ describe('durable model history cache', () => {
     ).toBe(false)
   })
 
+  it('falls back when valid JSON contains an image header that breaks token estimation', async () => {
+    await writeModelHistory(identity, messages)
+    const header = Buffer.alloc(16)
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(header)
+    for (const object of store.objects.values()) {
+      const snapshot = JSON.parse(Buffer.from(object.bytes).toString())
+      snapshot.messages[0].content[1].data = header.toString('base64')
+      object.bytes = Buffer.from(JSON.stringify(snapshot))
+    }
+    expect(await readModelHistory(identity)).toBeUndefined()
+  })
+
+  it('cancels a stalled metadata request at the read deadline', async () => {
+    let cancelled = false
+    store.open = (_key, signal?: AbortSignal) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          'abort',
+          () => {
+            cancelled = true
+            reject(signal.reason)
+          },
+          { once: true },
+        )
+      })
+    expect(await readModelHistory(identity)).toBeUndefined()
+    expect(cancelled).toBe(true)
+  })
+
   it('bounds a hung write and rejects a late old snapshot after the conversation changes', async () => {
     const originalWrite = store.write.bind(store)
     let finish!: () => Promise<void>

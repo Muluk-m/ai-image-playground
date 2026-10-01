@@ -6,6 +6,7 @@ import { objectStore } from '../objectStore'
 import { isObject } from '../type-guards'
 import { type CompactionSettings, compactionBudget, contextSizeTokens } from './compaction'
 import type { AgentHistoryWindow } from './conversations'
+import { estimateMessageTokens } from './token-estimate'
 
 const MAX_BYTES = 8 * 1024 * 1024
 const READ_TIMEOUT_MS = 1_500
@@ -166,10 +167,11 @@ export async function readModelHistory(
   if (identity.history.length === 0) return undefined
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let expired = false
+  const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const read = async () => {
-      const object = await objectStore().open(keyOf(identity.conversationId))
+      const object = await objectStore().open(keyOf(identity.conversationId), controller.signal)
       if (expired || object.size <= 0 || object.size > MAX_BYTES) return undefined
       reader = object.stream(0, object.size - 1).getReader()
       const chunks: Uint8Array[] = []
@@ -193,6 +195,9 @@ export async function readModelHistory(
         !isCompleteHistory(snapshot.messages)
       )
         return undefined
+      // 图片头虽是合法字符串，仍可能无法解析；估算失败必须在缓存边界内回退。
+      if (snapshot.messages.some((message) => !Number.isFinite(estimateMessageTokens(message))))
+        return undefined
       return snapshot.messages
     }
     return await Promise.race([
@@ -200,6 +205,7 @@ export async function readModelHistory(
       new Promise<undefined>((resolve) => {
         timer = setTimeout(() => {
           expired = true
+          controller.abort(new Error('Model history read deadline exceeded'))
           resolve(undefined)
         }, READ_TIMEOUT_MS)
       }),
