@@ -1,4 +1,9 @@
 import { assembleLookRequest } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
+import { getActiveApiProfile } from '../../../lib/apiProfiles'
+import { getProfileModels } from '../../../lib/channels/profileSelectors'
+import { getPublicChannels } from '../../../lib/channels/publicChannels'
+import { referenceAdmission, referenceRefusalMessage } from '../../../lib/referenceDraft'
 import { ensureImageCached, storeImageFromFile, submitTask, useStore } from '../../../store'
 import { lookImageUrl } from '../components/LookImage'
 import { useLibraryStore } from '../store'
@@ -45,8 +50,9 @@ async function referenceImageIds(look: LookItem): Promise<string[]> {
       continue
     }
     const response = await fetch(lookImageUrl(ref.url))
-    if (!response.ok) continue
+    if (!response.ok) throw new Error(ref.url)
     const blob = await response.blob()
+    if (!blob.type.startsWith('image/') || blob.size === 0) throw new Error(ref.url)
     const file = new File([blob], ref.url.split('/').pop() ?? 'reference', { type: blob.type })
     ids.push((await storeImageFromFile(file)).id)
   }
@@ -61,26 +67,65 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
   const store = useStore.getState()
   const check = checkLookSubmission(look, store.inputImages, useLibraryStore.getState().assets)
   if (!check.ok) return false
-  const assembled = assembleLookRequest({
-    look: { body, slotCount: look.slotCount, referenceImageIds: await referenceImageIds(look) },
-    assets: check.assets.map((asset) => ({ id: asset.id, name: asset.name, views: asset.views })),
-  })
-  if (!assembled.ok) return false
-
-  const typed = store.prompt
-  const images = []
-  for (const id of assembled.inputImageIds) {
-    const dataUrl = await ensureImageCached(id)
-    if (dataUrl) images.push({ id, dataUrl })
+  const admission = referenceAdmission(getActiveApiProfile(store.settings))
+  if (
+    !getProfileModels(getActiveApiProfile(store.settings), getPublicChannels()).includes(look.model)
+  ) {
+    store.showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
+    return false
   }
-  // 组装好的正文按新这条参考图的序号写成，所以条与提示词一起换，不能分两步。
-  store.replaceInputImages(images, {
-    prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
-  })
-  await submitTask()
-  const after = useStore.getState()
-  if (after.prompt !== '') after.setPrompt(typed)
-  useActiveLook.getState().set(null)
-  if (look.record) void useLibraryStore.getState().noteLookUsed(look.record.id)
-  return true
+  if (!admission.acceptsReferences) {
+    store.showToast(referenceRefusalMessage('noEdit'), 'error')
+    return false
+  }
+  try {
+    const assembled = assembleLookRequest({
+      look: { body, slotCount: look.slotCount, referenceImageIds: await referenceImageIds(look) },
+      maxInputs: admission.limit,
+      assets: check.assets.map((asset) => ({ id: asset.id, name: asset.name, views: asset.views })),
+    })
+    if (!assembled.ok) {
+      store.showToast(
+        assembled.reason === 'input_limit_exceeded'
+          ? i18next.t('look.inputLimit', {
+              ns: 'library',
+              count: assembled.required,
+              max: assembled.limit,
+            })
+          : i18next.t('look.inputsUnavailable', {
+              ns: 'library',
+              image: assembled.assetId ?? look.name,
+            }),
+        'error',
+      )
+      return false
+    }
+
+    const typed = store.prompt
+    const images = []
+    for (const id of assembled.inputImageIds) {
+      const dataUrl = await ensureImageCached(id)
+      if (!dataUrl) throw new Error(id)
+      images.push({ id, dataUrl })
+    }
+    // 组装好的正文按新这条参考图的序号写成，所以条与提示词一起换，不能分两步。
+    store.replaceInputImages(images, {
+      prompt: typed.trim() ? `${assembled.prompt}\n\n${typed.trim()}` : assembled.prompt,
+    })
+    await submitTask()
+    const after = useStore.getState()
+    if (after.prompt !== '') after.setPrompt(typed)
+    useActiveLook.getState().set(null)
+    if (look.record) void useLibraryStore.getState().noteLookUsed(look.record.id)
+    return true
+  } catch (error) {
+    store.showToast(
+      i18next.t('look.inputsUnavailable', {
+        ns: 'library',
+        image: error instanceof Error ? error.message : look.name,
+      }),
+      'error',
+    )
+    return false
+  }
 }

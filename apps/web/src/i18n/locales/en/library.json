@@ -35,10 +35,26 @@
     "deleteMessage": "Delete the asset “{{name}}”?",
     "viewCount_one": "{{count}} view",
     "viewCount_other": "{{count}} views",
-    "kind": { "product": "Product", "person": "Person" },
-    "background": { "transparent": "Transparent", "solid": "White" },
-    "view": { "front": "Front", "side": "Side", "back": "Back", "detail": "Detail", "sheet": "Sheet", "none": "Unlabeled" },
-    "source": { "upload": "Uploaded", "generated": "Generated" },
+    "kind": {
+      "product": "Product",
+      "person": "Person"
+    },
+    "background": {
+      "transparent": "Transparent",
+      "solid": "White"
+    },
+    "view": {
+      "front": "Front",
+      "side": "Side",
+      "back": "Back",
+      "detail": "Detail",
+      "sheet": "Sheet",
+      "none": "Unlabeled"
+    },
+    "source": {
+      "upload": "Uploaded",
+      "generated": "Generated"
+    },
     "cover": "Cover",
     "addView": "Add view",
     "views": "Views"
@@ -60,7 +76,12 @@
     "mine": "My templates",
     "builtin": "Built-in templates",
     "builtinTag": "Built-in",
-    "purpose": { "hero": "Hero", "poster": "Poster", "scene": "Scene", "detail": "Detail" },
+    "purpose": {
+      "hero": "Hero",
+      "poster": "Poster",
+      "scene": "Scene",
+      "detail": "Detail"
+    },
     "slots_one": "{{count}} asset slot",
     "slots_other": "{{count}} asset slots",
     "generate": "Generate with it",
@@ -73,7 +94,9 @@
     "more": "More templates",
     "applied": "Switched to {{model}} · {{size}}",
     "slotMismatch": "This template needs {{count}} assets",
-    "empty": "No templates of your own yet"
+    "empty": "No templates of your own yet",
+    "inputLimit": "This template needs {{count}} input images; the limit is {{max}}. Remove template references to continue.",
+    "inputsUnavailable": "Could not load image \"{{image}}\". Check it and try again."
   },
   "lookDetail": {
     "cover": "Cover",
