@@ -52,6 +52,12 @@ setObjectStoreForTesting(storage)
 _setChannelsForTesting([
   {
     ...TEST_IMAGE_CHANNEL,
+    id: 'gemini',
+    kind: 'gemini-queue',
+    models: [{ id: 'gemini-fixture', label: 'Gemini', capabilities: ['generate', 'edit'] }],
+  },
+  {
+    ...TEST_IMAGE_CHANNEL,
     id: 'video',
     models: [
       {
@@ -849,4 +855,56 @@ afterAll(async () => {
   setObjectStoreForTesting()
   await close()
   await rm(temp, { recursive: true, force: true })
+})
+
+it('accepts the existing Gemini controls and rejects unsupported image parameters over HTTP', async () => {
+  const owner = await account('generation-gemini-owner')
+  expect(
+    (
+      await request(owner, 'PUT', '', {
+        operationId: 'initial',
+        baseRevision: 0,
+        content: {
+          title: '',
+          setting: '',
+          outline: '',
+          scenes: [],
+          locations: [{ id: 'room', name: 'Room', description: 'Wide room' }],
+        },
+      })
+    ).status,
+  ).toBe(200)
+  const input = {
+    operationId: 'gemini',
+    baseRevision: 1,
+    target: 'location',
+    targetId: 'room',
+    prompt: 'Wide room',
+    model: 'gemini-fixture',
+    references: [],
+    params: {
+      gemini_image_size: '512',
+      gemini_aspect_ratio: '21:9',
+      gemini_thinking_level: 'minimal',
+    },
+  }
+  const response = await request(owner, 'POST', '/generations', input)
+  expect(response.status).toBe(200)
+  expect((await response.json()).generation.params).toEqual(input.params)
+  for (const params of [
+    { gemini_image_size: '8K' },
+    { gemini_aspect_ratio: '99:1' },
+    { quality: 'high' },
+    { size: '1024x1024' },
+  ]) {
+    expect(
+      (
+        await request(owner, 'POST', '/generations', {
+          ...input,
+          operationId: JSON.stringify(params),
+          params,
+        })
+      ).status,
+    ).toBe(400)
+  }
 })
