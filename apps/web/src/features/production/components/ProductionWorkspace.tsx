@@ -1,6 +1,7 @@
 import {
   Clapperboard,
   FileText,
+  Film,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightOpen,
@@ -15,6 +16,7 @@ import { useProductionAssets } from '../lib/useProductionAssets'
 import ProductionAssetPane, { type ProductionAssetTarget } from './ProductionAssetPane'
 import ProductionAssetProposalPane from './ProductionAssetProposalPane'
 import ProductionAssets from './ProductionAssets'
+import ProductionClipPane from './ProductionClipPane'
 import ProductionDocumentPane from './ProductionDocumentPane'
 import ProductionShotPane from './ProductionShotPane'
 
@@ -30,6 +32,7 @@ export default function ProductionWorkspace({
   const { t } = useTranslation('production')
   const production = useProductionDocument(conversationId, refreshKey)
   const [showShots, setShowShots] = useState(false)
+  const [showClips, setShowClips] = useState(false)
   const [proposalId, setProposalId] = useState<string | null>(null)
   const assets = useProductionAssets(
     conversationId,
@@ -45,6 +48,7 @@ export default function ProductionWorkspace({
   useEffect(() => {
     setContentOpen(true)
     setShowShots(false)
+    setShowClips(false)
     setAssetTarget(null)
     setProposalId(null)
   }, [conversationId])
@@ -52,6 +56,7 @@ export default function ProductionWorkspace({
     () =>
       activateProduction(conversationId, (pane) => {
         setShowShots(pane === 'storyboard')
+        setShowClips(false)
         setAssetTarget(null)
         setProposalId(null)
         setContentOpen(true)
@@ -101,6 +106,7 @@ export default function ProductionWorkspace({
             onClick={() => {
               setContentOpen(true)
               setShowShots(false)
+              setShowClips(false)
               setAssetTarget(null)
               setProposalId(null)
               setAssetsDrawerOpen(false)
@@ -115,6 +121,7 @@ export default function ProductionWorkspace({
             aria-label={t('storyboard.title')}
             onClick={() => {
               setShowShots(true)
+              setShowClips(false)
               setAssetTarget(null)
               setProposalId(null)
               setContentOpen(true)
@@ -124,10 +131,27 @@ export default function ProductionWorkspace({
             <Clapperboard size={16} />
             <span>{t('storyboard.title')}</span>
           </button>
+          <button
+            type="button"
+            className="production-document-link"
+            aria-label={t('clip.title')}
+            onClick={() => {
+              setShowClips(true)
+              setShowShots(false)
+              setAssetTarget(null)
+              setProposalId(null)
+              setContentOpen(true)
+              setAssetsDrawerOpen(false)
+            }}
+          >
+            <Film size={16} />
+            <span>{t('clip.title')}</span>
+          </button>
           <ProductionAssets
             document={doc}
             onSelect={(target) => {
               setShowShots(false)
+              setShowClips(false)
               setProposalId(null)
               setAssetTarget(target)
               setContentOpen(true)
@@ -143,6 +167,7 @@ export default function ProductionWorkspace({
                 key={one.id}
                 onClick={() => {
                   setShowShots(false)
+                  setShowClips(false)
                   setProposalId(one.id)
                   setContentOpen(true)
                   setAssetsDrawerOpen(false)
@@ -209,6 +234,13 @@ export default function ProductionWorkspace({
               setProposalId(null)
               setContentOpen(false)
             }}
+          />
+        ) : showClips ? (
+          <ProductionClipPane
+            key={doc.id}
+            document={doc}
+            onClose={() => setContentOpen(false)}
+            onSaved={production.accept}
           />
         ) : showShots ? (
           <ProductionShotPane

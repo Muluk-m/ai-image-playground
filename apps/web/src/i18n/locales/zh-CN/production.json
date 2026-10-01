@@ -122,5 +122,27 @@
     "failed": "分镜更新失败，当前镜头已保留。",
     "deleteImpact": "从当前分镜中移除镜头。历史版本会保留，关联素材不会被删除。",
     "confirmDelete": "确认删除镜头"
+  },
+  "clip": {
+    "title": "视频片段",
+    "new": "新片段",
+    "add": "添加片段",
+    "empty": "选择一个或多个镜头，准备一段视频。",
+    "name": "片段名称",
+    "shots": "选择镜头",
+    "noShots": "先在分镜中添加镜头",
+    "missingShot": "引用的镜头已删除，请重新选择",
+    "removeShot": "移除镜头",
+    "prompt": "视频描述",
+    "references": "参考画面",
+    "usage": "图片用途",
+    "first-frame": "首帧",
+    "last-frame": "尾帧",
+    "reference": "参考图",
+    "unavailable": "当前模型或渠道不支持这组参数，请调整后生成",
+    "expected": "预计片长 {{seconds}} 秒；成片时长以结果为准",
+    "estimate": "预计 {{credits}} 积分",
+    "saveBeforeGenerate": "保存片段后，可准备生成草稿并确认费用。",
+    "deleteImpact": "片段计划将在保存后删除，已生成的候选仍保留在会话中。"
   }
 }

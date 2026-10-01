@@ -17,6 +17,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import type { BffTransaction } from '../private-overlay'
 import { productionMediaReferences, validateProductionAssets } from './production-asset-validation'
+import { hasValidProductionClipReferences, validateProductionClips } from './production-clips'
 import { reconcileProductionReferences } from './production-references'
 import { hasValidProductionShotReferences } from './production-shot-validation'
 
@@ -43,6 +44,7 @@ export function validateProductionContent(value: unknown): value is ProductionCo
   return (
     validateProductionAssets(c) &&
     (c.shots === undefined || isProductionShots(c.shots)) &&
+    validateProductionClips(c) &&
     typeof c.title === 'string' &&
     c.title.length <= 200 &&
     typeof c.setting === 'string' &&
@@ -192,6 +194,15 @@ export function applyProductionMutation(
       mutation.content,
       mutation.content.shots ?? [],
       current?.document.content.shots,
+    )
+  )
+    throw new ProductionError('production_invalid')
+  if (
+    source !== 'restore' &&
+    !hasValidProductionClipReferences(
+      mutation.content,
+      current?.document.content,
+      source === 'agent',
     )
   )
     throw new ProductionError('production_invalid')
