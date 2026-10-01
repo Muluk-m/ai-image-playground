@@ -27,6 +27,7 @@ import {
   type PreparedQueueTask,
   prepareQueueTask,
 } from '../taskSubmission'
+import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { batchItem, batchItemValues } from './batch-items'
 import { BatchPlanError, batchPlansAvailable, quoteBatchPlan } from './batch-plans'
 import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from './batch-progress'
@@ -942,14 +943,35 @@ export async function quoteAgentBatchRetry(
         throw new BatchPlanError('batch_execution_unavailable', 422)
       targets = { ...targets, [key]: latest.attempt + 1 }
     }
-    // Confirmation authorizes every target that can still be admitted, including downstream
-    // items waiting on a selected retry. Already submitted attempts keep their original price.
+    const targetAttempt = (key: string) => (Object.hasOwn(targets, key) ? targets[key]! : 1)
+    const currentTargets = items.map((item) => {
+      const attempt = attempts.find(
+        (one) => one.item_key === item.key && one.attempt === targetAttempt(item.key),
+      )
+      return {
+        key: item.key,
+        submitted: Boolean(attempt),
+        archived: Boolean(attempt?.terminal_snapshot),
+        status:
+          attempt?.terminal_snapshot?.errorCode === 'result_unknown'
+            ? 'reconciling'
+            : (attempt?.terminal_snapshot?.status ?? null),
+      }
+    })
+    const sourceTargets = await readFrozenDependencyTargets(
+      tx,
+      id,
+      plan.version,
+      plan.confirmation?.sourceVersions ??
+        (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : []),
+      items,
+    )
+    const cancelled = cancelledBatchDependents(items, [...currentTargets, ...sourceTargets])
+    // Reconfirmation pays only for targets that may still execute under the updated attempt map.
     const pending = items.filter(
       (item) =>
-        !attempts.some(
-          (attempt) =>
-            attempt.item_key === item.key && attempt.attempt === (targets[item.key] ?? 1),
-        ),
+        !cancelled.has(item.key) &&
+        !currentTargets.some((target) => target.key === item.key && target.submitted),
     )
     const pendingEstimate = await quoteBatchPlan(tx, userId, pending)
     if (
@@ -976,6 +998,9 @@ export async function quoteAgentBatchRetry(
         snapshots: [...previousSnapshots('generation'), ...pendingEstimate.generation.snapshots],
       },
     }
+    const confirmation = plan.confirmation
+      ? { ...plan.confirmation, requiresResume: batch.status === 'paused' }
+      : null
     const content = items
     const version = batch.current_version + 1
     const now = Date.now()
@@ -989,6 +1014,7 @@ export async function quoteAgentBatchRetry(
           targets,
           retryItemKeys: keys,
           retryRequiresResume: batch.status === 'paused',
+          confirmation,
         }),
       )
       .digest('hex')
@@ -1003,6 +1029,7 @@ export async function quoteAgentBatchRetry(
       attempt_targets: targets,
       retry_item_keys: keys,
       retry_requires_resume: batch.status === 'paused',
+      confirmation,
       created_at: now,
     })
     await tx

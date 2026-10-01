@@ -11,7 +11,7 @@ import type {
   AgentMediaReference,
   AnalysisIntent,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
@@ -21,7 +21,7 @@ import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { queueTaskOutcome } from '../taskSubmission'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
-import { cancelledBatchDependents } from './batch-dependencies'
+import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { batchItem, batchItemValues } from './batch-items'
 import { updatePendingBatchPhase } from './batch-phase-edit'
 import { lockConversation } from './confirmations'
@@ -460,62 +460,28 @@ export async function readAgentBatchPlan(
       const sourceVersions =
         plan.confirmation?.sourceVersions ??
         (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])
-      const dependencyKeys = [
-        ...new Set(items.slice(0, limit).flatMap((item) => item.dependencies)),
-      ]
-      if (sourceVersions.length && sourceVersions.length <= 100 && dependencyKeys.length) {
-        // A rolled-over dependency belongs to its latest explicitly frozen source version.
-        // Keep current-plan targets authoritative, including targets not submitted yet.
-        const currentKeys = tx
-          .select({ key: schema.agent_batch_items.key })
-          .from(schema.agent_batch_items)
-          .where(
-            and(
-              eq(schema.agent_batch_items.batch_id, id),
-              eq(schema.agent_batch_items.version, plan.version),
-            ),
-          )
-        const sourceTargets = await tx
-          .selectDistinctOn([schema.agent_batch_items.key], {
-            key: schema.agent_batch_items.key,
-            taskId: schema.agent_batch_attempts.task_id,
-            archived: sql<boolean>`${schema.agent_batch_attempts.terminal_snapshot} IS NOT NULL`,
-            status: effectiveStatus,
-            errorCode: sql<
-              string | null
-            >`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode'`,
-          })
-          .from(schema.agent_batch_items)
-          .innerJoin(
-            schema.agent_batch_plans,
-            and(
-              eq(schema.agent_batch_plans.batch_id, schema.agent_batch_items.batch_id),
-              eq(schema.agent_batch_plans.version, schema.agent_batch_items.version),
-            ),
-          )
-          .leftJoin(
-            schema.agent_batch_attempts,
-            and(
-              eq(schema.agent_batch_attempts.batch_id, schema.agent_batch_items.batch_id),
-              eq(schema.agent_batch_attempts.item_key, schema.agent_batch_items.key),
-              lte(schema.agent_batch_attempts.version, schema.agent_batch_items.version),
-              sql`${schema.agent_batch_attempts.attempt} = coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
-            ),
-          )
-          .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
-          .where(
-            and(
-              eq(schema.agent_batch_items.batch_id, id),
-              inArray(schema.agent_batch_items.version, [...sourceVersions]),
-              inArray(schema.agent_batch_items.key, dependencyKeys),
-              notInArray(schema.agent_batch_items.key, currentKeys),
-            ),
-          )
-          .orderBy(asc(schema.agent_batch_items.key), desc(schema.agent_batch_items.version))
-          .limit(dependencyKeys.length)
-        for (const source of sourceTargets) {
-          if (source.taskId) targets.set(source.key, source)
-        }
+      const dependencyItems = await tx
+        .select({
+          key: schema.agent_batch_items.key,
+          dependencies: schema.agent_batch_items.dependencies,
+        })
+        .from(schema.agent_batch_items)
+        .where(
+          and(
+            eq(schema.agent_batch_items.batch_id, id),
+            eq(schema.agent_batch_items.version, plan.version),
+          ),
+        )
+        .limit(100)
+      const sourceTargets = await readFrozenDependencyTargets(
+        tx,
+        id,
+        plan.version,
+        sourceVersions,
+        dependencyItems,
+      )
+      for (const source of sourceTargets) {
+        if (source.taskId) targets.set(source.key, source)
       }
       const attemptRows = await tx
         .select({
@@ -616,23 +582,10 @@ export async function readAgentBatchPlan(
       const execution = new Map(
         [...history].map(([key, entries]) => [key, entries[entries.length - 1]!]),
       )
-      const dependencyItems = await tx
-        .select({
-          key: schema.agent_batch_items.key,
-          dependencies: schema.agent_batch_items.dependencies,
-        })
-        .from(schema.agent_batch_items)
-        .where(
-          and(
-            eq(schema.agent_batch_items.batch_id, id),
-            eq(schema.agent_batch_items.version, plan.version),
-          ),
-        )
-        .limit(100)
-      const cancelled = cancelledBatchDependents(
-        dependencyItems,
-        targetRows.map((target) => ({ ...target, submitted: true })),
-      )
+      const cancelled = cancelledBatchDependents(dependencyItems, [
+        ...targetRows.map((target) => ({ ...target, submitted: true })),
+        ...sourceTargets,
+      ])
       const complete =
         batch.confirmed_version === plan.version &&
         targetRows.filter((one) => ['completed', 'failed', 'cancelled'].includes(one.status))

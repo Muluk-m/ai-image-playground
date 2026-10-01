@@ -2,7 +2,7 @@ import type { AgentInboxTaskResultPayload } from '@image-playground/db'
 import type { AgentBatchAttemptSnapshot, AgentBatchWakeReceipt } from '@image-playground/shared'
 import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { cancelledBatchDependents } from './batch-dependencies'
+import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import type { AgentOwner } from './conversations'
 
 /** Read only the confirmed version's durable outcomes, never prompts or image bytes. */
@@ -15,6 +15,7 @@ export async function batchWakeSummary(
   const [plan] = await db
     .select({
       itemCount: schema.agent_batch_plans.item_count,
+      confirmation: schema.agent_batch_plans.confirmation,
     })
     .from(schema.agent_batch_plans)
     .innerJoin(schema.agent_batches, eq(schema.agent_batches.id, schema.agent_batch_plans.batch_id))
@@ -69,15 +70,24 @@ export async function batchWakeSummary(
     .where(and(eq(items.batch_id, notice.batchId), eq(items.version, notice.version)))
     .orderBy(asc(items.ordinal))
     .limit(100)
-  const cancelled = cancelledBatchDependents(
-    rows.map((row) => ({ key: row.itemKey, dependencies: row.dependencies })),
-    rows.map((row) => ({
+  const dependencyItems = rows.map((row) => ({ key: row.itemKey, dependencies: row.dependencies }))
+  const sourceTargets = await readFrozenDependencyTargets(
+    db,
+    notice.batchId,
+    notice.version,
+    plan.confirmation?.sourceVersions ??
+      (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : []),
+    dependencyItems,
+  )
+  const cancelled = cancelledBatchDependents(dependencyItems, [
+    ...rows.map((row) => ({
       key: row.itemKey,
       submitted: Boolean(row.taskId),
       status: row.status,
       archived: row.archived,
     })),
-  )
+    ...sourceTargets,
+  ])
   const results = rows.map(
     ({ dependencies: _dependencies, taskId: _taskId, archived: _archived, ...row }) =>
       cancelled.has(row.itemKey) ? { ...row, status: 'cancelled' as const, actualCredits: 0 } : row,

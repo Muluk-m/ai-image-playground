@@ -12,6 +12,7 @@ import {
   notInArray,
   or,
   type SQL,
+  sql,
 } from 'drizzle-orm'
 import { config } from '../config'
 import { snapshotAgentBatchesBeforePurge } from '../lib/agent/batch-progress'
@@ -283,7 +284,10 @@ export async function purgeOldTasks(
             .where(
               and(
                 eq(schema.agent_batch_attempts.task_id, schema.tasks.id),
-                isNull(schema.agent_batch_attempts.terminal_snapshot),
+                or(
+                  isNull(schema.agent_batch_attempts.terminal_snapshot),
+                  sql`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown'`,
+                ),
               ),
             ),
         ),
