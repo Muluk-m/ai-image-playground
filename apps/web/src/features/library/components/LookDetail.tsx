@@ -92,7 +92,7 @@ export default function LookDetail({
           )}
         </div>
 
-        <div className="flex w-[400px] shrink-0 flex-col border-l border-border">
+        <div className="flex w-[400px] max-w-full shrink-0 flex-col border-l border-border">
           <div className="flex items-start gap-2 border-b border-border px-5 py-4">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

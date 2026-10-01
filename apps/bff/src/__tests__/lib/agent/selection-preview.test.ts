@@ -70,3 +70,15 @@ it('classifies oversized selected originals as invalid selections', async () => 
     }),
   ).rejects.toBeInstanceOf(InvalidSelectionError)
 })
+
+it('keeps sparse region numbers in the model manifest after deletion', () => {
+  const manifest = evidenceManifest([
+    {
+      imageId: 'image-1',
+      selection: { id: 'selection-1', bounds: { left: 0.2, top: 0.3, width: 0.4, height: 0.2 } },
+      regions: [{ number: 7, x: 0.2, y: 0.3, width: 0.4, height: 0.2 }],
+    },
+  ])
+  expect(manifest).toContain('区域 7')
+  expect(manifest).not.toContain('区域 1')
+})
