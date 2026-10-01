@@ -54,7 +54,10 @@ export default function ProjectNavigation() {
   const matches = (query ? catalog : recent).filter((project) =>
     projectEntryName(project).toLocaleLowerCase().includes(query),
   )
-  const visible = matches.slice(0, query ? 30 : 10)
+  const visible = matches.slice(0, query ? 30 : 10).sort((a, b) => {
+    if (projectExperience(a) === projectExperience(b)) return 0
+    return projectExperience(a) === 'chat' ? -1 : 1
+  })
   const allProjects = () => {
     setOpen(false)
     useLibraryStore.getState().openProjects()
@@ -125,17 +128,16 @@ export default function ProjectNavigation() {
             <div className="min-h-0 overflow-y-auto" aria-busy={busy}>
               {visible.map((project, index) => (
                 <div key={project.id}>
-                  {!query &&
-                    (index === 0 ||
-                      projectExperience(visible[index - 1]) !== projectExperience(project)) && (
-                      <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
-                        {t(
-                          projectExperience(project) === 'chat'
-                            ? 'navigation.chats'
-                            : 'navigation.canvases',
-                        )}
-                      </p>
-                    )}
+                  {(index === 0 ||
+                    projectExperience(visible[index - 1]) !== projectExperience(project)) && (
+                    <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
+                      {t(
+                        projectExperience(project) === 'chat'
+                          ? 'navigation.chats'
+                          : 'navigation.canvases',
+                      )}
+                    </p>
+                  )}
                   <Button
                     variant="ghost"
                     disabled={busy}
