@@ -330,7 +330,8 @@
   content: '';
 }
 .studio-home-backdrop__grain,
-.studio-home-backdrop__grid {
+.studio-home-backdrop__grid,
+.studio-home-backdrop__hover {
   position: absolute;
   inset: 0;
 }
@@ -344,6 +345,27 @@
     linear-gradient(hsl(var(--foreground) / .085) 1px, transparent 1px),
     linear-gradient(90deg, hsl(var(--foreground) / .085) 1px, transparent 1px);
   background-size: 60px 60px;
+}
+
+/* 局部光效叠在常驻网格上，离开时只隐藏光效层。 */
+.studio-home-backdrop__hover {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / .1) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / .1) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(circle 220px at var(--pointer-x, 50%) var(--pointer-y, 40%), #000 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity .22s ease-out;
+}
+.studio-home-backdrop__hover::before {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 220px at var(--pointer-x, 50%) var(--pointer-y, 40%), hsl(var(--primary) / .05), transparent 74%);
+  content: '';
+}
+.studio-home-backdrop[data-pointer-active="true"] .studio-home-backdrop__hover { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .studio-home-backdrop__hover { display: none; }
 }
 
 /* 首屏品牌色保留渐变，不向背景投射光晕。 */
