@@ -361,6 +361,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         </div>
         {painting && (
           <InpaintPanel
+            key={panelEpoch}
             editor={editor}
             onSendingChange={setBusy}
             onDone={() => {

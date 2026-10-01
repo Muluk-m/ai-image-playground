@@ -7,7 +7,8 @@ import {
 } from 'react'
 import { useTranslation } from '../../../i18n'
 import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
-import { useInpaintSession } from '../inpaintStore'
+import { useStore } from '../../../store'
+import { MAX_INPAINT_REGIONS, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
 import { type MaskStroke, type Point, pageToMaskPixel, renderMask } from '../lib/inpaintMask'
@@ -32,6 +33,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const imageId = useInpaintSession((state) => state.imageId)
   const strokes = useInpaintSession((state) => state.strokes)
+  const strokeIds = useInpaintSession((state) => state.strokeIds)
   const selectedStroke = useInpaintSession((state) => state.selectedStroke)
   const selectStroke = useInpaintSession((state) => state.selectStroke)
   const kind = useInpaintSession((state) => state.kind)
@@ -82,7 +84,8 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
     const current = drawingRef.current
     drawingRef.current = null
     setLive(null)
-    if (current?.points.length) addStroke(current)
+    if (current?.points.length && !addStroke(current))
+      useStore.getState().showToast(t('inpaint.regionLimit', { max: MAX_INPAINT_REGIONS }), 'error')
   }
 
   return (
@@ -188,13 +191,13 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
               >
                 <button
                   type="button"
-                  aria-label={t('inpaint.regionName', { no: index + 1 })}
+                  aria-label={t('inpaint.regionName', { no: strokeIds[index] })}
                   aria-pressed={selectedStroke === index}
                   className="pointer-events-auto absolute -left-3 -top-3 grid h-6 w-6 place-items-center rounded-full border-2 border-white bg-[#159cf6] text-xs font-semibold text-white shadow-md"
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => selectStroke(index)}
                 >
-                  {index + 1}
+                  {strokeIds[index]}
                 </button>
               </div>
             )
