@@ -496,3 +496,30 @@ it('does not time out while the user considers a full-coverage mask confirmation
   expect(useStore.getState().tasks[0].maskTargetImageId).toBe(targetImageId)
   await vi.advanceTimersByTimeAsync(0)
 })
+
+it.each([
+  'dismiss',
+  'replace',
+] as const)('releases preparation when mask confirmation is %s', async (mode) => {
+  const targetImageId = seedImage()
+  useStore.setState({
+    maskDraft: { targetImageId, maskDataUrl: 'data:image/png;base64,bWFzaw==', updatedAt: 1 },
+  })
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: () => {},
+    getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 0]) }),
+  } as unknown as CanvasRenderingContext2D)
+  vi.useFakeTimers()
+  const sending = submitWithLook(look(), 'template')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useStore.getState().confirmDialog).not.toBeNull()
+  const replacement =
+    mode === 'replace' ? { title: 'Other', message: 'Other', action: () => {} } : null
+  useStore.getState().setConfirmDialog(replacement)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useLookSubmission.getState().submitting).toBe(false)
+  expect(await sending).toBe(false)
+  expect(useStore.getState().confirmDialog).toBe(replacement)
+  expect(useStore.getState().tasks).toHaveLength(0)
+  useStore.getState().setConfirmDialog(null)
+})
