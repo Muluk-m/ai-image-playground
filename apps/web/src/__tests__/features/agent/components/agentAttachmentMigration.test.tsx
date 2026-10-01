@@ -17,6 +17,7 @@ it('migrates restored legacy drafts and replay snapshots to shared local origina
       return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
     return Response.json({
       'agent:attachments': true,
+      'agent:bulk-attachments': true,
       attachmentLimits: {
         logicalReferences: 100,
         imageBytes: 10 * 1024 * 1024,

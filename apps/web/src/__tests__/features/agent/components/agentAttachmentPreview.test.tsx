@@ -27,6 +27,7 @@ it('shows only a cloud thumbnail and reads the original and mask only when openi
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,

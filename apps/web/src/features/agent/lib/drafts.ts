@@ -9,6 +9,7 @@ import {
 } from '../../../lib/localAttachmentSources'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import { attachmentUploadsEnabled, canReuseAttachmentMedia } from './attachmentUploads'
+import { outgoingCommandIds } from './outgoingJournal'
 import { type AgentDraft, EMPTY_DRAFT, hasDraftContent } from './references'
 import type { UnsentTurnSubmission } from './turnSubmission'
 
@@ -124,6 +125,7 @@ export class DraftSession {
   constructor(
     public key: string,
     private fallbackKey?: string,
+    private projectId?: string,
   ) {
     this.sourceOwner = attachmentSourceOwner(`draft:${key}`)
     this.ready = this.restore()
@@ -167,7 +169,27 @@ export class DraftSession {
         typeof stored.prompt === 'string' &&
         Array.isArray(stored.references)
       ) {
-        const normalized = this.currentAccount() ? normalizeSources(stored) : stored
+        let normalized = this.currentAccount() ? normalizeSources(stored) : stored
+        if (this.projectId) {
+          if (!this.currentAccount()) return
+          const journaled = await outgoingCommandIds(this.projectId)
+          if (!this.currentAccount() || this.revision !== 0) return
+          const { unsent, remainingUnsent = [], ...draft } = normalized
+          const owned = (one: AgentDraft) =>
+            Boolean(one.submission && journaled.has(one.submission.id))
+          const queued = [unsent, ...remainingUnsent].filter((one): one is AgentDraft =>
+            Boolean(one),
+          )
+          const retained = queued.filter((one) => !owned(one))
+          if (owned(draft) || retained.length !== queued.length) {
+            normalized = {
+              ...(owned(draft)
+                ? { ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) }
+                : draft),
+              ...(retained[0] ? { unsent: retained[0], remainingUnsent: retained.slice(1) } : {}),
+            }
+          }
+        }
         const { unsent, remainingUnsent = [], ...draft } = normalized
         this.remainingUnsent = remainingUnsent
         // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
@@ -241,14 +263,17 @@ export class DraftSession {
   }
 
   /** Remove only the draft copy whose identical command has become durable elsewhere. */
-  acceptSubmission(id: string): void {
+  async acceptSubmission(id: string): Promise<boolean> {
     const { draft, unsent } = this.snapshot
     const current = draft.submission?.id === id
     const queued = [unsent, ...this.remainingUnsent].filter((one): one is AgentDraft =>
       Boolean(one),
     )
     const remaining = queued.filter((one) => one.submission?.id !== id)
-    if (!current && remaining.length === queued.length) return
+    if (!current && remaining.length === queued.length) {
+      await this.flush()
+      return this.snapshot.error === null
+    }
     this.remainingUnsent = remaining.slice(1)
     this.revision += 1
     this.publish({
@@ -258,7 +283,8 @@ export class DraftSession {
         remaining[0] && (this.snapshot.recoverable || unsent?.submission?.id === id),
       ),
     })
-    void this.flush()
+    await this.flush()
+    return this.snapshot.error === null
   }
 
   /** 把没发出去的那份放回输入框；输入框里此刻跟着选区带进来的图保留。 */
@@ -342,9 +368,9 @@ export class DraftSession {
     const previousSourceOwner = previousKey
       ? attachmentSourceOwner(`draft:${previousKey}`)
       : undefined
-    this.writes = this.writes.then(() =>
-      sourceOwner.withDocument(async () => {
-        try {
+    this.writes = this.writes.then(async () => {
+      try {
+        await sourceOwner.withDocument(async () => {
           await sourceOwner.retain(draft)
           const db = await openDatabase()
           await new Promise<void>((resolve, reject) => {
@@ -360,11 +386,11 @@ export class DraftSession {
           this.savedRevision = Math.max(this.savedRevision, revision)
           if (this.previousKey === previousKey) this.previousKey = undefined
           this.publish({ error: null })
-        } catch {
-          this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
-        }
-      }),
-    )
+        })
+      } catch {
+        this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
+      }
+    })
     return this.writes
   }
 }
@@ -388,6 +414,7 @@ export function agentDraft(
     session = new DraftSession(
       key,
       projectId && (conversationId || legacyDraft) ? legacyKey : undefined,
+      projectId,
     )
     sessions.set(key, session)
   }

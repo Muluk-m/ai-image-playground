@@ -306,8 +306,8 @@ export async function readAttachmentUpload(
 }
 
 interface AttachmentUploadChange {
-  readonly source: string
-  readonly backend: string
+  readonly source?: string
+  readonly backend?: string
   readonly storageScope: string
 }
 const uploadListeners = new Set<(change: AttachmentUploadChange) => void>()
@@ -316,8 +316,10 @@ export function onLocalAttachmentUploadChanged(
   listener: (change: AttachmentUploadChange) => void,
 ): () => void {
   uploadListeners.add(listener)
+  watchAttachmentChanges()
   return () => {
     uploadListeners.delete(listener)
+    stopWatchingAttachmentChanges()
   }
 }
 
@@ -344,14 +346,27 @@ export async function saveAttachmentUpload(
           tx.abort()
           return
         }
+        const previous = row.uploads?.[backend]
+        // A slower page's failure cannot revoke another page's still-valid upload lease.
+        if (
+          upload.state === 'failed' &&
+          previous?.state === 'ready' &&
+          previous.result.leaseExpiresAt !== undefined &&
+          previous.result.leaseExpiresAt > Date.now()
+        )
+          return
         store.put({ ...row, uploads: { ...row.uploads, [backend]: upload } })
       }
       tx.oncomplete = () => resolve()
       tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('attachment_source_missing'))
     })
     if (!current()) throw new Error('media_scope_changed')
-    for (const listener of uploadListeners)
-      listener({ source, backend, storageScope: scopedStorageName(BASE_DB_NAME) })
+    publishAttachmentChange({
+      kind: 'upload',
+      source,
+      backend,
+      storageScope: scopedStorageName(BASE_DB_NAME),
+    })
   } finally {
     db.close()
   }
@@ -367,8 +382,130 @@ export function onLocalAttachmentReleased(
   listener: (release: ReleasedAttachments) => void,
 ): () => void {
   releaseListeners.add(listener)
+  watchAttachmentChanges()
   return () => {
     releaseListeners.delete(listener)
+    stopWatchingAttachmentChanges()
+  }
+}
+
+type AttachmentChange =
+  | (AttachmentUploadChange & { kind: 'upload'; source: string; backend: string })
+  | (ReleasedAttachments & { kind: 'release' })
+let changeChannel: BroadcastChannel | undefined
+let channelScope: string | undefined
+let watchingChanges = false
+let pageHidden = false
+
+function receiveAttachmentChange(change: AttachmentChange) {
+  if (change.storageScope !== scopedStorageName(BASE_DB_NAME)) return
+  if (change.kind === 'upload') {
+    for (const listener of uploadListeners) listener(change)
+  } else {
+    for (const listener of releaseListeners) listener(change)
+  }
+}
+
+function closeChangeChannel() {
+  changeChannel?.close()
+  changeChannel = undefined
+  channelScope = undefined
+}
+
+function connectChangeChannel() {
+  const storageScope = scopedStorageName(BASE_DB_NAME)
+  if (changeChannel && channelScope !== storageScope) closeChangeChannel()
+  if (changeChannel || pageHidden || typeof BroadcastChannel === 'undefined') return
+  try {
+    const channel = new BroadcastChannel(`attachment-changes:${storageScope}`)
+    channelScope = storageScope
+    changeChannel = channel
+    channel.onmessage = ({ data }: MessageEvent<unknown>) => {
+      if (
+        !data ||
+        typeof data !== 'object' ||
+        !('storageScope' in data) ||
+        data.storageScope !== storageScope ||
+        !('kind' in data)
+      )
+        return
+      if (
+        data.kind === 'upload' &&
+        'source' in data &&
+        typeof data.source === 'string' &&
+        localAttachmentIdentity(data.source) &&
+        'backend' in data &&
+        typeof data.backend === 'string'
+      )
+        receiveAttachmentChange({
+          kind: 'upload',
+          storageScope,
+          source: data.source,
+          backend: data.backend,
+        })
+      else if (
+        data.kind === 'release' &&
+        'sources' in data &&
+        Array.isArray(data.sources) &&
+        data.sources.every(
+          (source) => typeof source === 'string' && localAttachmentIdentity(source),
+        )
+      )
+        receiveAttachmentChange({ kind: 'release', storageScope, sources: data.sources })
+    }
+  } catch {
+    /* Page activation still rechecks IndexedDB when browser messaging is unavailable. */
+  }
+}
+
+function recheckAttachmentChanges() {
+  pageHidden = false
+  connectChangeChannel()
+  const change = { storageScope: scopedStorageName(BASE_DB_NAME) }
+  for (const listener of uploadListeners) listener(change)
+}
+function visibilityChanged() {
+  if (document.visibilityState === 'visible') recheckAttachmentChanges()
+}
+function hideAttachmentChanges() {
+  pageHidden = true
+  closeChangeChannel()
+}
+function watchAttachmentChanges() {
+  if (typeof window === 'undefined') return
+  if (!watchingChanges) {
+    watchingChanges = true
+    window.addEventListener('focus', recheckAttachmentChanges)
+    window.addEventListener('pageshow', recheckAttachmentChanges)
+    window.addEventListener('pagehide', hideAttachmentChanges)
+    document.addEventListener('visibilitychange', visibilityChanged)
+  }
+  connectChangeChannel()
+}
+function stopWatchingAttachmentChanges() {
+  if (uploadListeners.size || releaseListeners.size || !watchingChanges) return
+  watchingChanges = false
+  closeChangeChannel()
+  window.removeEventListener('focus', recheckAttachmentChanges)
+  window.removeEventListener('pageshow', recheckAttachmentChanges)
+  window.removeEventListener('pagehide', hideAttachmentChanges)
+  document.removeEventListener('visibilitychange', visibilityChanged)
+}
+function publishAttachmentChange(change: AttachmentChange) {
+  receiveAttachmentChange(change)
+  if (watchingChanges) connectChangeChannel()
+  if (typeof BroadcastChannel === 'undefined') return
+  let publisher: BroadcastChannel | undefined
+  try {
+    publisher =
+      changeChannel && channelScope === change.storageScope
+        ? changeChannel
+        : new BroadcastChannel(`attachment-changes:${change.storageScope}`)
+    publisher.postMessage(change)
+  } catch {
+    /* Persisted state remains authoritative; activation can recover a missed message. */
+  } finally {
+    if (publisher && publisher !== changeChannel) publisher.close()
   }
 }
 
@@ -452,8 +589,7 @@ export function attachmentSourceOwner(ownerId: string) {
         tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('attachment_owner_failed'))
       })
       if (removed.length)
-        for (const listener of releaseListeners)
-          listener({ sources: removed, storageScope: dbName })
+        publishAttachmentChange({ kind: 'release', sources: removed, storageScope: dbName })
     } finally {
       db.close()
     }
@@ -602,7 +738,7 @@ export function recoverLocalAttachmentSources(): Promise<void> {
       db.close()
     }
     if (removed.length)
-      for (const listener of releaseListeners) listener({ sources: removed, storageScope: dbName })
+      publishAttachmentChange({ kind: 'release', sources: removed, storageScope: dbName })
   }, dbName)
   recoveredScopes.set(dbName, recovery)
   void recovery.catch(() => {

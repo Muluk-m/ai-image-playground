@@ -659,9 +659,12 @@ export default function AgentComposer({
         () => restore(),
       )
       .finally(async () => {
-        await session.flush()
-        if (!session.getSnapshot().error) await handoff?.release().catch(() => {})
-        releaseSubmission()
+        try {
+          await session.flush()
+          if (!session.getSnapshot().error) await handoff?.release().catch(() => {})
+        } finally {
+          releaseSubmission()
+        }
       })
   }
 

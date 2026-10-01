@@ -90,6 +90,11 @@ export async function outgoingMessages(projectId: string): Promise<OutgoingMessa
   }
 }
 
+/** Draft recovery must distinguish an empty journal from storage that could not be read. */
+export async function outgoingCommandIds(projectId: string): Promise<ReadonlySet<string>> {
+  return new Set((await readRaw(key(projectId))).map((message) => message.id))
+}
+
 /**
  * 起轮**之前**落一条。这一步要等它写完：写在飞行途中，刷新就可能抢在写入之前。
  * 持久原件的发送命令必须先保存成功；旧内联输入保留原有尽力保存行为。

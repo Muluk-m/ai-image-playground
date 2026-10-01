@@ -808,10 +808,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   const resumeOutgoing = async (projectId: string) => {
     if (resuming.has(projectId)) return
     resuming.add(projectId)
+    const sameAccount = accountScope()
     try {
       for (const message of await outgoingMessages(projectId)) {
         // 项目换了就停：这几条属于刚才那个项目，发到别处去就串了。
-        if (currentCanvasProject()?.id !== projectId) return
+        if (!sameAccount() || currentCanvasProject()?.id !== projectId) return
+        // A crash can leave both staged draft and journal; the journal now owns this command.
+        const draft = agentDraft(message.conversationId, projectId)
+        await draft.ready
+        if (!sameAccount()) return
+        if (!(await draft.acceptSubmission(message.id))) return
+        if (!sameAccount() || currentCanvasProject()?.id !== projectId) return
         if (deliveredAlready(message)) {
           await forgetOutgoing(projectId, message.id)
           continue

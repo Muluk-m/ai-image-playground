@@ -68,6 +68,7 @@ export async function bootstrapClientCapabilities(
     const body = result?.body
     if (
       result?.parsed?.['agent:attachments'] &&
+      result.parsed['agent:bulk-attachments'] === true &&
       typeof body === 'object' &&
       body !== null &&
       'attachmentLimits' in body
