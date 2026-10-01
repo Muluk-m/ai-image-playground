@@ -50,6 +50,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
       <header className="flex flex-wrap items-baseline gap-3 border-b pb-3">
         <ShortId value={task.id} len={12} className="text-sm" />
         <StatusBadge status={task.status} />
+        {task.kind === 'analysis' ? <span className="text-xs font-medium">图片分析</span> : null}
         <span className="text-xs text-muted-foreground">
           提交：
           <FuzzyTime ts={task.submitted_at} />
@@ -140,45 +141,49 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
             </pre>
           </div>
 
-          <div className="mt-4">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              参考图 {inputImages.kind === 'count' ? `(${inputImages.count})` : null}
-            </div>
-            {inputImages.kind === 'count' && inputImages.count > 0 ? (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {Array.from({ length: inputImages.count }).map((_, i) => (
-                  <Button
-                    key={i}
-                    type="button"
-                    variant="ghost"
-                    onClick={() => openLightbox('input', i)}
-                    className="block aspect-square h-auto w-full overflow-hidden rounded border bg-muted p-0 hover:bg-muted"
-                  >
-                    <img
-                      src={adminApiUrl(
-                        `/api/tasks/${encodeURIComponent(task.id)}/input-image?idx=${i}`,
-                      )}
-                      alt={`参考图 ${i + 1}`}
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  </Button>
-                ))}
+          {!task.analysis ? (
+            <div className="mt-4">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                参考图 {inputImages.kind === 'count' ? `(${inputImages.count})` : null}
               </div>
-            ) : inputImages.kind === 'not_archived' ? (
-              <UnarchivedRef />
-            ) : (
-              <span className="text-xs text-muted-foreground">无</span>
-            )}
-          </div>
+              {inputImages.kind === 'count' && inputImages.count > 0 ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {Array.from({ length: inputImages.count }).map((_, i) => (
+                    <Button
+                      key={i}
+                      type="button"
+                      variant="ghost"
+                      onClick={() => openLightbox('input', i)}
+                      className="block aspect-square h-auto w-full overflow-hidden rounded border bg-muted p-0 hover:bg-muted"
+                    >
+                      <img
+                        src={adminApiUrl(
+                          `/api/tasks/${encodeURIComponent(task.id)}/input-image?idx=${i}`,
+                        )}
+                        alt={`参考图 ${i + 1}`}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    </Button>
+                  ))}
+                </div>
+              ) : inputImages.kind === 'not_archived' ? (
+                <UnarchivedRef />
+              ) : (
+                <span className="text-xs text-muted-foreground">无</span>
+              )}
+            </div>
+          ) : null}
         </section>
 
         {/* Result */}
         <section className="min-w-0 rounded-md border bg-card p-3 sm:p-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Result
+            {task.analysis ? '图片分析结果' : 'Result'}
           </h3>
-          {task.error_message ? (
+          {task.analysis ? (
+            <AnalysisResult analysis={task.analysis} error={task.error_message} />
+          ) : task.error_message ? (
             <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-xs">
               <div className="mb-1 flex items-center gap-2">
                 <span className="font-medium text-destructive">{task.error_type ?? 'error'}</span>
@@ -249,6 +254,62 @@ function UnarchivedRef() {
     <div className="flex items-center gap-2 rounded border border-dashed px-3 py-2 text-xs text-muted-foreground">
       <ImageOff className="h-4 w-4 opacity-60" />
       <span>参考图未存档（OpenAI multipart 直传未持久化）</span>
+    </div>
+  )
+}
+
+function AnalysisResult({
+  analysis,
+  error,
+}: {
+  analysis: NonNullable<TaskDetail['analysis']>
+  error: string | null
+}) {
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex flex-wrap gap-3">
+        <span>预扣 {analysis.reservedCredits} 积分</span>
+        <span>
+          {analysis.actualCredits === null ? '费用待核实' : `实扣 ${analysis.actualCredits} 积分`}
+        </span>
+        {analysis.pricing.exemption === 'chat-free' ? <span>对话免单</span> : null}
+        {analysis.pricing.exemption === 'non-billing' ? <span>未启用计费</span> : null}
+      </div>
+      {analysis.coverage ? (
+        <p>
+          已检查 {analysis.coverage.reviewedImageIds.length} /{' '}
+          {analysis.coverage.requiredImageIds.length} 张
+        </p>
+      ) : (
+        <p>覆盖范围待核实</p>
+      )}
+      {analysis.coverage?.missingImageIds.length ? (
+        <p>未检查：{analysis.coverage.missingImageIds.join('、')}</p>
+      ) : null}
+      {analysis.usage ? (
+        <p>
+          输入 {analysis.usage.inputTokens} · 缓存 {analysis.usage.cachedInputTokens ?? 0} · 输出{' '}
+          {analysis.usage.outputTokens} tokens
+        </p>
+      ) : (
+        <p>用量未知</p>
+      )}
+      {analysis.findings?.map((finding) => (
+        <div className="rounded border p-3" key={finding.imageId}>
+          <div className="mb-1 font-mono text-muted-foreground">{finding.imageId}</div>
+          <p className="whitespace-pre-wrap break-words">{finding.text}</p>
+        </div>
+      ))}
+      {analysis.evidence?.map((evidence, index) => (
+        <p className="text-muted-foreground" key={`${evidence.imageId ?? 'image'}:${index}`}>
+          {evidence.imageId ?? '图片'} · {evidence.width} × {evidence.height} · {evidence.bytes}{' '}
+          bytes · {evidence.representation}
+        </p>
+      ))}
+      {analysis.upstreamRequestId ? (
+        <p className="break-all font-mono">请求：{analysis.upstreamRequestId}</p>
+      ) : null}
+      {error ? <p className="text-destructive">{error}</p> : null}
     </div>
   )
 }

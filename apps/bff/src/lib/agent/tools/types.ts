@@ -1,6 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentBackgroundJob,
+  AgentBatchAnalysisLimit,
   AgentCanvasEditPlan,
   AgentCanvasSnapshot,
   AgentFetchedImage,
@@ -90,6 +91,7 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
   readonly executedPrompt?: string
   readonly stage?: AgentToolStage

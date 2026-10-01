@@ -93,8 +93,15 @@
     "fallback": "没有完成"
   },
   "agentBatch": {
+    "storage_restore_failed": "本地操作记录恢复失败，暂时只能查看。请重试恢复。",
+    "output_unavailable": "结果暂时无法读取，请重试。",
+    "batch_price_changed": "价格已变动，请确认最新报价。",
     "fallback": "计划操作失败，当前内容已保留，请重试。",
-    "batch_version_conflict": "计划已有新版本，请刷新后再修改。"
+    "batch_version_conflict": "计划已有新版本，请刷新后再修改。",
+    "insufficient_credits": "积分不足，批次已暂停。",
+    "input_limit": "输入超过当前限制，批次已暂停。",
+    "upstream_auth": "生成服务认证失效，批次已暂停。",
+    "model_unavailable": "所选模型或通道暂不可用，批次已暂停。"
   },
   "attachment": {
     "attachment_capability_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",

@@ -43,6 +43,8 @@ export class ChatTimeoutError extends Error {
 interface ChatResponse {
   readonly ok: boolean
   readonly status: number
+  /** Real fetch responses expose headers; legacy test transports may omit them. */
+  readonly headers?: Pick<Headers, 'get'>
   text(): Promise<string>
 }
 
@@ -96,9 +98,15 @@ export interface ChatAttempt {
   readonly startedAt: number
   readonly finishedAt: number
   readonly status: 'completed' | 'failed'
-  readonly usage: { readonly inputTokens: number; readonly outputTokens: number } | null
+  readonly usage: {
+    readonly inputTokens: number
+    readonly outputTokens: number
+    readonly cachedInputTokens?: number
+  } | null
   readonly httpDispatchCount?: 0 | 1
   readonly requestBytes?: number | null
+  readonly upstreamRequestId?: string
+  readonly upstreamStatus?: number
   readonly localRejection?: AgentRequestBudgetError
 }
 
@@ -110,6 +118,22 @@ export interface ChatAsk {
   readonly timeoutMs: number
   /** 每次尝试各报告一次；本地拒绝显式标记零派发与零用量，不包含请求正文。 */
   readonly onAttempt?: (attempt: ChatAttempt) => Promise<void>
+}
+
+/** One independently accounted call; retrying requires a new explicitly authorized task. */
+export interface ChatOnceAsk extends ChatAsk {
+  readonly attemptId: string
+  readonly signal?: AbortSignal
+  readonly beforeDispatch?: (intent: {
+    readonly id: string
+    readonly requestBytes: number
+    readonly signal: AbortSignal
+  }) => Promise<void>
+}
+
+/** Shares serialization and transport with chat while deliberately skipping its retry policy. */
+export function askChatModelOnce(ask: ChatOnceAsk): Promise<string | undefined> {
+  return requestContent(requestBody(ask), ask, ask)
 }
 
 function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string {
@@ -146,38 +170,65 @@ function responseUsage(raw: string): ChatAttempt['usage'] {
     output < 0
   )
     return null
-  return { inputTokens: input, outputTokens: output }
+  const details = payload.usage.prompt_tokens_details
+  const cached = isObject(details) ? details.cached_tokens : undefined
+  if (
+    cached !== undefined &&
+    (typeof cached !== 'number' || !Number.isSafeInteger(cached) || cached < 0 || cached > input)
+  )
+    return null
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    ...(typeof cached === 'number' && cached > 0 ? { cachedInputTokens: cached } : {}),
+  }
 }
 
 /** 上游出错时偶尔回一整页 HTML，而重试分类器只看模式：截一段够它匹配就行。 */
 const UPSTREAM_DETAIL_CHARS = 500
 
-async function requestContent(body: string, ask: ChatAsk): Promise<string | undefined> {
-  const id = crypto.randomUUID()
+async function requestContent(
+  body: string,
+  ask: ChatAsk,
+  once?: ChatOnceAsk,
+): Promise<string | undefined> {
+  const id = once?.attemptId ?? crypto.randomUUID()
   const startedAt = Date.now()
-  let requestBytes: number
-  try {
-    requestBytes = assertOutboundBody(body, config.operator.quotas['agent:request-max-bytes'])
-  } catch (error) {
-    if (error instanceof AgentRequestBudgetError) {
-      await ask.onAttempt?.({
-        id,
-        model: ask.model,
-        startedAt,
-        finishedAt: Date.now(),
-        status: 'failed',
-        usage: { inputTokens: 0, outputTokens: 0 },
-        httpDispatchCount: 0,
-        requestBytes: error.requestBytes,
-        localRejection: error,
-      })
-    }
-    throw error
-  }
+  let requestBytes: number | null | undefined
+  let localRejection: AgentRequestBudgetError | undefined
   let usage: ChatAttempt['usage'] = null
   let status: ChatAttempt['status'] = 'failed'
-  const deadline = startDeadline(ask.timeoutMs)
+  let dispatched = false
+  let upstreamRequestId: string | undefined
+  let upstreamStatus: number | undefined
+  const deadline = startDeadline(ask.timeoutMs, once?.signal)
   try {
+    deadline.signal.throwIfAborted()
+    try {
+      requestBytes = assertOutboundBody(body, config.operator.quotas['agent:request-max-bytes'])
+    } catch (error) {
+      if (error instanceof AgentRequestBudgetError) {
+        localRejection = error
+        requestBytes = error.requestBytes
+      }
+      throw error
+    }
+    if (once?.beforeDispatch) {
+      const beforeDispatch = once.beforeDispatch
+      const bytes = requestBytes
+      await new Promise<void>((resolve, reject) => {
+        const aborted = () => reject(deadline.signal.reason)
+        deadline.signal.addEventListener('abort', aborted, { once: true })
+        if (deadline.signal.aborted) aborted()
+        else
+          void beforeDispatch({ id, requestBytes: bytes, signal: deadline.signal })
+            .then(resolve, reject)
+            .finally(() => deadline.signal.removeEventListener('abort', aborted))
+      })
+    }
+    // Cancellation may win while the durable intent is being written; report a known zero below.
+    deadline.signal.throwIfAborted()
+    dispatched = true
     const response = await chatTransport.current(`${config.upstream.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -188,6 +239,9 @@ async function requestContent(body: string, ask: ChatAsk): Promise<string | unde
       signal: deadline.signal,
       dispatcher: chatDispatcher,
     })
+    upstreamStatus = response.status
+    upstreamRequestId =
+      response.headers?.get('x-request-id') ?? response.headers?.get('request-id') ?? undefined
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
       throw new ChatUpstreamError(response.status, detail.slice(0, UPSTREAM_DETAIL_CHARS))
@@ -208,9 +262,12 @@ async function requestContent(body: string, ask: ChatAsk): Promise<string | unde
       startedAt,
       finishedAt: Date.now(),
       status,
-      usage,
-      httpDispatchCount: 1,
-      requestBytes,
+      usage: dispatched ? usage : { inputTokens: 0, outputTokens: 0 },
+      httpDispatchCount: dispatched ? 1 : 0,
+      ...(requestBytes !== undefined ? { requestBytes } : {}),
+      ...(upstreamRequestId ? { upstreamRequestId } : {}),
+      ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+      ...(localRejection ? { localRejection } : {}),
     })
   }
 }

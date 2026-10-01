@@ -44,11 +44,12 @@ export class MediaError extends Error {
 }
 
 export async function lockMediaOwner(tx: BffTransaction, userId: string) {
+  // Serialize owner mutations without blocking foreign-key references from durable events.
   await tx
     .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
-    .for('update')
+    .for('no key update')
 }
 
 /** Call with the user's row locked: old assets and new media share one capacity boundary. */

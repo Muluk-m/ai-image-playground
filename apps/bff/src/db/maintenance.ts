@@ -8,13 +8,14 @@ import {
   isNotNull,
   isNull,
   lt,
-  ne,
   notExists,
   notInArray,
   or,
   type SQL,
+  sql,
 } from 'drizzle-orm'
 import { config } from '../config'
+import { snapshotAgentBatchesBeforePurge } from '../lib/agent/batch-progress'
 import { settleAgentConversationJobs } from '../lib/agent/conversations'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { log } from '../lib/logger'
@@ -77,9 +78,10 @@ export function recoverAbandonedTasks(
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const recoverable = and(
     scope,
+    inArray(schema.tasks.kind, ['queue', 'chat']),
     config.execution.legacyOrigin
       ? or(
-          ne(schema.tasks.kind, 'chat'),
+          eq(schema.tasks.kind, 'queue'),
           notExists(
             db
               .select({ id: schema.agent_conversations.id })
@@ -94,7 +96,7 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
         )
       : undefined,
     or(
-      ne(schema.tasks.kind, 'chat'),
+      eq(schema.tasks.kind, 'queue'),
       notExists(
         db
           .select({ id: schema.agent_executions.turn_id })
@@ -235,7 +237,7 @@ async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
     .selectDistinct({ id: schema.tasks.agent_conversation_id })
     .from(schema.tasks)
     .where(
-      and(expired, isNotNull(schema.tasks.agent_conversation_id), ne(schema.tasks.kind, 'chat')),
+      and(expired, isNotNull(schema.tasks.agent_conversation_id), eq(schema.tasks.kind, 'queue')),
     )
   const failed: string[] = []
   for (const { id } of conversations) {
@@ -269,11 +271,26 @@ export async function purgeOldTasks(
   // 智能体的后台任务只在有人读会话时结算；没人读过的会话若直接清行，结果就只剩「任务丢失了」。
   // 清之前先把它们所在的会话结算一遍，结算失败的会话这一轮不清，留给下次。
   const unsettled = await settleAgentJobsBeforePurge(expired)
+  await snapshotAgentBatchesBeforePurge(expired)
   const deleted = await db
     .delete(schema.tasks)
     .where(
       and(
         expired,
+        notExists(
+          db
+            .select({ id: schema.agent_batch_attempts.task_id })
+            .from(schema.agent_batch_attempts)
+            .where(
+              and(
+                eq(schema.agent_batch_attempts.task_id, schema.tasks.id),
+                or(
+                  isNull(schema.agent_batch_attempts.terminal_snapshot),
+                  sql`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown'`,
+                ),
+              ),
+            ),
+        ),
         unsettled.length === 0
           ? undefined
           : or(

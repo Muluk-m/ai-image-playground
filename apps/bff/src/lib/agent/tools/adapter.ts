@@ -188,6 +188,7 @@ export function toolResultBlock(
     ...head,
     status: 'succeeded',
     ...(details?.batchId ? { batchId: details.batchId } : {}),
+    ...(details?.analysisLimit ? { analysisLimit: details.analysisLimit } : {}),
     ...(details?.executedPrompt ? { prompt: details.executedPrompt } : {}),
     title: start.title,
     ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),

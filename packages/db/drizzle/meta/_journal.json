@@ -358,6 +358,34 @@
       "when": 1790853000003,
       "tag": "0051_agent_batch_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790853000004,
+      "tag": "0052_agent_batch_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790853000005,
+      "tag": "0053_analysis_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790853000006,
+      "tag": "0054_agent_batch_retry",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790853000007,
+      "tag": "0055_agent_batch_confirmation",
+      "breakpoints": true
     }
   ]
 }

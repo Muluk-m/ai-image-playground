@@ -74,3 +74,29 @@ it('refreshes task state when another operator resolves an uncertain command', a
   )
   expect(screen.getByRole('button', { name: '确认未产生结果' })).toBeDisabled()
 })
+
+it('explains independent analysis evidence and token usage for manual reconciliation', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        kind: 'analysis',
+        status: 'reconciling',
+        upstreamTaskIds: [],
+        dispatches: [],
+        decisions: [],
+      }),
+    ),
+  )
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <TaskReconciliation taskId="analysis-manual" />
+    </QueryClientProvider>,
+  )
+  expect(await screen.findByLabelText('分析结果 JSON（findings 和 usage）')).toBeInTheDocument()
+  expect(
+    screen.getByText(/请核实原分析请求的逐图结论和 token 用量；未知用量不能填写为 0。/),
+  ).toBeInTheDocument()
+  expect(screen.getByText(/联合比较还需提供 comparison/)).toBeInTheDocument()
+})

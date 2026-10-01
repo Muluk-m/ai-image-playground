@@ -456,6 +456,7 @@ const TASK_LIST_COLUMNS = sql`
 function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
   return {
     id: String(row.id),
+    kind: row.kind === 'analysis' ? 'analysis' : 'queue',
     provider: String(row.provider),
     model: String(row.model),
     status: taskStatus(row.status),
@@ -522,9 +523,23 @@ export async function getUserTasks(
     statusFilter && statusFilter !== 'all' ? sql`AND t.status = ${statusFilter}` : sql``
 
   const rows = (await db.execute(sql`
-    SELECT ${TASK_LIST_COLUMNS}
-    FROM queue_tasks t
-    WHERE t.user_id = ${userId}
+    SELECT t.*
+    FROM (
+      SELECT ${TASK_LIST_COLUMNS}, 'queue' AS kind
+      FROM queue_tasks t
+      WHERE t.user_id = ${userId}
+      UNION ALL
+      SELECT a.task_id AS id, 'openai-compat' AS provider, a.model, a.status,
+        a.created_at AS submitted_at, c.dispatched_at AS started_at, a.completed_at,
+        a.error_code AS error_type, NULL::integer AS upstream_status,
+        jsonb_build_object('prompt', a.input_snapshot->>'prompt') AS request_payload,
+        a.attempt AS attempt_count, COALESCE(c.http_dispatch_count, 0) AS upstream_invocation_count,
+        'analysis' AS kind
+      FROM analysis_tasks a
+      LEFT JOIN analysis_model_calls c ON c.task_id = a.task_id
+      WHERE a.user_id = ${userId}
+    ) t
+    WHERE TRUE
       ${statusCondition}
       ${keyset}
     ORDER BY t.submitted_at DESC, t.id DESC
@@ -642,7 +657,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     .where(eq(schema.queue_tasks.id, taskId))
     .limit(1)
   const task = rows[0]
-  if (!task) return null
+  if (!task) return getAnalysisTask(taskId)
 
   // 最小实现：从原始 result_payload 抽 image meta（index + mime），不解 base64
   const images = extractImagesMeta(task.provider, task.result_payload)
@@ -665,6 +680,55 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     upstream_body: task.upstream_body,
     device_id,
     next_retry_at: task.next_retry_at,
+  }
+}
+
+/** Independent analysis facts outlive transient worker rows and never expose image archives. */
+async function getAnalysisTask(taskId: string): Promise<TaskDetail | null> {
+  const { db, schema } = getHandle()
+  const [row] = await db
+    .select({ analysis: schema.analysis_tasks, call: schema.analysis_model_calls })
+    .from(schema.analysis_tasks)
+    .leftJoin(
+      schema.analysis_model_calls,
+      eq(schema.analysis_model_calls.task_id, schema.analysis_tasks.task_id),
+    )
+    .where(eq(schema.analysis_tasks.task_id, taskId))
+    .limit(1)
+  if (!row) return null
+  const { analysis, call } = row
+  return {
+    id: analysis.task_id,
+    kind: 'analysis',
+    provider: 'openai-compat',
+    model: analysis.model,
+    status: analysis.status,
+    submitted_at: analysis.created_at,
+    started_at: call?.dispatched_at ?? null,
+    completed_at: analysis.completed_at,
+    error_type: analysis.error_code,
+    upstream_status: null,
+    prompt: analysis.input_snapshot.prompt,
+    request_payload: { prompt: analysis.input_snapshot.prompt },
+    upstream_invocation_count: call?.http_dispatch_count ?? 0,
+    attempt_count: analysis.attempt,
+    result_meta: { images: [] },
+    error_message: analysis.error_code,
+    upstream_body: null,
+    device_id: analysis.device_id,
+    user_id: analysis.user_id,
+    next_retry_at: null,
+    analysis: {
+      pricing: analysis.price_snapshot,
+      reservedCredits: analysis.reserved_credits,
+      actualCredits: analysis.actual_credits,
+      findings: analysis.findings,
+      coverage: analysis.coverage,
+      evidence: analysis.evidence,
+      usage: call?.usage ?? null,
+      upstreamRequestId: call?.upstream_request_id ?? null,
+      localRejection: call?.local_rejection ?? null,
+    },
   }
 }
 

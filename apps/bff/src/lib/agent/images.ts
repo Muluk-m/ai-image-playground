@@ -23,7 +23,7 @@ import { taskAccessWhere } from '../task-access'
 import { toModelImageDataUrl, toPreviewDataUrl } from './modelImage'
 import { InvalidSelectionError, imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
-import { visualByteLimit, withVisualPreparation } from './visual-resources'
+import { assertVisualBytes, visualByteLimit, withVisualPreparation } from './visual-resources'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
 
@@ -360,6 +360,24 @@ export async function readConversationMedia(
     contentType: previewKey ? 'image/webp' : row.contentType,
     reduced: previewKey !== null,
   }
+}
+
+/** Owner-checked durable inputs for independent tasks; never silently omit a large input set. */
+export async function resolveOwnedMediaImages(
+  references: readonly import('@image-playground/shared').AgentMediaReference[],
+  userId: string,
+): Promise<ResolvedAgentImage[]> {
+  const images: ResolvedAgentImage[] = []
+  let bytes = 0
+  for (const reference of references) {
+    const source = await readMediaReference(reference, '', userId, 'preview', true)
+    const image = await modelImage(source, 'preview')
+    if (!image) throw new AgentToolError('invalid_params', '分析图片不可用，请重新确认输入范围。')
+    bytes += Buffer.byteLength(image.dataUrl) + Buffer.byteLength(image.maskDataUrl ?? '')
+    assertVisualBytes(bytes)
+    images.push(image)
+  }
+  return images
 }
 
 /** 遮罩坐标与选区身份绑定原件，不能把原尺寸遮罩套在媒体预览上。 */

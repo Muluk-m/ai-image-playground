@@ -494,7 +494,17 @@ export async function enqueueAgentWake(
   payload: AgentInboxTaskResultPayload,
   now: number,
 ): Promise<string> {
-  const id = crypto.randomUUID()
+  const batchEventId = payload.batch
+    ? `batch-result:${payload.batch.batchId}:${payload.batch.version}`
+    : null
+  if (batchEventId) {
+    const [existing] = await tx
+      .select({ id: inbox.id })
+      .from(inbox)
+      .where(and(eq(inbox.conversation_id, conversationId), eq(inbox.id, batchEventId)))
+    if (existing) return existing.id
+  }
+  const id = batchEventId ?? crypto.randomUUID()
   await tx.insert(inbox).values({
     conversation_id: conversationId,
     id,

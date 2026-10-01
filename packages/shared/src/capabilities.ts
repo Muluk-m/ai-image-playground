@@ -7,6 +7,8 @@ export const CAPABILITIES = {
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'agent:chat': { defaultValue: false, clientExposed: true },
+  'agent:batch-analysis': { defaultValue: false, clientExposed: true },
+  'agent:batch-execution': { defaultValue: false, clientExposed: true },
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'agent:bulk-attachments': { defaultValue: false, clientExposed: true },
@@ -71,6 +73,11 @@ export interface AdminCapabilityManifest {
 }
 
 export const QUOTAS = {
+  'agent:batch-source-versions': { defaultValue: 4 },
+  'agent:batch-max-items': { defaultValue: 3 },
+  'agent:batch-dispatch-window': { defaultValue: 2 },
+  /** Independent analysis consumer keeps draining accepted tasks when intake is disabled. */
+  'agent:analysis-concurrency': { defaultValue: 1 },
   /** Application resource guard, not a provider throughput guarantee. */
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
   'agent:visual-prepare-queue': { defaultValue: 100 },
