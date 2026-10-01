@@ -385,6 +385,7 @@
     "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
     "sourceGone": "The source image is no longer on the canvas",
     "canvasAria": "Smart edit selection canvas",
+    "regionLimit": "You can mark up to {{max}} regions. Remove an unused region to continue.",
     "regionRemoved": " (removed)",
     "promptTooLong": "Keep the editing instructions within {{max}} characters.",
     "regionMissing": "Remove unavailable area references or redo their selections before sending."

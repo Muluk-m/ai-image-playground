@@ -11,6 +11,8 @@ export interface InpaintReference {
 const DEFAULT_BRUSH_PX = 18
 export const MIN_BRUSH_PX = 4
 export const MAX_BRUSH_PX = 80
+/** Matches the agent reference protocol's region limit. Erase does not send regions. */
+export const MAX_INPAINT_REGIONS = 32
 
 /** 涂抹会话干的是哪件事：按描述重画，还是把涂掉的东西抹干净。 */
 export type PaintEditKind = 'inpaint' | 'erase'
@@ -37,7 +39,7 @@ export const useInpaintSession = create<{
   close(): void
   setTool(tool: 'rect' | 'brush' | 'eraser'): void
   setBrushPx(px: number): void
-  addStroke(stroke: MaskStroke): void
+  addStroke(stroke: MaskStroke): boolean
   selectStroke(index: number): void
   removeStroke(index: number): void
   undo(): void
@@ -45,7 +47,7 @@ export const useInpaintSession = create<{
   setPrompt(prompt: string): void
   setReference(reference: InpaintReference | null): void
   setSubmitting(submitting: boolean): void
-}>((set) => ({
+}>((set, get) => ({
   imageId: null,
   kind: 'inpaint',
   strokes: [],
@@ -84,13 +86,17 @@ export const useInpaintSession = create<{
     }),
   setTool: (tool) => set({ tool }),
   setBrushPx: (px) => set({ brushPx: Math.min(MAX_BRUSH_PX, Math.max(MIN_BRUSH_PX, px)) }),
-  addStroke: (stroke) =>
-    set((state) => ({
+  addStroke: (stroke) => {
+    const state = get()
+    if (state.kind === 'inpaint' && state.strokes.length >= MAX_INPAINT_REGIONS) return false
+    set({
       strokes: [...state.strokes, stroke],
       strokeIds: [...state.strokeIds, state.nextStrokeId],
       nextStrokeId: state.nextStrokeId + 1,
       selectedStroke: state.strokes.length,
-    })),
+    })
+    return true
+  },
   selectStroke: (index) =>
     set((state) => ({ selectedStroke: state.strokes[index] ? index : null })),
   removeStroke: (index) =>

@@ -62,6 +62,14 @@ it('inserts region 1 after restarting intelligent edit or switching back from er
     await click('智能改图')
     draw()
     expect(host.querySelector('[contenteditable]')?.textContent).toContain('@区域1')
+    const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+      button.textContent?.includes('发送给 Agent'),
+    )
+    expect(send?.disabled).toBe(true)
+    act(() =>
+      useInpaintSession.getState().setPrompt(useInpaintSession.getState().prompt + '修改颜色'),
+    )
+    expect(send?.disabled).toBe(false)
     await click('智能改图')
     expect(useInpaintSession.getState().prompt).toBe('')
     draw()

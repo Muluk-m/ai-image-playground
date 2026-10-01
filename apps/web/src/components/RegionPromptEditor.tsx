@@ -57,6 +57,7 @@ export function useRegionPrompt({
     .map((entry) => entry[1])
   const editor = usePromptEditor({
     value,
+    preserveFocus: true,
     labels,
     referenceIds,
     onChange,
@@ -74,9 +75,15 @@ export function useRegionPrompt({
             type="button"
             aria-label={t('inpaint.removeRegion', { no: number })}
             onPointerDown={(event) => event.preventDefault()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
+            }}
             onClick={() => {
               onChange(value.split(getSelectedImageMentionLabel(index)).join(''))
-              if (id !== undefined && active.has(number)) onRemove(id)
+              if (id !== undefined && active.has(number)) {
+                inserted.current.delete(id)
+                onRemove(id)
+              }
             }}
           >
             <X size={12} aria-hidden="true" />
@@ -110,6 +117,7 @@ export function useRegionPrompt({
     editor,
     numberFor,
     serialize: () => getVisiblePrompt(value, label),
+    hasProse: Boolean(getVisiblePrompt(value, () => '').trim()),
     tooLong: maxLength !== undefined && getVisiblePrompt(value, label).length > maxLength,
     maxLength,
     hasMissing: getMentionedImageIndexes(value).some((index) => !active.has(index + 1)),

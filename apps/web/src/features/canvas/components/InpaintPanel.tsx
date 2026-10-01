@@ -41,7 +41,14 @@ export default function InpaintPanel({
   const image = element?.type === 'image' ? element : null
 
   const submit = async () => {
-    if (pendingRef.current || !image || regionPrompt.hasMissing) return
+    if (
+      pendingRef.current ||
+      !image ||
+      !painted ||
+      regionPrompt.hasMissing ||
+      (!erasing && !regionPrompt.hasProse)
+    )
+      return
     pendingRef.current = true
     onSendingChange(true)
     setPending(true)
@@ -201,7 +208,7 @@ export default function InpaintPanel({
               !painted ||
               !image ||
               regionPrompt.hasMissing ||
-              (!erasing && !session.prompt.trim())
+              (!erasing && !regionPrompt.hasProse)
             }
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
