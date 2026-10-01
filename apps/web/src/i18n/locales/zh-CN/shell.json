@@ -33,7 +33,9 @@
     "allCanvases": "全部",
     "newCanvas": "新建画布",
     "immersive": "沉浸式打开",
-    "guide": "使用指南"
+    "guide": "使用指南",
+    "showMore": "展开更多 ({{count}})",
+    "showLess": "收起"
   },
   "logout": {
     "title": "退出登录",

@@ -24,6 +24,8 @@ const ITEM =
   'flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 const ACTIVE_ITEM = 'bg-accent font-medium text-foreground'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
+/** 对话、画布各自最多先摆几条；再多就折起来，点开才全部列出。 */
+const FOLDED_COUNT = 5
 
 /**
  * 主导航。**没有顶栏**：品牌在侧栏里，账号与积分浮在右上角，整块主区从屏幕顶端开始。
@@ -57,8 +59,22 @@ export default function Sidebar() {
   const recent = projectCatalog(projects, cloudCatalog).filter(
     (project) => project.hasContent || project.workspaceOpened,
   )
-  const chats = recent.filter((project) => projectExperience(project) === 'chat').slice(0, 6)
-  const canvases = recent.filter((project) => projectExperience(project) === 'canvas').slice(0, 6)
+  const [unfolded, setUnfolded] = useState({ chat: false, canvas: false })
+  const allChats = recent.filter((project) => projectExperience(project) === 'chat')
+  const allCanvases = recent.filter((project) => projectExperience(project) === 'canvas')
+  const chats = unfolded.chat ? allChats : allChats.slice(0, FOLDED_COUNT)
+  const canvases = unfolded.canvas ? allCanvases : allCanvases.slice(0, FOLDED_COUNT)
+  const foldToggle = (kind: 'chat' | 'canvas', total: number) =>
+    total > FOLDED_COUNT ? (
+      <button
+        type="button"
+        aria-expanded={unfolded[kind]}
+        onClick={() => setUnfolded((state) => ({ ...state, [kind]: !state[kind] }))}
+        className="flex h-8 w-full items-center rounded-xl px-3 text-left text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        {unfolded[kind] ? t('nav.showLess') : t('nav.showMore', { count: total - FOLDED_COUNT })}
+      </button>
+    ) : null
 
   // 正在打开的那个项目。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 这一行不给反馈的话点下去像没反应。
@@ -207,6 +223,7 @@ export default function Sidebar() {
               </div>
             )
           })}
+          {foldToggle('chat', allChats.length)}
           <div className="group/head mt-3 flex h-9 items-center gap-2 px-3">
             <button
               type="button"
@@ -266,12 +283,15 @@ export default function Sidebar() {
               </button>
             </div>
           ))}
+          {foldToggle('canvas', allCanvases.length)}
+          {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}
+          <div className="min-h-6 flex-1" aria-hidden="true" />
           {/* 指南是独立的静态页，新标签打开，工作台原地不动。 */}
           <a
             href={GUIDE_PATHS[currentLocale()]}
             target="_blank"
             rel="noopener"
-            className={`${ITEM} ${IDLE_ITEM} mt-auto`}
+            className={`${ITEM} ${IDLE_ITEM} shrink-0`}
           >
             <BookOpen className="h-4 w-4" aria-hidden="true" />
             {t('nav.guide')}
