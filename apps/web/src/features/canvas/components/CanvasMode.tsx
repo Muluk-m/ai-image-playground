@@ -561,6 +561,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                       artifactPane={
                         hasSelectedResult && activeResult ? (
                           <AgentArtifactPane
+                            presentation="panel"
                             message={activeResult}
                             selectedId={selectedArtifactId}
                             onSelect={setSelectedArtifactId}
