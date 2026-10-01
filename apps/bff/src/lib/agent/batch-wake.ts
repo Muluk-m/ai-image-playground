@@ -1,6 +1,6 @@
 import type { AgentInboxTaskResultPayload } from '@image-playground/db'
 import type { AgentBatchAttemptSnapshot } from '@image-playground/shared'
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { AgentOwner } from './conversations'
 
@@ -13,7 +13,6 @@ export async function batchWakeSummary(
   if (owner.kind !== 'user' || notice.eventVersion !== 1) return null
   const [plan] = await db
     .select({
-      targets: schema.agent_batch_plans.attempt_targets,
       itemCount: schema.agent_batch_plans.item_count,
     })
     .from(schema.agent_batch_plans)
@@ -47,12 +46,20 @@ export async function batchWakeSummary(
       >`(${attempts.terminal_snapshot} ->> 'actualCredits')::double precision`,
     })
     .from(items)
+    .innerJoin(
+      schema.agent_batch_plans,
+      and(
+        eq(schema.agent_batch_plans.batch_id, items.batch_id),
+        eq(schema.agent_batch_plans.version, items.version),
+      ),
+    )
     .leftJoin(
       attempts,
       and(
         eq(attempts.batch_id, items.batch_id),
         eq(attempts.item_key, items.key),
-        sql`${attempts.attempt} = COALESCE((${JSON.stringify(plan.targets)}::jsonb ->> ${items.key})::integer, 1)`,
+        lte(attempts.version, items.version),
+        sql`${attempts.attempt} = COALESCE((${schema.agent_batch_plans.attempt_targets} ->> ${items.key})::integer, 1)`,
       ),
     )
     .where(and(eq(items.batch_id, notice.batchId), eq(items.version, notice.version)))
