@@ -8,7 +8,7 @@ import type {
   AgentBatchView,
   AgentMediaReference,
 } from '@image-playground/shared'
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
@@ -175,6 +175,11 @@ export async function createAgentBatchPlan(
 export class BatchPlanError extends Error {
   constructor(
     readonly code:
+      | 'batch_execution_unavailable'
+      | 'batch_size_exceeded'
+      | 'batch_price_changed'
+      | 'batch_submission_refused'
+      | 'batch_insufficient_credits'
       | 'batch_version_conflict'
       | 'invalid_batch_plan'
       | 'invalid_batch_cursor'
@@ -250,6 +255,41 @@ export async function readAgentBatchPlan(
     )
     .orderBy(asc(schema.agent_batch_items.ordinal))
     .limit(limit + 1)
+  const attempts = await db
+    .select({
+      itemKey: schema.agent_batch_attempts.item_key,
+      attempt: schema.agent_batch_attempts.attempt,
+      taskId: schema.agent_batch_attempts.task_id,
+      status: schema.tasks.status,
+    })
+    .from(schema.agent_batch_attempts)
+    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+    .where(
+      and(
+        eq(schema.agent_batch_attempts.batch_id, id),
+        lte(schema.agent_batch_attempts.version, plan.version),
+      ),
+    )
+  const terminal = attempts.filter((one) =>
+    ['completed', 'failed', 'cancelled'].includes(one.status),
+  )
+  const credits = terminal.length
+    ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
+        taskIds: terminal.map((one) => one.taskId),
+      })
+    : {}
+  const execution = new Map(
+    attempts.map((one) => [
+      one.itemKey,
+      {
+        taskId: one.taskId,
+        status: one.status,
+        attempt: one.attempt,
+        actualCredits: terminal.includes(one) ? (credits[one.taskId] ?? null) : null,
+      },
+    ]),
+  )
+  const complete = batch.confirmed_version === plan.version && terminal.length === plan.item_count
   return {
     batch: {
       id: batch.id,
@@ -263,12 +303,20 @@ export async function readAgentBatchPlan(
       title: plan.title,
       rule: plan.rule,
       itemCount: plan.item_count,
-      status: batch.status,
-      executionEnabled: false,
+      status: complete ? 'closed' : batch.status,
+      executionEnabled:
+        batchPlansAvailable({ userId }) && isCapabilityEnabled('agent:batch-execution'),
+      pauseReason: batch.pause_reason,
+      confirmationRequired: batch.confirmed_version !== batch.current_version,
+      submittedCount: attempts.length,
+      actualCredits: Object.values(credits).reduce((sum, value) => sum + value, 0),
       estimate: plan.estimate_snapshot,
       createdAt: batch.created_at,
     } satisfies AgentBatchView,
-    items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => item),
+    items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
+      ...item,
+      ...(execution.has(item.key) ? { execution: execution.get(item.key)! } : {}),
+    })),
     nextCursor:
       items.length > limit
         ? Buffer.from(JSON.stringify([id, plan.version, items[limit - 1]!.ordinal])).toString(

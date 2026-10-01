@@ -29,7 +29,15 @@ import { lockMediaOwner } from './projectMedia'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 
+export interface PreparedQueueTask {
+  readonly taskId: string
+  readonly requestHash: string
+  readonly requestPayload: PersistedSubmitRequest
+}
+
 export interface CreateQueueTaskInput {
+  /** Server-only preparation; its caller owns cleanup after its transaction commits or rolls back. */
+  readonly prepared?: PreparedQueueTask
   readonly provider: QueueProvider
   readonly model: string
   /** 输入图仍是 data URL，落库前在这里归档进对象存储。 */
@@ -244,6 +252,42 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
   }
 }
 
+/** Read, transform and archive image bytes before acquiring caller transaction locks. */
+export async function prepareQueueTask(input: CreateQueueTaskInput) {
+  const id = crypto.randomUUID()
+  let requestPayload: PersistedSubmitRequest
+  try {
+    const masked = await prepareMaskedSubmission(input)
+    requestPayload = {
+      ...(await archiveInputImages(id, masked?.request ?? input.request)),
+      ...(input.video ? { video: input.video } : {}),
+      ...masked?.facts,
+    }
+  } catch (error) {
+    await discardArchivedInputs(id)
+    if (error instanceof TypeError) {
+      return { kind: 'invalid_input_image' as const, message: error.message }
+    }
+    return {
+      kind: 'object_storage_error' as const,
+      message:
+        error instanceof ObjectStorageError ? error.message : 'Object storage input archive failed',
+    }
+  }
+  if (input.provider === 'openai-compat' && !input.video) {
+    requestPayload.moderation ??= DEFAULT_IMAGE_MODERATION
+  }
+
+  return {
+    kind: 'prepared' as const,
+    prepared: { taskId: id, requestHash: commandHash(input), requestPayload },
+  }
+}
+
+export async function discardQueueTaskPreparation(prepared: PreparedQueueTask): Promise<void> {
+  await discardArchivedInputs(prepared.taskId)
+}
+
 export async function createQueueTask(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskOutcome> {
@@ -261,29 +305,12 @@ export async function createQueueTask(
       if (legacy) return legacy
     }
   }
-  const id = crypto.randomUUID()
-  let requestPayload: PersistedSubmitRequest
-  try {
-    const masked = await prepareMaskedSubmission(input)
-    requestPayload = {
-      ...(await archiveInputImages(id, masked?.request ?? input.request)),
-      ...(input.video ? { video: input.video } : {}),
-      ...masked?.facts,
-    }
-  } catch (error) {
-    await discardArchivedInputs(id)
-    if (error instanceof TypeError) {
-      return { kind: 'invalid_input_image', message: error.message }
-    }
-    return {
-      kind: 'object_storage_error',
-      message:
-        error instanceof ObjectStorageError ? error.message : 'Object storage input archive failed',
-    }
-  }
-  if (input.provider === 'openai-compat' && !input.video) {
-    requestPayload.moderation ??= DEFAULT_IMAGE_MODERATION
-  }
+  const preparation = input.prepared
+    ? { kind: 'prepared' as const, prepared: input.prepared }
+    : await prepareQueueTask(input)
+  if (preparation.kind !== 'prepared') return preparation
+  const { taskId: id, requestPayload, requestHash } = preparation.prepared
+  if (requestHash !== hash) throw new TypeError('prepared_queue_request_mismatch')
 
   const now = Date.now()
   const pricing = pricingOf(input)
@@ -387,7 +414,8 @@ export async function createQueueTask(
   }
   const outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
 
-  if (outcome.kind !== 'created' || outcome.taskId !== id) await discardArchivedInputs(id)
+  if (!input.prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
+    await discardArchivedInputs(id)
   if (outcome.kind === 'idempotency_conflict' && input.userId && commandId && !input.tx) {
     return (await adoptLegacyCommand(input.userId, commandId, hash)) ?? outcome
   }

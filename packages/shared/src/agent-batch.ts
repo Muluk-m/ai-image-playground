@@ -1,5 +1,5 @@
 import type { AgentMediaReference, AgentTurnParams } from './agent'
-import type { QueueProvider } from './queue-protocol'
+import type { QueueProvider, TaskStatus } from './queue-protocol'
 
 export interface AgentBatchPriceSnapshot {
   readonly itemKey?: string
@@ -45,6 +45,13 @@ export interface AgentBatchItem {
   readonly dependencies: readonly string[]
 }
 
+export interface AgentBatchItemExecution {
+  readonly taskId: string
+  readonly status: TaskStatus
+  readonly attempt: number
+  readonly actualCredits: number | null
+}
+
 export interface AgentBatchView {
   readonly id: string
   readonly conversationId: string | null
@@ -60,15 +67,19 @@ export interface AgentBatchView {
   readonly title: string
   readonly rule: string
   readonly itemCount: number
-  readonly status: 'draft' | 'cancelled'
-  readonly executionEnabled: false
+  readonly status: 'draft' | 'cancelled' | 'running' | 'paused' | 'closed'
+  readonly executionEnabled: boolean
+  readonly pauseReason?: 'price_changed' | 'insufficient_credits' | null
+  readonly confirmationRequired?: boolean
+  readonly submittedCount?: number
+  readonly actualCredits?: number
   readonly estimate: AgentBatchEstimates
   readonly createdAt: number
 }
 
 export interface AgentBatchPage {
   readonly batch: AgentBatchView
-  readonly items: readonly AgentBatchItem[]
+  readonly items: readonly (AgentBatchItem & { readonly execution?: AgentBatchItemExecution })[]
   readonly nextCursor: string | null
 }
 
