@@ -55,9 +55,10 @@ const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 const { storeMedia } = await import('../../lib/projectMedia')
-setDurableMediaStoreForTesting(
-  Object.assign(new InMemoryObjectStore(), { sign: (key: string) => `http://media.test/${key}` }),
-)
+const mediaStore = Object.assign(new InMemoryObjectStore(), {
+  sign: (key: string) => `http://media.test/${key}`,
+})
+setDurableMediaStoreForTesting(mediaStore)
 afterAll(async () => {
   setChatFetchForTesting()
   setDurableMediaStoreForTesting()
@@ -307,6 +308,100 @@ it('quotes a paid follow-up inspection in a new confirmed version while preservi
     expect(await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))).toHaveLength(
       0,
     )
+  } finally {
+    config.operator = operator
+  }
+})
+
+it('rejects stale, unselected and duplicate-key followups before reading image objects', async () => {
+  const id = 'followup-preflight'
+  const now = Date.now()
+  const operator = config.operator
+  config.operator = {
+    ...operator,
+    capabilities: { ...operator.capabilities, 'agent:batch-analysis': true },
+  }
+  try {
+    await db
+      .insert(schema.users)
+      .values({ id, username: id, password_hash: 'fixture', created_at: now, updated_at: now })
+    await db
+      .insert(schema.agent_conversations)
+      .values({ id, user_id: id, title: id, created_at: now, updated_at: now })
+    const selected = await storeMedia(id, await fixturePng('#123456'), 'image/png')
+    const other = await storeMedia(id, await fixturePng('#abcdef'), 'image/png')
+    const inputs = [{ imageId: 'selected', mediaId: selected.id }]
+    await db.insert(schema.agent_batches).values({
+      id,
+      user_id: id,
+      conversation_id: id,
+      origin_turn_id: 'origin',
+      tool_call_id: 'plan',
+      experience: 'chat',
+      status: 'running',
+      current_version: 2,
+      confirmed_version: 2,
+      created_at: now,
+      updated_at: now,
+    })
+    const empty = {
+      status: 'available' as const,
+      estimatedCredits: 0,
+      estimatedChargeCredits: 0,
+      snapshots: [],
+    }
+    await db.insert(schema.agent_batch_plans).values({
+      batch_id: id,
+      version: 2,
+      title: id,
+      rule: 'selected only',
+      digest: 'a'.repeat(64),
+      item_count: 1,
+      estimate_snapshot: { analysis: empty, generation: empty },
+      created_at: now,
+    })
+    await db.insert(schema.agent_batch_items).values({
+      batch_id: id,
+      version: 2,
+      key: 'original',
+      ordinal: 0,
+      kind: 'analysis',
+      inputs,
+      prompt: 'inspect',
+      params: { model: config.agent.model, estimatedInputTokens: 0, evidence: [] },
+      dependencies: [],
+    })
+    const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+    const cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession(id, tx))}`
+    const { app } = await import('../../app')
+    mediaStore.events.length = 0
+    for (const [kind, expectedVersion, key, refs, status] of [
+      ['stale', 1, 'detail', inputs, 409],
+      ['unselected', 2, 'detail', [{ imageId: 'other', mediaId: other.id }], 422],
+      ['duplicate', 2, 'original', inputs, 422],
+    ] as const) {
+      const response = await app.handle(
+        new Request(`http://localhost/api/agent/batches/${id}/analysis-proposal`, {
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            commandId: kind,
+            expectedVersion,
+            items: [
+              {
+                key,
+                inputs: refs,
+                prompt: 'followup',
+                dependencies: [],
+                params: { model: config.agent.model },
+              },
+            ],
+          }),
+        }),
+      )
+      expect(response.status).toBe(status)
+      expect(mediaStore.events.filter((event) => /^(read|open|stream):/.test(event))).toEqual([])
+    }
   } finally {
     config.operator = operator
   }

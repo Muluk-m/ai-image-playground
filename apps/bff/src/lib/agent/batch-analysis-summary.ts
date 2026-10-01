@@ -2,6 +2,7 @@ import type { AgentBatchAnalysisSummary } from '@image-playground/shared'
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
 import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
 import { db, schema } from '../../db/client'
+import { analysisComparison } from '../analysis-comparison'
 import type { BffTransaction } from '../private-overlay'
 import { readBatchSourceItems } from './batch-analysis-sources'
 
@@ -76,8 +77,10 @@ export async function readBatchAnalysisSummary(
   for (const row of rows) {
     const imageIds = row.inputs.map((input) => input.imageId)
     for (const imageId of imageIds) required.add(imageId)
+    const comparison = analysisComparison(row.coverage?.comparison, imageIds)
     const complete = Boolean(
-      row.status === 'completed' &&
+      (row.intent !== 'joint_comparison' || comparison) &&
+        row.status === 'completed' &&
         row.taskId &&
         row.attempt !== null &&
         row.intent === row.executedIntent &&
@@ -104,6 +107,7 @@ export async function readBatchAnalysisSummary(
         status: row.status ?? 'queued',
         complete,
         requiredImageIds: imageIds,
+        ...(comparison ? { comparison } : {}),
       })
     if (!complete || !row.findings || !row.evidence || !row.taskId || row.attempt === null) {
       unresolvedItemKeys.push(row.itemKey)

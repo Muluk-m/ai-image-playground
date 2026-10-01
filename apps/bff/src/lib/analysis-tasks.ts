@@ -5,7 +5,7 @@ import type {
   AnalysisFinding,
   AnalysisInputSnapshot,
 } from '@image-playground/shared'
-import { and, eq, inArray, isNull, lte } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { heldBy } from '../db/task-transitions'
@@ -14,8 +14,9 @@ import { resolveOwnedMediaImages } from './agent/images'
 import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'
 import { prepareVisualEvidence, visualEvidenceOf } from './agent/visual-input'
 import { withVisualPreparation } from './agent/visual-resources'
+import { analysisComparison } from './analysis-comparison'
 import { isCapabilityEnabled } from './capabilities'
-import { extractJson } from './chatCompletion'
+import { type ChatAttempt, extractJson } from './chatCompletion'
 import {
   type BffTransaction,
   loadPrivateBffOverlay,
@@ -35,8 +36,9 @@ function analysisPrompt(
   prompt: string,
   inputs: readonly AgentMediaReference[],
   manifest = '',
+  intent: AnalysisInputSnapshot['intent'] = 'inspection',
 ): string {
-  return `${prompt}\n检查所有指定图片：${inputs.map((input) => input.imageId).join('、')}。只返回 JSON {"findings":[{"imageId":"指定图片编号","text":"针对该图片的结论"}]}，每张图片恰好一条；联合比较时保留图片之间的关系。${manifest}`
+  return `${prompt}\n检查所有指定图片：${inputs.map((input) => input.imageId).join('、')}。只返回 JSON {"findings":[{"imageId":"指定图片编号","text":"针对该图片的结论"}]}，每张图片恰好一条；${intent === 'joint_comparison' ? '另外必须返回独立 comparison:{"status":"completed","imageIds":[全部指定图片编号],"text":"明确的图片间关系与比较结论"}。若无法完成联合比较，comparison.status 必须为 incomplete，不能用逐图描述冒充关系结论。' : ''}${manifest}`
 }
 
 export async function prepareAnalysisTask(input: {
@@ -57,7 +59,7 @@ export async function prepareAnalysisTask(input: {
       throw new Error('analysis_inputs_invalid')
     const images = await resolveOwnedMediaImages(input.inputs, input.userId)
     const visual = await prepareVisualEvidence(images, 'analysis')
-    const prompt = analysisPrompt(input.prompt, input.inputs, visual.manifest)
+    const prompt = analysisPrompt(input.prompt, input.inputs, visual.manifest, input.intent)
     const context: Context = {
       messages: [
         {
@@ -369,12 +371,23 @@ export async function finalizeAnalysisTask(
         .where(eq(schema.analysis_tasks.task_id, taskId))
       return false
     }
-    const findings = options.confirmedNoResult
-      ? null
-      : analysisFindings(call.response_content, analysis.input_snapshot.inputs)
+    const response = call.response_content === null ? null : extractJson(call.response_content)
+    const comparison =
+      analysis.input_snapshot.intent === 'joint_comparison'
+        ? analysisComparison(
+            isObject(response) ? response.comparison : null,
+            analysis.input_snapshot.inputs.map((one) => one.imageId),
+          )
+        : null
+    const findings =
+      options.confirmedNoResult ||
+      (analysis.input_snapshot.intent === 'joint_comparison' && !comparison)
+        ? null
+        : analysisFindings(call.response_content, analysis.input_snapshot.inputs)
     const status = call.status === 'cancelled' ? 'cancelled' : findings ? 'completed' : 'failed'
     const completedAt = Date.now()
     const coverage = {
+      ...(comparison ? { comparison } : {}),
       requiredImageIds: analysis.input_snapshot.inputs.map((one) => one.imageId),
       reviewedImageIds: findings?.map((one) => one.imageId) ?? [],
       missingImageIds: findings ? [] : analysis.input_snapshot.inputs.map((one) => one.imageId),
@@ -433,30 +446,149 @@ export async function finalizeAnalysisTask(
 /** Billing is authoritative even after capability changes or transient task cleanup. Missing is not zero. */
 export async function refreshAnalysisTaskCosts(taskIds?: readonly string[]): Promise<void> {
   if (taskIds && !taskIds.length) return
-  const pending = await db
-    .select({ id: schema.analysis_tasks.task_id })
-    .from(schema.analysis_tasks)
-    .where(
-      and(
-        inArray(schema.analysis_tasks.status, ['completed', 'failed', 'cancelled']),
-        isNull(schema.analysis_tasks.actual_credits),
-        taskIds ? inArray(schema.analysis_tasks.task_id, [...taskIds]) : undefined,
-      ),
-    )
-    .limit(100)
-  if (!pending.length) return
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  const credits = await hooks.taskCredits({ taskIds: pending.map((row) => row.id) })
-  for (const { id } of pending) {
-    const actual = credits[id]
-    if (actual === undefined) continue
-    await db
-      .update(schema.analysis_tasks)
-      .set({ actual_credits: actual })
+  let afterId: string | undefined
+  for (;;) {
+    const pending = await db
+      .select({ id: schema.analysis_tasks.task_id })
+      .from(schema.analysis_tasks)
       .where(
-        and(eq(schema.analysis_tasks.task_id, id), isNull(schema.analysis_tasks.actual_credits)),
+        and(
+          inArray(schema.analysis_tasks.status, ['completed', 'failed', 'cancelled']),
+          isNull(schema.analysis_tasks.actual_credits),
+          taskIds ? inArray(schema.analysis_tasks.task_id, [...taskIds]) : undefined,
+          afterId === undefined ? undefined : gt(schema.analysis_tasks.task_id, afterId),
+        ),
       )
+      .orderBy(asc(schema.analysis_tasks.task_id))
+      .limit(100)
+    if (!pending.length) return
+    const credits = await hooks.taskCredits({ taskIds: pending.map((row) => row.id) })
+    for (const { id } of pending) {
+      const actual = credits[id]
+      if (actual === undefined) continue
+      await db
+        .update(schema.analysis_tasks)
+        .set({ actual_credits: actual })
+        .where(
+          and(eq(schema.analysis_tasks.task_id, id), isNull(schema.analysis_tasks.actual_credits)),
+        )
+    }
+    if (pending.length < 100) return
+    afterId = pending[pending.length - 1]!.id
   }
+}
+
+/** Persist the original executor's transport facts without granting it a new execution lease. */
+export async function recordAnalysisAttempt(
+  taskId: string,
+  callId: string,
+  token: string,
+  attempt: ChatAttempt,
+  cancelled: boolean,
+): Promise<void> {
+  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  await db.transaction(async (tx) => {
+    // Match cancel/finalize lock order; late evidence does not regain a lease.
+    const [task] = await tx
+      .select({
+        id: schema.tasks.id,
+        status: schema.tasks.status,
+        token: schema.tasks.execution_token,
+      })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+      .for('update')
+    if (!task) return
+    const recorded = await tx
+      .update(schema.analysis_model_calls)
+      .set({
+        status:
+          attempt.status === 'completed'
+            ? 'completed'
+            : attempt.httpDispatchCount
+              ? 'unknown'
+              : cancelled
+                ? 'cancelled'
+                : 'failed',
+        http_dispatch_count: attempt.httpDispatchCount ?? 0,
+        usage: attempt.usage,
+        request_bytes: attempt.requestBytes,
+        upstream_request_id: attempt.upstreamRequestId,
+        local_rejection: attempt.localRejection?.reason,
+        finished_at: attempt.finishedAt,
+      })
+      .where(
+        and(
+          eq(schema.analysis_model_calls.id, callId),
+          eq(schema.analysis_model_calls.task_id, taskId),
+          eq(schema.analysis_model_calls.execution_token, token),
+          inArray(schema.analysis_model_calls.status, ['prepared', 'dispatched', 'unknown']),
+        ),
+      )
+      .returning({ id: schema.analysis_model_calls.id })
+    if (recorded.length)
+      await tx
+        .update(schema.tasks)
+        .set({
+          upstream_status: attempt.upstreamStatus ?? null,
+          upstream_invocation_count: attempt.httpDispatchCount ?? 0,
+        })
+        .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.kind, 'analysis')))
+    if (
+      recorded.length &&
+      attempt.httpDispatchCount === 0 &&
+      task.status === 'reconciling' &&
+      task.token === null
+    ) {
+      const [analysis] = await tx
+        .select()
+        .from(schema.analysis_tasks)
+        .where(eq(schema.analysis_tasks.task_id, taskId))
+      if (!analysis) throw new Error('analysis_record_missing')
+      const completedAt = Date.now()
+      await tx
+        .update(schema.tasks)
+        .set({
+          status: 'cancelled',
+          reconciliation_required: false,
+          completed_at: completedAt,
+          execution_token: null,
+          lease_expires_at: null,
+          error_type: null,
+          error_message: null,
+        })
+        .where(eq(schema.tasks.id, taskId))
+      await tx
+        .update(schema.analysis_tasks)
+        .set({
+          status: 'cancelled',
+          completed_at: completedAt,
+          error_code: null,
+          actual_credits: analysis.price_snapshot.exemption === 'none' ? null : 0,
+        })
+        .where(eq(schema.analysis_tasks.task_id, taskId))
+      await tx
+        .update(schema.analysis_model_calls)
+        .set({
+          status: 'cancelled',
+          execution_token: null,
+          usage: { inputTokens: 0, outputTokens: 0 },
+        })
+        .where(eq(schema.analysis_model_calls.id, callId))
+      if (analysis.price_snapshot.exemption === 'none')
+        await hooks.finalizeTask({
+          tx,
+          taskId,
+          outcome: 'cancelled',
+          upstreamInvocationCount: 0,
+          actualUsage: settledTokenUsage(
+            { inputTokens: 0, outputTokens: 0 },
+            analysis.price_snapshot,
+          ),
+        })
+    }
+  })
 }
 
 /** A saved response can finish after restart; dispatch without a response is never retried. */
@@ -502,7 +634,7 @@ export async function recoverAnalysisTasks(
 }
 
 export function analysisRequestPrompt(input: AnalysisInputSnapshot) {
-  return analysisPrompt(input.prompt, input.inputs, input.visualManifest)
+  return analysisPrompt(input.prompt, input.inputs, input.visualManifest, input.intent)
 }
 
 /** Cancellation shares the dispatch row lock and never routes analysis through generation side effects. */

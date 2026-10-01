@@ -62,7 +62,10 @@ afterAll(async () => {
   await close()
 })
 
-it('returns explicit choices without decomposing or charging an over-budget joint comparison', async () => {
+it.each([
+  'initial',
+  'followup',
+] as const)('returns explicit choices without decomposing or charging an over-budget joint comparison: %s', async (phase) => {
   const operator = config.operator
   const agent = config.agent
   config.operator = {
@@ -70,7 +73,7 @@ it('returns explicit choices without decomposing or charging an over-budget join
     capabilities: { ...operator.capabilities, 'agent:batch-analysis': true },
   }
   config.agent = { ...agent, contextWindow: 100, maxTokens: 64 }
-  const id = 'joint-limit-owner'
+  const id = `joint-limit-${phase}`
   const now = Date.now()
   try {
     await db.insert(schema.users).values({
@@ -101,7 +104,49 @@ it('returns explicit choices without decomposing or charging an over-budget join
       dispatched++
       throw new Error('over-budget comparison must not call the model')
     })
-    const tool = planImageBatch.create({
+    if (phase === 'followup') {
+      const empty = {
+        status: 'available' as const,
+        estimatedCredits: 0,
+        estimatedChargeCredits: 0,
+        snapshots: [],
+      }
+      await db.insert(schema.agent_batches).values({
+        id,
+        user_id: id,
+        conversation_id: id,
+        origin_turn_id: 'origin',
+        tool_call_id: 'plan',
+        experience: 'chat',
+        status: 'running',
+        confirmed_version: 1,
+        created_at: now,
+        updated_at: now,
+      })
+      await db.insert(schema.agent_batch_plans).values({
+        batch_id: id,
+        version: 1,
+        title: 'inspect',
+        rule: 'inspect',
+        digest: 'a'.repeat(64),
+        item_count: 1,
+        estimate_snapshot: { analysis: empty, generation: empty },
+        created_at: now,
+      })
+      await db.insert(schema.agent_batch_items).values({
+        batch_id: id,
+        version: 1,
+        key: 'original',
+        ordinal: 0,
+        kind: 'analysis',
+        inputs: references,
+        prompt: 'inspect',
+        params: { model: config.agent.model, estimatedInputTokens: 0, evidence: [] },
+        dependencies: [],
+      })
+    }
+    const { proposeBatchAnalysis } = await import('../../lib/agent/tools/proposeBatchAnalysis')
+    const tool = (phase === 'initial' ? planImageBatch : proposeBatchAnalysis).create({
       mode: 'image',
       userId: id,
       conversationId: id,
@@ -112,6 +157,8 @@ it('returns explicit choices without decomposing or charging an over-budget join
     const result = await tool.execute(
       'joint-limit',
       {
+        batchId: id,
+        expectedVersion: 1,
         title: '精细联合比较',
         rule: '比较两张原件之间的细微色差',
         items: [
@@ -151,7 +198,7 @@ it('returns explicit choices without decomposing or charging an over-budget join
     expect(billing.reservations).toHaveLength(0)
     expect(
       await db.select().from(schema.agent_batches).where(eq(schema.agent_batches.user_id, id)),
-    ).toHaveLength(0)
+    ).toHaveLength(phase === 'initial' ? 0 : 1)
     expect(
       await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.user_id, id)),
     ).toHaveLength(0)

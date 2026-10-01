@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { AgentTurnUsage } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { analysisComparison } from './analysis-comparison'
 import {
   ANALYSIS_LEASE_MS,
   analysisFindings,
@@ -143,11 +144,23 @@ export async function reconcileAnalysisTask(taskId: string, command: Reconciliat
         analysis.input_snapshot.inputs,
       )
       const usage = reportedUsage(command.result?.usage)
-      if (!findings || !usage) throw new ReconciliationError('analysis_result_required', 400)
+      const comparison =
+        analysis.input_snapshot.intent === 'joint_comparison'
+          ? analysisComparison(
+              command.result?.comparison,
+              analysis.input_snapshot.inputs.map((one) => one.imageId),
+            )
+          : null
+      if (
+        !findings ||
+        !usage ||
+        (analysis.input_snapshot.intent === 'joint_comparison' && !comparison)
+      )
+        throw new ReconciliationError('analysis_result_required', 400)
       await tx
         .update(schema.analysis_model_calls)
         .set({
-          response_content: JSON.stringify({ findings }),
+          response_content: JSON.stringify({ findings, ...(comparison ? { comparison } : {}) }),
           usage,
           status: 'completed',
           execution_token: null,

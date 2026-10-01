@@ -4,6 +4,7 @@ import type { AgentBatchGenerationProposal, AgentBatchItem } from '@image-playgr
 import { and, eq, inArray, lte, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { analysisComparison } from '../analysis-comparison'
 import { readBatchSourceItems } from './batch-analysis-sources'
 import { batchExecutionAvailable, lockOwnedBatch } from './batch-execution'
 import { saveBatchRevision } from './batch-plan-revision'
@@ -184,6 +185,11 @@ export async function proposeBatchGeneration(
           !isDeepStrictEqual(attempt.result.input_snapshot.inputs, item.inputs) ||
           (attempt.result.input_snapshot.intent ?? 'inspection') !==
             (item.params.intent ?? 'inspection') ||
+          (item.params.intent === 'joint_comparison' &&
+            !analysisComparison(
+              attempt.result.coverage?.comparison,
+              item.inputs.map((one) => one.imageId),
+            )) ||
           attempt.result.status !== 'completed' ||
           attempt.result.actual_credits === null ||
           attempt.dispatchCount !== 1 ||
