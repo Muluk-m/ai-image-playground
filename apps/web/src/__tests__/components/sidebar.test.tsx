@@ -137,3 +137,24 @@ it('每个标签最多列五条，切换后只列那一种', () => {
   expect(rows('chat-')).toHaveLength(0)
   expect(rows('canvas-')).toHaveLength(3)
 })
+
+it('当前项目恢复或切换后，标签跟到它那一类', () => {
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+  act(() =>
+    useCanvasProjectStore.setState({
+      projects: [...seed('chat', 2), ...seed('canvas', 2)],
+      cloudCatalog: {},
+      activeId: 'canvas-1',
+      loaded: true,
+    }),
+  )
+  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+
+  act(() => entry('对话').click())
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+
+  act(() => useCanvasProjectStore.setState({ activeId: 'chat-0' }))
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+  act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
+  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+})

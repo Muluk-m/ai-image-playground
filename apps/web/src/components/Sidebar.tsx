@@ -62,10 +62,13 @@ export default function Sidebar() {
   const recent = projectCatalog(projects, cloudCatalog).filter(
     (project) => project.hasContent || project.workspaceOpened,
   )
-  // 对话与画布共用一块位置，用分组标题上的两个标签切换；默认跟着当前打开的项目走。
-  const [kind, setKind] = useState<RecentKind>(() =>
-    activeProject && projectExperience(activeProject) === 'canvas' ? 'canvas' : 'chat',
-  )
+  // 对话与画布共用一块位置，用分组标题上的两个标签切换。项目是异步恢复的、侧栏也不随页面
+  // 重挂，所以每次换到另一个项目（或它恢复出来）时跟到它那一类；同一项目下用户手动切的保留。
+  const [kind, setKind] = useState<RecentKind>('chat')
+  const activeKind = activeProject ? projectExperience(activeProject) : null
+  useEffect(() => {
+    if (activeKind) setKind(activeKind)
+  }, [activeId, activeKind])
   const listed = recent
     .filter((project) => projectExperience(project) === kind)
     .slice(0, RECENT_COUNT)
