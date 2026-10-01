@@ -2,6 +2,7 @@ import {
   Clapperboard,
   FileText,
   Film,
+  PackageOpen,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightOpen,
@@ -18,6 +19,7 @@ import ProductionAssetProposalPane from './ProductionAssetProposalPane'
 import ProductionAssets from './ProductionAssets'
 import ProductionClipPane from './ProductionClipPane'
 import ProductionDocumentPane from './ProductionDocumentPane'
+import ProductionExportPane from './ProductionExportPane'
 import ProductionShotPane from './ProductionShotPane'
 
 export default function ProductionWorkspace({
@@ -33,6 +35,7 @@ export default function ProductionWorkspace({
   const production = useProductionDocument(conversationId, refreshKey)
   const [showShots, setShowShots] = useState(false)
   const [showClips, setShowClips] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [proposalId, setProposalId] = useState<string | null>(null)
   const assets = useProductionAssets(
     conversationId,
@@ -49,6 +52,7 @@ export default function ProductionWorkspace({
     setContentOpen(true)
     setShowShots(false)
     setShowClips(false)
+    setShowExport(false)
     setAssetTarget(null)
     setProposalId(null)
   }, [conversationId])
@@ -57,6 +61,7 @@ export default function ProductionWorkspace({
       activateProduction(conversationId, (pane) => {
         setShowShots(pane === 'storyboard')
         setShowClips(false)
+        setShowExport(false)
         setAssetTarget(null)
         setProposalId(null)
         setContentOpen(true)
@@ -107,6 +112,7 @@ export default function ProductionWorkspace({
               setContentOpen(true)
               setShowShots(false)
               setShowClips(false)
+              setShowExport(false)
               setAssetTarget(null)
               setProposalId(null)
               setAssetsDrawerOpen(false)
@@ -122,6 +128,7 @@ export default function ProductionWorkspace({
             onClick={() => {
               setShowShots(true)
               setShowClips(false)
+              setShowExport(false)
               setAssetTarget(null)
               setProposalId(null)
               setContentOpen(true)
@@ -137,6 +144,7 @@ export default function ProductionWorkspace({
             aria-label={t('clip.title')}
             onClick={() => {
               setShowClips(true)
+              setShowExport(false)
               setShowShots(false)
               setAssetTarget(null)
               setProposalId(null)
@@ -152,6 +160,7 @@ export default function ProductionWorkspace({
             onSelect={(target) => {
               setShowShots(false)
               setShowClips(false)
+              setShowExport(false)
               setProposalId(null)
               setAssetTarget(target)
               setContentOpen(true)
@@ -168,6 +177,7 @@ export default function ProductionWorkspace({
                 onClick={() => {
                   setShowShots(false)
                   setShowClips(false)
+                  setShowExport(false)
                   setProposalId(one.id)
                   setContentOpen(true)
                   setAssetsDrawerOpen(false)
@@ -177,6 +187,21 @@ export default function ProductionWorkspace({
                 {t('asset.proposal')}
               </button>
             ))}
+          <button
+            type="button"
+            className="production-document-link"
+            aria-label={t('export.title')}
+            onClick={() => {
+              setShowExport(true)
+              setContentOpen(true)
+              setAssetsDrawerOpen(false)
+              setProposalId(null)
+              setAssetTarget(null)
+            }}
+          >
+            <PackageOpen size={16} />
+            <span>{t('export.title')}</span>
+          </button>
           <div className="production-assets-footer">
             <span>{t('continuous')}</span>
             <span>{t('sceneCount', { count: doc.content.scenes.length })}</span>
@@ -222,7 +247,9 @@ export default function ProductionWorkspace({
       </section>
       {doc &&
         contentOpen &&
-        (proposal ? (
+        (showExport ? (
+          <ProductionExportPane key={doc.id} document={doc} onClose={() => setContentOpen(false)} />
+        ) : proposal ? (
           <ProductionAssetProposalPane
             proposal={proposal}
             conversationId={doc.conversationId}

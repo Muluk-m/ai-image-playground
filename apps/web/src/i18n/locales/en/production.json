@@ -180,5 +180,33 @@
     "addReference": "Add reference",
     "retry": "Retry this candidate",
     "cancel": "Cancel this task"
+  },
+  "export": {
+    "title": "Export resources",
+    "intro": "Export the script, storyboard and selected originals as a ZIP to continue in other tools.",
+    "documents": "Production documents",
+    "originals": "Selected references and adopted clips",
+    "extraCandidates": "Include additional candidates",
+    "inspect": "Check originals and size",
+    "fixedRevision": "This archive is fixed at revision V{{revision}}",
+    "size": "Originals: {{size}} MiB · Limit {{max}} MiB",
+    "missing": "Original missing or expired",
+    "unknown": "Unknown size",
+    "single": "Download individually",
+    "tooLarge": "The selection exceeds the archive limit. Reduce it or download originals individually.",
+    "unknownSize": "Some sizes are unknown. Retry inspection or deselect those originals.",
+    "download": "Download ZIP",
+    "partial_other": "Export available files ({{count}} missing)",
+    "partial_one": "Export available files ({{count}} missing)",
+    "retry": "Inspect originals again",
+    "textOnly": "Export documents only",
+    "inspecting": "Checking originals…",
+    "progress": "Packing {{done}} / {{total}}",
+    "complete": "The selected archive is ready and download has started.",
+    "partial": "Partial archive download started. See missing.json for missing originals.",
+    "cancelled": "Export cancelled",
+    "scopeChanged": "The account changed. Reopen the export panel.",
+    "failed": "The archive could not be completed. Check originals and retry, or export documents only.",
+    "acceptPartial": "Export available files with a missing-file list"
   }
 }
