@@ -1,18 +1,35 @@
 import type { AgentBatchEstimate, AgentBatchItem, AgentBatchPage } from '@image-playground/shared'
-import { Fragment, useEffect, useState } from 'react'
+import { Layers, MessageSquare, PauseCircle, PlayCircle } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
+import { getDeviceId } from '../../../lib/deviceId'
 import { CARD, CARD_NOTE } from '../agentStyles'
 import {
+  type AgentBatchCommand,
   AgentRequestError,
   cancelBatchPlan,
   fetchBatchPlan,
   updateBatchPlan,
 } from '../lib/agentClient'
+import { batchCommands } from '../lib/batchCommands'
+import AgentBatchItemResult, { AgentBatchItemStatus } from './AgentBatchItemResult'
+
+function hasActiveWork(page: AgentBatchPage | null): boolean {
+  return (
+    page?.batch.status === 'running' ||
+    (page?.batch.status === 'paused' &&
+      page.items.some(
+        (item) =>
+          item.execution &&
+          ['queued', 'in_progress', 'reconciling'].includes(item.execution.status),
+      ))
+  )
+}
 
 function Estimate({ value }: { value: AgentBatchEstimate }) {
   const { t } = useTranslation('agent')
@@ -79,39 +96,123 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
   const [page, setPage] = useState<AgentBatchPage | null>(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const working = useRef(false)
+  const operations = useRef(0)
+  const card = useRef<HTMLElement>(null)
+  const commands = useMemo(() => batchCommands(batchId), [batchId])
+  const [pending, setPending] = useState<AgentBatchCommand | null>(null)
+  const [restored, setRestored] = useState(false)
   const [error, setError] = useState<'fallback' | 'batch_version_conflict' | null>(null)
   useEffect(() => {
     let active = true
-    void fetchBatchPlan(batchId)
-      .then((result) => {
-        if (active) setPage(result)
+    setRestored(false)
+    void Promise.all([fetchBatchPlan(batchId), commands.read()])
+      .then(([result, command]) => {
+        if (active && commands.current()) {
+          setPage(result)
+          setPending(command)
+          setRestored(true)
+        }
       })
       .catch(() => {
-        if (active) setError('fallback')
+        if (active && commands.current()) setError('fallback')
       })
     return () => {
       active = false
     }
-  }, [batchId])
-  const apply = async (request: () => Promise<AgentBatchPage>) => {
-    if (busy) return
+  }, [batchId, commands])
+  const apply = async (request: () => Promise<AgentBatchPage>, control = false) => {
+    if (working.current || !commands.current()) return
+    working.current = true
+    operations.current++
     setBusy(true)
     setError(null)
     try {
       const result = await request()
+      if (!commands.current()) return
       setPage(result)
       setDirty(false)
     } catch (cause) {
+      if (!commands.current()) return
       setError(
         cause instanceof AgentRequestError && cause.code === 'batch_version_conflict'
           ? 'batch_version_conflict'
           : 'fallback',
       )
     } finally {
+      if (control)
+        try {
+          const command = await commands.read()
+          if (commands.current()) {
+            setPending(command)
+            setRestored(true)
+          }
+        } catch {
+          if (commands.current()) {
+            setRestored(false)
+            setError('fallback')
+          }
+        }
+      working.current = false
       setBusy(false)
     }
   }
-  const refresh = () => apply(() => fetchBatchPlan(batchId))
+  const watch = hasActiveWork(page)
+  useEffect(() => {
+    if (!watch) return
+    let active = true
+    let visible = true
+    let reading = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const schedule = () => {
+      if (active && visible && !document.hidden && !timer && !reading)
+        timer = setTimeout(() => void poll(), 3_000)
+    }
+    const poll = async () => {
+      timer = undefined
+      if (!active || !visible || document.hidden || !commands.current()) return
+      if (working.current) {
+        schedule()
+        return
+      }
+      reading = true
+      const operation = operations.current
+      try {
+        const result = await fetchBatchPlan(batchId)
+        if (active && commands.current() && operation === operations.current) {
+          setPage(result)
+          if (!hasActiveWork(result)) active = false
+        }
+      } catch {
+        if (active && commands.current() && operation === operations.current) setError('fallback')
+      } finally {
+        reading = false
+        schedule()
+      }
+    }
+    const visibility = () => {
+      if (timer) clearTimeout(timer)
+      timer = undefined
+      schedule()
+    }
+    const observer =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            visible = entries.some((entry) => entry.isIntersecting)
+            visibility()
+          })
+    if (card.current) observer?.observe(card.current)
+    document.addEventListener('visibilitychange', visibility)
+    schedule()
+    return () => {
+      active = false
+      if (timer) clearTimeout(timer)
+      observer?.disconnect()
+      document.removeEventListener('visibilitychange', visibility)
+    }
+  }, [watch, batchId, commands])
+  const refresh = () => apply(() => fetchBatchPlan(batchId), true)
   if (!page)
     return (
       <div className={CARD} role="status">
@@ -132,12 +233,61 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         items: page.items,
       }),
     )
-  const editable = page.batch.status === 'draft' && !busy
+  const editable = page.batch.status === 'draft' && !busy && restored && !pending
+  const command = (action: AgentBatchCommand['action']) =>
+    apply(
+      () =>
+        commands.execute(
+          action === 'pause' || action === 'reprice'
+            ? { action, commandId: crypto.randomUUID(), expectedVersion: page.batch.version }
+            : {
+                action,
+                commandId: crypto.randomUUID(),
+                expectedVersion: page.batch.version,
+                expectedDigest: page.batch.digest,
+                deviceId: getDeviceId(),
+              },
+        ),
+      true,
+    )
+  const confirmable =
+    page.batch.executionEnabled &&
+    restored &&
+    !pending &&
+    !dirty &&
+    !busy &&
+    !page.nextCursor &&
+    page.items.length === page.batch.itemCount &&
+    page.batch.estimate.generation.status === 'available'
+  const priceChanged = page.batch.status === 'paused' && page.batch.pauseReason === 'price_changed'
+  const TargetIcon = page.batch.experience === 'canvas' ? Layers : MessageSquare
   return (
-    <section id={domId} tabIndex={-1} className={CARD}>
+    <section ref={card} id={domId} tabIndex={-1} className={CARD}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{t('batch.scope', { count: page.items.length })}</span>
         <span>{t('batch.version', { version: page.batch.version })}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+          <TargetIcon aria-hidden className="h-3 w-3" />
+          {page.batch.experience === 'canvas' ? t('batch.targetCanvas') : t('batch.targetChat')}
+        </span>
+        {page.batch.status === 'running' ||
+        page.batch.status === 'paused' ||
+        page.batch.status === 'closed' ? (
+          <span>
+            {t('batch.submitted', {
+              count: page.batch.submittedCount ?? 0,
+              total: page.batch.itemCount,
+            })}
+          </span>
+        ) : null}
+        {page.batch.status === 'paused' && (
+          <span className="inline-flex items-center gap-1">
+            <PauseCircle aria-hidden className="h-3 w-3" />
+            {t('batch.paused')}
+          </span>
+        )}
       </div>
       <label className="grid gap-1 text-xs">
         {t('batch.title')}
@@ -169,6 +319,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
             <summary className="cursor-pointer py-1 focus-visible:outline-ring">
               <span className="inline-flex max-w-full flex-wrap items-center gap-1 align-middle">
                 <span className="shrink-0 tabular-nums">{index + 1}.</span>
+                <AgentBatchItemStatus execution={item.execution} />
                 {item.inputs.map((input, inputIndex) => {
                   const name = input.name ?? t('batch.inputImage', { index: inputIndex + 1 })
                   return (
@@ -189,6 +340,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
               </span>
             </summary>
             <div className="grid gap-2 py-2">
+              <AgentBatchItemResult execution={item.execution} />
               <label className="grid gap-1">
                 {t('batch.prompt')}
                 <Textarea
@@ -267,9 +419,31 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           <span>{t('batch.generationCost')}</span>
           <Estimate value={page.batch.estimate.generation} />
         </div>
+        {typeof page.batch.actualCredits === 'number' && page.batch.status !== 'draft' && (
+          <div className="flex justify-between">
+            <span>{t('batch.actualCost')}</span>
+            <Credits credits={page.batch.actualCredits} />
+          </div>
+        )}
         {dirty && <p>{t('batch.staleQuote')}</p>}
+        {priceChanged && <p role="status">{t('errors:agentBatch.batch_price_changed')}</p>}
       </div>
-      {error && (
+      {pending && (
+        <div className="grid justify-items-start gap-1">
+          <p role="status" className={CARD_NOTE}>
+            {t('batch.commandPending')}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !restored}
+            onClick={() => void apply(() => commands.execute(pending), true)}
+          >
+            {t('batch.checkCommand')}
+          </Button>
+        </div>
+      )}
+      {error && !pending && (
         <div className="grid justify-items-start gap-1">
           <p role="alert" className="text-xs text-destructive">
             {t(`errors:agentBatch.${error}`)}
@@ -281,7 +455,37 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
       )}
       {page.batch.status === 'cancelled' ? (
         <p className={CARD_NOTE}>{t('batch.cancelled')}</p>
-      ) : (
+      ) : page.batch.status === 'running' ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !restored || Boolean(pending)}
+          onClick={() => void command('pause')}
+        >
+          <PauseCircle aria-hidden className="mr-1 h-3 w-3" />
+          {t('batch.pause')}
+        </Button>
+      ) : priceChanged ? (
+        page.batch.confirmationRequired ? (
+          <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
+            {t('batch.confirm')}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!page.batch.executionEnabled || busy || !restored || Boolean(pending)}
+            onClick={() => void command('reprice')}
+          >
+            {t('batch.reprice')}
+          </Button>
+        )
+      ) : page.batch.status === 'paused' ? (
+        <Button size="sm" disabled={!confirmable} onClick={() => void command('resume')}>
+          <PlayCircle aria-hidden className="mr-1 h-3 w-3" />
+          {t('batch.resume')}
+        </Button>
+      ) : page.batch.status === 'draft' ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -305,12 +509,14 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           >
             {t('batch.cancel')}
           </Button>
-          <Button size="sm" disabled>
+          <Button size="sm" disabled={!confirmable} onClick={() => void command('confirm')}>
             {t('batch.confirm')}
           </Button>
-          <span className={CARD_NOTE}>{t('batch.executionUnavailable')}</span>
+          {!page.batch.executionEnabled && (
+            <span className={CARD_NOTE}>{t('batch.executionUnavailable')}</span>
+          )}
         </div>
-      )}
+      ) : null}
     </section>
   )
 }

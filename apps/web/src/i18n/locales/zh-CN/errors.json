@@ -88,6 +88,8 @@
     "fallback": "没有完成"
   },
   "agentBatch": {
+    "output_unavailable": "结果暂时无法读取，请重试。",
+    "batch_price_changed": "价格已变动，请确认最新报价。",
     "fallback": "计划操作失败，当前内容已保留，请重试。",
     "batch_version_conflict": "计划已有新版本，请刷新后再修改。"
   }

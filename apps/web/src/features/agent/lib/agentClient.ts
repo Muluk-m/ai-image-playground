@@ -696,3 +696,29 @@ export async function cancelBatchPlan(
   if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentBatchPage
 }
+
+export type AgentBatchCommand =
+  | {
+      action: 'confirm' | 'resume'
+      commandId: string
+      expectedVersion: number
+      expectedDigest: string
+      deviceId: string
+    }
+  | { action: 'pause' | 'reprice'; commandId: string; expectedVersion: number }
+
+export async function executeBatchCommand(
+  batchId: string,
+  command: AgentBatchCommand,
+): Promise<AgentBatchPage> {
+  const { action, ...body } = command
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/${action}`),
+    {
+      ...jsonInit(body),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
