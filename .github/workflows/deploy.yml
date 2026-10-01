@@ -261,6 +261,16 @@ jobs:
               { echo "::error::$ADMIN_BFF_BASE_URL/health reports '${version}', expected $PUBLIC_SHA+$PRIVATE_SHA"; exit 1; }
             sleep 10
           done
+      - name: Verify the paid workspace in Chromium
+        run: |
+          smoke_dir="$RUNNER_TEMP/pages-smoke"
+          mkdir -p "$smoke_dir"
+          npm install --prefix "$smoke_dir" --no-package-lock --no-save playwright@1.58.2
+          "$smoke_dir/node_modules/.bin/playwright" install --with-deps chromium
+          cp scripts/pages-browser-smoke.cjs "$smoke_dir/smoke.cjs"
+          source "$PAGES_ENV_FILE"
+          node "$smoke_dir/smoke.cjs" "$PAID_PUBLIC_ORIGIN"
+
       - name: Release the paid Admin site when cut over
         run: |
           # shellcheck source=/dev/null
