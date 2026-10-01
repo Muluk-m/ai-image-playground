@@ -39,6 +39,7 @@ export class TaskScheduler {
   )
   private timer: ReturnType<typeof setInterval> | null = null
   private ticking = false
+  private tickCompletion: Promise<void> | null = null
   private stopped = true
   private draining = false
   private lastSuccessfulPollTimestamp: number | null = null
@@ -105,10 +106,16 @@ export class TaskScheduler {
 
   /** 最多等 timeoutMs 让 inflight 跑完，返回是否真的等空了。 */
   async waitForIdle(timeoutMs: number): Promise<boolean> {
-    const promises = Array.from(this.active.values()).flatMap((tasks) => Array.from(tasks.values()))
-    promises.push(...this.analysisActive.values())
-    if (this.batchAdvance) promises.push(this.batchAdvance)
-    const settled = Promise.allSettled(promises)
+    const settled = (async () => {
+      // A stopped poll can still own a database query; restarting before it exits loses the first tick.
+      await this.tickCompletion
+      const promises = Array.from(this.active.values()).flatMap((tasks) =>
+        Array.from(tasks.values()),
+      )
+      promises.push(...this.analysisActive.values())
+      if (this.batchAdvance) promises.push(this.batchAdvance)
+      await Promise.allSettled(promises)
+    })()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
@@ -122,8 +129,17 @@ export class TaskScheduler {
     }
   }
 
-  async tick(now = this.clock()): Promise<void> {
-    if (this.stopped || this.ticking) return
+  tick(now = this.clock()): Promise<void> {
+    if (this.stopped) return Promise.resolve()
+    if (this.tickCompletion) return this.tickCompletion
+    const operation = this.poll(now).finally(() => {
+      if (this.tickCompletion === operation) this.tickCompletion = null
+    })
+    this.tickCompletion = operation
+    return operation
+  }
+
+  private async poll(now: number): Promise<void> {
     this.ticking = true
     try {
       await this.abortTasksCancelledInDatabase()

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -240,6 +240,51 @@ describe('TaskScheduler', () => {
     scheduler.stop()
     resolveTask.get('openai-2')?.()
     await scheduler.waitForIdle(5_000)
+  })
+
+  it('waits for a stopped database poll before declaring idle and restarting', async () => {
+    await insertTask('poll-restart', 'openai-compat', 1)
+    let releaseLock = () => {}
+    let lockReady = () => {}
+    const ready = new Promise<void>((resolve) => (lockReady = resolve))
+    const release = new Promise<void>((resolve) => (releaseLock = resolve))
+    const blocker = db.$client.begin(async (connection) => {
+      await connection`lock table tasks in access exclusive mode`
+      lockReady()
+      await release
+    })
+    await ready
+    const started: string[] = []
+    const scheduler = new TaskScheduler({
+      pollIntervalMs: 10_000,
+      executeTask: async (id) => {
+        started.push(id)
+      },
+    })
+    try {
+      scheduler.start()
+      await waitFor(async () => {
+        const rows = await db.execute(sql`
+          select pid from pg_stat_activity
+          where datname = current_database() and pid <> pg_backend_pid()
+            and state = 'active' and wait_event_type = 'Lock'
+            and query like '%"tasks"%'
+        `)
+        return rows.length > 0
+      })
+      scheduler.stop()
+      expect(await scheduler.waitForIdle(20)).toBe(false)
+      releaseLock()
+      await blocker
+      expect(await scheduler.waitForIdle(1_000)).toBe(true)
+      scheduler.start()
+      await waitFor(() => started.includes('poll-restart'))
+    } finally {
+      scheduler.stop()
+      releaseLock()
+      await blocker
+      await scheduler.waitForIdle(1_000)
+    }
   })
 
   it('gives up on waitForIdle once the drain window expires', async () => {
