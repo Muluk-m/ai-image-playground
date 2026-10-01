@@ -180,7 +180,9 @@
     "retry": "重试此候选",
     "cancel": "取消此任务",
     "duplicateFrame": "首帧和尾帧分别只能选一张。",
-    "preview": "打开候选预览"
+    "preview": "打开候选预览",
+    "sourceChanged": "来源已更新。已有候选保留原始输入；请新建候选使用最新版本。",
+    "retryFrom": "重试自候选 {{number}}"
   },
   "export": {
     "title": "导出资源包",

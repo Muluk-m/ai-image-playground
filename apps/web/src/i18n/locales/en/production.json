@@ -181,7 +181,9 @@
     "retry": "Retry this candidate",
     "cancel": "Cancel this task",
     "duplicateFrame": "Choose only one first frame and one last frame.",
-    "preview": "Open candidate"
+    "preview": "Open candidate",
+    "sourceChanged": "Source updated. Existing candidates keep their original inputs. Create a new draft to use the latest version.",
+    "retryFrom": "Retry of candidate {{number}}"
   },
   "export": {
     "title": "Export resources",

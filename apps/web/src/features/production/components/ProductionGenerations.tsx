@@ -16,6 +16,7 @@ import {
   retryToolCall,
 } from '../../agent/lib/agentClient'
 import { previewArtifactBitmap } from '../../agent/lib/artifactSource'
+import { agentToolFailureText, promptAgentRecharge } from '../../agent/lib/toolFailure'
 import { useAgentStore } from '../../agent/store'
 import type { ProductionResponse } from '../lib/productionClient'
 import {
@@ -86,11 +87,15 @@ function GenerationSession({
   const { t } = useTranslation('production')
   const [generations, setGenerations] = useState<readonly ProductionGenerationView[]>([])
   const [error, setError] = useState(false)
+  const [failureText, setFailureText] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
   const [uncertain, setUncertain] = useState<ReadonlySet<string>>(new Set())
   const inFlight = useRef(false)
   const [creating, setCreating] = useState<GenerationFields | null>(null)
+  const creatingRevision = useRef<number | null>(null)
+  const creatingSource = useRef<GenerationFields | undefined>(undefined)
+  const creatingStale = creating !== null && creatingRevision.current !== document.revision
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
@@ -167,6 +172,8 @@ function GenerationSession({
     adoptedArtifactId ??
     (assetReference?.kind === 'artifact' ? assetReference.artifactId : undefined)
   const startCandidate = () => {
+    creatingRevision.current = document.revision
+    creatingSource.current = initialDraft
     const previous = generations.find(
       (g) => g.production.target === target.kind && g.production.targetId === target.id,
     )
@@ -192,16 +199,18 @@ function GenerationSession({
     )
   }
   const create = async (fields: GenerationFields) => {
-    if (inFlight.current || preparationBlocked) return
+    if (inFlight.current || preparationBlocked || creatingStale) return
     inFlight.current = true
     readEpoch.current++
     setBusy('new')
     setError(false)
+    setFailureText(null)
     try {
       const key = JSON.stringify({ revision: document.revision, target, fields })
       const operationId = operations.current.get(key) ?? crypto.randomUUID()
       operations.current.set(key, operationId)
-      const sourceFields = target.kind === 'clip' && initialDraft ? initialDraft : fields
+      const sourceFields =
+        target.kind === 'clip' && creatingSource.current ? creatingSource.current : fields
       let next = await createGeneration(conversationId, {
         ...sourceFields,
         operationId,
@@ -236,11 +245,12 @@ function GenerationSession({
     }
   }
   const confirm = async (generation: ProductionGenerationView, fields: GenerationFields) => {
-    if (inFlight.current || preparationBlocked) return
+    if (inFlight.current || preparationBlocked || generation.sourceChanged) return
     inFlight.current = true
     readEpoch.current++
     setBusy(generation.draftId)
     setError(false)
+    setFailureText(null)
     let submitted = false
     try {
       const saved = await editGeneration(
@@ -260,6 +270,10 @@ function GenerationSession({
       useAgentStore.getState().acceptGenerationReceipt(conversationId, message)
     } catch (cause) {
       setError(true)
+      if (cause instanceof AgentRequestError) {
+        setFailureText(agentToolFailureText(cause.toolErrorCode))
+        promptAgentRecharge(cause.toolErrorCode)
+      }
       if (submitted && (!(cause instanceof AgentRequestError) || cause.status >= 500))
         setUncertain((previous) => new Set([...previous, generation.messageId]))
     } finally {
@@ -286,6 +300,7 @@ function GenerationSession({
     readEpoch.current++
     setBusy(generation.messageId)
     setError(false)
+    setFailureText(null)
     try {
       if (cancel && generation.taskId) await cancelJob(conversationId, generation.taskId)
       else {
@@ -311,6 +326,7 @@ function GenerationSession({
     readEpoch.current++
     setBusy(artifact.artifactId)
     setError(false)
+    setFailureText(null)
     try {
       const key = `${artifact.artifactId}:${document.revision}`
       const operationId = operations.current.get(key) ?? crypto.randomUUID()
@@ -350,16 +366,17 @@ function GenerationSession({
         </Button>
       </header>
       {preparationBlocked && <p role="status">{preparationBlocked}</p>}
+      {creatingStale && <p role="status">{t('generation.sourceChanged')}</p>}
       {creating && (
         <ProductionGenerationEditor
           conversationId={conversationId}
           value={creating}
-          busy={busy !== null || Boolean(preparationBlocked)}
+          busy={busy !== null || Boolean(preparationBlocked) || creatingStale}
           submitLabel={t('generation.create')}
           onConfirm={(fields) => void create(fields)}
         />
       )}
-      {error && <p role="alert">{t('generation.failed')}</p>}
+      {error && <p role="alert">{failureText ?? t('generation.failed')}</p>}
       {!candidates.length && !error && <p>{t('generation.empty')}</p>}
       {candidates.map((generation) => (
         <article
@@ -372,6 +389,13 @@ function GenerationSession({
               {t(`generation.status.${generation.status}`, { defaultValue: generation.status })}
             </span>
           </header>
+          {generation.sourceChanged && <p role="status">{t('generation.sourceChanged')}</p>}
+          {generation.retryOf && (
+            <small>
+              {t('generation.retryFrom', { number: generation.retryOf.messageId.slice(-6) })}
+            </small>
+          )}
+          {generation.errorCode && <p role="alert">{agentToolFailureText(generation.errorCode)}</p>}
           {generation.status === 'awaiting_confirmation' ? (
             uncertain.has(generation.messageId) ? (
               <p>{t('generation.unknown')}</p>
@@ -380,7 +404,9 @@ function GenerationSession({
                 conversationId={conversationId}
                 key={`${generation.draftId}:${generation.draftRevision}`}
                 value={generation}
-                busy={busy !== null || Boolean(preparationBlocked)}
+                busy={
+                  busy !== null || Boolean(preparationBlocked) || Boolean(generation.sourceChanged)
+                }
                 onConfirm={(fields) => void confirm(generation, fields)}
               />
             )
