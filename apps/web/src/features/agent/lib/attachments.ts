@@ -30,7 +30,7 @@ export function referenceLimitMessage(
   refusal: ReferenceRefusal,
   transport: ReferenceTransport,
 ): string {
-  if (!transport.cloud)
+  if (!transport.cloud && !attachmentUploadsEnabled())
     return i18next.t('composer.tooManyReferences', {
       ns: 'agent',
       count: AGENT_TURN_MAX_INLINE_REFERENCES,

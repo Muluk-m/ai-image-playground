@@ -44,6 +44,7 @@ import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
+import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
@@ -76,6 +77,7 @@ import {
   primeAttachmentUploads,
   retryAttachmentUploads,
   subscribeAttachmentUploads,
+  withKnownAttachmentMedia,
 } from '../lib/attachmentUploads'
 import { setAgentComposerFill } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
@@ -162,15 +164,39 @@ export default function AgentComposer({
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const setDraft = session.update
   useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
-  useEffect(() => {
-    primeAttachmentUploads(draft.references)
-  }, [draft.references])
+  const version = useSyncExternalStore(doc.subscribe, () => doc.version)
+  const workspace = peekCanvasWorkspace()
+  const cloud = workspace?.doc === doc ? workspace.cloud : undefined
+  const cloudState = useSyncExternalStore(
+    cloud?.subscribe ?? (() => () => {}),
+    cloud?.getSnapshot ?? (() => undefined),
+  )
+  const knownMedia = useMemo(
+    () =>
+      new Map(
+        Object.entries(doc.files).flatMap(([fileId, source]) => {
+          const id = cloud?.knownMediaId(fileId, source)
+          return id ? [[source, id] as const] : []
+        }),
+      ),
+    [doc, version, cloud, cloudState],
+  )
+  const uploadReference = (reference: AgentReference) =>
+    withKnownAttachmentMedia(reference, (source) => knownMedia.get(source))
+  const uploadReferences = useMemo(
+    () =>
+      draft.references.map((reference) =>
+        withKnownAttachmentMedia(reference, (source) => knownMedia.get(source)),
+      ),
+    [draft.references, knownMedia],
+  )
+  useEffect(() => primeAttachmentUploads(uploadReferences), [uploadReferences])
   const uploadsBlocked = draft.references.some((reference) => {
-    const state = attachmentUploadState(reference)
+    const state = attachmentUploadState(uploadReference(reference))
     return state !== undefined && state !== 'ready'
   })
   const retryUpload = (reference: AgentReference) => {
-    void retryAttachmentUploads(reference).catch(() => {})
+    void retryAttachmentUploads(uploadReference(reference)).catch(() => {})
   }
   // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
   useEffect(
@@ -244,7 +270,6 @@ export default function AgentComposer({
 
   // 序号胶囊的显示标签随界面语言变，下游按这份解析器缓存的渲染要跟着重算。
   const labels = useMemo(() => referenceLabels(draft.references), [draft.references, i18n.language])
-  const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   // `@` 候选里的「画布图 n」是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
 
@@ -661,12 +686,12 @@ export default function AgentComposer({
               if (
                 selectionSummary.length > 0 &&
                 reference.origin === 'selection' &&
-                !attachmentUploadState(reference)
+                !attachmentUploadState(uploadReference(reference))
               )
                 return null
               const label = referenceNames[index] ?? getImageMentionLabel(index)
               const masked = Boolean(reference.maskDataUrl)
-              const uploadState = attachmentUploadState(reference)
+              const uploadState = attachmentUploadState(uploadReference(reference))
               return (
                 <div
                   key={reference.id}
@@ -687,7 +712,8 @@ export default function AgentComposer({
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
                     <span role="status" className="text-xs text-muted-foreground">
-                      {attachmentUploadError(reference) === 'media_unsupported_image'
+                      {attachmentUploadError(uploadReference(reference)) ===
+                      'media_unsupported_image'
                         ? t('composer.uploadUnsupported')
                         : t(`composer.upload.${uploadState}`)}
                     </span>
