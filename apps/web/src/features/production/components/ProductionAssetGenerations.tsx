@@ -49,7 +49,7 @@ export default function ProductionAssetGenerations({
   const model =
     getStoredChannels()
       .flatMap((channel) => channel.models)
-      .find((one) => one.media === 'image')?.id ?? ''
+      .find((one) => (one.media ?? 'image') === 'image')?.id ?? ''
   return (
     <section className="production-asset-generation">
       {target.kind === 'look' && (
