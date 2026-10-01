@@ -8,7 +8,13 @@ export class InMemoryObjectStore implements ObjectStore {
   deleteFailuresRemaining = 0
   beforeDeletePrefix?: (prefix: string) => void | Promise<void>
 
-  async write(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  async write(
+    key: string,
+    bytes: Uint8Array,
+    contentType: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
     this.events.push(`write:${key}`)
     if (this.writeFailuresRemaining > 0) {
       this.writeFailuresRemaining--
