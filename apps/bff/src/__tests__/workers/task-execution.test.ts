@@ -133,6 +133,86 @@ describe('认领', () => {
     other?.release()
   })
 
+  it('同账号任务认领和另一任务终态事件并发时不因外键锁发生死锁', async () => {
+    const userId = 'claim-event-lock-owner'
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: userId,
+      username: userId,
+      password_hash: 'fixture',
+      created_at: now,
+      updated_at: now,
+    })
+    await insertQueuedTask('finishing-event-lock', { user_id: userId })
+    await insertQueuedTask('claiming-event-lock', { user_id: userId })
+    const execution = await claimTaskExecution('finishing-event-lock')
+    expect(execution).not.toBeNull()
+    await db.execute(sql`
+      CREATE FUNCTION block_claim_event_fixture() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.user_id = 'claim-event-lock-owner' THEN
+          PERFORM pg_advisory_xact_lock(8731050);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await db.execute(sql`CREATE TRIGGER block_claim_event_fixture BEFORE INSERT ON user_changes
+      FOR EACH ROW EXECUTE FUNCTION block_claim_event_fixture()`)
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let holding = false
+    const blocker = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(8731050)`)
+      holding = true
+      await gate
+    })
+    let finishing: Promise<boolean> | undefined
+    let claiming: ReturnType<typeof claimTaskExecution> | undefined
+    try {
+      await waitFor(() => holding)
+      finishing = execution!.finish({
+        status: 'failed',
+        completedAt: now,
+        errorType: 'upstream_error',
+        errorMessage: 'known failure',
+      })
+      void finishing.catch(() => {})
+      await waitFor(async () => {
+        const rows = await db.execute(sql`SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'
+            AND wait_event = 'advisory' AND query LIKE ${'%insert into "user_changes"%'}`)
+        return rows.length === 1
+      })
+      claiming = claimTaskExecution('claiming-event-lock')
+      void claiming.catch(() => {})
+      await waitFor(async () => {
+        const rows = await db.execute(sql`SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'
+            AND query LIKE ${'%insert into "user_change_heads"%'}`)
+        return rows.length === 1
+      })
+      release()
+      const outcomes = await Promise.allSettled([finishing, claiming])
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(['fulfilled', 'fulfilled'])
+      expect(await finishing).toBe(true)
+      expect(await claiming).not.toBeNull()
+      expect((await readTask('finishing-event-lock'))?.status).toBe('failed')
+      expect((await readTask('claiming-event-lock'))?.status).toBe('in_progress')
+    } finally {
+      release()
+      await blocker
+      await finishing?.catch(() => {})
+      const claimed = await claiming?.catch(() => null)
+      claimed?.release()
+      execution?.release()
+      await db.execute(sql`DROP TRIGGER block_claim_event_fixture ON user_changes`)
+      await db.execute(sql`DROP FUNCTION block_claim_event_fixture()`)
+    }
+  }, 10000)
+
   it('同一条排着的任务只有一个执行者认领得到', async () => {
     await insertQueuedTask('single-claim')
 

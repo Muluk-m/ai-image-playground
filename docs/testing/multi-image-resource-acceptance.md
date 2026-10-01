@@ -25,6 +25,16 @@ The production Web build was exercised in Chromium against the controlled BFF, r
 
 An initial fixture filename typo (`000.jpg`) produced an explicit unreadable item and was removed before replacing it with `100.jpg`; it was not silently dropped or counted as a successful upload. The fault-injection and final-send results above concern the corrected fixed 100-file scope. Tunnel transfer time is not a production throughput measurement.
 
+## Controlled batch execution
+
+The real PostgreSQL, HTTP intake, task scheduler, worker and reconciliation paths were exercised with mocked upstream transport. The 100-item run used 100 distinct original hashes, a dispatch window of 3 and ordered 17-item cursor pages. Its 237 assertions covered pause during preparation, executor restart, exactly 100 original submissions, 99 settled successes, one unresolved upstream result retaining its hold, idempotent operator reconciliation, and one batch/version wake. The unknown result was not dispatched again. Small fixture PNGs test identity and accounting; this run does not replace the large-image resource measurements above.
+
+A separate three-batch run created nine legitimate queued tasks across two accounts. A single scheduler was limited to three active upstream requests and each account to two. Releasing one transport slot admitted one replacement while preserving both limits. All nine tasks completed with nine distinct submissions and one wake per batch. This verifies this scheduler's global limit and the database-enforced account limit, not a new global limit across multiple scheduler processes.
+
+The concurrency run exposed a real lock cycle between task claim, user-change sequence allocation and the user foreign key. A database regression first reproduced the failure, then passed after the claim retained owner serialization with `NO KEY UPDATE`, allowing the event's foreign-key read. The full 18-case execution-lease suite and the three-batch run passed without task crashes after the change.
+
+Explicit-failure retry, dependency blocking, insufficient-credit pause, authentication pause and model-unavailable pause are covered by the focused execution/retry/authentication suites alongside these scale tests. They are not presented as a single 100-item test combining every fault.
+
 ## Release acceptance still required
 
 - Repeated send-accept samples before claiming percentiles, full browser-process memory measurement, and effective production channel request budgets/compatibility.
