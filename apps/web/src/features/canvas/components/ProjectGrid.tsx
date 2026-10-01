@@ -150,7 +150,7 @@ export default function ProjectGrid({
                     src={project.cover}
                     alt=""
                     loading="lazy"
-                    className="h-full w-full object-contain"
+                    className="h-full w-full object-cover"
                   />
                 ) : (
                   <span className="text-4xl text-muted-foreground/40" aria-hidden="true">
