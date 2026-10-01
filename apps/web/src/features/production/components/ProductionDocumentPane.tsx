@@ -1,4 +1,8 @@
-import type { ProductionDocument, ProductionRevision } from '@image-playground/shared'
+import type {
+  ProductionContext,
+  ProductionDocument,
+  ProductionRevision,
+} from '@image-playground/shared'
 import {
   ChevronDown,
   FileText,
@@ -10,7 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
@@ -19,7 +23,10 @@ import {
   type ProductionResponse,
   restoreProduction,
 } from '../lib/productionClient'
+import { setProductionPanelContext } from '../lib/productionContext'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionProposals from './ProductionProposals'
+import ProductionQuotableText from './ProductionQuotableText'
 
 export type ProductionTab = 'setting' | 'outline' | 'scenes'
 
@@ -27,8 +34,10 @@ export default function ProductionDocumentPane({
   document,
   onClose,
   onSaved,
+  refreshKey = '',
 }: {
   document: ProductionDocument
+  refreshKey?: string
   onClose: () => void
   onSaved: (next: ProductionResponse) => void
 }) {
@@ -40,6 +49,40 @@ export default function ProductionDocumentPane({
   const [restoring, setRestoring] = useState(false)
   const edit = useProductionEditor(document, onSaved)
   const content = edit.content
+  useEffect(() => {
+    setProductionPanelContext(
+      document.conversationId,
+      tab === 'scenes'
+        ? null
+        : { documentId: document.id, revision: document.revision, target: tab },
+    )
+    return () => setProductionPanelContext(document.conversationId, null)
+  }, [document, tab])
+  useEffect(() => {
+    const locate = (event: Event) => {
+      const detail = (event as CustomEvent<{ conversationId: string; context?: ProductionContext }>)
+        .detail
+      const context = detail.context
+      if (detail.conversationId !== document.conversationId || !context) return
+      if (
+        context.target !== 'scene' &&
+        context.target !== 'setting' &&
+        context.target !== 'outline'
+      )
+        return
+      setTab(context.target === 'scene' ? 'scenes' : context.target)
+      setCollapsed(false)
+      requestAnimationFrame(() => {
+        const node = globalThis.document.querySelector<HTMLElement>(
+          `[data-production-text="${CSS.escape(context.sceneId ?? context.target)}"]`,
+        )
+        node?.scrollIntoView?.({ block: 'center' })
+        node?.focus()
+      })
+    }
+    window.addEventListener('production:locate', locate)
+    return () => window.removeEventListener('production:locate', locate)
+  }, [document.conversationId])
   const showHistory = async () => {
     if (history) {
       setHistory(null)
@@ -161,6 +204,12 @@ export default function ProductionDocumentPane({
               ))}
         </div>
       )}
+      <ProductionProposals
+        document={document}
+        refreshKey={refreshKey}
+        onSaved={onSaved}
+        editing={edit.editing}
+      />
       <div className="production-document-scroll">
         <div className="production-document-heading">
           {edit.editing ? (
@@ -237,7 +286,12 @@ export default function ProductionDocumentPane({
                     </span>
                     {scene.title}
                   </summary>
-                  <p>{scene.body}</p>
+                  <ProductionQuotableText
+                    document={document}
+                    target="scene"
+                    sceneId={scene.id}
+                    text={scene.body}
+                  />
                 </details>
               ),
             )}
@@ -267,7 +321,12 @@ export default function ProductionDocumentPane({
             onChange={(event) => edit.update({ ...content, [tab]: event.target.value })}
           />
         ) : (
-          <p className="production-prose">{content[tab] || t('emptySection')}</p>
+          <ProductionQuotableText
+            document={document}
+            target={tab}
+            text={content[tab]}
+            className="production-prose"
+          />
         )}
       </div>
     </section>

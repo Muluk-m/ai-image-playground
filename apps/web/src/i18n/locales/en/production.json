@@ -82,5 +82,15 @@
     "proposalFailed": "Unable to adopt. Check for a newer revision.",
     "suggestionCount": "Pending proposals {{count}}",
     "deleteLook": "Delete this look"
-  }
+  },
+  "quotedSource": "Quoted content",
+  "locateQuote": "Locate quote",
+  "removeQuote": "Remove quote",
+  "proposals": "Suggested edits",
+  "beforeEdit": "Original",
+  "afterEdit": "Suggested",
+  "adoptProposal": "Apply edit",
+  "discardProposal": "Discard suggestion",
+  "proposalFailed": "Could not update suggestions. Try again.",
+  "proposalConflict": "The original has changed. Request an edit based on the latest version."
 }

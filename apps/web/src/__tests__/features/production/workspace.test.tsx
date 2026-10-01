@@ -96,9 +96,9 @@ it('loads history only when requested and restores a revision through the owned 
         </ProductionWorkspace>,
       ),
     )
-    expect(request.mock.calls).toHaveLength(1)
+    expect(request.mock.calls.some(([url]) => url.includes('?history=true'))).toBe(false)
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="历史版本"]')!.click())
-    expect(request.mock.calls[1]?.[0]).toContain('?history=true')
+    expect(request.mock.calls.some(([url]) => url.includes('?history=true'))).toBe(true)
     await act(async () =>
       Array.from(host.querySelectorAll('button'))
         .find((one) => one.textContent === '恢复此版本')!

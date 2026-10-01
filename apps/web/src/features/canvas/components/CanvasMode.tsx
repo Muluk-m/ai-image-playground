@@ -517,7 +517,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         .filter(
                           (message) =>
                             message.kind === 'tool' &&
-                            (message.toolName === 'proposeProductionAssets' ||
+                            (message.toolName === 'proposeProductionEdit' ||
+                              message.toolName === 'proposeProductionAssets' ||
                               message.toolName === 'writeProduction' ||
                               message.toolName === 'readProduction'),
                         )
@@ -536,6 +537,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         onCloseSearch={() => setSearchOpen(false)}
                         onPreviewResult={previewResult}
                         onPreviewProduction={previewProduction}
+                        productionMode
                       />
                     </ProductionWorkspace>
                   ) : (

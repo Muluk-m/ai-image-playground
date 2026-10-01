@@ -81,5 +81,15 @@
     "proposalFailed": "建议暂时无法采用，请检查是否已有新版本",
     "suggestionCount": "待审阅建议 {{count}}",
     "deleteLook": "删除此造型"
-  }
+  },
+  "quotedSource": "已引用内容",
+  "locateQuote": "定位引用",
+  "removeQuote": "移除引用",
+  "proposals": "修改建议",
+  "beforeEdit": "原文",
+  "afterEdit": "建议修改",
+  "adoptProposal": "采用修改",
+  "discardProposal": "放弃建议",
+  "proposalFailed": "建议暂时无法更新，请重试",
+  "proposalConflict": "原文已有新版本，请基于最新内容重新提出修改"
 }
