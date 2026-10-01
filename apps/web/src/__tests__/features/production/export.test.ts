@@ -1,4 +1,7 @@
-import type { ProductionDocument } from '@image-playground/shared'
+import type {
+  ProductionDocument,
+  ProductionExportGenerationMetadata,
+} from '@image-playground/shared'
 import { strFromU8, unzipSync } from 'fflate'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
@@ -60,7 +63,7 @@ const doc: ProductionDocument = {
     clips: [],
   },
 }
-function fixtures(missing = false) {
+function fixtures(missing = false, generation?: ProductionExportGenerationMetadata) {
   request.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.endsWith('/inspect')) {
       const body = JSON.parse(String(init?.body))
@@ -70,6 +73,9 @@ function fixtures(missing = false) {
           status: missing && index === 1 ? 'missing' : 'available',
           bytes: missing && index === 1 ? null : png.length,
           mime: 'image/png',
+          ...((reference as { kind: string }).kind === 'artifact'
+            ? { generation: generation ?? { source: 'imported' } }
+            : {}),
         })),
       })
     }
@@ -222,7 +228,18 @@ it('exports the selected candidate actual submission separately from its edited 
       },
     ],
   }
-  const snapshot = freezeProductionExport(doc, candidate.artifacts, [candidate])
+  fixtures(false, {
+    source: 'production',
+    draftId: candidate.draftId,
+    draftRevision: candidate.draftRevision,
+    taskId: candidate.taskId,
+    production: candidate.production,
+    model: candidate.model,
+    prompt: candidate.prompt,
+    video: candidate.video,
+    references: candidate.references,
+  })
+  const snapshot = freezeProductionExport(doc, candidate.artifacts)
   candidate.prompt = '后来修改的文本'
   const plan = await inspectProductionExport(snapshot, new AbortController().signal)
   const result = await buildProductionZip(plan, {

@@ -47,9 +47,8 @@ export default function ProductionExportPane({
       freezeProductionExport(
         document,
         candidates.filter((one) => extras.has(one.artifactId)),
-        generations,
       ),
-    [document, candidates, generations, extras],
+    [document, candidates, extras],
   )
   const busy = phase === 'inspecting' || phase === 'packing'
   useEffect(() => {
@@ -78,6 +77,7 @@ export default function ProductionExportPane({
     const abort = new AbortController()
     controller.current = abort
     setPhase('inspecting')
+    setPlan(null)
     setError(null)
     try {
       const fixed = {
