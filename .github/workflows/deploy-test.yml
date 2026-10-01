@@ -35,6 +35,8 @@ jobs:
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+      VITEST_MAX_WORKERS: 1
+      NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,7 +60,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       # The same build the release job runs, failing here instead of half way through an upload.
-      - run: pnpm test
+      - run: pnpm test --concurrency=1 --env-mode=loose
       - run: pnpm --dir apps/web build
       - run: pnpm --dir apps/admin build
 
