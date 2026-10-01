@@ -11,6 +11,7 @@ import type { AgentPanelMessage, AgentToolMessage } from '../types'
 const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   readProduction: true,
   writeProduction: undefined,
+  proposeProductionEdit: undefined,
   viewImage: true,
   readLibrary: true,
   readCanvas: true,

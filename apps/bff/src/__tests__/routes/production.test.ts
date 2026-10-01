@@ -4,8 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { Elysia } from 'elysia'
-import { completionStream, scriptedAgentFetch, toolCallCompletion } from '../helpers/agentStubs'
+import {
+  type AgentCall,
+  completionStream,
+  controlledCompletion,
+  scriptedAgentFetch,
+  toolCallCompletion,
+} from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { waitFor } from '../helpers/upstreamStubs'
 
 const temp = await mkdtemp(join(tmpdir(), 'production-test-'))
 await writeFile(
@@ -134,13 +141,10 @@ it('executes the real Agent tool through SSE and reads the saved script through 
   }
   const calls: AgentCall[] = []
   setAgentFetchForTesting(
-    scriptedAgentFetch(
-      calls,
-      [
-        () => toolCallCompletion({ id: 'script-call', name: 'writeProduction', args: { content } }),
-        () => completionStream('剧本已保存，请查看右侧面板。'),
-      ],
-    ),
+    scriptedAgentFetch(calls, [
+      () => toolCallCompletion({ id: 'script-call', name: 'writeProduction', args: { content } }),
+      () => completionStream('剧本已保存，请查看右侧面板。'),
+    ]),
   )
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
@@ -159,6 +163,224 @@ it('executes the real Agent tool through SSE and reads the saved script through 
   expect(JSON.stringify(calls[0]?.messages)).toContain('当前是视频制作对话')
   expect(JSON.stringify(calls[0]?.messages)).not.toContain('拟好提示词就当场提交')
   expect((await (await request(owner.id, owner.cookie)).json()).document.content).toEqual(content)
+  setAgentFetchForTesting()
+})
+it('freezes a quoted target, proposes an Agent edit and adopts it once without overwriting the original early', async () => {
+  const owner = await account('production-quote')
+  const content = {
+    title: '雨夜',
+    setting: '',
+    outline: '',
+    scenes: [{ id: 'platform', title: '站台', body: '她撑着伞走来。' }],
+  }
+  const initial = await (
+    await request(owner.id, owner.cookie, { operationId: 'first', baseRevision: 0, content })
+  ).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'proposal-one',
+            name: 'proposeProductionEdit',
+            args: { replacement: '红伞', requestQuote: '把伞改成红伞' },
+          }),
+        () => completionStream('修改建议已准备好。'),
+      ],
+    ),
+  )
+  const result = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'production-device',
+        text: '把伞改成红伞',
+        params: {
+          productionMode: true,
+          production: {
+            documentId: initial.document.id,
+            revision: 1,
+            target: 'scene',
+            sceneId: 'platform',
+            quote: { start: 3, end: 4, text: '伞' },
+          },
+        },
+      }),
+    }),
+  )
+  expect(result.status).toBe(200)
+  await result.text()
+  const response = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/production?proposals=true`, {
+      headers: { cookie: owner.cookie },
+    }),
+  )
+  const prepared = await response.json()
+  expect(prepared.document.content.scenes[0].body).toBe('她撑着伞走来。')
+  expect(prepared.proposals).toHaveLength(1)
+  expect(prepared.proposals[0].after).toBe('她撑着红伞走来。')
+  const adopt = () =>
+    app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${owner.id}/production/proposals/${prepared.proposals[0].id}/adopt`,
+        {
+          method: 'POST',
+          headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ operationId: 'adopt-first', baseRevision: 1 }),
+        },
+      ),
+    )
+  const adopted = await adopt()
+  expect(adopted.status).toBe(200)
+  expect((await adopted.json()).document.content.scenes[0].body).toBe('她撑着红伞走来。')
+  expect((await (await adopt()).json()).document.revision).toBe(2)
+  setAgentFetchForTesting()
+})
+it('keeps a queued quote snapshot and refuses its stale offsets after a direct edit', async () => {
+  const owner = await account('production-queued')
+  const content = { title: '剧本', setting: '雨夜', outline: '', scenes: [] }
+  const original = await (
+    await request(owner.id, owner.cookie, { operationId: 'initial', baseRevision: 0, content })
+  ).json()
+  const first = controlledCompletion()
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () => first.responseFor(),
+      () =>
+        toolCallCompletion({
+          id: 'stale-call',
+          name: 'proposeProductionEdit',
+          args: { replacement: '雪夜', requestQuote: '把雨夜改成雪夜' },
+        }),
+      () => completionStream('原文已更新，请重新引用。'),
+    ]),
+  )
+  const send = (text: string, params?: unknown) =>
+    app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceId: 'production-device', text, params }),
+      }),
+    )
+  const ongoing = await send('先聊聊故事')
+  const drained = ongoing.text()
+  await waitFor(() => calls.length === 1)
+  const queued = await send('把雨夜改成雪夜', {
+    productionMode: true,
+    production: {
+      documentId: original.document.id,
+      revision: 1,
+      target: 'setting',
+      quote: { start: 0, end: 2, text: '雨夜' },
+    },
+  })
+  expect(queued.status).toBe(202)
+  await queued.json()
+  await request(owner.id, owner.cookie, {
+    operationId: 'manual',
+    baseRevision: 1,
+    content: { ...content, setting: '清晨' },
+  })
+  first.push('可以。')
+  first.finish()
+  await drained
+  await waitFor(() => calls.length >= 3)
+  const snapshot = () =>
+    app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/messages`, {
+        headers: { cookie: owner.cookie, 'x-device-id': 'production-device' },
+      }),
+    )
+  await waitFor(async () => (await (await snapshot()).json()).activeTurn === null)
+  const saved = await (
+    await app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${owner.id}/production?proposals=true`,
+        { headers: { cookie: owner.cookie } },
+      ),
+    )
+  ).json()
+  expect(saved.document.content.setting).toBe('清晨')
+  expect(saved.proposals).toEqual([])
+  expect(JSON.stringify(calls[1]?.messages)).toContain('雨夜')
+  expect(JSON.stringify(calls[1]?.messages)).toContain('\\"revision\\":1')
+  setAgentFetchForTesting()
+})
+it('keeps a conflicting proposal available to inspect and discard', async () => {
+  const owner = await account('production-conflict')
+  const content = { title: '剧本', setting: '雨夜', outline: '', scenes: [] }
+  const initial = await (
+    await request(owner.id, owner.cookie, { operationId: 'first', baseRevision: 0, content })
+  ).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'proposal',
+            name: 'proposeProductionEdit',
+            args: { replacement: '雪夜', requestQuote: '改成雪夜' },
+          }),
+        () => completionStream('建议已保存。'),
+      ],
+    ),
+  )
+  const turn = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'production-device',
+        text: '改成雪夜',
+        params: {
+          productionMode: true,
+          production: { documentId: initial.document.id, revision: 1, target: 'setting' },
+        },
+      }),
+    }),
+  )
+  await turn.text()
+  const read = () =>
+    app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${owner.id}/production?proposals=true`,
+        { headers: { cookie: owner.cookie } },
+      ),
+    )
+  const proposal = (await (await read()).json()).proposals[0]
+  await request(owner.id, owner.cookie, {
+    operationId: 'manual',
+    baseRevision: 1,
+    content: { ...content, setting: '黄昏' },
+  })
+  const adopt = await app.handle(
+    new Request(
+      `http://localhost/api/agent/conversations/${owner.id}/production/proposals/${proposal.id}/adopt`,
+      {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'adopt', baseRevision: 1 }),
+      },
+    ),
+  )
+  expect(adopt.status).toBe(409)
+  expect((await adopt.json()).current.content.setting).toBe('黄昏')
+  expect((await (await read()).json()).proposals[0].after).toBe('雪夜')
+  const discard = await app.handle(
+    new Request(
+      `http://localhost/api/agent/conversations/${owner.id}/production/proposals/${proposal.id}/discard`,
+      { method: 'POST', headers: { cookie: owner.cookie } },
+    ),
+  )
+  expect(discard.status).toBe(200)
+  const saved = await discard.json()
+  expect(saved.document.revision).toBe(2)
+  expect(saved.proposals[0].status).toBe('discarded')
   setAgentFetchForTesting()
 })
 afterAll(async () => {

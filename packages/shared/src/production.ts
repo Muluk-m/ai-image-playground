@@ -31,6 +31,7 @@ export interface ProductionRevision {
   readonly createdAt: number
 }
 export interface ProductionRecord {
+  readonly proposals?: readonly ProductionProposal[]
   readonly document: ProductionDocument
   readonly history: readonly ProductionRevision[]
   readonly receipts: readonly {
@@ -43,3 +44,24 @@ export const PRODUCTION_TEXT_MAX_CHARS = 100_000
 export const PRODUCTION_SCENES_MAX = 100
 export const PRODUCTION_HISTORY_MAX = 30
 export const PRODUCTION_RECEIPTS_MAX = 200
+
+export interface ProductionContext {
+  readonly documentId: string
+  readonly revision: number
+  readonly target: 'setting' | 'outline' | 'scene'
+  readonly sceneId?: string
+  readonly quote?: { readonly start: number; readonly end: number; readonly text: string }
+}
+export interface ProductionProposal {
+  readonly id: string
+  readonly baseRevision: number
+  readonly target: ProductionContext['target']
+  readonly sceneId?: string
+  readonly before: string
+  readonly after: string
+  readonly sourceTurnId: string
+  readonly status: 'pending' | 'adopted' | 'discarded'
+  readonly adoptedRevision?: number
+  readonly createdAt: number
+}
+export const PRODUCTION_PROPOSALS_MAX = 20

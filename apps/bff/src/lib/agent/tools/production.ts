@@ -1,6 +1,10 @@
 import { Type } from 'typebox'
 import { isCapabilityEnabled } from '../../capabilities'
-import { readProduction as readDocument, writeProduction as writeDocument } from '../production'
+import {
+  proposeProductionEdit as proposeEdit,
+  readProduction as readDocument,
+  writeProduction as writeDocument,
+} from '../production'
 import { defineAgentTool } from './adapter'
 import { AgentToolError } from './errors'
 
@@ -96,6 +100,60 @@ export const writeProduction = defineAgentTool({
             revision: record.document.revision,
             title: record.document.content.title,
             saved: true,
+          }),
+        },
+      ],
+      details: {},
+    }
+  },
+})
+
+export const proposeProductionEdit = defineAgentTool({
+  name: 'proposeProductionEdit',
+  modes: ['image', 'video'],
+  label: '建议修改剧本',
+  description:
+    '根据本轮冻结的文档选区或面板对象生成修改建议；不直接覆盖原稿。replacement 是选区替换文本，未划词时是当前单个字段的完整新正文。',
+  guidance:
+    '编辑已有剧本使用 proposeProductionEdit。只能修改本轮明确选中的字段或引用；没有目标先请用户选择，过期引用重新选择，建议须经采用才生效。',
+  parameters: Type.Object({
+    replacement: Type.String({ maxLength: 100000 }),
+    requestQuote: Type.String({ minLength: 1, maxLength: 2000 }),
+  }),
+  available: (_mode, audience) => isCapabilityEnabled('agent:production') && !!audience?.userId,
+  onError: 'continue',
+  call: () => ({ title: '建议修改剧本' }),
+  execute: (context) => async (toolCallId, args) => {
+    if (!context.userId) throw new AgentToolError('authentication_required', '请先登录')
+    if (!context.params?.production)
+      throw new AgentToolError(
+        'invalid_params',
+        '请先在剧本面板选择要修改的内容或引用文字。不能将宽泛请求解释成改写全部文档。',
+      )
+    if (
+      !args.requestQuote.trim() ||
+      !context.authorization?.().instructions.includes(args.requestQuote)
+    )
+      throw new AgentToolError('invalid_params', 'requestQuote 必须是本轮用户要求的原文片段。')
+    const proposal = await proposeEdit(
+      context.conversationId,
+      context.userId,
+      context.params.production,
+      args.replacement,
+      context.turnId,
+      `${context.turnId}:${toolCallId}`,
+    )
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            proposalId: proposal.id,
+            baseRevision: proposal.baseRevision,
+            before: proposal.before,
+            after: proposal.after,
+            status: proposal.status,
+            message: '建议已保存，用户采用前原文不变。',
           }),
         },
       ],
