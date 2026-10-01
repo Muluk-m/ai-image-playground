@@ -26,6 +26,9 @@ import { fetchListingImages } from './fetchListingImages'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
+import { proposeProductionEdit, readProduction, writeProduction } from './production'
+import { proposeProductionAssets } from './production-assets'
+import { proposeStoryboard } from './proposeStoryboard'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
 import { saveAsset } from './saveAsset'
@@ -56,6 +59,11 @@ export type {
 } from './types'
 
 const TOOLS: readonly AgentToolSpec[] = [
+  readProduction,
+  writeProduction,
+  proposeProductionEdit,
+  proposeProductionAssets,
+  proposeStoryboard,
   generateImage,
   editImage,
   viewImage,
@@ -82,9 +90,19 @@ function find(name: string): AgentToolSpec | undefined {
  * 这一轮模型看得见的工具：先按创作类型过滤，再按部署开关与「这一轮是谁」。三道筛子都只管
  * 「这一轮」，历史里已有的工具结果照样认得出来（`isAgentToolName` 与 `agentToolStart/End` 不过筛）。
  */
+const CANVAS_TOOLS = new Set<AgentToolName>([
+  'readCanvas',
+  'editCanvasObject',
+  'arrangeCanvas',
+  'arrangeTimeline',
+])
+
 function present(mode: AgentMode, audience?: AgentToolAudience): AgentToolSpec[] {
   return TOOLS.filter(
-    (tool) => tool.modes.includes(mode) && (tool.available?.(mode, audience) ?? true),
+    (tool) =>
+      tool.modes.includes(mode) &&
+      (audience?.experience !== 'chat' || !CANVAS_TOOLS.has(tool.name)) &&
+      (tool.available?.(mode, audience) ?? true),
   )
 }
 
@@ -105,27 +123,29 @@ export function resolveAgentMode(mode: AgentMode): AgentMode {
  */
 export function agentTurnTools(context: AgentToolContext, failures?: ToolFailureLog): AgentTool[] {
   return [
-    ...present(context.mode, { userId: context.userId }).map((spec) => {
-      const tool = spec.create(context)
-      const execute = tool.execute
-      return {
-        ...tool,
-        execute: async (...args: Parameters<typeof execute>) => {
-          const [toolCallId, params, signal] = args
-          failures?.started(toolCallId)
-          try {
-            await context.assertExecution?.()
-            const replayed = context.replay && replayedJob(spec, context, params)
-            if (replayed) return replayed
-            return await execute(...args)
-          } catch (thrown) {
-            // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
-            failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
-            throw thrown
-          }
-        },
-      }
-    }),
+    ...present(context.mode, { userId: context.userId, experience: context.experience }).map(
+      (spec) => {
+        const tool = spec.create(context)
+        const execute = tool.execute
+        return {
+          ...tool,
+          execute: async (...args: Parameters<typeof execute>) => {
+            const [toolCallId, params, signal] = args
+            failures?.started(toolCallId)
+            try {
+              await context.assertExecution?.()
+              const replayed = context.replay && replayedJob(spec, context, params)
+              if (replayed) return replayed
+              return await execute(...args)
+            } catch (thrown) {
+              // pi 只留下错误的文字，分类在这里记下，轮收尾时来取。
+              failures?.failed(toolCallId, thrown, signal?.aborted ?? false)
+              throw thrown
+            }
+          },
+        }
+      },
+    ),
     clarificationTool,
   ]
 }
@@ -195,7 +215,7 @@ function replayedJob(
     content: [
       {
         type: 'text',
-        text: `这次调用与被打断的那一轮已经提交的后台任务完全相同，没有重复提交。任务仍在后台进行，完成后自动放到用户的画布上；结果出来之前不要说已经生成好。任务 id：${job.taskId}`,
+        text: `这次调用与被打断的那一轮已经提交的后台任务完全相同，没有重复提交。任务仍在后台进行，完成后结果显示在对话的产物卡片中；结果出来之前不要说已经生成好。任务 id：${job.taskId}`,
       },
     ],
     details: { job },

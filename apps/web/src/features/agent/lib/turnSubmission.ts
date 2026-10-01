@@ -8,7 +8,7 @@ import {
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import { liveCanvasSnapshot } from '../../canvas/lib/canvasSnapshot'
-import type { CanvasProject } from '../../canvas/lib/projectRepository'
+import { type CanvasProject, projectExperience } from '../../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../../canvas/lib/workspaceKeys'
 import { inlineReferenceCount } from './agentClient'
 
@@ -47,6 +47,7 @@ export function captureTurnSubmission(input: {
   const cloud = workspace?.cloud
   const state = workspace?.record.getSnapshot()
   const readable =
+    (!input.project || projectExperience(input.project) === 'canvas') &&
     workspace &&
     !state?.loading &&
     !state?.loadFailed &&
@@ -55,21 +56,24 @@ export function captureTurnSubmission(input: {
       input.project?.conversationId &&
       input.project.conversationId !== input.conversationId
     )
-  const canvas = input.replay
-    ? input.replay.canvas
-    : readable
-      ? liveCanvasSnapshot(workspace.doc, (fileId, source) => cloud?.knownMediaId(fileId, source))
-      : undefined
-  const canvasReferenceIds = input.replay
-    ? input.replay.canvasReferenceIds
-    : input.references.flatMap((reference) => {
-        if (!readable || !('dataUrl' in reference) || reference.maskDataUrl) return []
-        const element = workspace.doc.elements.find((one) => one.id === reference.imageId)
-        return element?.type === 'image' &&
-          workspace.doc.files[element.fileId] === reference.dataUrl
-          ? [element.id]
-          : []
-      })
+  const chat = input.project && projectExperience(input.project) === 'chat'
+  let canvas: AgentCanvasSnapshot | undefined
+  let canvasReferenceIds: readonly string[] | undefined = []
+  if (!chat && input.replay) {
+    canvas = input.replay.canvas
+    canvasReferenceIds = input.replay.canvasReferenceIds
+  } else if (!chat && readable) {
+    canvas = liveCanvasSnapshot(workspace.doc, (fileId, source) =>
+      cloud?.knownMediaId(fileId, source),
+    )
+    canvasReferenceIds = input.references.flatMap((reference) => {
+      if (!('dataUrl' in reference) || reference.maskDataUrl) return []
+      const element = workspace.doc.elements.find((one) => one.id === reference.imageId)
+      return element?.type === 'image' && workspace.doc.files[element.fileId] === reference.dataUrl
+        ? [element.id]
+        : []
+    })
+  }
   const snapshot: TurnSubmissionSnapshot = structuredClone({
     references: input.references,
     params: input.replay?.params ?? input.params,

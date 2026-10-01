@@ -39,13 +39,18 @@ import {
   selectCanvasWorkspace,
 } from '../canvas/lib/activeProject'
 import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
-import { type CanvasProject, projectExperience } from '../canvas/lib/projectRepository'
+import {
+  type CanvasProject,
+  projectExperience,
+  UNTITLED_PROJECT,
+} from '../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../canvas/lib/workspaceKeys'
 import {
   currentCanvasProject,
   restoreCloudProject,
   useCanvasProjectStore,
 } from '../canvas/projectStore'
+import { productionTurnContext } from '../production/lib/productionContext'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   type AgentConversationState,
@@ -190,6 +195,7 @@ export interface AgentState {
   /** 智能体忙时发出、服务端还排着的消息，按处理顺序。 */
   queue: AgentQueuedMessageView[]
   error: string | null
+  errorDiagnostic: Record<string, unknown> | null
   loaded: boolean
   historyLoading: boolean
   historyFailed: boolean
@@ -286,6 +292,7 @@ export interface AgentState {
    * 确认一张草稿卡：把这份提示词原样交给服务端提交生成任务，面板换上提交之后的那张卡，
    * 并接着等任务结果。重复点击、多标签页同时确认都只会有一个任务。
    */
+  acceptGenerationReceipt(conversationId: string, view: AgentMessageView): void
   confirmPrompt(messageId: string, prompt: string): Promise<AgentPromptConfirmResult>
   /**
    * 按面板上的先后逐张确认所有待确认草稿。一张被拒（余额不够、没登录）就停下，
@@ -294,11 +301,48 @@ export interface AgentState {
   confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
 
-const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
+function turnFailureText(code?: string): string {
+  switch (code) {
+    case 'agent_upstream_error':
+      return i18next.t('error.upstream', { ns: 'agent' })
+    case 'agent_context_overflow':
+      return i18next.t('error.contextOverflow', { ns: 'agent' })
+    case 'agent_tool_failed':
+      return i18next.t('error.toolFailed', { ns: 'agent' })
+    default:
+      return TURN_FAILED()
+  }
+}
+
+function requestDiagnostic(
+  thrown: unknown,
+  conversationId: string | null,
+): Record<string, unknown> {
+  return {
+    conversationId,
+    occurredAt: new Date().toISOString(),
+    message: thrown instanceof Error ? thrown.message : TURN_FAILED(),
+    ...(thrown instanceof AgentRequestError
+      ? {
+          code: thrown.code,
+          httpStatus: thrown.status,
+          requestId: thrown.requestId,
+          serverMessage: thrown.serverMessage,
+        }
+      : {}),
+  }
+}
+
+const failPatch = (
+  state: AgentState,
+  message = TURN_FAILED(),
+  diagnostic: Record<string, unknown> | null = null,
+) => ({
   turn: 'failed' as const,
   stopping: false,
   activeTurn: null,
   error: message,
+  errorDiagnostic: diagnostic,
   messages: dropUnsettledMessages(state.messages),
 })
 
@@ -377,6 +421,7 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
   reconnecting: false,
   activeTurn: null,
   error: null,
+  errorDiagnostic: null,
   historyLoading: false,
   historyFailed: false,
 })
@@ -470,7 +515,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (event.type !== 'turnEnd') return panel
         // 被打断、已经排上中断续跑的轮不是失败：不出失败横幅，续上的那一轮随后开始（ADR 0006）。
         if (event.stopReason === 'failed' && event.error !== 'agent_turn_interrupted')
-          return { ...failPatch(state), turns: panel.turns }
+          return {
+            ...failPatch(state, turnFailureText(event.error), {
+              ...event.failure,
+              code: event.error ?? 'agent_run_failed',
+              conversationId,
+              turnId: event.turnId,
+              durationMs: event.durationMs,
+            }),
+            turns: panel.turns,
+          }
         return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
       })
     // 扣费在轮与工具各自收尾时发生，顶栏余额属于用户而不属于某个项目：切了项目之后
@@ -504,7 +558,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
   }
 
-  const fail = (message?: string) => set((state) => failPatch(state, message))
+  const fail = (message?: string, thrown?: unknown) =>
+    set((state) => failPatch(state, message, requestDiagnostic(thrown, state.conversationId)))
 
   const followers = new Map<string, TurnArtifactDelivery>()
 
@@ -551,14 +606,14 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         turnDelivery.isCurrent() &&
         (hasWaitingMessages(get().queue) || expected)
       if (stream.outcome === 'rateLimited') {
-        if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
+        if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED(), stream.lastError)
       } else if (stream.outcome === 'gone' || stream.outcome === 'unreachable') {
         // 轮没了或者一直接不上：面板还停在进行中就得给个交代。
-        if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+        if (turnDelivery.isCurrent() && get().turn === 'running') fail(undefined, stream.lastError)
       }
     } catch (thrown) {
       // 归约自己出了错：不能让面板永远停在进行中。
-      if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+      if (turnDelivery.isCurrent() && get().turn === 'running') fail(undefined, thrown)
       throw thrown
     } finally {
       await turnDelivery.settled()
@@ -633,10 +688,21 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             stopping: false,
             reconnecting: false,
             error: null,
+            errorDiagnostic: null,
             activeTurn: { turnId: options.join },
           }
         : {}),
     })
+    const project = currentCanvasProject()
+    if (project?.conversationId === conversationId && project.name === UNTITLED_PROJECT) {
+      const first = history.messages.find(
+        (message) => message.kind === 'text' && message.role === 'user',
+      )
+      if (first?.kind === 'text') {
+        const title = firstMessageTitle(first.text)
+        if (title) void autoNameProject(project.id, title).catch(() => {})
+      }
+    }
     void delivery.restore(get().messages)
     jobs.resume(conversationId, get().messages)
   }
@@ -666,6 +732,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 换会话：草稿卡上改过的字、任务进度这些都跟着那个会话走，不带进新的。
       ...(same ? { conversationId } : sessionReset(conversationId)),
       error: null,
+      errorDiagnostic: null,
       turn: 'idle',
       stopping: false,
       reconnecting: false,
@@ -691,7 +758,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
           if (!isCurrent()) return
           openProject(project.id)
-          set({ ...sessionReset(null), error: CONVERSATION_GONE() })
+          set({ ...sessionReset(null), error: CONVERSATION_GONE(), errorDiagnostic: null })
         } catch {
           if (isCurrent()) {
             set({ historyLoading: false, historyFailed: true })
@@ -711,7 +778,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
       return
     }
-    set({ turn: 'running', error: null, activeTurn: { turnId: active } })
+    set({ turn: 'running', error: null, errorDiagnostic: null, activeTurn: { turnId: active } })
     await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
   }
 
@@ -819,7 +886,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     // 切过去的那个项目。
     const draft = currentProjectDraft(conversationId)
     try {
-      if (current()) set({ stopping: true, error: null })
+      if (current()) set({ stopping: true, error: null, errorDiagnostic: null })
       const returned = await abortWithRetry(conversationId, turnId)
       // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
       if (returned.length) {
@@ -844,6 +911,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               reconnecting: false,
               activeTurn: null,
               error: null,
+              errorDiagnostic: null,
             })
             adoptSnapshot(conversationId, history)
             return
@@ -852,7 +920,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           /* 保留在运行的轮，让用户重试。 */
         }
       }
-      if (current()) set({ stopping: false, error: i18next.t('error.stopFailed', { ns: 'agent' }) })
+      if (current())
+        set({
+          stopping: false,
+          error: i18next.t('error.stopFailed', { ns: 'agent' }),
+          errorDiagnostic: requestDiagnostic(error, conversationId),
+        })
     }
   }
 
@@ -881,7 +954,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     try {
       const prepared = await prepare()
       if (!prepared) {
-        if (current()) set({ error: REFERENCES_NOT_UPLOADED() })
+        if (current()) set({ error: REFERENCES_NOT_UPLOADED(), errorDiagnostic: null })
         return false
       }
       if (!current()) return false
@@ -898,7 +971,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
-        if (current()) set({ error: i18next.t('error.queueFailed', { ns: 'agent' }) })
+        if (current())
+          set({ error: i18next.t('error.queueFailed', { ns: 'agent' }), errorDiagnostic: null })
         return 'cancelled' as const
       }
       if (outcome.kind === 'alreadyRunning') {
@@ -921,6 +995,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!current()) return true
       set((state) => ({
         error: null,
+        errorDiagnostic: null,
         ...(outcome.kind === 'queued' &&
         (outcome.body.state === 'pending' || outcome.body.state === 'failed')
           ? { queue: addQueuedMessage(state.queue, outcome.body.queued) }
@@ -931,6 +1006,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!current()) return false
       const code = thrown instanceof AgentRequestError ? thrown.code : undefined
       set({
+        errorDiagnostic: requestDiagnostic(thrown, conversationId),
         error:
           code === 'queue_full'
             ? i18next.t('error.queueFull', { ns: 'agent', count: AGENT_QUEUE_MAX_PENDING })
@@ -1004,7 +1080,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       !draft.references.length &&
       !unsent
     ) {
-      await useCanvasProjectStore.getState().update(current.id, { workspaceOpened: true })
+      await useCanvasProjectStore
+        .getState()
+        .update(current.id, { workspaceOpened: true, experience })
       showProject(current, showPanel)
       return true
     }
@@ -1068,6 +1146,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     reconnecting: false,
     activeTurn: null,
     error: null,
+    errorDiagnostic: null,
     loaded: false,
     historyLoading: false,
     historyFailed: false,
@@ -1294,6 +1373,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     ) {
       const turnParams = replay?.params ?? {
         ...currentTurnParams(),
+        ...productionTurnContext(get().conversationId),
         ...(modelOverride ? { model: modelOverride } : {}),
       }
       const conversationId = get().conversationId
@@ -1405,6 +1485,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         stopping: false,
         reconnecting: false,
         error: null,
+        errorDiagnostic: null,
         activeTurn: null,
         messages: [
           ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
@@ -1422,7 +1503,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }))
       // 标题这一刻就跟上：Agent 也会取名，但那是一轮跑完之后的事，中间几十秒顶栏挂着
       // 「未命名项目」，项目列表里连着几条也分不出谁是谁。用户自己改过名的不动。
-      if (firstTurn && sourceProject && !sourceProject.customName) {
+      if (
+        (firstTurn || sourceProject?.name === UNTITLED_PROJECT) &&
+        sourceProject &&
+        (!sourceProject.customName || sourceProject.name === UNTITLED_PROJECT)
+      ) {
         const titled = firstMessageTitle(trimmed)
         if (titled && titled !== sourceProject.name)
           void autoNameProject(sourceProject.id, titled).catch(() => {})
@@ -1443,6 +1528,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             stopping: false,
             activeTurn: null,
             error: null,
+            errorDiagnostic: null,
             messages: state.messages.filter((one) => one.kind !== 'text' || !one.pending),
           }))
         await turnDelivery.settled()
@@ -1490,8 +1576,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               }
             }
           }
-        } catch {
-          if (turnDelivery.isCurrent()) fail()
+        } catch (thrown) {
+          if (turnDelivery.isCurrent()) fail(undefined, thrown)
           await turnDelivery.settled()
           return
         }
@@ -1528,6 +1614,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
                   : thrown instanceof AgentRequestError && thrown.code === 'invalid_reference'
                     ? i18next.t('error.invalidReference', { ns: 'agent' })
                     : undefined,
+              thrown,
             )
           await turnDelivery.settled()
           return
@@ -1576,7 +1663,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           set({ stopping: false })
           await openConversation(target, outcome.turnId)
           if (get().conversationId === target)
-            set({ error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }) })
+            set({
+              error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }),
+              errorDiagnostic: null,
+            })
           return
         }
         onAccepted?.()
@@ -1603,11 +1693,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (pendingStart?.delivery.isCurrent()) {
           pendingStart.cancelled = true
           abortInFlight = pendingStart.settled
-          set({ stopping: true, error: null })
+          set({ stopping: true, error: null, errorDiagnostic: null })
         }
         return
       }
-      set({ stopping: true, error: null })
+      set({ stopping: true, error: null, errorDiagnostic: null })
       const settling = requestAbort(conversationId, active.turnId)
       // 界面已经放行；下一句要等的是「请求回来 + 终帧落地」，`abort()` 自己只等请求。
       const settled = settling.then(() => turnSettledAfterAbort(conversationId))
@@ -1628,13 +1718,18 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         // 三种结局都意味着它不再排着：撤回了、被处理了、或者本来就没有。
         set((state) => ({
           queue: removeQueuedMessage(state.queue, queueId),
+          errorDiagnostic: null,
           error:
             result === 'already_consumed'
               ? i18next.t('error.queueAlreadyConsumed', { ns: 'agent' })
               : null,
         }))
-      } catch {
-        if (current()) set({ error: i18next.t('error.queueWithdrawFailed', { ns: 'agent' }) })
+      } catch (thrown) {
+        if (current())
+          set({
+            error: i18next.t('error.queueWithdrawFailed', { ns: 'agent' }),
+            errorDiagnostic: requestDiagnostic(thrown, conversationId),
+          })
       }
     },
 
@@ -1647,19 +1742,27 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (!current()) return
         // 那一轮刚好收尾：它照旧排着，下一轮处理。
         if (result === 'not_running') {
-          set({ error: i18next.t('error.queueInterjectTooLate', { ns: 'agent' }) })
+          set({
+            error: i18next.t('error.queueInterjectTooLate', { ns: 'agent' }),
+            errorDiagnostic: null,
+          })
           return
         }
         // 其余结局都意味着它不再排着：插进去了、被处理了、撤回了或者本来就没有。
         set((state) => ({
           queue: removeQueuedMessage(state.queue, queueId),
+          errorDiagnostic: null,
           error:
             result === 'already_consumed'
               ? i18next.t('error.queueInterjectConsumed', { ns: 'agent' })
               : null,
         }))
-      } catch {
-        if (current()) set({ error: i18next.t('error.queueInterjectFailed', { ns: 'agent' }) })
+      } catch (thrown) {
+        if (current())
+          set({
+            error: i18next.t('error.queueInterjectFailed', { ns: 'agent' }),
+            errorDiagnostic: requestDiagnostic(thrown, conversationId),
+          })
       }
     },
 
@@ -1693,6 +1796,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         }
         set({
           error: agentToolFailureText(code) ?? i18next.t('error.retryFailed', { ns: 'agent' }),
+          errorDiagnostic: requestDiagnostic(thrown, conversationId),
         })
         return false
       }
@@ -1705,6 +1809,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         const { [placeholderId ?? '']: _cleared, ...retryRefusals } = state.retryRefusals
         return {
           error: null,
+          errorDiagnostic: null,
           retryRefusals,
           messages: shown ? state.messages : [...state.messages, card],
         }
@@ -1756,6 +1861,34 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set((state) => ({ promptDrafts: { ...state.promptDrafts, [messageId]: prompt } }))
     },
 
+    acceptGenerationReceipt(conversationId, view) {
+      if (get().conversationId !== conversationId) return
+      const incoming = panelMessage(view.id, view.turnId, view.role, view.content)
+      if (incoming.kind !== 'tool') return
+      const shown = get().messages.find((one) => one.id === incoming.id)
+      if (
+        shown?.kind === 'tool' &&
+        agentJobUnsettled(incoming) &&
+        (shown.status === 'succeeded' || shown.status === 'failed')
+      )
+        return
+      const card = reconcileToolCard(shown, incoming)
+      if (card.kind !== 'tool') return
+      set((state) => {
+        const { [card.id]: _confirmed, ...promptDrafts } = state.promptDrafts
+        return {
+          promptDrafts: card.status === 'awaiting_confirmation' ? state.promptDrafts : promptDrafts,
+          messages: shown
+            ? state.messages.map((one) => (one.id === card.id ? card : one))
+            : [...state.messages, card],
+        }
+      })
+      if (card.status !== 'awaiting_confirmation' && card.status !== 'running') {
+        notifyPrivateSubmissionSettled()
+        jobs.track(conversationId, card, card.retryOf ? { kind: 'adopt' } : { kind: 'reserve' })
+      }
+    },
+
     async confirmPrompt(messageId, prompt) {
       const conversationId = get().conversationId
       const draft = get().messages.find((one) => one.id === messageId)
@@ -1764,7 +1897,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!conversationId || draft?.kind !== 'tool' || !text) return { ok: false, reason: 'failed' }
       let view: AgentMessageView
       try {
-        view = await confirmToolPrompt(conversationId, messageId, text)
+        view = await confirmToolPrompt(
+          conversationId,
+          messageId,
+          text,
+          undefined,
+          draft.productionDraftRevision,
+        )
       } catch (thrown) {
         if (!(thrown instanceof AgentRequestError)) return { ok: false, reason: 'failed' }
         if (thrown.status === 404) return { ok: false, reason: 'gone' }
@@ -1795,6 +1934,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         const { [messageId]: _confirmed, ...promptDrafts } = state.promptDrafts
         return {
           error: null,
+          errorDiagnostic: null,
           promptDrafts,
           messages: state.messages.map((one) => (one.id === card.id ? card : one)),
         }

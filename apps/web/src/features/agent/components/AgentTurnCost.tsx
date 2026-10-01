@@ -8,6 +8,7 @@ import { formatCount } from '../../../i18n/format'
 import { CARD_NOTE } from '../agentStyles'
 import { turnCostWithJobs } from '../lib/turnCost'
 import type { AgentToolMessage, AgentTurnFooter } from '../types'
+import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 
 const BREAKDOWN = [
   ['chat', 'label.chat'],
@@ -72,6 +73,16 @@ export default function AgentTurnCost({
           {part}
         </Fragment>
       ))}
+      {failed && footer.error !== 'agent_turn_interrupted' && (
+        <AgentCopyDiagnostic
+          diagnostic={{
+            ...footer.failure,
+            code: footer.error,
+            turnId: footer.turnId,
+            durationMs: footer.durationMs,
+          }}
+        />
+      )}
       {open && cost && (
         <span className="basis-full tabular-nums">
           {BREAKDOWN.filter(([key]) => cost[key] > 0).map(([key, labelKey], index) => {

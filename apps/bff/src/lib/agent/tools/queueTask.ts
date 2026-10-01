@@ -7,13 +7,14 @@ import type {
   QueueProvider,
   VideoGenerationRecord,
 } from '@image-playground/shared'
-import { projectArtifactId } from '@image-playground/shared'
+import { productionClipVideo, projectArtifactId } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import type { ExtractedResult } from '../../extractImages'
 import { submitAgentGeneration } from '../auto-submit'
 import { saveGenerationDraft } from '../confirmations'
 import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
+import { bindProductionGeneration } from '../production-generation-binding'
 import { AgentToolError } from './errors'
 import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
@@ -45,6 +46,7 @@ export interface QueueTaskInput {
   readonly prompt: string
   /** 图片工具选择的产出张数；与轮上的用户偏好无关。 */
   readonly n?: number
+  readonly referenceIds?: readonly string[]
   readonly inputImages?: readonly string[]
   readonly mask?: string
   /** 视频档位；缺席即这是一条图片任务。 */
@@ -73,7 +75,7 @@ function draftText(words: MediaWords, count: number): string {
  * 明白「这一张已经在跑、已经计费」，别再为同一件事提交第二次。
  */
 function submittedText(words: MediaWords, count: number): string {
-  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，产物会自动落到画布上。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
+  return `已按用户要求提交${words.verb}任务（${count} ${words.unit}），这次调用已经提交并计费，结果会显示在对话的产物卡片中。不要描述成品的样子，也不要为同一件事再提交一次；结果由系统在任务结束时告诉你。`
 }
 
 /**
@@ -175,23 +177,43 @@ export async function draftQueueTask(
   const count = input.media === 'image' ? agentImageCount(input) : 1
   // 计划随材料一起冻结：用户几分钟后才确认，那时这一轮的内存早已不在，唤醒轮要接的是提交那一刻的计划。
   const plan = context.maskedEditPlan?.carryAfter(submission)
+  const bound = await bindProductionGeneration(context, input)
+  const inputImages = bound?.inputImages ?? input.inputImages
+  const video =
+    input.video && bound
+      ? productionClipVideo({
+          video: input.video,
+          references: bound.references.map((one) => ({
+            reference: one.reference,
+            usage: one.usage ?? 'reference',
+          })),
+        })
+      : input.video
   const request = {
     prompt: input.prompt,
     device_id: context.deviceId,
     // 视频档位由 input.video 自己带，图片参数对它没有意义。
     ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
     n: count,
-    ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
+    ...(inputImages?.length ? { input_images: [...inputImages] } : {}),
     ...(input.mask ? { mask: input.mask } : {}),
   }
   const draftSubmission = {
+    ...(bound
+      ? {
+          production: bound.production,
+          productionDraftRevision: 1,
+          productionParams: context.params,
+          productionReferences: bound.references,
+        }
+      : {}),
     review,
     ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     ...(plan ? { plan } : {}),
     ...(input.videoRecord ? { videoRecord: input.videoRecord } : {}),
   }
 
-  if (context.autoSubmit?.take()) {
+  if (!bound && context.autoSubmit?.take()) {
     const submitted = await submitAgentGeneration({
       conversationId: context.conversationId,
       turnId: context.turnId,
@@ -201,7 +223,7 @@ export async function draftQueueTask(
       provider: target.provider,
       model: target.model,
       request,
-      ...(input.video ? { video: input.video } : {}),
+      ...(video ? { video } : {}),
       submission: draftSubmission,
     })
     if (submitted.kind === 'created') {
@@ -227,7 +249,7 @@ export async function draftQueueTask(
     model: target.model,
     prompt: input.prompt,
     request,
-    ...(input.video ? { video: input.video } : {}),
+    ...(video ? { video } : {}),
     submission: draftSubmission,
   })
   // 草稿真的落下了才登记：同一轮里模型不能为同一件事拟第二次稿，确认与否由用户决定。
@@ -237,6 +259,7 @@ export async function draftQueueTask(
     details: {
       executedPrompt: input.prompt,
       awaitingConfirmation: true as const,
+      ...(bound ? { productionDraftRevision: 1 } : {}),
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     },
   }

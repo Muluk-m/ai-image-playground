@@ -56,6 +56,8 @@ export class SceneRecord {
   private savedRevision = 0
   private structureRevision = 0
   private savedStructureRevision = 0
+  private cameraRevision = 0
+  private savedCameraRevision = 0
   private readonly sameAccount = accountScope()
 
   constructor(
@@ -66,6 +68,10 @@ export class SceneRecord {
 
   get key(): string {
     return this.currentKey
+  }
+
+  get restoredViewport(): PersistedScene['viewport'] {
+    return this.stored?.viewport
   }
 
   getSnapshot = (): SceneRecordStatus => this.status
@@ -129,7 +135,11 @@ export class SceneRecord {
       if (this.savedRevision === this.revision && !this.status.saveFailed) return true
       const revision = this.revision
       const structureRevision = this.structureRevision
-      let saved = await this.write(structureRevision === this.savedStructureRevision)
+      const cameraRevision = this.cameraRevision
+      let saved = await this.write(
+        structureRevision === this.savedStructureRevision,
+        cameraRevision === this.savedCameraRevision,
+      )
       if (this.gone()) return false
       if (saved) {
         try {
@@ -141,6 +151,7 @@ export class SceneRecord {
       if (saved) {
         this.savedRevision = revision
         this.savedStructureRevision = structureRevision
+        this.savedCameraRevision = cameraRevision
       }
       this.update({ saveFailed: !saved })
       // 「本机写成功了就去推云端」只在这一处成文：防抖那次落盘与手动 flush 走的是同一条路。
@@ -195,9 +206,9 @@ export class SceneRecord {
     return this.disposed || !this.sameAccount()
   }
 
-  private write(preserveStructure: boolean): Promise<boolean> {
+  private write(preserveStructure: boolean, preserveCamera = false): Promise<boolean> {
     const put = (checkpoint: CloudSceneCheckpoint | undefined) =>
-      this.put(checkpoint, preserveStructure)
+      this.put(checkpoint, preserveStructure, this.currentKey, undefined, preserveCamera)
     return this.cloud ? this.cloud.save(put) : put(this.localCheckpoint())
   }
 
@@ -206,6 +217,7 @@ export class SceneRecord {
     preserveStructure: boolean,
     key = this.currentKey,
     removeKey?: string,
+    preserveCamera = false,
   ): Promise<boolean> {
     try {
       await writePersistedScene(
@@ -213,6 +225,7 @@ export class SceneRecord {
         key,
         removeKey,
         preserveStructure,
+        preserveCamera,
       )
       this.exists = true
       return true
@@ -235,16 +248,23 @@ export class SceneRecord {
   /** 文档与盘上那份从这一刻起开始分叉：结构变了要整份写，只挪相机不动别人的结构。 */
   private track(): void {
     const doc = this.editor.doc
-    let { elements, files, camera } = doc
+    let { elements, files, camera, viewport } = doc
     this.stopChanges?.()
     this.stopChanges = this.editor.onChange(() => {
       if (this.status.loading) return
-      if (elements === doc.elements && files === doc.files && camera === doc.camera) return
+      if (
+        elements === doc.elements &&
+        files === doc.files &&
+        camera === doc.camera &&
+        viewport === doc.viewport
+      )
+        return
       if (elements !== doc.elements || files !== doc.files) {
         this.structureRevision += 1
         this.cloud?.markChanged()
       }
-      ;({ elements, files, camera } = doc)
+      if (camera !== doc.camera) this.cameraRevision += 1
+      ;({ elements, files, camera, viewport } = doc)
       this.revision += 1
       clearTimeout(this.timer)
       this.timer = setTimeout(() => void this.flush(), PERSIST_DEBOUNCE_MS)

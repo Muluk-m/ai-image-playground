@@ -22,6 +22,7 @@ export interface CanvasProject {
   readonly id: string
   readonly name: string
   readonly customName: boolean
+  readonly automaticNameVersion?: number
   readonly conversationId: string | null
   readonly sceneKey: string
   readonly createdAt: number
@@ -43,7 +44,10 @@ export interface CanvasProject {
 }
 
 export function projectExperience(project: CanvasProject): 'chat' | 'canvas' {
-  return project.experience ?? (!project.conversationId && project.hasContent ? 'canvas' : 'chat')
+  return (
+    project.experience ??
+    (!project.conversationId && (project.hasContent || project.workspaceOpened) ? 'canvas' : 'chat')
+  )
 }
 
 /** 默认名只在界面区分入口；存储和同步仍使用统一的未命名项目标识。 */
@@ -299,6 +303,31 @@ export const projectRepository = {
     })
   },
 
+  /** Reserve automatic-title order atomically across tabs before doing asynchronous work. */
+  async reserveAutomaticName(
+    id: string,
+  ): Promise<{ project: CanvasProject; version: number } | null> {
+    const storageKey = key(id)
+    const db = await openCanvasDatabase()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('scene', 'readwrite')
+      const store = tx.objectStore('scene')
+      const request = store.get(storageKey)
+      let reserved: { project: CanvasProject; version: number } | null = null
+      request.onsuccess = () => {
+        const stored = request.result as StoredProject | undefined
+        if (!stored || (stored.customName && stored.name !== UNTITLED_PROJECT)) return
+        const version = (stored.automaticNameVersion ?? 0) + 1
+        const updated = { ...stored, automaticNameVersion: version }
+        store.put(updated, storageKey)
+        reserved = { project: projectView(updated), version }
+      }
+      tx.oncomplete = () => resolve(reserved)
+      tx.onabort = () => reject(tx.error)
+      tx.onerror = () => reject(tx.error)
+    })
+  },
+
   async update(
     id: string,
     patch: Partial<
@@ -316,6 +345,7 @@ export const projectRepository = {
         | 'cloud'
       >
     >,
+    expectedName?: Pick<CanvasProject, 'name' | 'customName'> & { version?: number },
   ): Promise<CanvasProject> {
     const storageKey = key(id)
     const db = await openCanvasDatabase()
@@ -330,6 +360,17 @@ export const projectRepository = {
           return
         }
         const stored = request.result as StoredProject
+        if (
+          expectedName &&
+          ((expectedName.version !== undefined &&
+            stored.automaticNameVersion !== expectedName.version) ||
+            (stored.customName &&
+              stored.name !== UNTITLED_PROJECT &&
+              (stored.name !== expectedName.name || stored.customName !== expectedName.customName)))
+        ) {
+          result = stored
+          return
+        }
         const backend = getRecoveryBackend()
         // 画布类型建项目时定死：补丁类型里没有它，真混进来了也按存档为准。
         const { kind: _fixed, ...safe } = patch as Partial<CanvasProject>

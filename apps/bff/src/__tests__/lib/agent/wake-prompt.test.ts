@@ -30,6 +30,11 @@ function job(status: AgentToolResultBlock['status']): WakeJob {
 }
 
 describe('唤醒说明', () => {
+  it('does not claim failed tasks delivered an artifact', () => {
+    expect(wakeTurnPrompt([job('failed')])).not.toContain('成功产物')
+    expect(wakeTurnPrompt([job('succeeded')])).toContain('对话产物卡片')
+  })
+
   it('offers the deferred edits only on a wake turn of its own', () => {
     expect(wakeTurnPrompt([job('succeeded')])).toContain('可以用这些产物继续执行')
   })

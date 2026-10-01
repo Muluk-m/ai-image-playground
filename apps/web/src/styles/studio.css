@@ -313,13 +313,71 @@
   .studio-direct-card textarea { font-size: 16px; }
 }
 
-/* 首屏标题的高亮半句：品牌绿渐变 + 柔光，暗底上才有「发光」的观感。 */
+/* 网格和细纹始终可见，不依赖指针或动画。 */
+.studio-home-backdrop {
+  position: absolute;
+  inset: 0 0 auto;
+  height: max(680px, 100vh);
+  overflow: hidden;
+  pointer-events: none;
+  background: hsl(var(--background));
+}
+.dark .studio-home-backdrop { background: #191919; }
+.studio-home-backdrop::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 72%, hsl(var(--background)) 100%);
+  content: '';
+}
+.studio-home-backdrop__grain,
+.studio-home-backdrop__grid,
+.studio-home-backdrop__hover {
+  position: absolute;
+  inset: 0;
+}
+.studio-home-backdrop__grain {
+  background-image: url('/textures/home-grain.svg');
+  background-size: 180px 180px;
+  opacity: .045;
+}
+.studio-home-backdrop__grid {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / .085) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / .085) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* 局部光效叠在常驻网格上，离开时只隐藏光效层。 */
+.studio-home-backdrop__hover {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / .1) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / .1) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(circle 220px at var(--pointer-x, 50%) var(--pointer-y, 40%), #000 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity .22s ease-out;
+}
+.studio-home-backdrop__hover::before {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 220px at var(--pointer-x, 50%) var(--pointer-y, 40%), hsl(var(--primary) / .05), transparent 74%);
+  content: '';
+}
+.studio-home-backdrop[data-pointer-active="true"] .studio-home-backdrop__hover { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .studio-home-backdrop__hover { display: none; }
+}
+
+/* 首屏品牌色保留渐变，不向背景投射光晕。 */
 .studio-hero-accent {
   background: linear-gradient(100deg, #eaffd6, #a6ef7c 45%, #6fd36a);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  text-shadow: 0 0 38px hsl(var(--primary) / 0.32);
+}
+:root:not(.dark) .studio-hero-accent {
+  background-image: linear-gradient(100deg, #275b24, #387d30 55%, #27652c);
+  text-shadow: none;
 }
 
 /* 模式切与主按钮的高亮态：亮绿渐变 + 内描边 + 外发光。 */
@@ -332,12 +390,10 @@
     0 10px 30px -12px hsl(var(--primary) / 0.85);
 }
 
-/* 首屏那张输入卡：暗底上要「浮」起来，靠一层绿调外发光而不是硬阴影。 */
+/* 输入卡保持不透明，网格只出现在周围留白。 */
 .studio-hero-composer {
-  background: hsl(var(--card) / 0.86);
-  box-shadow:
-    0 0 0 1px hsl(var(--primary) / 0.14),
-    0 40px 90px -50px hsl(var(--primary) / 0.7);
+  background: hsl(var(--card));
+  box-shadow: 0 0 0 1px hsl(var(--border)), 0 12px 32px -24px rgb(0 0 0 / .35);
 }
 
 /* 生成按钮：亮绿渐变 + 内描边 + 外发光，黑字。禁用态交回 Tailwind 的 disabled:*。 */
@@ -352,6 +408,11 @@
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.35),
     0 18px 48px -14px hsl(var(--primary));
+}
+
+.studio-create-target .studio-generate-button,
+.studio-create-target .studio-generate-button:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .22);
 }
 
 /* `studio-page-head` 只做标记，右侧让位由 Tailwind 的 pr-16 / md:pr-60 出（它在层叠里压得过这里）。 */
@@ -445,7 +506,7 @@
 .studio-agent-inline-result { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .studio-agent-inline-meta { display: flex; align-items: center; gap: 10px; min-width: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .studio-agent-inline-meta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-agent-inline-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(205px, 100%), 1fr)); gap: 5px; min-width: 0; }
+.studio-agent-inline-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(205px, 100%), 1fr)); align-items: start; gap: 5px; min-width: 0; }
 .studio-agent-inline-gallery[data-count="1"] { max-width: 420px; grid-template-columns: minmax(0, 1fr); }
 .studio-agent-inline-gallery[data-count="2"] { max-width: 525px; }
 .studio-agent-inline-gallery[data-count="3"] { max-width: 790px; }
@@ -459,8 +520,12 @@
 .studio-agent-inline-source:hover { color: hsl(var(--foreground)); }
 .studio-agent-inline-tile { position: relative; overflow: hidden; min-width: 0; aspect-ratio: 16 / 10; border-radius: 8px; background: hsl(var(--muted)); }
 .studio-agent-inline-open { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: hsl(var(--muted-foreground)); }
-.studio-agent-inline-open img { width: 100%; height: 100%; object-fit: contain; transition: transform .2s ease; }
-.studio-agent-inline-tile:hover .studio-agent-inline-open img { transform: scale(1.025); }
+.studio-agent-inline-open img { width: 100%; height: 100%; object-fit: contain; }
+/* Preserve alpha in the bitmap; the same neutral surface makes both white and
+   black transparent artwork readable in cards and the full-size viewer. */
+:where(.studio-agent-inline-open, .studio-artifact-pane-image, .studio-artifact-pane-thumb) img {
+  background: repeating-conic-gradient(#666 0% 25%, #737373 0% 50%) 0 / 16px 16px;
+}
 .studio-agent-inline-actions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 2px; padding: 3px; border: 1px solid rgb(255 255 255 / .13); border-radius: 10px; background: rgb(15 16 15 / .78); color: white; opacity: 0; transform: translateY(4px); transition: opacity .15s ease, transform .15s ease; backdrop-filter: blur(12px); }
 .studio-agent-inline-tile:hover .studio-agent-inline-actions, .studio-agent-inline-tile:focus-within .studio-agent-inline-actions { opacity: 1; transform: none; }
 .studio-agent-inline-actions button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 7px; }
@@ -591,15 +656,15 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-artifact-pane-next { right: 3px; }
 }
 
-.studio-artifact-edit-dialog { display: flex; flex-direction: column; width: min(1120px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow: hidden; border: 1px solid hsl(var(--foreground) / .11); border-radius: 22px; background: hsl(var(--card)); box-shadow: 0 32px 100px rgb(0 0 0 / .5); }
+.studio-artifact-edit-dialog { display: flex; flex-direction: column; width: min(1120px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid hsl(var(--foreground) / .11); border-radius: 22px; background: hsl(var(--card)); box-shadow: 0 32px 100px rgb(0 0 0 / .5); }
 .studio-artifact-edit-dialog > header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; min-height: 64px; padding: 0 24px; border-bottom: 1px solid hsl(var(--foreground) / .07); }
 .studio-artifact-edit-dialog h2 { font-size: 16px; font-weight: 600; }
 .studio-artifact-edit-dialog > header button { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 9px; color: hsl(var(--muted-foreground)); }
 .studio-artifact-edit-dialog > header button:hover { background: hsl(var(--foreground) / .07); color: hsl(var(--foreground)); }
-.studio-artifact-edit-stage { position: relative; display: flex; flex: 1 1 auto; min-height: min(440px, 52dvh); align-items: center; justify-content: center; overflow: hidden; padding: 52px 58px 70px; background: hsl(var(--background) / .8); }
+.studio-artifact-edit-stage { position: relative; display: flex; flex: 1 1 auto; height: min(560px, 60dvh); min-height: 260px; align-items: center; justify-content: center; overflow: hidden; padding: 52px 58px 70px; background: hsl(var(--background) / .8); }
 .studio-artifact-edit-image { position: relative; display: inline-grid; max-width: 100%; max-height: 100%; place-items: center; transform-origin: center; }
 .studio-artifact-edit-image[data-action="crop"] { overflow: hidden; }
-.studio-artifact-edit-image > img { position: relative; z-index: 1; display: block; max-width: 100%; max-height: min(51dvh, 580px); object-fit: contain; user-select: none; }
+.studio-artifact-edit-image > img { position: relative; z-index: 1; display: block; max-width: 100%; width: 100%; height: 100%; max-height: none; object-fit: contain; user-select: none; }
 .studio-artifact-edit-image > canvas { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .studio-artifact-edit-hit { position: absolute; z-index: 4; inset: 0; cursor: crosshair; touch-action: none; }
 .studio-artifact-edit-crop { position: absolute; z-index: 3; border: 1px solid hsl(var(--foreground)); box-shadow: 0 0 0 100vmax rgb(0 0 0 / .48), inset 0 0 0 1px rgb(0 0 0 / .28); pointer-events: none; }
@@ -608,7 +673,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-crop::after { right: -4px; bottom: -4px; }
 .studio-artifact-edit-outpaint { position: absolute; z-index: 0; border: 1px dashed hsl(var(--primary) / .8); border-radius: 8px; background: repeating-conic-gradient(hsl(var(--foreground) / .045) 0% 25%, transparent 0% 50%) 0 / 16px 16px; pointer-events: none; }
 .studio-artifact-edit-toolbar, .studio-artifact-edit-zoom, .studio-artifact-edit-hint { position: absolute; z-index: 6; display: flex; align-items: center; gap: 3px; border: 1px solid hsl(var(--foreground) / .1); border-radius: 12px; background: hsl(var(--card) / .92); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(12px); }
-.studio-artifact-edit-toolbar { bottom: 17px; left: 18px; min-height: 44px; padding: 4px; }
+.studio-artifact-edit-toolbar { bottom: 17px; left: 18px; max-width: calc(100% - 36px); flex-wrap: wrap; min-height: 44px; padding: 4px; }
 .studio-artifact-edit-toolbar button, .studio-artifact-edit-zoom button { display: grid; min-width: 36px; height: 34px; place-items: center; border-radius: 8px; color: hsl(var(--muted-foreground)); }
 .studio-artifact-edit-toolbar button:hover:not(:disabled), .studio-artifact-edit-zoom button:hover:not(:disabled) { background: hsl(var(--foreground) / .08); color: hsl(var(--foreground)); }
 .studio-artifact-edit-toolbar button[aria-pressed="true"] { background: hsl(var(--primary) / .15); color: hsl(var(--primary)); }
@@ -616,7 +681,7 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-tool-divider { width: 1px; height: 20px; margin-inline: 3px; background: hsl(var(--foreground) / .12); }
 .studio-artifact-edit-toolbar label { display: flex; align-items: center; gap: 7px; padding-inline: 7px; color: hsl(var(--muted-foreground)); font-size: 11px; white-space: nowrap; }
 .studio-artifact-edit-toolbar input { width: 88px; accent-color: hsl(var(--primary)); }
-.studio-artifact-edit-zoom { right: 18px; bottom: 17px; padding: 4px; }
+.studio-artifact-edit-zoom { right: 18px; top: 12px; padding: 4px; }
 .studio-artifact-edit-zoom span { min-width: 42px; color: hsl(var(--foreground)); font-size: 12px; text-align: center; }
 .studio-artifact-edit-hint { bottom: 18px; left: 18px; gap: 8px; padding: 10px 12px; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .studio-artifact-edit-extension { color: hsl(var(--muted-foreground)); font-size: 12px; }
@@ -632,15 +697,15 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-artifact-edit-composer > div > button:disabled { cursor: not-allowed; opacity: .5; }
 .studio-artifact-edit-dialog button:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
 @media (max-width: 767px) {
-  .studio-artifact-edit-dialog { width: calc(100% + 32px); max-height: 100dvh; min-height: 100dvh; margin-inline: -16px; border: 0; border-radius: 0; }
+  .studio-artifact-edit-dialog { width: calc(100% + 32px); height: 100dvh; max-height: 100dvh; min-height: 0; overflow: hidden; margin-inline: -16px; border: 0; border-radius: 0; }
   .studio-artifact-edit-dialog > header { min-height: 58px; padding-inline: 16px; }
-  .studio-artifact-edit-stage { min-height: 0; padding: 42px 12px 82px; }
-  .studio-artifact-edit-image > img { max-height: 56dvh; }
+  .studio-artifact-edit-stage { height: auto; min-height: 260px; flex: 1 1 0; padding: 52px 12px 110px; }
+  .studio-artifact-edit-image > img { max-height: none; }
   .studio-artifact-edit-toolbar { left: 8px; bottom: 10px; }
   .studio-artifact-edit-toolbar label { padding-inline: 3px; }
-  .studio-artifact-edit-toolbar label span { display: none; }
+  .studio-artifact-edit-toolbar label > span:first-child { display: none; }
   .studio-artifact-edit-toolbar input { width: 58px; }
-  .studio-artifact-edit-zoom { right: 8px; bottom: 61px; }
+  .studio-artifact-edit-zoom { right: 8px; top: 10px; }
   .studio-artifact-edit-composer { padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px)); }
   .studio-artifact-edit-composer > div > span { max-width: 55%; }
 }
@@ -755,3 +820,18 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
   .studio-agent-generation-glow, .studio-agent-generation-track > span { animation: none; }
   .studio-agent-generation-track > span { width: 100%; opacity: .4; }
 }
+
+.studio-artifact-edit-cursor { position: absolute; z-index: 5; border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
+.studio-artifact-edit-hit[data-tool="pan"] { cursor: grab; }
+.studio-artifact-edit-hit[data-tool="brush"], .studio-artifact-edit-hit[data-tool="eraser"] { cursor: none; }
+
+@media (max-width: 767px) and (max-height: 600px) {
+  .studio-artifact-edit-dialog { overflow-y: auto; }
+  .studio-artifact-edit-stage { flex: 0 0 260px; }
+}
+
+.studio-artifact-edit-region { position: absolute; z-index: 3; border: 2px solid #159cf6; pointer-events: none; }
+.studio-artifact-edit-region > span { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; width: 22px; height: 22px; border: 2px solid white; border-radius: 50%; background: #159cf6; color: white; font-size: 12px; font-weight: 600; }
+
+.studio-artifact-pane[data-presentation="panel"][data-editing="true"] > :not(.studio-artifact-edit-dialog) { display: none; }
+.studio-artifact-pane[data-presentation="panel"] > .studio-artifact-edit-dialog { flex: 1; width: 100%; min-width: 0; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; box-shadow: none; overflow-y: auto; }

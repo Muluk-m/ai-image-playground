@@ -44,6 +44,8 @@ function result(id: string): AgentToolMessage {
 
 const doc = {
   version: 0,
+  elements: [],
+  files: {},
   subscribe: () => () => {},
 } as unknown as CanvasDoc
 

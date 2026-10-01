@@ -101,6 +101,10 @@ case "$public_origin" in
     ;;
 esac
 
+if [ "$edition" = test ]; then
+  sh "$repo_root/scripts/check-test-isolation.sh" pages "$pages_env"
+fi
+
 BFF_ENABLED=true
 BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
 # The web build writes canonical URLs, hreflang, sitemap.xml and robots.txt from these two.
@@ -185,6 +189,11 @@ while :; do
   fi
   sleep 5
 done
+
+if [ "$app" = web ]; then
+  stage "Verify the homepage, all JS/CSS assets, and missing-asset behavior"
+  node "$repo_root/scripts/verify-pages-release.mjs" "$public_origin" "$repo_root/apps/web/dist"
+fi
 
 released=true
 append_deploy_log "$deployment_name" "pages:$pages_project" ok

@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readPersistedScene } from '../../../../features/canvas/lib/persistence'
+import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import {
+  persistedScene,
+  readPersistedScene,
+  writePersistedScene,
+} from '../../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
 import { canvasSceneKey } from '../../../../features/canvas/lib/workspaceKeys'
@@ -19,21 +24,309 @@ vi.mock('../../../../store', () => ({ useStore: { getState: () => ({ showToast: 
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   setClientStorageScope(null)
 })
 
 describe('画布工作区', () => {
+  it('旧版未记录视口的本机存档在手机上也会框住内容', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'legacy-artwork',
+        type: 'text',
+        text: '旧版画布',
+        x: 800,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    await writePersistedScene(persistedScene(saved), key)
+    vi.stubGlobal('requestAnimationFrame', vi.fn())
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(320, 600)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera.zoom).toBeLessThan(0.32)
+    expect((800 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeGreaterThan(0)
+    expect(requestAnimationFrame).not.toHaveBeenCalled()
+    workspace.doc.setCamera({ x: 123, zoom: 0.5 })
+    expect(workspace.doc.camera).toMatchObject({ x: 123, zoom: 0.5 })
+    workspace.dispose()
+  })
+
+  it('旧存档在平板打开时根据内容是否在视野内决定适配', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'tablet-artwork',
+        type: 'text',
+        text: '画布内容',
+        x: 2000,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(768, 800)
+    workspace.fitInitialView()
+    expect((2000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeGreaterThan(0)
+    expect((3000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(768)
+    workspace.dispose()
+  })
+
+  it('旧版手机画布有一张图可见时仍会框住其他离屏内容', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'visible-artwork',
+        type: 'text',
+        text: '可见',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        fontSize: 24,
+        fill: '#000',
+      },
+      {
+        id: 'hidden-artwork',
+        type: 'text',
+        text: '离屏',
+        x: 1000,
+        y: 0,
+        width: 100,
+        height: 100,
+        fontSize: 24,
+        fill: '#000',
+      },
+    ])
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(390, 700)
+    workspace.fitInitialView()
+    expect((1100 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(390)
+    workspace.dispose()
+  })
+
+  it('旧存档已有明确缩放与平移时保留可见的工作视角', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'zoomed-artwork',
+        type: 'text',
+        text: '正在编辑',
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setCamera({ x: 100, y: 50, zoom: 2 })
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(390, 700)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera).toEqual({ x: 100, y: 50, zoom: 2 })
+    workspace.dispose()
+  })
+
+  it('旧存档在 100% 缩放下平移查看局部时保留工作视角', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'panned-artwork',
+        type: 'text',
+        text: '局部编辑',
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setCamera({ x: 100, y: 0, zoom: 1 })
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(390, 700)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera).toEqual({ x: 100, y: 0, zoom: 1 })
+    workspace.dispose()
+  })
+
+  it('视口尚未量出有效尺寸时跳过内容适配', async () => {
+    const key = freshSceneKey()
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.addElements([
+      {
+        id: 'deferred-artwork',
+        type: 'text',
+        text: '等待视口',
+        x: 500,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    workspace.doc.setViewport(0, 0)
+    workspace.editor.scrollToElements(['deferred-artwork'], false)
+    expect(workspace.doc.camera).toEqual({ x: 0, y: 0, zoom: 1 })
+    workspace.dispose()
+  })
+
+  it('轻微缩窄窗口但裁切了原本完整的图片时重新适配', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'almost-fitted',
+        type: 'text',
+        text: '画布内容',
+        x: 0,
+        y: 0,
+        width: 1100,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setViewport(1200, 800)
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(900, 800)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera.zoom).toBeLessThan(1)
+    expect((1100 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(900)
+    workspace.dispose()
+  })
+
+  it('只调整视口尺寸也会落盘', async () => {
+    const key = freshSceneKey()
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(900, 700)
+    expect(await workspace.flush()).toBe(true)
+    expect((await readPersistedScene(key))?.viewport).toEqual({ width: 900, height: 700 })
+    workspace.dispose()
+  })
+
+  it('手机打开桌面保存的画布时框住内容，同尺寸再次打开保留相机位置', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'artwork',
+        type: 'text',
+        text: '画布内容',
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setViewport(1200, 800)
+    await writePersistedScene(persistedScene(saved), key)
+    vi.stubGlobal('requestAnimationFrame', vi.fn())
+    const mobile = new CanvasWorkspace(key)
+    await mobile.ready
+    mobile.doc.setViewport(320, 600)
+    mobile.fitInitialView()
+    expect(mobile.doc.camera.zoom).toBeLessThan(0.32)
+    expect(mobile.doc.camera.zoom).toBeGreaterThan(0.2)
+    expect((1000 - mobile.doc.camera.x) * mobile.doc.camera.zoom).toBeLessThan(320)
+    await mobile.flush()
+    mobile.dispose()
+
+    const reopened = new CanvasWorkspace(key)
+    await reopened.ready
+    reopened.doc.setViewport(320, 600)
+    reopened.doc.setCamera({ x: 150, zoom: 0.4 })
+    reopened.fitInitialView()
+    expect(reopened.doc.camera).toMatchObject({ x: 150, zoom: 0.4 })
+    await reopened.flush()
+    reopened.dispose()
+
+    const desktop = new CanvasWorkspace(key)
+    await desktop.ready
+    desktop.doc.setViewport(1200, 800)
+    desktop.fitInitialView()
+    expect(desktop.doc.camera.zoom).toBe(1)
+    desktop.dispose()
+  })
+
+  it('多图大画布适应手机视口时可缩到 5% 以下', async () => {
+    const key = freshSceneKey()
+    const saved = new CanvasDoc()
+    saved.addElements([
+      {
+        id: 'wide-artwork',
+        type: 'text',
+        text: '大画布',
+        x: 0,
+        y: 0,
+        width: 2000000,
+        height: 600,
+        fontSize: 32,
+        fill: '#000',
+      },
+    ])
+    saved.setViewport(1200, 800)
+    await writePersistedScene(persistedScene(saved), key)
+    const workspace = new CanvasWorkspace(key)
+    await workspace.ready
+    workspace.doc.setViewport(320, 600)
+    workspace.fitInitialView()
+    expect(workspace.doc.camera.zoom).toBeLessThan(0.001)
+    expect((2000000 - workspace.doc.camera.x) * workspace.doc.camera.zoom).toBeLessThan(320)
+    const fittedZoom = workspace.doc.camera.zoom
+    workspace.doc.zoomAt(160, 300, fittedZoom * 1.25)
+    expect(workspace.doc.camera.zoom).toBeCloseTo(fittedZoom * 1.25)
+    workspace.dispose()
+  })
+
   it('未编辑的旧标签页不覆盖其它标签页的新存档', async () => {
     const key = freshSceneKey()
     const stale = new CanvasWorkspace(key)
     await stale.ready
-    await saveSceneRecord(key, 99)
+    const latest = new CanvasWorkspace(key)
+    await latest.ready
+    latest.doc.setViewport(1200, 800)
+    latest.doc.setCamera({ x: 99 })
+    await latest.flush()
+    latest.dispose()
     stale.doc.setViewport(900, 600)
     stale.doc.setSelection([])
     stale.doc.setTool('pen')
     stale.doc.notifyAssetLoaded()
     await stale.flush()
     expect((await readPersistedScene(key))?.camera.x).toBe(99)
+    expect((await readPersistedScene(key))?.viewport).toEqual({ width: 1200, height: 800 })
+    stale.dispose()
   })
 
   it('绑定事务失败保留草稿，重试原子转存后后续编辑只写新会话', async () => {

@@ -68,14 +68,20 @@ export default function AgentAssetDrawer({
   const loadNextRef = useRef<() => void>(() => {})
   const conversationId = useAgentStore((state) => state.conversationId)
   const sessionItems = useMemo(() => assetsFromMessages(messages), [messages])
+  const sessionItemsRef = useRef(sessionItems)
+  const initialSessionIds = useRef(new Set<string>())
+  sessionItemsRef.current = sessionItems
   useEffect(() => {
     if (scope !== 'all') return
     let cancelled = false
     let busy = false
     let conversations: Awaited<ReturnType<typeof fetchConversations>> | null = null
     let nextConversation = 0
-    let pending = sessionItems.slice(ASSET_PAGE_SIZE)
-    setAllItems(sessionItems.slice(0, ASSET_PAGE_SIZE))
+    const initialItems = sessionItemsRef.current
+    initialSessionIds.current = new Set(initialItems.map((item) => item.id))
+    setLoadingAll(false)
+    let pending = initialItems.slice(ASSET_PAGE_SIZE)
+    setAllItems(initialItems.slice(0, ASSET_PAGE_SIZE))
     setHasMore(true)
     setLoadFailed(false)
     const loadNext = async () => {
@@ -118,8 +124,15 @@ export default function AgentAssetDrawer({
       cancelled = true
       loadNextRef.current = () => {}
     }
-  }, [scope, conversationId, sessionItems])
-  const items = scope === 'session' ? sessionItems : allItems
+  }, [scope, conversationId])
+  const liveSession = new Map(sessionItems.map((item) => [item.id, item]))
+  const items =
+    scope === 'session'
+      ? sessionItems
+      : [
+          ...sessionItems.filter((item) => !initialSessionIds.current.has(item.id)),
+          ...allItems.map((item) => liveSession.get(item.id) ?? item),
+        ]
   const shown = items.filter(
     (item) =>
       (media === 'all' || item.media === media) &&

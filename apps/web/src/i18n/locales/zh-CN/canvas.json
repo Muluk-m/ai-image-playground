@@ -16,6 +16,7 @@
     "zoomOut": "缩小",
     "zoomIn": "放大",
     "resetZoom": "重置为 100%",
+    "fitContent": "适合屏幕",
     "groupAria": "画布工具"
   },
   "shortcuts": {

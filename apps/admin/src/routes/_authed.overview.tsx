@@ -105,6 +105,32 @@ function OverviewContent({
               次已上报用量的对话调用
             </p>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">每轮首调</p>
+              <p className="font-mono text-lg font-semibold tabular-nums">
+                {cacheRate(
+                  agent_cache.first_call.cache_read_tokens,
+                  agent_cache.first_call.input_tokens,
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {agent_cache.first_call.calls.toLocaleString('zh-CN')} 次，含新对话及后续轮首次调用
+              </p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">轮内续调</p>
+              <p className="font-mono text-lg font-semibold tabular-nums">
+                {cacheRate(
+                  agent_cache.continuation.cache_read_tokens,
+                  agent_cache.continuation.input_tokens,
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {agent_cache.continuation.calls.toLocaleString('zh-CN')} 次，同一轮工具调用后继续
+              </p>
+            </div>
+          </div>
           {agent_cache.models.length > 0 ? (
             <Table>
               <TableHeader>

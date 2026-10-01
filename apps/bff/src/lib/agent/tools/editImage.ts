@@ -13,8 +13,24 @@ const MAX_REFERENCES = 4
 const parameters = Type.Object({
   prompt: Type.String({
     description:
-      '无选区时忠实表达用户要求；有选区时只写简短任务摘要，执行指令由服务端从用户原文与选区绑定生成。不得新增用户未授权的要求。有遮罩时以目标图圈选范围为编辑边界，仅修改用户要求的对象，保留其它内容（包括圈内未要求修改的文字与背景）。保留范围不能覆盖本次修改目标。参考图有圈选时，明确描述参考选区的位置和对象。用用户说话的语言写。',
+      '无选区时忠实表达用户要求；有选区时结合原图和用户意图写完整、具体的执行说明：明确每个修改对象、对应位置、修改动作、用户指定的结果及与原图融合的方法。多个区域配同一个要求时在一次编辑里全部处理；用户区分了区域时逐一对应。对象定位放在 selectionBindings，融合方法用 integration 选择；服务端依据用户原文、选区与这些执行方法生成最终指令，不使用摘要自行增加修改属性。不得新增用户未授权的要求。有遮罩时以目标图圈选范围为编辑边界，仅修改用户要求的对象，保留其它内容（包括圈内未要求修改的文字与背景）。保留范围不能覆盖本次修改目标。参考图有圈选时，明确描述参考选区的位置和对象。用用户说话的语言写。',
   }),
+  integration: Type.Optional(
+    Type.Array(
+      Type.Union([
+        Type.Literal('typography'),
+        Type.Literal('perspective'),
+        Type.Literal('lighting'),
+        Type.Literal('material'),
+        Type.Literal('background'),
+      ]),
+      {
+        maxItems: 5,
+        description:
+          '有选区时选择实现用户要求所需的融合处理：文字替换 typography；尺度与遮挡 perspective；原图光照 lighting；表面贴合 material；擦除缺口 background。这些仅组织执行方法，不授权新的颜色、材质、位置或设计属性。',
+      },
+    ),
+  ),
   imageIds: Type.Array(Type.String(), {
     minItems: 1,
     maxItems: MAX_REFERENCES,
@@ -75,7 +91,7 @@ export const editImage = defineAgentTool({
   // 拟稿即收尾：对话模式下执行指令交给用户确认，不提交任务、不落画布。出图模式当场提交。
   confirms: true,
   description:
-    '在已有的图上发起一次改图，产出落到画布上源图旁边，源图不动。一次调用只处理一张目标图，可附明确用途的参考图。卡片上给用户看的是真正会送进上游的那一份执行指令。有选区的局部改图提交成功后系统一定会唤醒你复核候选；目标图遮罩会随请求提交，要求只改圈选部分，调用成功不代表效果已验收。提交前要不要先等用户确认由系统决定，见系统提示词里的生成流程那一段——工具返回的那句话会说清这一次到底提交了没有，照它说。',
+    '在已有的图上发起一次改图，结果显示在对话的产物卡片中，源图不动。一次调用只处理一张目标图，可附明确用途的参考图。卡片上给用户看的是真正会送进上游的那一份执行指令。有选区的局部改图提交成功后系统一定会唤醒你复核候选；目标图遮罩会随请求提交，要求只改圈选部分，调用成功不代表效果已验收。提交前要不要先等用户确认由系统决定，见系统提示词里的生成流程那一段——工具返回的那句话会说清这一次到底提交了没有，照它说。',
   guidance:
     '改已有图用 editImage。逐张修改时每个目标各调用一次，各自写提示词，默认只带当前目标；明确要求的参考放在目标后面。同一目标同一方案的多版本用 n，未指定张数默认 1；不同角度或方案分别调用。有遮罩时以圈选位置指认对象，不能以其他同名实例替代指定目标。参考图圈选表示参考来源，不是修改对象。用户没说过的颜色、材质、风格不要替他写进提示词。不要为同一件事调第二次。',
   parameters,
@@ -121,6 +137,7 @@ export const editImage = defineAgentTool({
         params.selectionBindings,
         snapshot?.instructions ?? '',
         params.requestQuote,
+        params.integration,
       )
       if (signal?.aborted) throw new AgentToolError('cancelled', '这一轮被中止了')
       if (snapshot !== context.authorization?.())
@@ -168,6 +185,7 @@ export const editImage = defineAgentTool({
           // 确认时提交的都是这一句。
           prompt: prepared?.prompt ?? params.prompt,
           n: params.n,
+          referenceIds: images.map((image) => image.imageId),
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
           ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
           anchorObjectId: images[0]!.imageId,

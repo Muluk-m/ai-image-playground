@@ -2,7 +2,7 @@ import type { GenerationDetail } from '@image-playground/shared'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { accountRequired, requireAccount } from './auth/loginPrompt'
-import { queuePendingSubmission } from './auth/pendingSubmission'
+import { discardPendingSubmission, queuePendingSubmission } from './auth/pendingSubmission'
 import { readProjectRoute } from './features/canvas/lib/projectRoute'
 import { describeError, i18next } from './i18n'
 import {
@@ -45,7 +45,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
-import { resolveMediaSource } from './lib/cloudMedia'
+import { mediaIdentity, resolveMediaSource } from './lib/cloudMedia'
 import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
@@ -1319,11 +1319,14 @@ function deriveTaskParams(
 }
 
 export interface PreparedSubmission {
+  /** 冻结的配置；提交前仍重新检查当前身份和模型准入。 */
+  profile?: ClientProfile
   prompt: string
   inputImages: InputImage[]
   params: TaskParams
   /** 槽位值；省略即按字面提交。 */
   slotValues?: SlotValues
+  maskDraft?: MaskDraft | null
   mask?: { imageId: string; targetImageId: string } | null
   /** 提交所用的 API 配置；省略用当前活动配置。 */
   profileId?: string
@@ -1338,10 +1341,27 @@ export interface PreparedSubmission {
  * 显式参数提交入口，composer 与套内逐镜提交共用：归一化、槽位展开、数量分发、
  * 落库并发起，返回创建的任务 id。composer 专属的校验与状态回写在 submitTask 里。
  */
-export async function submitPrepared(input: PreparedSubmission): Promise<string[]> {
+export interface PreparedSubmissionOptions {
+  signal?: AbortSignal
+  isCurrent?: () => boolean
+  pendingId?: string
+  sourcePath?: string
+  ownerScope?: string
+  template?: true
+  onConfirmationPending?: (pending: boolean) => void
+  onLoginQueued?: () => void
+}
+
+export async function submitPrepared(
+  input: PreparedSubmission,
+  options: PreparedSubmissionOptions = {},
+): Promise<string[]> {
+  const current = () => !options.signal?.aborted && (options.isCurrent?.() ?? true)
+  if (!current()) return []
   const { settings, showToast } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
   const selectedProfile =
+    input.profile ??
     normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
     getActiveApiProfile(normalizedSettings)
   if (
@@ -1375,7 +1395,78 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     return []
   }
 
+  const unfilledSlots = getUnfilledPromptSlots(input.prompt, input.slotValues ?? {})
+  if (unfilledSlots.length) {
+    showToast(
+      i18next.t('submit.slotUnfilled', { ns: 'store', slot: `{${unfilledSlots[0]}}` }),
+      'error',
+    )
+    return []
+  }
+  const admission = referenceAdmission(profile)
+  if (
+    input.inputImages.length > admission.limit ||
+    (input.inputImages.length > 0 && !admission.acceptsReferences)
+  ) {
+    showToast(
+      referenceRefusalMessage(input.inputImages.length > admission.limit ? 'overflow' : 'noEdit'),
+      'error',
+    )
+    return []
+  }
+  if (input.maskDraft) {
+    try {
+      const target = orderInputImagesForMask(input.inputImages, input.maskDraft.targetImageId)[0]
+      if (target.id !== input.inputImages[0]?.id)
+        throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+      const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
+      if (!current()) return []
+      if (coverage === 'full') {
+        options.onConfirmationPending?.(true)
+        const confirmed = await new Promise<boolean>((resolve) => {
+          let settled = false
+          let unsubscribe: (() => void) | undefined
+          const finish = (confirmed: boolean) => {
+            if (settled) return
+            settled = true
+            unsubscribe?.()
+            options.signal?.removeEventListener('abort', abort)
+            if (useStore.getState().confirmDialog === dialog)
+              useStore.getState().setConfirmDialog(null)
+            resolve(confirmed)
+          }
+          const abort = () => finish(false)
+          const dialog = {
+            title: i18next.t('mask.fullTitle', { ns: 'store' }),
+            message: i18next.t('mask.fullMessage', { ns: 'store' }),
+            confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
+            tone: 'warning' as const,
+            action: () => finish(true),
+            cancelAction: () => finish(false),
+          }
+          options.signal?.addEventListener('abort', abort, { once: true })
+          useStore.getState().setConfirmDialog(dialog)
+          unsubscribe = useStore.subscribe((state) => {
+            if (state.confirmDialog !== dialog) finish(false)
+          })
+        }).finally(() => options.onConfirmationPending?.(false))
+        if (!confirmed) return []
+      }
+      const imageId = await storeImage(input.maskDraft.maskDataUrl, 'mask')
+      cacheImage(imageId, input.maskDraft.maskDataUrl)
+      input = { ...input, maskDraft: undefined, mask: { imageId, targetImageId: target.id } }
+    } catch (error) {
+      showToast(describeError(error), 'error')
+      return []
+    }
+  }
   const taskParams = deriveTaskParams(input.params, requestSettings, input.inputImages.length > 0)
+  if (
+    getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n) > MAX_BATCH_IMAGES
+  ) {
+    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
+    return []
+  }
   const submitView = clientProfileToApiProfile(profile)
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []
@@ -1383,7 +1474,22 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   // Login reloads the workspace after adopting anonymous data. Keep the exact attempted request,
   // including references and parameters, so the original click is sent once in the new scope.
   if (profile.source === 'builtin-edge' && accountRequired()) {
-    await queuePendingSubmission({ kind: 'image', input })
+    if (!current()) return []
+    const id = await queuePendingSubmission(
+      {
+        kind: 'image',
+        input,
+        ...(options.template ? { template: true } : {}),
+        ...(options.sourcePath ? { sourcePath: options.sourcePath } : {}),
+        ...(options.ownerScope ? { ownerScope: options.ownerScope } : {}),
+      },
+      options.pendingId,
+    )
+    if (!current()) {
+      await discardPendingSubmission(id)
+      return []
+    }
+    options.onLoginQueued?.()
     requireAccount()
     return []
   }
@@ -1398,6 +1504,7 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     return []
   }
 
+  if (!current()) return []
   const inputImageDataUrls = input.inputImages.map((img) => img.dataUrl)
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
@@ -2234,9 +2341,20 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
   const targetId = imageId ?? task.outputImages?.[0]
   if (!targetId) return
 
-  const dataUrl = await ensureImageCached(targetId)
+  // Older local records can still contain stable cloud media references.
+  // They are not keys in the local images table.
+  const cloudMedia = mediaIdentity(targetId)
+  const dataUrl = await (cloudMedia
+    ? resolveMediaSource(targetId, 'original', true)
+    : ensureImageCached(targetId)
+  ).catch(() => undefined)
   if (!dataUrl) {
-    showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
+    showToast(
+      i18next.t(cloudMedia ? 'toast.canvasPlaceFailed' : 'toast.imageMissingForCanvas', {
+        ns: 'store',
+      }),
+      'error',
+    )
     return
   }
   queueCanvasImages([dataUrl])
@@ -2247,8 +2365,17 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
 async function placeRemoteOutputOnCanvas(task: TaskRecord, imageId?: string) {
   const { showToast } = useStore.getState()
   const detail = await readRemoteGeneration(task.id)
-  const index = imageId ? Math.max(task.outputImages.indexOf(imageId), 0) : 0
-  const output = detail?.outputs[index] ?? detail?.outputs[0]
+  if (!detail) {
+    showToast(i18next.t('toast.canvasPlaceFailed', { ns: 'store' }), 'error')
+    return
+  }
+  // A list card may contain only the cover, which need not be output zero.
+  const targetId = imageId ?? task.outputImages[0]
+  const mediaId = targetId ? mediaIdentity(targetId) : undefined
+  const index = targetId ? task.outputImages.indexOf(targetId) : 0
+  const output = mediaId
+    ? detail.outputs.find((one) => one.mediaId === mediaId)
+    : detail.outputs[index >= 0 ? index : 0]
   if (!output) {
     showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
     return

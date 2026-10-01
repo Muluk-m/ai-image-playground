@@ -47,6 +47,11 @@ export function isAgentMode(value: unknown): value is AgentMode {
 
 /** 智能体可调用的工具。 */
 export type AgentToolName =
+  | 'readProduction'
+  | 'writeProduction'
+  | 'proposeProductionEdit'
+  | 'proposeProductionAssets'
+  | 'proposeStoryboard'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
@@ -154,6 +159,16 @@ export interface AgentSkillSummary {
  */
 export type AgentTurnReference = AgentInlineReference | AgentMediaReference
 
+export type AgentImageEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
+
+/** Numbered selection bounds in normalized image coordinates; the mask remains authoritative. */
+export interface AgentMarkedRegion {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
 export interface AgentInlineReference {
   /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
   readonly imageId: string
@@ -162,6 +177,8 @@ export interface AgentInlineReference {
   readonly name?: string
   /** 用户在这张图上画的遮罩；改图时自动带上，模型无从指定。 */
   readonly maskDataUrl?: string
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 /**
@@ -182,6 +199,8 @@ export interface AgentStoredInlineReference {
   readonly name?: string
   readonly image: StoredImageRef
   readonly mask?: StoredImageRef
+  readonly regions?: readonly AgentMarkedRegion[]
+  readonly editAction?: AgentImageEditAction
 }
 
 /** 云媒体那一路的快照：字节留在 R2，会话只按 id 认领它（见 `media_references`）。 */
@@ -201,6 +220,9 @@ export interface AgentStoredMediaReference {
 export type AgentThinkingDepth = 'fast' | 'medium' | 'deep'
 
 export interface AgentTurnParams {
+  /** 本轮进入制作文档流程，生成仍必须确认。 */
+  readonly productionMode?: true
+  readonly production?: import('./production').ProductionContext
   readonly thinkingDepth?: AgentThinkingDepth
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
@@ -526,6 +548,7 @@ export interface AgentSaveResponse {
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
 export interface AgentToolResultBlock {
+  readonly productionDraftRevision?: number
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
@@ -672,6 +695,7 @@ export interface AgentRetryRefusedBody {
  * 模型重写。会话与卡的归属由端点确权，`messageId` 就是那张卡的消息 id。
  */
 export interface AgentConfirmationRequest {
+  readonly draftRevision?: number
   readonly deviceId: string
   readonly messageId: string
   readonly prompt: string
@@ -1036,6 +1060,15 @@ export type AgentTurnErrorCode =
   | 'agent_turn_interrupted'
   | 'agent_context_overflow'
 
+/** 失败诊断只保留错误文本与调用标识，不包含请求内容或认证信息。 */
+export interface AgentTurnFailure {
+  readonly code: AgentTurnErrorCode
+  readonly message: string
+  readonly model?: string
+  readonly requestId?: string
+  readonly occurredAt: string
+}
+
 /** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
   readonly type: 'turnEnd'
@@ -1043,6 +1076,7 @@ export interface AgentTurnEndEvent {
   readonly durationMs: number
   readonly stopReason: AgentTurnStopReason
   readonly error?: AgentTurnErrorCode
+  readonly failure?: AgentTurnFailure
   /** 本轮对话 token 的结算依据；null 表示上游没报，这一轮按 token 结不了账。 */
   readonly usage: AgentTurnUsage | null
   /** 结算后的实际消耗；不计费的部署里缺席。失败与中止的轮全是 0。 */
@@ -1071,6 +1105,7 @@ export interface AgentTurnSummaryView {
   readonly stopReason: AgentTurnStopReason
   /** 只在失败的轮上：被打断并排上了中断续跑时是 `agent_turn_interrupted`，其余缺席。 */
   readonly error?: AgentTurnErrorCode
+  readonly failure?: AgentTurnFailure
   readonly cost?: AgentTurnCost
 }
 

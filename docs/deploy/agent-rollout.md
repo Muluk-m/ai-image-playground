@@ -98,7 +98,7 @@ AGENT_VIDEO_MODEL=grok-imagine-video
 `AGENT_CHAT_CONTEXT_WINDOW` 只供未登记在 `thinking.config.json` 的旧模型兜底。
 三档模型的压缩、出站硬闸与预扣都读取本轮所选模型的 `contextWindow`。
 
-三档模型分别是低 `gpt-6-luna`、中 `gpt-6-sol`、深 `claude-opus-5-5`。
+三档模型分别是低 `gpt-6-luna`、中 `gpt-6.1-sol`、深 `claude-opus-5-5`。
 三档模型统一按 100 万 token 的预算窗口处理。Claude 对话、摘要或搜索模型用
 `UPSTREAM_CLAUDE_API_KEY`，密钥只写部署私有环境文件。
 
@@ -159,7 +159,7 @@ supported」，是确定性错误因而不重试，三次就把熔断器打开�
 
 | 模型 | 窗口 | 压缩触发点 |
 | --- | ---: | ---: |
-| gpt-6-luna / gpt-6-sol / claude-opus-5-5 | 1000000 | 984000 |
+| gpt-6-luna / gpt-6.1-sol / claude-opus-5-5 | 1000000 | 984000 |
 
 每轮实际计费仍按上游真实用量结算；长会话接近窗口时，输入消耗可能显著增加。
 摘要模型独立于对话模型，摘要每段不超过 32000 token，并按实际序列化文本及摘要模型的
