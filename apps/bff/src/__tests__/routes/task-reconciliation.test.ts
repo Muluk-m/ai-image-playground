@@ -905,3 +905,86 @@ it.each([
     }
   }
 })
+
+it('recovers a saved masked candidate before querying an expired provider result', async () => {
+  const durable = new DurableFixture()
+  setDurableMediaStoreForTesting(durable)
+  const pixels = Buffer.alloc(96 * 96 * 4)
+  for (let index = 0; index < pixels.length; index += 4)
+    pixels.set([index % 251, (index * 7) % 253, (index * 3) % 249, 255], index)
+  const encode = (raw: Buffer) =>
+    sharp(raw, { raw: { width: 96, height: 96, channels: 4 } })
+      .png()
+      .toBuffer()
+  pixels.set([255, 0, 0, 255, 0, 255, 0, 255])
+  const original = await encode(pixels)
+  const maskPixels = Buffer.alloc(pixels.length)
+  for (let index = 0; index < maskPixels.length; index += 4) maskPixels[index + 3] = 255
+  maskPixels[3] = 0
+  const mask = await encode(maskPixels)
+  pixels.set([0, 0, 255, 255, 0, 0, 255, 255])
+  const candidate = await encode(pixels)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+    prompt: 'recover selected pixels',
+    device_id: 'test-device-reconcile',
+    client_request_id: crypto.randomUUID(),
+  })
+  expect(submitted.status).toBe(200)
+  const { request_id: id } = await submitted.json()
+  const { archiveInputImages } = await import('../../lib/imageArchive')
+  const archivedInputs = await archiveInputImages(id, {
+    prompt: 'recover selected pixels',
+    input_images: [`data:image/png;base64,${original.toString('base64')}`],
+    mask: `data:image/png;base64,${mask.toString('base64')}`,
+  })
+  const { eq } = await import('drizzle-orm')
+  await db
+    .update(schema.tasks)
+    .set({
+      reconciliation_required: true,
+      request_payload: { ...archivedInputs, preserve_outside_mask: true },
+    })
+    .where(eq(schema.tasks.id, id))
+  const { claimTaskExecution } = await import('../../workers/task-execution')
+  const { generationSourceCheckpoint } = await import('../../lib/generationMedia')
+  const execution = await claimTaskExecution(id)
+  expect(execution).not.toBeNull()
+  try {
+    await execution!.recordDispatchIntent()
+    await execution!.recordUpstreamTaskIds(['imgtask_expired_masked'], false)
+    await durable.write(`${id}/candidate/0`, candidate, 'image/png')
+    const checkpoint = generationSourceCheckpoint(id, 'openai-compat', {
+      data: [{ b64_json: candidate.toString('base64') }],
+    })
+    expect(await execution!.saveCheckpoint(checkpoint)).toBe(true)
+    await execution!.reconcile('worker stopped between candidate and protected output')
+  } finally {
+    execution!.release()
+  }
+  let queries = 0
+  setUpstreamFetchForTesting(
+    Object.assign(
+      async () => {
+        queries++
+        return Response.json({ error: 'expired' }, { status: 404 })
+      },
+      { preconnect() {} },
+    ),
+  )
+  const response = await operate(id, 'POST', {
+    commandId: 'restore-candidate',
+    operatorId: 'operator',
+    action: 'lookup',
+    evidence: 'Use locally saved original candidate before remote lookup',
+  })
+  expect(await response.json()).toMatchObject({ status: 'completed' })
+  expect(queries).toBe(0)
+  expect(
+    [
+      ...(await sharp(await durable.read(`${id}/out/0`))
+        .raw()
+        .toBuffer()),
+    ].slice(0, 8),
+  ).toEqual([0, 0, 255, 255, 0, 255, 0, 255])
+  expect(billing.settlements).toHaveLength(1)
+})
