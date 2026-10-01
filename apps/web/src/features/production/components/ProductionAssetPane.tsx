@@ -10,6 +10,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { type ProductionResponse, saveProduction } from '../lib/productionClient'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
 import ProductionReferenceEditor from './ProductionReferenceEditor'
 
 export interface ProductionAssetTarget {
@@ -109,18 +110,6 @@ export default function ProductionAssetPane({
     items.splice(to, 0, item)
     edit.update({ ...edit.content, [collection]: items })
   }
-  const relatedShots =
-    'shots' in edit.content && Array.isArray(edit.content.shots)
-      ? edit.content.shots
-          .filter((shot) =>
-            target.kind === 'location'
-              ? shot.locationId === id
-              : (shot.lookIds ?? []).some((lookRef: string) =>
-                  character?.looks.some((one) => one.id === lookRef),
-                ),
-          )
-          .map((shot) => shot.description ?? shot.id)
-      : []
   return (
     <section className="production-document" aria-label={t(`asset.${target.kind}`)}>
       <header className="production-pane-header">
@@ -275,14 +264,14 @@ export default function ProductionAssetPane({
           <div className="production-asset-danger">
             {deleting ? (
               <>
-                <p>{t('asset.deleteImpact')}</p>
-                {relatedShots.length > 0 && (
-                  <ul>
-                    {relatedShots.map((name: string, index: number) => (
-                      <li key={`${index}:${name}`}>{name}</li>
-                    ))}
-                  </ul>
-                )}
+                <ProductionDeleteImpactNotice
+                  content={edit.content}
+                  target={
+                    deleting === 'look' && look
+                      ? { kind: 'look', id: look.id }
+                      : { kind: target.kind, id }
+                  }
+                />
                 <div className="production-reference-actions">
                   <button type="button" disabled={removing} onClick={() => void remove()}>
                     {t('asset.deleteConfirm')}

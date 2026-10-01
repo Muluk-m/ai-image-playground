@@ -17,6 +17,7 @@ import {
   fetchStoryboards,
 } from '../lib/productionStoryboardClient'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
 import ProductionDependencyNotice from './ProductionDependencyNotice'
 import ProductionReferenceEditor from './ProductionReferenceEditor'
 import ProductionReferencePreview from './ProductionReferencePreview'
@@ -299,7 +300,10 @@ export default function ProductionShotPane({
             </header>
             {edit.editing && removeId === shot.id && (
               <div className="production-shot-delete" role="alert">
-                <p>{t('storyboard.deleteImpact')}</p>
+                <ProductionDeleteImpactNotice
+                  content={edit.content}
+                  target={{ kind: 'shot', id: shot.id }}
+                />
                 <button
                   type="button"
                   onClick={() => {

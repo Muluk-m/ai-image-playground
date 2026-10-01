@@ -219,5 +219,13 @@
     "keep": "Keep existing version",
     "retained": "Existing version retained",
     "show": "Review changes"
+  },
+  "deletion": {
+    "title": "Deletion impact",
+    "preserve": "Only this item will be removed. Related clip plans and adopted outputs are kept. Missing references are flagged without regenerating content.",
+    "shots": "Affected shots ({{count}})",
+    "clips": "Affected clips ({{count}})",
+    "adopted": "Has an adopted output",
+    "none": "No other shots or clips reference this item."
   }
 }
