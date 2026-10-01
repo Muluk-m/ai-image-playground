@@ -410,10 +410,16 @@ export const generateVideo = defineAgentTool({
           content: [{ type: 'text', text: refusalText(target.model, support, conflicts) }],
           details: {},
         }
+      // Normalize before any capability/count/resolution check: aliases must not
+      // turn an existing frame into an extra reference or lower its resolution.
+      const firstFrameId = params.imageId ? context.images.identify(params.imageId) : undefined
+      const lastFrameId = params.lastFrameId
+        ? context.images.identify(params.lastFrameId)
+        : undefined
       const referenceIds = referenceIdsOf(
-        params.imageId,
-        params.referenceImageIds,
-        params.lastFrameId,
+        firstFrameId,
+        params.referenceImageIds?.map((id) => context.images.identify(id)),
+        lastFrameId,
       )
       const plan = referencePlan(
         target.model,
@@ -421,8 +427,8 @@ export const generateVideo = defineAgentTool({
         clampVideoPreset(support, asked),
         params.resolution,
         referenceIds.length,
-        Boolean(params.imageId),
-        Boolean(params.lastFrameId),
+        Boolean(firstFrameId),
+        Boolean(lastFrameId),
       )
       if (plan.rejection)
         return {
@@ -432,11 +438,11 @@ export const generateVideo = defineAgentTool({
           details: {},
         }
       const preset = plan.preset
-      const source = params.imageId
-        ? (await requireAgentImages(context.images, [params.imageId]))[0]!
+      const source = firstFrameId
+        ? (await requireAgentImages(context.images, [firstFrameId]))[0]!
         : null
-      const last = params.lastFrameId
-        ? (await requireAgentImages(context.images, [params.lastFrameId]))[0]!
+      const last = lastFrameId
+        ? (await requireAgentImages(context.images, [lastFrameId]))[0]!
         : null
       // Resolve aliases before de-duplicating: "image 1" and its stable ID are the same input.
       const used = new Set([source?.imageId, last?.imageId].filter(Boolean))

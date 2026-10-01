@@ -325,6 +325,46 @@ describe('智能体生视频工具', () => {
     expect((await videoTask()).request_payload.input_images).toHaveLength(2)
   })
 
+  it.each([
+    AGNES,
+    'doubao-seedance-2-0-mini-260615',
+    GROK,
+  ])('normalizes frame aliases before checking reference support and resolution for %s', async (model) => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(model)])
+    const last = model !== GROK
+    const calls: AgentCall[] = []
+    videoTurn(calls, {
+      model,
+      prompt: '首尾过渡',
+      imageId: 'image 1',
+      ...(last ? { lastFrameId: 'last' } : {}),
+      referenceImageIds: ['first', ...(last ? ['image 2'] : [])],
+      resolution: last ? '720p' : '1080p',
+    })
+    const id = await startConversation('chat')
+    const frames = await runTurn(
+      id,
+      '根据图片生成视频',
+      [
+        { imageId: 'first', dataUrl: PIXEL },
+        ...(last ? [{ imageId: 'last', dataUrl: PIXEL }] : []),
+      ],
+      'image',
+    )
+    expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+      status: 'awaiting_confirmation',
+      video: { model, firstFrameId: 'first' },
+    })
+    await confirmDrafts(id)
+    const task = await videoTask()
+    expect(task.request_payload.input_images).toHaveLength(last ? 2 : 1)
+    expect(task.request_payload.video).toMatchObject({
+      resolution: last ? '720p' : '1080p',
+      first_frame_index: 0,
+    })
+    expect(task.request_payload.video?.reference_image_indices).toBeUndefined()
+  })
+
   it('rejects a missing explicit model instead of spending on the default', async () => {
     const calls: AgentCall[] = []
     videoTurn(calls, { prompt: '海浪', model: 'missing-model' })

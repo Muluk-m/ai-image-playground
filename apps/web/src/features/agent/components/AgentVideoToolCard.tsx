@@ -95,11 +95,19 @@ export default function AgentVideoToolCard({
   const retryLock = useRef(false)
   const [retryFailed, setRetryFailed] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
+  const [placing, setPlacing] = useState(false)
+  const placementLock = useRef(false)
+  const [placementFailed, setPlacementFailed] = useState(false)
   const messages = useAgentStore((state) => state.messages)
   const artifacts = message.artifacts?.filter((one) => one.media === 'video') ?? []
+  const canvas = agentCanvasSink()
+  const canvasContext = !!canvas && !onPreviewResult
   const canvasIds = artifacts
-    .filter((artifact) => agentCanvasSink()?.has(artifact.artifactId))
+    .filter((artifact) => canvas?.has(artifact.artifactId))
     .map((artifact) => artifact.artifactId)
+  const offCanvas = canvasContext && canvasIds.length < artifacts.length
+  const delivering = placing || message.delivery === 'pending'
+  const deliveryFailed = placementFailed || message.delivery === 'failed'
   const video = message.video ?? message.job?.video ?? artifacts[0]?.video
   const liveRetry = messages?.some(
     (one) =>
@@ -176,6 +184,17 @@ export default function AgentVideoToolCard({
           {failureText}
         </p>
       )}
+      {canvasContext && !!artifacts.length && (delivering || deliveryFailed || offCanvas) && (
+        <p role={deliveryFailed ? 'alert' : 'status'} className="text-xs text-muted-foreground">
+          {t(
+            delivering
+              ? 'tool.delivering'
+              : deliveryFailed
+                ? 'tool.deliveryFailed'
+                : 'tool.offCanvas',
+          )}
+        </p>
+      )}
       {canRetry && video && <AgentVideoEstimate video={video} />}
       <div className="flex flex-wrap items-center gap-2">
         {!!artifacts.length && onPreviewResult && (
@@ -192,6 +211,30 @@ export default function AgentVideoToolCard({
             }
           >
             {t('tool.openCanvas')}
+          </Button>
+        )}
+        {offCanvas && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={delivering}
+            onClick={() => {
+              if (placementLock.current) return
+              placementLock.current = true
+              setPlacing(true)
+              setPlacementFailed(false)
+              void useAgentStore
+                .getState()
+                .placeOnCanvas(message.id)
+                .then(() => onViewCanvas?.())
+                .catch(() => setPlacementFailed(true))
+                .finally(() => {
+                  placementLock.current = false
+                  setPlacing(false)
+                })
+            }}
+          >
+            {t('tool.place')}
           </Button>
         )}
         {message.retryOf && (
