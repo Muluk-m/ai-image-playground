@@ -46,7 +46,9 @@ export async function proposeProductionStoryboard(
           input.shots.some(
             (shot, index) =>
               shot.id !== existing[index]?.id ||
-              (shot.id !== context.shotId && canonical(shot) !== canonical(existing[index])),
+              (shot.id !== context.shotId &&
+                canonical({ ...shot, dependencies: undefined }) !==
+                  canonical({ ...existing[index], dependencies: undefined })),
           )
         )
           throw new ProductionError('production_invalid')

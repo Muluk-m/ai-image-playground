@@ -622,7 +622,7 @@ it('limits Agent storyboard suggestions to the frozen selected shot', async () =
   const allowed = await propose([{ ...shots[0]!, description: '已修改' }, shots[1]!], 'valid-scope')
   expect(allowed.storyboardProposals).toHaveLength(1)
   expect(allowed.storyboardProposals[0].shots[1].description).toBe('第二镜头')
-  expect(allowed.document.content.shots).toEqual(shots)
+  expect(allowed.document.content.shots).toMatchObject(shots)
   setAgentFetchForTesting()
 })
 afterAll(async () => {

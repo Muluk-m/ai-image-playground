@@ -12,6 +12,8 @@ import {
   discardProductionAssets,
   previewProductionReference,
 } from '../lib/agent/production-assets'
+import { productionDependencyStates } from '../lib/agent/production-dependencies'
+import { refreshProductionDependencies } from '../lib/agent/production-dependency-refresh'
 import {
   adoptProductionStoryboard,
   discardProductionStoryboard,
@@ -42,6 +44,9 @@ export const productionRoutes = new Elysia()
     const record = await readProduction(params.id, authUser.id)
     return {
       document: record?.document ?? null,
+      ...(record
+        ? productionDependencyStates(record.document.content)
+        : { shotDependencyStates: [], dependencyStates: [] }),
       history: query.history === 'true' ? (record?.history ?? []) : [],
       ...(query.proposals === 'true' ? { proposals: record?.proposals ?? [] } : {}),
       ...(query.assetProposals === 'true' ? { assetProposals: record?.assetProposals ?? [] } : {}),
@@ -203,3 +208,50 @@ export const productionRoutes = new Elysia()
   )
 
   .use(productionGenerationRoutes)
+  .post(
+    '/api/agent/conversations/:id/production/shots/:shotId/refresh',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await refreshProductionDependencies(
+        params.id,
+        authUser.id,
+        { kind: 'shot', id: params.shotId },
+        body,
+      )
+      return {
+        document: record.document,
+        history: record.history,
+        ...productionDependencyStates(record.document.content),
+      }
+    },
+    {
+      body: t.Object({
+        operationId: t.String({ minLength: 1, maxLength: 128 }),
+        baseRevision: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/conversations/:id/production/clips/:clipId/refresh',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await refreshProductionDependencies(
+        params.id,
+        authUser.id,
+        { kind: 'clip', id: params.clipId },
+        body,
+      )
+      return {
+        document: record.document,
+        history: record.history,
+        ...productionDependencyStates(record.document.content),
+      }
+    },
+    {
+      body: t.Object({
+        operationId: t.String({ minLength: 1, maxLength: 128 }),
+        baseRevision: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )

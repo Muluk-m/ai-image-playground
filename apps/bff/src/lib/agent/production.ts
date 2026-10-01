@@ -18,6 +18,10 @@ import { isCapabilityEnabled } from '../capabilities'
 import type { BffTransaction } from '../private-overlay'
 import { productionMediaReferences, validateProductionAssets } from './production-asset-validation'
 import { hasValidProductionClipReferences, validateProductionClips } from './production-clips'
+import {
+  normalizeProductionDependencies,
+  type ProductionRefreshTarget,
+} from './production-dependencies'
 import { reconcileProductionReferences } from './production-references'
 import { hasValidProductionShotReferences } from './production-shot-validation'
 
@@ -167,6 +171,7 @@ export function applyProductionMutation(
   conversationId: string,
   projectId: string | null,
   turnId?: string,
+  refresh?: ProductionRefreshTarget,
 ): ProductionRecord {
   if (
     !validateProductionContent(mutation.content) ||
@@ -178,7 +183,13 @@ export function applyProductionMutation(
     throw new ProductionError('production_invalid')
 
   const fingerprint = createHash('sha256')
-    .update(JSON.stringify([mutation.baseRevision, mutation.content, source]))
+    .update(
+      JSON.stringify(
+        refresh
+          ? [mutation.baseRevision, source, refresh]
+          : [mutation.baseRevision, mutation.content, source],
+      ),
+    )
     .digest('hex')
   const receipt = current?.receipts.find((r) => r.operationId === mutation.operationId)
   if (receipt) {
@@ -206,6 +217,16 @@ export function applyProductionMutation(
     )
   )
     throw new ProductionError('production_invalid')
+  const content =
+    source === 'restore'
+      ? mutation.content
+      : normalizeProductionDependencies(
+          current?.document.content ?? null,
+          mutation.content,
+          refresh,
+          mutation.baseRevision,
+        )
+  if (!validateProductionContent(content)) throw new ProductionError('production_invalid')
   const now = Date.now()
   const revision = mutation.baseRevision + 1
   const record: ProductionRecord = {
@@ -215,14 +236,14 @@ export function applyProductionMutation(
       conversationId,
       projectId: projectId,
       revision,
-      content: mutation.content,
+      content,
       updatedAt: now,
     },
     history: [
       ...(current?.history ?? []),
       {
         revision,
-        content: mutation.content,
+        content,
         source,
         ...(turnId ? { turnId } : {}),
         createdAt: now,
