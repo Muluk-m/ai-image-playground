@@ -777,12 +777,17 @@
     grid-template-rows: 150px auto;
   }
 
+  .auth-showcase {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
   .auth-showcase::after {
     background: linear-gradient(180deg, rgba(7, 8, 10, 0.28), hsl(var(--background)));
   }
 
   .auth-brand {
-    top: 20px;
+    top: 0;
     left: 20px;
     font-size: 16px;
   }
@@ -814,7 +819,8 @@
   }
 
   .auth-showcase-copy {
-    bottom: 18px;
+    bottom: 0;
+    margin-top: 8px;
     left: 20px;
     width: 75%;
   }
