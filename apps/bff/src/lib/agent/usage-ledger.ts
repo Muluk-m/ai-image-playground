@@ -82,6 +82,22 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
       if (dispatched.purpose === 'conversation') upstreamInvocationCount += 1
     },
 
+    /** The request was cancelled while its durable dispatch evidence was being recorded. */
+    async cancelledBeforeDispatch(id: string): Promise<void> {
+      const [cancelled] = await db
+        .update(calls)
+        .set({
+          http_dispatch_count: 0,
+          status: 'cancelled',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          finished_at: Date.now(),
+        })
+        .where(and(scope, eq(calls.id, id), eq(calls.http_dispatch_count, 1)))
+        .returning({ purpose: calls.purpose })
+      if (cancelled?.purpose === 'conversation') upstreamInvocationCount -= 1
+      estimates.delete(id)
+    },
+
     async rejected(id: string, error: AgentRequestBudgetError): Promise<void> {
       estimates.delete(id)
       await db

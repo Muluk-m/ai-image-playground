@@ -310,6 +310,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       const callId = await ledger.begin('conversation', model.id, context)
       modelCallId = callId
       return agentStreamFn(prepared.params?.thinkingDepth, {
+        onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
         onDispatch: async (bytes) => {
           const evidence = visualWorkset.dispatched(context.messages)
           if (evidence.length)
@@ -387,6 +388,25 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     const current = open
     open = null
     if (current) await store(current)
+  }
+
+  const discardOpen = () => {
+    const current = open
+    open = null
+    if (!current) return
+    return write(async (executor) => {
+      // An admission ahead of this write may still be committing the provisional message.
+      if (!current.persisted) return
+      await executor
+        .delete(schema.agent_messages)
+        .where(
+          and(
+            eq(schema.agent_messages.conversation_id, conversationId),
+            eq(schema.agent_messages.id, current.id),
+          ),
+        )
+      storedMessages.delete(current.id)
+    })
   }
 
   const flushQueued = () => {
@@ -528,6 +548,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           },
           local ? 'agent request was rejected locally' : 'agent upstream call failed',
         )
+        await discardOpen()
       } else await closeOpen()
       open = null
       flushQueued()
@@ -647,7 +668,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         const refused = new Error('interjection_not_accepted')
         let outcome: 'accepted' | 'duplicate' | 'rejected'
         try {
-          const admission = writes
+          const previousWrites = writes
+          const admission = previousWrites
             .then(() =>
               execution.write(async (tx) => {
                 const [existing] = await tx
@@ -701,11 +723,17 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
               }
               return result
             })
-          // A refused admission is handled by this request; later stream writes still run.
-          writes = admission.then(
-            () => {},
-            () => {},
+          // Only local admission refusals are recoverable; a failed earlier write still poisons finalization.
+          writes = previousWrites.then(() =>
+            admission.then(
+              () => {},
+              (error) => {
+                if (error !== refused && !(error instanceof InvalidSelectionError)) throw error
+              },
+            ),
           )
+          // Finalization observes the original rejection after the stream ends.
+          void writes.catch(() => {})
           outcome = await admission
         } catch (error) {
           if (error === refused) return reject()
@@ -797,7 +825,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (!error && !aborted && !storedAny && !open?.text) error = 'agent_run_failed'
       // 失败的轮不留这段没收尾的回复：面板在 turnEnd failed 时把它撤掉，历史要跟着撤，
       // 不然刷新回来它又冒出来。中止不在此列——那段话用户还看得见，照旧落库。
-      if (error) open = null
+      if (error) await discardOpen()
       // 中止时 pi 可能走不到 message_end，已经流给用户的半截回复要自己落库。
       await closeOpen()
       flushQueued()

@@ -5,7 +5,7 @@ import {
   AGENT_TURN_MAX_INLINE_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import {
@@ -316,4 +316,124 @@ it('主模型真实 502 只派发一次，保留上游未知用量', async () =>
     error: 'agent_upstream_error',
     usage: null,
   })
+})
+
+it('cancellation during dispatch recording keeps zero actual calls and zero settlement', async () => {
+  const { createAgentUsageLedger } = await import('../../lib/agent/usage-ledger')
+  const { guardedAgentFetch } = await import('../../lib/agent/outbound-budget')
+  const { withIdleTimeout } = await import('../../lib/agent/stream-idle')
+  const conversationId = await startConversation()
+  const ledger = createAgentUsageLedger({
+    conversationId,
+    turnId: 'cancel-before-fetch',
+    userId: null,
+    deviceId: DEVICE,
+  })
+  const callId = await ledger.begin('conversation', 'fixture-agent-model')
+  const controller = new AbortController()
+  let calls = 0
+  const fetch = guardedAgentFetch(
+    withIdleTimeout(async () => {
+      calls++
+      return new Response()
+    }, 1000),
+    {
+      onDispatch: async (bytes) => {
+        await ledger.dispatched(callId, bytes)
+        controller.abort()
+      },
+      onCancelledBeforeDispatch: () => ledger.cancelledBeforeDispatch(callId),
+    },
+  )
+  await expect(
+    fetch('http://gateway.test', { body: '{}', signal: controller.signal }),
+  ).rejects.toMatchObject({ name: 'AbortError' })
+  expect(calls).toBe(0)
+  expect(ledger.settlement()).toEqual({
+    upstreamInvocationCount: 0,
+    usage: { inputTokens: 0, outputTokens: 0 },
+  })
+  const [call] = await db
+    .select()
+    .from(schema.agent_model_calls)
+    .where(eq(schema.agent_model_calls.id, callId))
+  expect(call).toMatchObject({
+    http_dispatch_count: 0,
+    status: 'cancelled',
+    usage: { inputTokens: 0, outputTokens: 0 },
+  })
+})
+
+it('aborting a real turn while dispatch recording is blocked never sends or charges the model request', async () => {
+  const { waitFor } = await import('../helpers/upstreamStubs')
+  const conversationId = await startConversation()
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('must not send')))
+  let unlock!: () => void
+  let locked!: () => void
+  const barrier = new Promise<void>((resolve) => {
+    unlock = resolve
+  })
+  const acquired = new Promise<void>((resolve) => {
+    locked = resolve
+  })
+  const holding = db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(9731142)`)
+    locked()
+    await barrier
+  })
+  await acquired
+  await db.execute(
+    sql`CREATE FUNCTION hold_model_dispatch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.http_dispatch_count = 1 AND OLD.http_dispatch_count = 0 THEN PERFORM pg_advisory_xact_lock(9731142); END IF; RETURN NEW; END $$`,
+  )
+  await db.execute(
+    sql`CREATE TRIGGER hold_model_dispatch BEFORE UPDATE ON agent_model_calls FOR EACH ROW EXECUTE FUNCTION hold_model_dispatch()`,
+  )
+  const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
+    deviceId: DEVICE,
+    text: 'cancel this request',
+  })
+  const frames = response.text().then(parseFrames)
+  try {
+    await waitFor(
+      async () =>
+        (
+          await db.execute(
+            sql`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = 9731142::oid AND NOT granted`,
+          )
+        ).length > 0,
+    )
+    const [recorded] = await db
+      .select()
+      .from(schema.agent_model_calls)
+      .where(eq(schema.agent_model_calls.conversation_id, conversationId))
+    expect(recorded).toBeDefined()
+    expect(
+      (
+        await post(`/api/agent/conversations/${conversationId}/turns/${recorded!.turn_id}/abort`, {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(200)
+    unlock()
+    await holding
+    const end = eventsOfType(await frames, 'turnEnd')[0]
+    expect(end).toMatchObject({ stopReason: 'aborted', usage: { inputTokens: 0, outputTokens: 0 } })
+    expect(calls).toHaveLength(0)
+    const [settled] = await db
+      .select()
+      .from(schema.agent_model_calls)
+      .where(eq(schema.agent_model_calls.id, recorded!.id))
+    expect(settled).toMatchObject({
+      http_dispatch_count: 0,
+      status: 'cancelled',
+      usage: { inputTokens: 0, outputTokens: 0 },
+    })
+  } finally {
+    unlock()
+    await holding
+    await frames
+    await db.execute(sql`DROP TRIGGER hold_model_dispatch ON agent_model_calls`)
+    await db.execute(sql`DROP FUNCTION hold_model_dispatch()`)
+  }
 })
