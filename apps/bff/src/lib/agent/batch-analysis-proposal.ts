@@ -4,11 +4,12 @@ import type {
   AgentBatchAnalysisProposal,
   AgentBatchItem,
 } from '@image-playground/shared'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, inArray, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { prepareAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { readBatchSourceItems } from './batch-analysis-sources'
 import { batchExecutionAvailable, lockOwnedBatch } from './batch-execution'
 import { batchItem } from './batch-items'
 import { saveBatchRevision } from './batch-plan-revision'
@@ -113,14 +114,67 @@ export async function proposeBatchAnalysis(
       )
       .orderBy(asc(schema.agent_batch_items.ordinal))
       .then((rows) => rows.map(batchItem))
-    if (
-      previous.length + additions.length >
-      Math.min(100, config.operator.quotas['agent:batch-max-items'])
-    )
+    const maxItems = Math.min(100, config.operator.quotas['agent:batch-max-items'])
+    const rollover = previous.length + additions.length > maxItems
+    const sources = [
+      ...new Set([
+        ...(plan.confirmation?.sourceVersions ??
+          (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])),
+        ...(rollover ? [plan.version] : []),
+      ]),
+    ].sort((a, b) => a - b)
+    if (sources.length > Math.min(100, config.operator.quotas['agent:batch-source-versions']))
+      throw new BatchPlanError('batch_source_limit_exceeded', 422)
+    const accepted = rollover
+      ? await tx
+          .select({ key: schema.agent_batch_attempts.item_key })
+          .from(schema.agent_batch_attempts)
+          .where(
+            and(
+              eq(schema.agent_batch_attempts.batch_id, id),
+              or(
+                ...previous.map((item) =>
+                  and(
+                    eq(schema.agent_batch_attempts.item_key, item.key),
+                    eq(
+                      schema.agent_batch_attempts.attempt,
+                      Object.hasOwn(plan.attempt_targets, item.key)
+                        ? plan.attempt_targets[item.key]!
+                        : 1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          )
+          .limit(100)
+      : []
+    const carried = previous.filter((item) => !accepted.some((attempt) => attempt.key === item.key))
+    if (carried.length + additions.length > maxItems)
       throw new BatchPlanError('batch_size_exceeded', 422)
-    const references = previous.flatMap((item) => item.inputs)
-    const keys = new Set(previous.map((item) => item.key))
-    const items: AgentBatchItem[] = [...previous]
+    const historicalKeys = await tx
+      .select({ key: schema.agent_batch_items.key })
+      .from(schema.agent_batch_items)
+      .where(
+        and(
+          eq(schema.agent_batch_items.batch_id, id),
+          inArray(
+            schema.agent_batch_items.key,
+            additions.map((item) => item.key),
+          ),
+        ),
+      )
+      .limit(100)
+    if (historicalKeys.length) throw new BatchPlanError('invalid_batch_plan', 422)
+    const archived = await readBatchSourceItems(tx, id, sources)
+    const references = [...previous, ...archived.map((source) => source.item)].flatMap(
+      (item) => item.inputs,
+    )
+    const keys = new Set([
+      ...previous.map((item) => item.key),
+      ...archived.map((source) => source.item.key),
+    ])
+    const items: AgentBatchItem[] = carried.map((item, ordinal) => ({ ...item, ordinal }))
     for (const item of additions) {
       if (
         !item.key.trim() ||
@@ -135,10 +189,13 @@ export async function proposeBatchAnalysis(
       keys.add(item.key)
       items.push({ ...item, ordinal: items.length })
     }
-    await saveBatchRevision(tx, batch, plan, items, {
-      id: input.commandId,
-      kind: 'analysis_proposal',
-      requestHash,
-    })
+    await saveBatchRevision(
+      tx,
+      batch,
+      plan,
+      items,
+      { id: input.commandId, kind: 'analysis_proposal', requestHash },
+      sources.length ? { sourceVersions: sources, sourceVersion: sources.at(-1) } : {},
+    )
   })
 }

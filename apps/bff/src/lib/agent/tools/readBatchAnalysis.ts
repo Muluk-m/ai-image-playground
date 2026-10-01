@@ -27,7 +27,10 @@ export const readBatchAnalysis = defineAgentTool({
   execute: (context) => async (_toolCallId, input) => {
     if (!context.userId) throw new AgentToolError('invalid_params', '请登录后读取批次分析。')
     const [owned] = await db
-      .select({ version: schema.agent_batch_plans.version })
+      .select({
+        version: schema.agent_batch_plans.version,
+        confirmation: schema.agent_batch_plans.confirmation,
+      })
       .from(schema.agent_batch_plans)
       .innerJoin(
         schema.agent_batches,
@@ -61,6 +64,9 @@ export const readBatchAnalysis = defineAgentTool({
           text: JSON.stringify({
             batchId: input.batchId,
             version: input.version,
+            sourceVersions:
+              owned.confirmation?.sourceVersions ??
+              (owned.confirmation?.sourceVersion ? [owned.confirmation.sourceVersion] : []),
             ...coverage,
             offset,
             total: findings.length,

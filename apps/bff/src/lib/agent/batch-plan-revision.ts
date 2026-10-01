@@ -20,7 +20,11 @@ export async function saveBatchRevision(
   provenance: Partial<
     Pick<
       AgentBatchConfirmation,
-      'sourceVersion' | 'excludedItemKeys' | 'excludedImageIds' | 'requiresResume'
+      | 'sourceVersion'
+      | 'sourceVersions'
+      | 'excludedItemKeys'
+      | 'excludedImageIds'
+      | 'requiresResume'
     >
   > = {},
 ): Promise<void> {
