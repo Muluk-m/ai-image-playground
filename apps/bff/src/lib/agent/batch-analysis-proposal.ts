@@ -117,7 +117,9 @@ export async function proposeBatchAnalysis(
                     eq(schema.agent_batch_attempts.item_key, one.key),
                     eq(
                       schema.agent_batch_attempts.attempt,
-                      currentPlan.attempt_targets[one.key] ?? 1,
+                      Object.hasOwn(currentPlan.attempt_targets, one.key)
+                        ? currentPlan.attempt_targets[one.key]!
+                        : 1,
                     ),
                   ),
                 ),

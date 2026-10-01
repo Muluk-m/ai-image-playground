@@ -443,11 +443,14 @@ export async function finalizeAnalysisTask(
   return finalized
 }
 
+let analysisCostCursor: string | undefined
+let analysisRecovery: Promise<void> | undefined
+
 /** Billing is authoritative even after capability changes or transient task cleanup. Missing is not zero. */
 export async function refreshAnalysisTaskCosts(taskIds?: readonly string[]): Promise<void> {
   if (taskIds && !taskIds.length) return
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  let afterId: string | undefined
+  let afterId = taskIds ? undefined : analysisCostCursor
   for (;;) {
     const pending = await db
       .select({ id: schema.analysis_tasks.task_id })
@@ -462,6 +465,10 @@ export async function refreshAnalysisTaskCosts(taskIds?: readonly string[]): Pro
       )
       .orderBy(asc(schema.analysis_tasks.task_id))
       .limit(100)
+    // Move before asynchronous settlement: a broken or missing old ledger entry cannot starve
+    // later tasks. Wrapping on a later pass revisits unresolved entries without an unbounded scan.
+    if (!taskIds)
+      analysisCostCursor = pending.length === 100 ? pending[pending.length - 1]!.id : undefined
     if (!pending.length) return
     const credits = await hooks.taskCredits({ taskIds: pending.map((row) => row.id) })
     for (const { id } of pending) {
@@ -474,7 +481,7 @@ export async function refreshAnalysisTaskCosts(taskIds?: readonly string[]): Pro
           and(eq(schema.analysis_tasks.task_id, id), isNull(schema.analysis_tasks.actual_credits)),
         )
     }
-    if (pending.length < 100) return
+    if (!taskIds || pending.length < 100) return
     afterId = pending[pending.length - 1]!.id
   }
 }
@@ -592,10 +599,16 @@ export async function recordAnalysisAttempt(
 }
 
 /** A saved response can finish after restart; dispatch without a response is never retried. */
-export async function recoverAnalysisTasks(
-  now = Date.now(),
-  taskIds?: readonly string[],
-): Promise<void> {
+export function recoverAnalysisTasks(now = Date.now(), taskIds?: readonly string[]): Promise<void> {
+  if (taskIds) return recoverAnalysisTaskPage(now, taskIds)
+  if (analysisRecovery) return analysisRecovery
+  analysisRecovery = recoverAnalysisTaskPage(now).finally(() => {
+    analysisRecovery = undefined
+  })
+  return analysisRecovery
+}
+
+async function recoverAnalysisTaskPage(now: number, taskIds?: readonly string[]): Promise<void> {
   if (taskIds && !taskIds.length) return
   await db.transaction(async (tx) => {
     const rows = await tx

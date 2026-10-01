@@ -406,3 +406,110 @@ it('rejects stale, unselected and duplicate-key followups before reading image o
     config.operator = operator
   }
 })
+
+it('accepts a rolling followup whose approved source key is an Object prototype name', async () => {
+  const operator = config.operator
+  config.operator = {
+    ...operator,
+    capabilities: { ...operator.capabilities, 'agent:batch-analysis': true },
+    quotas: { ...operator.quotas, 'agent:batch-max-items': 1 },
+  }
+  const id = 'followup-prototype-key'
+  const now = Date.now()
+  try {
+    await db
+      .insert(schema.users)
+      .values({ id, username: id, password_hash: 'fixture', created_at: now, updated_at: now })
+    await db
+      .insert(schema.agent_conversations)
+      .values({ id, user_id: id, title: id, created_at: now, updated_at: now })
+    const media = await storeMedia(id, await fixturePng('#123456'), 'image/png')
+    const inputs = [{ imageId: 'selected', mediaId: media.id }]
+    await db.insert(schema.agent_batches).values({
+      id,
+      user_id: id,
+      conversation_id: id,
+      origin_turn_id: 'origin',
+      tool_call_id: 'plan',
+      experience: 'chat',
+      status: 'running',
+      confirmed_version: 1,
+      created_at: now,
+      updated_at: now,
+    })
+    const empty = {
+      status: 'available' as const,
+      estimatedCredits: 0,
+      estimatedChargeCredits: 0,
+      snapshots: [],
+    }
+    await db.insert(schema.agent_batch_plans).values({
+      batch_id: id,
+      version: 1,
+      title: id,
+      rule: 'selected',
+      digest: 'a'.repeat(64),
+      item_count: 1,
+      attempt_targets: {},
+      estimate_snapshot: { analysis: empty, generation: empty },
+      created_at: now,
+    })
+    await db.insert(schema.agent_batch_items).values({
+      batch_id: id,
+      version: 1,
+      key: 'toString',
+      ordinal: 0,
+      kind: 'analysis',
+      inputs,
+      prompt: 'inspect',
+      params: { model: config.agent.model, estimatedInputTokens: 0, evidence: [] },
+      dependencies: [],
+    })
+    await db.insert(schema.agent_batch_attempts).values({
+      batch_id: id,
+      version: 1,
+      item_key: 'toString',
+      attempt: 1,
+      task_id: `${id}-old`,
+      reserved_credits: 0,
+      submitted_at: now,
+      terminal_snapshot: {
+        status: 'completed',
+        actualCredits: 0,
+        completedAt: now,
+        upstreamStatus: null,
+        artifacts: [],
+        errorCode: null,
+        message: null,
+      },
+    })
+    const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+    const cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession(id, tx))}`
+    const { app } = await import('../../app')
+    const response = await app.handle(
+      new Request(`http://localhost/api/agent/batches/${id}/analysis-proposal`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: 'followup',
+          expectedVersion: 1,
+          items: [
+            {
+              key: 'detail',
+              inputs,
+              prompt: 'followup',
+              dependencies: ['toString'],
+              params: { model: config.agent.model },
+            },
+          ],
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const page = await response.json()
+    expect(page.batch.confirmation).toMatchObject({ itemKeys: ['detail'], sourceVersions: [1] })
+    expect(page.items.map((item: { key: string }) => item.key)).toEqual(['detail'])
+  } finally {
+    config.operator = operator
+  }
+})

@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia'
+import { BatchAnalysisLimit } from './agent/batch-analysis-limit'
 import { log } from './logger'
 
 export function isApiPath(pathname: string): boolean {
@@ -31,6 +32,11 @@ export function apiErrorHandler(
       if (code !== 'UNKNOWN' && code !== 'INTERNAL_SERVER_ERROR') return
       const { pathname } = new URL(request.url)
       if (!isApiPath(pathname)) return
+      if (error instanceof BatchAnalysisLimit)
+        return Response.json(
+          { error: error.details.reason, analysisLimit: error.details },
+          { status: 422 },
+        )
       record({ method: request.method, path: pathname, err: error })
       return Response.json({ error: 'internal_error' }, { status: 500 })
     },
