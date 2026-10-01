@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ImageEl } from '../../../../features/canvas/lib/canvasDoc'
-import { pageToMaskPixel, paintMaskStroke } from '../../../../features/canvas/lib/inpaintMask'
+import {
+  maskStrokeRegion,
+  pageToMaskPixel,
+  paintMaskStroke,
+} from '../../../../features/canvas/lib/inpaintMask'
 
 /**
  * 涂抹点从页面坐标换到遮罩像素坐标这一步错了，界面上看不出来：紫色高亮照样画在手指下面，
@@ -90,4 +94,25 @@ describe('rectangle edit mask', () => {
     expect(fillRect).toHaveBeenCalledTimes(2)
     expect(ctx.globalCompositeOperation).toBe('destination-out')
   })
+})
+
+it('uses stable numbers and rotated normalized bounds for numbered region evidence', () => {
+  const result = maskStrokeRegion(
+    image({ rotation: 90 }),
+    {
+      tool: 'brush',
+      shape: 'rect',
+      width: 0,
+      points: [
+        { x: 70, y: 90 },
+        { x: -20, y: 250 },
+      ],
+    },
+    7,
+  )
+  expect(result.number).toBe(7)
+  expect(result.x).toBeCloseTo(0.1)
+  expect(result.y).toBeCloseTo(0.1)
+  expect(result.width).toBeCloseTo(0.4)
+  expect(result.height).toBeCloseTo(0.3)
 })

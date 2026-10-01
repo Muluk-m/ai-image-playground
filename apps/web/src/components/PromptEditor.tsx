@@ -245,7 +245,8 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
 
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
+    // External region/reference changes must not replace the active IME text node.
+    if (!el || composingRef.current) return
     const typed = typedRef.current
     typedRef.current = null
     const pendingCaret = caretRef.current

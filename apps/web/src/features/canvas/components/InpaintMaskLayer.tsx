@@ -32,6 +32,7 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const imageId = useInpaintSession((state) => state.imageId)
   const strokes = useInpaintSession((state) => state.strokes)
+  const strokeIds = useInpaintSession((state) => state.strokeIds)
   const selectedStroke = useInpaintSession((state) => state.selectedStroke)
   const selectStroke = useInpaintSession((state) => state.selectStroke)
   const kind = useInpaintSession((state) => state.kind)
@@ -188,13 +189,13 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
               >
                 <button
                   type="button"
-                  aria-label={t('inpaint.regionName', { no: index + 1 })}
+                  aria-label={t('inpaint.regionName', { no: strokeIds[index] })}
                   aria-pressed={selectedStroke === index}
                   className="pointer-events-auto absolute -left-3 -top-3 grid h-6 w-6 place-items-center rounded-full border-2 border-white bg-[#159cf6] text-xs font-semibold text-white shadow-md"
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => selectStroke(index)}
                 >
-                  {index + 1}
+                  {strokeIds[index]}
                 </button>
               </div>
             )

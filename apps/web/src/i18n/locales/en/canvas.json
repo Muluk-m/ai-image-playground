@@ -384,7 +384,10 @@
     "tooSmall": "This image is too small; inpainting needs about 0.8 megapixels",
     "tooWide": "Aspect ratios above 3:1 are not supported for inpainting",
     "sourceGone": "The source image is no longer on the canvas",
-    "canvasAria": "Smart edit selection canvas"
+    "canvasAria": "Smart edit selection canvas",
+    "regionRemoved": " (removed)",
+    "promptTooLong": "Keep the editing instructions within {{max}} characters.",
+    "regionMissing": "Remove unavailable area references or redo their selections before sending."
   },
   "crop": {
     "action": "Crop",
