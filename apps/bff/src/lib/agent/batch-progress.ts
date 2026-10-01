@@ -7,9 +7,15 @@ import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { queueTaskOutcome } from '../taskSubmission'
+import { cancelledBatchDependents } from './batch-dependencies'
 import { lockConversation } from './confirmations'
 import { enqueueAgentWake } from './inbox'
 import { queueArtifacts } from './tools/queueTask'
+
+const unsettledAttempt = or(
+  isNull(schema.agent_batch_attempts.terminal_snapshot),
+  sql`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown'`,
+)
 
 /** The batch lock serializes this one-time fault receipt with explicit user resume. */
 export async function pauseBatchForAnalysisAuthentication(
@@ -91,7 +97,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
       and(
         eq(schema.agent_batch_attempts.batch_id, batchId),
         eq(schema.tasks.kind, 'queue'),
-        isNull(schema.agent_batch_attempts.terminal_snapshot),
+        unsettledAttempt,
         inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
       ),
     )
@@ -136,7 +142,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     .where(
       and(
         eq(schema.analysis_tasks.batch_id, batchId),
-        isNull(schema.agent_batch_attempts.terminal_snapshot),
+        unsettledAttempt,
         inArray(schema.analysis_tasks.status, ['completed', 'failed', 'cancelled']),
       ),
     )
@@ -198,7 +204,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
           and(
             eq(schema.agent_batch_attempts.batch_id, batchId),
             eq(schema.agent_batch_attempts.task_id, taskId),
-            isNull(schema.agent_batch_attempts.terminal_snapshot),
+            unsettledAttempt,
           ),
         )
         .returning({ taskId: schema.agent_batch_attempts.task_id })
@@ -246,7 +252,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     const [unresolved] = await tx
       .select({ taskId: attempts.task_id })
       .from(attempts)
-      .where(and(eq(attempts.batch_id, batchId), isNull(attempts.terminal_snapshot)))
+      .where(and(eq(attempts.batch_id, batchId), unsettledAttempt))
       .limit(1)
     if (unresolved) return
     // Completion targets stay bounded to the confirmed version; artifact bodies are unnecessary.
@@ -254,7 +260,11 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
       .select({
         itemKey: items.key,
         taskId: attempts.task_id,
-        terminal: sql<boolean>`${attempts.terminal_snapshot} IS NOT NULL`,
+        dependencies: items.dependencies,
+        status: sql<
+          string | null
+        >`CASE WHEN ${attempts.terminal_snapshot}->>'errorCode' = 'result_unknown' THEN 'reconciling' ELSE ${attempts.terminal_snapshot}->>'status' END`,
+        terminal: sql<boolean>`${attempts.terminal_snapshot} IS NOT NULL AND ${attempts.terminal_snapshot}->>'errorCode' IS DISTINCT FROM 'result_unknown'`,
       })
       .from(items)
       .innerJoin(
@@ -276,9 +286,20 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
       .where(and(eq(items.batch_id, batchId), eq(items.version, batch.confirmed_version)))
       .orderBy(asc(items.ordinal))
       .limit(100)
+    const cancelled = cancelledBatchDependents(
+      approved.map((item) => ({ key: item.itemKey, dependencies: item.dependencies })),
+      approved.map((item) => ({
+        key: item.itemKey,
+        submitted: Boolean(item.taskId),
+        status: item.status,
+        archived: item.terminal,
+      })),
+    )
     if (
       approved.length === plan.itemCount &&
-      approved.every((attempt) => attempt.terminal && attempt.taskId)
+      approved.every(
+        (attempt) => (attempt.terminal && attempt.taskId) || cancelled.has(attempt.itemKey),
+      )
     ) {
       await tx
         .update(schema.agent_batches)
@@ -289,7 +310,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
         batch.conversation_id,
         {
           turnId: batch.origin_turn_id,
-          taskIds: approved.map((attempt) => attempt.taskId!),
+          taskIds: approved.flatMap((attempt) => (attempt.taskId ? [attempt.taskId] : [])),
           deviceId: batch.device_id ?? '',
           batch: {
             batchId,
@@ -309,7 +330,7 @@ export async function snapshotAgentBatchesBeforePurge(expired: SQL): Promise<voi
     .selectDistinct({ id: schema.agent_batch_attempts.batch_id })
     .from(schema.agent_batch_attempts)
     .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
-    .where(and(expired, isNull(schema.agent_batch_attempts.terminal_snapshot)))
+    .where(and(expired, unsettledAttempt))
   for (const batch of batches) {
     try {
       await reconcileAgentBatchProgress(batch.id)
@@ -352,7 +373,10 @@ async function discardSettledDetachedBatch(tx: BffTransaction, batchId: string):
     .select({ snapshot: schema.agent_batch_attempts.terminal_snapshot })
     .from(schema.agent_batch_attempts)
     .where(eq(schema.agent_batch_attempts.batch_id, batchId))
-  if (attempts.some((attempt) => !attempt.snapshot)) return
+  if (
+    attempts.some((attempt) => !attempt.snapshot || attempt.snapshot.errorCode === 'result_unknown')
+  )
+    return
   const analyses = await tx
     .select()
     .from(schema.analysis_tasks)

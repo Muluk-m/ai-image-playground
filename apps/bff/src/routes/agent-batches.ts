@@ -17,6 +17,7 @@ import {
   readAgentBatchPlan,
   updateAgentBatchPlan,
 } from '../lib/agent/batch-plans'
+import { readBatchWakeReceipt } from '../lib/agent/batch-wake'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -130,6 +131,19 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
         limit: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
         cursor: t.Optional(t.String({ maxLength: 1024 })),
       }),
+    },
+  )
+
+  .get(
+    '/api/agent/batches/:id/wake',
+    async ({ params, query, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const receipt = await readBatchWakeReceipt(authUser.id, params.id, query.version)
+      return receipt ?? status(404, { error: 'batch_not_found' })
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      query: t.Object({ version: t.Integer({ minimum: 1 }) }),
     },
   )
 

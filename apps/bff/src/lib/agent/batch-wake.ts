@@ -1,7 +1,8 @@
 import type { AgentInboxTaskResultPayload } from '@image-playground/db'
-import type { AgentBatchAttemptSnapshot } from '@image-playground/shared'
+import type { AgentBatchAttemptSnapshot, AgentBatchWakeReceipt } from '@image-playground/shared'
 import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { cancelledBatchDependents } from './batch-dependencies'
 import type { AgentOwner } from './conversations'
 
 /** Read only the confirmed version's durable outcomes, never prompts or image bytes. */
@@ -34,13 +35,16 @@ export async function batchWakeSummary(
   const items = schema.agent_batch_items
   const attempts = schema.agent_batch_attempts
   // Filter approved attempts in PostgreSQL: repeated retries must not load old snapshots/artifacts.
-  const results = await db
+  const rows = await db
     .select({
       itemKey: items.key,
+      dependencies: items.dependencies,
+      taskId: attempts.task_id,
+      archived: sql<boolean>`${attempts.terminal_snapshot} IS NOT NULL`,
       attempt: attempts.attempt,
       status: sql<
         AgentBatchAttemptSnapshot['status'] | null
-      >`${attempts.terminal_snapshot} ->> 'status'`,
+      >`CASE WHEN ${attempts.terminal_snapshot}->>'errorCode' = 'result_unknown' THEN NULL ELSE ${attempts.terminal_snapshot} ->> 'status' END`,
       actualCredits: sql<
         number | null
       >`(${attempts.terminal_snapshot} ->> 'actualCredits')::double precision`,
@@ -65,6 +69,19 @@ export async function batchWakeSummary(
     .where(and(eq(items.batch_id, notice.batchId), eq(items.version, notice.version)))
     .orderBy(asc(items.ordinal))
     .limit(100)
+  const cancelled = cancelledBatchDependents(
+    rows.map((row) => ({ key: row.itemKey, dependencies: row.dependencies })),
+    rows.map((row) => ({
+      key: row.itemKey,
+      submitted: Boolean(row.taskId),
+      status: row.status,
+      archived: row.archived,
+    })),
+  )
+  const results = rows.map(
+    ({ dependencies: _dependencies, taskId: _taskId, archived: _archived, ...row }) =>
+      cancelled.has(row.itemKey) ? { ...row, status: 'cancelled' as const, actualCredits: 0 } : row,
+  )
   if (
     results.length !== plan.itemCount ||
     results.length !== notice.itemKeys.length ||
@@ -78,4 +95,42 @@ export async function batchWakeSummary(
     JSON.stringify(results),
     '这里只提供任务状态和账单，没有检查产物像素，不能声称已逐图检查视觉质量。分析批次应调用 readBatchAnalysis，传入上述 batchId 和 version 分页读取已完成的真实发现，再汇总；不得把状态当成视觉结论。读取已有结果不产生新分析费用。需要补看时调用 proposeBatchAnalysis 保存明确范围的新报价，等待用户确认；需要生成时先读完有关发现再调用 proposeBatchGeneration，等待用户确认生成。',
   ].join('\n')
+}
+
+/** A receipt belongs to one immutable version, even when other batches share its conversation. */
+export async function readBatchWakeReceipt(
+  userId: string,
+  batchId: string,
+  version: number,
+): Promise<AgentBatchWakeReceipt | null> {
+  const batches = schema.agent_batches
+  const plans = schema.agent_batch_plans
+  const conversations = schema.agent_conversations
+  const inbox = schema.agent_inbox
+  const [receipt] = await db
+    .select({ status: inbox.status, turnId: inbox.consumed_turn_id })
+    .from(batches)
+    .innerJoin(plans, and(eq(plans.batch_id, batches.id), eq(plans.version, version)))
+    .innerJoin(conversations, eq(conversations.id, batches.conversation_id))
+    .leftJoin(
+      inbox,
+      and(
+        eq(inbox.conversation_id, conversations.id),
+        eq(inbox.id, `batch-result:${batchId}:${version}`),
+        eq(inbox.kind, 'task_result'),
+      ),
+    )
+    .where(
+      and(
+        eq(batches.id, batchId),
+        eq(batches.user_id, userId),
+        eq(conversations.user_id, userId),
+        isNull(conversations.deleted_at),
+      ),
+    )
+  if (!receipt) return null
+  if (receipt.status === 'cancelled' || receipt.status === 'failed') return { status: 'skipped' }
+  if (receipt.status === 'consumed' && receipt.turnId)
+    return { status: 'consumed', turnId: receipt.turnId }
+  return { status: 'pending' }
 }

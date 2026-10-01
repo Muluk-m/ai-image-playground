@@ -8,6 +8,7 @@ import { fixturePng } from '../helpers/rasterFixture'
 
 process.env.DATABASE_URL = await resetTestDatabase('analysis_batch_comparison')
 process.env.PORT = '0'
+process.env.INTERNAL_API_TOKEN = 'joint-reconcile-fixture'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture'
 process.env.AGENT_CHAT_MODEL = 'analysis-auth-model'
@@ -64,16 +65,22 @@ afterAll(async () => {
   await close()
 })
 
-it('keeps a joint comparison incomplete even when independent inspections cover every image', async () => {
+it.each([
+  'unknown',
+  'findings_only',
+  'comparison',
+] as const)('requires independent joint evidence after full individual coverage: %s', async (responseKind) => {
   const operator = config.operator
   config.operator = {
     ...operator,
     capabilities: { ...operator.capabilities, 'agent:batch-analysis': true },
     quotas: { ...operator.quotas, 'agent:batch-dispatch-window': 2 },
   }
-  const id = 'analysis-comparison-batch'
+  const id = `analysis-comparison-${responseKind}`
   const now = Date.now()
   try {
+    billing.reservations.length = 0
+    billing.settlements.length = 0
     billing.answer = { kind: 'reserved', credits: 7 }
     billing.settledCredits = 1
     await db.insert(schema.users).values({
@@ -87,7 +94,7 @@ it('keeps a joint comparison incomplete even when independent inspections cover 
     await db
       .insert(schema.agent_conversations)
       .values({ id, user_id: id, title: 'compare both', created_at: now, updated_at: now })
-    const references = []
+    const references: Array<{ imageId: string; mediaId: string }> = []
     for (const [index, key] of ['first', 'second'].entries()) {
       const media = await storeMedia(
         id,
@@ -105,6 +112,7 @@ it('keeps a joint comparison incomplete even when independent inspections cover 
         model: config.agent.model,
         prompt: key === 'compare' ? 'compare exact color relationship jointly' : `inspect-${key}`,
         inputs,
+        intent: key === 'compare' ? 'joint_comparison' : 'inspection',
       })
       const quote = await db.transaction((tx) =>
         quoteAnalysisTask({
@@ -186,7 +194,33 @@ it('keeps a joint comparison incomplete even when independent inspections cover 
           .length,
       )
       const prompt = String(body.messages[0].content[0].text)
-      if (prompt.includes('compare exact')) throw new Error('joint comparison response unknown')
+      if (prompt.includes('compare exact')) {
+        if (responseKind === 'unknown') throw new Error('joint comparison response unknown')
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  findings: references.map(({ imageId }) => ({
+                    imageId,
+                    text: 'individual color observation',
+                  })),
+                  ...(responseKind === 'comparison'
+                    ? {
+                        comparison: {
+                          status: 'completed',
+                          imageIds: references.map(({ imageId }) => imageId),
+                          text: 'The first image is brighter than the second.',
+                        },
+                      }
+                    : {}),
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 40 },
+        })
+      }
       const imageId = prompt.includes('inspect-first') ? 'image-first' : 'image-second'
       return Response.json({
         choices: [
@@ -220,25 +254,98 @@ it('keeps a joint comparison incomplete even when independent inspections cover 
     expect(response.status).toBe(200)
     const { analysisSummary } = await response.json()
     expect(analysisSummary).toMatchObject({
-      complete: false,
+      complete: responseKind === 'comparison',
       inspectionComplete: true,
       successfulImageIds: ['image-first', 'image-second'],
       missingImageIds: [],
-      unresolvedItemKeys: ['compare'],
+      unresolvedItemKeys: responseKind === 'comparison' ? [] : ['compare'],
       jointComparisons: [
         {
           itemKey: 'compare',
           taskId: comparison.task_id,
           attempt: 1,
-          status: 'reconciling',
-          complete: false,
+          status:
+            responseKind === 'unknown'
+              ? 'reconciling'
+              : responseKind === 'comparison'
+                ? 'completed'
+                : 'failed',
+          complete: responseKind === 'comparison',
           requiredImageIds: ['image-first', 'image-second'],
         },
       ],
     })
+    if (responseKind === 'comparison')
+      expect(analysisSummary.jointComparisons[0].comparison).toEqual({
+        status: 'completed',
+        imageIds: ['image-first', 'image-second'],
+        text: 'The first image is brighter than the second.',
+      })
     expect(imageCounts).toEqual([1, 1, 2])
     expect(billing.reservations).toHaveLength(3)
-    expect(billing.settlements).toHaveLength(2)
+    expect(billing.settlements).toHaveLength(responseKind === 'unknown' ? 2 : 3)
+    if (responseKind === 'unknown') {
+      const operate = (body: unknown) =>
+        app.handle(
+          new Request(
+            `http://localhost/internal/admin/tasks/${comparison.task_id}/reconciliation`,
+            {
+              method: 'POST',
+              headers: {
+                authorization: 'Bearer joint-reconcile-fixture',
+                'content-type': 'application/json',
+              },
+              body: JSON.stringify(body),
+            },
+          ),
+        )
+      expect(
+        (
+          await operate({
+            commandId: 'lookup',
+            operatorId: 'operator',
+            action: 'lookup',
+            evidence: 'provider ticket',
+          })
+        ).status,
+      ).toBe(200)
+      const result = {
+        findings: references.map(({ imageId }) => ({ imageId, text: 'individual color' })),
+        usage: { inputTokens: 100, outputTokens: 40 },
+      }
+      expect(
+        (
+          await operate({
+            commandId: 'individual-only',
+            operatorId: 'operator',
+            action: 'confirm_success',
+            evidence: 'provider export',
+            result,
+          })
+        ).status,
+      ).toBe(400)
+      const verified = {
+        status: 'completed',
+        imageIds: ['image-first', 'image-second'],
+        text: 'First is brighter than second',
+      }
+      const response = await operate({
+        commandId: 'joint-proof',
+        operatorId: 'operator',
+        action: 'confirm_success',
+        evidence: 'provider export',
+        result: { ...result, comparison: verified },
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ status: 'completed' })
+      const refreshed = await app.handle(
+        new Request(`http://localhost/api/agent/batches/${id}`, { headers: { cookie } }),
+      )
+      expect((await refreshed.json()).analysisSummary.jointComparisons[0]).toMatchObject({
+        complete: true,
+        comparison: verified,
+      })
+    }
   } finally {
     config.operator = operator
   }

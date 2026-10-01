@@ -4,7 +4,12 @@ import type {
   AgentTurnParams,
   AgentVisualEvidence,
 } from './agent'
-import type { AnalysisCoverage, AnalysisFinding, AnalysisInputSnapshot } from './analysis'
+import type {
+  AnalysisComparison,
+  AnalysisCoverage,
+  AnalysisFinding,
+  AnalysisInputSnapshot,
+} from './analysis'
 import type { QueueProvider, TaskStatus } from './queue-protocol'
 
 export interface AgentBatchPriceSnapshot {
@@ -171,6 +176,7 @@ export interface AgentBatchAnalysisSummary {
   readonly complete: boolean
   readonly inspectionComplete: boolean
   readonly jointComparisons: readonly {
+    readonly comparison?: AnalysisComparison
     readonly itemKey: string
     readonly taskId: string | null
     readonly attempt: number | null
@@ -232,3 +238,7 @@ export interface AgentBatchAnalysisLimit {
   readonly jointComparisonCompleted: false
   readonly choices: readonly ('select_images' | 'select_regions')[]
 }
+export type AgentBatchWakeReceipt =
+  | { readonly status: 'pending' }
+  | { readonly status: 'consumed'; readonly turnId: string }
+  | { readonly status: 'skipped' }

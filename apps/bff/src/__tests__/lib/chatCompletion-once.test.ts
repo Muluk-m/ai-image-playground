@@ -178,3 +178,55 @@ it('retains the upstream request identifier when a response body fails after hea
     { upstreamRequestId: 'request-accepted-42', httpDispatchCount: 1, usage: null },
   ])
 })
+
+it.each([
+  'abort',
+  'timeout',
+] as const)('bounds a pending dispatch-intent callback on %s without transport or unknown usage', async (reason) => {
+  const controller = new AbortController()
+  const attempts: ChatAttempt[] = []
+  let release!: () => void
+  let entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let calls = 0
+  setChatFetchForTesting(async () => {
+    calls++
+    return new Response()
+  })
+  const result = askChatModelOnce({
+    ...ASK,
+    timeoutMs: reason === 'timeout' ? 10 : 1000,
+    signal: controller.signal,
+    beforeDispatch: async () => {
+      entered()
+      await held
+    },
+    onAttempt: async (attempt) => {
+      attempts.push(attempt)
+    },
+  }).then(
+    () => 'resolved',
+    (error: Error) => error.name,
+  )
+  try {
+    await started
+    if (reason === 'abort') controller.abort()
+    const outcome = await Promise.race([
+      result,
+      new Promise<string>((resolve) => setTimeout(() => resolve('still waiting for intent'), 150)),
+    ])
+    expect(outcome).toBe(reason === 'abort' ? 'AbortError' : 'ChatTimeoutError')
+    expect(calls).toBe(0)
+    expect(attempts).toMatchObject([
+      { httpDispatchCount: 0, usage: { inputTokens: 0, outputTokens: 0 } },
+    ])
+  } finally {
+    release()
+    await result
+  }
+})

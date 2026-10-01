@@ -7,7 +7,7 @@ import {
   type AgentBatchPriceSnapshot,
   QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
-import { and, asc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import {
@@ -28,7 +28,7 @@ import {
   prepareQueueTask,
 } from '../taskSubmission'
 import { batchItem, batchItemValues } from './batch-items'
-import { BatchPlanError, batchPlansAvailable } from './batch-plans'
+import { BatchPlanError, batchPlansAvailable, quoteBatchPlan } from './batch-plans'
 import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from './batch-progress'
 import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
@@ -186,7 +186,10 @@ async function batchAttempts(tx: typeof db | BffTransaction, batch: BatchRow) {
   return rows.map((row) => ({
     key: row.key,
     attempt: row.attempt,
-    status: row.snapshot?.status ?? row.status,
+    status:
+      row.snapshot?.errorCode === 'result_unknown'
+        ? 'reconciling'
+        : (row.snapshot?.status ?? row.status),
     unrecordedAuthenticationFailure:
       !row.snapshot &&
       row.status === 'failed' &&
@@ -331,14 +334,17 @@ export async function advanceAgentBatches(
   afterId: string | null,
   canDispatch: () => boolean,
 ): Promise<string | null> {
-  if (!isCapabilityEnabled('agent:batch-execution') || !canDispatch()) return afterId
+  if (!canDispatch()) return afterId
   const batches = await db
     .select({ id: schema.agent_batches.id, userId: schema.agent_batches.user_id })
     .from(schema.agent_batches)
     .where(
       and(
         inArray(schema.agent_batches.status, ['running', 'paused']),
-        isNotNull(schema.agent_batches.confirmed_version),
+        or(
+          isNotNull(schema.agent_batches.confirmed_version),
+          isNull(schema.agent_batches.conversation_id),
+        ),
         afterId ? gt(schema.agent_batches.id, afterId) : undefined,
       ),
     )
@@ -349,7 +355,8 @@ export async function advanceAgentBatches(
     if (!canDispatch()) return cursor
     try {
       await reconcileAgentBatchProgress(batch.id)
-      await dispatchAgentBatch(batch.userId, batch.id, canDispatch)
+      if (isCapabilityEnabled('agent:batch-execution'))
+        await dispatchAgentBatch(batch.userId, batch.id, canDispatch)
     } catch (error) {
       log.error(
         {
@@ -911,19 +918,6 @@ export async function quoteAgentBatchRetry(
       .from(schema.agent_batch_attempts)
       .where(eq(schema.agent_batch_attempts.batch_id, id))
     let targets = { ...plan.attempt_targets }
-    const previousSnapshots = (kind: AgentBatchItem['kind']) => {
-      const estimate = plan.estimate_snapshot[kind]
-      return estimate.status === 'available'
-        ? estimate.snapshots.filter((one) => !one.itemKey || !keys.includes(one.itemKey))
-        : []
-    }
-    const snapshots = {
-      analysis: previousSnapshots('analysis'),
-      generation: previousSnapshots('generation'),
-    }
-    const totals = { analysis: 0, generation: 0 }
-    const charges = { analysis: 0, generation: 0 }
-    const hooks = (await loadPrivateBffOverlay()).taskHooks
     for (const key of keys) {
       const item = items.find((one) => one.key === key)
       const latest = attempts
@@ -947,42 +941,39 @@ export async function quoteAgentBatchRetry(
       )
         throw new BatchPlanError('batch_execution_unavailable', 422)
       targets = { ...targets, [key]: latest.attempt + 1 }
-      if (item.kind === 'generation' && !isCapabilityEnabled('billing:credits')) continue
-      const quote =
-        item.kind === 'analysis'
-          ? await quoteAnalysisTask(
-              {
-                tx,
-                userId,
-                model: item.params.model,
-                estimatedInputTokens: item.params.estimatedInputTokens,
-              },
-              hooks,
-            )
-          : await hooks.quoteTask?.({
-              tx,
-              userId,
-              model: item.params.model,
-              quantity: 1,
-              unitMultiplier: 1,
-            })
-      if (!quote) throw new BatchPlanError('batch_price_changed', 409)
-      totals[item.kind] += quote.estimatedCredits
-      charges[item.kind] += quote.pricing.exemption === 'none' ? quote.estimatedCredits : 0
-      snapshots[item.kind].push({ ...quote.pricing, itemKey: key })
+    }
+    // Confirmation authorizes every target that can still be admitted, including downstream
+    // items waiting on a selected retry. Already submitted attempts keep their original price.
+    const pending = items.filter(
+      (item) =>
+        !attempts.some(
+          (attempt) =>
+            attempt.item_key === item.key && attempt.attempt === (targets[item.key] ?? 1),
+        ),
+    )
+    const pendingEstimate = await quoteBatchPlan(tx, userId, pending)
+    if (
+      pendingEstimate.analysis.status !== 'available' ||
+      pendingEstimate.generation.status !== 'available'
+    )
+      throw new BatchPlanError('batch_price_changed', 409)
+    const pendingKeys = new Set(pending.map((item) => item.key))
+    const previousSnapshots = (kind: AgentBatchItem['kind']) => {
+      const previous = plan.estimate_snapshot[kind]
+      return previous.status === 'available'
+        ? previous.snapshots.filter(
+            (snapshot) => snapshot.itemKey && !pendingKeys.has(snapshot.itemKey),
+          )
+        : []
     }
     const estimate: AgentBatchEstimates = {
       analysis: {
-        status: 'available',
-        estimatedCredits: totals.analysis,
-        estimatedChargeCredits: charges.analysis,
-        snapshots: snapshots.analysis,
+        ...pendingEstimate.analysis,
+        snapshots: [...previousSnapshots('analysis'), ...pendingEstimate.analysis.snapshots],
       },
       generation: {
-        status: 'available',
-        estimatedCredits: totals.generation,
-        estimatedChargeCredits: charges.generation,
-        snapshots: snapshots.generation,
+        ...pendingEstimate.generation,
+        snapshots: [...previousSnapshots('generation'), ...pendingEstimate.generation.snapshots],
       },
     }
     const content = items

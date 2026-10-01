@@ -4,8 +4,8 @@ import type { AgentBatchItem, AgentBatchUpdate } from '@image-playground/shared'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { prepareAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchSourceItems } from './batch-analysis-sources'
 import { lockOwnedBatch } from './batch-execution'
 import { batchItem } from './batch-items'
@@ -55,14 +55,14 @@ export async function updatePendingBatchPhase(
     .then((rows) => rows.map(batchItem))
   const prepared = new Map<
     string,
-    Omit<Awaited<ReturnType<typeof prepareAnalysisTask>>, 'images'>
+    Omit<Awaited<ReturnType<typeof prepareBatchAnalysis>>, 'images'>
   >()
   for (const item of input.items) {
     if (item.kind !== 'analysis' || !candidate.confirmation.itemKeys.includes(item.key)) continue
     if (!isCapabilityEnabled('agent:batch-analysis') || item.params.model !== config.agent.model)
       throw new BatchPlanError('batch_execution_unavailable', 422)
     const old = previous.find((one) => one.key === item.key)
-    const { images: _images, ...snapshot } = await prepareAnalysisTask({
+    const { images: _images, ...snapshot } = await prepareBatchAnalysis({
       userId,
       model: item.params.model,
       intent: item.params.intent ?? (old?.kind === 'analysis' ? old.params.intent : undefined),

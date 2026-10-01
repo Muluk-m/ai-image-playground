@@ -12,6 +12,7 @@ import {
   claimAnalysisTask,
   finalizeAnalysisTask,
   prepareAnalysisTask,
+  recordAnalysisAttempt,
 } from '../lib/analysis-tasks'
 import { askChatModelOnce } from '../lib/chatCompletion'
 
@@ -83,74 +84,52 @@ export async function runAnalysisTask(taskId: string): Promise<void> {
           maxTokens,
           timeoutMs: 90_000,
           signal: controller.signal,
-          beforeDispatch: async ({ requestBytes }) => {
-            await db.transaction(async (tx) => {
-              const [owned] = await tx
-                .select({ id: schema.tasks.id })
-                .from(schema.tasks)
-                .where(analysisOwnership(taskId, token))
-                .for('update')
-              if (!owned) {
+          beforeDispatch: async ({ requestBytes, signal }) => {
+            const connection = await db.$client.reserve({ signal })
+            let active: { cancel(): unknown } | undefined
+            const aborted = () => {
+              active?.cancel()
+            }
+            signal.addEventListener('abort', aborted)
+            const query = async <T>(pending: Promise<T> & { cancel(): unknown }): Promise<T> => {
+              signal.throwIfAborted()
+              active = pending
+              try {
+                return await pending
+              } finally {
+                active = undefined
+              }
+            }
+            let committed = false
+            try {
+              await query(connection`BEGIN`)
+              const owned = await query(
+                connection`SELECT id FROM tasks WHERE id = ${taskId} AND kind = 'analysis' AND status = 'in_progress' AND execution_token = ${token} AND lease_expires_at > ${new Date()} FOR UPDATE`,
+              )
+              if (!owned.length) {
                 controller.abort()
                 throw new Error('analysis_lease_lost')
               }
-              const changed = await tx
-                .update(schema.analysis_model_calls)
-                .set({
-                  status: 'dispatched',
-                  http_dispatch_count: 1,
-                  request_bytes: requestBytes,
-                  dispatched_at: Date.now(),
-                })
-                .where(and(callOwnership(), eq(schema.analysis_model_calls.http_dispatch_count, 0)))
-                .returning({ id: schema.analysis_model_calls.id })
+              const changed = await query(
+                connection`UPDATE analysis_model_calls SET status = 'dispatched', http_dispatch_count = 1, request_bytes = ${requestBytes}, dispatched_at = ${new Date()} WHERE id = ${call.id} AND task_id = ${taskId} AND execution_token = ${token} AND http_dispatch_count = 0 AND status = 'prepared' RETURNING id`,
+              )
               if (!changed.length) throw new Error('analysis_already_dispatched')
-              await tx
-                .update(schema.tasks)
-                .set({ upstream_invocation_count: 1 })
-                .where(analysisOwnership(taskId, token))
-            })
+              await query(
+                connection`UPDATE tasks SET upstream_invocation_count = 1 WHERE id = ${taskId} AND execution_token = ${token} AND status = 'in_progress'`,
+              )
+              await query(connection`COMMIT`)
+              committed = true
+            } finally {
+              signal.removeEventListener('abort', aborted)
+              try {
+                if (!committed) await connection`ROLLBACK`
+              } finally {
+                connection.release()
+              }
+            }
           },
-          onAttempt: async (attempt) => {
-            // The original executor may record late usage as evidence, but cannot acquire settlement authority.
-            await db.transaction(async (tx) => {
-              // Match cancel/finalize lock order; late evidence does not regain a lease.
-              const [task] = await tx
-                .select({ id: schema.tasks.id })
-                .from(schema.tasks)
-                .where(eq(schema.tasks.id, taskId))
-                .for('update')
-              if (!task) return
-              const recorded = await tx
-                .update(schema.analysis_model_calls)
-                .set({
-                  status:
-                    attempt.status === 'completed'
-                      ? 'completed'
-                      : attempt.httpDispatchCount
-                        ? 'unknown'
-                        : controller.signal.aborted
-                          ? 'cancelled'
-                          : 'failed',
-                  http_dispatch_count: attempt.httpDispatchCount ?? 0,
-                  usage: attempt.usage,
-                  request_bytes: attempt.requestBytes,
-                  upstream_request_id: attempt.upstreamRequestId,
-                  local_rejection: attempt.localRejection?.reason,
-                  finished_at: attempt.finishedAt,
-                })
-                .where(callOwnership())
-                .returning({ id: schema.analysis_model_calls.id })
-              if (recorded.length)
-                await tx
-                  .update(schema.tasks)
-                  .set({
-                    upstream_status: attempt.upstreamStatus ?? null,
-                    upstream_invocation_count: attempt.httpDispatchCount ?? 0,
-                  })
-                  .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.kind, 'analysis')))
-            })
-          },
+          onAttempt: (attempt) =>
+            recordAnalysisAttempt(taskId, call.id, token, attempt, controller.signal.aborted),
         })
         // Empty content is a known invalid response, distinct from a response that never arrived.
         await db

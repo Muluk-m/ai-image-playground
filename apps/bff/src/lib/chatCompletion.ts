@@ -127,6 +127,7 @@ export interface ChatOnceAsk extends ChatAsk {
   readonly beforeDispatch?: (intent: {
     readonly id: string
     readonly requestBytes: number
+    readonly signal: AbortSignal
   }) => Promise<void>
 }
 
@@ -212,7 +213,19 @@ async function requestContent(
       }
       throw error
     }
-    await once?.beforeDispatch?.({ id, requestBytes })
+    if (once?.beforeDispatch) {
+      const beforeDispatch = once.beforeDispatch
+      const bytes = requestBytes
+      await new Promise<void>((resolve, reject) => {
+        const aborted = () => reject(deadline.signal.reason)
+        deadline.signal.addEventListener('abort', aborted, { once: true })
+        if (deadline.signal.aborted) aborted()
+        else
+          void beforeDispatch({ id, requestBytes: bytes, signal: deadline.signal })
+            .then(resolve, reject)
+            .finally(() => deadline.signal.removeEventListener('abort', aborted))
+      })
+    }
     // Cancellation may win while the durable intent is being written; report a known zero below.
     deadline.signal.throwIfAborted()
     dispatched = true

@@ -7,8 +7,8 @@ import type {
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { prepareAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchSourceItems } from './batch-analysis-sources'
 import { batchExecutionAvailable, lockOwnedBatch } from './batch-execution'
 import { batchItem } from './batch-items'
@@ -47,12 +47,112 @@ export async function proposeBatchAnalysis(
       throw new BatchPlanError('batch_version_conflict', 409)
     return
   }
+  const [current] = await db
+    .select()
+    .from(schema.agent_batches)
+    .where(and(eq(schema.agent_batches.id, id), eq(schema.agent_batches.user_id, userId)))
+  if (
+    !current ||
+    current.current_version !== input.expectedVersion ||
+    current.confirmed_version !== input.expectedVersion ||
+    !['running', 'paused', 'closed'].includes(current.status)
+  )
+    throw new BatchPlanError('batch_version_conflict', 409)
+  const [currentPlan] = await db
+    .select()
+    .from(schema.agent_batch_plans)
+    .where(
+      and(
+        eq(schema.agent_batch_plans.batch_id, id),
+        eq(schema.agent_batch_plans.version, input.expectedVersion),
+      ),
+    )
+  if (!currentPlan) throw new BatchPlanError('batch_not_found', 404)
+  const currentItems = await db
+    .select()
+    .from(schema.agent_batch_items)
+    .where(
+      and(
+        eq(schema.agent_batch_items.batch_id, id),
+        eq(schema.agent_batch_items.version, input.expectedVersion),
+      ),
+    )
+    .limit(100)
+  const maxItems = Math.min(100, config.operator.quotas['agent:batch-max-items'])
+  const rollover = currentItems.length + input.items.length > maxItems
+  const sources = [
+    ...new Set([
+      ...(currentPlan.confirmation?.sourceVersions ??
+        (currentPlan.confirmation?.sourceVersion ? [currentPlan.confirmation.sourceVersion] : [])),
+      ...(rollover ? [currentPlan.version] : []),
+    ]),
+  ].sort((a, b) => a - b)
+  if (sources.length > Math.min(100, config.operator.quotas['agent:batch-source-versions']))
+    throw new BatchPlanError('batch_source_limit_exceeded', 422)
+  const [historical] = await db
+    .select({ key: schema.agent_batch_items.key })
+    .from(schema.agent_batch_items)
+    .where(
+      and(
+        eq(schema.agent_batch_items.batch_id, id),
+        inArray(
+          schema.agent_batch_items.key,
+          input.items.map((one) => one.key),
+        ),
+      ),
+    )
+    .limit(1)
+  if (historical) throw new BatchPlanError('invalid_batch_plan', 422)
+  const accepted =
+    rollover && currentItems.length
+      ? await db
+          .select({ key: schema.agent_batch_attempts.item_key })
+          .from(schema.agent_batch_attempts)
+          .where(
+            and(
+              eq(schema.agent_batch_attempts.batch_id, id),
+              or(
+                ...currentItems.map((one) =>
+                  and(
+                    eq(schema.agent_batch_attempts.item_key, one.key),
+                    eq(
+                      schema.agent_batch_attempts.attempt,
+                      currentPlan.attempt_targets[one.key] ?? 1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          )
+          .limit(100)
+      : []
+  if (currentItems.length - accepted.length + input.items.length > maxItems)
+    throw new BatchPlanError('batch_size_exceeded', 422)
+  const archived = await readBatchSourceItems(db, id, sources)
+  const selected = [...currentItems, ...archived.map((one) => one.item)]
+  const references = selected.flatMap((one) => one.inputs)
+  const keys = new Set(selected.map((one) => one.key))
+  for (const item of input.items) {
+    if (
+      !item.key.trim() ||
+      keys.has(item.key) ||
+      !item.prompt.trim() ||
+      !item.inputs.length ||
+      new Set(item.inputs.map((one) => one.imageId)).size !== item.inputs.length ||
+      item.dependencies.some((key) => !keys.has(key)) ||
+      item.inputs.some(
+        (reference) => !references.some((one) => sameArchivedReference(one, reference)),
+      )
+    )
+      throw new BatchPlanError('invalid_batch_plan', 422)
+    keys.add(item.key)
+  }
   // Image I/O and transformations are deliberately outside owner/conversation/batch locks.
   const additions: AgentBatchAnalysisItem[] = []
   for (const item of input.items) {
     if (item.params.model !== config.agent.model)
       throw new BatchPlanError('batch_execution_unavailable', 422)
-    const prepared = await prepareAnalysisTask({
+    const prepared = await prepareBatchAnalysis({
       userId,
       model: item.params.model,
       intent: item.params.intent,

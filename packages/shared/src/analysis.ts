@@ -19,7 +19,15 @@ export interface AnalysisFinding {
   readonly text: string
 }
 
+export interface AnalysisComparison {
+  readonly status: 'completed'
+  readonly imageIds: readonly string[]
+  readonly text: string
+}
+
 export interface AnalysisCoverage {
+  /** Separate relational result; individual image findings do not establish joint completion. */
+  readonly comparison?: AnalysisComparison
   readonly requiredImageIds: readonly string[]
   readonly reviewedImageIds: readonly string[]
   readonly missingImageIds: readonly string[]

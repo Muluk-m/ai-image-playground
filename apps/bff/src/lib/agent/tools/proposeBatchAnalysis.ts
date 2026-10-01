@@ -2,6 +2,7 @@ import { Type } from 'typebox'
 import { config } from '../../../config'
 import { db } from '../../../db/client'
 import { isCapabilityEnabled } from '../../capabilities'
+import { BatchAnalysisLimit } from '../batch-analysis-limit'
 import { proposeBatchAnalysis as saveAnalysisProposal } from '../batch-analysis-proposal'
 import { readBatchSourceItems } from '../batch-analysis-sources'
 import { batchExecutionAvailable } from '../batch-execution'
@@ -90,6 +91,12 @@ export const proposeBatchAnalysis = defineAgentTool({
         })),
       })
     } catch (error) {
+      if (error instanceof BatchAnalysisLimit)
+        return {
+          content: [{ type: 'text' as const, text: error.message }],
+          details: { analysisLimit: error.details },
+        }
+
       if (error instanceof Error && 'code' in error && error.code === 'batch_source_limit_exceeded')
         throw new AgentToolError(
           'invalid_params',
