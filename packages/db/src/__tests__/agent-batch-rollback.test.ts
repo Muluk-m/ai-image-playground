@@ -8,7 +8,7 @@ const rollback = await Bun.file(
   new URL('../../drizzle/rollback/0052_agent_batch_execution.down.sql', import.meta.url),
 ).text()
 
-for (const state of ['queued', 'completed', 'unknown'] as const) {
+for (const state of ['queued', 'completed', 'unknown', 'missing-status', 'null-status'] as const) {
   it(`refuses execution rollback with ${state} attempts lacking known durable settlement`, async () => {
     const now = new Date()
     await expect(
@@ -22,6 +22,10 @@ for (const state of ['queued', 'completed', 'unknown'] as const) {
         await tx`INSERT INTO agent_batch_attempts (batch_id, version, item_key, attempt, task_id, reserved_credits, submitted_at) VALUES (${state}, 1, 'one', 1, ${state}, 7, ${now})`
         if (state === 'unknown')
           await tx`UPDATE agent_batch_attempts SET terminal_snapshot = '{"status":"failed","errorCode":"result_unknown","actualCredits":null}'::jsonb WHERE batch_id = ${state}`
+        if (state === 'missing-status')
+          await tx`UPDATE agent_batch_attempts SET terminal_snapshot = '{"actualCredits":0}'::jsonb WHERE batch_id = ${state}`
+        if (state === 'null-status')
+          await tx`UPDATE agent_batch_attempts SET terminal_snapshot = '{"status":null,"actualCredits":0}'::jsonb WHERE batch_id = ${state}`
         await tx.unsafe(rollback)
         // Roll the test transaction back even when the unsafe rollback unexpectedly succeeds.
         throw new Error('rollback discarded unsettled attempts')

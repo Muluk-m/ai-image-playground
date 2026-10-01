@@ -7,7 +7,7 @@ import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { queueTaskOutcome } from '../taskSubmission'
-import { cancelledBatchDependents } from './batch-dependencies'
+import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { lockConversation } from './confirmations'
 import { enqueueAgentWake } from './inbox'
 import { queueArtifacts } from './tools/queueTask'
@@ -237,6 +237,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     const [plan] = await tx
       .select({
         itemCount: schema.agent_batch_plans.item_count,
+        confirmation: schema.agent_batch_plans.confirmation,
       })
       .from(schema.agent_batch_plans)
       .where(
@@ -286,15 +287,27 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
       .where(and(eq(items.batch_id, batchId), eq(items.version, batch.confirmed_version)))
       .orderBy(asc(items.ordinal))
       .limit(100)
-    const cancelled = cancelledBatchDependents(
-      approved.map((item) => ({ key: item.itemKey, dependencies: item.dependencies })),
-      approved.map((item) => ({
+    const dependencyItems = approved.map((item) => ({
+      key: item.itemKey,
+      dependencies: item.dependencies,
+    }))
+    const sourceTargets = await readFrozenDependencyTargets(
+      tx,
+      batchId,
+      batch.confirmed_version,
+      plan.confirmation?.sourceVersions ??
+        (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : []),
+      dependencyItems,
+    )
+    const cancelled = cancelledBatchDependents(dependencyItems, [
+      ...approved.map((item) => ({
         key: item.itemKey,
         submitted: Boolean(item.taskId),
         status: item.status,
         archived: item.terminal,
       })),
-    )
+      ...sourceTargets,
+    ])
     if (
       approved.length === plan.itemCount &&
       approved.every(

@@ -4,6 +4,7 @@ DO $$ BEGIN
     LEFT JOIN "tasks" t ON t.id = a.task_id
     WHERE a.terminal_snapshot IS NULL
       OR a.terminal_snapshot ->> 'errorCode' = 'result_unknown'
+      OR a.terminal_snapshot ->> 'status' IS NULL
       OR a.terminal_snapshot ->> 'status' NOT IN ('completed', 'failed', 'cancelled')
       OR a.terminal_snapshot ->> 'actualCredits' IS NULL
       OR t.status NOT IN ('completed', 'failed', 'cancelled')
