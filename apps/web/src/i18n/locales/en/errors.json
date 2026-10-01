@@ -88,6 +88,8 @@
     "fallback": "Didn't finish"
   },
   "agentBatch": {
+    "output_unavailable": "The result could not be loaded. Please try again.",
+    "batch_price_changed": "Prices changed. Review the latest estimate.",
     "fallback": "Could not update the plan. Your changes are preserved. Try again.",
     "batch_version_conflict": "This plan has a newer version. Refresh before editing."
   }

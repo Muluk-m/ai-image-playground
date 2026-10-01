@@ -181,6 +181,8 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0054_agent_batch_retry.down.sql',
+      '0052_agent_batch_execution.down.sql',
       '0051_agent_batch_plans.down.sql',
       '0050_agent_call_dispatch.down.sql',
       '0049_task_reconciliation.down.sql',

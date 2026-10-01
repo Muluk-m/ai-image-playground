@@ -553,6 +553,20 @@
     }
   },
   "batch": {
+    "actualCost": "Settled cost",
+    "chargeUnknown": "Awaiting settlement",
+    "viewResult": "View result {{index}}",
+    "itemStatus": {"pending": "Pending", "queued": "Queued", "in_progress": "Generating", "completed": "Completed", "failed": "Generation failed", "cancelled": "Cancelled", "reconciling": "Awaiting reconciliation"},
+
+    "reprice": "Update estimate",
+    "commandPending": "Operation awaiting confirmation",
+    "checkCommand": "Check operation result",
+    "targetCanvas": "Original canvas",
+    "targetChat": "Original chat",
+    "submitted": "Submitted {{count}} / {{total}}",
+    "paused": "Paused",
+    "pause": "Pause remaining",
+    "resume": "Resume",
     "version": "Version {{version}}",
     "scope_one": "{{count}} item",
     "scope_other": "{{count}} items",
