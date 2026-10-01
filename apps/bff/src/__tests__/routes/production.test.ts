@@ -383,6 +383,248 @@ it('keeps a conflicting proposal available to inspect and discard', async () => 
   expect(saved.proposals[0].status).toBe('discarded')
   setAgentFetchForTesting()
 })
+it('turns a script into a proposed storyboard, then edits and reorders stable shots', async () => {
+  const owner = await account('production-storyboard')
+  const content = {
+    title: '站台',
+    setting: '雨夜',
+    outline: '相遇',
+    scenes: [{ id: 'platform', title: '站台', body: '她撑伞走来，列车开走。' }],
+  }
+  await request(owner.id, owner.cookie, { operationId: 'script', baseRevision: 0, content })
+  const shots = [
+    {
+      id: 'approach',
+      scriptSceneId: 'platform',
+      lookIds: [],
+      description: '远景，她撑伞走进站台。',
+      camera: '缓慢推进',
+      durationSeconds: 4,
+    },
+    {
+      id: 'depart',
+      scriptSceneId: 'platform',
+      lookIds: [],
+      description: '列车驶离。',
+      dialogue: '下一班见。',
+    },
+  ]
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'board-one',
+            name: 'proposeStoryboard',
+            args: { baseRevision: 1, shots, requestQuote: '把剧本转成分镜' },
+          }),
+        () => completionStream('分镜建议已准备好。'),
+      ],
+    ),
+  )
+  const turn = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'production-device',
+        text: '把剧本转成分镜',
+        params: { productionMode: true },
+      }),
+    }),
+  )
+  await turn.text()
+  const proposed = await (
+    await app.handle(
+      new Request(
+        `http://localhost/api/agent/conversations/${owner.id}/production?storyboard=true`,
+        { headers: { cookie: owner.cookie } },
+      ),
+    )
+  ).json()
+  expect(proposed.document.content.shots).toBeUndefined()
+  expect(proposed.storyboardProposals).toHaveLength(1)
+  const adopt = await app.handle(
+    new Request(
+      `http://localhost/api/agent/conversations/${owner.id}/production/storyboard/${proposed.storyboardProposals[0].id}/adopt`,
+      {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'adopt-board', baseRevision: 1 }),
+      },
+    ),
+  )
+  expect(adopt.status).toBe(200)
+  const adopted = await adopt.json()
+  const replay = await app.handle(
+    new Request(
+      `http://localhost/api/agent/conversations/${owner.id}/production/storyboard/${proposed.storyboardProposals[0].id}/adopt`,
+      {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'adopt-board', baseRevision: 1 }),
+      },
+    ),
+  )
+  expect((await replay.json()).document.revision).toBe(2)
+  expect(adopted.document.content.shots.map((shot: { id: string }) => shot.id)).toEqual([
+    'approach',
+    'depart',
+  ])
+  const edited = await request(owner.id, owner.cookie, {
+    operationId: 'reorder',
+    baseRevision: 2,
+    content: {
+      ...adopted.document.content,
+      shots: [{ ...shots[1], description: '列车缓缓驶离雨中的站台。' }, shots[0]],
+    },
+  })
+  expect(edited.status).toBe(200)
+  const restored = await (await request(owner.id, owner.cookie)).json()
+  expect(restored.document.content.shots.map((shot: { id: string }) => shot.id)).toEqual([
+    'depart',
+    'approach',
+  ])
+  expect(restored.document.content.shots[0].dialogue).toBe('下一班见。')
+  expect(restored.document.content.shots[0].durationSeconds).toBeUndefined()
+  const missing = await request(owner.id, owner.cookie, {
+    operationId: 'bad-reference',
+    baseRevision: 3,
+    content: { ...restored.document.content, shots: [{ ...shots[0], lookIds: ['missing-look'] }] },
+  })
+  expect(missing.status).toBe(400)
+  setAgentFetchForTesting()
+})
+it('retains broken storyboard references visibly while rejecting foreign media and stale changes', async () => {
+  const owner = await account('storyboard-reference-owner')
+  const stranger = await account('storyboard-reference-stranger')
+  const content = {
+    title: '长镜头',
+    setting: '',
+    outline: '',
+    scenes: [],
+    characters: [
+      {
+        id: 'hero',
+        name: '旅人',
+        description: '',
+        looks: [{ id: 'raincoat', name: '雨衣', description: '' }],
+      },
+    ],
+    locations: [{ id: 'station', name: '车站', description: '' }],
+    shots: [
+      {
+        id: 'arrival',
+        description: '雨声中，她缓缓走来。'.repeat(100),
+        lookIds: ['raincoat'],
+        locationId: 'station',
+      },
+    ],
+  }
+  expect(
+    (await request(owner.id, owner.cookie, { operationId: 'first', baseRevision: 0, content }))
+      .status,
+  ).toBe(200)
+  const removed = await request(owner.id, owner.cookie, {
+    operationId: 'remove-role',
+    baseRevision: 1,
+    content: { ...content, characters: [] },
+  })
+  expect(removed.status).toBe(200)
+  const persisted = (await (await request(owner.id, owner.cookie)).json()).document
+  expect(persisted.content.shots[0].lookIds).toEqual(['raincoat'])
+  expect(persisted.content.shots[0].description).toBe(content.shots[0].description)
+  expect((await request(owner.id, stranger.cookie)).status).toBe(404)
+  expect(
+    (await request(owner.id, owner.cookie, { operationId: 'stale', baseRevision: 1, content }))
+      .status,
+  ).toBe(409)
+  expect(
+    (
+      await request(owner.id, owner.cookie, {
+        operationId: 'foreign',
+        baseRevision: 2,
+        content: {
+          ...persisted.content,
+          shots: [{ ...content.shots[0], keyframe: { kind: 'media', mediaId: 'foreign-media' } }],
+        },
+      })
+    ).status,
+  ).toBe(400)
+  expect((await (await request(owner.id, owner.cookie)).json()).document.revision).toBe(2)
+})
+it('limits Agent storyboard suggestions to the frozen selected shot', async () => {
+  const owner = await account('storyboard-selected')
+  const shots = [
+    { id: 'one', description: '第一镜头', lookIds: [] },
+    { id: 'two', description: '第二镜头', lookIds: [] },
+  ]
+  const initial = await (
+    await request(owner.id, owner.cookie, {
+      operationId: 'first',
+      baseRevision: 0,
+      content: { title: '局部建议', setting: '', outline: '', scenes: [], shots },
+    })
+  ).json()
+  const propose = async (nextShots: typeof shots, toolId: string) => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: toolId,
+              name: 'proposeStoryboard',
+              args: { baseRevision: 1, shots: nextShots, requestQuote: '修改这个镜头' },
+            }),
+          () => completionStream('已处理。'),
+        ],
+      ),
+    )
+    const turn = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/turns`, {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: 'production-device',
+          text: '修改这个镜头',
+          params: {
+            productionMode: true,
+            production: {
+              documentId: initial.document.id,
+              revision: 1,
+              target: 'shot',
+              shotId: 'one',
+            },
+          },
+        }),
+      }),
+    )
+    await turn.text()
+    return (
+      await app.handle(
+        new Request(
+          `http://localhost/api/agent/conversations/${owner.id}/production?storyboard=true`,
+          { headers: { cookie: owner.cookie } },
+        ),
+      )
+    ).json()
+  }
+  const rejected = await propose(
+    [
+      { ...shots[0]!, description: '已修改' },
+      { ...shots[1]!, description: '越界修改' },
+    ],
+    'invalid-scope',
+  )
+  expect(rejected.storyboardProposals).toEqual([])
+  const allowed = await propose([{ ...shots[0]!, description: '已修改' }, shots[1]!], 'valid-scope')
+  expect(allowed.storyboardProposals).toHaveLength(1)
+  expect(allowed.storyboardProposals[0].shots[1].description).toBe('第二镜头')
+  expect(allowed.document.content.shots).toEqual(shots)
+  setAgentFetchForTesting()
+})
 afterAll(async () => {
   await close()
   await rm(temp, { recursive: true, force: true })

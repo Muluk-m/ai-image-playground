@@ -144,11 +144,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const productionEnabled = isClientCapabilityEnabled('agent:production')
   const productionVisible = productionEnabled && productionOpen && projectView === 'chat'
   const conversationId = useAgentStore((state) => state.conversationId)
-  const previewProduction = () => {
+  const previewProduction = (pane?: 'script' | 'storyboard') => {
     if (!productionEnabled) return
     setProductionOpen(true)
     safeLocalStorage.setItem(productionViewKey, 'true')
-    openProductionContent(conversationId)
+    openProductionContent(conversationId, pane)
   }
   const [searchOpen, setSearchOpen] = useState(false)
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
@@ -517,10 +517,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         .filter(
                           (message) =>
                             message.kind === 'tool' &&
-                            (message.toolName === 'proposeProductionEdit' ||
+                            (message.toolName === 'proposeStoryboard' ||
                               message.toolName === 'proposeProductionAssets' ||
                               message.toolName === 'writeProduction' ||
-                              message.toolName === 'readProduction'),
+                              message.toolName === 'readProduction' ||
+                              message.toolName === 'proposeProductionEdit'),
                         )
                         .map(
                           (message) =>

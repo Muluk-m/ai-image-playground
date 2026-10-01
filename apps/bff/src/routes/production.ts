@@ -12,9 +12,14 @@ import {
   discardProductionAssets,
   previewProductionReference,
 } from '../lib/agent/production-assets'
+import {
+  adoptProductionStoryboard,
+  discardProductionStoryboard,
+} from '../lib/agent/production-storyboard'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 import { productionAssetFields } from './production-asset-schema'
+import { productionShotsSchema } from './production-storyboard-schema'
 
 export const productionRoutes = new Elysia()
   .use(badRequestOnValidation())
@@ -38,6 +43,9 @@ export const productionRoutes = new Elysia()
       history: query.history === 'true' ? (record?.history ?? []) : [],
       ...(query.proposals === 'true' ? { proposals: record?.proposals ?? [] } : {}),
       ...(query.assetProposals === 'true' ? { assetProposals: record?.assetProposals ?? [] } : {}),
+      ...(query.storyboard === 'true'
+        ? { storyboardProposals: record?.storyboardProposals ?? [] }
+        : {}),
     }
   })
   .put(
@@ -52,6 +60,7 @@ export const productionRoutes = new Elysia()
         operationId: t.String({ minLength: 1, maxLength: 128 }),
         baseRevision: t.Integer({ minimum: 0 }),
         content: t.Object({
+          shots: t.Optional(productionShotsSchema),
           characters: t.Optional(productionAssetFields.characters),
           locations: t.Optional(productionAssetFields.locations),
           title: t.String({ maxLength: 200 }),
@@ -152,5 +161,40 @@ export const productionRoutes = new Elysia()
       if (!authUser) return status(401, { error: 'unauthorized' })
       const record = await discardProductionAssets(params.id, authUser.id, params.proposalId)
       return { document: record.document, assetProposals: record.assetProposals ?? [] }
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/production/storyboard/:proposalId/adopt',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await adoptProductionStoryboard(
+        params.id,
+        authUser.id,
+        params.proposalId,
+        body,
+      )
+      return {
+        document: record.document,
+        history: record.history,
+        storyboardProposals: record.storyboardProposals ?? [],
+      }
+    },
+    {
+      body: t.Object({
+        operationId: t.String({ minLength: 1, maxLength: 128 }),
+        baseRevision: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/production/storyboard/:proposalId/discard',
+    async ({ params, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await discardProductionStoryboard(params.id, authUser.id, params.proposalId)
+      return {
+        document: record.document,
+        history: [],
+        storyboardProposals: record.storyboardProposals ?? [],
+      }
     },
   )

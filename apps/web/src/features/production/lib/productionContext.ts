@@ -1,7 +1,12 @@
 import type { ProductionContext } from '@image-playground/shared'
 import { useSyncExternalStore } from 'react'
 
-let active: { token: symbol; conversationId: string | null; open: () => void } | null = null
+let pendingOpen: { conversationId: string | null; pane?: 'script' | 'storyboard' } | null = null
+let active: {
+  token: symbol
+  conversationId: string | null
+  open: (pane?: 'script' | 'storyboard') => void
+} | null = null
 const selected = new Map<string, ProductionContext>()
 const panels = new Map<string, ProductionContext>()
 const listeners = new Set<() => void>()
@@ -37,21 +42,37 @@ export function setProductionPanelContext(
   if (context) panels.set(conversationId, context)
   else panels.delete(conversationId)
 }
-export function activateProduction(conversationId: string | null, open: () => void): () => void {
+export function activateProduction(
+  conversationId: string | null,
+  open: (pane?: 'script' | 'storyboard') => void,
+): () => void {
   const token = Symbol('production')
   active = { token, conversationId, open }
+  if (pendingOpen?.conversationId === conversationId) {
+    const pending = pendingOpen
+    pendingOpen = null
+    open(pending.pane)
+  }
   return () => {
     if (active?.token === token) active = null
   }
 }
-export function openProductionContent(conversationId: string | null): void {
-  if (active?.conversationId === conversationId) active.open()
+export function openProductionContent(
+  conversationId: string | null,
+  pane?: 'script' | 'storyboard',
+): void {
+  if (active?.conversationId === conversationId) active.open(pane)
+  else pendingOpen = { conversationId, pane }
 }
 export function locateProductionSelection(
   conversationId: string,
   context?: ProductionContext,
 ): void {
-  openProductionContent(conversationId)
+  const target = context ?? selected.get(conversationId)
+  openProductionContent(
+    conversationId,
+    target?.target === 'shot' || target?.target === 'shots' ? 'storyboard' : 'script',
+  )
   requestAnimationFrame(() =>
     window.dispatchEvent(
       new CustomEvent('production:locate', {

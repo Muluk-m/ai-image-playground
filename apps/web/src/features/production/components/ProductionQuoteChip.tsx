@@ -27,7 +27,9 @@ export default function ProductionQuoteChip({
         ? t('outline')
         : selection.target === 'scene'
           ? t('sceneBody')
-          : t('document')
+          : selection.target === 'shot' || selection.target === 'shots'
+            ? t('storyboard.title')
+            : t('document')
   return (
     <div className="production-quote-chip" aria-label={t('quotedSource')}>
       <button
@@ -41,7 +43,7 @@ export default function ProductionQuoteChip({
           <strong>
             {label} · V{selection.revision}
           </strong>
-          <span>{selection.quote?.text ?? t('document')}</span>
+          <span>{selection.quote?.text ?? label}</span>
         </span>
       </button>
       <button

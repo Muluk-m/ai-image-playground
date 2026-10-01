@@ -51,6 +51,7 @@ export type AgentToolName =
   | 'writeProduction'
   | 'proposeProductionEdit'
   | 'proposeProductionAssets'
+  | 'proposeStoryboard'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
