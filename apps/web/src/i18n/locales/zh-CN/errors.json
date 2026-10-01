@@ -1,4 +1,9 @@
 {
+  "agentQueue": {
+    "stop_failed": "中止未成功，请点击中止重试。",
+    "fallback": "消息恢复失败，请重试。",
+    "return_handoff_failed": "退回的消息尚未保存到草稿，请重试恢复。"
+  },
   "customProvider": {
     "template_too_deep": "自定义服务商的请求模板嵌套过深，请简化后重试",
     "fallback": "自定义服务商请求失败，请检查配置后重试"
@@ -90,5 +95,13 @@
   "agentBatch": {
     "fallback": "计划操作失败，当前内容已保留，请重试。",
     "batch_version_conflict": "计划已有新版本，请刷新后再修改。"
+  },
+  "attachment": {
+    "attachment_capability_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",
+    "media_unsupported_image": "请先转换为 PNG、JPEG 或 WebP 格式。",
+    "media_image_too_large": "图片超过上传大小限制，请移除后重新选择。",
+    "attachment_storage_failed": "无法在本机保存图片，请释放空间后移除并重新选择。",
+    "attachment_read_failed": "无法读取图片，请移除后重新选择。",
+    "fallback": "图片上传失败，请重试或移除后重新选择。"
   }
 }

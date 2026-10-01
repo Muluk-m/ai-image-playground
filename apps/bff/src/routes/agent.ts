@@ -27,6 +27,7 @@ import {
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import sharp from 'sharp'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import {
   agentJobViews,
@@ -98,6 +99,7 @@ import {
   imageDataUrlSchema,
 } from '../lib/http'
 import { objectStore } from '../lib/objectStore'
+import { attachmentLimits, BULK_ATTACHMENT_MAX_REFERENCES } from '../lib/operator-config'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { MediaError } from '../lib/projectMedia'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -217,7 +219,7 @@ const referencesSchema = t.Optional(
         ),
       ),
     }),
-    { maxItems: AGENT_TURN_MAX_REFERENCES },
+    { maxItems: BULK_ATTACHMENT_MAX_REFERENCES },
   ),
 )
 
@@ -234,7 +236,14 @@ function isEditAction(value: string): value is AgentImageEditAction {
   return value === 'inpaint' || value === 'erase' || value === 'crop' || value === 'outpaint'
 }
 
-function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | null {
+function turnReferences(
+  raw: readonly ReferenceBody[],
+  authenticated: boolean,
+): AgentTurnReference[] | null {
+  const maximum = authenticated
+    ? (attachmentLimits(config.operator)?.logicalReferences ?? AGENT_TURN_MAX_REFERENCES)
+    : AGENT_TURN_MAX_REFERENCES
+  if (raw.length > maximum) return null
   const references: AgentTurnReference[] = []
   let inline = 0
   for (const one of raw) {
@@ -450,7 +459,7 @@ export const agentRoutes = new Elysia()
       params: t.Object({
         id: t.String(),
         messageId: t.String(),
-        index: t.Integer({ minimum: 0, maximum: AGENT_TURN_MAX_REFERENCES - 1 }),
+        index: t.Integer({ minimum: 0, maximum: BULK_ATTACHMENT_MAX_REFERENCES - 1 }),
       }),
       query: t.Object({
         variant: t.Optional(
@@ -645,7 +654,7 @@ export const agentRoutes = new Elysia()
         const forwarded = await forwardActiveTurn(conversation.id, request, body)
         if (forwarded) return forwarded
 
-        const references = turnReferences(body.references ?? [])
+        const references = turnReferences(body.references ?? [], Boolean(authUser))
         let canvas = parseAgentCanvasSnapshot(body.canvas)
         if (!references) return status(422, { error: 'invalid_reference' })
         try {
@@ -955,7 +964,7 @@ export const agentRoutes = new Elysia()
       }
       const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
-      const references = turnReferences(body.references ?? [])
+      const references = turnReferences(body.references ?? [], Boolean(authUser))
       if (!references) return status(422, { error: 'invalid_reference' })
       if (!(await validateConversationMediaSelections(authUser?.id ?? null, references)))
         return status(422, { error: 'invalid_reference' })

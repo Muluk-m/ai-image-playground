@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type {
   AgentConversationView,
   AgentTurnEvent,
@@ -13,6 +14,7 @@ import {
   conversationStarted,
 } from '../../../features/agent/lib/panelMessages'
 import { useAgentStore } from '../../../features/agent/store'
+import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -82,6 +84,7 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
+  setClientStorageScope(crypto.randomUUID())
   turnResponse = () => turnStream(TURN_START)
   messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   conversationsResponse = () => Response.json({ conversations: [] })
@@ -98,12 +101,15 @@ beforeEach(() => {
     queue: [],
     error: null,
     loaded: false,
+    returnedMessagesPending: false,
+    returnedMessagesError: null,
     historyLoading: false,
     historyFailed: false,
   })
 })
 
 afterEach(() => {
+  setClientStorageScope(null)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
@@ -150,7 +156,9 @@ describe('一轮对话', () => {
     await state().send('第一句')
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
+    expect(localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id'))).toBe(
+      CONVERSATION,
+    )
     expect(fetchMock.mock.calls[0]![0]).toBe('http://bff.test/api/agent/conversations')
   })
 
@@ -307,7 +315,7 @@ describe('一轮对话', () => {
 
 describe('读回历史', () => {
   it('刷新后读回上次会话的全部消息', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
@@ -354,38 +362,44 @@ describe('读回历史', () => {
   })
 
   it('会话已经不在时忘掉它', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 404 })
 
     await state().load()
 
     expect(state().conversationId).toBeNull()
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+    expect(
+      localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id')),
+    ).toBeNull()
   })
 
   it('身份对不上时也忘掉它', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 403 })
 
     await state().load()
 
     expect(state().conversationId).toBeNull()
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+    expect(
+      localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id')),
+    ).toBeNull()
   })
 
   it('读不回来但会话还在时留着它并报错', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 400 })
 
     await state().load()
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
+    expect(localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id'))).toBe(
+      CONVERSATION,
+    )
     expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 
   it('网络断了同样留着会话', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => {
       throw new TypeError('Failed to fetch')
     }
@@ -431,7 +445,8 @@ describe('发送反馈', () => {
       })
     const stopping = state().abort()
     await state().abort()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // The durable stop identity commits before the HTTP request is allowed to leave.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     // 没拿到响应的停止会重发同一个请求；一直断网，重发也失败，才报停止失败。
     turnResponse = () => Promise.reject(new TypeError('offline'))
     reject(new TypeError('offline'))
@@ -462,7 +477,7 @@ describe('发送反馈', () => {
     const stopping = state().abort()
     const sending = state().send('那换成夜景')
     // 中止还没回来：这一句不报错、也不抢跑。
-    expect(turnCalls).toBe(1)
+    await vi.waitFor(() => expect(turnCalls).toBe(1))
     settleAbort(Response.json({ aborted: true, returned: [] }))
     await stopping
     // 终帧由流带来；这里直接摆出它落地后的状态。
@@ -540,6 +555,7 @@ describe('发送反馈', () => {
     await state().abort()
     expect(state().turn).toBe('running')
     expect(state().error).toContain('中止未成功')
+    expect(state().returnedMessagesError).toBe('stop_failed')
   })
 
   it('先上屏的那条就算会话开始了；起轮失败时撤掉它，欢迎页回来', async () => {
@@ -642,7 +658,9 @@ describe('会话列表', () => {
     expect(state().messages.map((message) => message.kind === 'text' && message.text)).toEqual([
       '上周那套图',
     ])
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe('c-2')
+    expect(localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id'))).toBe(
+      'c-2',
+    )
   })
 
   it('删掉当前会话后回到空白的新会话', async () => {
@@ -660,14 +678,16 @@ describe('会话列表', () => {
         },
       ],
     })
-    localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), 'c-1')
 
     await state().deleteConversation('c-1')
 
     expect(state().conversations.map((one) => one.id)).toEqual(['c-2'])
     expect(state().conversationId).toBeNull()
     expect(state().messages).toEqual([])
-    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+    expect(
+      localStorage.getItem(scopedStorageName('image-playground.agent_conversation_id')),
+    ).toBeNull()
   })
 
   it('删掉别的会话不动当前这个', async () => {
@@ -720,7 +740,7 @@ describe('会话列表', () => {
         },
       ],
     })
-    localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), 'c-1')
 
     state().startNewConversation()
 
@@ -865,7 +885,7 @@ describe('发送确认', () => {
 
 describe('历史读取重试', () => {
   it('失败后仅重读当前会话，期间禁止发送，不新建会话或发起轮', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     messagesResponse = () => new Response('{}', { status: 503 })
     await state().load()
     expect(state().historyFailed).toBe(true)
