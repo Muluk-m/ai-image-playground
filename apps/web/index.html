@@ -60,6 +60,13 @@
           animation: none;
         }
       }
+      #boot > div { text-align: center; padding: 24px; color: #eef2e8; font-family: system-ui, sans-serif; }
+      #boot-error[hidden] { display: none; }
+      #boot-error h1 { font-size: 18px; margin-top: 24px; }
+      #boot-error p { font-size: 14px; color: #aab5a2; }
+      #boot-retry { margin-top: 12px; border: 0; border-radius: 8px; padding: 10px 20px; background: #c6e999; color: #203014; cursor: pointer; }
+      #boot[data-state="error"] { z-index: 10000; }
+      #boot[data-state="error"] img { animation: none; }
     </style>
   </head>
   <body class="bg-background text-foreground min-h-screen">
@@ -69,7 +76,13 @@
       <p>一句话生成图片，在无限画布上继续编辑，与 AI 智能体一起完成海报、商品图与短视频。使用幕芽需要开启 JavaScript。</p>
       <p><a href="/guide/">使用指南</a> · <a href="/guide/en/">User guide</a></p>
     </noscript>
-    <div id="boot"><img src="/brand/muvloom-icon.svg" alt="" /></div>
+    <div id="boot"><div><img src="/brand/muvloom-icon.svg" alt="" />
+      <div id="boot-error" role="alert" hidden>
+        <h1 id="boot-error-title">工作台暂时无法打开</h1>
+        <p id="boot-error-description">请检查网络连接后重试。</p>
+        <button id="boot-retry" type="button">重新加载</button>
+      </div>
+    </div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

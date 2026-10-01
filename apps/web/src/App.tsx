@@ -44,6 +44,10 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const { t } = useTranslation('shell')
   const homeBackdropRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    document.dispatchEvent(new Event('app:boot-ready'))
+  }, [])
+
   useEffect(installAppRouting, [])
   useEffect(installProjectNavigation, [])
 
