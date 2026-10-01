@@ -25,6 +25,7 @@ import {
   updateBatchPlan,
 } from '../lib/agentClient'
 import { batchCommands } from '../lib/batchCommands'
+import { useAgentStore } from '../store'
 import AgentBatchAnalysisSummary from './AgentBatchAnalysisSummary'
 import AgentBatchItemResult, {
   AgentBatchAnalysisEvidence,
@@ -184,6 +185,20 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
     operations.current++
     setDirty(true)
   }
+  const activeConversation = useAgentStore((state) => state.conversationId)
+  const activeTurn = useAgentStore((state) => state.turn)
+  const completedConversation = page?.batch.status === 'closed' ? page.batch.conversationId : null
+  const completedVersion = page?.batch.version
+  useEffect(() => {
+    if (
+      completedConversation &&
+      completedVersion &&
+      completedConversation === activeConversation &&
+      activeTurn !== 'running' &&
+      commands.current()
+    )
+      useAgentStore.getState().followBatchWake(completedConversation, batchId, completedVersion)
+  }, [completedConversation, completedVersion, activeConversation, activeTurn, batchId, commands])
   const watch = hasActiveWork(page)
   useEffect(() => {
     if (!watch || dirty) return
