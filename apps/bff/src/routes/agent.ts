@@ -207,6 +207,7 @@ const referencesSchema = t.Optional(
       regions: t.Optional(
         t.Array(
           t.Object({
+            number: t.Optional(t.Integer({ minimum: 1, maximum: 1000000 })),
             x: t.Number({ minimum: 0, maximum: 1 }),
             y: t.Number({ minimum: 0, maximum: 1 }),
             width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),

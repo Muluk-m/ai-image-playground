@@ -89,6 +89,7 @@ export default function ToolShell({
         <span className="ml-auto flex gap-2">
           <Button
             variant="outline"
+            className="gap-1.5 px-2 sm:gap-2 sm:px-4"
             disabled={deliverables.length === 0}
             onClick={() => void sendImagesToComposer(deliverables)}
           >
@@ -96,6 +97,7 @@ export default function ToolShell({
             {t('footer.sendToComposer')}
           </Button>
           <Button
+            className="gap-1.5 px-2 sm:gap-2 sm:px-4"
             disabled={deliverables.length === 0}
             onClick={() => void downloadImages(deliverables, `${name}.zip`)}
           >

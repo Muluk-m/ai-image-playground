@@ -1,13 +1,14 @@
 import { Brush, Eraser, Scan, Undo2, Upload, Wand2, X } from 'lucide-react'
 import { useRef, useState, useSyncExternalStore } from 'react'
 import { LABEL, OUTLINE_BUTTON, PANEL_TITLE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import RegionPromptEditor, { useRegionPrompt } from '../../../components/RegionPromptEditor'
 import { useTranslation } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
 import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { fileToDataUrl } from '../lib/importImages'
+import { maskStrokeRegion } from '../lib/inpaintMask'
 import { sendImageEditToAgent } from '../lib/sendImageEditToAgent'
-import { CANVAS_PANEL_FIELD } from './canvasPanelStyles'
 
 /** 图片快捷菜单展开后的区域标记与要求输入。 */
 export default function InpaintPanel({
@@ -26,6 +27,12 @@ export default function InpaintPanel({
   const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
 
+  const regionPrompt = useRegionPrompt({
+    ids: session.kind === 'inpaint' ? session.strokeIds : [],
+    value: session.prompt,
+    onChange: session.setPrompt,
+    onRemove: (id) => session.removeStroke(session.strokeIds.indexOf(id)),
+  })
   if (!session.imageId) return null
   const painted = session.strokes.length > 0
   // 擦除没有「改成什么」：描述与参考图由固定指令代替，面板只剩画笔与完成。
@@ -34,7 +41,14 @@ export default function InpaintPanel({
   const image = element?.type === 'image' ? element : null
 
   const submit = async () => {
-    if (pendingRef.current || !image) return
+    if (
+      pendingRef.current ||
+      !image ||
+      !painted ||
+      regionPrompt.hasMissing ||
+      (!erasing && !regionPrompt.hasProse)
+    )
+      return
     pendingRef.current = true
     onSendingChange(true)
     setPending(true)
@@ -42,9 +56,16 @@ export default function InpaintPanel({
     try {
       const instruction = erasing
         ? '请移除 [image 1] 中标记区域内的内容，用周围背景自然填补；未标记区域保持不变。'
-        : `请只修改 [image 1] 中标记的区域：${session.prompt.trim()}。未标记区域保持不变。`
+        : `请只修改 [image 1] 中标记的区域：${regionPrompt.serialize().trim()}。未标记区域保持不变。`
       sent = await sendImageEditToAgent(editor, image, instruction, {
         strokes: session.strokes,
+        ...(!erasing
+          ? {
+              regions: session.strokes.map((stroke, index) =>
+                maskStrokeRegion(image, stroke, regionPrompt.numberFor(session.strokeIds[index]!)),
+              ),
+            }
+          : {}),
         ...(session.reference ? { referenceDataUrl: session.reference.dataUrl } : {}),
       })
     } finally {
@@ -121,40 +142,6 @@ export default function InpaintPanel({
       </div>
 
       {!erasing && (
-        <div
-          className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5"
-          aria-label={t('inpaint.regions')}
-        >
-          {session.strokes.map((stroke, index) => (
-            <div
-              key={`${index}-${stroke.points[0]?.x}`}
-              className={`inline-flex items-center rounded-full border text-xs ${session.selectedStroke === index ? 'border-[#159cf6] bg-[#159cf6]/15 text-[#8bd1ff]' : 'border-border bg-muted/60 text-muted-foreground'}`}
-            >
-              <button
-                type="button"
-                aria-pressed={session.selectedStroke === index}
-                className="min-h-7 rounded-l-full pl-2.5 pr-1"
-                onClick={() => session.selectStroke(index)}
-              >
-                {stroke.shape === 'rect' ? '▧' : '✎'} {t('inpaint.regionName', { no: index + 1 })}
-              </button>
-              <button
-                type="button"
-                aria-label={t('inpaint.removeRegion', { no: index + 1 })}
-                className="grid h-7 w-7 place-items-center rounded-r-full hover:bg-[#159cf6]/10"
-                onClick={() => session.removeStroke(index)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-          {!painted && (
-            <span className="text-xs text-muted-foreground">{t('inpaint.paintFirst')}</span>
-          )}
-        </div>
-      )}
-
-      {!erasing && (
         <div className="mb-2 flex items-start gap-2">
           {session.reference && (
             <div className="relative shrink-0">
@@ -173,13 +160,11 @@ export default function InpaintPanel({
               </button>
             </div>
           )}
-          <textarea
-            rows={2}
-            value={session.prompt}
-            aria-label={t('inpaint.promptAria')}
+          <RegionPromptEditor
+            prompt={regionPrompt}
+            label={t('inpaint.promptAria')}
             placeholder={t('inpaint.promptPlaceholder')}
-            className={`${CANVAS_PANEL_FIELD} flex-1 resize-none`}
-            onChange={(event) => session.setPrompt(event.target.value)}
+            disabled={pending}
           />
         </div>
       )}
@@ -218,7 +203,13 @@ export default function InpaintPanel({
           </button>
           <button
             type="button"
-            disabled={pending || !painted || !image || (!erasing && !session.prompt.trim())}
+            disabled={
+              pending ||
+              !painted ||
+              !image ||
+              regionPrompt.hasMissing ||
+              (!erasing && !regionPrompt.hasProse)
+            }
             className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
             onClick={() => void submit()}
           >

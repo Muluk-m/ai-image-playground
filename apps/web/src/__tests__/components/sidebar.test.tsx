@@ -56,21 +56,20 @@ it('顶部三项：创作 / 探索 / 资产，选中的那个自己标出来', (
   expect(useStore.getState().appMode).toBe('library')
 })
 
-it('对话和画布分别列出，全部入口打开项目列表', () => {
-  expect(entry('对话').getAttribute('aria-pressed')).toBeNull()
-  expect(entry('画布').getAttribute('aria-pressed')).toBeNull()
+it('对话与画布用两个标签切换，查看全部打开项目列表', () => {
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+  expect(entry('画布').getAttribute('aria-pressed')).toBe('false')
   expect(entry('新建对话')).toBeDefined()
-  expect(entry('新建画布')).toBeDefined()
 
-  act(() => entry('全部').dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  act(() => entry('画布').click())
+  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+  expect(entry('新建画布')).toBeDefined()
+  expect(useStore.getState().appMode).toBe('image')
+
+  act(() => entry('查看全部 →').click())
   expect(useStore.getState().appMode).toBe('library')
   expect(useLibraryStore.getState().tab).toBe('projects')
   expect(entry('资产').getAttribute('aria-pressed')).toBe('true')
-
-  act(() => useStore.getState().setAppMode('image'))
-  act(() => entry('画布').dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(useStore.getState().appMode).toBe('library')
-  expect(useLibraryStore.getState().tab).toBe('projects')
 })
 
 it('宽屏侧栏可收起并重新展开', () => {
@@ -121,10 +120,10 @@ function seed(experience: 'chat' | 'canvas', count: number): CanvasProject[] {
   }))
 }
 
-it('对话与画布各自超过五条时折叠，点开列出全部，再点收起', () => {
+it('每个标签最多列五条，切换后只列那一种', () => {
   act(() =>
     useCanvasProjectStore.setState({
-      projects: [...seed('chat', 7), ...seed('canvas', 5)],
+      projects: [...seed('chat', 7), ...seed('canvas', 3)],
       cloudCatalog: {},
       loaded: true,
     }),
@@ -132,14 +131,30 @@ it('对话与画布各自超过五条时折叠，点开列出全部，再点收�
   const rows = (prefix: string) =>
     [...host.querySelectorAll('span.truncate')].filter((one) => one.textContent?.startsWith(prefix))
   expect(rows('chat-')).toHaveLength(5)
-  expect(rows('canvas-')).toHaveLength(5)
-  // 画布正好五条，不出折叠开关。
-  expect(host.querySelectorAll('button[aria-expanded]')).toHaveLength(1)
+  expect(rows('canvas-')).toHaveLength(0)
 
-  act(() => entry('展开更多 (2)').click())
-  expect(rows('chat-')).toHaveLength(7)
-  expect(entry('收起').getAttribute('aria-expanded')).toBe('true')
+  act(() => entry('画布').click())
+  expect(rows('chat-')).toHaveLength(0)
+  expect(rows('canvas-')).toHaveLength(3)
+})
 
-  act(() => entry('收起').click())
-  expect(rows('chat-')).toHaveLength(5)
+it('当前项目恢复或切换后，标签跟到它那一类', () => {
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+  act(() =>
+    useCanvasProjectStore.setState({
+      projects: [...seed('chat', 2), ...seed('canvas', 2)],
+      cloudCatalog: {},
+      activeId: 'canvas-1',
+      loaded: true,
+    }),
+  )
+  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
+
+  act(() => entry('对话').click())
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+
+  act(() => useCanvasProjectStore.setState({ activeId: 'chat-0' }))
+  expect(entry('对话').getAttribute('aria-pressed')).toBe('true')
+  act(() => useCanvasProjectStore.setState({ activeId: 'canvas-0' }))
+  expect(entry('画布').getAttribute('aria-pressed')).toBe('true')
 })

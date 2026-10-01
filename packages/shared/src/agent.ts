@@ -157,6 +157,8 @@ export type AgentImageEditAction = 'inpaint' | 'erase' | 'crop' | 'outpaint'
 
 /** Numbered selection bounds in normalized image coordinates; the mask remains authoritative. */
 export interface AgentMarkedRegion {
+  /** Stable visible number; absent on older clients, which use array position. */
+  readonly number?: number
   readonly x: number
   readonly y: number
   readonly width: number
