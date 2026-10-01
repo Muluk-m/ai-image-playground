@@ -22,6 +22,7 @@ import {
   replaceReferences,
 } from '../../../lib/referenceDraft'
 import type { InputImage } from '../../../types'
+import { attachmentUploadsEnabled } from './attachmentUploads'
 import type { UnsentTurnSubmission } from './turnSubmission'
 
 /** 输入框附上的一张参考图。`id` 是画布对象 id 或素材的图片 id，模型据此指认要改哪一张。 */
@@ -123,7 +124,7 @@ export function agentAdmission(
     acceptsReferences: true,
     inline: {
       limit: AGENT_TURN_MAX_INLINE_REFERENCES,
-      sendsById: (reference) => sendsById(reference, transport),
+      sendsById: (reference) => attachmentUploadsEnabled() || sendsById(reference, transport),
     },
   }
 }

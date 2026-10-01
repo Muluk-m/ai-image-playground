@@ -11,7 +11,7 @@ import { liveCanvasSnapshot } from '../../canvas/lib/canvasSnapshot'
 import { type CanvasProject, projectExperience } from '../../canvas/lib/projectRepository'
 import { canvasSceneKey } from '../../canvas/lib/workspaceKeys'
 import { inlineReferenceCount } from './agentClient'
-import { prepareAttachmentReferences } from './attachmentUploads'
+import { canReuseAttachmentMedia, prepareAttachmentReferences } from './attachmentUploads'
 
 export interface TurnSubmissionSnapshot {
   readonly references: readonly AgentTurnReference[]
@@ -95,13 +95,7 @@ export function captureTurnSubmission(input: {
       const ids = cloud && local.length ? await cloud.mediaIdsFor(local) : new Map<string, string>()
       const references = await prepareAttachmentReferences(
         snapshot.references.map((reference) => {
-          if (
-            !('dataUrl' in reference) ||
-            reference.maskDataUrl ||
-            reference.editAction ||
-            reference.regions?.length
-          )
-            return reference
+          if (!('dataUrl' in reference) || !canReuseAttachmentMedia(reference)) return reference
           const mediaId = ids.get(reference.dataUrl) ?? mediaIdentity(reference.dataUrl)
           if (!mediaId) return reference
           const { dataUrl: _source, maskDataUrl: _mask, ...rest } = reference
