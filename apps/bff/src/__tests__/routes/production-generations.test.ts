@@ -849,6 +849,13 @@ it('replays and edits an older draft after it leaves the bounded candidate list'
       (await request(owner, 'POST', '/generations', { ...input, operationId: `later-${index}` }))
         .status,
     ).toBe(200)
+  const focused = await request(owner, 'GET', `/generations?messageId=${generation.messageId}`)
+  expect((await focused.json()).generations.map((one: { draftId: string }) => one.draftId)).toEqual(
+    [generation.draftId],
+  )
+  expect(
+    (await (await request(owner, 'GET', '/generations?messageId=missing')).json()).generations,
+  ).toEqual([])
   const replay = await (await request(owner, 'POST', '/generations', input)).json()
   expect(replay.generation.draftId).toBe(generation.draftId)
   const edited = await request(owner, 'PATCH', `/generations/${generation.draftId}`, {

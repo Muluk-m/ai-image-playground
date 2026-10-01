@@ -24,7 +24,7 @@ import { agentPanelPresent } from '../../agent/panelLayout'
 import { useAgentStore } from '../../agent/store'
 import type { AgentToolMessage } from '../../agent/types'
 import ProductionWorkspace from '../../production/components/ProductionWorkspace'
-import { openProductionContent } from '../../production/lib/productionContext'
+import { openProductionContent, type ProductionPane } from '../../production/lib/productionContext'
 import {
   backToCurrentProject,
   currentCanvasWorkspace,
@@ -145,7 +145,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const productionEnabled = isClientCapabilityEnabled('agent:production')
   const productionVisible = productionEnabled && productionOpen && projectView === 'chat'
   const conversationId = useAgentStore((state) => state.conversationId)
-  const previewProduction = (pane?: 'script' | 'storyboard') => {
+  const previewProduction = (pane?: ProductionPane) => {
     if (!productionEnabled) return
     setSelectedResultId(null)
     setSelectedExternalResult(null)
@@ -421,7 +421,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   {productionEnabled && (
                     <button
                       type="button"
-                      className="studio-assets-trigger"
+                      className="studio-production-trigger"
+                      aria-label={tProduction('entry')}
                       aria-pressed={productionOpen}
                       title={tProduction('entry')}
                       onClick={() => {
@@ -434,8 +435,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         }
                       }}
                     >
-                      <Clapperboard size={17} />
-                      <span className="ml-1 text-xs">{tProduction('entry')}</span>
+                      <Clapperboard size={17} aria-hidden="true" />
+                      <span>{tProduction('entry')}</span>
                     </button>
                   )}
                   <button

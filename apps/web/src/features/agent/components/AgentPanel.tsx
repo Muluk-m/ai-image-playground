@@ -14,6 +14,7 @@ import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import ProductionResultCard from '../../production/components/ProductionResultCard'
+import type { ProductionPane } from '../../production/lib/productionContext'
 import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, JUMP_TO_LATEST, TAB } from '../agentStyles'
 import { groupPanelMessages } from '../lib/activityTrail'
 import { attachFilesToComposer } from '../lib/attachments'
@@ -59,7 +60,7 @@ function renderMessage(
   skills: readonly AgentSkillSummary[],
   onViewCanvas?: (objectIds?: readonly string[]) => void,
   onPreviewResult?: (messageId: string, objectId?: string) => void,
-  onPreviewProduction?: (pane?: 'script' | 'storyboard') => void,
+  onPreviewProduction?: (pane?: ProductionPane) => void,
 ) {
   if (message.kind === 'tool') {
     if (
@@ -82,6 +83,7 @@ function renderMessage(
     return (
       <AgentToolCard
         message={message}
+        onPreviewProduction={onPreviewProduction}
         onViewCanvas={onViewCanvas}
         onPreviewResult={onPreviewResult}
       />
@@ -152,7 +154,7 @@ export default function AgentPanel({
   presentation?: 'page' | 'side'
   searchOpen?: boolean
   onCloseSearch?: () => void
-  onPreviewProduction?: (pane?: 'script' | 'storyboard') => void
+  onPreviewProduction?: (pane?: ProductionPane) => void
   productionMode?: boolean
 }) {
   const { t } = useTranslation('agent')
