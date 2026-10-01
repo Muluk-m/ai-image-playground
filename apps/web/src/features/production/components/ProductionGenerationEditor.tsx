@@ -1,15 +1,59 @@
 import type { VideoRequest } from '@image-playground/shared'
 import {
   VIDEO_MODEL_SUPPORT,
-  validateVideoRequest,
   videoDurationsForResolution,
+  videoRateMultiplier,
+  videoRequestRejection,
 } from '@image-playground/shared'
-import { useState } from 'react'
+import { useId, useState } from 'react'
+import Credits from '../../../components/Credits'
+import { Button } from '../../../components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select'
+import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { getStoredChannels } from '../../../lib/channels/channelStore'
+import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import type { GenerationFields } from '../lib/productionGenerationClient'
 import ProductionReferenceEditor from './ProductionReferenceEditor'
 
+function Choice({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: readonly { value: string; label: string }[]
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const id = useId()
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id}>{label}</label>
+      <Select value={value} disabled={disabled} onValueChange={onChange}>
+        <SelectTrigger id={id} aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
 export default function ProductionGenerationEditor({
   value,
   busy,
@@ -24,114 +68,116 @@ export default function ProductionGenerationEditor({
   onConfirm: (value: GenerationFields) => void
 }) {
   const { t } = useTranslation('production')
-  const [fields, setFields] = useState(value)
+  const { t: tVideo } = useTranslation('video')
+  const [fields, setFields] = useState<GenerationFields>(() =>
+    structuredClone({
+      model: value.model,
+      prompt: value.prompt,
+      params: value.params,
+      video: value.video,
+      references: value.references,
+    }),
+  )
   const [addingReference, setAddingReference] = useState(false)
   const models = getStoredChannels()
-    .flatMap((c) => c.models)
-    .filter((m) => m.media === (value.video ? 'video' : 'image'))
-  const modelIds = Array.from(new Set([fields.model, ...models.map((m) => m.id)]))
+    .flatMap((channel) => channel.models)
+    .filter((model) => model.media === (value.video ? 'video' : 'image'))
+  const modelIds = Array.from(new Set([fields.model, ...models.map((model) => model.id)])).filter(
+    Boolean,
+  )
   const support = fields.video ? VIDEO_MODEL_SUPPORT[fields.model] : undefined
-  const finalFields = (): GenerationFields => {
-    if (!fields.video) return fields
-    const {
-      first_frame_index: _first,
-      last_frame_index: _last,
-      reference_image_indices: _refs,
-      ...video
-    } = fields.video
-    const first = fields.references.findIndex((ref) => ref.usage === 'first-frame')
-    const last = fields.references.findIndex((ref) => ref.usage === 'last-frame')
-    const references = fields.references.flatMap((ref, index) =>
-      ref.usage === 'reference' ? [index] : [],
-    )
-    return {
-      ...fields,
-      video: {
-        ...video,
-        ...(first >= 0 ? { first_frame_index: first } : {}),
-        ...(last >= 0 ? { last_frame_index: last } : {}),
-        ...(references.length ? { reference_image_indices: references } : {}),
-      },
-    }
-  }
-  const final = finalFields()
-  const validation = final.video
-    ? validateVideoRequest(final.model, final.video, final.references.length)
-    : { ok: true as const }
-  const videoField = <K extends keyof VideoRequest>(key: K, value: VideoRequest[K]) =>
+  const sourceVideo = fields.video
+  const first = fields.references.findIndex((item) => item.usage === 'first-frame')
+  const last = fields.references.findIndex((item) => item.usage === 'last-frame')
+  const references = fields.references.flatMap((item, index) =>
+    item.usage === 'reference' ? [index] : [],
+  )
+  const final: GenerationFields = sourceVideo
+    ? {
+        ...fields,
+        video: {
+          ...sourceVideo,
+          first_frame_index: first >= 0 ? first : undefined,
+          last_frame_index: last >= 0 ? last : undefined,
+          reference_image_indices: references.length ? references : undefined,
+        },
+      }
+    : fields
+  const invalid = final.video
+    ? videoRequestRejection(final.model, final.video, final.references.length)
+    : null
+  const duplicateFrame =
+    fields.references.filter((item) => item.usage === 'first-frame').length > 1 ||
+    fields.references.filter((item) => item.usage === 'last-frame').length > 1
+  const guard = usePrivateSubmissionGuard({
+    model: fields.model,
+    quantity: fields.video?.duration_seconds ?? 1,
+    unitMultiplier: fields.video ? videoRateMultiplier(fields.model, fields.video.resolution) : 1,
+  })
+  const charging = submitLabel === undefined
+  const blocked =
+    busy ||
+    !fields.prompt.trim() ||
+    !fields.model ||
+    Boolean(invalid) ||
+    duplicateFrame ||
+    (charging && guard.blocked)
+  const videoField = <K extends keyof VideoRequest>(key: K, next: VideoRequest[K]) =>
     setFields((current) => ({
       ...current,
-      video: current.video ? { ...current.video, [key]: value } : undefined,
+      video: current.video ? { ...current.video, [key]: next } : undefined,
     }))
   return (
     <div className="production-generation-editor">
       <label>
         {t('generation.prompt')}
-        <textarea
+        <Textarea
           value={fields.prompt}
           disabled={busy}
           rows={4}
           onChange={(event) => setFields({ ...fields, prompt: event.target.value })}
         />
       </label>
-      <label>
-        {t('generation.model')}
-        <select
-          value={fields.model}
-          disabled={busy}
-          onChange={(event) => setFields({ ...fields, model: event.target.value })}
-        >
-          {modelIds.map((model) => (
-            <option value={model} key={model}>
-              {VIDEO_MODEL_SUPPORT[model]?.label ?? model}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Choice
+        label={t('generation.model')}
+        value={fields.model}
+        disabled={busy}
+        options={modelIds.map((model) => ({
+          value: model,
+          label: VIDEO_MODEL_SUPPORT[model]?.label ?? model,
+        }))}
+        onChange={(model) => setFields({ ...fields, model })}
+      />
       {fields.video && support && (
         <div className="production-generation-params">
-          <label>
-            {t('generation.duration')}
-            <select
-              disabled={busy}
-              value={fields.video.duration_seconds}
-              onChange={(e) => videoField('duration_seconds', Number(e.target.value))}
-            >
-              {videoDurationsForResolution(support, fields.video.resolution).map((v) => (
-                <option key={v} value={v}>
-                  {v}s
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t('generation.ratio')}
-            <select
-              disabled={busy}
-              value={fields.video.aspect_ratio}
-              onChange={(e) =>
-                videoField('aspect_ratio', e.target.value as VideoRequest['aspect_ratio'])
-              }
-            >
-              {support.aspectRatios.map((v) => (
-                <option key={v}>{v}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t('generation.resolution')}
-            <select
-              disabled={busy}
-              value={fields.video.resolution}
-              onChange={(e) =>
-                videoField('resolution', e.target.value as VideoRequest['resolution'])
-              }
-            >
-              {support.resolutions.map((v) => (
-                <option key={v}>{v}</option>
-              ))}
-            </select>
-          </label>
+          <Choice
+            label={t('generation.duration')}
+            value={String(fields.video.duration_seconds)}
+            disabled={busy}
+            options={videoDurationsForResolution(support, fields.video.resolution).map(
+              (duration) => ({ value: String(duration), label: `${duration}s` }),
+            )}
+            onChange={(duration) => videoField('duration_seconds', Number(duration))}
+          />
+          <Choice
+            label={t('generation.ratio')}
+            value={fields.video.aspect_ratio}
+            disabled={busy}
+            options={support.aspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
+            onChange={(ratio) => videoField('aspect_ratio', ratio as VideoRequest['aspect_ratio'])}
+          />
+          <Choice
+            label={t('generation.resolution')}
+            value={fields.video.resolution}
+            disabled={busy}
+            options={support.resolutions.map((resolution) => ({
+              value: resolution,
+              label: resolution,
+            }))}
+            onChange={(resolution) =>
+              videoField('resolution', resolution as VideoRequest['resolution'])
+            }
+          />
         </div>
       )}
       <small>{t('generation.references', { count: fields.references.length })}</small>
@@ -152,12 +198,17 @@ export default function ProductionGenerationEditor({
             }
           />
           {fields.video && (
-            <select
-              aria-label={t('generation.referenceUsage')}
-              disabled={busy}
+            <Choice
+              label={t('generation.referenceUsage')}
               value={item.usage ?? 'reference'}
-              onChange={(event) => {
-                const usage = event.target.value as 'first-frame' | 'last-frame' | 'reference'
+              disabled={busy}
+              options={[
+                { value: 'reference', label: t('generation.referenceImage') },
+                { value: 'first-frame', label: t('generation.firstFrame') },
+                { value: 'last-frame', label: t('generation.lastFrame') },
+              ]}
+              onChange={(value) => {
+                const usage = value as 'first-frame' | 'last-frame' | 'reference'
                 setFields((current) => ({
                   ...current,
                   references: current.references.map((one, i) =>
@@ -165,11 +216,7 @@ export default function ProductionGenerationEditor({
                   ),
                 }))
               }}
-            >
-              <option value="reference">{t('generation.referenceImage')}</option>
-              <option value="first-frame">{t('generation.firstFrame')}</option>
-              <option value="last-frame">{t('generation.lastFrame')}</option>
-            </select>
+            />
           )}
         </div>
       ))}
@@ -192,22 +239,43 @@ export default function ProductionGenerationEditor({
           }}
         />
       ) : (
-        <button
+        <Button
           type="button"
+          variant="outline"
           disabled={busy || fields.references.length >= 14}
           onClick={() => setAddingReference(true)}
         >
           {t('generation.addReference')}
-        </button>
+        </Button>
       )}
-      {!validation.ok && <p role="alert">{validation.reason}</p>}
-      <button
+      {invalid && <p role="alert">{tVideo(`reject.${invalid.code}`, { ...invalid.params })}</p>}
+      {duplicateFrame && <p role="alert">{t('generation.duplicateFrame')}</p>}
+      {charging && guard.blocked && (
+        <p role="status">
+          {guard.disabledReason}
+          {guard.blockedAction && (
+            <Button type="button" variant="link" onClick={guard.blockedAction.run}>
+              {guard.blockedAction.label}
+            </Button>
+          )}
+        </p>
+      )}
+      <Button
         type="button"
-        disabled={busy || !fields.prompt.trim() || !fields.model || !validation.ok}
-        onClick={() => onConfirm(final)}
+        aria-label={submitLabel ?? t('generation.confirm')}
+        disabled={blocked}
+        onClick={() => {
+          if (!blocked) onConfirm(final)
+        }}
       >
         {submitLabel ?? t('generation.confirm')}
-      </button>
+        {charging && guard.estimatedCredits !== undefined && (
+          <>
+            {' '}
+            · <Credits credits={guard.estimatedCredits} />
+          </>
+        )}
+      </Button>
     </div>
   )
 }

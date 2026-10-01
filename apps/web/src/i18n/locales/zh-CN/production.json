@@ -178,7 +178,9 @@
     "lastFrame": "尾帧",
     "addReference": "添加参考素材",
     "retry": "重试此候选",
-    "cancel": "取消此任务"
+    "cancel": "取消此任务",
+    "duplicateFrame": "首帧和尾帧分别只能选一张。",
+    "preview": "打开候选预览"
   },
   "export": {
     "title": "导出资源包",
