@@ -1,5 +1,6 @@
 import type {
   AgentToolArtifact,
+  AgentToolErrorCode,
   ProductionDocument,
   ProductionGenerationView,
 } from '@image-playground/shared'
@@ -87,7 +88,7 @@ function GenerationSession({
   const { t } = useTranslation('production')
   const [generations, setGenerations] = useState<readonly ProductionGenerationView[]>([])
   const [error, setError] = useState(false)
-  const [failureText, setFailureText] = useState<string | null>(null)
+  const [failureCode, setFailureCode] = useState<AgentToolErrorCode | undefined>(undefined)
   const [busy, setBusy] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
   const [uncertain, setUncertain] = useState<ReadonlySet<string>>(new Set())
@@ -204,7 +205,7 @@ function GenerationSession({
     readEpoch.current++
     setBusy('new')
     setError(false)
-    setFailureText(null)
+    setFailureCode(undefined)
     try {
       const key = JSON.stringify({ revision: document.revision, target, fields })
       const operationId = operations.current.get(key) ?? crypto.randomUUID()
@@ -250,7 +251,7 @@ function GenerationSession({
     readEpoch.current++
     setBusy(generation.draftId)
     setError(false)
-    setFailureText(null)
+    setFailureCode(undefined)
     let submitted = false
     try {
       const saved = await editGeneration(
@@ -271,7 +272,7 @@ function GenerationSession({
     } catch (cause) {
       setError(true)
       if (cause instanceof AgentRequestError) {
-        setFailureText(agentToolFailureText(cause.toolErrorCode))
+        setFailureCode(cause.toolErrorCode)
         promptAgentRecharge(cause.toolErrorCode)
       }
       if (submitted && (!(cause instanceof AgentRequestError) || cause.status >= 500))
@@ -300,7 +301,7 @@ function GenerationSession({
     readEpoch.current++
     setBusy(generation.messageId)
     setError(false)
-    setFailureText(null)
+    setFailureCode(undefined)
     try {
       if (cancel && generation.taskId) await cancelJob(conversationId, generation.taskId)
       else {
@@ -326,7 +327,7 @@ function GenerationSession({
     readEpoch.current++
     setBusy(artifact.artifactId)
     setError(false)
-    setFailureText(null)
+    setFailureCode(undefined)
     try {
       const key = `${artifact.artifactId}:${document.revision}`
       const operationId = operations.current.get(key) ?? crypto.randomUUID()
@@ -370,13 +371,14 @@ function GenerationSession({
       {creating && (
         <ProductionGenerationEditor
           conversationId={conversationId}
+          key={creatingRevision.current}
           value={creating}
           busy={busy !== null || Boolean(preparationBlocked) || creatingStale}
           submitLabel={t('generation.create')}
           onConfirm={(fields) => void create(fields)}
         />
       )}
-      {error && <p role="alert">{failureText ?? t('generation.failed')}</p>}
+      {error && <p role="alert">{agentToolFailureText(failureCode) ?? t('generation.failed')}</p>}
       {!candidates.length && !error && <p>{t('generation.empty')}</p>}
       {candidates.map((generation) => (
         <article
