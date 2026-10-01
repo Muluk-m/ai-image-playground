@@ -50,6 +50,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     turnId,
     toolCallId: block.toolCallId,
     toolName: block.toolName,
+    ...(block.batchId ? { batchId: block.batchId } : {}),
     title: block.title,
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
