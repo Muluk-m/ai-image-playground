@@ -266,6 +266,9 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
 
     const selection = document.activeElement === el ? getContentEditableSelection(el) : null
     el.innerHTML = buildPromptEditorHtml(value, labels, slotValues)
+    // Chromium needs a terminal line box to keep typing after a trailing newline.
+    // A BR contributes no text or mention offsets to our DOM serialization.
+    if (value.endsWith('\n')) el.append(document.createElement('br'))
     const next: ChipTarget[] = []
     for (const element of el.querySelectorAll<HTMLElement>('.mention-tag:not(.slot-tag)')) {
       const imageIndex = getMentionedImageIndexes(element.dataset.mentionText ?? '')[0]
