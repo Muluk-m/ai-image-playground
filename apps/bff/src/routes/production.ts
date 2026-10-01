@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import {
   ProductionError,
   readProduction,
+  restoreProduction,
   writeProduction,
 } from '../lib/agent/production'
 import { badRequestOnValidation } from '../lib/http'
@@ -53,6 +54,22 @@ export const productionRoutes = new Elysia()
             { maxItems: 100 },
           ),
         }),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/conversations/:id/production/restore',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await restoreProduction(params.id, authUser.id, body)
+      return { document: record.document, history: record.history }
+    },
+    {
+      body: t.Object({
+        operationId: t.String({ minLength: 1, maxLength: 128 }),
+        baseRevision: t.Integer({ minimum: 0 }),
+        revision: t.Integer({ minimum: 1 }),
       }),
     },
   )
