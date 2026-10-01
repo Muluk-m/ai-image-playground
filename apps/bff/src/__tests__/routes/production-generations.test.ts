@@ -704,10 +704,11 @@ it('projects retry descendants with their frozen target and adopts the retry res
     locations: [{ id: 'room', name: '房间', description: '晚霞' }],
   }
   await request(owner, 'PUT', '', { operationId: 'init', baseRevision: 0, content })
+  await request(owner, 'PUT', '', { operationId: 'second-revision', baseRevision: 1, content })
   const { generation } = await (
     await request(owner, 'POST', '/generations', {
       operationId: 'create',
-      baseRevision: 1,
+      baseRevision: 2,
       target: 'location',
       targetId: 'room',
       prompt: '房间',
@@ -756,9 +757,29 @@ it('projects retry descendants with their frozen target and adopts the retry res
     (one: { taskId: string }) => one.taskId === retry.taskId,
   )
   expect(completed.sourceChanged).toBe(false)
+  const exportInput = {
+    revision: 2,
+    references: [{ kind: 'artifact', artifactId: completed.artifacts[0].artifactId }],
+  }
+  expect((await request(owner, 'POST', '/export/inspect', exportInput)).status).toBe(200)
+  expect(
+    (await request(owner, 'POST', '/export/inspect', { ...exportInput, revision: 1 })).status,
+  ).toBe(404)
+  const foreign = await account('retry-export-stranger')
+  expect(
+    (await request({ ...owner, cookie: foreign.cookie }, 'POST', '/export/inspect', exportInput))
+      .status,
+  ).toBe(404)
+  const bytes = await request(
+    owner,
+    'GET',
+    `/export/reference?revision=2&kind=artifact&id=${encodeURIComponent(completed.artifacts[0].artifactId)}`,
+  )
+  expect(bytes.status).toBe(200)
+  expect(await bytes.text()).toBe('hi')
   const adopted = await request(owner, 'POST', `/generations/${generation.draftId}/adopt`, {
     operationId: 'retry-adopt',
-    baseRevision: 1,
+    baseRevision: 2,
     artifactId: completed.artifacts[0].artifactId,
   })
   expect(adopted.status).toBe(200)
