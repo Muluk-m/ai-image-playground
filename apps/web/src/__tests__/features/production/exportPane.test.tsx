@@ -142,3 +142,104 @@ it('keeps the inspected revision fixed even when the production document changes
     host.remove()
   }
 })
+
+it('freezes authoritative inspection metadata while candidate listing is pending and clears a failed recheck', async () => {
+  let resolveInspection: (response: Response) => void = () => {}
+  let failInspection = false
+  const mediaDoc: ProductionDocument = {
+    ...doc,
+    content: {
+      ...doc.content,
+      locations: [
+        {
+          id: 'station',
+          name: '车站',
+          description: '远景',
+          reference: { kind: 'artifact', artifactId: 'artifact' },
+        },
+      ],
+    },
+  }
+  mocks.request.mockImplementation(async (url: string) => {
+    if (url.endsWith('/generations')) return new Promise<Response>(() => {})
+    return failInspection
+      ? new Response(null, { status: 503 })
+      : new Promise<Response>((resolve) => {
+          resolveInspection = resolve
+        })
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const inspect = () =>
+    [...host.querySelectorAll('button')].find((one) =>
+      ['检查原件与大小', '重新检查原件'].includes(one.textContent ?? ''),
+    )!
+  try {
+    await act(async () =>
+      root.render(<ProductionExportPane document={mediaDoc} onClose={() => {}} />),
+    )
+    await act(async () => inspect().click())
+    expect(host.textContent).toContain('正在检查原件')
+    expect(mocks.download).not.toHaveBeenCalled()
+    await act(async () =>
+      resolveInspection(
+        Response.json({
+          items: [
+            {
+              reference: { kind: 'artifact', artifactId: 'artifact' },
+              bytes: null,
+              mime: null,
+              status: 'missing',
+              generation: {
+                source: 'production',
+                draftId: 'draft',
+                draftRevision: 2,
+                production: {
+                  documentId: 'doc',
+                  revision: 2,
+                  target: 'location',
+                  targetId: 'station',
+                  snapshot: { name: '车站', description: '远景', references: [] },
+                },
+                model: 'actual-image-model',
+                prompt: '实际提交',
+                params: { quality: 'high' },
+                references: [],
+                taskId: 'task',
+              },
+            },
+          ],
+        }),
+      ),
+    )
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((one) => one.textContent?.startsWith('仍导出可用资源'))!
+        .click(),
+    )
+    const blob = mocks.download.mock.calls[0]![0] as Blob
+    const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsArrayBuffer(blob)
+    })
+    expect(
+      JSON.parse(strFromU8(unzipSync(new Uint8Array(buffer))['manifest.json']!)).generations[0],
+    ).toMatchObject({
+      reference: { kind: 'artifact', artifactId: 'artifact' },
+      model: 'actual-image-model',
+      params: { quality: 'high' },
+    })
+    failInspection = true
+    await act(async () => inspect().click())
+    expect(host.querySelector('[role="alert"]')).not.toBeNull()
+    expect(
+      [...host.querySelectorAll('button')].find((one) => one.textContent === '下载 ZIP 资源包'),
+    ).toBeUndefined()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

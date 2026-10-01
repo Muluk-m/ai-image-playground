@@ -1,7 +1,7 @@
 import type {
   AgentToolArtifact,
   ProductionDocument,
-  ProductionGenerationView,
+  ProductionExportGenerationMetadata,
   ProductionMediaReference,
 } from '@image-playground/shared'
 import { strToU8, Zip, ZipPassThrough } from 'fflate'
@@ -24,24 +24,12 @@ export interface ProductionExportSnapshot {
   document: ProductionDocument
   resources: ProductionExportResource[]
   scope: string
-  generations?: readonly Pick<
-    ProductionGenerationView,
-    | 'draftId'
-    | 'draftRevision'
-    | 'production'
-    | 'model'
-    | 'prompt'
-    | 'params'
-    | 'video'
-    | 'references'
-    | 'taskId'
-    | 'artifacts'
-  >[]
 }
 export interface ProductionExportItem extends ProductionExportResource {
   bytes: number | null
   mime: string | null
   status: 'available' | 'missing'
+  generation?: ProductionExportGenerationMetadata
 }
 export interface ProductionExportInspection {
   snapshot: ProductionExportSnapshot
@@ -61,7 +49,6 @@ function assertScope(snapshot: ProductionExportSnapshot) {
 export function freezeProductionExport(
   document: ProductionDocument,
   extraCandidates: readonly AgentToolArtifact[] = [],
-  generations: readonly ProductionGenerationView[] = [],
 ): ProductionExportSnapshot {
   const frozen = structuredClone(document)
   const map = new Map<string, ProductionExportResource>()
@@ -95,33 +82,6 @@ export function freezeProductionExport(
     )
   return {
     document: frozen,
-    generations: structuredClone(
-      generations.map(
-        ({
-          draftId,
-          draftRevision,
-          production,
-          model,
-          prompt,
-          params,
-          video,
-          references,
-          taskId,
-          artifacts,
-        }) => ({
-          draftId,
-          draftRevision,
-          production,
-          model,
-          prompt,
-          params,
-          video,
-          references,
-          taskId,
-          artifacts,
-        }),
-      ),
-    ),
     resources: [...map.values()],
     scope: scopedStorageName('production-export'),
   }
@@ -167,6 +127,7 @@ export async function inspectProductionExport(
       bytes: number | null
       mime: string | null
       status: 'available' | 'missing'
+      generation?: ProductionExportGenerationMetadata
     }[]
   } = { items: [] }
   for (let offset = 0; offset < snapshot.resources.length; offset += 500) {
@@ -190,13 +151,15 @@ export async function inspectProductionExport(
   const items: ProductionExportItem[] = []
   for (const resource of snapshot.resources) {
     const metadata = body.items.find((one) => referenceKey(one.reference) === resource.key)
-    if (!metadata) throw new Error('production_export_inspect_failed')
+    if (!metadata || (resource.reference.kind === 'artifact' && !metadata.generation))
+      throw new Error('production_export_inspect_failed')
     // Inspection has already checked ownership. A retained local original can outlive the server copy.
     const cached = await cachedOriginal(resource.reference)
     assertScope(snapshot)
     signal.throwIfAborted()
     items.push({
       ...resource,
+      ...(metadata.generation ? { generation: structuredClone(metadata.generation) } : {}),
       bytes: cached?.size ?? metadata.bytes,
       mime: cached?.type ?? metadata.mime,
       status: cached ? 'available' : metadata.status,
@@ -468,10 +431,8 @@ export async function buildProductionZip(
       complete: missing.length === 0,
       selection: plan.items.map((one) => one.key),
       content,
-      generations: plan.snapshot.generations?.filter((generation) =>
-        generation.artifacts.some((artifact) =>
-          plan.items.some((item) => item.key === `artifact:${artifact.artifactId}`),
-        ),
+      generations: plan.items.flatMap((item) =>
+        item.generation ? [{ reference: item.reference, ...item.generation }] : [],
       ),
       resources: resources.map(
         ({ key, reference, name, owners, path, bytes, mime, actualDurationSeconds }) => ({
