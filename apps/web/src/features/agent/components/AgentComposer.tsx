@@ -749,7 +749,7 @@ export default function AgentComposer({
       )}
       <ComposerBar dragActive={dragging}>
         {draft.references.length > 0 && (
-          <ComposerAttachments>
+          <ComposerAttachments className="max-h-[min(12rem,25dvh)] overflow-y-auto overscroll-contain pr-1">
             {selectionSummary.length > 0 && (
               <div className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5">
                 <div className="flex -space-x-3">
