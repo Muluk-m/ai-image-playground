@@ -1,3 +1,13 @@
-# SPA 回退，对齐 deploy/nginx.conf 的 `try_files $uri $uri/ /index.html`。
-# 静态资源命中在前，未命中的路径一律交给前端路由。
-/*  /index.html  200
+# Only application routes may fall back to the SPA. Missing assets must remain 404.
+/image / 200
+/image/ / 200
+/explore / 200
+/explore/ / 200
+/assets / 200
+/assets/ / 200
+/tools / 200
+/tools/ / 200
+/projects / 200
+/projects/ / 200
+/p/:project / 200
+/p/:project/ / 200
