@@ -27,7 +27,11 @@ export default function ProductionExportPane({
   onClose: () => void
 }) {
   const { t } = useTranslation('production')
-  const [candidates, setCandidates] = useState<AgentToolArtifact[]>([])
+  const [generations, setGenerations] = useState<ProductionGenerationView[]>([])
+  const candidates: AgentToolArtifact[] = useMemo(
+    () => generations.flatMap((one) => one.artifacts),
+    [generations],
+  )
   const [extras, setExtras] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string> | null>(null)
   const [plan, setPlan] = useState<ProductionExportInspection | null>(null)
@@ -43,8 +47,9 @@ export default function ProductionExportPane({
       freezeProductionExport(
         document,
         candidates.filter((one) => extras.has(one.artifactId)),
+        generations,
       ),
-    [document, candidates, extras],
+    [document, candidates, generations, extras],
   )
   const busy = phase === 'inspecting' || phase === 'packing'
   useEffect(() => {
@@ -63,7 +68,7 @@ export default function ProductionExportPane({
       .then(async (response) => {
         if (!response.ok) return
         const body = (await response.json()) as { generations: ProductionGenerationView[] }
-        if (!abort.signal.aborted) setCandidates(body.generations.flatMap((one) => one.artifacts))
+        if (!abort.signal.aborted) setGenerations(body.generations)
       })
       .catch(() => {})
     return () => abort.abort()
