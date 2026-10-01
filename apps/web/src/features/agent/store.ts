@@ -50,6 +50,7 @@ import {
   restoreCloudProject,
   useCanvasProjectStore,
 } from '../canvas/projectStore'
+import { productionTurnContext } from '../production/lib/productionContext'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   type AgentConversationState,
@@ -1371,6 +1372,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     ) {
       const turnParams = replay?.params ?? {
         ...currentTurnParams(),
+        ...productionTurnContext(get().conversationId),
         ...(modelOverride ? { model: modelOverride } : {}),
       }
       const conversationId = get().conversationId
