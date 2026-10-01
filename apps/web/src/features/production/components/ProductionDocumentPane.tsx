@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
@@ -26,10 +26,11 @@ import {
 import { setProductionPanelContext } from '../lib/productionContext'
 import { useProductionEditor } from '../lib/useProductionEditor'
 import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
+import { type ProductionTab, useProductionReading } from '../lib/useProductionReading'
 import ProductionProposals from './ProductionProposals'
 import ProductionQuotableText from './ProductionQuotableText'
 
-export type ProductionTab = 'setting' | 'outline' | 'scenes'
+export type { ProductionTab } from '../lib/useProductionReading'
 
 export default function ProductionDocumentPane({
   document,
@@ -43,9 +44,25 @@ export default function ProductionDocumentPane({
   onSaved: (next: ProductionResponse) => void
 }) {
   const { t } = useTranslation('production')
-  const [tab, setTab] = useState<ProductionTab>('scenes')
-  const [collapsed, setCollapsed] = useState(false)
   const [removeSceneId, setRemoveSceneId] = useState<string | null>(null)
+  const { position, update: updatePosition } = useProductionReading(
+    document.conversationId,
+    document.id,
+  )
+  const tab = position.tab
+  const setTab = (next: ProductionTab) => updatePosition((current) => ({ ...current, tab: next }))
+  const collapsed =
+    document.content.scenes.length > 0 &&
+    document.content.scenes.every((scene) => position.closedScenes.includes(scene.id))
+  const setCollapsed = (next: boolean) =>
+    updatePosition((current) => ({
+      ...current,
+      closedScenes: next ? document.content.scenes.map((scene) => scene.id) : [],
+    }))
+  const scroll = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (scroll.current) scroll.current.scrollTop = position.scroll[tab]
+  }, [tab])
   const [history, setHistory] = useState<readonly ProductionRevision[] | null>(null)
   const [historyError, setHistoryError] = useState(false)
   const [restoring, setRestoring] = useState(false)
@@ -215,7 +232,14 @@ export default function ProductionDocumentPane({
         onSaved={onSaved}
         editing={edit.editing}
       />
-      <div className="production-document-scroll">
+      <div
+        className="production-document-scroll"
+        ref={scroll}
+        onScroll={(event) => {
+          const top = event.currentTarget.scrollTop
+          updatePosition((current) => ({ ...current, scroll: { ...current.scroll, [tab]: top } }))
+        }}
+      >
         <div className="production-document-heading">
           {edit.editing ? (
             <Input
@@ -305,8 +329,18 @@ export default function ProductionDocumentPane({
                 </div>
               ) : (
                 <details
-                  key={`${scene.id}:${collapsed}`}
-                  open={!collapsed}
+                  key={scene.id}
+                  open={!position.closedScenes.includes(scene.id)}
+                  onToggle={(event) => {
+                    const open = event.currentTarget.open
+                    if (open === !position.closedScenes.includes(scene.id)) return
+                    updatePosition((current) => ({
+                      ...current,
+                      closedScenes: open
+                        ? current.closedScenes.filter((id) => id !== scene.id)
+                        : [...new Set([...current.closedScenes, scene.id])],
+                    }))
+                  }}
                   className="production-scene"
                 >
                   <summary>

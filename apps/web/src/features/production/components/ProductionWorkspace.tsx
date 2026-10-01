@@ -8,7 +8,7 @@ import {
   PanelRightOpen,
   Sparkles,
 } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../../i18n'
 import { activateProduction } from '../lib/productionContext'
 import { useProductionDocument } from '../lib/useProductionDocument'
@@ -56,6 +56,13 @@ export default function ProductionWorkspace({
     setAssetTarget(null)
     setProposalId(null)
   }, [conversationId])
+  const assetsTrigger = useRef<HTMLButtonElement>(null)
+  const assetsPane = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!assetsDrawerOpen) return
+    assetsPane.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    return () => assetsTrigger.current?.focus()
+  }, [assetsDrawerOpen])
   useEffect(
     () =>
       activateProduction(conversationId, (pane) => {
@@ -80,6 +87,8 @@ export default function ProductionWorkspace({
         <button
           type="button"
           className="production-assets-trigger"
+          ref={assetsTrigger}
+          aria-expanded={assetsDrawerOpen}
           aria-label={t('openAssets')}
           onClick={() => {
             setAssetsOpen(true)
@@ -90,7 +99,24 @@ export default function ProductionWorkspace({
         </button>
       )}
       {doc && (
-        <aside className="production-assets" hidden={!assetsOpen} aria-label={t('assets')}>
+        <aside
+          className="production-assets"
+          ref={assetsPane}
+          hidden={!assetsOpen}
+          aria-label={t('assets')}
+          onKeyDown={(event) => {
+            if (
+              assetsDrawerOpen &&
+              event.key === 'Escape' &&
+              !event.defaultPrevented &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault()
+              event.stopPropagation()
+              setAssetsDrawerOpen(false)
+            }
+          }}
+        >
           <header>
             <strong>{t('assets')}</strong>
             <button
