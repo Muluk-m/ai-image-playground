@@ -18,6 +18,16 @@ import { type CanvasProject, projectDisplayName, projectExperience } from '../li
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectTrash from './ProjectTrash'
 
+function projectBadge(project: CanvasProject) {
+  if (projectExperience(project) === 'chat') {
+    return { Icon: MessageCircle, label: 'grid.chat' } as const
+  }
+  if (project.kind === 'video') {
+    return { Icon: VideoIcon, label: 'project.kindVideo' } as const
+  }
+  return { Icon: CanvasIcon, label: 'grid.canvas' } as const
+}
+
 export default function ProjectGrid({
   search = '',
   recent = false,
@@ -132,15 +142,10 @@ export default function ProjectGrid({
           </div>
         )}
         {visible.map((project) => {
-          const isChat = projectExperience(project) === 'chat'
-          const TypeIcon = isChat
-            ? MessageCircle
-            : project.kind === 'video'
-              ? VideoIcon
-              : CanvasIcon
-          const typeLabel = t(
-            isChat ? 'grid.chat' : project.kind === 'video' ? 'project.kindVideo' : 'grid.canvas',
-          )
+          const { Icon: TypeIcon, label } = projectBadge(project)
+          const typeLabel = t(label)
+          const isCurrent = project.id === activeId
+          const statusLabel = [typeLabel, ...(isCurrent ? [t('grid.current')] : [])].join(' · ')
           return (
             <article
               key={project.id}
@@ -149,9 +154,9 @@ export default function ProjectGrid({
               <button
                 type="button"
                 disabled={busy}
-                aria-label={t('grid.openAria', { name: projectDisplayName(project.name) })}
+                aria-label={`${t('grid.openAria', { name: projectDisplayName(project.name) })} · ${statusLabel}`}
                 onClick={() => void enter(project)}
-                className="block w-full text-left disabled:opacity-50"
+                className="group/project-card block w-full text-left disabled:opacity-50"
               >
                 {/* 外框是 1rem 圆角加 1px 边。封面若用直角，圆角处会露出卡片底色，像多了一道边。 */}
                 <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted p-3.5 text-muted-foreground">
@@ -176,7 +181,7 @@ export default function ProjectGrid({
                     >
                       <TypeIcon className="h-4 w-4" aria-hidden="true" />
                     </span>
-                    {project.id === activeId && (
+                    {isCurrent && (
                       <span
                         role="img"
                         aria-label={t('grid.current')}
@@ -186,6 +191,12 @@ export default function ProjectGrid({
                         <CircleDot className="h-4 w-4" aria-hidden="true" />
                       </span>
                     )}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-background/95 px-2 py-1 text-xs text-foreground opacity-0 transition-opacity group-focus-visible/project-card:opacity-100"
+                  >
+                    {statusLabel}
                   </span>
                 </div>
                 <h3
