@@ -231,12 +231,30 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
         errorMessage: '核查确认未产生可交付结果',
       }
     } else {
+      let transform: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
       let checkpoint = command.action === 'lookup' && task.archive_payload
       if (checkpoint && taskIds.length && task.user_id && isCapabilityEnabled('accounts:sync')) {
         try {
+          // Recover protected output from saved candidates before depending on the provider's retention.
+          let missing = await missingGenerationOutputs(taskId, task.provider, checkpoint)
+          if (missing.size && task.request_payload.preserve_outside_mask) {
+            const hydrated = await hydrateInputImages(task.request_payload)
+            transform = await protectMaskedOutput(
+              hydrated.input_images?.[0] ?? '',
+              hydrated.mask ?? '',
+              task.request_payload.masked_original_size,
+            )
+            checkpoint = await spoolGenerationOutputs(
+              taskId,
+              task.provider,
+              checkpoint,
+              transform,
+              controller.signal,
+            )
+            missing = await missingGenerationOutputs(taskId, task.provider, checkpoint)
+          }
           // A successful listing proves loss; storage unavailability must not discard the checkpoint.
-          if ((await missingGenerationOutputs(taskId, task.provider, checkpoint)).size)
-            checkpoint = null
+          if (missing.size) checkpoint = null
         } catch {
           reason = 'archive_incomplete'
         }
@@ -274,16 +292,14 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
           reason = 'manual_verification_required'
         else {
           try {
-            const hydrated = task.request_payload.preserve_outside_mask
-              ? await hydrateInputImages(task.request_payload)
-              : undefined
-            const transform = hydrated
-              ? await protectMaskedOutput(
-                  hydrated.input_images?.[0] ?? '',
-                  hydrated.mask ?? '',
-                  task.request_payload.masked_original_size,
-                )
-              : undefined
+            if (!transform && task.request_payload.preserve_outside_mask) {
+              const hydrated = await hydrateInputImages(task.request_payload)
+              transform = await protectMaskedOutput(
+                hydrated.input_images?.[0] ?? '',
+                hydrated.mask ?? '',
+                task.request_payload.masked_original_size,
+              )
+            }
             const cloud = Boolean(task.user_id && isCapabilityEnabled('accounts:sync'))
             // Each lease owns its output prefix; a late expired operator cannot overwrite a successor's originals.
             const archiveId = checkpoint ? taskId : `${taskId}/reconciliation/${token}`
