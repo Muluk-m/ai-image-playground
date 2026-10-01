@@ -187,7 +187,9 @@
     "preview": "打开候选预览",
     "sourceChanged": "来源已更新。已有候选保留原始输入；请新建候选使用最新版本。",
     "retryFrom": "重试自候选 {{number}}",
-    "unavailable": "当前没有可用的生图模型"
+    "unavailable": "当前没有可用的生图模型",
+    "previewLoading": "正在加载素材…",
+    "previewUnavailable": "暂时无法读取此素材，请刷新状态后重试。"
   },
   "export": {
     "title": "导出资源包",

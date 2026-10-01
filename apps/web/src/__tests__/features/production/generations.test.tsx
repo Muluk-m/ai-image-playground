@@ -600,3 +600,49 @@ it('requires reopening a new draft when the source revision changes during editi
     host.remove()
   }
 })
+
+it('distinguishes an unavailable image candidate from a still loading preview', async () => {
+  let finish: ((response: Response) => void) | undefined
+  const imageCandidate = {
+    ...candidate,
+    artifacts: [
+      {
+        artifactId: 'expired-image',
+        media: 'image',
+        taskId: 'expired-task',
+        outputIndex: 0,
+        mime: 'image/png',
+      },
+    ],
+  }
+  request.mockImplementation(async (url: string) =>
+    url.includes('/image/')
+      ? new Promise<Response>((resolve) => {
+          finish = resolve
+        })
+      : Response.json({ generations: [imageCandidate] }),
+  )
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="conversation"
+          document={doc}
+          target={{ kind: 'clip', id: 'clip' }}
+          onSaved={() => {}}
+        />,
+      ),
+    )
+    expect(host.textContent).toContain('正在加载素材')
+    await act(async () => finish!(Response.json({ error: 'output_expired' }, { status: 410 })))
+    expect(host.textContent).toContain('暂时无法读取此素材')
+    expect(host.textContent).not.toContain('正在加载素材')
+    expect(host.querySelector('img')).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
