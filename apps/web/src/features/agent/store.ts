@@ -229,6 +229,7 @@ export interface AgentState {
   /** 读回会话列表与上次那个会话的消息，并挂回仍在进行的那一轮。 */
   load(): Promise<void>
   refreshConversations(): Promise<void>
+  followBatchWake(conversationId: string, batchId: string, version: number): void
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
@@ -1183,6 +1184,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       set({ autoSubmit })
     },
 
+    followBatchWake(conversationId, batchId, version) {
+      jobs.followBatch(conversationId, batchId, version)
+    },
     setOpen: (open) => set({ open }),
     setTab: (tab) => set({ tab }),
     setPanelWidth: (width) => {

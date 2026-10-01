@@ -3,7 +3,9 @@ import type {
   AgentBackgroundJobView,
   AgentMessageView,
 } from '@image-playground/shared'
+import { accountScope } from '../../../lib/authScope'
 import { notifyPrivateSubmissionSettled } from '../../../lib/privateOverlay'
+import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import type { AgentPanelMessage, AgentToolMessage } from '../types'
 import {
   type AgentConversationState,
@@ -104,6 +106,8 @@ export interface AgentBackgroundJobs {
    * 换上一段历史之后接管它的任务：交出去的把手上已经结算的当场交付，还没结束的接着等。
    */
   resume(conversationId: string, messages: readonly AgentPanelMessage[]): void
+  /** A completed batch uses the same durable wake pickup, once per version in this conversation. */
+  followBatch(conversationId: string, batchId: string, version: number): void
   /**
    * 单独取消这张结果卡提交的任务；服务端按原桶退回，卡随即换成取消后的结局。还在重试队列里
    * 排着的重试记录也走这里：撤回它，失败占位保持原来那次失败。
@@ -161,6 +165,7 @@ export function createAgentBackgroundJobs({
   let watch: { readonly conversationId: string } | null = null
   /** 正在找唤醒轮的那一次。 */
   let wakeWatch: { readonly conversationId: string } | null = null
+  const batchWakes = new Set<string>()
 
   const pending = () => session.messages().some(agentJobUnsettled)
 
@@ -315,7 +320,13 @@ export function createAgentBackgroundJobs({
     if (wakeWatch?.conversationId === conversationId) return
     const token = { conversationId }
     wakeWatch = token
-    const idle = () => session.isIdle(conversationId) && wakeWatch === token
+    const sameAccount = accountScope()
+    const backend = bffBaseUrl()
+    const idle = () =>
+      sameAccount() &&
+      bffBaseUrl() === backend &&
+      session.isIdle(conversationId) &&
+      wakeWatch === token
     try {
       for (let attempt = 0; attempt < WAKE_PICKUP_ATTEMPTS; attempt += 1) {
         await new Promise((resolve) =>
@@ -384,6 +395,14 @@ export function createAgentBackgroundJobs({
       if (messages.some(agentJobUnsettled)) startWatch(conversationId)
     },
 
+    followBatch(conversationId, batchId, version) {
+      if (!session.isIdle(conversationId)) return
+      const key = JSON.stringify([conversationId, batchId, version])
+      if (batchWakes.has(key)) return
+      batchWakes.add(key)
+      void followWakeTurn(conversationId).catch(() => {})
+    },
+
     async cancel(conversationId, messageId) {
       const message = session.messages().find((one) => one.id === messageId)
       if (message?.kind !== 'tool' || !agentJobUnsettled(message)) return
@@ -414,6 +433,8 @@ export function createAgentBackgroundJobs({
       }
       handles.clear()
       watch = null
+      wakeWatch = null
+      batchWakes.clear()
     },
   }
 }
