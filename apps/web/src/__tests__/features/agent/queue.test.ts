@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type {
   AgentMessageQueuedBody,
   AgentQueuedMessageView,
@@ -6,8 +7,10 @@ import type {
 } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DraftSession } from '../../../features/agent/lib/drafts'
 import { currentProjectDraft } from '../../../features/agent/lib/projectLifecycle'
 import { useAgentStore } from '../../../features/agent/store'
+import { scopedStorageName, setClientStorageScope } from '../../../lib/authScope'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -85,6 +88,7 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
+  setClientStorageScope(crypto.randomUUID())
   turnPosts = []
   eventResponses = []
   snapshots = [() => Response.json({ messages: [], activeTurn: null, turns: [], queue: [] })]
@@ -108,6 +112,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setClientStorageScope(null)
   vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
@@ -201,7 +206,7 @@ describe('忙时发送', () => {
 
 describe('排队列表的来源', () => {
   it('刷新后从快照读回排队列表', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    localStorage.setItem(scopedStorageName('image-playground.agent_conversation_id'), CONVERSATION)
     snapshots = [
       () => Response.json({ messages: [], activeTurn: null, turns: [], queue: [QUEUED] }),
     ]
@@ -402,6 +407,101 @@ describe('升级为插话', () => {
 })
 
 describe('停止时退回', () => {
+  it('草稿读取失败时停止退回仍保留队列消息，恢复后再次交接才移除', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const get = IDBObjectStore.prototype.get
+    const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+      this: IDBObjectStore,
+      query,
+    ) {
+      if (this.name === 'drafts') throw new DOMException('Draft unavailable', 'UnknownError')
+      return get.call(this, query)
+    })
+    const draft = currentProjectDraft(CONVERSATION)
+    try {
+      await draft.ready
+      expect(draft.getSnapshot().recoveryBlocked).toBe(true)
+      abortResponse = () =>
+        Response.json({
+          aborted: true,
+          returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+        })
+      await state().abort()
+      expect(state().queue).toEqual([QUEUED])
+      expect(draft.getSnapshot().draft.prompt).toBe('')
+      failure.mockRestore()
+      await draft.retryRecovery()
+      await state().abort()
+      expect(state().queue).toEqual([])
+      expect(draft.getSnapshot().draft.prompt).toBe(QUEUED.text)
+      await draft.flush()
+    } finally {
+      failure.mockRestore()
+    }
+  })
+  it('停止退回超过旧二十张上限的引用仍逐项完整保留，写失败重试不重复正文', async () => {
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    const references = Array.from({ length: 25 }, (_, index) => ({
+      imageId: `returned-${index}`,
+      mediaId: `${String(index).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+    }))
+    abortResponse = () =>
+      Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references }],
+      })
+    const put = IDBObjectStore.prototype.put
+    const failure = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+      this: IDBObjectStore,
+      value,
+      key,
+    ) {
+      if (this.name === 'drafts') throw new DOMException('Draft full', 'QuotaExceededError')
+      return key === undefined ? put.call(this, value) : put.call(this, value, key)
+    })
+    try {
+      await state().abort()
+      expect(state().queue).toEqual([QUEUED])
+      failure.mockRestore()
+      await state().abort()
+      expect(state().queue).toEqual([])
+      expect(draft.getSnapshot().draft.prompt).toBe(QUEUED.text)
+      expect(draft.getSnapshot().draft.references.map((one) => one.id)).toEqual(
+        references.map((one) => one.imageId),
+      )
+      await draft.flush()
+    } finally {
+      failure.mockRestore()
+    }
+  })
+  it('刷新后未恢复的旧草稿与停止退回消息都能在再次刷新后恢复', async () => {
+    const key = scopedStorageName(`agent-draft:${CONVERSATION}`)
+    const seed = new DraftSession(key)
+    await seed.ready
+    seed.update({ prompt: '磁盘旧草稿不能被退回消息覆盖', references: [] })
+    await seed.flush()
+    busy()
+    useAgentStore.setState({ queue: [QUEUED] })
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    expect(draft.getSnapshot().unsent?.prompt).toBe('磁盘旧草稿不能被退回消息覆盖')
+    expect(draft.getSnapshot().recoverable).toBe(false)
+    abortResponse = () =>
+      Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    await state().abort()
+    expect(state().queue).toEqual([])
+    const refreshed = new DraftSession(key)
+    await refreshed.ready
+    expect(JSON.stringify(refreshed.getSnapshot())).toContain('磁盘旧草稿不能被退回消息覆盖')
+    expect(JSON.stringify(refreshed.getSnapshot())).toContain(QUEUED.text)
+  })
   it('停止后未处理的排队消息回到输入框，排队列表清空', async () => {
     busy()
     const other = queuedView('queue-2', '换成蓝色')
