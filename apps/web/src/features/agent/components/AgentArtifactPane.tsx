@@ -66,7 +66,9 @@ export default function AgentArtifactPane({
   onSelect,
   onClose,
   onViewCanvas,
+  presentation = 'overlay',
 }: {
+  presentation?: 'panel' | 'overlay'
   message: AgentToolMessage
   selectedId?: string
   onSelect: (id: string) => void
@@ -210,11 +212,13 @@ export default function AgentArtifactPane({
       .finally(() => setEditBusy(false))
   }
 
-  return createPortal(
+  const pane = (
     <aside
       className="studio-artifact-pane"
-      role="dialog"
-      aria-modal="true"
+      data-presentation={presentation}
+      data-editing={Boolean(editAction)}
+      role={presentation === 'panel' ? 'region' : 'dialog'}
+      aria-modal={presentation === 'panel' ? undefined : true}
       aria-label={t('tool.previewTitle')}
     >
       <button
@@ -389,6 +393,7 @@ export default function AgentArtifactPane({
       {editAction && source && (
         <AgentArtifactEditDialog
           key={`${active.id}:${editAction}`}
+          presentation={presentation}
           action={editAction}
           source={source}
           busy={editBusy}
@@ -396,9 +401,9 @@ export default function AgentArtifactPane({
           onGenerate={generateEdit}
         />
       )}
-    </aside>,
-    document.body,
+    </aside>
   )
+  return presentation === 'panel' ? pane : createPortal(pane, document.body)
 }
 
 function PaneThumbnail({
