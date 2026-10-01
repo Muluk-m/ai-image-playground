@@ -124,6 +124,7 @@ function referenceHeaders(contentType: string): Record<string, string> {
  */
 const paramsSchema = t.Optional(
   t.Object({
+    productionMode: t.Optional(t.Literal(true)),
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
     /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
@@ -595,6 +596,9 @@ export const agentRoutes = new Elysia()
   .post(
     '/api/agent/conversations/:id/turns',
     async ({ params, body, authUser, request, server, status }) => {
+      if (body.params?.productionMode && !isCapabilityEnabled('agent:production'))
+        return capabilityUnavailable('agent:production')
+      if (body.params?.productionMode && !authUser) return status(401, { error: 'unauthorized' })
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
       if (agentTurnRateLimited(body.deviceId, address)) {
         return status(429, { error: 'rate_limited' })

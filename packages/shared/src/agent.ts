@@ -47,6 +47,8 @@ export function isAgentMode(value: unknown): value is AgentMode {
 
 /** 智能体可调用的工具。 */
 export type AgentToolName =
+  | 'readProduction'
+  | 'writeProduction'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
@@ -215,6 +217,8 @@ export interface AgentStoredMediaReference {
 export type AgentThinkingDepth = 'fast' | 'medium' | 'deep'
 
 export interface AgentTurnParams {
+  /** 本轮进入制作文档流程，生成仍必须确认。 */
+  readonly productionMode?: true
   readonly thinkingDepth?: AgentThinkingDepth
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string

@@ -334,6 +334,7 @@ export function turnModelPrompt(
  * 不在两个文件里各拼一遍。起轮准备（`turn-preparation.ts`）负责把三种来源折成它。
  */
 export interface AgentTurnInput {
+  readonly productionMode?: true
   /**
    * 起轮时读到的那一段历史：锚点之后的消息、已折进摘要的条数、压缩记录三件一套
    * （见 `listAgentHistoryWindow`）。整份带着走，不在沿途拆开重组。
@@ -399,7 +400,10 @@ export function turnPromptBody(
     input.references.length > 0,
   )
   const dated = `当前时间（UTC）：${input.currentTime}。按此理解“今年”“最近”等相对时间；用户明确给出的日期优先。\n\n${asked}`
-  return input.note ? `${dated}\n\n${input.note}` : dated
+  const context = input.productionMode
+    ? `${dated}\n\n当前是视频制作对话。先读取 video-production 技能和当前制作文档，按用户请求推进设定、大纲、正文；不强制全部阶段。写文档不等于生成视频，生成一律等用户确认。`
+    : dated
+  return input.note ? `${context}\n\n${input.note}` : context
 }
 
 /**
