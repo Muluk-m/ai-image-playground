@@ -303,6 +303,8 @@ function turnFailureText(code?: string): string {
   switch (code) {
     case 'agent_upstream_error':
       return i18next.t('error.upstream', { ns: 'agent' })
+    case 'agent_request_budget_exceeded':
+      return i18next.t('error.requestBudgetExceeded', { ns: 'agent' })
     case 'agent_context_overflow':
       return i18next.t('error.contextOverflow', { ns: 'agent' })
     case 'agent_tool_failed':
@@ -980,6 +982,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           active?.turnId ?? outcome.turnId,
           text,
           prepared.references,
+          undefined,
+          clientMessageId,
         )
       } else if (
         outcome.kind === 'frames' ||
@@ -1421,9 +1425,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       let submissionInput = captured.snapshot
       const prepare = async () => {
         const prepared = await captured.prepare()
-        if (prepared) submissionInput = prepared
+        // Unaccepted uploads can expire; retain the captured pixels for a fresh upload on retry.
+        if (prepared) submissionInput = { ...prepared, references: captured.snapshot.references }
         if (prepared && journaled)
-          await updateOutgoingInput(journaled.projectId, journaled.id, prepared)
+          await updateOutgoingInput(journaled.projectId, journaled.id, submissionInput)
         return prepared
       }
       const settleJournal = async () => {

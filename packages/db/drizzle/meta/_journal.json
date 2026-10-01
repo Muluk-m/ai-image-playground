@@ -330,6 +330,34 @@
       "when": 1790744400000,
       "tag": "0047_agent_turn_failure",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790853000000,
+      "tag": "0048_conversation_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790853000001,
+      "tag": "0049_task_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790853000002,
+      "tag": "0050_agent_call_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790853000003,
+      "tag": "0051_agent_batch_plans",
+      "breakpoints": true
     }
   ]
 }

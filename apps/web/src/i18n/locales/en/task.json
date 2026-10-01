@@ -41,7 +41,8 @@
       "queued": "Queued...",
       "generating": "Generating...",
       "reconnecting": "Reconnecting...",
-      "confirming": "Confirming result..."
+      "confirming": "Confirming result...",
+      "reconciling": "Awaiting verification"
     },
     "inpaint": "Inpaint",
     "transparentBackground": "Transparent"

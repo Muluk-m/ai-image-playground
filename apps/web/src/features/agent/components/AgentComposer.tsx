@@ -44,6 +44,7 @@ import { acceptImageFiles, filesFromFolderInput } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { getAtImageQuery, getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
+import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
@@ -69,6 +70,15 @@ import {
   referenceLimitMessage,
   setAgentComposerAttach,
 } from '../lib/attachments'
+import {
+  attachmentUploadError,
+  attachmentUploadRevision,
+  attachmentUploadState,
+  primeAttachmentUploads,
+  retryAttachmentUploads,
+  subscribeAttachmentUploads,
+  withKnownAttachmentMedia,
+} from '../lib/attachmentUploads'
 import { setAgentComposerFill } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
 import type { MarkRenderer } from '../lib/markedReferences'
@@ -153,6 +163,41 @@ export default function AgentComposer({
     recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const setDraft = session.update
+  useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
+  const version = useSyncExternalStore(doc.subscribe, () => doc.version)
+  const workspace = peekCanvasWorkspace()
+  const cloud = workspace?.doc === doc ? workspace.cloud : undefined
+  const cloudState = useSyncExternalStore(
+    cloud?.subscribe ?? (() => () => {}),
+    cloud?.getSnapshot ?? (() => undefined),
+  )
+  const knownMedia = useMemo(
+    () =>
+      new Map(
+        Object.entries(doc.files).flatMap(([fileId, source]) => {
+          const id = cloud?.knownMediaId(fileId, source)
+          return id ? [[source, id] as const] : []
+        }),
+      ),
+    [doc, version, cloud, cloudState],
+  )
+  const uploadReference = (reference: AgentReference) =>
+    withKnownAttachmentMedia(reference, (source) => knownMedia.get(source))
+  const uploadReferences = useMemo(
+    () =>
+      draft.references.map((reference) =>
+        withKnownAttachmentMedia(reference, (source) => knownMedia.get(source)),
+      ),
+    [draft.references, knownMedia],
+  )
+  useEffect(() => primeAttachmentUploads(uploadReferences), [uploadReferences])
+  const uploadsBlocked = draft.references.some((reference) => {
+    const state = attachmentUploadState(uploadReference(reference))
+    return state !== undefined && state !== 'ready'
+  })
+  const retryUpload = (reference: AgentReference) => {
+    void retryAttachmentUploads(uploadReference(reference)).catch(() => {})
+  }
   // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
   useEffect(
     () => () => {
@@ -170,7 +215,7 @@ export default function AgentComposer({
     handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => boolean
   }>({ open: () => {}, handleKeyDown: () => false })
 
-  // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：读文件 → 压缩 → 进引用区。
+  // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：整组读取 → 进引用区。
   // 一次进来的图多了先问一声：整份文件夹误拖进来时，确认框比事后逐张删引用便宜。
   const attachFiles = (files: File[]) => {
     if (loading) {
@@ -180,9 +225,11 @@ export default function AgentComposer({
     const images = acceptImageFiles(files)
     if (images.length === 0) return
     confirmImageBatch(images.length, () => {
-      void filesToReferences(images).then((added) => {
-        setDraft((current) => attachReferences(current, added, transportRef.current))
-      })
+      void filesToReferences(images)
+        .then((added) => {
+          setDraft((current) => attachReferences(current, added, transportRef.current))
+        })
+        .catch(() => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error'))
     })
   }
   // 圈得多时一张张胶囊铺满输入框没有意义：模型这时也只拿清单（见 AGENT_TURN_ATTACHED_MEDIA_MAX），
@@ -223,7 +270,6 @@ export default function AgentComposer({
 
   // 序号胶囊的显示标签随界面语言变，下游按这份解析器缓存的渲染要跟着重算。
   const labels = useMemo(() => referenceLabels(draft.references), [draft.references, i18n.language])
-  const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   // `@` 候选里的「画布图 n」是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
 
@@ -471,7 +517,7 @@ export default function AgentComposer({
   const stopMode = running && !stopping && !draft.prompt.trim()
 
   const submit = () => {
-    if (loading || submitting || historyBlocked) return
+    if (loading || submitting || historyBlocked || uploadsBlocked) return
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
     // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
@@ -637,9 +683,15 @@ export default function AgentComposer({
               </div>
             )}
             {draft.references.map((reference, index) => {
-              if (selectionSummary.length > 0 && reference.origin === 'selection') return null
+              if (
+                selectionSummary.length > 0 &&
+                reference.origin === 'selection' &&
+                !attachmentUploadState(uploadReference(reference))
+              )
+                return null
               const label = referenceNames[index] ?? getImageMentionLabel(index)
               const masked = Boolean(reference.maskDataUrl)
+              const uploadState = attachmentUploadState(uploadReference(reference))
               return (
                 <div
                   key={reference.id}
@@ -658,6 +710,24 @@ export default function AgentComposer({
                     )}
                   </div>
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
+                  {uploadState && (
+                    <span role="status" className="text-xs text-muted-foreground">
+                      {attachmentUploadError(uploadReference(reference)) ===
+                      'media_unsupported_image'
+                        ? t('composer.uploadUnsupported')
+                        : t(`composer.upload.${uploadState}`)}
+                    </span>
+                  )}
+                  {uploadState === 'failed' && (
+                    <button
+                      type="button"
+                      className={GHOST_LINK}
+                      aria-label={t('composer.retryUploadAria', { label })}
+                      onClick={() => retryUpload(reference)}
+                    >
+                      {t('composer.retryUpload')}
+                    </button>
+                  )}
                   <button
                     type="button"
                     aria-label={
@@ -803,7 +873,13 @@ export default function AgentComposer({
                     : t('composer.sendAndCreateTitle')
               }
               disabled={
-                stopMode ? false : historyBlocked || loading || submitting || !draft.prompt.trim()
+                stopMode
+                  ? false
+                  : historyBlocked ||
+                    loading ||
+                    submitting ||
+                    uploadsBlocked ||
+                    !draft.prompt.trim()
               }
               onClick={stopMode ? () => void useAgentStore.getState().abort() : submit}
             />

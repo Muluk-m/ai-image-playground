@@ -39,7 +39,8 @@
       "queued": "排队中...",
       "generating": "生成中...",
       "reconnecting": "恢复连接中...",
-      "confirming": "结果确认中..."
+      "confirming": "结果确认中...",
+      "reconciling": "待核查"
     },
     "inpaint": "局部重绘",
     "transparentBackground": "透明背景"

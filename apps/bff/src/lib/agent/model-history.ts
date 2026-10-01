@@ -5,6 +5,7 @@ import { log } from '../logger'
 import { objectStore } from '../objectStore'
 import { isObject } from '../type-guards'
 import { type CompactionSettings, compactionBudget, contextSizeTokens } from './compaction'
+import type { AgentContextTransform } from './compaction-transform'
 import type { AgentHistoryWindow } from './conversations'
 import { estimateMessageTokens } from './token-estimate'
 
@@ -38,6 +39,7 @@ export function canRetainModelHistory(history: AgentHistoryWindow): boolean {
           (block.references ?? []).every(
             (reference) =>
               !('mask' in reference && reference.mask) &&
+              !('maskMediaId' in reference && reference.maskMediaId) &&
               !('regions' in reference && reference.regions?.length) &&
               !('editAction' in reference && reference.editAction),
           ),
@@ -74,13 +76,8 @@ function isCompleteHistory(value: unknown): value is AgentMessage[] {
     for (const block of message.content) {
       if (!isObject(block)) return false
       if (block.type === 'text' && typeof block.text === 'string') continue
-      if (
-        message.role !== 'assistant' &&
-        block.type === 'image' &&
-        typeof block.data === 'string' &&
-        typeof block.mimeType === 'string'
-      )
-        continue
+      // JSON 丢失视觉工作集的证据与释放身份；旧缓存也必须退回产品文字历史。
+      if (block.type === 'image') return false
       if (message.role !== 'assistant') return false
       if (block.type === 'thinking' && typeof block.thinking === 'string') continue
       if (
@@ -195,7 +192,7 @@ export async function readModelHistory(
         !isCompleteHistory(snapshot.messages)
       )
         return undefined
-      // 图片头虽是合法字符串，仍可能无法解析；估算失败必须在缓存边界内回退。
+      // 估算失败必须在缓存边界内回退，不让缓存影响本轮可用性。
       if (snapshot.messages.some((message) => !Number.isFinite(estimateMessageTokens(message))))
         return undefined
       return snapshot.messages
@@ -274,12 +271,15 @@ export function modelHistoryTransform(input: {
   readonly replay: AgentMessage[]
   readonly settings: CompactionSettings
   readonly overheadTokens: number
-  readonly compact: (messages: AgentMessage[]) => Promise<AgentMessage[]>
+  readonly compact: AgentContextTransform
 }) {
   let fellBack = false
   return {
     reusable: () => !fellBack,
-    transform: async (messages: AgentMessage[]) => {
+    transform: async (
+      messages: AgentMessage[],
+      accepts?: (messages: readonly AgentMessage[]) => boolean,
+    ) => {
       if (
         !fellBack &&
         contextSizeTokens(messages, input.overheadTokens) <=
@@ -287,7 +287,7 @@ export function modelHistoryTransform(input: {
       )
         return messages
       fellBack = true
-      return input.compact([...input.replay, ...messages.slice(input.nativePrefixLength)])
+      return input.compact([...input.replay, ...messages.slice(input.nativePrefixLength)], accepts)
     },
   }
 }

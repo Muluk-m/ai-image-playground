@@ -7,6 +7,13 @@ import { assetImageByteLimit } from '../sync-assets'
 import { addConversationMediaClaims } from './images'
 import { AgentToolError } from './tools/errors'
 import { safeFetchToolError } from './tools/webError'
+import {
+  assertVisualBytes,
+  visualByteLimit,
+  visualMetadata,
+  visualPixelLimit,
+  withVisualPreparation,
+} from './visual-resources'
 
 /**
  * 「把一张网图收进这个人的媒体库」这条路只此一份：取网图与抓商品图都走它。
@@ -32,10 +39,17 @@ const STORABLE_MIMES: Record<string, true | undefined> = {
  * 自己能改的事，交回去让它换一个。
  */
 async function toStorableImage(bytes: Uint8Array): Promise<{ bytes: Uint8Array; mime: string }> {
+  assertVisualBytes(bytes.byteLength)
+  await visualMetadata(bytes).catch((error) => {
+    throw new AgentToolError(
+      'invalid_params',
+      `这个地址取回来的不是图片，或图片超出准备预算。${error instanceof Error ? error.message : '请换一个有效图片地址。'}`,
+    )
+  })
   const sniffed = detectMediaMime(bytes)
   if (sniffed && STORABLE_MIMES[sniffed]) return { bytes, mime: sniffed }
   try {
-    const png = await sharp(bytes, { limitInputPixels: 40_000_000 }).png().toBuffer()
+    const png = await sharp(bytes, { limitInputPixels: visualPixelLimit() }).png().toBuffer()
     return { bytes: png, mime: 'image/png' }
   } catch {
     throw new AgentToolError(
@@ -72,9 +86,9 @@ export interface FetchImageInput {
 }
 
 /** 取一张网图、存进媒体库、由本会话认领，交回可以直接当图片 id 用的那一条。 */
-export async function fetchAndClaimImage(input: FetchImageInput): Promise<AgentFetchedImage> {
+async function fetchClaimedImage(input: FetchImageInput): Promise<AgentFetchedImage> {
   const fetched = await safeFetch(input.url, {
-    maxBytes: assetImageByteLimit(),
+    maxBytes: Math.min(assetImageByteLimit(), visualByteLimit()),
     timeoutMs: FETCH_IMAGE_TIMEOUT_MS,
     accept: 'image/*',
     ...(input.headers ? { headers: input.headers } : {}),
@@ -103,3 +117,6 @@ export async function fetchAndClaimImage(input: FetchImageInput): Promise<AgentF
 export function fetchedImageSize(image: AgentFetchedImage): string {
   return image.width && image.height ? `，${image.width}×${image.height}` : ''
 }
+
+export const fetchAndClaimImage = (input: FetchImageInput): Promise<AgentFetchedImage> =>
+  withVisualPreparation(() => fetchClaimedImage(input))

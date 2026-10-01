@@ -1,7 +1,13 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
-import { prepareMaskedEdit } from '../../../lib/agent/masked-edit'
-import { imageSelection, referenceEvidence } from '../../../lib/agent/selection-preview'
+
+process.env.PORT = '0'
+process.env.DATABASE_URL = 'postgres://unused/unused'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.OPERATOR_CONFIG_FILE = ''
+const { prepareMaskedEdit } = await import('../../../lib/agent/masked-edit')
+const { imageSelection, referenceEvidence } = await import('../../../lib/agent/selection-preview')
 
 async function png(pixels: number[], width = 2) {
   return `data:image/png;base64,${(

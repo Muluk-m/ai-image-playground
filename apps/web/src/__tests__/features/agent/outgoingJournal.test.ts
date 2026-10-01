@@ -8,12 +8,14 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentComposer from '../../../features/agent/components/AgentComposer'
 import { DraftSession } from '../../../features/agent/lib/drafts'
+import { returnQueuedToDraft } from '../../../features/agent/lib/messageQueue'
 import {
   forgetOutgoing,
   outgoingMessages,
   rememberOutgoing,
 } from '../../../features/agent/lib/outgoingJournal'
 import { currentProjectDraft } from '../../../features/agent/lib/projectLifecycle'
+import { draftForSubmit } from '../../../features/agent/lib/references'
 import type { UnsentTurnSubmission } from '../../../features/agent/lib/turnSubmission'
 import { useAgentStore } from '../../../features/agent/store'
 import {
@@ -365,6 +367,181 @@ it('排队发送失败后仍保留原输入，刷新后用同一消息身份重�
   const resent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
   expect(JSON.parse(String(resent?.[1]?.body)).clientMessageId).toBe(saved!.id)
   await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+})
+
+it('uploads a complete immutable edit snapshot and restores the same mask, action and regions after rejection', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(crypto.randomUUID())
+  const source = 'data:image/png;base64,iVBORw0KGgo='
+  const mask = 'data:image/png;base64,iVBORw0KGgoA'
+  const originalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const maskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  let unsent: UnsentTurnSubmission | undefined
+  const references = [
+    {
+      imageId: 'photo',
+      dataUrl: source,
+      maskDataUrl: mask,
+      editAction: 'inpaint' as const,
+      regions: [{ x: 0.1, y: 0.2, width: 0.3, height: 0.4 }],
+    },
+  ]
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'agent:attachments': true })
+    if (url === source || url === mask)
+      return new Response(
+        Uint8Array.from(
+          url === source ? [137, 80, 78, 71, 13, 10, 26, 10] : [137, 80, 78, 71, 13, 10, 26, 10, 0],
+        ),
+      )
+    if (url.endsWith('/uploads'))
+      return Response.json({
+        id: JSON.parse(String(init?.body)).bytes === 8 ? originalId : maskId,
+        status: 'ready',
+        leaseExpiresAt: Date.now() + 1200_000,
+      })
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  try {
+    const sending = useAgentStore
+      .getState()
+      .send(
+        '只修改选区',
+        references,
+        undefined,
+        'image',
+        undefined,
+        undefined,
+        undefined,
+        async (snapshot) => {
+          unsent = snapshot
+          return true
+        },
+      )
+    references[0]!.regions[0]!.x = 0.6
+    await sending
+    const sent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    const body = JSON.parse(String(sent?.[1]?.body))
+    const expected = {
+      imageId: 'photo',
+      mediaId: originalId,
+      maskMediaId: maskId,
+      editAction: 'inpaint',
+      regions: [{ x: 0.1, y: 0.2, width: 0.3, height: 0.4 }],
+    }
+    expect(body.references).toEqual([expected])
+    expect(unsent?.references).toEqual([
+      {
+        imageId: 'photo',
+        dataUrl: source,
+        maskDataUrl: mask,
+        editAction: 'inpaint',
+        regions: expected.regions,
+      },
+    ])
+    const restored = returnQueuedToDraft({ prompt: '', references: [] }, [unsent!])
+    expect(draftForSubmit(restored).references).toEqual([
+      {
+        imageId: 'photo',
+        dataUrl: source,
+        maskDataUrl: mask,
+        editAction: 'inpaint',
+        regions: expected.regions,
+      },
+    ])
+  } finally {
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it('reuploads expired unaccepted originals and masks after refresh with the same message identity', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  setClientStorageScope(crypto.randomUUID())
+  const source = 'data:image/png;base64,iVBORw0KGgo='
+  const mask = 'data:image/png;base64,iVBORw0KGgoA'
+  const references = [
+    {
+      imageId: 'photo',
+      dataUrl: source,
+      maskDataUrl: mask,
+      editAction: 'erase' as const,
+      regions: [{ x: 0, y: 0, width: 0.5, height: 0.5 }],
+    },
+  ]
+  let now = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+  let generation = 1
+  const uploads: { generation: number; bytes: number }[] = []
+  const identity = (bytes: number) =>
+    `${bytes === 8 ? 'aaaaaaaa' : 'bbbbbbbb'}-aaaa-4aaa-8aaa-aaaaaaaaaaa${generation}`
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/capabilities')) return Response.json({ 'agent:attachments': true })
+    if (url === source || url === mask)
+      return new Response(
+        Uint8Array.from(
+          url === source ? [137, 80, 78, 71, 13, 10, 26, 10] : [137, 80, 78, 71, 13, 10, 26, 10, 0],
+        ),
+      )
+    if (url.endsWith('/uploads')) {
+      const { bytes } = JSON.parse(String(init?.body))
+      uploads.push({ generation, bytes })
+      return Response.json({ id: identity(bytes), status: 'ready', leaseExpiresAt: now + 120_000 })
+    }
+    return fetchMock(input, init)
+  })
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+  try {
+    await useAgentStore.getState().send('擦除选区内容', references)
+    const initial = JSON.parse(
+      String(fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))?.[1]?.body),
+    )
+    expect(initial.references[0]).toMatchObject({ mediaId: identity(8), maskMediaId: identity(9) })
+    // The server collected both unclaimed objects while this browser was offline.
+    generation = 2
+    now += 600_000
+    reload(CONVERSATION)
+    fetchMock.mockClear()
+    turnResponse = COMPLETED_TURN
+    localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+    await useAgentStore.getState().load()
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+    )
+    const retry = JSON.parse(
+      String(fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))?.[1]?.body),
+    )
+    expect(retry.references).toEqual([
+      {
+        imageId: 'photo',
+        mediaId: identity(8),
+        maskMediaId: identity(9),
+        editAction: 'erase',
+        regions: references[0]!.regions,
+      },
+    ])
+    expect(retry.clientMessageId).toBe(initial.clientMessageId)
+    expect(
+      [...uploads].sort(
+        (left, right) => left.generation - right.generation || left.bytes - right.bytes,
+      ),
+    ).toEqual([
+      { generation: 1, bytes: 8 },
+      { generation: 1, bytes: 9 },
+      { generation: 2, bytes: 8 },
+      { generation: 2, bytes: 9 },
+    ])
+    await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+  } finally {
+    clock.mockRestore()
+    setClientStorageScope(null)
+    await bootstrapClientCapabilities(false, '')
+  }
 })
 
 it.each([

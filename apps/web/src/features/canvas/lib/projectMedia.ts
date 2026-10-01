@@ -5,9 +5,8 @@ import {
   type ProjectKind,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
-import { imageDataUrlToPngBlob } from '../../../lib/canvasImage'
-import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
-import { imageMimeFromBytes } from '../../../lib/imageBytes'
+import { mediaIdentity } from '../../../lib/cloudMedia'
+import { uploadMediaSource } from '../../../lib/mediaUpload'
 import type { CanvasDoc, CanvasEl } from './canvasDoc'
 
 export interface MediaBinding {
@@ -87,18 +86,6 @@ export function projectDocument(
 
 const MEDIA_CONCURRENCY = 4
 
-async function digest(bytes: ArrayBuffer): Promise<string> {
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('')
-}
-
-interface Upload {
-  id: string
-  status: 'ready' | 'pending'
-  uploadUrl?: string
-}
-
 export async function prepareProjectMedia(
   doc: CanvasDoc,
   persisted: MediaBindings,
@@ -122,60 +109,16 @@ export async function prepareProjectMedia(
   }
   const prepare = async (fileId: string, source: string) => {
     current()
-    const response = await fetch(source, { signal })
-    const bytes = await response.arrayBuffer()
-    const sha256 = await digest(bytes)
-    current()
-    const previous = persisted[fileId]
-    if (previous?.sha256 === sha256) {
-      loaded.set(fileId, { ...previous, source })
-      return
-    }
-    if (!uploadMissing) return
-    // 只按字节申报格式。data URL 的 PNG 标签可能包着 ICO 等非云媒体格式；信任标签会让
-    // 完成上传时被拒，进而卡住整份画布。认不出 PNG/JPEG/WebP 时先栅格化成 PNG。
-    // 绑定仍记原图的哈希，下次按原图认。
-    let contentType = imageMimeFromBytes(bytes)
-    let body = bytes
-    if (!contentType) {
-      body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
-      contentType = 'image/png'
-      current()
-    }
-    const upload = await mediaJson<Upload>('/uploads', {
-      method: 'POST',
+    const uploaded = await uploadMediaSource(source, {
       signal,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        bytes: body.byteLength,
-        contentType,
-        sha256: body === bytes ? sha256 : await digest(body),
-      }),
+      known: persisted[fileId],
+      uploadMissing,
     })
+    if (!uploaded) return
     current()
-    if (upload.status !== 'ready') {
-      if (!upload.uploadUrl) throw new Error('invalid_media_upload')
-      const sent = await fetch(upload.uploadUrl, {
-        method: 'PUT',
-        credentials: 'omit',
-        signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
-        headers: { 'content-type': contentType },
-        body,
-      })
-      if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
-      current()
-      const complete = await mediaJson<Upload>(`/${upload.id}/complete`, {
-        method: 'POST',
-        signal,
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      if (complete.status !== 'ready' || complete.id !== upload.id)
-        throw new Error('invalid_media_confirmation')
-    }
-    current()
-    persisted[fileId] = { id: upload.id, sha256 }
-    loaded.set(fileId, { id: upload.id, sha256, source })
+    const { id, sha256 } = uploaded
+    persisted[fileId] = { id, sha256 }
+    loaded.set(fileId, { id, sha256, source })
   }
   // 大画布一次要补传几十上百张：串行时整批要等最慢的那条链一张张走完。并发几张，
   // 一张失败也让其余的传完再报错，下次同步只剩失败的那几张。

@@ -191,6 +191,7 @@
     "failed": "Turn failed",
     "interrupted": "Interrupted, resumed automatically",
     "contextOverflow": "This turn was too long to send",
+    "requestBudgetExceeded": "Request not sent; this model call incurred no charge",
     "stopped": "Stopped"
   },
   "composer": {
@@ -230,7 +231,19 @@
     "queue": "Queue",
     "autoSubmitAria": "Direct generation mode",
     "autoSubmitOnTitle": "Direct generation: the assistant starts generating — and charging — as soon as it drafts a prompt, with no per-draft confirmation",
-    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)"
+    "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)",
+    "assetViewsUnavailable": "Some asset views could not be read. Retry before attaching the asset.",
+    "attachmentReadFailed": "Some images could not be read. No files were attached; please select them again.",
+    "uploadUnsupported": "Convert this image to PNG, JPEG or WebP first.",
+    "retryUpload": "Retry",
+    "retryUploadAria": "Retry uploading {{label}}",
+    "upload": {
+      "queued": "Queued",
+      "uploading": "Uploading",
+      "verifying": "Verifying",
+      "ready": "Ready",
+      "failed": "Upload failed"
+    }
   },
   "queue": {
     "title_one": "{{count}} queued",
@@ -325,6 +338,7 @@
     "retryFailed": "The retry couldn't be submitted. Please try again shortly.",
     "upstream": "The conversation model call failed. Please try again later.",
     "contextOverflow": "This request exceeds the model capacity. Reduce the text or reference images and try again.",
+    "requestBudgetExceeded": "This request exceeds the size limit or cannot be sent safely. Reduce reference images, shorten the text, or split the request. Contact the operator if it still fails.",
     "toolFailed": "A tool failed. Check the failed tool card.",
     "copyLog": "Copy original log",
     "copied": "Copied",
@@ -442,6 +456,7 @@
       "generating": "Generating",
       "reconnecting": "Reconnecting",
       "confirming": "Saving result",
+      "reconciling": "Awaiting verification",
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
@@ -536,5 +551,40 @@
       "toolName": "Tool",
       "taskId": "Task ID"
     }
+  },
+  "batch": {
+    "version": "Version {{version}}",
+    "scope_one": "{{count}} item",
+    "scope_other": "{{count}} items",
+    "title": "Plan name",
+    "rule": "Shared instructions",
+    "prompt": "Prompt",
+    "save": "Save plan",
+    "confirm": "Confirm generation",
+    "executionUnavailable": "Execution is not available yet",
+    "analysisCost": "Analysis estimate",
+    "generationCost": "Generation estimate",
+    "unavailable": "Price unavailable",
+    "staleQuote": "Save to update estimate",
+    "loading": "Loading plan",
+    "cancelled": "Cancelled",
+    "size": "Size",
+    "remove": "Remove item",
+    "refresh": "Load latest version",
+    "cancel": "Cancel plan",
+    "model": "Model",
+    "quality": "Quality",
+    "aspectRatio": "Aspect ratio",
+    "thinking": "Thinking level",
+    "outputFormat": "Output format",
+    "compression": "Compression quality",
+    "inputImage": "Input image {{index}}",
+    "valueAuto": "Auto",
+    "valueHigh": "High",
+    "valueMedium": "Medium",
+    "valueLow": "Low",
+    "valueMinimal": "Minimal",
+    "valueStandard": "Standard",
+    "valueHd": "HD"
   }
 }

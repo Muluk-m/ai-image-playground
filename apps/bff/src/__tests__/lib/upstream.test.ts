@@ -1176,3 +1176,77 @@ describe('callUpstream 取消传播', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 })
+
+it('handles a dispatch evidence write rejection while the upstream response is still pending', async () => {
+  let release!: (response: Response) => void
+  let started!: () => void
+  const entered = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const response = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  setUpstreamFetchForTesting(async () => {
+    started()
+    return response
+  })
+  const result = callUpstream({
+    provider: 'openai-compat',
+    model: 'fixture-recorded-rejection',
+    request: { prompt: 'test' },
+    reconciliationRequired: true,
+    beforeRequest: async () => 'dispatch-1',
+    onRequestDispatched: async () => {
+      throw new Error('dispatch evidence write unavailable')
+    },
+  }).catch((error) => error)
+  try {
+    await entered
+    // The transport has not returned: the accounting rejection must already have a handler.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  } finally {
+    release(Response.json({ data: [{ b64_json: TINY_PNG_B64 }] }))
+    setUpstreamFetchForTesting()
+  }
+  expect(await result).toBeInstanceOf(UpstreamResultUnknownError)
+})
+
+it.each([
+  false,
+  true,
+])('retains accepted async IDs when the per-dispatch evidence write fails (aggregate failure=%s)', async (aggregateFailure) => {
+  const { config } = await import('../../config')
+  const previousAsync = config.upstream.asyncImageTasks
+  config.upstream.asyncImageTasks = true
+  const saved: string[][] = []
+  let requests = 0
+  setUpstreamFetchForTesting(async () => {
+    requests++
+    return Response.json(
+      { task_id: 'imgtask_evidence_failure', status: 'processing' },
+      { status: 202 },
+    )
+  })
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+      reconciliationRequired: true,
+      beforeRequest: async () => 'dispatch-evidence-failure',
+      onUpstreamTaskId: async () => {
+        throw new Error('dispatch task ID write failed')
+      },
+      onUpstreamTaskIds: async (ids) => {
+        saved.push([...ids])
+        if (aggregateFailure) throw new Error('aggregate ID write failed')
+      },
+    }).catch((error) => error)
+    expect(saved).toEqual([['imgtask_evidence_failure']])
+    expect(error).toBeInstanceOf(UpstreamResultUnknownError)
+    expect(requests).toBe(1)
+  } finally {
+    config.upstream.asyncImageTasks = previousAsync
+    setUpstreamFetchForTesting()
+  }
+})

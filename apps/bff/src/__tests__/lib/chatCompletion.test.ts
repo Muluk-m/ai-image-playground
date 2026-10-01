@@ -193,3 +193,39 @@ describe('askChatModel', () => {
     expect(sent).toBe(3)
   })
 })
+
+it('摘要每次重试重新检查最终字节，本地拒绝不再重试且不记未知用量', async () => {
+  const operator = config.operator
+  const attempts: import('../../lib/chatCompletion').ChatAttempt[] = []
+  let dispatches = 0
+  setChatRetryBackoffForTesting(0)
+  setChatFetchForTesting(async () => {
+    dispatches += 1
+    config.operator = { ...operator, quotas: { ...operator.quotas, 'agent:request-max-bytes': 1 } }
+    return new Response('upstream unavailable', { status: 502 })
+  })
+  try {
+    await expect(
+      askChatModel(
+        {
+          ...ASK,
+          onAttempt: async (attempt) => {
+            attempts.push(attempt)
+          },
+        },
+        parseAnswer,
+      ),
+    ).rejects.toMatchObject({ name: 'AgentRequestBudgetError', reason: 'body_too_large' })
+    expect(dispatches).toBe(1)
+    expect(attempts).toHaveLength(2)
+    expect(attempts[0]).toMatchObject({ httpDispatchCount: 1, usage: null })
+    expect(attempts[1]).toMatchObject({
+      httpDispatchCount: 0,
+      usage: { inputTokens: 0, outputTokens: 0 },
+    })
+  } finally {
+    config.operator = operator
+    setChatFetchForTesting()
+    setChatRetryBackoffForTesting()
+  }
+})

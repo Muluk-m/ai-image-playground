@@ -258,6 +258,9 @@ function QueueBody({ queue, now }: { queue: OpsQueue; now: number }) {
       <div className="grid grid-cols-3 gap-4">
         <Kpi variant="inline" label="排队" value={String(queue.queued)} />
         <Kpi variant="inline" label="运行中" value={String(queue.in_progress)} />
+        {queue.reconciling ? (
+          <Kpi variant="inline" label="待核查" value={String(queue.reconciling)} />
+        ) : null}
         <Kpi
           variant="inline"
           label="最老的等了"

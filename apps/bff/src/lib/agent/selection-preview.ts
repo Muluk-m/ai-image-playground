@@ -4,6 +4,7 @@ import type { AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
 import { toModelImageDataUrl } from './modelImage'
 import { selectionSettings as settings } from './selection-settings'
+import { assertVisualBytes, visualMetadata, withVisualPreparation } from './visual-resources'
 
 interface Reference {
   readonly dataUrl: string
@@ -39,18 +40,23 @@ function asImage(dataUrl: string): ImageContent {
 }
 
 /** ID 同时绑定图片与 mask 字节，旧选区不能静默套用到同尺寸的新版本。 */
-export async function imageSelection(
+async function prepareSelection(
   reference: Reference,
   render = true,
 ): Promise<ImageSelection | undefined> {
   if (!reference.maskDataUrl) return undefined
   try {
-    await sharp(Buffer.from(reference.dataUrl.split(',')[1]!, 'base64'), {
+    assertVisualBytes(Buffer.byteLength(reference.dataUrl, 'utf8'))
+    const originalMetadata = await sharp(Buffer.from(reference.dataUrl.split(',')[1]!, 'base64'), {
       limitInputPixels: settings.maxPixels,
     }).metadata()
+    if ((originalMetadata.orientation ?? 1) !== 1)
+      throw new Error('图片方向与选区无法对应，请重新添加图片并圈选')
     const normalized = await toModelImageDataUrl(reference.dataUrl)
     const raw = Buffer.from(normalized.split(',')[1]!, 'base64')
+    assertVisualBytes(Buffer.byteLength(reference.maskDataUrl, 'utf8'))
     const mask = Buffer.from(reference.maskDataUrl.split(',')[1]!, 'base64')
+    await visualMetadata(mask)
     const [target, metadata] = await Promise.all([
       sharp(raw, { limitInputPixels: settings.maxPixels }).metadata(),
       sharp(mask, { limitInputPixels: settings.maxPixels }).metadata(),
@@ -153,6 +159,7 @@ export function evidenceBlocks<T>(
 /** 清单里一个引用要交代的全部：它是哪张图，有没有选区、选区是哪一个、圈在哪。 */
 export interface EvidenceListing {
   readonly imageId: string
+  readonly representation?: 'original' | 'preview' | 'region'
   readonly editAction?: Reference['editAction']
   readonly regions?: Reference['regions']
   readonly selection?: { readonly id: string; readonly bounds: ImageSelection['bounds'] }
@@ -168,7 +175,7 @@ export function evidenceManifest(references: readonly EvidenceListing[]): string
   if (references.length === 0) return ''
   const descriptions: string[] = []
   let blocks = 0
-  for (const { imageId, selection, regions, editAction } of references) {
+  for (const { imageId, selection, regions, editAction, representation } of references) {
     const first = blocks + 1
     blocks += evidenceBlocks(1, selection && { preview: 1, crop: 1 }).length
     if (editAction)
@@ -178,7 +185,7 @@ export function evidenceManifest(references: readonly EvidenceListing[]): string
     descriptions.push(
       selection
         ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。${regions?.length ? `区域编号按以下归一化坐标对应：${regions.map((region, index) => `区域 ${region.number ?? index + 1} ${JSON.stringify(region)}`).join('；')}。编号仅用于定位，以遮罩覆盖像素为准。` : ''}`
-        : `视觉输入 ${first}：图片 ${imageId} 原图`,
+        : `视觉输入 ${first}：图片 ${imageId} ${{ original: '原图', preview: '缩略图', region: '局部' }[representation ?? 'original']}`,
     )
   }
   return `\n\n视觉证据（这些序号不是用户的 image 编号）：\n${descriptions.join('\n')}`
@@ -204,7 +211,7 @@ export async function referenceEvidence(references: readonly (Reference & { imag
       ...(selection ? { selection: { id: selection.id, bounds: selection.bounds } } : {}),
     })
   }
-  return { content, manifest: evidenceManifest(listed) }
+  return { content, manifest: evidenceManifest(listed), listed }
 }
 
 export async function selectionPreview(reference: Reference): Promise<ImageContent> {
@@ -226,3 +233,9 @@ export async function validateSelections(references: readonly AgentTurnReference
         false,
       )
 }
+
+export const imageSelection = (
+  reference: Reference,
+  render = true,
+): Promise<ImageSelection | undefined> =>
+  withVisualPreparation(() => prepareSelection(reference, render))

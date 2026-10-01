@@ -56,6 +56,8 @@ export interface CreateQueueTaskInput {
    * 它不在项目里、或不是失败占位时照常另找位置。
    */
   readonly projectSlot?: string
+  /** Server-only opt-in; legacy HTTP submissions retain their existing lifecycle. */
+  readonly reconciliationRequired?: true
   /**
    * 调用方自己的事务。给出时任务行、预扣、后台任务登记与调用方随后的写入同一次提交，
    * 也不会在已经握着一条连接时再去连接池要第二条（确认生成走这条路，见 `confirmations.ts`）。
@@ -124,6 +126,7 @@ function commandHash(input: CreateQueueTaskInput) {
             : {}),
         },
         video: input.video,
+        ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
         // 唤醒选择不是请求的一部分：同一条命令换个选择重放，仍是同一个任务。
         agent: input.agent && {
           conversationId: input.agent.conversationId,
@@ -244,6 +247,8 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
 export async function createQueueTask(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskOutcome> {
+  if (input.reconciliationRequired && input.video)
+    throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
   const hash = commandHash(input)
   // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
@@ -304,6 +309,7 @@ export async function createQueueTask(
         provider: input.provider,
         model: input.model,
         status: 'queued',
+        reconciliation_required: input.reconciliationRequired ?? false,
         request_payload: requestPayload,
         submitted_at: now,
         user_id: input.userId,
