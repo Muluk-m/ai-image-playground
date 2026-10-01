@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(47)
+    expect(rows).toHaveLength(48)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -53,6 +53,15 @@ describe('runMigrations', () => {
     expect(byName.device_id?.is_generated).toBe('ALWAYS')
     expect(byName.upstream_status?.data_type).toBe('integer')
     expect(byName.upstream_body?.data_type).toBe('text')
+  })
+
+  it('stores the optional production document as PostgreSQL JSONB', async () => {
+    const rows = await connection.client`
+      SELECT data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'agent_conversations' AND column_name = 'production'
+    `
+    expect(rows).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])
   })
 
   it('stores quota dates as PostgreSQL dates', async () => {
@@ -108,7 +117,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(47)
+    expect(rows).toHaveLength(48)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -159,6 +168,7 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0048_production_document.down.sql',
       '0047_agent_turn_failure.down.sql',
       '0046_agent_model_calls_started_at.down.sql',
       '0045_retired_domain_migration.down.sql',
@@ -208,6 +218,14 @@ describe('runMigrations', () => {
       '0000_daffy_the_enforcers.down.sql',
     ]) {
       await connection.client.unsafe(await Bun.file(new URL(file, rollbackDirectory)).text())
+      if (file === '0048_production_document.down.sql') {
+        const columns = await connection.client<{ column_name: string }[]>`
+          SELECT column_name FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='agent_conversations'
+        `
+        expect(columns.length).toBeGreaterThan(0)
+        expect(columns.some((column) => column.column_name === 'production')).toBe(false)
+      }
     }
 
     const [rolledBack] = await connection.client<
@@ -238,6 +256,11 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(47)
+    expect(restored).toHaveLength(48)
+    const production = await connection.client`
+      SELECT data_type FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='agent_conversations' AND column_name='production'
+    `
+    expect(production).toEqual([{ data_type: 'jsonb' }])
   })
 })
