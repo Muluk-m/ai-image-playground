@@ -671,6 +671,7 @@ it('keeps all 100 selected attachments and sends only after retrying the failed 
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 20 * 1024 * 1024,
@@ -789,6 +790,7 @@ it('keeps an oversized attachment in the selected scope until the user explicitl
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -886,6 +888,7 @@ it('retains local originals during draft to journal handoff and releases only th
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -982,6 +985,7 @@ it('restores the original draft without dispatch when its durable outgoing journ
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1086,6 +1090,7 @@ it('keeps every selected position when one original cannot be stored and restore
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1184,6 +1189,7 @@ it('rejects a 101 image selection before reading or uploading any original', asy
     if (String(input).endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1253,6 +1259,7 @@ it('stores mixed canvas library and mask inputs as local handles before drafts o
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1353,6 +1360,7 @@ it('binds a persisted local original to the captured canvas but never binds diff
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1445,6 +1453,7 @@ it('reserves a selected group before reads so an overlapping selection cannot ex
     if (String(input).endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1564,6 +1573,7 @@ async function mountDurableAttachmentDraft() {
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,
@@ -1675,5 +1685,174 @@ it('does not journal or dispatch an old account draft after switching accounts d
     ui.host.remove()
     setClientStorageScope(null)
     await bootstrapClientCapabilities(false, '')
+  }
+})
+
+it.each([
+  false,
+  true,
+])('cleans the matching staged draft durably before forgetting a recovered command (delivered=%s)', async (delivered) => {
+  const account = `crash-handoff-${delivered}`
+  setClientStorageScope(account)
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  const original = { prompt: '崩溃前已提交的消息', references: [] }
+  const submission: UnsentTurnSubmission = {
+    id: `crash-handoff-command-${delivered}`,
+    text: original.prompt,
+    references: [],
+    mode: 'image',
+    clarificationAnswer: false,
+  }
+  // The browser closed after both writes committed, before draft cleanup committed.
+  session.update(original)
+  await session.stageSubmission(original, submission)
+  await rememberOutgoing({
+    ...submission,
+    projectId: PROJECT,
+    conversationId: CONVERSATION,
+    createdAt: Date.now(),
+  })
+  const before = new DraftSession(session.key)
+  await before.ready
+  expect(before.getSnapshot().unsent?.submission?.id).toBe(submission.id)
+  if (delivered) {
+    messagesResponse = () =>
+      Response.json({
+        messages: [
+          {
+            id: 'accepted-user',
+            turnId: 'accepted-turn',
+            role: 'user',
+            content: [{ type: 'text', text: original.prompt }],
+            createdAt: 1,
+          },
+        ],
+        activeTurn: null,
+        turns: [],
+      })
+  }
+  try {
+    reload(CONVERSATION)
+    localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+    fetchMock.mockClear()
+    await useAgentStore.getState().load()
+    await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    // A second refresh cannot offer the already submitted content for editing/resending.
+    const after = new DraftSession(session.key)
+    await after.ready
+    expect(after.getSnapshot().unsent).toBeNull()
+    expect(after.getSnapshot().draft.prompt).toBe('')
+    const turns = fetchMock.mock.calls.filter(([url]) => String(url).includes('/turns'))
+    expect(turns).toHaveLength(delivered ? 0 : 1)
+    if (!delivered)
+      expect(JSON.parse(String(turns[0]?.[1]?.body)).clientMessageId).toBe(submission.id)
+  } finally {
+    for (const one of await outgoingMessages(PROJECT)) await forgetOutgoing(PROJECT, one.id)
+    setClientStorageScope(null)
+  }
+})
+
+it('keeps the journal when recovered draft cleanup cannot commit and preserves another draft on retry', async () => {
+  setClientStorageScope('cleanup-write-failure')
+  const session = currentProjectDraft(CONVERSATION)
+  await session.ready
+  const original = { prompt: '已经交给日志的消息', references: [] }
+  const submission: UnsentTurnSubmission = {
+    id: 'cleanup-write-failure-command',
+    text: original.prompt,
+    references: [],
+    mode: 'image',
+    clarificationAnswer: false,
+  }
+  session.update({ prompt: '用户后来输入的另一句', references: [] })
+  await session.stageSubmission(original, submission)
+  await rememberOutgoing({
+    ...submission,
+    projectId: PROJECT,
+    conversationId: CONVERSATION,
+    createdAt: Date.now(),
+  })
+  const put = IDBObjectStore.prototype.put
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    value,
+    key,
+  ) {
+    if (this.name === 'drafts') throw new DOMException('Disk full', 'QuotaExceededError')
+    return key === undefined ? put.call(this, value) : put.call(this, value, key)
+  })
+  try {
+    localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+    fetchMock.mockClear()
+    await useAgentStore.getState().load()
+    await vi.waitFor(() => expect(session.getSnapshot().error).toBeTruthy())
+    expect(await outgoingMessages(PROJECT)).toHaveLength(1)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    failure.mockRestore()
+    reload(CONVERSATION)
+    await useAgentStore.getState().load()
+    await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+    const restored = new DraftSession(session.key)
+    await restored.ready
+    expect(restored.getSnapshot().unsent?.prompt).toBe('用户后来输入的另一句')
+    expect(restored.getSnapshot().unsent?.submission).toBeUndefined()
+    const turns = fetchMock.mock.calls.filter(([url]) => String(url).includes('/turns'))
+    expect(turns).toHaveLength(1)
+    expect(JSON.parse(String(turns[0]?.[1]?.body)).clientMessageId).toBe(submission.id)
+  } finally {
+    failure.mockRestore()
+    for (const one of await outgoingMessages(PROJECT)) await forgetOutgoing(PROJECT, one.id)
+    setClientStorageScope(null)
+  }
+})
+
+it('does not offer a journal-owned draft for editing before conversation history starts loading', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope('restore-before-history')
+  await bootstrapClientCapabilities(false, '')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  // Seed storage without registering a live draft session, as after a browser crash.
+  const seeded = new DraftSession(scopedStorageName(`agent-project-draft:${PROJECT}`))
+  await seeded.ready
+  const original = { prompt: '不可另起命令重发的旧消息', references: [] }
+  const submission: UnsentTurnSubmission = {
+    id: 'restore-before-history-command',
+    text: original.prompt,
+    references: [],
+    mode: 'image',
+    clarificationAnswer: false,
+  }
+  seeded.update(original)
+  await seeded.stageSubmission(original, submission)
+  await rememberOutgoing({
+    ...submission,
+    projectId: PROJECT,
+    conversationId: CONVERSATION,
+    createdAt: Date.now(),
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(createElement(AgentComposer, { doc: new CanvasDoc() }))
+      await currentProjectDraft(CONVERSATION).ready
+    })
+    expect(useAgentStore.getState().historyLoading).toBe(false)
+    expect(useAgentStore.getState().loaded).toBe(false)
+    const restore = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '恢复',
+    )
+    act(() => restore?.click())
+    expect(currentProjectDraft(CONVERSATION).getSnapshot().draft.prompt).toBe('')
+    expect(restore === undefined || restore.disabled).toBe(true)
+    expect(await outgoingMessages(PROJECT)).toHaveLength(1)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    for (const one of await outgoingMessages(PROJECT)) await forgetOutgoing(PROJECT, one.id)
+    setClientStorageScope(null)
   }
 })

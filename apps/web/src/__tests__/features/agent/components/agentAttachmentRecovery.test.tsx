@@ -17,6 +17,7 @@ it('restores ready and failed local attachments after restart without uploading 
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         attachmentLimits: {
           logicalReferences: 100,
           imageBytes: 10 * 1024 * 1024,

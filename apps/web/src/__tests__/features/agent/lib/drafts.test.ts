@@ -343,3 +343,28 @@ it('空输入框接回失败消息时也保留尚未恢复的旧草稿', async (
   expect(restored.getSnapshot().unsent?.prompt).toBe('旧草稿')
   expect(restored.getSnapshot().recoverable).toBe(true)
 })
+
+it('Web Locks 拒绝保存后显示失败，并允许下一次编辑重新保存', async () => {
+  const session = new DraftSession('document-lock-rejection')
+  await ready(session)
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'locks')
+  const request = vi.fn(() => Promise.reject(new DOMException('Lock unavailable', 'AbortError')))
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } })
+  try {
+    session.update({ prompt: '第一次需要保存的内容', references: [] })
+    const outcome = await session.flush().then(
+      () => 'settled',
+      () => 'rejected',
+    )
+    expect(outcome).toBe('settled')
+    expect(session.getSnapshot().error).toBeTruthy()
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined })
+    session.update({ prompt: '锁恢复后的新内容', references: [] })
+    await session.flush()
+    expect(session.getSnapshot().error).toBeNull()
+    expect(await storedPrompt(session.key)).toBe('锁恢复后的新内容')
+  } finally {
+    if (descriptor) Object.defineProperty(navigator, 'locks', descriptor)
+    else Reflect.deleteProperty(navigator, 'locks')
+  }
+})

@@ -30,6 +30,7 @@ async function boot(fetcher: typeof fetch) {
 }
 const manifest = {
   'agent:attachments': true,
+  'agent:bulk-attachments': true,
   attachmentLimits: {
     logicalReferences: 100,
     imageBytes: 10 * 1024 * 1024,
@@ -95,13 +96,26 @@ it('honors the server upload concurrency of one across independent attachment up
   expect(reservations).toBe(3)
 })
 
-it('keeps a restored local original but blocks sending when attachment capability is disabled', async () => {
+it.each([
+  'attachments',
+  'bulk-disabled',
+  'bulk-missing',
+] as const)('keeps a restored local original but blocks sending when %s capability is disabled', async (disabled) => {
   let enabled = true
   const network: string[] = []
   await boot(async (input) => {
     const url = String(input)
     if (url.endsWith('/api/capabilities'))
-      return Response.json(enabled ? manifest : { 'agent:attachments': false })
+      return Response.json(
+        enabled
+          ? manifest
+          : {
+              ...manifest,
+              ...(disabled === 'attachments'
+                ? { 'agent:attachments': false }
+                : { 'agent:bulk-attachments': disabled === 'bulk-disabled' ? false : undefined }),
+            },
+      )
     if (url.startsWith('data:'))
       return new Response(Uint8Array.from(atob(url.split(',')[1]!), (char) => char.charCodeAt(0)))
     network.push(url)

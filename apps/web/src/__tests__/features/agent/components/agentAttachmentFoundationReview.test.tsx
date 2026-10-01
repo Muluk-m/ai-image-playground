@@ -39,6 +39,7 @@ async function setup(bulk = false) {
     if (url.endsWith('/api/capabilities'))
       return Response.json({
         'agent:attachments': true,
+        'agent:bulk-attachments': true,
         'accounts:sync': true,
         ...(bulk
           ? {

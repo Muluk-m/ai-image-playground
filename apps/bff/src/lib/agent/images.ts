@@ -609,10 +609,11 @@ export async function addConversationMediaClaims(
   mediaIds: readonly string[],
 ): Promise<void> {
   if (mediaIds.length === 0) return
-  const accepted = await claimConversationMedia(
+  const accepted = await claimReadyConversationMedia(
     conversationId,
     userId,
     mediaIds.map((mediaId) => ({ imageId: mediaId, mediaId })),
+    false,
   )
   if (!accepted) throw new Error('media_not_ready')
 }
@@ -722,6 +723,17 @@ export async function claimConversationMedia(
   references: readonly AgentTurnReference[],
   executor?: BffTransaction,
 ): Promise<boolean> {
+  return claimReadyConversationMedia(conversationId, userId, references, true, executor)
+}
+
+/** Tool results already passed their own visual/storage admission policy. */
+async function claimReadyConversationMedia(
+  conversationId: string,
+  userId: string | null,
+  references: readonly AgentTurnReference[],
+  enforceAttachmentBudget: boolean,
+  executor?: BffTransaction,
+): Promise<boolean> {
   const mediaIds = [
     ...new Set(
       references.flatMap((one) =>
@@ -731,7 +743,12 @@ export async function claimConversationMedia(
   ]
   if (mediaIds.length === 0) return true
   if (!userId) return false
-  if (!executor && !(await validateConversationMediaSelections(userId, references))) return false
+  if (
+    enforceAttachmentBudget &&
+    !executor &&
+    !(await validateConversationMediaSelections(userId, references))
+  )
+    return false
   const claim = async (tx: BffTransaction) => {
     await lockMediaOwner(tx, userId)
     const owned = await tx
@@ -751,7 +768,11 @@ export async function claimConversationMedia(
           eq(schema.media_objects.status, 'ready'),
         ),
       )
-    if (owned.length !== mediaIds.length || !withinAttachmentBudget(owned)) return false
+    if (
+      owned.length !== mediaIds.length ||
+      (enforceAttachmentBudget && !withinAttachmentBudget(owned))
+    )
+      return false
     const byId = new Map(owned.map((media) => [media.id, media]))
     for (const reference of references) {
       if (!('mediaId' in reference) || !reference.maskMediaId) continue
