@@ -342,6 +342,8 @@ function requestDiagnostic(
   thrown: unknown,
   conversationId: string | null,
 ): Record<string, unknown> {
+  if (thrown instanceof ReturnedMessagesPersistenceError)
+    return { ...requestDiagnostic(thrown.cause, conversationId), recoveryCode: thrown.code }
   return {
     conversationId,
     occurredAt: new Date().toISOString(),
@@ -947,8 +949,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   const recoverReturnedMessages = async (conversationId: string) => {
     const receipts = abortRecoveries(conversationId)
     const current = () => receipts.current() && get().conversationId === conversationId
+    const initial = get()
+    const ownsError = Boolean(
+      initial.returnedMessagesError &&
+        initial.error === returnedMessagesErrorText(initial.returnedMessagesError),
+    )
+    const errorUnchanged = () =>
+      get().error === initial.error && get().errorDiagnostic === initial.errorDiagnostic
     try {
-      for (const pointer of await receipts.read()) {
+      const pointers = await receipts.read()
+      for (const pointer of pointers) {
         if (!receipts.current()) return
         const cached = agentDraft(conversationId, pointer.projectId)
         const draft =
@@ -963,7 +973,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           if (error instanceof AgentRequestError && error.status === 404) {
             const history = await fetchMessages(conversationId)
             if (!receipts.current()) return
-            if (!history.activeTurn) {
+            if (history.activeTurn?.turnId !== pointer.turnId) {
               await receipts.forget(pointer.turnId)
               continue
             }
@@ -976,8 +986,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         set({
           returnedMessagesPending: pending,
           returnedMessagesError: pending ? 'fallback' : null,
-          error: null,
-          errorDiagnostic: null,
+          ...(pointers.length && ownsError && errorUnchanged()
+            ? { error: null, errorDiagnostic: null }
+            : {}),
         })
     } catch (error) {
       const code = error instanceof ReturnedMessagesPersistenceError ? error.code : 'fallback'
@@ -985,8 +996,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         set({
           returnedMessagesPending: true,
           returnedMessagesError: code,
-          error: returnedMessagesErrorText(code),
-          errorDiagnostic: requestDiagnostic(error, conversationId),
+          ...(errorUnchanged() && (initial.error === null || ownsError)
+            ? {
+                error: returnedMessagesErrorText(code),
+                errorDiagnostic: requestDiagnostic(error, conversationId),
+              }
+            : {}),
         })
     }
   }
@@ -1051,12 +1066,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           /* Keep the receipt available for explicit retry. */
         }
       }
-      const code =
-        error instanceof ReturnedMessagesPersistenceError
-          ? error.code
-          : stopped
-            ? 'fallback'
-            : 'stop_failed'
+      let code: ReturnedMessagesErrorCode = 'stop_failed'
+      if (error instanceof ReturnedMessagesPersistenceError) code = error.code
+      else if (stopped) code = 'fallback'
       if (shown())
         set({
           stopping: current() ? false : get().stopping,
