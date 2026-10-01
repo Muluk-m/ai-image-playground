@@ -1,5 +1,4 @@
 import {
-  AGENT_TURN_MAX_REFERENCES,
   type AgentQueuedMessageView,
   type AgentReturnedQueuedMessage,
   type AgentTurnEvent,
@@ -36,7 +35,6 @@ export function returnQueuedToDraft(
     .join('\n\n')
   const references: AgentReference[] = [...draft.references]
   for (const reference of returned.flatMap((one) => one.references)) {
-    if (references.length >= AGENT_TURN_MAX_REFERENCES) break
     if (references.some((one) => one.id === reference.imageId)) continue
     // 按 id 发出去的那几张退回来仍然只有 id：写成画布里的那句 `aip-media:`，
     // 胶囊与遮罩编辑器照旧按同一条路取图。
