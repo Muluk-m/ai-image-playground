@@ -19,7 +19,12 @@ import { createAutoSubmitBudget } from './auto-submit'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
-import { appendAgentMessage, recordAgentToolCall, touchAgentConversation } from './conversations'
+import {
+  appendAgentMessage,
+  listAgentHistoryWindow,
+  recordAgentToolCall,
+  touchAgentConversation,
+} from './conversations'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import {
@@ -33,6 +38,13 @@ import {
 } from './images'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
+import {
+  canRetainModelHistory,
+  modelHistoryFingerprint,
+  modelHistorySkillsMatch,
+  modelHistoryTransform,
+  writeModelHistory,
+} from './model-history'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -51,6 +63,7 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
+import { replayedSkillTexts } from './tools/loadSkill'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {
@@ -81,6 +94,7 @@ export interface PreparedAgentTurn {
   readonly conversationId: string
   readonly turnId: string
   readonly userMessageId: string
+  readonly storedUserMessage?: AgentMessageView
   /** 这一轮取走的排队消息；缺席即这一句是当场发来的，没排过队。 */
   readonly queueId?: string
   /** 送给模型的那一份输入；起轮前的预扣就是照它估的（见 `turn-input.ts`）。 */
@@ -212,6 +226,26 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     systemPrompt: initialState.systemPrompt,
     tools: turnTools,
   })
+  const compact = createCompactionTransform({
+    conversationId,
+    turnId,
+    historyIds: history.messages.map((message) => message.id),
+    userMessageId,
+    compaction: history.compaction,
+    foldedBefore: history.coveredCount,
+    overheadTokens,
+    settings: budget,
+    onSummaryAttempt: (attempt) => ledger.recordSideCall('compaction', attempt),
+  })
+  const retained = input.modelHistory
+    ? modelHistoryTransform({
+        nativePrefixLength: initialState.messages.length,
+        replay: turnInitialStateOf({ ...input, modelHistory: undefined }).messages,
+        settings: budget,
+        overheadTokens,
+        compact,
+      })
+    : undefined
   // 这两个在 `new Agent` 之前声明：streamFn 的闭包要写它们，读的人也该先看见它们。
   let failure: AgentTurnFailure | undefined
   let error: AgentTurnErrorCode | undefined
@@ -265,18 +299,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
     // 澄清、拟稿或用户中止后，不再回上游追加一次模型调用。
-    shouldStopAfterTurn: () => clarified || drafted || aborted,
-    transformContext: createCompactionTransform({
-      conversationId,
-      turnId,
-      historyIds: history.messages.map((message) => message.id),
-      userMessageId,
-      compaction: history.compaction,
-      foldedBefore: history.coveredCount,
-      overheadTokens,
-      settings: budget,
-      onSummaryAttempt: (attempt) => ledger.recordSideCall('compaction', attempt),
-    }),
+    shouldStopAfterTurn: () => clarified || drafted || aborted || !!error,
+    transformContext: retained?.transform ?? compact,
   })
 
   /** 终帧发过没有。收尾半路抛错时据此补一个，续播的消费者不能一直等下去。 */
@@ -284,6 +308,11 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   let storedAny = false
   let open: OpenAssistantMessage | null = null
   let acceptingInterjections = true
+  // 记录每条消息刚写下的原貌；后台任务/确认卡可能在保存快照前已被另一条链路更新。
+  const storedMessages = new Map<string, AgentMessageView>()
+  const remember = (message: AgentMessageView) =>
+    storedMessages.set(message.id, structuredClone(message))
+  if (prepared.storedUserMessage) remember(prepared.storedUserMessage)
   const steeringReferences = new Map<
     string,
     {
@@ -317,19 +346,21 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     queued = []
     for (const message of pending) {
       write(async (executor) => {
-        await appendAgentMessage(executor, {
-          id: message.id,
-          conversationId,
-          turnId,
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: message.text,
-              ...(message.references.length ? { references: [...message.references] } : {}),
-            },
-          ],
-        })
+        remember(
+          await appendAgentMessage(executor, {
+            id: message.id,
+            conversationId,
+            turnId,
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: message.text,
+                ...(message.references.length ? { references: [...message.references] } : {}),
+              },
+            ],
+          }),
+        )
       })
     }
   }
@@ -339,26 +370,30 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
 
   const storeBlock = (block: AgentContentBlock, messageId: string) =>
     write(async (executor) => {
-      await appendAgentMessage(executor, {
-        id: messageId,
-        conversationId,
-        turnId,
-        role: 'assistant',
-        content: [block],
-      })
+      remember(
+        await appendAgentMessage(executor, {
+          id: messageId,
+          conversationId,
+          turnId,
+          role: 'assistant',
+          content: [block],
+        }),
+      )
       storedAny = true
     })
 
   const store = (message: OpenAssistantMessage) =>
     write(async (executor) => {
       if (!message.text) return
-      await appendAgentMessage(executor, {
-        id: message.id,
-        conversationId,
-        turnId,
-        role: 'assistant',
-        content: [{ type: 'text', text: message.text }],
-      })
+      remember(
+        await appendAgentMessage(executor, {
+          id: message.id,
+          conversationId,
+          turnId,
+          role: 'assistant',
+          content: [{ type: 'text', text: message.text }],
+        }),
+      )
       storedAny = true
     })
 
@@ -408,9 +443,18 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       }
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。工具失败时的中止也走这里，
       // 那时 error 已经写好，别让它把更准的那个原因盖掉。
-      if (event.message.stopReason === 'error' && !aborted) {
+      if (
+        (event.message.stopReason === 'error' || event.message.stopReason === 'length') &&
+        !aborted
+      ) {
         error ??= 'agent_upstream_error'
-        failure ??= agentTurnFailure(error, event.message.errorMessage, model.id)
+        failure ??= agentTurnFailure(
+          error,
+          event.message.stopReason === 'length'
+            ? '模型输出达到长度上限，回复未完成。请缩小请求或手动继续。'
+            : event.message.errorMessage,
+          model.id,
+        )
         log.warn(
           { event: 'agent.upstream_failed', conversationId, turnId, failure },
           'agent upstream call failed',
@@ -419,7 +463,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       open = null
       flushQueued()
     }
-    if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
+    // Pi 为截断后跳过的工具也发 start/end；失败响应不能据此生成已执行的工具卡。
+    if (event.type === 'tool_execution_start' && !error && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
       const start = agentToolStart(
         mode,
@@ -599,6 +644,58 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           { outcome, usage, upstreamInvocationCount },
           execution.assert,
         )
+      }
+      if (
+        outcome === 'completed' &&
+        input.modelHistory &&
+        retained?.reusable() &&
+        prepared.storedUserMessage &&
+        steeringReferences.size === 0
+      ) {
+        try {
+          const current = await listAgentHistoryWindow(
+            conversationId,
+            prepared.userId
+              ? { kind: 'user', userId: prepared.userId }
+              : { kind: 'device', deviceId: prepared.deviceId },
+          )
+          if (
+            canRetainModelHistory(current) &&
+            modelHistoryFingerprint(current.messages) ===
+              modelHistoryFingerprint([...history.messages, ...storedMessages.values()])
+          ) {
+            const currentSkills = await replayedSkillTexts(current.messages, mode, prepared.userId)
+            if (
+              !modelHistorySkillsMatch(
+                agent.state.messages,
+                input.skillTexts ?? new Map(),
+                currentSkills,
+              )
+            ) {
+              log.info(
+                { event: 'agent.model_history_skills_changed', conversationId, turnId },
+                'model history cache skipped after a skill changed',
+              )
+            } else {
+              await execution.assert()
+              await writeModelHistory(
+                {
+                  conversationId,
+                  signature: input.modelHistory.signature,
+                  history: current.messages,
+                  skillTexts: currentSkills,
+                },
+                agent.state.messages,
+              )
+            }
+          }
+        } catch (thrown) {
+          if (thrown instanceof ConversationExecutionLost) throw thrown
+          log.warn(
+            { event: 'agent.model_history_save_failed', conversationId, turnId },
+            'model history cache skipped; turn settlement is unchanged',
+          )
+        }
       }
       log.info(
         { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
