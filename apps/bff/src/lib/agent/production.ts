@@ -15,7 +15,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import type { BffTransaction } from '../private-overlay'
-import { validateProductionAssets } from './production-asset-validation'
+import { productionMediaReferences, validateProductionAssets } from './production-asset-validation'
 import { reconcileProductionReferences } from './production-references'
 
 export class ProductionError extends Error {
@@ -124,6 +124,10 @@ export async function writeProduction(
         userId,
         current?.document.content ?? null,
         record.document.content,
+        source === 'restore'
+          ? (current?.history.flatMap((revision) => productionMediaReferences(revision.content)) ??
+              [])
+          : [],
       ))
     )
       throw new ProductionError('production_invalid')

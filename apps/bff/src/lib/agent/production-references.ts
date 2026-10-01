@@ -80,9 +80,12 @@ export async function reconcileProductionReferences(
   userId: string,
   previous: ProductionContent | null,
   next: ProductionContent,
+  historical: readonly ProductionMediaReference[] = [],
 ): Promise<boolean> {
   const existing = new Set(
-    previous ? productionMediaReferences(previous).map(productionReferenceKey) : [],
+    [...(previous ? productionMediaReferences(previous) : []), ...historical].map(
+      productionReferenceKey,
+    ),
   )
   const references = productionMediaReferences(next).filter(
     (reference) => !existing.has(productionReferenceKey(reference)),
