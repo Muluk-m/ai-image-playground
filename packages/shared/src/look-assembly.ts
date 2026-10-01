@@ -1,10 +1,12 @@
+import { QUEUE_MAX_INPUT_IMAGES } from './queue-protocol'
+
 /**
  * 模板（look）＋素材 → 一次出图请求。三处出图共用这一份算式：生成模式在提交前组装、
  * 批量端点逐条素材组装、智能体照着同样的正文干活。所以它是纯函数，不读存储也不读网络。
  */
 
 /** 模型一次收得下的输入图张数。素材先占位，余下的位置留给参考图。 */
-export const LOOK_ASSEMBLY_MAX_INPUTS = 4
+export const LOOK_ASSEMBLY_MAX_INPUTS = QUEUE_MAX_INPUT_IMAGES
 
 /**
  * 一张视角图。`label` 故意只要 `string`：界面上的视角联合类型与同步协议里的宽字段
@@ -38,6 +40,13 @@ export interface LookAssemblyInput {
 
 export type LookAssemblyResult =
   | { readonly ok: true; readonly prompt: string; readonly inputImageIds: string[] }
+  | {
+      readonly ok: false
+      readonly reason: 'input_limit_exceeded'
+      readonly assetId?: never
+      readonly required: number
+      readonly limit: number
+    }
   | {
       readonly ok: false
       readonly reason: 'slot_mismatch' | 'no_views'
@@ -87,8 +96,7 @@ function withInputList(body: string, list: readonly string[]): string {
 
 /**
  * 素材条数必须与素材位数相等——少了模型没东西放，多了没有位置放，两种都是
- * `slot_mismatch`，由调用方去问用户。素材超过输入上限时只带得下前几条：
- * 提示词里的清单与 `inputImageIds` 始终描述同一批图，不会出现说了却没送的输入。
+ * `slot_mismatch`，由调用方去问用户。完整输入超过上限时拒绝，不能静默舍弃素材或模板参考。
  */
 export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResult {
   const { look, assets } = input
@@ -102,17 +110,25 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
     slots.push({ name: asset.name, imageId })
   }
 
-  const carried = slots.slice(0, Math.max(maxInputs, 0))
+  const carried = slots
   const inputImageIds = carried.map((slot) => slot.imageId)
   const seen = new Set(inputImageIds)
   const referenceOrdinals: number[] = []
   for (const imageId of look.referenceImageIds) {
-    if (inputImageIds.length >= maxInputs) break
     // 已经作为素材送进去的那张不再占一个位置：同一张图送两遍只是浪费输入。
     if (seen.has(imageId)) continue
     seen.add(imageId)
     referenceOrdinals.push(inputImageIds.length + 1)
     inputImageIds.push(imageId)
+  }
+
+  if (inputImageIds.length > maxInputs) {
+    return {
+      ok: false,
+      reason: 'input_limit_exceeded',
+      required: inputImageIds.length,
+      limit: maxInputs,
+    }
   }
 
   return {
