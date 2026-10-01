@@ -188,7 +188,9 @@
     "preview": "Open candidate",
     "sourceChanged": "Source updated. Existing candidates keep their original inputs. Create a new draft to use the latest version.",
     "retryFrom": "Retry of candidate {{number}}",
-    "unavailable": "No image model is available"
+    "unavailable": "No image model is available",
+    "previewLoading": "Loading media…",
+    "previewUnavailable": "This media cannot be read right now. Refresh status and try again."
   },
   "export": {
     "title": "Export resources",

@@ -30,12 +30,19 @@ import {
 import ProductionGenerationEditor from './ProductionGenerationEditor'
 
 function CandidatePreview({ artifact }: { artifact: AgentToolArtifact }) {
+  const { t } = useTranslation('production')
+  const [loaded, setLoaded] = useState(false)
   const [bitmap, setBitmap] = useState<string | null>(null)
   useEffect(() => {
     let active = true
+    setBitmap(null)
+    setLoaded(false)
     if (artifact.media !== 'video')
       void previewArtifactBitmap(artifact).then((value) => {
-        if (active) setBitmap(value)
+        if (active) {
+          setBitmap(value)
+          setLoaded(true)
+        }
       })
     return () => {
       active = false
@@ -50,7 +57,13 @@ function CandidatePreview({ artifact }: { artifact: AgentToolArtifact }) {
         src={queueOutputUrl(artifact.taskId, artifact.outputIndex)}
       />
     )
-  return bitmap ? <img src={bitmap} alt="" /> : <span>…</span>
+  return bitmap ? (
+    <img src={bitmap} alt="" />
+  ) : (
+    <span role="status">
+      {t(loaded ? 'generation.previewUnavailable' : 'generation.previewLoading')}
+    </span>
+  )
 }
 
 interface ProductionGenerationsProps {
@@ -181,7 +194,7 @@ function GenerationSession({
     const firstModel =
       getStoredChannels()
         .flatMap((c) => c.models)
-        .find((m) => m.media === 'image')?.id ?? ''
+        .find((m) => (m.media ?? 'image') === 'image')?.id ?? ''
     setCreating(
       initialDraft ??
         (previous
