@@ -854,8 +854,8 @@ export const agentRoutes = new Elysia()
         await db.transaction(async (tx) => {
           await lockConversation(tx, conversation.id, owner.kind === 'user' ? owner.userId : null)
           await discardConversationBatchDrafts(conversation.id, tx)
-          await detachConversationBatches(conversation.id, tx)
           await softDeleteAgentConversation(conversation.id, owner, tx)
+          await detachConversationBatches(conversation.id, tx)
           // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
           await cancelAgentConversationJobs(conversation.id, tx)
         })

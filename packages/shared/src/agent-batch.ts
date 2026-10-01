@@ -1,4 +1,10 @@
-import type { AgentMediaReference, AgentToolArtifact, AgentTurnParams } from './agent'
+import type {
+  AgentMediaReference,
+  AgentToolArtifact,
+  AgentTurnParams,
+  AgentVisualEvidence,
+} from './agent'
+import type { AnalysisCoverage, AnalysisFinding, AnalysisInputSnapshot } from './analysis'
 import type { QueueProvider, TaskStatus } from './queue-protocol'
 
 export interface AgentBatchPriceSnapshot {
@@ -32,20 +38,36 @@ export interface AgentBatchEstimates {
   readonly generation: AgentBatchEstimate
 }
 
-export interface AgentBatchItem {
+interface AgentBatchItemBase {
   readonly key: string
   readonly ordinal: number
-  readonly kind: 'generation'
   readonly inputs: readonly AgentMediaReference[]
   readonly prompt: string
+  readonly dependencies: readonly string[]
+}
+export interface AgentBatchGenerationItem extends AgentBatchItemBase {
+  readonly kind: 'generation'
   readonly params: Omit<AgentTurnParams, 'autoSubmit'> & {
     readonly model: string
     readonly provider: QueueProvider
   }
-  readonly dependencies: readonly string[]
+}
+export interface AgentBatchAnalysisItem extends AgentBatchItemBase {
+  readonly kind: 'analysis'
+  readonly params: Pick<
+    AnalysisInputSnapshot,
+    'model' | 'estimatedInputTokens' | 'evidence' | 'intent'
+  >
+}
+export type AgentBatchItem = AgentBatchGenerationItem | AgentBatchAnalysisItem
+export interface AgentBatchAnalysisResult {
+  readonly findings: readonly AnalysisFinding[] | null
+  readonly coverage: AnalysisCoverage | null
+  readonly evidence: readonly AgentVisualEvidence[] | null
 }
 
 export interface AgentBatchAttemptSnapshot {
+  readonly analysis?: AgentBatchAnalysisResult
   readonly status: 'completed' | 'failed' | 'cancelled'
   readonly completedAt: number
   readonly upstreamStatus: number | null
@@ -56,6 +78,7 @@ export interface AgentBatchAttemptSnapshot {
 }
 
 export interface AgentBatchItemExecution {
+  readonly analysis?: AgentBatchAnalysisResult
   readonly taskId: string
   readonly status: TaskStatus
   readonly attempt: number
@@ -87,6 +110,7 @@ export interface AgentBatchView {
     | 'insufficient_credits'
     | 'input_limit'
     | 'upstream_auth'
+    | 'model_unavailable'
     | null
   readonly retryItemKeys?: readonly string[]
   readonly retryRequiresResume?: boolean
@@ -97,7 +121,32 @@ export interface AgentBatchView {
   readonly createdAt: number
 }
 
+/** Successful coverage is backed by the currently approved attempt's model-call evidence. */
+export interface AgentBatchAnalysisSummary {
+  readonly complete: boolean
+  readonly inspectionComplete: boolean
+  readonly jointComparisons: readonly {
+    readonly itemKey: string
+    readonly taskId: string | null
+    readonly attempt: number | null
+    readonly status: TaskStatus
+    readonly complete: boolean
+    readonly requiredImageIds: readonly string[]
+  }[]
+  readonly requiredImageIds: readonly string[]
+  readonly successfulImageIds: readonly string[]
+  readonly missingImageIds: readonly string[]
+  readonly unresolvedItemKeys: readonly string[]
+  readonly findings: readonly (AnalysisFinding & {
+    readonly itemKey: string
+    readonly taskId: string
+    readonly attempt: number
+    readonly evidence: readonly AgentVisualEvidence[]
+  })[]
+}
+
 export interface AgentBatchPage {
+  readonly analysisSummary?: AgentBatchAnalysisSummary
   readonly batch: AgentBatchView
   readonly items: readonly (AgentBatchItem & {
     readonly execution?: AgentBatchItemExecution
@@ -122,5 +171,10 @@ export interface AgentBatchUpdate {
   readonly expectedVersion: number
   readonly title: string
   readonly rule: string
-  readonly items: readonly AgentBatchItem[]
+  readonly items: readonly (
+    | AgentBatchGenerationItem
+    | (Omit<AgentBatchAnalysisItem, 'params'> & {
+        readonly params: Pick<AnalysisInputSnapshot, 'model' | 'intent'>
+      })
+  )[]
 }

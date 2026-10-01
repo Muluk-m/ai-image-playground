@@ -19,6 +19,66 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 
+const batchItemFields = {
+  key: t.String({ minLength: 1, maxLength: 128 }),
+  ordinal: t.Integer({ minimum: 0, maximum: 99 }),
+  inputs: t.Array(
+    t.Object({
+      imageId: t.String({ minLength: 1, maxLength: 128 }),
+      mediaId: t.String({ format: 'uuid' }),
+      name: t.Optional(t.String({ maxLength: 200 })),
+      maskMediaId: t.Optional(t.String({ format: 'uuid' })),
+      editAction: t.Optional(
+        t.Union([
+          t.Literal('inpaint'),
+          t.Literal('erase'),
+          t.Literal('crop'),
+          t.Literal('outpaint'),
+        ]),
+      ),
+      regions: t.Optional(
+        t.Array(
+          t.Object({
+            x: t.Number({ minimum: 0, maximum: 1 }),
+            y: t.Number({ minimum: 0, maximum: 1 }),
+            width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+            height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+          }),
+          { maxItems: 32 },
+        ),
+      ),
+    }),
+    { minItems: 1, maxItems: 100 },
+  ),
+  prompt: t.String({ minLength: 1, maxLength: 4000 }),
+  dependencies: t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
+}
+const batchItemSchema = t.Union([
+  t.Object({
+    ...batchItemFields,
+    kind: t.Literal('generation'),
+    params: t.Object({
+      model: t.String({ minLength: 1, maxLength: 128 }),
+      provider: t.Union([t.Literal('openai-compat'), t.Literal('gemini')]),
+      size: t.Optional(t.String({ maxLength: 32 })),
+      quality: t.Optional(t.String({ maxLength: 16 })),
+      output_format: t.Optional(t.String({ maxLength: 16 })),
+      output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
+      gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
+      gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
+      gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
+    }),
+  }),
+  t.Object({
+    ...batchItemFields,
+    kind: t.Literal('analysis'),
+    params: t.Object({
+      model: t.String({ minLength: 1, maxLength: 128 }),
+      intent: t.Optional(t.Union([t.Literal('inspection'), t.Literal('joint_comparison')])),
+    }),
+  }),
+])
+
 export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
   .use(badRequestOnValidation())
   .onError(({ error, status }) => {
@@ -89,55 +149,7 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
         expectedVersion: t.Integer({ minimum: 1 }),
         title: t.String({ minLength: 1, maxLength: 120 }),
         rule: t.String({ minLength: 1, maxLength: 4000 }),
-        items: t.Array(
-          t.Object({
-            key: t.String({ minLength: 1, maxLength: 128 }),
-            ordinal: t.Integer({ minimum: 0, maximum: 99 }),
-            kind: t.Literal('generation'),
-            inputs: t.Array(
-              t.Object({
-                imageId: t.String({ minLength: 1, maxLength: 128 }),
-                mediaId: t.String({ format: 'uuid' }),
-                name: t.Optional(t.String({ maxLength: 200 })),
-                maskMediaId: t.Optional(t.String({ format: 'uuid' })),
-                editAction: t.Optional(
-                  t.Union([
-                    t.Literal('inpaint'),
-                    t.Literal('erase'),
-                    t.Literal('crop'),
-                    t.Literal('outpaint'),
-                  ]),
-                ),
-                regions: t.Optional(
-                  t.Array(
-                    t.Object({
-                      x: t.Number({ minimum: 0, maximum: 1 }),
-                      y: t.Number({ minimum: 0, maximum: 1 }),
-                      width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
-                      height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
-                    }),
-                    { maxItems: 32 },
-                  ),
-                ),
-              }),
-              { minItems: 1, maxItems: 100 },
-            ),
-            prompt: t.String({ minLength: 1, maxLength: 4000 }),
-            dependencies: t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
-            params: t.Object({
-              model: t.String({ minLength: 1, maxLength: 128 }),
-              provider: t.Union([t.Literal('openai-compat'), t.Literal('gemini')]),
-              size: t.Optional(t.String({ maxLength: 32 })),
-              quality: t.Optional(t.String({ maxLength: 16 })),
-              output_format: t.Optional(t.String({ maxLength: 16 })),
-              output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
-              gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
-              gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
-              gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
-            }),
-          }),
-          { minItems: 1, maxItems: 100 },
-        ),
+        items: t.Array(batchItemSchema, { minItems: 1, maxItems: 100 }),
       }),
     },
   )

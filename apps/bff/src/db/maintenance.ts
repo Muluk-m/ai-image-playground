@@ -8,7 +8,6 @@ import {
   isNotNull,
   isNull,
   lt,
-  ne,
   notExists,
   notInArray,
   or,
@@ -78,9 +77,10 @@ export function recoverAbandonedTasks(
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const recoverable = and(
     scope,
+    inArray(schema.tasks.kind, ['queue', 'chat']),
     config.execution.legacyOrigin
       ? or(
-          ne(schema.tasks.kind, 'chat'),
+          eq(schema.tasks.kind, 'queue'),
           notExists(
             db
               .select({ id: schema.agent_conversations.id })
@@ -95,7 +95,7 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
         )
       : undefined,
     or(
-      ne(schema.tasks.kind, 'chat'),
+      eq(schema.tasks.kind, 'queue'),
       notExists(
         db
           .select({ id: schema.agent_executions.turn_id })
@@ -236,7 +236,7 @@ async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
     .selectDistinct({ id: schema.tasks.agent_conversation_id })
     .from(schema.tasks)
     .where(
-      and(expired, isNotNull(schema.tasks.agent_conversation_id), ne(schema.tasks.kind, 'chat')),
+      and(expired, isNotNull(schema.tasks.agent_conversation_id), eq(schema.tasks.kind, 'queue')),
     )
   const failed: string[] = []
   for (const { id } of conversations) {

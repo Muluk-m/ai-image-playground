@@ -706,6 +706,12 @@ export type AgentBatchCommand =
       deviceId: string
     }
   | { action: 'pause' | 'reprice'; commandId: string; expectedVersion: number }
+  | {
+      action: 'retry-quote'
+      commandId: string
+      expectedVersion: number
+      itemKeys: readonly string[]
+    }
 
 export async function executeBatchCommand(
   batchId: string,

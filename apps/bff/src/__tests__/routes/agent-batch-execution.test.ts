@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { DEVICE_ID_HEADER } from '@image-playground/shared'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   completionStream,
@@ -445,6 +445,17 @@ it('删除会话与后续项准备并发时解除批次关联，保留未知任�
       status: 'reconciling',
     })
     expect(
+      await db
+        .select({ id: schema.agent_inbox.id })
+        .from(schema.agent_inbox)
+        .where(
+          and(
+            eq(schema.agent_inbox.conversation_id, conversation.id),
+            eq(schema.agent_inbox.kind, 'task_result'),
+          ),
+        ),
+    ).toHaveLength(0)
+    expect(
       (await request(`agent/conversations/${conversation.id}`, { deviceId: DEVICE }, 'DELETE'))
         .status,
     ).toBe(200)
@@ -534,6 +545,17 @@ it('删除会话与后续项准备并发时解除批次关联，保留未知任�
     price_snapshot: { pricingVersion: 'price-7' },
     terminal_snapshot: { status: 'failed', actualCredits: 0 },
   })
+  expect(
+    await db
+      .select({ id: schema.agent_inbox.id })
+      .from(schema.agent_inbox)
+      .where(
+        and(
+          eq(schema.agent_inbox.conversation_id, conversation.id),
+          eq(schema.agent_inbox.kind, 'task_result'),
+        ),
+      ),
+  ).toHaveLength(0)
   expect(billing.settlements.filter((one) => one.taskId === taskId)).toHaveLength(1)
   expect(dispatches).toBe(1)
 }, 15000)
@@ -1805,3 +1827,396 @@ it('依赖明确失败时显示阻塞，只重试上游成功后解除并首次�
   })
   expect(calls).toBe(4)
 }, 15000)
+
+it('所选模型通道失效时持久暂停，恢复通道后只提交未入队项', async () => {
+  billing.answer = { kind: 'reserved', credits: 7 }
+  billing.settledCredits = 7
+  const first = await upload('#184957')
+  const second = await upload('#957418')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'model-pause-batch',
+            name: 'planImageBatch',
+            args: {
+              title: '通道暂停恢复',
+              rule: '分别换白底',
+              items: [
+                { key: 'first', imageIds: ['first'], prompt: '第一张换成白底', dependencies: [] },
+                { key: 'second', imageIds: ['second'], prompt: '第二张换成白底', dependencies: [] },
+              ],
+            },
+          }),
+        () => completionStream('请确认两项计划'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '先拟两张白底图计划',
+      references: [
+        { imageId: 'first', mediaId: first },
+        { imageId: 'second', mediaId: second },
+      ],
+    })
+  ).text()
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const path = `agent/batches/${batches[0].id}`
+  const draft = await (await request(path)).json()
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let preparingSecond = false
+  let reads = 0
+  storage.beforeRead = async () => {
+    if (++reads === 2) {
+      preparingSecond = true
+      await gate
+    }
+  }
+  const command = {
+    commandId: 'confirm-model-pause',
+    expectedVersion: 1,
+    expectedDigest: draft.batch.digest,
+    deviceId: DEVICE,
+  }
+  const confirming = request(`${path}/confirm`, command)
+  try {
+    await waitFor(() => preparingSecond)
+    _setChannelsForTesting([])
+    storage.beforeRead = undefined
+    release()
+    const response = await confirming
+    expect(response.status).toBe(200)
+    const paused = await response.json()
+    expect(paused.batch).toMatchObject({
+      status: 'paused',
+      pauseReason: 'model_unavailable',
+      submittedCount: 1,
+    })
+    expect(paused.items[1].execution).toBeUndefined()
+    const firstId = paused.items[0].execution.taskId
+    expect((await (await request(path)).json()).batch.pauseReason).toBe('model_unavailable')
+    expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(
+      1,
+    )
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+    const output = await sharp({
+      create: { width: 8, height: 6, channels: 4, background: '#ffffff' },
+    })
+      .png()
+      .toBuffer()
+    let calls = 0
+    setUpstreamFetchForTesting(async () => {
+      calls++
+      return Response.json({ data: [{ b64_json: output.toString('base64') }] })
+    })
+    await runTask(firstId)
+    const resumedResponse = await request(`${path}/resume`, {
+      ...command,
+      commandId: 'resume-model-pause',
+    })
+    expect(resumedResponse.status).toBe(200)
+    const resumed = await resumedResponse.json()
+    expect(resumed.items[0].execution.taskId).toBe(firstId)
+    expect(resumed.items[1].execution).toMatchObject({ attempt: 1, status: 'queued' })
+    await runTask(resumed.items[1].execution.taskId)
+    expect((await (await request(path)).json()).batch).toMatchObject({
+      status: 'closed',
+      submittedCount: 2,
+      actualCredits: 14,
+    })
+    expect(calls).toBe(2)
+  } finally {
+    storage.beforeRead = undefined
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+    release()
+    await confirming
+  }
+}, 15000)
+
+it('批次产物保持原始 chat/canvas 项目归属，切换其他项目不改变目标', async () => {
+  const createProject = async (experience: 'chat' | 'canvas') => {
+    const id = crypto.randomUUID()
+    const response = await request(
+      `projects/${id}`,
+      {
+        requestId: crypto.randomUUID(),
+        baseRevision: 0,
+        name: `批次 ${experience} 项目`,
+        document: { version: 1, experience, elements: [] },
+      },
+      'PUT',
+    )
+    expect(response.status).toBe(200)
+    const { conversation } = await (await request(`projects/${id}/conversation`, {}, 'PUT')).json()
+    return { id, conversationId: conversation.id as string }
+  }
+  const mediaId = await upload('#957184')
+  const output = await sharp({
+    create: { width: 8, height: 6, channels: 4, background: '#ffffff' },
+  })
+    .png()
+    .toBuffer()
+  for (const experience of ['chat', 'canvas'] as const) {
+    billing.answer = { kind: 'reserved', credits: 7 }
+    billing.settledCredits = 7
+    const origin = await createProject(experience)
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: `target-${experience}`,
+              name: 'planImageBatch',
+              args: {
+                title: '固定目标归属',
+                rule: '换白底',
+                items: [
+                  {
+                    key: 'original',
+                    imageIds: ['original'],
+                    prompt: '原图换成白底',
+                    dependencies: [],
+                  },
+                ],
+              },
+            }),
+          () => completionStream('请确认计划'),
+        ],
+      ),
+    )
+    await (
+      await request(`agent/conversations/${origin.conversationId}/turns`, {
+        deviceId: DEVICE,
+        text: '拟一个白底图计划',
+        references: [{ imageId: 'original', mediaId }],
+      })
+    ).text()
+    const { batches } = await (
+      await request(`agent/conversations/${origin.conversationId}/batches`)
+    ).json()
+    expect(batches).toHaveLength(1)
+    const path = `agent/batches/${batches[0].id}`
+    const draft = await (await request(path)).json()
+    expect(draft.batch).toMatchObject({
+      experience,
+      projectId: origin.id,
+      conversationId: origin.conversationId,
+    })
+    const other = await createProject('canvas')
+    const otherBefore = await (await request(`projects/${other.id}?identity=1`)).json()
+    const confirmed = await (
+      await request(`${path}/confirm`, {
+        commandId: `confirm-target-${experience}`,
+        expectedVersion: 1,
+        expectedDigest: draft.batch.digest,
+        deviceId: DEVICE,
+      })
+    ).json()
+    const taskId = confirmed.items[0].execution.taskId
+    setUpstreamFetchForTesting(async () =>
+      Response.json({ data: [{ b64_json: output.toString('base64') }] }),
+    )
+    await runTask(taskId)
+    const completed = await (await request(path)).json()
+    const artifact = completed.items[0].execution.artifacts[0]
+    const originAfter = await (await request(`projects/${origin.id}?identity=1`)).json()
+    const otherAfter = await (await request(`projects/${other.id}?identity=1`)).json()
+    const generation = await (await request(`generations/${taskId}`)).json()
+    expect(completed.batch.targetSnapshot).toEqual(draft.batch.targetSnapshot)
+    expect(generation.source).toEqual({
+      kind: 'agent',
+      conversationId: origin.conversationId,
+      turnId: draft.batch.originTurnId,
+      projectId: origin.id,
+    })
+    expect(originAfter.document.experience).toBe(experience)
+    expect(originAfter.document.elements[0]).toMatchObject({
+      id: artifact.artifactId,
+      mediaId: generation.outputs[0].mediaId,
+    })
+    expect(otherAfter.document).toEqual(otherBefore.document)
+    expect(otherAfter.revision).toBe(otherBefore.revision)
+    expect(
+      (await (await request(`agent/conversations/${other.conversationId}/batches`)).json()).batches,
+    ).toHaveLength(0)
+    expect(
+      Buffer.from(await (await request(`v1/queue/requests/${taskId}/image/0`)).arrayBuffer()),
+    ).toEqual(output)
+  }
+}, 20000)
+
+it('confirms one independently priced analysis after its origin turn settled and reads its findings after restart', async () => {
+  const operator = config.operator
+  const currentOverlay = await loadPrivateBffOverlay()
+  config.operator = {
+    ...operator,
+    capabilities: Object.assign({}, operator.capabilities, { 'agent:batch-analysis': true }),
+  }
+  _setPrivateBffOverlayForTesting({
+    ...currentOverlay,
+    taskHooks: {
+      ...currentOverlay.taskHooks,
+      async quoteTokenTask({ model, estimatedInputTokens }) {
+        return {
+          estimatedCredits: 7,
+          pricing: {
+            unit: 'kilo_token',
+            quantity: 1,
+            unitMultiplier: 0.99,
+            pricingVersion: `analysis-v1:${estimatedInputTokens}`,
+            quotedAt: 1000,
+            validUntil: null,
+            model,
+            baseUnitCredits: 7,
+            outputPriceRatio: 1,
+            cachedInputPriceRatio: 0.1,
+            inputEstimateTokens: estimatedInputTokens,
+            outputReserveTokens: 1000,
+            exemption: 'none',
+          },
+        }
+      },
+    },
+  })
+  const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
+  const { runAnalysisTask } = await import('../../workers/analysis-runner')
+  const { recoverAnalysisTasks } = await import('../../lib/analysis-tasks')
+  try {
+    billing.answer = { kind: 'reserved', credits: 7 }
+    billing.settledCredits = 1
+    const mediaId = await upload('#abcdef')
+    const { conversation } = await (
+      await request('agent/conversations', { deviceId: DEVICE })
+    ).json()
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'analysis-plan',
+              name: 'planImageBatch',
+              args: {
+                title: '检查原图颜色',
+                rule: '完整检查原图',
+                items: [
+                  {
+                    key: 'inspect',
+                    kind: 'analysis',
+                    imageIds: ['original'],
+                    prompt: '检查颜色是否均匀',
+                    dependencies: [],
+                  },
+                ],
+              },
+            }),
+          () => completionStream('请确认分析预估费用'),
+        ],
+      ),
+    )
+    await (
+      await request(`agent/conversations/${conversation.id}/turns`, {
+        deviceId: DEVICE,
+        text: '检查这张图的颜色，先展示独立分析预估',
+        references: [{ imageId: 'original', mediaId }],
+      })
+    ).text()
+    const { batches } = await (
+      await request(`agent/conversations/${conversation.id}/batches`)
+    ).json()
+    expect(batches).toHaveLength(1)
+    const path = `agent/batches/${batches[0].id}`
+    const draft = await (await request(path)).json()
+    expect(draft.items[0].kind).toBe('analysis')
+    expect(draft.batch.estimate.analysis).toMatchObject({
+      status: 'available',
+      estimatedChargeCredits: 7,
+    })
+    const originalTasks = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.agent_conversation_id, conversation.id))
+    expect(originalTasks).toHaveLength(1)
+    expect(originalTasks[0]).toMatchObject({ kind: 'chat', status: 'completed' })
+    const originalSettlements = billing.settlements.filter(
+      (one) => one.taskId === originalTasks[0]!.id,
+    )
+    const command = {
+      commandId: 'confirm-analysis',
+      expectedVersion: draft.batch.version,
+      expectedDigest: draft.batch.digest,
+      deviceId: DEVICE,
+    }
+    const confirmed = await request(`${path}/confirm`, command)
+    expect(confirmed.status).toBe(200)
+    const accepted = await confirmed.json()
+    const taskId = accepted.items[0].execution.taskId
+    expect(
+      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)))[0],
+    ).toMatchObject({ kind: 'analysis', status: 'queued', agent_turn_id: null })
+    const secondConfirmation = await request(`${path}/confirm`, command)
+    expect(secondConfirmation.status).toBe(200)
+    expect(billing.reservations.filter((one) => one.taskId === taskId)).toHaveLength(1)
+    let calls = 0
+    setChatFetchForTesting(async () => {
+      calls++
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({ findings: [{ imageId: 'original', text: '颜色均匀' }] }),
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 80 },
+        },
+      })
+    })
+    await recoverAnalysisTasks()
+    await runAnalysisTask(taskId)
+    const refreshed = await (await request(path)).json()
+    expect(refreshed.items[0].execution).toMatchObject({
+      status: 'completed',
+      actualCredits: 1,
+      analysis: {
+        findings: [{ imageId: 'original', text: '颜色均匀' }],
+        coverage: {
+          requiredImageIds: ['original'],
+          reviewedImageIds: ['original'],
+          missingImageIds: [],
+        },
+      },
+      artifacts: [],
+    })
+    expect(calls).toBe(1)
+    expect(
+      await db.select().from(schema.tasks).where(eq(schema.tasks.id, originalTasks[0]!.id)),
+    ).toEqual(originalTasks)
+    expect(billing.settlements.filter((one) => one.taskId === originalTasks[0]!.id)).toEqual(
+      originalSettlements,
+    )
+    expect(
+      await db
+        .select()
+        .from(schema.generation_records)
+        .where(eq(schema.generation_records.id, taskId)),
+    ).toHaveLength(0)
+  } finally {
+    config.operator = operator
+    _setPrivateBffOverlayForTesting(currentOverlay)
+    setChatFetchForTesting()
+  }
+})

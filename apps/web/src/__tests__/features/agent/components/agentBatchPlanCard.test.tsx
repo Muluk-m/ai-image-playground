@@ -76,7 +76,10 @@ beforeEach(() => {
         saved = {
           ...saved,
           batch: { ...saved.batch, version: 2, rule: body.rule, digest: 'b'.repeat(64) },
-          items: body.items,
+          items: body.items.map((item) => {
+            if (item.kind !== 'generation') throw new Error('unexpected analysis update in generation fixture')
+            return item
+          }),
         }
       }
       if (init?.method === 'POST' && url.endsWith('/cancel')) {
@@ -230,6 +233,7 @@ it('展开计划项可审查非默认 Gemini 比例及每项完整输出参数',
     items: [
       {
         ...saved.items[0]!,
+        kind: 'generation',
         params: {
           model: 'gemini-image',
           provider: 'gemini',
@@ -240,6 +244,7 @@ it('展开计划项可审查非默认 Gemini 比例及每项完整输出参数',
       },
       {
         ...saved.items[1]!,
+        kind: 'generation',
         params: {
           model: 'image-model',
           provider: 'openai-compat',

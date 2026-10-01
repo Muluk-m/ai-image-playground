@@ -7,9 +7,10 @@ import {
   type AgentWakeSkipReason,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
+import { cancelAnalysisTasks } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
@@ -222,11 +223,18 @@ export async function cancelAgentConversationJobs(
   conversationId: string,
   tx?: BffTransaction,
 ): Promise<number> {
-  const cancelled = await cancelTasks(
-    and(eq(schema.tasks.agent_conversation_id, conversationId), ne(schema.tasks.kind, 'chat'))!,
-    tx ? { tx } : {},
-  )
-  return cancelled.length
+  const cancel = async (executor: BffTransaction) => {
+    const cancelled = await cancelTasks(
+      and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue'))!,
+      { tx: executor },
+    )
+    const analysis = await cancelAnalysisTasks(
+      eq(schema.tasks.agent_conversation_id, conversationId),
+      executor,
+    )
+    return cancelled.length + analysis
+  }
+  return tx ? cancel(tx) : db.transaction(cancel)
 }
 
 /**
@@ -302,7 +310,7 @@ export async function cancelAgentJob(conversationId: string, taskId: string): Pr
     and(
       eq(schema.tasks.id, taskId),
       eq(schema.tasks.agent_conversation_id, conversationId),
-      ne(schema.tasks.kind, 'chat'),
+      eq(schema.tasks.kind, 'queue'),
     )!,
   )
   return cancelled.length > 0

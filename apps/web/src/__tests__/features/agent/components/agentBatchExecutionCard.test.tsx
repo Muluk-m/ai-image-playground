@@ -673,3 +673,343 @@ it('keeps the newly opened batch when the previous batch control response arrive
     vi.unstubAllGlobals()
   }
 })
+
+it('quotes only selected definite failures and preserves pause plus every earlier attempt when confirming a retry', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  let saved = initialPage()
+  const failed = {
+    taskId: 'failed-original-task',
+    status: 'failed' as const,
+    attempt: 1,
+    actualCredits: 0,
+    errorCode: 'content_policy',
+  }
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      status: 'paused',
+      itemCount: 4,
+      submittedCount: 3,
+      confirmationRequired: false,
+    },
+    items: [
+      {
+        ...saved.items[0]!,
+        progress: 'completed',
+        execution: {
+          taskId: 'successful-original-task',
+          status: 'completed',
+          attempt: 1,
+          actualCredits: 7,
+        },
+      },
+      { ...saved.items[1]!, progress: 'failed', execution: failed, attempts: [failed] },
+      {
+        ...saved.items[0]!,
+        key: 'item-2',
+        ordinal: 2,
+        progress: 'reconciling',
+        execution: {
+          taskId: 'uncertain-original-task',
+          status: 'reconciling',
+          attempt: 1,
+          actualCredits: null,
+        },
+      },
+      {
+        ...saved.items[0]!,
+        key: 'item-3',
+        ordinal: 3,
+        dependencies: ['item-1'],
+        progress: 'blocked',
+        blockedBy: ['item-1'],
+      },
+    ],
+  }
+  const commands: { action: string; body: Record<string, unknown> }[] = []
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (!url.includes(`/api/agent/batches/${saved.batch.id}`))
+      throw new Error(`Unexpected URL: ${url}`)
+    if (init?.method === 'POST') {
+      const action = url.split('/').slice(-1)[0]!
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>
+      commands.push({ action, body })
+      if (action === 'retry-quote') {
+        saved = {
+          ...saved,
+          batch: {
+            ...saved.batch,
+            version: 2,
+            digest: 'd'.repeat(64),
+            confirmationRequired: true,
+            retryItemKeys: ['item-1'],
+            retryRequiresResume: true,
+            estimate: {
+              ...saved.batch.estimate,
+              generation: { ...estimate, estimatedCredits: 19, estimatedChargeCredits: 19 },
+            },
+          },
+        }
+        saved = {
+          ...saved,
+          items: saved.items.map((item) =>
+            item.key === 'item-1'
+              ? { ...item, progress: 'ready' }
+              : item.key === 'item-3'
+                ? { ...item, progress: 'pending', blockedBy: [] }
+                : item,
+          ),
+        }
+      } else if (action === 'confirm') {
+        saved = { ...saved, batch: { ...saved.batch, confirmationRequired: false } }
+      } else if (action === 'resume') {
+        const retry = {
+          taskId: 'retry-task',
+          status: 'queued' as const,
+          attempt: 2,
+          actualCredits: null,
+        }
+        saved = {
+          ...saved,
+          batch: { ...saved.batch, status: 'running' },
+          items: saved.items.map((item) =>
+            item.key === 'item-1'
+              ? { ...item, progress: 'in_flight', execution: retry, attempts: [failed, retry] }
+              : item,
+          ),
+        }
+      } else throw new Error(`Unexpected command: ${action}`)
+    }
+    return Response.json(saved)
+  })
+  const message = panelMessage('message-retry', 'turn-original', 'assistant', [
+    {
+      type: 'toolResult',
+      toolName: 'planImageBatch',
+      toolCallId: 'call-retry',
+      title: '商品图',
+      status: 'succeeded',
+      batchId: saved.batch.id,
+    },
+  ])
+  if (message.kind !== 'tool') throw new Error('expected tool card')
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const button = (label: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === label)
+  try {
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(4))
+    expect(host.querySelectorAll('details')[3]?.textContent).toContain('依赖受阻')
+    expect(host.querySelectorAll('details')[3]?.textContent).toContain('第 2 项')
+    act(() => host.querySelectorAll('details')[1]!.querySelector('summary')!.click())
+    const selection = host.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')
+    expect(selection).toHaveLength(1)
+    expect(selection[0]?.getAttribute('aria-label')).toBe('选择重试第 2 项')
+    act(() => selection[0]!.click())
+    await act(async () => button('获取重试报价')!.click())
+    await vi.waitFor(() => expect(button('确认重试')?.disabled).toBe(false))
+    expect(commands).toEqual([
+      {
+        action: 'retry-quote',
+        body: { commandId: expect.any(String), expectedVersion: 1, itemKeys: ['item-1'] },
+      },
+    ])
+    expect(
+      [...host.querySelectorAll('details > summary')].filter((row) =>
+        row.textContent?.includes('本次重试'),
+      ),
+    ).toHaveLength(1)
+    expect(host.textContent).toContain('本次重试预估')
+    expect(host.textContent).toContain('19')
+    expect(host.textContent).toContain('确认后批次仍暂停')
+    expect(saved.items[0]?.execution?.taskId).toBe('successful-original-task')
+    expect(saved.items[1]?.execution?.taskId).toBe('failed-original-task')
+    await act(async () => button('确认重试')!.click())
+    await vi.waitFor(() => expect(button('继续执行')?.disabled).toBe(false))
+    expect(commands[1]).toEqual({
+      action: 'confirm',
+      body: {
+        commandId: expect.any(String),
+        expectedVersion: 2,
+        expectedDigest: 'd'.repeat(64),
+        deviceId: getDeviceId(),
+      },
+    })
+    expect(host.textContent).toContain('已确认，批次已暂停')
+    expect(saved.items[1]?.execution?.taskId).toBe('failed-original-task')
+    await act(async () => button('继续执行')!.click())
+    await vi.waitFor(() => expect(button('暂停后续')?.disabled).toBe(false))
+    expect(commands[2]).toMatchObject({
+      action: 'resume',
+      body: { expectedVersion: 2, expectedDigest: 'd'.repeat(64) },
+    })
+    expect(saved.items[0]?.execution).toMatchObject({
+      taskId: 'successful-original-task',
+      actualCredits: 7,
+    })
+    const retriedItem = [...host.querySelectorAll('details')].find((item) =>
+      item.textContent?.includes('第 2 次'),
+    )!
+    expect(retriedItem.textContent).toContain('第 1 次')
+    expect(retriedItem.textContent).toContain('生成失败')
+    expect(retriedItem.textContent).toContain('排队中')
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('reviews analysis inputs without image-generation controls and displays findings with explicit coverage and settled cost', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  let saved = initialPage()
+  const evidence = [
+    {
+      imageId: 'image-0',
+      width: 8,
+      height: 6,
+      bytes: 58,
+      source: 'analysis' as const,
+      representation: 'preview' as const,
+      selection: false,
+    },
+  ]
+  saved = {
+    ...saved,
+    batch: {
+      ...saved.batch,
+      experience: 'chat',
+      projectId: null,
+      targetSnapshot: { projectId: null, projectRevision: null },
+      itemCount: 1,
+      estimate: {
+        analysis: { ...estimate, estimatedCredits: 3, estimatedChargeCredits: 3 },
+        generation: { ...estimate, estimatedCredits: 0, estimatedChargeCredits: 0 },
+      },
+    },
+    items: [
+      {
+        key: 'analysis-1',
+        ordinal: 0,
+        kind: 'analysis',
+        inputs: [...saved.items[0]!.inputs, ...saved.items[1]!.inputs],
+        prompt: '逐图检查颜色',
+        params: { model: 'analysis-model', estimatedInputTokens: 900, evidence },
+        dependencies: [],
+      },
+    ],
+  }
+  const commands: Record<string, unknown>[] = []
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (!url.includes(`/api/agent/batches/${saved.batch.id}`))
+      throw new Error(`Unexpected URL: ${url}`)
+    if (init?.method === 'PATCH') {
+      const body = JSON.parse(String(init.body)) as { items: { prompt: string; params: unknown }[] }
+      expect(body.items[0]?.params).toEqual({ model: 'analysis-model' })
+      expect(body.items[0]?.prompt).toBe('检查色彩与划痕')
+      saved = {
+        ...saved,
+        batch: {
+          ...saved.batch,
+          version: 2,
+          digest: 'e'.repeat(64),
+          estimate: {
+            ...saved.batch.estimate,
+            analysis: { ...estimate, estimatedCredits: 4, estimatedChargeCredits: 4 },
+          },
+        },
+        items: saved.items.map((item) => ({ ...item, prompt: body.items[0]!.prompt })),
+      }
+    }
+    if (init?.method === 'POST') {
+      expect(url.endsWith('/confirm')).toBe(true)
+      commands.push(JSON.parse(String(init.body)))
+      saved = {
+        ...saved,
+        batch: { ...saved.batch, status: 'closed', submittedCount: 1, actualCredits: 1 },
+        items: saved.items.map((item) => ({
+          ...item,
+          progress: 'completed',
+          execution: {
+            taskId: 'analysis-task',
+            status: 'completed',
+            attempt: 1,
+            actualCredits: 1,
+            artifacts: [],
+            analysis: {
+              findings: [{ imageId: 'image-0', text: '颜色均匀' }],
+              coverage: {
+                requiredImageIds: ['image-0', 'image-1'],
+                reviewedImageIds: ['image-0'],
+                missingImageIds: ['image-1'],
+              },
+              evidence,
+            },
+          },
+        })),
+      }
+    }
+    return Response.json(saved)
+  })
+  const message = panelMessage('message-analysis', 'turn-original', 'assistant', [
+    {
+      type: 'toolResult',
+      toolName: 'planImageBatch',
+      toolCallId: 'call-analysis',
+      title: '图片检查',
+      status: 'succeeded',
+      batchId: saved.batch.id,
+    },
+  ])
+  if (message.kind !== 'tool') throw new Error('expected tool card')
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const button = (label: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === label)
+  try {
+    await act(async () => root.render(<AgentToolCard message={message} />))
+    await vi.waitFor(() => expect(host.querySelector('details')).not.toBeNull())
+    act(() => host.querySelector('summary')!.click())
+    expect(host.querySelector('input[aria-label="尺寸"]')).toBeNull()
+    expect(host.textContent).toContain('图像分析')
+    expect(host.textContent).toContain('analysis-model')
+    expect(host.textContent).toContain('预览')
+    expect(button('确认执行')?.disabled).toBe(false)
+    const prompt = host.querySelector<HTMLTextAreaElement>('details textarea')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+        prompt,
+        '检查色彩与划痕',
+      )
+      prompt.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(button('确认执行')?.disabled).toBe(true)
+    await act(async () => button('保存计划')!.click())
+    await vi.waitFor(() => expect(host.textContent).toContain('版本 2'))
+    expect(host.querySelector('[aria-label="4 积分"]')).not.toBeNull()
+    await act(async () => button('确认执行')!.click())
+    await vi.waitFor(() => expect(host.textContent).toContain('颜色均匀'))
+    expect(commands).toEqual([
+      {
+        commandId: expect.any(String),
+        expectedVersion: 2,
+        expectedDigest: 'e'.repeat(64),
+        deviceId: getDeviceId(),
+      },
+    ])
+    expect(host.textContent).toContain('已检查 1 / 2')
+    expect(host.textContent).toContain('未覆盖：商品2')
+    expect(host.querySelector('[aria-label="1 积分"]')).not.toBeNull()
+    expect(button('查看结果 1')).toBeUndefined()
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.unstubAllGlobals()
+  }
+})

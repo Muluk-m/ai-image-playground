@@ -506,3 +506,52 @@ describe('purgeOldTasks', () => {
     expect(storage.objects.has('orphan-task/out/0')).toBe(true)
   })
 })
+
+it('dispatches analysis through its own bounded consumer and includes it in deployment drain', async () => {
+  await db.delete(schema.tasks)
+  await db.insert(schema.tasks).values(
+    ['analysis-first', 'analysis-second'].map((id, index) => ({
+      id,
+      kind: 'analysis' as const,
+      provider: 'openai-compat' as const,
+      model: 'analysis-model',
+      status: 'queued' as const,
+      request_payload: { prompt: '' },
+      submitted_at: index + 1,
+    })),
+  )
+  const { claimTaskExecution } = await import('../../workers/task-execution')
+  expect(await claimTaskExecution('analysis-first')).toBeNull()
+  const started: string[] = []
+  let release = () => {}
+  const scheduler = new TaskScheduler({
+    pollIntervalMs: 10_000,
+    analysisConcurrency: 1,
+    executeTask: async () => {
+      throw new Error('analysis must not enter generation consumer')
+    },
+    executeAnalysisTask: async (id) => {
+      started.push(id)
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    },
+  })
+  try {
+    scheduler.start()
+    await waitFor(() => scheduler.lastSuccessfulPollAt() !== null)
+    expect(started).toEqual(['analysis-first'])
+    scheduler.drain()
+    expect(scheduler.drainStatus()).toMatchObject({ draining: true, active: 1, safeToStop: false })
+    expect(await scheduler.waitForIdle(10)).toBe(false)
+    await scheduler.tick()
+    expect(started).toHaveLength(1)
+    release()
+    expect(await scheduler.waitForIdle(1000)).toBe(true)
+    expect(scheduler.drainStatus()).toMatchObject({ active: 0, safeToStop: true })
+  } finally {
+    scheduler.stop()
+    release()
+    await scheduler.waitForIdle(1000)
+  }
+})
