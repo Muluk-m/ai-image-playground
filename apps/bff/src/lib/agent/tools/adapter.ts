@@ -185,6 +185,7 @@ export function toolResultBlock(
   return {
     ...head,
     status: 'succeeded',
+    ...(details?.batchId ? { batchId: details.batchId } : {}),
     ...(details?.executedPrompt ? { prompt: details.executedPrompt } : {}),
     title: start.title,
     ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),

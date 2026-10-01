@@ -3,6 +3,8 @@ import type {
   AgentBackgroundJobCancelResponse,
   AgentBackgroundJobsResponse,
   AgentBackgroundJobView,
+  AgentBatchPage,
+  AgentBatchUpdate,
   AgentConfirmationResponse,
   AgentConversationView,
   AgentFrame,
@@ -654,4 +656,43 @@ async function resolveReferences(
     })
   }
   return resolved
+}
+
+/** The complete fixed scope is bounded to 100 items by the plan API. */
+export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
+    {
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function updateBatchPlan(
+  batchId: string,
+  update: AgentBatchUpdate,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(url(`/batches/${encodeURIComponent(batchId)}`), {
+    ...jsonInit(update, 'PATCH'),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
+}
+
+export async function cancelBatchPlan(
+  batchId: string,
+  expectedVersion: number,
+): Promise<AgentBatchPage> {
+  const response = await authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}/cancel`),
+    {
+      ...jsonInit({ expectedVersion }),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    },
+  )
+  if (!response.ok) throw await requestError(response)
+  return (await response.json()) as AgentBatchPage
 }

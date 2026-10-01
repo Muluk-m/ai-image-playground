@@ -47,6 +47,7 @@ export function isAgentMode(value: unknown): value is AgentMode {
 
 /** 智能体可调用的工具。 */
 export type AgentToolName =
+  | 'planImageBatch'
   | 'generateImage'
   | 'editImage'
   | 'viewImage'
@@ -560,6 +561,7 @@ export interface AgentVisualObservation {
 }
 
 export interface AgentToolResultBlock {
+  readonly batchId?: string
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
