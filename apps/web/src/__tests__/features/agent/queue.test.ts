@@ -7,6 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { abortRecoveries } from '../../../features/agent/lib/abortRecovery'
 import { DraftSession } from '../../../features/agent/lib/drafts'
 import { currentProjectDraft } from '../../../features/agent/lib/projectLifecycle'
 import { useAgentStore } from '../../../features/agent/store'
@@ -45,7 +46,7 @@ let turnPosts: { body: Record<string, unknown> }[]
 let turnResponse: () => Response
 let withdrawResponse: () => Response
 let interjectResponse: () => Response
-let abortResponse: () => Response | Promise<Response>
+let abortResponse: (url: string) => Response | Promise<Response>
 let snapshots: (() => Response)[]
 let eventResponses: (() => Response)[]
 
@@ -64,7 +65,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   if (method === 'POST' && url.includes('/withdraw')) return withdrawResponse()
   if (method === 'POST' && url.includes('/queue/') && url.endsWith('/interject'))
     return interjectResponse()
-  if (method === 'POST' && url.endsWith('/abort')) return abortResponse()
+  if (method === 'POST' && url.endsWith('/abort')) return abortResponse(url)
   if (url.includes('/events')) return eventResponses.shift()!()
   return (snapshots.length > 1 ? snapshots.shift()! : snapshots[0]!)()
 })
@@ -109,6 +110,7 @@ beforeEach(() => {
     historyLoading: false,
     historyFailed: false,
     returnedMessagesPending: false,
+    returnedMessagesError: null,
   })
 })
 
@@ -503,6 +505,108 @@ describe('停止时退回', () => {
     expect(JSON.stringify(refreshed.getSnapshot())).toContain('磁盘旧草稿不能被退回消息覆盖')
     expect(JSON.stringify(refreshed.getSnapshot())).toContain(QUEUED.text)
   })
+  it('刷新恢复先核实已结束的失效轮，再交接后面的有效退回消息', async () => {
+    busy()
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    const seen: string[] = []
+    abortResponse = (url) => {
+      const old = url.includes(`/turns/${TURN}/abort`)
+      seen.push(old ? TURN : NEXT_TURN)
+      return old
+        ? Response.json({ error: 'turn_not_found' }, { status: 404 })
+        : Response.json({
+            aborted: true,
+            returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+          })
+    }
+    snapshots = [
+      () => {
+        throw new TypeError('History temporarily offline')
+      },
+    ]
+    await state().abort()
+    expect(state().returnedMessagesPending).toBe(true)
+    expect((await abortRecoveries(CONVERSATION).read()).map((one) => one.turnId)).toEqual([TURN])
+    const put = IDBObjectStore.prototype.put
+    const failure = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+      this: IDBObjectStore,
+      value,
+      key,
+    ) {
+      if (this.name === 'drafts') throw new DOMException('Draft full', 'QuotaExceededError')
+      return key === undefined ? put.call(this, value) : put.call(this, value, key)
+    })
+    try {
+      useAgentStore.setState({
+        turn: 'running',
+        activeTurn: { turnId: NEXT_TURN },
+        stopping: false,
+        queue: [QUEUED],
+      })
+      await state().abort()
+      expect((await abortRecoveries(CONVERSATION).read()).map((one) => one.turnId)).toEqual([
+        TURN,
+        NEXT_TURN,
+      ])
+      failure.mockRestore()
+      snapshots = [() => Response.json({ messages: [], activeTurn: null, turns: [], queue: [] })]
+      useAgentStore.setState({
+        loaded: false,
+        conversationId: null,
+        turn: 'idle',
+        activeTurn: null,
+        queue: [],
+        error: null,
+      })
+      localStorage.setItem(
+        scopedStorageName('image-playground.agent_conversation_id'),
+        CONVERSATION,
+      )
+      await state().load()
+      expect(seen).toEqual([TURN, NEXT_TURN, TURN, NEXT_TURN])
+      expect(await abortRecoveries(CONVERSATION).read()).toEqual([])
+      expect(state().returnedMessagesPending).toBe(false)
+      expect(state().error).toBeNull()
+      const persisted = new DraftSession(draft.key)
+      await persisted.ready
+      expect(JSON.stringify(persisted.getSnapshot())).toContain(QUEUED.text)
+      expect(turnPosts).toEqual([])
+    } finally {
+      failure.mockRestore()
+    }
+  })
+
+  it('后续轮停止成功仍保留前轮尚未交接的恢复入口', async () => {
+    busy()
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    abortResponse = () => Response.json({ error: 'temporarily_unavailable' }, { status: 503 })
+    await state().abort()
+    expect(state().returnedMessagesPending).toBe(true)
+    expect((await abortRecoveries(CONVERSATION).read()).map((one) => one.turnId)).toEqual([TURN])
+    useAgentStore.setState({ turn: 'running', activeTurn: { turnId: NEXT_TURN }, stopping: false })
+    abortResponse = () => Response.json({ aborted: true, returned: [] })
+    await state().abort()
+    expect((await abortRecoveries(CONVERSATION).read()).map((one) => one.turnId)).toEqual([TURN])
+    expect(state().returnedMessagesPending).toBe(true)
+    abortResponse = (url) => {
+      expect(url).toContain(`/turns/${TURN}/abort`)
+      return Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    }
+    useAgentStore.setState({ turn: 'idle', activeTurn: null, stopping: false })
+    await state().retryReturnedMessages()
+    expect(await abortRecoveries(CONVERSATION).read()).toEqual([])
+    expect(state().returnedMessagesPending).toBe(false)
+    const persisted = new DraftSession(draft.key)
+    await persisted.ready
+    expect(JSON.stringify(persisted.getSnapshot())).toContain(QUEUED.text)
+    expect(turnPosts).toEqual([])
+  })
+
   it('停止恢复标识无法落盘时不停止上游，明确失败后可再次停止', async () => {
     busy()
     useAgentStore.setState({ queue: [QUEUED] })
@@ -603,6 +707,7 @@ describe('停止时退回', () => {
       await state().abort()
       expect(state().turn).toBe('idle')
       expect(state().error).toBeTruthy()
+      expect(state().returnedMessagesError).toBe('return_handoff_failed')
       expect(state().queue).toEqual([])
       failure.mockRestore()
       // Reopening history has no active turn; recovery must use the saved original stop identity.
