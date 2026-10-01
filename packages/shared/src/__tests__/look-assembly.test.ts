@@ -193,3 +193,12 @@ it('eight slots and eight unique references fit the platform boundary exactly', 
   expect(result.ok).toBe(true)
   if (result.ok) expect(result.inputImageIds).toHaveLength(16)
 })
+
+it('a mask target takes precedence over the preferred sheet view', () => {
+  const result = assembleLookRequest({
+    look: { body: BODY, slotCount: 1, referenceImageIds: [] },
+    assets: [CUP],
+    firstImageId: 'cup-front',
+  })
+  expect(result).toMatchObject({ ok: true, inputImageIds: ['cup-front'] })
+})

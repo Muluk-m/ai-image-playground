@@ -18,6 +18,7 @@ interface LookSubmissionOperation {
   isCurrent: () => boolean
   isEdited: () => boolean
   markPending: () => void
+  setConfirmationPending: (pending: boolean) => void
   wait: <T>(work: Promise<T>) => Promise<T>
   finish: () => void
   cancel: () => void
@@ -47,10 +48,12 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
   const onNavigate = () => {
     if (active === operation && !current()) operation.cancel()
   }
-  const timeout = setTimeout(
-    () => controller.abort(new DOMException('timeout', 'TimeoutError')),
-    30_000,
-  )
+  let remainingMs = 30_000
+  let timerStartedAt = Date.now()
+  let confirming = false
+  const armTimeout = () =>
+    setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), remainingMs)
+  let timeout = armTimeout()
   const unwatch = useStore.subscribe((next, prev) => {
     onNavigate()
     if (
@@ -90,6 +93,17 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
     sourcePath,
     ownerScope: isUserStorageScope() ? scopedStorageName('pending') : undefined,
     isCurrent: current,
+    setConfirmationPending: (waiting) => {
+      if (waiting === confirming) return
+      confirming = waiting
+      if (waiting) {
+        remainingMs = Math.max(0, remainingMs - (Date.now() - timerStartedAt))
+        clearTimeout(timeout)
+      } else if (!controller.signal.aborted) {
+        timerStartedAt = Date.now()
+        timeout = armTimeout()
+      }
+    },
     isEdited: () => edited,
     markPending: () => {
       pending = true

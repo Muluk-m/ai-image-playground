@@ -464,3 +464,35 @@ it('login navigation exemption is consumed before a later departure from the bac
   window.dispatchEvent(new Event('pagehide'))
   expect(await hasPendingSubmission()).toBe(false)
 })
+
+it('does not time out while the user considers a full-coverage mask confirmation', async () => {
+  const targetImageId = seedImage()
+  useLibraryStore.setState({
+    assets: useLibraryStore.getState().assets.map((asset) => ({
+      ...asset,
+      views: [...asset.views, { imageId: crypto.randomUUID(), label: 'sheet', source: 'upload' }],
+    })),
+  })
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) =>
+    callback(new Blob([new Uint8Array([1])], { type: 'image/png' })),
+  )
+  useStore.setState({
+    maskDraft: { targetImageId, maskDataUrl: 'data:image/png;base64,bWFzaw==', updatedAt: 1 },
+  })
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: () => {},
+    getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 0]) }),
+  } as unknown as CanvasRenderingContext2D)
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline after creation'))
+  vi.useFakeTimers()
+  const sending = submitWithLook(look(), 'template')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useStore.getState().confirmDialog).not.toBeNull()
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(useStore.getState().confirmDialog).not.toBeNull()
+  expect(useLookSubmission.getState().submitting).toBe(true)
+  useStore.getState().confirmDialog!.action()
+  expect(await sending).toBe(true)
+  expect(useStore.getState().tasks[0].maskTargetImageId).toBe(targetImageId)
+  await vi.advanceTimersByTimeAsync(0)
+})

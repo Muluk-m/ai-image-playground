@@ -1348,6 +1348,7 @@ export interface PreparedSubmissionOptions {
   sourcePath?: string
   ownerScope?: string
   template?: true
+  onConfirmationPending?: (pending: boolean) => void
   onLoginQueued?: () => void
 }
 
@@ -1421,6 +1422,7 @@ export async function submitPrepared(
       const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
       if (!current()) return []
       if (coverage === 'full') {
+        options.onConfirmationPending?.(true)
         const confirmed = await new Promise<boolean>((resolve) => {
           const finish = (confirmed: boolean) => {
             options.signal?.removeEventListener('abort', abort)
@@ -1439,7 +1441,7 @@ export async function submitPrepared(
           }
           options.signal?.addEventListener('abort', abort, { once: true })
           useStore.getState().setConfirmDialog(dialog)
-        })
+        }).finally(() => options.onConfirmationPending?.(false))
         if (!confirmed) return []
       }
       const imageId = await storeImage(input.maskDraft.maskDataUrl, 'mask')
