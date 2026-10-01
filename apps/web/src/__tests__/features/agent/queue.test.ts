@@ -577,6 +577,70 @@ describe('停止时退回', () => {
     }
   })
 
+  it('旧轮恢复遇到新运行轮时跳过旧404并交接后续回执，不停止新轮', async () => {
+    busy()
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    const receipts = abortRecoveries(CONVERSATION)
+    await receipts.remember({ turnId: TURN, draftKey: draft.key })
+    await receipts.remember({ turnId: NEXT_TURN, draftKey: draft.key })
+    const liveTurn = 'turn-still-running'
+    useAgentStore.setState({ activeTurn: { turnId: liveTurn }, returnedMessagesPending: true })
+    snapshots = [
+      () => Response.json({ messages: [], activeTurn: { turnId: liveTurn }, turns: [], queue: [] }),
+    ]
+    const seen: string[] = []
+    abortResponse = (url) => {
+      seen.push(url)
+      if (url.includes(`/turns/${TURN}/abort`))
+        return Response.json({ error: 'turn_not_found' }, { status: 404 })
+      return Response.json({
+        aborted: true,
+        returned: [{ id: QUEUED.id, text: QUEUED.text, references: [] }],
+      })
+    }
+    await state().retryReturnedMessages()
+    expect(seen.map((url) => url.split('/turns/')[1])).toEqual([
+      `${TURN}/abort`,
+      `${NEXT_TURN}/abort`,
+    ])
+    expect(await receipts.read()).toEqual([])
+    expect(state().activeTurn?.turnId).toBe(liveTurn)
+    expect(state().turn).toBe('running')
+    expect(state().returnedMessagesPending).toBe(false)
+    const refreshed = new DraftSession(draft.key)
+    await refreshed.ready
+    expect(JSON.stringify(refreshed.getSnapshot())).toContain(QUEUED.text)
+    expect(turnPosts).toEqual([])
+  })
+
+  it('空退回回执完成时保留读取期间新发送失败的错误和诊断', async () => {
+    busy()
+    const draft = currentProjectDraft(CONVERSATION)
+    await draft.ready
+    await abortRecoveries(CONVERSATION).remember({ turnId: TURN, draftKey: draft.key })
+    useAgentStore.setState({ returnedMessagesPending: true, returnedMessagesError: 'fallback' })
+    let release!: (response: Response) => void
+    const waiting = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    const abort = vi.fn(() => waiting)
+    abortResponse = abort
+    const recovering = state().retryReturnedMessages()
+    await vi.waitFor(() => expect(abort).toHaveBeenCalledOnce())
+    turnResponse = () => Response.json({ error: 'queue_full', limit: 10 }, { status: 409 })
+    await state().send('稍后再发的新消息')
+    const error = state().error
+    const diagnostic = state().errorDiagnostic
+    expect(error).toBe('排队已满（最多 10 条），等前面的处理完再发。草稿已保留。')
+    release(Response.json({ aborted: true, returned: [] }))
+    await recovering
+    expect(state().error).toBe(error)
+    expect(state().errorDiagnostic).toBe(diagnostic)
+    expect(state().returnedMessagesPending).toBe(false)
+    expect(await abortRecoveries(CONVERSATION).read()).toEqual([])
+  })
+
   it('后续轮停止成功仍保留前轮尚未交接的恢复入口', async () => {
     busy()
     const draft = currentProjectDraft(CONVERSATION)
