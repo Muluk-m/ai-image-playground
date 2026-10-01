@@ -207,10 +207,9 @@ describe('对话轮的预扣', () => {
   })
 
   /**
-   * 上一轮的参考图不再跟着下一轮重发：那批字节压根不读，所以读得出来读不出来都拖不垮纯文字轮。
-   * 这一条从前钉的是反面——历史参考图读失败就整轮失败——那正是按需取图要治的病。
+   * 原生缓存不可用时退回产品历史，不再逐张重读旧参考图；缓存故障不能拖垮纯文字轮。
    */
-  it('纯文字轮不重发历史参考图：不读对象存储，也不为它计图', async () => {
+  it('原生缓存读失败时回放文字历史，不再读旧参考图或为未发送的图计数', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('已看到参考图')))
     const conversationId = await startConversation()
@@ -220,13 +219,15 @@ describe('对话轮的预扣', () => {
       references: [REFERENCE],
     })
     await initial.text()
-    // 只要第二轮去读一次归档的参考图就会炸；它一次都不读。
+    // 缓存元信息查询故障；其后不应再读取归档参考图。
+    storage.events.length = 0
     storage.readFailuresRemaining = 1
 
     const { frames } = await runTurn(conversationId, '继续修改这张图')
 
     expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
-    expect(storage.readFailuresRemaining).toBe(1)
+    expect(storage.readFailuresRemaining).toBe(0)
+    expect(storage.events.filter((event) => event.startsWith('read:'))).toEqual([])
     expect(calls).toHaveLength(2)
     // 第一轮附了一张图，第二轮一张都没有：预扣与计费看到的图数跟着实发走。
     expect(

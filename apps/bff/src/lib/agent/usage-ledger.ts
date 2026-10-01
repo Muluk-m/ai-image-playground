@@ -115,7 +115,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         .update(calls)
         .set({
           status:
-            message.stopReason === 'error'
+            message.stopReason === 'error' || message.stopReason === 'length'
               ? 'failed'
               : message.stopReason === 'aborted'
                 ? 'cancelled'

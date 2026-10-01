@@ -13,6 +13,7 @@ import {
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
 import type { LoginPromptReason } from './loginPrompt'
+import { preservePendingSubmissionForLogin } from './pendingSubmission'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -285,6 +286,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
     setErrorKey(null)
     try {
       await loginUser(username, password)
+      preservePendingSubmissionForLogin()
       window.location.reload()
     } catch (err) {
       setErrorKey(loginErrorKey(err))
@@ -317,6 +319,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
         referralCode: referralEnabled ? referralCode : undefined,
         verification: credentials.verification,
       })
+      preservePendingSubmissionForLogin()
       window.location.reload()
     } catch (err) {
       setErrorKey(registrationErrorKey(err))
@@ -363,6 +366,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
               type="button"
               disabled={pending}
               onClick={() => {
+                preservePendingSubmissionForLogin()
                 window.location.href = oauthStartUrl(
                   provider.id,
                   view === 'registration' && referralEnabled ? referralCode : undefined,

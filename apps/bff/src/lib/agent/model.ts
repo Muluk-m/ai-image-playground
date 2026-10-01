@@ -51,6 +51,8 @@ function gatewayModel(depth?: AgentThinkingDepth): Model<'openai-completions'> {
       supportsReasoningEffort: true,
       maxTokensField: 'max_tokens',
       supportsUsageInStreaming: true,
+      // 与 Pi 0.87 的未知兼容网关默认值对齐；不让 URL 启发式替网关承诺 strict schema。
+      supportsStrictMode: false,
     },
   }
 }

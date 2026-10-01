@@ -23,6 +23,26 @@ function streamingFetch(chunks: readonly { afterMs: number; text: string }[], ha
 }
 
 describe('model stream idle watchdog', () => {
+  it('bounds response-header waits even when the transport ignores abort', async () => {
+    const ignoringAbort = () => new Promise<Response>(() => {})
+    await expect(
+      withIdleTimeout(ignoringAbort, 30)('https://gateway.test/v1/chat'),
+    ).rejects.toBeInstanceOf(AgentStreamStalledError)
+  }, 1_000)
+
+  it('does not dispatch a request that was already cancelled', async () => {
+    let invoked = false
+    const caller = new AbortController()
+    caller.abort(new Error('cancelled before dispatch'))
+    await expect(
+      withIdleTimeout(async () => {
+        invoked = true
+        return new Response('late')
+      }, 1_000)(new Request('https://gateway.test/v1/chat', { signal: caller.signal })),
+    ).rejects.toThrow('cancelled before dispatch')
+    expect(invoked).toBe(false)
+  })
+
   it('fails a stream that stops sending and aborts the upstream request', async () => {
     const { fetchFn, seen } = streamingFetch([{ afterMs: 0, text: 'data: a\n\n' }], true)
     const response = await withIdleTimeout(fetchFn, 40)('https://gateway.test/v1/chat')

@@ -42,7 +42,7 @@ await silenceChatUpstream()
 
 const app = new Elysia().use(agentRoutes)
 
-/** 写对象存储时停在门口，直到测试放行：插话归档参考图的那几秒由测试掌控。 */
+/** 归档参考图时停在门口；模型历史 JSON 使用独立请求，不被图片上传的门控阻塞。 */
 class GatedObjectStore extends InMemoryObjectStore {
   private gate: Promise<void> | null = null
   private release: () => void = () => {}
@@ -58,10 +58,17 @@ class GatedObjectStore extends InMemoryObjectStore {
     this.release()
   }
 
-  override async write(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
-    this.events.push(`waiting:${key}`)
-    if (this.gate) await this.gate
-    return super.write(key, bytes, contentType)
+  override async write(
+    key: string,
+    bytes: Uint8Array,
+    contentType: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (contentType.startsWith('image/')) {
+      this.events.push(`waiting:${key}`)
+      if (this.gate) await this.gate
+    }
+    return super.write(key, bytes, contentType, signal)
   }
 }
 
