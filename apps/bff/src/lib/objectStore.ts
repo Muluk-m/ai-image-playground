@@ -21,7 +21,7 @@ export interface ObjectStore {
   write(key: string, bytes: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void>
   read(key: string): Promise<Uint8Array<ArrayBuffer>>
   /** 视频这类大对象走这条；小对象整份 `read` 更省一次元信息往返。 */
-  open(key: string): Promise<ObjectRangeReader>
+  open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader>
   listPrefix(prefix: string): Promise<string[]>
   /** 带大小与修改时间的列举。运维看板靠它看「真正落在桶里的备份」，而不是备份脚本的自述。 */
   listEntries(prefix: string): Promise<ObjectEntry[]>
@@ -68,9 +68,23 @@ export class S3ObjectStore implements ObjectStore {
     return new Uint8Array(await this.client.file(this.keyPrefix + key).arrayBuffer())
   }
 
-  async open(key: string): Promise<ObjectRangeReader> {
+  async open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
     const file = this.client.file(this.keyPrefix + key)
-    const { size } = await file.stat()
+    let size: number
+    if (signal) {
+      signal.throwIfAborted()
+      const response = await fetch(file.presign({ method: 'HEAD', expiresIn: 60 }), {
+        method: 'HEAD',
+        signal,
+      })
+      await response.body?.cancel()
+      if (!response.ok) throw new Error(`Object metadata failed (${response.status})`)
+      const length = response.headers.get('content-length')
+      size = length === null ? Number.NaN : Number(length)
+      if (!Number.isSafeInteger(size) || size < 0) throw new Error('Invalid object size')
+    } else {
+      size = (await file.stat()).size
+    }
     // S3File.slice 的 end 是开区间，且 .stream() 会把它翻译成上游的 Range 请求。
     return { size, stream: (start, end) => file.slice(start, end + 1).stream() }
   }
