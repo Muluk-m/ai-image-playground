@@ -10,6 +10,7 @@ export function taskProgressPhase(task: {
   upstream_task_ids: string[] | null
   lease_expires_at: number | null
 }): TaskProgressPhase {
+  if (task.status === 'reconciling') return 'reconciling'
   if (task.archive_payload) return 'confirming'
   if (task.status === 'queued') return task.upstream_task_ids?.length ? 'reconnecting' : 'queued'
   if (task.lease_expires_at != null && task.lease_expires_at <= Date.now()) return 'reconnecting'

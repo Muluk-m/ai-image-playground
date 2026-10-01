@@ -270,12 +270,12 @@ export async function agentJobViews(
   // 但已有上游任务号的是在重连，执行器租约过期的也是，不能说成「排队」或「生成中」。
   const progress = new Map(
     tasks.flatMap((task): [string, AgentBackgroundJobProgress][] =>
-      task.status === 'queued' || task.status === 'in_progress'
+      task.status === 'queued' || task.status === 'in_progress' || task.status === 'reconciling'
         ? [
             [
               task.id,
               {
-                stage: task.status === 'in_progress' ? 'running' : 'submitted',
+                stage: task.status === 'queued' ? 'submitted' : 'running',
                 submittedAt: task.submitted_at,
                 phase: taskProgressPhase(task),
               },

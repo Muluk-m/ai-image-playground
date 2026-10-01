@@ -63,7 +63,7 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
     const base: StatusResponse = {
       request_id: task.id,
       status: task.status,
-      ...(task.status === 'queued' || task.status === 'in_progress'
+      ...(task.status === 'queued' || task.status === 'in_progress' || task.status === 'reconciling'
         ? { phase: taskProgressPhase(task) }
         : {}),
       submitted_at: task.submitted_at,

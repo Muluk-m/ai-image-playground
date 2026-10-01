@@ -285,9 +285,10 @@ function sortRows(rows: readonly PlatformGenerationRow[]): PlatformGenerationRow
  */
 function statusPatch(
   item: GenerationSummary,
-): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed'> {
+): Pick<TaskRecord, 'status' | 'error' | 'finishedAt' | 'elapsed' | 'queuePhase'> {
   return {
     status: statusFromGeneration(item.status),
+    queuePhase: item.status === 'reconciling' ? 'reconciling' : undefined,
     error: item.errorType ? generationErrorText(item.errorType) : null,
     finishedAt: item.completedAt,
     elapsed: item.completedAt && item.startedAt ? item.completedAt - item.startedAt : null,
@@ -312,7 +313,7 @@ function generationErrorText(code: TaskErrorType): string {
 
 function statusFromGeneration(status: QueueStatus): TaskStatus {
   if (status === 'completed') return 'done'
-  if (status === 'queued' || status === 'in_progress') return 'running'
+  if (status === 'queued' || status === 'in_progress' || status === 'reconciling') return 'running'
   return 'error'
 }
 

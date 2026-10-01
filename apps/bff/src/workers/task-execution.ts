@@ -7,6 +7,7 @@ import { publishGenerations } from '../db/generation-events'
 import {
   finishTask,
   heldBy,
+  reconcileTasks,
   requeueTask,
   requeueTaskArchive,
   saveArchiveCheckpoint,
@@ -60,6 +61,7 @@ type TaskRow = typeof schema.tasks.$inferSelect
 /** 认领时一并读到的这一行：worker 要的列，一次 `UPDATE ... RETURNING` 拿齐。 */
 export type ClaimedTask = Pick<
   TaskRow,
+  | 'reconciliation_required'
   | 'provider'
   | 'model'
   | 'request_payload'
@@ -90,6 +92,9 @@ export interface TaskExecution {
   abort(): void
   /** 记账：上游真的被调用过。返回 false 表示这一行已经不归本次执行。 */
   recordUpstreamInvocation(count?: number): Promise<boolean>
+  recordDispatchIntent(): Promise<string | null>
+  recordDispatchStarted(id: string): Promise<void>
+  recordDispatchRequestId(id: string, requestId: string): Promise<void>
   /** 落上游异步任务 id；补提交缺口时不推锚点，否则重试等于领一份新的超时预算。 */
   recordUpstreamTaskIds(taskIds: readonly string[], anchorAlreadySet: boolean): Promise<void>
   /** 回读本次执行落下的上游提交；不归本次执行时给 undefined。 */
@@ -100,6 +105,7 @@ export interface TaskExecution {
   saveCheckpoint(payload: TaskRow['archive_payload']): Promise<boolean>
   /** 写终态并触发结算、唤醒与产物发布。 */
   finish(update: TerminalTaskUpdate): Promise<boolean>
+  reconcile(reason: string): Promise<boolean>
   /** 退回 queued 等下一次尝试。 */
   requeue(attemptJustFailed: number, nextRetryAt: number): Promise<boolean>
   /** 退回 queued 只重试保存：结果还在，不消耗模型尝试次数。 */
@@ -186,6 +192,48 @@ class TaskExecutionHandle implements TaskExecution {
     return updated.length > 0
   }
 
+  async recordDispatchIntent(): Promise<string | null> {
+    return db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.tasks)
+        .set({
+          upstream_invocation_count: sql`${schema.tasks.upstream_invocation_count} + 1`,
+        })
+        .where(this.#own())
+        .returning({ id: schema.tasks.id })
+      if (!updated.length) return null
+      const id = crypto.randomUUID()
+      await tx
+        .insert(schema.task_dispatches)
+        .values({ id, task_id: this.taskId, execution_token: this.#token, intended_at: Date.now() })
+      return id
+    })
+  }
+
+  async recordDispatchStarted(id: string): Promise<void> {
+    await db
+      .update(schema.task_dispatches)
+      .set({ dispatched_at: Date.now() })
+      .where(
+        and(
+          eq(schema.task_dispatches.id, id),
+          eq(schema.task_dispatches.execution_token, this.#token),
+        ),
+      )
+  }
+
+  async recordDispatchRequestId(id: string, requestId: string): Promise<void> {
+    await db
+      .update(schema.task_dispatches)
+      .set({ upstream_request_id: requestId.slice(0, 256) })
+      .where(
+        and(
+          eq(schema.task_dispatches.id, id),
+          eq(schema.task_dispatches.execution_token, this.#token),
+        ),
+      )
+  }
+
   async recordUpstreamTaskIds(
     taskIds: readonly string[],
     anchorAlreadySet: boolean,
@@ -231,7 +279,17 @@ class TaskExecutionHandle implements TaskExecution {
     return saveArchiveCheckpoint(this.taskId, payload, this.#fence())
   }
 
+  async reconcile(reason: string): Promise<boolean> {
+    return (await reconcileTasks(this.#own(), reason)).length > 0
+  }
+
   finish(update: TerminalTaskUpdate): Promise<boolean> {
+    if (
+      this.task.reconciliation_required &&
+      update.status === 'failed' &&
+      update.errorType === 'upstream_result_unknown'
+    )
+      return this.reconcile(update.errorMessage ?? '上游结果待核查')
     return finishTask(this.taskId, update, this.#fence())
   }
 
@@ -263,7 +321,13 @@ export async function claimTaskExecution(
     const [candidate] = await tx
       .select({ userId: schema.tasks.user_id, provider: schema.tasks.provider })
       .from(schema.tasks)
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'queued')))
+      .where(
+        and(
+          eq(schema.tasks.id, id),
+          eq(schema.tasks.status, 'queued'),
+          eq(schema.tasks.kind, 'queue'),
+        ),
+      )
       .limit(1)
     if (!candidate) return null
     if (candidate.userId) {
@@ -311,10 +375,12 @@ export async function claimTaskExecution(
         and(
           eq(schema.tasks.id, id),
           eq(schema.tasks.status, 'queued'),
+          eq(schema.tasks.kind, 'queue'),
           or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, claimedAt)),
         ),
       )
       .returning({
+        reconciliation_required: schema.tasks.reconciliation_required,
         provider: schema.tasks.provider,
         model: schema.tasks.model,
         request_payload: schema.tasks.request_payload,
@@ -379,6 +445,7 @@ export async function failCrashedExecution(id: string, errorMessage: string): Pr
   const execution = running.get(id)
   if (!execution) return false
   try {
+    if (await execution.reconcile(errorMessage)) return true
     return await execution.finish({
       status: 'failed',
       errorType: 'interrupted',

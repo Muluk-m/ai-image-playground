@@ -444,6 +444,7 @@
       "generating": "Generating",
       "reconnecting": "Reconnecting",
       "confirming": "Saving result",
+      "reconciling": "Awaiting verification",
       "delivering": "Loading results"
     },
     "progress": "{{phase}} · {{elapsed}} elapsed",
