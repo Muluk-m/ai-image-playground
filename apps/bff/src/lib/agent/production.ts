@@ -150,3 +150,19 @@ export async function writeProduction(
     return record
   })
 }
+
+export async function restoreProduction(
+  conversationId: string,
+  userId: string,
+  input: { operationId: string; baseRevision: number; revision: number },
+): Promise<ProductionRecord> {
+  const record = await readProduction(conversationId, userId)
+  const previous = record?.history.find((item) => item.revision === input.revision)
+  if (!previous) throw new ProductionError('production_not_found')
+  return writeProduction(
+    conversationId,
+    userId,
+    { operationId: input.operationId, baseRevision: input.baseRevision, content: previous.content },
+    'restore',
+  )
+}

@@ -98,6 +98,32 @@ it('denies disabled production reads and writes without changing the saved text'
     '保留',
   )
 })
+it('restores an earlier script as a new revision without losing intervening history', async () => {
+  const owner = await account('production-editor')
+  const first = { title: '初稿', setting: '雨夜', outline: '相遇', scenes: [] }
+  await request(owner.id, owner.cookie, { operationId: 'first', baseRevision: 0, content: first })
+  await request(owner.id, owner.cookie, {
+    operationId: 'edit',
+    baseRevision: 1,
+    content: { ...first, title: '二稿' },
+  })
+  const restore = () =>
+    app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/production/restore`, {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'restore-first', baseRevision: 2, revision: 1 }),
+      }),
+    )
+  const result = await restore()
+  expect(result.status).toBe(200)
+  const saved = await result.json()
+  expect(saved.document.revision).toBe(3)
+  expect(saved.document.content.title).toBe('初稿')
+  expect(saved.history.map((r: { revision: number }) => r.revision)).toEqual([1, 2, 3])
+  expect(saved.history[2].source).toBe('restore')
+  expect((await (await restore()).json()).document.revision).toBe(3)
+})
 it('executes the real Agent tool through SSE and reads the saved script through HTTP', async () => {
   const owner = await account('production-agent')
   const content = {
