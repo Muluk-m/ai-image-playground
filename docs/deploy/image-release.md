@@ -14,7 +14,7 @@
 
 ### 前端启动验收
 
-`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页引用、所有构建 JS/CSS 的 MIME 与内容摘要，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。任何一项失败，发布退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开付费站，确认工作台挂载、启动遮罩消失且无 JavaScript 异常。
+`pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识及独立启动脚本、所有构建 JS/CSS 的 MIME 与内容摘要，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开付费站，确认工作台挂载、启动遮罩消失且无 JavaScript 异常。
 
 静态资源缺失不得回退首页：web 使用顶层 `404.html` 关闭 Pages 默认 SPA 回退，`_redirects` 只列真实业务路由。增加路由须同步规则与测试。`/assets/*` 使用 `max-age=0, must-revalidate`，保留 ETag 校验但不允许长期复用错误响应；不重新加路径级 `immutable`。
 

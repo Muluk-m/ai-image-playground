@@ -22,7 +22,7 @@ const localeReady = bootstrapLocale()
 
 function dismissBootSplash(): void {
   const boot = document.getElementById('boot')
-  if (!boot) return
+  if (!boot || boot.dataset.state === 'error') return
   boot.classList.add('is-done')
   // Keep the recovery UI available until the lazy workspace actually commits.
 }

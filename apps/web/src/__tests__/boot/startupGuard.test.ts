@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { STARTUP_GUARD_SCRIPT } from '../../boot/vitePlugin'
+import { STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
 
 const workerDescriptor = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker')
 const unregister = vi.fn().mockResolvedValue(true)
@@ -77,4 +77,36 @@ it('unregisters legacy workers without depending on the app module or deleting u
   expect(unregister).toHaveBeenCalled()
   expect(localStorage.getItem('preserved-user-setting')).toBe('keep')
   localStorage.removeItem('preserved-user-setting')
+})
+
+it('ignores optional manifest and favicon resource failures', () => {
+  for (const rel of ['manifest', 'icon', 'apple-touch-icon', 'preload']) {
+    const link = document.createElement('link')
+    link.rel = rel
+    document.head.append(link)
+    link.dispatchEvent(new Event('error'))
+    link.remove()
+  }
+  expect(document.getElementById('boot-error')?.hidden).toBe(true)
+})
+it('keeps an error panel visible if a delayed bootstrap tries to dismiss it', () => {
+  vi.advanceTimersByTime(30000)
+  document.getElementById('boot')?.classList.add('is-done')
+  const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
+  const style = document.createElement('style')
+  style.textContent = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
+  document.head.append(style)
+  expect(getComputedStyle(document.getElementById('boot')!).opacity).toBe('1')
+  expect(getComputedStyle(document.getElementById('boot')!).pointerEvents).toBe('auto')
+  style.remove()
+})
+it('changes the HTML identity when only the recovery markup changes', () => {
+  const transform = startupGuardPlugin().transformIndexHtml.handler
+  const base = '<html><head></head><body><div id="boot">Retry</div></body></html>'
+  const first = transform(base)
+  const second = transform(base.replace('Retry', 'Reload'))
+  expect(first).toContain('id="startup-guard"')
+  expect(first?.match(/aip-html-build" content="([^"]+)/)?.[1]).not.toBe(
+    second?.match(/aip-html-build" content="([^"]+)/)?.[1],
+  )
 })

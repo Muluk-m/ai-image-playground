@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 // Must execute independently of the module graph: a failed entry script cannot render React UI.
 export const STARTUP_GUARD_SCRIPT = `(()=>{
   // Remove legacy cache-first workers even if the application entry cannot execute.
@@ -17,13 +19,13 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
     let locale;try{locale=localStorage.getItem('aip.locale')}catch{}
     if((locale||navigator.language||'').startsWith('en')){
       document.getElementById('boot-error-title').textContent='Unable to open the workspace';
-      document.getElementById('boot-error-description').textContent='Please check your connection and try again.';
+      document.getElementById('boot-error-description').textContent='Please reload the page to try again.';
       document.getElementById('boot-retry').textContent='Reload';
     }
   };
   const onError=(event)=>{
     const target=event.target;
-    if(target instanceof HTMLScriptElement||target instanceof HTMLLinkElement||event instanceof ErrorEvent)fail();
+    if((target instanceof HTMLScriptElement&&target.type==='module')||event instanceof ErrorEvent)fail();
   };
   const onClick=(event)=>{if(event.target instanceof Element&&event.target.closest('#boot-retry'))location.reload()};
   const timer=setTimeout(fail,30000);
@@ -36,9 +38,20 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
 export function startupGuardPlugin() {
   return {
     name: 'startup-guard',
-    transformIndexHtml(html: string) {
-      if (!html.includes('id="boot"')) return
-      return [{ tag: 'script', children: STARTUP_GUARD_SCRIPT, injectTo: 'head-prepend' as const }]
+    transformIndexHtml: {
+      order: 'post' as const,
+      handler(html: string) {
+        if (!html.includes('id="boot"')) return
+        const guardedHtml = html.replace(
+          '<head>',
+          `<head><script id="startup-guard">${STARTUP_GUARD_SCRIPT}</script>`,
+        )
+        const identity = createHash('sha256').update(guardedHtml).digest('hex')
+        return guardedHtml.replace(
+          '</head>',
+          `<meta name="aip-html-build" content="${identity}"></head>`,
+        )
+      },
     },
   }
 }

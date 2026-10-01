@@ -40,6 +40,7 @@
       }
       #boot img {
         width: 46px;
+        margin: 0 auto;
         height: 46px;
         border-radius: 14px;
         animation: boot-pulse 1.4s ease-in-out infinite;
@@ -65,7 +66,7 @@
       #boot-error h1 { font-size: 18px; margin-top: 24px; }
       #boot-error p { font-size: 14px; color: #aab5a2; }
       #boot-retry { margin-top: 12px; border: 0; border-radius: 8px; padding: 10px 20px; background: #c6e999; color: #203014; cursor: pointer; }
-      #boot[data-state="error"] { z-index: 10000; }
+      #boot[data-state="error"] { z-index: 10000; opacity: 1; pointer-events: auto; }
       #boot[data-state="error"] img { animation: none; }
     </style>
   </head>
@@ -79,7 +80,7 @@
     <div id="boot"><div><img src="/brand/muvloom-icon.svg" alt="" />
       <div id="boot-error" role="alert" hidden>
         <h1 id="boot-error-title">工作台暂时无法打开</h1>
-        <p id="boot-error-description">请检查网络连接后重试。</p>
+        <p id="boot-error-description">请重新加载页面后重试。</p>
         <button id="boot-retry" type="button">重新加载</button>
       </div>
     </div></div>
