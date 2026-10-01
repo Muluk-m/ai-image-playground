@@ -2,13 +2,15 @@ import { createHash } from 'node:crypto'
 import type {
   AgentBatchEstimates,
   AgentBatchItem,
+  AgentBatchItemExecution,
+  AgentBatchItemProgress,
   AgentBatchPage,
   AgentBatchPriceSnapshot,
   AgentBatchUpdate,
   AgentBatchView,
   AgentMediaReference,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
@@ -269,6 +271,13 @@ export async function createAgentBatchPlan(
 export class BatchPlanError extends Error {
   constructor(
     readonly code:
+      | 'batch_execution_unavailable'
+      | 'batch_retry_unavailable'
+      | 'batch_size_exceeded'
+      | 'batch_price_changed'
+      | 'batch_submission_refused'
+      | 'batch_input_limit'
+      | 'batch_insufficient_credits'
       | 'batch_version_conflict'
       | 'invalid_batch_plan'
       | 'invalid_batch_cursor'
@@ -344,6 +353,101 @@ export async function readAgentBatchPlan(
     )
     .orderBy(asc(schema.agent_batch_items.ordinal))
     .limit(limit + 1)
+  const attemptRows = await db
+    .select({
+      itemKey: schema.agent_batch_attempts.item_key,
+      attempt: schema.agent_batch_attempts.attempt,
+      taskId: schema.agent_batch_attempts.task_id,
+      status: schema.tasks.status,
+      snapshot: schema.agent_batch_attempts.terminal_snapshot,
+    })
+    .from(schema.agent_batch_attempts)
+    .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+    .where(
+      and(
+        eq(schema.agent_batch_attempts.batch_id, id),
+        lte(schema.agent_batch_attempts.version, plan.version),
+      ),
+    )
+  attemptRows.sort((a, b) => a.attempt - b.attempt)
+  const attempts = attemptRows.map((one) => ({
+    ...one,
+    status: one.snapshot?.status ?? one.status ?? ('reconciling' as const),
+  }))
+  const terminal = attempts.filter((one) =>
+    ['completed', 'failed', 'cancelled'].includes(one.status),
+  )
+  const unarchived = terminal.filter((one) => !one.snapshot)
+  const liveCredits = unarchived.length
+    ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
+        taskIds: unarchived.map((one) => one.taskId),
+      })
+    : {}
+  const credits = {
+    ...liveCredits,
+    ...Object.fromEntries(
+      terminal.flatMap((one) =>
+        one.snapshot?.actualCredits !== null && one.snapshot?.actualCredits !== undefined
+          ? [[one.taskId, one.snapshot.actualCredits]]
+          : [],
+      ),
+    ),
+  }
+  const history = new Map<string, AgentBatchItemExecution[]>()
+  for (const one of attempts) {
+    const entry: AgentBatchItemExecution = {
+      taskId: one.taskId,
+      status: one.status,
+      attempt: one.attempt,
+      actualCredits: terminal.includes(one) ? (credits[one.taskId] ?? null) : null,
+      ...(one.snapshot
+        ? {
+            artifacts: one.snapshot.artifacts,
+            errorCode: one.snapshot.errorCode,
+            message: one.snapshot.message,
+          }
+        : {}),
+    }
+    history.set(one.itemKey, [...(history.get(one.itemKey) ?? []), entry])
+  }
+  const execution = new Map(
+    [...history].map(([key, entries]) => [key, entries[entries.length - 1]!]),
+  )
+  const currentTerminal = terminal.filter(
+    (one) =>
+      one.attempt ===
+      (Object.hasOwn(plan.attempt_targets, one.itemKey) ? plan.attempt_targets[one.itemKey]! : 1),
+  )
+  const complete =
+    batch.confirmed_version === plan.version && currentTerminal.length === plan.item_count
+  const targetExecution = (key: string) => {
+    const current = execution.get(key)
+    const target = Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1
+    return current?.attempt === target ? current : undefined
+  }
+  const progressOf = (
+    item: AgentBatchItem,
+  ): { progress: AgentBatchItemProgress; blockedBy?: string[] } => {
+    const current = targetExecution(item.key)
+    if (current) {
+      if (current.status === 'queued' || current.status === 'in_progress')
+        return { progress: 'in_flight' }
+      if (current.status === 'failed' && current.errorCode === 'result_unknown')
+        return { progress: 'reconciling' }
+      return { progress: current.status }
+    }
+    const blockedBy = item.dependencies.filter((key) => {
+      const dependency = targetExecution(key)
+      return dependency && ['failed', 'cancelled', 'reconciling'].includes(dependency.status)
+    })
+    if (blockedBy.length) return { progress: 'blocked', blockedBy }
+    if (batch.status === 'cancelled') return { progress: 'cancelled' }
+    const ready =
+      batch.status === 'running' &&
+      batch.confirmed_version === plan.version &&
+      item.dependencies.every((key) => targetExecution(key)?.status === 'completed')
+    return { progress: ready ? 'ready' : 'pending' }
+  }
   return {
     batch: {
       id: batch.id,
@@ -357,12 +461,26 @@ export async function readAgentBatchPlan(
       title: plan.title,
       rule: plan.rule,
       itemCount: plan.item_count,
-      status: batch.status,
-      executionEnabled: false,
+      status: complete ? 'closed' : batch.status,
+      executionEnabled:
+        batchPlansAvailable({ userId }) && isCapabilityEnabled('agent:batch-execution'),
+      pauseReason: batch.pause_reason,
+      confirmationRequired: batch.confirmed_version !== batch.current_version,
+      ...(plan.retry_item_keys.length
+        ? { retryItemKeys: plan.retry_item_keys, retryRequiresResume: plan.retry_requires_resume }
+        : {}),
+      submittedCount: attempts.length,
+      actualCredits: Object.values(credits).reduce((sum, value) => sum + value, 0),
       estimate: plan.estimate_snapshot,
       createdAt: batch.created_at,
     } satisfies AgentBatchView,
-    items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => item),
+    items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
+      ...item,
+      ...progressOf(item),
+      ...(execution.has(item.key)
+        ? { execution: execution.get(item.key)!, attempts: history.get(item.key)! }
+        : {}),
+    })),
     nextCursor:
       items.length > limit
         ? Buffer.from(JSON.stringify([id, plan.version, items[limit - 1]!.ordinal])).toString(

@@ -7,6 +7,7 @@ export const CAPABILITIES = {
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'agent:chat': { defaultValue: false, clientExposed: true },
+  'agent:batch-execution': { defaultValue: false, clientExposed: true },
   'agent:batch-plans': { defaultValue: false, clientExposed: true },
   'agent:attachments': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
@@ -60,6 +61,8 @@ export interface AdminCapabilityManifest {
 }
 
 export const QUOTAS = {
+  'agent:batch-max-items': { defaultValue: 3 },
+  'agent:batch-dispatch-window': { defaultValue: 2 },
   /** Application resource guard, not a provider throughput guarantee. */
   'agent:visual-prepare-concurrency': { defaultValue: 1 },
   'agent:visual-prepare-queue': { defaultValue: 100 },

@@ -534,6 +534,20 @@
     }
   },
   "batch": {
+    "actualCost": "已结算费用",
+    "chargeUnknown": "待结算",
+    "viewResult": "查看结果 {{index}}",
+    "itemStatus": {"pending": "待处理", "queued": "排队中", "in_progress": "生成中", "completed": "已完成", "failed": "生成失败", "cancelled": "已取消", "reconciling": "待核查"},
+
+    "reprice": "更新报价",
+    "commandPending": "操作结果待核对",
+    "checkCommand": "核对操作结果",
+    "targetCanvas": "原画布",
+    "targetChat": "原对话",
+    "submitted": "已提交 {{count}} / {{total}}",
+    "paused": "已暂停",
+    "pause": "暂停后续",
+    "resume": "继续执行",
     "version": "版本 {{version}}",
     "title": "计划名称",
     "rule": "统一规则",
