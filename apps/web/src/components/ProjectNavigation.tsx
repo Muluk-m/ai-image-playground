@@ -36,7 +36,7 @@ export default function ProjectNavigation() {
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [expanded, setExpanded] = useState({ chat: false, canvas: false })
+  const [visibleCounts, setVisibleCounts] = useState({ chat: 5, canvas: 5 })
   // 哪一项正在打开。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 只把按钮置灰的话点下去像没反应。`'new'` 是「新建」那一项。
   const [pending, setPending] = useState<string | 'new' | null>(null)
@@ -60,7 +60,7 @@ export default function ProjectNavigation() {
     currentExperience === 'canvas' ? ['canvas', 'chat'] : ['chat', 'canvas']
   const groups = groupOrder.map((experience) => {
     const items = matches.filter((project) => projectExperience(project) === experience)
-    return { experience, items, visible: expanded[experience] ? items : items.slice(0, 5) }
+    return { experience, items, visible: items.slice(0, visibleCounts[experience]) }
   })
   const allProjects = () => {
     setOpen(false)
@@ -92,7 +92,7 @@ export default function ProjectNavigation() {
             setOpen(value)
             if (value) {
               setSearch('')
-              setExpanded({ chat: false, canvas: false })
+              setVisibleCounts({ chat: 5, canvas: 5 })
               void useCanvasProjectStore.getState().refreshCloud()
             }
           }}
@@ -123,7 +123,7 @@ export default function ProjectNavigation() {
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value)
-                  setExpanded({ chat: false, canvas: false })
+                  setVisibleCounts({ chat: 5, canvas: 5 })
                 }}
                 placeholder={t('navigation.search')}
                 aria-label={t('navigation.search')}
@@ -192,21 +192,35 @@ export default function ProjectNavigation() {
                       </Button>
                     ))}
                     {group.items.length > 5 && (
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start px-3 text-xs text-muted-foreground"
-                        aria-expanded={expanded[group.experience]}
-                        onClick={() =>
-                          setExpanded((value) => ({
-                            ...value,
-                            [group.experience]: !value[group.experience],
-                          }))
-                        }
-                      >
-                        {expanded[group.experience]
-                          ? t('navigation.collapse')
-                          : t('navigation.expand', { remaining: group.items.length - 5 })}
-                      </Button>
+                      <div className="flex items-center">
+                        {group.visible.length < group.items.length && (
+                          <Button
+                            variant="ghost"
+                            className="justify-start px-3 text-xs text-muted-foreground"
+                            onClick={() =>
+                              setVisibleCounts((value) => ({
+                                ...value,
+                                [group.experience]: value[group.experience] + 5,
+                              }))
+                            }
+                          >
+                            {t('navigation.expand', {
+                              remaining: Math.min(5, group.items.length - group.visible.length),
+                            })}
+                          </Button>
+                        )}
+                        {visibleCounts[group.experience] > 5 && (
+                          <Button
+                            variant="ghost"
+                            className="justify-start px-3 text-xs text-muted-foreground"
+                            onClick={() =>
+                              setVisibleCounts((value) => ({ ...value, [group.experience]: 5 }))
+                            }
+                          >
+                            {t('navigation.collapse')}
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </section>
                 ))}

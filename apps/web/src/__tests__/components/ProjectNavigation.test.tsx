@@ -14,7 +14,7 @@ it.each([
 ] as const)('shows five per group with active %s first and independent expansion', async (experience) => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   stubPointerApis()
-  const projects: CanvasProject[] = Array.from({ length: 14 }, (_, index) => ({
+  const projects: CanvasProject[] = Array.from({ length: 24 }, (_, index) => ({
     id: String(index),
     name: `Project ${index}`,
     experience: index % 2 === 0 ? 'chat' : 'canvas',
@@ -45,19 +45,21 @@ it.each([
     const trigger = host.querySelector<HTMLButtonElement>('[aria-label^="切换项目"]')!
     await act(async () => trigger.click())
     const sections = () => [...document.querySelectorAll('section')]
-    const rows = (section: Element) => section.querySelectorAll('button:not([aria-expanded])')
+    const rows = (section: Element) => section.querySelectorAll('button:has(time)')
     expect(sections().map((section) => section.getAttribute('aria-label'))).toEqual(
       experience === 'chat' ? ['对话', '画布'] : ['画布', '对话'],
     )
     expect(sections().map((section) => rows(section).length)).toEqual([5, 5])
     expect(rows(sections()[0])[0].getAttribute('aria-current')).toBe('true')
-    const toggle = sections()[0].querySelector<HTMLButtonElement>('[aria-expanded]')!
-    await act(async () => toggle.click())
-    expect(sections().map((section) => rows(section).length)).toEqual([7, 5])
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-    await act(async () => toggle.click())
+    const groupButton = (text: string) =>
+      [...sections()[0].querySelectorAll('button')].find((button) => button.textContent === text)!
+    await act(async () => groupButton('再显示 5 个').click())
+    expect(sections().map((section) => rows(section).length)).toEqual([10, 5])
+    await act(async () => groupButton('再显示 2 个').click())
+    expect(sections().map((section) => rows(section).length)).toEqual([12, 5])
+    await act(async () => groupButton('收起').click())
     expect(sections().map((section) => rows(section).length)).toEqual([5, 5])
-    await act(async () => toggle.click())
+    await act(async () => groupButton('再显示 5 个').click())
     await act(async () => trigger.click())
     await act(async () => trigger.click())
     expect(sections().map((section) => rows(section).length)).toEqual([5, 5])

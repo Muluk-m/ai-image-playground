@@ -380,7 +380,7 @@
     "recent": "最近项目",
     "results": "搜索结果",
     "newHint": "开启新的创作项目",
-    "expand": "展开其余 {{remaining}} 个",
+    "expand": "再显示 {{remaining}} 个",
     "collapse": "收起",
     "chats": "对话",
     "canvases": "画布",
