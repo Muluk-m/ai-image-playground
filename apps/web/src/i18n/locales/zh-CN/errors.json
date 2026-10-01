@@ -96,5 +96,13 @@
     "input_limit": "输入超过当前限制，批次已暂停。",
     "upstream_auth": "生成服务认证失效，批次已暂停。",
     "model_unavailable": "所选模型或通道暂不可用，批次已暂停。"
+  },
+  "attachment": {
+    "attachment_capability_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",
+    "media_unsupported_image": "请先转换为 PNG、JPEG 或 WebP 格式。",
+    "media_image_too_large": "图片超过上传大小限制，请移除后重新选择。",
+    "attachment_storage_failed": "无法在本机保存图片，请释放空间后移除并重新选择。",
+    "attachment_read_failed": "无法读取图片，请移除后重新选择。",
+    "fallback": "图片上传失败，请重试或移除后重新选择。"
   }
 }

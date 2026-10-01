@@ -96,5 +96,13 @@
     "input_limit": "Inputs exceed the current limit. The batch is paused.",
     "upstream_auth": "Generation service authentication failed. The batch is paused.",
     "model_unavailable": "The selected model or channel is unavailable. The batch is paused."
+  },
+  "attachment": {
+    "attachment_capability_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",
+    "media_unsupported_image": "Convert this image to PNG, JPEG or WebP first.",
+    "media_image_too_large": "This image exceeds the upload size limit. Remove it and select another image.",
+    "attachment_storage_failed": "This image could not be saved on this device. Free some space, remove it and select it again.",
+    "attachment_read_failed": "This image could not be read. Remove it and select it again.",
+    "fallback": "The image upload failed. Retry or remove it and select it again."
   }
 }
