@@ -105,7 +105,7 @@ describe('a deployment that cannot make video', () => {
     expect(await response.json()).toEqual({ skills: [] })
   })
 
-  it('assembles a video turn as an image turn instead of half a video turn', async () => {
+  it('offers only image tools and explicitly refuses to promise unavailable video generation', async () => {
     calls.length = 0
     const conversationId = await startConversation()
     await runVideoTurn(conversationId, '做个 15 秒的开箱片')
@@ -123,7 +123,9 @@ describe('a deployment that cannot make video', () => {
     const prompt = systemPromptOf(calls[0]!)
     expect(prompt).not.toContain('<available_skills>')
     expect(prompt).not.toContain('storyboard-short')
-    expect(prompt).toContain('这一轮用户要的是图片。')
+    expect(prompt).toContain('不支持生成视频')
+    expect(prompt).toContain('不得替他改为生图')
+    expect(prompt).not.toContain('根据用户当前请求选择图片或视频工具')
   })
 
   it('leaves an explicit /skill in a video turn as ordinary text', async () => {

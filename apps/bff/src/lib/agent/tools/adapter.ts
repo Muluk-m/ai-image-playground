@@ -86,7 +86,7 @@ export function defineAgentTool<P extends TSchema>(
     ...(definition.target
       ? {
           snapshot: (args: unknown, mode: AgentMode, params: AgentTurnParams | undefined) => {
-            const target = definition.target?.(params)
+            const target = definition.target?.(params, leniently(definition.parameters, args))
             return {
               mode,
               args: { ...leniently(definition.parameters, args) } as Record<string, unknown>,
@@ -150,6 +150,7 @@ export function toolResultBlock(
     return {
       ...head,
       status: 'awaiting_confirmation',
+      ...(details.video ? { video: details.video } : {}),
       ...(details.executedPrompt ? { prompt: details.executedPrompt } : {}),
       title: start.title,
       ...(details.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),

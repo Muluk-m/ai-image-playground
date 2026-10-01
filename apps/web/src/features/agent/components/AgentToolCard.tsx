@@ -43,6 +43,7 @@ import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
+import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
@@ -414,7 +415,20 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-export default function AgentToolCard({
+export default function AgentToolCard(props: {
+  message: AgentToolMessage
+  onViewCanvas?: (objectIds?: readonly string[]) => void
+  onPreviewResult?: (messageId: string, objectId?: string) => void
+  compactFetched?: boolean
+}) {
+  return props.message.toolName === 'generateVideo' ? (
+    <AgentVideoToolCard key={props.message.id} {...props} />
+  ) : (
+    <AgentOtherToolCard {...props} />
+  )
+}
+
+function AgentOtherToolCard({
   message,
   onViewCanvas,
   onPreviewResult,
