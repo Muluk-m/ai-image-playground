@@ -36,6 +36,8 @@ export const readProduction = defineAgentTool({
         Type.Literal('setting'),
         Type.Literal('outline'),
         Type.Literal('scenes'),
+        Type.Literal('characters'),
+        Type.Literal('locations'),
       ]),
     ),
   }),
@@ -60,6 +62,17 @@ export const readProduction = defineAgentTool({
                   setting: document.content.setting.slice(0, 500),
                   outline: document.content.outline.slice(0, 500),
                   scenes: document.content.scenes.map((s) => ({ id: s.id, title: s.title })),
+                  characters:
+                    document.content.characters?.map((character) => ({
+                      id: character.id,
+                      name: character.name,
+                      looks: character.looks.map((look) => ({ id: look.id, name: look.name })),
+                    })) ?? [],
+                  locations:
+                    document.content.locations?.map((location) => ({
+                      id: location.id,
+                      name: location.name,
+                    })) ?? [],
                 }
               : { [section]: document.content[section] }),
           }

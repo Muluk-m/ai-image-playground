@@ -27,6 +27,7 @@ import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import { proposeProductionEdit, readProduction, writeProduction } from './production'
+import { proposeProductionAssets } from './production-assets'
 import { readCanvas } from './readCanvas'
 import { readLibrary } from './readLibrary'
 import { saveAsset } from './saveAsset'
@@ -60,6 +61,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   readProduction,
   writeProduction,
   proposeProductionEdit,
+  proposeProductionAssets,
   generateImage,
   editImage,
   viewImage,

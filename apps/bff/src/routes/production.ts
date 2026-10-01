@@ -7,6 +7,11 @@ import {
   restoreProduction,
   writeProduction,
 } from '../lib/agent/production'
+import {
+  adoptProductionAssets,
+  discardProductionAssets,
+  previewProductionReference,
+} from '../lib/agent/production-assets'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 import { productionAssetFields } from './production-asset-schema'
@@ -32,6 +37,7 @@ export const productionRoutes = new Elysia()
       document: record?.document ?? null,
       history: query.history === 'true' ? (record?.history ?? []) : [],
       ...(query.proposals === 'true' ? { proposals: record?.proposals ?? [] } : {}),
+      ...(query.assetProposals === 'true' ? { assetProposals: record?.assetProposals ?? [] } : {}),
     }
   })
   .put(
@@ -104,5 +110,47 @@ export const productionRoutes = new Elysia()
       if (!authUser) return status(401, { error: 'unauthorized' })
       const record = await discardProductionProposal(params.id, authUser.id, params.proposalId)
       return { document: record.document, history: [], proposals: record.proposals ?? [] }
+    },
+  )
+
+  .get(
+    '/api/agent/conversations/:id/production/references/preview',
+    async ({ params, query, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const reference =
+        query.kind === 'media'
+          ? { kind: 'media' as const, mediaId: query.id }
+          : query.kind === 'artifact'
+            ? { kind: 'artifact' as const, artifactId: query.id }
+            : { kind: 'asset' as const, imageId: query.id }
+      return previewProductionReference(params.id, authUser.id, reference)
+    },
+    {
+      query: t.Object({
+        kind: t.Union([t.Literal('media'), t.Literal('artifact'), t.Literal('asset')]),
+        id: t.String({ minLength: 1, maxLength: 128 }),
+      }),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/production/asset-proposals/:proposalId/adopt',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await adoptProductionAssets(params.id, authUser.id, params.proposalId, body)
+      return { document: record.document, assetProposals: record.assetProposals ?? [] }
+    },
+    {
+      body: t.Object({
+        operationId: t.String({ minLength: 1, maxLength: 128 }),
+        baseRevision: t.Integer({ minimum: 1 }),
+      }),
+    },
+  )
+  .post(
+    '/api/agent/conversations/:id/production/asset-proposals/:proposalId/discard',
+    async ({ params, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const record = await discardProductionAssets(params.id, authUser.id, params.proposalId)
+      return { document: record.document, assetProposals: record.assetProposals ?? [] }
     },
   )
