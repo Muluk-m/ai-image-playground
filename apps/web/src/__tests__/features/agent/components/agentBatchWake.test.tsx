@@ -31,6 +31,11 @@ it.each([
   'stream',
   'history',
   'navigation',
+  'delayed',
+  'network',
+  'online',
+  'account',
+  'backend',
 ] as const)('adopts a completed batch wake without resubmission (%s)', async (mode) => {
   vi.useFakeTimers()
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
@@ -119,6 +124,9 @@ it.each([
   let batchReads = 0
   let snapshots = 0
   let streams = 0
+  let firstSnapshotAt: number | undefined
+  let recoveredOnline = false
+  const isolated = ['navigation', 'account', 'backend'].includes(mode)
   const methods: string[] = []
   let releaseSnapshot!: () => void
   const barrier = new Promise<void>((resolve) => {
@@ -133,10 +141,14 @@ it.each([
     }
     if (url.endsWith(`/conversations/${conversationId}/messages`)) {
       snapshots++
-      if (mode === 'navigation') await barrier
+      firstSnapshotAt ??= Date.now()
+      if (isolated) await barrier
+      if ((mode === 'network' && snapshots === 1) || (mode === 'online' && !recoveredOnline))
+        throw new TypeError('Temporary network loss')
+      const ready = mode === 'delayed' ? Date.now() - firstSnapshotAt > 4_500 : snapshots > 1
       return Response.json({
         activeTurn: mode === 'stream' && snapshots > 1 ? { turnId: 'wake-turn' } : null,
-        messages: mode !== 'stream' && snapshots > 1 ? [plan, reply, proposal] : [plan],
+        messages: mode !== 'stream' && ready ? [plan, reply, proposal] : [plan],
         turns: [],
         queue: [],
       })
@@ -213,17 +225,44 @@ it.each([
     })
     expect(batchReads).toBeGreaterThan(1)
     expect(snapshots).toBeGreaterThan(0)
-    if (mode === 'navigation') {
-      act(() => useAgentStore.getState().startNewConversation())
+    if (isolated) {
+      act(() => {
+        if (mode === 'navigation') useAgentStore.getState().startNewConversation()
+        else if (mode === 'account') setClientStorageScope(`different-${crypto.randomUUID()}`)
+        else
+          _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://other-bff.test' } })
+      })
       releaseSnapshot()
     }
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6_000)
+      await vi.advanceTimersByTimeAsync(mode === 'delayed' || mode === 'online' ? 40_000 : 6_000)
     })
-    if (mode === 'navigation') {
-      expect(useAgentStore.getState().conversationId).toBeNull()
+    if (mode === 'online') {
+      expect(snapshots).toBeLessThanOrEqual(8)
+      const exhausted = snapshots
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+      expect(snapshots).toBe(exhausted)
+      recoveredOnline = true
+      await act(async () => {
+        window.dispatchEvent(new Event('online'))
+        await vi.advanceTimersByTimeAsync(6_000)
+      })
+    }
+    if (isolated) {
+      expect(useAgentStore.getState().conversationId).toBe(
+        mode === 'navigation' ? null : conversationId,
+      )
       expect(host.textContent).not.toContain(reply.content[0]!.text)
       expect(streams).toBe(0)
+      const beforeReactivation = snapshots
+      await act(async () => {
+        window.dispatchEvent(new Event('online'))
+        document.dispatchEvent(new Event('visibilitychange'))
+        await vi.advanceTimersByTimeAsync(40_000)
+      })
+      expect(snapshots).toBe(beforeReactivation)
     } else {
       expect(host.textContent).toContain(reply.content[0]!.text)
       expect(
