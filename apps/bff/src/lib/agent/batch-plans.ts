@@ -339,168 +339,118 @@ export async function readAgentBatchPlan(
   id: string,
   options: { limit?: number; cursor?: string } = {},
 ): Promise<AgentBatchPage | null> {
-  let version: number | undefined
-  let after = -1
-  if (options.cursor) {
-    try {
-      const value: unknown = JSON.parse(Buffer.from(options.cursor, 'base64url').toString())
-      if (
-        !Array.isArray(value) ||
-        value.length !== 3 ||
-        value[0] !== id ||
-        !Number.isSafeInteger(value[1]) ||
-        value[1] < 1 ||
-        !Number.isSafeInteger(value[2]) ||
-        value[2] < 0
-      )
-        throw new Error('cursor')
-      version = value[1]
-      after = value[2]
-    } catch {
-      throw new BatchPlanError('invalid_batch_cursor', 400)
-    }
-  }
-  const limit = options.limit ?? 100
-  const [row] = await db
-    .select()
-    .from(schema.agent_batches)
-    .innerJoin(
-      schema.agent_batch_plans,
-      and(
-        eq(schema.agent_batches.id, schema.agent_batch_plans.batch_id),
-        version === undefined
-          ? eq(schema.agent_batches.current_version, schema.agent_batch_plans.version)
-          : eq(schema.agent_batch_plans.version, version),
-      ),
-    )
-    .innerJoin(
-      schema.agent_conversations,
-      eq(schema.agent_batches.conversation_id, schema.agent_conversations.id),
-    )
-    .where(
-      and(
-        eq(schema.agent_batches.id, id),
-        eq(schema.agent_batches.user_id, userId),
-        isNull(schema.agent_conversations.deleted_at),
-      ),
-    )
-    .limit(1)
-  if (!row) return null
-  const { agent_batches: batch, agent_batch_plans: plan } = row
-  const items = await db
-    .select()
-    .from(schema.agent_batch_items)
-    .where(
-      and(
-        eq(schema.agent_batch_items.batch_id, id),
-        eq(schema.agent_batch_items.version, plan.version),
-        gt(schema.agent_batch_items.ordinal, after),
-      ),
-    )
-    .orderBy(asc(schema.agent_batch_items.ordinal))
-    .limit(limit + 1)
-  const attemptRows = await db
-    .select({
-      itemKey: schema.agent_batch_attempts.item_key,
-      attempt: schema.agent_batch_attempts.attempt,
-      taskId: schema.agent_batch_attempts.task_id,
-      status: schema.tasks.status,
-      provider: schema.tasks.provider,
-      resultPayload: schema.tasks.result_payload,
-      errorMessage: schema.tasks.error_message,
-      errorType: schema.tasks.error_type,
-      snapshot: schema.agent_batch_attempts.terminal_snapshot,
-    })
-    .from(schema.agent_batch_attempts)
-    .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
-    .where(
-      and(
+  // A task can acquire its terminal archive while this page is being read. Keep status,
+  // archived totals and the IDs awaiting legacy cost lookup on one consistent snapshot.
+  return db.transaction(
+    async (tx) => {
+      let version: number | undefined
+      let after = -1
+      if (options.cursor) {
+        try {
+          const value: unknown = JSON.parse(Buffer.from(options.cursor, 'base64url').toString())
+          if (
+            !Array.isArray(value) ||
+            value.length !== 3 ||
+            value[0] !== id ||
+            !Number.isSafeInteger(value[1]) ||
+            value[1] < 1 ||
+            !Number.isSafeInteger(value[2]) ||
+            value[2] < 0
+          )
+            throw new Error('cursor')
+          version = value[1]
+          after = value[2]
+        } catch {
+          throw new BatchPlanError('invalid_batch_cursor', 400)
+        }
+      }
+      const limit = options.limit ?? 100
+      const [row] = await tx
+        .select()
+        .from(schema.agent_batches)
+        .innerJoin(
+          schema.agent_batch_plans,
+          and(
+            eq(schema.agent_batches.id, schema.agent_batch_plans.batch_id),
+            version === undefined
+              ? eq(schema.agent_batches.current_version, schema.agent_batch_plans.version)
+              : eq(schema.agent_batch_plans.version, version),
+          ),
+        )
+        .innerJoin(
+          schema.agent_conversations,
+          eq(schema.agent_batches.conversation_id, schema.agent_conversations.id),
+        )
+        .where(
+          and(
+            eq(schema.agent_batches.id, id),
+            eq(schema.agent_batches.user_id, userId),
+            isNull(schema.agent_conversations.deleted_at),
+          ),
+        )
+        .limit(1)
+      if (!row) return null
+      const { agent_batches: batch, agent_batch_plans: plan } = row
+      const items = await tx
+        .select()
+        .from(schema.agent_batch_items)
+        .where(
+          and(
+            eq(schema.agent_batch_items.batch_id, id),
+            eq(schema.agent_batch_items.version, plan.version),
+            gt(schema.agent_batch_items.ordinal, after),
+          ),
+        )
+        .orderBy(asc(schema.agent_batch_items.ordinal))
+        .limit(limit + 1)
+      const pageKeys = items.slice(0, limit).map((item) => item.key)
+      const attemptScope = and(
         eq(schema.agent_batch_attempts.batch_id, id),
         lte(schema.agent_batch_attempts.version, plan.version),
-      ),
-    )
-  attemptRows.sort((a, b) => a.attempt - b.attempt)
-  const attempts = attemptRows.map((one) => ({
-    ...one,
-    status: one.snapshot?.status ?? one.status ?? ('reconciling' as const),
-  }))
-  const terminal = attempts.filter((one) =>
-    ['completed', 'failed', 'cancelled'].includes(one.status),
-  )
-  const unarchived = terminal.filter((one) => !one.snapshot)
-  const liveCredits = unarchived.length
-    ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
-        taskIds: unarchived.map((one) => one.taskId),
-      })
-    : {}
-  const credits = {
-    ...liveCredits,
-    ...Object.fromEntries(
-      terminal.flatMap((one) =>
-        one.snapshot?.actualCredits !== null && one.snapshot?.actualCredits !== undefined
-          ? [[one.taskId, one.snapshot.actualCredits]]
-          : [],
-      ),
-    ),
-  }
-  const analysisResults = new Map(
-    (
-      await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.batch_id, id))
-    ).map((one) => [one.task_id, one]),
-  )
-  const history = new Map<string, AgentBatchItemExecution[]>()
-  for (const one of attempts) {
-    const live =
-      !one.snapshot && one.provider
-        ? queueTaskOutcome({
-            status: one.status,
-            provider: one.provider,
-            result_payload: one.resultPayload,
-            error_message: one.errorMessage,
-            error_type: one.errorType,
-          })
-        : null
-    const analysis = analysisResults.get(one.taskId)
-    const entry: AgentBatchItemExecution = {
-      taskId: one.taskId,
-      status: one.status,
-      attempt: one.attempt,
-      actualCredits: analysis
-        ? analysis.actual_credits
-        : terminal.includes(one)
-          ? (credits[one.taskId] ?? null)
-          : null,
-      ...(analysis
-        ? {
-            artifacts: [],
-            analysis: {
-              findings: analysis.findings,
-              coverage: analysis.coverage,
-              evidence: analysis.evidence,
-            },
-          }
-        : {}),
-      ...(one.snapshot
-        ? {
-            artifacts: one.snapshot.artifacts,
-            errorCode: one.snapshot.errorCode,
-            message: one.snapshot.message,
-            ...(one.snapshot.analysis ? { analysis: one.snapshot.analysis } : {}),
-          }
-        : live?.kind === 'completed'
-          ? { artifacts: queueArtifacts(one.taskId, 'image', live.result) }
-          : {}),
-    }
-    history.set(one.itemKey, [...(history.get(one.itemKey) ?? []), entry])
-  }
-  const execution = new Map(
-    [...history].map(([key, entries]) => [key, entries[entries.length - 1]!]),
-  )
-  const currentKeys = new Set(
-    (
-      await db
-        .select({ key: schema.agent_batch_items.key })
+      )
+      const effectiveStatus = sql<
+        AgentBatchItemExecution['status']
+      >`CASE WHEN ${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown' THEN 'reconciling' ELSE coalesce(${schema.agent_batch_attempts.terminal_snapshot}->>'status', ${schema.tasks.status}, 'reconciling') END`
+      const [totals] = await tx
+        .select({
+          submittedCount: sql<number>`count(*)`.mapWith(Number),
+          archivedCredits:
+            sql<number>`coalesce(sum((${schema.agent_batch_attempts.terminal_snapshot}->>'actualCredits')::double precision) FILTER (WHERE ${effectiveStatus} IN ('completed', 'failed', 'cancelled')), 0)`.mapWith(
+              Number,
+            ),
+          allTerminal: sql<boolean>`coalesce(bool_and(${effectiveStatus} IN ('completed', 'failed', 'cancelled')), true)`,
+        })
+        .from(schema.agent_batch_attempts)
+        .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+        .where(attemptScope)
+      // Dependencies may be on another page. Only the current plan's <=100 approved targets
+      // need status/error scalars; older result bodies do not enter this working set.
+      const targetRows = await tx
+        .select({
+          key: schema.agent_batch_items.key,
+          status: effectiveStatus,
+          errorCode: sql<
+            string | null
+          >`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode'`,
+        })
         .from(schema.agent_batch_items)
+        .innerJoin(
+          schema.agent_batch_plans,
+          and(
+            eq(schema.agent_batch_plans.batch_id, schema.agent_batch_items.batch_id),
+            eq(schema.agent_batch_plans.version, schema.agent_batch_items.version),
+          ),
+        )
+        .innerJoin(
+          schema.agent_batch_attempts,
+          and(
+            eq(schema.agent_batch_attempts.batch_id, schema.agent_batch_items.batch_id),
+            eq(schema.agent_batch_attempts.item_key, schema.agent_batch_items.key),
+            lte(schema.agent_batch_attempts.version, plan.version),
+            sql`${schema.agent_batch_attempts.attempt} = coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
+          ),
+        )
+        .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
         .where(
           and(
             eq(schema.agent_batch_items.batch_id, id),
@@ -508,96 +458,224 @@ export async function readAgentBatchPlan(
           ),
         )
         .limit(100)
-    ).map((item) => item.key),
-  )
-  const currentTerminal = terminal.filter(
-    (one) =>
-      currentKeys.has(one.itemKey) &&
-      one.attempt ===
-        (Object.hasOwn(plan.attempt_targets, one.itemKey) ? plan.attempt_targets[one.itemKey]! : 1),
-  )
-  const complete =
-    batch.confirmed_version === plan.version &&
-    currentTerminal.length === plan.item_count &&
-    attempts.every((attempt) => attempt.snapshot !== null)
-  const targetExecution = (key: string) => {
-    const current = execution.get(key)
-    const target = Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1
-    return current?.attempt === target ? current : undefined
-  }
-  const progressOf = (
-    item: AgentBatchItem,
-  ): { progress: AgentBatchItemProgress; blockedBy?: string[] } => {
-    const current = targetExecution(item.key)
-    if (current) {
-      if (current.status === 'queued' || current.status === 'in_progress')
-        return { progress: 'in_flight' }
-      if (current.status === 'failed' && current.errorCode === 'result_unknown')
-        return { progress: 'reconciling' }
-      return { progress: current.status }
-    }
-    const blockedBy = item.dependencies.filter((key) => {
-      const dependency = targetExecution(key)
-      return dependency && ['failed', 'cancelled', 'reconciling'].includes(dependency.status)
-    })
-    if (blockedBy.length) return { progress: 'blocked', blockedBy }
-    if (batch.status === 'cancelled') return { progress: 'cancelled' }
-    const ready =
-      batch.status === 'running' &&
-      batch.confirmed_version === plan.version &&
-      item.dependencies.every((key) => targetExecution(key)?.status === 'completed')
-    return { progress: ready ? 'ready' : 'pending' }
-  }
-  const analysisSummary = await readBatchAnalysisSummary(id, plan.version)
-  const sourceVersions =
-    plan.confirmation?.sourceVersions ??
-    (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])
-  const sourceAnalysisSummary = sourceVersions.length
-    ? await readBatchSourceSummary(id, sourceVersions)
-    : undefined
-  return {
-    ...(analysisSummary ? { analysisSummary } : {}),
-    ...(sourceAnalysisSummary ? { sourceAnalysisSummary } : {}),
-    batch: {
-      id: batch.id,
-      conversationId: batch.conversation_id,
-      originTurnId: batch.origin_turn_id,
-      experience: batch.experience,
-      projectId: batch.project_id,
-      targetSnapshot: { projectId: batch.project_id, projectRevision: batch.project_revision },
-      version: plan.version,
-      digest: plan.digest,
-      title: plan.title,
-      rule: plan.rule,
-      itemCount: plan.item_count,
-      status: complete ? 'closed' : batch.status,
-      executionEnabled:
-        batchPlansAvailable({ userId }) && isCapabilityEnabled('agent:batch-execution'),
-      pauseReason: batch.pause_reason,
-      confirmationRequired: batch.confirmed_version !== batch.current_version,
-      ...(plan.confirmation ? { confirmation: plan.confirmation } : {}),
-      ...(plan.retry_item_keys.length
-        ? { retryItemKeys: plan.retry_item_keys, retryRequiresResume: plan.retry_requires_resume }
-        : {}),
-      submittedCount: attempts.length,
-      actualCredits: Object.values(credits).reduce((sum, value) => sum + value, 0),
-      estimate: plan.estimate_snapshot,
-      createdAt: batch.created_at,
-    } satisfies AgentBatchView,
-    items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
-      ...batchItem(item),
-      ...progressOf(batchItem(item)),
-      ...(execution.has(item.key)
-        ? { execution: execution.get(item.key)!, attempts: history.get(item.key)! }
-        : {}),
-    })),
-    nextCursor:
-      items.length > limit
-        ? Buffer.from(JSON.stringify([id, plan.version, items[limit - 1]!.ordinal])).toString(
-            'base64url',
+      const targets = new Map(targetRows.map((one) => [one.key, one]))
+      const attemptRows = await tx
+        .select({
+          itemKey: schema.agent_batch_attempts.item_key,
+          attempt: schema.agent_batch_attempts.attempt,
+          taskId: schema.agent_batch_attempts.task_id,
+          status: schema.tasks.status,
+          provider: schema.tasks.provider,
+          resultPayload: schema.tasks.result_payload,
+          errorMessage: schema.tasks.error_message,
+          errorType: schema.tasks.error_type,
+          snapshot: schema.agent_batch_attempts.terminal_snapshot,
+        })
+        .from(schema.agent_batch_attempts)
+        .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+        .where(and(attemptScope, inArray(schema.agent_batch_attempts.item_key, pageKeys)))
+      attemptRows.sort((a, b) => a.attempt - b.attempt)
+      const attempts = attemptRows.map((one) => ({
+        ...one,
+        status: one.snapshot?.status ?? one.status ?? ('reconciling' as const),
+      }))
+      const terminal = attempts.filter((one) =>
+        ['completed', 'failed', 'cancelled'].includes(one.status),
+      )
+      const pageTaskIds = new Set(attempts.map((one) => one.taskId))
+      const credits: Record<string, number> = Object.fromEntries(
+        terminal.flatMap((one) =>
+          one.snapshot?.actualCredits != null ? [[one.taskId, one.snapshot.actualCredits]] : [],
+        ),
+      )
+      let actualCredits = totals?.archivedCredits ?? 0
+      // Legacy terminal tasks can lack an archived charge. Read their IDs and resolve costs
+      // in bounded pages, retaining only the costs needed by this response's visible history.
+      const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+      let afterTaskId: string | undefined
+      for (;;) {
+        const unarchived = await tx
+          .select({ taskId: schema.agent_batch_attempts.task_id })
+          .from(schema.agent_batch_attempts)
+          .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+          .where(
+            and(
+              attemptScope,
+              isNull(schema.agent_batch_attempts.terminal_snapshot),
+              inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
+              afterTaskId === undefined
+                ? undefined
+                : gt(schema.agent_batch_attempts.task_id, afterTaskId),
+            ),
           )
-        : null,
-  }
+          .orderBy(asc(schema.agent_batch_attempts.task_id))
+          .limit(100)
+        if (!unarchived.length) break
+        const liveCredits = await taskHooks.taskCredits({
+          taskIds: unarchived.map((one) => one.taskId),
+        })
+        for (const { taskId } of unarchived) {
+          const value = liveCredits[taskId]
+          if (value !== undefined) {
+            actualCredits += value
+            if (pageTaskIds.has(taskId)) credits[taskId] = value
+          }
+        }
+        if (unarchived.length < 100) break
+        afterTaskId = unarchived[unarchived.length - 1]!.taskId
+      }
+      const analysisResults = new Map(
+        (
+          await tx
+            .select({
+              task_id: schema.analysis_tasks.task_id,
+              actual_credits: schema.analysis_tasks.actual_credits,
+              findings: schema.analysis_tasks.findings,
+              coverage: schema.analysis_tasks.coverage,
+              evidence: schema.analysis_tasks.evidence,
+            })
+            .from(schema.analysis_tasks)
+            .where(
+              and(
+                eq(schema.analysis_tasks.batch_id, id),
+                inArray(schema.analysis_tasks.task_id, [...pageTaskIds]),
+              ),
+            )
+        ).map((one) => [one.task_id, one]),
+      )
+      const history = new Map<string, AgentBatchItemExecution[]>()
+      for (const one of attempts) {
+        const live =
+          !one.snapshot && one.provider
+            ? queueTaskOutcome({
+                status: one.status,
+                provider: one.provider,
+                result_payload: one.resultPayload,
+                error_message: one.errorMessage,
+                error_type: one.errorType,
+              })
+            : null
+        const analysis = analysisResults.get(one.taskId)
+        const entry: AgentBatchItemExecution = {
+          taskId: one.taskId,
+          status: one.status,
+          attempt: one.attempt,
+          actualCredits: analysis
+            ? analysis.actual_credits
+            : terminal.includes(one)
+              ? (credits[one.taskId] ?? null)
+              : null,
+          ...(analysis
+            ? {
+                artifacts: [],
+                analysis: {
+                  findings: analysis.findings,
+                  coverage: analysis.coverage,
+                  evidence: analysis.evidence,
+                },
+              }
+            : {}),
+          ...(one.snapshot
+            ? {
+                artifacts: one.snapshot.artifacts,
+                errorCode: one.snapshot.errorCode,
+                message: one.snapshot.message,
+                ...(one.snapshot.analysis ? { analysis: one.snapshot.analysis } : {}),
+              }
+            : live?.kind === 'completed'
+              ? { artifacts: queueArtifacts(one.taskId, 'image', live.result) }
+              : {}),
+        }
+        history.set(one.itemKey, [...(history.get(one.itemKey) ?? []), entry])
+      }
+      const execution = new Map(
+        [...history].map(([key, entries]) => [key, entries[entries.length - 1]!]),
+      )
+      const complete =
+        batch.confirmed_version === plan.version &&
+        targetRows.filter((one) => ['completed', 'failed', 'cancelled'].includes(one.status))
+          .length === plan.item_count &&
+        Boolean(totals?.allTerminal)
+      const targetExecution = (key: string) => targets.get(key)
+      const progressOf = (
+        item: AgentBatchItem,
+      ): { progress: AgentBatchItemProgress; blockedBy?: string[] } => {
+        const current = targetExecution(item.key)
+        if (current) {
+          if (current.status === 'queued' || current.status === 'in_progress')
+            return { progress: 'in_flight' }
+          if (current.status === 'failed' && current.errorCode === 'result_unknown')
+            return { progress: 'reconciling' }
+          return { progress: current.status }
+        }
+        const blockedBy = item.dependencies.filter((key) => {
+          const dependency = targetExecution(key)
+          return dependency && ['failed', 'cancelled', 'reconciling'].includes(dependency.status)
+        })
+        if (blockedBy.length) return { progress: 'blocked', blockedBy }
+        if (batch.status === 'cancelled') return { progress: 'cancelled' }
+        const ready =
+          batch.status === 'running' &&
+          batch.confirmed_version === plan.version &&
+          item.dependencies.every((key) => targetExecution(key)?.status === 'completed')
+        return { progress: ready ? 'ready' : 'pending' }
+      }
+      const analysisSummary = await readBatchAnalysisSummary(id, plan.version)
+      const sourceVersions =
+        plan.confirmation?.sourceVersions ??
+        (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])
+      const sourceAnalysisSummary = sourceVersions.length
+        ? await readBatchSourceSummary(id, sourceVersions)
+        : undefined
+      return {
+        ...(analysisSummary ? { analysisSummary } : {}),
+        ...(sourceAnalysisSummary ? { sourceAnalysisSummary } : {}),
+        batch: {
+          id: batch.id,
+          conversationId: batch.conversation_id,
+          originTurnId: batch.origin_turn_id,
+          experience: batch.experience,
+          projectId: batch.project_id,
+          targetSnapshot: { projectId: batch.project_id, projectRevision: batch.project_revision },
+          version: plan.version,
+          digest: plan.digest,
+          title: plan.title,
+          rule: plan.rule,
+          itemCount: plan.item_count,
+          status: complete ? 'closed' : batch.status,
+          executionEnabled:
+            batchPlansAvailable({ userId }) && isCapabilityEnabled('agent:batch-execution'),
+          pauseReason: batch.pause_reason,
+          confirmationRequired: batch.confirmed_version !== batch.current_version,
+          ...(plan.confirmation ? { confirmation: plan.confirmation } : {}),
+          ...(plan.retry_item_keys.length
+            ? {
+                retryItemKeys: plan.retry_item_keys,
+                retryRequiresResume: plan.retry_requires_resume,
+              }
+            : {}),
+          submittedCount: totals?.submittedCount ?? 0,
+          actualCredits,
+          estimate: plan.estimate_snapshot,
+          createdAt: batch.created_at,
+        } satisfies AgentBatchView,
+        items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
+          ...batchItem(item),
+          ...progressOf(batchItem(item)),
+          ...(execution.has(item.key)
+            ? { execution: execution.get(item.key)!, attempts: history.get(item.key)! }
+            : {}),
+        })),
+        nextCursor:
+          items.length > limit
+            ? Buffer.from(JSON.stringify([id, plan.version, items[limit - 1]!.ordinal])).toString(
+                'base64url',
+              )
+            : null,
+      }
+    },
+    { isolationLevel: 'repeatable read', accessMode: 'read only' },
+  )
 }
 
 export async function updateAgentBatchPlan(
