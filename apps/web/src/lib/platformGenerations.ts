@@ -215,6 +215,7 @@ export function mergeHistory(
     return {
       ...task,
       status: settled.status,
+      queuePhase: settled.queuePhase,
       error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,

@@ -496,3 +496,171 @@ it('keeps a partial fan-out unresolved when only one of two dispatched requests 
   expect(lookups).toBe(1)
   expect(billing.settlements).toHaveLength(0)
 })
+
+it.each([
+  'b64',
+  'url',
+  'oversized-b64',
+  'oversized-url',
+] as const)('keeps non-cloud %s reconciliation unresolved when claimed image bytes are not decodable', async (source) => {
+  const { config } = await import('../../config')
+  const syncEnabled = config.operator.capabilities['accounts:sync']
+  Object.assign(config.operator.capabilities, { 'accounts:sync': false })
+  const maximumBytes = config.operator.quotas['sync:asset-image-bytes']
+  const oversized = source.startsWith('oversized')
+  const fromUrl = source.endsWith('url')
+  const bytes = oversized ? Buffer.from(PNG_BASE64, 'base64') : Buffer.from('not-an-image')
+  if (oversized) Object.assign(config.operator.quotas, { 'sync:asset-image-bytes': 32 })
+  const download = fromUrl
+    ? spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(bytes, { headers: { 'content-type': 'image/png' } }),
+      )
+    : undefined
+  try {
+    const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+      prompt: 'invalid recovered image',
+      device_id: 'test-device-reconcile',
+      client_request_id: crypto.randomUUID(),
+    })
+    expect(submitted.status).toBe(200)
+    const { request_id: id } = (await submitted.json()) as { request_id: string }
+    await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+    await runTask(id)
+    const response = await operate(id, 'POST', {
+      commandId: 'invalid-image-result',
+      operatorId: 'operator',
+      action: 'confirm_success',
+      evidence: 'Provider exported this alleged image',
+      result: {
+        data: [
+          fromUrl
+            ? { url: 'https://provider.example/result.png' }
+            : { b64_json: bytes.toString('base64') },
+        ],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ status: 'reconciling' })
+    expect(billing.settlements).toHaveLength(0)
+    expect(dispatches).toBe(1)
+  } finally {
+    download?.mockRestore()
+    Object.assign(config.operator.capabilities, { 'accounts:sync': syncEnabled })
+    Object.assign(config.operator.quotas, { 'sync:asset-image-bytes': maximumBytes })
+  }
+})
+
+it.each([
+  true,
+  false,
+])('preserves an unknown fan-out outcome after a definite rejection (async=%s)', async (asyncTasks) => {
+  const { config } = await import('../../config')
+  const previousAsync = config.upstream.asyncImageTasks
+  config.upstream.asyncImageTasks = asyncTasks
+  try {
+    let submits = 0
+    setUpstreamFetchForTesting(async () => {
+      submits++
+      if (submits === 1)
+        return new Response(JSON.stringify({ error: { message: 'bad first request' } }), {
+          status: 400,
+        })
+      throw new Error('second request accepted but connection lost')
+    })
+    const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+      prompt: 'mixed fanout failure',
+      n: 2,
+      device_id: 'test-device-reconcile',
+      client_request_id: crypto.randomUUID(),
+    })
+    expect(submitted.status).toBe(200)
+    const { request_id: id } = (await submitted.json()) as { request_id: string }
+    await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+    await runTask(id)
+    expect(await (await operate(id)).json()).toMatchObject({ status: 'reconciling' })
+    await recoverTasksByIds([id])
+    await runTask(id)
+    expect(submits).toBe(2)
+    expect(billing.settlements).toHaveLength(0)
+  } finally {
+    config.upstream.asyncImageTasks = previousAsync
+  }
+})
+
+it('retains a completed synchronous sibling when another submission is definitely rejected', async () => {
+  const { config } = await import('../../config')
+  const previousAsync = config.upstream.asyncImageTasks
+  config.upstream.asyncImageTasks = false
+  try {
+    let submits = 0
+    setUpstreamFetchForTesting(async () => {
+      submits++
+      if (submits === 1)
+        return Response.json({ error: { message: 'first request rejected' } }, { status: 400 })
+      return Response.json({ data: [{ b64_json: PNG_BASE64 }] })
+    })
+    const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+      prompt: 'one rejected one completed',
+      n: 2,
+      device_id: 'test-device-reconcile',
+      client_request_id: crypto.randomUUID(),
+    })
+    expect(submitted.status).toBe(200)
+    const { request_id: id } = (await submitted.json()) as { request_id: string }
+    await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+    await runTask(id)
+    expect(await (await operate(id)).json()).toMatchObject({ status: 'reconciling' })
+    await recoverTasksByIds([id])
+    await runTask(id)
+    expect(submits).toBe(2)
+    expect(billing.settlements).toHaveLength(0)
+  } finally {
+    config.upstream.asyncImageTasks = previousAsync
+  }
+})
+
+it('retains an accepted asynchronous sibling when another submission is definitely rejected', async () => {
+  let submits = 0
+  let lookups = 0
+  setUpstreamFetchForTesting(async (url) => {
+    if (String(url).endsWith('/async')) {
+      submits++
+      if (submits === 1)
+        return Response.json({ error: { message: 'first request rejected' } }, { status: 400 })
+      return Response.json(
+        { task_id: 'imgtask_accepted_sibling', status: 'processing' },
+        { status: 202 },
+      )
+    }
+    lookups++
+    return Response.json({ status: 'completed', result: { data: [{ b64_json: PNG_BASE64 }] } })
+  })
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', 'POST', {
+    prompt: 'one rejected one accepted',
+    n: 2,
+    device_id: 'test-device-reconcile',
+    client_request_id: crypto.randomUUID(),
+  })
+  expect(submitted.status).toBe(200)
+  const { request_id: id } = (await submitted.json()) as { request_id: string }
+  await db.execute(sql`update tasks set reconciliation_required = true where id = ${id}`)
+  await runTask(id)
+  expect(await (await operate(id)).json()).toMatchObject({
+    status: 'reconciling',
+    upstreamTaskIds: ['imgtask_accepted_sibling'],
+  })
+  expect(billing.settlements).toHaveLength(0)
+  await recoverTasksByIds([id])
+  await runTask(id)
+  const checked = await operate(id, 'POST', {
+    commandId: 'query-accepted-sibling',
+    operatorId: 'operator',
+    action: 'lookup',
+    evidence: 'Query the accepted request before final resolution',
+  })
+  expect(checked.status).toBe(200)
+  expect(await checked.json()).toMatchObject({ status: 'reconciling' })
+  expect(submits).toBe(2)
+  expect(lookups).toBe(1)
+  expect(billing.settlements).toHaveLength(0)
+})

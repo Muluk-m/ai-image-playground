@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import { and, asc, eq } from 'drizzle-orm'
+import sharp from 'sharp'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { finishTask, heldBy, type TerminalTaskUpdate } from '../db/task-transitions'
 import { protectMaskedOutput } from './agent/masked-output'
@@ -7,6 +9,7 @@ import { isCapabilityEnabled } from './capabilities'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
 import { archiveGenerationOutputs, spoolGenerationOutputs } from './generationMedia'
 import { archiveOutputImages, hydrateInputImages } from './imageArchive'
+import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
 import { callUpstream } from './upstream'
 
 export class ReconciliationError extends Error {
@@ -207,6 +210,7 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
                 provider: task.provider,
                 model: task.model,
                 request: await hydrateInputImages(task.request_payload),
+                reconciliationRequired: true,
                 signal: controller.signal,
                 resume: {
                   taskIds,
@@ -252,6 +256,14 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
                 )
               : await archiveOutputImages(archiveId, task.provider, payload, transform, {
                   signal: controller.signal,
+                  maxBytes: config.operator.quotas['sync:asset-image-bytes'],
+                  validateBytes: async (bytes) => {
+                    // Decode the actual downloaded/base64 bytes before writing or settling.
+                    await sharp(bytes, {
+                      limitInputPixels: MEDIA_IMAGE_MAX_PIXELS,
+                      failOn: 'warning',
+                    }).stats()
+                  },
                 })
             const [stillOwned] = await db
               .select({ id: schema.tasks.id })

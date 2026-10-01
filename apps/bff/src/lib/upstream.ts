@@ -118,6 +118,8 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
 }
 
 export interface UpstreamCallParams {
+  /** New producers must preserve any unknown branch, irrespective of rejection order. */
+  reconciliationRequired?: boolean
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
@@ -326,9 +328,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         ]
         // 先落库再抛：部分失败时成功那几个已经计费，丢了 id 就没人收。
         if (taskIds.length > resumeIds.length) await onUpstreamTaskIds?.(taskIds)
-        const failure = settled.find((one) => one.status === 'rejected')
+        const failure = fanOutFailure(settled, params.reconciliationRequired)
         if (failure) {
           warnIfAsyncTasksDisabled(failure.reason)
+          if (params.reconciliationRequired && taskIds.length > 0) {
+            const detail =
+              failure.reason instanceof Error ? failure.reason.message.slice(0, 200) : '提交失败'
+            throw new UpstreamResultUnknownError(
+              `部分提交被拒绝，已受理任务的最终结果待核查：${detail}`,
+              { cause: failure.reason },
+            )
+          }
           throw failure.reason
         }
         return taskIds
@@ -389,13 +399,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             count,
             async () => parseResponse(await performFetch(url, makeInit())),
             merge,
+            params.reconciliationRequired,
           )
         }
         const protocol = imageTaskProtocol(base, url)
         // 已提交任务只恢复当时的调用数，不能按新路由补发或误判旧原生批次。
         const expectedCount = resume?.invocationCount ?? count
         const taskIds = await collectTaskIds(protocol, expectedCount, makeInit)
-        const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
+        const results = await collectFanOutResults(
+          taskIds.map((id) => pollAsyncTask(protocol, id)),
+          params.reconciliationRequired,
+        )
         const result = results.length === 1 ? results[0]! : merge(results)
         if (taskIds.length < expectedCount) throw new UpstreamPartialResultError(result.payload)
         return result
@@ -453,6 +467,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
               true,
             ),
           mergeOpenAIImageResults,
+          params.reconciliationRequired,
         )
       }
 
@@ -543,6 +558,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           return parseResponse(res)
         },
         mergeGeminiCandidateResults,
+        params.reconciliationRequired,
       )
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -588,10 +604,38 @@ async function fanOutRequests(
   requestedCount: number | undefined,
   run: () => Promise<UpstreamCallResult>,
   merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
+  reconciliationRequired = false,
 ): Promise<UpstreamCallResult> {
   const count = Math.max(1, requestedCount ?? 1)
   if (count === 1) return run()
-  return merge(await Promise.all(Array.from({ length: count }, run)))
+  return merge(
+    await collectFanOutResults(Array.from({ length: count }, run), reconciliationRequired),
+  )
+}
+
+function fanOutFailure<T>(settled: PromiseSettledResult<T>[], preserveUnknown = false) {
+  const failures = settled.filter((one): one is PromiseRejectedResult => one.status === 'rejected')
+  return (
+    (preserveUnknown
+      ? failures.find((one) => one.reason instanceof UpstreamResultUnknownError)
+      : undefined) ?? failures[0]
+  )
+}
+
+async function collectFanOutResults<T>(
+  requests: Promise<T>[],
+  preserveUnknown = false,
+): Promise<T[]> {
+  if (!preserveUnknown) return Promise.all(requests)
+  const settled = await Promise.allSettled(requests)
+  const failure = fanOutFailure(settled, true)
+  if (failure && settled.some((one) => one.status === 'fulfilled')) {
+    throw new UpstreamResultUnknownError('部分请求已完成，整组结果和结算待核查。', {
+      cause: failure.reason,
+    })
+  }
+  if (failure) throw failure.reason
+  return settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
 }
 
 /** Google 直连认自己的 key 头；其余上游都是 Bearer。 */
