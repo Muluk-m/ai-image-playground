@@ -2,11 +2,9 @@ import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type {
   AgentToolResultBlock,
-  ProductionContent,
   ProductionGenerationBinding,
   ProductionGenerationDraftInput,
   ProductionGenerationView,
-  ProductionMediaReference,
 } from '@image-playground/shared'
 import {
   parseProjectArtifactId,
@@ -18,13 +16,11 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveQueueModel } from '../channels'
 import { extractMeta } from '../extractImages'
-import { archiveInputImages, decodeDataUrl } from '../imageArchive'
+import { archiveInputImages } from '../imageArchive'
 import { objectStore } from '../objectStore'
 import { asQueueProvider } from '../queueProvider'
-import { readAssetImage } from '../sync-assets'
 import { saveGenerationDraft } from './confirmations'
 import { appendAgentMessage } from './conversations'
-import { createAgentImageSource, readConversationMedia } from './images'
 import {
   applyProductionMutation,
   ProductionError,
@@ -32,6 +28,7 @@ import {
   updateProductionRecord,
 } from './production'
 import { productionReferenceId } from './production-asset-validation'
+import { referenceDataUrl, targetSnapshot } from './production-generation-binding'
 import { validateImageParameters } from './production-generation-validation'
 import { validateProductionMediaReferences } from './production-references'
 import { queueParamsFor } from './tools/queueParams'
@@ -40,43 +37,6 @@ import { queueArtifacts } from './tools/queueTask'
 const drafts = schema.agent_generation_drafts
 function fingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
-}
-function targetSnapshot(
-  content: ProductionContent,
-  input: Pick<ProductionGenerationDraftInput, 'target' | 'targetId'>,
-  requireComplete = true,
-): ProductionGenerationBinding['snapshot'] {
-  if (input.target === 'clip') {
-    const clip = content.clips?.find((one) => one.id === input.targetId)
-    if (!clip) throw new ProductionError('production_not_found')
-    if (
-      requireComplete &&
-      clip.shotIds.some((id) => !content.shots?.some((shot) => shot.id === id))
-    )
-      throw new ProductionError('production_invalid')
-    return {
-      name: clip.name,
-      description: clip.prompt,
-      references: clip.references.map((one) => one.reference),
-      shotIds: [...clip.shotIds],
-      model: clip.model,
-      video: productionClipVideo(clip),
-    }
-  }
-  const target =
-    input.target === 'look'
-      ? content.characters
-          ?.flatMap((character) => character.looks)
-          .find((look) => look.id === input.targetId)
-      : input.target === 'location'
-        ? content.locations?.find((location) => location.id === input.targetId)
-        : undefined
-  if (!target) throw new ProductionError('production_not_found')
-  return {
-    name: target.name,
-    description: target.description,
-    references: target.reference ? [target.reference] : [],
-  }
 }
 function validateVideoInput(
   input: Pick<ProductionGenerationDraftInput, 'model' | 'prompt' | 'video' | 'references'>,
@@ -96,30 +56,6 @@ function validateVideoInput(
     !isDeepStrictEqual(productionClipVideo({ video: input.video, references: refs }), input.video)
   )
     throw new ProductionError('production_invalid')
-}
-async function referenceDataUrl(
-  conversationId: string,
-  userId: string,
-  reference: ProductionMediaReference,
-): Promise<string> {
-  if (reference.kind === 'artifact') {
-    const image = await createAgentImageSource({
-      conversationId,
-      userId,
-      references: [],
-      history: [],
-    }).resolve(reference.artifactId, 'original')
-    if (!image) throw new ProductionError('production_invalid')
-    decodeDataUrl(image.dataUrl)
-    return image.dataUrl
-  }
-  const image =
-    reference.kind === 'asset'
-      ? await readAssetImage(userId, reference.imageId)
-      : await readConversationMedia(reference.mediaId, conversationId, userId, 'original', true)
-  if (!image || !image.contentType.startsWith('image/'))
-    throw new ProductionError('production_invalid')
-  return `data:${image.contentType};base64,${Buffer.from(image.bytes).toString('base64')}`
 }
 export async function listProductionGenerations(
   conversationId: string,

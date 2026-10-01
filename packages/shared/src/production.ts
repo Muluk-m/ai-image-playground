@@ -55,7 +55,10 @@ export const PRODUCTION_RECEIPTS_MAX = 200
 export interface ProductionContext {
   readonly documentId: string
   readonly revision: number
-  readonly target: 'setting' | 'outline' | 'scene' | 'shots' | 'shot'
+  readonly target: 'setting' | 'outline' | 'scene' | 'shots' | 'shot' | 'look' | 'location' | 'clip'
+  readonly lookId?: string
+  readonly locationId?: string
+  readonly clipId?: string
   readonly shotId?: string
   readonly sceneId?: string
   readonly quote?: { readonly start: number; readonly end: number; readonly text: string }
