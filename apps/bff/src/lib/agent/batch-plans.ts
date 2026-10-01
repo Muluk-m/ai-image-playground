@@ -3,6 +3,7 @@ import type {
   AgentBatchEstimates,
   AgentBatchItem,
   AgentBatchItemExecution,
+  AgentBatchItemProgress,
   AgentBatchPage,
   AgentBatchPriceSnapshot,
   AgentBatchUpdate,
@@ -363,6 +364,34 @@ export async function readAgentBatchPlan(
   )
   const complete =
     batch.confirmed_version === plan.version && currentTerminal.length === plan.item_count
+  const targetExecution = (key: string) => {
+    const current = execution.get(key)
+    const target = Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1
+    return current?.attempt === target ? current : undefined
+  }
+  const progressOf = (
+    item: AgentBatchItem,
+  ): { progress: AgentBatchItemProgress; blockedBy?: string[] } => {
+    const current = targetExecution(item.key)
+    if (current) {
+      if (current.status === 'queued' || current.status === 'in_progress')
+        return { progress: 'in_flight' }
+      if (current.status === 'failed' && current.errorCode === 'result_unknown')
+        return { progress: 'reconciling' }
+      return { progress: current.status }
+    }
+    const blockedBy = item.dependencies.filter((key) => {
+      const dependency = targetExecution(key)
+      return dependency && ['failed', 'cancelled', 'reconciling'].includes(dependency.status)
+    })
+    if (blockedBy.length) return { progress: 'blocked', blockedBy }
+    if (batch.status === 'cancelled') return { progress: 'cancelled' }
+    const ready =
+      batch.status === 'running' &&
+      batch.confirmed_version === plan.version &&
+      item.dependencies.every((key) => targetExecution(key)?.status === 'completed')
+    return { progress: ready ? 'ready' : 'pending' }
+  }
   return {
     batch: {
       id: batch.id,
@@ -391,6 +420,7 @@ export async function readAgentBatchPlan(
     } satisfies AgentBatchView,
     items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
       ...item,
+      ...progressOf(item),
       ...(execution.has(item.key)
         ? { execution: execution.get(item.key)!, attempts: history.get(item.key)! }
         : {}),

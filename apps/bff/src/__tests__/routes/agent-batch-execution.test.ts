@@ -1680,3 +1680,128 @@ it('暂停批次确认失败项重试仍保持暂停，只有明确恢复才提�
   expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 4, actualCredits: 21 })
   expect(calls).toBe(4)
 }, 15000)
+
+it('依赖明确失败时显示阻塞，只重试上游成功后解除并首次提交下游', async () => {
+  billing.answer = { kind: 'reserved', credits: 7 }
+  billing.settledCredits = 7
+  const mediaId = await upload('#958473')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'dependency-retry-batch',
+            name: 'planImageBatch',
+            args: {
+              title: '依赖失败恢复',
+              rule: '先完成白底后再处理细节，蓝底独立执行',
+              items: [
+                {
+                  key: 'first',
+                  imageIds: ['original'],
+                  prompt: '原图换成白色背景',
+                  dependencies: [],
+                },
+                {
+                  key: 'independent',
+                  imageIds: ['original'],
+                  prompt: '原图换成蓝色背景',
+                  dependencies: [],
+                },
+                {
+                  key: 'dependent',
+                  imageIds: ['original'],
+                  prompt: '检查并修正原图边缘细节',
+                  dependencies: ['first'],
+                },
+              ],
+            },
+          }),
+        () => completionStream('请确认带依赖的完整范围'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '先拟白底和细节处理计划，蓝底单独执行',
+      references: [{ imageId: 'original', mediaId }],
+    })
+  ).text()
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const path = `agent/batches/${batches[0].id}`
+  const draft = await (await request(path)).json()
+  const response = await request(`${path}/confirm`, {
+    commandId: 'confirm-dependency',
+    expectedVersion: 1,
+    expectedDigest: draft.batch.digest,
+    deviceId: DEVICE,
+  })
+  expect(response.status).toBe(200)
+  const initial = await response.json()
+  expect(initial.batch.submittedCount).toBe(2)
+  const initialFailure = initial.items[0].execution.taskId
+  const independentId = initial.items[1].execution.taskId
+  let calls = 0
+  const output = await sharp({
+    create: { width: 8, height: 6, channels: 4, background: '#ffffff' },
+  })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting(async () => {
+    calls++
+    return calls === 1
+      ? Response.json(
+          { error: { message: 'Invalid image', code: 'invalid_image' } },
+          { status: 400 },
+        )
+      : Response.json({ data: [{ b64_json: output.toString('base64') }] })
+  })
+  await runTask(initialFailure)
+  await runTask(independentId)
+  const blocked = await (await request(path)).json()
+  expect(blocked.batch).toMatchObject({ status: 'running', submittedCount: 2, actualCredits: 7 })
+  expect(blocked.items[2]).toMatchObject({ progress: 'blocked', blockedBy: ['first'] })
+  expect(blocked.items[2].execution).toBeUndefined()
+  const quotedResponse = await request(`${path}/retry-quote`, {
+    commandId: 'quote-dependency-retry',
+    expectedVersion: 1,
+    itemKeys: ['first'],
+  })
+  expect(quotedResponse.status).toBe(200)
+  const quoted = await quotedResponse.json()
+  const confirmation = {
+    commandId: 'confirm-dependency-retry',
+    expectedVersion: quoted.batch.version,
+    expectedDigest: quoted.batch.digest,
+    deviceId: DEVICE,
+  }
+  const retriedResponse = await request(`${path}/confirm`, confirmation)
+  expect(retriedResponse.status).toBe(200)
+  const retried = await retriedResponse.json()
+  expect(retried.items[0].execution).toMatchObject({ attempt: 2, status: 'queued' })
+  expect(retried.items[2].execution).toBeUndefined()
+  await runTask(retried.items[0].execution.taskId)
+  const continued = await request(`${path}/confirm`, confirmation)
+  expect(continued.status).toBe(200)
+  const ready = await continued.json()
+  expect(ready.items[2].execution).toMatchObject({ attempt: 1, status: 'queued' })
+  expect(ready.items[1].execution.taskId).toBe(independentId)
+  await runTask(ready.items[2].execution.taskId)
+  const completed = await (await request(path)).json()
+  expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 4, actualCredits: 21 })
+  expect(completed.items.map((item: { progress: string }) => item.progress)).toEqual([
+    'completed',
+    'completed',
+    'completed',
+  ])
+  expect(completed.items[0].attempts[0]).toMatchObject({
+    taskId: initialFailure,
+    status: 'failed',
+    actualCredits: 0,
+  })
+  expect(calls).toBe(4)
+}, 15000)
