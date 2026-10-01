@@ -17,6 +17,7 @@ import {
   fetchStoryboards,
 } from '../lib/productionStoryboardClient'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionDependencyNotice from './ProductionDependencyNotice'
 import ProductionReferenceEditor from './ProductionReferenceEditor'
 import ProductionReferencePreview from './ProductionReferencePreview'
 import ProductionShotSummary from './ProductionShotSummary'
@@ -175,6 +176,13 @@ export default function ProductionShotPane({
         </p>
       )}
       <div className="production-document-scroll">
+        {selected && !edit.editing && (
+          <ProductionDependencyNotice
+            document={document}
+            target={{ kind: 'shot', id: selected }}
+            onSaved={onSaved}
+          />
+        )}
         {proposals
           .filter((proposal) => proposal.status === 'pending')
           .map((proposal) => (

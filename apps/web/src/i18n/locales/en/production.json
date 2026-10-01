@@ -208,5 +208,14 @@
     "scopeChanged": "The account changed. Reopen the export panel.",
     "failed": "The archive could not be completed. Check originals and retry, or export documents only.",
     "acceptPartial": "Export available files with a missing-file list"
+  },
+  "dependencies": {
+    "title": "Source content has changed",
+    "hint": "These sources differ from the versions used by this shot or clip plan. Refreshing references does not generate or replace existing content.",
+    "missing": "Deleted or unavailable",
+    "refresh": "Refresh reference versions",
+    "keep": "Keep existing version",
+    "retained": "Existing version retained",
+    "show": "Review changes"
   }
 }

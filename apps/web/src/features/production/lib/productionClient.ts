@@ -1,13 +1,17 @@
 import type {
+  ProductionClipDependencyState,
   ProductionDocument,
   ProductionMutation,
   ProductionProposal,
   ProductionRevision,
+  ProductionShotDependencyState,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 export interface ProductionResponse {
+  shotDependencyStates?: readonly ProductionShotDependencyState[]
+  dependencyStates?: readonly ProductionClipDependencyState[]
   proposals?: readonly ProductionProposal[]
   document: ProductionDocument | null
   history: readonly ProductionRevision[]
@@ -106,4 +110,21 @@ export function discardProductionProposal(
   return request(conversationId, `/proposals/${encodeURIComponent(proposalId)}/discard`, {
     method: 'POST',
   })
+}
+
+export function refreshProductionDependencies(
+  conversationId: string,
+  target: { kind: 'shot' | 'clip'; id: string },
+  baseRevision: number,
+  operationId: string,
+): Promise<ProductionResponse> {
+  return request(
+    conversationId,
+    `/${target.kind === 'shot' ? 'shots' : 'clips'}/${encodeURIComponent(target.id)}/refresh`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseRevision, operationId }),
+    },
+  )
 }
