@@ -160,6 +160,7 @@ it('分页可查完整100项和费用，展开编辑后保存，刷新恢复服�
   expect(second.open).toBe(true)
   const prompt = second.querySelector('textarea')!
   expect(prompt.value).toBe('第 2 张换白底')
+  await vi.waitFor(() => expect(prompt.disabled).toBe(false))
   change(prompt, '第二张改浅灰底，包装保持原色')
   const save = [...host.querySelectorAll('button')].find(
     (button) => button.textContent === '保存计划',
@@ -191,6 +192,7 @@ it('修改范围和参数遇到版本冲突时保留草稿，显式刷新后可�
     (button) => button.textContent === '移除此项',
   )
   expect(remove).toBeDefined()
+  await vi.waitFor(() => expect(remove!.disabled).toBe(false))
   act(() => remove!.click())
   expectScopeAcrossPages(2, 100)
   expect(host.querySelector('summary')!.textContent).toContain('商品 2')

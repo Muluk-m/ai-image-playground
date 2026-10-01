@@ -11,6 +11,7 @@ import {
   type AgentConversationState,
   AgentRequestError,
   cancelRetry as cancelRetryRequest,
+  fetchBatchWakeReceipt,
   cancelJob as requestJobCancel,
   fetchJobs as requestJobs,
   fetchMessages as requestSnapshot,
@@ -167,13 +168,22 @@ export function createAgentBackgroundJobs({
   let wakeWatch: { readonly conversationId: string; result: Promise<boolean> } | null = null
   interface BatchWake {
     readonly conversationId: string
+    readonly batchId: string
+    readonly version: number
     readonly currentScope: () => boolean
     running: boolean
     adopted: boolean
     retryAfter: number
+    retryCount: number
   }
+  let batchSnapshot: {
+    readonly conversationId: string
+    readonly currentScope: () => boolean
+    readonly result: Promise<AgentConversationState>
+  } | null = null
   const batchWakes = new Map<string, BatchWake>()
   let listeningForWakeRecovery = false
+  let batchRetryTimer: ReturnType<typeof setTimeout> | undefined
 
   const pending = () => session.messages().some(agentJobUnsettled)
 
@@ -326,7 +336,10 @@ export function createAgentBackgroundJobs({
    */
   const followWakeTurn = (conversationId: string): Promise<boolean> => {
     if (wakeWatch?.conversationId === conversationId) return wakeWatch.result
-    const token = { conversationId, result: Promise.resolve(false) }
+    const token: { conversationId: string; result: Promise<boolean> } = {
+      conversationId,
+      result: Promise.resolve(false),
+    }
     wakeWatch = token
     const sameAccount = accountScope()
     const backend = bffBaseUrl()
@@ -338,7 +351,7 @@ export function createAgentBackgroundJobs({
     token.result = (async () => {
       try {
         for (let attempt = 0; attempt < WAKE_PICKUP_ATTEMPTS; attempt += 1) {
-          // Eight bounded reads cover a delayed scheduler without polling history indefinitely.
+          // Eight bounded reads cover a delayed scheduler for ordinary background jobs.
           const delay =
             attempt === 0 ? 0 : timing.wakePickupDelayMs * Math.min(16, 2 ** (attempt - 1))
           await new Promise((resolve) => setTimeout(resolve, delay))
@@ -373,11 +386,41 @@ export function createAgentBackgroundJobs({
     return token.result
   }
 
+  const readBatchSnapshot = async (pending: BatchWake): Promise<AgentConversationState> => {
+    if (batchSnapshot?.conversationId === pending.conversationId && batchSnapshot.currentScope())
+      return batchSnapshot.result
+    const token = {
+      conversationId: pending.conversationId,
+      currentScope: pending.currentScope,
+      result: fetchSnapshot(pending.conversationId),
+    }
+    batchSnapshot = token
+    try {
+      return await token.result
+    } finally {
+      if (batchSnapshot === token) batchSnapshot = null
+    }
+  }
+
   const refreshWakeRecovery = () => {
     for (const [key, pending] of batchWakes)
       if (!pending.currentScope() || !session.isCurrent(pending.conversationId))
         batchWakes.delete(key)
-    const needed = [...batchWakes.values()].some((pending) => !pending.adopted)
+    if (batchRetryTimer) clearTimeout(batchRetryTimer)
+    batchRetryTimer = undefined
+    const waiting = [...batchWakes.values()].filter((pending) => !pending.adopted)
+    const retryable = waiting.filter((pending) => !pending.running)
+    if (retryable.length) {
+      const delay = Math.max(
+        timing.pollIntervalMs,
+        Math.min(...retryable.map((pending) => pending.retryAfter - Date.now())),
+      )
+      batchRetryTimer = setTimeout(() => {
+        batchRetryTimer = undefined
+        retryBatchWakes()
+      }, delay)
+    }
+    const needed = waiting.length > 0
     if (needed === listeningForWakeRecovery) return
     listeningForWakeRecovery = needed
     if (needed) {
@@ -401,21 +444,51 @@ export function createAgentBackgroundJobs({
     pending.running = true
     pending.retryAfter = Date.now() + timing.pollIntervalMs
     refreshWakeRecovery()
-    void followWakeTurn(pending.conversationId)
-      .then((adopted) => {
-        if (batchWakes.get(key) === pending && pending.currentScope()) pending.adopted = adopted
+    const current = () =>
+      batchWakes.get(key) === pending &&
+      pending.currentScope() &&
+      session.isCurrent(pending.conversationId)
+    void fetchBatchWakeReceipt(pending.batchId, pending.version)
+      .then(async (receipt) => {
+        if (!current()) return
+        if (receipt.status === 'skipped') {
+          pending.adopted = true
+          return
+        }
+        if (receipt.status !== 'consumed' || !session.isIdle(pending.conversationId)) return
+        // Pending delivery never loads history; a durable receipt authorizes one bounded read.
+        const snapshot = await readBatchSnapshot(pending)
+        if (!current() || !session.isIdle(pending.conversationId)) return
+        if (snapshot.activeTurn?.turnId === receipt.turnId)
+          await session.adopt(pending.conversationId, snapshot, { join: receipt.turnId })
+        else if (snapshot.messages.some((message) => message.turnId === receipt.turnId))
+          await session.adopt(
+            pending.conversationId,
+            snapshot,
+            snapshot.activeTurn ? { join: snapshot.activeTurn.turnId } : undefined,
+          )
+        else return
+        if (current()) pending.adopted = true
       })
-      .catch(() => {
-        // A failed adoption is still recoverable from the same read-only snapshot boundary.
+      .catch((error) => {
+        if (
+          error instanceof AgentRequestError &&
+          error.status === 404 &&
+          batchWakes.get(key) === pending
+        )
+          batchWakes.delete(key)
+        // Other failures remain recoverable from the same read-only snapshot boundary.
       })
       .finally(() => {
         pending.running = false
+        pending.retryCount = Math.min(4, pending.retryCount + 1)
+        pending.retryAfter = Date.now() + timing.pollIntervalMs * 2 ** pending.retryCount
         refreshWakeRecovery()
       })
   }
 
-  function retryBatchWakes(event: Event) {
-    if (event.type === 'visibilitychange' && document.visibilityState === 'hidden') return
+  function retryBatchWakes(event?: Event) {
+    if (event?.type === 'visibilitychange' && document.visibilityState === 'hidden') return
     refreshWakeRecovery()
     for (const [key, pending] of batchWakes) pickUpBatchWake(key, pending)
   }
@@ -456,7 +529,7 @@ export function createAgentBackgroundJobs({
     },
 
     followBatch(conversationId, batchId, version) {
-      if (!session.isIdle(conversationId)) return
+      if (!session.isCurrent(conversationId)) return
       const key = JSON.stringify([conversationId, batchId, version])
       refreshWakeRecovery()
       let pending = batchWakes.get(key)
@@ -465,14 +538,18 @@ export function createAgentBackgroundJobs({
         const backend = bffBaseUrl()
         pending = {
           conversationId,
+          batchId,
+          version,
           currentScope: () => sameAccount() && bffBaseUrl() === backend,
           running: false,
           adopted: false,
           retryAfter: 0,
+          retryCount: 0,
         }
         batchWakes.set(key, pending)
       }
       pickUpBatchWake(key, pending)
+      refreshWakeRecovery()
     },
 
     async cancel(conversationId, messageId) {
@@ -506,6 +583,7 @@ export function createAgentBackgroundJobs({
       handles.clear()
       watch = null
       wakeWatch = null
+      batchSnapshot = null
       batchWakes.clear()
       refreshWakeRecovery()
     },

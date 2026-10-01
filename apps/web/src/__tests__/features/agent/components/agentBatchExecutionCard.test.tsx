@@ -4,6 +4,7 @@ import type { AgentBatchPage } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
+import AgentBatchPlanCard from '../../../../features/agent/components/AgentBatchPlanCard'
 import AgentToolCard from '../../../../features/agent/components/AgentToolCard'
 import { panelMessage } from '../../../../features/agent/lib/panelMessages'
 import { setClientStorageScope } from '../../../../lib/authScope'
@@ -1010,6 +1011,121 @@ it('reviews analysis inputs without image-generation controls and displays findi
   } finally {
     act(() => root.unmount())
     host.remove()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('keeps fetched batch results read-only when command storage restoration fails, then explicitly recovers', async () => {
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const saved = initialPage()
+  const methods: string[] = []
+  vi.stubGlobal('fetch', async (_input: string | URL | Request, init?: RequestInit) => {
+    methods.push(init?.method ?? 'GET')
+    return Response.json(saved)
+  })
+  const transaction = IDBDatabase.prototype.transaction
+  let storageFailed = true
+  const storage = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (
+    this: IDBDatabase,
+    ...args
+  ) {
+    if (storageFailed && args[0] === 'commands')
+      throw new DOMException('Storage unavailable', 'InvalidStateError')
+    return transaction.apply(this, args)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const button = (label: string) =>
+    [...host.querySelectorAll('button')].find((one) => one.textContent === label)
+  try {
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="storage-failed" />),
+    )
+    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(2))
+    expect(host.textContent).toContain('本地操作记录恢复失败')
+    expect(button('确认生成')?.disabled).toBe(true)
+    expect(host.querySelector('input')?.disabled).toBe(true)
+    expect(methods).toEqual(['GET'])
+    storageFailed = false
+    await act(async () => button('载入最新版本')!.click())
+    await vi.waitFor(() => expect(button('确认生成')?.disabled).toBe(false))
+    expect(host.textContent).not.toContain('本地操作记录恢复失败')
+    expect(methods.every((method) => method === 'GET')).toBe(true)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    storage.mockRestore()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('keeps polling a paused batch while item progress is reconciling despite a legacy failed task status', async () => {
+  vi.useFakeTimers()
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const initial = initialPage()
+  let saved: AgentBatchPage = {
+    ...initial,
+    batch: { ...initial.batch, status: 'paused', submittedCount: 1 },
+    items: initial.items.map((item, index) =>
+      index === 0
+        ? {
+            ...item,
+            progress: 'reconciling',
+            execution: {
+              taskId: 'unknown-task',
+              status: 'failed',
+              attempt: 1,
+              actualCredits: null,
+              errorCode: 'result_unknown',
+            },
+          }
+        : item,
+    ),
+  }
+  let reads = 0
+  vi.stubGlobal('fetch', async () => {
+    reads++
+    return Response.json(saved)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(<AgentBatchPlanCard batchId={saved.batch.id} domId="paused-unknown" />),
+    )
+    await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(2))
+    saved = {
+      ...saved,
+      items: saved.items.map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              progress: 'completed',
+              execution: {
+                taskId: 'unknown-task',
+                status: 'completed',
+                attempt: 1,
+                actualCredits: 7,
+              },
+            }
+          : item,
+      ),
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100)
+    })
+    expect(reads).toBe(2)
+    expect(host.textContent).not.toContain('结果核查中')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(reads).toBe(2)
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   }
 })

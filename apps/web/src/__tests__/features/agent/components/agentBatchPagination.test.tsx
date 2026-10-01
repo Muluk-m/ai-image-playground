@@ -111,6 +111,7 @@ it('reviews 100 items in 20-item pages, restores the page on reload, and saves a
     expect(host.querySelector('details summary')?.textContent).toContain('商品 21')
     expect(commands).toEqual([])
     const prompt = host.querySelector<HTMLTextAreaElement>('details textarea')!
+    await vi.waitFor(() => expect(prompt.disabled).toBe(false))
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
         prompt,
@@ -238,6 +239,7 @@ it('keeps the review page and failed selections across polling, then quotes the 
     vi.useFakeTimers()
     await act(async () => root.render(<AgentToolCard message={message} />))
     await vi.waitFor(() => expect(host.querySelectorAll('details')).toHaveLength(20))
+    await vi.waitFor(() => expect(check(1).disabled).toBe(false))
     act(() => {
       host
         .querySelector('details summary')!
