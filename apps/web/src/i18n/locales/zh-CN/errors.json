@@ -1,5 +1,6 @@
 {
   "agentQueue": {
+    "stop_failed": "中止未成功，请点击中止重试。",
     "fallback": "消息恢复失败，请重试。",
     "return_handoff_failed": "退回的消息尚未保存到草稿，请重试恢复。"
   },
