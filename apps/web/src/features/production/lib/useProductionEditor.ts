@@ -1,5 +1,5 @@
 import type { ProductionContent, ProductionDocument } from '@image-playground/shared'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { ProductionRequestError, type ProductionResponse, saveProduction } from './productionClient'
 
@@ -47,6 +47,8 @@ export function useProductionEditor(
     `production-draft:${document.conversationId}:${document.id}${draftScope ? `:${draftScope}` : ''}`,
   )
   const [draft, setDraft] = useState<LocalDraft | null>(() => readDraft(key))
+  const latestDraft = useRef(draft)
+  latestDraft.current = draft
   const [editing, setEditing] = useState(() => readDraft(key) !== null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<'conflict' | 'saveFailed' | null>(null)
@@ -57,6 +59,7 @@ export function useProductionEditor(
       operationId: crypto.randomUUID(),
     }
     setEditing(true)
+    latestDraft.current = next
     setDraft(next)
     safeLocalStorage.setItem(key, JSON.stringify(next))
     setError(null)
@@ -66,7 +69,10 @@ export function useProductionEditor(
     setEditing(true)
   }
   const discard = () => {
-    safeLocalStorage.removeItem(key)
+    // An older mounted editor may receive its save after this draft was reopened and changed.
+    if (readDraft(key)?.operationId === draft?.operationId) safeLocalStorage.removeItem(key)
+    if (latestDraft.current?.operationId !== draft?.operationId) return
+    latestDraft.current = null
     setDraft(null)
     setEditing(false)
     setError(null)
