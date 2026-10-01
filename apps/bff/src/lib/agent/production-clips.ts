@@ -84,7 +84,13 @@ export function hasValidProductionClipReferences(
   )
   return (content.clips ?? []).every((clip) => {
     const before = previous?.clips?.find((one) => one.id === clip.id)
-    if (!allowAdoption && JSON.stringify(clip.adopted) !== JSON.stringify(before?.adopted))
+    // JSONB and request normalization can reorder keys without changing the adopted result.
+    if (
+      !allowAdoption &&
+      (clip.adopted?.draftId !== before?.adopted?.draftId ||
+        clip.adopted?.artifactId !== before?.adopted?.artifactId ||
+        clip.adopted?.adoptedAt !== before?.adopted?.adoptedAt)
+    )
       return false
     return clip.shotIds.every((id) => available.has(id) || before?.shotIds.includes(id))
   })

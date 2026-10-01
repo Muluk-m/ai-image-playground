@@ -163,6 +163,77 @@ it('retains a broken existing shot reference after deletion but refuses new brok
     ).status,
   ).toBe(400)
 })
+it('edits a restored document with adopted media without rejecting JSONB key order', async () => {
+  const owner = await account('clip-adopted-edit')
+  const { eq } = await import('drizzle-orm')
+  const adopted = { draftId: 'draft', artifactId: 'video-artifact', adoptedAt: 1 }
+  const content = {
+    title: '雨后',
+    setting: '',
+    outline: '',
+    scenes: [],
+    characters: [
+      {
+        id: 'person',
+        name: '摄影师',
+        description: '',
+        looks: [
+          {
+            id: 'look',
+            name: '风衣',
+            description: '米色',
+            reference: { kind: 'artifact' as const, artifactId: 'image-artifact' },
+          },
+        ],
+      },
+    ],
+    shots: [{ id: 'shot', description: '合伞', lookIds: ['look'] }],
+    clips: [
+      {
+        id: 'clip',
+        name: '合伞',
+        shotIds: ['shot'],
+        prompt: '缓慢合伞',
+        model: 'grok-imagine-video',
+        video: { duration_seconds: 5, aspect_ratio: '16:9' as const, resolution: '720p' as const },
+        references: [],
+        sourceRevision: 1,
+        adopted,
+      },
+    ],
+  }
+  await db
+    .update(schema.agent_conversations)
+    .set({
+      production: {
+        document: {
+          id: 'doc',
+          conversationId: owner.id,
+          projectId: null,
+          revision: 11,
+          updatedAt: 1,
+          content,
+        },
+        history: [],
+        receipts: [],
+      },
+    })
+    .where(eq(schema.agent_conversations.id, owner.id))
+  const current = (await (await request(owner)).json()).document
+  current.content.characters[0].looks[0].description += '袖口带一颗深色纽扣。'
+  const edited = await request(owner, {
+    operationId: 'edit-restored',
+    baseRevision: 11,
+    content: current.content,
+  })
+  expect(edited.status).toBe(200)
+  expect((await edited.json()).document.content.clips[0].adopted).toEqual(adopted)
+  current.content.clips[0].adopted.artifactId = 'forged'
+  expect(
+    (await request(owner, { operationId: 'forge', baseRevision: 12, content: current.content }))
+      .status,
+  ).toBe(400)
+})
 afterAll(async () => {
   await close()
   await rm(temp, { recursive: true, force: true })

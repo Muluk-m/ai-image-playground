@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE } from '../agentStyles'
+import { isProductionDraft } from '../lib/promptDraft'
 import { agentToolFailureText } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 
@@ -17,8 +18,10 @@ export default function AgentPendingDrafts() {
   const { t } = useTranslation('agent')
   const pending = useAgentStore(
     (state) =>
-      state.messages.filter((one) => one.kind === 'tool' && one.status === 'awaiting_confirmation')
-        .length,
+      state.messages.filter(
+        (one) =>
+          one.kind === 'tool' && one.status === 'awaiting_confirmation' && !isProductionDraft(one),
+      ).length,
   )
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
