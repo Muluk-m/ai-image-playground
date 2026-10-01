@@ -545,6 +545,7 @@ export const agentRoutes = new Elysia()
         conversationId: conversation.id,
         owner,
         messageId: body.messageId,
+        draftRevision: body.draftRevision,
         prompt: body.prompt,
         deviceId: body.deviceId,
         userId: authUser?.id ?? null,
@@ -566,6 +567,7 @@ export const agentRoutes = new Elysia()
       body: t.Object({
         deviceId: deviceIdSchema(),
         messageId: t.String({ minLength: 1, maxLength: 128 }),
+        draftRevision: t.Optional(t.Integer({ minimum: 1 })),
         // 空白与超长由确认本身按 `confirmation_refused` 回绝（界面只认 code）；这里只挡住
         // 明显的滥用体积。
         prompt: t.String({ maxLength: 20_000 }),

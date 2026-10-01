@@ -548,6 +548,7 @@ export interface AgentSaveResponse {
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
 export interface AgentToolResultBlock {
+  readonly productionDraftRevision?: number
   readonly type: 'toolResult'
   readonly toolCallId: string
   readonly toolName: AgentToolName
@@ -694,6 +695,7 @@ export interface AgentRetryRefusedBody {
  * 模型重写。会话与卡的归属由端点确权，`messageId` 就是那张卡的消息 id。
  */
 export interface AgentConfirmationRequest {
+  readonly draftRevision?: number
   readonly deviceId: string
   readonly messageId: string
   readonly prompt: string

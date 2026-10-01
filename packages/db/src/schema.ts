@@ -19,6 +19,8 @@ import type {
   GenerationSource,
   GenerationSummary,
   PersistedSubmitRequest,
+  ProductionGenerationBinding,
+  ProductionGenerationReference,
   ProductionRecord,
   ProjectDocument,
   ProjectReceipt,
@@ -613,6 +615,12 @@ export const agent_jobs = pgTable(
  * 结果卡与产物照它标注。
  */
 export interface AgentDraftSubmission {
+  readonly production?: ProductionGenerationBinding
+  readonly productionDraftRevision?: number
+  readonly productionParams?: AgentTurnParams
+  readonly productionReferences?: readonly ProductionGenerationReference[]
+  readonly productionOperationId?: string
+  readonly productionFingerprint?: string
   readonly anchorObjectId?: string
   readonly review: boolean
   readonly plan?: AgentJobPlan
