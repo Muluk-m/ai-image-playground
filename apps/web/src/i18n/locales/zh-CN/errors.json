@@ -1,4 +1,8 @@
 {
+  "agentQueue": {
+    "fallback": "消息恢复失败，请重试。",
+    "return_handoff_failed": "退回的消息尚未保存到草稿，请重试恢复。"
+  },
   "customProvider": {
     "template_too_deep": "自定义服务商的请求模板嵌套过深，请简化后重试",
     "fallback": "自定义服务商请求失败，请检查配置后重试"
