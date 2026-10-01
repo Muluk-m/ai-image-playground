@@ -7,7 +7,7 @@ import {
   type AgentMediaReference,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   type AgentCall,
@@ -531,4 +531,160 @@ it('历史选区失效后按原图拟定的计划仍可编辑，并保持当前�
   expect(updated.batch.version).toBe(2)
   expect(updated.items[0]?.inputs).toEqual(original.items[0]?.inputs)
   expect(updated.items[0]?.prompt).toBe('完整原图换成浅灰色背景')
+})
+
+for (const variant of ['current', 'historical'] as const) {
+  it(`最新 ${variant} inline 图片覆盖同名旧媒体后，不可用旧像素拟定计划`, async () => {
+    const mediaId = await upload(variant === 'current' ? '#925681' : '#614378')
+    const inline = await sharp({
+      create: { width: 8, height: 6, channels: 4, background: '#dedede' },
+    })
+      .png()
+      .toBuffer()
+    const { conversation } = await (
+      await request('agent/conversations', { deviceId: DEVICE })
+    ).json()
+    const path = `agent/conversations/${conversation.id}`
+    setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已收到旧图')]))
+    await (
+      await request(`${path}/turns`, {
+        deviceId: DEVICE,
+        text: '这是旧商品图',
+        references: [{ imageId: 'product', mediaId }],
+      })
+    ).text()
+    const replacement = {
+      imageId: 'product',
+      dataUrl: `data:image/png;base64,${inline.toString('base64')}`,
+    }
+    if (variant === 'historical') {
+      setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已收到替换图')]))
+      const replaced = await request(`${path}/turns`, {
+        deviceId: DEVICE,
+        text: '同一个编号现在换成这张图',
+        references: [replacement],
+      })
+      expect(replaced.status).toBe(200)
+      await replaced.text()
+    }
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: `inline-${variant}-batch`,
+              name: 'planImageBatch',
+              args: {
+                title: '替换后的商品',
+                rule: '必须使用最新图',
+                items: [
+                  {
+                    key: 'product',
+                    imageIds: ['product'],
+                    prompt: '最新商品图换白底',
+                    dependencies: [],
+                  },
+                ],
+              },
+            }),
+          () => completionStream('请重新附上可持久保存的原图'),
+        ],
+      ),
+    )
+    const planned = await request(`${path}/turns`, {
+      deviceId: DEVICE,
+      text: '按当前商品图拟定计划',
+      ...(variant === 'current' ? { references: [replacement] } : {}),
+    })
+    expect(planned.status).toBe(200)
+    const frames = parseFrames(await planned.text())
+    expect(eventsOfType(frames, 'turnEnd')[0]?.stopReason).toBe('completed')
+    const { batches } = await (await request(`${path}/batches`)).json()
+    expect(batches).toEqual([])
+  })
+}
+
+it('大量无关历史正文中仅按请求编号拟定计划，并采用该编号最新媒体绑定', async () => {
+  const oldMedia = await upload('#214365')
+  const currentMedia = await upload('#436587')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const path = `agent/conversations/${conversation.id}`
+  setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('收到两张图')]))
+  await (
+    await request(`${path}/turns`, {
+      deviceId: DEVICE,
+      text: '先存两张原图',
+      references: [
+        { imageId: 'product', mediaId: oldMedia },
+        { imageId: 'other', mediaId: currentMedia },
+      ],
+    })
+  ).text()
+  const [last] = await db
+    .select({ seq: schema.agent_messages.seq })
+    .from(schema.agent_messages)
+    .where(eq(schema.agent_messages.conversation_id, conversation.id))
+    .orderBy(desc(schema.agent_messages.seq))
+    .limit(1)
+  // Historical rows model a long-lived conversation without spending model calls to build it.
+  await db.insert(schema.agent_messages).values(
+    Array.from({ length: 16 }, (_, index) => ({
+      conversation_id: conversation.id,
+      id: crypto.randomUUID(),
+      turn_id: `history-${index}`,
+      seq: last!.seq + index + 1,
+      role: 'user' as const,
+      created_at: Date.now(),
+      content: [
+        {
+          type: 'text' as const,
+          text: 'unrelated historical prose '.repeat(400),
+          references: [
+            index === 12
+              ? { imageId: 'product', mediaId: currentMedia }
+              : { imageId: `unrelated-${index}`, mediaId: oldMedia },
+          ],
+        },
+      ],
+    })),
+  )
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'project-history',
+            name: 'planImageBatch',
+            args: {
+              title: '只处理指定商品',
+              rule: '使用最新绑定',
+              items: [
+                {
+                  key: 'product',
+                  imageIds: ['product'],
+                  prompt: '商品原图换白底',
+                  dependencies: [],
+                },
+              ],
+            },
+          }),
+        () => completionStream('计划已保存'),
+      ],
+    ),
+  )
+  const planned = await request(`${path}/turns`, {
+    deviceId: DEVICE,
+    text: '只处理 product，其他图不用处理',
+  })
+  expect(planned.status).toBe(200)
+  expect(eventsOfType(parseFrames(await planned.text()), 'turnEnd')[0]?.stopReason).toBe(
+    'completed',
+  )
+  const { batches } = await (await request(`${path}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const page = (await (await request(`agent/batches/${batches[0].id}`)).json()) as AgentBatchPage
+  expect(page.items).toHaveLength(1)
+  expect(page.items[0]!.inputs).toEqual([{ imageId: 'product', mediaId: currentMedia }])
 })
