@@ -1117,7 +1117,9 @@ export const media_objects = pgTable(
     sha256: text('sha256').notNull(),
     bytes: bigint('bytes', { mode: 'number' }).notNull(),
     content_type: text('content_type').notNull(),
-    status: text('status').$type<'pending' | 'ready'>().notNull(),
+    status: text('status').$type<'pending' | 'ready' | 'deleting'>().notNull(),
+    attachment_managed: boolean('attachment_managed').notNull().default(false),
+    attachment_lease_until: epochMs('attachment_lease_until'),
     reserved_bytes: bigint('reserved_bytes', { mode: 'number' }).notNull(),
     staging_key: text('staging_key').notNull(),
     object_key: text('object_key'),
@@ -1134,7 +1136,7 @@ export const media_objects = pgTable(
     index('idx_media_objects_pending').on(t.status, t.expires_at),
     check('media_objects_bytes_check', sql`${t.bytes} > 0`),
     check('media_objects_reserved_bytes_check', sql`${t.reserved_bytes} >= 0`),
-    check('media_objects_status_check', sql`${t.status} IN ('pending', 'ready')`),
+    check('media_objects_status_check', sql`${t.status} IN ('pending', 'ready', 'deleting')`),
   ],
 )
 

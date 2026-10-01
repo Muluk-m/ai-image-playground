@@ -332,6 +332,13 @@
       "breakpoints": true
     },
     {
+      "idx": 48,
+      "version": "7",
+      "when": 1790853000000,
+      "tag": "0048_conversation_attachments",
+      "breakpoints": true
+    },
+    {
       "idx": 49,
       "version": "7",
       "when": 1790853000001,

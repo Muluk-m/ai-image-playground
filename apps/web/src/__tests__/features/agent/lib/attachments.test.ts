@@ -68,6 +68,9 @@ describe('素材变成参考图', () => {
       { id: 'img-side', dataUrl: PIXEL },
     ]
 
+    assets = [
+      asset(loadedViews.map((view) => ({ imageId: view.id, label: 'none', source: 'upload' }))),
+    ]
     const attached = await attachAssetToDraft(EMPTY_DRAFT, 'asset-1', 0, 0)
 
     expect(attached?.draft.references.map((one) => one.id)).toEqual(['img-front', 'img-side'])
@@ -92,6 +95,9 @@ describe('素材变成参考图', () => {
       { id: 'img-front', dataUrl: PIXEL },
       { id: 'img-side', dataUrl: PIXEL },
     ]
+    assets = [
+      asset(loadedViews.map((view) => ({ imageId: view.id, label: 'none', source: 'upload' }))),
+    ]
     // 素材只能内联字节，撞的是内联那道上限。
     const draft = filled(AGENT_TURN_MAX_INLINE_REFERENCES - 1)
 
@@ -100,4 +106,16 @@ describe('素材变成参考图', () => {
     expect(attached?.refusal).toBe('inlineOverflow')
     expect(attached?.draft).toBe(draft)
   })
+})
+
+it('missing one asset view rejects the entire attachment and explains the failure', async () => {
+  assets = [
+    asset([
+      { imageId: 'img-cat', label: 'front', source: 'upload' },
+      { imageId: 'img-side', label: 'side', source: 'upload' },
+    ]),
+  ]
+  expect(await attachAssetToDraft(EMPTY_DRAFT, 'asset-1', 0, 0)).toBeNull()
+  expect(used).toEqual([])
+  expect(toasts).toHaveLength(1)
 })

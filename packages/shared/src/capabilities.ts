@@ -7,6 +7,7 @@ export const CAPABILITIES = {
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'agent:chat': { defaultValue: false, clientExposed: true },
+  'agent:attachments': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   /**
    * 对话限时免费的运营期。开着时对话轮**真的不计费**：BFF 既不预扣也不结算
@@ -72,6 +73,7 @@ export const QUOTAS = {
   'agent:turns-per-ip-hour': { defaultValue: 600 },
   'generation:daily-images': { defaultValue: 0 },
   'sync:user-media-bytes': { defaultValue: 10 * 1024 * 1024 * 1024 },
+  'sync:attachment-lease-seconds': { defaultValue: 0 },
   'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
   'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },

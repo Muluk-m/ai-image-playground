@@ -13,6 +13,8 @@ import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
 import { objectStore } from '../objectStore'
+import type { BffTransaction } from '../private-overlay'
+import { lockMediaOwner } from '../projectMedia'
 import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
 import { taskAccessWhere } from '../task-access'
@@ -537,19 +539,12 @@ export async function addConversationMediaClaims(
   mediaIds: readonly string[],
 ): Promise<void> {
   if (mediaIds.length === 0) return
-  const now = Date.now()
-  await db
-    .insert(schema.media_references)
-    .values(
-      mediaIds.map((mediaId) => ({
-        user_id: userId,
-        media_id: mediaId,
-        owner_kind: 'conversation' as const,
-        owner_id: conversationId,
-        created_at: now,
-      })),
-    )
-    .onConflictDoNothing()
+  const accepted = await claimConversationMedia(
+    conversationId,
+    userId,
+    mediaIds.map((mediaId) => ({ imageId: mediaId, mediaId })),
+  )
+  if (!accepted) throw new Error('media_not_ready')
 }
 
 /**
@@ -563,26 +558,41 @@ export async function claimConversationMedia(
   conversationId: string,
   userId: string | null,
   references: readonly AgentTurnReference[],
+  executor?: BffTransaction,
 ): Promise<boolean> {
   const mediaIds = [
     ...new Set(references.flatMap((one) => ('mediaId' in one ? [one.mediaId] : []))),
   ]
   if (mediaIds.length === 0) return true
-  // 匿名设备没有云媒体，按 id 附图对它无从成立。
   if (!userId) return false
-  const owned = await db
-    .select({ id: schema.media_objects.id })
-    .from(schema.media_objects)
-    .where(
-      and(
-        inArray(schema.media_objects.id, mediaIds),
-        eq(schema.media_objects.user_id, userId),
-        eq(schema.media_objects.status, 'ready'),
-      ),
-    )
-  if (owned.length !== mediaIds.length) return false
-  await addConversationMediaClaims(conversationId, userId, mediaIds)
-  return true
+  const claim = async (tx: BffTransaction) => {
+    await lockMediaOwner(tx, userId)
+    const owned = await tx
+      .select({ id: schema.media_objects.id })
+      .from(schema.media_objects)
+      .where(
+        and(
+          inArray(schema.media_objects.id, mediaIds),
+          eq(schema.media_objects.user_id, userId),
+          eq(schema.media_objects.status, 'ready'),
+        ),
+      )
+    if (owned.length !== mediaIds.length) return false
+    await tx
+      .insert(schema.media_references)
+      .values(
+        mediaIds.map((mediaId) => ({
+          user_id: userId,
+          media_id: mediaId,
+          owner_kind: 'conversation' as const,
+          owner_id: conversationId,
+          created_at: Date.now(),
+        })),
+      )
+      .onConflictDoNothing()
+    return true
+  }
+  return executor ? claim(executor) : db.transaction(claim)
 }
 
 /** 只把当前用户已上传且可用的媒体编号留在本轮画布目录中，不创建持久引用。 */
