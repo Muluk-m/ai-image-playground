@@ -517,3 +517,86 @@ it('polls an accepted task until completion and stops polling the completed cand
     vi.useRealTimers()
   }
 })
+
+it('shows frozen-source changes, failure reasons and a separate retry candidate without hiding playback', async () => {
+  const failed = {
+    ...candidate,
+    status: 'failed',
+    artifacts: [],
+    errorCode: 'insufficient_credits',
+    sourceChanged: true,
+  }
+  const retried = {
+    ...candidate,
+    messageId: 'retry-message',
+    taskId: 'retry-task',
+    retryOf: { messageId: candidate.messageId, toolCallId: 'call' },
+  }
+  request.mockResolvedValue(new Response(JSON.stringify({ generations: [failed, retried] })))
+  const preview = vi.fn()
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ProductionGenerations
+          conversationId="conversation"
+          document={doc}
+          target={{ kind: 'clip', id: 'clip' }}
+          onSaved={() => {}}
+          onPreviewArtifact={preview}
+        />,
+      ),
+    )
+    expect(host.querySelectorAll('article')).toHaveLength(2)
+    expect(host.textContent).toContain('来源已更新')
+    expect(host.textContent).toContain('积分不够，这次没有生成')
+    expect(host.textContent).toContain('重试自候选')
+    expect(host.querySelector('video')).not.toBeNull()
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === '打开候选预览')!
+        .click(),
+    )
+    expect(preview).toHaveBeenCalledWith(retried, candidate.artifacts[0])
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it('requires reopening a new draft when the source revision changes during editing', async () => {
+  request.mockImplementation(async () => new Response(JSON.stringify({ generations: [] })))
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const render = (revision: number) => (
+    <ProductionGenerations
+      conversationId="conversation"
+      document={{ ...doc, revision }}
+      target={{ kind: 'clip', id: 'clip' }}
+      initialDraft={candidate}
+      onSaved={() => {}}
+    />
+  )
+  try {
+    await act(async () => root.render(render(3)))
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === '新候选')!
+        .click(),
+    )
+    await act(async () => root.render(render(4)))
+    expect(host.textContent).toContain('来源已更新')
+    const create = Array.from(host.querySelectorAll('button')).find(
+      (b) => b.textContent === '创建待确认草稿',
+    )!
+    expect(create.disabled).toBe(true)
+    await act(async () => create.click())
+    expect(request.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
