@@ -1,6 +1,6 @@
-import { MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
+import { CircleDot, MessageCircle, MoreHorizontal, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { CanvasIcon, PlusIcon, TrashIcon, VideoIcon } from '../../../components/icons'
 import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
@@ -17,6 +17,16 @@ import { cloudProjectsEnabled } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName, projectExperience } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectTrash from './ProjectTrash'
+
+function projectBadge(project: CanvasProject) {
+  if (projectExperience(project) === 'chat') {
+    return { Icon: MessageCircle, label: 'grid.chat' } as const
+  }
+  if (project.kind === 'video') {
+    return { Icon: VideoIcon, label: 'project.kindVideo' } as const
+  }
+  return { Icon: CanvasIcon, label: 'grid.canvas' } as const
+}
 
 export default function ProjectGrid({
   search = '',
@@ -131,117 +141,133 @@ export default function ProjectGrid({
             </div>
           </div>
         )}
-        {visible.map((project) => (
-          <article
-            key={project.id}
-            className="group relative overflow-hidden rounded-2xl border border-border bg-card transition hover:border-primary/50"
-          >
-            <button
-              type="button"
-              disabled={busy}
-              aria-label={t('grid.openAria', { name: projectDisplayName(project.name) })}
-              onClick={() => void enter(project)}
-              className="block w-full text-left disabled:opacity-50"
+        {visible.map((project) => {
+          const { Icon: TypeIcon, label } = projectBadge(project)
+          const typeLabel = t(label)
+          const isCurrent = project.id === activeId
+          const statusLabel = [typeLabel, ...(isCurrent ? [t('grid.current')] : [])].join(' · ')
+          return (
+            <article
+              key={project.id}
+              className="group relative overflow-hidden rounded-2xl border border-border bg-card transition hover:border-primary/50"
             >
-              {/* 外框是 1rem 圆角加 1px 边。封面若用直角，圆角处会露出卡片底色，像多了一道边。 */}
-              <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-t-[calc(1rem-1px)] bg-[#303430] p-3.5 text-[#a5aea0]">
-                {project.cover ? (
-                  <MediaImage
-                    src={project.cover}
-                    alt=""
-                    loading="lazy"
-                    className="h-full w-full object-contain drop-shadow-[0_2px_5px_#00000011]"
-                  />
-                ) : (
-                  <span className="text-4xl opacity-50" aria-hidden="true">
-                    ✧
-                  </span>
-                )}
-                <span className="absolute left-3 top-3 flex items-center gap-1.5">
-                  <span className="rounded-full bg-background/85 px-2 py-1 text-[10px] text-muted-foreground">
-                    {t(
-                      projectExperience(project) === 'chat'
-                        ? 'grid.chat'
-                        : project.kind === 'video'
-                          ? 'project.kindVideo'
-                          : 'grid.canvas',
-                    )}
-                  </span>
-                  {project.id === activeId && (
-                    <span className="rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">
-                      {t('grid.current')}
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={`${t('grid.openAria', { name: projectDisplayName(project.name) })} · ${statusLabel}`}
+                onClick={() => void enter(project)}
+                className="group/project-card block w-full text-left disabled:opacity-50"
+              >
+                {/* 外框是 1rem 圆角加 1px 边。封面若用直角，圆角处会露出卡片底色，像多了一道边。 */}
+                <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted p-3.5 text-muted-foreground">
+                  {project.cover ? (
+                    <MediaImage
+                      src={project.cover}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-contain drop-shadow-[0_2px_5px_#00000011]"
+                    />
+                  ) : (
+                    <span className="text-4xl opacity-50" aria-hidden="true">
+                      ✧
                     </span>
                   )}
-                </span>
+                  <span className="absolute left-3 top-3 flex items-center gap-1.5">
+                    <span
+                      role="img"
+                      aria-label={typeLabel}
+                      title={typeLabel}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/85 text-muted-foreground"
+                    >
+                      <TypeIcon className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    {isCurrent && (
+                      <span
+                        role="img"
+                        aria-label={t('grid.current')}
+                        title={t('grid.current')}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-primary"
+                      >
+                        <CircleDot className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-background/95 px-2 py-1 text-xs text-foreground opacity-0 transition-opacity group-focus-visible/project-card:opacity-100"
+                  >
+                    {statusLabel}
+                  </span>
+                </div>
+                <h3
+                  className="truncate px-4 pt-3 text-sm font-medium text-foreground"
+                  title={projectDisplayName(project.name)}
+                >
+                  {projectDisplayName(project.name)}
+                </h3>
+              </button>
+              <div className="flex items-center gap-2 px-4 pb-3 pt-1.5 text-xs text-muted-foreground">
+                <time
+                  className="min-w-0 flex-1 truncate"
+                  dateTime={new Date(project.updatedAt).toISOString()}
+                >
+                  {t('grid.updatedAt', { date: formatDate(project.updatedAt) })}
+                </time>
               </div>
-              <h3
-                className="truncate px-4 pt-3 text-sm font-medium text-foreground"
-                title={projectDisplayName(project.name)}
+              <Popover
+                open={menuProjectId === project.id}
+                onOpenChange={(open) => setMenuProjectId(open ? project.id : null)}
               >
-                {projectDisplayName(project.name)}
-              </h3>
-            </button>
-            <div className="flex items-center gap-2 px-4 pb-3 pt-1.5 text-xs text-muted-foreground">
-              <time
-                className="min-w-0 flex-1 truncate"
-                dateTime={new Date(project.updatedAt).toISOString()}
-              >
-                {t('grid.updatedAt', { date: formatDate(project.updatedAt) })}
-              </time>
-            </div>
-            <Popover
-              open={menuProjectId === project.id}
-              onOpenChange={(open) => setMenuProjectId(open ? project.id : null)}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-2 rounded-xl bg-background/90 text-foreground shadow-sm hover:bg-background"
-                  aria-label={t('grid.actionsAria', { name: projectDisplayName(project.name) })}
-                >
-                  <MoreHorizontal />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                collisionPadding={12}
-                className="z-[600] w-56 rounded-xl p-1.5"
-              >
-                <Button
-                  variant="ghost"
-                  className="mt-1 w-full justify-start gap-3 px-3"
-                  onClick={() => {
-                    setMenuProjectId(null)
-                    setRenaming(project)
-                  }}
-                >
-                  <Pencil /> {t('grid.rename')}
-                </Button>
-                {!recent && (!project.cloud || project.cloud.revision > 0) && (
+                <PopoverTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    size="icon"
+                    className="absolute right-2 top-2 rounded-xl bg-background/90 text-foreground shadow-sm hover:bg-background"
+                    aria-label={t('grid.actionsAria', { name: projectDisplayName(project.name) })}
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  collisionPadding={12}
+                  className="z-[600] w-56 rounded-xl p-1.5"
+                >
+                  <Button
+                    variant="ghost"
+                    className="mt-1 w-full justify-start gap-3 px-3"
                     onClick={() => {
                       setMenuProjectId(null)
-                      useStore.getState().setConfirmDialog({
-                        title: t('grid.deleteTitle'),
-                        message: t(project.cloud ? 'trash.deleteMessage' : 'grid.deleteMessage', {
-                          name: projectDisplayName(project.name),
-                        }),
-                        action: () => {
-                          void useAgentStore.getState().deleteProject(project.id)
-                        },
-                      })
+                      setRenaming(project)
                     }}
                   >
-                    <TrashIcon className="h-4 w-4" /> {t('grid.deleteTitle')}
+                    <Pencil /> {t('grid.rename')}
                   </Button>
-                )}
-              </PopoverContent>
-            </Popover>
-          </article>
-        ))}
+                  {!recent && (!project.cloud || project.cloud.revision > 0) && (
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        setMenuProjectId(null)
+                        useStore.getState().setConfirmDialog({
+                          title: t('grid.deleteTitle'),
+                          message: t(project.cloud ? 'trash.deleteMessage' : 'grid.deleteMessage', {
+                            name: projectDisplayName(project.name),
+                          }),
+                          action: () => {
+                            void useAgentStore.getState().deleteProject(project.id)
+                          },
+                        })
+                      }}
+                    >
+                      <TrashIcon className="h-4 w-4" /> {t('grid.deleteTitle')}
+                    </Button>
+                  )}
+                </PopoverContent>
+              </Popover>
+            </article>
+          )
+        })}
       </div>
       {search && !visible.length && (
         <p className="py-16 text-center text-sm text-muted-foreground">{t('grid.noMatch')}</p>
