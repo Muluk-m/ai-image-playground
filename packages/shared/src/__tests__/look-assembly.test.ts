@@ -175,3 +175,21 @@ describe('assembleLookRequest', () => {
     if (result.ok) expect(result.prompt).toContain('输入 2 = 素材「白瓷杯」')
   })
 })
+
+it('eight slots and eight unique references fit the platform boundary exactly', () => {
+  const assets = Array.from({ length: 8 }, (_, i) => ({
+    id: `a${i}`,
+    name: `Asset ${i}`,
+    views: [{ imageId: `i${i}`, label: 'front' }],
+  }))
+  const result = assembleLookRequest({
+    assets,
+    look: {
+      body: BODY,
+      slotCount: 8,
+      referenceImageIds: Array.from({ length: 8 }, (_, i) => `r${i}`),
+    },
+  })
+  expect(result.ok).toBe(true)
+  if (result.ok) expect(result.inputImageIds).toHaveLength(16)
+})

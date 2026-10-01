@@ -5,7 +5,7 @@ import { QUEUE_MAX_INPUT_IMAGES } from './queue-protocol'
  * 批量端点逐条素材组装、智能体照着同样的正文干活。所以它是纯函数，不读存储也不读网络。
  */
 
-/** 模型一次收得下的输入图张数。素材先占位，余下的位置留给参考图。 */
+/** 平台输入上限；所有必需输入完整保留，超限拒绝。 */
 export const LOOK_ASSEMBLY_MAX_INPUTS = QUEUE_MAX_INPUT_IMAGES
 
 /**
@@ -56,7 +56,7 @@ export type LookAssemblyResult =
     }
 
 /** 一条素材只送一张图：拼图一张顶三张，其次正面，再不行就封面。 */
-function pickViewImageId(asset: LookAssemblyAsset): string | undefined {
+export function pickLookAssetImageId(asset: LookAssemblyAsset): string | undefined {
   const sheet = asset.views.find((view) => view.label === 'sheet')
   const front = asset.views.find((view) => view.label === 'front')
   return (sheet ?? front ?? asset.views[0])?.imageId
@@ -106,13 +106,13 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
 
   const slots: Array<{ readonly name: string; readonly imageId: string }> = []
   for (const asset of assets) {
-    const imageId = pickViewImageId(asset)
+    const imageId = pickLookAssetImageId(asset)
     if (imageId === undefined) return { ok: false, reason: 'no_views', assetId: asset.id }
     slots.push({ name: asset.name, imageId })
   }
 
   const carried = slots
-  const inputImageIds = carried.map((slot) => slot.imageId)
+  const inputImageIds = [...new Set(carried.map((slot) => slot.imageId))]
   const seen = new Set(inputImageIds)
   for (const imageId of look.referenceImageIds) {
     // 已经作为素材送进去的那张不再占一个位置：同一张图送两遍只是浪费输入。

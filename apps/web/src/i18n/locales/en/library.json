@@ -96,7 +96,8 @@
     "slotMismatch": "This template needs {{count}} assets",
     "empty": "No templates of your own yet",
     "inputLimit": "This template needs {{count}} input images; the limit is {{max}}. Remove template references to continue.",
-    "inputsUnavailable": "Could not load image \"{{image}}\". Check it and try again."
+    "inputsUnavailable": "Could not load image \"{{image}}\". Check it and try again.",
+    "prepareFailed": "Could not prepare this generation. Please try again."
   },
   "lookDetail": {
     "cover": "Cover",
