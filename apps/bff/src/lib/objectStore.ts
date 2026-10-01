@@ -18,7 +18,7 @@ export interface ObjectEntry {
 }
 
 export interface ObjectStore {
-  write(key: string, bytes: Uint8Array, contentType: string): Promise<void>
+  write(key: string, bytes: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void>
   read(key: string): Promise<Uint8Array<ArrayBuffer>>
   /** 视频这类大对象走这条；小对象整份 `read` 更省一次元信息往返。 */
   open(key: string): Promise<ObjectRangeReader>
@@ -37,7 +37,30 @@ export class S3ObjectStore implements ObjectStore {
     private readonly keyPrefix: string,
   ) {}
 
-  async write(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  async write(
+    key: string,
+    bytes: Uint8Array,
+    contentType: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal) {
+      signal.throwIfAborted()
+      // Bun 的 S3.write 没有取消参数；有期限的小对象上传用同一客户端签名的 PUT。
+      const url = this.client.file(this.keyPrefix + key).presign({
+        method: 'PUT',
+        expiresIn: 60,
+        type: contentType,
+      })
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { 'content-type': contentType },
+        body: new Blob([Uint8Array.from(bytes)]),
+        signal,
+      })
+      await response.body?.cancel()
+      if (!response.ok) throw new Error(`Object upload failed (${response.status})`)
+      return
+    }
     await this.client.write(this.keyPrefix + key, bytes, { type: contentType })
   }
 
