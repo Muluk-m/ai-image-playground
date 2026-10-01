@@ -72,6 +72,7 @@ export function validateProductionAssets(value: Partial<ProductionContent>): boo
 export function productionMediaReferences(content: ProductionContent): ProductionMediaReference[] {
   return [
     ...(content.shots ?? []).flatMap((shot) => (shot.keyframe ? [shot.keyframe] : [])),
+    ...(content.clips ?? []).flatMap((clip) => clip.references.map((one) => one.reference)),
     ...(content.locations ?? []).flatMap((location) =>
       location.reference ? [location.reference] : [],
     ),

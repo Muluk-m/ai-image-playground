@@ -1,3 +1,4 @@
+import type { ProductionClipPlan } from './production-clips'
 /** 会话内有界制作文本；不代表媒体原件的长期存储。 */
 export interface ProductionScene {
   readonly id: string
@@ -6,6 +7,7 @@ export interface ProductionScene {
 }
 export interface ProductionContent {
   readonly shots?: readonly import('./production-storyboard').ProductionShot[]
+  readonly clips?: readonly ProductionClipPlan[]
   readonly title: string
   readonly setting: string
   readonly outline: string

@@ -123,5 +123,27 @@
     "failed": "Unable to update storyboard. Your current shots are preserved.",
     "deleteImpact": "Remove this shot from the current storyboard. History and linked assets remain available.",
     "confirmDelete": "Delete shot"
+  },
+  "clip": {
+    "title": "Video clips",
+    "new": "New clip",
+    "add": "Add clip",
+    "empty": "Choose one or more shots to prepare a video.",
+    "name": "Clip name",
+    "shots": "Select shots",
+    "noShots": "Add storyboard shots first",
+    "missingShot": "Referenced shot was deleted. Choose another.",
+    "removeShot": "Remove shot",
+    "prompt": "Video description",
+    "references": "Reference images",
+    "usage": "Image role",
+    "first-frame": "First frame",
+    "last-frame": "Last frame",
+    "reference": "Reference",
+    "unavailable": "This model or channel does not support these settings. Adjust before generating.",
+    "expected": "Expected length {{seconds}} seconds; actual output may differ",
+    "estimate": "Estimated {{credits}} credits",
+    "saveBeforeGenerate": "Save the clip to prepare a generation draft and confirm its cost.",
+    "deleteImpact": "Saving will delete this plan. Generated candidates remain in the conversation."
   }
 }
