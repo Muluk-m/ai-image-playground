@@ -179,5 +179,32 @@
     "addReference": "添加参考素材",
     "retry": "重试此候选",
     "cancel": "取消此任务"
+  },
+  "export": {
+    "title": "导出资源包",
+    "intro": "将当前剧本、分镜与所选原件导出为 ZIP，继续在其他工具中创作。",
+    "documents": "制作文档",
+    "originals": "所选参考图与采用片段",
+    "extraCandidates": "添加其他生成候选",
+    "inspect": "检查原件与大小",
+    "fixedRevision": "本次资源包固定为修订版 V{{revision}}",
+    "size": "原件共 {{size}} MiB · 上限 {{max}} MiB",
+    "missing": "原件缺失或过期",
+    "unknown": "大小未知",
+    "single": "单独下载",
+    "tooLarge": "原件超过打包上限，请减少选择或单独下载。",
+    "unknownSize": "部分原件大小未知，请重试检查，或取消选择这些原件。",
+    "download": "下载 ZIP 资源包",
+    "partial_other": "仍导出可用资源（缺失 {{count}} 项）",
+    "retry": "重新检查原件",
+    "textOnly": "仅导出制作文档",
+    "inspecting": "正在检查原件…",
+    "progress": "正在打包 {{done}} / {{total}}",
+    "complete": "所选资源包已准备完成，已发起下载。",
+    "partial": "部分资源包已发起下载，缺失原件已写入 missing.json。",
+    "cancelled": "导出已取消",
+    "scopeChanged": "账号已切换，请重新打开导出面板。",
+    "failed": "资源包未完成。请检查原件后重试，也可以仅导出制作文档。",
+    "acceptPartial": "明确导出可用部分并附缺失清单"
   }
 }

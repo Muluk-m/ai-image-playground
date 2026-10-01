@@ -162,3 +162,19 @@
 .production-generations button { border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
 .production-generations button:disabled { opacity: .5; cursor: not-allowed; }
 .production-generation-editor > button, .production-generation-result > button { justify-self: end; align-self: end; background: hsl(var(--primary)); color: white; border-color: transparent; }
+.production-export { display:flex; flex-direction:column; gap:20px; font-size:12px; line-height:1.8; }
+.production-export>h1 { font-size:18px; font-weight:650; }
+.production-export-docs { display:flex; flex-direction:column; gap:6px; border:1px solid hsl(var(--border)); border-radius:12px; padding:14px; }
+.production-export-docs>span { color:hsl(var(--muted-foreground)); overflow-wrap:anywhere; }
+.production-export fieldset { display:flex; flex-direction:column; gap:10px; }
+.production-export legend { font-weight:600; margin-bottom:10px; }
+.production-export label { display:flex; gap:10px; align-items:flex-start; }
+:where(.production-export) label>[role="checkbox"] { margin-top:5px; }
+.production-export label>span { overflow-wrap:anywhere; }
+:where(.production-export) button:not([role="checkbox"]) { display:inline-flex; justify-content:center; align-items:center; gap:8px; border:1px solid hsl(var(--border)); border-radius:9px; padding:8px 12px; }
+.production-export .production-export-primary { background:hsl(var(--foreground)); color:hsl(var(--background)); }
+.production-export-preview { display:flex; flex-direction:column; gap:12px; padding:14px; border:1px solid hsl(var(--border)); border-radius:12px; }
+.production-export-preview>div { display:flex; gap:8px; align-items:center; }
+.production-export-preview>div>span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.production-export-preview small { color:hsl(var(--muted-foreground)); }
+.production-export-preview a { text-decoration:underline; }
