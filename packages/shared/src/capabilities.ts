@@ -58,6 +58,8 @@ export interface AdminCapabilityManifest {
 }
 
 export const QUOTAS = {
+  /** Application memory/transport protection; operators must verify tighter gateway limits. */
+  'agent:request-max-bytes': { defaultValue: 16 * 1024 * 1024 },
   'agent:compaction-buffer-tokens': { defaultValue: 13_000 },
   'agent:compaction-cooldown-minutes': { defaultValue: 6 * 60 },
   'agent:compaction-failure-threshold': { defaultValue: 3 },

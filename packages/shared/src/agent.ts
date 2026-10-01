@@ -1049,6 +1049,7 @@ export type AgentTurnErrorCode =
   | 'agent_tool_failed'
   | 'agent_turn_interrupted'
   | 'agent_context_overflow'
+  | 'agent_request_budget_exceeded'
 
 /** 失败诊断只保留错误文本与调用标识，不包含请求内容或认证信息。 */
 export interface AgentTurnFailure {

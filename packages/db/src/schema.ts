@@ -743,6 +743,10 @@ export const agent_model_calls = pgTable(
       .notNull(),
     model: text('model').notNull(),
     input_image_count: integer('input_image_count').notNull().default(0),
+    // Null marks legacy calls whose dispatch facts were not recorded.
+    http_dispatch_count: integer('http_dispatch_count'),
+    request_bytes: bigint('request_bytes', { mode: 'number' }),
+    local_rejection: text('local_rejection'),
     status: text('status').$type<'in_progress' | 'completed' | 'failed' | 'cancelled'>().notNull(),
     usage: bunJsonb('usage').$type<AgentTurnUsage>(),
     cache_read_tokens: integer('cache_read_tokens'),

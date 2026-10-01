@@ -1,5 +1,6 @@
 import { type AssistantMessage, isRetryableAssistantError } from '@earendil-works/pi-ai'
 import { config } from '../config'
+import { AgentRequestBudgetError, assertOutboundBody } from './agent/outbound-budget'
 import { log } from './logger'
 import { resolveChatApiKey } from './resolveApiKey'
 import {
@@ -96,6 +97,9 @@ export interface ChatAttempt {
   readonly finishedAt: number
   readonly status: 'completed' | 'failed'
   readonly usage: { readonly inputTokens: number; readonly outputTokens: number } | null
+  readonly httpDispatchCount?: 0 | 1
+  readonly requestBytes?: number | null
+  readonly localRejection?: AgentRequestBudgetError
 }
 
 export interface ChatAsk {
@@ -104,7 +108,7 @@ export interface ChatAsk {
   readonly images?: readonly string[]
   readonly maxTokens: number
   readonly timeoutMs: number
-  /** 每次真实请求各报告一次（内容重试与瞬时故障重试都算），不包含提示词或回复正文。 */
+  /** 每次尝试各报告一次；本地拒绝显式标记零派发与零用量，不包含请求正文。 */
   readonly onAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
 
@@ -151,6 +155,25 @@ const UPSTREAM_DETAIL_CHARS = 500
 async function requestContent(body: string, ask: ChatAsk): Promise<string | undefined> {
   const id = crypto.randomUUID()
   const startedAt = Date.now()
+  let requestBytes: number
+  try {
+    requestBytes = assertOutboundBody(body, config.operator.quotas['agent:request-max-bytes'])
+  } catch (error) {
+    if (error instanceof AgentRequestBudgetError) {
+      await ask.onAttempt?.({
+        id,
+        model: ask.model,
+        startedAt,
+        finishedAt: Date.now(),
+        status: 'failed',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        httpDispatchCount: 0,
+        requestBytes: error.requestBytes,
+        localRejection: error,
+      })
+    }
+    throw error
+  }
   let usage: ChatAttempt['usage'] = null
   let status: ChatAttempt['status'] = 'failed'
   const deadline = startDeadline(ask.timeoutMs)
@@ -186,6 +209,8 @@ async function requestContent(body: string, ask: ChatAsk): Promise<string | unde
       finishedAt: Date.now(),
       status,
       usage,
+      httpDispatchCount: 1,
+      requestBytes,
     })
   }
 }
@@ -230,7 +255,7 @@ const CLASSIFIER_USAGE = {
  */
 function isTransientChatError(error: unknown, model: string): boolean {
   // 超时是我们自己切的 deadline，不是上游的毛病：重试只会把这一轮的总耗时翻倍。
-  if (error instanceof ChatTimeoutError) return false
+  if (error instanceof ChatTimeoutError || error instanceof AgentRequestBudgetError) return false
   const failed: AssistantMessage = {
     role: 'assistant',
     content: [],
