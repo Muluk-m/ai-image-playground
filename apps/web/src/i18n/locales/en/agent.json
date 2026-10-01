@@ -191,6 +191,7 @@
     "failed": "Turn failed",
     "interrupted": "Interrupted, resumed automatically",
     "contextOverflow": "This turn was too long to send",
+    "requestBudgetExceeded": "Request not sent; this model call incurred no charge",
     "stopped": "Stopped"
   },
   "composer": {
@@ -325,6 +326,7 @@
     "retryFailed": "The retry couldn't be submitted. Please try again shortly.",
     "upstream": "The conversation model call failed. Please try again later.",
     "contextOverflow": "This request exceeds the model capacity. Reduce the text or reference images and try again.",
+    "requestBudgetExceeded": "This request exceeds the size limit or cannot be sent safely. Reduce reference images, shorten the text, or split the request. Contact the operator if it still fails.",
     "toolFailed": "A tool failed. Check the failed tool card.",
     "copyLog": "Copy original log",
     "copied": "Copied",

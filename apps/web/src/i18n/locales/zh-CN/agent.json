@@ -183,6 +183,7 @@
     "failed": "本轮失败",
     "interrupted": "已中断，已自动续上",
     "contextOverflow": "这一轮的内容太长，没有发出去",
+    "requestBudgetExceeded": "请求未发送，未产生本次模型调用费用",
     "stopped": "已停止"
   },
   "composer": {
@@ -311,6 +312,7 @@
     "retryFailed": "重试没能提交，请稍后再试。",
     "upstream": "对话模型调用失败，请稍后重试。",
     "contextOverflow": "本轮内容超出模型容量，请减少文字或参考图后重试。",
+    "requestBudgetExceeded": "请求体积超出限制或无法安全发送。请减少参考图、缩短文字，或拆分请求；仍失败请联系管理员。",
     "toolFailed": "工具执行失败，请查看失败卡片。",
     "copyLog": "复制原始日志",
     "copied": "已复制",

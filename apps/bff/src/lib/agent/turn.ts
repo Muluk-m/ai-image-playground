@@ -33,6 +33,7 @@ import {
 } from './images'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
+import { AgentRequestBudgetError } from './outbound-budget'
 import {
   AgentContextOverflow,
   assertRequestWithinBudget,
@@ -155,7 +156,6 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   let modelCallId: string | null = null
   const startedAt = Date.now()
   const events = await openTurnEventLog(conversationId, turnId)
-  const stream = agentStreamFn(prepared.params?.thinkingDepth)
   const images = createAgentImageSource({
     references: input.references,
     history: history.messages,
@@ -257,8 +257,16 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         }
         throw thrown
       }
-      modelCallId = await ledger.begin('conversation', model.id, context)
-      return stream(model, context, options)
+      const callId = await ledger.begin('conversation', model.id, context)
+      modelCallId = callId
+      return agentStreamFn(prepared.params?.thinkingDepth, {
+        onDispatch: (bytes) => ledger.dispatched(callId, bytes),
+        onRejected: async (rejection) => {
+          error = 'agent_request_budget_exceeded'
+          failure = agentTurnFailure(error, rejection, model.id)
+          await ledger.rejected(callId, rejection)
+        },
+      })(model, context, options)
     },
     // 一次工具边界把已排队的插话按顺序交给模型，避免每句再触发一次模型请求。
     steeringMode: 'all',
@@ -275,7 +283,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       foldedBefore: history.coveredCount,
       overheadTokens,
       settings: budget,
-      onSummaryAttempt: (attempt) => ledger.recordSideCall('compaction', attempt),
+      onSummaryAttempt: async (attempt) => {
+        if (attempt.localRejection) {
+          error = 'agent_request_budget_exceeded'
+          failure = agentTurnFailure(error, attempt.localRejection, attempt.model)
+        }
+        await ledger.recordSideCall('compaction', attempt)
+      },
     }),
   })
 
@@ -411,9 +425,16 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       if (event.message.stopReason === 'error' && !aborted) {
         error ??= 'agent_upstream_error'
         failure ??= agentTurnFailure(error, event.message.errorMessage, model.id)
+        const local =
+          error === 'agent_request_budget_exceeded' || error === 'agent_context_overflow'
         log.warn(
-          { event: 'agent.upstream_failed', conversationId, turnId, failure },
-          'agent upstream call failed',
+          {
+            event: local ? 'agent.request_rejected' : 'agent.upstream_failed',
+            conversationId,
+            turnId,
+            failure,
+          },
+          local ? 'agent request was rejected locally' : 'agent upstream call failed',
         )
       } else await closeOpen()
       open = null
@@ -572,7 +593,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     .catch((thrown) => {
       if (aborted || error) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')
-      error = 'agent_run_failed'
+      error =
+        thrown instanceof AgentRequestBudgetError
+          ? 'agent_request_budget_exceeded'
+          : 'agent_run_failed'
       failure = agentTurnFailure(error, thrown, model.id)
     })
     .then(async () => {

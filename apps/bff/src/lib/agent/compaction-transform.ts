@@ -13,6 +13,7 @@ import {
 } from './compaction'
 import { summarizeCompaction, summaryChunkBudget, summaryRequestFits } from './compaction-summary'
 import { saveAgentCompaction } from './conversations'
+import { AgentRequestBudgetError } from './outbound-budget'
 
 export interface CompactionTransformInput {
   readonly conversationId: string
@@ -170,6 +171,7 @@ export function createCompactionTransform(
       }
       return [...result.messages]
     } catch (error) {
+      if (error instanceof AgentRequestBudgetError) throw error
       log.warn({ event: 'agent.compaction_failed', err: error }, 'agent compaction failed')
       return truncateToBudget(messages, fallbackBudget)
     }

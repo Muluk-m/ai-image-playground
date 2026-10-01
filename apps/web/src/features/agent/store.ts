@@ -303,6 +303,8 @@ function turnFailureText(code?: string): string {
   switch (code) {
     case 'agent_upstream_error':
       return i18next.t('error.upstream', { ns: 'agent' })
+    case 'agent_request_budget_exceeded':
+      return i18next.t('error.requestBudgetExceeded', { ns: 'agent' })
     case 'agent_context_overflow':
       return i18next.t('error.contextOverflow', { ns: 'agent' })
     case 'agent_tool_failed':
