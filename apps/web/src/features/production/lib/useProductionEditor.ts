@@ -41,8 +41,11 @@ function readDraft(key: string): LocalDraft | null {
 export function useProductionEditor(
   document: ProductionDocument,
   onSaved: (next: ProductionResponse) => void,
+  draftScope?: string,
 ) {
-  const key = scopedStorageName(`production-draft:${document.conversationId}:${document.id}`)
+  const key = scopedStorageName(
+    `production-draft:${document.conversationId}:${document.id}${draftScope ? `:${draftScope}` : ''}`,
+  )
   const [draft, setDraft] = useState<LocalDraft | null>(() => readDraft(key))
   const [editing, setEditing] = useState(() => readDraft(key) !== null)
   const [saving, setSaving] = useState(false)
@@ -53,6 +56,7 @@ export function useProductionEditor(
       baseRevision: draft?.baseRevision ?? document.revision,
       operationId: crypto.randomUUID(),
     }
+    setEditing(true)
     setDraft(next)
     safeLocalStorage.setItem(key, JSON.stringify(next))
     setError(null)

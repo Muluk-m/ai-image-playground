@@ -517,7 +517,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                         .filter(
                           (message) =>
                             message.kind === 'tool' &&
-                            (message.toolName === 'writeProduction' ||
+                            (message.toolName === 'proposeProductionAssets' ||
+                              message.toolName === 'writeProduction' ||
                               message.toolName === 'readProduction'),
                         )
                         .map(
