@@ -1,6 +1,8 @@
 import type { AgentBatchAnalysisSummary } from '@image-playground/shared'
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
+import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
 import { db, schema } from '../../db/client'
+import type { BffTransaction } from '../private-overlay'
 import { readBatchSourceItems } from './batch-analysis-sources'
 
 /** Whole-plan coverage is independent of the page cursor and never needs another model call. */
@@ -8,9 +10,10 @@ export async function readBatchAnalysisSummary(
   batchId: string,
   version: number,
   itemKeys?: readonly string[],
+  executor: BunSQLDatabase<typeof schema> | BffTransaction = db,
 ): Promise<AgentBatchAnalysisSummary | undefined> {
   if (itemKeys?.length === 0) return undefined
-  const rows = await db
+  const rows = await executor
     .select({
       itemKey: schema.agent_batch_items.key,
       inputs: schema.agent_batch_items.inputs,
@@ -136,14 +139,15 @@ export async function readBatchAnalysisSummary(
 export async function readBatchSourceSummary(
   batchId: string,
   versions: readonly number[],
+  executor: BunSQLDatabase<typeof schema> | BffTransaction = db,
 ): Promise<AgentBatchAnalysisSummary | undefined> {
-  const sources = await readBatchSourceItems(db, batchId, versions)
+  const sources = await readBatchSourceItems(executor, batchId, versions)
   const summaries: AgentBatchAnalysisSummary[] = []
   for (const version of [...new Set(versions)].sort((a, b) => a - b)) {
     const keys = sources
       .filter((source) => source.version === version && source.item.kind === 'analysis')
       .map((source) => source.item.key)
-    const summary = await readBatchAnalysisSummary(batchId, version, keys)
+    const summary = await readBatchAnalysisSummary(batchId, version, keys, executor)
     if (summary)
       summaries.push({
         ...summary,

@@ -1,11 +1,12 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import { db, schema } from '../../db/client'
+import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
+import { schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { batchItem } from './batch-items'
 
 /** Explicit version sets are bounded at the protocol boundary; never traverse parent versions. */
 export async function readBatchSourceItems(
-  executor: typeof db | BffTransaction,
+  executor: BunSQLDatabase<typeof schema> | BffTransaction,
   batchId: string,
   versions: readonly number[],
 ) {

@@ -11,7 +11,8 @@ import type {
   AgentMediaReference,
   AnalysisIntent,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { prepareAnalysisTask, quoteAnalysisTask } from '../analysis-tasks'
@@ -339,10 +340,11 @@ export async function readAgentBatchPlan(
   id: string,
   options: { limit?: number; cursor?: string } = {},
 ): Promise<AgentBatchPage | null> {
-  // A task can acquire its terminal archive while this page is being read. Keep status,
-  // archived totals and the IDs awaiting legacy cost lookup on one consistent snapshot.
-  return db.transaction(
-    async (tx) => {
+  // Keep page state and both summaries on one snapshot without borrowing another connection.
+  const page: AgentBatchPage | null = await db.$client.begin(
+    'isolation level repeatable read read only',
+    async (client) => {
+      const tx = drizzle(client, { schema })
       let version: number | undefined
       let after = -1
       if (options.cursor) {
@@ -414,10 +416,6 @@ export async function readAgentBatchPlan(
       const [totals] = await tx
         .select({
           submittedCount: sql<number>`count(*)`.mapWith(Number),
-          archivedCredits:
-            sql<number>`coalesce(sum((${schema.agent_batch_attempts.terminal_snapshot}->>'actualCredits')::double precision) FILTER (WHERE ${effectiveStatus} IN ('completed', 'failed', 'cancelled')), 0)`.mapWith(
-              Number,
-            ),
           allTerminal: sql<boolean>`coalesce(bool_and(${effectiveStatus} IN ('completed', 'failed', 'cancelled')), true)`,
         })
         .from(schema.agent_batch_attempts)
@@ -459,6 +457,65 @@ export async function readAgentBatchPlan(
         )
         .limit(100)
       const targets = new Map(targetRows.map((one) => [one.key, one]))
+      const sourceVersions =
+        plan.confirmation?.sourceVersions ??
+        (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])
+      const dependencyKeys = [
+        ...new Set(items.slice(0, limit).flatMap((item) => item.dependencies)),
+      ]
+      if (sourceVersions.length && sourceVersions.length <= 100 && dependencyKeys.length) {
+        // A rolled-over dependency belongs to its latest explicitly frozen source version.
+        // Keep current-plan targets authoritative, including targets not submitted yet.
+        const currentKeys = tx
+          .select({ key: schema.agent_batch_items.key })
+          .from(schema.agent_batch_items)
+          .where(
+            and(
+              eq(schema.agent_batch_items.batch_id, id),
+              eq(schema.agent_batch_items.version, plan.version),
+            ),
+          )
+        const sourceTargets = await tx
+          .selectDistinctOn([schema.agent_batch_items.key], {
+            key: schema.agent_batch_items.key,
+            taskId: schema.agent_batch_attempts.task_id,
+            status: effectiveStatus,
+            errorCode: sql<
+              string | null
+            >`${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode'`,
+          })
+          .from(schema.agent_batch_items)
+          .innerJoin(
+            schema.agent_batch_plans,
+            and(
+              eq(schema.agent_batch_plans.batch_id, schema.agent_batch_items.batch_id),
+              eq(schema.agent_batch_plans.version, schema.agent_batch_items.version),
+            ),
+          )
+          .leftJoin(
+            schema.agent_batch_attempts,
+            and(
+              eq(schema.agent_batch_attempts.batch_id, schema.agent_batch_items.batch_id),
+              eq(schema.agent_batch_attempts.item_key, schema.agent_batch_items.key),
+              lte(schema.agent_batch_attempts.version, schema.agent_batch_items.version),
+              sql`${schema.agent_batch_attempts.attempt} = coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
+            ),
+          )
+          .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+          .where(
+            and(
+              eq(schema.agent_batch_items.batch_id, id),
+              inArray(schema.agent_batch_items.version, [...sourceVersions]),
+              inArray(schema.agent_batch_items.key, dependencyKeys),
+              notInArray(schema.agent_batch_items.key, currentKeys),
+            ),
+          )
+          .orderBy(asc(schema.agent_batch_items.key), desc(schema.agent_batch_items.version))
+          .limit(dependencyKeys.length)
+        for (const source of sourceTargets) {
+          if (source.taskId) targets.set(source.key, source)
+        }
+      }
       const attemptRows = await tx
         .select({
           itemKey: schema.agent_batch_attempts.item_key,
@@ -488,42 +545,6 @@ export async function readAgentBatchPlan(
           one.snapshot?.actualCredits != null ? [[one.taskId, one.snapshot.actualCredits]] : [],
         ),
       )
-      let actualCredits = totals?.archivedCredits ?? 0
-      // Legacy terminal tasks can lack an archived charge. Read their IDs and resolve costs
-      // in bounded pages, retaining only the costs needed by this response's visible history.
-      const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-      let afterTaskId: string | undefined
-      for (;;) {
-        const unarchived = await tx
-          .select({ taskId: schema.agent_batch_attempts.task_id })
-          .from(schema.agent_batch_attempts)
-          .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
-          .where(
-            and(
-              attemptScope,
-              isNull(schema.agent_batch_attempts.terminal_snapshot),
-              inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
-              afterTaskId === undefined
-                ? undefined
-                : gt(schema.agent_batch_attempts.task_id, afterTaskId),
-            ),
-          )
-          .orderBy(asc(schema.agent_batch_attempts.task_id))
-          .limit(100)
-        if (!unarchived.length) break
-        const liveCredits = await taskHooks.taskCredits({
-          taskIds: unarchived.map((one) => one.taskId),
-        })
-        for (const { taskId } of unarchived) {
-          const value = liveCredits[taskId]
-          if (value !== undefined) {
-            actualCredits += value
-            if (pageTaskIds.has(taskId)) credits[taskId] = value
-          }
-        }
-        if (unarchived.length < 100) break
-        afterTaskId = unarchived[unarchived.length - 1]!.taskId
-      }
       const analysisResults = new Map(
         (
           await tx
@@ -620,12 +641,9 @@ export async function readAgentBatchPlan(
           item.dependencies.every((key) => targetExecution(key)?.status === 'completed')
         return { progress: ready ? 'ready' : 'pending' }
       }
-      const analysisSummary = await readBatchAnalysisSummary(id, plan.version)
-      const sourceVersions =
-        plan.confirmation?.sourceVersions ??
-        (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])
+      const analysisSummary = await readBatchAnalysisSummary(id, plan.version, undefined, tx)
       const sourceAnalysisSummary = sourceVersions.length
-        ? await readBatchSourceSummary(id, sourceVersions)
+        ? await readBatchSourceSummary(id, sourceVersions, tx)
         : undefined
       return {
         ...(analysisSummary ? { analysisSummary } : {}),
@@ -655,7 +673,7 @@ export async function readAgentBatchPlan(
               }
             : {}),
           submittedCount: totals?.submittedCount ?? 0,
-          actualCredits,
+          actualCredits: 0,
           estimate: plan.estimate_snapshot,
           createdAt: batch.created_at,
         } satisfies AgentBatchView,
@@ -674,8 +692,70 @@ export async function readAgentBatchPlan(
             : null,
       }
     },
-    { isolationLevel: 'repeatable read', accessMode: 'read only' },
   )
+  if (!page) return null
+  // Settled costs may be newer than the page-state snapshot. Freeze each row's archive-or-hook
+  // choice once, after releasing the transaction, so concurrent archival cannot skip or double count it.
+  const pageTaskIds = new Set(
+    page.items.flatMap((item) => (item.attempts ?? []).map((one) => one.taskId)),
+  )
+  const pageCredits = new Map<string, number>()
+  let actualCredits = 0
+  let afterTaskId: string | undefined
+  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  for (;;) {
+    const rows = await db
+      .select({
+        taskId: schema.agent_batch_attempts.task_id,
+        status: sql<string>`CASE WHEN ${schema.agent_batch_attempts.terminal_snapshot}->>'errorCode' = 'result_unknown' THEN 'reconciling' ELSE coalesce(${schema.agent_batch_attempts.terminal_snapshot}->>'status', ${schema.tasks.status}, 'reconciling') END`,
+        archivedCredits: sql<
+          number | null
+        >`(${schema.agent_batch_attempts.terminal_snapshot}->>'actualCredits')::double precision`,
+      })
+      .from(schema.agent_batch_attempts)
+      .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+      .where(
+        and(
+          eq(schema.agent_batch_attempts.batch_id, id),
+          lte(schema.agent_batch_attempts.version, page.batch.version),
+          afterTaskId === undefined
+            ? undefined
+            : gt(schema.agent_batch_attempts.task_id, afterTaskId),
+        ),
+      )
+      .orderBy(asc(schema.agent_batch_attempts.task_id))
+      .limit(100)
+    if (!rows.length) break
+    const terminal = rows.filter((one) => ['completed', 'failed', 'cancelled'].includes(one.status))
+    const legacyIds = terminal
+      .filter((one) => one.archivedCredits === null)
+      .map((one) => one.taskId)
+    const liveCredits: Readonly<Record<string, number>> = legacyIds.length
+      ? await taskHooks.taskCredits({ taskIds: legacyIds })
+      : {}
+    for (const one of terminal) {
+      const value = one.archivedCredits ?? liveCredits[one.taskId]
+      if (value !== undefined) {
+        actualCredits += value
+        if (pageTaskIds.has(one.taskId)) pageCredits.set(one.taskId, value)
+      }
+    }
+    if (rows.length < 100) break
+    afterTaskId = rows[rows.length - 1]!.taskId
+  }
+  const withCredits = (entry: AgentBatchItemExecution): AgentBatchItemExecution => {
+    const value = pageCredits.get(entry.taskId)
+    return value === undefined || entry.analysis ? entry : { ...entry, actualCredits: value }
+  }
+  return {
+    ...page,
+    batch: { ...page.batch, actualCredits },
+    items: page.items.map((item) => ({
+      ...item,
+      ...(item.execution ? { execution: withCredits(item.execution) } : {}),
+      ...(item.attempts ? { attempts: item.attempts.map(withCredits) } : {}),
+    })),
+  }
 }
 
 export async function updateAgentBatchPlan(
