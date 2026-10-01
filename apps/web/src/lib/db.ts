@@ -9,7 +9,7 @@ import type { PlatformGenerationRow } from './platformGenerations'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 14
+const DB_VERSION = 15
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
@@ -21,6 +21,9 @@ export const STORE_BGSWAP_JOBS = 'bgswap_jobs'
 export const STORE_VIDEO_TASKS = 'video_tasks'
 export const STORE_STORYBOARDS = 'storyboards'
 export const STORE_MEDIA = 'media'
+export const STORE_ATTACHMENT_SOURCES = 'attachment_sources'
+export const STORE_ATTACHMENT_METADATA = 'attachment_metadata'
+export const STORE_ATTACHMENT_OWNERS = 'attachment_owners'
 export const STORE_PLATFORM_GENERATIONS = 'platform_generations'
 export const DB_STORE_NAMES = [
   STORE_TASKS,
@@ -33,6 +36,9 @@ export const DB_STORE_NAMES = [
   STORE_VIDEO_TASKS,
   STORE_STORYBOARDS,
   STORE_MEDIA,
+  STORE_ATTACHMENT_SOURCES,
+  STORE_ATTACHMENT_METADATA,
+  STORE_ATTACHMENT_OWNERS,
   STORE_PLATFORM_GENERATIONS,
   STORE_LOOKS,
 ] as const

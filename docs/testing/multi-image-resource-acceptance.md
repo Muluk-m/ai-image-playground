@@ -1,0 +1,33 @@
+# Multi-image resource acceptance
+
+## Controlled BFF measurements
+
+Measured on macmini2 with Bun 1.3.14, PostgreSQL 17, real media reservation/completion and Agent HTTP route handling. Disk-backed object storage and model transport are controlled fixtures. Each run contains 100 unique JPEG originals and 100 matching PNG masks, upload concurrency 2, completion concurrency 1. These single samples characterize intake and request preparation; they do not establish production throughput or provider comparison quality.
+
+| Profile | Original bytes | Mask bytes | Upload | Send acceptance | Message JSON | Largest model body | Peak BFF RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2048 × 2048 | 325,125,912 | 4,220,589 | 17.52 s | 1.85 s | 21,925 B | 51,846 B | 549,404,672 B |
+| 4096 × 4096 | 1,300,422,749 | 15,461,174 | 26.98 s | 6.62 s | 21,925 B | 51,846 B | 966,295,552 B |
+
+Both runs retained 100 ordered logical references and 200 distinct original/mask identities. Preparation performed 200 object reads with peak read concurrency 1. Each mock model received one bounded acknowledgement request; it did not inspect all 100 images. Send acceptance stayed below the existing 30-second client deadline. RSS was sampled every 20 ms; baseline RSS was 160,350,208 B and 164,675,584 B respectively.
+
+The 4096 profile required both attachment and existing asset byte limits to permit 20 MB; otherwise complete correctly rejected it. Test quotas also allowed 2 GB user media, 16,777,216 pixels per image and a one-hour unsent lease. These are test inputs, not production settings or supplier guarantees.
+
+## Real browser acceptance
+
+The production Web build was exercised in Chromium against the controlled BFF, real PostgreSQL, and disk-backed media store over an SSH tunnel. The selected files were 100 unique 2048 × 2048 JPEGs (`001.jpg` through `100.jpg`, 325,125,912 original bytes), without masks in this browser run.
+
+- The 74th binary PUT deliberately returned 503. The UI reached 99 ready plus one failed, and sending remained disabled.
+- Reloading and choosing the saved-draft restore action retained all 100 ordered inputs and the 99 ready identities. PUT count stayed at 100. Explicitly retrying item 074 brought the count to 101 and all 100 items to ready; the accepted 99 originals were not uploaded again.
+- The actual browser turn POST contained 100 references, no base64, and 12,104 UTF-8 bytes. It returned HTTP 200 after 614 ms; one mock model acknowledgement used a 43,419-byte body. The message displayed references 001–100 in order. This acknowledgement did not inspect all image pixels.
+- Upload/readiness/recovery used a sampled BFF RSS peak of 401,162,240 bytes from a 231,391,232-byte baseline. Browser JS heap was 52,162,908 bytes before selection; the observed late-intake peak was 236,178,921 bytes, restored-ready heap 127,476,738 bytes, and send-phase peak 167,699,037 bytes. The JS heap is not total renderer memory and sampling began partway through upload, so this is not a complete browser peak bound.
+- The browser exposed an attachment-layout overflow at 100 items. The attachment area now scrolls within a viewport-relative height. At 1272 × 831, controls stayed at y=719; at 390 × 844 they stayed at y=645. Both normal pointer retry and send succeeded.
+
+An initial fixture filename typo (`000.jpg`) produced an explicit unreadable item and was removed before replacing it with `100.jpg`; it was not silently dropped or counted as a successful upload. The fault-injection and final-send results above concern the corrected fixed 100-file scope. Tunnel transfer time is not a production throughput measurement.
+
+## Release acceptance still required
+
+- Repeated send-accept samples before claiming percentiles, full browser-process memory measurement, and effective production channel request budgets/compatibility.
+- Batch execution and analysis coverage acceptance separately from attachment intake.
+
+`agent:bulk-attachments` remains off by default. Enable only after the configured channel and resource limits pass acceptance; the logical 100-image allowance does not increase the number of images allowed in one model or generation request.
