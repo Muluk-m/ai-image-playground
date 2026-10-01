@@ -9,6 +9,7 @@ import {
 } from '../lib/agent/production'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
+import { productionAssetFields } from './production-asset-schema'
 
 export const productionRoutes = new Elysia()
   .use(badRequestOnValidation())
@@ -45,6 +46,8 @@ export const productionRoutes = new Elysia()
         operationId: t.String({ minLength: 1, maxLength: 128 }),
         baseRevision: t.Integer({ minimum: 0 }),
         content: t.Object({
+          characters: t.Optional(productionAssetFields.characters),
+          locations: t.Optional(productionAssetFields.locations),
           title: t.String({ maxLength: 200 }),
           setting: t.String({ maxLength: 100000 }),
           outline: t.String({ maxLength: 100000 }),

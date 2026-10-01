@@ -14,6 +14,8 @@ import {
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
+import { validateProductionAssets } from './production-asset-validation'
+import { reconcileProductionReferences } from './production-references'
 
 export class ProductionError extends Error {
   constructor(
@@ -36,6 +38,7 @@ export function validateProductionContent(value: unknown): value is ProductionCo
   if (!value || typeof value !== 'object') return false
   const c = value as Partial<ProductionContent>
   return (
+    validateProductionAssets(c) &&
     typeof c.title === 'string' &&
     c.title.length <= 200 &&
     typeof c.setting === 'string' &&
@@ -113,6 +116,16 @@ export async function writeProduction(
       project?.id ?? null,
       turnId,
     )
+    if (
+      !(await reconcileProductionReferences(
+        tx,
+        conversationId,
+        userId,
+        current?.document.content ?? null,
+        record.document.content,
+      ))
+    )
+      throw new ProductionError('production_invalid')
     await tx
       .update(schema.agent_conversations)
       .set({ production: record, updated_at: record.document.updatedAt })
@@ -283,7 +296,7 @@ function replaceProductionTarget(
 export async function updateProductionRecord(
   conversationId: string,
   userId: string,
-  change: (record: ProductionRecord) => ProductionRecord,
+  change: (record: ProductionRecord) => ProductionRecord | Promise<ProductionRecord>,
 ): Promise<ProductionRecord> {
   assertEnabled()
   return db.transaction(async (tx) => {
@@ -293,7 +306,17 @@ export async function updateProductionRecord(
       .where(owned(conversationId, userId))
       .for('update')
     if (!row?.production) throw new ProductionError('production_not_found')
-    const updated = change(row.production)
+    const updated = await change(row.production)
+    if (
+      !(await reconcileProductionReferences(
+        tx,
+        conversationId,
+        userId,
+        row.production.document.content,
+        updated.document.content,
+      ))
+    )
+      throw new ProductionError('production_invalid')
     await tx
       .update(schema.agent_conversations)
       .set({ production: updated, updated_at: Date.now() })

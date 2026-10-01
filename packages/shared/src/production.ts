@@ -9,6 +9,8 @@ export interface ProductionContent {
   readonly setting: string
   readonly outline: string
   readonly scenes: readonly ProductionScene[]
+  readonly characters?: readonly ProductionCharacter[]
+  readonly locations?: readonly ProductionLocation[]
 }
 export interface ProductionDocument {
   readonly id: string
@@ -31,6 +33,7 @@ export interface ProductionRevision {
   readonly createdAt: number
 }
 export interface ProductionRecord {
+  readonly assetProposals?: readonly ProductionAssetProposal[]
   readonly proposals?: readonly ProductionProposal[]
   readonly document: ProductionDocument
   readonly history: readonly ProductionRevision[]
@@ -65,3 +68,37 @@ export interface ProductionProposal {
   readonly createdAt: number
 }
 export const PRODUCTION_PROPOSALS_MAX = 20
+
+export type ProductionMediaReference =
+  | { readonly kind: 'media'; readonly mediaId: string }
+  | { readonly kind: 'artifact'; readonly artifactId: string }
+  | { readonly kind: 'asset'; readonly imageId: string }
+export interface ProductionLook {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly reference?: ProductionMediaReference
+}
+export interface ProductionCharacter {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly looks: readonly ProductionLook[]
+}
+export interface ProductionLocation {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly reference?: ProductionMediaReference
+}
+export interface ProductionAssetProposal {
+  readonly id: string
+  readonly baseRevision: number
+  readonly characters: readonly ProductionCharacter[]
+  readonly locations: readonly ProductionLocation[]
+  readonly sourceTurnId: string
+  readonly status: 'pending' | 'adopted' | 'discarded'
+  readonly adoptedRevision?: number
+  readonly createdAt: number
+}
+export const PRODUCTION_ASSETS_MAX = 100
