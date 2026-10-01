@@ -380,6 +380,59 @@ it('rejects duplicate look identities without overwriting a saved character', as
   ).toBe(400)
   expect((await (await request(owner)).json()).document.revision).toBe(1)
 })
+it('restores historical text with an expired image reference without replacing its identity', async () => {
+  const owner = await account('restore-expired-owner')
+  await db.insert(schema.user_asset_objects).values({
+    user_id: owner.userId,
+    image_id: 'historical-image',
+    bytes: 3,
+    content_type: 'image/png',
+    created_at: Date.now(),
+  })
+  const content = {
+    title: '原场景',
+    setting: '',
+    outline: '',
+    scenes: [],
+    locations: [
+      {
+        id: 'room',
+        name: '房间',
+        description: '',
+        reference: { kind: 'asset', imageId: 'historical-image' },
+      },
+    ],
+  }
+  expect((await request(owner, { operationId: 'initial', baseRevision: 0, content })).status).toBe(
+    200,
+  )
+  expect(
+    (
+      await request(owner, {
+        operationId: 'remove',
+        baseRevision: 1,
+        content: { ...content, locations: [] },
+      })
+    ).status,
+  ).toBe(200)
+  await db
+    .delete(schema.user_asset_objects)
+    .where(eq(schema.user_asset_objects.image_id, 'historical-image'))
+  const restored = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/production/restore`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'restore', baseRevision: 2, revision: 1 }),
+    }),
+  )
+  expect(restored.status).toBe(200)
+  const record = await restored.json()
+  expect(record.document.content).toEqual(content)
+  expect(record.document.revision).toBe(3)
+  expect(
+    (await request(owner, undefined, '/references/preview?kind=asset&id=historical-image')).status,
+  ).toBe(404)
+})
 afterAll(async () => {
   await close()
   await rm(temp, { recursive: true, force: true })
