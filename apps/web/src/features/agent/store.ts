@@ -901,7 +901,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const returned = await abortWithRetry(conversationId, turnId)
       // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
       if (returned.length) {
-        draft.update((before) => returnQueuedToDraft(before, returned))
+        if (!(await draft.returnQueued(returned))) throw new Error('draft_handoff_failed')
         if (get().conversationId === conversationId)
           set((state) => ({
             queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),

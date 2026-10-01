@@ -1,3 +1,4 @@
+import type { AgentReturnedQueuedMessage } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
@@ -9,6 +10,7 @@ import {
 } from '../../../lib/localAttachmentSources'
 import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import { attachmentUploadsEnabled, canReuseAttachmentMedia } from './attachmentUploads'
+import { returnQueuedToDraft } from './messageQueue'
 import { outgoingCommandIds } from './outgoingJournal'
 import { type AgentDraft, EMPTY_DRAFT, hasDraftContent } from './references'
 import type { UnsentTurnSubmission } from './turnSubmission'
@@ -86,7 +88,17 @@ function withMode(draft: AgentDraft, mode: AgentDraft['mode']): AgentDraft {
   return mode ? { ...rest, mode } : rest
 }
 
-type StoredDraft = AgentDraft & { unsent?: AgentDraft; remainingUnsent?: AgentDraft[] }
+type StoredDraft = AgentDraft & {
+  unsent?: AgentDraft
+  remainingUnsent?: AgentDraft[]
+  returnedQueueIds?: string[]
+}
+
+function validStoredDraft(value: unknown): value is StoredDraft {
+  if (!value || typeof value !== 'object') return false
+  const row = value as StoredDraft
+  return typeof row.prompt === 'string' && Array.isArray(row.references)
+}
 
 export interface DraftSnapshot {
   readonly draft: AgentDraft
@@ -121,6 +133,7 @@ export class DraftSession {
   private submission = 0
   private previousKey: string | undefined
   private remainingUnsent: AgentDraft[] = []
+  private returnedQueueIds = new Set<string>()
 
   private readonly currentAccount = accountScope()
   private sourceOwner: ReturnType<typeof attachmentSourceOwner>
@@ -149,7 +162,7 @@ export class DraftSession {
   }
 
   private restoreContents(stored: StoredDraft) {
-    const { unsent, remainingUnsent = [], ...draft } = stored
+    const { unsent, remainingUnsent = [], returnedQueueIds: _receipts, ...draft } = stored
     this.remainingUnsent = remainingUnsent
     // Unsent content remains separate until the user explicitly restores it.
     if (unsent || hasDraftContent(draft))
@@ -162,85 +175,162 @@ export class DraftSession {
     else this.publish({ draft, unsent: null, recoverable: false })
   }
 
-  private async restore() {
-    let stored: StoredDraft | undefined
+  private mergeRestored(stored: StoredDraft) {
+    if (this.revision === 0) {
+      this.restoreContents(stored)
+      return
+    }
+    const { unsent, remainingUnsent = [], returnedQueueIds: _receipts, ...draft } = stored
+    const local = [this.snapshot.draft, this.snapshot.unsent, ...this.remainingUnsent].filter(
+      (one): one is AgentDraft => Boolean(one),
+    )
+    const pending = [this.snapshot.unsent, ...this.remainingUnsent].filter(
+      (one): one is AgentDraft => Boolean(one),
+    )
+    for (const candidate of [draft, unsent, ...remainingUnsent]) {
+      if (!candidate || !hasDraftContent(candidate)) continue
+      if (
+        local.some(
+          (one) =>
+            (candidate.submission && candidate.submission.id === one.submission?.id) ||
+            JSON.stringify(one) === JSON.stringify(candidate),
+        )
+      )
+        continue
+      pending.push(candidate)
+      local.push(candidate)
+    }
+    this.remainingUnsent = pending.slice(1)
+    this.publish({ unsent: pending[0] ?? null, recoverable: pending.length > 0 })
+  }
+
+  private async preserveInvalidDraft(key: string, raw: unknown) {
+    // Only explicit recovery creates a copy; it remains owned by this draft's deletion lifecycle.
+    const recoveryKey = `invalid:${crypto.randomUUID()}:${this.key}`
+    const owner = attachmentSourceOwner(`draft:${recoveryKey}`)
+    await owner
+      .withDocument(async () => {
+        await owner.retain(raw)
+        const db = await openDatabase()
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction('drafts', 'readwrite')
+          const store = tx.objectStore('drafts')
+          const request = store.get(key)
+          request.onsuccess = () => {
+            if (JSON.stringify(request.result) !== JSON.stringify(raw)) {
+              tx.abort()
+              return
+            }
+            store.put(raw, recoveryKey)
+            store.delete(key)
+          }
+          tx.oncomplete = () => resolve()
+          tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('draft_changed'))
+        })
+      })
+      .catch(async (error: unknown) => {
+        await owner.release().catch(() => {})
+        throw error
+      })
+  }
+
+  private async restore(explicitRecovery = false) {
+    let stored: unknown
+    let readKey = this.previousKey ?? this.key
     try {
       await recoverLocalAttachmentSources().catch(() => {})
       const db = await openDatabase()
-      stored = await new Promise<StoredDraft | undefined>((resolve, reject) => {
-        const request = db.transaction('drafts').objectStore('drafts').get(this.key)
+      stored = await new Promise<unknown>((resolve, reject) => {
+        const request = db.transaction('drafts').objectStore('drafts').get(readKey)
         request.onsuccess = () => {
-          if (request.result || !this.fallbackKey) {
+          if (request.result !== undefined || !this.fallbackKey) {
             resolve(request.result)
             return
           }
-          const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
+          readKey = this.fallbackKey
+          const fallback = db.transaction('drafts').objectStore('drafts').get(readKey)
           fallback.onsuccess = () => resolve(fallback.result)
           fallback.onerror = () => reject(fallback.error)
         }
         request.onerror = () => reject(request.error)
       })
-      if (
-        this.revision === 0 &&
-        stored &&
-        typeof stored.prompt === 'string' &&
-        Array.isArray(stored.references)
-      ) {
-        let normalized = stored
-        if (this.projectId) {
-          if (!this.currentAccount()) return
-          const journaled = await outgoingCommandIds(this.projectId)
-          if (!this.currentAccount() || this.revision !== 0) return
-          const { unsent, remainingUnsent = [], ...draft } = normalized
-          const owned = (one: AgentDraft) =>
-            Boolean(one.submission && journaled.has(one.submission.id))
-          const queued = [unsent, ...remainingUnsent].filter((one): one is AgentDraft =>
-            Boolean(one),
-          )
-          const retained = queued.filter((one) => !owned(one))
-          if (owned(draft) || retained.length !== queued.length) {
-            normalized = {
-              ...(owned(draft)
-                ? { ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) }
-                : draft),
-              ...(retained[0] ? { unsent: retained[0], remainingUnsent: retained.slice(1) } : {}),
-            }
-          }
-        }
-        if (this.currentAccount()) normalized = normalizeSources(normalized)
-        this.restoreContents(normalized)
-        this.publish({ recoveryBlocked: false, error: null })
-        if (normalized !== stored) {
-          this.revision += 1
-          await this.flush()
-        }
-      } else if (!stored) {
-        if (this.revision === 0) this.restoreContents(EMPTY_DRAFT)
-        this.publish({ recoveryBlocked: false, error: null })
+      if (!this.currentAccount()) return
+      if (stored !== undefined && !validStoredDraft(stored)) {
+        if (!explicitRecovery) throw new Error('invalid_draft')
+        await this.preserveInvalidDraft(readKey, stored)
+        stored = undefined
       }
+      let normalized: StoredDraft = validStoredDraft(stored) ? stored : EMPTY_DRAFT
+      if (this.projectId) {
+        const journaled = await outgoingCommandIds(this.projectId)
+        if (!this.currentAccount()) return
+        const { unsent, remainingUnsent = [], ...draft } = normalized
+        const owned = (one: AgentDraft) =>
+          Boolean(one.submission && journaled.has(one.submission.id))
+        const queued = [unsent, ...remainingUnsent].filter((one): one is AgentDraft => Boolean(one))
+        const retained = queued.filter((one) => !owned(one))
+        if (owned(draft) || retained.length !== queued.length)
+          normalized = {
+            ...(owned(draft)
+              ? { ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) }
+              : draft),
+            ...(retained[0] ? { unsent: retained[0], remainingUnsent: retained.slice(1) } : {}),
+            returnedQueueIds: normalized.returnedQueueIds,
+          }
+        // A returned command may have arrived while the initial journal read was still pending.
+        const local = this.snapshot.draft
+        const localQueued = [this.snapshot.unsent, ...this.remainingUnsent].filter(
+          (one): one is AgentDraft => Boolean(one),
+        )
+        const localRetained = localQueued.filter((one) => !owned(one))
+        if (owned(local) || localRetained.length !== localQueued.length) {
+          this.remainingUnsent = localRetained.slice(1)
+          this.revision += 1
+          this.publish({
+            draft: owned(local)
+              ? { ...EMPTY_DRAFT, ...(local.mode ? { mode: local.mode } : {}) }
+              : local,
+            unsent: localRetained[0] ?? null,
+            recoverable: localRetained.length > 0,
+          })
+        }
+      }
+      for (const id of normalized.returnedQueueIds ?? []) this.returnedQueueIds.add(id)
+      normalized = normalizeSources(normalized)
+      this.mergeRestored(normalized)
+      this.publish({ recoveryBlocked: false, error: null })
+      if (stored !== undefined && normalized !== stored) this.revision += 1
     } catch {
-      this.publish({ recoveryBlocked: true })
-      if (
-        stored &&
-        this.revision === 0 &&
-        typeof stored.prompt === 'string' &&
-        Array.isArray(stored.references)
-      )
-        this.restoreContents(stored)
+      if (validStoredDraft(stored) && this.revision === 0) this.restoreContents(stored)
       this.publish({ recoveryBlocked: true, error: i18next.t('draft.unreadable', { ns: 'agent' }) })
     } finally {
       this.publish({ loading: false })
+      if (!this.snapshot.recoveryBlocked && this.currentAccount()) await this.flush()
     }
   }
 
   retryRecovery = async () => {
     if (!this.snapshot.recoveryBlocked || this.snapshot.loading || !this.currentAccount()) return
     this.publish({ loading: true })
-    await this.restore()
+    await this.restore(true)
+  }
+
+  async returnQueued(returned: readonly AgentReturnedQueuedMessage[]): Promise<boolean> {
+    await this.ready
+    if (this.snapshot.loading || this.snapshot.recoveryBlocked || !this.currentAccount())
+      return false
+    const fresh = returned.filter((one) => !this.returnedQueueIds.has(one.id))
+    if (fresh.length) {
+      if (!this.update((draft) => returnQueuedToDraft(draft, fresh))) return false
+      if (this.snapshot.unsent) this.publish({ recoverable: true })
+      for (const one of fresh) this.returnedQueueIds.add(one.id)
+    }
+    await this.flush()
+    return this.snapshot.error === null && this.currentAccount()
   }
 
   update = (change: AgentDraft | ((draft: AgentDraft) => AgentDraft)) => {
-    if (this.snapshot.recoveryBlocked) return
+    if (this.snapshot.recoveryBlocked || !this.currentAccount()) return false
     let draft = typeof change === 'function' ? change(this.snapshot.draft) : change
     if (this.currentAccount()) draft = normalizeSources(draft)
     const previous = this.snapshot.draft
@@ -253,13 +343,14 @@ export class DraftSession {
       const { submission: _previousSubmission, ...edited } = draft
       draft = edited
     }
-    if (draft === this.snapshot.draft) return
+    if (draft === this.snapshot.draft) return true
     this.revision += 1
     this.publish({ draft })
     clearTimeout(this.timer)
     this.timer = setTimeout(() => {
       void this.flush()
     }, 300)
+    return true
   }
 
   /** 发送失败时接回原消息；新输入保留，失败消息进待恢复区。落盘失败不确认交接。 */
@@ -275,7 +366,7 @@ export class DraftSession {
       this.publish({ unsent: this.snapshot.unsent ?? draft, recoverable: true })
     }
     await this.flush()
-    return this.snapshot.error === null
+    return !this.snapshot.loading && this.snapshot.error === null
   }
 
   /** Persist the immutable command identity before it can coexist with an outgoing journal. */
@@ -383,17 +474,18 @@ export class DraftSession {
 
   flush = (): Promise<void> => {
     clearTimeout(this.timer)
-    if (this.snapshot.recoveryBlocked) return this.writes
+    if (this.snapshot.loading || this.snapshot.recoveryBlocked) return this.writes
     if (this.revision === this.savedRevision) return this.writes
     const revision = this.revision
     // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。
     const { draft: current, unsent } = this.snapshot
-    const draft =
+    const contents =
       unsent && this.snapshot.recoverable
         ? { ...current, unsent, remainingUnsent: [...this.remainingUnsent] }
         : unsent && !hasDraftContent(current)
           ? withMode(unsent, current.mode)
           : current
+    const draft = { ...contents, returnedQueueIds: [...this.returnedQueueIds] }
     const key = this.key
     const previousKey = this.previousKey
     const sourceOwner = this.sourceOwner
@@ -477,8 +569,23 @@ export async function removeProjectDraft(
   if (session) await session.flush()
   await sourceOwner.withDocument(async () => {
     const db = await openDatabase()
+    const recoveryKeys: string[] = []
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('drafts', 'readwrite')
+      const cursor = tx.objectStore('drafts').openCursor()
+      cursor.onsuccess = () => {
+        const row = cursor.result
+        if (!row) return
+        const storedKey = String(row.key)
+        if (
+          storedKey.startsWith('invalid:') &&
+          [key, legacyKey].some((one) => one && storedKey.endsWith(`:${one}`))
+        ) {
+          recoveryKeys.push(storedKey)
+          row.delete()
+        }
+        row.continue()
+      }
       tx.objectStore('drafts').delete(key)
       if (legacyKey) tx.objectStore('drafts').delete(legacyKey)
       tx.oncomplete = () => resolve()
@@ -487,6 +594,8 @@ export async function removeProjectDraft(
     })
     await sourceOwner.release()
     await legacySourceOwner?.release()
+    for (const recoveryKey of recoveryKeys)
+      await attachmentSourceOwner(`draft:${recoveryKey}`).release()
   })
   sessions.delete(key)
 }

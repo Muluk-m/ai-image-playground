@@ -368,3 +368,117 @@ it('Web Locks 拒绝保存后显示失败，并允许下一次编辑重新保存
     else Reflect.deleteProperty(navigator, 'locks')
   }
 })
+
+async function draftRows(): Promise<{ key: IDBValidKey; value: unknown }[]> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('image-playground-agent-drafts', 1)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  try {
+    return await new Promise((resolve, reject) => {
+      const rows: { key: IDBValidKey; value: unknown }[] = []
+      const tx = db.transaction('drafts')
+      const request = tx.objectStore('drafts').openCursor()
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (!cursor) return
+        rows.push({ key: cursor.key, value: cursor.value })
+        cursor.continue()
+      }
+      tx.oncomplete = () => resolve(rows)
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+it('读取失败后显式重试无效记录能恢复编辑且完整保留原始记录', async () => {
+  const key = 'invalid-recovery-row'
+  const seed = new DraftSession(key)
+  await seed.ready
+  const db = await new Promise<IDBDatabase>((resolve) => {
+    const request = indexedDB.open('image-playground-agent-drafts', 1)
+    request.onsuccess = () => resolve(request.result)
+  })
+  const raw = { prompt: 123, references: [], originalText: '保留损坏记录中的原文' }
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').put(raw, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+  const get = IDBObjectStore.prototype.get
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (this.name === 'drafts' && query === key)
+      throw new DOMException('Read failed', 'UnknownError')
+    return get.call(this, query)
+  })
+  const session = new DraftSession(key)
+  try {
+    await session.ready
+    expect(session.getSnapshot().recoveryBlocked).toBe(true)
+    failure.mockRestore()
+    await session.retryRecovery()
+    expect(session.getSnapshot().recoveryBlocked).toBe(false)
+    session.update({ prompt: '恢复后新内容', references: [] })
+    await session.flush()
+    expect(await storedPrompt(key)).toBe('恢复后新内容')
+    expect(
+      (await draftRows()).some((row) => JSON.stringify(row.value) === JSON.stringify(raw)),
+    ).toBe(true)
+  } finally {
+    failure.mockRestore()
+  }
+})
+
+it.each([
+  'update',
+  'returnUnsent',
+  'moveTo',
+] as const)('首次读取完成前 %s 后读取失败，重试保留本地和磁盘内容并解除阻断', async (operation) => {
+  const key = `early-${operation}`
+  const seed = new DraftSession(key)
+  await seed.ready
+  seed.update({ prompt: '磁盘原始内容', references: [] })
+  await seed.flush()
+  const get = IDBObjectStore.prototype.get
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (this.name === 'drafts' && (query === key || query === `${key}-moved`))
+      throw new DOMException('Read failed', 'UnknownError')
+    return get.call(this, query)
+  })
+  const session = new DraftSession(key)
+  try {
+    let returned: Promise<boolean> | undefined
+    if (operation === 'update') session.update({ prompt: '本地新内容', references: [] })
+    else if (operation === 'returnUnsent')
+      returned = session.returnUnsent({ prompt: '本地新内容', references: [] })
+    else session.moveTo(`${key}-moved`)
+    await session.ready
+    await returned
+    expect(session.getSnapshot().recoveryBlocked).toBe(true)
+    failure.mockRestore()
+    await session.retryRecovery()
+    expect(session.getSnapshot().recoveryBlocked).toBe(false)
+    const recovered = session.getSnapshot()
+    expect(JSON.stringify(recovered)).toContain('磁盘原始内容')
+    if (operation !== 'moveTo') expect(JSON.stringify(recovered)).toContain('本地新内容')
+    await session.flush()
+    const reloaded = new DraftSession(session.key)
+    await reloaded.ready
+    expect(JSON.stringify(reloaded.getSnapshot())).toContain('磁盘原始内容')
+    if (operation !== 'moveTo')
+      expect(JSON.stringify(reloaded.getSnapshot())).toContain('本地新内容')
+  } finally {
+    failure.mockRestore()
+  }
+})
