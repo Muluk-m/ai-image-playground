@@ -5,6 +5,9 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProductionClipPane from '../../../features/production/components/ProductionClipPane'
 
+vi.mock('../../../features/production/components/ProductionDependencyNotice', () => ({
+  default: () => null,
+}))
 const request = vi.hoisted(() => vi.fn())
 vi.mock('../../../lib/authClient', () => ({ authenticatedBffFetch: request }))
 vi.mock('../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.local' }))
@@ -75,7 +78,11 @@ it('reorders a multi-shot clip without reassigning shot identity and saves befor
           document={doc}
           onSaved={() => {}}
           onClose={() => {}}
-          renderGenerations={(clip) => <button type="button">生成 {clip.id}</button>}
+          renderGenerations={(clip, blocked) => (
+            <button type="button" disabled={Boolean(blocked)}>
+              生成 {clip.id}
+            </button>
+          )}
         />,
       ),
     )
@@ -85,8 +92,8 @@ it('reorders a multi-shot clip without reassigning shot identity and saves befor
     )
     expect(host.textContent).toContain('保存片段后')
     expect(
-      [...host.querySelectorAll('button')].some((one) => one.textContent === '生成 clip'),
-    ).toBe(false)
+      [...host.querySelectorAll('button')].find((one) => one.textContent === '生成 clip')!.disabled,
+    ).toBe(true)
     await act(async () =>
       [...host.querySelectorAll('button')].find((one) => one.textContent === '保存')!.click(),
     )

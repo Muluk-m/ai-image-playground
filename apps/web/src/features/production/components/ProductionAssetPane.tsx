@@ -1,6 +1,8 @@
 import type {
+  AgentToolArtifact,
   ProductionCharacter,
   ProductionDocument,
+  ProductionGenerationView,
   ProductionLocation,
 } from '@image-playground/shared'
 import { MapPin, Plus, UserRound, X } from 'lucide-react'
@@ -10,6 +12,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { type ProductionResponse, saveProduction } from '../lib/productionClient'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionAssetGenerations from './ProductionAssetGenerations'
 import ProductionDeleteImpactNotice from './ProductionDeleteImpactNotice'
 import ProductionReferenceEditor from './ProductionReferenceEditor'
 
@@ -21,10 +24,12 @@ export default function ProductionAssetPane({
   document,
   target,
   onSaved,
+  onPreviewArtifact,
   onClose,
 }: {
   document: ProductionDocument
   target: ProductionAssetTarget
+  onPreviewArtifact?: (generation: ProductionGenerationView, artifact: AgentToolArtifact) => void
   onSaved: (next: ProductionResponse) => void
   onClose: () => void
 }) {
@@ -38,8 +43,7 @@ export default function ProductionAssetPane({
   const collection = target.kind === 'character' ? 'characters' : 'locations'
   useEffect(() => {
     if (edit.draft) return
-    if (target.id) edit.start()
-    else {
+    if (!target.id) {
       const base = {
         id,
         name: t(target.kind === 'character' ? 'asset.newCharacter' : 'asset.newLocation'),
@@ -125,7 +129,7 @@ export default function ProductionAssetPane({
         <button
           type="button"
           className="production-primary"
-          disabled={edit.saving || !asset}
+          disabled={edit.saving || !asset || !edit.draft}
           onClick={() => void edit.save()}
         >
           {t(edit.saving ? 'saving' : 'asset.save')}
@@ -261,6 +265,19 @@ export default function ProductionAssetPane({
               {t('asset.down')}
             </button>
           </div>
+          {(target.kind === 'location' || look) && (
+            <ProductionAssetGenerations
+              onPreviewArtifact={onPreviewArtifact}
+              key={`${target.kind}:${look?.id ?? id}`}
+              document={document}
+              target={{
+                kind: target.kind === 'character' ? 'look' : 'location',
+                id: look?.id ?? id,
+              }}
+              unsaved={Boolean(edit.draft)}
+              onSaved={onSaved}
+            />
+          )}
           <div className="production-asset-danger">
             {deleting ? (
               <>

@@ -85,6 +85,7 @@ for (const kind of ['character', 'look', 'location', 'scene', 'shot'] as const)
             },
             history: [],
             storyboardProposals: [],
+            generations: [],
           }),
         ),
     )
@@ -160,7 +161,11 @@ for (const kind of ['character', 'look', 'location', 'scene', 'shot'] as const)
       if (kind === 'shot')
         expect(content.shots.map((shot: { id: string }) => shot.id)).toEqual(['second'])
       if (kind !== 'shot') expect(content.shots).toEqual(doc.content.shots)
-      expect(request.mock.calls.some(([url]) => String(url).includes('/generations'))).toBe(false)
+      expect(
+        request.mock.calls.some(
+          ([url, init]) => String(url).includes('/generations') && init?.method === 'POST',
+        ),
+      ).toBe(false)
     } finally {
       await act(async () => root.unmount())
       host.remove()

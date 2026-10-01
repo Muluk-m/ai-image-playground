@@ -81,7 +81,11 @@
     "dismiss": "Dismiss proposal",
     "proposalFailed": "Unable to adopt. Check for a newer revision.",
     "suggestionCount": "Pending proposals {{count}}",
-    "deleteLook": "Delete this look"
+    "deleteLook": "Delete this look",
+    "saveBeforeGenerate": "Save the character or location before preparing generation. Existing candidates remain available.",
+    "nextGeneration": "Next generation",
+    "threeViews": "Character three views",
+    "threeViewsPrompt": "Create a character reference sheet for {{name}} with front, side and back full-body views of the same look, aligned proportions, consistent face, hair and clothing, a plain neutral background, and no labels. Preserve identity from any reference image.\n{{description}}"
   },
   "quotedSource": "Quoted content",
   "locateQuote": "Locate quote",
@@ -183,7 +187,8 @@
     "duplicateFrame": "Choose only one first frame and one last frame.",
     "preview": "Open candidate",
     "sourceChanged": "Source updated. Existing candidates keep their original inputs. Create a new draft to use the latest version.",
-    "retryFrom": "Retry of candidate {{number}}"
+    "retryFrom": "Retry of candidate {{number}}",
+    "unavailable": "No image model is available"
   },
   "export": {
     "title": "Export resources",

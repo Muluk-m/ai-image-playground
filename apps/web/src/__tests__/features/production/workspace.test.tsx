@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProductionWorkspace from '../../../features/production/components/ProductionWorkspace'
+import { productionTurnContext } from '../../../features/production/lib/productionContext'
 
 const request = vi.hoisted(() => vi.fn())
 vi.mock('../../../lib/authClient', () => ({ authenticatedBffFetch: request }))
@@ -15,22 +16,21 @@ afterEach(() => {
 })
 
 it('does not show the previous conversation script while the next conversation loads', async () => {
-  request.mockResolvedValueOnce(
-    new Response(
-      JSON.stringify({
-        document: {
-          id: 'old',
-          conversationId: 'old-conversation',
-          projectId: null,
-          revision: 1,
-          content: { title: '上一会话的剧本', setting: '', outline: '', scenes: [] },
-          updatedAt: 1,
-        },
-        history: [],
-      }),
-    ),
-  )
-  request.mockImplementationOnce(() => new Promise(() => {}))
+  request.mockImplementation(async (url: string) => {
+    if (url.includes('assetProposals=true')) return Response.json({ assetProposals: [] })
+    if (url.includes('new-conversation')) return new Promise(() => {})
+    return Response.json({
+      document: {
+        id: 'old',
+        conversationId: 'old-conversation',
+        projectId: null,
+        revision: 1,
+        content: { title: '上一会话的剧本', setting: '', outline: '', scenes: [] },
+        updatedAt: 1,
+      },
+      history: [],
+    })
+  })
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -275,6 +275,60 @@ it('keeps the local draft after a version conflict and restores it when the pane
     expect(host.querySelector<HTMLTextAreaElement>('[aria-label="场景正文"]')?.value).toBe(
       '我的新正文',
     )
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it('opens an artifact in the right panel and restores the document without replacing Chat input', async () => {
+  request.mockImplementation(async () =>
+    Response.json({
+      document: {
+        id: 'doc',
+        conversationId: 'conversation',
+        projectId: null,
+        revision: 1,
+        updatedAt: 1,
+        content: { title: '雨夜', setting: '', outline: '', scenes: [] },
+      },
+      history: [],
+      proposals: [],
+    }),
+  )
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const close = vi.fn()
+  const render = (preview: boolean) => (
+    <ProductionWorkspace
+      conversationId="conversation"
+      refreshKey="1"
+      artifactContext={{ documentId: 'doc', revision: 0, target: 'look', lookId: 'look' }}
+      artifactPane={preview ? <aside aria-label="产物预览">候选画面</aside> : undefined}
+      onCloseArtifact={close}
+    >
+      <textarea aria-label="对话输入" defaultValue="继续修改人物" />
+    </ProductionWorkspace>
+  )
+  try {
+    await act(async () => root.render(render(false)))
+    const input = host.querySelector('textarea[aria-label="对话输入"]')
+    await act(async () => root.render(render(true)))
+    expect(host.querySelector('textarea[aria-label="对话输入"]')).toBe(input)
+    expect(host.querySelector('[aria-label="产物预览"]')).not.toBeNull()
+    expect(productionTurnContext('conversation').production).toMatchObject({
+      documentId: 'doc',
+      revision: 1,
+      target: 'look',
+      lookId: 'look',
+    })
+    expect(host.querySelector('.production-document')).toBeNull()
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="打开剧本"]')!.click())
+    expect(close).toHaveBeenCalled()
+    await act(async () => root.render(render(false)))
+    expect(host.querySelector('.production-document')).not.toBeNull()
+    expect(host.querySelector('textarea[aria-label="对话输入"]')).toBe(input)
   } finally {
     await act(async () => root.unmount())
     host.remove()

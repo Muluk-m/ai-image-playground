@@ -131,6 +131,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     project ? projectExperience(project) : 'chat',
   )
   const sidebarExpanded = useStore((state) => state.sidebarExpanded)
+  const selectedResultOwner = useRef<string | null>(null)
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
   const [selectedExternalResult, setSelectedExternalResult] = useState<AgentToolMessage | null>(
     null,
@@ -146,6 +147,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const conversationId = useAgentStore((state) => state.conversationId)
   const previewProduction = (pane?: 'script' | 'storyboard') => {
     if (!productionEnabled) return
+    setSelectedResultId(null)
+    setSelectedExternalResult(null)
     setProductionOpen(true)
     safeLocalStorage.setItem(productionViewKey, 'true')
     openProductionContent(conversationId, pane)
@@ -187,14 +190,20 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     (message): message is AgentToolMessage =>
       message.kind === 'tool' && message.id === selectedResultId,
   )
-  const activeResult = selectedExternalResult ?? selectedResult ?? latestResult
+  const hasSelectedResult =
+    selectedResultOwner.current === conversationId && Boolean(selectedResultId)
+  const activeResult = hasSelectedResult
+    ? (selectedExternalResult ?? selectedResult ?? latestResult)
+    : undefined
   const previewResult = (messageId: string, artifactId?: string) => {
+    selectedResultOwner.current = conversationId
     setSelectedExternalResult(null)
     setSelectedResultId(messageId)
     setSelectedArtifactId(artifactId)
     setAssetDrawerOpen(false)
   }
   const previewAsset = (message: AgentToolMessage, artifactId: string) => {
+    selectedResultOwner.current = conversationId
     setSelectedExternalResult(message)
     setSelectedResultId(message.id)
     setSelectedArtifactId(artifactId)
@@ -512,6 +521,57 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 {hasAgent ? (
                   productionVisible ? (
                     <ProductionWorkspace
+                      onCloseArtifact={() => {
+                        setSelectedResultId(null)
+                        setSelectedExternalResult(null)
+                      }}
+                      onPreviewArtifact={(generation, artifact) =>
+                        previewAsset(
+                          {
+                            kind: 'tool',
+                            id: generation.messageId,
+                            turnId: '',
+                            toolCallId: generation.draftId,
+                            title: generation.production.snapshot.name,
+                            prompt: generation.prompt,
+                            status: 'succeeded',
+                            artifacts: generation.artifacts,
+                            snapshot: {
+                              mode: 'image',
+                              args: {},
+                              params: {
+                                productionMode: true,
+                                production: {
+                                  documentId: generation.production.documentId,
+                                  revision: generation.production.revision,
+                                  target: generation.production.target,
+                                  ...(generation.production.target === 'look'
+                                    ? { lookId: generation.production.targetId }
+                                    : generation.production.target === 'location'
+                                      ? { locationId: generation.production.targetId }
+                                      : { clipId: generation.production.targetId }),
+                                },
+                              },
+                            },
+                          },
+                          artifact.artifactId,
+                        )
+                      }
+                      artifactContext={activeResult?.snapshot?.params?.production}
+                      artifactPane={
+                        hasSelectedResult && activeResult ? (
+                          <AgentArtifactPane
+                            message={activeResult}
+                            selectedId={selectedArtifactId}
+                            onSelect={setSelectedArtifactId}
+                            onClose={() => {
+                              setSelectedResultId(null)
+                              setSelectedExternalResult(null)
+                            }}
+                            onViewCanvas={openCanvas}
+                          />
+                        ) : undefined
+                      }
                       conversationId={conversationId}
                       refreshKey={messages
                         .filter(
@@ -622,7 +682,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </svg>
               </button>
             )}
-            {selectedResultId && activeResult && projectView === 'chat' && !productionVisible && (
+            {hasSelectedResult && activeResult && projectView === 'chat' && !productionVisible && (
               <AgentArtifactPane
                 message={activeResult}
                 selectedId={selectedArtifactId}

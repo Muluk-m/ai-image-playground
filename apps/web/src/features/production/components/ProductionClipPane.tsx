@@ -12,7 +12,8 @@ import {
   videoRequestRejection,
 } from '@image-playground/shared'
 import { Film, Plus, X } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
+import { Checkbox } from '../../../components/ui/checkbox'
 import { Input } from '../../../components/ui/input'
 import {
   Select,
@@ -26,7 +27,9 @@ import { useTranslation } from '../../../i18n'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import type { ProductionResponse } from '../lib/productionClient'
+import { setProductionPanelContext } from '../lib/productionContext'
 import { useProductionEditor } from '../lib/useProductionEditor'
+import ProductionDependencyNotice from './ProductionDependencyNotice'
 import ProductionReferencePreview from './ProductionReferencePreview'
 
 function Choice({
@@ -71,7 +74,7 @@ export default function ProductionClipPane({
   document: ProductionDocument
   onSaved: (next: ProductionResponse) => void
   onClose: () => void
-  renderGenerations?: (clip: ProductionClipPlan) => ReactNode
+  renderGenerations?: (clip: ProductionClipPlan, preparationBlocked?: string) => ReactNode
 }) {
   const { t } = useTranslation('production')
   const { t: tv } = useTranslation('video')
@@ -80,6 +83,16 @@ export default function ProductionClipPane({
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const clips = edit.content.clips ?? []
   const selected = clips.find((one) => one.id === selectedId) ?? clips[0]
+  useEffect(() => {
+    if (!selected) return
+    setProductionPanelContext(document.conversationId, {
+      documentId: document.id,
+      revision: document.revision,
+      target: 'clip',
+      clipId: selected.id,
+    })
+    return () => setProductionPanelContext(document.conversationId, null)
+  }, [document.conversationId, document.id, document.revision, selected?.id])
   const options = videoModelOptions()
   const option = options.find((one) => one.modelId === selected?.model)
   const guard = usePrivateSubmissionGuard({
@@ -207,6 +220,13 @@ export default function ProductionClipPane({
           <p className="production-prose">{t('clip.empty')}</p>
         ) : (
           <div className="production-asset-form">
+            {!edit.draft && (
+              <ProductionDependencyNotice
+                document={document}
+                target={{ kind: 'clip', id: selected.id }}
+                onSaved={onSaved}
+              />
+            )}
             <label>
               {t('clip.name')}
               <Input
@@ -219,15 +239,15 @@ export default function ProductionClipPane({
               <legend>{t('clip.shots')}</legend>
               {shots.map((shot, index) => (
                 <label key={shot.id}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selected.shotIds.includes(shot.id)}
-                    onChange={(event) =>
+                    onCheckedChange={(checked) =>
                       update({
                         ...selected,
-                        shotIds: event.target.checked
-                          ? [...selected.shotIds, shot.id]
-                          : selected.shotIds.filter((id) => id !== shot.id),
+                        shotIds:
+                          checked === true
+                            ? [...selected.shotIds, shot.id]
+                            : selected.shotIds.filter((id) => id !== shot.id),
                       })
                     }
                   />
@@ -390,7 +410,16 @@ export default function ProductionClipPane({
               {guard.estimatedCredits !== undefined &&
                 ` · ${t('clip.estimate', { credits: guard.estimatedCredits })}`}
             </p>
-            {!edit.draft && renderGenerations?.(selected)}
+            {renderGenerations?.(
+              selected,
+              edit.draft
+                ? t('clip.saveBeforeGenerate')
+                : missing.length
+                  ? t('clip.missingShot')
+                  : invalid || !option || channelUnsupported
+                    ? t('clip.unavailable')
+                    : undefined,
+            )}
             {edit.draft && <p className="production-prose">{t('clip.saveBeforeGenerate')}</p>}
             <div className="production-asset-danger">
               {deleteId === selected.id ? (

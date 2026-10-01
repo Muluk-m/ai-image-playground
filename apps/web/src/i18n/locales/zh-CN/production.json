@@ -80,7 +80,11 @@
     "dismiss": "放弃建议",
     "proposalFailed": "建议暂时无法采用，请检查是否已有新版本",
     "suggestionCount": "待审阅建议 {{count}}",
-    "deleteLook": "删除此造型"
+    "deleteLook": "删除此造型",
+    "saveBeforeGenerate": "保存角色或场景后再准备生成，已生成候选仍可查看。",
+    "nextGeneration": "下一次生成",
+    "threeViews": "角色三视图",
+    "threeViewsPrompt": "为角色「{{name}}」制作同一造型的三视图设定图：正面、侧面、背面并排，统一比例、面容、发型与服饰，简洁中性背景，完整全身，不添加说明文字。以参考图保持角色一致性。\n{{description}}"
   },
   "quotedSource": "已引用内容",
   "locateQuote": "定位引用",
@@ -182,7 +186,8 @@
     "duplicateFrame": "首帧和尾帧分别只能选一张。",
     "preview": "打开候选预览",
     "sourceChanged": "来源已更新。已有候选保留原始输入；请新建候选使用最新版本。",
-    "retryFrom": "重试自候选 {{number}}"
+    "retryFrom": "重试自候选 {{number}}",
+    "unavailable": "当前没有可用的生图模型"
   },
   "export": {
     "title": "导出资源包",

@@ -6,6 +6,9 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import ProductionAssetPane from '../../../features/production/components/ProductionAssetPane'
 
+vi.mock('../../../features/production/components/ProductionAssetGenerations', () => ({
+  default: () => null,
+}))
 const request = vi.hoisted(() => vi.fn())
 vi.mock('../../../lib/authClient', () => ({ authenticatedBffFetch: request }))
 vi.mock('../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'http://test.local' }))
@@ -151,7 +154,7 @@ it('requires an explicit deletion review and removes the stable character only o
       [...host.querySelectorAll('button')].find((one) => one.textContent === '删除')!.click(),
     )
     expect(request).not.toHaveBeenCalled()
-    expect(host.textContent).toContain('引用此对象的镜头')
+    expect(host.querySelector('.production-delete-impact')).not.toBeNull()
     await act(async () =>
       [...host.querySelectorAll('button')].find((one) => one.textContent === '确认删除')!.click(),
     )
