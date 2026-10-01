@@ -110,6 +110,7 @@ import {
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
+import { isProductionDraft } from './lib/promptDraft'
 import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from './lib/retry'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
@@ -1946,7 +1947,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     async confirmAllPrompts() {
       // 先把这一刻的清单定死：确认会就地换掉卡片，边遍历边读 messages 会漏掉后面那些。
       const pending = get().messages.flatMap((one) =>
-        one.kind === 'tool' && one.status === 'awaiting_confirmation'
+        one.kind === 'tool' && one.status === 'awaiting_confirmation' && !isProductionDraft(one)
           ? [{ id: one.id, prompt: get().promptDrafts[one.id] ?? one.prompt ?? '' }]
           : [],
       )

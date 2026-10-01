@@ -835,3 +835,11 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 
 .studio-artifact-pane[data-presentation="panel"][data-editing="true"] > :not(.studio-artifact-edit-dialog) { display: none; }
 .studio-artifact-pane[data-presentation="panel"] > .studio-artifact-edit-dialog { flex: 1; width: 100%; min-width: 0; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; box-shadow: none; overflow-y: auto; }
+
+.studio-production-trigger { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 10px; margin-left: auto; border-radius: 9px; color: hsl(var(--muted-foreground)); font-size: 12px; white-space: nowrap; }
+.studio-production-trigger > svg { flex-shrink: 0; }
+.studio-production-trigger:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+@media (max-width: 700px) {
+  .studio-production-trigger { width: 40px; height: 40px; padding: 0; }
+  .studio-production-trigger > span { display: none; }
+}

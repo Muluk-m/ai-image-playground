@@ -71,6 +71,7 @@ interface ProductionGenerationsProps {
   document: ProductionDocument
   target: { kind: 'look' | 'location' | 'clip'; id: string }
   onSaved: (next: ProductionResponse) => void
+  focusMessageId?: string
   refreshKey?: string
   initialDraft?: GenerationFields
   preparationBlocked?: string
@@ -81,7 +82,7 @@ interface ProductionGenerationsProps {
 export default function ProductionGenerations(props: ProductionGenerationsProps) {
   return (
     <GenerationSession
-      key={`${props.conversationId}:${props.document.id}:${props.target.kind}:${props.target.id}`}
+      key={`${props.conversationId}:${props.document.id}:${props.target.kind}:${props.target.id}:${props.focusMessageId ?? ''}`}
       {...props}
     />
   )
@@ -93,6 +94,7 @@ function GenerationSession({
   target,
   onSaved,
   refreshKey = '',
+  focusMessageId,
   initialDraft,
   preparationBlocked,
   adoptedArtifactId,
@@ -129,7 +131,7 @@ function GenerationSession({
   const readEpoch = useRef(0)
   const read = async (signal?: AbortSignal) => {
     const epoch = ++readEpoch.current
-    const next = await listGenerations(conversationId, signal)
+    const next = await listGenerations(conversationId, signal, focusMessageId)
     if (!alive.current || signal?.aborted || epoch !== readEpoch.current) return null
     setGenerations(next.generations)
     setUncertain((previous) => {
@@ -153,7 +155,7 @@ function GenerationSession({
         if (!controller.signal.aborted) setError(true)
       })
     return () => controller.abort()
-  }, [conversationId, document.revision, refreshKey, retry])
+  }, [conversationId, document.revision, refreshKey, retry, focusMessageId])
   useEffect(() => {
     if (
       busy ||
@@ -368,13 +370,15 @@ function GenerationSession({
     <section className="production-generations" aria-label={t('generation.title')}>
       <header>
         <strong>{t('generation.title')}</strong>
-        <Button
-          type="button"
-          disabled={busy !== null || Boolean(preparationBlocked)}
-          onClick={startCandidate}
-        >
-          {t('generation.new')}
-        </Button>
+        {!focusMessageId && (
+          <Button
+            type="button"
+            disabled={busy !== null || Boolean(preparationBlocked)}
+            onClick={startCandidate}
+          >
+            {t('generation.new')}
+          </Button>
+        )}
         <Button type="button" onClick={() => setRetry((v) => v + 1)}>
           {t('generation.refresh')}
         </Button>
