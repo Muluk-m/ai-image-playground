@@ -144,5 +144,40 @@
     "estimate": "预计 {{credits}} 积分",
     "saveBeforeGenerate": "保存片段后，可准备生成草稿并确认费用。",
     "deleteImpact": "片段计划将在保存后删除，已生成的候选仍保留在会话中。"
+  },
+  "generation": {
+    "title": "生成候选",
+    "refresh": "刷新状态",
+    "failed": "暂时无法完成操作，请刷新状态后重试。",
+    "empty": "还没有生成候选",
+    "candidate": "候选 {{number}}",
+    "adopt": "采用此结果",
+    "status": {
+      "awaiting_confirmation": "等待确认",
+      "queued": "排队中",
+      "failed": "失败",
+      "cancelled": "已取消",
+      "completed": "已完成",
+      "in_progress": "生成中"
+    },
+    "prompt": "最终提示词",
+    "model": "模型",
+    "duration": "时长",
+    "ratio": "画幅",
+    "resolution": "清晰度",
+    "references": "{{count}} 个参考素材",
+    "confirm": "确认生成",
+    "unknown": "正在核对受理状态，请刷新状态。请勿重复提交。",
+    "new": "新候选",
+    "create": "创建待确认草稿",
+    "adopted": "当前采用",
+    "reference": "参考素材 {{number}}",
+    "referenceUsage": "素材用途",
+    "referenceImage": "参考图",
+    "firstFrame": "首帧",
+    "lastFrame": "尾帧",
+    "addReference": "添加参考素材",
+    "retry": "重试此候选",
+    "cancel": "取消此任务"
   }
 }

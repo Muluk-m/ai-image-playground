@@ -145,5 +145,40 @@
     "estimate": "Estimated {{credits}} credits",
     "saveBeforeGenerate": "Save the clip to prepare a generation draft and confirm its cost.",
     "deleteImpact": "Saving will delete this plan. Generated candidates remain in the conversation."
+  },
+  "generation": {
+    "title": "Generation candidates",
+    "refresh": "Refresh status",
+    "failed": "Unable to complete this action. Refresh status and retry.",
+    "empty": "No candidates yet",
+    "candidate": "Candidate {{number}}",
+    "adopt": "Use this result",
+    "status": {
+      "awaiting_confirmation": "Awaiting confirmation",
+      "queued": "Queued",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "completed": "Completed",
+      "in_progress": "Generating"
+    },
+    "prompt": "Final prompt",
+    "model": "Model",
+    "duration": "Duration",
+    "ratio": "Aspect ratio",
+    "resolution": "Resolution",
+    "references": "{{count}} references",
+    "confirm": "Confirm generation",
+    "unknown": "Checking submission receipt. Refresh status before retrying.",
+    "new": "New candidate",
+    "create": "Create draft for confirmation",
+    "adopted": "Currently selected",
+    "reference": "Reference {{number}}",
+    "referenceUsage": "Reference usage",
+    "referenceImage": "Reference image",
+    "firstFrame": "First frame",
+    "lastFrame": "Last frame",
+    "addReference": "Add reference",
+    "retry": "Retry this candidate",
+    "cancel": "Cancel this task"
   }
 }
