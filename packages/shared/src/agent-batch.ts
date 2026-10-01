@@ -102,9 +102,21 @@ export interface AgentBatchPage {
   readonly items: readonly (AgentBatchItem & {
     readonly execution?: AgentBatchItemExecution
     readonly attempts?: readonly AgentBatchItemExecution[]
+    readonly progress?: AgentBatchItemProgress
+    readonly blockedBy?: readonly string[]
   })[]
   readonly nextCursor: string | null
 }
+
+export type AgentBatchItemProgress =
+  | 'pending'
+  | 'ready'
+  | 'in_flight'
+  | 'completed'
+  | 'failed'
+  | 'reconciling'
+  | 'blocked'
+  | 'cancelled'
 
 export interface AgentBatchUpdate {
   readonly expectedVersion: number
