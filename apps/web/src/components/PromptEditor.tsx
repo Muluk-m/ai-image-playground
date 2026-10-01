@@ -96,6 +96,8 @@ export interface PromptEditorOptions {
   readonly value: string
   readonly labels: MentionLabelResolver
   readonly onChange: (prompt: string) => void
+  /** Background reference updates must not steal focus from drawing controls. */
+  readonly preserveFocus?: boolean
   /**
    * 按引用序号排列的参考图身份。复制时随引用一起进剪贴板，粘贴时按它把序号重挂到本输入框——
    * 序号只在一个输入框里成立，照搬会悄悄指到另一张图上。
@@ -245,7 +247,8 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
 
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
+    // External region/reference changes must not replace the active IME text node.
+    if (!el || composingRef.current) return
     const typed = typedRef.current
     typedRef.current = null
     const pendingCaret = caretRef.current
@@ -265,6 +268,9 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
 
     const selection = document.activeElement === el ? getContentEditableSelection(el) : null
     el.innerHTML = buildPromptEditorHtml(value, labels, slotValues)
+    // Chromium needs a terminal line box to keep typing after a trailing newline.
+    // A BR contributes no text or mention offsets to our DOM serialization.
+    if (value.endsWith('\n')) el.append(document.createElement('br'))
     const next: ChipTarget[] = []
     for (const element of el.querySelectorAll<HTMLElement>('.mention-tag:not(.slot-tag)')) {
       const imageIndex = getMentionedImageIndexes(element.dataset.mentionText ?? '')[0]
@@ -299,7 +305,10 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     }
     setChips((current) => (sameChips(current, next) ? current : next))
 
-    if (pendingCaret != null) {
+    if (
+      pendingCaret != null &&
+      (!optionsRef.current.preserveFocus || document.activeElement === el)
+    ) {
       el.focus()
       setContentEditableCursor(el, pendingCaret)
     } else if (selection) {

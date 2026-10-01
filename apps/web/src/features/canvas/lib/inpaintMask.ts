@@ -153,3 +153,17 @@ export async function exportMaskDataUrl(
   const blob = await canvasToBlob(canvas, 'image/png')
   return await blobDataUrl(blob)
 }
+
+/** Bounds use the same inverse image transform as the authoritative mask renderer. */
+export function maskStrokeRegion(image: ImageEl, stroke: MaskStroke, number: number) {
+  const points = stroke.points.map((point) =>
+    pageToMaskPixel(image, { width: 1, height: 1 }, point),
+  )
+  const rx = stroke.shape === 'rect' ? 0 : stroke.width / image.width / 2
+  const ry = stroke.shape === 'rect' ? 0 : stroke.width / image.height / 2
+  const x = Math.max(0, Math.min(...points.map((point) => point.x)) - rx)
+  const y = Math.max(0, Math.min(...points.map((point) => point.y)) - ry)
+  const right = Math.min(1, Math.max(...points.map((point) => point.x)) + rx)
+  const bottom = Math.min(1, Math.max(...points.map((point) => point.y)) + ry)
+  return { number, x, y, width: right - x, height: bottom - y }
+}

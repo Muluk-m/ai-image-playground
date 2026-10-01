@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { type PointerEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../../../components/Overlay'
+import RegionPromptEditor, { useRegionPrompt } from '../../../components/RegionPromptEditor'
 import { Button } from '../../../components/ui/button'
 import { Slider } from '../../../components/ui/slider'
 import { useTranslation } from '../../../i18n'
@@ -580,6 +581,8 @@ export default function AgentArtifactEditDialog({
     if (!canvas || !context) return
     rememberMask()
     marksRef.current = marksRef.current.filter((mark) => mark.id !== id)
+    // Remove this identity immediately; the remaining bounds may arrive from a worker later.
+    setVisibleRegions((current) => current.filter((region) => region.id !== id))
     context.clearRect(0, 0, canvas.width, canvas.height)
     context.fillStyle = '#fff'
     context.fillRect(0, 0, canvas.width, canvas.height)
@@ -612,20 +615,41 @@ export default function AgentArtifactEditDialog({
     syncMarkPresent()
   }
   const regions = visibleRegions
+  const regionPrompt = useRegionPrompt({
+    ids: regions.map((region) => region.id),
+    value: instruction,
+    onChange: setInstruction,
+    onRemove: removeRegion,
+    maxLength: 2000,
+  })
 
   const generate = () => {
     const image = imageRef.current
-    if (!image || !working || busy || !ready || regionsPending || pointerRef.current) return
+    if (
+      !image ||
+      !working ||
+      busy ||
+      !ready ||
+      regionsPending ||
+      pointerRef.current ||
+      (action === 'inpaint' && (!markPresent || !regionPrompt.hasProse)) ||
+      regionPrompt.hasMissing ||
+      regionPrompt.tooLong
+    )
+      return
     try {
       let input: ArtifactEditInput
       if (marked)
         input = {
           ...exportMarkedImage(working, maskRef.current!, image),
-          regions: regions.map((region) => region.bounds),
+          regions: regions.map((region) => ({
+            ...region.bounds,
+            number: regionPrompt.numberFor(region.id),
+          })),
         }
       else if (action === 'crop') input = cropImage(image, crop)
       else input = extendImage(image, extension)
-      onGenerate(input, instruction.trim())
+      onGenerate(input, regionPrompt.serialize().trim())
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     }
@@ -644,7 +668,7 @@ export default function AgentArtifactEditDialog({
           if (event.key === 'Tab') {
             const items = [
               ...event.currentTarget.querySelectorAll<HTMLElement>(
-                'button:not(:disabled), textarea, [role="slider"]:not([aria-disabled="true"])',
+                'button:not(:disabled), textarea, [contenteditable="true"], [role="slider"]:not([aria-disabled="true"])',
               ),
             ]
             const first = items[0],
@@ -660,7 +684,12 @@ export default function AgentArtifactEditDialog({
               first?.focus()
             }
           }
-          if (event.target instanceof HTMLTextAreaElement || !marked) return
+          if (
+            event.target instanceof HTMLTextAreaElement ||
+            (event.target instanceof HTMLElement && event.target.closest('[contenteditable]')) ||
+            !marked
+          )
+            return
           if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
             event.preventDefault()
             event.stopPropagation()
@@ -701,7 +730,7 @@ export default function AgentArtifactEditDialog({
             >
               <img ref={imageRef} src={working} alt="" onLoad={initializeMask} draggable={false} />
               {marked && <canvas ref={previewRef} aria-hidden="true" />}
-              {regions.map((region, index) => {
+              {regions.map((region) => {
                 const bounds = region.bounds
                 return (
                   <div
@@ -714,7 +743,7 @@ export default function AgentArtifactEditDialog({
                       height: `${bounds.height * 100}%`,
                     }}
                   >
-                    <span>{index + 1}</span>
+                    <span>{regionPrompt.numberFor(region.id)}</span>
                   </div>
                 )
               })}
@@ -929,31 +958,23 @@ export default function AgentArtifactEditDialog({
           )}
         </div>
         <div className="studio-artifact-edit-composer">
-          {regions.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {regions.map((region, index) => (
-                <Button
-                  key={region.id}
-                  variant="outline"
-                  size="sm"
-                  disabled={busy || drawing}
-                  onClick={() => removeRegion(region.id)}
-                  aria-label={t('tool.removeRegion', { number: index + 1 })}
-                >
-                  {t('tool.region', { number: index + 1 })}
-                  <X size={14} />
-                </Button>
-              ))}
-            </div>
+          {marked ? (
+            <RegionPromptEditor
+              prompt={regionPrompt}
+              label={t('tool.editInstruction')}
+              placeholder={t(`tool.${action}Placeholder`)}
+              disabled={busy || drawing}
+            />
+          ) : (
+            <textarea
+              value={instruction}
+              onChange={(event) => setInstruction(event.target.value)}
+              placeholder={t(`tool.${action}Placeholder`)}
+              aria-label={t('tool.editInstruction')}
+              rows={2}
+              maxLength={2000}
+            />
           )}
-          <textarea
-            value={instruction}
-            onChange={(event) => setInstruction(event.target.value)}
-            placeholder={t(`tool.${action}Placeholder`)}
-            aria-label={t('tool.editInstruction')}
-            rows={2}
-            maxLength={2000}
-          />
           <div>
             <span>
               {marked
@@ -970,10 +991,12 @@ export default function AgentArtifactEditDialog({
                 busy ||
                 drawing ||
                 regionsPending ||
+                regionPrompt.hasMissing ||
+                regionPrompt.tooLong ||
                 loading ||
                 !working ||
                 !ready ||
-                (marked && (!markPresent || (action === 'inpaint' && !instruction.trim())))
+                (marked && (!markPresent || (action === 'inpaint' && !regionPrompt.hasProse)))
               }
             >
               {busy ? t('tool.submittingEdit') : t('tool.generateEdit')}
