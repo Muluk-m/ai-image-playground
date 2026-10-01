@@ -1,4 +1,8 @@
 {
+  "agentQueue": {
+    "fallback": "Message recovery failed. Please try again.",
+    "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
+  },
   "customProvider": {
     "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again",
     "fallback": "The custom provider request failed. Check its settings and try again"

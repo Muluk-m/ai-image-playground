@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react'
 import { ErrorState } from '../../../components/assistant-ui/elements/error-state'
+import { Button } from '../../../components/ui/button'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -135,7 +136,7 @@ export default function AgentPanel({
   searchOpen?: boolean
   onCloseSearch?: () => void
 }) {
-  const { t } = useTranslation('agent')
+  const { t } = useTranslation(['agent', 'errors'])
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
@@ -144,6 +145,7 @@ export default function AgentPanel({
   const videoSkills = useAgentSkills('video')
   const skills = useMemo(() => [...imageSkills, ...videoSkills], [imageSkills, videoSkills])
   const error = useAgentStore((state) => state.error)
+  const returnedMessagesPending = useAgentStore((state) => state.returnedMessagesPending)
   const errorDiagnostic = useAgentStore((state) => state.errorDiagnostic)
   const diagnosticConversationId = useAgentStore((state) => state.conversationId)
   const panelWidth = useAgentStore((state) => state.panelWidth)
@@ -458,19 +460,34 @@ export default function AgentPanel({
               })}
               <AgentActivity />
               <AgentHistoryStatus />
-              {error && !historyFailed && (
+              {(error || returnedMessagesPending) && !historyFailed && (
                 <ErrorState
                   title={t('panel.errorTitle')}
-                  detail={error}
+                  detail={
+                    returnedMessagesPending
+                      ? t('errors:agentQueue.return_handoff_failed')
+                      : (error ?? undefined)
+                  }
                   actions={
-                    <AgentCopyDiagnostic
-                      diagnostic={
-                        errorDiagnostic ?? {
-                          conversationId: diagnosticConversationId,
-                          message: error,
+                    <>
+                      {returnedMessagesPending && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void useAgentStore.getState().retryReturnedMessages()}
+                        >
+                          {t('draft.retryRestore')}
+                        </Button>
+                      )}
+                      <AgentCopyDiagnostic
+                        diagnostic={
+                          errorDiagnostic ?? {
+                            conversationId: diagnosticConversationId,
+                            message: error,
+                          }
                         }
-                      }
-                    />
+                      />
+                    </>
                   }
                 />
               )}

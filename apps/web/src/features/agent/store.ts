@@ -51,6 +51,7 @@ import {
   useCanvasProjectStore,
 } from '../canvas/projectStore'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
+import { abortRecoveries, type PendingAbortRecovery } from './lib/abortRecovery'
 import {
   type AgentConversationState,
   AgentRequestError,
@@ -75,7 +76,7 @@ import {
 } from './lib/artifactDelivery'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
-import { agentDraft, bindNewAgentDraft } from './lib/drafts'
+import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
 import { agentJobUnsettled } from './lib/jobProgress'
 import {
   addQueuedMessage,
@@ -198,6 +199,7 @@ export interface AgentState {
   loaded: boolean
   historyLoading: boolean
   historyFailed: boolean
+  returnedMessagesPending: boolean
   /** 对话面板宽度（CSS 像素），用户拖过就记住。 */
   panelWidth: number
   /**
@@ -267,6 +269,7 @@ export interface AgentState {
     },
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
+  retryReturnedMessages(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
   withdrawQueued(queueId: string): Promise<void>
   /** 把一条排队消息升级为插话：插进正在跑的那一轮，在它下一个动作边界生效。 */
@@ -429,6 +432,7 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => ({
   errorDiagnostic: null,
   historyLoading: false,
   historyFailed: false,
+  returnedMessagesPending: false,
 })
 
 function readPanelWidth(): number {
@@ -744,6 +748,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       activeTurn: null,
       historyLoading: true,
       historyFailed: false,
+      returnedMessagesPending: false,
     })
     selectCanvasWorkspace(conversationSceneKey(conversationId))
     let state: AgentConversationState
@@ -776,6 +781,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     }
     set({ historyLoading: false, historyFailed: false })
     adoptSnapshot(conversationId, state)
+    await recoverReturnedMessages(conversationId)
+    if (!isCurrent()) return
     const active = state.activeTurn?.turnId ?? turnId
     if (!active) {
       // 历史读回来了、也没有在跑的轮：发送途中丢掉的那几条现在补发。
@@ -783,7 +790,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
       return
     }
-    set({ turn: 'running', error: null, errorDiagnostic: null, activeTurn: { turnId: active } })
+    set({ turn: 'running', activeTurn: { turnId: active } })
     await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
   }
 
@@ -851,9 +858,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
    * 停止请求没拿到响应（超时、断网）时重发同一个请求：服务端那一刻可能已经撤下了排队消息，
    * 只在响应里交还，重发拿得回同一批。服务端明确答复的错误（例如 404）不重发。
    */
-  const abortWithRetry = async (conversationId: string, turnId: string) => {
+  const abortWithRetry = async (conversationId: string, turnId: string, current = () => true) => {
     for (let attempt = 1; ; attempt += 1) {
       try {
+        if (!current()) throw new Error('stop_recovery_scope_changed')
         return await abortTurn(conversationId, turnId)
       } catch (error) {
         if (error instanceof AgentRequestError || attempt >= STOP_ATTEMPTS) throw error
@@ -891,31 +899,85 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           finish()
       })
     })
+  const handoffReturnedMessages = async (
+    conversationId: string,
+    pointer: PendingAbortRecovery,
+    receipts: ReturnType<typeof abortRecoveries>,
+    draft: DraftSession,
+  ) => {
+    // An account/backend switch must never replay an old receipt against the new identity.
+    if (!receipts.current()) return false
+    const returned = await abortWithRetry(conversationId, pointer.turnId, receipts.current)
+    if (!receipts.current()) return false
+    if (returned.length && !(await draft.returnQueued(returned)))
+      throw new Error('draft_handoff_failed')
+    await receipts.forget(pointer.turnId)
+    if (receipts.current() && get().conversationId === conversationId)
+      set((state) => ({
+        queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
+      }))
+    return true
+  }
+
+  const recoverReturnedMessages = async (conversationId: string) => {
+    const receipts = abortRecoveries(conversationId)
+    const current = () => receipts.current() && get().conversationId === conversationId
+    try {
+      for (const pointer of await receipts.read()) {
+        if (!receipts.current()) return
+        const cached = agentDraft(conversationId, pointer.projectId)
+        const draft =
+          cached.key === pointer.draftKey
+            ? cached
+            : new DraftSession(pointer.draftKey, undefined, pointer.projectId)
+        if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
+      }
+      if (current() && get().returnedMessagesPending)
+        set({ returnedMessagesPending: false, error: null, errorDiagnostic: null })
+    } catch (error) {
+      if (current())
+        set({
+          returnedMessagesPending: true,
+          error: i18next.t('agentQueue.return_handoff_failed', { ns: 'errors' }),
+          errorDiagnostic: requestDiagnostic(error, conversationId),
+        })
+    }
+  }
+
   const requestAbort = async (conversationId: string, turnId: string) => {
-    const current = () =>
-      get().conversationId === conversationId && get().activeTurn?.turnId === turnId
-    // 退回的排队消息属于按停止时的这个项目：请求期间切走了，也得落回它自己的输入框，不能落进
-    // 切过去的那个项目。
+    const receipts = abortRecoveries(conversationId)
+    const shown = () => receipts.current() && get().conversationId === conversationId
+    const current = () => shown() && get().activeTurn?.turnId === turnId
+    // Capture the destination before asynchronous storage/network work or project changes.
     const draft = currentProjectDraft(conversationId)
+    const pointer = { turnId, draftKey: draft.key, projectId: currentCanvasProject()?.id }
+    let remembered = false
     try {
       if (current()) set({ stopping: true, error: null, errorDiagnostic: null })
-      const returned = await abortWithRetry(conversationId, turnId)
-      // 停止时还没处理的排队消息被服务端退回：放回输入框，由用户改了再发或删掉。
-      if (returned.length) {
-        if (!(await draft.returnQueued(returned))) throw new Error('draft_handoff_failed')
-        if (get().conversationId === conversationId)
-          set((state) => ({
-            queue: state.queue.filter((one) => !returned.some((back) => back.id === one.id)),
-          }))
-      }
+      // The server emits queue-withdrawn before returning the receipt. Persist its identity first.
+      await receipts.remember(pointer)
+      remembered = true
+      if (!(await handoffReturnedMessages(conversationId, pointer, receipts, draft))) return
+      if (shown()) set({ returnedMessagesPending: false })
     } catch (error) {
-      if (!current()) return
-      // 轮可能恰好结束；读回事实后再决定是否报错，不能把 404 当成中止成功。
+      if (!shown()) return
+      if (!remembered) {
+        // No stop request was sent: preserve the running turn and its normal stop action.
+        set({
+          stopping: current() ? false : get().stopping,
+          error: i18next.t('error.stopFailed', { ns: 'agent' }),
+          errorDiagnostic: requestDiagnostic(error, conversationId),
+        })
+        return
+      }
+      // A genuine missing turn is checked against history; a local handoff error never takes this path.
       if (error instanceof AgentRequestError && error.status === 404) {
         try {
           const history = await fetchMessages(conversationId)
-          if (!current()) return
+          if (!shown()) return
           if (!history.activeTurn) {
+            await receipts.forget(turnId)
+            if (!shown()) return
             resetDelivery()
             set({
               turn: 'idle',
@@ -924,18 +986,20 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               activeTurn: null,
               error: null,
               errorDiagnostic: null,
+              returnedMessagesPending: false,
             })
             adoptSnapshot(conversationId, history)
             return
           }
         } catch {
-          /* 保留在运行的轮，让用户重试。 */
+          /* Keep the receipt available for explicit retry. */
         }
       }
-      if (current())
+      if (shown())
         set({
-          stopping: false,
-          error: i18next.t('error.stopFailed', { ns: 'agent' }),
+          stopping: current() ? false : get().stopping,
+          returnedMessagesPending: true,
+          error: i18next.t('agentQueue.return_handoff_failed', { ns: 'errors' }),
           errorDiagnostic: requestDiagnostic(error, conversationId),
         })
     }
@@ -1164,6 +1228,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     loaded: false,
     historyLoading: false,
     historyFailed: false,
+    returnedMessagesPending: false,
     panelWidth: readPanelWidth(),
     jobProgress: {},
     toolStartedAt: {},
@@ -1746,6 +1811,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (abortInFlight === settled) abortInFlight = null
       })
       await settling
+    },
+
+    async retryReturnedMessages() {
+      const conversationId = get().conversationId
+      if (conversationId) await recoverReturnedMessages(conversationId)
     },
 
     async withdrawQueued(queueId) {

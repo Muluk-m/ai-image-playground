@@ -394,15 +394,21 @@ async function draftRows(): Promise<{ key: IDBValidKey; value: unknown }[]> {
   }
 }
 
-it('读取失败后显式重试无效记录能恢复编辑且完整保留原始记录', async () => {
-  const key = 'invalid-recovery-row'
+it.each([
+  { prompt: 123, references: [], originalText: '保留损坏记录中的原文' },
+  { prompt: '', references: [], returnedQueueIds: 123 },
+  { prompt: '', references: [], remainingUnsent: 123 },
+  { prompt: '', references: [], unsent: { prompt: 123, references: [] } },
+  { prompt: '', references: [], remainingUnsent: [{ prompt: '嵌套原文', references: null }] },
+  { prompt: '', references: [null] },
+])('读取失败后显式重试无效记录能恢复编辑且完整保留原始记录 %#', async (raw) => {
+  const key = `invalid-recovery-row-${crypto.randomUUID()}`
   const seed = new DraftSession(key)
   await seed.ready
   const db = await new Promise<IDBDatabase>((resolve) => {
     const request = indexedDB.open('image-playground-agent-drafts', 1)
     request.onsuccess = () => resolve(request.result)
   })
-  const raw = { prompt: 123, references: [], originalText: '保留损坏记录中的原文' }
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('drafts', 'readwrite')
     tx.objectStore('drafts').put(raw, key)
@@ -481,4 +487,50 @@ it.each([
   } finally {
     failure.mockRestore()
   }
+})
+
+it('隔离损坏草稿后原媒体仅归恢复副本持有，显式释放副本即可回收', async () => {
+  const { registerLocalAttachmentSource, readLocalAttachment, attachmentSourceOwner } =
+    await import('../../../../lib/localAttachmentSources')
+  const handle = registerLocalAttachmentSource(
+    new File([new Uint8Array([1, 2, 3])], 'raw.png', { type: 'image/png' }),
+    1024,
+  )
+  await readLocalAttachment(handle)
+  const key = `invalid-owner-${crypto.randomUUID()}`
+  const seed = new DraftSession(key)
+  await seed.ready
+  seed.update({ prompt: '原图引用', references: [{ id: 'raw', dataUrl: handle }] })
+  await seed.flush()
+  const db = await new Promise<IDBDatabase>((resolve) => {
+    const request = indexedDB.open('image-playground-agent-drafts', 1)
+    request.onsuccess = () => resolve(request.result)
+  })
+  const raw = { prompt: 123, references: [{ id: 'raw', dataUrl: handle }] }
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').put(raw, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  const restored = new DraftSession(key)
+  await restored.ready
+  await restored.retryRecovery()
+  expect(restored.getSnapshot().recoveryBlocked).toBe(false)
+  const copy = (await draftRows()).find(
+    (row) => row.key !== key && JSON.stringify(row.value) === JSON.stringify(raw),
+  )!
+  expect(copy).toBeDefined()
+  expect(new Uint8Array((await readLocalAttachment(handle)).data)).toEqual(
+    new Uint8Array([1, 2, 3]),
+  )
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').delete(copy.key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+  await attachmentSourceOwner(`draft:${String(copy.key)}`).release()
+  await expect(readLocalAttachment(handle)).rejects.toThrow('attachment_source_missing')
 })
