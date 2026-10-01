@@ -178,9 +178,43 @@ describe('runMigrations', () => {
     }
   })
 
+  it('retains paid phase authorization when a rollback would discard it', async () => {
+    const now = new Date()
+    await connection.client`INSERT INTO users (id, username, password_hash, status, created_at, updated_at) VALUES ('rollback-phase-owner', 'rollback-phase-owner', 'fixture', 'active', ${now}, ${now})`
+    try {
+      await connection.client`INSERT INTO agent_batches (id, user_id, origin_turn_id, tool_call_id, experience, created_at, updated_at) VALUES ('rollback-phase', 'rollback-phase-owner', 'turn', 'call', 'chat', ${now}, ${now})`
+      await connection.client`INSERT INTO agent_batch_plans (batch_id, version, title, rule, digest, item_count, estimate_snapshot, confirmation, created_at) VALUES ('rollback-phase', 1, 'phase', 'rule', 'digest', 1, '{}'::jsonb, '{"phase":"analysis","itemKeys":["detail"],"requiresResume":false}'::jsonb, ${now})`
+      const rollback = await Bun.file(
+        new URL('../../drizzle/rollback/0055_agent_batch_confirmation.down.sql', import.meta.url),
+      ).text()
+      await expect(
+        connection.client.begin(async (tx) => {
+          await tx.unsafe(rollback)
+        }),
+      ).rejects.toThrow('phase authorization')
+      const [saved] =
+        await connection.client`SELECT confirmation FROM agent_batch_plans WHERE batch_id = 'rollback-phase'`
+      expect(saved.confirmation).toEqual({
+        phase: 'analysis',
+        itemKeys: ['detail'],
+        requiresResume: false,
+      })
+      await connection.client`UPDATE agent_batch_plans SET confirmation = NULL WHERE batch_id = 'rollback-phase'`
+      await connection.client`INSERT INTO agent_batch_items (batch_id, version, key, ordinal, kind, inputs, prompt, params, dependencies, source_analysis) VALUES ('rollback-phase', 1, 'generate', 0, 'generation', '[]'::jsonb, 'concrete prompt', '{}'::jsonb, '[]'::jsonb, '[{"itemKey":"inspected","taskId":"independent-analysis","attempt":1}]'::jsonb)`
+      await expect(
+        connection.client.begin(async (tx) => {
+          await tx.unsafe(rollback)
+        }),
+      ).rejects.toThrow('phase authorization')
+    } finally {
+      await connection.client`DELETE FROM users WHERE id = 'rollback-phase-owner'`
+    }
+  })
+
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0055_agent_batch_confirmation.down.sql',
       '0054_agent_batch_retry.down.sql',
       '0053_analysis_tasks.down.sql',
       '0052_agent_batch_execution.down.sql',

@@ -35,6 +35,14 @@ The concurrency run exposed a real lock cycle between task claim, user-change se
 
 Explicit-failure retry, dependency blocking, insufficient-credit pause, authentication pause and model-unavailable pause are covered by the focused execution/retry/authentication suites alongside these scale tests. They are not presented as a single 100-item test combining every fault.
 
+## Real browser batch control
+
+A production Web build against the controlled PostgreSQL fixture showed 100 items in five 20-item pages. Confirming admitted three tasks, pausing kept the count at three after those completed, and reloading retained the paused state, page 5 and 21 settled test credits. Resuming reached 98 successes, one definite failure and one unknown outcome without a final wake. Selecting only the definite failure quoted seven credits and created exactly one new attempt after explicit confirmation. The unknown item offered no retry selection.
+
+After that retry, 101 generation submissions and reservations produced 99 successes and 693 settled test credits. Two identical audited reconciliation commands for the unknown attempt yielded one consumed batch/version notice and one additional Agent turn (three model calls total). Reloading displayed the final summary without adding a generation call, reservation or model call. The final summary was observed after reload; this run does not establish immediate live delivery of that summary. API cursor pages were `[17,17,17,17,17,15]`, with 100 distinct items. The UI's attempt counter was corrected from an invalid `101 / 100` ratio to a cumulative submission count.
+
+The first fixture startup lacked a project binding, so the fixture conversation was bound through the real project API before browser execution. The reusable fixture now creates and binds the project before planning. Tiny distinct-color images and mocked upstream prices establish control and accounting behavior, not production generation quality or large-image throughput.
+
 ## Release acceptance still required
 
 - Repeated send-accept samples before claiming percentiles, full browser-process memory measurement, and effective production channel request budgets/compatibility.

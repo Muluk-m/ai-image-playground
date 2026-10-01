@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { proposeBatchAnalysis } from '../lib/agent/batch-analysis-proposal'
 import {
   batchExecutionAvailable,
   confirmAgentBatch,
@@ -8,6 +9,7 @@ import {
   quoteAgentBatchRetry,
   repriceAgentBatch,
 } from '../lib/agent/batch-execution'
+import { proposeBatchGeneration } from '../lib/agent/batch-generation-proposal'
 import {
   BatchPlanError,
   batchPlansAvailable,
@@ -53,22 +55,19 @@ const batchItemFields = {
   prompt: t.String({ minLength: 1, maxLength: 4000 }),
   dependencies: t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
 }
+const generationParams = t.Object({
+  model: t.String({ minLength: 1, maxLength: 128 }),
+  provider: t.Union([t.Literal('openai-compat'), t.Literal('gemini')]),
+  size: t.Optional(t.String({ maxLength: 32 })),
+  quality: t.Optional(t.String({ maxLength: 16 })),
+  output_format: t.Optional(t.String({ maxLength: 16 })),
+  output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
+  gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
+  gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
+  gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
+})
 const batchItemSchema = t.Union([
-  t.Object({
-    ...batchItemFields,
-    kind: t.Literal('generation'),
-    params: t.Object({
-      model: t.String({ minLength: 1, maxLength: 128 }),
-      provider: t.Union([t.Literal('openai-compat'), t.Literal('gemini')]),
-      size: t.Optional(t.String({ maxLength: 32 })),
-      quality: t.Optional(t.String({ maxLength: 16 })),
-      output_format: t.Optional(t.String({ maxLength: 16 })),
-      output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
-      gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
-      gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
-      gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
-    }),
-  }),
+  t.Object({ ...batchItemFields, kind: t.Literal('generation'), params: generationParams }),
   t.Object({
     ...batchItemFields,
     kind: t.Literal('analysis'),
@@ -150,6 +149,73 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
         title: t.String({ minLength: 1, maxLength: 120 }),
         rule: t.String({ minLength: 1, maxLength: 4000 }),
         items: t.Array(batchItemSchema, { minItems: 1, maxItems: 100 }),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/batches/:id/generation-proposal',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      await proposeBatchGeneration(authUser.id, params.id, body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+        excludedItemKeys: t.Optional(
+          t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
+        ),
+        excludedImageIds: t.Optional(
+          t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
+        ),
+        items: t.Array(
+          t.Object({
+            key: batchItemFields.key,
+            inputImageIds: t.Array(t.String({ minLength: 1, maxLength: 128 }), {
+              minItems: 1,
+              maxItems: 100,
+            }),
+            sourceItemKeys: t.Array(t.String({ minLength: 1, maxLength: 128 }), {
+              minItems: 1,
+              maxItems: 100,
+            }),
+            prompt: batchItemFields.prompt,
+            params: generationParams,
+          }),
+          { minItems: 1, maxItems: 100 },
+        ),
+      }),
+    },
+  )
+
+  .post(
+    '/api/agent/batches/:id/analysis-proposal',
+    async ({ params, body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      await proposeBatchAnalysis(authUser.id, params.id, body)
+      return await readAgentBatchPlan(authUser.id, params.id)
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        commandId: t.String({ minLength: 1, maxLength: 128 }),
+        expectedVersion: t.Integer({ minimum: 1 }),
+        items: t.Array(
+          t.Object({
+            key: batchItemFields.key,
+            inputs: batchItemFields.inputs,
+            prompt: batchItemFields.prompt,
+            dependencies: batchItemFields.dependencies,
+            params: t.Object({
+              model: t.String({ minLength: 1, maxLength: 128 }),
+              intent: t.Optional(t.Union([t.Literal('inspection'), t.Literal('joint_comparison')])),
+            }),
+          }),
+          { minItems: 1, maxItems: 100 },
+        ),
       }),
     },
   )

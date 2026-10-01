@@ -69,6 +69,6 @@ export async function batchWakeSummary(
     '（系统通知，不是用户说的话）已确认批次的一版执行结果全部确定。只需简短汇总下面的执行事实，不要重新提交任务或自动发起付费复核。',
     `批次 ${notice.batchId}，版本 ${notice.version}，共 ${results.length} 项：`,
     JSON.stringify(results),
-    '这里只提供任务状态和账单，没有检查产物像素，不能声称已逐图检查视觉质量。完整结果由批次卡展示；若用户需要视觉复核，应提出有明确范围的新计划。',
+    '这里只提供任务状态和账单，没有检查产物像素，不能声称已逐图检查视觉质量。分析批次应调用 readBatchAnalysis，传入上述 batchId 和 version 分页读取已完成的真实发现，再汇总；不得把状态当成视觉结论。读取已有结果不产生新分析费用。需要补看时调用 proposeBatchAnalysis 保存明确范围的新报价，等待用户确认；需要生成时先读完有关发现再调用 proposeBatchGeneration，等待用户确认生成。',
   ].join('\n')
 }

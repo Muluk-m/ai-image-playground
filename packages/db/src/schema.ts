@@ -1,5 +1,7 @@
 import type {
+  AgentBatchAnalysisSource,
   AgentBatchAttemptSnapshot,
+  AgentBatchConfirmation,
   AgentBatchEstimates,
   AgentBatchItem,
   AgentBatchPriceSnapshot,
@@ -1269,6 +1271,7 @@ export const agent_batch_plans = pgTable(
       .default({}),
     retry_item_keys: bunJsonb('retry_item_keys').$type<string[]>().notNull().default([]),
     retry_requires_resume: boolean('retry_requires_resume').notNull().default(false),
+    confirmation: bunJsonb('confirmation').$type<AgentBatchConfirmation>(),
     created_at: epochMs('created_at').notNull(),
   },
   (t) => [primaryKey({ columns: [t.batch_id, t.version] })],
@@ -1287,6 +1290,7 @@ export const agent_batch_items = pgTable(
     inputs: bunJsonb('inputs').$type<AgentBatchItem['inputs']>().notNull(),
     prompt: text('prompt').notNull(),
     params: bunJsonb('params').$type<AgentBatchItem['params']>().notNull(),
+    source_analysis: bunJsonb('source_analysis').$type<readonly AgentBatchAnalysisSource[]>(),
     dependencies: bunJsonb('dependencies').$type<AgentBatchItem['dependencies']>().notNull(),
   },
   (t) => [
@@ -1334,7 +1338,17 @@ export const agent_batch_commands = pgTable(
       .notNull()
       .references(() => agent_batches.id, { onDelete: 'cascade' }),
     command_id: text('command_id').notNull(),
-    kind: text('kind').$type<'pause' | 'resume' | 'reprice' | 'retry_quote'>().notNull(),
+    kind: text('kind')
+      .$type<
+        | 'pause'
+        | 'resume'
+        | 'reprice'
+        | 'retry_quote'
+        | 'analysis_proposal'
+        | 'generation_proposal'
+        | 'phase_edit'
+      >()
+      .notNull(),
     request_hash: text('request_hash').notNull(),
     created_at: epochMs('created_at').notNull(),
   },

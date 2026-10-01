@@ -27,7 +27,7 @@ import {
   type PreparedQueueTask,
   prepareQueueTask,
 } from '../taskSubmission'
-import { batchItem } from './batch-items'
+import { batchItem, batchItemValues } from './batch-items'
 import { BatchPlanError, batchPlansAvailable } from './batch-plans'
 import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from './batch-progress'
 import { lockConversation } from './confirmations'
@@ -51,7 +51,7 @@ export function batchExecutionAvailable(userId: string) {
 
 type BatchRow = typeof schema.agent_batches.$inferSelect
 
-async function lockOwnedBatch(tx: BffTransaction, userId: string, id: string) {
+export async function lockOwnedBatch(tx: BffTransaction, userId: string, id: string) {
   const [origin] = await tx
     .select()
     .from(schema.agent_batches)
@@ -123,7 +123,9 @@ export async function confirmAgentBatch(
       batch.status !== 'draft' &&
       !(
         batch.status === 'paused' &&
-        (batch.pause_reason === 'price_changed' || plan.retry_item_keys.length > 0)
+        (batch.pause_reason === 'price_changed' ||
+          plan.retry_item_keys.length > 0 ||
+          plan.confirmation !== null)
       )
     )
       throw new BatchPlanError('batch_version_conflict', 409)
@@ -154,7 +156,8 @@ export async function confirmAgentBatch(
     await tx
       .update(schema.agent_batches)
       .set({
-        status: plan.retry_requires_resume ? 'paused' : 'running',
+        status:
+          plan.retry_requires_resume || plan.confirmation?.requiresResume ? 'paused' : 'running',
         pause_reason: null,
         confirmed_version: plan.version,
         confirmation_command_id: input.commandId,
@@ -741,8 +744,10 @@ export async function repriceAgentBatch(
             (Object.hasOwn(plan.attempt_targets, item.key) ? plan.attempt_targets[item.key]! : 1),
       )
       if (accepted) {
-        totals[item.kind] += accepted.reserved_credits
-        charges[item.kind] += accepted.reserved_credits
+        if (!plan.confirmation) {
+          totals[item.kind] += accepted.reserved_credits
+          charges[item.kind] += accepted.reserved_credits
+        }
         if (accepted.price_snapshot) snapshots[item.kind].push(accepted.price_snapshot)
         continue
       }
@@ -788,7 +793,16 @@ export async function repriceAgentBatch(
     const now = Date.now()
     const content = items
     const digest = createHash('sha256')
-      .update(JSON.stringify({ title: plan.title, rule: plan.rule, items: content, estimate }))
+      .update(
+        JSON.stringify({
+          title: plan.title,
+          rule: plan.rule,
+          items: content,
+          estimate,
+          targets: plan.attempt_targets,
+          confirmation: plan.confirmation,
+        }),
+      )
       .digest('hex')
     await tx.insert(schema.agent_batch_plans).values({
       batch_id: id,
@@ -801,11 +815,12 @@ export async function repriceAgentBatch(
       attempt_targets: plan.attempt_targets,
       retry_item_keys: plan.retry_item_keys,
       retry_requires_resume: plan.retry_requires_resume,
+      confirmation: plan.confirmation,
       created_at: now,
     })
     await tx
       .insert(schema.agent_batch_items)
-      .values(content.map((item) => ({ ...item, batch_id: id, version })))
+      .values(content.map((item) => ({ ...batchItemValues(item), batch_id: id, version })))
     await tx
       .update(schema.agent_batches)
       .set({
@@ -1001,7 +1016,7 @@ export async function quoteAgentBatchRetry(
     })
     await tx
       .insert(schema.agent_batch_items)
-      .values(content.map((item) => ({ ...item, batch_id: id, version })))
+      .values(content.map((item) => ({ ...batchItemValues(item), batch_id: id, version })))
     await tx
       .update(schema.agent_batches)
       .set({

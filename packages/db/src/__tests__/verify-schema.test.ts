@@ -30,6 +30,23 @@ describe('verifySchema', () => {
     }
   })
 
+  it('rejects a missing paid phase authorization column despite a complete migration ledger', async () => {
+    const handle = createDb(databaseUrl)
+    try {
+      await handle.client.unsafe(
+        'ALTER TABLE agent_batch_plans RENAME COLUMN confirmation TO hidden_confirmation',
+      )
+      await expect(verifySchema(databaseUrl)).rejects.toThrow(
+        'missing columns: agent_batch_plans.confirmation',
+      )
+    } finally {
+      await handle.client.unsafe(
+        'ALTER TABLE agent_batch_plans RENAME COLUMN hidden_confirmation TO confirmation',
+      )
+      await handle.close()
+    }
+  })
+
   it('reports a missing expected index', async () => {
     const handle = createDb(databaseUrl)
     try {

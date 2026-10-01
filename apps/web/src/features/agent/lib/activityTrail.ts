@@ -10,10 +10,13 @@ import type { AgentPanelMessage, AgentToolMessage } from '../types'
  */
 const READ_ONLY_TOOLS: Readonly<Record<AgentToolName, true | undefined>> = {
   viewImage: true,
+  readBatchAnalysis: true,
   readLibrary: true,
   readCanvas: true,
   loadSkill: true,
   planImageBatch: undefined,
+  proposeBatchGeneration: undefined,
+  proposeBatchAnalysis: undefined,
   generateImage: undefined,
   editImage: undefined,
   generateVideo: undefined,

@@ -18,8 +18,10 @@ import { prepareAnalysisTask, quoteAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { queueTaskOutcome } from '../taskSubmission'
+import { jointAnalysisLimit } from './batch-analysis-limit'
 import { readBatchAnalysisSummary } from './batch-analysis-summary'
-import { batchItem } from './batch-items'
+import { batchItem, batchItemValues } from './batch-items'
+import { updatePendingBatchPhase } from './batch-phase-edit'
 import { lockConversation } from './confirmations'
 import { AgentToolError } from './tools/errors'
 import { queueArtifacts, resolveAgentModel } from './tools/queueTask'
@@ -66,7 +68,10 @@ function batchMediaIds(items: readonly AgentBatchItem[]): string[] {
 }
 
 /** Reuse only an exact archived selection, never combine a known image with a new mask/action. */
-function sameArchivedReference(left: AgentMediaReference, right: AgentMediaReference): boolean {
+export function sameArchivedReference(
+  left: AgentMediaReference,
+  right: AgentMediaReference,
+): boolean {
   return (
     left.imageId === right.imageId &&
     left.mediaId === right.mediaId &&
@@ -190,6 +195,13 @@ export async function createAgentBatchPlan(
         prompt: item.prompt,
         inputs,
         intent: item.intent,
+      }).catch((error) => {
+        if (item.intent === 'joint_comparison')
+          jointAnalysisLimit(
+            error,
+            inputs.map((input) => input.imageId),
+          )
+        throw error
       })
       items.push({
         ...common,
@@ -284,7 +296,7 @@ export async function createAgentBatchPlan(
     })
     await tx
       .insert(schema.agent_batch_items)
-      .values(items.map((item) => ({ batch_id: id, version: 1, ...item })))
+      .values(items.map((item) => ({ batch_id: id, version: 1, ...batchItemValues(item) })))
     await tx.insert(schema.media_references).values(
       mediaIds.map((mediaId) => ({
         user_id: userId,
@@ -303,6 +315,8 @@ export class BatchPlanError extends Error {
     readonly code:
       | 'batch_execution_unavailable'
       | 'batch_retry_unavailable'
+      | 'batch_analysis_incomplete'
+      | 'batch_scope_reduction_required'
       | 'batch_size_exceeded'
       | 'batch_price_changed'
       | 'batch_submission_refused'
@@ -480,13 +494,30 @@ export async function readAgentBatchPlan(
   const execution = new Map(
     [...history].map(([key, entries]) => [key, entries[entries.length - 1]!]),
   )
+  const currentKeys = new Set(
+    (
+      await db
+        .select({ key: schema.agent_batch_items.key })
+        .from(schema.agent_batch_items)
+        .where(
+          and(
+            eq(schema.agent_batch_items.batch_id, id),
+            eq(schema.agent_batch_items.version, plan.version),
+          ),
+        )
+        .limit(100)
+    ).map((item) => item.key),
+  )
   const currentTerminal = terminal.filter(
     (one) =>
+      currentKeys.has(one.itemKey) &&
       one.attempt ===
-      (Object.hasOwn(plan.attempt_targets, one.itemKey) ? plan.attempt_targets[one.itemKey]! : 1),
+        (Object.hasOwn(plan.attempt_targets, one.itemKey) ? plan.attempt_targets[one.itemKey]! : 1),
   )
   const complete =
-    batch.confirmed_version === plan.version && currentTerminal.length === plan.item_count
+    batch.confirmed_version === plan.version &&
+    currentTerminal.length === plan.item_count &&
+    attempts.every((attempt) => attempt.snapshot !== null)
   const targetExecution = (key: string) => {
     const current = execution.get(key)
     const target = Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1
@@ -516,8 +547,12 @@ export async function readAgentBatchPlan(
     return { progress: ready ? 'ready' : 'pending' }
   }
   const analysisSummary = await readBatchAnalysisSummary(id, plan.version)
+  const sourceAnalysisSummary = plan.confirmation?.sourceVersion
+    ? await readBatchAnalysisSummary(id, plan.confirmation.sourceVersion)
+    : undefined
   return {
     ...(analysisSummary ? { analysisSummary } : {}),
+    ...(sourceAnalysisSummary ? { sourceAnalysisSummary } : {}),
     batch: {
       id: batch.id,
       conversationId: batch.conversation_id,
@@ -535,6 +570,7 @@ export async function readAgentBatchPlan(
         batchPlansAvailable({ userId }) && isCapabilityEnabled('agent:batch-execution'),
       pauseReason: batch.pause_reason,
       confirmationRequired: batch.confirmed_version !== batch.current_version,
+      ...(plan.confirmation ? { confirmation: plan.confirmation } : {}),
       ...(plan.retry_item_keys.length
         ? { retryItemKeys: plan.retry_item_keys, retryRequiresResume: plan.retry_requires_resume }
         : {}),
@@ -564,6 +600,7 @@ export async function updateAgentBatchPlan(
   id: string,
   input: AgentBatchUpdate,
 ): Promise<void> {
+  if (await updatePendingBatchPhase(userId, id, input)) return
   const preparedAnalysis = new Map<string, Awaited<ReturnType<typeof prepareAnalysisTask>>>()
   for (const item of input.items) {
     if (item.kind !== 'analysis') continue
@@ -721,7 +758,7 @@ export async function updateAgentBatchPlan(
     })
     await tx
       .insert(schema.agent_batch_items)
-      .values(items.map((item) => ({ ...item, batch_id: id, version })))
+      .values(items.map((item) => ({ ...batchItemValues(item), batch_id: id, version })))
     await tx
       .update(schema.agent_batches)
       .set({ current_version: version, updated_at: now })

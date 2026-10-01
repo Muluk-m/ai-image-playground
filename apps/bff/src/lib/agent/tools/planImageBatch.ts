@@ -1,4 +1,5 @@
 import { Type } from 'typebox'
+import { BatchAnalysisLimit } from '../batch-analysis-limit'
 import { batchExecutionAvailable } from '../batch-execution'
 import { batchPlansAvailable, createAgentBatchPlan } from '../batch-plans'
 import { defineAgentTool } from './adapter'
@@ -35,7 +36,16 @@ export const planImageBatch = defineAgentTool({
   }),
   call: ({ title }) => ({ title: typeof title === 'string' ? title : '批次计划' }),
   execute: (context) => async (toolCallId, params) => {
-    const batchId = await createAgentBatchPlan(context, toolCallId, params)
+    let batchId: string
+    try {
+      batchId = await createAgentBatchPlan(context, toolCallId, params)
+    } catch (error) {
+      if (!(error instanceof BatchAnalysisLimit)) throw error
+      return {
+        content: [{ type: 'text', text: error.message }],
+        details: { analysisLimit: error.details },
+      }
+    }
     return {
       content: [
         {

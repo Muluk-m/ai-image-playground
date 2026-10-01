@@ -163,6 +163,11 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
+export const EXPECTED_COLUMNS = [
+  'agent_batch_plans.confirmation',
+  'agent_batch_items.source_analysis',
+] as const
+
 const EXPECTED_MIGRATION_COUNT = journal.entries.length
 
 export interface SchemaVerificationResult {
@@ -174,7 +179,7 @@ export interface SchemaVerificationResult {
 export async function verifySchema(databaseUrl: string): Promise<SchemaVerificationResult> {
   const client = new SQL(databaseUrl, { max: 1 })
   try {
-    const [tableRows, indexRows, migrationTableRows] = await Promise.all([
+    const [tableRows, indexRows, migrationTableRows, columnRows] = await Promise.all([
       client<{ tablename: string }[]>`
         SELECT tablename
         FROM pg_tables
@@ -188,6 +193,10 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       client<{ relation: string | null }[]>`
         SELECT to_regclass('drizzle.__drizzle_migrations')::text AS relation
       `,
+      client<{ name: string }[]>`
+        SELECT table_name || '.' || column_name AS name
+        FROM information_schema.columns WHERE table_schema = 'public'
+      `,
     ])
     const migrationRows = migrationTableRows[0]?.relation
       ? await client<{ count: number }[]>`
@@ -197,10 +206,13 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       : []
     const tables = new Set(tableRows.map((row) => row.tablename))
     const indexes = new Set(indexRows.map((row) => row.indexname))
+    const columns = new Set(columnRows.map((row) => row.name))
+    const missingColumns = EXPECTED_COLUMNS.filter((name) => !columns.has(name))
     const missingTables = EXPECTED_TABLES.filter((name) => !tables.has(name))
     const missingIndexes = EXPECTED_INDEXES.filter((name) => !indexes.has(name))
     const migrationCount = Number(migrationRows[0]?.count ?? 0)
     const failures = [
+      missingColumns.length ? `missing columns: ${missingColumns.join(', ')}` : '',
       missingTables.length ? `missing tables: ${missingTables.join(', ')}` : '',
       missingIndexes.length ? `missing indexes: ${missingIndexes.join(', ')}` : '',
       migrationCount < EXPECTED_MIGRATION_COUNT
