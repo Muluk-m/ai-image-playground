@@ -9,6 +9,7 @@ import type {
   AgentToolCallSnapshot,
   AgentTurnCost,
   AgentTurnEvent,
+  AgentTurnFailure,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnStopReason,
@@ -18,6 +19,9 @@ import type {
   GenerationSource,
   GenerationSummary,
   PersistedSubmitRequest,
+  ProductionGenerationBinding,
+  ProductionGenerationReference,
+  ProductionRecord,
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
@@ -406,6 +410,7 @@ export const agent_conversations = pgTable(
     deleted_at: epochMs('deleted_at'),
     /** 上下文压缩的私有状态：摘要、锚点与熔断计数。不下发前端。 */
     compaction: bunJsonb('compaction').$type<AgentCompactionRecord>(),
+    production: bunJsonb('production').$type<ProductionRecord>(),
   },
   (t) => [
     check(
@@ -610,6 +615,12 @@ export const agent_jobs = pgTable(
  * 结果卡与产物照它标注。
  */
 export interface AgentDraftSubmission {
+  readonly production?: ProductionGenerationBinding
+  readonly productionDraftRevision?: number
+  readonly productionParams?: AgentTurnParams
+  readonly productionReferences?: readonly ProductionGenerationReference[]
+  readonly productionOperationId?: string
+  readonly productionFingerprint?: string
   readonly anchorObjectId?: string
   readonly review: boolean
   readonly plan?: AgentJobPlan
@@ -714,6 +725,7 @@ export const agent_turns = pgTable(
     stop_reason: text('stop_reason').$type<AgentTurnStopReason>().notNull(),
     /** 结算后的实际消耗；不计费的部署里是 null，那里的页脚只有耗时。 */
     cost: bunJsonb('cost').$type<AgentTurnCost>(),
+    failure: bunJsonb('failure').$type<AgentTurnFailure>(),
     created_at: epochMs('created_at').notNull(),
   },
   (t) => [

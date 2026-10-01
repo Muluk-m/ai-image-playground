@@ -116,6 +116,7 @@ export async function validateMaskMatchesImage(
 export async function createMaskPreviewDataUrl(
   imageDataUrl: string,
   maskDataUrl: string,
+  regions: readonly import('@image-playground/shared').AgentMarkedRegion[] = [],
 ): Promise<string> {
   const [image, mask] = await Promise.all([loadImage(imageDataUrl), loadImage(maskDataUrl)])
   if (image.naturalWidth !== mask.naturalWidth || image.naturalHeight !== mask.naturalHeight) {
@@ -154,5 +155,21 @@ export async function createMaskPreviewDataUrl(
   if (!overlayCtx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
   overlayCtx.putImageData(overlay, 0, 0)
   ctx.drawImage(overlayCanvas, 0, 0)
+  const radius = Math.max(8, Math.min(canvas.width, canvas.height) * 0.014)
+  regions.forEach((region, index) => {
+    const x = region.x * canvas.width,
+      y = region.y * canvas.height
+    ctx.strokeStyle = ctx.fillStyle = '#159cf6'
+    ctx.lineWidth = radius / 5
+    ctx.strokeRect(x, y, region.width * canvas.width, region.height * canvas.height)
+    ctx.beginPath()
+    ctx.arc(x + radius, y + radius, radius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#fff'
+    ctx.font = `${radius * 1.3}px sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(String(index + 1), x + radius, y + radius)
+  })
   return canvas.toDataURL('image/png')
 }

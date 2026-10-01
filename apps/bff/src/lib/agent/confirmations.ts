@@ -23,6 +23,10 @@ import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { createQueueTask } from '../taskSubmission'
 import type { AgentOwner } from './conversations'
+import {
+  validateImageParameters,
+  validateProductionConfirmation,
+} from './production-generation-validation'
 import { shapeQueuePrompt, unshapeQueuePrompt } from './prompt-shaping'
 import { AgentToolError, queueRefusalCode } from './tools/errors'
 
@@ -65,7 +69,10 @@ export interface GenerationDraftInput {
  * 把这次调用准备好的材料存起来，等用户确认。输入图归档进对象存储，库里只留引用——卡片是下发给
  * 前端的公开内容，字节一律不进那里。存不下就抛：与其留一张点不动的卡，不如当场让这次调用失败。
  */
-export async function saveGenerationDraft(input: GenerationDraftInput): Promise<void> {
+export async function saveGenerationDraft(
+  input: GenerationDraftInput,
+  persist?: (draft: typeof drafts.$inferInsert) => Promise<string>,
+): Promise<string> {
   const id = crypto.randomUUID()
   let request: PersistedSubmitRequest
   try {
@@ -82,7 +89,7 @@ export async function saveGenerationDraft(input: GenerationDraftInput): Promise<
     )
   }
   try {
-    await db.insert(drafts).values({
+    const prepared: typeof drafts.$inferInsert = {
       id,
       conversation_id: input.conversationId,
       turn_id: input.turnId,
@@ -95,7 +102,14 @@ export async function saveGenerationDraft(input: GenerationDraftInput): Promise<
       request,
       submission: input.submission,
       created_at: Date.now(),
-    })
+    }
+    if (persist) {
+      const savedId = await persist(prepared)
+      if (savedId !== id) await discardDraftInputs(id)
+      return savedId
+    }
+    await db.insert(drafts).values(prepared)
+    return id
   } catch (error) {
     await discardDraftInputs(id)
     throw error
@@ -103,6 +117,7 @@ export async function saveGenerationDraft(input: GenerationDraftInput): Promise<
 }
 
 export interface ConfirmGenerationInput {
+  readonly draftRevision?: number
   readonly conversationId: string
   /** 起这次确认时确权用的归属；建任务之前再核一次，中途易主或会话被删就不提交。 */
   readonly owner: AgentOwner
@@ -180,6 +195,20 @@ export async function confirmAgentGeneration(
       // 会话此刻仍在、仍是这个人的：删除与登录改挂都会动这一行，锁住它再建任务，
       // 付了费的任务就不会落进一个已经删掉或已经易主的会话。
       if (!(await conversationStillOwned(tx, input))) return { kind: 'not_found' }
+      if (draft.submission.production) {
+        const currentDraft = await readDraft(tx, input.conversationId, card)
+        if (
+          !currentDraft ||
+          currentDraft.submission.productionDraftRevision !== prepared.draftRevision ||
+          !(await validateProductionConfirmation(
+            input.conversationId,
+            input.userId,
+            currentDraft.submission,
+            tx,
+          ))
+        )
+          return { kind: 'refused', code: 'invalid_params' }
+      }
 
       // 发给上游的那一句在这里才成形：创作页在分发层加的防改写 guard 与构图指令，这条路
       // 以前一段都不加。卡上展示、用户编辑的仍是不带机器指令的原句，所以变换只发生在提交这一刻。
@@ -237,6 +266,7 @@ export async function confirmAgentGeneration(
 }
 
 interface PreparedConfirmation {
+  readonly draftRevision?: number
   readonly request: Omit<SubmitRequest, 'video'>
   readonly video?: PersistedVideoRequest
 }
@@ -266,10 +296,34 @@ async function prepareConfirmation(
   const target = resolveQueueModel(draft.media, draft.model)
   if (!target || target.model !== draft.model || target.provider !== draft.provider)
     return { kind: 'refused', code: 'model_unavailable' }
+  if (draft.submission.production) {
+    if (
+      input.draftRevision !== (draft.submission.productionDraftRevision ?? 1) ||
+      !(await validateProductionConfirmation(input.conversationId, input.userId, draft.submission))
+    )
+      return { kind: 'refused', code: 'invalid_params' }
+    try {
+      if (draft.media === 'image')
+        validateImageParameters(
+          draft.model,
+          draft.provider,
+          draft.submission.productionParams,
+          (draft.submission.productionReferences ?? []).length,
+        )
+    } catch {
+      return { kind: 'refused', code: 'invalid_params' }
+    }
+  }
   const { video, client_request_id: _command, ...persisted } = draft.request
   try {
     const { video: _hydratedVideo, ...request } = await hydrateInputImages(persisted)
-    return { request, ...(video ? { video } : {}) }
+    return {
+      request,
+      ...(video ? { video } : {}),
+      ...(draft.submission.production
+        ? { draftRevision: draft.submission.productionDraftRevision ?? 1 }
+        : {}),
+    }
   } catch (error) {
     log.error(
       { event: 'agent.confirmation_inputs_unreadable', draftId: draft.id, err: error },

@@ -12,6 +12,7 @@ import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
+import type { ClientProfile } from '../lib/channels/types'
 import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import { normalizeImageSize, sizeRatioLabel } from '../lib/size'
@@ -127,7 +128,8 @@ type SecondaryControl = { key: string; label: string; icon: ReactNode } & (
 
 /**
  * 参数控制条：自包含的 chip 列表（模型 / 尺寸 / Gemini 三件套 / 质量 / 格式 / 压缩 / 数量）。
- * 全部读写全局 store。数量 n 仅在 showCount 时出现：直接生成可手选，智能体由工具调用决定。
+ * 默认读写全局 store；controlled 用于确认草稿，只改调用方的本地参数并复用其已选模型。
+ * 数量 n 仅在 showCount 时出现：直接生成可手选，智能体由工具调用决定。
  * 整条交给智能体时（`agentManaged`）只剩模型与画幅。
  */
 /** 某条提交路径做不到的参数。chip 直接不出现——显示了却不生效，比没有这个开关更糟。 */
@@ -138,7 +140,13 @@ export default function ParamControls({
   collapsible = false,
   agentManaged = false,
   unsupported,
+  controlled,
 }: {
+  controlled?: {
+    params: TaskParams
+    profile: ClientProfile
+    onChange: (patch: Partial<TaskParams>) => void
+  }
   showCount?: boolean
   /** 输入框里的那一条：默认只露模型、尺寸与数量，其余收在「更多」后面。 */
   collapsible?: boolean
@@ -150,13 +158,18 @@ export default function ParamControls({
   unsupported?: ReadonlySet<UnsupportedParam>
 }) {
   const { t } = useTranslation('composer')
-  const params = useStore((s) => s.params)
-  const setParams = useStore((s) => s.setParams)
+  const storedParams = useStore((s) => s.params)
+  const setStoredParams = useStore((s) => s.setParams)
+  const params = controlled?.params ?? storedParams
+  const setParams = controlled?.onChange ?? setStoredParams
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
   const profileModelCache = useStore((s) => s.profileModelCache)
 
-  const activeProfile = useMemo(() => getActiveApiProfile(settings), [settings])
+  const activeProfile = useMemo(
+    () => controlled?.profile ?? getActiveApiProfile(settings),
+    [controlled?.profile, settings],
+  )
   const activeView = clientProfileToApiProfile(activeProfile)
   const isGeminiProvider = activeView.provider === 'gemini'
   const capabilities = getParamCapabilities(activeProfile, params.output_format)
@@ -419,7 +432,7 @@ export default function ParamControls({
 
   return (
     <>
-      {globalModelOptions.length > 0 && (
+      {!controlled && globalModelOptions.length > 0 && (
         <ParamChip
           icon={currentModel?.icon ?? ChipIcons.model}
           label={modelLine}
@@ -432,7 +445,7 @@ export default function ParamControls({
           />
         </ParamChip>
       )}
-      {!isGeminiProvider && (
+      {!isGeminiProvider && (!controlled || capabilities.size) && (
         <ParamChip
           icon={ChipIcons.size}
           label={capabilities.size ? t('param.size') : t('param.aspectRatio')}

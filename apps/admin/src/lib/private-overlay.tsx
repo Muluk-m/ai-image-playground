@@ -27,6 +27,7 @@ export interface PrivateAdminOverlay {
   ): Readonly<Record<string, PrivateAdminUserSummary>>
   OverviewPanel: ComponentType
   SettingsPanel: ComponentType
+  OrdersPanel?: ComponentType
   UserDetailPanel: ComponentType<{ userId: string; username: string; children?: ReactNode }>
 }
 
@@ -158,4 +159,15 @@ export function usePrivateAdminUserSummaries(userIds: readonly string[]): {
     enabled,
     summaries: overlay.useUserSummaries(userIds, enabled),
   }
+}
+
+export function PrivateAdminOrdersPanel() {
+  const enabled = usePrivateAdminOverlayEnabled()
+  const Component = overlay.OrdersPanel
+  if (!enabled || !Component) return null
+  return (
+    <Page crumbs={[{ label: '订单核款' }]}>
+      <Component />
+    </Page>
+  )
 }

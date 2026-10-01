@@ -11,7 +11,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { createAgentImageSource } = await import('../../../lib/agent/images')
+const { createAgentImageSource, activeAgentReferences } = await import('../../../lib/agent/images')
 
 const PIXEL = 'data:image/png;base64,aGk='
 
@@ -100,4 +100,17 @@ it('follows the references an interjection attached mid-turn', () => {
   expect(images.masked).toBe(false)
   images.attach([{ imageId: 'b', dataUrl: PIXEL, maskDataUrl: PIXEL }])
   expect(images.masked).toBe(true)
+})
+
+it('expires old editing actions and region numbers along with the mask, but preserves explicit continuation', () => {
+  const reference: AgentStoredReference = {
+    imageId: 'old',
+    image: { object: 'old-image', mime: 'image/png' },
+    mask: { object: 'old-mask', mime: 'image/png' },
+    editAction: 'erase',
+    regions: [{ x: 0, y: 0, width: 0.5, height: 0.5 }],
+  }
+  const history = [userMessage([reference])]
+  expect(activeAgentReferences([], history)).toEqual([{ imageId: 'old', image: reference.image }])
+  expect(activeAgentReferences([], history, 0)).toEqual([reference])
 })

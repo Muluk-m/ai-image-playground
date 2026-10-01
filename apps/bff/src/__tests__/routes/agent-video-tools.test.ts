@@ -102,7 +102,21 @@ async function post(path: string, body: unknown) {
 async function startConversation(): Promise<string> {
   const { status, json } = await post('/api/agent/conversations', { deviceId: DEVICE })
   expect(status).toBe(200)
-  return (json as { conversation: { id: string } }).conversation.id
+  const id = (json as { conversation: { id: string } }).conversation.id
+  const now = Date.now()
+  await db.insert(schema.canvas_projects).values({
+    id: crypto.randomUUID(),
+    user_id: USER_ID,
+    name: 'Video canvas',
+    revision: 1,
+    document: { version: 1, experience: 'canvas', kind: 'video', elements: [] },
+    element_count: 0,
+    conversation_id: id,
+    receipts: [],
+    created_at: now,
+    updated_at: now,
+  })
+  return id
 }
 
 async function runTurn(conversationId: string, text: string, references: unknown[] = []) {

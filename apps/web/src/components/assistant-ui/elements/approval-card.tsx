@@ -145,6 +145,7 @@ export function ApprovalCard({
                 variant="ghost"
                 type="button"
                 onClick={onDeny}
+                disabled={disabled}
                 className={cn(ghostButton, 'h-8 px-3.5 text-xs font-medium whitespace-nowrap')}
               >
                 {denyLabel}
@@ -155,6 +156,7 @@ export function ApprovalCard({
                 variant="ghost"
                 type="button"
                 onClick={onAlwaysAllow}
+                disabled={disabled}
                 className={cn(ghostButton, 'h-8 px-3.5 text-xs font-medium whitespace-nowrap')}
               >
                 {alwaysAllowLabel}

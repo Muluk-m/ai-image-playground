@@ -4,6 +4,7 @@ import type {
   AgentConfirmationRefusedBody,
   AgentConfirmationResponse,
   AgentConversationSnapshot,
+  AgentImageEditAction,
   AgentMessageQueuedBody,
   AgentQueueFullBody,
   AgentRetryRefusedBody,
@@ -76,7 +77,11 @@ import {
 } from '../lib/agent/retry'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
-import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
+import {
+  InvalidSelectionError,
+  selectionPreview,
+  validateSelections,
+} from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { agentTurnSettled, listAgentTurnSummaries } from '../lib/agent/turn-summary'
@@ -119,6 +124,26 @@ function referenceHeaders(contentType: string): Record<string, string> {
  */
 const paramsSchema = t.Optional(
   t.Object({
+    productionMode: t.Optional(t.Literal(true)),
+    production: t.Optional(
+      t.Object({
+        documentId: t.String({ minLength: 1, maxLength: 128 }),
+        revision: t.Integer({ minimum: 1 }),
+        target: t.String({ pattern: '^(setting|outline|scene|shots|shot|look|location|clip)$' }),
+        sceneId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        lookId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        locationId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        clipId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        shotId: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+        quote: t.Optional(
+          t.Object({
+            start: t.Integer({ minimum: 0 }),
+            end: t.Integer({ minimum: 1 }),
+            text: t.String({ minLength: 1, maxLength: 100000 }),
+          }),
+        ),
+      }),
+    ),
     thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
     /** 出图模式：只认显式 true，缺席即对话模式（拟稿等确认）。 */
@@ -149,6 +174,18 @@ const referencesSchema = t.Optional(
       mediaId: t.Optional(t.String({ format: 'uuid' })),
       name: t.Optional(t.String({ maxLength: 200 })),
       maskDataUrl: t.Optional(imageDataUrlSchema()),
+      editAction: t.Optional(t.String({ pattern: '^(inpaint|erase|crop|outpaint)$' })),
+      regions: t.Optional(
+        t.Array(
+          t.Object({
+            x: t.Number({ minimum: 0, maximum: 1 }),
+            y: t.Number({ minimum: 0, maximum: 1 }),
+            width: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+            height: t.Number({ exclusiveMinimum: 0, maximum: 1 }),
+          }),
+          { maxItems: 32 },
+        ),
+      ),
     }),
     { maxItems: AGENT_TURN_MAX_REFERENCES },
   ),
@@ -163,10 +200,22 @@ type ReferenceBody = NonNullable<(typeof referencesSchema)['static']>[number]
  * 靠的是「按 id 发、字节不进请求体」，真带字节的那几张一多，请求体还是几十 MB，传几分钟
  * 再白占一遍出站带宽。超了当坏请求打回，用户的话还在输入框里。
  */
+function isEditAction(value: string): value is AgentImageEditAction {
+  return value === 'inpaint' || value === 'erase' || value === 'crop' || value === 'outpaint'
+}
+
 function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | null {
   const references: AgentTurnReference[] = []
   let inline = 0
   for (const one of raw) {
+    const editAction = one.editAction && isEditAction(one.editAction) ? one.editAction : undefined
+    if (one.editAction && !editAction) return null
+    if (
+      one.regions?.some(
+        (region) => region.x + region.width > 1 + 1e-9 || region.y + region.height > 1 + 1e-9,
+      )
+    )
+      return null
     const name = one.name ? { name: one.name } : {}
     if (one.mediaId && !one.dataUrl)
       references.push({ imageId: one.imageId, ...name, mediaId: one.mediaId })
@@ -177,6 +226,8 @@ function turnReferences(raw: readonly ReferenceBody[]): AgentTurnReference[] | n
         ...name,
         dataUrl: one.dataUrl,
         ...(one.maskDataUrl ? { maskDataUrl: one.maskDataUrl } : {}),
+        ...(one.regions ? { regions: one.regions } : {}),
+        ...(editAction ? { editAction } : {}),
       })
     } else return null
   }
@@ -315,7 +366,7 @@ export const agentRoutes = new Elysia()
       )
       const reference = references?.[params.index]
       if (!reference) return status(404, { error: 'reference_not_found' })
-      const original = query.variant === 'original'
+      const original = query.variant === 'original' || query.variant === 'annotated'
       try {
         // 云媒体那一路没有副本：缩略图直接用上传时就备好的预览，别把原件拉回来再缩一遍。
         if ('mediaId' in reference) {
@@ -332,15 +383,47 @@ export const agentRoutes = new Elysia()
         }
         const store = reference.image.store === 'durable' ? durableMediaStore() : objectStore()
         const bytes = await store.read(reference.image.object)
+        let visibleBytes = bytes
+        const marked = query.variant !== 'original' ? reference.mask : undefined
+        if (marked) {
+          const maskStore = marked.store === 'durable' ? durableMediaStore() : objectStore()
+          let mask = await maskStore.read(marked.object)
+          let source = bytes
+          if (!original) {
+            const resized = await sharp(bytes)
+              .rotate()
+              .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+              .png()
+              .toBuffer({ resolveWithObject: true })
+            source = resized.data
+            mask = await sharp(mask)
+              .resize(resized.info.width, resized.info.height)
+              .png()
+              .toBuffer()
+          }
+          if (!original && (await sharp(mask).stats()).channels.at(-1)?.min === 255) {
+            // A valid tiny mark may vanish when quantized to thumbnail pixels.
+            visibleBytes = source
+          } else {
+            const annotated = await selectionPreview({
+              dataUrl: `data:${reference.image.mime};base64,${Buffer.from(source).toString('base64')}`,
+              maskDataUrl: `data:${marked.mime};base64,${Buffer.from(mask).toString('base64')}`,
+              regions: reference.regions,
+            })
+            visibleBytes = Buffer.from(annotated.data, 'base64')
+          }
+        }
         const image = original
-          ? bytes
-          : await sharp(bytes)
+          ? visibleBytes
+          : await sharp(visibleBytes)
               .rotate()
               .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
               .webp({ quality: 80 })
               .toBuffer()
         return new Response(image, {
-          headers: referenceHeaders(original ? reference.image.mime : 'image/webp'),
+          headers: referenceHeaders(
+            original ? (marked ? 'image/png' : reference.image.mime) : 'image/webp',
+          ),
         })
       } catch {
         return status(502, { error: 'object_storage_error' })
@@ -353,7 +436,9 @@ export const agentRoutes = new Elysia()
         index: t.Integer({ minimum: 0, maximum: AGENT_TURN_MAX_REFERENCES - 1 }),
       }),
       query: t.Object({
-        variant: t.Optional(t.Union([t.Literal('thumbnail'), t.Literal('original')])),
+        variant: t.Optional(
+          t.Union([t.Literal('thumbnail'), t.Literal('original'), t.Literal('annotated')]),
+        ),
       }),
       headers: deviceIdHeaderSchema(),
     },
@@ -463,6 +548,7 @@ export const agentRoutes = new Elysia()
         conversationId: conversation.id,
         owner,
         messageId: body.messageId,
+        draftRevision: body.draftRevision,
         prompt: body.prompt,
         deviceId: body.deviceId,
         userId: authUser?.id ?? null,
@@ -484,6 +570,7 @@ export const agentRoutes = new Elysia()
       body: t.Object({
         deviceId: deviceIdSchema(),
         messageId: t.String({ minLength: 1, maxLength: 128 }),
+        draftRevision: t.Optional(t.Integer({ minimum: 1 })),
         // 空白与超长由确认本身按 `confirmation_refused` 回绝（界面只认 code）；这里只挡住
         // 明显的滥用体积。
         prompt: t.String({ maxLength: 20_000 }),
@@ -530,6 +617,13 @@ export const agentRoutes = new Elysia()
   .post(
     '/api/agent/conversations/:id/turns',
     async ({ params, body, authUser, request, server, status }) => {
+      if (
+        (body.params?.productionMode || body.params?.production) &&
+        !isCapabilityEnabled('agent:production')
+      )
+        return capabilityUnavailable('agent:production')
+      if ((body.params?.productionMode || body.params?.production) && !authUser)
+        return status(401, { error: 'unauthorized' })
       const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
       if (agentTurnRateLimited(body.deviceId, address)) {
         return status(429, { error: 'rate_limited' })
@@ -584,7 +678,9 @@ export const agentRoutes = new Elysia()
           references,
           deviceId: body.deviceId,
           ...(body.mode ? { mode: body.mode } : {}),
-          ...(body.params ? { params: body.params } : {}),
+          ...(body.params
+            ? { params: body.params as import('@image-playground/shared').AgentTurnParams }
+            : {}),
           ...(body.clarificationAnswer ? { clarificationAnswer: true } : {}),
           ...(canvas ? { canvas } : {}),
         })

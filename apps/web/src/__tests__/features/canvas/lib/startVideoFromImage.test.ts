@@ -2,7 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const cached = vi.hoisted(() => ({ value: 'data:image/png;base64,AAAA' as string | null }))
-const project = vi.hoisted(() => ({ kind: 'image' as 'image' | 'video' }))
+const project = vi.hoisted(() => ({
+  kind: 'image' as 'image' | 'video',
+  experience: 'canvas' as 'canvas' | 'chat',
+}))
 const createProject = vi.hoisted(() => vi.fn(async () => true))
 
 vi.mock('../../../../store', async (importOriginal) => ({
@@ -11,7 +14,7 @@ vi.mock('../../../../store', async (importOriginal) => ({
 }))
 vi.mock('../../../../features/canvas/projectStore', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../features/canvas/projectStore')>()),
-  currentCanvasProject: () => ({ kind: project.kind }),
+  currentCanvasProject: () => ({ ...project }),
 }))
 vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: { getState: () => ({ createProject }) },
@@ -25,6 +28,7 @@ import { useStore } from '../../../../store'
 beforeEach(() => {
   cached.value = 'data:image/png;base64,AAAA'
   project.kind = 'image'
+  project.experience = 'canvas'
   createProject.mockClear()
   useCanvasComposer.setState({ mode: 'image' })
   useLibraryStore.setState({ onLibraryPage: true })
@@ -70,6 +74,14 @@ describe('从一张图发起生成视频', () => {
     expect(useStore.getState().appMode).toBe('canvas')
     expect(useStore.getState().pendingCanvasImages).toHaveLength(1)
     expect(useCanvasComposer.getState().mode).toBe('video')
+  })
+
+  it('视频对话需要新建视频画布', async () => {
+    project.kind = 'video'
+    project.experience = 'chat'
+    useStore.setState({ appMode: 'canvas' })
+    await startVideoFromImage('img-1')
+    expect(createProject).toHaveBeenCalledWith('video', true, 'canvas')
   })
 
   it('新画布开不出来就不带图走', async () => {

@@ -66,12 +66,14 @@ export default function AgentArtifactPane({
   onSelect,
   onClose,
   onViewCanvas,
+  presentation = 'overlay',
 }: {
+  presentation?: 'panel' | 'overlay'
   message: AgentToolMessage
   selectedId?: string
   onSelect: (id: string) => void
   onClose: () => void
-  onViewCanvas: (objectIds?: readonly string[]) => void
+  onViewCanvas?: (objectIds?: readonly string[]) => void
 }) {
   const { t } = useTranslation('agent')
   const [source, setSource] = useState<string | null>(null)
@@ -111,9 +113,14 @@ export default function AgentArtifactPane({
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (zoomed) return
       if (document.querySelector('.studio-handoff-dialog, .studio-artifact-edit-dialog')) return
       if (event.key === 'Escape') onClose()
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && items.length > 1) {
+        if (!target?.closest('.studio-artifact-pane')) return
+        event.preventDefault()
         const index = items.findIndex((item) => item.id === active?.id)
         onSelect(
           items[(index + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length].id,
@@ -122,7 +129,7 @@ export default function AgentArtifactPane({
     }
     window.addEventListener('keydown', keydown)
     return () => window.removeEventListener('keydown', keydown)
-  }, [active?.id, items.length, onClose, onSelect])
+  }, [active?.id, items.length, onClose, onSelect, zoomed])
 
   useEffect(() => {
     let alive = true
@@ -130,11 +137,14 @@ export default function AgentArtifactPane({
     setSource(null)
     setZoomed(false)
     if (!active) return
-    void active.load().then((next) => {
-      if (!alive) return
-      setSource(next)
-      setLoading(false)
-    })
+    void active
+      .load()
+      .catch(() => null)
+      .then((next) => {
+        if (!alive) return
+        setSource(next)
+        setLoading(false)
+      })
     return () => {
       alive = false
     }
@@ -173,15 +183,13 @@ export default function AgentArtifactPane({
       useStore.getState().showToast(t('tool.agentUnavailable'), 'error')
       return
     }
-    const instruction = [t(`tool.${editAction}Instruction`), customInstruction]
-      .filter(Boolean)
-      .join('\n')
+    const instruction = customInstruction || t(`tool.${editAction}`)
     setEditBusy(true)
     let accepted = false
     void agent
       .send(
         instruction,
-        [{ imageId: active.id, ...input }],
+        [{ imageId: active.id, name: message.title, editAction, ...input }],
         () => {
           accepted = true
           setEditAction(null)
@@ -204,11 +212,13 @@ export default function AgentArtifactPane({
       .finally(() => setEditBusy(false))
   }
 
-  return createPortal(
+  const pane = (
     <aside
       className="studio-artifact-pane"
-      role="dialog"
-      aria-modal="true"
+      data-presentation={presentation}
+      data-editing={Boolean(editAction)}
+      role={presentation === 'panel' ? 'region' : 'dialog'}
+      aria-modal={presentation === 'panel' ? undefined : true}
       aria-label={t('tool.previewTitle')}
     >
       <button
@@ -344,7 +354,7 @@ export default function AgentArtifactPane({
               </button>
             </div>
           )}
-          {active.media === 'image' && (
+          {active.media === 'image' && onViewCanvas && (
             <div className="studio-artifact-pane-canvas-action">
               <button
                 type="button"
@@ -383,6 +393,7 @@ export default function AgentArtifactPane({
       {editAction && source && (
         <AgentArtifactEditDialog
           key={`${active.id}:${editAction}`}
+          presentation={presentation}
           action={editAction}
           source={source}
           busy={editBusy}
@@ -390,9 +401,9 @@ export default function AgentArtifactPane({
           onGenerate={generateEdit}
         />
       )}
-    </aside>,
-    document.body,
+    </aside>
   )
+  return presentation === 'panel' ? pane : createPortal(pane, document.body)
 }
 
 function PaneThumbnail({

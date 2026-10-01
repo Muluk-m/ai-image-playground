@@ -304,7 +304,7 @@ export function createAgentCanvasSink(
       const cacheKey = `${element?.type === 'image' ? `${objectId}:${element.fileId}` : objectId}:${scale}`
       const cached = thumbnails.get(cacheKey)
       if (cached) return cached
-      const rendered = await editor.toImage([objectId], { scale })
+      const rendered = await editor.toImage([objectId], { scale, background: 'transparent' })
       if (rendered) thumbnails.set(cacheKey, rendered)
       return rendered
     },

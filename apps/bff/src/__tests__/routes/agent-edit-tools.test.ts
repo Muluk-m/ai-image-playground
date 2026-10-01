@@ -891,13 +891,10 @@ describe('智能体改图工具', () => {
 
     // `loadSkill` 在场是因为 `apps/bff/skills/image` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
-      'arrangeCanvas',
       'askClarification',
-      'editCanvasObject',
       'editImage',
       'generateImage',
       'loadSkill',
-      'readCanvas',
       'readLibrary',
       'viewImage',
       // 联网里只有这两个不要求登录，所以匿名轮的清单里就这两条。
@@ -1160,7 +1157,7 @@ describe('智能体读素材库工具', () => {
 
 for (const [depth, model, effort, contextWindow, credential] of [
   ['fast', 'gpt-6-luna', 'low', 1_000_000, 'fixture-upstream-key'],
-  ['medium', 'gpt-6-sol', 'medium', 1_000_000, 'fixture-upstream-key'],
+  ['medium', 'gpt-6.1-sol', 'medium', 1_000_000, 'fixture-upstream-key'],
   ['deep', 'claude-opus-5-5', 'high', 1_000_000, 'fixture-claude-key'],
 ] as const) {
   it(`sends the ${depth} model and reasoning effort to the gateway`, async () => {

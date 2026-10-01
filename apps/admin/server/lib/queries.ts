@@ -335,17 +335,36 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       ORDER BY count DESC, model
     `),
     db.execute(sql`
+      WITH classified AS (
+        SELECT c.model,
+          (c.usage->>'inputTokens')::bigint AS input_tokens,
+          c.cache_read_tokens,
+          NOT EXISTS (
+            SELECT 1 FROM agent_model_calls earlier
+            WHERE earlier.conversation_id = c.conversation_id
+              AND earlier.turn_id = c.turn_id
+              AND earlier.purpose = 'conversation'
+              AND (earlier.started_at, earlier.id) < (c.started_at, c.id)
+          ) AS first_call
+        FROM agent_model_calls c
+        WHERE c.started_at >= ${since}
+          AND c.purpose = 'conversation'
+          AND c.usage IS NOT NULL
+          AND c.cache_read_tokens IS NOT NULL
+          AND (c.usage->>'inputTokens')::bigint > 0
+      )
       SELECT
         model,
         COUNT(*) AS calls,
-        SUM((usage->>'inputTokens')::bigint) AS input_tokens,
-        SUM(cache_read_tokens) AS cache_read_tokens
-      FROM agent_model_calls
-      WHERE started_at >= ${since}
-        AND purpose = 'conversation'
-        AND usage IS NOT NULL
-        AND cache_read_tokens IS NOT NULL
-        AND (usage->>'inputTokens')::bigint > 0
+        SUM(input_tokens) AS input_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens,
+        COUNT(*) FILTER (WHERE first_call) AS first_calls,
+        COALESCE(SUM(input_tokens) FILTER (WHERE first_call), 0) AS first_input_tokens,
+        COALESCE(SUM(cache_read_tokens) FILTER (WHERE first_call), 0) AS first_cache_read_tokens,
+        COUNT(*) FILTER (WHERE NOT first_call) AS continuation_calls,
+        COALESCE(SUM(input_tokens) FILTER (WHERE NOT first_call), 0) AS continuation_input_tokens,
+        COALESCE(SUM(cache_read_tokens) FILTER (WHERE NOT first_call), 0) AS continuation_cache_read_tokens
+      FROM classified
       GROUP BY model
       ORDER BY input_tokens DESC, model
     `),
@@ -358,8 +377,26 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       calls: Number(row.calls),
       input_tokens: Number(row.input_tokens),
       cache_read_tokens: Number(row.cache_read_tokens),
+      first_call: {
+        calls: Number(row.first_calls),
+        input_tokens: Number(row.first_input_tokens),
+        cache_read_tokens: Number(row.first_cache_read_tokens),
+      },
+      continuation: {
+        calls: Number(row.continuation_calls),
+        input_tokens: Number(row.continuation_input_tokens),
+        cache_read_tokens: Number(row.continuation_cache_read_tokens),
+      },
     }),
   )
+  const cacheGroup = (key: 'first_call' | 'continuation') => ({
+    calls: agentCacheModels.reduce((sum, model) => sum + model[key].calls, 0),
+    input_tokens: agentCacheModels.reduce((sum, model) => sum + model[key].input_tokens, 0),
+    cache_read_tokens: agentCacheModels.reduce(
+      (sum, model) => sum + model[key].cache_read_tokens,
+      0,
+    ),
+  })
   const completed = Number(summary.completed ?? 0)
   const failed = Number(summary.failed ?? 0)
   const terminal = completed + failed
@@ -383,7 +420,11 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       calls: agentCacheModels.reduce((sum, model) => sum + model.calls, 0),
       input_tokens: agentCacheModels.reduce((sum, model) => sum + model.input_tokens, 0),
       cache_read_tokens: agentCacheModels.reduce((sum, model) => sum + model.cache_read_tokens, 0),
-      models: agentCacheModels,
+      first_call: cacheGroup('first_call'),
+      continuation: cacheGroup('continuation'),
+      models: agentCacheModels.map(
+        ({ first_call: _first, continuation: _continuation, ...model }) => model,
+      ),
     },
     models: (modelRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       model: String(row.model),

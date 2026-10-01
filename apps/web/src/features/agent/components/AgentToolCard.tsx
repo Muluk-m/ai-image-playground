@@ -1,6 +1,6 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { ArrowUpRight, Download, Ellipsis, Images, Maximize2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ImageGeneration } from '../../../components/assistant-ui/elements/image-generation'
 import { MessageActions } from '../../../components/assistant-ui/elements/message-actions'
 import { ToolCall } from '../../../components/assistant-ui/elements/tool-call'
@@ -39,6 +39,7 @@ import {
 } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
@@ -427,6 +428,29 @@ export default function AgentToolCard({
   const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const downloadingRef = useRef(new Set<string>())
+  const [downloading, setDownloading] = useState<ReadonlySet<string>>(new Set())
+  const [downloadFailed, setDownloadFailed] = useState(false)
+  const [imageRatios, setImageRatios] = useState<Record<string, number>>({})
+  const downloadTile = async (tile: { id: string; original: () => Promise<string | null> }) => {
+    if (downloadingRef.current.has(tile.id)) return
+    downloadingRef.current.add(tile.id)
+    setDownloading(new Set(downloadingRef.current))
+    setDownloadFailed(false)
+    try {
+      const source = await tile.original()
+      if (!source) throw new Error('image_unavailable')
+      const link = document.createElement('a')
+      link.href = source
+      link.download = `muvloom-${tile.id}.png`
+      link.click()
+    } catch {
+      setDownloadFailed(true)
+    } finally {
+      downloadingRef.current.delete(tile.id)
+      setDownloading(new Set(downloadingRef.current))
+    }
+  }
   const previews = useArtifactPreviews(message, Boolean(onPreviewResult))
   const fetched = useFetchedPreviews(message, Boolean(onPreviewResult))
   // 取回来的网图取不到预览时不算「可以放入画布」：放进去的那一步同样取不到字节。
@@ -486,6 +510,16 @@ export default function AgentToolCard({
           <>
             <FailureAction message={message} />
             <RetryRemaining message={message} />
+            <AgentCopyDiagnostic
+              diagnostic={{
+                code: message.errorCode,
+                message: message.message,
+                turnId: message.turnId,
+                toolCallId: message.toolCallId,
+                toolName: message.toolName,
+                taskId: message.job?.taskId,
+              }}
+            />
           </>
         }
       >
@@ -518,13 +552,29 @@ export default function AgentToolCard({
       <ToolCall
         id={agentToolCardDomId(message.id)}
         tabIndex={-1}
-        label={message.title}
+        label={
+          message.skill?.found === false
+            ? t('tool.skillNotFound', { name: message.skill.label })
+            : message.title
+        }
         activeLabel={message.title}
         running={status === 'running' || status === 'queued'}
       >
         <div className="flex flex-col gap-2">
           <ToolStatus label={statusLabel} status={status} />
           {note && <p className={CARD_NOTE}>{note}</p>}
+          {message.sources?.map((source) => (
+            <a
+              key={source.url}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={GHOST_LINK}
+              title={source.title}
+            >
+              {sourceHost(source.url)}
+            </a>
+          ))}
           {message.prompt && (
             <Button
               variant="ghost"
@@ -606,6 +656,10 @@ export default function AgentToolCard({
         id: preview.artifact.artifactId,
         source: preview.source,
         media: preview.artifact.media,
+        ratio:
+          preview.artifact.width && preview.artifact.height
+            ? preview.artifact.width / preview.artifact.height
+            : undefined,
         original: () => previewArtifactBitmap(preview.artifact),
       })),
       ...fetchedTiles,
@@ -622,7 +676,13 @@ export default function AgentToolCard({
         </div>
         <div className="studio-agent-inline-gallery" data-count={tiles.length}>
           {tiles.map((tile, index) => (
-            <div className="studio-agent-inline-tile" key={tile.id}>
+            <div
+              className="studio-agent-inline-tile"
+              key={tile.id}
+              style={{
+                aspectRatio: imageRatios[tile.id] ?? ('ratio' in tile ? tile.ratio : undefined),
+              }}
+            >
               <button
                 type="button"
                 className="studio-agent-inline-open"
@@ -634,6 +694,14 @@ export default function AgentToolCard({
                     src={tile.source}
                     alt={t('tool.resultNumber', { number: index + 1 })}
                     loading="lazy"
+                    onLoad={(event) => {
+                      const { naturalWidth, naturalHeight } = event.currentTarget
+                      if (naturalWidth && naturalHeight)
+                        setImageRatios((ratios) => ({
+                          ...ratios,
+                          [tile.id]: naturalWidth / naturalHeight,
+                        }))
+                    }}
                   />
                 ) : (
                   <span>{t('tool.previewUnavailable')}</span>
@@ -654,15 +722,8 @@ export default function AgentToolCard({
                     type="button"
                     title={t('tool.downloadResult')}
                     aria-label={t('tool.downloadResult')}
-                    onClick={() =>
-                      void tile.original().then((source) => {
-                        if (!source) return
-                        const link = document.createElement('a')
-                        link.href = source
-                        link.download = `muvloom-${tile.id}.png`
-                        link.click()
-                      })
-                    }
+                    disabled={downloading.has(tile.id)}
+                    onClick={() => void downloadTile(tile)}
                   >
                     <Download size={16} />
                   </button>
@@ -681,17 +742,37 @@ export default function AgentToolCard({
             </div>
           ))}
         </div>
-        {compactFetched && message.fetchedImages?.[0] && (
+        {message.fetchedImages?.map((image) => (
           <a
-            href={message.fetchedImages[0].sourceUrl}
+            key={image.imageId}
+            href={image.sourceUrl}
             target="_blank"
             rel="noreferrer noopener"
             title={t('fetchedImage.sourceTitle')}
             className="studio-agent-inline-source"
           >
-            {sourceHost(message.fetchedImages[0].sourceUrl)}
+            {sourceHost(image.sourceUrl)}
           </a>
+        ))}
+        {downloadFailed && (
+          <p role="alert" className={CARD_NOTE}>
+            {t('tool.downloadFailed')}
+          </p>
         )}
+        {message.prompt &&
+          !(
+            previews.some((preview) => preview.artifact.media === 'image') &&
+            (message.toolName === 'generateImage' || message.toolName === 'editImage')
+          ) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-start"
+              onClick={() => setPromptOpen(true)}
+            >
+              {t('tool.viewPrompt')}
+            </Button>
+          )}
         {previews.some((preview) => preview.artifact.media === 'image') &&
           (message.toolName === 'generateImage' || message.toolName === 'editImage') && (
             <MessageActions
@@ -763,6 +844,7 @@ export default function AgentToolCard({
           <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
         )}
         <WakeSkippedNote message={message} />
+        <RetryRecord message={message} />
       </div>
     )
   }
@@ -896,6 +978,16 @@ export default function AgentToolCard({
             <>
               <FailureAction message={message} />
               <RetryRemaining message={message} />
+              <AgentCopyDiagnostic
+                diagnostic={{
+                  code: message.errorCode,
+                  message: message.message,
+                  turnId: message.turnId,
+                  toolCallId: message.toolCallId,
+                  toolName: message.toolName,
+                  taskId: message.job?.taskId,
+                }}
+              />
             </>
           }
         />

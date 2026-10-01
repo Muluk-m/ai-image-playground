@@ -1,11 +1,12 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
 import { ImageIcon, LoaderCircle } from 'lucide-react'
-import { memo, type ReactNode, useEffect, useState } from 'react'
+import { memo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { ImagePreview } from '../../../components/Lightbox'
 import MediaImage from '../../../components/MediaImage'
 import Overlay from '../../../components/Overlay'
 import { useTranslation } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
+import { createMaskPreviewDataUrl } from '../../../lib/canvasImage'
 import { getImageMentionLabel } from '../../../lib/promptImageMentions'
 import { USER_BUBBLE } from '../agentStyles'
 import { fetchMessageReference } from '../lib/agentClient'
@@ -41,7 +42,7 @@ function ReferencePreview({
     let source: string | undefined
     void fetchMessageReference(conversationId, messageId, index, {
       signal: controller.signal,
-      variant: 'original',
+      variant: 'annotated',
     }).then(
       (blob) => {
         if (controller.signal.aborted) return
@@ -103,9 +104,19 @@ function ReferenceThumbnail({
       : 'mediaId' in reference
         ? reference.mediaId
         : undefined
-  const identity = `${scope}:${conversationId}:${messageId}:${index}:${remote}`
-  const [preview, setPreview] = useState<{ identity: string; source?: string }>()
-  const [openIdentity, setOpenIdentity] = useState<string>()
+  const mask =
+    'maskDataUrl' in reference
+      ? reference.maskDataUrl
+      : 'mask' in reference
+        ? reference.mask?.object
+        : undefined
+  const regionsVersion = 'regions' in reference ? JSON.stringify(reference.regions) : ''
+  const identity = useMemo(
+    () => ({}),
+    [scope, conversationId, messageId, index, remote, local, mask, regionsVersion],
+  )
+  const [preview, setPreview] = useState<{ identity: typeof identity; source?: string }>()
+  const [openIdentity, setOpenIdentity] = useState<typeof identity>()
   useEffect(() => {
     if (local !== undefined || !conversationId || !remote) return
     const controller = new AbortController()
@@ -127,9 +138,38 @@ function ReferenceThumbnail({
       if (source) URL.revokeObjectURL(source)
     }
   }, [local, conversationId, messageId, index, remote, identity])
-  const source = local ?? (preview?.identity === identity ? preview.source : undefined)
+  const [markedPreview, setMarkedPreview] = useState<{
+    identity: typeof identity
+    source?: string
+  }>()
+  useEffect(() => {
+    if (!local || !mask) return
+    let active = true
+    void createMaskPreviewDataUrl(
+      local,
+      mask,
+      'regions' in reference ? reference.regions : undefined,
+    )
+      .then((source) => {
+        if (active) setMarkedPreview({ identity, source })
+      })
+      .catch(() => {
+        if (active) setMarkedPreview({ identity })
+      })
+    return () => {
+      active = false
+    }
+  }, [local, mask, identity, reference])
+  const localPreview = mask
+    ? markedPreview?.identity === identity
+      ? markedPreview.source
+      : undefined
+    : local
+  const source = localPreview ?? (preview?.identity === identity ? preview.source : undefined)
   const label = name || getImageMentionLabel(index)
-  const failed = !local && preview?.identity === identity && !preview.source
+  const failed =
+    (!local && preview?.identity === identity && !preview.source) ||
+    Boolean(local && mask && markedPreview?.identity === identity && !markedPreview.source)
   return (
     <>
       <button
@@ -141,6 +181,7 @@ function ReferenceThumbnail({
             : t('reference.view', { label })
         }
         aria-label={t('reference.view', { label })}
+        disabled={Boolean(local && mask && markedPreview?.identity !== identity)}
         onClick={() => setOpenIdentity(identity)}
       >
         {source ? (
@@ -153,12 +194,11 @@ function ReferenceThumbnail({
         ) : (
           <ImageIcon className="h-6 w-6 shrink-0 p-1" aria-hidden="true" />
         )}
-        {name && <span className="max-w-36 truncate">{name}</span>}
+        <span className="max-w-36 truncate">{name ? `@${name}` : label}</span>
       </button>
       {openIdentity === identity && (
         <ReferencePreview
-          key={identity}
-          local={local}
+          local={localPreview}
           conversationId={conversationId}
           messageId={messageId}
           index={index}
@@ -176,8 +216,26 @@ export default memo(function AgentUserMessage({
   message: AgentTextMessage
   skills: readonly AgentSkillSummary[]
 }) {
-  const invocation = getLeadingAgentSkill(message.text, skills)
-  const text = invocation ? invocation.rest : message.text
+  const { t } = useTranslation('agent')
+  const masked = message.references?.some(
+    (reference) =>
+      ('maskDataUrl' in reference && reference.maskDataUrl) ||
+      ('mask' in reference && reference.mask),
+  )
+  // Compatibility for existing edit messages; the transport text remains untouched.
+  const prefixes = [
+    '请根据附图的标注区域进行局部重绘，未标注区域保持原样。',
+    'Inpaint the marked area in the attached image. Keep the unmarked area unchanged.',
+    '请擦除附图标注区域内的内容，并自然补全背景；未标注区域保持原样。',
+    'Remove the content in the marked area and fill the background naturally. Keep the unmarked area unchanged.',
+  ]
+  const prefix = masked && prefixes.find((prefix) => message.text.startsWith(prefix))
+  const visible = prefix
+    ? message.text.slice(prefix.length).trim() ||
+      t(prefixes.indexOf(prefix) < 2 ? 'tool.inpaint' : 'tool.erase')
+    : message.text
+  const invocation = getLeadingAgentSkill(visible, skills)
+  const text = invocation ? invocation.rest : visible
   const content: ReactNode[] = []
   const inlined = new Set<number>()
   const names = referenceDisplayNames(message.references ?? [])

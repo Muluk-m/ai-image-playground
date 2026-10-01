@@ -5,13 +5,13 @@ set -eu
 #
 #   command="/home/ubuntu/bin/aip-ci-receive",restrict ssh-ed25519 AAAA… github-actions-deploy
 #
-# The only accepted command is `deploy <release-id> <internal|paid|all> <run-id>`, with the
+# The only accepted command is `deploy <release-id> <internal|paid|test|all> <run-id>`, with the
 # release directory as a gzipped tar on stdin (`tar -C "$out" -czf - .`). It unpacks into
 # ~/releases/<release-id>, which must not exist yet, and runs that release's vps-deploy.sh.
 # Anything else is refused before a file is written.
 
 reject() {
-  echo "Rejected: expected 'deploy <aip-<12 hex>-<12 hex>> <internal|paid|all> <run-id>'" >&2
+  echo "Rejected: expected 'deploy <aip-<12 hex>-<12 hex>> <internal|paid|test|all> <run-id>'" >&2
   exit 2
 }
 
@@ -25,7 +25,7 @@ release_id=$2
 target=$3
 run_id=$4
 printf '%s\n' "$release_id" | grep -Eqx 'aip-[0-9a-f]{12}-[0-9a-f]{12}' || reject
-case "$target" in internal | paid | all) ;; *) reject ;; esac
+case "$target" in internal | paid | test | all) ;; *) reject ;; esac
 printf '%s\n' "$run_id" | grep -Eqx '[0-9]{1,20}' || reject
 
 releases_root=${HOME:?HOME must be set}/releases
