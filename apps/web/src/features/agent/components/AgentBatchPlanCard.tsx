@@ -376,6 +376,12 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
         }),
       true,
     )
+  const sourceVersions = page.batch.confirmation?.sourceVersions
+  const singleSourceVersion = sourceVersions?.length
+    ? sourceVersions.length === 1
+      ? sourceVersions[0]
+      : undefined
+    : page.batch.confirmation?.sourceVersion
   const pageSize = 20
   const pageKey = scopedStorageName(
     `agent-batch-page:${bffBaseUrl()}:${batchId}:${page.batch.version}`,
@@ -434,6 +440,7 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
           summary={page.sourceAnalysisSummary}
           items={page.items}
           sourceVersion={page.batch.confirmation?.sourceVersion}
+          sourceVersions={sourceVersions}
         />
       )}
       {Boolean(
@@ -608,11 +615,24 @@ export default function AgentBatchPlanCard({ batchId, domId }: { batchId: string
                         (finding) =>
                           finding.itemKey === source.itemKey &&
                           finding.taskId === source.taskId &&
-                          finding.attempt === source.attempt,
+                          finding.attempt === source.attempt &&
+                          (finding.version ?? singleSourceVersion) ===
+                            (source.version ?? singleSourceVersion),
                       ) ?? []
                     return (
-                      <div key={`${source.taskId}:${source.attempt}`} className="grid gap-1">
-                        <span className="text-muted-foreground">
+                      <div
+                        key={`${source.version ?? 'legacy'}:${source.taskId}:${source.attempt}`}
+                        className="grid gap-1"
+                      >
+                        <span className="text-muted-foreground" title={source.taskId}>
+                          {(source.version ?? singleSourceVersion) !== undefined && (
+                            <>
+                              {t('batch.version', {
+                                version: source.version ?? singleSourceVersion,
+                              })}{' '}
+                              ·{' '}
+                            </>
+                          )}
                           {t('batch.attempt', { number: source.attempt })}
                         </span>
                         {findings.length ? (

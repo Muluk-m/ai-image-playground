@@ -139,7 +139,10 @@ it('requires a separate generation confirmation after paid analysis, retaining t
   }
 })
 
-it('shows the exact source analysis and excluded images before confirming a reduced generation scope', async () => {
+it.each([
+  false,
+  true,
+])('shows exact source versions and exclusions before generation (multiple: %s)', async (multiple) => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   const quote = {
     status: 'available' as const,
@@ -155,7 +158,7 @@ it('shows the exact source analysis and excluded images before confirming a redu
       projectId: 'original-project',
       experience: 'chat',
       targetSnapshot: { projectId: 'original-project', projectRevision: null },
-      version: 2,
+      version: multiple ? 3 : 2,
       digest: 's'.repeat(64),
       title: '只处理已检查的第一张',
       rule: '保留未确认项供后续核查',
@@ -168,7 +171,8 @@ it('shows the exact source analysis and excluded images before confirming a redu
       confirmation: {
         phase: 'generation',
         itemKeys: ['generate-a'],
-        sourceVersion: 1,
+        sourceVersion: multiple ? 2 : 1,
+        ...(multiple ? { sourceVersions: [1, 2] } : {}),
         excludedItemKeys: ['inspect-b'],
         excludedImageIds: ['b'],
         requiresResume: false,
@@ -186,7 +190,17 @@ it('shows the exact source analysis and excluded images before confirming a redu
         prompt: '修复第一张边缘',
         inputs: [{ imageId: 'a', mediaId: 'media-a', name: '商品甲' }],
         dependencies: [],
-        sourceAnalysis: [{ itemKey: 'inspect-a', taskId: 'verified-analysis-a', attempt: 2 }],
+        sourceAnalysis: [
+          {
+            itemKey: 'inspect-a',
+            taskId: 'verified-analysis-a',
+            attempt: 2,
+            ...(multiple ? { version: 1 } : {}),
+          },
+          ...(multiple
+            ? [{ itemKey: 'followup-a', taskId: 'verified-followup-a', attempt: 1, version: 2 }]
+            : []),
+        ],
         params: { provider: 'openai-compat', model: 'image-model', size: '1024x1024' },
       },
     ],
@@ -206,6 +220,7 @@ it('shows the exact source analysis and excluded images before confirming a redu
           itemKey: 'inspect-a',
           taskId: 'verified-analysis-a',
           attempt: 2,
+          ...(multiple ? { version: 1 } : {}),
           evidence: [
             {
               imageId: 'a',
@@ -218,6 +233,19 @@ it('shows the exact source analysis and excluded images before confirming a redu
             },
           ],
         },
+        ...(multiple
+          ? [
+              {
+                imageId: 'a',
+                text: '补看证实纹理应保留',
+                itemKey: 'followup-a',
+                taskId: 'verified-followup-a',
+                attempt: 1,
+                version: 2,
+                evidence: [],
+              },
+            ]
+          : []),
       ],
     },
   }
@@ -246,16 +274,37 @@ it('shows the exact source analysis and excluded images before confirming a redu
   try {
     await act(async () => root.render(<AgentToolCard message={message} />))
     await vi.waitFor(() => expect(host.querySelector('details')).not.toBeNull())
-    expect(host.textContent).toContain('来源分析 · 版本 1')
+    const sourceTitle = multiple ? '来源分析 · 版本 1 · 2' : '来源分析 · 版本 1'
+    expect(host.querySelector(`section[aria-label="${sourceTitle}"]`)).not.toBeNull()
     expect(host.textContent).toContain('图片覆盖 1 / 2')
     act(() =>
-      host.querySelector<HTMLElement>('section[aria-label="来源分析 · 版本 1"] summary')!.click(),
+      host.querySelector<HTMLElement>(`section[aria-label="${sourceTitle}"] summary`)!.click(),
     )
     expect(
-      host.querySelector('section[aria-label="来源分析 · 版本 1"] details')?.hasAttribute('open'),
+      host.querySelector(`section[aria-label="${sourceTitle}"] details`)?.hasAttribute('open'),
     ).toBe(true)
     expect(host.textContent).toContain('第二次分析证实边缘有缺口')
     expect(host.textContent).toContain('第 2 次')
+    const firstFinding = host.querySelector('li [title="verified-analysis-a"]')
+    expect(firstFinding?.textContent).toContain('版本 1')
+    expect(firstFinding?.textContent).toContain('第 2 次')
+    if (multiple) {
+      const followupFinding = host.querySelector('li [title="verified-followup-a"]')
+      expect(followupFinding?.textContent).toContain('版本 2')
+      expect(followupFinding?.textContent).toContain('第 1 次')
+      expect(
+        host.querySelector('[title="verified-followup-a"]')?.closest('li')?.textContent,
+      ).toContain('补看证实纹理应保留')
+      const generation = [...host.querySelectorAll('details')].find((detail) =>
+        detail.querySelector('textarea'),
+      )!
+      expect(
+        generation.querySelector('[title="verified-analysis-a"]')?.parentElement?.textContent,
+      ).toContain('第二次分析证实边缘有缺口')
+      expect(
+        generation.querySelector('[title="verified-followup-a"]')?.parentElement?.textContent,
+      ).toContain('补看证实纹理应保留')
+    }
     expect(host.textContent).toContain('本次不包含')
     expect(host.textContent).toContain('输入图 2')
     expect(host.textContent).not.toContain('分析已完成')
