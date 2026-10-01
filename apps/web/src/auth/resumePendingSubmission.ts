@@ -21,6 +21,7 @@ export async function resumePendingSubmission(): Promise<void> {
           submitPrepared(pending.input, {
             signal: operation.signal,
             isCurrent: operation.isCurrent,
+            onConfirmationPending: operation.setConfirmationPending,
           }),
         )
       } catch {

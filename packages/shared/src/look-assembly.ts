@@ -56,7 +56,12 @@ export type LookAssemblyResult =
     }
 
 /** 一条素材只送一张图：拼图一张顶三张，其次正面，再不行就封面。 */
-export function pickLookAssetImageId(asset: LookAssemblyAsset): string | undefined {
+export function pickLookAssetImageId(
+  asset: LookAssemblyAsset,
+  preferredImageId?: string,
+): string | undefined {
+  if (preferredImageId && asset.views.some((view) => view.imageId === preferredImageId))
+    return preferredImageId
   const sheet = asset.views.find((view) => view.label === 'sheet')
   const front = asset.views.find((view) => view.label === 'front')
   return (sheet ?? front ?? asset.views[0])?.imageId
@@ -106,7 +111,7 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
 
   const slots: Array<{ readonly name: string; readonly imageId: string }> = []
   for (const asset of assets) {
-    const imageId = pickLookAssetImageId(asset)
+    const imageId = pickLookAssetImageId(asset, input.firstImageId)
     if (imageId === undefined) return { ok: false, reason: 'no_views', assetId: asset.id }
     slots.push({ name: asset.name, imageId })
   }

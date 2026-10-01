@@ -154,7 +154,7 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
     }
     const equivalentImageIds: Record<string, string> = {}
     for (const asset of frozen.assets) {
-      const selected = pickLookAssetImageId(asset)
+      const selected = pickLookAssetImageId(asset, frozen.maskDraft?.targetImageId)
       if (selected) for (const view of asset.views) equivalentImageIds[view.imageId] = selected
     }
     const typed = remapImageMentionsForOrder(
@@ -182,6 +182,7 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
           sourcePath: operation.sourcePath,
           ownerScope: operation.ownerScope,
           onLoginQueued: operation.markPending,
+          onConfirmationPending: operation.setConfirmationPending,
           template: true,
         },
       ),
