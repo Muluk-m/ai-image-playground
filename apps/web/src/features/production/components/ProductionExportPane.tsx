@@ -262,7 +262,7 @@ export default function ProductionExportPane({
                 disabled={busy || tooLarge || unknown}
                 onClick={() => void pack(true)}
               >
-                {t('export.partial', { count: missing.length })}
+                {t('export.partialFiles', { count: missing.length })}
               </button>
             )}
             <button type="button" disabled={busy} onClick={() => void inspect()}>
