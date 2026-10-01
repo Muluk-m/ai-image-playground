@@ -767,7 +767,16 @@ it('projects retry descendants with their frozen target and adopts the retry res
     revision: 2,
     references: [{ kind: 'artifact', artifactId: completed.artifacts[0].artifactId }],
   }
-  expect((await request(owner, 'POST', '/export/inspect', exportInput)).status).toBe(200)
+  const inspected = await request(owner, 'POST', '/export/inspect', exportInput)
+  expect(inspected.status).toBe(200)
+  expect((await inspected.json()).items[0].generation).toMatchObject({
+    source: 'production',
+    draftId: generation.draftId,
+    taskId: retry.taskId,
+    prompt: '房间',
+    production: generation.production,
+    retryOf: { messageId: generation.messageId },
+  })
   expect(
     (await request(owner, 'POST', '/export/inspect', { ...exportInput, revision: 1 })).status,
   ).toBe(404)
@@ -850,6 +859,56 @@ it('replays and edits an older draft after it leaves the bounded candidate list'
   })
   expect(edited.status).toBe(200)
   expect((await edited.json()).generation.draftRevision).toBe(2)
+  const confirmed = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/confirmations`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'production-device',
+        messageId: generation.messageId,
+        prompt: '最终确认晨光房间',
+        draftRevision: 2,
+      }),
+    }),
+  )
+  expect(confirmed.status).toBe(200)
+  const [old] = await db
+    .select()
+    .from(schema.agent_generation_drafts)
+    .where(eq(schema.agent_generation_drafts.id, generation.draftId))
+  await workerSettles(old!.task_id!, {
+    status: 'completed',
+    resultPayload: { data: [{ b64_json: 'aGk=', mime: 'image/png' }] },
+  })
+  const { projectArtifactId } = await import('@image-playground/shared')
+  const artifactId = projectArtifactId(old!.task_id!, 0)
+  expect(
+    (
+      await request(owner, 'POST', `/generations/${generation.draftId}/adopt`, {
+        operationId: 'adopt-oldest',
+        baseRevision: 1,
+        artifactId,
+      })
+    ).status,
+  ).toBe(200)
+  const recent = (await (await request(owner, 'GET', '/generations')).json()).generations
+  expect(recent).toHaveLength(100)
+  expect(recent.some((one: { draftId: string }) => one.draftId === generation.draftId)).toBe(false)
+  const inspect = await request(owner, 'POST', '/export/inspect', {
+    revision: 2,
+    references: [{ kind: 'artifact', artifactId }],
+  })
+  expect(inspect.status).toBe(200)
+  expect((await inspect.json()).items[0].generation).toEqual({
+    source: 'production',
+    draftId: generation.draftId,
+    taskId: old!.task_id,
+    draftRevision: 2,
+    model: input.model,
+    prompt: '最终确认晨光房间',
+    references: [],
+    production: generation.production,
+  })
 })
 afterAll(async () => {
   setObjectStoreForTesting()

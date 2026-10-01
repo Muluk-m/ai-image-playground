@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type {
   AgentToolResultBlock,
   ProductionContent,
+  ProductionExportGenerationMetadata,
   ProductionGenerationBinding,
   ProductionGenerationDraftInput,
   ProductionGenerationView,
@@ -102,13 +103,18 @@ function draftCandidates(draft: typeof drafts.$inferSelect, messages: readonly C
   return candidates
 }
 /** Resolve only explicitly requested task identities through the server-created draft/retry lineage. */
-export async function productionGenerationBindings(
+export async function productionGenerationMetadata(
   conversationId: string,
   userId: string,
   taskIds: readonly string[],
-): Promise<ReadonlyMap<string, ProductionGenerationBinding>> {
+): Promise<
+  ReadonlyMap<string, Extract<ProductionExportGenerationMetadata, { source: 'production' }>>
+> {
   await readProduction(conversationId, userId)
-  const result = new Map<string, ProductionGenerationBinding>()
+  const result = new Map<
+    string,
+    Extract<ProductionExportGenerationMetadata, { source: 'production' }>
+  >()
   if (!taskIds.length) return result
   const owned = await db
     .select({ id: schema.tasks.id })
@@ -144,7 +150,21 @@ export async function productionGenerationBindings(
     if (!draft.submission.production) continue
     for (const candidate of draftCandidates(draft, messages))
       if (candidate.taskId && wanted.has(candidate.taskId))
-        result.set(candidate.taskId, draft.submission.production)
+        result.set(candidate.taskId, {
+          source: 'production',
+          taskId: candidate.taskId,
+          draftId: draft.id,
+          draftRevision: draft.submission.productionDraftRevision ?? 1,
+          production: draft.submission.production,
+          model: draft.model,
+          prompt: draft.prompt,
+          ...(draft.submission.productionParams
+            ? { params: draft.submission.productionParams }
+            : {}),
+          ...(draft.request.video ? { video: draft.request.video } : {}),
+          references: draft.submission.productionReferences ?? [],
+          ...(candidate.card?.retryOf ? { retryOf: candidate.card.retryOf } : {}),
+        })
   }
   return result
 }
