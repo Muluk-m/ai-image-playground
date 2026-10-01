@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import type { AgentBatchPage, AgentBatchUpdate } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -112,6 +113,7 @@ async function render() {
   ])
   if (message.kind !== 'tool') throw new Error('expected tool message')
   await act(async () => root.render(<AgentToolCard message={message} />))
+  await vi.waitFor(() => expect(host.querySelector('details')).not.toBeNull())
 }
 
 function change(field: HTMLTextAreaElement | HTMLInputElement, value: string) {
@@ -209,6 +211,7 @@ it('修改范围和参数遇到版本冲突时保留草稿，显式刷新后可�
   expect(host.querySelector<HTMLTextAreaElement>('details textarea')!.value).toBe(
     '服务端新版本提示词',
   )
+  await vi.waitFor(() => expect(button('取消计划').disabled).toBe(false))
   await act(async () => button('取消计划').click())
   expect(cancellations).toEqual([{ expectedVersion: 2 }])
   expect(host.textContent).toContain('已取消')
