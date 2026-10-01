@@ -136,7 +136,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 46
+const EXPECTED_MIGRATION_COUNT = 48
 
 export interface SchemaVerificationResult {
   tables: number
@@ -147,7 +147,7 @@ export interface SchemaVerificationResult {
 export async function verifySchema(databaseUrl: string): Promise<SchemaVerificationResult> {
   const client = new SQL(databaseUrl, { max: 1 })
   try {
-    const [tableRows, indexRows, migrationTableRows] = await Promise.all([
+    const [tableRows, indexRows, migrationTableRows, productionColumns] = await Promise.all([
       client<{ tablename: string }[]>`
         SELECT tablename
         FROM pg_tables
@@ -160,6 +160,10 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       `,
       client<{ relation: string | null }[]>`
         SELECT to_regclass('drizzle.__drizzle_migrations')::text AS relation
+      `,
+      client<{ data_type: string }[]>`
+        SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='agent_conversations' AND column_name='production'
       `,
     ])
     const migrationRows = migrationTableRows[0]?.relation
@@ -174,6 +178,9 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
     const missingIndexes = EXPECTED_INDEXES.filter((name) => !indexes.has(name))
     const migrationCount = Number(migrationRows[0]?.count ?? 0)
     const failures = [
+      productionColumns[0]?.data_type !== 'jsonb'
+        ? 'agent_conversations.production must be jsonb'
+        : '',
       missingTables.length ? `missing tables: ${missingTables.join(', ')}` : '',
       missingIndexes.length ? `missing indexes: ${missingIndexes.join(', ')}` : '',
       migrationCount < EXPECTED_MIGRATION_COUNT
