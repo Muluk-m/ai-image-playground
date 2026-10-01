@@ -1931,3 +1931,62 @@ it('preserves the read draft and its original while journal recovery is unreadab
     setClientStorageScope(null)
   }
 })
+
+it.each([
+  'current',
+  'unsent',
+] as const)('removes journal-owned in-memory %s content after recovery while preserving unrelated edits', async (position) => {
+  setClientStorageScope(`memory-journal-owner-${position}`)
+  await bootstrapClientCapabilities(false, '')
+  const key = scopedStorageName(`agent-project-draft:${PROJECT}`)
+  const seed = new DraftSession(key)
+  await seed.ready
+  seed.update({ prompt: '磁盘上尚未发送的另一句', references: [] })
+  await seed.flush()
+  const submission: UnsentTurnSubmission = {
+    id: `memory-owned-${position}`,
+    text: '日志已拥有的唯一命令',
+    references: [],
+    mode: 'image',
+    clarificationAnswer: false,
+  }
+  await rememberOutgoing({
+    ...submission,
+    projectId: PROJECT,
+    conversationId: CONVERSATION,
+    createdAt: Date.now(),
+  })
+  const get = IDBObjectStore.prototype.get
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (this.name === 'outgoing') throw new DOMException('Journal unreadable', 'UnknownError')
+    return get.call(this, query)
+  })
+  const session = new DraftSession(key, undefined, PROJECT)
+  try {
+    if (position === 'unsent') session.update({ prompt: '恢复期间的新输入', references: [] })
+    const returned = session.returnUnsent({ prompt: submission.text, references: [], submission })
+    await session.ready
+    await returned
+    expect(session.getSnapshot().recoveryBlocked).toBe(true)
+    failure.mockRestore()
+    await session.retryRecovery()
+    expect(session.getSnapshot().recoveryBlocked).toBe(false)
+    expect(JSON.stringify(session.getSnapshot())).not.toContain(submission.text)
+    expect(JSON.stringify(session.getSnapshot())).toContain('磁盘上尚未发送的另一句')
+    if (position === 'unsent') expect(session.getSnapshot().draft.prompt).toBe('恢复期间的新输入')
+    expect(await outgoingMessages(PROJECT)).toMatchObject([
+      { id: submission.id, text: submission.text },
+    ])
+    const restored = new DraftSession(key, undefined, PROJECT)
+    await restored.ready
+    expect(JSON.stringify(restored.getSnapshot())).not.toContain(submission.text)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+  } finally {
+    failure.mockRestore()
+    for (const one of await outgoingMessages(PROJECT)) await forgetOutgoing(PROJECT, one.id)
+    setClientStorageScope(null)
+  }
+})
