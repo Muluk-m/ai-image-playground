@@ -116,7 +116,11 @@ it('keeps recovery available when required styles fail even if React commits', (
   link.rel = 'stylesheet'
   link.href = '/assets/main-missing.css'
   document.head.append(link)
+  // A head stylesheet can fail before the parser creates the body splash.
+  const boot = document.getElementById('boot')!
+  boot.remove()
   link.dispatchEvent(new Event('error'))
+  document.body.append(boot)
   document.dispatchEvent(new Event('app:boot-ready'))
   expect(document.getElementById('boot-error')?.hidden).toBe(false)
   expect(document.getElementById('boot-retry')?.onclick).toBeTypeOf('function')

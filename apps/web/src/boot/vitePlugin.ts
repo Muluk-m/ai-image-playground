@@ -8,7 +8,7 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
   }}catch{}
   let stopped=false;
   let stylesheetFailed=false;
-  const stop=()=>{stopped=true;clearTimeout(timer);window.removeEventListener('error',onError,true);window.removeEventListener('unhandledrejection',fail);document.removeEventListener('click',onClick);if(stylesheetFailed){document.getElementById('boot-retry').onclick=()=>location.reload()}else{document.getElementById('boot')?.remove()}};
+  const stop=()=>{if(stylesheetFailed)fail();stopped=true;clearTimeout(timer);window.removeEventListener('error',onError,true);window.removeEventListener('unhandledrejection',fail);document.removeEventListener('click',onClick);if(stylesheetFailed){document.getElementById('boot-retry').onclick=()=>location.reload()}else{document.getElementById('boot')?.remove()}};
   const fail=()=>{
     if(stopped)return;
     const boot=document.getElementById('boot');
