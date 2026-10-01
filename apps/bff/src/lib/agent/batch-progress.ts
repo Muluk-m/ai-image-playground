@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { type AgentBatchAttemptSnapshot, taskFailureCode } from '@image-playground/shared'
-import { and, asc, eq, inArray, isNull, ne, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
@@ -230,7 +230,6 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     if (batch.confirmed_version === null) return
     const [plan] = await tx
       .select({
-        targets: schema.agent_batch_plans.attempt_targets,
         itemCount: schema.agent_batch_plans.item_count,
       })
       .from(schema.agent_batch_plans)
@@ -258,12 +257,20 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
         terminal: sql<boolean>`${attempts.terminal_snapshot} IS NOT NULL`,
       })
       .from(items)
+      .innerJoin(
+        schema.agent_batch_plans,
+        and(
+          eq(schema.agent_batch_plans.batch_id, items.batch_id),
+          eq(schema.agent_batch_plans.version, items.version),
+        ),
+      )
       .leftJoin(
         attempts,
         and(
           eq(attempts.batch_id, items.batch_id),
           eq(attempts.item_key, items.key),
-          sql`${attempts.attempt} = COALESCE((${JSON.stringify(plan.targets)}::jsonb ->> ${items.key})::integer, 1)`,
+          lte(attempts.version, items.version),
+          sql`${attempts.attempt} = COALESCE((${schema.agent_batch_plans.attempt_targets} ->> ${items.key})::integer, 1)`,
         ),
       )
       .where(and(eq(items.batch_id, batchId), eq(items.version, batch.confirmed_version)))
