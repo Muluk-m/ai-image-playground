@@ -372,6 +372,7 @@
     "tooWide": "图片长宽比超过 3:1，局部重绘不支持",
     "sourceGone": "源图已不在画布上",
     "canvasAria": "智能改图标记区",
+    "regionLimit": "最多可标记 {{max}} 个区域，请删除不需要的区域后继续。",
     "regionRemoved": "（已移除）",
     "promptTooLong": "编辑要求不能超过 {{max}} 字，请缩短后再发送。",
     "regionMissing": "有区域引用已失效，请移除引用或重做选区后再发送。"

@@ -7,7 +7,8 @@ import {
 } from 'react'
 import { useTranslation } from '../../../i18n'
 import { calculateMaskWorkingSize } from '../../../lib/maskPreprocess'
-import { useInpaintSession } from '../inpaintStore'
+import { useStore } from '../../../store'
+import { MAX_INPAINT_REGIONS, useInpaintSession } from '../inpaintStore'
 import type { CanvasEditor } from '../lib/editor'
 import { canvasImageDimensions } from '../lib/imageInfo'
 import { type MaskStroke, type Point, pageToMaskPixel, renderMask } from '../lib/inpaintMask'
@@ -83,7 +84,8 @@ export default function InpaintMaskLayer({ editor }: { editor: CanvasEditor }) {
     const current = drawingRef.current
     drawingRef.current = null
     setLive(null)
-    if (current?.points.length) addStroke(current)
+    if (current?.points.length && !addStroke(current))
+      useStore.getState().showToast(t('inpaint.regionLimit', { max: MAX_INPAINT_REGIONS }), 'error')
   }
 
   return (

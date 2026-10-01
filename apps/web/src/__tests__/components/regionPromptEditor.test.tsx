@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegionPromptEditor, { useRegionPrompt } from '../../components/RegionPromptEditor'
 import { setContentEditableCursor } from '../../lib/promptEditorDom'
+import { getSelectedImageMentionLabel } from '../../lib/promptImageMentions'
 
 vi.mock('../../i18n', () => ({ useTranslation: () => ({ t: translate }) }))
 const translate = (key: string, values?: { no: number }) =>
@@ -45,6 +46,41 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges()
 })
 describe('inline region references', () => {
+  it('keeps drawing focus and requires prose beyond automatic references', () => {
+    const drawing = document.createElement('button')
+    document.body.append(drawing)
+    drawing.focus()
+    act(() => rerender(''))
+    act(() => regions([41]))
+    expect(document.activeElement).toBe(drawing)
+    expect(prompt.hasProse).toBe(false)
+    act(() => rerender(`${getSelectedImageMentionLabel(0)} 修改颜色`))
+    expect(prompt.hasProse).toBe(true)
+    drawing.remove()
+  })
+  it('restores the same reference when undo brings back a chip-deleted region', () => {
+    act(() => regions([41]))
+    act(() => host.querySelector<HTMLButtonElement>('.region-prompt-chip button')!.click())
+    expect(host.querySelectorAll('.region-prompt-chip')).toHaveLength(0)
+    act(() => regions([41]))
+    expect(host.querySelectorAll('.region-prompt-chip')).toHaveLength(1)
+    expect(prompt.serialize()).toContain('@区域1')
+  })
+  it('leaves chip Enter activation to the button without changing the prompt', () => {
+    act(() => regions([41]))
+    const button = host.querySelector<HTMLButtonElement>('.region-prompt-chip button')!
+    button.focus()
+    const before = prompt.serialize()
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    act(() => button.dispatchEvent(event))
+    expect(event.defaultPrevented).toBe(false)
+    expect(prompt.serialize()).toBe(before)
+    const onEscape = vi.fn()
+    host.addEventListener('keydown', onEscape, { once: true })
+    act(() => button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(onEscape).toHaveBeenCalledOnce()
+  })
+
   it('keeps a terminal line box for continued typing after a newline', () => {
     act(() => rerender('第一行\n'))
     expect(editable().lastChild?.nodeName).toBe('BR')

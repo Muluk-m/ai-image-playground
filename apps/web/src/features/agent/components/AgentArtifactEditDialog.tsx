@@ -581,6 +581,8 @@ export default function AgentArtifactEditDialog({
     if (!canvas || !context) return
     rememberMask()
     marksRef.current = marksRef.current.filter((mark) => mark.id !== id)
+    // Remove this identity immediately; the remaining bounds may arrive from a worker later.
+    setVisibleRegions((current) => current.filter((region) => region.id !== id))
     context.clearRect(0, 0, canvas.width, canvas.height)
     context.fillStyle = '#fff'
     context.fillRect(0, 0, canvas.width, canvas.height)
@@ -630,6 +632,7 @@ export default function AgentArtifactEditDialog({
       !ready ||
       regionsPending ||
       pointerRef.current ||
+      (action === 'inpaint' && (!markPresent || !regionPrompt.hasProse)) ||
       regionPrompt.hasMissing ||
       regionPrompt.tooLong
     )
@@ -993,7 +996,7 @@ export default function AgentArtifactEditDialog({
                 loading ||
                 !working ||
                 !ready ||
-                (marked && (!markPresent || (action === 'inpaint' && !instruction.trim())))
+                (marked && (!markPresent || (action === 'inpaint' && !regionPrompt.hasProse)))
               }
             >
               {busy ? t('tool.submittingEdit') : t('tool.generateEdit')}
