@@ -13,7 +13,7 @@ export class AgentRequestBudgetError extends Error {
   ) {
     super(
       reason === 'body_too_large'
-        ? `Model request is ${requestBytes} UTF-8 bytes; the local limit is ${limit} bytes. Reduce reference images or text, or split the request.`
+        ? `Model request is ${requestBytes} UTF-8 bytes; the local limit is ${limit} bytes. 请选择缩小共同查看范围、指定必要区域或减少文字；逐图摘要不能代替完整联合比较。`
         : reason === 'unsupported_body'
           ? 'Model request body cannot be measured safely and was not sent. Contact the operator.'
           : 'Model request byte limit is invalid and the request was not sent. Contact the operator.',

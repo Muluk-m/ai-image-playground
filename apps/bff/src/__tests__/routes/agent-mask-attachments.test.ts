@@ -50,6 +50,10 @@ class MediaStorage extends InMemoryObjectStore {
     await this.beforeRead?.()
     return super.read(key)
   }
+  override async open(key: string) {
+    await this.beforeRead?.()
+    return super.open(key)
+  }
   sign(key: string, method: 'GET' | 'PUT') {
     return `https://storage.example.test/${key}?method=${method}`
   }

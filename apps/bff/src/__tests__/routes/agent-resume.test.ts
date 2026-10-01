@@ -319,6 +319,7 @@ describe('插话', () => {
     expect(await source.resolve('image 1')).toEqual({
       imageId: reference.imageId,
       dataUrl: reference.dataUrl,
+      visualVariant: 'original',
     })
     const continuation = createAgentImageSource({
       references: [],
@@ -327,7 +328,10 @@ describe('插话', () => {
       userId: null,
       selectionHistoryStart: 0,
     })
-    expect(await continuation.resolve('image 1')).toEqual(reference)
+    expect(await continuation.resolve('image 1')).toEqual({
+      ...reference,
+      visualVariant: 'original',
+    })
   })
 
   it('轮进行中追加一条用户消息，运行时接着它往下跑', async () => {

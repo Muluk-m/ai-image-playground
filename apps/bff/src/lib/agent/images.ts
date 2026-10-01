@@ -10,9 +10,9 @@ import { and, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
-import { archiveInputImages, hydrateInputImages } from '../imageArchive'
+import { archiveInputImages, fetchSourceImage, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
-import { objectStore } from '../objectStore'
+import { objectStore, readObjectWithinLimit } from '../objectStore'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { asQueueProvider } from '../queueProvider'
@@ -21,12 +21,14 @@ import { taskAccessWhere } from '../task-access'
 import { toModelImageDataUrl, toPreviewDataUrl } from './modelImage'
 import { InvalidSelectionError, imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
+import { visualByteLimit, withVisualPreparation } from './visual-resources'
 
 export type AgentImageReference = AgentTurnReference | AgentStoredReference
 
 export interface ResolvedAgentImage {
   readonly imageId: string
   readonly dataUrl: string
+  readonly visualVariant?: AgentImageVariant | 'region'
   /** 本轮附图或系统续作计划中的遮罩；普通历史引用只有原图。 */
   readonly maskDataUrl?: string
   readonly editAction?: import('@image-playground/shared').AgentImageEditAction
@@ -145,15 +147,18 @@ export async function resolveTurnReferences(
       })
       continue
     }
-    const media = await readMediaReference(
-      reference,
-      conversationId,
-      userId,
-      'preview',
-      allowUnclaimed,
-    )
-    if (!media) throw new AgentToolError('invalid_params', '参考图或选区不可用，请重新添加')
-    resolved.push(media)
+    const image = await withVisualPreparation(async () => {
+      const media = await readMediaReference(
+        reference,
+        conversationId,
+        userId,
+        'preview',
+        allowUnclaimed,
+      )
+      if (!media) throw new AgentToolError('invalid_params', '参考图或选区不可用，请重新添加')
+      return modelImage(media, 'preview')
+    })
+    if (image) resolved.push(image)
   }
   return resolved
 }
@@ -194,7 +199,7 @@ async function modelImage(
     variant === 'preview' && !reduced && !rest.maskDataUrl
       ? await toPreviewDataUrl(normalized)
       : normalized
-  return dataUrl === rest.dataUrl ? rest : { ...rest, dataUrl }
+  return { ...rest, dataUrl, visualVariant: rest.maskDataUrl ? 'original' : variant }
 }
 
 async function readTaskOutput(
@@ -219,14 +224,21 @@ async function readTaskOutput(
   if (ref.kind === 'object')
     return {
       dataUrl: dataUrl(
-        await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.data),
+        await readObjectWithinLimit(
+          ref.store === 'durable' ? durableMediaStore() : objectStore(),
+          ref.data,
+          visualByteLimit(),
+        ),
         ref.mime,
       ),
     }
-  const upstream = await fetch(ref.data)
-  if (!upstream.ok) return null
-  const mime = upstream.headers.get('content-type') ?? ref.mime
-  return { dataUrl: dataUrl(new Uint8Array(await upstream.arrayBuffer()), mime) }
+  const upstream = await fetchSourceImage(ref.data, { maxBytes: visualByteLimit() }).catch(() => {
+    throw new AgentToolError(
+      'upstream_error',
+      '结果图片未能在当前读取预算内取得，未送入模型，复核尚未完成。请重新添加有效图片或选择必要区域。',
+    )
+  })
+  return { dataUrl: dataUrl(upstream.bytes, upstream.mime ?? ref.mime) }
 }
 
 /**
@@ -281,6 +293,7 @@ export async function readConversationMedia(
   userId: string | null,
   variant: AgentImageVariant,
   fromCurrentCanvas = false,
+  maxBytes?: number,
 ): Promise<{
   readonly bytes: Uint8Array
   readonly contentType: string
@@ -337,7 +350,10 @@ export async function readConversationMedia(
   const key = previewKey ?? row?.objectKey
   if (!key) return null
   return {
-    bytes: await durableMediaStore().read(key),
+    bytes:
+      maxBytes === undefined
+        ? await durableMediaStore().read(key)
+        : await readObjectWithinLimit(durableMediaStore(), key, maxBytes),
     // 预留的预览是 webp，原件那一行的 content type 对不上它，按字节认。
     contentType: previewKey ? 'image/webp' : row.contentType,
     reduced: previewKey !== null,
@@ -352,32 +368,36 @@ async function readMediaReference(
   variant: AgentImageVariant,
   allowUnclaimed = false,
 ): Promise<(ResolvedAgentImage & { readonly reduced?: boolean }) | null> {
-  const original = await readConversationMedia(
-    reference.mediaId,
-    conversationId,
-    userId,
-    reference.maskMediaId ? 'original' : variant,
-    allowUnclaimed,
-  )
-  if (!original) return null
-  const mask = reference.maskMediaId
-    ? await readConversationMedia(
-        reference.maskMediaId,
-        conversationId,
-        userId,
-        'original',
-        allowUnclaimed,
-      )
-    : undefined
-  if (reference.maskMediaId && !mask) return null
-  return {
-    imageId: reference.imageId,
-    dataUrl: dataUrl(original.bytes, original.contentType),
-    reduced: original.reduced,
-    ...(mask ? { maskDataUrl: dataUrl(mask.bytes, mask.contentType) } : {}),
-    ...(reference.regions ? { regions: reference.regions } : {}),
-    ...(reference.editAction ? { editAction: reference.editAction } : {}),
-  }
+  return withVisualPreparation(async () => {
+    const original = await readConversationMedia(
+      reference.mediaId,
+      conversationId,
+      userId,
+      reference.maskMediaId ? 'original' : variant,
+      allowUnclaimed,
+      visualByteLimit(),
+    )
+    if (!original) return null
+    const mask = reference.maskMediaId
+      ? await readConversationMedia(
+          reference.maskMediaId,
+          conversationId,
+          userId,
+          'original',
+          allowUnclaimed,
+          visualByteLimit(),
+        )
+      : undefined
+    if (reference.maskMediaId && !mask) return null
+    return {
+      imageId: reference.imageId,
+      dataUrl: dataUrl(original.bytes, original.contentType),
+      reduced: original.reduced,
+      ...(mask ? { maskDataUrl: dataUrl(mask.bytes, mask.contentType) } : {}),
+      ...(reference.regions ? { regions: reference.regions } : {}),
+      ...(reference.editAction ? { editAction: reference.editAction } : {}),
+    }
+  })
 }
 
 /**
@@ -401,6 +421,7 @@ async function readCanvasMedia(
     userId,
     variant,
     canvasMediaIds?.has(mediaId) ?? false,
+    visualByteLimit(),
   )
   if (!media) return null
   // 预留的预览已经是这条规格缩过的，别再缩第二次。
@@ -631,23 +652,30 @@ export async function validateConversationMediaSelections(
     if (!('mediaId' in reference) || !reference.maskMediaId) continue
     const original = byId.get(reference.mediaId)!
     const mask = byId.get(reference.maskMediaId)!
+    const originalKey = original.objectKey
+    const maskKey = mask.objectKey
     if (
-      !original.objectKey ||
-      !mask.objectKey ||
+      !originalKey ||
+      !maskKey ||
       original.width !== mask.width ||
       original.height !== mask.height
     )
       return false
     try {
-      await imageSelection(
-        {
-          dataUrl: dataUrl(
-            await durableMediaStore().read(original.objectKey),
-            original.contentType,
-          ),
-          maskDataUrl: dataUrl(await durableMediaStore().read(mask.objectKey), mask.contentType),
-        },
-        false,
+      await withVisualPreparation(async () =>
+        imageSelection(
+          {
+            dataUrl: dataUrl(
+              await readObjectWithinLimit(durableMediaStore(), originalKey, visualByteLimit()),
+              original.contentType,
+            ),
+            maskDataUrl: dataUrl(
+              await readObjectWithinLimit(durableMediaStore(), maskKey, visualByteLimit()),
+              mask.contentType,
+            ),
+          },
+          false,
+        ),
       )
     } catch (error) {
       if (error instanceof InvalidSelectionError) return false
@@ -828,7 +856,7 @@ export function createAgentImageSource(input: {
     selectionHistoryStart,
   ).map((reference) => references.get(reference.imageId)!)
   const outputs = outputsFromHistory(input.history)
-  // 缓存 promise 而不是值：模型连着改同一张图时，重复的那几次连 I/O 都不发。
+  // 只去重在途读取；完成后不让原件缓存随本轮已看图片数无限增长。
   const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
 
   const read = async (
@@ -844,11 +872,14 @@ export function createAgentImageSource(input: {
       const hydrated =
         'dataUrl' in reference
           ? { input_images: [reference.dataUrl], mask: reference.maskDataUrl }
-          : await hydrateInputImages({
-              prompt: '',
-              input_images: [reference.image],
-              mask: reference.mask,
-            })
+          : await hydrateInputImages(
+              {
+                prompt: '',
+                input_images: [reference.image],
+                mask: reference.mask,
+              },
+              { maxBytes: visualByteLimit() },
+            )
       return {
         imageId,
         dataUrl: hydrated.input_images![0]!,
@@ -875,7 +906,7 @@ export function createAgentImageSource(input: {
     )
     if (canvas) return { imageId, ...canvas }
     if (!userId) return null
-    const asset = await readAssetImage(userId, imageId)
+    const asset = await readAssetImage(userId, imageId, visualByteLimit())
     return asset ? { imageId, dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
   }
 
@@ -918,7 +949,11 @@ export function createAgentImageSource(input: {
       const key = `${variant}\u0000${id}`
       const running = resolving.get(key)
       if (running) return running
-      const started = read(id, variant).then((image) => modelImage(image, variant))
+      const started = withVisualPreparation(() =>
+        read(id, variant).then((image) => modelImage(image, variant)),
+      ).finally(() => {
+        if (resolving.get(key) === started) resolving.delete(key)
+      })
       resolving.set(key, started)
       return started
     },

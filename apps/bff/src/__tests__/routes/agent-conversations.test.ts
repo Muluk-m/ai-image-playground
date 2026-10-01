@@ -7,6 +7,7 @@ import { Elysia } from 'elysia'
 import sharp from 'sharp'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
+import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -174,7 +175,7 @@ it('rejects region rectangles that extend beyond the image', async () => {
       references: [
         {
           imageId: 'bad-region',
-          dataUrl: 'data:image/png;base64,aGk=',
+          dataUrl: TEST_IMAGE.pngDataUrl,
           regions: [{ x: 0.9, y: 0, width: 0.2, height: 0.5 }],
           editAction: 'inpaint',
         },

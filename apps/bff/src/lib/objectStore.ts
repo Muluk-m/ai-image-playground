@@ -1,4 +1,5 @@
 import { config } from '../config'
+import { readCapped, SafeFetchError } from './safeFetch'
 
 /**
  * 一个已定位、但尚未取字节的对象。`size` 来自元信息请求，用来判定 Range 是否可满足；
@@ -26,6 +27,19 @@ export interface ObjectStore {
   /** 带大小与修改时间的列举。运维看板靠它看「真正落在桶里的备份」，而不是备份脚本的自述。 */
   listEntries(prefix: string): Promise<ObjectEntry[]>
   deletePrefix(prefix: string): Promise<void>
+}
+
+/** Metadata rejects oversized objects before any body is requested; the stream remains capped too. */
+export async function readObjectWithinLimit(
+  store: ObjectStore,
+  key: string,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const object = await store.open(key)
+  if (!Number.isSafeInteger(object.size) || object.size < 0 || object.size > maxBytes)
+    throw new SafeFetchError('too_large', `内容超过 ${maxBytes} 字节上限`)
+  if (object.size === 0) return new Uint8Array(0)
+  return readCapped(new Response(object.stream(0, object.size - 1)), maxBytes)
 }
 
 export type S3ClientLike = Pick<Bun.S3Client, 'write' | 'file' | 'list' | 'delete'>
