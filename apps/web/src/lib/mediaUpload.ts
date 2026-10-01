@@ -1,7 +1,10 @@
 import { accountScope } from './authScope'
 import { imageDataUrlToPngBlob } from './canvasImage'
+import { getAttachmentLimits } from './clientCapabilities'
 import { MediaRequestError, mediaJson } from './cloudMedia'
 import { imageMimeFromBytes } from './imageBytes'
+import { localAttachmentIdentity, readLocalAttachment } from './localAttachmentSources'
+import { bffBaseUrl } from './runtimeConfig'
 
 export type MediaUploadState = 'queued' | 'uploading' | 'verifying' | 'ready' | 'failed'
 export interface MediaUploadResult {
@@ -18,16 +21,23 @@ interface Upload {
 
 function slots(limit: number) {
   let active = 0
-  const waiting: (() => void)[] = []
-  return async <T>(work: () => Promise<T>): Promise<T> => {
-    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve))
-    else active++
+  const waiting: { limit: number; resume: () => void }[] = []
+  const drain = () => {
+    while (waiting.length && active < Math.min(limit, waiting[0]!.limit)) {
+      active++
+      waiting.shift()!.resume()
+    }
+  }
+  return async <T>(work: () => Promise<T>, requestedLimit = limit): Promise<T> => {
+    await new Promise<void>((resume) => {
+      waiting.push({ limit: requestedLimit, resume })
+      drain()
+    })
     try {
       return await work()
     } finally {
-      const next = waiting.shift()
-      if (next) next()
-      else active--
+      active--
+      drain()
     }
   }
 }
@@ -52,75 +62,84 @@ export async function uploadMediaSource(
   },
 ): Promise<MediaUploadResult | undefined> {
   const sameAccount = accountScope()
+  const backend = bffBaseUrl()
   const current = () => {
     options.signal.throwIfAborted()
-    if (!sameAccount()) throw new Error('media_scope_changed')
+    if (!sameAccount() || backend !== bffBaseUrl()) throw new Error('media_scope_changed')
   }
   options.onState?.('queued')
   try {
-    return await uploading(async () => {
-      current()
-      if (!source.startsWith('data:image/')) throw new Error('unsupported_local_media')
-      const bytes = await (await fetch(source, { signal: options.signal })).arrayBuffer()
-      const sha256 = await digest(bytes)
-      current()
-      if (!options.purpose && options.known?.sha256 === sha256) {
-        options.onState?.('ready')
-        return options.known
-      }
-      if (options.uploadMissing === false) return undefined
-      let contentType = imageMimeFromBytes(bytes)
-      let body = bytes
-      if (!contentType) {
-        if (options.purpose === 'conversation-attachment')
-          throw new MediaRequestError(422, 'media_unsupported_image')
-        body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
-        contentType = 'image/png'
+    return await uploading(
+      async () => {
         current()
-      }
-      options.onState?.('uploading')
-      const upload = await mediaJson<Upload>('/uploads', {
-        method: 'POST',
-        signal: options.signal,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          bytes: body.byteLength,
-          contentType,
-          sha256: body === bytes ? sha256 : await digest(body),
-          ...(options.purpose ? { purpose: options.purpose } : {}),
-        }),
-      })
-      current()
-      let leaseExpiresAt = upload.leaseExpiresAt
-      if (upload.status !== 'ready') {
-        if (!upload.uploadUrl) throw new Error('invalid_media_upload')
-        const sent = await fetch(upload.uploadUrl, {
-          method: 'PUT',
-          credentials: 'omit',
-          signal: AbortSignal.any([options.signal, AbortSignal.timeout(60000)]),
-          headers: { 'content-type': contentType },
-          body,
-        })
-        if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
+        const local = localAttachmentIdentity(source)
+        if (!local && !source.startsWith('data:image/')) throw new Error('unsupported_local_media')
+        const bytes = local
+          ? (await readLocalAttachment(source)).data
+          : await (await fetch(source, { signal: options.signal })).arrayBuffer()
+        const sha256 = await digest(bytes)
         current()
-        options.onState?.('verifying')
-        const complete = await confirming(async () => {
+        if (!options.purpose && options.known?.sha256 === sha256) {
+          options.onState?.('ready')
+          return options.known
+        }
+        if (options.uploadMissing === false) return undefined
+        let contentType = imageMimeFromBytes(bytes)
+        let body = bytes
+        if (!contentType) {
+          if (options.purpose === 'conversation-attachment')
+            throw new MediaRequestError(422, 'media_unsupported_image')
+          body = await (await imageDataUrlToPngBlob(source)).arrayBuffer()
+          contentType = 'image/png'
           current()
-          return mediaJson<Upload>(`/${upload.id}/complete`, {
-            method: 'POST',
-            signal: options.signal,
-            headers: { 'content-type': 'application/json' },
-            body: '{}',
-          })
+        }
+        options.onState?.('uploading')
+        const upload = await mediaJson<Upload>('/uploads', {
+          method: 'POST',
+          signal: options.signal,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            bytes: body.byteLength,
+            contentType,
+            sha256: body === bytes ? sha256 : await digest(body),
+            ...(options.purpose ? { purpose: options.purpose } : {}),
+          }),
         })
-        if (complete.status !== 'ready' || complete.id !== upload.id)
-          throw new Error('invalid_media_confirmation')
-        leaseExpiresAt = complete.leaseExpiresAt ?? leaseExpiresAt
-      }
-      current()
-      options.onState?.('ready')
-      return { id: upload.id, sha256, ...(leaseExpiresAt ? { leaseExpiresAt } : {}) }
-    })
+        current()
+        let leaseExpiresAt = upload.leaseExpiresAt
+        if (upload.status !== 'ready') {
+          if (!upload.uploadUrl) throw new Error('invalid_media_upload')
+          const sent = await fetch(upload.uploadUrl, {
+            method: 'PUT',
+            credentials: 'omit',
+            signal: AbortSignal.any([options.signal, AbortSignal.timeout(60000)]),
+            headers: { 'content-type': contentType },
+            body,
+          })
+          if (!sent.ok) throw new MediaRequestError(sent.status, 'media_upload_failed')
+          current()
+          options.onState?.('verifying')
+          const complete = await confirming(async () => {
+            current()
+            return mediaJson<Upload>(`/${upload.id}/complete`, {
+              method: 'POST',
+              signal: options.signal,
+              headers: { 'content-type': 'application/json' },
+              body: '{}',
+            })
+          })
+          if (complete.status !== 'ready' || complete.id !== upload.id)
+            throw new Error('invalid_media_confirmation')
+          leaseExpiresAt = complete.leaseExpiresAt ?? leaseExpiresAt
+        }
+        current()
+        options.onState?.('ready')
+        return { id: upload.id, sha256, ...(leaseExpiresAt ? { leaseExpiresAt } : {}) }
+      },
+      options.purpose === 'conversation-attachment'
+        ? (getAttachmentLimits()?.uploadConcurrency ?? 4)
+        : 4,
+    )
   } catch (error) {
     options.onState?.('failed')
     throw error

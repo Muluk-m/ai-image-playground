@@ -3,7 +3,9 @@ import {
   AGENT_TURN_MAX_REFERENCES,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
+import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
+import { registerLocalAttachmentSource } from '../../../lib/localAttachmentSources'
 import {
   attachReferences as admitReferences,
   type ReferenceRefusal,
@@ -37,7 +39,10 @@ export function referenceLimitMessage(
     })
   return refusal === 'inlineOverflow'
     ? i18next.t('composer.tooManyUploads', { ns: 'agent', count: AGENT_TURN_MAX_INLINE_REFERENCES })
-    : i18next.t('composer.tooManyReferences', { ns: 'agent', count: AGENT_TURN_MAX_REFERENCES })
+    : i18next.t('composer.tooManyReferences', {
+        ns: 'agent',
+        count: getAttachmentLimits()?.logicalReferences ?? AGENT_TURN_MAX_REFERENCES,
+      })
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -58,16 +63,28 @@ function fileStem(name: string): string {
  * 拖进来 / 粘贴 / 选出来的图片文件 → 参考图。id 现造：它不是画布对象也不是素材，
  * 模型改图时靠它指认这一张。引用上传保留原件；兼容内联入口仍按请求体预算压缩。
  */
-export async function filesToReferences(files: readonly File[]): Promise<AgentReference[]> {
-  const originals = await Promise.all(files.map(fileToDataUrl))
-  const sources = attachmentUploadsEnabled()
-    ? originals
-    : await compressInputImageDataUrls(originals)
-  return files.map((file, at) => ({
-    id: `file_${crypto.randomUUID()}`,
-    dataUrl: sources[at]!,
-    name: fileStem(file.name),
-  }))
+export function filesToReferences(
+  files: readonly File[],
+): AgentReference[] | Promise<AgentReference[]> {
+  const limits = getAttachmentLimits()
+  if (attachmentUploadsEnabled() && limits) {
+    return files.map((file) => ({
+      id: `file_${crypto.randomUUID()}`,
+      dataUrl: registerLocalAttachmentSource(file, limits.imageBytes),
+      name: fileStem(file.name),
+    }))
+  }
+  return (async () => {
+    const originals = await Promise.all(files.map(fileToDataUrl))
+    const sources = attachmentUploadsEnabled()
+      ? originals
+      : await compressInputImageDataUrls(originals)
+    return files.map((file, at) => ({
+      id: `file_${crypto.randomUUID()}`,
+      dataUrl: sources[at]!,
+      name: fileStem(file.name),
+    }))
+  })()
 }
 
 /**

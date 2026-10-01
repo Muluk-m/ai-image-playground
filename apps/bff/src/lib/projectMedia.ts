@@ -21,6 +21,7 @@ import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
 import { MEDIA_IMAGE_MAX_PIXELS } from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
+import { attachmentLimits } from './operator-config'
 import type { BffTransaction } from './private-overlay'
 
 const media = schema.media_objects
@@ -97,8 +98,11 @@ export async function reserveMedia(userId: string, input: UploadDescriptor) {
   const attachment = input.purpose === 'conversation-attachment'
   if (attachment && !isCapabilityEnabled('agent:attachments'))
     throw new MediaError(409, 'attachment_uploads_unavailable')
-  if (input.bytes > config.operator.quotas['sync:asset-image-bytes'])
-    throw new MediaError(413, 'media_too_large')
+  const byteLimit = attachment
+    ? (attachmentLimits(config.operator)?.imageBytes ??
+      config.operator.quotas['sync:asset-image-bytes'])
+    : config.operator.quotas['sync:asset-image-bytes']
+  if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
   return db.transaction(async (tx) => {
     await lockMediaOwner(tx, userId)
     let [existing] = await tx
@@ -184,6 +188,8 @@ export async function completeMedia(userId: string, id: string) {
     if (row.status === 'ready') return summary(row)
     if (row.status === 'deleting') throw new MediaError(409, 'media_deleting')
     if (row.expires_at <= Date.now()) throw new MediaError(409, 'media_upload_expired')
+    const limits = row.attachment_managed ? attachmentLimits(config.operator) : undefined
+    if (limits && row.bytes > limits.imageBytes) throw new MediaError(413, 'media_too_large')
     if (processing) throw new MediaError(503, 'media_processing_busy')
     processing = true
     let candidatePrefix: string | undefined
@@ -213,7 +219,10 @@ export async function completeMedia(userId: string, id: string) {
       let metadata: Metadata
       let preview: Buffer
       try {
-        const image = sharp(bytes, { limitInputPixels: MEDIA_IMAGE_MAX_PIXELS, failOn: 'warning' })
+        const image = sharp(bytes, {
+          limitInputPixels: limits?.imagePixels ?? MEDIA_IMAGE_MAX_PIXELS,
+          failOn: 'warning',
+        })
         metadata = await image.metadata()
         if (metadata.pages && metadata.pages > 1) throw new Error('animated_image')
         if (`image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}` !== row.content_type)

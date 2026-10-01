@@ -260,6 +260,10 @@ export interface AgentState {
     modelOverride?: string,
     /** 输入框接回失败消息后，日志停止自动重发；先等草稿落盘。 */
     onUnsent?: (submission: UnsentTurnSubmission) => Promise<boolean>,
+    localPersistence?: {
+      stage(submission: UnsentTurnSubmission): Promise<void>
+      committed(id: string): void
+    },
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 撤回一条排队消息；它已经被处理了就照实说。 */
@@ -1372,7 +1376,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       replay,
       modelOverride,
       onUnsent,
+      localPersistence,
     ) {
+      const sameAccount = accountScope()
       const turnParams = replay?.params ?? {
         ...currentTurnParams(),
         ...(modelOverride ? { model: modelOverride } : {}),
@@ -1386,6 +1392,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         project: sourceProject,
         replay,
       })
+      if (captured.resolveCanvasBindings) await captured.resolveCanvasBindings()
+      if (!sameAccount()) return 'cancelled'
       references = captured.snapshot.references
       // 停止是秒生效的界面动作，后台还在跟服务端交涉。这几百毫秒里用户又发了一句：不报错、
       // 不拦下，静默等中止落定再起新轮——否则这一句会被当成排队消息挂到正在停的那一轮上。
@@ -1398,6 +1406,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (isClientCapabilityEnabled('billing:credits') && !requireAccount()) return
 
       if (
+        !sameAccount() ||
         get().conversationId !== conversationId ||
         currentCanvasProject()?.id !== sourceProject?.id
       )
@@ -1410,6 +1419,16 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
       const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
+      if (localPersistence) {
+        await localPersistence.stage({
+          ...captured.snapshot,
+          id: messageId,
+          text: trimmed,
+          mode,
+          clarificationAnswer,
+        })
+        if (!sameAccount()) return 'cancelled'
+      }
       if (journaled)
         await rememberOutgoing({
           id: messageId,
@@ -1422,17 +1441,22 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           clarificationAnswer,
           createdAt: Date.now(),
         })
+      if (journaled) localPersistence?.committed(messageId)
+      if (!sameAccount()) return 'cancelled'
       let submissionInput = captured.snapshot
       const prepare = async () => {
+        if (!sameAccount()) throw new Error('media_scope_changed')
         const prepared = await captured.prepare()
+        if (!sameAccount()) throw new Error('media_scope_changed')
         // Unaccepted uploads can expire; retain the captured pixels for a fresh upload on retry.
         if (prepared) submissionInput = { ...prepared, references: captured.snapshot.references }
         if (prepared && journaled)
           await updateOutgoingInput(journaled.projectId, journaled.id, submissionInput)
+        if (!sameAccount()) throw new Error('media_scope_changed')
         return prepared
       }
       const settleJournal = async () => {
-        if (journaled) await forgetOutgoing(journaled.projectId, journaled.id)
+        if (journaled && sameAccount()) await forgetOutgoing(journaled.projectId, journaled.id)
       }
       const returnUnsent = async (withdrawn = false) => {
         if (!onUnsent && !withdrawn) return
@@ -1541,6 +1565,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         try {
           if (!target) {
             target = await createProjectConversation()
+            if (!sameAccount()) return 'cancelled'
             if (submission.cancelled) return await cancelUnsent()
             if (!turnDelivery.isCurrent()) {
               await turnDelivery.settled()
@@ -1556,10 +1581,12 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
               await turnDelivery.settled()
               return
             }
+            if (!sameAccount()) return 'cancelled'
             safeLocalStorage.setItem(conversationKey(), target)
             bindNewAgentDraft(target, currentCanvasProject()?.id)
             set({ conversationId: target })
             // 会话是刚刚建出来的：本机那份补上它，重发时才知道发去哪个会话。
+            if (!sameAccount()) return 'cancelled'
             if (journaled) await bindOutgoingConversation(journaled.projectId, journaled.id, target)
             if (sourceProject?.cloud && cloudProjectsEnabled()) {
               let history: AgentConversationState

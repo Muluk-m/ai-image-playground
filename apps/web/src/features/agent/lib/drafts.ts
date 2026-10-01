@@ -1,7 +1,16 @@
 import { i18next } from '../../../i18n'
-import { scopedStorageName } from '../../../lib/authScope'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
+import { getAttachmentLimits } from '../../../lib/clientCapabilities'
 import { flushOnPageHide } from '../../../lib/flushOnPageHide'
+import {
+  attachmentSourceOwner,
+  recoverLocalAttachmentSources,
+  registerLocalAttachmentSource,
+} from '../../../lib/localAttachmentSources'
+import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
+import { attachmentUploadsEnabled, canReuseAttachmentMedia } from './attachmentUploads'
 import { type AgentDraft, EMPTY_DRAFT, hasDraftContent } from './references'
+import type { UnsentTurnSubmission } from './turnSubmission'
 
 const sessions = new Map<string, DraftSession>()
 const DB_NAME = 'image-playground-agent-drafts'
@@ -20,6 +29,54 @@ function openDatabase(): Promise<IDBDatabase> {
     })
   }
   return database
+}
+
+/** Migrate all copies of one command together, keeping exact originals shared by immutable handle. */
+function normalizeSources<T>(value: T): T {
+  const limits = attachmentUploadsEnabled() ? getAttachmentLimits() : undefined
+  if (!limits) return value
+  const originals = new Map<string, string>()
+  const workspace = peekCanvasWorkspace()
+  const knownMedia = new Map(
+    Object.entries(workspace?.doc.files ?? {}).flatMap(([fileId, source]) => {
+      const id = workspace?.cloud?.knownMediaId(fileId, source)
+      return id ? [[source, id] as const] : []
+    }),
+  )
+  const walk = (input: unknown): unknown => {
+    if (Array.isArray(input)) {
+      const next = input.map(walk)
+      return next.some((one, index) => one !== input[index]) ? next : input
+    }
+    if (!input || typeof input !== 'object') return input
+    let changed = false
+    const next = Object.fromEntries(
+      Object.entries(input).map(([key, child]) => {
+        let replacement = child
+        if (
+          (key === 'dataUrl' || key === 'maskDataUrl') &&
+          typeof child === 'string' &&
+          child.startsWith('data:image/')
+        ) {
+          const knownId =
+            key === 'dataUrl' && canReuseAttachmentMedia(input as { dataUrl: string })
+              ? knownMedia.get(child)
+              : undefined
+          if (knownId) replacement = `aip-media:${knownId}`
+          else {
+            replacement =
+              originals.get(child) ?? registerLocalAttachmentSource(child, limits.imageBytes)
+            originals.set(child, replacement as string)
+          }
+        } else if (['references', 'submission', 'unsent', 'remainingUnsent'].includes(key))
+          replacement = walk(child)
+        if (replacement !== child) changed = true
+        return [key, replacement]
+      }),
+    )
+    return changed ? next : input
+  }
+  return walk(value) as T
 }
 
 /** 创作类型跟着输入框此刻的选择走：搁在一边的那份不该把用户刚切的类型改回去。 */
@@ -60,12 +117,15 @@ export class DraftSession {
   private previousKey: string | undefined
   private remainingUnsent: AgentDraft[] = []
 
+  private readonly currentAccount = accountScope()
+  private sourceOwner: ReturnType<typeof attachmentSourceOwner>
   readonly ready: Promise<void>
 
   constructor(
     public key: string,
     private fallbackKey?: string,
   ) {
+    this.sourceOwner = attachmentSourceOwner(`draft:${key}`)
     this.ready = this.restore()
   }
 
@@ -84,6 +144,7 @@ export class DraftSession {
 
   private async restore() {
     try {
+      await recoverLocalAttachmentSources().catch(() => {})
       const db = await openDatabase()
       const stored = await new Promise<
         (AgentDraft & { unsent?: AgentDraft; remainingUnsent?: AgentDraft[] }) | undefined
@@ -106,7 +167,8 @@ export class DraftSession {
         typeof stored.prompt === 'string' &&
         Array.isArray(stored.references)
       ) {
-        const { unsent, remainingUnsent = [], ...draft } = stored
+        const normalized = this.currentAccount() ? normalizeSources(stored) : stored
+        const { unsent, remainingUnsent = [], ...draft } = normalized
         this.remainingUnsent = remainingUnsent
         // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
         if (unsent || hasDraftContent(draft))
@@ -117,6 +179,10 @@ export class DraftSession {
             ...(unsent ? { draft } : {}),
           })
         else this.publish({ draft })
+        if (normalized !== stored) {
+          this.revision += 1
+          await this.flush()
+        }
       }
     } catch {
       this.publish({ error: i18next.t('draft.unreadable', { ns: 'agent' }) })
@@ -127,6 +193,7 @@ export class DraftSession {
 
   update = (change: AgentDraft | ((draft: AgentDraft) => AgentDraft)) => {
     let draft = typeof change === 'function' ? change(this.snapshot.draft) : change
+    if (this.currentAccount()) draft = normalizeSources(draft)
     const previous = this.snapshot.draft
     if (
       draft.submission &&
@@ -159,6 +226,39 @@ export class DraftSession {
     }
     await this.flush()
     return this.snapshot.error === null
+  }
+
+  /** Persist the immutable command identity before it can coexist with an outgoing journal. */
+  async stageSubmission(original: AgentDraft, submission: UnsentTurnSubmission): Promise<void> {
+    const staged = { ...original, submission }
+    if (this.snapshot.draft === original) {
+      this.update(staged)
+      await this.flush()
+    } else {
+      await this.returnUnsent(staged)
+    }
+    if (this.snapshot.error) throw new Error('attachment_draft_save_failed')
+  }
+
+  /** Remove only the draft copy whose identical command has become durable elsewhere. */
+  acceptSubmission(id: string): void {
+    const { draft, unsent } = this.snapshot
+    const current = draft.submission?.id === id
+    const queued = [unsent, ...this.remainingUnsent].filter((one): one is AgentDraft =>
+      Boolean(one),
+    )
+    const remaining = queued.filter((one) => one.submission?.id !== id)
+    if (!current && remaining.length === queued.length) return
+    this.remainingUnsent = remaining.slice(1)
+    this.revision += 1
+    this.publish({
+      draft: current ? { ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) } : draft,
+      unsent: remaining[0] ?? null,
+      recoverable: Boolean(
+        remaining[0] && (this.snapshot.recoverable || unsent?.submission?.id === id),
+      ),
+    })
+    void this.flush()
   }
 
   /** 把没发出去的那份放回输入框；输入框里此刻跟着选区带进来的图保留。 */
@@ -198,6 +298,7 @@ export class DraftSession {
   moveTo(key: string) {
     this.previousKey = this.key
     this.key = key
+    this.sourceOwner = attachmentSourceOwner(`draft:${key}`)
     this.revision += 1
     void this.flush()
   }
@@ -237,24 +338,33 @@ export class DraftSession {
           : current
     const key = this.key
     const previousKey = this.previousKey
-    this.writes = this.writes.then(async () => {
-      try {
-        const db = await openDatabase()
-        await new Promise<void>((resolve, reject) => {
-          const transaction = db.transaction('drafts', 'readwrite')
-          transaction.objectStore('drafts').put(draft, key)
-          if (previousKey) transaction.objectStore('drafts').delete(previousKey)
-          transaction.oncomplete = () => resolve()
-          transaction.onabort = () => reject(transaction.error)
-          transaction.onerror = () => reject(transaction.error)
-        })
-        this.savedRevision = Math.max(this.savedRevision, revision)
-        if (this.previousKey === previousKey) this.previousKey = undefined
-        this.publish({ error: null })
-      } catch {
-        this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
-      }
-    })
+    const sourceOwner = this.sourceOwner
+    const previousSourceOwner = previousKey
+      ? attachmentSourceOwner(`draft:${previousKey}`)
+      : undefined
+    this.writes = this.writes.then(() =>
+      sourceOwner.withDocument(async () => {
+        try {
+          await sourceOwner.retain(draft)
+          const db = await openDatabase()
+          await new Promise<void>((resolve, reject) => {
+            const transaction = db.transaction('drafts', 'readwrite')
+            transaction.objectStore('drafts').put(draft, key)
+            if (previousKey) transaction.objectStore('drafts').delete(previousKey)
+            transaction.oncomplete = () => resolve()
+            transaction.onabort = () => reject(transaction.error)
+            transaction.onerror = () => reject(transaction.error)
+          })
+          await sourceOwner.replace(draft)
+          await previousSourceOwner?.release()
+          this.savedRevision = Math.max(this.savedRevision, revision)
+          if (this.previousKey === previousKey) this.previousKey = undefined
+          this.publish({ error: null })
+        } catch {
+          this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
+        }
+      }),
+    )
     return this.writes
   }
 }
@@ -302,16 +412,22 @@ export async function removeProjectDraft(
 ): Promise<void> {
   const key = scopedStorageName(`agent-project-draft:${projectId}`)
   const legacyKey = conversationId ? scopedStorageName(`agent-draft:${conversationId}`) : null
+  const sourceOwner = attachmentSourceOwner(`draft:${key}`)
+  const legacySourceOwner = legacyKey ? attachmentSourceOwner(`draft:${legacyKey}`) : undefined
   const session = sessions.get(key)
   if (session) await session.flush()
-  const db = await openDatabase()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('drafts', 'readwrite')
-    tx.objectStore('drafts').delete(key)
-    if (legacyKey) tx.objectStore('drafts').delete(legacyKey)
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error)
-    tx.onerror = () => reject(tx.error)
+  await sourceOwner.withDocument(async () => {
+    const db = await openDatabase()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('drafts', 'readwrite')
+      tx.objectStore('drafts').delete(key)
+      if (legacyKey) tx.objectStore('drafts').delete(legacyKey)
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(tx.error)
+      tx.onerror = () => reject(tx.error)
+    })
+    await sourceOwner.release()
+    await legacySourceOwner?.release()
   })
   sessions.delete(key)
 }
