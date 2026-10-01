@@ -165,6 +165,9 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
       body: t.Object({
         commandId: t.String({ minLength: 1, maxLength: 128 }),
         expectedVersion: t.Integer({ minimum: 1 }),
+        sourceVersions: t.Optional(
+          t.Array(t.Integer({ minimum: 1 }), { minItems: 1, maxItems: 100 }),
+        ),
         excludedItemKeys: t.Optional(
           t.Array(t.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
         ),

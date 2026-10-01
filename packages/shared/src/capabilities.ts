@@ -73,6 +73,7 @@ export interface AdminCapabilityManifest {
 }
 
 export const QUOTAS = {
+  'agent:batch-source-versions': { defaultValue: 4 },
   'agent:batch-max-items': { defaultValue: 3 },
   'agent:batch-dispatch-window': { defaultValue: 2 },
   /** Independent analysis consumer keeps draining accepted tasks when intake is disabled. */

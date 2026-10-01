@@ -46,6 +46,7 @@ interface AgentBatchItemBase {
   readonly dependencies: readonly string[]
 }
 export interface AgentBatchAnalysisSource {
+  readonly version?: number
   readonly itemKey: string
   readonly taskId: string
   readonly attempt: number
@@ -96,6 +97,7 @@ export interface AgentBatchItemExecution {
 }
 
 export interface AgentBatchConfirmation {
+  readonly sourceVersions?: readonly number[]
   readonly sourceVersion?: number
   readonly excludedItemKeys?: readonly string[]
   readonly excludedImageIds?: readonly string[]
@@ -116,6 +118,7 @@ export interface AgentBatchAnalysisProposal {
 }
 
 export interface AgentBatchGenerationProposal {
+  readonly sourceVersions?: readonly number[]
   readonly excludedItemKeys?: readonly string[]
   readonly excludedImageIds?: readonly string[]
   readonly commandId: string
@@ -180,6 +183,7 @@ export interface AgentBatchAnalysisSummary {
   readonly missingImageIds: readonly string[]
   readonly unresolvedItemKeys: readonly string[]
   readonly findings: readonly (AnalysisFinding & {
+    readonly version?: number
     readonly itemKey: string
     readonly taskId: string
     readonly attempt: number

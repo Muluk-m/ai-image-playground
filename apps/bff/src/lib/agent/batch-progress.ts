@@ -127,15 +127,21 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     })
   }
   const analyses = await db
-    .select()
+    .select({ analysis: schema.analysis_tasks })
     .from(schema.analysis_tasks)
+    .innerJoin(
+      schema.agent_batch_attempts,
+      eq(schema.agent_batch_attempts.task_id, schema.analysis_tasks.task_id),
+    )
     .where(
       and(
         eq(schema.analysis_tasks.batch_id, batchId),
+        isNull(schema.agent_batch_attempts.terminal_snapshot),
         inArray(schema.analysis_tasks.status, ['completed', 'failed', 'cancelled']),
       ),
     )
-  for (const analysis of analyses) {
+    .limit(100)
+  for (const { analysis } of analyses) {
     if (
       analysis.completed_at === null ||
       analysis.actual_credits === null ||

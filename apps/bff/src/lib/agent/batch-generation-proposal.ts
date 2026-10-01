@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type { AgentBatchGenerationProposal, AgentBatchItem } from '@image-playground/shared'
-import { and, asc, eq, inArray, or } from 'drizzle-orm'
+import { and, eq, inArray, lte, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { readBatchSourceItems } from './batch-analysis-sources'
 import { batchExecutionAvailable, lockOwnedBatch } from './batch-execution'
-import { batchItem } from './batch-items'
 import { saveBatchRevision } from './batch-plan-revision'
 import { BatchPlanError, sameArchivedReference } from './batch-plans'
 import { resolveAgentModel } from './tools/queueTask'
@@ -52,17 +52,20 @@ export async function proposeBatchGeneration(
         ),
       )
     if (!plan) throw new BatchPlanError('batch_not_found', 404)
-    const previous = await tx
-      .select()
-      .from(schema.agent_batch_items)
-      .where(
-        and(
-          eq(schema.agent_batch_items.batch_id, id),
-          eq(schema.agent_batch_items.version, input.expectedVersion),
-        ),
-      )
-      .orderBy(asc(schema.agent_batch_items.ordinal))
-      .then((rows) => rows.map(batchItem))
+    const permittedVersions = [
+      ...new Set([
+        ...(plan.confirmation?.sourceVersions ??
+          (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])),
+        plan.version,
+      ]),
+    ].sort((a, b) => a - b)
+    const sourceVersions = input.sourceVersions
+      ? [...input.sourceVersions].sort((a, b) => a - b)
+      : [plan.version]
+    if (!isDeepStrictEqual(sourceVersions, permittedVersions) || sourceVersions.length > 100)
+      throw new BatchPlanError('batch_source_version_conflict', 409)
+    const sourceItems = await readBatchSourceItems(tx, id, sourceVersions)
+    const previous = sourceItems.map((source) => source.item)
     if (
       !input.items.length ||
       input.items.length > Math.min(100, config.operator.quotas['agent:batch-max-items'])
@@ -96,9 +99,13 @@ export async function proposeBatchGeneration(
             ...sourceKeys.map((key) =>
               and(
                 eq(schema.agent_batch_attempts.item_key, key),
+                lte(
+                  schema.agent_batch_attempts.version,
+                  sourceItems.find((source) => source.item.key === key)?.version ?? 0,
+                ),
                 eq(
                   schema.agent_batch_attempts.attempt,
-                  Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1,
+                  sourceItems.find((source) => source.item.key === key)?.target ?? 1,
                 ),
               ),
             ),
@@ -163,12 +170,12 @@ export async function proposeBatchGeneration(
       )
         throw new BatchPlanError('batch_execution_unavailable', 422)
       const sources = proposed.sourceItemKeys.map((key) => {
-        const item = previous.find((one) => one.key === key)
+        const source = sourceItems.find((one) => one.item.key === key)
+        const item = source?.item
         const attempt = attempts.find(
           (one) =>
             one.itemKey === key &&
-            one.attempt ===
-              (Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1),
+            one.attempt === (sourceItems.find((source) => source.item.key === key)?.target ?? 1),
         )
         if (
           !item ||
@@ -193,7 +200,7 @@ export async function proposeBatchGeneration(
           )
         )
           throw new BatchPlanError('batch_analysis_incomplete', 409)
-        return { item, attempt }
+        return { item, attempt, version: source!.version }
       })
       const inputs = proposed.inputImageIds.map((imageId) => {
         const candidates = sources.flatMap((source) =>
@@ -216,10 +223,11 @@ export async function proposeBatchGeneration(
         prompt: proposed.prompt,
         params: proposed.params,
         dependencies: proposed.sourceItemKeys,
-        sourceAnalysis: sources.map(({ attempt }) => ({
+        sourceAnalysis: sources.map(({ attempt, version }) => ({
           itemKey: attempt.itemKey,
           taskId: attempt.taskId,
           attempt: attempt.attempt,
+          version,
         })),
       })
     }
@@ -229,7 +237,12 @@ export async function proposeBatchGeneration(
       plan,
       items,
       { id: input.commandId, kind: 'generation_proposal', requestHash },
-      { sourceVersion: plan.version, excludedItemKeys, excludedImageIds },
+      {
+        sourceVersion: plan.version,
+        ...(sourceVersions.length > 1 ? { sourceVersions } : {}),
+        excludedItemKeys,
+        excludedImageIds,
+      },
     )
   })
 }

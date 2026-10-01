@@ -14,7 +14,7 @@ export const proposeBatchGeneration = defineAgentTool({
   description:
     '依据同一批次已经真实完成的分析，拟定逐项完整生成提示词并重新报价。只保存新阶段，必须由用户再次确认生成。',
   guidance:
-    '先读取分析结果，再为每项写出完整且具体的生成提示词，sourceItemKeys列出真实分析来源。不可用占位提示词提前授权。未完成或未知分析不能作为成功证据；用户选择缩小范围时必须明确excludedItemKeys和excludedImageIds，旧核查仍保留。',
+    '先按当前批次confirmation.sourceVersions逐版本读取分析结果，跨分析阶段时显式传入全部来源版本加当前版本，再为每项写出完整且具体的生成提示词，sourceItemKeys列出真实分析来源。不可用占位提示词提前授权。未完成或未知分析不能作为成功证据；用户选择缩小范围时必须明确excludedItemKeys和excludedImageIds，旧核查仍保留。',
   onError: 'continue',
   available: (_mode, audience) =>
     Boolean(
@@ -25,6 +25,9 @@ export const proposeBatchGeneration = defineAgentTool({
   parameters: Type.Object({
     batchId: Type.String({ minLength: 1, maxLength: 128 }),
     expectedVersion: Type.Integer({ minimum: 1 }),
+    sourceVersions: Type.Optional(
+      Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1, maxItems: 100 }),
+    ),
     excludedItemKeys: Type.Optional(
       Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 100 }),
     ),
@@ -58,6 +61,7 @@ export const proposeBatchGeneration = defineAgentTool({
     await saveGenerationProposal(context.userId, input.batchId, {
       commandId: `agent:${context.turnId}:${toolCallId}`,
       expectedVersion: input.expectedVersion,
+      sourceVersions: input.sourceVersions,
       excludedItemKeys: input.excludedItemKeys,
       excludedImageIds: input.excludedImageIds,
       items: input.items.map((item) => {

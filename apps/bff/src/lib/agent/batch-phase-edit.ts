@@ -6,6 +6,7 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { prepareAnalysisTask } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'
+import { readBatchSourceItems } from './batch-analysis-sources'
 import { lockOwnedBatch } from './batch-execution'
 import { batchItem } from './batch-items'
 import { saveBatchRevision } from './batch-plan-revision'
@@ -52,22 +53,23 @@ export async function updatePendingBatchPhase(
     )
     .orderBy(asc(schema.agent_batch_items.ordinal))
     .then((rows) => rows.map(batchItem))
-  const prepared = new Map<string, Awaited<ReturnType<typeof prepareAnalysisTask>>>()
+  const prepared = new Map<
+    string,
+    Omit<Awaited<ReturnType<typeof prepareAnalysisTask>>, 'images'>
+  >()
   for (const item of input.items) {
     if (item.kind !== 'analysis' || !candidate.confirmation.itemKeys.includes(item.key)) continue
     if (!isCapabilityEnabled('agent:batch-analysis') || item.params.model !== config.agent.model)
       throw new BatchPlanError('batch_execution_unavailable', 422)
     const old = previous.find((one) => one.key === item.key)
-    prepared.set(
-      item.key,
-      await prepareAnalysisTask({
-        userId,
-        model: item.params.model,
-        intent: item.params.intent ?? (old?.kind === 'analysis' ? old.params.intent : undefined),
-        prompt: item.prompt,
-        inputs: item.inputs,
-      }),
-    )
+    const { images: _images, ...snapshot } = await prepareAnalysisTask({
+      userId,
+      model: item.params.model,
+      intent: item.params.intent ?? (old?.kind === 'analysis' ? old.params.intent : undefined),
+      prompt: item.prompt,
+      inputs: item.inputs,
+    })
+    prepared.set(item.key, snapshot)
   }
   await db.transaction(async (tx) => {
     const batch = await lockOwnedBatch(tx, userId, id)
@@ -146,6 +148,12 @@ export async function updatePendingBatchPhase(
           )
           .limit(100)
       : []
+    const archivedSources = await readBatchSourceItems(
+      tx,
+      id,
+      plan.confirmation.sourceVersions ?? [],
+    )
+    const historicalDependencies = new Set(archivedSources.map((source) => source.item.key))
     const keys = new Set<string>()
     const items: AgentBatchItem[] = []
     for (const inputItem of input.items) {
@@ -224,6 +232,7 @@ export async function updatePendingBatchPhase(
         item.dependencies.some(
           (key) =>
             !keys.has(key) &&
+            !historicalDependencies.has(key) &&
             !(
               item.kind === 'generation' &&
               item.sourceAnalysis?.some((source) => source.itemKey === key)
@@ -272,6 +281,7 @@ export async function updatePendingBatchPhase(
       },
       {
         sourceVersion: plan.confirmation.sourceVersion,
+        sourceVersions: plan.confirmation.sourceVersions,
         excludedItemKeys,
         excludedImageIds,
         requiresResume: plan.confirmation.requiresResume,

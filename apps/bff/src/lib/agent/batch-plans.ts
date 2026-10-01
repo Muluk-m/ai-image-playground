@@ -19,7 +19,7 @@ import { isCapabilityEnabled } from '../capabilities'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { queueTaskOutcome } from '../taskSubmission'
 import { jointAnalysisLimit } from './batch-analysis-limit'
-import { readBatchAnalysisSummary } from './batch-analysis-summary'
+import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
 import { batchItem, batchItemValues } from './batch-items'
 import { updatePendingBatchPhase } from './batch-phase-edit'
 import { lockConversation } from './confirmations'
@@ -318,6 +318,8 @@ export class BatchPlanError extends Error {
       | 'batch_analysis_incomplete'
       | 'batch_scope_reduction_required'
       | 'batch_size_exceeded'
+      | 'batch_source_limit_exceeded'
+      | 'batch_source_version_conflict'
       | 'batch_price_changed'
       | 'batch_submission_refused'
       | 'batch_input_limit'
@@ -547,8 +549,11 @@ export async function readAgentBatchPlan(
     return { progress: ready ? 'ready' : 'pending' }
   }
   const analysisSummary = await readBatchAnalysisSummary(id, plan.version)
-  const sourceAnalysisSummary = plan.confirmation?.sourceVersion
-    ? await readBatchAnalysisSummary(id, plan.confirmation.sourceVersion)
+  const sourceVersions =
+    plan.confirmation?.sourceVersions ??
+    (plan.confirmation?.sourceVersion ? [plan.confirmation.sourceVersion] : [])
+  const sourceAnalysisSummary = sourceVersions.length
+    ? await readBatchSourceSummary(id, sourceVersions)
     : undefined
   return {
     ...(analysisSummary ? { analysisSummary } : {}),
@@ -601,21 +606,22 @@ export async function updateAgentBatchPlan(
   input: AgentBatchUpdate,
 ): Promise<void> {
   if (await updatePendingBatchPhase(userId, id, input)) return
-  const preparedAnalysis = new Map<string, Awaited<ReturnType<typeof prepareAnalysisTask>>>()
+  const preparedAnalysis = new Map<
+    string,
+    Omit<Awaited<ReturnType<typeof prepareAnalysisTask>>, 'images'>
+  >()
   for (const item of input.items) {
     if (item.kind !== 'analysis') continue
     if (!isCapabilityEnabled('agent:batch-analysis') || item.params.model !== config.agent.model)
       throw new BatchPlanError('batch_execution_unavailable', 422)
-    preparedAnalysis.set(
-      item.key,
-      await prepareAnalysisTask({
-        userId,
-        model: item.params.model,
-        prompt: item.prompt,
-        inputs: item.inputs,
-        intent: item.params.intent,
-      }),
-    )
+    const { images: _images, ...snapshot } = await prepareAnalysisTask({
+      userId,
+      model: item.params.model,
+      prompt: item.prompt,
+      inputs: item.inputs,
+      intent: item.params.intent,
+    })
+    preparedAnalysis.set(item.key, snapshot)
   }
   await db.transaction(async (tx) => {
     const [origin] = await tx
