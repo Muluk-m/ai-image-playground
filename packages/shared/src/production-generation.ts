@@ -16,6 +16,8 @@ export interface ProductionGenerationBinding {
     readonly description: string
     readonly references: readonly ProductionMediaReference[]
     readonly shotIds?: readonly string[]
+    readonly model?: string
+    readonly video?: VideoRequest
   }
 }
 export interface ProductionGenerationDraftInput {

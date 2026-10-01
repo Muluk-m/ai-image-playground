@@ -40,6 +40,18 @@ setObjectStoreForTesting(storage)
 _setChannelsForTesting([
   {
     ...TEST_IMAGE_CHANNEL,
+    id: 'video',
+    models: [
+      {
+        id: 'grok-imagine-video',
+        label: 'Video',
+        media: 'video',
+        capabilities: ['generate', 'reference_images'],
+      },
+    ],
+  },
+  {
+    ...TEST_IMAGE_CHANNEL,
     models: TEST_IMAGE_CHANNEL.models.map((model) => ({
       ...model,
       capabilities: ['generate', 'edit', 'quality', 'size'],
@@ -341,6 +353,185 @@ it('refuses a draft whose original reference disappeared before confirmation', a
   )
   expect(confirmed.status).toBe(409)
   expect(billing.reservations).toHaveLength(0)
+})
+it('creates a clip draft from its saved plan and rejects changed or missing shot inputs', async () => {
+  billing.reset()
+  const owner = await account('clip-generation-owner')
+  const clip = {
+    id: 'clip',
+    name: '开场',
+    shotIds: ['shot'],
+    prompt: '镜头掠过雨夜街道',
+    model: 'grok-imagine-video',
+    video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    references: [],
+    sourceRevision: 0,
+  }
+  const content = {
+    title: '雨夜',
+    setting: '',
+    outline: '',
+    scenes: [],
+    shots: [{ id: 'shot', description: '雨夜', lookIds: [] }],
+    clips: [clip],
+  }
+  expect(
+    (await request(owner, 'PUT', '', { operationId: 'initial', baseRevision: 0, content })).status,
+  ).toBe(200)
+  const input = {
+    operationId: 'clip-draft',
+    baseRevision: 1,
+    target: 'clip',
+    targetId: 'clip',
+    prompt: clip.prompt,
+    model: clip.model,
+    video: clip.video,
+    references: [],
+  }
+  const response = await request(owner, 'POST', '/generations', input)
+  expect(response.status).toBe(200)
+  const { generation } = await response.json()
+  expect(generation.production.snapshot.shotIds).toEqual(['shot'])
+  expect(generation.video).toEqual(clip.video)
+  expect(billing.reservations).toHaveLength(0)
+  expect(
+    (
+      await request(owner, 'POST', '/generations', {
+        ...input,
+        operationId: 'changed',
+        prompt: '篡改计划',
+      })
+    ).status,
+  ).toBe(400)
+  expect(
+    (
+      await request(owner, 'PUT', '', {
+        operationId: 'remove-shot',
+        baseRevision: 1,
+        content: { ...content, shots: [] },
+      })
+    ).status,
+  ).toBe(200)
+  expect(
+    (
+      await request(owner, 'POST', '/generations', {
+        ...input,
+        operationId: 'missing',
+        baseRevision: 2,
+      })
+    ).status,
+  ).toBe(400)
+  const confirm = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${owner.id}/confirmations`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'production-device',
+        messageId: generation.messageId,
+        prompt: clip.prompt,
+        draftRevision: 1,
+      }),
+    }),
+  )
+  expect(confirm.status).toBe(409)
+  expect(billing.reservations).toHaveLength(0)
+})
+it('confirms a clip once and adopts only its completed video candidate', async () => {
+  billing.reset()
+  const owner = await account('clip-complete-owner')
+  const clip = {
+    id: 'clip',
+    name: '开场',
+    shotIds: ['shot'],
+    prompt: '雨夜街道',
+    model: 'grok-imagine-video',
+    video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    references: [],
+    sourceRevision: 0,
+  }
+  await request(owner, 'PUT', '', {
+    operationId: 'init',
+    baseRevision: 0,
+    content: {
+      title: '雨夜',
+      setting: '',
+      outline: '',
+      scenes: [],
+      shots: [{ id: 'shot', description: '雨夜', lookIds: [] }],
+      clips: [clip],
+    },
+  })
+  const { generation } = await (
+    await request(owner, 'POST', '/generations', {
+      operationId: 'create',
+      baseRevision: 1,
+      target: 'clip',
+      targetId: 'clip',
+      prompt: clip.prompt,
+      model: clip.model,
+      video: clip.video,
+      references: [],
+    })
+  ).json()
+  const confirm = () =>
+    app.handle(
+      new Request(`http://localhost/api/agent/conversations/${owner.id}/confirmations`, {
+        method: 'POST',
+        headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: 'production-device',
+          messageId: generation.messageId,
+          prompt: clip.prompt,
+          draftRevision: 1,
+        }),
+      }),
+    )
+  expect((await confirm()).status).toBe(200)
+  expect((await confirm()).status).toBe(200)
+  expect(billing.reservations).toHaveLength(1)
+  const submitted = (await (await request(owner, 'GET', '/generations')).json()).generations[0]
+  expect(submitted.taskId).toBeString()
+  await workerSettles(submitted.taskId, {
+    status: 'completed',
+    resultPayload: {
+      data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
+    },
+  })
+  const completed = (await (await request(owner, 'GET', '/generations')).json()).generations[0]
+  expect(completed.artifacts[0].media).toBe('video')
+  const current = (await (await request(owner, 'GET')).json()).document
+  expect(
+    (
+      await request(owner, 'PUT', '', {
+        operationId: 'video-as-image',
+        baseRevision: current.revision,
+        content: {
+          ...current.content,
+          locations: [
+            {
+              id: 'invalid',
+              name: '场景',
+              description: '',
+              reference: { kind: 'artifact', artifactId: completed.artifacts[0].artifactId },
+            },
+          ],
+        },
+      })
+    ).status,
+  ).toBe(400)
+  const adopt = () =>
+    request(owner, 'POST', `/generations/${generation.draftId}/adopt`, {
+      operationId: 'adopt',
+      baseRevision: 1,
+      artifactId: completed.artifacts[0].artifactId,
+    })
+  const result = await adopt()
+  expect(result.status).toBe(200)
+  expect((await result.json()).document.content.clips[0].adopted).toMatchObject({
+    draftId: generation.draftId,
+    artifactId: completed.artifacts[0].artifactId,
+  })
+  expect((await (await adopt()).json()).document.revision).toBe(2)
 })
 afterAll(async () => {
   setObjectStoreForTesting()

@@ -16,11 +16,12 @@ export async function validateProductionMediaReferences(
   userId: string,
   references: readonly ProductionMediaReference[],
   executor: Pick<typeof db, 'select'> = db,
+  expectedMedia: 'image' | 'video' = 'image',
 ): Promise<boolean> {
   for (const reference of references) {
     if (reference.kind === 'media') {
       const [media] = await executor
-        .select({ id: schema.media_objects.id })
+        .select({ id: schema.media_objects.id, contentType: schema.media_objects.content_type })
         .from(schema.media_objects)
         .where(
           and(
@@ -31,10 +32,13 @@ export async function validateProductionMediaReferences(
         )
         .for('share')
         .limit(1)
-      if (!media) return false
+      if (!media?.contentType.startsWith(`${expectedMedia}/`)) return false
     } else if (reference.kind === 'asset') {
       const [asset] = await executor
-        .select({ id: schema.user_asset_objects.image_id })
+        .select({
+          id: schema.user_asset_objects.image_id,
+          contentType: schema.user_asset_objects.content_type,
+        })
         .from(schema.user_asset_objects)
         .where(
           and(
@@ -43,7 +47,7 @@ export async function validateProductionMediaReferences(
           ),
         )
         .limit(1)
-      if (!asset) return false
+      if (!asset?.contentType.startsWith(`${expectedMedia}/`)) return false
     } else {
       const parsed = parseProjectArtifactId(reference.artifactId)
       if (!parsed) return false
@@ -66,7 +70,9 @@ export async function validateProductionMediaReferences(
         !task ||
         task.status !== 'completed' ||
         !provider ||
-        !resolveImageBytesRef(provider, task.result, parsed.position)
+        !resolveImageBytesRef(provider, task.result, parsed.position)?.mime.startsWith(
+          `${expectedMedia}/`,
+        )
       )
         return false
     }

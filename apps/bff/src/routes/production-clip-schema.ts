@@ -2,6 +2,16 @@ import { VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS } from '@image-playground/shared
 import { t } from 'elysia'
 import { productionReferenceSchema } from './production-asset-schema'
 
+export const productionVideoSchema = t.Object({
+  duration_seconds: t.Number(),
+  aspect_ratio: t.Union(VIDEO_ASPECT_RATIOS.map((value) => t.Literal(value))),
+  resolution: t.Union(VIDEO_RESOLUTIONS.map((value) => t.Literal(value))),
+  first_frame_index: t.Optional(t.Integer({ minimum: 0 })),
+  last_frame_index: t.Optional(t.Integer({ minimum: 0 })),
+  reference_image_indices: t.Optional(t.Array(t.Integer({ minimum: 0 }))),
+  mode: t.Optional(t.Literal('generate')),
+})
+
 export const productionClipSchema = t.Array(
   t.Object({
     id: t.String({ minLength: 1, maxLength: 128 }),
@@ -17,15 +27,7 @@ export const productionClipSchema = t.Array(
       }),
       { maxItems: 16 },
     ),
-    video: t.Object({
-      duration_seconds: t.Number(),
-      aspect_ratio: t.Union(VIDEO_ASPECT_RATIOS.map((value) => t.Literal(value))),
-      resolution: t.Union(VIDEO_RESOLUTIONS.map((value) => t.Literal(value))),
-      first_frame_index: t.Optional(t.Integer({ minimum: 0 })),
-      last_frame_index: t.Optional(t.Integer({ minimum: 0 })),
-      reference_image_indices: t.Optional(t.Array(t.Integer({ minimum: 0 }))),
-      mode: t.Optional(t.Literal('generate')),
-    }),
+    video: productionVideoSchema,
     adopted: t.Optional(
       t.Object({
         draftId: t.String({ minLength: 1, maxLength: 128 }),
