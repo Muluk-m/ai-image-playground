@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type {
   AgentBatchEstimates,
   AgentBatchItem,
+  AgentBatchItemExecution,
   AgentBatchPage,
   AgentBatchPriceSnapshot,
   AgentBatchUpdate,
@@ -39,6 +40,44 @@ interface PlanInput {
 
 function invalid(message: string): never {
   throw new AgentToolError('invalid_params', message)
+}
+
+/** Original and mask are one immutable selection and must retain both media objects. */
+function batchMediaIds(items: readonly AgentBatchItem[]): string[] {
+  return [
+    ...new Set(
+      items.flatMap((item) =>
+        item.inputs.flatMap((reference) => [
+          reference.mediaId,
+          ...(reference.maskMediaId ? [reference.maskMediaId] : []),
+        ]),
+      ),
+    ),
+  ]
+}
+
+/** Reuse only an exact archived selection, never combine a known image with a new mask/action. */
+function sameArchivedReference(left: AgentMediaReference, right: AgentMediaReference): boolean {
+  return (
+    left.imageId === right.imageId &&
+    left.mediaId === right.mediaId &&
+    left.name === right.name &&
+    left.maskMediaId === right.maskMediaId &&
+    left.editAction === right.editAction &&
+    (left.regions === undefined
+      ? right.regions === undefined
+      : right.regions !== undefined &&
+        left.regions.length === right.regions.length &&
+        left.regions.every((region, index) => {
+          const other = right.regions![index]!
+          return (
+            region.x === other.x &&
+            region.y === other.y &&
+            region.width === other.width &&
+            region.height === other.height
+          )
+        }))
+  )
 }
 
 const emptyEstimate = {
@@ -106,7 +145,7 @@ export async function createAgentBatchPlan(
         ),
       )
     if (existing) return existing.id
-    const mediaIds = [...new Set(items.flatMap((item) => item.inputs.map((one) => one.mediaId)))]
+    const mediaIds = batchMediaIds(items)
     const ready = await tx
       .select({ id: schema.media_objects.id })
       .from(schema.media_objects)
@@ -176,9 +215,11 @@ export class BatchPlanError extends Error {
   constructor(
     readonly code:
       | 'batch_execution_unavailable'
+      | 'batch_retry_unavailable'
       | 'batch_size_exceeded'
       | 'batch_price_changed'
       | 'batch_submission_refused'
+      | 'batch_input_limit'
       | 'batch_insufficient_credits'
       | 'batch_version_conflict'
       | 'invalid_batch_plan'
@@ -255,41 +296,73 @@ export async function readAgentBatchPlan(
     )
     .orderBy(asc(schema.agent_batch_items.ordinal))
     .limit(limit + 1)
-  const attempts = await db
+  const attemptRows = await db
     .select({
       itemKey: schema.agent_batch_attempts.item_key,
       attempt: schema.agent_batch_attempts.attempt,
       taskId: schema.agent_batch_attempts.task_id,
       status: schema.tasks.status,
+      snapshot: schema.agent_batch_attempts.terminal_snapshot,
     })
     .from(schema.agent_batch_attempts)
-    .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+    .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
     .where(
       and(
         eq(schema.agent_batch_attempts.batch_id, id),
         lte(schema.agent_batch_attempts.version, plan.version),
       ),
     )
+  attemptRows.sort((a, b) => a.attempt - b.attempt)
+  const attempts = attemptRows.map((one) => ({
+    ...one,
+    status: one.snapshot?.status ?? one.status ?? ('reconciling' as const),
+  }))
   const terminal = attempts.filter((one) =>
     ['completed', 'failed', 'cancelled'].includes(one.status),
   )
-  const credits = terminal.length
+  const unarchived = terminal.filter((one) => !one.snapshot)
+  const liveCredits = unarchived.length
     ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
-        taskIds: terminal.map((one) => one.taskId),
+        taskIds: unarchived.map((one) => one.taskId),
       })
     : {}
+  const credits = {
+    ...liveCredits,
+    ...Object.fromEntries(
+      terminal.flatMap((one) =>
+        one.snapshot?.actualCredits !== null && one.snapshot?.actualCredits !== undefined
+          ? [[one.taskId, one.snapshot.actualCredits]]
+          : [],
+      ),
+    ),
+  }
+  const history = new Map<string, AgentBatchItemExecution[]>()
+  for (const one of attempts) {
+    const entry: AgentBatchItemExecution = {
+      taskId: one.taskId,
+      status: one.status,
+      attempt: one.attempt,
+      actualCredits: terminal.includes(one) ? (credits[one.taskId] ?? null) : null,
+      ...(one.snapshot
+        ? {
+            artifacts: one.snapshot.artifacts,
+            errorCode: one.snapshot.errorCode,
+            message: one.snapshot.message,
+          }
+        : {}),
+    }
+    history.set(one.itemKey, [...(history.get(one.itemKey) ?? []), entry])
+  }
   const execution = new Map(
-    attempts.map((one) => [
-      one.itemKey,
-      {
-        taskId: one.taskId,
-        status: one.status,
-        attempt: one.attempt,
-        actualCredits: terminal.includes(one) ? (credits[one.taskId] ?? null) : null,
-      },
-    ]),
+    [...history].map(([key, entries]) => [key, entries[entries.length - 1]!]),
   )
-  const complete = batch.confirmed_version === plan.version && terminal.length === plan.item_count
+  const currentTerminal = terminal.filter(
+    (one) =>
+      one.attempt ===
+      (Object.hasOwn(plan.attempt_targets, one.itemKey) ? plan.attempt_targets[one.itemKey]! : 1),
+  )
+  const complete =
+    batch.confirmed_version === plan.version && currentTerminal.length === plan.item_count
   return {
     batch: {
       id: batch.id,
@@ -308,6 +381,9 @@ export async function readAgentBatchPlan(
         batchPlansAvailable({ userId }) && isCapabilityEnabled('agent:batch-execution'),
       pauseReason: batch.pause_reason,
       confirmationRequired: batch.confirmed_version !== batch.current_version,
+      ...(plan.retry_item_keys.length
+        ? { retryItemKeys: plan.retry_item_keys, retryRequiresResume: plan.retry_requires_resume }
+        : {}),
       submittedCount: attempts.length,
       actualCredits: Object.values(credits).reduce((sum, value) => sum + value, 0),
       estimate: plan.estimate_snapshot,
@@ -315,7 +391,9 @@ export async function readAgentBatchPlan(
     } satisfies AgentBatchView,
     items: items.slice(0, limit).map(({ batch_id: _batch, version: _version, ...item }) => ({
       ...item,
-      ...(execution.has(item.key) ? { execution: execution.get(item.key)! } : {}),
+      ...(execution.has(item.key)
+        ? { execution: execution.get(item.key)!, attempts: history.get(item.key)! }
+        : {}),
     })),
     nextCursor:
       items.length > limit
@@ -370,11 +448,21 @@ export async function updateAgentBatchPlan(
           isNull(schema.agent_messages.deleted_at),
         ),
       )
+    const currentItems = await tx
+      .select({ inputs: schema.agent_batch_items.inputs })
+      .from(schema.agent_batch_items)
+      .where(
+        and(
+          eq(schema.agent_batch_items.batch_id, id),
+          eq(schema.agent_batch_items.version, batch.current_version),
+        ),
+      )
     const references = messages
       .flatMap((message) =>
         message.content.flatMap((block) => (block.type === 'text' ? (block.references ?? []) : [])),
       )
       .filter((reference): reference is AgentMediaReference => 'mediaId' in reference)
+      .concat(currentItems.flatMap((item) => item.inputs))
     const keys = new Set<string>()
     const items: AgentBatchItem[] = input.items.map((item, ordinal) => {
       if (
@@ -389,9 +477,7 @@ export async function updateAgentBatchPlan(
       if (!target || target.model !== item.params.model || target.provider !== item.params.provider)
         throw new BatchPlanError('invalid_batch_plan', 422)
       const inputs = item.inputs.map((reference) => {
-        const stored = references.find(
-          (one) => one.imageId === reference.imageId && one.mediaId === reference.mediaId,
-        )
+        const stored = references.find((one) => sameArchivedReference(one, reference))
         if (!stored) throw new BatchPlanError('invalid_batch_plan', 422)
         return stored
       })
@@ -405,9 +491,7 @@ export async function updateAgentBatchPlan(
         inputs,
       }
     })
-    const mediaIds = [
-      ...new Set(items.flatMap((item) => item.inputs.map((reference) => reference.mediaId))),
-    ]
+    const mediaIds = batchMediaIds(items)
     const ready = await tx
       .select({ id: schema.media_objects.id })
       .from(schema.media_objects)

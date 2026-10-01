@@ -20,9 +20,13 @@ export class AgentStreamStalledError extends Error {
 export function withIdleTimeout(fetchFn: AgentFetch, idleMs: number): AgentFetch {
   return async (input, init = {}) => {
     const controller = new AbortController()
-    const caller = init.signal
+    const caller = init.signal ?? (input instanceof Request ? input.signal : undefined)
+    caller?.throwIfAborted()
     let timer: ReturnType<typeof setTimeout> | undefined
     let fail: (reason: unknown) => void = () => {}
+    const headersAborted = new Promise<never>((_resolve, reject) => {
+      fail = reject
+    })
     const relay = () => controller.abort(caller?.reason)
     const settle = () => {
       clearTimeout(timer)
@@ -44,7 +48,16 @@ export function withIdleTimeout(fetchFn: AgentFetch, idleMs: number): AgentFetch
     arm()
     let response: Response
     try {
-      response = await fetchFn(input, { ...init, signal: controller.signal })
+      response = await Promise.race([
+        fetchFn(input, { ...init, signal: controller.signal }).then((result) => {
+          if (controller.signal.aborted) {
+            void result.body?.cancel().catch(() => {})
+            throw controller.signal.reason
+          }
+          return result
+        }),
+        headersAborted,
+      ])
     } catch (err) {
       settle()
       throw controller.signal.aborted ? controller.signal.reason : err

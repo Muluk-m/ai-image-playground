@@ -437,7 +437,7 @@ it('fences a late operator after lease expiry and rejects concurrent conflicting
     }
     expect((await operate(id, 'POST', replacement)).status).toBe(409)
     await db.execute(
-      sql`update tasks set lease_expires_at = now() - interval '1 second' where id = ${id}`,
+      sql`update tasks set lease_expires_at = ${new Date(Date.now() - 60_000).toISOString()}::timestamptz where id = ${id}`,
     )
     expect(await (await operate(id, 'POST', replacement)).json()).toMatchObject({
       status: 'failed',

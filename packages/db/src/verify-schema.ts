@@ -61,6 +61,7 @@ export const EXPECTED_INDEXES = [
   'idx_agent_batch_items_order',
   'idx_agent_batches_confirmation',
   'idx_agent_batch_attempts_task',
+  'idx_agent_batch_attempts_number',
   'admin_user_notes_pkey',
   'inspiration_categories_pkey',
   'inspiration_categories_name_unique',

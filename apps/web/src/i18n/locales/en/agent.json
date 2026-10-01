@@ -234,6 +234,7 @@
     "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)",
     "assetViewsUnavailable": "Some asset views could not be read. Retry before attaching the asset.",
     "attachmentReadFailed": "Some images could not be read. No files were attached; please select them again.",
+    "uploadUnsupported": "Convert this image to PNG, JPEG or WebP first.",
     "retryUpload": "Retry",
     "retryUploadAria": "Retry uploading {{label}}",
     "upload": {

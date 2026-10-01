@@ -182,7 +182,10 @@ function pinnedUrl(url: URL, address: string): string {
   return pinned.href
 }
 
-async function readCapped(response: Response, maxBytes: number): Promise<Uint8Array> {
+export async function readCapped(
+  response: Response,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
   if (Number(response.headers.get('content-length') ?? 0) > maxBytes) {
     await response.body?.cancel()
     throw new SafeFetchError('too_large', `内容超过 ${maxBytes} 字节上限`)

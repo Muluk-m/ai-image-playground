@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { AGENT_QUEUE_MAX_PENDING, DEVICE_ID_HEADER } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { completionStream, controlledCompletion, recordingAgentFetch } from '../helpers/agentStubs'
 import { silenceChatUpstream } from '../helpers/chatStubs'
@@ -184,6 +185,14 @@ it('队列满拒收消息时不认领附件；释放租约后原件可回收', a
       ).status,
     ).toBe(200)
     await completion
+    // The stream closes before start-turn releases its durable execution lease.
+    await waitFor(async () => {
+      const [execution] = await db
+        .select()
+        .from(schema.agent_executions)
+        .where(eq(schema.agent_executions.conversation_id, conversation.id))
+      return execution?.state === 'completed'
+    }, 3000)
     const { purgeExpiredAttachmentMedia } = await import('../../lib/projectMedia')
     expect(
       await purgeExpiredAttachmentMedia(Math.max(upload.leaseExpiresAt, upload.expiresAt) + 60_000),

@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeAll, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { DEVICE_ID_HEADER } from '@image-playground/shared'
+import {
+  type AgentBatchPage,
+  type AgentMediaReference,
+  DEVICE_ID_HEADER,
+} from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   type AgentCall,
@@ -321,4 +326,204 @@ it('只有属主能取消草稿，取消保留会话图片，删除会话后释�
     await purgeExpiredAttachmentMedia(Date.now() + 86400_000)
     expect((await request(`media/${mediaId}/access`)).status).toBe(404)
   }
+})
+
+it('同一原图更换遮罩后计划更新保留精确选择，并同时保护原图和遮罩', async () => {
+  const mediaId = await upload('#cd8945')
+  const maskA = await upload('#00000000')
+  const maskB = await upload('#00000080')
+  const referenceA: AgentMediaReference = {
+    imageId: 'selected-product',
+    mediaId,
+    maskMediaId: maskA,
+    editAction: 'inpaint',
+    regions: [{ x: 0, y: 0, width: 0.5, height: 1 }],
+  }
+  const referenceB: AgentMediaReference = {
+    ...referenceA,
+    maskMediaId: maskB,
+    regions: [{ x: 0.5, y: 0, width: 0.5, height: 1 }],
+  }
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const conversationPath = `agent/conversations/${conversation.id}`
+  setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已收到第一次选择')]))
+  const firstTurn = await request(`${conversationPath}/turns`, {
+    deviceId: DEVICE,
+    text: '先看这张图左侧选区',
+    references: [referenceA],
+  })
+  expect(firstTurn.status).toBe(200)
+  expect(eventsOfType(parseFrames(await firstTurn.text()), 'turnEnd')[0]?.stopReason).toBe(
+    'completed',
+  )
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'masked-batch',
+            name: 'planImageBatch',
+            args: {
+              title: '局部换色',
+              rule: '只改当前选区',
+              items: [
+                {
+                  key: 'selected',
+                  imageIds: ['selected-product'],
+                  prompt: '当前右侧选区换成蓝色',
+                  dependencies: [],
+                },
+              ],
+            },
+          }),
+        () => completionStream('当前选区的计划已保存'),
+      ],
+    ),
+  )
+  const secondTurn = await request(`${conversationPath}/turns`, {
+    deviceId: DEVICE,
+    text: '改为右侧这个新选区，拟定批次计划',
+    references: [referenceB],
+  })
+  expect(secondTurn.status).toBe(200)
+  expect(eventsOfType(parseFrames(await secondTurn.text()), 'turnEnd')[0]?.stopReason).toBe(
+    'completed',
+  )
+  const { batches } = await (await request(`${conversationPath}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const path = `agent/batches/${batches[0].id}`
+  const original = (await (await request(path)).json()) as AgentBatchPage
+  expect(original.items[0]?.inputs).toEqual([referenceB])
+  // The media ownership invariant has no HTTP list endpoint; business operations all use HTTP.
+  const batchClaims = () =>
+    db
+      .select({ mediaId: schema.media_references.media_id })
+      .from(schema.media_references)
+      .where(
+        and(
+          eq(schema.media_references.owner_kind, 'batch'),
+          eq(schema.media_references.owner_id, original.batch.id),
+        ),
+      )
+  const initialClaims = await batchClaims()
+  const update = {
+    expectedVersion: 1,
+    title: original.batch.title,
+    rule: original.batch.rule,
+    items: original.items.map((item) => ({ ...item, prompt: '当前右侧选区换成浅蓝色' })),
+  }
+  const updatedResponse = await request(path, update, 'PATCH')
+  expect(updatedResponse.status).toBe(200)
+  const updated = (await updatedResponse.json()) as AgentBatchPage
+  expect(updated.items[0]?.inputs).toEqual([referenceB])
+  expect(initialClaims.map((claim) => claim.mediaId).sort()).toEqual([mediaId, maskB].sort())
+  expect((await batchClaims()).map((claim) => claim.mediaId).sort()).toEqual(
+    [mediaId, maskB].sort(),
+  )
+  const forgedResponse = await request(
+    path,
+    {
+      ...update,
+      expectedVersion: 2,
+      items: updated.items.map((item) => ({
+        ...item,
+        inputs: item.inputs.map((reference) => ({ ...reference, editAction: 'erase' })),
+      })),
+    },
+    'PATCH',
+  )
+  expect(forgedResponse.status).toBe(422)
+  expect((await (await request(path)).json()).batch.version).toBe(2)
+  const { purgeExpiredAttachmentMedia } = await import('../../lib/projectMedia')
+  await purgeExpiredAttachmentMedia(Date.now() + 86400_000)
+  for (const id of [mediaId, maskA, maskB])
+    expect((await request(`media/${id}/access`)).status).toBe(200)
+  expect((await request(`${path}/cancel`, { expectedVersion: 2 })).status).toBe(200)
+  expect(await batchClaims()).toEqual([])
+  await purgeExpiredAttachmentMedia(Date.now() + 86400_000)
+  for (const id of [mediaId, maskA, maskB])
+    expect((await request(`media/${id}/access`)).status).toBe(200)
+  expect((await request(conversationPath, { deviceId: DEVICE }, 'DELETE')).status).toBe(200)
+  await purgeExpiredAttachmentMedia(Date.now() + 86400_000)
+  for (const id of [mediaId, maskA, maskB])
+    expect((await request(`media/${id}/access`)).status).toBe(404)
+})
+
+it('历史选区失效后按原图拟定的计划仍可编辑，并保持当前计划的输入快照', async () => {
+  const mediaId = await upload('#bc6723')
+  const maskMediaId = await upload('#00000040')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  const conversationPath = `agent/conversations/${conversation.id}`
+  setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已收到选区')]))
+  const maskedTurn = await request(`${conversationPath}/turns`, {
+    deviceId: DEVICE,
+    text: '先看这张图的选区',
+    references: [
+      {
+        imageId: 'historical-product',
+        mediaId,
+        maskMediaId,
+        editAction: 'inpaint',
+        regions: [{ x: 0, y: 0, width: 0.5, height: 1 }],
+      },
+    ],
+  })
+  expect(maskedTurn.status).toBe(200)
+  expect(eventsOfType(parseFrames(await maskedTurn.text()), 'turnEnd')[0]?.stopReason).toBe(
+    'completed',
+  )
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'historical-original-batch',
+            name: 'planImageBatch',
+            args: {
+              title: '原图换背景',
+              rule: '使用完整原图',
+              items: [
+                {
+                  key: 'original',
+                  imageIds: ['historical-product'],
+                  prompt: '完整原图换白色背景',
+                  dependencies: [],
+                },
+              ],
+            },
+          }),
+        () => completionStream('原图计划已保存'),
+      ],
+    ),
+  )
+  const originalTurn = await request(`${conversationPath}/turns`, {
+    deviceId: DEVICE,
+    text: '不沿用上轮选区，按这张完整原图拟定换背景计划',
+  })
+  expect(originalTurn.status).toBe(200)
+  expect(eventsOfType(parseFrames(await originalTurn.text()), 'turnEnd')[0]?.stopReason).toBe(
+    'completed',
+  )
+  const { batches } = await (await request(`${conversationPath}/batches`)).json()
+  expect(batches).toHaveLength(1)
+  const path = `agent/batches/${batches[0].id}`
+  const original = (await (await request(path)).json()) as AgentBatchPage
+  expect(original.items[0]?.inputs).toEqual([{ imageId: 'historical-product', mediaId }])
+  const updateResponse = await request(
+    path,
+    {
+      expectedVersion: original.batch.version,
+      title: original.batch.title,
+      rule: original.batch.rule,
+      items: original.items.map((item) => ({ ...item, prompt: '完整原图换成浅灰色背景' })),
+    },
+    'PATCH',
+  )
+  expect(updateResponse.status).toBe(200)
+  const updated = (await updateResponse.json()) as AgentBatchPage
+  expect(updated.batch.version).toBe(2)
+  expect(updated.items[0]?.inputs).toEqual(original.items[0]?.inputs)
+  expect(updated.items[0]?.prompt).toBe('完整原图换成浅灰色背景')
 })

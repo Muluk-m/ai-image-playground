@@ -1,26 +1,35 @@
 import { createHash } from 'node:crypto'
-import type {
-  AgentBatchEstimates,
-  AgentBatchItem,
-  AgentBatchPriceSnapshot,
+import {
+  type AgentBatchEstimates,
+  type AgentBatchItem,
+  type AgentBatchPriceSnapshot,
+  QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
+import { log } from '../logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
+import { SafeFetchError } from '../safeFetch'
 import {
   type CreateQueueTaskInput,
   createQueueTask,
   discardQueueTaskPreparation,
+  type PreparedQueueTask,
   prepareQueueTask,
 } from '../taskSubmission'
 import { BatchPlanError, batchPlansAvailable } from './batch-plans'
+import { reconcileAgentBatchProgress } from './batch-progress'
 import { lockConversation } from './confirmations'
-import { readConversationMedia } from './images'
+import { type ResolvedAgentImage, readConversationMedia } from './images'
+import { prepareMaskedEdit } from './masked-edit'
 import { shapeQueuePrompt } from './prompt-shaping'
+import { imageSelection } from './selection-preview'
+import { AgentToolError } from './tools/errors'
 import { queueParamsFor } from './tools/queueParams'
 import { resolveAgentModel } from './tools/queueTask'
+import { visualByteLimit, visualMetadata, withVisualPreparation } from './visual-resources'
 
 export function batchExecutionAvailable(userId: string) {
   return (
@@ -91,17 +100,31 @@ export async function confirmAgentBatch(
     }
     if (
       batch.status !== 'draft' &&
-      !(batch.status === 'paused' && batch.pause_reason === 'price_changed')
+      !(
+        batch.status === 'paused' &&
+        (batch.pause_reason === 'price_changed' || plan.retry_item_keys.length > 0)
+      )
     )
       throw new BatchPlanError('batch_version_conflict', 409)
     if (plan.item_count > config.operator.quotas['agent:batch-max-items'])
       throw new BatchPlanError('batch_size_exceeded', 422)
     if (plan.estimate_snapshot.generation.status !== 'available')
       throw new BatchPlanError('batch_price_changed', 409)
+    const items = await tx
+      .select({ inputs: schema.agent_batch_items.inputs })
+      .from(schema.agent_batch_items)
+      .where(
+        and(
+          eq(schema.agent_batch_items.batch_id, id),
+          eq(schema.agent_batch_items.version, plan.version),
+        ),
+      )
+    if (items.some((item) => item.inputs.length > QUEUE_MAX_INPUT_IMAGES))
+      throw new BatchPlanError('batch_input_limit', 422)
     await tx
       .update(schema.agent_batches)
       .set({
-        status: 'running',
+        status: plan.retry_requires_resume ? 'paused' : 'running',
         pause_reason: null,
         confirmed_version: plan.version,
         confirmation_command_id: input.commandId,
@@ -115,11 +138,28 @@ export async function confirmAgentBatch(
 }
 
 async function batchAttempts(tx: typeof db | BffTransaction, batch: BatchRow) {
-  return tx
-    .select({ key: schema.agent_batch_attempts.item_key, status: schema.tasks.status })
+  const rows = await tx
+    .select({
+      key: schema.agent_batch_attempts.item_key,
+      attempt: schema.agent_batch_attempts.attempt,
+      status: schema.tasks.status,
+      upstreamStatus: schema.tasks.upstream_status,
+      errorType: schema.tasks.error_type,
+      snapshot: schema.agent_batch_attempts.terminal_snapshot,
+    })
     .from(schema.agent_batch_attempts)
     .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
     .where(eq(schema.agent_batch_attempts.batch_id, batch.id))
+  return rows.map((row) => ({
+    key: row.key,
+    attempt: row.attempt,
+    status: row.snapshot?.status ?? row.status,
+    unrecordedAuthenticationFailure:
+      !row.snapshot &&
+      row.status === 'failed' &&
+      row.errorType !== 'content_policy' &&
+      (row.upstreamStatus === 401 || row.upstreamStatus === 403),
+  }))
 }
 
 function hasWindow(attempts: Awaited<ReturnType<typeof batchAttempts>>) {
@@ -130,18 +170,52 @@ function hasWindow(attempts: Awaited<ReturnType<typeof batchAttempts>>) {
   )
 }
 
-async function prepareItem(batch: BatchRow, item: AgentBatchItem): Promise<CreateQueueTaskInput> {
-  const images: string[] = []
-  for (const reference of item.inputs) {
+async function prepareItem(
+  batch: BatchRow,
+  item: AgentBatchItem,
+  attempt: number,
+): Promise<CreateQueueTaskInput> {
+  const images: ResolvedAgentImage[] = []
+  let remainingBytes = visualByteLimit()
+  const readInput = async (mediaId: string) => {
     const media = await readConversationMedia(
-      reference.mediaId,
+      mediaId,
       batch.conversation_id!,
       batch.user_id,
       'original',
+      false,
+      Math.floor((remainingBytes * 3) / 4),
     )
     if (!media) throw new BatchPlanError('invalid_batch_plan', 422)
-    images.push(`data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`)
+    await visualMetadata(media.bytes)
+    const dataUrl = `data:${media.contentType};base64,${Buffer.from(media.bytes).toString('base64')}`
+    remainingBytes -= Buffer.byteLength(dataUrl, 'utf8')
+    if (remainingBytes < 0) throw new BatchPlanError('batch_input_limit', 422)
+    return dataUrl
   }
+  for (const reference of item.inputs) {
+    const dataUrl = await readInput(reference.mediaId)
+    const maskDataUrl = reference.maskMediaId ? await readInput(reference.maskMediaId) : undefined
+    images.push({
+      imageId: reference.imageId,
+      dataUrl,
+      ...(maskDataUrl ? { maskDataUrl } : {}),
+      ...(reference.editAction ? { editAction: reference.editAction } : {}),
+      ...(reference.regions ? { regions: reference.regions } : {}),
+    })
+  }
+  const bindings = []
+  for (const image of images) {
+    const selection = await imageSelection(image, false)
+    if (selection) bindings.push({ imageId: image.imageId, selectionId: selection.id })
+  }
+  // Confirmation authorized this exact prompt and immutable selection; later conversation edits do not replace either.
+  const masked = await prepareMaskedEdit(images, bindings, item.prompt)
+  const inputImages = masked?.inputImages ?? images.map((image) => image.dataUrl)
+  const preparedBytes =
+    inputImages.reduce((sum, source) => sum + Buffer.byteLength(source, 'utf8'), 0) +
+    Buffer.byteLength(masked?.mask ?? '', 'utf8')
+  if (preparedBytes > visualByteLimit()) throw new BatchPlanError('batch_input_limit', 422)
   const params = queueParamsFor(item.params.provider, item.params)
   return {
     provider: item.params.provider,
@@ -154,12 +228,13 @@ async function prepareItem(batch: BatchRow, item: AgentBatchItem): Promise<Creat
       prompt: shapeQueuePrompt({
         provider: item.params.provider,
         model: item.params.model,
-        prompt: item.prompt,
+        prompt: masked?.prompt ?? item.prompt,
         size: params.size,
       }),
-      input_images: images,
+      input_images: inputImages,
+      ...(masked?.mask ? { mask: masked.mask } : {}),
       device_id: batch.device_id!,
-      client_request_id: `batch:${batch.id}:${batch.confirmed_version}:${item.key}:1`,
+      client_request_id: `batch:${batch.id}:${batch.confirmed_version}:${item.key}:${attempt}`,
     },
     agent: { conversationId: batch.conversation_id!, turnId: batch.origin_turn_id },
   }
@@ -205,8 +280,61 @@ async function currentQuote(
 }
 
 /** Each preparation is outside locks; commit rechecks the batch generation before accepting it. */
-export async function dispatchAgentBatch(userId: string, id: string): Promise<void> {
+/** A rotating bounded page prevents unresolved batches from starving later confirmations. */
+export async function advanceAgentBatches(
+  afterId: string | null,
+  canDispatch: () => boolean,
+): Promise<string | null> {
+  if (!isCapabilityEnabled('agent:batch-execution') || !canDispatch()) return afterId
+  const batches = await db
+    .select({ id: schema.agent_batches.id, userId: schema.agent_batches.user_id })
+    .from(schema.agent_batches)
+    .where(
+      and(
+        inArray(schema.agent_batches.status, ['running', 'paused']),
+        isNotNull(schema.agent_batches.confirmed_version),
+        afterId ? gt(schema.agent_batches.id, afterId) : undefined,
+      ),
+    )
+    .orderBy(asc(schema.agent_batches.id))
+    .limit(8)
+  let cursor = afterId
+  for (const batch of batches) {
+    if (!canDispatch()) return cursor
+    try {
+      await reconcileAgentBatchProgress(batch.id)
+      await dispatchAgentBatch(batch.userId, batch.id, canDispatch)
+    } catch (error) {
+      log.error(
+        {
+          event: 'agent.batch_dispatch_failed',
+          batchId: batch.id,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'batch dispatch failed',
+      )
+    }
+    cursor = batch.id
+  }
+  return batches.length < 8 ? null : cursor
+}
+
+export async function dispatchAgentBatch(
+  userId: string,
+  id: string,
+  canDispatch: () => boolean = () => true,
+): Promise<void> {
+  if (!canDispatch()) return
+  return withVisualPreparation(() => dispatchPreparedBatch(userId, id, canDispatch))
+}
+
+async function dispatchPreparedBatch(
+  userId: string,
+  id: string,
+  canDispatch: () => boolean,
+): Promise<void> {
   for (let slot = 0; slot < config.operator.quotas['agent:batch-dispatch-window']; slot++) {
+    if (!canDispatch()) return
     const [batch] = await db
       .select()
       .from(schema.agent_batches)
@@ -230,22 +358,45 @@ export async function dispatchAgentBatch(userId: string, id: string): Promise<vo
         ),
       )
       .orderBy(asc(schema.agent_batch_items.ordinal))
+    const [plan] = await db
+      .select()
+      .from(schema.agent_batch_plans)
+      .where(
+        and(
+          eq(schema.agent_batch_plans.batch_id, id),
+          eq(schema.agent_batch_plans.version, batch.confirmed_version),
+        ),
+      )
+    if (!plan) return
+    const targetAttempt = (key: string) =>
+      Object.hasOwn(plan.attempt_targets, key) ? plan.attempt_targets[key]! : 1
     const item = items.find(
       (one) =>
-        !attempts.some((attempt) => attempt.key === one.key) &&
+        !attempts.some(
+          (attempt) => attempt.key === one.key && attempt.attempt === targetAttempt(one.key),
+        ) &&
         one.dependencies.every((key) =>
-          attempts.some((attempt) => attempt.key === key && attempt.status === 'completed'),
+          attempts.some(
+            (attempt) =>
+              attempt.key === key &&
+              attempt.attempt === targetAttempt(key) &&
+              attempt.status === 'completed',
+          ),
         ),
     )
     if (!item) return
-    const input = await prepareItem(batch, item)
-    const preparation = await prepareQueueTask(input)
-    if (preparation.kind !== 'prepared') throw new BatchPlanError('invalid_batch_plan', 422)
+    let prepared: PreparedQueueTask | undefined
     let committed = false
     try {
+      const input = await prepareItem(batch, item, targetAttempt(item.key))
+      if (!canDispatch()) return
+      const preparation = await prepareQueueTask(input)
+      if (preparation.kind !== 'prepared') throw new BatchPlanError('invalid_batch_plan', 422)
+      prepared = preparation.prepared
       committed = await db.transaction(async (tx) => {
         const current = await lockOwnedBatch(tx, userId, id)
         if (
+          !canDispatch() ||
           current.status !== 'running' ||
           current.dispatch_generation !== batch.dispatch_generation ||
           current.confirmed_version !== batch.confirmed_version ||
@@ -253,7 +404,25 @@ export async function dispatchAgentBatch(userId: string, id: string): Promise<vo
         )
           return false
         const currentAttempts = await batchAttempts(tx, current)
-        if (!hasWindow(currentAttempts) || currentAttempts.some((one) => one.key === item.key))
+        // A task may fail while this item's bytes are being prepared, after the last progress scan.
+        if (currentAttempts.some((one) => one.unrecordedAuthenticationFailure)) {
+          await tx
+            .update(schema.agent_batches)
+            .set({
+              status: 'paused',
+              pause_reason: 'upstream_auth',
+              dispatch_generation: current.dispatch_generation + 1,
+              updated_at: Date.now(),
+            })
+            .where(eq(schema.agent_batches.id, id))
+          return false
+        }
+        if (
+          !hasWindow(currentAttempts) ||
+          currentAttempts.some(
+            (one) => one.key === item.key && one.attempt === targetAttempt(item.key),
+          )
+        )
           return false
         const model = resolveAgentModel('image', item.params.model)
         if (!model || model.model !== item.params.model || model.provider !== item.params.provider)
@@ -267,7 +436,7 @@ export async function dispatchAgentBatch(userId: string, id: string): Promise<vo
           batch_id: id,
           version: current.confirmed_version!,
           item_key: item.key,
-          attempt: 1,
+          attempt: targetAttempt(item.key),
           task_id: submitted.taskId,
           price_snapshot: quote.pricing,
           reserved_credits: quote.credits,
@@ -276,11 +445,16 @@ export async function dispatchAgentBatch(userId: string, id: string): Promise<vo
         return submitted.taskId === preparation.prepared.taskId
       })
     } catch (error) {
-      if (!(error instanceof BatchPlanError)) throw error
-      const pauseReason =
-        error.code === 'batch_price_changed'
+      const inputLimit =
+        (error instanceof SafeFetchError && error.code === 'too_large') ||
+        (error instanceof AgentToolError &&
+          ['quota_exceeded', 'invalid_params'].includes(error.code)) ||
+        (error instanceof BatchPlanError && error.code === 'batch_input_limit')
+      const pauseReason = inputLimit
+        ? 'input_limit'
+        : error instanceof BatchPlanError && error.code === 'batch_price_changed'
           ? 'price_changed'
-          : error.code === 'batch_insufficient_credits'
+          : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
             ? 'insufficient_credits'
             : null
       if (!pauseReason) throw error
@@ -302,7 +476,7 @@ export async function dispatchAgentBatch(userId: string, id: string): Promise<vo
       })
       return
     } finally {
-      if (!committed) await discardQueueTaskPreparation(preparation.prepared)
+      if (!committed && prepared) await discardQueueTaskPreparation(prepared)
     }
   }
 }
@@ -441,7 +615,12 @@ export async function repriceAgentBatch(
     const snapshots: AgentBatchPriceSnapshot[] = []
     let estimatedCredits = 0
     for (const item of items) {
-      const accepted = attempts.find((one) => one.item_key === item.key)
+      const accepted = attempts.find(
+        (one) =>
+          one.item_key === item.key &&
+          one.attempt ===
+            (Object.hasOwn(plan.attempt_targets, item.key) ? plan.attempt_targets[item.key]! : 1),
+      )
       if (accepted) {
         estimatedCredits += accepted.reserved_credits
         if (accepted.price_snapshot) snapshots.push(accepted.price_snapshot)
@@ -482,6 +661,9 @@ export async function repriceAgentBatch(
       digest,
       item_count: plan.item_count,
       estimate_snapshot: estimate,
+      attempt_targets: plan.attempt_targets,
+      retry_item_keys: plan.retry_item_keys,
+      retry_requires_resume: plan.retry_requires_resume,
       created_at: now,
     })
     await tx
@@ -500,6 +682,175 @@ export async function repriceAgentBatch(
       batch_id: id,
       command_id: input.commandId,
       kind: 'reprice',
+      request_hash: requestHash,
+      created_at: now,
+    })
+  })
+}
+
+/** A retry authorizes new attempt numbers; every earlier task and bill remains immutable. */
+export async function quoteAgentBatchRetry(
+  userId: string,
+  id: string,
+  input: { commandId: string; expectedVersion: number; itemKeys: string[] },
+): Promise<void> {
+  if (!batchExecutionAvailable(userId)) throw new BatchPlanError('batch_execution_unavailable', 422)
+  const [owned] = await db
+    .select({ id: schema.agent_batches.id })
+    .from(schema.agent_batches)
+    .where(
+      and(
+        eq(schema.agent_batches.id, id),
+        eq(schema.agent_batches.user_id, userId),
+        isNotNull(schema.agent_batches.conversation_id),
+      ),
+    )
+  if (!owned) throw new BatchPlanError('batch_not_found', 404)
+  await reconcileAgentBatchProgress(id)
+  await db.transaction(async (tx) => {
+    const batch = await lockOwnedBatch(tx, userId, id)
+    const keys = [...new Set(input.itemKeys)].sort()
+    const requestHash = createHash('sha256')
+      .update(JSON.stringify({ kind: 'retry_quote', version: input.expectedVersion, keys }))
+      .digest('hex')
+    const [receipt] = await tx
+      .select()
+      .from(schema.agent_batch_commands)
+      .where(
+        and(
+          eq(schema.agent_batch_commands.batch_id, id),
+          eq(schema.agent_batch_commands.command_id, input.commandId),
+        ),
+      )
+    if (receipt) {
+      if (receipt.request_hash !== requestHash)
+        throw new BatchPlanError('batch_version_conflict', 409)
+      return
+    }
+    if (
+      !keys.length ||
+      batch.current_version !== input.expectedVersion ||
+      batch.confirmed_version !== input.expectedVersion
+    )
+      throw new BatchPlanError('batch_version_conflict', 409)
+    const [plan] = await tx
+      .select()
+      .from(schema.agent_batch_plans)
+      .where(
+        and(
+          eq(schema.agent_batch_plans.batch_id, id),
+          eq(schema.agent_batch_plans.version, input.expectedVersion),
+        ),
+      )
+    if (!plan) throw new BatchPlanError('batch_not_found', 404)
+    const items = await tx
+      .select()
+      .from(schema.agent_batch_items)
+      .where(
+        and(
+          eq(schema.agent_batch_items.batch_id, id),
+          eq(schema.agent_batch_items.version, input.expectedVersion),
+        ),
+      )
+      .orderBy(asc(schema.agent_batch_items.ordinal))
+    const attempts = await tx
+      .select()
+      .from(schema.agent_batch_attempts)
+      .where(eq(schema.agent_batch_attempts.batch_id, id))
+    let targets = { ...plan.attempt_targets }
+    const snapshots: AgentBatchPriceSnapshot[] =
+      plan.estimate_snapshot.generation.status === 'available'
+        ? plan.estimate_snapshot.generation.snapshots.filter(
+            (one) => !one.itemKey || !keys.includes(one.itemKey),
+          )
+        : []
+    let estimatedCredits = 0
+    const hooks = (await loadPrivateBffOverlay()).taskHooks
+    for (const key of keys) {
+      const item = items.find((one) => one.key === key)
+      const latest = attempts
+        .filter((one) => one.item_key === key)
+        .sort((a, b) => b.attempt - a.attempt)[0]
+      if (
+        !item ||
+        !latest ||
+        latest.attempt !== (Object.hasOwn(targets, key) ? targets[key]! : 1) ||
+        latest.terminal_snapshot?.status !== 'failed' ||
+        latest.terminal_snapshot.errorCode === 'result_unknown'
+      )
+        throw new BatchPlanError('batch_retry_unavailable', 409)
+      const model = resolveAgentModel('image', item.params.model)
+      if (!model || model.model !== item.params.model || model.provider !== item.params.provider)
+        throw new BatchPlanError('batch_execution_unavailable', 422)
+      targets = { ...targets, [key]: latest.attempt + 1 }
+      if (!isCapabilityEnabled('billing:credits')) continue
+      const quote = await hooks.quoteTask?.({
+        tx,
+        userId,
+        model: item.params.model,
+        quantity: 1,
+        unitMultiplier: 1,
+      })
+      if (!quote) throw new BatchPlanError('batch_price_changed', 409)
+      estimatedCredits += quote.estimatedCredits
+      snapshots.push({ ...quote.pricing, itemKey: key })
+    }
+    const estimate: AgentBatchEstimates = {
+      analysis: plan.estimate_snapshot.analysis,
+      generation: {
+        status: 'available',
+        estimatedCredits,
+        estimatedChargeCredits: estimatedCredits,
+        snapshots,
+      },
+    }
+    const content = items.map(({ batch_id: _batch, version: _version, ...item }) => item)
+    const version = batch.current_version + 1
+    const now = Date.now()
+    const digest = createHash('sha256')
+      .update(
+        JSON.stringify({
+          title: plan.title,
+          rule: plan.rule,
+          items: content,
+          estimate,
+          targets,
+          retryItemKeys: keys,
+          retryRequiresResume: batch.status === 'paused',
+        }),
+      )
+      .digest('hex')
+    await tx.insert(schema.agent_batch_plans).values({
+      batch_id: id,
+      version,
+      title: plan.title,
+      rule: plan.rule,
+      digest,
+      item_count: plan.item_count,
+      estimate_snapshot: estimate,
+      attempt_targets: targets,
+      retry_item_keys: keys,
+      retry_requires_resume: batch.status === 'paused',
+      created_at: now,
+    })
+    await tx
+      .insert(schema.agent_batch_items)
+      .values(content.map((item) => ({ ...item, batch_id: id, version })))
+    await tx
+      .update(schema.agent_batches)
+      .set({
+        status: 'paused',
+        pause_reason: null,
+        current_version: version,
+        confirmed_version: null,
+        dispatch_generation: batch.dispatch_generation + 1,
+        updated_at: now,
+      })
+      .where(eq(schema.agent_batches.id, id))
+    await tx.insert(schema.agent_batch_commands).values({
+      batch_id: id,
+      command_id: input.commandId,
+      kind: 'retry_quote',
       request_hash: requestHash,
       created_at: now,
     })

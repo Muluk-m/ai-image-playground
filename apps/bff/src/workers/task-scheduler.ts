@@ -2,6 +2,7 @@ import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
 import { eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { advanceAgentBatches } from '../lib/agent/batch-execution'
 import { log } from '../lib/logger'
 import { selectRunnableTasks } from './runnable-tasks'
 import { abortRunningTask, failCrashedExecution, runningTaskIds } from './task-execution'
@@ -31,6 +32,9 @@ export class TaskScheduler {
   private stopped = true
   private draining = false
   private lastSuccessfulPollTimestamp: number | null = null
+  private batchCursor: string | null = null
+  private batchAdvance: Promise<void> | null = null
+  private dispatchGeneration = 0
 
   constructor(options: TaskSchedulerOptions = {}) {
     this.pollIntervalMs = options.pollIntervalMs ?? config.worker.pollIntervalMs
@@ -55,6 +59,7 @@ export class TaskScheduler {
   }
 
   drain(): void {
+    this.dispatchGeneration++
     this.draining = true
   }
 
@@ -62,11 +67,12 @@ export class TaskScheduler {
     return {
       draining: this.draining,
       active: this.activeCount(),
-      safeToStop: this.draining && !this.ticking && this.activeCount() === 0,
+      safeToStop: this.draining && !this.ticking && !this.batchAdvance && this.activeCount() === 0,
     }
   }
 
   stop(): void {
+    this.dispatchGeneration++
     this.stopped = true
     if (this.timer) clearInterval(this.timer)
     this.timer = null
@@ -85,6 +91,7 @@ export class TaskScheduler {
   /** 最多等 timeoutMs 让 inflight 跑完，返回是否真的等空了。 */
   async waitForIdle(timeoutMs: number): Promise<boolean> {
     const promises = Array.from(this.active.values()).flatMap((tasks) => Array.from(tasks.values()))
+    if (this.batchAdvance) promises.push(this.batchAdvance)
     const settled = Promise.allSettled(promises)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
@@ -108,6 +115,7 @@ export class TaskScheduler {
         this.lastSuccessfulPollTimestamp = this.clock()
         return
       }
+      this.advanceBatches()
       for (const provider of PROVIDERS) {
         if (this.stopped || this.draining) return
         const active = this.active.get(provider)!
@@ -127,6 +135,31 @@ export class TaskScheduler {
     } finally {
       this.ticking = false
     }
+  }
+
+  /** Slow media preparation must not occupy the queue poll or its cancellation checks. */
+  private advanceBatches(): void {
+    if (this.batchAdvance || this.stopped || this.draining) return
+    const generation = this.dispatchGeneration
+    const canDispatch = () =>
+      generation === this.dispatchGeneration && !this.stopped && !this.draining
+    const operation = advanceAgentBatches(this.batchCursor, canDispatch)
+      .then((cursor) => {
+        if (canDispatch()) this.batchCursor = cursor
+      })
+      .catch((error: unknown) => {
+        log.error(
+          {
+            event: 'worker.batch_advance_failed',
+            err: error instanceof Error ? error.message : String(error),
+          },
+          'batch advancement failed',
+        )
+      })
+      .finally(() => {
+        if (this.batchAdvance === operation) this.batchAdvance = null
+      })
+    this.batchAdvance = operation
   }
 
   private launch(provider: QueueProvider, id: string): void {

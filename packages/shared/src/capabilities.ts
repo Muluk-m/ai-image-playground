@@ -63,6 +63,9 @@ export interface AdminCapabilityManifest {
 export const QUOTAS = {
   'agent:batch-max-items': { defaultValue: 3 },
   'agent:batch-dispatch-window': { defaultValue: 2 },
+  /** Application resource guard, not a provider throughput guarantee. */
+  'agent:visual-prepare-concurrency': { defaultValue: 1 },
+  'agent:visual-max-pixels': { defaultValue: 16_777_216 },
   /** Application memory/transport protection; operators must verify tighter gateway limits. */
   'agent:request-max-bytes': { defaultValue: 16 * 1024 * 1024 },
   'agent:compaction-buffer-tokens': { defaultValue: 13_000 },
