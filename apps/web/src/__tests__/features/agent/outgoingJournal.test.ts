@@ -1856,3 +1856,78 @@ it('does not offer a journal-owned draft for editing before conversation history
     setClientStorageScope(null)
   }
 })
+
+it('preserves the read draft and its original while journal recovery is unreadable, until explicit retry', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  setClientStorageScope('journal-read-unavailable')
+  await bootstrapClientCapabilities(false, '')
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  const { registerLocalAttachmentSource, readLocalAttachment } = await import(
+    '../../../lib/localAttachmentSources'
+  )
+  const handle = registerLocalAttachmentSource(
+    new File([new Uint8Array([104, 105])], 'retained.png', { type: 'image/png' }),
+    1024,
+  )
+  const original = {
+    prompt: '尚未发送且不能丢失的内容',
+    references: [{ id: 'retained-original', dataUrl: handle }],
+  }
+  const seeded = new DraftSession(scopedStorageName(`agent-project-draft:${PROJECT}`))
+  await seeded.ready
+  seeded.update(original)
+  await seeded.flush()
+  const get = IDBObjectStore.prototype.get
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    query,
+  ) {
+    if (this.name === 'outgoing')
+      throw new DOMException('Journal temporarily unavailable', 'UnknownError')
+    return get.call(this, query)
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(createElement(AgentComposer, { doc: new CanvasDoc() }))
+      await currentProjectDraft(CONVERSATION).ready
+    })
+    const session = currentProjectDraft(CONVERSATION)
+    expect(session.getSnapshot().unsent).toMatchObject(original)
+    expect(host.querySelector('[role="textbox"]')?.getAttribute('contenteditable')).toBe('false')
+    expect(host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!.disabled).toBe(
+      true,
+    )
+    // Background selection updates and pagehide flush must not overwrite the unread recovery state.
+    act(() => session.update({ prompt: '不能写入的新文本', references: [] }))
+    await session.flush()
+    const disk = new DraftSession(session.key)
+    await disk.ready
+    expect(disk.getSnapshot().unsent).toMatchObject(original)
+    expect(new Uint8Array((await readLocalAttachment(handle)).data)).toEqual(
+      new Uint8Array([104, 105]),
+    )
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+    failure.mockRestore()
+    const retry = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '重试恢复',
+    )
+    expect(retry).toBeDefined()
+    await act(async () => retry!.click())
+    await vi.waitFor(() => expect(session.getSnapshot().error).toBeNull())
+    const restore = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '恢复',
+    )
+    act(() => restore!.click())
+    expect(session.getSnapshot().draft).toMatchObject(original)
+    expect(host.querySelector('[role="textbox"]')?.getAttribute('contenteditable')).toBe('true')
+  } finally {
+    failure.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+    setClientStorageScope(null)
+  }
+})

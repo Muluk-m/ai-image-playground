@@ -86,9 +86,12 @@ function withMode(draft: AgentDraft, mode: AgentDraft['mode']): AgentDraft {
   return mode ? { ...rest, mode } : rest
 }
 
+type StoredDraft = AgentDraft & { unsent?: AgentDraft; remainingUnsent?: AgentDraft[] }
+
 export interface DraftSnapshot {
   readonly draft: AgentDraft
   readonly loading: boolean
+  readonly recoveryBlocked: boolean
   readonly submitting: boolean
   readonly error: string | null
   /**
@@ -104,6 +107,7 @@ export class DraftSession {
   private snapshot: DraftSnapshot = {
     draft: EMPTY_DRAFT,
     loading: true,
+    recoveryBlocked: false,
     submitting: false,
     error: null,
     unsent: null,
@@ -144,13 +148,26 @@ export class DraftSession {
     for (const listener of this.listeners) listener()
   }
 
+  private restoreContents(stored: StoredDraft) {
+    const { unsent, remainingUnsent = [], ...draft } = stored
+    this.remainingUnsent = remainingUnsent
+    // Unsent content remains separate until the user explicitly restores it.
+    if (unsent || hasDraftContent(draft))
+      this.publish({
+        draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
+        unsent: unsent ?? draft,
+        recoverable: Boolean(unsent || draft.submission),
+        ...(unsent ? { draft } : {}),
+      })
+    else this.publish({ draft, unsent: null, recoverable: false })
+  }
+
   private async restore() {
+    let stored: StoredDraft | undefined
     try {
       await recoverLocalAttachmentSources().catch(() => {})
       const db = await openDatabase()
-      const stored = await new Promise<
-        (AgentDraft & { unsent?: AgentDraft; remainingUnsent?: AgentDraft[] }) | undefined
-      >((resolve, reject) => {
+      stored = await new Promise<StoredDraft | undefined>((resolve, reject) => {
         const request = db.transaction('drafts').objectStore('drafts').get(this.key)
         request.onsuccess = () => {
           if (request.result || !this.fallbackKey) {
@@ -169,7 +186,7 @@ export class DraftSession {
         typeof stored.prompt === 'string' &&
         Array.isArray(stored.references)
       ) {
-        let normalized = this.currentAccount() ? normalizeSources(stored) : stored
+        let normalized = stored
         if (this.projectId) {
           if (!this.currentAccount()) return
           const journaled = await outgoingCommandIds(this.projectId)
@@ -190,30 +207,40 @@ export class DraftSession {
             }
           }
         }
-        const { unsent, remainingUnsent = [], ...draft } = normalized
-        this.remainingUnsent = remainingUnsent
-        // 有字或手动附图才算「没发出去的话」；只剩跟着选区带进来的图不算，照旧直接放回。
-        if (unsent || hasDraftContent(draft))
-          this.publish({
-            draft: { ...EMPTY_DRAFT, ...(stored.mode ? { mode: stored.mode } : {}) },
-            unsent: unsent ?? draft,
-            recoverable: Boolean(unsent || draft.submission),
-            ...(unsent ? { draft } : {}),
-          })
-        else this.publish({ draft })
+        if (this.currentAccount()) normalized = normalizeSources(normalized)
+        this.restoreContents(normalized)
+        this.publish({ recoveryBlocked: false, error: null })
         if (normalized !== stored) {
           this.revision += 1
           await this.flush()
         }
+      } else if (!stored) {
+        if (this.revision === 0) this.restoreContents(EMPTY_DRAFT)
+        this.publish({ recoveryBlocked: false, error: null })
       }
     } catch {
-      this.publish({ error: i18next.t('draft.unreadable', { ns: 'agent' }) })
+      this.publish({ recoveryBlocked: true })
+      if (
+        stored &&
+        this.revision === 0 &&
+        typeof stored.prompt === 'string' &&
+        Array.isArray(stored.references)
+      )
+        this.restoreContents(stored)
+      this.publish({ recoveryBlocked: true, error: i18next.t('draft.unreadable', { ns: 'agent' }) })
     } finally {
       this.publish({ loading: false })
     }
   }
 
+  retryRecovery = async () => {
+    if (!this.snapshot.recoveryBlocked || this.snapshot.loading || !this.currentAccount()) return
+    this.publish({ loading: true })
+    await this.restore()
+  }
+
   update = (change: AgentDraft | ((draft: AgentDraft) => AgentDraft)) => {
+    if (this.snapshot.recoveryBlocked) return
     let draft = typeof change === 'function' ? change(this.snapshot.draft) : change
     if (this.currentAccount()) draft = normalizeSources(draft)
     const previous = this.snapshot.draft
@@ -237,6 +264,7 @@ export class DraftSession {
 
   /** 发送失败时接回原消息；新输入保留，失败消息进待恢复区。落盘失败不确认交接。 */
   async returnUnsent(draft: AgentDraft): Promise<boolean> {
+    if (this.snapshot.recoveryBlocked) return false
     const current = this.snapshot.draft
     if (!current.prompt.trim() && current.references.length === 0) {
       if (this.snapshot.unsent) this.publish({ recoverable: true })
@@ -264,6 +292,7 @@ export class DraftSession {
 
   /** Remove only the draft copy whose identical command has become durable elsewhere. */
   async acceptSubmission(id: string): Promise<boolean> {
+    if (this.snapshot.recoveryBlocked) return false
     const { draft, unsent } = this.snapshot
     const current = draft.submission?.id === id
     const queued = [unsent, ...this.remainingUnsent].filter((one): one is AgentDraft =>
@@ -289,6 +318,7 @@ export class DraftSession {
 
   /** 把没发出去的那份放回输入框；输入框里此刻跟着选区带进来的图保留。 */
   restoreUnsent = () => {
+    if (this.snapshot.recoveryBlocked) return
     const unsent = this.snapshot.unsent
     if (!unsent) return
     const current = this.snapshot.draft
@@ -314,6 +344,7 @@ export class DraftSession {
 
   /** 丢掉没发出去的那份：存储里换成输入框此刻的内容。 */
   discardUnsent = () => {
+    if (this.snapshot.recoveryBlocked) return
     if (!this.snapshot.unsent) return
     const next = this.remainingUnsent.shift() ?? null
     this.publish({ unsent: next, recoverable: Boolean(next) })
@@ -352,6 +383,7 @@ export class DraftSession {
 
   flush = (): Promise<void> => {
     clearTimeout(this.timer)
+    if (this.snapshot.recoveryBlocked) return this.writes
     if (this.revision === this.savedRevision) return this.writes
     const revision = this.revision
     // 用户还没决定恢复或丢弃时，输入框空着不能把那份没发出去的覆盖掉。

@@ -165,12 +165,14 @@ export default function AgentComposer({
   const session = currentProjectDraft(conversationId)
   const {
     draft,
-    loading,
+    loading: readingDraft,
+    recoveryBlocked,
     submitting,
     error: draftError,
     unsent,
     recoverable,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
+  const loading = readingDraft || recoveryBlocked
   const setDraft = session.update
   useSyncExternalStore(subscribeAttachmentUploads, attachmentUploadRevision)
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
@@ -732,18 +734,34 @@ export default function AgentComposer({
       )}
       {draftError && (
         <p role="alert" className="text-xs text-warning">
-          {draftError}
+          {recoveryBlocked ? t('draft.recoveryBlocked') : draftError}
         </p>
+      )}
+      {recoveryBlocked && (
+        <button
+          type="button"
+          className={GHOST_LINK}
+          disabled={readingDraft}
+          onClick={() => void session.retryRecovery()}
+        >
+          {t('draft.retryRestore')}
+        </button>
       )}
       {unsent && (recoverable || !hasDraftContent(draft)) && (
         <div role="status" className={`flex items-center gap-2 px-1 ${CARD_NOTE}`}>
           <span className="min-w-0 flex-1">{t('draft.unsent')}</span>
-          <button type="button" className={GHOST_LINK} onClick={session.restoreUnsent}>
+          <button
+            type="button"
+            className={GHOST_LINK}
+            disabled={loading}
+            onClick={session.restoreUnsent}
+          >
             {t('draft.restore')}
           </button>
           <button
             type="button"
             className={`${CARD_NOTE} transition-colors hover:text-foreground`}
+            disabled={loading}
             onClick={session.discardUnsent}
           >
             {t('draft.discard')}
