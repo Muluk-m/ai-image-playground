@@ -70,6 +70,7 @@ import {
   setAgentComposerAttach,
 } from '../lib/attachments'
 import {
+  attachmentUploadError,
   attachmentUploadRevision,
   attachmentUploadState,
   primeAttachmentUploads,
@@ -686,7 +687,9 @@ export default function AgentComposer({
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   {uploadState && (
                     <span role="status" className="text-xs text-muted-foreground">
-                      {t(`composer.upload.${uploadState}`)}
+                      {attachmentUploadError(reference) === 'media_unsupported_image'
+                        ? t('composer.uploadUnsupported')
+                        : t(`composer.upload.${uploadState}`)}
                     </span>
                   )}
                   {uploadState === 'failed' && (
