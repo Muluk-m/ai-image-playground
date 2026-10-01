@@ -19,6 +19,126 @@ const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 afterAll(close)
 
+it('shows rolled-over source dependencies using their frozen approved attempts', async () => {
+  const id = 'page-source-dependencies'
+  const now = Date.now()
+  await db.insert(schema.users).values({
+    id,
+    username: id,
+    password_hash: 'fixture',
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  })
+  const session = await db.transaction((tx) => createUserSession(id, tx))
+  await db.insert(schema.agent_conversations).values({
+    id,
+    user_id: id,
+    title: 'source dependencies',
+    created_at: now,
+    updated_at: now,
+  })
+  await db.insert(schema.agent_batches).values({
+    id,
+    user_id: id,
+    conversation_id: id,
+    origin_turn_id: 'origin',
+    tool_call_id: 'plan',
+    experience: 'chat',
+    status: 'running',
+    current_version: 3,
+    confirmed_version: 3,
+    created_at: now,
+    updated_at: now,
+  })
+  const quote = {
+    status: 'available' as const,
+    estimatedCredits: 0,
+    estimatedChargeCredits: 0,
+    snapshots: [],
+  }
+  const sourceKeys = ['source-failed', 'source-unknown', 'source-retried']
+  const followupKeys = ['after-failure', 'after-unknown', 'after-success']
+  for (const version of [1, 2, 3]) {
+    const keys = version === 1 ? sourceKeys : version === 2 ? ['source-retried'] : followupKeys
+    await db.insert(schema.agent_batch_plans).values({
+      batch_id: id,
+      version,
+      title: 'source dependencies',
+      rule: 'follow the approved sources',
+      digest: String(version).repeat(64),
+      item_count: keys.length,
+      estimate_snapshot: { analysis: quote, generation: quote },
+      attempt_targets: version === 1 ? {} : { 'source-retried': 2 },
+      ...(version === 3
+        ? {
+            confirmation: {
+              phase: 'analysis' as const,
+              itemKeys: followupKeys,
+              requiresResume: false,
+              sourceVersion: 2,
+              sourceVersions: [1, 2],
+            },
+          }
+        : {}),
+      created_at: now,
+    })
+    await db.insert(schema.agent_batch_items).values(
+      keys.map((key, ordinal) => ({
+        batch_id: id,
+        version,
+        key,
+        ordinal,
+        kind: 'analysis' as const,
+        inputs: [],
+        prompt: key,
+        params: { model: 'fixture', estimatedInputTokens: 0, evidence: [] },
+        dependencies: version === 3 ? [sourceKeys[ordinal]!] : [],
+      })),
+    )
+  }
+  for (const one of [
+    { key: 'source-failed', version: 1, attempt: 1, status: 'failed' as const },
+    { key: 'source-unknown', version: 1, attempt: 1, status: 'reconciling' as const },
+    { key: 'source-retried', version: 1, attempt: 1, status: 'failed' as const },
+    { key: 'source-retried', version: 2, attempt: 2, status: 'completed' as const },
+  ]) {
+    const taskId = `${id}-${one.key}-${one.attempt}`
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      user_id: id,
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: one.status,
+      reconciliation_required: one.status === 'reconciling',
+      request_payload: { device_id: 'fixture', prompt: one.key, n: 1 },
+      submitted_at: now,
+    })
+    await db.insert(schema.agent_batch_attempts).values({
+      batch_id: id,
+      version: one.version,
+      item_key: one.key,
+      attempt: one.attempt,
+      task_id: taskId,
+      reserved_credits: 0,
+      submitted_at: now,
+    })
+  }
+  const response = await app.handle(
+    new Request(`http://localhost/api/agent/batches/${id}?limit=20`, {
+      headers: { cookie: `${USER_SESSION_COOKIE}=${session}` },
+    }),
+  )
+  expect(response.status).toBe(200)
+  const page = (await response.json()) as AgentBatchPage
+  expect(page.batch.status).toBe('running')
+  expect(page.items.map(({ key, progress, blockedBy }) => ({ key, progress, blockedBy }))).toEqual([
+    { key: 'after-failure', progress: 'blocked', blockedBy: ['source-failed'] },
+    { key: 'after-unknown', progress: 'blocked', blockedBy: ['source-unknown'] },
+    { key: 'after-success', progress: 'ready', blockedBy: undefined },
+  ])
+})
+
 it('reads only page result payloads while preserving global costs, cross-page dependencies and all visible attempts', async () => {
   const id = 'page-resource-owner'
   const now = Date.now()
