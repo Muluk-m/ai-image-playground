@@ -35,6 +35,7 @@ export interface LookAssemblyInput {
   readonly look: LookAssemblyLook
   /** 按素材位顺序给：第 i 条填第 i 个素材位。 */
   readonly assets: readonly LookAssemblyAsset[]
+  readonly firstImageId?: string
   readonly maxInputs?: number
 }
 
@@ -67,10 +68,10 @@ const SLOT_SECTION_HEADING = /^##\s*3\s*[.．、]/
 const SECTION_HEADING = /^#{1,2}\s/
 
 function inputListLines(
-  assetNames: readonly string[],
+  assets: ReadonlyArray<{ name: string; ordinal: number }>,
   referenceOrdinals: readonly number[],
 ): string[] {
-  const lines = assetNames.map((name, index) => `输入 ${index + 1} = 素材「${name}」`)
+  const lines = assets.map(({ name, ordinal }) => `输入 ${ordinal} = 素材「${name}」`)
   if (referenceOrdinals.length > 0) {
     lines.push(`参考图：${referenceOrdinals.map((ordinal) => `输入 ${ordinal}`).join('、')}`)
   }
@@ -113,12 +114,10 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
   const carried = slots
   const inputImageIds = carried.map((slot) => slot.imageId)
   const seen = new Set(inputImageIds)
-  const referenceOrdinals: number[] = []
   for (const imageId of look.referenceImageIds) {
     // 已经作为素材送进去的那张不再占一个位置：同一张图送两遍只是浪费输入。
     if (seen.has(imageId)) continue
     seen.add(imageId)
-    referenceOrdinals.push(inputImageIds.length + 1)
     inputImageIds.push(imageId)
   }
 
@@ -131,13 +130,21 @@ export function assembleLookRequest(input: LookAssemblyInput): LookAssemblyResul
     }
   }
 
+  const first = input.firstImageId ? inputImageIds.indexOf(input.firstImageId) : -1
+  if (first > 0) inputImageIds.unshift(...inputImageIds.splice(first, 1))
+  const finalReferences = inputImageIds.flatMap((id, index) =>
+    carried.some((slot) => slot.imageId === id) ? [] : [index + 1],
+  )
   return {
     ok: true,
     prompt: withInputList(
       look.body,
       inputListLines(
-        carried.map((slot) => slot.name),
-        referenceOrdinals,
+        carried.map((slot) => ({
+          name: slot.name,
+          ordinal: inputImageIds.indexOf(slot.imageId) + 1,
+        })),
+        finalReferences,
       ),
     ),
     inputImageIds,

@@ -1319,11 +1319,14 @@ function deriveTaskParams(
 }
 
 export interface PreparedSubmission {
+  /** 冻结的配置；提交前仍重新检查当前身份和模型准入。 */
+  profile?: ClientProfile
   prompt: string
   inputImages: InputImage[]
   params: TaskParams
   /** 槽位值；省略即按字面提交。 */
   slotValues?: SlotValues
+  maskDraft?: MaskDraft | null
   mask?: { imageId: string; targetImageId: string } | null
   /** 提交所用的 API 配置；省略用当前活动配置。 */
   profileId?: string
@@ -1342,6 +1345,7 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const { settings, showToast } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
   const selectedProfile =
+    input.profile ??
     normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
     getActiveApiProfile(normalizedSettings)
   if (
@@ -1375,7 +1379,59 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     return []
   }
 
+  const unfilledSlots = getUnfilledPromptSlots(input.prompt, input.slotValues ?? {})
+  if (unfilledSlots.length) {
+    showToast(
+      i18next.t('submit.slotUnfilled', { ns: 'store', slot: `{${unfilledSlots[0]}}` }),
+      'error',
+    )
+    return []
+  }
+  const admission = referenceAdmission(profile)
+  if (
+    input.inputImages.length > admission.limit ||
+    (input.inputImages.length > 0 && !admission.acceptsReferences)
+  ) {
+    showToast(
+      referenceRefusalMessage(input.inputImages.length > admission.limit ? 'overflow' : 'noEdit'),
+      'error',
+    )
+    return []
+  }
+  if (input.maskDraft) {
+    try {
+      const target = orderInputImagesForMask(input.inputImages, input.maskDraft.targetImageId)[0]
+      if (target.id !== input.inputImages[0]?.id)
+        throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
+      const coverage = await validateMaskMatchesImage(input.maskDraft.maskDataUrl, target.dataUrl)
+      if (coverage === 'full') {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          useStore.getState().setConfirmDialog({
+            title: i18next.t('mask.fullTitle', { ns: 'store' }),
+            message: i18next.t('mask.fullMessage', { ns: 'store' }),
+            confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
+            tone: 'warning',
+            action: () => resolve(true),
+            cancelAction: () => resolve(false),
+          })
+        })
+        if (!confirmed) return []
+      }
+      const imageId = await storeImage(input.maskDraft.maskDataUrl, 'mask')
+      cacheImage(imageId, input.maskDraft.maskDataUrl)
+      input = { ...input, maskDraft: undefined, mask: { imageId, targetImageId: target.id } }
+    } catch (error) {
+      showToast(describeError(error), 'error')
+      return []
+    }
+  }
   const taskParams = deriveTaskParams(input.params, requestSettings, input.inputImages.length > 0)
+  if (
+    getSubmissionImageCount(trimmedPrompt, input.slotValues ?? {}, taskParams.n) > MAX_BATCH_IMAGES
+  ) {
+    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
+    return []
+  }
   const submitView = clientProfileToApiProfile(profile)
   const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
   if (prompts.length === 0) return []

@@ -12,7 +12,11 @@ import {
   buildAtMentionGroups,
   getAssetNamesByImageId,
 } from '../features/library/lib/assetMentions'
-import { checkLookSubmission, submitWithLook } from '../features/library/lib/lookSubmit'
+import {
+  checkLookSubmission,
+  submitWithLook,
+  useLookSubmission,
+} from '../features/library/lib/lookSubmit'
 import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
 import { useLibraryStore } from '../features/library/store'
 import { useImageInputScope } from '../hooks/useImageInputScope'
@@ -200,6 +204,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上，提交走模板组装。画布档不管它（那是智能体的事）。
   const activeLook = useActiveLook((s) => s.look)
+  const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
   const lookCheck = useMemo(
     () => (activeLook ? checkLookSubmission(activeLook, inputImages, libraryAssets) : null),
@@ -220,7 +225,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const skills = useAgentSkills('image')
   const leadingSkill = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
   const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
-  const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas
+  const submitReady = toCanvas
+    ? Boolean(prompt.trim())
+    : canSubmit && !skillNeedsCanvas && !lookSubmitting
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const submitBlockedTip = toCanvas
     ? null
@@ -230,6 +237,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
         : null
   const submit = () => {
+    if (lookSubmitting) return
     if (toCanvas)
       void startCanvasFromComposer(undefined, createTarget === 'chat' ? 'chat' : 'canvas')
     else if (activeLook) void submitWithLook(activeLook, lookBody)
