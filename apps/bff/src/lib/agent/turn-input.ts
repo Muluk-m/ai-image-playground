@@ -102,7 +102,10 @@ function escapeXml(value: string): string {
 function skillsBlock(skills: readonly AgentSkill[]): string[] {
   if (skills.length === 0) return []
   const lines = ['<available_skills>']
-  for (const skill of skills) {
+  // 用户模板的 UI 按最近使用排序；系统前缀固定按名称排序，避免一次使用改掉后续轮的缓存前缀。
+  for (const skill of [...skills].sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  )) {
     lines.push('  <skill>')
     lines.push(`    <name>${escapeXml(skill.name)}</name>`)
     lines.push(`    <description>${escapeXml(skill.description)}</description>`)

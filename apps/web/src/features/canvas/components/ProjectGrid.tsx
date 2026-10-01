@@ -144,16 +144,16 @@ export default function ProjectGrid({
               className="block w-full text-left disabled:opacity-50"
             >
               {/* 外框是 1rem 圆角加 1px 边。封面若用直角，圆角处会露出卡片底色，像多了一道边。 */}
-              <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted/50">
+              <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-t-[calc(1rem-1px)] bg-[#e8e6e8] p-3.5 text-[#77756f]">
                 {project.cover ? (
                   <MediaImage
                     src={project.cover}
                     alt=""
                     loading="lazy"
-                    className="h-full w-full object-contain"
+                    className="h-full w-full object-contain drop-shadow-[0_2px_5px_#00000011]"
                   />
                 ) : (
-                  <span className="text-4xl text-muted-foreground/40" aria-hidden="true">
+                  <span className="text-4xl opacity-40" aria-hidden="true">
                     ✧
                   </span>
                 )}

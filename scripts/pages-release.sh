@@ -190,6 +190,11 @@ while :; do
   sleep 5
 done
 
+if [ "$app" = web ]; then
+  stage "Verify the homepage, all JS/CSS assets, and missing-asset behavior"
+  node "$repo_root/scripts/verify-pages-release.mjs" "$public_origin" "$repo_root/apps/web/dist"
+fi
+
 released=true
 append_deploy_log "$deployment_name" "pages:$pages_project" ok
 printf '\nReleased %s: version=%s\n' "$pages_project" "$built_version"
