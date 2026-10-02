@@ -94,6 +94,17 @@ describe('预置模板随技能清单发出去', () => {
             coverUrl: '/api/agent/skills/scene-look/files/cover.webp',
             referenceUrls: ['/api/agent/skills/scene-look/files/cover.webp'],
           },
+          // 预置模板没写素材位：由 slotCount 派生；没写验证记录，就不算已验证。
+          inputs: [
+            {
+              key: 'asset1',
+              label: { 'zh-CN': '素材', en: 'Asset' },
+              required: true,
+              multiple: true,
+            },
+          ],
+          starters: [],
+          verified: false,
         },
       ],
     })

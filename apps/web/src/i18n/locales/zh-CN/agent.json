@@ -640,5 +640,17 @@
     "excludedPending": "未完成的来源分析仍需单独处理。",
     "generationSource": "生成依据",
     "sourceUnavailable": "来源分析详情暂不可用"
+  },
+  "starters": {
+    "lead": "帮你做：",
+    "use": "用",
+    "back": "返回",
+    "aria": "按场景起手",
+    "scene": {
+      "ecommerce": "电商",
+      "poster": "海报平面",
+      "scene-character": "场景角色",
+      "look": "预置模板"
+    }
   }
 }

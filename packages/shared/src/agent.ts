@@ -130,6 +130,59 @@ export interface AgentSkillTemplate {
 }
 
 /**
+ * 起手句的分组（见 CONTEXT.md「场景」）。取值固定，界面按它排场景按钮，文案在前端语料里。
+ * 与换背景语境里的「场景」不是一回事。
+ */
+export const AGENT_SKILL_SCENES = ['ecommerce', 'poster', 'scene-character', 'look'] as const
+
+export type AgentSkillScene = (typeof AGENT_SKILL_SCENES)[number]
+
+/** 运营在 `meta.json` 里写的中英两份文案；英文缺席时界面回退中文。 */
+export interface AgentLocalizedText {
+  readonly 'zh-CN': string
+  readonly en?: string
+}
+
+/**
+ * 技能声明的一个**素材位**（见 CONTEXT.md「素材位」）：一个位代表一个主体。
+ * 预置模板没写时由 `slotCount` 派生成 `asset1..N`。
+ */
+export interface AgentSkillInput {
+  /** 稳定标识，起手句里写成 `{key}` 引用它。 */
+  readonly key: string
+  readonly label: AgentLocalizedText
+  readonly required: boolean
+  /** 能不能放同一主体的多张图。 */
+  readonly multiple: boolean
+}
+
+/**
+ * 技能声明的一条**起手句**（见 CONTEXT.md「起手句」）。文字里的 `{key}` 是素材位引用，
+ * 只能引用这条技能声明过的位。
+ */
+export interface AgentSkillStarter {
+  readonly text: AgentLocalizedText
+  /** 填进输入框后自动选中的那个示例词；必须出现在对应语言的 `text` 里。 */
+  readonly highlight?: AgentLocalizedText
+}
+
+/** 起手句文字里的素材位引用：`{key}`。服务端校验与界面拆分共用这一条。 */
+export const AGENT_SKILL_INPUT_REF_RE = /\{([A-Za-z0-9_-]+)\}/g
+
+/** 这份文案按界面语言该取哪一种：英文缺席或为空时回退中文。 */
+export function localizedTextLocale(
+  text: AgentLocalizedText,
+  language: string,
+): keyof AgentLocalizedText {
+  return language.startsWith('en') && text.en ? 'en' : 'zh-CN'
+}
+
+/** 文案按界面语言取一份：英文缺席或为空时回退中文。 */
+export function localizedText(text: AgentLocalizedText, language: string): string {
+  return text[localizedTextLocale(text, language)] ?? text['zh-CN']
+}
+
+/**
  * 技能清单端点给前端的那一份：标识、标题、「何时用」，外加界面用的图标与一句话简介。
  * `name` 是 Agent Skills 标准的 kebab-case 标识，服务端只认它；`title` 是给人看的那个名字。
  *
@@ -146,6 +199,17 @@ export interface AgentSkillSummary {
   readonly summary: string
   /** 这条技能同时是一条预置模板时才有；缺席即它只是流程指引。 */
   readonly template?: AgentSkillTemplate
+  /** 素材位声明，始终在：预置模板没写时已由 `slotCount` 派生好。 */
+  readonly inputs: readonly AgentSkillInput[]
+  /** 起手句；引用了未声明素材位的那些已在服务端丢掉。 */
+  readonly starters: readonly AgentSkillStarter[]
+  /** 起手句归在哪个场景下；缺席即不进场景引导。 */
+  readonly scene?: AgentSkillScene
+  /**
+   * 服务端算好的「已验证」：有验证记录且记录的模型就是这条技能此刻会用的模型。
+   * 界面只露出为 true 的技能的起手句，自己不判断。
+   */
+  readonly verified: boolean
 }
 
 /**

@@ -17,7 +17,7 @@ import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
-import { setAgentComposerFill } from '../../agent/lib/composerFill'
+import { useComposerFillTarget } from '../../agent/lib/composerFill'
 import { useVideoStore } from '../../video/store'
 import { useCanvasComposer } from '../composerStore'
 import type { CanvasEditor } from '../lib/editor'
@@ -211,16 +211,10 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   }
 
   // 空状态的示例提示词点一下填进来（没有智能体的部署里，这条输入框就是「那个输入框」）。
-  // 只换掉空草稿或上一条原样未动的建议：用户自己写的话一个字都不动。
-  const suggestedRef = useRef<string | null>(null)
-  useEffect(() =>
-    setAgentComposerFill((text) => {
-      const current = useCanvasComposer.getState().prompt
-      if (current.trim() !== '' && current !== suggestedRef.current) {
-        useStore.getState().showToast(t('agent:suggestions.draftKeptToast'), 'info')
-        return
-      }
-      suggestedRef.current = text
+  // 直接生成栏没有智能体，也就不认技能：起手句只取句子本身。
+  useComposerFillTarget({
+    read: () => useCanvasComposer.getState().prompt,
+    write: ({ text }) => {
       setPrompt(text)
       // 光标放到句末等用户接着写：受控 textarea 这一帧还是旧值，等渲染完再挪。
       window.setTimeout(() => {
@@ -229,8 +223,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         area.focus()
         area.setSelectionRange(area.value.length, area.value.length)
       }, 0)
-    }),
-  )
+      return text
+    },
+  })
 
   // 附件即「放到画布上的参考图」：导入后自动选中，选区随即被当作本次生成的输入。
   const attach = (files: File[]) => {
