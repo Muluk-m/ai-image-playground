@@ -436,7 +436,11 @@ it('chat projects without a canvas cover fall back to the latest generated image
   })
   await db
     .insert(schema.generation_records)
-    .values([record('gen-old', now - 2), record('gen-new', now - 1), record('gen-hidden', now, now)])
+    .values([
+      record('gen-old', now - 2),
+      record('gen-new', now - 1),
+      record('gen-hidden', now, now),
+    ])
   await db.insert(schema.generation_images).values([
     { generation_id: 'gen-old', role: 'output', position: 0, media_id: 'older-output' },
     { generation_id: 'gen-new', role: 'input', position: 0, media_id: 'newer-input' },
