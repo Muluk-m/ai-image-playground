@@ -239,7 +239,6 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
       ? ''
       : (new URLSearchParams(window.location.search).get('ref') ?? ''),
   )
-  const [referralExpanded, setReferralExpanded] = useState(Boolean(referralCode))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -328,17 +327,11 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
   }
 
   const invitationField = referralEnabled ? (
-    <details
-      className="auth-referral"
-      open={referralExpanded}
-      onToggle={(event) => setReferralExpanded(event.currentTarget.open)}
-    >
-      <summary>
-        {t('referral.summary')}
-        <span>{t('referral.optional')}</span>
-      </summary>
+    <div className="auth-referral">
       <label className="auth-field">
-        <span>{t('referral.label')}</span>
+        <span>
+          {t('referral.label')} · {t('referral.optional')}
+        </span>
         <input
           name="referral_code"
           value={referralCode}
@@ -354,7 +347,7 @@ export function LoginDialog({ onClose, reason = 'gated-action' }: LoginDialogPro
           placeholder={t('referral.placeholder')}
         />
       </label>
-    </details>
+    </div>
   ) : null
   const providerButtons =
     providers.length > 0 ? (
