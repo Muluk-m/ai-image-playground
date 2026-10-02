@@ -12,9 +12,14 @@ import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
 import { renameProject } from '../lib/activeProject'
-import { projectCatalog } from '../lib/projectCatalog'
+import { projectCatalog, RECENT_PROJECT_COUNT } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
-import { type CanvasProject, projectDisplayName, projectExperience } from '../lib/projectRepository'
+import {
+  type CanvasProject,
+  projectDisplayName,
+  projectEntryName,
+  projectExperience,
+} from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 import ProjectTrash from './ProjectTrash'
 
@@ -55,7 +60,7 @@ export default function ProjectGrid({
         (!recent || project.hasContent || project.workspaceOpened) &&
         (!experience || projectExperience(project) === experience),
     )
-    .slice(0, recent ? 5 : undefined)
+    .slice(0, recent ? RECENT_PROJECT_COUNT : undefined)
   const enter = async (project?: CanvasProject, kind?: 'image' | 'video') => {
     if (busy) return
     setBusy(true)
@@ -154,7 +159,7 @@ export default function ProjectGrid({
               <button
                 type="button"
                 disabled={busy}
-                aria-label={`${t('grid.openAria', { name: projectDisplayName(project.name) })} · ${statusLabel}`}
+                aria-label={`${t('grid.openAria', { name: projectEntryName(project) })} · ${statusLabel}`}
                 onClick={() => void enter(project)}
                 className="group/project-card block w-full text-left disabled:opacity-50"
               >
@@ -201,9 +206,9 @@ export default function ProjectGrid({
                 </div>
                 <h3
                   className="truncate px-4 pt-3 text-sm font-medium text-foreground"
-                  title={projectDisplayName(project.name)}
+                  title={projectEntryName(project)}
                 >
-                  {projectDisplayName(project.name)}
+                  {projectEntryName(project)}
                 </h3>
               </button>
               <div className="flex items-center gap-2 px-4 pb-3 pt-1.5 text-xs text-muted-foreground">
@@ -223,7 +228,7 @@ export default function ProjectGrid({
                     variant="ghost"
                     size="icon"
                     className="absolute right-2 top-2 rounded-xl bg-background/90 text-foreground shadow-sm hover:bg-background"
-                    aria-label={t('grid.actionsAria', { name: projectDisplayName(project.name) })}
+                    aria-label={t('grid.actionsAria', { name: projectEntryName(project) })}
                   >
                     <MoreHorizontal />
                   </Button>
@@ -252,7 +257,7 @@ export default function ProjectGrid({
                         useStore.getState().setConfirmDialog({
                           title: t('grid.deleteTitle'),
                           message: t(project.cloud ? 'trash.deleteMessage' : 'grid.deleteMessage', {
-                            name: projectDisplayName(project.name),
+                            name: projectEntryName(project),
                           }),
                           action: () => {
                             void useAgentStore.getState().deleteProject(project.id)
