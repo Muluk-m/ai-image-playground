@@ -1,7 +1,8 @@
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { beginLookSubmission } from '../features/library/lib/lookSubmissionOperation'
 import { i18next } from '../i18n'
-import { accountScope, scopedStorageName } from '../lib/authScope'
+import { scopedStorageName } from '../lib/authScope'
+import { watchSubmissionContext } from '../lib/submissionContext'
 import { submitPrepared, useStore } from '../store'
 import { isSignedIn } from './loginPrompt'
 import { takePendingSubmission } from './pendingSubmission'
@@ -32,28 +33,15 @@ export async function resumePendingSubmission(): Promise<void> {
       }
       return
     }
-    const sameAccount = accountScope()
     const start = useStore.getState()
-    let active = true
-    const current = () =>
-      active &&
-      sameAccount() &&
-      (!pending.sourcePath || window.location.pathname === pending.sourcePath)
-    const unwatch = useStore.subscribe((next) => {
-      if (next.appMode !== start.appMode || next.createTarget !== start.createTarget) active = false
-    })
-    const onNavigate = () => {
-      if (!current()) active = false
-    }
-    window.addEventListener('popstate', onNavigate)
+    const context = watchSubmissionContext(pending.sourcePath)
     let ids: string[]
     try {
-      ids = await submitPrepared(pending.input, { isCurrent: current })
+      ids = await submitPrepared(pending.input, { isCurrent: context.isCurrent })
     } finally {
-      unwatch()
-      window.removeEventListener('popstate', onNavigate)
+      context.dispose()
     }
-    if (!current()) return
+    if (!context.isCurrent()) return
     if (
       ids.length === 0 &&
       !useStore.getState().prompt.trim() &&
