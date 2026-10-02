@@ -181,3 +181,23 @@ it('copies an own __proto__ key as data without touching the prototype', () => {
   expect(Object.keys(copy)).toEqual(['__proto__'])
   expect((copy as { x?: unknown }).x).toBeUndefined()
 })
+
+it('keeps an explicit null abort reason and a stable default reason', () => {
+  const controller = new AbortController()
+  controller.abort(null)
+  const signal = controller.signal as Signal
+  expect(signal.reason).toBeNull()
+  expect(() => signal.throwIfAborted()).toThrow()
+  expect(statics.any([signal]).reason).toBeNull()
+
+  const bare = new AbortController()
+  bare.abort()
+  expect((bare.signal as Signal).reason).toBe((bare.signal as Signal).reason)
+})
+
+it('keeps array length across holes', () => {
+  const trailing = [1, , ,]
+  expect(clone(new Array(3)).length).toBe(3)
+  expect(clone(trailing).length).toBe(3)
+  expect(clone(trailing)[0]).toBe(1)
+})

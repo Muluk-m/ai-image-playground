@@ -82,7 +82,11 @@ if (!('reason' in AbortSignal.prototype)) {
   Object.defineProperty(AbortSignal.prototype, 'reason', {
     configurable: true,
     get(this: AbortSignal) {
-      return this.aborted ? (reasons.get(this) ?? abortError()) : undefined
+      if (!this.aborted) return undefined
+      // 用 has 而不是 ??：显式的 `abort(null)` 原因要原样保留。没登记的（被浏览器自身取消）补一个并记住，
+      // 每次读到的是同一个对象。
+      if (!reasons.has(this)) reasons.set(this, abortError())
+      return reasons.get(this)
     },
   })
   const nativeAbort = AbortController.prototype.abort
@@ -166,7 +170,8 @@ function clone(value: unknown, seen: Map<unknown, unknown>): unknown {
     for (const item of value) copy.add(clone(item, seen))
     return copy
   }
-  const copy = remember(Array.isArray(value) ? ([] as unknown[]) : {})
+  // 数组按原长度建，尾部空槽不会把长度弄丢。
+  const copy = remember(Array.isArray(value) ? new Array<unknown>(value.length) : {})
   for (const key of Object.keys(value)) {
     // 用 defineProperty 而不是赋值：自有的 `__proto__` 键要复制成普通数据属性，不能触发原型设置器。
     Object.defineProperty(copy, key, {
