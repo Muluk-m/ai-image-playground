@@ -66,7 +66,15 @@
     "needImages": "请至少选择两张图片",
     "editTitle_other": "编辑 {{count}} 张图片",
     "editSubmit_other": "逐张编辑 {{count}} 张",
-    "clear": "取消选择"
+    "clear": "取消选择",
+    "cutoutTitle_other": "为 {{count}} 张图片抠图",
+    "resizeTitle_other": "把 {{count}} 张图片调整为 {{ratio}}",
+    "confirmBody_other": "这是 AI 处理：每张图片各发起一个生成任务，共 {{count}} 个。",
+    "cutoutPlacement": "抠图结果会替换原图。",
+    "resizePlacement": "新尺寸的图片放在原图旁边，原图保留。",
+    "confirmCost": "预计消耗",
+    "confirmCancel": "取消",
+    "confirmSubmit_other": "确认生成 {{count}} 张"
   },
   "submit": {
     "blocked": "当前无法生成",

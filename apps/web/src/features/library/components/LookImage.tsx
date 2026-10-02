@@ -8,15 +8,18 @@ type Source = LookItem['references'][number]
 export default function LookImage({
   source,
   alt,
-  className = 'h-full w-full object-cover',
+  className,
 }: {
   source: Source | null
   alt: string
   className?: string
 }) {
-  if (!source) return <div className={`${className} bg-muted`} aria-hidden="true" />
-  if (source.kind === 'image') return <AssetThumb imageId={source.imageId} alt={alt} />
-  return <img src={lookImageUrl(source.url)} alt={alt} className={className} loading="lazy" />
+  const fill = className ?? 'h-full w-full object-cover'
+  if (!source) return <div className={`${fill} bg-muted`} aria-hidden="true" />
+  // 只有调用方显式给了尺寸约束才往下传；卡片缩略图沿用 AssetThumb 自带的悬停放大。
+  if (source.kind === 'image')
+    return <AssetThumb imageId={source.imageId} alt={alt} className={className} />
+  return <img src={lookImageUrl(source.url)} alt={alt} className={fill} loading="lazy" />
 }
 
 export function lookImageUrl(path: string): string {
