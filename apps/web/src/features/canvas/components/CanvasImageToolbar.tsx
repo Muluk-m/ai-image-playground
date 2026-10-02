@@ -58,12 +58,18 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
   } | null>(null)
   const sessionEpoch = useRef(0)
   const busyRef = useRef(false)
-  /** 收起态工具条的实际宽度：靠右的图要按它往回挪，不然末尾的「更多」会被画布边缘切掉。 */
-  const [toolbarWidth, setToolbarWidth] = useState(0)
+  /**
+   * 收起态工具条的实际尺寸：靠右的图要按宽度往回挪，不然末尾的「更多」会被画布边缘切掉；
+   * 窄屏换行后高度也不止一行，上下放不放得下得按实测高度算。
+   */
+  const [toolbarSize, setToolbarSize] = useState({ width: 0, height: TOOLBAR_HEIGHT })
   const measureToolbar = (node: HTMLDivElement | null) => {
     if (!node) return
-    const next = node.offsetWidth
-    setToolbarWidth((current) => (current === next ? current : next))
+    const width = node.offsetWidth
+    const height = node.offsetHeight || TOOLBAR_HEIGHT
+    setToolbarSize((current) =>
+      current.width === width && current.height === height ? current : { width, height },
+    )
   }
   const activeRef = useRef(active)
   activeRef.current = active
@@ -144,7 +150,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         8,
         Math.min(viewport.width - width - 8, imageLeft + (bounds.w * camera.zoom - width) / 2),
       )
-    : Math.max(8, Math.min(imageLeft, viewport.width - toolbarWidth - 8))
+    : Math.max(8, Math.min(imageLeft, viewport.width - toolbarSize.width - 8))
   const expandedHeight = painting ? 300 : 205
   const preferredTop = imageBottom + TOOLBAR_GAP
   const expandedTop =
@@ -158,9 +164,12 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
           : Math.max(8, viewport.height - expandedHeight - 8)
   const top = expanded
     ? expandedTop
-    : imageBottom + TOOLBAR_GAP + TOOLBAR_HEIGHT <= viewport.height
+    : imageBottom + TOOLBAR_GAP + toolbarSize.height <= viewport.height
       ? imageBottom + TOOLBAR_GAP
-      : Math.max(8, imageTop - TOOLBAR_GAP - TOOLBAR_HEIGHT)
+      : imageTop - TOOLBAR_GAP - toolbarSize.height >= 8
+        ? imageTop - TOOLBAR_GAP - toolbarSize.height
+        : // 上下都没地方：钉在画布底边内，宁可压住图的下沿也别让按钮出画布。
+          Math.max(8, viewport.height - toolbarSize.height - 8)
   const panelEpoch = sessionEpoch.current
   const setBusy = (value: boolean) => {
     busyRef.current = value
