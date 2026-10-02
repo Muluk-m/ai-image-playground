@@ -178,7 +178,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="login-methods-title"
-        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in custom-scrollbar border-border dark:ring-white/10"
+        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border bg-card/95 p-5 shadow-2xl ring-1 ring-hairline animate-modal-in custom-scrollbar border-border"
       >
         <div className="mb-5 flex items-center justify-between gap-4">
           <h3 id="login-methods-title" className="text-base font-semibold text-foreground">

@@ -99,7 +99,7 @@ export default function CreateRecordDialog(props: Props) {
           e.preventDefault()
           void submit()
         }}
-        className="relative z-10 w-[min(94vw,680px)] rounded-3xl border border-border bg-card p-6 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10"
+        className="relative z-10 w-[min(94vw,680px)] rounded-3xl border border-border bg-card p-6 shadow-2xl ring-1 ring-hairline animate-modal-in"
       >
         <div className="mb-5 flex items-center gap-2">
           <h3 className="text-lg font-semibold text-foreground">{t(`${ns}.title`)}</h3>

@@ -109,7 +109,7 @@ function InboxGroup({
         aria-expanded={open}
         disabled={messages.length === 0}
         onClick={() => setOpen((value) => !value)}
-        className={`flex w-full items-center gap-1 rounded-lg px-1.5 py-1 text-label-sm transition-colors ${INK_3} enabled:hover:bg-muted disabled:opacity-60`}
+        className={`flex w-full items-center gap-1 rounded-lg px-1.5 py-1 text-label-sm transition-colors ${INK_3} enabled:hover:bg-muted disabled:opacity-50`}
       >
         <ChevronRight
           className={`h-3 w-3 transition-transform ${open && messages.length > 0 ? 'rotate-90' : ''}`}

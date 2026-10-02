@@ -186,7 +186,7 @@ export default function ProjectNavigation() {
                           </span>
                           <time
                             dateTime={new Date(project.updatedAt).toISOString()}
-                            className="mt-0.5 block text-[10px] font-normal text-muted-foreground"
+                            className="mt-0.5 block text-label-sm font-normal text-muted-foreground"
                           >
                             {formatDateMinute(project.updatedAt)}
                           </time>
@@ -271,7 +271,7 @@ export default function ProjectNavigation() {
                 {pending === 'new' ? <LoaderCircle className="animate-spin" /> : <MessageCircle />}
                 <span className="text-left text-xs">
                   {t('navigation.newChat')}
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                  <span className="mt-0.5 block text-label-sm font-normal text-muted-foreground">
                     {t('navigation.newChatHint')}
                   </span>
                 </span>
@@ -285,7 +285,7 @@ export default function ProjectNavigation() {
                 <LayoutDashboard />
                 <span className="text-left text-xs">
                   {t('navigation.newCanvas')}
-                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                  <span className="mt-0.5 block text-label-sm font-normal text-muted-foreground">
                     {t('navigation.newCanvasHint')}
                   </span>
                 </span>

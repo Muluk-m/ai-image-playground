@@ -134,7 +134,7 @@ export default function InpaintPanel({
           disabled={!painted}
           aria-label={t('inpaint.undo')}
           title={t('inpaint.undo')}
-          className="ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+          className="ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
           onClick={session.undo}
         >
           <Undo2 className="h-4 w-4" />

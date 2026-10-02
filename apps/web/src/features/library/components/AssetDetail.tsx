@@ -52,7 +52,7 @@ export default function AssetDetail({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 flex max-h-[85vh] w-[min(94vw,760px)] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 flex max-h-[85vh] w-[min(94vw,760px)] flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-hairline animate-modal-in">
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
           <h3 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">
             {asset.name}

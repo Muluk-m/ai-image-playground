@@ -76,7 +76,7 @@ export function ComposerAttachButton({
       disabled={!props.onClick}
       className={cn(
         ghostButton,
-        'h-8 w-8 disabled:pointer-events-none disabled:opacity-40',
+        'h-8 w-8 disabled:pointer-events-none disabled:opacity-50',
         className,
       )}
       {...props}

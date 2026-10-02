@@ -284,7 +284,7 @@ export default function Select({
         <div
           id={listId}
           role="listbox"
-          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
+          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground py-1 shadow-popover ring-1 ring-hairline backdrop-blur-xl custom-scrollbar ${
             placement === 'top'
               ? 'bottom-full mb-1.5 animate-dropdown-up'
               : 'top-full mt-1.5 animate-dropdown-down'
@@ -512,7 +512,7 @@ export default function Select({
                     {option.label}
                   </span>
                   {option.description && (
-                    <span className="mt-0.5 block truncate text-[10px] font-normal opacity-70">
+                    <span className="mt-0.5 block truncate text-label-sm font-normal opacity-70">
                       {option.description}
                     </span>
                   )}
@@ -565,7 +565,7 @@ export default function Select({
         createPortal(
           <div
             id="touch-drag-preview"
-            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-card/95 px-3 py-2 text-xs text-foreground shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:ring-white/10"
+            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-card/95 px-3 py-2 text-xs text-foreground shadow-xl ring-1 ring-hairline backdrop-blur-xl"
             style={{
               left: touchDragPreview.x - touchDragPreview.offsetX,
               top: touchDragPreview.y - touchDragPreview.offsetY,

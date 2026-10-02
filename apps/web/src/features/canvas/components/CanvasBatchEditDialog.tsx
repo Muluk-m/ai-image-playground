@@ -52,7 +52,7 @@ export default function CanvasBatchEditDialog({
 
   return (
     <Overlay onClose={submitting ? () => {} : onClose} tier="raised">
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
         <h3 className={`${PANEL_TITLE} mb-3`}>{t('batch.editTitle', { count: images.length })}</h3>
         <div className={`${LABEL} mb-1.5`}>{t('imageEdit.promptLabel')}</div>
         <textarea

@@ -42,7 +42,7 @@ export default function NamingDialog({
           e.preventDefault()
           if (finalName) onSave(finalName)
         }}
-        className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10"
+        className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border"
       >
         <h3 className="text-base font-semibold text-foreground">{title}</h3>
         {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}

@@ -106,21 +106,21 @@ components:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.on-primary}"
     typography: "{typography.label-md}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.md}"
     height: "{spacing.control-lg}"
     padding: 16px
   button-outline:
     backgroundColor: "{colors.background}"
     textColor: "{colors.on-surface}"
     typography: "{typography.label-md}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.md}"
     height: "{spacing.control-lg}"
     padding: 16px
   button-ghost:
     backgroundColor: "{colors.background}"
     textColor: "{colors.on-surface-muted}"
     typography: "{typography.label-md}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.md}"
     height: "{spacing.control-md}"
     padding: 12px
   button-ghost-hover:
@@ -135,7 +135,7 @@ components:
     backgroundColor: "{colors.background}"
     textColor: "{colors.on-surface}"
     typography: "{typography.body-md}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.md}"
     height: "{spacing.control-lg}"
     padding: 12px
   param-chip:
@@ -272,7 +272,8 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 | label-sm | 11 | 计数、次要标注 |
 | mono-sm | 11 | 媒体角标上的比例与尺寸 |
 
-小于 11px 的字一律不出现（含图片角标）。字重只用 400 / 500 / 600 三档。
+小于 11px 的字不出现。唯一例外是 56px 以内缩略图上的「MASK」、序号这类角标，允许 7–9px，
+且只能贴在缩略图上。字重只用 400 / 500 / 600 三档。
 
 ## Layout
 
@@ -287,9 +288,25 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 ## Elevation & Depth
 
-层次靠**明度分层 + 1px 描边**：background → surface → surface-raised。阴影只给真正浮在
-内容之上的东西——弹层、菜单、对话框、Toast——统一 `shadow-xl`；卡片 hover 时最多加
-`shadow-lg`，静止的卡片不带阴影。首页 hero 的光晕是唯一的装饰性深度。
+层次靠**明度分层 + 1px 描边**：background → surface → surface-raised。浮层外缘的发丝线
+用 `ring-1 ring-hairline`（亮色 5% 黑、暗色 10% 白），不再写 `ring-black/5 dark:ring-white/10`。
+
+阴影只给真正浮在内容之上的东西，只有两档：`shadow-popover`（下拉、菜单、Toast、批量操作条）
+与 `shadow-dialog`（对话框）。卡片 hover 时最多加 `shadow-lg`，静止的卡片不带阴影。首页 hero
+的光晕是唯一的装饰性深度。
+
+层级（z-index）只用这张表，新浮层先找位置再写数：
+
+| 层 | 值 | 谁 |
+|---|---|---|
+| 页面内 | 10–40 | 吸顶、侧栏、移动导航 |
+| 模态 | 50 / 100 / 110 | Overlay 的 modal / raised / alert |
+| 画布浮层 | 400–430 | 画布工具条、批量条 |
+| 定位浮层 | 600 | Radix Popover |
+| 产物审阅 | 1000–1200 | artifact pane 与其上的 Overlay |
+| 通知 | 1390 / 1400 | 更新横幅 / Toast |
+| 提示 | 1450 | Tooltip |
+| 右键菜单 | 1500 | ContextMenu |
 
 ## Shapes
 
@@ -299,9 +316,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 |---|---|---|
 | xs | 4 | 进度条、行内高亮 |
 | sm | 6 | 媒体角标、小徽标 |
-| md | 8 | 图标按钮、缩略图 |
-| lg | 10 | 按钮、输入框（= `--radius`） |
-| xl | 12 | 参数 chip、弹层、菜单、侧栏行 |
+| md | 8 | 按钮、输入框（shadcn 原语，与 admin 共用）、图标按钮、缩略图 |
+| lg | 10 | 卡片内的次级块（= `--radius`） |
+| xl | 12 | 参数 chip、弹层、菜单 |
 | 2xl | 16 | 卡片、面板 |
 | 3xl | 24 | 对话框、首页创作输入框 |
 | full | — | 页签、头像、开关 |
@@ -326,7 +343,9 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
 
 - Do：新写样式先查本文件的 token；找不到合适的档位就先改本文件，再写代码。
 - Do：同一语义动作用同一个词——「查看全部」，不要再出现「查看全部作品」「查看全部 →」。
-- Do：焦点环统一 `focus-visible:ring-2 ring-ring ring-offset-2 ring-offset-background`。
+- Do：焦点环统一 `focus-visible:ring-2 ring-ring`，用 `focus-visible:` 而不是 `focus:`（文本输入框除外）。
+- Do：禁用态统一 `disabled:opacity-50`；按下缩放统一 `active:scale-[0.97]`。
+- Do：状态色只用 success / warning / destructive token，不用 emerald / amber / red 调色板类。
 - Don't：用 `text-[Npx]`、`rounded-[Npx]` 这类任意值；需要新档位就加 token。
 - Don't：给只在触屏上成立的操作写 PC 文案（如「长按缩略图」），按指针类型分别给提示。
 - Don't：在界面上解释系统行为；空态最多一句话说明「这里放什么、怎么开始」。

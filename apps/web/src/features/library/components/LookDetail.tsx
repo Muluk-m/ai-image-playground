@@ -12,7 +12,7 @@ import { useLibraryStore } from '../store'
 import LookImage from './LookImage'
 
 const ACTION =
-  'inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-body-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-body-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50'
 
 export default function LookDetail({
   look,
@@ -56,7 +56,7 @@ export default function LookDetail({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 flex h-[min(90vh,900px)] w-[min(96vw,1200px)] flex-col overflow-hidden md:flex-row rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+      <div className="relative z-10 flex h-[min(90vh,900px)] w-[min(96vw,1200px)] flex-col overflow-hidden md:flex-row rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-hairline animate-modal-in">
         {/* 窄屏改成上图下文：并排时 400px 的信息栏会把图片区挤到没有宽度。 */}
         <div className="flex min-w-0 shrink-0 flex-col bg-black/5 md:flex-[3] md:shrink dark:bg-black/40">
           <div className="relative flex min-h-0 flex-1 items-center justify-center p-3 md:p-6">

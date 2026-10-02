@@ -50,7 +50,7 @@ export default function CanvasBatchConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10"
+        className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in"
         // 画布在 window 上听快捷键：Delete / ⌘A / 切工具都会改掉这批选区，弹窗开着时一律拦下。
         onKeyDown={(event) => {
           event.stopPropagation()
