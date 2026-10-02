@@ -323,4 +323,26 @@ describe('随仓库发的技能效果验证', () => {
     const record = existsSync(recordPath) ? readJson(recordPath) : undefined
     expect(verifiedMismatches(meta, record)).toEqual([])
   })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 的验证记录用的是当前这 3 组测试输入', (name) => {
+    const directory = join(defaultAgentSkillsRoot(), 'image', name, VERIFICATION_DIR)
+    if (!existsSync(join(directory, VERIFICATION_RECORD_FILE))) return
+    // 测试输入换过而记录没重跑，记录就证明不了现在这套输入。
+    const record = readJson(join(directory, VERIFICATION_RECORD_FILE)) as {
+      runs: { case: string }[]
+    }
+    const cases = readJson(join(directory, VERIFICATION_CASES_FILE)) as { cases: { id: string }[] }
+    expect([...new Set(record.runs.map((run) => run.case))].sort()).toEqual(
+      cases.cases.map((one) => one.id).sort(),
+    )
+  })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 若是预置模板，verified 记的是钉死的模型', (name) => {
+    // 钉死模型一改，旧的 verified 就不再成立：要么重跑验证，要么回填工具把它删掉。
+    const meta = readJson(join(defaultAgentSkillsRoot(), 'image', name, 'meta.json')) as {
+      verified?: { model?: unknown }
+      template?: { model?: unknown }
+    }
+    if (meta.verified && meta.template) expect(meta.verified.model).toBe(meta.template.model)
+  })
 })

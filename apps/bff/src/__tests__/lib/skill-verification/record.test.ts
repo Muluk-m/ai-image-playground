@@ -80,6 +80,13 @@ describe('judgeVerificationRecord', () => {
     expect(judgeVerificationRecord(record(runs)).passed).toBe(false)
   })
 
+  it('查不到实际模型的记录不过线', () => {
+    const runs = SIX.map((one) => ({ ...one, model: 'unknown' }))
+    const verdict = judgeVerificationRecord(record(runs))
+    expect(verdict.passed).toBe(false)
+    if (!verdict.passed) expect(verdict.reasons).toContain('有一次查不到实际出图的模型')
+  })
+
   it('没写打分日期不过线', () => {
     expect(judgeVerificationRecord(record(SIX, null)).passed).toBe(false)
   })

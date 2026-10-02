@@ -5,7 +5,7 @@ import {
   USER_SESSION_COOKIE,
 } from '@image-playground/shared'
 import type { CaseTurn } from './cases'
-import type { VerificationRun } from './record'
+import { localIsoDate, UNKNOWN_MODEL, type VerificationRun } from './record'
 
 /**
  * 跑图脚本的核心：像浏览器一样走一遍 BFF 的智能体接口，不经界面。
@@ -14,7 +14,7 @@ import type { VerificationRun } from './record'
  * 轮询会话直到没有轮在跑、没有任务在排、连续几次都不再变化 → 取最后一张成功产出的图。
  * 智能体复核后自己改一版也算在内：取的是这一轮对话最后交出来的那张。
  *
- * 网络全部经注入的 `fetch`，测试与 `--mock` 用 {@link fakeBffFetch} 代替真实 BFF。
+ * 网络全部经注入的 `fetch`，测试与 `--mock` 用 {@link createFakeBff} 代替真实 BFF。
  */
 
 export interface RunnerOptions {
@@ -62,10 +62,6 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 
 function base64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64')
-}
-
-function isoDate(now: Date): string {
-  return now.toISOString().slice(0, 10)
 }
 
 function toolResults(snapshot: AgentConversationSnapshot): AgentToolResultBlock[] {
@@ -167,7 +163,7 @@ export async function runVerificationCase(
     await sleep(interval)
   }
 
-  const date = isoDate(now())
+  const date = localIsoDate(now())
   const results = toolResults(snapshot)
   const delivered = results
     .filter((block) => GENERATION_TOOLS.has(block.toolName) && block.status === 'succeeded')
@@ -177,7 +173,7 @@ export async function runVerificationCase(
         .map((artifact) => ({ artifact, model: block.snapshot?.target?.model })),
     )
   const last = delivered.at(-1)
-  const model = last?.model ?? input.model ?? 'default'
+  const model = last?.model ?? input.model ?? UNKNOWN_MODEL
   const run = { case: input.caseId, run: input.run, model, date }
   if (!last) {
     const failed = results.filter((block) => block.status === 'failed').at(-1)

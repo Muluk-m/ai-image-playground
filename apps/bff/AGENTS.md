@@ -103,3 +103,7 @@ BFF 的公开核心只做四件事：
 - **技能条数会推高每轮的预扣**：`description` 进每一轮的系统提示词，条数一多
   `agent-billing.test.ts` 里那两条 `unitMultiplier` 区间就会被顶穿。那不是 bug，如实调区间并在
   注释里写清这次为什么上移。
+- **`meta.json` 的 `verified` 只能由回填工具写**：技能目录下 `verification/` 放 3 组测试输入与
+  打分记录，跑图、打分、回填的流程见 [`skills/_verification/README.md`](./skills/_verification/README.md)。
+  过线判据只有 `src/lib/skill-verification/record.ts` 一处；`shipped-skills.test.ts` 核对
+  `verified` 与记录一致、模板的 `verified.model` 等于钉死模型。验证数据不进镜像（`.dockerignore`）。

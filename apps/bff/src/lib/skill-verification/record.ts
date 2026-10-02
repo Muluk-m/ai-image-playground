@@ -35,9 +35,9 @@ export interface VerificationRun {
   readonly case: string
   /** 第几次，从 1 起。 */
   readonly run: number
-  /** 产出图：相对跑图目录的路径或地址；没出图是 null。 */
+  /** 产出图：相对 `.verification-runs/` 的路径（`<跑图目录>/<技能>/<文件>`）或地址；没出图是 null。 */
   readonly output: string | null
-  /** 这次实际出图的生成模型。 */
+  /** 这次实际出图的生成模型；查不到时是 {@link UNKNOWN_MODEL}，这样的记录不能过线。 */
   readonly model: string
   /** 跑图日期，YYYY-MM-DD。 */
   readonly date: string
@@ -66,6 +66,15 @@ export type VerificationVerdict =
   | { readonly passed: false; readonly reasons: readonly string[] }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** 查不到实际模型时记的占位。`verified.model` 要拿去比对钉死模型，占位不能当真。 */
+export const UNKNOWN_MODEL = 'unknown'
+
+/** 本地时区的 YYYY-MM-DD：跑图日期与打分日期都按维护者所在时区记。 */
+export function localIsoDate(now: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
 
 export function isIsoDate(value: unknown): value is string {
   if (typeof value !== 'string' || !DATE_RE.test(value)) return false
@@ -166,6 +175,7 @@ export function judgeVerificationRecord(record: VerificationRecord): Verificatio
   }
 
   const models = [...new Set(record.runs.map((run) => run.model))]
+  if (models.includes(UNKNOWN_MODEL)) reasons.push('有一次查不到实际出图的模型')
   if (models.length > 1) reasons.push(`${expected} 次用了不同的模型：${models.join('、')}`)
   if (!record.reviewedAt) reasons.push('没有打分日期 reviewedAt')
 
@@ -173,7 +183,7 @@ export function judgeVerificationRecord(record: VerificationRecord): Verificatio
   if (scores.length > 0 && average < VERIFICATION_AVERAGE_MIN)
     reasons.push(`平均分 ${roundScore(average)}，低于 ${VERIFICATION_AVERAGE_MIN}`)
 
-  const model = models.length === 1 ? models[0] : undefined
+  const model = models.length === 1 && models[0] !== UNKNOWN_MODEL ? models[0] : undefined
   if (reasons.length > 0 || !record.reviewedAt || !model) return { passed: false, reasons }
   return {
     passed: true,

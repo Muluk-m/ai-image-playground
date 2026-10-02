@@ -19,7 +19,12 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { caseTurn } from '../../src/lib/skill-verification/cases'
 import { createFakeBff } from '../../src/lib/skill-verification/fake-bff'
-import type { VerificationRun } from '../../src/lib/skill-verification/record'
+import {
+  localIsoDate,
+  UNKNOWN_MODEL,
+  VERIFICATION_RUNS_PER_CASE,
+  type VerificationRun,
+} from '../../src/lib/skill-verification/record'
 import type { ReviewCase } from '../../src/lib/skill-verification/review-page'
 import {
   IMAGE_MIME_BY_EXTENSION,
@@ -56,7 +61,8 @@ function runnerOptions(mock: boolean): RunnerOptions {
 
 const { flags } = parseArgs(process.argv.slice(2))
 const mock = flags.get('mock') === true
-const runCount = Number(flags.get('runs') ?? 2)
+const runCount = Number(flags.get('runs') ?? VERIFICATION_RUNS_PER_CASE)
+if (!Number.isInteger(runCount) || runCount < 1) throw new Error('--runs 要写一个正整数')
 const onlyCases = list(flags.get('cases'))
 const skills = list(flags.get('skills')) ?? skillsWithCases()
 if (skills.length === 0) throw new Error('没有可跑的技能：先给技能写 verification/cases.json')
@@ -125,8 +131,8 @@ for (const setup of setups) {
           case: one.id,
           run: index,
           output: null,
-          model: setup.model ?? 'unknown',
-          date: new Date().toISOString().slice(0, 10),
+          model: setup.model ?? UNKNOWN_MODEL,
+          date: localIsoDate(new Date()),
           error: message,
         })
         console.error(`  失败：${message}`)
