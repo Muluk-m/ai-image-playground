@@ -4,7 +4,7 @@ import type { ContainerSample, HostSample } from '@image-playground/shared'
 
 /**
  * 采集容器从宿主机读到的原始文件，以及把它们变成一次读数的纯函数。
- * 这里只读只读挂进来的文件，不碰 Docker socket（ADR 0007）。除了磁盘和内存，
+ * 这里只读只读挂进来的文件，不碰 Docker socket（ADR 0018）。除了磁盘和内存，
  * 其余每一项都是尽力而为：某个文件读不到，那一项就留空，这一次读数照样交出去。
  */
 

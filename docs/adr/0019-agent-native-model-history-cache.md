@@ -1,4 +1,4 @@
-# 0013 — 保留 Agent 原生模型历史，产品历史继续作为事实源
+# 0019 — 保留 Agent 原生模型历史，产品历史继续作为事实源
 
 日期：2026-10-01。状态：采纳。关联：[#973](https://github.com/Muluk-m/ai-image-playground/issues/973)、[#943](https://github.com/Muluk-m/ai-image-playground/issues/943)。
 

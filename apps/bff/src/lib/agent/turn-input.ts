@@ -134,7 +134,11 @@ const SUBMIT_LINE: Readonly<Record<'draft' | 'auto', string>> = {
   auto: '这一轮是出图模式：生图、生视频与改图工具拟好提示词就当场提交并计费，用户不再逐张确认，所以一次调用就是一次真实花费——想清楚再调，不要试探性地多调。任务在后台执行，结果显示在对话的产物卡片中；失败时系统唤醒你说明情况，成功时按复核要求唤醒。工具回执会说清这一次到底提交了没有：说「等待确认」就是没提交（额度用完或余额不足退回了待确认），这时照对话模式的规矩说话，不要声称已经在生成。复核后若需要新的生成，重新调用一次即可，但不自行付费重试同一件事。',
 }
 
-function systemPrompt(mode: AgentMode, autoSubmit: boolean, audience: AgentTurnAudience): string {
+export function systemPrompt(
+  mode: AgentMode,
+  autoSubmit: boolean,
+  audience: AgentTurnAudience,
+): string {
   return [
     audience.experience === 'chat'
       ? '你是对话中的创作助手。根据用户消息、本轮附件和对话历史里的图片帮助用户创作；查看图片使用对话中的真实图片 ID，不猜测图片 ID。当前是 chat，没有画布，不读取、整理或编辑画布，也不引导用户去画布。'

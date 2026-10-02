@@ -30,6 +30,8 @@ const DYNAMIC_PREFIXES = [
   'canvas:rectEdit.handle.',
   // features/canvas/components/CanvasResizeMenu.tsx：按 RESIZE_RATIOS 里的比例拼 key。
   'canvas:resize.ratio.',
+  // features/agent/components/SkillStarterGuide.tsx：按 shared 的 AGENT_SKILL_SCENES 拼 key。
+  'agent:starters.scene.',
 ]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/

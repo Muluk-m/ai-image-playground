@@ -62,6 +62,22 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 describe('SizePickerModal', () => {
+  it('opens a ratio-only value on the same ratio when the model takes sizes', async () => {
+    const { calculateImageSize } = await import('../../lib/size')
+    const { onSelect } = renderPicker({ currentSize: '3:4', allowAuto: false })
+    expect(button('3:4').className).toContain('border-primary')
+    click(button('确定'))
+    expect(onSelect).toHaveBeenCalledWith(calculateImageSize('1K', '3:4'))
+  })
+
+  it('opens an off-preset ratio as a custom ratio', () => {
+    renderPicker({ currentSize: '5:4', allowAuto: false })
+    const input = Array.from(document.body.querySelectorAll('input')).find(
+      (one) => (one as HTMLInputElement).value === '5:4',
+    )
+    expect(input).toBeTruthy()
+  })
+
   it('selects auto in ratio-only mode instead of retaining the previous ratio', () => {
     const { onSelect } = renderPicker({ currentSize: '1536x1024', ratioOnly: true })
     click(button('智能比例 Auto'))

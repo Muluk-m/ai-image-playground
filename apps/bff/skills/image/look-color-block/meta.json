@@ -10,5 +10,38 @@
     "references": [
       "cover.webp"
     ]
-  }
+  },
+  "inputs": [
+    {
+      "key": "asset1",
+      "label": {
+        "zh-CN": "商品素材",
+        "en": "Product"
+      },
+      "multiple": true
+    }
+  ],
+  "scene": "look",
+  "starters": [
+    {
+      "text": {
+        "zh-CN": "用这副耳机 {asset1} 做一张活动图",
+        "en": "Make a campaign image with these headphones {asset1}"
+      },
+      "highlight": {
+        "zh-CN": "耳机",
+        "en": "headphones"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "用 {asset1} 做一张新品海报，品牌色是橙色",
+        "en": "Make a launch poster for {asset1}; our brand color is orange"
+      },
+      "highlight": {
+        "zh-CN": "橙色",
+        "en": "orange"
+      }
+    }
+  ]
 }

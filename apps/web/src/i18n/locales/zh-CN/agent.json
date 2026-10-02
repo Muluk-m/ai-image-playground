@@ -126,6 +126,22 @@
     "fitImage": "适应窗口",
     "markCapacity": "标注过多，请撤销部分标注或清空选区后重画；仍可移动图片查看。"
   },
+  "video": {
+    "parameters": "视频参数",
+    "seconds_other": "{{count}} 秒",
+    "firstFrame": "首帧",
+    "lastFrame": "尾帧",
+    "references_other": "{{count}} 张参考图",
+    "estimatedCost": "预估消耗",
+    "playbackFailed": "视频暂时无法播放，请重新加载。",
+    "reload": "重新加载",
+    "downloading": "下载中…",
+    "downloadFailed": "视频下载失败，请重试。",
+    "notSubmitted": "未提交视频生成",
+    "retrying": "正在提交重试…",
+    "retry": "重试视频生成",
+    "retryFailed": "重试未成功，请稍后再试。"
+  },
   "confirm": {
     "pending": "核对下面这段提示词（可以直接改），然后点「确认生成」。",
     "fieldAria": "待确认的提示词",
@@ -641,20 +657,24 @@
     "generationSource": "生成依据",
     "sourceUnavailable": "来源分析详情暂不可用"
   },
-  "video": {
-    "parameters": "视频参数",
-    "seconds_other": "{{count}} 秒",
-    "firstFrame": "首帧",
-    "lastFrame": "尾帧",
-    "references_other": "{{count}} 张参考图",
-    "estimatedCost": "预估消耗",
-    "playbackFailed": "视频暂时无法播放，请重新加载。",
-    "reload": "重新加载",
-    "downloading": "下载中…",
-    "downloadFailed": "视频下载失败，请重试。",
-    "notSubmitted": "未提交视频生成",
-    "retrying": "正在提交重试…",
-    "retry": "重试视频生成",
-    "retryFailed": "重试未成功，请稍后再试。"
+  "starters": {
+    "lead": "帮你做：",
+    "use": "用",
+    "back": "返回",
+    "aria": "按场景起手",
+    "scene": {
+      "ecommerce": "电商",
+      "poster": "海报平面",
+      "scene-character": "场景角色",
+      "look": "预置模板"
+    }
+  },
+  "slot": {
+    "fillAria": "填入{{label}}",
+    "library": "素材库",
+    "libraryEmpty": "素材库里还没有素材",
+    "upload": "上传图片",
+    "clear": "清空",
+    "canvas": "画布"
   }
 }

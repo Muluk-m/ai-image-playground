@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "id": "mug",
+      "prompt": "用这条马克杯素材 {asset1} 出一张主图",
+      "inputs": { "asset1": ["shared:product-mug.webp"] }
+    },
+    {
+      "id": "perfume",
+      "prompt": "用这瓶香水 {asset1} 出一张主图，瓶盖保持黑色",
+      "inputs": { "asset1": ["shared:product-perfume.webp"] }
+    },
+    {
+      "id": "sneaker",
+      "prompt": "用这双运动鞋 {asset1} 出一张主图",
+      "inputs": { "asset1": ["shared:product-sneaker.webp"] }
+    }
+  ]
+}

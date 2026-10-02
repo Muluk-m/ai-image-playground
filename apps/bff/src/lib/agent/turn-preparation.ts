@@ -49,23 +49,22 @@ import {
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
 import { agentModel } from './model'
-import { canRetainModelHistory, modelHistoryFingerprint, readModelHistory } from './model-history'
+import {
+  canRetainModelHistory,
+  modelHistorySignature,
+  readModelHistory,
+  referenceCarriesSelection,
+} from './model-history'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
   loadAgentTurnAudience,
   titleSourceText,
-  visibleAgentSkills,
 } from './skills'
-import { agentToolDeclarations, createSubmissionReplay, resolveAgentMode } from './tools'
+import { createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
-import {
-  type AgentTurnInput,
-  clarificationChainStart,
-  estimateTurnInputTokens,
-  turnInitialStateOf,
-} from './turn-input'
+import { type AgentTurnInput, clarificationChainStart, estimateTurnInputTokens } from './turn-input'
 import { wakePlan } from './wake'
 import {
   mergedWakePrompt,
@@ -256,25 +255,16 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       source.kind === 'message' &&
       !content.wakes?.note &&
       canRetainModelHistory(window) &&
-      content.references.every(
-        (reference) =>
-          !('maskDataUrl' in reference && reference.maskDataUrl) &&
-          !('maskMediaId' in reference && reference.maskMediaId) &&
-          !('regions' in reference && reference.regions?.length) &&
-          !('editAction' in reference && reference.editAction),
-      )
+      !content.references.some(referenceCarriesSelection)
     ) {
-      const signature = modelHistoryFingerprint({
+      const signature = modelHistorySignature({
         conversationId,
         owner,
-        model: { id: model.id, api: model.api, provider: model.provider, baseUrl: model.baseUrl },
+        model,
         thinkingDepth: content.params?.thinkingDepth,
-        system: turnInitialStateOf(turnInputOf(window, content, audience, skillTexts, currentTime))
-          .systemPrompt,
-        tools: agentToolDeclarations(content.mode, audience),
-        skills: visibleAgentSkills(content.mode, audience)
-          .map(({ name, content }) => ({ name, content }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+        mode: content.mode,
+        autoSubmit: content.params?.autoSubmit === true,
+        audience,
       })
       const messages = await readModelHistory({
         conversationId,
@@ -367,6 +357,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     turn: {
       execution,
       conversationId,
+      owner,
       turnId,
       userMessageId: content.userMessageId,
       storedUserMessage: committed.storedUserMessage,

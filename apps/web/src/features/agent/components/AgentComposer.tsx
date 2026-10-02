@@ -37,6 +37,12 @@ import {
 } from '../../../components/ui/select'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
+import {
+  assetSlotAt,
+  assetSlotImages,
+  clearAssetSlot,
+  fillAssetSlot,
+} from '../../../lib/assetSlotDraft'
 import { accountScope } from '../../../lib/authScope'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { getAttachmentLimits } from '../../../lib/clientCapabilities'
@@ -88,14 +94,16 @@ import {
   subscribeAttachmentUploads,
   withKnownAttachmentMedia,
 } from '../lib/attachmentUploads'
-import { setAgentComposerFill } from '../lib/composerFill'
+import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
 import {
+  type AgentDraft,
   type AgentReference,
   type AttachedReference,
+  agentAdmission,
   attachReference,
   clearReferenceMask,
   draftForSubmit,
@@ -112,6 +120,7 @@ import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
+import { useAssetSlots } from './useAssetSlots'
 
 const EDITOR_CLASS =
   'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
@@ -289,25 +298,20 @@ export default function AgentComposer({
     setAgentComposerAttach(attachFiles)
     return () => setAgentComposerAttach(null)
   })
-  // 上一次由示例建议填进来的整句话；用户动过之后就不再算「建议」。
-  const suggestedRef = useRef<string | null>(null)
-  // 示例建议点进来的整句话：光标放到句末，等用户自己发。
-  // 只换掉空草稿或上一条原样未动的建议；用户自己写的话（包括恢复的未发草稿）一个字都不动。
-  const fillText = (text: string) => {
-    if (loading) {
-      useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
-      return
-    }
-    const current = session.getSnapshot().draft.prompt
-    if (current.trim() !== '' && current !== suggestedRef.current) {
-      useStore.getState().showToast(t('suggestions.draftKeptToast'), 'info')
-      return
-    }
-    suggestedRef.current = text
-    setDraft((current) => ({ ...current, prompt: text }))
-    promptEditor.focusAt(text.length)
-  }
-  useEffect(() => setAgentComposerFill(fillText))
+  // 示例建议与起手句点进来的那一句：技能写成开头的 `/技能名`（随即提升成胶囊），示例词选中。
+  useComposerFillTarget({
+    read: () => session.getSnapshot().draft.prompt,
+    busy: () => {
+      if (loading) useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+      return loading
+    },
+    write: (content) => {
+      const { prompt, selection } = agentComposerFillPrompt(content)
+      setDraft((current) => ({ ...current, prompt }))
+      promptEditor.select(selection.start, selection.end)
+      return prompt
+    },
+  })
 
   // 素材名要参与 `@` 候选与胶囊标签，不能等到用户打开素材库才读。
   useEffect(() => {
@@ -372,6 +376,30 @@ export default function AgentComposer({
     [draft.prompt, skills],
   )
 
+  const renderSlot = useAssetSlots<AgentDraft>({
+    read: () => session.getSnapshot().draft,
+    write: setDraft,
+    admission: () => agentAdmission(transportRef.current),
+    refusalMessage: (reason) => referenceLimitMessage(reason, transportRef.current),
+    fromAsset: (image, asset) => ({ ...image, name: asset.name }),
+    fromFiles: filesToReferences,
+    imageName: (reference) => reference.name,
+    canvas: showCanvasReferences
+      ? {
+          images: () => canvas,
+          reference: (image) => ({ id: image.imageId, dataUrl: image.dataUrl }),
+        }
+      : undefined,
+    accepting: () => {
+      const snapshot = session.getSnapshot()
+      if (snapshot.loading || snapshot.recoveryBlocked) {
+        useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+        return false
+      }
+      return useAgentStore.getState().conversationId === conversationId
+    },
+  })
+
   const promptEditor = usePromptEditor({
     value: draft.prompt,
     labels,
@@ -398,6 +426,7 @@ export default function AgentComposer({
         </>
       )
     },
+    renderSlot,
     onEdit: () => menuRef.current.open(),
     onKeyDown: (event) => {
       if (menuRef.current.handleKeyDown(event)) return
