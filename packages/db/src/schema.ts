@@ -984,6 +984,10 @@ export const generation_records = pgTable(
   },
   (t) => [
     index('idx_generation_records_owner_time').on(t.user_id, t.created_at.desc(), t.id.desc()),
+    // 对话项目没有画布封面时按会话找最近一次生成（`apps/bff/src/lib/projects.ts`）。
+    index('idx_generation_records_conversation')
+      .on(t.user_id, sql`(${t.source} ->> 'conversationId')`, t.created_at.desc())
+      .where(sql`${t.deleted_at} IS NULL`),
   ],
 )
 
