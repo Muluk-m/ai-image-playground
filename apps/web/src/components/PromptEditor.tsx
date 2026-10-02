@@ -16,7 +16,6 @@ import {
   getContentEditableCursor,
   getContentEditablePlainText,
   getContentEditableSelection,
-  setContentEditableCursor,
   setContentEditableSelection,
   syncMentionTagSelection,
 } from '../lib/promptEditorDom'
@@ -151,6 +150,8 @@ export interface PromptEditorApi {
   selection(): { readonly start: number; readonly end: number }
   /** 聚焦并把光标放到可见文本的某一位；DOM 写完才落实，不需要调用方自己排定时器。 */
   focusAt(offset: number): void
+  /** 聚焦并选中可见文本的一段，落实时机同 `focusAt`：外部写进来的提示词渲染完才选。 */
+  select(start: number, end: number): void
   /** 在当前选区插入一段文字。 */
   insertText(text: string): void
   /**
@@ -237,7 +238,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
   const typedRef = useRef<string | null>(null)
   const composingRef = useRef(false)
   /** 程序化改动要落的光标；提示词写进 DOM 之后才谈得上落点，由同步 effect 落实。 */
-  const caretRef = useRef<number | null>(null)
+  const caretRef = useRef<number | { readonly start: number; readonly end: number } | null>(null)
   const optionsRef = useRef(options)
   optionsRef.current = options
   const [caret, setCaret] = useState({ start: 0, left: 0 })
@@ -310,7 +311,12 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
       (!optionsRef.current.preserveFocus || document.activeElement === el)
     ) {
       el.focus()
-      setContentEditableCursor(el, pendingCaret)
+      setContentEditableSelection(
+        el,
+        typeof pendingCaret === 'number'
+          ? { start: pendingCaret, end: pendingCaret }
+          : pendingCaret,
+      )
     } else if (selection) {
       setContentEditableSelection(el, selection)
     }
@@ -366,6 +372,12 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
   const focusAt = useCallback((offset: number) => {
     caretRef.current = offset
     setCaret((current) => ({ ...current, start: offset }))
+    setRevision((current) => current + 1)
+  }, [])
+
+  const select = useCallback((start: number, end: number) => {
+    caretRef.current = { start, end }
+    setCaret((current) => ({ ...current, start }))
     setRevision((current) => current + 1)
   }, [])
 
@@ -529,6 +541,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     cursor,
     selection,
     focusAt,
+    select,
     insertText,
     replaceRange,
     blur,

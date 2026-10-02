@@ -214,7 +214,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   // 只换掉空草稿或上一条原样未动的建议：用户自己写的话一个字都不动。
   const suggestedRef = useRef<string | null>(null)
   useEffect(() =>
-    setAgentComposerFill((text) => {
+    // 直接生成栏没有智能体，也就不认技能：起手句只取句子本身。
+    setAgentComposerFill(({ text }) => {
       const current = useCanvasComposer.getState().prompt
       if (current.trim() !== '' && current !== suggestedRef.current) {
         useStore.getState().showToast(t('agent:suggestions.draftKeptToast'), 'info')

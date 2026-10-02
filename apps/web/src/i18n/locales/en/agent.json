@@ -662,5 +662,17 @@
     "excludedPending": "Unresolved source analysis still needs separate attention.",
     "generationSource": "Basis for generation",
     "sourceUnavailable": "Source analysis details are unavailable"
+  },
+  "starters": {
+    "lead": "Start with:",
+    "use": "Use",
+    "back": "Back",
+    "aria": "Start by scenario",
+    "scene": {
+      "ecommerce": "E-commerce",
+      "poster": "Posters & graphics",
+      "scene-character": "Scenes & characters",
+      "look": "Built-in templates"
+    }
   }
 }
