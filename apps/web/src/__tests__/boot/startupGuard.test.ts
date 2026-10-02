@@ -1,10 +1,21 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { CLIENT_ERRORS_PATH } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { BOOT_READY_EVENT, PRELOAD_RELOAD_STORAGE_KEY } from '../../boot/constants'
-import { STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
+import { BOOT_REPORT_PATH, STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
 import { LOCALE_STORAGE_KEY } from '../../i18n/storageKey'
+
+/** jsdom's Blob has no `text()`. */
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(blob)
+  })
+}
 
 const workerDescriptor = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker')
 const unregister = vi.fn().mockResolvedValue(true)
@@ -162,4 +173,57 @@ it('keeps recovery available when required styles fail even if React commits', (
   vi.advanceTimersByTime(60000)
   expect(document.getElementById('boot')?.dataset.state).toBe('error')
   link.remove()
+})
+
+it('reports why the workspace could not open, with the exceptions seen before it', async () => {
+  vi.useRealTimers()
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        bff: {
+          enabled: true,
+          baseUrl: '',
+          baseUrlsByOrigin: { [location.origin]: 'https://api.test' },
+        },
+      }),
+    ),
+  )
+  const sendBeacon = vi.fn((_url: string, _body: Blob) => true)
+  vi.stubGlobal('fetch', fetchMock)
+  Object.defineProperty(navigator, 'sendBeacon', { configurable: true, value: sendBeacon })
+  try {
+    window.dispatchEvent(
+      new ErrorEvent('error', {
+        message: 'boom',
+        error: new TypeError('boom'),
+        filename: 'main.js',
+      }),
+    )
+    const script = document.createElement('script')
+    script.type = 'module'
+    script.src = '/assets/main-missing.js'
+    document.body.append(script)
+    script.dispatchEvent(new Event('error'))
+    script.dispatchEvent(new Event('error'))
+
+    await vi.waitFor(() => expect(sendBeacon).toHaveBeenCalledTimes(1))
+    const [url, blob] = sendBeacon.mock.calls[0]!
+    expect(url).toBe(`https://api.test${CLIENT_ERRORS_PATH}`)
+    const [report] = JSON.parse(await readBlob(blob)).errors
+    expect(report).toMatchObject({
+      kind: 'boot',
+      message: 'resource',
+      context: {
+        detail: { tag: 'script', src: expect.stringContaining('/assets/main-missing.js') },
+        rendered: false,
+        errors: [expect.objectContaining({ type: 'error', message: 'boom' })],
+      },
+    })
+  } finally {
+    vi.unstubAllGlobals()
+    Reflect.deleteProperty(navigator, 'sendBeacon')
+  }
+})
+it('posts boot reports to the shared client error path', () => {
+  expect(BOOT_REPORT_PATH).toBe(CLIENT_ERRORS_PATH)
 })
