@@ -1119,6 +1119,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         clientMessageId,
         clarificationAnswer,
         prepared.canvas,
+        prepared.experience,
       )
       if (outcome.kind === 'queued' && outcome.body.state === 'cancelled') {
         // 服务端说它已不在队里（没能开轮被退回、或被别的设备撤回）：这句话没有被收下，草稿留着。
@@ -1784,6 +1785,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             messageId,
             clarificationAnswer,
             prepared.canvas,
+            prepared.experience,
           )
         } catch (thrown) {
           if (turnDelivery.isCurrent())

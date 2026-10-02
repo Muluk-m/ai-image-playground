@@ -257,6 +257,8 @@ export async function startTurn(
   clarificationAnswer = false,
   /** 发话时屏幕上的画布。没有打开画布就不带。 */
   canvas?: import('@image-playground/shared').AgentCanvasSnapshot,
+  /** 发话时看到的入口；项目还没在服务端记下入口时按它判定。 */
+  experience?: 'chat' | 'canvas',
 ): Promise<StartTurnOutcome> {
   references = await resolveReferences(references)
   const init = jsonInit({
@@ -269,6 +271,7 @@ export async function startTurn(
     ...(mode && mode !== 'image' ? { mode } : {}),
     ...(params ? { params } : {}),
     ...(canvas ? { canvas } : {}),
+    ...(experience ? { experience } : {}),
   })
   const path = url(`/conversations/${conversationId}/turns`)
   let response: Response

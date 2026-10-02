@@ -546,6 +546,31 @@ describe('排队消息请求', () => {
     })
   })
 
+  it('起轮请求带上发话时看到的入口', async () => {
+    const calls: Call[] = []
+    const fetcher = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      return new Response(JSON.stringify({ queued, state: 'pending', turnId: 'turn-1' }), {
+        status: 202,
+      })
+    }
+
+    await startTurn(
+      'conv-1',
+      '整理一下我的画布',
+      [],
+      undefined,
+      'image',
+      fetcher,
+      'client-2',
+      false,
+      undefined,
+      'canvas',
+    )
+
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({ experience: 'canvas' })
+  })
+
   it('排队已满的 409 带着错误码抛出，而不是当成别处在跑的轮', async () => {
     const fetcher = async () =>
       new Response(JSON.stringify({ error: 'queue_full', limit: 10 }), { status: 409 })

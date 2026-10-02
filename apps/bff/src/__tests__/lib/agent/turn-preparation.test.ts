@@ -739,6 +739,63 @@ describe('legacy projects without a recorded experience', () => {
     expect((await recorded(project)).document.experience).toBe('chat')
   })
 
+  it('trusts the declared experience over a missing canvas snapshot', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    // 画布还在加载：没有快照，但客户端知道自己开着的是画布。
+    const enqueued = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: '整理一下我的画布',
+      deviceId: DEVICE,
+      references: [],
+      experience: 'canvas',
+    })
+    if (enqueued.kind !== 'queued') throw Error('expected queued')
+    const next = await nextAgentInboxEntry(conversationId)
+    if (next?.kind !== 'user_message') throw Error('expected a user message')
+    expect(next.experience).toBe('canvas')
+    const { kind: _kind, ...message } = next
+    const turn = preparedTurn(
+      (await prepare(conversationId, { kind: 'message', message, announce: false })).prepared,
+    )
+    expect(turn.input.audience.experience).toBe('canvas')
+    expect((await recorded(project)).document.experience).toBe('canvas')
+  })
+
+  it('lets a declared chat win over a stale canvas snapshot', async () => {
+    const conversationId = await conversationWithResult()
+    await legacyProject(conversationId)
+    const source = await queuedMessage(conversationId, 'hello')
+    expect(
+      await experienceOf(conversationId, USER_ID, {
+        ...source,
+        message: { ...source.message, canvas: { elements: [] }, experience: 'chat' },
+      }),
+    ).toBe('chat')
+  })
+
+  it('follows the declared experience of the origin message for wakes', async () => {
+    const conversationId = await conversationWithResult()
+    const origin = await enqueueAgentUserMessage(conversationId, {
+      clientMessageId: crypto.randomUUID(),
+      text: 'canvas origin without snapshot',
+      deviceId: DEVICE,
+      references: [],
+      experience: 'canvas',
+    })
+    if (origin.kind !== 'queued') throw Error('expected queued')
+    await db
+      .update(schema.agent_inbox)
+      .set({ status: 'consumed', consumed_turn_id: 'declared-origin' })
+      .where(eq(schema.agent_inbox.id, origin.entry.view.id))
+    expect(
+      await experienceOf(conversationId, USER_ID, {
+        kind: 'wake',
+        wake: { id: 'wake', turnId: 'declared-origin', taskIds: [TASK_ID], deviceId: DEVICE },
+      }),
+    ).toBe('canvas')
+  })
+
   it('gives the canvas tools to a canvas message on a legacy project', async () => {
     const conversationId = await conversationWithResult()
     await legacyProject(conversationId)

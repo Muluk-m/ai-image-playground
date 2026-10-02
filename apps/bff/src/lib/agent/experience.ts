@@ -37,8 +37,19 @@ export async function loadAgentExperience(
     unrecorded = Boolean(project)
   }
   if (source.kind === 'message')
-    return { experience: source.message.canvas ? 'canvas' : 'chat', unrecorded }
+    return { experience: messageExperience(source.message), unrecorded }
   return { experience: await originExperience(conversationId, source), unrecorded: false }
+}
+
+/**
+ * 一条用户消息自己说的入口。新客户端直接声明它看到的入口；老客户端只在画布视图里带画布快照，
+ * 有快照就是画布。快照会因画布还在加载而缺席，所以声明优先。
+ */
+function messageExperience(message: {
+  readonly experience?: AgentExperience
+  readonly canvas?: unknown
+}): AgentExperience {
+  return message.experience ?? (message.canvas ? 'canvas' : 'chat')
 }
 
 /** 唤醒与续跑沿已消费的来源追到发起它的用户消息；追不到就按对话算，这个猜测不记到项目上。 */
@@ -69,8 +80,8 @@ async function originExperience(
     const origin = rows.find((row) => 'text' in row.payload) ?? rows[0]
     if (!origin) break
     const payload = origin.payload
+    if ('text' in payload) return messageExperience(payload)
     if ('canvas' in payload && payload.canvas) return 'canvas'
-    if ('text' in payload) return 'chat'
     if ('interruptedTurnId' in payload)
       originTurnId = payload.wake?.turnId ?? payload.interruptedTurnId
     else originTurnId = payload.turnId
