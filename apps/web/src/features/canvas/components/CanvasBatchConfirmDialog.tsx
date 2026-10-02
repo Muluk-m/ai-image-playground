@@ -50,6 +50,11 @@ export default function CanvasBatchConfirmDialog({
         role="dialog"
         aria-label={title}
         className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10"
+        // 画布在 window 上听快捷键：Delete / ⌘A / 切工具都会改掉这批选区，弹窗开着时一律拦下。
+        onKeyDown={(event) => {
+          event.stopPropagation()
+          if (event.key === 'Escape' && !submitting) onClose()
+        }}
       >
         <h3 className={`${PANEL_TITLE} mb-2`}>{title}</h3>
         <p className="text-xs text-muted-foreground">{t('batch.confirmBody', { count })}</p>
@@ -67,6 +72,7 @@ export default function CanvasBatchConfirmDialog({
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
+            autoFocus
             disabled={submitting}
             onClick={onClose}
             className={`${OUTLINE_BUTTON} disabled:cursor-not-allowed`}
