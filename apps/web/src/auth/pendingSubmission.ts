@@ -61,6 +61,10 @@ export function consumePendingLoginNavigation(id: string): boolean {
 
 const removalListeners = new Set<(id: string) => void>()
 
+function notifyRemoved(id: string): void {
+  for (const listener of removalListeners) listener(id)
+}
+
 export function subscribePendingSubmissionRemoval(listener: (id: string) => void): () => void {
   removalListeners.add(listener)
   return () => {
@@ -79,7 +83,7 @@ export async function queuePendingSubmission(
   // Publish ownership before awaiting storage so cancellation can invalidate an in-flight write.
   const previous = pendingSubmissionId()
   sessionStorage.setItem(TAB_KEY, id)
-  if (previous) for (const listener of removalListeners) listener(previous)
+  if (previous) notifyRemoved(previous)
   try {
     await access<void>('readwrite', (store) => {
       if (previous && previous !== id) store.delete(previous)
@@ -89,7 +93,7 @@ export async function queuePendingSubmission(
     return id
   } catch (error) {
     if (pendingSubmissionId() === id) sessionStorage.removeItem(TAB_KEY)
-    for (const listener of removalListeners) listener(id)
+    notifyRemoved(id)
     throw error
   }
 }
@@ -98,7 +102,7 @@ export async function discardPendingSubmission(expectedId?: string): Promise<voi
   const id = expectedId ?? pendingSubmissionId()
   if (!id) return
   if (pendingSubmissionId() === id) sessionStorage.removeItem(TAB_KEY)
-  for (const listener of removalListeners) listener(id)
+  notifyRemoved(id)
   await access<void>('readwrite', (store) => {
     store.delete(id)
   })
@@ -126,6 +130,6 @@ export async function takePendingSubmission(): Promise<PendingSubmission | undef
   })
   const owned = pendingSubmissionId() === key
   if (owned) sessionStorage.removeItem(TAB_KEY)
-  for (const listener of removalListeners) listener(key)
+  notifyRemoved(key)
   return owned ? pending : undefined
 }
