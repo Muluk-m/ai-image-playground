@@ -16,7 +16,12 @@ import {
   PROJECT_REQUEST_TIMEOUT_MS,
   restoreDeletedCloudProject,
 } from './projectClient'
-import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './projectRepository'
+import {
+  type CanvasProject,
+  projectExperience,
+  projectRepository,
+  UNTITLED_PROJECT,
+} from './projectRepository'
 import { writeProjectRoute } from './projectRoute'
 import { canvasSceneKey } from './workspaceKeys'
 import { CanvasWorkspace } from './workspaces'
@@ -197,7 +202,11 @@ export async function bindNewCanvasWorkspace(conversationId: string): Promise<bo
       if (!(await original.flush())) return false
     }
     try {
-      await useCanvasProjectStore.getState().update(project.id, { conversationId })
+      // 老项目没记入口，推断只在绑会话之前成立；绑上之后就会被读成对话。先把此刻看到的记下来。
+      await useCanvasProjectStore.getState().update(project.id, {
+        conversationId,
+        ...(project.experience ? {} : { experience: projectExperience(project) }),
+      })
       return true
     } catch {
       return false
