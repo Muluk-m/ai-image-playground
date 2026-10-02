@@ -21,6 +21,7 @@ import {
 } from '../lib/promptEditorDom'
 import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
 import {
+  assetSlotToken,
   getAtImageQuery,
   getMentionedImageIndexes,
   getPromptAssetSlots,
@@ -44,6 +45,14 @@ export const PROMPT_CLIPBOARD_TYPE = 'application/x-aip-prompt'
 type PromptClipboardPart =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'mention'; readonly imageId: string; readonly label: string }
+  /** 素材位：位的声明连同它装着的图片身份，粘贴时按本输入框的序号重挂，认不出的图不装。 */
+  | {
+      readonly type: 'slot'
+      readonly key: string
+      readonly label: string
+      readonly multiple: boolean
+      readonly imageIds: readonly string[]
+    }
 
 /** 剪贴板里的这一段可能来自任何页面，逐项验过再用。 */
 function readClipboardParts(raw: string): readonly PromptClipboardPart[] | null {
@@ -55,13 +64,20 @@ function readClipboardParts(raw: string): readonly PromptClipboardPart[] | null 
     return null
   }
   if (!Array.isArray(parts)) return null
-  const valid = parts.every((part: Partial<PromptClipboardPart> | null) =>
-    part?.type === 'text'
-      ? typeof part.text === 'string'
-      : part?.type === 'mention' &&
-        typeof part.imageId === 'string' &&
-        typeof part.label === 'string',
-  )
+  const valid = parts.every((part: Partial<PromptClipboardPart> | null) => {
+    if (part?.type === 'text') return typeof part.text === 'string'
+    if (part?.type === 'mention')
+      return typeof part.imageId === 'string' && typeof part.label === 'string'
+    return (
+      part?.type === 'slot' &&
+      typeof part.key === 'string' &&
+      /^[A-Za-z0-9_-]+$/.test(part.key) &&
+      typeof part.label === 'string' &&
+      typeof part.multiple === 'boolean' &&
+      Array.isArray(part.imageIds) &&
+      part.imageIds.every((id) => typeof id === 'string')
+    )
+  })
   return valid ? (parts as PromptClipboardPart[]) : null
 }
 
@@ -73,6 +89,12 @@ function promptFromClipboard(
   return parts
     .map((part) => {
       if (part.type === 'text') return part.text
+      if (part.type === 'slot') {
+        const indexes = part.imageIds
+          .map((id) => referenceIds.indexOf(id))
+          .filter((index) => index >= 0)
+        return assetSlotToken(part, indexes)
+      }
       const index = referenceIds.indexOf(part.imageId)
       return index >= 0 ? getSelectedImageMentionLabel(index) : part.label
     })
@@ -431,10 +453,12 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     const start = trackCaret(el)
     syncMentionTagSelection(el)
     const text = getContentEditablePlainText(el)
-    // 手打出一个完整槽位时 DOM 必须重画一次，否则它永远不会变成胶囊。
+    // 手打出一个完整槽位时 DOM 必须重画一次，否则它永远不会变成胶囊；删掉一个素材位时也要重画，
+    // 后面那几个位排第几变了，胶囊的填位回调按新的位次重挂。
     const structural =
       !composingRef.current &&
-      getPromptSlotNames(text).join('\u0000') !== getPromptSlotNames(value).join('\u0000')
+      (getPromptSlotNames(text).join('\u0000') !== getPromptSlotNames(value).join('\u0000') ||
+        getPromptAssetSlots(text).length !== getPromptAssetSlots(value).length)
     typedRef.current = structural ? null : text
     if (structural) caretRef.current = { start, end: start }
     optionsRef.current.onChange(text)
@@ -487,11 +511,15 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     const selected = getPromptMentionParts(canonical, labelFor)
     // 双击或拖过胶囊边缘会把两边的空白一起选上：只选中一个胶囊时复制胶囊本身，
     // 别把空白也带走——两份负载都按这一份算，否则粘回来又多出那两个空格。
-    const meaningful = selected.filter((part) => part.type === 'mention' || part.text.trim())
-    const copied =
-      meaningful.length === 1 && meaningful[0]?.type === 'mention' ? meaningful : selected
+    const meaningful = selected.filter((part) => part.type !== 'text' || part.text.trim())
+    const copied = meaningful.length === 1 && meaningful[0]?.type !== 'text' ? meaningful : selected
     // 序号换成图片身份：粘到别的输入框才认得出是同一张图，认不出就留下这一刻的显示文字。
     const parts = copied.map<PromptClipboardPart>((part) => {
+      if (part.type === 'slot') {
+        const { key, label, multiple, imageIndexes } = part.slot
+        const imageIds = imageIndexes.flatMap((index) => referenceIds[index] ?? [])
+        return { type: 'slot', key, label, multiple, imageIds }
+      }
       const imageId = part.type === 'mention' ? referenceIds[part.imageIndex] : undefined
       return imageId
         ? { type: 'mention', imageId, label: part.text }

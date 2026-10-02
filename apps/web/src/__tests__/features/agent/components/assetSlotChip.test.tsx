@@ -345,6 +345,40 @@ describe('项目输入框里的素材位', () => {
     expect(references?.map((one) => one.name)).toEqual(['正面'])
   })
 
+  it('复制已填的位再粘回来，位和它装的图一起回来', async () => {
+    pickStarter()
+    await pickAsset('红色马克杯')
+
+    const data = new Map<string, string>()
+    const clipboard = {
+      setData: (type: string, value: string) => void data.set(type, value),
+      getData: (type: string) => data.get(type) ?? '',
+      files: [],
+      items: [],
+    }
+    const clip = (type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'clipboardData', { value: clipboard })
+      act(() => {
+        editor().dispatchEvent(event)
+      })
+    }
+    const range = document.createRange()
+    range.selectNode(editor().querySelector('.asset-slot-tag')!)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    clip('copy')
+
+    const end = editor().lastChild!
+    window.getSelection()!.collapse(end, end.textContent?.length ?? 0)
+    clip('paste')
+
+    sendTurn()
+    const [text, references] = send.mock.calls[0]!
+    expect(text).toBe('/product-main-image 为 [image 1] 出一张白底主图[image 1]')
+    expect(references?.map((one) => one.imageId)).toEqual(['mug-front'])
+  })
+
   it('删掉空位胶囊本身，位就没了', async () => {
     pickStarter()
     const el = editor()

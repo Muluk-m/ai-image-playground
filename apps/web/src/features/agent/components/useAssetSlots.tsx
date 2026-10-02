@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useRef } from 'react'
 import { i18next } from '../../../i18n'
 import {
   assetSlotAt,
@@ -6,11 +6,14 @@ import {
   clearAssetSlot,
   fillAssetSlot,
 } from '../../../lib/assetSlotDraft'
-import type { PromptAssetSlot } from '../../../lib/promptImageMentions'
-import type {
-  ReferenceAdmission,
-  ReferenceDraft,
-  ReferenceRefusal,
+import { confirmImageBatch } from '../../../lib/confirmImageBatch'
+import { getPromptAssetSlots, type PromptAssetSlot } from '../../../lib/promptImageMentions'
+import {
+  type ReferenceAdmission,
+  type ReferenceDraft,
+  type ReferenceRefusal,
+  referenceRefusal,
+  referenceTally,
 } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import type { InputImage } from '../../../types'
@@ -43,36 +46,85 @@ function toast(message: string): void {
   useStore.getState().showToast(message, 'error')
 }
 
+/** 一位此刻的样子：异步操作落地时要还是它，不然这次结果作废。 */
+function slotIdentity(slot: PromptAssetSlot | undefined): string {
+  return slot ? JSON.stringify([slot.key, slot.label, slot.imageIndexes]) : ''
+}
+
 /** 返回给 `usePromptEditor` 的 `renderSlot`。 */
 export function useAssetSlots<D extends ReferenceDraft>(
   host: AssetSlotHost<D>,
 ): (slot: PromptAssetSlot, occurrence: number) => ReactNode {
-  /** 读图是异步的，落地时那一位要还在原处，不然宁可不放。 */
-  const fill = (occurrence: number, key: string, images: readonly SlotReference<D>[]) => {
+  /**
+   * 每一位最近一次操作的序号。读图、读文件是异步的：先选的慢素材不能盖掉后传的图，
+   * 读的期间清空了位，旧结果也不能再填回去。
+   */
+  const tickets = useRef(new Map<number, number>())
+  const begin = (occurrence: number) => {
+    const ticket = (tickets.current.get(occurrence) ?? 0) + 1
+    tickets.current.set(occurrence, ticket)
+    const before = slotIdentity(getPromptAssetSlots(host.read().prompt)[occurrence])
+    return (current: string) =>
+      tickets.current.get(occurrence) === ticket &&
+      slotIdentity(getPromptAssetSlots(current)[occurrence]) === before
+  }
+
+  const fill = (
+    occurrence: number,
+    key: string,
+    images: readonly SlotReference<D>[],
+    still: (prompt: string) => boolean,
+  ) => {
     if (host.accepting && !host.accepting()) return
     const current = host.read()
-    if (!assetSlotAt(current.prompt, occurrence, key)) return
+    if (!still(current.prompt) || !assetSlotAt(current.prompt, occurrence, key)) return
     const next = fillAssetSlot(current, occurrence, images, host.admission())
     if (next.ok) host.write(next.draft)
     else toast(host.refusalMessage(next.reason))
   }
 
   const pickAsset = async (occurrence: number, key: string, asset: AssetRecord) => {
+    const still = begin(occurrence)
     const image = await assetSlotImage(asset).catch(() => null)
     if (!image) {
       toast(i18next.t('library:toast.assetImageMissing'))
       return
     }
-    void useLibraryStore.getState().noteAssetUsed(asset.id)
-    fill(occurrence, key, [host.fromAsset(image, asset)])
+    // 只影响「最近用过」的排序，记不上不该拦下这次填位。
+    void useLibraryStore
+      .getState()
+      .noteAssetUsed(asset.id)
+      .catch(() => {})
+    fill(occurrence, key, [host.fromAsset(image, asset)], still)
   }
 
-  const upload = async (occurrence: number, key: string, files: File[]) => {
-    try {
-      fill(occurrence, key, await host.fromFiles(files))
-    } catch {
-      toast(i18next.t('agent:composer.attachmentReadFailed'))
+  /** 先按张数问准入再读文件：整批注定进不来的话一张都不读、不落盘。 */
+  const upload = (occurrence: number, key: string, files: File[]) => {
+    const admission = host.admission()
+    const refusal = referenceRefusal(
+      referenceTally(host.read().references, admission),
+      { total: files.length },
+      admission,
+    )
+    if (refusal) {
+      toast(host.refusalMessage(refusal))
+      return
     }
+    confirmImageBatch(files.length, () => {
+      const still = begin(occurrence)
+      void (async () => {
+        try {
+          fill(occurrence, key, await host.fromFiles(files), still)
+        } catch {
+          toast(i18next.t('agent:composer.attachmentReadFailed'))
+        }
+      })()
+    })
+  }
+
+  const clear = (occurrence: number) => {
+    begin(occurrence)
+    host.write(clearAssetSlot(host.read(), occurrence))
   }
 
   return (slot, occurrence) => {
@@ -85,8 +137,8 @@ export function useAssetSlots<D extends ReferenceDraft>(
         slot={slot}
         images={images}
         onPickAsset={(asset) => void pickAsset(occurrence, slot.key, asset)}
-        onUpload={(files) => void upload(occurrence, slot.key, files)}
-        onClear={() => host.write(clearAssetSlot(host.read(), occurrence))}
+        onUpload={(files) => upload(occurrence, slot.key, files)}
+        onClear={() => clear(occurrence)}
       />
     )
   }
