@@ -4,18 +4,13 @@ import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { useStore } from '../store'
 import { SparkleIcon } from './icons'
 
-/** 首屏的三条创作路径：直出、对话与画布各有独立入口。 */
+/** 首屏的三条创作路径：对话、直出与画布各有独立入口，对话排在最前。 */
 export default function CreateTargetSwitch() {
   const { t } = useTranslation('shell')
   const target = useStore((s) => s.createTarget)
   const setTarget = useStore((s) => s.setCreateTarget)
   const agentEnabled = isClientCapabilityEnabled('agent:chat')
   const options = [
-    {
-      id: 'generate',
-      label: t('createTarget.generate'),
-      icon: <SparkleIcon className="h-4 w-4" />,
-    },
     ...(agentEnabled
       ? [
           {
@@ -25,6 +20,11 @@ export default function CreateTargetSwitch() {
           },
         ]
       : []),
+    {
+      id: 'generate',
+      label: t('createTarget.generate'),
+      icon: <SparkleIcon className="h-4 w-4" />,
+    },
     {
       id: 'canvas',
       label: agentEnabled ? t('createTarget.canvas') : t('mode.canvas'),
