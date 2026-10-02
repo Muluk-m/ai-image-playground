@@ -265,7 +265,7 @@ export default function Sidebar() {
               type="button"
               onClick={() => setAppMode(mode)}
               aria-pressed={active}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] ${
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-label-sm ${
                 active ? 'text-primary' : 'text-muted-foreground'
               }`}
             >

@@ -86,7 +86,7 @@ export function ApprovalCard({
       data-slot="approval-card"
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
-      className={cn(paper, 'flex w-full max-w-xl flex-col gap-3.5 rounded-[20px] p-4', className)}
+      className={cn(paper, 'flex w-full max-w-xl flex-col gap-3.5 rounded-2xl p-4', className)}
     >
       <div className="flex items-center gap-3">
         <span
@@ -94,7 +94,7 @@ export function ApprovalCard({
           className={cn(
             'flex size-9 shrink-0 items-center justify-center rounded-xl',
             variant === 'destructive'
-              ? 'bg-red-600/10 text-red-600 dark:bg-red-400/10 dark:text-red-400'
+              ? 'bg-destructive/10 text-destructive'
               : 'bg-foreground/[0.05] text-foreground/45',
           )}
         >
@@ -170,7 +170,7 @@ export function ApprovalCard({
                 disabled={disabled}
                 className={cn(
                   variant === 'destructive'
-                    ? 'text-background bg-red-600 transition-[background-color,scale] duration-150 hover:bg-red-600/90 active:scale-[0.96] motion-reduce:transition-none dark:bg-red-400 dark:text-red-950 dark:hover:bg-red-400/90'
+                    ? 'bg-destructive text-destructive-foreground transition-[background-color,scale] duration-150 hover:bg-destructive/90 active:scale-[0.97] motion-reduce:transition-none'
                     : inkButton,
                   'flex h-8 items-center rounded-full px-3.5 text-xs font-medium whitespace-nowrap',
                 )}

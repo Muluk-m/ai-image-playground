@@ -222,7 +222,7 @@ export default function SizePickerModal({
 
   return (
     <Overlay onClose={onClose} tier="modal">
-      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
+      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border bg-card/95 p-5 shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-foreground">

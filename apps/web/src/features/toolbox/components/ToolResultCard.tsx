@@ -59,22 +59,20 @@ export default function ToolResultCard({
                 <b className="text-foreground">{formatBytes(done.output.blob.size)}</b>
               </span>
               <span
-                className={
-                  done.output.blob.size <= item.size ? 'text-emerald-600' : 'text-amber-600'
-                }
+                className={done.output.blob.size <= item.size ? 'text-success' : 'text-warning'}
               >
                 {sizeDeltaLabel(item.size, done.output.blob.size)}
               </span>
               {done.output.notes?.map((note) => (
                 <span
                   key={note}
-                  className="rounded bg-amber-500/15 px-1.5 py-0.5 text-label-sm text-amber-600 dark:text-amber-400"
+                  className="rounded bg-warning/15 px-1.5 py-0.5 text-label-sm text-warning"
                 >
                   {t(`result.note.${note}`)}
                 </span>
               ))}
               {done.output.fellBack && (
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-label-sm text-amber-600 dark:text-amber-400">
+                <span className="rounded bg-warning/15 px-1.5 py-0.5 text-label-sm text-warning">
                   {t('result.fellBack', { format: formatLabel(done.output.type) })}
                 </span>
               )}
