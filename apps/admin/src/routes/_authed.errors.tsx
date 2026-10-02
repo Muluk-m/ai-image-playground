@@ -62,8 +62,13 @@ function title(group: Pick<ClientErrorGroup, 'kind' | 'name' | 'message'>): stri
 }
 
 function ClientErrorsPage() {
-  const [range, setRange] = useRangeSearch()
+  const [range, setRangeSearch] = useRangeSearch()
   const [selectedFingerprint, setSelectedFingerprint] = useState<string | undefined>()
+  // 换时间窗就收起抽屉：新窗口的数据还没到时找不到这一组，等数据到了又会自己弹回来。
+  const setRange = (next: Range) => {
+    setSelectedFingerprint(undefined)
+    setRangeSearch(next)
+  }
   const query = useClientErrors(range)
   // 只记指纹，分组从当前数据里取：列表刷新、切时间窗后抽屉里的数字跟着走；
   // 新窗口里没有这一组就收起抽屉。
