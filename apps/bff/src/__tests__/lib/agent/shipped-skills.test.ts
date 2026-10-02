@@ -274,3 +274,75 @@ describe('随仓库发的预置模板', () => {
     }
   })
 })
+
+// 技能效果验证（#1000）。导入放在这里而不是文件头，与其他体检互不打扰。
+const { verifiedMismatches } = await import('../../../lib/skill-verification/backfill')
+const {
+  declaredInputs,
+  imageSkillsWithVerificationFile,
+  parseVerificationCases,
+  resolveFixture,
+  VERIFICATION_CASES_FILE,
+  VERIFICATION_DIR,
+  VERIFICATION_RECORD_FILE,
+} = await import('../../../lib/skill-verification/cases')
+
+/** 磁盘上的全部图片技能目录（见 `apps/bff/skill-verification/README.md`）。 */
+const IMAGE_SKILL_NAMES = readdirSync(join(defaultAgentSkillsRoot(), 'image'))
+
+function readJson(path: string): unknown {
+  return JSON.parse(readFileSync(path, 'utf8'))
+}
+
+describe('随仓库发的技能效果验证', () => {
+  const withCases = imageSkillsWithVerificationFile(
+    defaultAgentSkillsRoot(),
+    VERIFICATION_CASES_FILE,
+  )
+
+  it('至少有一条技能写了测试输入', () => {
+    expect(withCases.length).toBeGreaterThan(0)
+  })
+
+  it.each(withCases)('%s 的测试输入格式合规、图片都在', (name) => {
+    const directory = join(defaultAgentSkillsRoot(), 'image', name)
+    const parsed = parseVerificationCases(
+      readJson(join(directory, VERIFICATION_DIR, VERIFICATION_CASES_FILE)),
+      declaredInputs(readJson(join(directory, 'meta.json')), name),
+      (ref) => resolveFixture(defaultAgentSkillsRoot(), directory, ref),
+      existsSync,
+    )
+    expect(parsed.ok ? [] : parsed.errors).toEqual([])
+  })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 的 verified 与一份过线的验证记录逐项一致', (name) => {
+    // 没写 verified 的技能天然一致；写了就必须由过线记录回填、模型相同。
+    const directory = join(defaultAgentSkillsRoot(), 'image', name)
+    const recordPath = join(directory, VERIFICATION_DIR, VERIFICATION_RECORD_FILE)
+    const meta = readJson(join(directory, 'meta.json')) as Record<string, unknown>
+    const record = existsSync(recordPath) ? readJson(recordPath) : undefined
+    expect(verifiedMismatches(meta, record)).toEqual([])
+  })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 的验证记录用的是当前这 3 组测试输入', (name) => {
+    const directory = join(defaultAgentSkillsRoot(), 'image', name, VERIFICATION_DIR)
+    if (!existsSync(join(directory, VERIFICATION_RECORD_FILE))) return
+    // 测试输入换过而记录没重跑，记录就证明不了现在这套输入。
+    const record = readJson(join(directory, VERIFICATION_RECORD_FILE)) as {
+      runs: { case: string }[]
+    }
+    const cases = readJson(join(directory, VERIFICATION_CASES_FILE)) as { cases: { id: string }[] }
+    expect([...new Set(record.runs.map((run) => run.case))].sort()).toEqual(
+      cases.cases.map((one) => one.id).sort(),
+    )
+  })
+
+  it.each(IMAGE_SKILL_NAMES)('%s 若是预置模板，verified 记的是钉死的模型', (name) => {
+    // 钉死模型一改，旧的 verified 就不再成立：要么重跑验证，要么回填工具把它删掉。
+    const meta = readJson(join(defaultAgentSkillsRoot(), 'image', name, 'meta.json')) as {
+      verified?: { model?: unknown }
+      template?: { model?: unknown }
+    }
+    if (meta.verified && meta.template) expect(meta.verified.model).toBe(meta.template.model)
+  })
+})

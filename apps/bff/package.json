@@ -12,7 +12,10 @@
     "typecheck": "tsc --noEmit",
     "test": "bun run ../../scripts/run-bun-tests-isolated.ts src",
     "db:migrate": "bun run src/db/migrate.ts",
-    "inspirations:import": "bun run scripts/import-inspirations.ts"
+    "inspirations:import": "bun run scripts/import-inspirations.ts",
+    "skills:verify:run": "bun run scripts/skill-verification/run.ts",
+    "skills:verify:review": "bun run scripts/skill-verification/review.ts",
+    "skills:verify:backfill": "bun run scripts/skill-verification/backfill.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
