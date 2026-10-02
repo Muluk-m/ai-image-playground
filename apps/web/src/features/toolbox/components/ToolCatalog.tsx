@@ -38,7 +38,10 @@ export default function ToolCatalog() {
   const { dragging, dropZoneProps, inputs } = useToolboxIntake()
 
   return (
-    <main {...dropZoneProps} className={`flex h-dvh flex-col ${dragging ? 'bg-primary/5' : ''}`}>
+    <main
+      {...dropZoneProps}
+      className={`flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col ${dragging ? 'bg-primary/5' : ''}`}
+    >
       {inputs}
       <PageHeader title={APP_MODE_LABELS.tools}>
         {count > 0 && (
