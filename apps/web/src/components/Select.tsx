@@ -86,7 +86,20 @@ export default function Select({
     setIsOpen(true)
   }
   // 打开时成为 Esc 栈顶：Esc 只关下拉，不关外层弹窗。
-  useCloseOnEscape(isOpen, () => setIsOpen(false))
+  useCloseOnEscape(isOpen, () => closeMenu())
+
+  // 焦点在列表里（编辑 / 删除按钮）时关掉下拉，按钮随之卸载；把焦点还给触发器，
+  // 动作若打开了新弹窗，新弹窗会在下一帧接走焦点，这里不抢。
+  const closeMenu = () => {
+    const hadFocusInside = containerRef.current?.contains(document.activeElement) ?? false
+    setIsOpen(false)
+    if (!hadFocusInside) return
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body || !document.activeElement?.isConnected) {
+        triggerRef.current?.focus()
+      }
+    })
+  }
 
   // 键盘与 WAI-ARIA combobox 约定一致：方向键移动高亮，Enter 选中。
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -226,7 +239,20 @@ export default function Select({
   }
 
   return (
-    <div ref={containerRef} className={wrapperClassName ?? 'relative w-full'}>
+    <div
+      ref={containerRef}
+      className={wrapperClassName ?? 'relative w-full'}
+      onBlur={(e) => {
+        // 焦点移到 Select 之外的控件才收起，Tab 进操作按钮时保持打开。relatedTarget 为空
+        // 是点在不可聚焦的选项上，交给 click 处理；点页面空白由外部 mousedown 收起。
+        // 点选项时焦点会落到外层可聚焦容器（如 Popover），它包着 Select，不算离开。
+        const next = e.relatedTarget as Node | null
+        const container = containerRef.current
+        if (isOpen && next && container && !container.contains(next) && !next.contains(container)) {
+          setIsOpen(false)
+        }
+      }}
+    >
       <div
         ref={triggerRef}
         role="combobox"
@@ -506,7 +532,7 @@ export default function Select({
                         event.preventDefault()
                         event.stopPropagation()
                         action.onClick()
-                        setIsOpen(false)
+                        closeMenu()
                       }}
                       className={`rounded-md p-1.5 transition flex items-center justify-center ${
                         action.variant === 'danger'
