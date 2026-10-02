@@ -15,6 +15,7 @@ import Sidebar from './components/Sidebar'
 import TaskBulkActions from './components/TaskBulkActions'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
+import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import HeroCanvasProjects from './features/canvas/components/HeroCanvasProjects'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
@@ -159,6 +160,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                     <InputBar inline />
                   </div>
                 </div>
+                {/* 对话创作页签：场景起手句在上，灵感 chip 下移保留。 */}
+                {createTarget === 'chat' ? <SkillStarterGuide /> : null}
                 <InspirationChips />
                 {createTarget !== 'generate' ? (
                   <HeroCanvasProjects experience={createTarget} />

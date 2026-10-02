@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
+import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
 import AssetHint from '../features/library/components/AssetHint'
@@ -423,6 +424,20 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     },
     handleKeyDown: (event) => atImageMenu.handleKeyDown(event) || templateMenu.handleKeyDown(event),
   }
+
+  // 首页对话 / 画布档的输入框就是智能体的第一轮：起手句点进来，技能变成开头的胶囊，示例词选中。
+  useComposerFillTarget(
+    {
+      read: () => useStore.getState().prompt,
+      write: (content) => {
+        const { prompt, selection } = agentComposerFillPrompt(content)
+        setPrompt(prompt)
+        promptEditor.select(selection.start, selection.end)
+        return prompt
+      },
+    },
+    toCanvas,
+  )
 
   const handleClearPrompt = useCallback(() => {
     setPrompt('')
