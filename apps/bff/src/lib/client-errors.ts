@@ -5,7 +5,7 @@ import {
   type ClientErrorKind,
   type ClientErrorReport,
 } from '@image-playground/shared'
-import { lt } from 'drizzle-orm'
+import { inArray, lt } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
 export const CLIENT_ERROR_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -17,18 +17,24 @@ export interface ParsedClientErrorBatch {
 
 const KINDS = new Set<string>(CLIENT_ERROR_KINDS)
 
+// PostgreSQL 的 text 与 jsonb 都存不了 NUL；留着它，一条坏数据会让整批 INSERT 失败。
 function clip(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
+  const trimmed = value.replaceAll('\0', '').trim()
   return trimmed ? trimmed.slice(0, max) : undefined
 }
 
 function clipContext(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const serialized = JSON.stringify(value)
-  return serialized.length <= CLIENT_ERROR_LIMITS.context
-    ? (value as Record<string, unknown>)
-    : undefined
+  try {
+    // NUL 在序列化结果里是转义序列；剔掉它再解析，键名与嵌套字符串一并干净。
+    const serialized = JSON.stringify(value).replaceAll('\\u0000', '')
+    return serialized.length <= CLIENT_ERROR_LIMITS.context
+      ? (JSON.parse(serialized) as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -132,13 +138,27 @@ export async function recordClientErrors(
   )
 }
 
+const PURGE_BATCH = 5000
+/** 一轮最多删这么多批，积压留给下一轮，不拖住同一维护循环里的其他步骤。 */
+const PURGE_BATCHES_PER_ROUND = 10
+
 export async function purgeOldClientErrors(
   retentionMs = CLIENT_ERROR_RETENTION_MS,
   now = Date.now(),
 ): Promise<number> {
-  const removed = await db
-    .delete(schema.client_errors)
+  const expired = db
+    .select({ id: schema.client_errors.id })
+    .from(schema.client_errors)
     .where(lt(schema.client_errors.received_at, now - retentionMs))
-    .returning({ id: schema.client_errors.id })
-  return removed.length
+    .limit(PURGE_BATCH)
+  let removed = 0
+  for (let round = 0; round < PURGE_BATCHES_PER_ROUND; round += 1) {
+    const rows = await db
+      .delete(schema.client_errors)
+      .where(inArray(schema.client_errors.id, expired))
+      .returning({ id: schema.client_errors.id })
+    removed += rows.length
+    if (rows.length < PURGE_BATCH) break
+  }
+  return removed
 }
