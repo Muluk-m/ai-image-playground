@@ -94,6 +94,14 @@ for edition in $editions; do
     registry_tag=paid-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
     set -- --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true
   fi
+  # Each run starts with an empty builder, so reuse layers from the previous release's cache in
+  # the same private registry. Unchanged dependency layers then keep their digests and the push
+  # skips them. A cache that cannot be read or written never fails the release.
+  if [ "$transport" = registry ]; then
+    cache_ref=$ghcr_repository:buildcache-$edition
+    set -- "$@" --cache-from "type=registry,ref=$cache_ref" \
+      --cache-to "type=registry,ref=$cache_ref,mode=max,ignore-error=true"
+  fi
   docker buildx build --builder "$builder" --platform linux/amd64 --load \
     --build-arg "APP_VERSION=$version" --tag "$image" "$@" "$snapshot/public"
   image_id=$(docker image inspect "$image" --format '{{.Id}}')
