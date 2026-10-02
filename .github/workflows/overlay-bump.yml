@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
       - name: Require the overlay key
@@ -38,7 +38,7 @@ jobs:
           [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
       - name: Check out the overlay at its verified pointer
         id: overlay
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
           ref: verified

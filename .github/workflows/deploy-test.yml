@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The commit that triggered this run, not the branch tip: a push landing mid-run would
           # otherwise be published by a job that never checked it.
@@ -63,7 +63,7 @@ jobs:
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -95,7 +95,7 @@ jobs:
       # 手搓那版每次都去匿名调 `api.github.com/meta`（限额 60 次/小时且按发起 IP 计，runner
       # 出口 IP 共享）。调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
       - name: Check out the private overlay at its main HEAD
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ env.PRIVATE_OVERLAY_REPO }}
           ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
