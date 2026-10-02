@@ -57,7 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      VITEST_MAX_WORKERS: 1
+      # Its own 4-vCPU runner, so two workers; the bff job keeps 1 beside its Bun suites.
+      VITEST_MAX_WORKERS: 2
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
