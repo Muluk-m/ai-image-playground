@@ -8,7 +8,7 @@
 
 1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
 2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定。提交不是 `origin/main` 最新、或任一 API 已运行其后代提交（不回退）则跳过；两套 API 都已是该提交时自动触发跳过，手动触发照常重发（私有 overlay 单独更新用这个）。跳过记 notice，不算失败。
-3. `backend`：检出该提交，用 deploy key 克隆私有仓库 main HEAD 到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
+3. `backend`：检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，执行 `build-vps-release.sh all $RUNNER_TEMP/aip-<公开12位>-<私有12位>`；再 `tar | ssh` 交给 VPS 上的 forced command，输出与退出码回传到 job。
 4. `pages`：先轮询两套 API `/health` 的 `version`（内部版 `<公开sha>`，付费版 `<公开sha>+<私有sha>`，最长 300 秒），再无 `private/` 发布内部版、克隆同一私有提交后发布付费版，最后发后台前端（`pages-release.sh internal|paid|admin`，含域名 `version.json` 校验）。
 5. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
