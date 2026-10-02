@@ -1,3 +1,6 @@
+/** 登录会话 cookie 的名字。BFF 设置它，跑图脚本这类不连数据库的调用方也按它带会话。 */
+export const USER_SESSION_COOKIE = 'image_playground_session'
+
 export const USERNAME_MIN_LENGTH = 3
 export const USERNAME_MAX_LENGTH = 32
 export const EMAIL_MAX_LENGTH = 254
