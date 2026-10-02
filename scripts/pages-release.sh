@@ -58,7 +58,7 @@ case "$edition" in
   admin)
     prefix=ADMIN
     bundle=private
-    app=admin
+    app='admin'
     deployment_name=paid-admin
     search_indexing=false
     ;;

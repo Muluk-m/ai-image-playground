@@ -29,7 +29,7 @@ docker run -d --name "$name" --network none --memory 512m --cpus 1 \
   postgres:17.6-alpine3.22 >/dev/null
 trap 'docker stop "$name" >/dev/null 2>&1 || true' EXIT
 ready=false
-for attempt in $(seq 1 30); do
+for _ in $(seq 1 30); do
   # The entrypoint's temporary initialization server listens only on the Unix socket.
   if docker exec "$name" pg_isready -h 127.0.0.1 -U postgres -d recovery >/dev/null 2>&1; then ready=true; break; fi
   sleep 1
