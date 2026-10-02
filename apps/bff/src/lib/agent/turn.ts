@@ -21,8 +21,8 @@ import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarificati
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import {
+  type AgentOwner,
   appendAgentMessage,
-  listAgentHistoryWindow,
   recordAgentToolCall,
   touchAgentConversation,
 } from './conversations'
@@ -41,13 +41,7 @@ import {
 } from './images'
 import { createMaskedEditPlan, type MaskedPlanCarry } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
-import {
-  canRetainModelHistory,
-  modelHistoryFingerprint,
-  modelHistorySkillsMatch,
-  modelHistoryTransform,
-  writeModelHistory,
-} from './model-history'
+import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { AgentRequestBudgetError } from './outbound-budget'
 import {
   AgentContextOverflow,
@@ -69,7 +63,6 @@ import {
   isAgentToolName,
 } from './tools'
 import { AgentToolError } from './tools/errors'
-import { replayedSkillTexts } from './tools/loadSkill'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {
@@ -100,6 +93,8 @@ export interface PreparedAgentTurn {
   /** 这一轮对会话的执行权：写库之前确认，落库在它的事务里。 */
   readonly execution: TurnExecution
   readonly conversationId: string
+  /** 起轮准备已经确权的会话归属；轮后重读历史照它读。 */
+  readonly owner: AgentOwner
   readonly turnId: string
   readonly userMessageId: string
   readonly storedUserMessage?: AgentMessageView
@@ -255,8 +250,9 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   })
   const retained = input.modelHistory
     ? modelHistoryTransform({
+        signature: input.modelHistory.signature,
         nativePrefixLength: initialState.messages.length,
-        replay: turnInitialStateOf({ ...input, modelHistory: undefined }).messages,
+        replay: () => turnInitialStateOf({ ...input, modelHistory: undefined }).messages,
         settings: budget,
         overheadTokens,
         compact,
@@ -362,6 +358,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const remember = (message: AgentMessageView) =>
     storedMessages.set(message.id, structuredClone(message))
   if (prepared.storedUserMessage) remember(prepared.storedUserMessage)
+  /** 本轮写下的消息一律经这里落库并记下原貌。 */
+  const append = async (
+    executor: typeof db | BffTransaction,
+    id: string,
+    role: 'user' | 'assistant',
+    content: AgentContentBlock[],
+  ) => remember(await appendAgentMessage(executor, { id, conversationId, turnId, role, content }))
   const steeringReferences = new Map<
     string,
     {
@@ -414,21 +417,13 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     queued = []
     for (const message of pending) {
       write(async (executor) => {
-        remember(
-          await appendAgentMessage(executor, {
-            id: message.id,
-            conversationId,
-            turnId,
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: message.text,
-                ...(message.references.length ? { references: [...message.references] } : {}),
-              },
-            ],
-          }),
-        )
+        await append(executor, message.id, 'user', [
+          {
+            type: 'text',
+            text: message.text,
+            ...(message.references.length ? { references: [...message.references] } : {}),
+          },
+        ])
       })
     }
   }
@@ -438,15 +433,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
 
   const storeBlock = (block: AgentContentBlock, messageId: string) =>
     write(async (executor) => {
-      remember(
-        await appendAgentMessage(executor, {
-          id: messageId,
-          conversationId,
-          turnId,
-          role: 'assistant',
-          content: [block],
-        }),
-      )
+      await append(executor, messageId, 'assistant', [block])
       storedAny = true
     })
 
@@ -466,15 +453,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         const previous = storedMessages.get(message.id)
         if (previous) remember({ ...previous, content: [{ type: 'text', text: message.text }] })
       } else {
-        remember(
-          await appendAgentMessage(executor, {
-            id: message.id,
-            conversationId,
-            turnId,
-            role: 'assistant',
-            content: [{ type: 'text', text: message.text }],
-          }),
-        )
+        await append(executor, message.id, 'assistant', [{ type: 'text', text: message.text }])
       }
       storedAny = true
     })
@@ -691,28 +670,12 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
                 // Stopping while waiting for the media owner lock must roll back every claim.
                 if (!acceptingInterjections || aborted) throw refused
                 if (current?.text && !current.persisted) {
-                  remember(
-                    await appendAgentMessage(tx, {
-                      id: current.id,
-                      conversationId,
-                      turnId,
-                      role: 'assistant',
-                      content: [{ type: 'text', text: current.text }],
-                    }),
-                  )
+                  await append(tx, current.id, 'assistant', [{ type: 'text', text: current.text }])
                   persistedCurrent = true
                 }
-                remember(
-                  await appendAgentMessage(tx, {
-                    id: messageId,
-                    conversationId,
-                    turnId,
-                    role: 'user',
-                    content: [
-                      { type: 'text', text, ...(stored.length ? { references: stored } : {}) },
-                    ],
-                  }),
-                )
+                await append(tx, messageId, 'user', [
+                  { type: 'text', text, ...(stored.length ? { references: stored } : {}) },
+                ])
                 return 'accepted' as const
               }),
             )
@@ -841,58 +804,6 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
           execution.assert,
         )
       }
-      if (
-        outcome === 'completed' &&
-        input.modelHistory &&
-        retained?.reusable() &&
-        prepared.storedUserMessage &&
-        steeringReferences.size === 0
-      ) {
-        try {
-          const current = await listAgentHistoryWindow(
-            conversationId,
-            prepared.userId
-              ? { kind: 'user', userId: prepared.userId }
-              : { kind: 'device', deviceId: prepared.deviceId },
-          )
-          if (
-            canRetainModelHistory(current) &&
-            modelHistoryFingerprint(current.messages) ===
-              modelHistoryFingerprint([...history.messages, ...storedMessages.values()])
-          ) {
-            const currentSkills = await replayedSkillTexts(current.messages, mode, prepared.userId)
-            if (
-              !modelHistorySkillsMatch(
-                agent.state.messages,
-                input.skillTexts ?? new Map(),
-                currentSkills,
-              )
-            ) {
-              log.info(
-                { event: 'agent.model_history_skills_changed', conversationId, turnId },
-                'model history cache skipped after a skill changed',
-              )
-            } else {
-              await execution.assert()
-              await writeModelHistory(
-                {
-                  conversationId,
-                  signature: input.modelHistory.signature,
-                  history: current.messages,
-                  skillTexts: currentSkills,
-                },
-                agent.state.messages,
-              )
-            }
-          }
-        } catch (thrown) {
-          if (thrown instanceof ConversationExecutionLost) throw thrown
-          log.warn(
-            { event: 'agent.model_history_save_failed', conversationId, turnId },
-            'model history cache skipped; turn settlement is unchanged',
-          )
-        }
-      }
       log.info(
         { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
         'agent turn settled',
@@ -928,6 +839,21 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       ended = true
       await touchAgentConversation(conversationId)
       await events.flush()
+      await saveModelHistoryAfterTurn({
+        outcome,
+        retained,
+        userMessageStored: !!prepared.storedUserMessage,
+        steered: steeringReferences.size > 0,
+        conversationId,
+        turnId,
+        owner: prepared.owner,
+        mode,
+        userId: prepared.userId,
+        expectedHistory: [...history.messages, ...storedMessages.values()],
+        previousSkills: input.skillTexts,
+        messages: agent.state.messages,
+        assertExecution: execution.assert,
+      })
     })
     .catch(async (err) => {
       // 租约已经归了别人：这里不能再写，终帧由接手的一方补（见 `sealAbandonedTurns`）。

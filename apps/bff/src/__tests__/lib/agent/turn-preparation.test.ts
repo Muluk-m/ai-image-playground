@@ -712,3 +712,58 @@ describe('unsynced project experience is bound to the originating message', () =
     ).toBe('canvas')
   })
 })
+
+describe('原生模型历史缓存', () => {
+  it('先发终帧，再在收尾之前写缓存', async () => {
+    const conversation = await createAgentConversation(USER, '你好')
+    for (const [role, text] of [
+      ['user', '你好'],
+      ['assistant', '你好呀'],
+    ] as const)
+      await appendAgentMessage(db, {
+        conversationId: conversation.id,
+        turnId: SUBMITTING_TURN,
+        role,
+        content: [{ type: 'text', text }],
+      })
+    const { prepared } = await prepare(
+      conversation.id,
+      await queuedMessage(conversation.id, '再聊聊'),
+    )
+    const turn = preparedTurn(prepared)
+    expect(turn.input.modelHistory).toBeDefined()
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let settled = false
+    const write = storage.write.bind(storage)
+    storage.write = async (key, bytes, contentType, signal) => {
+      if (!key.endsWith('model-context-v1.json')) return write(key, bytes, contentType, signal)
+      try {
+        // 写入期限到了就放弃：旧实现会在终帧之前等到这里超时。
+        await new Promise<void>((resolve, reject) => {
+          void gate.then(resolve)
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+        await write(key, bytes, contentType, signal)
+      } finally {
+        settled = true
+      }
+    }
+
+    const running = await startAgentTurn(turn)
+    for await (const { event } of running.read(0)) {
+      if (event.type !== 'turnEnd') continue
+      expect(settled).toBe(false)
+      break
+    }
+    release()
+    await running.completed
+    expect(settled).toBe(true)
+    expect([...storage.objects.keys()].some((key) => key.endsWith('model-context-v1.json'))).toBe(
+      true,
+    )
+  })
+})
