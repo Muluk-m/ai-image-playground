@@ -24,6 +24,11 @@ export interface TurnSubmissionSnapshot {
   readonly params?: AgentTurnParams
   /** 发话时已确认引用像素等于画布原图的元素；遮罩和批注不在此列。 */
   readonly canvasReferenceIds?: readonly string[]
+  /**
+   * 发话时看到的入口。服务端在项目记下入口之前按它判定：画布还在加载时带不了快照，
+   * 只看快照会把画布里说的话当成对话。
+   */
+  readonly experience?: 'chat' | 'canvas'
 }
 
 export type TurnSubmissionReplay = Omit<TurnSubmissionSnapshot, 'references'> & {
@@ -93,9 +98,12 @@ export function captureTurnSubmission(input: {
           return source ? [{ imageId: reference.imageId, handle: reference.dataUrl, source }] : []
         })
       : []
+  const experience =
+    input.replay?.experience ?? (input.project ? projectExperience(input.project) : undefined)
   let snapshot: TurnSubmissionSnapshot = structuredClone({
     references: input.references,
     params: input.replay?.params ?? input.params,
+    ...(experience ? { experience } : {}),
     ...(canvas ? { canvas } : {}),
     ...(canvasReferenceIds ? { canvasReferenceIds } : {}),
   })
