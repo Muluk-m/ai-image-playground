@@ -409,7 +409,8 @@ describe('项目输入框里的素材位', () => {
     expect(references?.map((one) => one.imageId)).toEqual(['mug-front'])
   })
 
-  it('从画布选一张图填位：与 `@` 引用画布图是同一份参考图', async () => {
+  /** 画布上放一张图，`@` 菜单与填位面板里都叫「画布图1」。 */
+  function putCanvasImage(): void {
     act(() =>
       doc.restore(
         [
@@ -427,6 +428,10 @@ describe('项目输入框里的素材位', () => {
         { 'file-1': PIXEL },
       ),
     )
+  }
+
+  it('从画布选一张图填位：与 `@` 引用画布图是同一份参考图', async () => {
+    putCanvasImage()
     pickStarter()
     openSlot()
     expect(slotPanelHeadings()).toEqual(['素材库', '画布'])
@@ -437,6 +442,30 @@ describe('项目输入框里的素材位', () => {
     sendTurn()
     expect(send).toHaveBeenCalledWith(
       '/product-main-image 为 [image 1] 出一张白底主图',
+      [{ imageId: 'canvas-1', dataUrl: PIXEL }],
+      'image',
+    )
+  })
+
+  it('同一张画布图经位与 `@` 两处引用，只发一次、编号相同', async () => {
+    putCanvasImage()
+    pickStarter()
+    openSlot()
+    click(panel().querySelector('button[aria-label="画布图1"]')!)
+
+    // 进了位的画布图已经是参考图：`@` 菜单把它列成「@图1」，不再在画布组里重复出现。
+    type(' 参考 @')
+    const options = [...host.querySelectorAll<HTMLElement>('[role="option"]')]
+    expect(options.map((one) => one.textContent)).not.toContain('画布图1')
+    const option = options.find((one) => one.textContent === '@图1')!
+    act(() => {
+      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    await until(() => expect(editor().querySelectorAll('img')).toHaveLength(2))
+
+    sendTurn()
+    expect(send).toHaveBeenCalledWith(
+      '/product-main-image 为 [image 1] 出一张白底主图 参考 [image 1]',
       [{ imageId: 'canvas-1', dataUrl: PIXEL }],
       'image',
     )

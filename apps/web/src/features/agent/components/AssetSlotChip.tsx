@@ -118,7 +118,7 @@ export function CanvasSlotSource({
 
 /**
  * 素材位胶囊（CONTEXT「素材位」）：空着是虚线加位名，填好是缩略图。点开从素材库选一条、上传
- * 本地图，或者把图拖到胶囊上。首页对话输入框与项目 `AgentComposer` 都用这一个组件；图怎么进
+ * 本地图（项目里还能选画布上的图），或者把图拖到胶囊上。首页对话输入框与项目 `AgentComposer` 都用这一个组件；图怎么进
  * 草稿归输入框，这里只把用户选的东西交回去。
  */
 export default function AssetSlotChip({
