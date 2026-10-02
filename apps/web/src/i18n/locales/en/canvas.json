@@ -73,7 +73,19 @@
     "editTitle_other": "Edit {{count}} images",
     "editSubmit_one": "Edit {{count}} image",
     "editSubmit_other": "Edit {{count}} images",
-    "clear": "Clear selection"
+    "clear": "Clear selection",
+    "cutoutTitle_one": "Remove background from {{count}} image",
+    "cutoutTitle_other": "Remove background from {{count}} images",
+    "resizeTitle_one": "Resize {{count}} image to {{ratio}}",
+    "resizeTitle_other": "Resize {{count}} images to {{ratio}}",
+    "confirmBody_one": "This is AI processing: it starts {{count}} generation task.",
+    "confirmBody_other": "This is AI processing: each image starts its own generation task, {{count}} in total.",
+    "cutoutPlacement": "The cutout replaces the original.",
+    "resizePlacement": "Resized images go next to the originals, which are kept.",
+    "confirmCost": "Estimated cost",
+    "confirmCancel": "Cancel",
+    "confirmSubmit_one": "Generate {{count}}",
+    "confirmSubmit_other": "Generate {{count}}"
   },
   "submit": {
     "blocked": "Can't generate right now",

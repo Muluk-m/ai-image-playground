@@ -477,6 +477,7 @@ export function getPersistedState(state: AppState) {
           prompt: state.prompt,
           slotValues: state.slotValues,
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
+          maskDraft: persistedMaskDraft(state),
         }
       : {}),
     inspirationCoachDismissed: state.inspirationCoachDismissed,
@@ -487,6 +488,30 @@ export function getPersistedState(state: AppState) {
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
     profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
+  }
+}
+
+/** 只有落进 IndexedDB 的遮罩才写进 localStorage，本体留空，启动时按 id 读回。 */
+function persistedMaskDraft(state: AppState): MaskDraft | null {
+  // 启动恢复还没结束时 store 里没有遮罩，这期间任何一次写盘都得把待恢复的引用原样留着，
+  // 不然恢复前再刷新一次，IndexedDB 里的遮罩就成了孤图被清掉。用户自己设或清遮罩会先取消它。
+  const draft = state.maskDraft ?? pendingPersistedMaskDraft
+  if (!draft?.maskImageId) return null
+  return { ...draft, maskDataUrl: '' }
+}
+
+/** 本地存储里读出的遮罩引用，等 initStore 读回本体后再进 store；先进 store 会被当成空遮罩提交。 */
+let pendingPersistedMaskDraft: MaskDraft | null = null
+
+function readPersistedMaskDraft(persisted: unknown): MaskDraft | null {
+  if (!persisted || typeof persisted !== 'object') return null
+  const { targetImageId, maskImageId, updatedAt } = persisted as Partial<MaskDraft>
+  if (typeof targetImageId !== 'string' || typeof maskImageId !== 'string') return null
+  return {
+    targetImageId,
+    maskImageId,
+    maskDataUrl: '',
+    updatedAt: typeof updatedAt === 'number' ? updatedAt : Date.now(),
   }
 }
 
@@ -506,6 +531,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 
   const persisted = persistedState as Partial<AppState>
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
+  pendingPersistedMaskDraft = settings.persistInputOnRestart
+    ? readPersistedMaskDraft(persisted.maskDraft)
+    : null
   return {
     ...currentState,
     ...persisted,
@@ -530,6 +558,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
         ? persisted.inputImages
         : [],
     slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
+    maskDraft: null,
   }
 }
 
@@ -746,15 +775,32 @@ export const useStore = create<AppState>()(
           return { inputImages: [...draft.references], prompt: draft.prompt }
         }),
       maskDraft: null,
-      setMaskDraft: (maskDraft) =>
+      setMaskDraft: (maskDraft) => {
+        pendingPersistedMaskDraft = null
         set((s) => {
           const draft = replaceReferences(
             { prompt: s.prompt, references: s.inputImages },
             orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId),
           )
           return { maskDraft, inputImages: [...draft.references], prompt: draft.prompt }
-        }),
-      clearMaskDraft: () => set({ maskDraft: null }),
+        })
+        if (maskDraft && !maskDraft.maskImageId) {
+          void storeImage(maskDraft.maskDataUrl, 'mask')
+            .then((maskImageId) => {
+              // 存盘期间遮罩换过或清掉了，就别把旧的写回去。
+              if (get().maskDraft !== maskDraft) return
+              set({ maskDraft: { ...maskDraft, maskImageId } })
+            })
+            .catch(() => {
+              if (get().maskDraft !== maskDraft) return
+              get().showToast(i18next.t('mask.persistFailed', { ns: 'store' }), 'error')
+            })
+        }
+      },
+      clearMaskDraft: () => {
+        pendingPersistedMaskDraft = null
+        set({ maskDraft: null })
+      },
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
@@ -1241,8 +1287,10 @@ async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>>
   const ids = await getReferencedImageIds(tasks)
   const { inputImages, maskDraft } = useStore.getState()
   for (const image of inputImages) ids.add(image.id)
-  if (maskDraft) {
-    ids.add(maskDraft.targetImageId)
+  for (const draft of [maskDraft, pendingPersistedMaskDraft]) {
+    if (!draft) continue
+    ids.add(draft.targetImageId)
+    if (draft.maskImageId) ids.add(draft.maskImageId)
   }
   return ids
 }
@@ -1303,6 +1351,25 @@ export async function initStore() {
     restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)
   ) {
     useStore.getState().replaceInputImages(restoredInputImages)
+  }
+  await restorePersistedMaskDraft(restoredInputImages)
+}
+
+async function restorePersistedMaskDraft(inputImages: readonly InputImage[]) {
+  const pending = pendingPersistedMaskDraft
+  try {
+    if (!pending?.maskImageId || useStore.getState().maskDraft) return
+    if (!inputImages.some((img) => img.id === pending.targetImageId)) return
+    const stored = await getImage(pending.maskImageId)
+    // 读盘期间用户设过或清过遮罩（会取消待恢复引用），或把目标图移出了参考图条，旧遮罩都不能回写；
+    // 只是加了别的图、调了顺序不算。
+    const state = useStore.getState()
+    if (!stored?.dataUrl || pendingPersistedMaskDraft !== pending || state.maskDraft) return
+    if (!state.inputImages.some((img) => img.id === pending.targetImageId)) return
+    cacheImage(pending.maskImageId, stored.dataUrl)
+    state.setMaskDraft({ ...pending, maskDataUrl: stored.dataUrl })
+  } finally {
+    if (pendingPersistedMaskDraft === pending) pendingPersistedMaskDraft = null
   }
 }
 

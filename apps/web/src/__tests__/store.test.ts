@@ -36,6 +36,7 @@ vi.mock('../lib/db', () => {
     getImageThumbnail: async (id: string) => thumbnails.get(id),
     getStoredFreshImageThumbnail: async (id: string) => thumbnails.get(id),
     getAllImageIds: async () => [...images.keys()],
+    getReferencedImageIds: async () => new Set<string>(),
     getAllImages: async () => [...images.values()],
     putImage: async (image: StoredImage) => {
       images.set(image.id, image)
@@ -162,6 +163,7 @@ import {
   editOutputImage,
   getPersistedState,
   getTaskApiProfile,
+  initStore,
   markInterruptedOpenAIRunningTasks,
   retryTask,
   reuseConfig,
@@ -770,6 +772,57 @@ describe('input persistence setting', () => {
 
     expect(persisted).not.toHaveProperty('prompt')
     expect(persisted).not.toHaveProperty('inputImages')
+  })
+
+  it('saved mask survives a reload with its reference image', async () => {
+    const mask = 'data:image/png;base64,mask'
+    useStore.getState().setMaskDraft({ targetImageId: imageA.id, maskDataUrl: mask, updatedAt: 1 })
+    await waitUntil(() => Boolean(useStore.getState().maskDraft?.maskImageId), 'mask not stored')
+
+    const persisted = getPersistedState(useStore.getState())
+    const maskImageId = useStore.getState().maskDraft?.maskImageId
+    expect(persisted.maskDraft).toEqual({
+      targetImageId: imageA.id,
+      maskDataUrl: '',
+      maskImageId,
+      updatedAt: 1,
+    })
+
+    await putImage({ id: imageA.id, dataUrl: imageA.dataUrl, createdAt: 1 })
+    useStore.setState({ maskDraft: null, inputImages: [] })
+    const merged = useStore.persist
+      .getOptions()
+      .merge?.(JSON.parse(JSON.stringify(persisted)), useStore.getState()) as {
+      maskDraft: unknown
+      inputImages: unknown
+    }
+    expect(merged.maskDraft).toBeNull()
+    // 恢复完成前的写盘不能把待恢复的遮罩引用抹掉。
+    expect(getPersistedState({ ...useStore.getState(), maskDraft: null }).maskDraft).toMatchObject({
+      maskImageId,
+    })
+    useStore.setState({ inputImages: merged.inputImages as (typeof imageA)[], maskDraft: null })
+    vi.stubGlobal('window', {})
+    try {
+      await initStore()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(useStore.getState().inputImages.map((img) => img.id)).toEqual([imageA.id])
+    expect(useStore.getState().maskDraft).toMatchObject({
+      targetImageId: imageA.id,
+      maskDataUrl: mask,
+      maskImageId,
+    })
+  })
+
+  it('does not persist a mask when restart input restore is disabled', () => {
+    useStore.setState({
+      settings: { ...DEFAULT_SETTINGS, persistInputOnRestart: false },
+      maskDraft: { targetImageId: imageA.id, maskDataUrl: 'm', updatedAt: 1, maskImageId: 'x' },
+    })
+    expect(getPersistedState(useStore.getState())).not.toHaveProperty('maskDraft')
   })
 
   it('writes empty input when persisted input is cleared', () => {
