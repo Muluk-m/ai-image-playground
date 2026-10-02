@@ -59,6 +59,14 @@ function button(label: string): HTMLButtonElement {
   return found
 }
 
+function dialogButton(text: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+    (item) => item.textContent === text,
+  )
+  if (!found) throw new Error(`No dialog button: ${text}`)
+  return found
+}
+
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   actions.cutout.mockClear()
@@ -90,11 +98,42 @@ describe('画布多图工具条', () => {
       '删除所选（Del）',
       '取消选择',
     ])
-    await act(async () => button('抠图').click())
+    act(() => button('抠图').click())
+    expect(actions.cutout).not.toHaveBeenCalled()
+    await act(async () => dialogButton('确认生成 2 张').click())
     expect(actions.cutout).toHaveBeenCalledTimes(2)
     expect(
       actions.cutout.mock.calls.map((call) => (call as unknown as [unknown, { id: string }])[1].id),
     ).toEqual(['a', 'b'])
+  })
+
+  it('批量调整尺寸选完比例先要确认，取消就不发任务', async () => {
+    addImage('a', 0)
+    addImage('b', 300)
+    doc.setSelection(['a', 'b'])
+    act(() => root.render(<CanvasBatchBar editor={editor} />))
+
+    act(() => button('调整尺寸').click())
+    const square = [...document.querySelectorAll<HTMLElement>('button, [role="menuitem"]')].find(
+      (item) => item.textContent?.includes('方形'),
+    )
+    if (!square) throw new Error('No ratio item')
+    act(() => square.click())
+    expect(actions.resize).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('这是 AI 处理')
+
+    act(() => dialogButton('取消').click())
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(actions.resize).not.toHaveBeenCalled()
+
+    act(() => button('调整尺寸').click())
+    const again = [...document.querySelectorAll<HTMLElement>('button, [role="menuitem"]')].find(
+      (item) => item.textContent?.includes('方形'),
+    )
+    act(() => again?.click())
+    await act(async () => dialogButton('确认生成 2 张').click())
+    expect(actions.resize).toHaveBeenCalledTimes(2)
+    expect((actions.resize.mock.calls[0] as unknown as unknown[])[2]).toBe('1:1')
   })
 
   it('要先画区域的动作只属于单图，不出现在多选里', () => {
