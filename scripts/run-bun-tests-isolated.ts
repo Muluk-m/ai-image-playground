@@ -1,25 +1,117 @@
-const roots = process.argv.slice(2)
-if (roots.length === 0) throw new Error('Pass at least one test root')
+/**
+ * Runs every Bun test file under the given roots in its own process.
+ *
+ * Database-backed suites pin module singletons (DATABASE_URL, operator config, the Elysia app) to
+ * the first database they see, so two files must never share a process.
+ *
+ *   bun run scripts/run-bun-tests-isolated.ts [--jobs N] [--filter SUBSTRING] <root>...
+ *
+ * --jobs (or BUN_TEST_JOBS) runs N files at once; the default is 1 so a local `pnpm test` stays
+ * single-worker. Every suite gets its own database, so parallel runs do not share data.
+ * --filter keeps only files whose path contains the substring.
+ *
+ * All files run even after a failure; the summary at the end lists every failed file.
+ */
+import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join, relative } from 'node:path'
 
-const testFiles: string[] = []
+const roots: string[] = []
+let jobs = Number(process.env.BUN_TEST_JOBS ?? 1)
+let filter: string | undefined
+const args = process.argv.slice(2)
+for (let index = 0; index < args.length; index++) {
+  const arg = args[index]
+  if (arg === '--jobs' || arg === '-j') jobs = Number(args[++index])
+  else if (arg === '--filter') filter = args[++index]
+  else if (arg !== '--') roots.push(arg)
+}
+if (roots.length === 0) throw new Error('Pass at least one test root')
+if (!Number.isInteger(jobs) || jobs < 1) throw new Error('--jobs must be a positive integer')
+
+const found = new Set<string>()
 const glob = new Bun.Glob('**/*.test.{ts,tsx}')
 for (const root of roots) {
   for await (const file of glob.scan({ cwd: root, absolute: true, onlyFiles: true })) {
-    testFiles.push(file)
+    if (!filter || file.includes(filter)) found.add(file)
   }
 }
-testFiles.sort()
+// Overlapping roots must not run a file twice: both copies would reset the same suite database.
+const testFiles = [...found].sort()
 
-if (testFiles.length === 0) throw new Error(`No Bun test files found under: ${roots.join(', ')}`)
+if (testFiles.length === 0) {
+  throw new Error(
+    `No Bun test files found under: ${roots.join(', ')}${filter ? ` matching "${filter}"` : ''}`,
+  )
+}
 
-for (const testFile of testFiles) {
-  const child = Bun.spawn([process.execPath, 'test', testFile], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdout: 'inherit',
-    stderr: 'inherit',
-    stdin: 'inherit',
+const logDirectory = mkdtempSync(join(tmpdir(), 'bun-tests-isolated-'))
+
+type Result = { file: string; exitCode: number; seconds: number; output: string }
+
+async function runFile(file: string): Promise<Result> {
+  const started = performance.now()
+  const finish = (exitCode: number, output: string): Result => ({
+    file,
+    exitCode,
+    seconds: (performance.now() - started) / 1000,
+    output,
   })
-  const exitCode = await child.exited
-  if (exitCode !== 0) process.exit(exitCode)
+  // Serial runs stream straight to the terminal. Parallel runs write each file's output to its own
+  // log so outputs do not interleave; a file rather than a pipe, because a grandchild that keeps a
+  // pipe open (a server, a worker) would otherwise hang the runner after the test process exits.
+  const logPath =
+    jobs === 1 ? null : join(logDirectory, `${basename(file)}-${crypto.randomUUID()}.log`)
+  let log: number | 'inherit' = 'inherit'
+  try {
+    if (logPath) log = openSync(logPath, 'w')
+    const child = Bun.spawn([process.execPath, 'test', file], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdout: log,
+      stderr: log,
+      stdin: 'ignore',
+    })
+    const exitCode = await child.exited
+    return finish(exitCode, logPath ? await Bun.file(logPath).text() : '')
+  } catch (error) {
+    // A spawn or log failure belongs to this file; the other files still run.
+    return finish(1, `${relative(process.cwd(), file)}: runner error: ${String(error)}\n`)
+  } finally {
+    if (typeof log === 'number') closeSync(log)
+  }
+}
+
+const results: Result[] = []
+let next = 0
+async function worker(): Promise<void> {
+  while (next < testFiles.length) {
+    const result = await runFile(testFiles[next++])
+    if (jobs > 1) process.stdout.write(result.output)
+    results.push(result)
+  }
+}
+const started = performance.now()
+try {
+  await Promise.all(Array.from({ length: Math.min(jobs, testFiles.length) }, worker))
+} finally {
+  rmSync(logDirectory, { recursive: true, force: true })
+}
+
+const failed = results
+  .filter((result) => result.exitCode !== 0)
+  .sort((a, b) => a.file.localeCompare(b.file))
+const slowest = [...results].sort((a, b) => b.seconds - a.seconds).slice(0, 5)
+const label = (result: Result) =>
+  `${relative(process.cwd(), result.file)} (${result.seconds.toFixed(1)}s)`
+
+console.log(
+  `\n${results.length - failed.length}/${results.length} test files passed in ` +
+    `${((performance.now() - started) / 1000).toFixed(1)}s with ${jobs} job(s).`,
+)
+console.log(`Slowest: ${slowest.map(label).join(', ')}`)
+if (failed.length > 0) {
+  console.error(`\nFailed test files (${failed.length}):`)
+  for (const result of failed) console.error(`  ✗ ${label(result)} exit ${result.exitCode}`)
+  process.exit(1)
 }
