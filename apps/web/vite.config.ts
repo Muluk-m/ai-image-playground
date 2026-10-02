@@ -6,6 +6,7 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
+import { pagesRedirectsPlugin } from './src/lib/pagesRedirects'
 import { guideHtmlEntries, seoPlugin } from './src/seo/vitePlugin'
 import { themeBootPlugin } from './src/theme/vitePlugin'
 
@@ -76,6 +77,7 @@ export default defineConfig(({ command }) => {
       react(),
       themeBootPlugin(),
       seoPlugin({ publicDir: resolve(__dirname, 'public') }),
+      pagesRedirectsPlugin(),
       injectSwBuildVersion(),
     ],
     base: '/',
