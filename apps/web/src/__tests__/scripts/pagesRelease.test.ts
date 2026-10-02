@@ -87,9 +87,12 @@ it('generates SPA fallbacks for every app route without a catch-all asset rewrit
     PROJECT_ROUTE_PATTERN,
   ]) {
     expect(rules).toContain(`${path} / 200\n`)
-    expect(rules).toContain(`${path}/ / 200\n`)
+    if (path !== '/assets') expect(rules).toContain(`${path}/ / 200\n`)
   }
   expect(rules).toContain('/assets / 200\n')
+  // `/assets/` 落在 `_headers` 的一年 immutable 规则里：不能在那里下发 HTML。
+  expect(rules).toContain('/assets/ /assets 301\n')
+  expect(rules).not.toContain('/assets/ / 200')
   expect(rules).not.toMatch(/^\/assets\/\*/m)
   expect(rules).not.toMatch(/^\/\*/m)
   expect(await readFile(join(root, 'apps/web/public/404.html'), 'utf8')).toContain('Page not found')
@@ -105,6 +108,21 @@ it('rejects a stale deep link even when the home page is current', async () => {
         : good(url),
     ),
   ).rejects.toThrow('Application deep link did not serve this release: /tools')
+})
+
+it('rejects a deep link whose HTML is cached as long-lived', async () => {
+  await expect(
+    verifyPagesRelease('https://example.test', dist, async (url: URL) =>
+      url.pathname === '/tools'
+        ? new Response(html, {
+            headers: {
+              'content-type': 'text/html',
+              'cache-control': 'public, max-age=31536000, immutable',
+            },
+          })
+        : good(url),
+    ),
+  ).rejects.toThrow('Application deep link is cached long-lived: /tools')
 })
 
 it('rejects a broken project deep link even if the home page works', async () => {
