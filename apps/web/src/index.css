@@ -1319,6 +1319,32 @@ input[type="number"] {
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.25);
 }
 
+/* 素材位胶囊：外观归 AssetSlotChip，外层只占位置；没有渲染器时退回虚线位名 */
+.mention-tag.asset-slot-tag,
+.mention-tag.asset-slot-tag:hover,
+.dark .mention-tag.asset-slot-tag,
+.dark .mention-tag.asset-slot-tag:hover {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-weight: 400;
+  /* 点胶囊是打开填位面板，不是选中这一段：整段选中后再打字会把位连同引用一起换掉。 */
+  user-select: none;
+}
+
+.mention-tag.asset-slot-tag:not(:has(*)) {
+  padding: 0 6px;
+  border: 1px dashed hsl(var(--primary) / 0.6);
+  color: hsl(var(--primary));
+}
+
+:where(.mention-tag.asset-slot-tag.selected) > * {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.35);
+}
+
 /* 槽位胶囊：×k 只能走 ::after，进 DOM 文本会让光标偏移换算错位 */
 .slot-tag {
   background: hsl(var(--accent));

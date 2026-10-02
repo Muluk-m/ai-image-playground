@@ -16,6 +16,7 @@ import InputBar from '../../../../components/InputBar'
 import SkillStarterGuide from '../../../../features/agent/components/SkillStarterGuide'
 import { resetAgentSkillsCache } from '../../../../features/agent/lib/useAgentSkills'
 import { setLocale } from '../../../../i18n'
+import { assetSlotToken } from '../../../../lib/promptImageMentions'
 import { useStore } from '../../../../store'
 
 declare global {
@@ -30,6 +31,10 @@ const PRODUCT = {
   required: true,
   multiple: true,
 }
+
+/** 起手句里的位落进输入框是一个空着的素材位，存储形态里带着位名。 */
+const SLOT = assetSlotToken({ key: 'product', label: '商品素材', multiple: true })
+const SLOT_EN = assetSlotToken({ key: 'product', label: 'Product', multiple: true })
 
 function skill(overrides: Partial<AgentSkillSummary>): AgentSkillSummary {
   return {
@@ -154,7 +159,7 @@ describe('首页对话创作的场景引导', () => {
     await mount()
     click(button('电商'))
     click(button('白底主图'))
-    expect(useStore.getState().prompt).toBe('/product-main-image 为 商品素材 出一张白底主图')
+    expect(useStore.getState().prompt).toBe(`/product-main-image 为 ${SLOT} 出一张白底主图`)
     expect(editor().querySelector('[data-skill-name="product-main-image"]')).not.toBeNull()
     expect(window.getSelection()?.toString()).toBe('白底')
   })
@@ -163,7 +168,7 @@ describe('首页对话创作的场景引导', () => {
     await mount()
     click(button('电商'))
     click(button('存成素材'))
-    expect(useStore.getState().prompt).toBe('/product-main-image 把 商品素材 存成素材')
+    expect(useStore.getState().prompt).toBe(`/product-main-image 把 ${SLOT} 存成素材`)
     const selection = window.getSelection()!
     expect(selection.toString()).toBe('素材')
     // 选区在句末那个「素材」上，不在前面的「商品素材」里。
@@ -185,7 +190,7 @@ describe('首页对话创作的场景引导', () => {
     click(button('电商'))
     click(button('白底主图'))
     click(button('换个角度'))
-    expect(useStore.getState().prompt).toBe('/product-main-image 给 商品素材 换个角度')
+    expect(useStore.getState().prompt).toBe(`/product-main-image 给 ${SLOT} 换个角度`)
   })
 
   it('英文界面用英文句子，缺英文的那条回退中文', async () => {
@@ -199,7 +204,7 @@ describe('首页对话创作的场景引导', () => {
     expect(buttons()[1]?.textContent).toContain('换个角度')
     click(buttons()[0]!)
     expect(useStore.getState().prompt).toBe(
-      '/product-main-image Make a white main image for Product',
+      `/product-main-image Make a white main image for ${SLOT_EN}`,
     )
     expect(window.getSelection()?.toString()).toBe('white')
   })

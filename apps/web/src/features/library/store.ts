@@ -1,3 +1,4 @@
+import { pickLookAssetImageId } from '@image-playground/shared'
 import { create } from 'zustand'
 import { describeError, i18next } from '../../i18n'
 import type { ReferenceAdmission } from '../../lib/referenceDraft'
@@ -435,6 +436,16 @@ async function referencesForImageIds(imageIds: Iterable<string>): Promise<InputI
  */
 export function assetViewImages(asset: AssetRecord): Promise<InputImage[]> {
   return referencesForImageIds(asset.views.map((view) => view.imageId))
+}
+
+/**
+ * 素材放进素材位时送哪一张：与模板出图同一条视角选择规则（`pickLookAssetImageId`：拼图、正面、
+ * 封面），一条素材在位里只占一张图。取不回来是 null。
+ */
+export async function assetSlotImage(asset: AssetRecord): Promise<InputImage | null> {
+  const imageId = pickLookAssetImageId(asset)
+  if (!imageId) return null
+  return (await referencesForImageIds([imageId]))[0] ?? null
 }
 
 async function writeTemplateIntoComposer(

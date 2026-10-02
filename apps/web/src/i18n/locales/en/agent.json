@@ -674,5 +674,12 @@
       "scene-character": "Scenes & characters",
       "look": "Built-in templates"
     }
+  },
+  "slot": {
+    "fillAria": "Fill {{label}}",
+    "library": "Library",
+    "libraryEmpty": "No assets in your library yet",
+    "upload": "Upload images",
+    "clear": "Clear"
   }
 }
