@@ -29,6 +29,10 @@ export async function verifyPagesRelease(origin, dist, fetcher = fetch, signal =
     if (response.status !== 200 || !bytes.toString().includes(identity)) {
       throw new Error(`Application deep link did not serve this release: ${path}`)
     }
+    // A page cached as immutable keeps serving this release's HTML after the next one ships.
+    if (/immutable|(?:s-maxage|max-age)=[1-9]/i.test(response.headers.get('cache-control') ?? '')) {
+      throw new Error(`Application deep link is cached long-lived: ${path}`)
+    }
   }
   const assets = (await readdir(resolve(dist, 'assets'))).filter((name) => /\.(js|css)$/.test(name))
   if (!assets.length) throw new Error('Build has no script or stylesheet assets')
