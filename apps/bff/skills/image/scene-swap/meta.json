@@ -1,4 +1,46 @@
 {
   "icon": "replace",
-  "summary": "保留主体与机位，重做周围场景"
+  "summary": "保留主体与机位，重做周围场景",
+  "inputs": [
+    {
+      "key": "photo",
+      "label": {
+        "zh-CN": "商品图",
+        "en": "Product photo"
+      }
+    }
+  ],
+  "scene": "ecommerce",
+  "starters": [
+    {
+      "text": {
+        "zh-CN": "把 {photo} 的背景换成清晨的木质餐桌",
+        "en": "Swap the background of {photo} for a wooden breakfast table in morning light"
+      },
+      "highlight": {
+        "zh-CN": "清晨的木质餐桌",
+        "en": "a wooden breakfast table in morning light"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "把 {photo} 换成圣诞节的氛围",
+        "en": "Give {photo} a Christmas atmosphere"
+      },
+      "highlight": {
+        "zh-CN": "圣诞节",
+        "en": "Christmas"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "把 {photo} 放到海边的礁石上",
+        "en": "Put {photo} on rocks by the sea"
+      },
+      "highlight": {
+        "zh-CN": "海边的礁石上",
+        "en": "rocks by the sea"
+      }
+    }
+  ]
 }
