@@ -41,7 +41,7 @@ export function Checkbox({
         {...props}
       />
       {label && (
-        <Label htmlFor={controlId} className="cursor-pointer text-[13px] text-foreground">
+        <Label htmlFor={controlId} className="cursor-pointer text-body-sm text-foreground">
           {label}
         </Label>
       )}

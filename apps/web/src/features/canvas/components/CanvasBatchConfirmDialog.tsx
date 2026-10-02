@@ -67,9 +67,12 @@ export default function CanvasBatchConfirmDialog({
           </p>
         )}
         {guard.blocked && guard.disabledReason && (
-          <p className="mt-2 text-[11px] text-destructive">{guard.disabledReason}</p>
+          <p className="mt-2 text-label-sm text-destructive">{guard.disabledReason}</p>
         )}
-        <SubmissionBillingAction blockedAction={guard.blockedAction} className="mt-2 text-[11px]" />
+        <SubmissionBillingAction
+          blockedAction={guard.blockedAction}
+          className="mt-2 text-label-sm"
+        />
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"

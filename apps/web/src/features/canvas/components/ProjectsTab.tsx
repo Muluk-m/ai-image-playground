@@ -19,7 +19,7 @@ export default function ProjectsTab({ search }: { search: string }) {
   }, [])
 
   return (
-    <div className="min-h-0 flex-1 px-5 pb-10 pt-5">
+    <div className="min-h-0 flex-1 px-6 pb-10 pt-6">
       {projectError ? (
         <div role="alert" className="py-10 text-sm text-muted-foreground">
           {projectError}

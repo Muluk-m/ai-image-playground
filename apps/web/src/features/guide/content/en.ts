@@ -450,7 +450,7 @@ export const guideEn: GuideContent = {
               '**Image toolbar**: shown when a single image is selected; provides Smart edit, erase, cut-out and more.',
             ),
             p(
-              'Add images with [[＋ Import reference images]] on an empty canvas, by dragging files in, or by pasting. Scroll to pan; {{Ctrl}} / {{⌘}} + scroll to zoom.',
+              'Add images with [[Import reference images]] on an empty canvas, by dragging files in, or by pasting. Scroll to pan; {{Ctrl}} / {{⌘}} + scroll to zoom.',
             ),
             table(
               ['Action', 'Shortcut'],

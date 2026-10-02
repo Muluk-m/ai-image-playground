@@ -63,7 +63,7 @@ export default function AssetCard({
           {unsynced && <Badge tone="overlay">{t('asset.unsynced')}</Badge>}
         </div>
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-label-sm font-medium text-white">
           <span>{t('asset.addAsReference')}</span>
           {asset.background && (
             <Badge tone={asset.background === 'transparent' ? 'success' : 'overlay'}>

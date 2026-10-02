@@ -97,7 +97,7 @@
     "loadingOriginal": "Loading full image"
   },
   "grid": {
-    "viewAll": "View all works",
+    "viewAll": "View all",
     "collapse": "Show less",
     "releaseKeyHint": "Release {{key}} to scroll with the wheel, or drag to the edge to auto-scroll",
     "noMatches": "No matching records",

@@ -1,4 +1,12 @@
-import { BookOpen, LoaderCircle, MessageCircle, PanelLeftClose, Plus } from 'lucide-react'
+import {
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  LoaderCircle,
+  MessageCircle,
+  PanelLeftClose,
+  Plus,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../features/agent/store'
 import {
@@ -25,7 +33,7 @@ const MODE_ICONS: Record<AppMode, typeof CanvasIcon> = {
 }
 
 const ITEM =
-  'flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  'flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 /** 主入口选中只换字色，不铺底：底色留给下面「正在打开的项目」那一行。 */
 const ACTIVE_ITEM = 'font-semibold text-primary'
 const IDLE_ITEM = 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -135,7 +143,7 @@ export default function Sidebar() {
               className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1.5 py-1 text-left hover:bg-muted"
             >
               <img src="/brand/muvloom-mark.svg" alt="" className="h-8 w-8" />
-              <span className="truncate text-[15px] font-semibold">
+              <span className="truncate text-title font-semibold">
                 {t('header.brandName')}
                 {brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}
               </span>
@@ -190,7 +198,7 @@ export default function Sidebar() {
                   type="button"
                   disabled={opening !== null}
                   onClick={() => void openProject(project.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[13px]"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-body-sm"
                 >
                   {opening === project.id ? (
                     <LoaderCircle
@@ -211,7 +219,7 @@ export default function Sidebar() {
                   title={t('nav.immersive')}
                   className="grid h-6 w-6 shrink-0 place-items-center rounded-md opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
                 >
-                  ↗
+                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
             )
@@ -220,9 +228,13 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={openProjects}
-            className="flex h-8 items-center px-3 text-left text-[12px] text-muted-foreground hover:text-foreground"
+            className="group flex h-8 items-center gap-1 px-3 text-left text-xs text-muted-foreground hover:text-foreground"
           >
-            {t('nav.viewAll')} →
+            {t('nav.viewAll')}
+            <ArrowRight
+              className="h-3 w-3 transition-transform group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
           </button>
           {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}
           <div className="min-h-6 flex-1" aria-hidden="true" />

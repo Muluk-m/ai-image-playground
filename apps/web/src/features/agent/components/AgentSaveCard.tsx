@@ -323,7 +323,7 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
             className="h-20 w-16 shrink-0 rounded-lg border border-border object-cover"
           />
         )}
-        <p className="line-clamp-4 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="line-clamp-4 text-label-sm leading-relaxed text-muted-foreground">
           {card.description || card.body}
         </p>
       </div>

@@ -111,7 +111,7 @@ export function ApprovalCard({
       </div>
 
       {description ? (
-        <p id={descriptionId} className="text-foreground/60 text-[13px]">
+        <p id={descriptionId} className="text-foreground/60 text-body-sm">
           {description}
         </p>
       ) : null}

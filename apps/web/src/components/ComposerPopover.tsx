@@ -23,7 +23,7 @@ export default function ComposerPopover({
       className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-border/70 bg-card/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:ring-white/10"
     >
       {heading != null && (
-        <div className="px-2 pb-1 pt-0.5 text-[11px] text-muted-foreground">{heading}</div>
+        <div className="px-2 pb-1 pt-0.5 text-label-sm text-muted-foreground">{heading}</div>
       )}
       {children}
     </div>

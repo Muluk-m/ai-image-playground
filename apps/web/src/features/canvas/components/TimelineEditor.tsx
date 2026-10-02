@@ -591,7 +591,7 @@ function ClipCard({
           </span>
         )}
       </button>
-      <div className="flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] tabular-nums">
+      <div className="flex items-center justify-between gap-1 px-1 py-0.5 text-label-sm tabular-nums">
         <span>{clock(duration)}</span>
         <Button
           type="button"

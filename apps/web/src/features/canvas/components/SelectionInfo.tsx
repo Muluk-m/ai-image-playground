@@ -39,7 +39,7 @@ export default function SelectionInfo({ doc }: { doc: CanvasDoc }) {
   return (
     <div
       data-selection-info
-      className="pointer-events-none absolute z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-2 py-1 text-[11px] font-medium shadow-sm"
+      className="pointer-events-none absolute z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-2 py-1 text-label-sm font-medium shadow-sm"
       style={{
         left: Math.max(8, Math.min(left, doc.viewport.width - labelWidth - 8)),
         top,

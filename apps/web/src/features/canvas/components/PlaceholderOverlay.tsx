@@ -328,7 +328,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       <span style={{ fontWeight: 600 }}>{t('agent:retry.queued')}</span>
                       <AgentRetryWithdraw
                         message={queuedRetry}
-                        className="pointer-events-auto rounded-lg border border-border bg-background px-3.5 py-1 text-[13px] font-medium"
+                        className="pointer-events-auto rounded-lg border border-border bg-background px-3.5 py-1 text-body-sm font-medium"
                       />
                     </>
                   )}

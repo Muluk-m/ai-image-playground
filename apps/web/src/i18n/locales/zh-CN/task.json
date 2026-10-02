@@ -95,7 +95,7 @@
     "loadingOriginal": "原图加载中"
   },
   "grid": {
-    "viewAll": "查看全部作品",
+    "viewAll": "查看全部",
     "collapse": "收起历史",
     "releaseKeyHint": "松开 {{key}} 键使用滚轮，或拖至边缘自动滚动",
     "noMatches": "没有找到匹配的记录",
