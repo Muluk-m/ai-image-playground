@@ -37,13 +37,7 @@ jobs:
       # fails here rather than merging: resolving a conflict unattended is how a test site ends
       # up running something that exists nowhere else. Merge main into test and push again.
       - run: scripts/ci-check-test-branch.sh origin
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: pnpm typecheck
       # The same build the release job runs, failing here instead of half way through an upload.
