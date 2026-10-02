@@ -179,7 +179,11 @@ async function resumePayload(
     return {
       interruptedTurnId: turnId,
       deviceId: payload.deviceId || conversation.deviceId || '',
-      wake: { turnId: payload.turnId, taskIds: [...payload.taskIds] },
+      wake: {
+        turnId: payload.turnId,
+        taskIds: [...payload.taskIds],
+        ...(payload.batch ? { batch: payload.batch } : {}),
+      },
     }
   const snapshot = (await listAgentToolCalls(conversationId, turnId))[0]?.snapshot
   const mode = 'text' in payload ? payload.mode : snapshot?.mode

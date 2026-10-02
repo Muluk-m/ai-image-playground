@@ -222,8 +222,13 @@ describe('async submit phase', () => {
 
     await runTask('async-partial')
 
-    const requeued = await readTask('async-partial')
-    expect(requeued).toMatchObject({ status: 'queued', attempt: 1, taskIds: ['imgtask_1'] })
+    const unresolved = await readTask('async-partial')
+    expect(unresolved).toMatchObject({
+      status: 'reconciling',
+      attempt: 0,
+      errorType: 'upstream_result_unknown',
+      taskIds: ['imgtask_1'],
+    })
 
     upstream.calls.length = 0
     submits = 0
@@ -231,23 +236,24 @@ describe('async submit phase', () => {
       url.endsWith('/async')
         ? json({ task_id: `imgtask_${++submits + 1}` }, 202)
         : json({ status: 'completed', result: { data: [{ url: RESULT_URL }] } })
-    await db
-      .update(schema.tasks)
-      .set({ next_retry_at: null })
-      .where(eq(schema.tasks.id, 'async-partial'))
+    expect(await recoverTasksByIds(['async-partial'])).toEqual({
+      requeued: 0,
+      failed: 0,
+      resumedPolling: 0,
+    })
 
     await runTask('async-partial')
 
     expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(0)
     const done = await readTask('async-partial')
     expect(done).toMatchObject({
-      status: 'failed',
+      status: 'reconciling',
       errorType: 'upstream_result_unknown',
       taskIds: ['imgtask_1'],
     })
     // 两次派发只换到一个 id，缺失的那次可能已被上游接受；不能自动补交。
     expect(done?.invocations).toBe(2)
-    expect(done?.submittedAt).toBe(requeued!.submittedAt)
+    expect(done?.submittedAt).toBe(unresolved!.submittedAt)
   })
 })
 

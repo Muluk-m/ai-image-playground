@@ -1,6 +1,14 @@
 import { SQL } from 'bun'
+import journal from '../drizzle/meta/_journal.json'
 
 export const EXPECTED_TABLES = [
+  'analysis_tasks',
+  'analysis_model_calls',
+  'agent_batch_attempts',
+  'agent_batch_commands',
+  'agent_batches',
+  'agent_batch_plans',
+  'agent_batch_items',
   'admin_user_notes',
   'inspiration_categories',
   'inspiration_items',
@@ -32,6 +40,7 @@ export const EXPECTED_TABLES = [
   'host_samples',
   'service_heartbeats',
   'tasks',
+  'task_dispatches',
   'user_asset_objects',
   'user_assets',
   'email_verification_codes',
@@ -45,6 +54,22 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'analysis_tasks_pkey',
+  'analysis_model_calls_pkey',
+  'idx_analysis_tasks_item_attempt',
+  'idx_analysis_tasks_owner_created',
+  'idx_analysis_model_calls_task',
+  'agent_batches_pkey',
+  'agent_batch_plans_pkey',
+  'agent_batch_items_pkey',
+  'agent_batch_attempts_pkey',
+  'agent_batch_commands_pkey',
+  'idx_agent_batches_call',
+  'idx_agent_batches_owner_conversation',
+  'idx_agent_batch_items_order',
+  'idx_agent_batches_confirmation',
+  'idx_agent_batch_attempts_task',
+  'idx_agent_batch_attempts_number',
   'admin_user_notes_pkey',
   'inspiration_categories_pkey',
   'inspiration_categories_name_unique',
@@ -125,6 +150,8 @@ export const EXPECTED_INDEXES = [
   'operator_audits_pkey',
   'service_heartbeats_service_instance_pk',
   'tasks_pkey',
+  'task_dispatches_pkey',
+  'idx_task_dispatches_task',
   'user_asset_objects_user_id_image_id_pk',
   'user_assets_user_id_id_pk',
   'user_identities_pkey',
@@ -136,7 +163,12 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 46
+export const EXPECTED_COLUMNS = [
+  'agent_batch_plans.confirmation',
+  'agent_batch_items.source_analysis',
+] as const
+
+const EXPECTED_MIGRATION_COUNT = journal.entries.length
 
 export interface SchemaVerificationResult {
   tables: number
@@ -147,7 +179,7 @@ export interface SchemaVerificationResult {
 export async function verifySchema(databaseUrl: string): Promise<SchemaVerificationResult> {
   const client = new SQL(databaseUrl, { max: 1 })
   try {
-    const [tableRows, indexRows, migrationTableRows] = await Promise.all([
+    const [tableRows, indexRows, migrationTableRows, columnRows] = await Promise.all([
       client<{ tablename: string }[]>`
         SELECT tablename
         FROM pg_tables
@@ -161,6 +193,10 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       client<{ relation: string | null }[]>`
         SELECT to_regclass('drizzle.__drizzle_migrations')::text AS relation
       `,
+      client<{ name: string }[]>`
+        SELECT table_name || '.' || column_name AS name
+        FROM information_schema.columns WHERE table_schema = 'public'
+      `,
     ])
     const migrationRows = migrationTableRows[0]?.relation
       ? await client<{ count: number }[]>`
@@ -170,10 +206,13 @@ export async function verifySchema(databaseUrl: string): Promise<SchemaVerificat
       : []
     const tables = new Set(tableRows.map((row) => row.tablename))
     const indexes = new Set(indexRows.map((row) => row.indexname))
+    const columns = new Set(columnRows.map((row) => row.name))
+    const missingColumns = EXPECTED_COLUMNS.filter((name) => !columns.has(name))
     const missingTables = EXPECTED_TABLES.filter((name) => !tables.has(name))
     const missingIndexes = EXPECTED_INDEXES.filter((name) => !indexes.has(name))
     const migrationCount = Number(migrationRows[0]?.count ?? 0)
     const failures = [
+      missingColumns.length ? `missing columns: ${missingColumns.join(', ')}` : '',
       missingTables.length ? `missing tables: ${missingTables.join(', ')}` : '',
       missingIndexes.length ? `missing indexes: ${missingIndexes.join(', ')}` : '',
       migrationCount < EXPECTED_MIGRATION_COUNT

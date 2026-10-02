@@ -11,10 +11,17 @@ vi.mock('../../features/agent/lib/useAgentSkills', () => ({
 }))
 
 import InputBar from '../../components/InputBar'
+import { useActiveLook } from '../../features/library/lib/activeLook'
+import { cancelLookSubmission, useLookSubmission } from '../../features/library/lib/lookSubmit'
 import { useLibraryStore } from '../../features/library/store'
-import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
+import {
+  createDefaultOpenAIByokProfile,
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+} from '../../lib/apiProfiles'
 import { setChannels } from '../../lib/channels/channelStore'
 import type { PublicChannel } from '../../lib/channels/types'
+import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { getAllImageIds, putImage } from '../../lib/db'
 import { getContentEditablePlainText, setContentEditableCursor } from '../../lib/promptEditorDom'
 import { useStore } from '../../store'
@@ -300,4 +307,60 @@ describe('开头的 /技能 命令', () => {
     expect(host.querySelector('[data-skill-name]')).toBeNull()
     expect(submit()?.disabled).toBe(true)
   })
+})
+
+it('template preparation uses the send/stop button and gates a newer draft', async () => {
+  await bootstrapClientCapabilities(false, '')
+  const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
+  try {
+    act(() => {
+      useStore.setState({
+        prompt: '',
+        inputImages: [],
+        appMode: 'image',
+        settings: normalizeSettings({
+          ...DEFAULT_SETTINGS,
+          profiles: [profile],
+          activeProfileId: profile.id,
+        }),
+      })
+      useActiveLook.getState().set({
+        skillName: 'template',
+        origin: 'builtin',
+        name: 'Test',
+        description: '',
+        purpose: 'scene',
+        model: profile.selectedModelId,
+        size: '1024x1024',
+        slotCount: 0,
+        cover: null,
+        references: [{ kind: 'url', url: '/required.png' }],
+      })
+    })
+    const send = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.title.includes('生成') && !button.disabled,
+    )
+    expect(send).toBeDefined()
+    await act(async () => {
+      send!.click()
+    })
+    expect(useLookSubmission.getState().submitting).toBe(true)
+    expect(send!.textContent).toContain('取消')
+    type('new draft')
+    expect(send!.disabled).toBe(true)
+    type('')
+    expect(send!.disabled).toBe(false)
+    await act(async () => {
+      send!.click()
+    })
+    expect(useLookSubmission.getState().submitting).toBe(false)
+    expect(useStore.getState().tasks).toHaveLength(0)
+  } finally {
+    act(() => {
+      cancelLookSubmission()
+      useActiveLook.getState().set(null)
+    })
+    fetcher.mockRestore()
+  }
 })

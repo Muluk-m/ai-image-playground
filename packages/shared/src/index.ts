@@ -1,5 +1,7 @@
 export * from './agent'
+export * from './agent-batch'
 export * from './agent-canvas-snapshot'
+export * from './analysis'
 export * from './auth'
 export * from './canvas-arrange'
 export * from './capabilities'

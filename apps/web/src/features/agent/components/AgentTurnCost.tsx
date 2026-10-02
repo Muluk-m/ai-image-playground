@@ -42,9 +42,11 @@ export default function AgentTurnCost({
         {t(
           footer.error === 'agent_turn_interrupted'
             ? 'cost.interrupted'
-            : footer.error === 'agent_context_overflow'
-              ? 'cost.contextOverflow'
-              : 'cost.failed',
+            : footer.error === 'agent_request_budget_exceeded'
+              ? 'cost.requestBudgetExceeded'
+              : footer.error === 'agent_context_overflow'
+                ? 'cost.contextOverflow'
+                : 'cost.failed',
         )}
       </span>,
     )

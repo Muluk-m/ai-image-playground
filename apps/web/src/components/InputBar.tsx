@@ -12,7 +12,12 @@ import {
   buildAtMentionGroups,
   getAssetNamesByImageId,
 } from '../features/library/lib/assetMentions'
-import { checkLookSubmission, submitWithLook } from '../features/library/lib/lookSubmit'
+import {
+  cancelLookSubmission,
+  checkLookSubmission,
+  submitWithLook,
+  useLookSubmission,
+} from '../features/library/lib/lookSubmit'
 import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
 import { useLibraryStore } from '../features/library/store'
 import { useImageInputScope } from '../hooks/useImageInputScope'
@@ -200,6 +205,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上，提交走模板组装。画布档不管它（那是智能体的事）。
   const activeLook = useActiveLook((s) => s.look)
+  const lookSubmitting = useLookSubmission((s) => s.submitting)
   const libraryAssets = useLibraryStore((s) => s.assets)
   const lookCheck = useMemo(
     () => (activeLook ? checkLookSubmission(activeLook, inputImages, libraryAssets) : null),
@@ -220,7 +226,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const skills = useAgentSkills('image')
   const leadingSkill = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
   const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
-  const submitReady = toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas
+  const lookStopMode = lookSubmitting && !prompt.trim()
+  const submitReady =
+    lookStopMode ||
+    (toCanvas ? Boolean(prompt.trim()) : canSubmit && !skillNeedsCanvas && !lookSubmitting)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const submitBlockedTip = toCanvas
     ? null
@@ -230,12 +239,21 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         ? (submissionGuard.disabledReason ?? t('submit.apiNotConfigured'))
         : null
   const submit = () => {
+    if (lookStopMode) {
+      cancelLookSubmission()
+      return
+    }
+    if (lookSubmitting) return
     if (toCanvas)
       void startCanvasFromComposer(undefined, createTarget === 'chat' ? 'chat' : 'canvas')
     else if (activeLook) void submitWithLook(activeLook, lookBody)
     else submitTask()
   }
-  const submitLabel = toCanvas ? t('submit.startCanvas') : generateLabel
+  const submitLabel = lookStopMode
+    ? t('common:action.cancel')
+    : toCanvas
+      ? t('submit.startCanvas')
+      : generateLabel
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
   // 模型由服务端定，所以只剩条的上限管着。
@@ -1249,7 +1267,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 />
                 <button
                   type="button"
-                  onClick={() => (apiReady ? submit() : setShowSettings(true))}
+                  onClick={() => (lookStopMode || apiReady ? submit() : setShowSettings(true))}
                   disabled={apiReady ? !submitReady : false}
                   className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                     !apiReady
@@ -1267,8 +1285,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         : t('submit.configureApiFirst'))
                   }
                 >
-                  {ChipIcons.sparkles}
-                  <span>{maskDraft ? t('submit.maskEdit') : submitLabel}</span>
+                  {lookStopMode ? <span aria-hidden="true">■</span> : ChipIcons.sparkles}
+                  <span>
+                    {lookStopMode ? submitLabel : maskDraft ? t('submit.maskEdit') : submitLabel}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1476,7 +1496,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       text={submitBlockedTip ?? ''}
                     />
                     <button
-                      onClick={() => (apiReady ? submit() : setShowSettings(true))}
+                      onClick={() => (lookStopMode || apiReady ? submit() : setShowSettings(true))}
                       disabled={apiReady ? !submitReady : false}
                       className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-full pl-4 pr-6 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
                         !apiReady
@@ -1497,20 +1517,30 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                       {apiReady && submitReady && (
                         <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
                       )}
-                      <svg
-                        className="h-[18px] w-[18px] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
-                        />
-                      </svg>
-                      <span>{maskDraft ? t('submit.maskEdit') : submitLabel}</span>
+                      {lookStopMode ? (
+                        <span aria-hidden="true">■</span>
+                      ) : (
+                        <svg
+                          className="h-[18px] w-[18px] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
+                          />
+                        </svg>
+                      )}
+                      <span>
+                        {lookStopMode
+                          ? submitLabel
+                          : maskDraft
+                            ? t('submit.maskEdit')
+                            : submitLabel}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1587,7 +1617,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                         text={submitBlockedTip ?? ''}
                       />
                       <button
-                        onClick={() => (apiReady ? submit() : setShowSettings(true))}
+                        onClick={() =>
+                          lookStopMode || apiReady ? submit() : setShowSettings(true)
+                        }
                         disabled={apiReady ? !submitReady : false}
                         className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                           !apiReady
@@ -1595,9 +1627,9 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                             : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
                         }`}
                       >
-                        {ChipIcons.sparkles}
+                        {lookStopMode ? <span aria-hidden="true">■</span> : ChipIcons.sparkles}
                         <span>
-                          {toCanvas
+                          {toCanvas || lookStopMode
                             ? submitLabel
                             : maskDraft
                               ? t('submit.maskEdit')

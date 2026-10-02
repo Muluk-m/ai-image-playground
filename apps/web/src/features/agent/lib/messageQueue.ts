@@ -1,5 +1,4 @@
 import {
-  AGENT_TURN_MAX_REFERENCES,
   type AgentQueuedMessageView,
   type AgentReturnedQueuedMessage,
   type AgentTurnEvent,
@@ -36,7 +35,6 @@ export function returnQueuedToDraft(
     .join('\n\n')
   const references: AgentReference[] = [...draft.references]
   for (const reference of returned.flatMap((one) => one.references)) {
-    if (references.length >= AGENT_TURN_MAX_REFERENCES) break
     if (references.some((one) => one.id === reference.imageId)) continue
     // 按 id 发出去的那几张退回来仍然只有 id：写成画布里的那句 `aip-media:`，
     // 胶囊与遮罩编辑器照旧按同一条路取图。
@@ -46,7 +44,11 @@ export function returnQueuedToDraft(
       ...(reference.name ? { name: reference.name } : {}),
       ...('maskDataUrl' in reference && reference.maskDataUrl
         ? { maskDataUrl: reference.maskDataUrl }
-        : {}),
+        : 'mediaId' in reference && reference.maskMediaId
+          ? { maskDataUrl: `aip-media:${reference.maskMediaId}` }
+          : {}),
+      ...(reference.editAction ? { editAction: reference.editAction } : {}),
+      ...(reference.regions ? { regions: reference.regions } : {}),
     })
   }
   return { ...draft, prompt, references }

@@ -1,4 +1,9 @@
-import type { AgentMode, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
+import type {
+  AgentMessageView,
+  AgentMode,
+  AgentTurnParams,
+  AgentTurnReference,
+} from '@image-playground/shared'
 import {
   AGENT_CONVERSATION_TITLE_MAX_CHARS,
   AGENT_MAX_CONSECUTIVE_WAKES,
@@ -14,6 +19,7 @@ import { log } from '../logger'
 import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
+import { batchWakeSummary } from './batch-wake'
 import {
   type ChatTaskPricing,
   type ChatTaskReserved,
@@ -43,16 +49,23 @@ import {
 } from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
 import { agentModel } from './model'
+import { canRetainModelHistory, modelHistoryFingerprint, readModelHistory } from './model-history'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
   loadAgentTurnAudience,
   titleSourceText,
+  visibleAgentSkills,
 } from './skills'
-import { createSubmissionReplay, resolveAgentMode } from './tools'
+import { agentToolDeclarations, createSubmissionReplay, resolveAgentMode } from './tools'
 import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
-import { type AgentTurnInput, clarificationChainStart, estimateTurnInputTokens } from './turn-input'
+import {
+  type AgentTurnInput,
+  clarificationChainStart,
+  estimateTurnInputTokens,
+  turnInitialStateOf,
+} from './turn-input'
 import { wakePlan } from './wake'
 import {
   mergedWakePrompt,
@@ -156,7 +169,7 @@ interface TurnContent {
   readonly queueId?: string
   readonly wake?: PreparedAgentTurn['wake']
   /** 取走与预扣之外，这一来源还要在同一事务里写的东西。 */
-  readonly write?: (tx: BffTransaction) => Promise<void>
+  readonly write?: (tx: BffTransaction) => Promise<AgentMessageView>
   /**
    * 事务没成的收尾：已经落进对象存储的参考图要清掉。**失败自己吞掉**——从这里抛出去会盖掉
    * 真正的失败原因（见 `removeAgentTurnReferences`）。
@@ -168,6 +181,7 @@ interface TurnContent {
 
 /** 取件事务落定的那一份：预扣的结果（这一轮不计费时没有），与这一轮最终按哪一份轮输入走。 */
 interface CommittedTurnStart {
+  readonly storedUserMessage?: AgentMessageView
   readonly reserved: ChatTaskReserved | undefined
   readonly input: AgentTurnInput
   readonly estimatedInputTokens: number
@@ -237,8 +251,45 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // 历史里读过的技能正文随回放带回去；估算照同一份算，预扣才对得上实发。
     const skillTexts = await replayedSkillTexts(window.messages, content.mode, userId)
     const currentTime = new Date().toISOString()
+    let modelHistory: AgentTurnInput['modelHistory']
+    if (
+      source.kind === 'message' &&
+      !content.wakes?.note &&
+      canRetainModelHistory(window) &&
+      content.references.every(
+        (reference) =>
+          !('maskDataUrl' in reference && reference.maskDataUrl) &&
+          !('maskMediaId' in reference && reference.maskMediaId) &&
+          !('regions' in reference && reference.regions?.length) &&
+          !('editAction' in reference && reference.editAction),
+      )
+    ) {
+      const signature = modelHistoryFingerprint({
+        conversationId,
+        owner,
+        model: { id: model.id, api: model.api, provider: model.provider, baseUrl: model.baseUrl },
+        thinkingDepth: content.params?.thinkingDepth,
+        system: turnInitialStateOf(turnInputOf(window, content, audience, skillTexts, currentTime))
+          .systemPrompt,
+        tools: agentToolDeclarations(content.mode, audience),
+        skills: visibleAgentSkills(content.mode, audience)
+          .map(({ name, content }) => ({ name, content }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      })
+      const messages = await readModelHistory({
+        conversationId,
+        signature,
+        history: window.messages,
+        skillTexts,
+      })
+      modelHistory = { signature, messages }
+      log.info(
+        { event: 'agent.model_history_loaded', conversationId, turnId, reused: !!messages },
+        'agent model history selected',
+      )
+    }
     const estimated = (one: TurnContent): EstimatedTurnInput => {
-      const input = turnInputOf(window, one, audience, skillTexts, currentTime)
+      const input = { ...turnInputOf(window, one, audience, skillTexts, currentTime), modelHistory }
       return { input, estimatedInputTokens: estimateTurnInputTokens(input, model) }
     }
     const withNote = estimated(content)
@@ -291,8 +342,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         for (const id of content.wakes.ids)
           await consumeAgentMessage(tx, conversationId, id, turnId)
       }
-      await content.write?.(tx)
+      const storedUserMessage = await content.write?.(tx)
       return {
+        storedUserMessage,
         reserved,
         input: chosen.input,
         estimatedInputTokens: chosen.estimatedInputTokens,
@@ -317,6 +369,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       conversationId,
       turnId,
       userMessageId: content.userMessageId,
+      storedUserMessage: committed.storedUserMessage,
       ...(content.queueId ? { queueId: content.queueId } : {}),
       input: committed.input,
       userId,
@@ -381,6 +434,27 @@ async function wakeContent(
   history: Promise<AgentHistoryWindow>,
   wake: QueuedWake,
 ): Promise<TurnContent | TurnUnprepared> {
+  if (wake.batch) {
+    const [text, window] = await Promise.all([
+      batchWakeSummary(conversationId, owner, wake.batch),
+      history,
+    ])
+    if (!text) return { kind: 'no_results' }
+    if ((await consecutiveAgentWakes(conversationId)) >= AGENT_MAX_CONSECUTIVE_WAKES)
+      return { kind: 'wake_limit' }
+    return {
+      text,
+      references: [],
+      reviewImageIds: [],
+      mode: 'image',
+      selectionHistoryStart: clarificationChainStart(window.messages),
+      deviceId: wake.deviceId,
+      userMessageId: `${turnId}:wake`,
+      wake: {
+        authorizationPrompt: '仅汇总这版已确认批次的执行事实；新执行或视觉复核需要用户另行确认。',
+      },
+    }
+  }
   const [submittingTurn, plan, window] = await Promise.all([
     // 点名的结果卡与提交那一轮的用户原话都属于提交的那一轮，而它可能比历史窗口更老：定点取回来，
     // 在窗口里筛会静默筛不到，唤醒轮就成了「一个任务都找不到」。
@@ -442,12 +516,15 @@ async function resumeContent(
   ])
   // 被打断的是唤醒轮：续跑接着处理那一批结果，创作类型、参数与要复核的产物都照唤醒轮的算法取。
   const jobs = wake ? wakeJobs(authorizedTurn, wake.taskIds) : []
+  const batchSummary = wake?.batch
+    ? await batchWakeSummary(conversationId, owner, wake.batch)
+    : null
   const setup = wake ? wakeTurnSetup(jobs) : resume
   const interruptedStart = window.messages.findIndex(
     (message) => message.turnId === resume.interruptedTurnId,
   )
   return {
-    text: resumeTurnPrompt(wake ? wakeTurnPrompt(jobs) : undefined),
+    text: resumeTurnPrompt(batchSummary ?? (wake ? wakeTurnPrompt(jobs) : undefined)),
     references: [],
     reviewImageIds: wakeReviewImageIds(jobs),
     mode: resolveAgentMode(setup.mode ?? 'image'),
@@ -481,14 +558,22 @@ async function messageContent(
   const { message } = source
   // 恰好排着的唤醒并进这一轮，不再单独起轮。
   const [wakes, window] = await Promise.all([pendingAgentWakes(conversationId), history])
+  const ordinaryWakes = wakes.filter((wake) => !wake.batch)
+  const batchSummaries = (
+    await Promise.all(
+      wakes.flatMap((wake) =>
+        wake.batch ? [batchWakeSummary(conversationId, owner, wake.batch)] : [],
+      ),
+    )
+  ).filter((text): text is string => text !== null)
   // 点名了哪几轮要取回来才知道，所以这一次查询只能串在后面；那几轮可能比历史窗口更老，一次全取回来。
   const jobs = wakeJobs(
-    wakes.length === 0
+    ordinaryWakes.length === 0
       ? []
       : await listAgentTurnMessages(conversationId, owner, [
-          ...new Set(wakes.map((pending) => pending.turnId)),
+          ...new Set(ordinaryWakes.map((pending) => pending.turnId)),
         ]),
-    wakes.flatMap((wake) => wake.taskIds),
+    ordinaryWakes.flatMap((wake) => wake.taskIds),
   )
   // 窗口空只说明锚点之后没有消息：压缩过的长会话窗口一样可能是空的，拿它当新会话会把用户自己
   // 改过的标题冲掉。一条都没折进摘要、窗口也空，才真是头一轮。
@@ -507,8 +592,16 @@ async function messageContent(
           wakes: {
             ids: wakes.map((wake) => wake.id),
             // 点名的结果卡一张都不在时照样取走，只是不附说明。
-            ...(jobs.length > 0
-              ? { note: { text: mergedWakePrompt(jobs), reviewImageIds: wakeReviewImageIds(jobs) } }
+            ...(jobs.length > 0 || batchSummaries.length > 0
+              ? {
+                  note: {
+                    text: [
+                      ...(jobs.length > 0 ? [mergedWakePrompt(jobs)] : []),
+                      ...batchSummaries,
+                    ].join('\n'),
+                    reviewImageIds: wakeReviewImageIds(jobs),
+                  },
+                }
               : {}),
           },
         }
@@ -528,7 +621,7 @@ async function messageContent(
           owner,
           agentConversationTitle(titleText),
         )
-      await appendAgentMessage(tx, {
+      return appendAgentMessage(tx, {
         id: message.id,
         conversationId,
         turnId,

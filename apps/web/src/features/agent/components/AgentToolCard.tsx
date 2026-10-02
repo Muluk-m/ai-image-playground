@@ -39,6 +39,7 @@ import {
 } from '../lib/toolFailure'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentBatchPlanCard from './AgentBatchPlanCard'
 import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
@@ -415,20 +416,7 @@ function RetryRecord({ message }: { message: AgentToolMessage }) {
   )
 }
 
-export default function AgentToolCard(props: {
-  message: AgentToolMessage
-  onViewCanvas?: (objectIds?: readonly string[]) => void
-  onPreviewResult?: (messageId: string, objectId?: string) => void
-  compactFetched?: boolean
-}) {
-  return props.message.toolName === 'generateVideo' ? (
-    <AgentVideoToolCard key={props.message.id} {...props} />
-  ) : (
-    <AgentOtherToolCard {...props} />
-  )
-}
-
-function AgentOtherToolCard({
+function StandardAgentToolCard({
   message,
   onViewCanvas,
   onPreviewResult,
@@ -1041,5 +1029,19 @@ function AgentOtherToolCard({
         </button>
       )}
     </div>
+  )
+}
+
+export default function AgentToolCard(props: Parameters<typeof StandardAgentToolCard>[0]) {
+  return props.message.batchId ? (
+    <AgentBatchPlanCard
+      key={props.message.batchId}
+      batchId={props.message.batchId}
+      domId={agentToolCardDomId(props.message.id)}
+    />
+  ) : props.message.toolName === 'generateVideo' ? (
+    <AgentVideoToolCard key={props.message.id} {...props} />
+  ) : (
+    <StandardAgentToolCard {...props} />
   )
 }

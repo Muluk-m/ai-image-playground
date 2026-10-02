@@ -15,12 +15,7 @@ import {
 } from './images'
 import { agentModel } from './model'
 import { requestOverheadTokens } from './request-budget'
-import {
-  type EvidenceListing,
-  evidenceBlocks,
-  evidenceManifest,
-  referenceEvidence,
-} from './selection-preview'
+import { type EvidenceListing, evidenceBlocks, evidenceManifest } from './selection-preview'
 import {
   type AgentSkill,
   type AgentTurnAudience,
@@ -31,6 +26,7 @@ import {
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations, agentToolGuidance } from './tools'
+import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**
  * 「这一轮送给模型的输入长什么样」只由本模块回答，因为它有两个读者：起轮前的预扣估算
@@ -64,6 +60,7 @@ const PLACEHOLDER_SELECTION = {
 function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
   return references.map((reference) => ({
     imageId: reference.imageId,
+    representation: 'mediaId' in reference && !referenceHasMask(reference) ? 'preview' : 'original',
     ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
     ...('editAction' in reference && reference.editAction
       ? { editAction: reference.editAction }
@@ -324,8 +321,9 @@ export interface TurnVisualEvidence {
 /** 视觉证据要读图片字节，所以只有实发路径走得起；预扣估算改用占位块。 */
 export function turnVisualEvidence(
   images: readonly ResolvedAgentImage[],
+  source: VisualEvidenceSource = 'initial',
 ): Promise<TurnVisualEvidence> {
-  return referenceEvidence(images)
+  return prepareVisualEvidence(images, source)
 }
 
 /** 交给 `agent.prompt` / `agent.steer` 的那一份：文字在前，视觉证据的清单收尾。 */
@@ -368,6 +366,8 @@ export interface AgentTurnInput {
   readonly audience: AgentTurnAudience
   /** 历史里读过的技能正文，按 `toolCallId` 接回回放（见 `replayedSkillTexts`）。缺席即不补。 */
   readonly skillTexts?: ReadonlyMap<string, string>
+  /** 可丢弃的原生历史缓存；准备阶段读定，预扣与实发使用相同消息。 */
+  readonly modelHistory?: { readonly signature: string; readonly messages?: AgentMessage[] }
 }
 
 /** 这一份轮输入给 pi 的 initialState；估算与实发从同一处取，免得两边各挑一遍字段。 */
@@ -375,7 +375,7 @@ export function turnInitialStateOf(input: AgentTurnInput): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
-  return turnInitialState(
+  const state = turnInitialState(
     input.history.messages,
     input.mode,
     input.autoSubmit,
@@ -383,6 +383,7 @@ export function turnInitialStateOf(input: AgentTurnInput): {
     input.audience,
     input.skillTexts,
   )
+  return { ...state, messages: input.modelHistory?.messages ?? state.messages }
 }
 
 /**

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test'
+import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
 import { runMigrations } from '../migrate'
 import { resetTestDatabase } from '../testing'
@@ -25,7 +26,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(47)
+    expect(rows).toHaveLength(journal.entries.length)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -108,7 +109,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(47)
+    expect(rows).toHaveLength(journal.entries.length)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -156,9 +157,71 @@ describe('runMigrations', () => {
     await connection.client.unsafe(`DELETE FROM agent_conversations WHERE id = 'conv-backfill'`)
   })
 
+  it('refuses attachment rollback while pending or ready leased originals remain', async () => {
+    const now = new Date()
+    await connection.client`INSERT INTO users (id, username, password_hash, status, created_at, updated_at) VALUES ('rollback-attachment-owner', 'rollback-attachment-owner', 'fixture', 'active', ${now}, ${now})`
+    const rollback = await Bun.file(
+      new URL('../../drizzle/rollback/0048_conversation_attachments.down.sql', import.meta.url),
+    ).text()
+    try {
+      for (const status of ['pending', 'ready']) {
+        await connection.client`INSERT INTO media_objects (id, user_id, sha256, bytes, content_type, status, attachment_managed, attachment_lease_until, reserved_bytes, staging_key, expires_at, created_at, updated_at) VALUES (${status}, 'rollback-attachment-owner', ${status}, 1, 'image/png', ${status}, true, ${now}, 1, ${status}, ${now}, ${now}, ${now})`
+        await expect(
+          connection.client.begin(async (tx) => {
+            await tx.unsafe(rollback)
+          }),
+        ).rejects.toThrow('attachment')
+        await connection.client`DELETE FROM media_objects WHERE id = ${status}`
+      }
+    } finally {
+      await connection.client`DELETE FROM users WHERE id = 'rollback-attachment-owner'`
+    }
+  })
+
+  it('retains paid phase authorization when a rollback would discard it', async () => {
+    const now = new Date()
+    await connection.client`INSERT INTO users (id, username, password_hash, status, created_at, updated_at) VALUES ('rollback-phase-owner', 'rollback-phase-owner', 'fixture', 'active', ${now}, ${now})`
+    try {
+      await connection.client`INSERT INTO agent_batches (id, user_id, origin_turn_id, tool_call_id, experience, created_at, updated_at) VALUES ('rollback-phase', 'rollback-phase-owner', 'turn', 'call', 'chat', ${now}, ${now})`
+      await connection.client`INSERT INTO agent_batch_plans (batch_id, version, title, rule, digest, item_count, estimate_snapshot, confirmation, created_at) VALUES ('rollback-phase', 1, 'phase', 'rule', 'digest', 1, '{}'::jsonb, '{"phase":"analysis","itemKeys":["detail"],"requiresResume":false}'::jsonb, ${now})`
+      const rollback = await Bun.file(
+        new URL('../../drizzle/rollback/0055_agent_batch_confirmation.down.sql', import.meta.url),
+      ).text()
+      await expect(
+        connection.client.begin(async (tx) => {
+          await tx.unsafe(rollback)
+        }),
+      ).rejects.toThrow('phase authorization')
+      const [saved] =
+        await connection.client`SELECT confirmation FROM agent_batch_plans WHERE batch_id = 'rollback-phase'`
+      expect(saved.confirmation).toEqual({
+        phase: 'analysis',
+        itemKeys: ['detail'],
+        requiresResume: false,
+      })
+      await connection.client`UPDATE agent_batch_plans SET confirmation = NULL WHERE batch_id = 'rollback-phase'`
+      await connection.client`INSERT INTO agent_batch_items (batch_id, version, key, ordinal, kind, inputs, prompt, params, dependencies, source_analysis) VALUES ('rollback-phase', 1, 'generate', 0, 'generation', '[]'::jsonb, 'concrete prompt', '{}'::jsonb, '[]'::jsonb, '[{"itemKey":"inspected","taskId":"independent-analysis","attempt":1}]'::jsonb)`
+      await expect(
+        connection.client.begin(async (tx) => {
+          await tx.unsafe(rollback)
+        }),
+      ).rejects.toThrow('phase authorization')
+    } finally {
+      await connection.client`DELETE FROM users WHERE id = 'rollback-phase-owner'`
+    }
+  })
+
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0055_agent_batch_confirmation.down.sql',
+      '0054_agent_batch_retry.down.sql',
+      '0053_analysis_tasks.down.sql',
+      '0052_agent_batch_execution.down.sql',
+      '0051_agent_batch_plans.down.sql',
+      '0050_agent_call_dispatch.down.sql',
+      '0049_task_reconciliation.down.sql',
+      '0048_conversation_attachments.down.sql',
       '0047_agent_turn_failure.down.sql',
       '0046_agent_model_calls_started_at.down.sql',
       '0045_retired_domain_migration.down.sql',
@@ -238,6 +301,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(47)
+    expect(restored).toHaveLength(journal.entries.length)
   })
 })

@@ -1,4 +1,13 @@
-import type { HostSample, OpsBackups, TaskStatus } from '@image-playground/shared'
+import type {
+  AgentBatchPriceSnapshot,
+  AgentTurnUsage,
+  AgentVisualEvidence,
+  AnalysisCoverage,
+  AnalysisFinding,
+  HostSample,
+  OpsBackups,
+  TaskStatus,
+} from '@image-playground/shared'
 
 export const RANGES = ['1d', '7d', '30d'] as const
 export type Range = (typeof RANGES)[number]
@@ -82,6 +91,7 @@ export interface ListDevicesResult {
 }
 
 export interface TaskListItem {
+  kind?: 'queue' | 'analysis'
   id: string
   provider: string
   model: string
@@ -107,7 +117,20 @@ export interface TaskImageMeta {
   mime: string
 }
 
+export interface AnalysisTaskDetail {
+  pricing: AgentBatchPriceSnapshot
+  reservedCredits: number
+  actualCredits: number | null
+  findings: readonly AnalysisFinding[] | null
+  coverage: AnalysisCoverage | null
+  evidence: readonly AgentVisualEvidence[] | null
+  usage: AgentTurnUsage | null
+  upstreamRequestId: string | null
+  localRejection: string | null
+}
+
 export interface TaskDetail extends TaskListItem {
+  analysis?: AnalysisTaskDetail
   request_payload: unknown
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
@@ -224,6 +247,7 @@ export interface OpsStuckTask {
 export interface OpsQueue {
   queued: number
   in_progress: number
+  reconciling?: number
   /** 最老的排队任务已经等了多久；队列为空时是 null。 */
   oldest_queued_wait_ms: number | null
   /** 运行超过这个时长即视为卡住，与 worker 回收无主任务用的是同一个阈值。 */
