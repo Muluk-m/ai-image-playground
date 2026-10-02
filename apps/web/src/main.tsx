@@ -63,7 +63,7 @@ async function start(): Promise<void> {
           description={i18next.t('status.unavailableDescription', { ns: 'auth' })}
           retry={() => {
             render(<auth.LoadingScreen />)
-              void mountAfterCapabilities()
+            void mountAfterCapabilities()
           }}
         />,
       )

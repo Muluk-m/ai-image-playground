@@ -8,8 +8,13 @@ function remove(target: object, name: string) {
   delete (target as Record<string, unknown>)[name]
 }
 
+function replace(target: object, name: string, value: unknown) {
+  saved.push({ target, name, descriptor: Object.getOwnPropertyDescriptor(target, name) })
+  Object.defineProperty(target, name, { value, writable: true, configurable: true })
+}
+
 beforeAll(async () => {
-  // 模拟旧内核：把这些原生 API 拿掉，再执行补丁模块。
+  // 模拟 Chromium 80：这些 API 不存在，abort() 也会丢掉 reason。
   remove(Object, 'hasOwn')
   remove(Array.prototype, 'at')
   remove(String.prototype, 'at')
@@ -17,7 +22,14 @@ beforeAll(async () => {
   remove(Array.prototype, 'toSorted')
   remove(AbortSignal, 'timeout')
   remove(AbortSignal, 'any')
+  remove(AbortSignal.prototype, 'reason')
+  remove(AbortSignal.prototype, 'throwIfAborted')
+  const nativeAbort = AbortController.prototype.abort
+  replace(AbortController.prototype, 'abort', function abort(this: AbortController) {
+    nativeAbort.call(this)
+  })
   remove(globalThis, 'structuredClone')
+  remove(globalThis, 'WeakRef')
   remove(crypto, 'randomUUID')
   vi.resetModules()
   await import('../../boot/polyfills')
@@ -32,8 +44,15 @@ afterAll(() => {
 
 // 测试工程的 lib 比这些 API 旧，按「补上之后的形状」取用。
 type At = { at(index: number): unknown }
+type Signal = AbortSignal & { reason: unknown; throwIfAborted(): void }
+const statics = AbortSignal as unknown as {
+  timeout(ms: number): Signal
+  any(signals: AbortSignal[]): Signal
+}
 const hasOwn = (object: object, key: PropertyKey) =>
   (Object as unknown as { hasOwn(o: object, k: PropertyKey): boolean }).hasOwn(object, key)
+const clone = <T>(value: T): T =>
+  (globalThis as unknown as { structuredClone<V>(v: V): V }).structuredClone(value)
 
 it('fills the array, string and object helpers', () => {
   expect(hasOwn({ a: 1 }, 'a')).toBe(true)
@@ -53,10 +72,32 @@ it('produces RFC 4122 v4 ids', () => {
   )
 })
 
-it('combines and times out abort signals', async () => {
+it('falls back to a strong reference for WeakRef', () => {
+  const target = {}
+  const WeakRefCtor = (globalThis as unknown as { WeakRef: new (t: object) => { deref(): object } })
+    .WeakRef
+  expect(new WeakRefCtor(target).deref()).toBe(target)
+})
+
+it('keeps the abort reason and throws it on demand', () => {
+  const controller = new AbortController()
+  const signal = controller.signal as Signal
+  expect(signal.reason).toBeUndefined()
+  expect(() => signal.throwIfAborted()).not.toThrow()
+  const cause = new Error('cancelled by user')
+  controller.abort(cause)
+  expect(signal.reason).toBe(cause)
+  expect(() => signal.throwIfAborted()).toThrow(cause)
+
+  const bare = new AbortController()
+  bare.abort()
+  expect(((bare.signal as Signal).reason as DOMException).name).toBe('AbortError')
+})
+
+it('times out with a TimeoutError reason', () => {
   vi.useFakeTimers()
   try {
-    const timed = AbortSignal.timeout(100)
+    const timed = statics.timeout(100)
     expect(timed.aborted).toBe(false)
     vi.advanceTimersByTime(100)
     expect(timed.aborted).toBe(true)
@@ -64,15 +105,25 @@ it('combines and times out abort signals', async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+it('combines signals and releases every source listener once fired', () => {
   const first = new AbortController()
   const second = new AbortController()
-  const combined = AbortSignal.any([first.signal, second.signal])
+  const removed = vi.spyOn(first.signal, 'removeEventListener')
+  const combined = statics.any([first.signal, second.signal])
   second.abort('stop')
   expect(combined.aborted).toBe(true)
   expect(combined.reason).toBe('stop')
+  // 长寿的那个信号上的监听也被摘掉了。
+  expect(removed).toHaveBeenCalledWith('abort', expect.any(Function))
+
   const already = new AbortController()
   already.abort('early')
-  expect(AbortSignal.any([already.signal]).reason).toBe('early')
+  const live = new AbortController()
+  const listen = vi.spyOn(live.signal, 'addEventListener')
+  expect(statics.any([live.signal, already.signal]).reason).toBe('early')
+  expect(listen).not.toHaveBeenCalled()
 })
 
 it('deep-clones plain data without sharing references', () => {
@@ -85,7 +136,7 @@ it('deep-clones plain data without sharing references', () => {
     bytes: new Uint8Array([1, 2]),
     blob,
   }
-  const copy = structuredClone(original)
+  const copy = clone(original)
   expect(copy).toEqual(original)
   expect(copy.list[0]).not.toBe(original.list[0])
   expect(copy.map.get('k')).not.toBe(original.map.get('k'))
@@ -94,6 +145,39 @@ it('deep-clones plain data without sharing references', () => {
   expect(copy.blob).toBe(blob)
   const cyclic: { self?: unknown } = {}
   cyclic.self = cyclic
-  const cyclicCopy = structuredClone(cyclic) as { self: unknown }
+  const cyclicCopy = clone(cyclic) as { self: unknown }
   expect(cyclicCopy.self).toBe(cyclicCopy)
+})
+
+it('keeps repeated references and shared buffers shared, and DataView detached', () => {
+  const buffer = new ArrayBuffer(4)
+  const when = new Date(1)
+  const source = {
+    a: buffer,
+    b: buffer,
+    first: new Uint8Array(buffer, 0, 2),
+    second: new Uint8Array(buffer, 2, 2),
+    view: new DataView(buffer, 1, 2),
+    when,
+    again: when,
+  }
+  const copy = clone(source)
+  expect(copy.a).toBe(copy.b)
+  expect(copy.a).not.toBe(buffer)
+  expect(copy.again).toBe(copy.when)
+  expect(copy.first.buffer).toBe(copy.a)
+  expect(copy.second.buffer).toBe(copy.a)
+  expect(copy.view.buffer).toBe(copy.a)
+  expect([copy.view.byteOffset, copy.view.byteLength]).toEqual([1, 2])
+  copy.view.setUint8(0, 9)
+  expect(new Uint8Array(buffer)[1]).toBe(0)
+  expect(copy.first[1]).toBe(9)
+})
+
+it('copies an own __proto__ key as data without touching the prototype', () => {
+  const parsed = JSON.parse('{"__proto__":{"x":1}}') as Record<string, unknown>
+  const copy = clone(parsed)
+  expect(Object.getPrototypeOf(copy)).toBe(Object.prototype)
+  expect(Object.keys(copy)).toEqual(['__proto__'])
+  expect((copy as { x?: unknown }).x).toBeUndefined()
 })
