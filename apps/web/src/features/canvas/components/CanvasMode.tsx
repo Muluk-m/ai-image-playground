@@ -360,7 +360,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
         <>
           {hasAgent && (
             <div
-              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${(sidebarExpanded ?? projectView === 'chat') ? 'studio-project-viewbar--with-sidebar' : ''}`}
+              className={`studio-project-viewbar ${projectView === 'chat' ? 'studio-project-viewbar--chat' : ''} ${sidebarExpanded === true ? 'studio-project-viewbar--with-sidebar' : ''}`}
             >
               <button
                 type="button"
@@ -371,7 +371,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               >
                 <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
               </button>
-              {!(sidebarExpanded ?? projectView === 'chat') && (
+              {!sidebarExpanded === true && (
                 <button
                   type="button"
                   onClick={() => useStore.getState().toggleSidebar()}
@@ -474,7 +474,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     >
                       <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
                     </button>
-                    {!(sidebarExpanded ?? projectView === 'chat') && (
+                    {!sidebarExpanded === true && (
                       <button
                         type="button"
                         onClick={() => useStore.getState().toggleSidebar()}
