@@ -796,7 +796,7 @@ describe('input persistence setting', () => {
       inputImages: unknown
     }
     expect(merged.maskDraft).toBeNull()
-    useStore.setState({ inputImages: merged.inputImages as typeof imageA[], maskDraft: null })
+    useStore.setState({ inputImages: merged.inputImages as (typeof imageA)[], maskDraft: null })
     vi.stubGlobal('window', {})
     try {
       await initStore()
