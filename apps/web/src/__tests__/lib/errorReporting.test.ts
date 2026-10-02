@@ -74,3 +74,17 @@ it('caps repeats of the same error and ignores browser noise', async () => {
   expect(sent?.url).toBe(CLIENT_ERRORS_PATH)
   expect(sent?.body.errors).toHaveLength(3)
 })
+
+it('splits batches by encoded size so long multibyte stacks still arrive', async () => {
+  configureErrorReporting('')
+  for (let i = 0; i < 8; i += 1) {
+    const error = new Error(`第 ${i} 个错误`)
+    error.stack = '堆栈'.repeat(4000)
+    reportClientError('error', error)
+  }
+  flushClientErrors()
+  const bodies = await sentBodies()
+  expect(bodies.length).toBeGreaterThan(1)
+  expect(bodies.flatMap((sent) => sent.body.errors)).toHaveLength(8)
+  for (const [, blob] of sendBeacon.mock.calls) expect(blob.size).toBeLessThanOrEqual(24 * 1024)
+})

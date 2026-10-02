@@ -23,6 +23,12 @@ const MAX_REPORTS_PER_PAGE = 30
 /** 同一条错误（类型 + 消息）一次会话里最多报几次。 */
 const MAX_REPEATS = 3
 const FLUSH_DELAY_MS = 2000
+/**
+ * 单个请求的字节上限，留在服务端 64 KiB 与浏览器 keepalive 总配额（64 KiB，含同时在途的请求）之内。
+ * 按 UTF-8 字节算：中文内容一个字三字节。
+ */
+const MAX_BATCH_BYTES = 24 * 1024
+const encoder = new TextEncoder()
 
 /** 浏览器自己产生、与代码无关的噪声。 */
 const IGNORED_MESSAGES = [/ResizeObserver loop/]
@@ -93,13 +99,28 @@ export function flushClientErrors(): void {
   if (flushTimer !== undefined) clearTimeout(flushTimer)
   flushTimer = undefined
   if (!endpoint) return
-  while (pending.length > 0) {
-    const batch: ClientErrorBatch = {
-      deviceId: getDeviceId(),
-      errors: pending.splice(0, CLIENT_ERROR_LIMITS.batch),
+  const deviceId = getDeviceId()
+  const encode = (errors: ClientErrorReport[]) =>
+    JSON.stringify({ deviceId, errors } satisfies ClientErrorBatch)
+  const fits = (body: string) => encoder.encode(body).byteLength <= MAX_BATCH_BYTES
+  let batch: ClientErrorReport[] = []
+  for (const report of pending.splice(0)) {
+    const next = [...batch, report]
+    if (next.length <= CLIENT_ERROR_LIMITS.batch && fits(encode(next))) {
+      batch = next
+      continue
     }
-    send(endpoint, JSON.stringify(batch))
+    if (batch.length > 0) send(endpoint, encode(batch))
+    batch = []
+    // 单条就超限（超长的 context、满是中文的栈）：依次去掉 context、缩短栈，保住错误本身。
+    const slimmed = [
+      report,
+      { ...report, context: undefined },
+      { ...report, context: undefined, stack: report.stack?.slice(0, 2000) },
+    ].find((candidate) => fits(encode([candidate])))
+    if (slimmed) batch = [slimmed]
   }
+  if (batch.length > 0) send(endpoint, encode(batch))
 }
 
 /** `text/plain` 是 CORS 安全类型，跨域发往 API 时不触发预检；页面关闭途中也能送达。 */
