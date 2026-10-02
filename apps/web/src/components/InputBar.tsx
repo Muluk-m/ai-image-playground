@@ -3,11 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
-import {
-  agentComposerFillPrompt,
-  type ComposerFill,
-  setAgentComposerFill,
-} from '../features/agent/lib/composerFill'
+import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
 import AssetHint from '../features/library/components/AssetHint'
@@ -102,7 +98,7 @@ function useIsMobile() {
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common', 'agent'])
+  const { t, i18n } = useTranslation(['composer', 'common'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -430,22 +426,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }
 
   // 首页对话 / 画布档的输入框就是智能体的第一轮：起手句点进来，技能变成开头的胶囊，示例词选中。
-  // 只换掉空草稿或上一条原样未动的起手句：用户自己写的话一个字都不动。
-  const suggestedRef = useRef<string | null>(null)
-  const fillFromStarter = (content: ComposerFill) => {
-    const current = useStore.getState().prompt
-    if (current.trim() !== '' && current !== suggestedRef.current) {
-      showToast(t('agent:suggestions.draftKeptToast'), 'info')
-      return
-    }
-    const next = agentComposerFillPrompt(content)
-    suggestedRef.current = next.prompt
-    setPrompt(next.prompt)
-    promptEditor.select(next.selection.start, next.selection.end)
-  }
-  useEffect(() => {
-    if (toCanvas) return setAgentComposerFill(fillFromStarter)
-  })
+  useComposerFillTarget(
+    {
+      read: () => useStore.getState().prompt,
+      write: (content) => {
+        const { prompt, selection } = agentComposerFillPrompt(content)
+        setPrompt(prompt)
+        promptEditor.select(selection.start, selection.end)
+        return prompt
+      },
+    },
+    toCanvas,
+  )
 
   const handleClearPrompt = useCallback(() => {
     setPrompt('')

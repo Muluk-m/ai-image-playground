@@ -6,6 +6,7 @@ import {
   type AgentSkillStarter,
   type AgentSkillSummary,
   localizedText,
+  localizedTextLocale,
 } from '@image-playground/shared'
 import type { ComposerFill } from './composerFill'
 
@@ -73,7 +74,7 @@ export function starterFill(
       segment.kind === 'text' ? segment.text : localizedText(segment.input.label, language),
     )
     .join('')
-  const english = language.startsWith('en') && Boolean(starter.text.en)
-  const highlight = english ? starter.highlight?.en : starter.highlight?.['zh-CN']
+  // 示例词跟着句子取同一种语言：句子回退了中文，示例词也取中文那份。
+  const highlight = starter.highlight?.[localizedTextLocale(starter.text, language)]
   return { skill: skill.name, text, ...(highlight ? { highlight } : {}) }
 }

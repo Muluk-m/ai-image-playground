@@ -7,6 +7,7 @@ import {
   type AgentSkillStarter,
 } from '@image-playground/shared'
 import { log } from '../logger'
+import { isObject } from '../type-guards'
 
 /**
  * `meta.json` 里给场景引导用的那几段：素材位（`inputs`）、起手句（`starters`）、场景（`scene`）
@@ -49,9 +50,7 @@ export function templateSlotInputs(slotCount: number): AgentSkillInput[] {
 }
 
 function record(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
-    ? (raw as Record<string, unknown>)
-    : undefined
+  return isObject(raw) ? raw : undefined
 }
 
 function nonEmpty(raw: unknown): string | undefined {

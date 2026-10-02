@@ -88,11 +88,7 @@ import {
   subscribeAttachmentUploads,
   withKnownAttachmentMedia,
 } from '../lib/attachmentUploads'
-import {
-  agentComposerFillPrompt,
-  type ComposerFill,
-  setAgentComposerFill,
-} from '../lib/composerFill'
+import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
 import { conversationImages } from '../lib/conversationImages'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
@@ -293,27 +289,20 @@ export default function AgentComposer({
     setAgentComposerAttach(attachFiles)
     return () => setAgentComposerAttach(null)
   })
-  // 上一次由示例建议填进来的整句话；用户动过之后就不再算「建议」。
-  const suggestedRef = useRef<string | null>(null)
-  // 示例建议点进来的整句话：光标放到句末，等用户自己发。
-  // 只换掉空草稿或上一条原样未动的建议；用户自己写的话（包括恢复的未发草稿）一个字都不动。
-  // 起手句带着技能：技能写成开头的 `/技能名`（随即提升成胶囊），示例词填好后选中。
-  const fillText = (content: ComposerFill) => {
-    if (loading) {
-      useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
-      return
-    }
-    const current = session.getSnapshot().draft.prompt
-    if (current.trim() !== '' && current !== suggestedRef.current) {
-      useStore.getState().showToast(t('suggestions.draftKeptToast'), 'info')
-      return
-    }
-    const { prompt, selection } = agentComposerFillPrompt(content)
-    suggestedRef.current = prompt
-    setDraft((current) => ({ ...current, prompt }))
-    promptEditor.select(selection.start, selection.end)
-  }
-  useEffect(() => setAgentComposerFill(fillText))
+  // 示例建议与起手句点进来的那一句：技能写成开头的 `/技能名`（随即提升成胶囊），示例词选中。
+  useComposerFillTarget({
+    read: () => session.getSnapshot().draft.prompt,
+    busy: () => {
+      if (loading) useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+      return loading
+    },
+    write: (content) => {
+      const { prompt, selection } = agentComposerFillPrompt(content)
+      setDraft((current) => ({ ...current, prompt }))
+      promptEditor.select(selection.start, selection.end)
+      return prompt
+    },
+  })
 
   // 素材名要参与 `@` 候选与胶囊标签，不能等到用户打开素材库才读。
   useEffect(() => {

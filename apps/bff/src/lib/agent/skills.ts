@@ -8,9 +8,6 @@ import {
 import { NodeExecutionEnv } from '@earendil-works/pi-agent-core/node'
 import {
   type AgentMode,
-  type AgentSkillInput,
-  type AgentSkillScene,
-  type AgentSkillStarter,
   type AgentSkillSummary,
   type AgentSkillTemplate,
   DEFAULT_AGENT_SKILL_ICON,
@@ -24,7 +21,7 @@ import { db, schema } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import {
-  type AgentSkillVerification,
+  type AgentSkillStarterMeta,
   isAgentSkillVerified,
   parseAgentSkillStarterMeta,
   templateSlotInputs,
@@ -40,7 +37,7 @@ import {
  */
 
 /** 一条加载好的技能。`directory` 只给服务端读附属文件用，任何进模型的文本里都不许出现。 */
-export interface AgentSkill {
+export interface AgentSkill extends AgentSkillStarterMeta {
   /** Agent Skills 标准的 kebab-case 标识，与父目录同名。模型和 `/name` 都按它认。 */
   readonly name: string
   /**
@@ -61,12 +58,7 @@ export interface AgentSkill {
    * **不进任何给模型的文本**：模板正文照常由 `loadSkill` 读，这几项只供界面排卡片。
    */
   readonly template?: AgentSkillTemplateMeta
-  /** 素材位，始终在（预置模板与用户模板按 `slotCount` 派生）。以下四项都**不进任何给模型的文本**。 */
-  readonly inputs: readonly AgentSkillInput[]
-  readonly starters: readonly AgentSkillStarter[]
-  readonly scene?: AgentSkillScene
-  /** 验证记录；只用来算「已验证」，本身不发给界面。 */
-  readonly verification?: AgentSkillVerification
+  // 继承来的素材位、起手句、场景与验证记录同样**不进任何给模型的文本**；素材位始终在。
 }
 
 /**
@@ -93,15 +85,11 @@ export interface AgentSkillTemplateMeta {
  * 框架的 `loadSkills` 也不保留额外字段——塞进去等于加一条只有我们认的方言，还拿不回来。
  * 旁路文件读不到就整条回退，技能本身照常可用。
  */
-export interface AgentSkillMeta {
+export interface AgentSkillMeta extends AgentSkillStarterMeta {
   readonly icon: string
   readonly summary: string
   /** 有它就说明这条技能是一条预置模板；写坏了会被丢掉，技能本身不受影响。 */
   readonly template?: AgentSkillTemplateMeta
-  readonly inputs: readonly AgentSkillInput[]
-  readonly starters: readonly AgentSkillStarter[]
-  readonly scene?: AgentSkillScene
-  readonly verification?: AgentSkillVerification
 }
 
 /** 技能目录里那份界面元数据的文件名。 */
@@ -292,13 +280,7 @@ async function loadFrom(dirs: readonly string[]): Promise<LoadedSkills> {
           description: skill.description,
           content: skill.content,
           directory,
-          icon: meta.icon,
-          summary: meta.summary,
-          ...(meta.template ? { template: meta.template } : {}),
-          inputs: meta.inputs,
-          starters: meta.starters,
-          ...(meta.scene ? { scene: meta.scene } : {}),
-          ...(meta.verification ? { verification: meta.verification } : {}),
+          ...meta,
         }
       }),
   )
@@ -382,9 +364,12 @@ export function titleSourceText(text: string, mode: AgentMode): string {
 
 /**
  * `imageModel` 是这个部署默认的出图模型（智能体没被指定模型时用的那个），非模板技能的
- * 「已验证」跟它比；缺席即非模板技能一律不算已验证。
+ * 「已验证」跟它比；部署没有出图模型时传 undefined，非模板技能一律不算已验证。
  */
-export function agentSkillSummaries(mode: AgentMode, imageModel?: string): AgentSkillSummary[] {
+export function agentSkillSummaries(
+  mode: AgentMode,
+  imageModel: string | undefined,
+): AgentSkillSummary[] {
   return index[mode].map((skill) => agentSkillSummary(skill, imageModel))
 }
 
@@ -445,7 +430,7 @@ export function visibleAgentSkills(
 export async function listAgentSkillSummaries(
   mode: AgentMode,
   userId: string | null,
-  imageModel?: string,
+  imageModel: string | undefined,
 ): Promise<AgentSkillSummary[]> {
   const looks = mode === 'image' ? await userLookSkills(userId) : []
   return visibleAgentSkills(mode, { userId, looks }).map((skill) =>

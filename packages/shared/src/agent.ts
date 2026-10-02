@@ -169,9 +169,17 @@ export interface AgentSkillStarter {
 /** 起手句文字里的素材位引用：`{key}`。服务端校验与界面拆分共用这一条。 */
 export const AGENT_SKILL_INPUT_REF_RE = /\{([A-Za-z0-9_-]+)\}/g
 
+/** 这份文案按界面语言该取哪一种：英文缺席或为空时回退中文。 */
+export function localizedTextLocale(
+  text: AgentLocalizedText,
+  language: string,
+): keyof AgentLocalizedText {
+  return language.startsWith('en') && text.en ? 'en' : 'zh-CN'
+}
+
 /** 文案按界面语言取一份：英文缺席或为空时回退中文。 */
 export function localizedText(text: AgentLocalizedText, language: string): string {
-  return language.startsWith('en') && text.en ? text.en : text['zh-CN']
+  return text[localizedTextLocale(text, language)] ?? text['zh-CN']
 }
 
 /**

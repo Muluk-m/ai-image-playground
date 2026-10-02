@@ -1,3 +1,7 @@
+import { useEffect, useRef } from 'react'
+import { i18next } from '../../../i18n'
+import { useStore } from '../../../store'
+
 /**
  * 输入框登记的「填一句话」入口。欢迎页、空对话里的示例建议、首页的起手句不归输入框管，
  * 点一下只把内容递过来：换掉草稿里的话、聚焦，发不发由用户决定。
@@ -52,4 +56,36 @@ export function agentComposerFillPrompt(content: ComposerFill): {
       ? { start: head.length + at, end: head.length + at + (content.highlight?.length ?? 0) }
       : { start: prompt.length, end: prompt.length }
   return { prompt, selection }
+}
+
+export interface ComposerFillTarget {
+  /** 现在输入框里存的那一句。 */
+  readonly read: () => string
+  /** 把内容写进输入框，返回写进去的那一句（存储形态）。 */
+  readonly write: (content: ComposerFill) => string
+  /** 此刻接不了（例如草稿还在加载）：自己提示过就返回 true，这次填入作罢。 */
+  readonly busy?: () => boolean
+}
+
+/**
+ * 输入框登记自己为「填一句话」的目标。三处宿主共用同一条规矩：只换掉空草稿或上一条原样未动的
+ * 建议，用户自己写的话一个字都不动，提示一声。宿主只管怎么读写自己的提示词。
+ */
+export function useComposerFillTarget(target: ComposerFillTarget, enabled = true): void {
+  const targetRef = useRef(target)
+  targetRef.current = target
+  const suggestedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    return setAgentComposerFill((content) => {
+      const { read, write, busy } = targetRef.current
+      if (busy?.()) return
+      const current = read()
+      if (current.trim() !== '' && current !== suggestedRef.current) {
+        useStore.getState().showToast(i18next.t('agent:suggestions.draftKeptToast'), 'info')
+        return
+      }
+      suggestedRef.current = write(content)
+    })
+  }, [enabled])
 }
