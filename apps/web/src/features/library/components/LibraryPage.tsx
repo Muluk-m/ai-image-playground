@@ -116,7 +116,7 @@ export default function LibraryPage() {
     )
 
   return (
-    <main className="flex min-h-dvh flex-col">
+    <main className="flex min-h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col">
       <PageHeader title={APP_MODE_LABELS.library}>
         <SegmentedTabs
           tabs={TABS.map((one) => ({ value: one, label: t(`tab.${one}`) }))}

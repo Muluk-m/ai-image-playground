@@ -41,7 +41,10 @@ export default function ToolShell({
   const name = t(`tool.${tool.id}.name`)
 
   return (
-    <main {...dropZoneProps} className="flex h-dvh flex-col">
+    <main
+      {...dropZoneProps}
+      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col"
+    >
       {inputs}
       <PageHeader
         className="gap-2 md:pl-3"

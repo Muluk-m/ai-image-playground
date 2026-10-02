@@ -24,7 +24,8 @@ export default function GenerationHistory({ userId, hero }: { userId?: string; h
   return (
     <>
       {!hero && <SearchBar />}
-      {hero && hasWorks && (
+      {/* 展开着删光作品时仍留住标题，否则搜索与「收起」一起消失，退不出筛选态。 */}
+      {hero && (hasWorks || showAll) && (
         <SectionHeader
           className="pb-4 pt-10"
           title={t('grid.mine')}
