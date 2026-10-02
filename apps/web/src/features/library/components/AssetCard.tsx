@@ -55,7 +55,7 @@ export default function AssetCard({
         onClick={() => void attachAsset(asset.id)}
         onKeyDown={handleKeyDown}
         title={asset.name}
-        className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
+        className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <AssetThumb imageId={coverImageId} alt={asset.name} />
         <div className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">

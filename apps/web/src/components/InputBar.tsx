@@ -1051,6 +1051,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           className={`relative w-[52px] h-[52px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
             isMaskTarget ? 'border-2 border-primary' : 'border border-border'
           }`}
+          role="button"
+          tabIndex={0}
+          aria-label={mentionLabels(idx) ?? undefined}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return
+            e.preventDefault()
+            e.currentTarget.click()
+          }}
           onClick={() => {
             if (suppressImageClickRef.current) return
             if (isMaskTarget) {
@@ -1100,8 +1108,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           )}
         </div>
         {!isMaskTarget && (
-          <span
-            className="absolute right-0 top-0 flex h-5 w-5 translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-destructive text-white opacity-0 shadow-md transition-opacity hover:bg-destructive/90 group-hover:opacity-100 [@media(hover:none)]:opacity-100 z-30"
+          <button
+            type="button"
+            aria-label={t('common:action.remove')}
+            className="absolute right-0 top-0 flex h-5 w-5 translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-destructive text-white opacity-0 shadow-md transition-opacity hover:bg-destructive/90 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:none)]:opacity-100 z-30"
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1115,7 +1125,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 d="M6 18L18 6M6 6l12 12"
               />
             </svg>
-          </span>
+          </button>
         )}
       </div>
     )

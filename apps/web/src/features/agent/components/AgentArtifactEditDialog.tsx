@@ -159,10 +159,9 @@ export default function AgentArtifactEditDialog({
     }
   }, [marked, source])
 
+  // 焦点循环与关闭后归还由 Overlay 负责，这里只定初始焦点。
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     dialogRef.current?.focus()
-    return () => previous?.focus()
   }, [])
 
   useEffect(() => {
@@ -656,7 +655,7 @@ export default function AgentArtifactEditDialog({
   }
 
   return (
-    <Overlay onClose={busy ? () => {} : onClose} tier="artifact" layout="center">
+    <Overlay onClose={busy ? () => {} : onClose} tier="artifact" layout="center" role="none">
       <div
         ref={dialogRef}
         className="studio-artifact-edit-dialog"
@@ -665,25 +664,6 @@ export default function AgentArtifactEditDialog({
         aria-labelledby="artifact-edit-title"
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === 'Tab') {
-            const items = [
-              ...event.currentTarget.querySelectorAll<HTMLElement>(
-                'button:not(:disabled), textarea, [contenteditable="true"], [role="slider"]:not([aria-disabled="true"])',
-              ),
-            ]
-            const first = items[0],
-              last = items[items.length - 1]
-            if (
-              event.shiftKey &&
-              (document.activeElement === first || document.activeElement === event.currentTarget)
-            ) {
-              event.preventDefault()
-              last?.focus()
-            } else if (!event.shiftKey && document.activeElement === last) {
-              event.preventDefault()
-              first?.focus()
-            }
-          }
           if (
             event.target instanceof HTMLTextAreaElement ||
             (event.target instanceof HTMLElement && event.target.closest('[contenteditable]')) ||

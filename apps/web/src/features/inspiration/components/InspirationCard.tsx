@@ -41,7 +41,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       onClick={onClick}
       onKeyDown={handleKeyDown}
       title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
-      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring/60"
+      className="group relative flex h-full w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div
         className={`relative overflow-hidden bg-muted ${reference ? 'aspect-[4/3]' : 'aspect-[3/4]'}`}

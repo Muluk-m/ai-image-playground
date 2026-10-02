@@ -78,7 +78,7 @@ export default function ConfirmDialog() {
   const cancelText = confirmDialog.cancelText ?? t('common:action.cancel')
 
   return (
-    <Overlay onClose={handleClose} tier="alert">
+    <Overlay onClose={handleClose} tier="alert" label={confirmDialog.title}>
       <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
         <h3 className="mb-2 flex items-center gap-2 text-base font-bold text-foreground">
           {confirmDialog.icon === 'info' && (

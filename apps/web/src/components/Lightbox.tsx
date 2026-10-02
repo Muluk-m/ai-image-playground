@@ -218,7 +218,7 @@ function LightboxInner({
   onPrev,
   onNext,
 }: LightboxInnerProps) {
-  const { t } = useTranslation('task')
+  const { t } = useTranslation(['task', 'common'])
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
@@ -659,6 +659,8 @@ function LightboxInner({
         {showNav && !isZoomed && (
           <>
             <button
+              type="button"
+              aria-label={t('common:action.previousImage')}
               className={`${navBtnClass} left-3 sm:left-5`}
               onClick={(e) => {
                 e.stopPropagation()
@@ -680,6 +682,8 @@ function LightboxInner({
               </svg>
             </button>
             <button
+              type="button"
+              aria-label={t('common:action.nextImage')}
               className={`${navBtnClass} right-3 sm:right-5`}
               onClick={(e) => {
                 e.stopPropagation()
