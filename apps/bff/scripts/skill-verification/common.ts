@@ -49,7 +49,7 @@ export function loadSkillSetup(skill: string): SkillVerificationSetup {
   const locate = (ref: string) => resolveFixture(SKILLS_ROOT, directory, ref)
   const parsed = parseVerificationCases(
     JSON.parse(readFileSync(casesPath, 'utf8')),
-    declaredInputs(meta),
+    declaredInputs(meta, skill),
     locate,
     existsSync,
   )

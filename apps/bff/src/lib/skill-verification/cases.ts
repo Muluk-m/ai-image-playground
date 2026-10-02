@@ -1,5 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { AGENT_SKILL_INPUT_REF_RE, type AgentSkillInput } from '@image-playground/shared'
+import { parseAgentSkillInputs } from '../agent/skill-starters'
 import { isObject } from '../type-guards'
 import { VERIFICATION_CASE_COUNT } from './record'
 
@@ -26,12 +28,8 @@ export const VERIFICATION_RECORD_FILE = 'record.json'
 export const VERIFICATION_FIXTURES_DIR = join('..', 'skill-verification', 'fixtures')
 export const SHARED_FIXTURE_PREFIX = 'shared:'
 
-/** 一个素材位：与 #997 约定的 `meta.json` `inputs` 同形，只取验证要用的三项。 */
-export interface DeclaredInput {
-  readonly key: string
-  readonly required: boolean
-  readonly multiple: boolean
-}
+/** 一个素材位：只取验证要用的三项，形状是技能目录的 `AgentSkillInput` 的子集。 */
+export type DeclaredInput = Pick<AgentSkillInput, 'key' | 'required' | 'multiple'>
 
 export interface VerificationCase {
   readonly id: string
@@ -39,31 +37,21 @@ export interface VerificationCase {
   readonly inputs: Readonly<Record<string, readonly string[]>>
 }
 
-const KEY_RE = /^[a-z][a-z0-9-]*$/
+const CASE_ID_RE = /^[a-z][a-z0-9-]*$/
 const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(webp|png|jpe?g)$/
-const PLACEHOLDER_RE = /\{([a-z][a-z0-9-]*)\}/g
 
 /**
- * 从 `meta.json` 读出素材位：写了 `inputs` 用它；预置模板没写时按 `template.slotCount`
- * 派生 `asset1..N`（必填、可多图，与目录接口的派生规则一致）；都没有就是没有位。
+ * 从 `meta.json` 读出素材位，与技能目录接口同一个解析（{@link parseAgentSkillInputs}）：
+ * 写了 `inputs` 用它；预置模板没写时按 `template.slotCount` 派生 `asset1..N`；都没有就是没有位。
  */
-export function declaredInputs(meta: unknown): DeclaredInput[] {
+export function declaredInputs(meta: unknown, skill: string): AgentSkillInput[] {
   if (!isObject(meta)) return []
-  if (Array.isArray(meta.inputs)) {
-    return meta.inputs.flatMap((one) =>
-      isObject(one) && typeof one.key === 'string' && KEY_RE.test(one.key)
-        ? [{ key: one.key, required: one.required !== false, multiple: one.multiple === true }]
-        : [],
-    )
-  }
   const slotCount = isObject(meta.template) ? meta.template.slotCount : undefined
-  if (Number.isInteger(slotCount) && (slotCount as number) > 0)
-    return Array.from({ length: slotCount as number }, (_, at) => ({
-      key: `asset${at + 1}`,
-      required: true,
-      multiple: true,
-    }))
-  return []
+  return parseAgentSkillInputs(
+    meta.inputs,
+    Number.isInteger(slotCount) && (slotCount as number) > 0 ? (slotCount as number) : undefined,
+    skill,
+  )
 }
 
 /** 去掉 `shared:` 前缀后的文件名。 */
@@ -110,7 +98,7 @@ export function parseVerificationCases(
       errors.push(`${where} 不是对象`)
       return
     }
-    if (typeof one.id !== 'string' || !KEY_RE.test(one.id))
+    if (typeof one.id !== 'string' || !CASE_ID_RE.test(one.id))
       errors.push(`${where}.id 不是 kebab-case`)
     else if (ids.has(one.id)) errors.push(`${where}.id 重复：${one.id}`)
     else ids.add(one.id)
@@ -121,7 +109,7 @@ export function parseVerificationCases(
       errors.push(`${where}.inputs 不是对象`)
       return
     }
-    const used = new Set([...prompt.matchAll(PLACEHOLDER_RE)].map(([, key]) => key))
+    const used = new Set([...prompt.matchAll(AGENT_SKILL_INPUT_REF_RE)].map(([, key]) => key))
     for (const key of used)
       if (!(key in one.inputs)) errors.push(`${where}.prompt 引用了没给图的位 {${key}}`)
     for (const input of inputs)
@@ -174,7 +162,7 @@ export function caseTurn(skill: string, one: VerificationCase): CaseTurn {
     })
     tokens.set(key, numbers.join(' '))
   }
-  const prompt = one.prompt.trim().replace(PLACEHOLDER_RE, (whole, key: string) => {
+  const prompt = one.prompt.trim().replace(AGENT_SKILL_INPUT_REF_RE, (whole, key: string) => {
     return tokens.get(key) ?? whole
   })
   return { text: `/${skill} ${prompt}`, images }

@@ -22,32 +22,36 @@ function caseOf(
 }
 
 describe('declaredInputs', () => {
-  it('写了 inputs 用它，required 缺省为必填、multiple 缺省为单图', () => {
-    expect(
-      declaredInputs({
+  const flags = (inputs: readonly { key: string; required: boolean; multiple: boolean }[]) =>
+    inputs.map(({ key, required, multiple }) => ({ key, required, multiple }))
+
+  it('写了 inputs 用它，required 缺省为必填、multiple 缺省为单图，坏条目丢掉', () => {
+    const inputs = declaredInputs(
+      {
         inputs: [
           { key: 'product', label: { 'zh-CN': '商品' } },
-          { key: 'model', required: false, multiple: true },
-          { key: 'Bad Key' },
+          { key: 'model', label: { 'zh-CN': '模特' }, required: false, multiple: true },
+          { key: 'Bad Key', label: { 'zh-CN': '坏' } },
         ],
         template: { slotCount: 3 },
-      }),
-    ).toEqual([
+      },
+      'fixture-skill',
+    )
+    expect(flags(inputs)).toEqual([
       { key: 'product', required: true, multiple: false },
       { key: 'model', required: false, multiple: true },
     ])
   })
 
   it('预置模板没写 inputs 时按 slotCount 派生 asset1..N', () => {
-    expect(declaredInputs({ template: { slotCount: 2 } }).map((one) => one.key)).toEqual([
-      'asset1',
-      'asset2',
-    ])
+    expect(
+      declaredInputs({ template: { slotCount: 2 } }, 'fixture-skill').map((one) => one.key),
+    ).toEqual(['asset1', 'asset2'])
   })
 
   it('普通技能什么都没写就没有位', () => {
-    expect(declaredInputs({ icon: 'x' })).toEqual([])
-    expect(declaredInputs(null)).toEqual([])
+    expect(declaredInputs({ icon: 'x' }, 'fixture-skill')).toEqual([])
+    expect(declaredInputs(null, 'fixture-skill')).toEqual([])
   })
 })
 

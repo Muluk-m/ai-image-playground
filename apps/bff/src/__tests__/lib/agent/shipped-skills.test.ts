@@ -308,7 +308,7 @@ describe('随仓库发的技能效果验证', () => {
     const directory = join(defaultAgentSkillsRoot(), 'image', name)
     const parsed = parseVerificationCases(
       readJson(join(directory, VERIFICATION_DIR, VERIFICATION_CASES_FILE)),
-      declaredInputs(readJson(join(directory, 'meta.json'))),
+      declaredInputs(readJson(join(directory, 'meta.json')), name),
       (ref) => resolveFixture(defaultAgentSkillsRoot(), directory, ref),
       existsSync,
     )
