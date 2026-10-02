@@ -225,6 +225,8 @@
     "loadingCloud": "Loading projects…",
     "retryCloud": "Retry loading projects",
     "refreshCloud": "Refresh projects",
+    "filterAll": "All",
+    "filterAria": "Filter projects by type",
     "loadMore": "Load more projects",
     "newProject": "New project",
     "openAria": "Open project {{name}}",
