@@ -28,8 +28,10 @@ function focusContainer(container: HTMLElement) {
  */
 export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, enabled = true) {
   // 在渲染时记下打开者：子组件的 autoFocus 发生在 effect 之前，等到 effect 再读就已经是弹窗里的元素了。
+  // 只在关掉时清空，不在 effect 里清：StrictMode 会把 effect 先卸再装一遍，清了第二遍就丢了打开者。
   const openerRef = useRef<HTMLElement | null | undefined>(undefined)
-  if (enabled && openerRef.current === undefined && typeof document !== 'undefined') {
+  if (!enabled) openerRef.current = undefined
+  else if (openerRef.current === undefined && typeof document !== 'undefined') {
     openerRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null
   }
@@ -38,7 +40,6 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, enable
     const container = containerRef.current
     if (!container) return
     const opener = openerRef.current
-    openerRef.current = undefined
     trapStack.push(containerRef)
 
     if (!container.contains(document.activeElement)) {
