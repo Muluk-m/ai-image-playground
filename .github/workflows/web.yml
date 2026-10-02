@@ -2,7 +2,7 @@ name: Web checks
 on:
   pull_request:
   push:
-    # test 是测试环境分支（.github/workflows/test-preview.yml）。它跑 CI，但不会触发
+    # test 是测试环境分支（发布见 .github/workflows/deploy-test.yml）。它跑 CI，但不会触发
     # 生产发布：deploy.yml 的 workflow_run 只接 branches: [main]。
     branches: [main, test]
 permissions:
@@ -16,13 +16,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
+      # turbo 按输入哈希命中，恢复旧缓存不会读到过期结果。只给公开树用：turbo 看不见
+      # gitignored 的 private/，with-overlay 作业不能共享这份缓存。
+      - uses: actions/cache@v4
         with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile
+          path: .turbo/cache
+          key: turbo-public-${{ github.sha }}
+          restore-keys: turbo-public-
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm --dir apps/web build
@@ -47,21 +48,17 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
       VITEST_MAX_WORKERS: 1
+      # 数据库测试一个文件一个进程、一个 suite 一个库，可以并发跑（scripts/run-bun-tests-isolated.ts）。
+      BUN_TEST_JOBS: 4
       # Node 24.18 exposes an unconfigured global localStorage; jsdom owns browser storage here.
       NODE_OPTIONS: --no-experimental-webstorage
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
+      - uses: ./.github/actions/setup
+      # typecheck 在 web job 里跑过，这里不重复。
       - run: pnpm test --concurrency=1 --env-mode=loose
   # 收费版是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
-  # overlay 一起 lint / typecheck / build。它执行的是「先扩后缩」——公开树只能删掉钉住的
+  # overlay 一起 lint / typecheck / build，并跑 overlay 自己的测试。它执行的是「先扩后缩」——公开树只能删掉钉住的
   # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
   # overlay 只经由 private-host / private-overlay 引公开树（scripts/check-private-boundary.ts）。
   #
@@ -70,9 +67,25 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
       PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+      BUN_TEST_JOBS: 4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,14 +116,11 @@ jobs:
           persist-credentials: false
       - name: Record the overlay commit
         run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm --dir apps/web build
       - run: pnpm --dir apps/admin build
+      # 计费钩子的测试在 overlay 里。公开 PR 改了钩子而私有测试红，原本要等合并后 overlay CI
+      # 才发现（verified 指针停住）；这里在合并前就拦下。
+      - run: pnpm --filter './private/apps/*' test
