@@ -49,8 +49,9 @@ export const STARTUP_GUARD_SCRIPT = `(()=>{
         release:build?build.content.slice(0,12):undefined,
         context:{detail:failure.detail,rendered,elapsedMs:Math.round(performance.now()),online:navigator.onLine,errors:early},
       }]});
-      // The API origin lives in runtime config, which the page already preloads.
-      fetch('/runtime-config.json',{cache:'no-store'}).then(response=>response.json()).then(config=>{
+      // The API origin lives in runtime config, which the page already preloads. Same 5 s cap as
+      // the app's loadRuntimeConfig: a hung connection must not leave the report pending forever.
+      fetch('/runtime-config.json',{cache:'no-store',signal:AbortSignal.timeout?AbortSignal.timeout(5000):undefined}).then(response=>response.json()).then(config=>{
         const bff=config&&config.bff;
         if(!bff||!bff.enabled)return;
         const base=String((bff.baseUrlsByOrigin&&bff.baseUrlsByOrigin[location.origin])||bff.baseUrl||'').replace(/\\/+$/,'');
