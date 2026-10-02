@@ -29,14 +29,15 @@ for (let index = 0; index < args.length; index++) {
 if (roots.length === 0) throw new Error('Pass at least one test root')
 if (!Number.isInteger(jobs) || jobs < 1) throw new Error('--jobs must be a positive integer')
 
-const testFiles: string[] = []
+const found = new Set<string>()
 const glob = new Bun.Glob('**/*.test.{ts,tsx}')
 for (const root of roots) {
   for await (const file of glob.scan({ cwd: root, absolute: true, onlyFiles: true })) {
-    if (!filter || file.includes(filter)) testFiles.push(file)
+    if (!filter || file.includes(filter)) found.add(file)
   }
 }
-testFiles.sort()
+// Overlapping roots must not run a file twice: both copies would reset the same suite database.
+const testFiles = [...found].sort()
 
 if (testFiles.length === 0) {
   throw new Error(
@@ -50,23 +51,35 @@ type Result = { file: string; exitCode: number; seconds: number; output: string 
 
 async function runFile(file: string): Promise<Result> {
   const started = performance.now()
+  const finish = (exitCode: number, output: string): Result => ({
+    file,
+    exitCode,
+    seconds: (performance.now() - started) / 1000,
+    output,
+  })
   // Serial runs stream straight to the terminal. Parallel runs write each file's output to its own
   // log so outputs do not interleave; a file rather than a pipe, because a grandchild that keeps a
   // pipe open (a server, a worker) would otherwise hang the runner after the test process exits.
   const logPath =
     jobs === 1 ? null : join(logDirectory, `${basename(file)}-${crypto.randomUUID()}.log`)
-  const log = logPath ? openSync(logPath, 'w') : 'inherit'
-  const child = Bun.spawn([process.execPath, 'test', file], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdout: log,
-    stderr: log,
-    stdin: 'ignore',
-  })
-  const exitCode = await child.exited
-  if (typeof log === 'number') closeSync(log)
-  const output = logPath ? await Bun.file(logPath).text() : ''
-  return { file, exitCode, seconds: (performance.now() - started) / 1000, output }
+  let log: number | 'inherit' = 'inherit'
+  try {
+    if (logPath) log = openSync(logPath, 'w')
+    const child = Bun.spawn([process.execPath, 'test', file], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdout: log,
+      stderr: log,
+      stdin: 'ignore',
+    })
+    const exitCode = await child.exited
+    return finish(exitCode, logPath ? await Bun.file(logPath).text() : '')
+  } catch (error) {
+    // A spawn or log failure belongs to this file; the other files still run.
+    return finish(1, `${relative(process.cwd(), file)}: runner error: ${String(error)}\n`)
+  } finally {
+    if (typeof log === 'number') closeSync(log)
+  }
 }
 
 const results: Result[] = []
@@ -79,8 +92,11 @@ async function worker(): Promise<void> {
   }
 }
 const started = performance.now()
-await Promise.all(Array.from({ length: Math.min(jobs, testFiles.length) }, worker))
-rmSync(logDirectory, { recursive: true, force: true })
+try {
+  await Promise.all(Array.from({ length: Math.min(jobs, testFiles.length) }, worker))
+} finally {
+  rmSync(logDirectory, { recursive: true, force: true })
+}
 
 const failed = results
   .filter((result) => result.exitCode !== 0)
