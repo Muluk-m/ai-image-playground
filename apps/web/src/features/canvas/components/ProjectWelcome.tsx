@@ -1,3 +1,4 @@
+import { ArrowRight } from 'lucide-react'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
@@ -143,10 +144,14 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           <h2 className="text-lg font-semibold">{t('welcome.recent')}</h2>
           <button
             type="button"
-            className="text-sm text-muted-foreground hover:text-foreground"
+            className="group inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
             onClick={() => useLibraryStore.getState().openProjects()}
           >
             {t('welcome.allProjects')}
+            <ArrowRight
+              className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
           </button>
         </div>
         <ProjectGrid recent />
