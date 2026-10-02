@@ -55,6 +55,12 @@ export default function TaskCard({
   const settings = useStore((s) => s.settings)
   const showToast = useStore((s) => s.showToast)
   const [isDownloading, setIsDownloading] = useState(false)
+  const outputCount = task.outputImages?.length ?? 0
+  const downloadLabel = isDownloading
+    ? t('download.inProgress')
+    : outputCount > 1
+      ? t('download.multiple', { n: outputCount })
+      : t('download.single')
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -501,6 +507,7 @@ export default function TaskCard({
                   <button
                     onClick={() => retryTask(task)}
                     className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
+                    aria-label={t('action.retryTask')}
                     title={t('action.retryTask')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -520,6 +527,7 @@ export default function TaskCard({
                       ? 'text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                       : 'text-muted-foreground hover:text-warning hover:bg-warning/10 dark:hover:bg-warning/10'
                   }`}
+                  aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                   title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 >
                   <svg
@@ -539,6 +547,7 @@ export default function TaskCard({
                 <button
                   onClick={onReuse}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition"
+                  aria-label={t('action.reuse')}
                   title={t('action.reuse')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -553,6 +562,7 @@ export default function TaskCard({
                 <button
                   onClick={onEditOutputs}
                   className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-30"
+                  aria-label={t('action.editOutput')}
                   title={t('action.editOutput')}
                   disabled={!task.outputImages?.length}
                 >
@@ -568,6 +578,7 @@ export default function TaskCard({
                 <button
                   onClick={onSendToCanvas}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30"
+                  aria-label={t('action.sendToCanvasTitle')}
                   title={t('action.sendToCanvasTitle')}
                   disabled={!task.outputImages?.length}
                 >
@@ -583,13 +594,8 @@ export default function TaskCard({
                 <button
                   onClick={handleDownload}
                   className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed"
-                  title={
-                    isDownloading
-                      ? t('download.inProgress')
-                      : (task.outputImages?.length ?? 0) > 1
-                        ? t('download.multiple', { n: task.outputImages?.length })
-                        : t('download.single')
-                  }
+                  aria-label={downloadLabel}
+                  title={downloadLabel}
                   disabled={!task.outputImages?.length || isDownloading}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -604,6 +610,7 @@ export default function TaskCard({
                 <button
                   onClick={onDelete}
                   className="p-1.5 rounded-md hover:bg-destructive/10 dark:hover:bg-destructive/30 text-muted-foreground hover:text-destructive transition"
+                  aria-label={t('action.deleteRecord')}
                   title={t('action.deleteRecord')}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

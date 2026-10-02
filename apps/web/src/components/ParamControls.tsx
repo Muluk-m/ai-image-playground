@@ -47,6 +47,7 @@ function ChipSelect<T extends string>(props: {
   value: T
   onChange: (v: T) => void
   options: ComponentProps<typeof Select>['options']
+  label: string
 }) {
   return (
     <Select
@@ -56,6 +57,7 @@ function ChipSelect<T extends string>(props: {
       className={CHIP_TRIGGER_CLASS}
       wrapperClassName={CHIP_WRAPPER_CLASS}
       hideSelectedLabel
+      label={props.label}
     />
   )
 }
@@ -429,6 +431,7 @@ export default function ParamControls({
             value={currentModelValue}
             onChange={(val) => handleGlobalModelPick(val)}
             options={globalModelOptions}
+            label={t('param.model')}
           />
         </ParamChip>
       )}
@@ -457,6 +460,7 @@ export default function ParamControls({
                 value={control.value}
                 onChange={control.onChange}
                 options={control.options}
+                label={control.label}
               />
             </ParamChip>
           ) : (
@@ -526,6 +530,7 @@ export default function ParamControls({
                     value={control.value}
                     onChange={control.onChange}
                     options={control.options}
+                    label={control.label}
                     className={PANEL_TRIGGER_CLASS}
                     wrapperClassName={PANEL_WRAPPER_CLASS}
                   />

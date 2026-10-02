@@ -106,7 +106,7 @@ export default function AgentCreationsGallery({
   }
 
   return (
-    <Overlay onClose={onClose}>
+    <Overlay onClose={onClose} role="none">
       <div
         role="dialog"
         aria-modal="true"

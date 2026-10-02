@@ -173,7 +173,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Overlay onClose={onClose} tier="raised">
+    <Overlay onClose={onClose} tier="raised" role="none">
       <div
         role="dialog"
         aria-modal="true"

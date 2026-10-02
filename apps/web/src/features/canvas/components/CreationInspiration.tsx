@@ -61,7 +61,7 @@ export default function CreationInspiration() {
               data-prompt={item.prompt}
               title={item.title}
               onClick={() => fillAgentComposer(item.prompt)}
-              className="group flex w-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              className="group flex w-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="relative block aspect-[3/4] overflow-hidden bg-muted">
                 <img

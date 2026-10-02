@@ -37,7 +37,7 @@ export default function LookCard({
         onClick={() => onOpen(look)}
         onKeyDown={handleKeyDown}
         title={t('look.viewDetail')}
-        className="relative aspect-[4/5] cursor-pointer overflow-hidden bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
+        className="relative aspect-[4/5] cursor-pointer overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <LookImage source={look.cover} alt={look.name} />
         <div className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">

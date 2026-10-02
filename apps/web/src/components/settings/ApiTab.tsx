@@ -831,6 +831,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                 {t('provider.type')}
               </span>
               <Select
+                label={t('provider.type')}
                 value={activeProfile.provider}
                 onChange={handleProviderTypeChange}
                 options={providerOptions}
@@ -920,8 +921,9 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                 <button
                   type="button"
                   onClick={() => setShowApiKey((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-muted-foreground transition-colors"
-                  tabIndex={-1}
+                  aria-label={tCommon(showApiKey ? 'action.hide' : 'action.show')}
+                  aria-pressed={showApiKey}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {showApiKey ? (
                     <svg
@@ -966,6 +968,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                   {t('apiMode.label')}
                 </span>
                 <Select
+                  label={t('apiMode.label')}
                   value={activeProfile.apiMode ?? ('images' as const)}
                   onChange={(value) => {
                     const apiMode = value as 'images' | 'responses'
