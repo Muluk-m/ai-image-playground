@@ -171,7 +171,7 @@
   "toast": {
     "assetSaved": "Saved as an asset",
     "templateSaved": "Saved as a template",
-    "promptTemplateSaved": "Saved as a template — find it in My assets",
+    "promptTemplateSaved": "Saved as a template",
     "assetImageMissing": "The asset image is gone",
     "alreadyInReferences": "Already in the references",
     "addedToReferences": "Added to the references",
