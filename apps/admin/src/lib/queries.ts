@@ -2,6 +2,8 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { apiClient } from './api-client'
 import type {
+  ClientErrorEventsResult,
+  ClientErrorsResult,
   DeviceDetailResult,
   ListAuditsResult,
   ListDevicesResult,
@@ -117,5 +119,24 @@ export function useAudits(filters: AuditFilters) {
     },
     initialPageParam: '',
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  })
+}
+
+export function useClientErrors(range: Range) {
+  return useQuery({
+    queryKey: ['client-errors', { range }],
+    queryFn: () => apiClient.get<ClientErrorsResult>(`/api/client-errors?range=${range}`),
+    refetchInterval: 60_000,
+  })
+}
+
+export function useClientErrorEvents(fingerprint: string | undefined, range: Range) {
+  return useQuery({
+    queryKey: ['client-errors', fingerprint, { range }],
+    queryFn: () =>
+      apiClient.get<ClientErrorEventsResult>(
+        `/api/client-errors/${encodeURIComponent(fingerprint!)}?range=${range}`,
+      ),
+    enabled: typeof fingerprint === 'string' && fingerprint.length > 0,
   })
 }
