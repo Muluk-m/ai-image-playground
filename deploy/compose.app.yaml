@@ -234,7 +234,7 @@ services:
     networks:
       - application
 
-  # Samples the host's disk and memory for the operations board (docs/adr/0007). It gets exactly
+  # Samples the host's disk and memory for the operations board (docs/adr/0018-host-sampling-without-the-docker-socket.md). It gets exactly
   # two read-only files from the host and no Docker socket: /proc/meminfo, and one file that lives
   # on the filesystem to watch, because statfs on a bind-mounted file reports the filesystem behind
   # it. If Docker's data sits on a separate partition, point HOST_DISK_PROBE_SOURCE at a file
@@ -275,7 +275,7 @@ services:
         target: /host/loadavg
         read_only: true
       # Per-container memory, CPU and OOM kills, read from cgroup files. Read-only and without the
-      # Docker socket: it can see how much each container uses, not what is inside it (ADR 0007).
+      # Docker socket: it can see how much each container uses, not what is inside it (ADR 0018).
       - type: bind
         source: /sys/fs/cgroup
         target: /host/cgroup

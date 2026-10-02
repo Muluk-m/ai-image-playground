@@ -465,7 +465,7 @@ _Avoid_: 把工具任务算进对话任务、按轮固定价
 **模型历史缓存（model history cache）**：
 成功轮实际交给 Pi 的消息记录，保留当时的时间、图片和工具调用/返回，使下一轮的旧前缀保持一致。
 它是私有对象存储中的有界缓存；产品消息仍是事实源，归属、模型、权限、历史变化或选区/压缩边界不匹配时回到现有回放。
-预扣与实发共用同一份历史，缓存故障不改变结算。[决策](docs/adr/0013-agent-native-model-history-cache.md)
+预扣与实发共用同一份历史，缓存故障不改变结算。[决策](docs/adr/0019-agent-native-model-history-cache.md)
 _Avoid_: 对话备份、授权存档
 
 **工具（tool）**：
@@ -658,7 +658,7 @@ _Avoid_: 网络错误、生成失败
 
 ## 创作云同步（creation cloud sync）
 
-平台执行的生成任务属于登录用户，创作记录与临时执行任务分开保留。浏览器直连生成由用户选择上传，API Key 不进入同步数据。完整范围与原件保留决定见 [ADR-0007](docs/adr/0007-durable-generation-cloud-ownership.md) 和 [#483](https://github.com/Muluk-m/ai-image-playground/issues/483)。
+平台执行的生成任务属于登录用户，创作记录与临时执行任务分开保留。浏览器直连生成由用户选择上传，API Key 不进入同步数据。云端范围以 [ADR-0011](docs/adr/0011-cloud-storage-limited-to-assets.md) 为准：只承载资产与会话，生成产出停止扩张、已上线的云端生成历史不回退；被它取代的 [ADR-0017](docs/adr/0017-durable-generation-cloud-ownership.md) 仅供追溯。
 
 生成档案（generation record）使用稳定任务身份；命令回执（generation command receipt）保存请求摘要和结果身份，执行任务过期不删除回执。一个事务内的创作变化组成持久批次，按用户事务计数器排序；计数器锁在业务与计费锁之后获取并持有到提交。临时游标、选区、相机和撤销栈不在云同步范围内。
 

@@ -2,7 +2,7 @@ import { type AlertState, evaluateAlerts, type HostSample } from '@image-playgro
 import type { AlertSender } from './alert-sender'
 
 /**
- * 宿主机采集器。跑在一个单独的小容器里（ADR 0007）。它从宿主机只拿到几个只读文件：
+ * 宿主机采集器。跑在一个单独的小容器里（ADR 0018）。它从宿主机只拿到几个只读文件：
  * `/proc` 下的三个文件、cgroup 目录、部署脚本写的容器名对照表，和根文件系统上的任意一个文件——
  * 对它 statfs 得到的就是那块盘的用量。读法见 `host-readings.ts`。
  * 不挂整个根目录，不挂 Docker socket，不连数据库，手里只有内部令牌。
