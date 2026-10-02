@@ -14,6 +14,7 @@ import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { clientErrorRoutes } from './routes/client-errors'
 import { generationRoutes } from './routes/generations'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
 import { internalDrainRoutes } from './routes/internal-drain'
@@ -183,6 +184,7 @@ export const app = new Elysia()
   .use(lookRoutes)
   .use(mediaRoutes)
   .use(publicInspirationRoutes)
+  .use(clientErrorRoutes)
   .use(generationRoutes)
   .use(internalUserRoutes)
   .use(internalTaskReconciliationRoutes)
