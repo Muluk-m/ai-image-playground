@@ -68,6 +68,9 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
     })
     const button = host.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
     expect(button.disabled).toBe(true)
+    // Looks disabled too, and says why, instead of a ready-colored button with a not-allowed cursor.
+    expect(button.className).toContain('bg-muted')
+    expect(button.title).toBe('参考图还在上传，传完就能发送')
     const retry = [...host.querySelectorAll<HTMLButtonElement>('button')].find((element) =>
       element.textContent?.includes('重试'),
     )
@@ -83,6 +86,7 @@ it('blocks send after a failed attachment, exposes retry, and waits for verified
       await confirmation
     })
     await vi.waitFor(() => expect(button.disabled).toBe(false))
+    expect(button.className).not.toContain('bg-muted')
     await act(async () => {
       button.click()
     })
