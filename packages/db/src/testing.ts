@@ -53,7 +53,8 @@ export async function resetTestDatabase(suite: string): Promise<string> {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_|_$/g, '')
   const databaseName = checkedDatabaseName(`${baseName}_${suffix}`)
-  const templatePrefix = `${baseName}_tpl_`
+  // Suite names collapse runs of separators to one `_`, so no suite database can contain `__`.
+  const templatePrefix = `${baseName}__tpl_`
   const templateName = checkedDatabaseName(`${templatePrefix}${await migrationsFingerprint()}`)
 
   const databaseUrl = new URL(base)
@@ -105,9 +106,11 @@ async function ensureTemplate(
   templateName: string,
   templatePrefix: string,
 ): Promise<void> {
-  const existing: { datname: string }[] = await admin`
+  const ours = new RegExp(`^${templatePrefix}[0-9a-f]{12}(_b)?$`)
+  const rows: { datname: string }[] = await admin`
     SELECT datname FROM pg_database WHERE starts_with(datname, ${templatePrefix})
   `
+  const existing = rows.filter((row) => ours.test(row.datname))
   if (existing.some((row) => row.datname === templateName)) return
 
   for (const { datname } of existing) {
