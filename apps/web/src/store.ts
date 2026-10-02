@@ -532,9 +532,16 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 
   const persisted = persistedState as Partial<AppState>
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
-  pendingPersistedMaskDraft = settings.persistInputOnRestart
+  const inputImages =
+    settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
+      ? persisted.inputImages
+      : []
+  const maskDraft = settings.persistInputOnRestart
     ? readPersistedMaskDraft(persisted.maskDraft)
     : null
+  // 目标图不在恢复的参考图条里，这份遮罩就是孤儿：从源头丢掉，它的位图随后按孤图清理。
+  pendingPersistedMaskDraft =
+    maskDraft && inputImages.some((img) => img?.id === maskDraft.targetImageId) ? maskDraft : null
   return {
     ...currentState,
     ...persisted,
@@ -554,10 +561,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
       settings.persistInputOnRestart && typeof persisted.prompt === 'string'
         ? persisted.prompt
         : '',
-    inputImages:
-      settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
-        ? persisted.inputImages
-        : [],
+    inputImages,
     slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
     maskDraft: null,
   }

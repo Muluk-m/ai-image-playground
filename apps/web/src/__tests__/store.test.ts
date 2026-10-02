@@ -909,6 +909,38 @@ describe('input persistence setting', () => {
     })
   })
 
+  it('恢复时目标图不在参考图条里的遮罩草稿直接丢弃，遮罩位图按孤图清掉', async () => {
+    await putImage({ id: imageA.id, dataUrl: imageA.dataUrl, createdAt: 1 })
+    await putImage({ id: 'orphan-mask', dataUrl: 'data:image/png;base64,m', createdAt: 1 })
+    useStore.setState({ maskDraft: null, inputImages: [] })
+    const merged = useStore.persist.getOptions().merge?.(
+      {
+        settings: { ...DEFAULT_SETTINGS },
+        inputImages: [{ id: imageA.id, dataUrl: '' }],
+        maskDraft: {
+          targetImageId: 'gone-image',
+          maskImageId: 'orphan-mask',
+          maskDataUrl: '',
+          updatedAt: 1,
+        },
+      },
+      useStore.getState(),
+    ) as { inputImages: (typeof imageA)[] }
+    expect(getPersistedState({ ...useStore.getState(), maskDraft: null }).maskDraft).toBeNull()
+
+    useStore.setState({ inputImages: merged.inputImages, maskDraft: null })
+    vi.stubGlobal('window', {})
+    try {
+      await initStore()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(useStore.getState().maskDraft).toBeNull()
+    expect(await getImage('orphan-mask')).toBeUndefined()
+    expect(await getImage(imageA.id)).toBeDefined()
+  })
+
   it('does not persist a mask when restart input restore is disabled', () => {
     useStore.setState({
       settings: { ...DEFAULT_SETTINGS, persistInputOnRestart: false },
