@@ -23,12 +23,14 @@ import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
 import {
   getAtImageQuery,
   getMentionedImageIndexes,
+  getPromptAssetSlots,
   getPromptIndexFromVisibleIndex,
   getPromptMentionParts,
   getSelectedImageMentionLabel,
   getVisiblePrompt,
   isCursorInSelectedImageMention,
   type MentionLabelResolver,
+  type PromptAssetSlot,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, type SlotValues } from '../lib/promptSlots'
 
@@ -114,6 +116,10 @@ export interface PromptEditorOptions {
   readonly parseCommand?: (visible: string, cursor: number) => PromptEditorTrigger | null
   /** 引用胶囊里放什么；返回 null 即保留序号文本。 */
   readonly renderMention?: (imageIndex: number, label: string) => ReactNode
+  /**
+   * 素材位胶囊里放什么；`occurrence` 是它在提示词里排第几个素材位。缺席即只显示位名。
+   */
+  readonly renderSlot?: (slot: PromptAssetSlot, occurrence: number) => ReactNode
   /** 组字中的回车已经被吞掉，其余按键原样交还。 */
   readonly onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void
   /** 先让调用方看一眼剪贴板（例如收图片）；`preventDefault` 即这次粘贴归它。 */
@@ -130,9 +136,11 @@ export interface PromptEditorTrigger {
 interface ChipTarget {
   readonly element: HTMLElement
   readonly key: string
-  readonly kind: 'mention' | 'command'
+  readonly kind: 'mention' | 'command' | 'slot'
   readonly imageIndex: number
   readonly label: string
+  /** 素材位胶囊才有；`imageIndex` 那一栏这时记的是它排第几个素材位。 */
+  readonly slot?: PromptAssetSlot
 }
 
 export interface PromptEditorApi {
@@ -186,7 +194,8 @@ function sameChips(a: readonly ChipTarget[], b: readonly ChipTarget[]): boolean 
         chip.element === other.element &&
         chip.key === other.key &&
         chip.imageIndex === other.imageIndex &&
-        chip.label === other.label
+        chip.label === other.label &&
+        chip.slot === other.slot
       )
     })
   )
@@ -254,7 +263,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     typedRef.current = null
     const pendingCaret = caretRef.current
     caretRef.current = null
-    const { renderMention } = optionsRef.current
+    const { renderMention, renderSlot } = optionsRef.current
     // 命令胶囊缺席时必须重画：它是外部写进来的，或者刚打完最后一个空格。
     const commandMissing =
       Boolean(command) && !composingRef.current && !el.querySelector('[data-prompt-command]')
@@ -273,7 +282,20 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     // A BR contributes no text or mention offsets to our DOM serialization.
     if (value.endsWith('\n')) el.append(document.createElement('br'))
     const next: ChipTarget[] = []
-    for (const element of el.querySelectorAll<HTMLElement>('.mention-tag:not(.slot-tag)')) {
+    let occurrence = 0
+    for (const element of el.querySelectorAll<HTMLElement>('.asset-slot-tag')) {
+      const at = occurrence++
+      const slot = getPromptAssetSlots(element.dataset.mentionText ?? '')[0]
+      const label = element.textContent ?? ''
+      element.dataset.mentionLabel = label
+      element.setAttribute('aria-label', label)
+      if (!slot || !renderSlot) continue
+      element.textContent = ''
+      next.push({ element, key: `slot-${at}`, kind: 'slot', imageIndex: at, label, slot })
+    }
+    for (const element of el.querySelectorAll<HTMLElement>(
+      '.mention-tag:not(.slot-tag):not(.asset-slot-tag)',
+    )) {
       const imageIndex = getMentionedImageIndexes(element.dataset.mentionText ?? '')[0]
       const label = element.textContent ?? ''
       if (imageIndex === undefined || !renderMention?.(imageIndex, label)) continue
@@ -520,7 +542,9 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditorApi {
     createPortal(
       chip.kind === 'command'
         ? options.commandChip
-        : options.renderMention?.(chip.imageIndex, chip.label),
+        : chip.slot
+          ? options.renderSlot?.(chip.slot, chip.imageIndex)
+          : options.renderMention?.(chip.imageIndex, chip.label),
       chip.element,
       chip.key,
     ),

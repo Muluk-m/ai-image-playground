@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { i18next } from '../../../i18n'
+import { assetSlotToken, type PromptAssetSlotDeclaration } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
 
 /**
@@ -19,7 +20,14 @@ export interface ComposerFill {
   readonly skill?: string
   /** 填好后选中的那一段，按 `text` 里的下标算。 */
   readonly highlight?: TextRange
+  /**
+   * `text` 里哪几段是素材位：那一段就是位名。认得素材位的输入框把它换成空位胶囊，
+   * 不认得的（画布直接生成栏）原样当一段文字。
+   */
+  readonly slots?: readonly ComposerFillSlot[]
 }
+
+export interface ComposerFillSlot extends PromptAssetSlotDeclaration, TextRange {}
 
 export interface TextRange {
   readonly start: number
@@ -46,19 +54,26 @@ export function fillAgentComposer(content: string | ComposerFill): boolean {
 
 /**
  * 智能体输入框里存的那一句：技能写成开头的 `/技能名`，与用户自己从 `/` 菜单选出来的同一个
- * 存储形态，胶囊、发送与服务端展开都不必另认一种写法。`selection` 是示例词在这句话里的位置；
- * 这句话里没有引用胶囊，存储形态与可见文本的坐标重合。
+ * 存储形态，胶囊、发送与服务端展开都不必另认一种写法；素材位写成空位。`selection` 是示例词在
+ * 可见文本里的位置：空位胶囊按位名计长，所以 `text` 的下标就是可见文本的下标。
  */
 export function agentComposerFillPrompt(content: ComposerFill): {
   readonly prompt: string
   readonly selection: TextRange
 } {
   const head = content.skill ? `/${content.skill} ` : ''
-  const prompt = head + content.text
+  let body = ''
+  let at = 0
+  for (const slot of [...(content.slots ?? [])].sort((a, b) => a.start - b.start)) {
+    if (slot.start < at) continue
+    body += content.text.slice(at, slot.start) + assetSlotToken(slot)
+    at = slot.end
+  }
+  const prompt = head + body + content.text.slice(at)
   const { highlight } = content
   const selection = highlight
     ? { start: head.length + highlight.start, end: head.length + highlight.end }
-    : { start: prompt.length, end: prompt.length }
+    : { start: head.length + content.text.length, end: head.length + content.text.length }
   return { prompt, selection }
 }
 

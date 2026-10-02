@@ -2,6 +2,7 @@ import { FolderOpen, Images, Square } from 'lucide-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AgentSkillBadge from '../features/agent/components/AgentSkillBadge'
+import AssetSlotChip from '../features/agent/components/AssetSlotChip'
 import { getLeadingAgentSkill } from '../features/agent/lib/agentSkillMentions'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../features/agent/lib/composerFill'
 import { startCanvasFromComposer } from '../features/agent/lib/heroHandoff'
@@ -20,11 +21,13 @@ import {
   useLookSubmission,
 } from '../features/library/lib/lookSubmit'
 import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
-import { useLibraryStore } from '../features/library/store'
+import { assetSlotImage, useLibraryStore } from '../features/library/store'
+import type { AssetRecord } from '../features/library/types'
 import { useImageInputScope } from '../hooks/useImageInputScope'
 import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import { describeError, useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
+import { assetSlotAt, assetSlotImages, clearAssetSlot, fillAssetSlot } from '../lib/assetSlotDraft'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
@@ -98,7 +101,7 @@ function useIsMobile() {
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'library'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -303,6 +306,50 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     open: () => void
     handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => boolean
   }>({ open: () => {}, handleKeyDown: () => false })
+  // 素材位只出现在对话 / 画布档：起手句只往智能体的第一轮里填。
+  const admissionRef = useRef(admission)
+  admissionRef.current = admission
+  const assetNames = useMemo(() => getAssetNamesByImageId(assets), [assets])
+  const fillSlot = (occurrence: number, key: string, images: readonly InputImage[]) => {
+    const state = useStore.getState()
+    if (!assetSlotAt(state.prompt, occurrence, key)) return
+    const next = fillAssetSlot(
+      { prompt: state.prompt, references: state.inputImages },
+      occurrence,
+      images,
+      admissionRef.current,
+    )
+    if (!next.ok) {
+      state.showToast(referenceRefusalMessage(next.reason), 'error')
+      return
+    }
+    useStore.setState({ prompt: next.draft.prompt, inputImages: [...next.draft.references] })
+  }
+  const fillSlotWithAsset = async (occurrence: number, key: string, asset: AssetRecord) => {
+    const image = await assetSlotImage(asset)
+    if (!image) {
+      useStore.getState().showToast(t('library:toast.assetImageMissing'), 'error')
+      return
+    }
+    void useLibraryStore.getState().noteAssetUsed(asset.id)
+    fillSlot(occurrence, key, [image])
+  }
+  /** 上传图只是这一轮的参考图，不建素材。 */
+  const fillSlotWithFiles = async (occurrence: number, key: string, files: File[]) => {
+    try {
+      const images: InputImage[] = []
+      for (const file of files) images.push(await storeImageFromFile(file))
+      fillSlot(occurrence, key, images)
+    } catch (err) {
+      useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
+    }
+  }
+  const clearSlot = (occurrence: number) => {
+    const state = useStore.getState()
+    const next = clearAssetSlot({ prompt: state.prompt, references: state.inputImages }, occurrence)
+    useStore.setState({ prompt: next.prompt, inputImages: [...next.references] })
+  }
+
   const promptEditor = usePromptEditor({
     value: prompt,
     labels: mentionLabels,
@@ -314,6 +361,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     commandLabel: skillInvocation?.skill.title,
     commandChip: skillInvocation && <AgentSkillBadge skill={skillInvocation.skill} />,
     parseCommand: getSlashTemplateQuery,
+    renderSlot: (slot, occurrence) => (
+      <AssetSlotChip
+        slot={slot}
+        images={assetSlotImages(slot, inputImages).map((image) => ({
+          src: image.dataUrl,
+          name: assetNames[image.id],
+        }))}
+        onPickAsset={(asset) => void fillSlotWithAsset(occurrence, slot.key, asset)}
+        onUpload={(files) => void fillSlotWithFiles(occurrence, slot.key, files)}
+        onClear={() => clearSlot(occurrence)}
+      />
+    ),
     onEdit: () => menusRef.current.open(),
     onKeyDown: (event) => {
       if (menusRef.current.handleKeyDown(event)) return

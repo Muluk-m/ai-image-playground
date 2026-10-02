@@ -8,7 +8,7 @@ import {
   localizedText,
   localizedTextLocale,
 } from '@image-playground/shared'
-import type { ComposerFill, TextRange } from './composerFill'
+import type { ComposerFill, ComposerFillSlot, TextRange } from './composerFill'
 
 /** 一个场景展开后最多摆几条起手句：多了就不是「起手」，是一张菜单。 */
 export const SCENE_STARTER_LIMIT = 3
@@ -61,7 +61,7 @@ export function starterSegments(
 }
 
 /**
- * 点一条起手句交给输入框的内容。素材位暂时按位名当普通文字填进去，发出去由智能体追问缺的图；
+ * 点一条起手句交给输入框的内容。素材位在文字里占位名那一段，并标出来交给输入框变成空位胶囊；
  * 示例词取同一种语言的那一份——英文句子缺席时整句连同示例词都回退中文。
  */
 export function starterFill(
@@ -73,9 +73,13 @@ export function starterFill(
   const word = starter.highlight?.[localizedTextLocale(starter.text, language)]
   let text = ''
   let highlight: TextRange | undefined
+  const slots: ComposerFillSlot[] = []
   for (const segment of starterSegments(starter, skill.inputs, language)) {
     if (segment.kind === 'input') {
-      text += localizedText(segment.input.label, language)
+      const label = localizedText(segment.input.label, language)
+      const { key, multiple } = segment.input
+      slots.push({ key, label, multiple, start: text.length, end: text.length + label.length })
+      text += label
       continue
     }
     // 只在句子自己的文字里找示例词：位名里碰巧含着同一个词时不能选到位名上。
@@ -84,5 +88,10 @@ export function starterFill(
       highlight = { start: text.length + at, end: text.length + at + word.length }
     text += segment.text
   }
-  return { skill: skill.name, text, ...(highlight ? { highlight } : {}) }
+  return {
+    skill: skill.name,
+    text,
+    ...(highlight ? { highlight } : {}),
+    ...(slots.length > 0 ? { slots } : {}),
+  }
 }

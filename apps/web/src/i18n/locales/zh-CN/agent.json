@@ -652,5 +652,12 @@
       "scene-character": "场景角色",
       "look": "预置模板"
     }
+  },
+  "slot": {
+    "fillAria": "填入{{label}}",
+    "library": "素材库",
+    "libraryEmpty": "素材库里还没有素材",
+    "upload": "上传图片",
+    "clear": "清空"
   }
 }
