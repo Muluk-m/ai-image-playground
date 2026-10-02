@@ -44,7 +44,25 @@ function parseSize(size: string) {
   return { width: match[1], height: match[2] }
 }
 
-function findPresetForSize(size: string, matchByRatio = false) {
+interface SizePreset {
+  tier: SizeTier
+  ratio: string
+  /** 当前值是预设外的比例（如 5:4）时，落到自定义比例上。 */
+  customRatio?: string
+}
+
+function findPresetForSize(size: string, matchByRatio = false): SizePreset | null {
+  // 只认比例的模型存的是「3:4」这种比例本身；换到按尺寸出图的模型后也得按比例回显，
+  // 否则会掉到自定义宽高的 1024x1024，确认一下就把画幅改了。
+  if (!parseSize(size)) {
+    const parsed = parseRatio(size)
+    if (!parsed) return null
+    const value = `${parsed.width}:${parsed.height}`
+    return RATIOS.some((one) => one.value === value)
+      ? { tier: '1K', ratio: value }
+      : { tier: '1K', ratio: 'custom', customRatio: value }
+  }
+
   // 比例模式只关心构图；1K 受限模型的落盘尺寸也可能被上游重新量化
   // （如 1024x1824 → 941x1672）。两者都按 1K 预设做宽高比容差匹配。
   if (matchByRatio) {
@@ -89,7 +107,7 @@ export default function SizePickerModal({
   // Ratio mode state
   const [tier, setTier] = useState<SizeTier>(currentPreset?.tier ?? '1K')
   const [ratio, setRatio] = useState(currentPreset?.ratio ?? (allowAuto ? '1:1' : '4:3'))
-  const [customRatio, setCustomRatio] = useState('16:9')
+  const [customRatio, setCustomRatio] = useState(currentPreset?.customRatio ?? '16:9')
 
   // Resolution mode state
   const [customW, setCustomW] = useState(currentParsedSize?.width ?? '1024')
