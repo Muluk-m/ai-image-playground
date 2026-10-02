@@ -13,7 +13,6 @@ import {
   type ReferenceDraft,
   type ReferenceRefusal,
   referenceRefusal,
-  referenceTally,
 } from '../../../lib/referenceDraft'
 import { useStore } from '../../../store'
 import type { InputImage } from '../../../types'
@@ -46,9 +45,14 @@ function toast(message: string): void {
   useStore.getState().showToast(message, 'error')
 }
 
-/** 一位此刻的样子：异步操作落地时要还是它，不然这次结果作废。 */
-function slotIdentity(slot: PromptAssetSlot | undefined): string {
-  return slot ? JSON.stringify([slot.key, slot.label, slot.imageIndexes]) : ''
+/**
+ * 一位此刻的样子：异步操作落地时要还是它，不然这次结果作废。位的总数也算进去——前面删掉一个
+ * 位，后面一模一样的位会挪到这个位次上，光看这一位分不出来。
+ */
+function slotIdentity(prompt: string, occurrence: number): string {
+  const slots = getPromptAssetSlots(prompt)
+  const slot = slots[occurrence]
+  return slot ? JSON.stringify([slots.length, slot.key, slot.label, slot.imageIndexes]) : ''
 }
 
 /** 返回给 `usePromptEditor` 的 `renderSlot`。 */
@@ -63,10 +67,9 @@ export function useAssetSlots<D extends ReferenceDraft>(
   const begin = (occurrence: number) => {
     const ticket = (tickets.current.get(occurrence) ?? 0) + 1
     tickets.current.set(occurrence, ticket)
-    const before = slotIdentity(getPromptAssetSlots(host.read().prompt)[occurrence])
+    const before = slotIdentity(host.read().prompt, occurrence)
     return (current: string) =>
-      tickets.current.get(occurrence) === ticket &&
-      slotIdentity(getPromptAssetSlots(current)[occurrence]) === before
+      tickets.current.get(occurrence) === ticket && slotIdentity(current, occurrence) === before
   }
 
   const fill = (
@@ -98,20 +101,21 @@ export function useAssetSlots<D extends ReferenceDraft>(
     fill(occurrence, key, [host.fromAsset(image, asset)], still)
   }
 
-  /** 先按张数问准入再读文件：整批注定进不来的话一张都不读、不落盘。 */
+  /**
+   * 读文件之前先问一声：这一批单独就超出上限、或这一头根本不收参考图时，一张都不读、不落盘。
+   * 条里已有的图不算进去——上传的可能就是条里那张（按内容去重），读完以后填位时再按实际新增数判。
+   */
   const upload = (occurrence: number, key: string, files: File[]) => {
     const admission = host.admission()
-    const refusal = referenceRefusal(
-      referenceTally(host.read().references, admission),
-      { total: files.length },
-      admission,
-    )
+    const refusal = referenceRefusal({ total: 0 }, { total: files.length }, admission)
     if (refusal) {
       toast(host.refusalMessage(refusal))
       return
     }
+    // 确认框开着的时候别的操作落地了，这一批也要作废：凭据在问之前就领。
+    const still = begin(occurrence)
     confirmImageBatch(files.length, () => {
-      const still = begin(occurrence)
+      if (!still(host.read().prompt)) return
       void (async () => {
         try {
           fill(occurrence, key, await host.fromFiles(files), still)
