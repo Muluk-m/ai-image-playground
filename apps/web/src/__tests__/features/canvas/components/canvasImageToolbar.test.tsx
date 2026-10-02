@@ -84,3 +84,41 @@ it('inserts region 1 after restarting intelligent edit or switching back from er
     useInpaintSession.getState().close()
   }
 })
+
+it('keeps the collapsed toolbar inside the viewport for an image near the right edge', () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const doc = new CanvasDoc()
+  doc.addElements(
+    [
+      {
+        id: 'image',
+        type: 'image',
+        x: 200,
+        y: 20,
+        width: 300,
+        height: 200,
+        rotation: 0,
+        fileId: 'file',
+      },
+    ],
+    { files: { file: 'data:image/png;base64,AA==' } },
+  )
+  doc.setViewport(333, 500)
+  doc.setSelection(['image'])
+  const editor = new CanvasEditor(doc)
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(280)
+  try {
+    act(() => root.render(<CanvasImageToolbar editor={editor} />))
+    const panel = host.querySelector<HTMLElement>('[role="toolbar"]')?.parentElement
+    act(() => root.render(<CanvasImageToolbar editor={editor} />))
+    expect(Number.parseFloat(panel?.style.left ?? '')).toBe(333 - 280 - 8)
+    expect(panel?.style.maxWidth).toBe('317px')
+  } finally {
+    width.mockRestore()
+    act(() => root.unmount())
+    host.remove()
+  }
+})
