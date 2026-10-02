@@ -25,6 +25,7 @@ import type {
   AnalysisFinding,
   AnalysisInputSnapshot,
   ChannelMedia,
+  ClientErrorKind,
   GenerationParameters,
   GenerationSource,
   GenerationSummary,
@@ -1130,6 +1131,35 @@ export const api_minutes = pgTable(
     server_error_routes: bunJsonb('server_error_routes').$type<Record<string, number>>(),
   },
   (t) => [primaryKey({ columns: [t.minute, t.instance] })],
+)
+
+/**
+ * 浏览器上报的错误事件，一次上报一行，只留近 30 天。运营后台按 fingerprint 聚合成问题看；
+ * 指纹由后端算，同一处代码换了构建（文件名哈希变了）仍落在同一组。
+ */
+export const client_errors = pgTable(
+  'client_errors',
+  {
+    id: text('id').primaryKey(),
+    received_at: epochMs('received_at').notNull(),
+    kind: text('kind').$type<ClientErrorKind>().notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    name: text('name'),
+    message: text('message').notNull(),
+    stack: text('stack'),
+    url: text('url'),
+    release: text('release'),
+    device_id: text('device_id'),
+    /** 上报时带着有效会话才有；不挂外键，用户删了错误记录照留到过期。 */
+    user_id: text('user_id'),
+    user_agent: text('user_agent'),
+    context: bunJsonb('context').$type<Record<string, unknown>>(),
+  },
+  (t) => [
+    index('idx_client_errors_received').on(t.received_at.desc()),
+    index('idx_client_errors_fingerprint').on(t.fingerprint, t.received_at.desc()),
+    check('client_errors_kind_check', sql`${t.kind} IN ('boot', 'error', 'rejection', 'react')`),
+  ],
 )
 
 export const media_objects = pgTable(
