@@ -22,7 +22,7 @@ for (let index = 0; index < args.length; index++) {
   const arg = args[index]
   if (arg === '--jobs' || arg === '-j') jobs = Number(args[++index])
   else if (arg === '--filter') filter = args[++index]
-  else roots.push(arg)
+  else if (arg !== '--') roots.push(arg)
 }
 if (roots.length === 0) throw new Error('Pass at least one test root')
 if (!Number.isInteger(jobs) || jobs < 1) throw new Error('--jobs must be a positive integer')
