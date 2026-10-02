@@ -26,7 +26,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 const billing = installRecordingTaskHooks()
 
 const { prepareAgentTurn } = await import('../../../lib/agent/turn-preparation')
-const { loadAgentExperience } = await import('../../../lib/agent/experience')
+const { loadAgentExperience, recordAgentExperience } = await import('../../../lib/agent/experience')
 const experienceOf = async (...args: Parameters<typeof loadAgentExperience>) =>
   (await loadAgentExperience(...args)).experience
 const { startAgentTurn } = await import('../../../lib/agent/turn')
@@ -721,6 +721,22 @@ describe('legacy projects without a recorded experience', () => {
       }),
     ).toEqual({ experience: 'chat', unrecorded: false })
     expect((await recorded(project)).document.experience).toBeUndefined()
+  })
+
+  it('reports a mismatch when a project save recorded another experience first', async () => {
+    const conversationId = await conversationWithResult()
+    const project = await legacyProject(conversationId)
+    await db
+      .update(schema.canvas_projects)
+      .set({ document: { version: 1, elements: [], experience: 'chat' } })
+      .where(eq(schema.canvas_projects.id, project))
+    expect(
+      await db.transaction((tx) => recordAgentExperience(tx, conversationId, USER_ID, 'canvas')),
+    ).toBe(false)
+    expect(
+      await db.transaction((tx) => recordAgentExperience(tx, conversationId, USER_ID, 'chat')),
+    ).toBe(true)
+    expect((await recorded(project)).document.experience).toBe('chat')
   })
 
   it('gives the canvas tools to a canvas message on a legacy project', async () => {
