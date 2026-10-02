@@ -7,6 +7,7 @@ import {
   type AgentMessageView,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   type AgentCall,
@@ -288,6 +289,15 @@ it('does not retain either attachment or a partial message when a turn stops dur
     await reading
     expect((await request(`${path}/turns/${turnId}/abort`, { deviceId })).status).toBe(200)
     await completed
+    // The stream closes before start-turn releases its durable execution lease, and attachment
+    // reclamation defers every object of an owner that still has a running execution.
+    await waitFor(async () => {
+      const [execution] = await db
+        .select({ state: schema.agent_executions.state })
+        .from(schema.agent_executions)
+        .where(eq(schema.agent_executions.conversation_id, conversation.id))
+      return execution?.state === 'completed'
+    }, 3000)
     release()
     expect((await interjecting).status).toBe(409)
     const history = (await (await request(`${path}/messages`)).json()) as {
