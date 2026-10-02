@@ -1,4 +1,37 @@
 {
   "icon": "mountain",
-  "summary": "岩壁与石板的冷峻卫浴场景"
+  "summary": "岩壁与石板的冷峻卫浴场景",
+  "inputs": [
+    {
+      "key": "asset1",
+      "label": {
+        "zh-CN": "商品素材",
+        "en": "Product"
+      },
+      "multiple": true
+    }
+  ],
+  "scene": "look",
+  "starters": [
+    {
+      "text": {
+        "zh-CN": "用这只洗手台 {asset1} 出一张岩壁场景图",
+        "en": "Make a rock-wall scene with this washbasin {asset1}"
+      },
+      "highlight": {
+        "zh-CN": "洗手台",
+        "en": "washbasin"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "给 {asset1} 出一张场景图，排水口位置不变",
+        "en": "Make a scene image of {asset1}, keeping the drain where it is"
+      },
+      "highlight": {
+        "zh-CN": "排水口位置",
+        "en": "the drain"
+      }
+    }
+  ]
 }
