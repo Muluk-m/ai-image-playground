@@ -493,7 +493,9 @@ export function getPersistedState(state: AppState) {
 
 /** 只有落进 IndexedDB 的遮罩才写进 localStorage，本体留空，启动时按 id 读回。 */
 function persistedMaskDraft(state: AppState): MaskDraft | null {
-  const draft = state.maskDraft
+  // 启动恢复还没结束时 store 里没有遮罩，这期间任何一次写盘都得把待恢复的引用原样留着，
+  // 不然恢复前再刷新一次，IndexedDB 里的遮罩就成了孤图被清掉。
+  const draft = state.maskDraft ?? pendingPersistedMaskDraft
   if (!draft?.maskImageId) return null
   return { ...draft, maskDataUrl: '' }
 }
@@ -788,7 +790,10 @@ export const useStore = create<AppState>()(
               if (get().maskDraft !== maskDraft) return
               set({ maskDraft: { ...maskDraft, maskImageId } })
             })
-            .catch(() => {})
+            .catch(() => {
+              if (get().maskDraft !== maskDraft) return
+              get().showToast(i18next.t('mask.persistFailed', { ns: 'store' }), 'error')
+            })
         }
       },
       clearMaskDraft: () => set({ maskDraft: null }),
@@ -1348,13 +1353,20 @@ export async function initStore() {
 
 async function restorePersistedMaskDraft(inputImages: readonly InputImage[]) {
   const pending = pendingPersistedMaskDraft
-  pendingPersistedMaskDraft = null
-  if (!pending?.maskImageId || useStore.getState().maskDraft) return
-  if (!inputImages.some((img) => img.id === pending.targetImageId)) return
-  const stored = await getImage(pending.maskImageId)
-  if (!stored?.dataUrl || useStore.getState().maskDraft) return
-  cacheImage(pending.maskImageId, stored.dataUrl)
-  useStore.getState().setMaskDraft({ ...pending, maskDataUrl: stored.dataUrl })
+  try {
+    if (!pending?.maskImageId || useStore.getState().maskDraft) return
+    if (!inputImages.some((img) => img.id === pending.targetImageId)) return
+    // 读盘期间用户删了图、清了条或自己画了新遮罩，参考图条就不再是这一份，旧遮罩不能回写。
+    const before = useStore.getState().inputImages
+    const stored = await getImage(pending.maskImageId)
+    const state = useStore.getState()
+    if (!stored?.dataUrl || state.maskDraft || state.inputImages !== before) return
+    if (!state.inputImages.some((img) => img.id === pending.targetImageId)) return
+    cacheImage(pending.maskImageId, stored.dataUrl)
+    state.setMaskDraft({ ...pending, maskDataUrl: stored.dataUrl })
+  } finally {
+    if (pendingPersistedMaskDraft === pending) pendingPersistedMaskDraft = null
+  }
 }
 
 /** 归一化 + 透明输出改写。幂等：composer 的参数回写与提交接缝各推导一次，结果相同。 */

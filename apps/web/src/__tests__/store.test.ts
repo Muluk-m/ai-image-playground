@@ -796,6 +796,10 @@ describe('input persistence setting', () => {
       inputImages: unknown
     }
     expect(merged.maskDraft).toBeNull()
+    // 恢复完成前的写盘不能把待恢复的遮罩引用抹掉。
+    expect(getPersistedState({ ...useStore.getState(), maskDraft: null }).maskDraft).toMatchObject({
+      maskImageId,
+    })
     useStore.setState({ inputImages: merged.inputImages as (typeof imageA)[], maskDraft: null })
     vi.stubGlobal('window', {})
     try {
