@@ -28,12 +28,13 @@ export function watchSubmissionContext(
     onLeave?.()
   }
   const unsubscribe = useStore.subscribe(check)
-  window.addEventListener('popstate', check)
+  // 只有绑定了页面路径才需要盯地址栏；其余条件都在 store 里，订阅已经覆盖。
+  if (sourcePath) window.addEventListener('popstate', check)
   return {
     isCurrent: () => !left && matches(),
     dispose: () => {
       unsubscribe()
-      window.removeEventListener('popstate', check)
+      if (sourcePath) window.removeEventListener('popstate', check)
     },
   }
 }

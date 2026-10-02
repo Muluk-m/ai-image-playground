@@ -142,6 +142,15 @@ vi.mock('../lib/transparentImage', async (importOriginal) => {
   }
 })
 
+// jsdom 之外没有 canvas：遮罩覆盖度由用例指定，其余图片工具照旧。
+const validateMaskMatchesImage = vi.hoisted(() =>
+  vi.fn(async (): Promise<'empty' | 'partial' | 'full'> => 'partial'),
+)
+vi.mock('../lib/canvasImage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/canvasImage')>()),
+  validateMaskMatchesImage,
+}))
+
 const readRemoteGeneration = vi.hoisted(() => vi.fn())
 vi.mock('../lib/remoteGenerations', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/remoteGenerations')>()),
@@ -155,7 +164,7 @@ import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
-import { clearImages, getAllTasks, getImage, putImage } from '../lib/db'
+import { clearImages, getAllImages, getAllTasks, getImage, putImage } from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -334,6 +343,89 @@ describe('mask draft lifecycle in store actions', () => {
     await submitTask()
 
     expect(useStore.getState().maskDraft).toBeNull()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      '遮罩主图已不存在，请重新选择遮罩区域',
+      'error',
+    )
+    expect(callImageApi).not.toHaveBeenCalled()
+  })
+
+  describe('composer 提交的遮罩校验只在 submitPrepared 一处', () => {
+    const mask = 'data:image/png;base64,mask'
+    const maskOnA = { targetImageId: imageA.id, maskDataUrl: mask, updatedAt: 1 }
+    const maskImages = async () => (await getAllImages()).filter((img) => img.source === 'mask')
+
+    beforeEach(async () => {
+      await clearImages()
+      validateMaskMatchesImage.mockClear()
+      useStore.setState({
+        appMode: 'image',
+        setConfirmDialog: (confirmDialog) => useStore.setState({ confirmDialog }),
+      })
+    })
+
+    it('提示词为空时先报提示词，不写遮罩图也不弹整幅确认', async () => {
+      validateMaskMatchesImage.mockResolvedValueOnce('full')
+      useStore.setState({ prompt: '  ', inputImages: [imageA], maskDraft: maskOnA })
+
+      await submitTask()
+
+      expect(useStore.getState().showToast).toHaveBeenCalledWith('请输入提示词', 'error')
+      expect(validateMaskMatchesImage).not.toHaveBeenCalled()
+      expect(useStore.getState().confirmDialog).toBeNull()
+      expect(await maskImages()).toEqual([])
+      expect(useStore.getState().maskDraft).toEqual(maskOnA)
+    })
+
+    it('整幅遮罩确认后发出的是点击时的快照', async () => {
+      validateMaskMatchesImage.mockResolvedValueOnce('full')
+      useStore.setState({ prompt: 'repaint the sky', inputImages: [imageA], maskDraft: maskOnA })
+
+      const submitting = submitTask()
+      await waitUntil(() => Boolean(useStore.getState().confirmDialog), 'no full-mask confirm')
+      expect(validateMaskMatchesImage).toHaveBeenCalledOnce()
+      useStore.setState({ prompt: 'a later draft', inputImages: [imageB], maskDraft: null })
+      useStore.getState().confirmDialog?.action()
+      await submitting
+
+      await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 1, 'not submitted')
+      expect(vi.mocked(callImageApi).mock.calls[0]?.[0]).toMatchObject({
+        prompt: 'repaint the sky',
+        inputImageDataUrls: [imageA.dataUrl],
+        maskDataUrl: mask,
+      })
+      expect(useStore.getState().confirmDialog).toBeNull()
+      expect(await maskImages()).toHaveLength(1)
+    })
+
+    it('取消整幅确认：不发请求，也不写遮罩图', async () => {
+      validateMaskMatchesImage.mockResolvedValueOnce('full')
+      useStore.setState({ prompt: 'repaint the sky', inputImages: [imageA], maskDraft: maskOnA })
+
+      const submitting = submitTask()
+      await waitUntil(() => Boolean(useStore.getState().confirmDialog), 'no full-mask confirm')
+      useStore.getState().confirmDialog?.cancelAction?.()
+      await submitting
+
+      expect(callImageApi).not.toHaveBeenCalled()
+      expect(useStore.getState().tasks).toEqual([])
+      expect(await maskImages()).toEqual([])
+      expect(useStore.getState().prompt).toBe('repaint the sky')
+    })
+
+    it('确认期间离开工作台：确认框收起，这次提交作废', async () => {
+      validateMaskMatchesImage.mockResolvedValueOnce('full')
+      useStore.setState({ prompt: 'repaint the sky', inputImages: [imageA], maskDraft: maskOnA })
+
+      const submitting = submitTask()
+      await waitUntil(() => Boolean(useStore.getState().confirmDialog), 'no full-mask confirm')
+      useStore.setState({ appMode: 'canvas' })
+      await submitting
+
+      expect(useStore.getState().confirmDialog).toBeNull()
+      expect(callImageApi).not.toHaveBeenCalled()
+      expect(await maskImages()).toEqual([])
+    })
   })
 
   it('stores transparent background output after local post-processing', async () => {
