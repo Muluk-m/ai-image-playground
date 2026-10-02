@@ -26,8 +26,7 @@
   },
   "state": {
     "generating": "生成中",
-    "failed": "失败",
-    "unknown": "未知"
+    "failed": "失败"
   },
   "toast": {
     "copySucceeded": "复制成功",

@@ -26,8 +26,7 @@
   },
   "state": {
     "generating": "Generating",
-    "failed": "Failed",
-    "unknown": "Unknown"
+    "failed": "Failed"
   },
   "toast": {
     "copySucceeded": "Copied",

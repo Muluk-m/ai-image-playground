@@ -144,12 +144,9 @@
   },
   "workspace": {
     "canvasAria": "Creation canvas",
-    "untitled": "My canvas",
-    "backToProjects": "Back to projects",
     "backHome": "Back to home",
     "assets": "Assets",
-    "sourceChat": "Back to source chat",
-    "imageTransferFailed": "Could not add this image to a new canvas. Please retry."
+    "sourceChat": "Back to source chat"
   },
   "saveError": {
     "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
@@ -234,8 +231,6 @@
     "updatedAt": "Updated {{date}}",
     "actionsAria": "More actions for {{name}}",
     "rename": "Rename",
-    "renameAria": "Rename project {{name}}",
-    "deleteAria": "Delete project {{name}}",
     "deleteTitle": "Delete project",
     "deleteMessage": "Delete “{{name}}” along with its canvas and conversation? This cannot be undone.",
     "noMatch": "No matching projects",
@@ -385,12 +380,10 @@
     },
     "brushSize": "Brush",
     "undo": "Undo mark",
-    "regions": "Edit regions",
     "regionName": "Area {{no}}",
     "removeRegion": "Remove area {{no}}",
     "promptAria": "Edit description",
     "promptPlaceholder": "Describe the change, e.g. make the laces bright blue",
-    "paintFirst": "Drag to select an area, or switch to the brush",
     "uploadReference": "Upload image",
     "removeReference": "Remove reference",
     "modelUnsupported": "This model has no mask support. Switch to a GPT Image model.",
