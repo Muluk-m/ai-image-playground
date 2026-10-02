@@ -117,7 +117,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
                           event.currentTarget.currentTime = 0
                         }}
                       />
-                      <span className="absolute right-2 top-2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] text-foreground backdrop-blur-sm">
+                      <span className="absolute right-2 top-2 rounded-full bg-background/85 px-2 py-0.5 text-label-sm text-foreground backdrop-blur-sm">
                         {example.tag}
                       </span>
                     </span>

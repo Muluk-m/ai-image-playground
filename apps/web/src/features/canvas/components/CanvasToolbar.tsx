@@ -120,7 +120,7 @@ function ToolButton({
       className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
         active
           ? 'bg-primary text-primary-foreground'
-          : 'text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent'
+          : 'text-foreground hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent'
       }`}
     >
       {children}
@@ -258,7 +258,7 @@ export default function CanvasToolbar({
         type="button"
         variant="outline"
         size="sm"
-        className="pointer-events-auto absolute left-[58px] top-0 z-10 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-sidebar px-3 py-2 text-xs font-medium text-foreground shadow-lg disabled:opacity-40 md:hidden"
+        className="pointer-events-auto absolute left-[58px] top-0 z-10 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-sidebar px-3 py-2 text-xs font-medium text-foreground shadow-lg disabled:opacity-50 md:hidden"
         disabled={!doc.elements.length}
         onClick={onFitContent}
       >

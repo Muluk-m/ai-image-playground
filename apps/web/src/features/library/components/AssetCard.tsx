@@ -80,7 +80,7 @@ export default function AssetCard({
             onClick={() => onOpen(asset)}
             aria-label={t('asset.views')}
             title={t('asset.views')}
-            className="inline-flex items-center gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-[10px] font-medium text-white transition hover:bg-black/65"
+            className="inline-flex items-center gap-0.5 rounded-lg bg-black/45 px-1.5 py-1 text-label-sm font-medium text-white transition hover:bg-black/65"
           >
             <LayersIcon className="h-3 w-3" />
             {t('asset.viewCount', { count: asset.views.length })}

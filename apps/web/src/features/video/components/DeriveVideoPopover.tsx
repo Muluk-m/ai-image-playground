@@ -68,7 +68,7 @@ export default function DeriveVideoPopover({
 
   return (
     <Overlay onClose={onClose} tier={tier}>
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in border-border">
         <h3 className={`${PANEL_TITLE} mb-3`}>{title}</h3>
 
         <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>

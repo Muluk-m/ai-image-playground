@@ -1287,10 +1287,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       >
         <div
           ref={cardRef}
-          className={`relative rounded-2xl border border-border bg-card text-card-foreground ring-1 ring-black/5 backdrop-blur-2xl sm:rounded-3xl dark:ring-white/10 ${
-            inline
-              ? 'studio-hero-composer'
-              : 'shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)]'
+          className={`relative rounded-2xl border border-border bg-card text-card-foreground ring-1 ring-hairline backdrop-blur-2xl sm:rounded-3xl ${
+            inline ? 'studio-hero-composer' : 'shadow-popover'
           } ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
         >
           {barCollapsed ? (

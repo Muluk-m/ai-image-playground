@@ -376,16 +376,16 @@ export default function TaskCard({
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
               {!showRunningTimer && task.status === 'done' && coverBadges ? (
                 <>
-                  <span className="bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                  <span className="bg-black/50 text-white text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
                     {coverBadges.ratio}
                   </span>
-                  <span className="bg-black/50 text-white/90 text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-medium">
+                  <span className="bg-black/50 text-white/90 text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-medium">
                     {coverBadges.size}
                   </span>
                 </>
               ) : (
                 duration && (
-                  <span className="flex items-center gap-1 bg-black/50 text-white text-[10px] sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                  <span className="flex items-center gap-1 bg-black/50 text-white text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -561,7 +561,7 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onEditOutputs}
-                  className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-30"
+                  className="p-1.5 rounded-md hover:bg-success/10 dark:hover:bg-success/30 text-muted-foreground hover:text-success transition disabled:opacity-50"
                   aria-label={t('action.editOutput')}
                   title={t('action.editOutput')}
                   disabled={!task.outputImages?.length}
@@ -577,7 +577,7 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={onSendToCanvas}
-                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30"
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-50"
                   aria-label={t('action.sendToCanvasTitle')}
                   title={t('action.sendToCanvasTitle')}
                   disabled={!task.outputImages?.length}
@@ -593,7 +593,7 @@ export default function TaskCard({
                 </button>
                 <button
                   onClick={handleDownload}
-                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label={downloadLabel}
                   title={downloadLabel}
                   disabled={!task.outputImages?.length || isDownloading}

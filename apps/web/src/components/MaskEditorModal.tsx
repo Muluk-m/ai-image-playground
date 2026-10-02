@@ -1050,7 +1050,7 @@ export default function MaskEditorModal() {
             )}
             <div
               ref={baseFrameRef}
-              className="relative max-h-full max-w-full sm:rounded-xl shadow-inner sm:ring-1 ring-black/5 touch-none dark:bg-black/50 dark:ring-white/5"
+              className="relative max-h-full max-w-full sm:rounded-xl shadow-inner sm:ring-1 ring-hairline touch-none dark:bg-black/50"
               onWheel={handleWheel}
               style={{
                 aspectRatio: size ? `${size.width} / ${size.height}` : '1 / 1',
@@ -1099,9 +1099,9 @@ export default function MaskEditorModal() {
 
           {/* Footer Toolbar */}
           <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 flex items-center justify-center z-20 pointer-events-none w-full px-2 sm:px-4">
-            <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-card/95 backdrop-blur-md border border-border/80 rounded-2xl sm:rounded-[1.25rem] shadow-2xl pointer-events-auto">
+            <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-card/95 backdrop-blur-md border border-border/80 rounded-2xl sm:rounded-2xl shadow-2xl pointer-events-auto">
               <div className="flex items-center gap-1.5 sm:gap-3">
-                <div className="flex items-center bg-muted/80 p-1 rounded-xl sm:rounded-[14px]">
+                <div className="flex items-center bg-muted/80 p-1 rounded-xl sm:rounded-2xl">
                   {!session?.keepSemantics && (
                     <Button
                       variant={tool === 'lasso' ? 'secondary' : 'ghost'}
@@ -1167,7 +1167,7 @@ export default function MaskEditorModal() {
                   <button
                     ref={brushSizeButtonRef}
                     onClick={toggleBrushControls}
-                    className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-[14px] transition-all border ${showBrushControls ? 'bg-primary/10 border-primary text-primary bg-card dark:text-primary' : 'bg-card hover:bg-card dark:bg-transparent border-border text-muted-foreground dark:hover:border-border'}`}
+                    className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-2xl transition-all border ${showBrushControls ? 'bg-primary/10 border-primary text-primary bg-card dark:text-primary' : 'bg-card hover:bg-card dark:bg-transparent border-border text-muted-foreground dark:hover:border-border'}`}
                     disabled={!isReady || isSaving || tool === 'lasso'}
                     title={t('mask.brushSize')}
                   >
@@ -1182,7 +1182,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={handleUndo}
                   disabled={!canUndo}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
                   title={t('mask.undo')}
                 >
                   <svg
@@ -1201,7 +1201,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={handleRedo}
                   disabled={!canRedo}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
                   title={t('mask.redo')}
                 >
                   <svg
@@ -1221,7 +1221,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={resetViewTransform}
                   disabled={!isReady || isSaving || !isZoomed}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
                   title={t('mask.resetView')}
                 >
                   <svg
@@ -1242,7 +1242,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={handleClear}
                   disabled={!isReady || isSaving}
-                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-50 hover:text-foreground transition-all"
                   title={t('mask.clear')}
                 >
                   <svg
