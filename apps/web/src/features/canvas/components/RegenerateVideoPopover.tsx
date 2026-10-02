@@ -163,13 +163,13 @@ export default function RegenerateVideoPopover({
         </div>
 
         <div className={`${PANEL_SECTION} mt-4`}>
-          {inputRefusal && <p className="mb-1.5 text-[11px] text-destructive">{inputRefusal}</p>}
+          {inputRefusal && <p className="mb-1.5 text-label-sm text-destructive">{inputRefusal}</p>}
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
+            <p className="mb-1.5 text-label-sm text-destructive">{guard.disabledReason}</p>
           )}
           <SubmissionBillingAction
             blockedAction={guard.blockedAction}
-            className="mb-1.5 text-[11px]"
+            className="mb-1.5 text-label-sm"
           />
           <button
             type="button"

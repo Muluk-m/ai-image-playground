@@ -258,13 +258,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           />
         </div>
       )}
-      {hint && <p className="px-1 pb-2 text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="px-1 pb-2 text-label-sm text-muted-foreground">{hint}</p>}
       <SubmissionBillingAction
         blockedAction={submissionGuard.blockedAction}
-        className="px-1 pb-2 text-[11px]"
+        className="px-1 pb-2 text-label-sm"
       />
       {submissionGuard.blocked && submissionGuard.disabledReason ? (
-        <p className="px-1 pb-2 text-[11px] text-destructive dark:text-destructive">
+        <p className="px-1 pb-2 text-label-sm text-destructive dark:text-destructive">
           {submissionGuard.disabledReason}
         </p>
       ) : null}
@@ -281,12 +281,12 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               />
             ))}
             {previews.length === 0 && (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-label-sm text-muted-foreground">
                 {t('generate.previewPending')}
               </span>
             )}
             {annotationText && (
-              <span className="max-w-[50%] truncate text-[11px] text-warning dark:text-warning">
+              <span className="max-w-[50%] truncate text-label-sm text-warning dark:text-warning">
                 {t('generate.annotationHint', { text: annotationText })}
               </span>
             )}

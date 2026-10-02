@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import SectionHeader from '../../../components/SectionHeader'
 import heroSeedData from '../../../generated/heroSeed.json'
 import { useTranslation } from '../../../i18n'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
@@ -36,24 +37,13 @@ export default function CreationInspiration() {
 
   return (
     <div className="w-full">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold">
-          {t('video:landing.cases')}
-          <span className="ml-2 text-xs font-normal text-muted-foreground">
-            {t('video:landing.casesHint')}
-          </span>
-        </h2>
-        <button
-          type="button"
-          onClick={openInspiration}
-          className="group inline-flex items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:text-foreground"
-        >
-          {t('inspiration:hero.viewAll')}
-          <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
-            →
-          </span>
-        </button>
-      </div>
+      <SectionHeader
+        className="mb-3"
+        title={t('video:landing.cases')}
+        action={{ label: t('inspiration:hero.viewAll'), onClick: openInspiration }}
+      >
+        <span className="text-xs text-muted-foreground">{t('video:landing.casesHint')}</span>
+      </SectionHeader>
       <ul
         aria-label={t('agent:suggestions.aria')}
         className="grid grid-cols-3 gap-3 sm:grid-cols-6"
@@ -84,7 +74,7 @@ export default function CreationInspiration() {
                   {item.category}
                 </span>
                 <span className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 transition duration-300 group-hover:opacity-100 group-focus-visible:opacity-100">
-                  <span className="line-clamp-6 p-3 text-[11px] leading-relaxed text-white/95">
+                  <span className="line-clamp-6 p-3 text-label-sm leading-relaxed text-white/95">
                     {item.prompt}
                   </span>
                 </span>

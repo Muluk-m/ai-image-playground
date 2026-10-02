@@ -157,7 +157,7 @@
     "title": "Give your imagination a picture.",
     "bodyAgent": "Describe your idea and the results appear here.",
     "bodyDirect": "Describe the image to start creating.",
-    "import": "＋ Import reference images"
+    "import": "Import reference images"
   },
   "import": {
     "inputAria": "Import canvas images",

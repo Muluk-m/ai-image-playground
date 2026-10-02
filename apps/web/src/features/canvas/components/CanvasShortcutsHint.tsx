@@ -46,7 +46,7 @@ export default function CanvasShortcutsHint() {
         <div className="pointer-events-auto w-52 rounded-xl border border-border bg-sidebar px-2.5 py-2 shadow-xl backdrop-blur">
           {shortcutRows.map((row) => (
             <div key={row.label} className="flex items-center justify-between gap-2 py-[3px]">
-              <span className="text-[11px] text-foreground">{row.label}</span>
+              <span className="text-label-sm text-foreground">{row.label}</span>
               <span className="flex shrink-0 items-center gap-1">
                 {row.keys.map((key) => (
                   <kbd

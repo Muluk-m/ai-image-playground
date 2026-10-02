@@ -194,23 +194,23 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {notice ? (
-          <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-[13px] text-success dark:bg-success/10 dark:text-success">
+          <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-body-sm text-success dark:bg-success/10 dark:text-success">
             {noticeText(notice)}
           </p>
         ) : null}
         {errorText ? (
           <p
             role="alert"
-            className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive dark:bg-destructive/10 dark:text-destructive"
+            className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-body-sm text-destructive dark:bg-destructive/10 dark:text-destructive"
           >
             {errorText}
           </p>
         ) : null}
 
         {loadFailed ? (
-          <p className="text-[13px] text-muted-foreground">{t('methods.loadFailed')}</p>
+          <p className="text-body-sm text-muted-foreground">{t('methods.loadFailed')}</p>
         ) : !methods ? (
-          <p className="text-[13px] text-muted-foreground">{t('methods.loading')}</p>
+          <p className="text-body-sm text-muted-foreground">{t('methods.loading')}</p>
         ) : (
           <>
             <section className="mb-6">
@@ -297,7 +297,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             type="button"
                             disabled={pending}
                             onClick={() => void unlink(provider.id)}
-                            className="shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+                            className="shrink-0 rounded-lg px-3 py-1.5 text-body-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
                           >
                             {t('methods.unlink')}
                           </button>
@@ -308,7 +308,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             onClick={() => {
                               window.location.href = oauthLinkUrl(provider.id)
                             }}
-                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
+                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-body-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
                           >
                             {t('methods.link')}
                           </button>

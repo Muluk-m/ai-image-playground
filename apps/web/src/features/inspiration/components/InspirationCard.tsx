@@ -55,7 +55,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-label-sm font-medium text-white">
                 {t('card.before')}
               </span>
             </div>
@@ -66,7 +66,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
               />
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-label-sm font-medium text-white">
                 {t('card.after')}
               </span>
             </div>
@@ -80,7 +80,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           />
         )}
 
-        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+        <span className="pointer-events-none absolute left-2 top-2 rounded-full border border-white/25 bg-black/60 px-2.5 py-1 text-label-sm font-medium text-white backdrop-blur-sm">
           {reference ? t('card.imageEdit') : item.category}
         </span>
 
@@ -108,7 +108,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
             {item.description}
           </p>
         )}
-        <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-[11px] text-muted-foreground">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-label-sm text-muted-foreground">
           <span className="truncate">
             {item.category}
             {referenceCount > 0 && ` · ${t('card.referenceCount', { count: referenceCount })}`}

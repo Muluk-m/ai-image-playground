@@ -1026,7 +1026,7 @@ export default function DetailModal() {
             <div className="flex-1 min-h-0 overflow-y-auto p-5 bg-card/50 dark:bg-black/20 overscroll-contain">
               <pre
                 data-selectable-text
-                className="text-[11px] sm:text-xs text-muted-foreground font-mono whitespace-pre-wrap break-all select-text"
+                className="text-label-sm sm:text-xs text-muted-foreground font-mono whitespace-pre-wrap break-all select-text"
               >
                 {task.rawResponsePayload.replace(
                   /"(b64_json|base64|data)":\s*"[^"]+"/g,

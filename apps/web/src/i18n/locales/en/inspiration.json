@@ -3,6 +3,7 @@
     "searchPlaceholder": "Search title / prompt / tag"
   },
   "filter": {
+    "provider": "Model",
     "all": "All",
     "imageEdit": "Image edits · Before & after"
   },

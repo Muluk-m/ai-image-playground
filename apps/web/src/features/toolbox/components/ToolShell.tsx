@@ -1,5 +1,13 @@
-import { ArrowLeft, Download, FolderOpen, ImagePlus, SquareArrowOutUpRight } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronRight,
+  Download,
+  FolderOpen,
+  ImagePlus,
+  SquareArrowOutUpRight,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
+import PageHeader from '../../../components/PageHeader'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { type DeliverableImage, downloadImages, sendImagesToComposer } from '../lib/deliver'
@@ -33,18 +41,29 @@ export default function ToolShell({
   const name = t(`tool.${tool.id}.name`)
 
   return (
-    <main {...dropZoneProps} className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <main
+      {...dropZoneProps}
+      className="flex h-[calc(100dvh-var(--mobile-nav-height,0px))] flex-col"
+    >
       {inputs}
-      <div className="studio-page-head flex shrink-0 flex-wrap items-center gap-2 border-b border-border py-2.5 pl-3 pr-16 md:pr-60">
-        <Button variant="ghost" size="sm" onClick={closeTool}>
-          <ArrowLeft />
-          {t('page.back')}
-        </Button>
-        <span className="text-muted-foreground">/</span>
-        <span className="flex items-center gap-2 text-[15px] font-medium">
-          <Icon className="h-4 w-4 text-primary" />
-          {name}
-        </span>
+      <PageHeader
+        className="gap-2 md:pl-3"
+        leading={
+          <>
+            <Button variant="ghost" size="sm" onClick={closeTool}>
+              <ArrowLeft />
+              {t('page.back')}
+            </Button>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          </>
+        }
+        title={
+          <>
+            <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+            {name}
+          </>
+        }
+      >
         <span className="ml-auto flex items-center gap-1.5">
           <Button variant="outline" size="sm" onClick={openFiles}>
             <ImagePlus />
@@ -60,8 +79,8 @@ export default function ToolShell({
             </Button>
           )}
         </span>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-5 py-3">
+      </PageHeader>
+      <div className="flex shrink-0 flex-wrap items-end gap-5 border-b border-border bg-muted/30 px-6 py-3">
         {controls}
       </div>
       {count === 0 ? (

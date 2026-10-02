@@ -151,7 +151,7 @@
 .studio-empty h2 { font-size: 25px; font-weight: 500; letter-spacing: -.05em; }
 .studio-empty p { margin: 12px 0 22px; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.9; }
 .studio-empty button { pointer-events: auto; }
-.studio-secondary { border-radius: 9px; padding: 10px 16px; font-size: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); transition: background .15s; }
+.studio-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: var(--radius); padding: 10px 16px; font-size: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--sidebar)); color: hsl(var(--foreground)); transition: background .15s; }
 .studio-secondary:hover { background: hsl(var(--muted)); }
 .studio-shell button:focus-visible, .studio-shell textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
 .studio-toolbar { position: absolute; top: 104px; bottom: 16px; left: 16px; z-index: 400; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
@@ -447,8 +447,6 @@
 .studio-create-target .studio-generate-button:hover:not(:disabled) {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / .22);
 }
-
-/* `studio-page-head` 只做标记，右侧让位由 Tailwind 的 pr-16 / md:pr-60 出（它在层叠里压得过这里）。 */
 
 /* 对话保持连续，产物在独立的审阅区放大查看。 */
 .studio-layout[data-artifact-open="true"] > .studio-chat-column {

@@ -12,7 +12,7 @@ import { useLibraryStore } from '../store'
 import LookImage from './LookImage'
 
 const ACTION =
-  'inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-[13px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40'
+  'inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl text-body-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40'
 
 export default function LookDetail({
   look,
@@ -124,7 +124,7 @@ export default function LookDetail({
                 </p>
               )}
               {record && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-label-sm text-muted-foreground">
                   {t('lookDetail.updatedAt', { time: formatDateTime(record.updatedAt) })}
                 </p>
               )}
@@ -176,7 +176,7 @@ export default function LookDetail({
                 {t('look.needsRetune')} · {look.model}
               </div>
             )}
-            <div className="space-y-4 text-[13px] leading-relaxed text-foreground">
+            <div className="space-y-4 text-body-sm leading-relaxed text-foreground">
               {sections.map((section) => (
                 <section key={section.title || section.body.slice(0, 24)}>
                   {section.title && (

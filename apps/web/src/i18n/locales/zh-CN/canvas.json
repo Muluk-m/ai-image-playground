@@ -146,7 +146,7 @@
     "title": "给想象，一个画面。",
     "bodyAgent": "描述你的想法，作品会在这里展开。",
     "bodyDirect": "输入画面描述，开始你的创作。",
-    "import": "＋ 导入参考图片"
+    "import": "导入参考图片"
   },
   "import": {
     "inputAria": "导入画布图片",

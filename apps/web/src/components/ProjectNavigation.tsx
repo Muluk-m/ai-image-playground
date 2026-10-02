@@ -137,7 +137,7 @@ export default function ProjectNavigation() {
                 className="pl-9 text-xs"
               />
             </div>
-            <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
+            <p className="px-3 pb-1 pt-3 text-label-sm text-muted-foreground">
               {query ? t('navigation.results') : t('navigation.recent')}
             </p>
             <div className="min-h-0 overflow-y-auto" aria-busy={busy}>
@@ -150,7 +150,7 @@ export default function ProjectNavigation() {
                       group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases',
                     )}
                   >
-                    <p className="px-3 pb-1 pt-3 text-[11px] text-muted-foreground">
+                    <p className="px-3 pb-1 pt-3 text-label-sm text-muted-foreground">
                       {t(group.experience === 'chat' ? 'navigation.chats' : 'navigation.canvases')}
                     </p>
                     {group.visible.map((project) => (

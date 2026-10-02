@@ -951,7 +951,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         </Layer>
       </Stage>
       {mobile && (
-        <div className="pointer-events-none absolute bottom-2 left-16 right-3 text-center text-[11px] text-muted-foreground">
+        <div className="pointer-events-none absolute bottom-2 left-16 right-3 text-center text-label-sm text-muted-foreground">
           {t('touch.hint')}
         </div>
       )}

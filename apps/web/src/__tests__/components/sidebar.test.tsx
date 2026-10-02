@@ -66,7 +66,7 @@ it('对话与画布用两个标签切换，查看全部打开项目列表', () =
   expect(entry('新建画布')).toBeDefined()
   expect(useStore.getState().appMode).toBe('image')
 
-  act(() => entry('查看全部 →').click())
+  act(() => entry('查看全部').click())
   expect(useStore.getState().appMode).toBe('library')
   expect(useLibraryStore.getState().tab).toBe('projects')
   expect(entry('资产').getAttribute('aria-pressed')).toBe('true')

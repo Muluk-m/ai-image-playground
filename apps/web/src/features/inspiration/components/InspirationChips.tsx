@@ -1,3 +1,4 @@
+import { ArrowRight } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from '../../../i18n'
 import { applyInspiration } from '../lib/applyInspiration'
@@ -38,7 +39,7 @@ export default function InspirationChips() {
           key={item.id}
           type="button"
           onClick={() => applyInspiration(item)}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card/70 py-1.5 pl-1.5 pr-3.5 text-[13px] text-muted-foreground backdrop-blur-sm transition-colors hover:border-primary/50 hover:text-foreground"
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card/70 py-1.5 pl-1.5 pr-3.5 text-body-sm text-muted-foreground backdrop-blur-sm transition-colors hover:border-primary/50 hover:text-foreground"
         >
           <img
             src={item.thumbnailUrl}
@@ -52,9 +53,13 @@ export default function InspirationChips() {
       <button
         type="button"
         onClick={openInspiration}
-        className="shrink-0 rounded-xl border border-border px-3.5 py-2.5 text-[13px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        className="group inline-flex shrink-0 items-center gap-1 rounded-xl border border-border px-3.5 py-2.5 text-body-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
       >
-        {t('hero.viewAll')} →
+        {t('hero.viewAll')}
+        <ArrowRight
+          className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+          aria-hidden="true"
+        />
       </button>
     </div>
   )
