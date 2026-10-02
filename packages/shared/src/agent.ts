@@ -631,6 +631,8 @@ export interface AgentVisualObservation {
 }
 
 export interface AgentToolResultBlock {
+  /** 实际视频档位在拟稿时冻结；确认卡、历史与结果共用。 */
+  readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
   readonly type: 'toolResult'

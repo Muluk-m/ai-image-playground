@@ -44,6 +44,7 @@ import AgentCopyDiagnostic from './AgentCopyDiagnostic'
 import AgentJobProgress, { AgentJobCancel, useAgentToolProgress } from './AgentJobProgress'
 import AgentPromptDialog from './AgentPromptDialog'
 import AgentPromptDraft from './AgentPromptDraft'
+import AgentVideoToolCard from './AgentVideoToolCard'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
@@ -1038,6 +1039,8 @@ export default function AgentToolCard(props: Parameters<typeof StandardAgentTool
       batchId={props.message.batchId}
       domId={agentToolCardDomId(props.message.id)}
     />
+  ) : props.message.toolName === 'generateVideo' ? (
+    <AgentVideoToolCard key={props.message.id} {...props} />
   ) : (
     <StandardAgentToolCard {...props} />
   )

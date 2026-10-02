@@ -52,6 +52,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     toolName: block.toolName,
     ...(block.batchId ? { batchId: block.batchId } : {}),
     title: block.title,
+    ...(block.video ? { video: block.video } : {}),
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
     ...(block.artifacts ? { artifacts: block.artifacts } : {}),

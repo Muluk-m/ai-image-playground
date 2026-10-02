@@ -15,6 +15,7 @@ import type {
   AgentToolStage,
   AgentTurnParams,
   AgentWebSource,
+  VideoGenerationRecord,
 } from '@image-playground/shared'
 import type { Static, TSchema } from 'typebox'
 import type { ChatAttempt } from '../../chatCompletion'
@@ -91,6 +92,8 @@ export interface AgentSubmissionReplay {
  * 产物要等任务结束才有。
  */
 export interface AgentToolDetails {
+  /** 拟稿时冻结的实际视频参数，确认前即展示给用户。 */
+  readonly video?: VideoGenerationRecord
   readonly analysisLimit?: AgentBatchAnalysisLimit
   readonly batchId?: string
   readonly executedPrompt?: string
@@ -188,7 +191,10 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
    * 参数快照（{@link AgentToolCallSnapshot}），失败记录与重试都从那里取参数。
    * 解析不出来就返回 undefined，快照照记，只是没有模型。
    */
-  target?(params: AgentTurnParams | undefined): AgentToolCallSnapshot['target']
+  target?(
+    params: AgentTurnParams | undefined,
+    args: AgentToolArgs<P>,
+  ): AgentToolCallSnapshot['target']
   /**
    * 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。
    * 带上这一轮的创作类型：同一个名字在两个 mode 下未必指同一件事，起跑这一行标签要按
