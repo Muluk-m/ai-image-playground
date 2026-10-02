@@ -1011,7 +1011,13 @@ export default function AgentComposer({
             <AgentParamsChip />
             <ComposerSend
               streaming={stopMode}
-              idle={!historyBlocked && !loading && !submitting && Boolean(draft.prompt.trim())}
+              idle={
+                !historyBlocked &&
+                !loading &&
+                !submitting &&
+                !uploadsBlocked &&
+                Boolean(draft.prompt.trim())
+              }
               aria-label={
                 stopMode
                   ? t('composer.abort')
@@ -1024,9 +1030,11 @@ export default function AgentComposer({
               title={
                 stopMode
                   ? t('composer.abortTitle')
-                  : running
-                    ? t('composer.queue')
-                    : t('composer.sendAndCreateTitle')
+                  : uploadsBlocked
+                    ? t('composer.uploadsPending')
+                    : running
+                      ? t('composer.queue')
+                      : t('composer.sendAndCreateTitle')
               }
               disabled={
                 stopMode
