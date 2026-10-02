@@ -431,3 +431,57 @@ export interface ListAuditsResult {
   audits: OperatorAuditRow[]
   nextCursor: string | null
 }
+
+/** 浏览器上报的错误。kind 的含义见 packages/shared/src/client-errors.ts。 */
+export type ClientErrorKind = 'boot' | 'error' | 'rejection' | 'react'
+
+/** 同一指纹在时间窗内聚成的一个问题；kind 以下几项取自最近一次。 */
+export interface ClientErrorGroup {
+  fingerprint: string
+  kind: ClientErrorKind
+  name: string | null
+  message: string
+  count: number
+  devices: number
+  users: number
+  first_seen: number
+  last_seen: number
+  last_url: string | null
+  last_release: string | null
+}
+
+export interface ClientErrorTrendBucket {
+  bucket_at: number
+  boot: number
+  runtime: number
+}
+
+export interface ClientErrorsResult {
+  range: Range
+  bucket_unit: VolumeBucketUnit
+  summary: { events: number; devices: number; boot_events: number; groups: number }
+  trend: ClientErrorTrendBucket[]
+  /** 按次数从多到少，最多 100 组。 */
+  groups: ClientErrorGroup[]
+}
+
+export interface ClientErrorEvent {
+  id: string
+  received_at: number
+  kind: ClientErrorKind
+  name: string | null
+  message: string
+  stack: string | null
+  url: string | null
+  release: string | null
+  device_id: string | null
+  user_id: string | null
+  user_agent: string | null
+  context: Record<string, unknown> | null
+}
+
+export interface ClientErrorEventsResult {
+  fingerprint: string
+  /** 时间窗内最近的 50 次。 */
+  events: ClientErrorEvent[]
+}
