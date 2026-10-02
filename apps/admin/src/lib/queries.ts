@@ -138,5 +138,8 @@ export function useClientErrorEvents(fingerprint: string | undefined, range: Ran
         `/api/client-errors/${encodeURIComponent(fingerprint!)}?range=${range}`,
       ),
     enabled: typeof fingerprint === 'string' && fingerprint.length > 0,
+    // 全局默认 staleTime 是 Infinity；明细要跟列表一起刷新，重新打开同一问题也要重拉。
+    staleTime: 0,
+    refetchInterval: 60_000,
   })
 }
