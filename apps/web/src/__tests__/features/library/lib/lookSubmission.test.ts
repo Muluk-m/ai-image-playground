@@ -273,6 +273,27 @@ it('times out a stalled required image and releases the preparation lock', async
   expect(useLookSubmission.getState().submitting).toBe(false)
   expect(useStore.getState().tasks).toHaveLength(0)
   expect(useStore.getState().toast?.type).toBe('error')
+  expect(useStore.getState().toast?.message).toContain('超时')
+})
+
+it('names the template, not internal ids, when a template reference cannot load', async () => {
+  seedImage()
+  const missing = crypto.randomUUID()
+  vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+  expect(
+    await submitWithLook(
+      look([
+        { kind: 'url', url: '/refs/internal-file.png' },
+        { kind: 'image', imageId: missing },
+      ]),
+      'template',
+    ),
+  ).toBe(false)
+  const message = useStore.getState().toast?.message ?? ''
+  expect(message).toContain('Test')
+  expect(message).not.toContain('internal-file')
+  expect(message).not.toContain(missing)
+  expect(useStore.getState().tasks).toHaveLength(0)
 })
 
 async function prepareLogin() {

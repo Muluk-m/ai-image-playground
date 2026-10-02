@@ -36,8 +36,14 @@ export async function resumePendingSubmission(): Promise<void> {
           }),
         )
       } catch {
-        if (!operation.signal.aborted || operation.signal.reason?.name === 'TimeoutError')
-          useStore.getState().showToast(i18next.t('look.prepareFailed', { ns: 'library' }), 'error')
+        const timedOut = operation.signal.reason?.name === 'TimeoutError'
+        if (!operation.signal.aborted || timedOut)
+          useStore
+            .getState()
+            .showToast(
+              i18next.t(timedOut ? 'look.prepareTimeout' : 'look.prepareFailed', { ns: 'library' }),
+              'error',
+            )
       } finally {
         operation.finish()
       }
