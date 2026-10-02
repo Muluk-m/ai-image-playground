@@ -31,20 +31,21 @@ function text(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value)
 }
 
-/** 趋势分桶与概览的任务量一致：1 天按小时，其余按天，空桶补零。 */
+/**
+ * 1 天按小时、其余按天，空桶补零。窗口与汇总、分组一样从 NOW() 往回滚动：首桶从窗口起点所在的
+ * 整点或整天开始，只计窗口内的事件，各桶加起来等于汇总的错误次数。
+ */
 async function trend(range: Range): Promise<ClientErrorsResult['trend']> {
   const { db } = getDbHandle()
   const unit = range === '1d' ? sql`'hour'` : sql`'day'`
   const step = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
-  const start =
-    range === '1d'
-      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
-      : range === '7d'
-        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
-        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
   const rows = (await db.execute(sql`
     WITH buckets AS (
-      SELECT GENERATE_SERIES(${start}, DATE_TRUNC(${unit}, NOW()), ${step}) AS bucket
+      SELECT GENERATE_SERIES(
+        DATE_TRUNC(${unit}, ${since(range)}),
+        DATE_TRUNC(${unit}, NOW()),
+        ${step}
+      ) AS bucket
     )
     SELECT
       EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
@@ -54,6 +55,7 @@ async function trend(range: Range): Promise<ClientErrorsResult['trend']> {
     LEFT JOIN client_errors e
       ON e.received_at >= b.bucket
      AND e.received_at < b.bucket + ${step}
+     AND e.received_at >= ${since(range)}
     GROUP BY b.bucket
     ORDER BY b.bucket
   `)) as unknown as Row[]

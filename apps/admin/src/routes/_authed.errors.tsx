@@ -52,14 +52,22 @@ function KindBadge({ kind }: { kind: ClientErrorKind }) {
 }
 
 function title(group: Pick<ClientErrorGroup, 'kind' | 'name' | 'message'>): string {
-  if (group.kind === 'boot') return BOOT_REASON_LABEL[group.message] ?? group.message
+  // message 是浏览器报上来的，`__proto__` 之类会命中原型链，只认自有键。
+  if (group.kind === 'boot') {
+    return Object.prototype.hasOwnProperty.call(BOOT_REASON_LABEL, group.message)
+      ? BOOT_REASON_LABEL[group.message]!
+      : group.message
+  }
   return group.name ? `${group.name}: ${group.message}` : group.message
 }
 
 function ClientErrorsPage() {
   const [range, setRange] = useRangeSearch()
-  const [selected, setSelected] = useState<ClientErrorGroup | undefined>()
+  const [selectedFingerprint, setSelectedFingerprint] = useState<string | undefined>()
   const query = useClientErrors(range)
+  // 只记指纹，分组从当前数据里取：列表刷新、切时间窗后抽屉里的数字跟着走；
+  // 新窗口里没有这一组就收起抽屉。
+  const selected = query.data?.groups.find((group) => group.fingerprint === selectedFingerprint)
 
   return (
     <Page
@@ -120,15 +128,24 @@ function ClientErrorsPage() {
                     <TableRow
                       key={group.fingerprint}
                       className="cursor-pointer"
-                      onClick={() => setSelected(group)}
+                      onClick={() => setSelectedFingerprint(group.fingerprint)}
                     >
                       <TableCell>
                         <KindBadge kind={group.kind} />
                       </TableCell>
                       <TableCell className="max-w-[min(560px,50vw)]">
-                        <p className="truncate font-mono text-xs" title={title(group)}>
+                        {/* 整行可点只是鼠标的捷径；键盘用户靠这个按钮打开明细。 */}
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left font-mono text-xs underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                          title={title(group)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setSelectedFingerprint(group.fingerprint)
+                          }}
+                        >
                           {title(group)}
-                        </p>
+                        </button>
                         {group.last_url ? (
                           <p className="truncate text-xs text-muted-foreground">{group.last_url}</p>
                         ) : null}
@@ -154,7 +171,10 @@ function ClientErrorsPage() {
         </>
       )}
 
-      <Sheet open={!!selected} onOpenChange={(open) => (open ? null : setSelected(undefined))}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(open) => (open ? null : setSelectedFingerprint(undefined))}
+      >
         <SheetContent className="flex w-full flex-col gap-4 overflow-y-auto sm:max-w-3xl">
           <SheetHeader>
             <SheetTitle className="break-all pr-6 text-base">
