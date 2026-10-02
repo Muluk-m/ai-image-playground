@@ -4,10 +4,10 @@
 # 故意不写 /* 兜底规则：Pages 对多条命中规则的合并顺序没有明确契约，交叠会带来
 # 不确定的 Cache-Control。HTML 沿用宿主默认的「每次回源校验」。
 
-# 不按资源路径无条件标 immutable：缺失资源的 404 也会命中这条规则。
-# 保留 ETag 校验，禁止复用过期的错误响应。
+# 文件名带内容哈希。缺失资源走 404（不带这条头），由 verify-pages-release 每次发布核验；
+# 不要恢复 `/* /index.html 200` 式回退，否则 HTML 会以这条头被缓存一年。
 /assets/*
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: public, max-age=31536000, immutable
 
 /sw.js
   Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
