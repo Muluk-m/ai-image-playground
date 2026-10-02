@@ -214,6 +214,8 @@
     "loadingCloud": "正在读取项目…",
     "retryCloud": "重试读取项目",
     "refreshCloud": "刷新项目",
+    "filterAll": "全部",
+    "filterAria": "按类型筛选项目",
     "loadMore": "加载更多项目",
     "newProject": "新建项目",
     "openAria": "打开项目 {{name}}",
