@@ -776,7 +776,7 @@ describe('input persistence setting', () => {
   it('saved mask survives a reload with its reference image', async () => {
     const mask = 'data:image/png;base64,mask'
     useStore.getState().setMaskDraft({ targetImageId: imageA.id, maskDataUrl: mask, updatedAt: 1 })
-    await waitUntil(() => useStore.getState().maskDraft?.maskImageId, 'mask not stored')
+    await waitUntil(() => Boolean(useStore.getState().maskDraft?.maskImageId), 'mask not stored')
 
     const persisted = getPersistedState(useStore.getState())
     const maskImageId = useStore.getState().maskDraft?.maskImageId

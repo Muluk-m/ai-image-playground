@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
+import { ArrowLeft, ChevronDown, FolderOpen, PanelLeftOpen, Search } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
@@ -134,6 +134,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const [assetDrawerOpen, setAssetDrawerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [handoffIds, setHandoffIds] = useState<readonly string[] | null>(null)
+  /** 手机上 Agent 项目的画布视图：对话列不占位，要靠底部抽屉才能继续写和发送。 */
+  const [mobileChatOpen, setMobileChatOpen] = useState(false)
   const focusedResult = useRef<string | null>(null)
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
@@ -156,6 +158,10 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
     })
   }
   const hasAgent = agentPanelPresent()
+  const mobileChatSheet = mobile && hasAgent && projectView === 'canvas'
+  useEffect(() => {
+    setMobileChatOpen(false)
+  }, [project?.id, projectView])
   const messages = useAgentStore((state) => state.messages)
   const latestResult = [...messages]
     .reverse()
@@ -417,6 +423,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             className="studio-layout"
             data-project-view={hasAgent ? projectView : undefined}
             data-mobile-view={projectView}
+            data-mobile-chat={mobileChatSheet && mobileChatOpen ? 'open' : undefined}
             inert={loading || loadFailed}
           >
             {!hasAgent && (
@@ -446,6 +453,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               <div
                 className={`studio-chat-column ${hasAgent && projectView === 'chat' ? 'studio-chat-column--page' : ''}`}
               >
+                {mobileChatSheet && mobileChatOpen && (
+                  <button
+                    type="button"
+                    className="studio-mobile-chat-close"
+                    onClick={() => setMobileChatOpen(false)}
+                    aria-label={t('sidebar.collapseAria')}
+                  >
+                    <ChevronDown size={18} aria-hidden="true" />
+                  </button>
+                )}
                 {!hasAgent && (
                   <div className="studio-canvas-topbar">
                     <button
@@ -547,6 +564,16 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                     strokeLinejoin="round"
                   />
                 </svg>
+              </button>
+            )}
+            {mobileChatSheet && !mobileChatOpen && (
+              <button
+                type="button"
+                className="studio-open-chat studio-mobile-open-chat"
+                onClick={() => setMobileChatOpen(true)}
+              >
+                <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
+                {t('sidebar.openChat')}
               </button>
             )}
             {selectedResultId && activeResult && projectView === 'chat' && (
