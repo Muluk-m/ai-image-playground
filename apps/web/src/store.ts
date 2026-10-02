@@ -1352,6 +1352,18 @@ export interface PreparedSubmissionOptions {
   onLoginQueued?: () => void
 }
 
+/** 指定模型提交时：这份配置档案仍在设置里，并且仍提供这个模型。 */
+export function isModelAvailableForProfile(
+  settings: AppSettings,
+  profile: ClientProfile,
+  modelId: string,
+): boolean {
+  return (
+    normalizeSettings(settings).profiles.some((item) => item.id === profile.id) &&
+    getProfileModels(profile, getPublicChannels()).includes(modelId)
+  )
+}
+
 export async function submitPrepared(
   input: PreparedSubmission,
   options: PreparedSubmissionOptions = {},
@@ -1364,11 +1376,7 @@ export async function submitPrepared(
     input.profile ??
     normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
     getActiveApiProfile(normalizedSettings)
-  if (
-    input.modelId &&
-    (!normalizedSettings.profiles.some((item) => item.id === input.profileId) ||
-      !getProfileModels(selectedProfile, getPublicChannels()).includes(input.modelId))
-  ) {
+  if (input.modelId && !isModelAvailableForProfile(settings, selectedProfile, input.modelId)) {
     showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
     return []
   }
