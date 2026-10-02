@@ -19,6 +19,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
 import { prepareMaskedInput } from './agent/masked-input'
+import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
@@ -109,16 +110,6 @@ function pricingOf(input: CreateQueueTaskInput) {
   }
 }
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value && typeof value === 'object')
-    return `{${Object.entries(value)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, v]) => `${JSON.stringify(key)}:${canonicalJson(v)}`)
-      .join(',')}}`
-  return JSON.stringify(value)
-}
 function commandHash(input: CreateQueueTaskInput) {
   const { device_id: _device, client_request_id: _command, ...request } = input.request
   return createHash('sha256')
