@@ -3,7 +3,6 @@
     "image": "Create",
     "canvas": "Canvas",
     "explore": "Explore",
-    "projects": "Projects",
     "library": "Assets",
     "tools": "Toolbox"
   },
@@ -14,9 +13,6 @@
     "inputImageMissing": "The input image no longer exists",
     "maskImageMissing": "The mask image no longer exists",
     "customDisconnected": "Lost the connection to the custom async task; its result will keep being polled."
-  },
-  "profile": {
-    "unknown": "Unknown profile"
   },
   "networkHint": {
     "proxyDown": "Hint: the request failed instantly. Check that the API proxy service is running.",

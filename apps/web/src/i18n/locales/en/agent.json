@@ -24,7 +24,6 @@
     "resizeTitle": "Drag to resize",
     "collapseAria": "Collapse panel",
     "expand": "Open chat",
-    "backToChat": "Back to chat",
     "aria": "Creation chat",
     "newProjectAria": "New project",
     "logAria": "Conversation log",
@@ -110,7 +109,6 @@
     "loadingPreview": "Loading result…",
     "previewUnavailable": "Preview unavailable",
     "retryPreview": "Retry preview",
-    "imageGenerating": "Image generating",
     "status": {
       "running": "Running",
       "queued": "Queued",
@@ -121,8 +119,6 @@
     },
     "downloadFailed": "Download failed. Please try again.",
     "markLasso": "Lasso",
-    "region": "Region {{number}}",
-    "removeRegion": "Remove region {{number}}",
     "markRectangle": "Rectangle selection",
     "clearMark": "Clear selection",
     "fitImage": "Fit to window",
@@ -156,7 +152,6 @@
     "outputsImage_other": "Generates {{count}} images once confirmed",
     "outputsVideo_one": "Generates {{count}} video once confirmed",
     "outputsVideo_other": "Generates {{count}} videos once confirmed",
-    "model": "Model {{name}}",
     "gone": "This draft card is gone. Ask the assistant to draft it again.",
     "notConfirmable": "This draft is no longer valid — it may have been confirmed elsewhere. Ask the assistant to draft it again.",
     "failed": "Couldn't submit it. Your edited prompt is kept, please retry.",
@@ -224,7 +219,6 @@
     "clearSelectionAria": "Don't include the selected canvas images",
     "abort": "Stop",
     "abortTitle": "Stop: ends this reply only; generations already running keep going",
-    "interject": "Interject",
     "send": "Send",
     "dropHint": "Drop to add as a reference image",
     "draftLoadingToast": "The draft is still loading. Add images in a moment.",
@@ -243,16 +237,12 @@
     "tooManyUploads_one": "At most {{count}} uploaded or library image per turn",
     "tooManyUploads_other": "At most {{count}} uploaded or library images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",
-    "modeAria": "Creation type",
-    "modeImage": "Image",
-    "modeVideo": "Video",
     "queue": "Queue",
     "autoSubmitAria": "Direct generation mode",
     "autoSubmitOnTitle": "Direct generation: the assistant starts generating — and charging — as soon as it drafts a prompt, with no per-draft confirmation",
     "autoSubmitOffTitle": "Chat mode: the assistant drafts a prompt and waits for your confirmation. Click to switch to direct generation (generates and charges immediately)",
     "assetViewsUnavailable": "Some asset views could not be read. Retry before attaching the asset.",
     "attachmentReadFailed": "Some images could not be read. No files were attached; please select them again.",
-    "uploadUnsupported": "Convert this image to PNG, JPEG or WebP first.",
     "retryUpload": "Retry",
     "retryUploadAria": "Retry uploading {{label}}",
     "upload": {
@@ -330,9 +320,6 @@
     "canvasName": "Web image",
     "sourceTitle": "Open source page"
   },
-  "trail": {
-    "sources": "Sources"
-  },
   "error": {
     "turnFailed": "This turn did not finish",
     "rateLimited": "Too many messages. Try again shortly.",
@@ -341,7 +328,6 @@
     "invalidSelection": "That selection can't be used. Mark the area again — your draft is kept.",
     "invalidReference": "Some reference images are no longer available. Add or select them again. Your draft is kept.",
     "referencesNotUploaded": "Some images haven't finished uploading, so this turn wasn't sent. Please retry — your draft is kept.",
-    "interjectFailed": "The interjection was not sent. Your draft is kept, please retry.",
     "canvasBindFailed": "The project could not be saved into the new conversation. Please retry. The original project and draft are kept.",
     "turnAlreadyRunning": "A turn is already running in this conversation. The message was not sent and your draft is kept.",
     "stopFailed": "Couldn't stop it. Click Stop to try again.",
@@ -425,7 +411,6 @@
     "retry": "Reload"
   },
   "navigation": {
-    "back": "Back to projects",
     "switchAria": "Switch project, current: {{name}}",
     "switchTitle": "Switch project",
     "search": "Search projects",
