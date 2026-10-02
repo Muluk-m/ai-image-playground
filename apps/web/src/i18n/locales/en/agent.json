@@ -680,6 +680,7 @@
     "library": "Library",
     "libraryEmpty": "No assets in your library yet",
     "upload": "Upload images",
-    "clear": "Clear"
+    "clear": "Clear",
+    "canvas": "Canvas"
   }
 }

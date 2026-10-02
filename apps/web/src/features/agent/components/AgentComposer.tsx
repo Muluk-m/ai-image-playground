@@ -384,6 +384,9 @@ export default function AgentComposer({
     fromAsset: (image, asset) => ({ ...image, name: asset.name }),
     fromFiles: filesToReferences,
     imageName: (reference) => reference.name,
+    canvas: showCanvasReferences
+      ? { images: () => canvas, reference: (image) => canvasReference(canvas, image.imageId) }
+      : undefined,
     accepting: () => {
       const snapshot = session.getSnapshot()
       if (snapshot.loading || snapshot.recoveryBlocked) {

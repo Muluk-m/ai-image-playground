@@ -18,7 +18,8 @@ import { useStore } from '../../../store'
 import type { InputImage } from '../../../types'
 import { assetSlotImage, useLibraryStore } from '../../library/store'
 import type { AssetRecord } from '../../library/types'
-import AssetSlotChip, { type AssetSlotImage } from './AssetSlotChip'
+import type { CanvasImage } from '../lib/agentMentions'
+import AssetSlotChip, { type AssetSlotImage, CanvasSlotSource } from './AssetSlotChip'
 
 /**
  * 输入框交给素材位的那几样：怎么读写自己的草稿、准入、文件怎么变成参考图。首页对话输入框与
@@ -35,6 +36,14 @@ export interface AssetSlotHost<D extends ReferenceDraft> {
   readonly fromFiles: (files: File[]) => SlotReference<D>[] | Promise<SlotReference<D>[]>
   /** 胶囊上那张图叫什么。 */
   readonly imageName: (image: SlotReference<D>) => string | undefined
+  /**
+   * 画布上的图（只有项目里有）：`images` 摆进面板，`reference` 把选中的那张换成与 `@` 菜单
+   * 同一份引用。不给就没有「画布」来源。
+   */
+  readonly canvas?: {
+    readonly images: () => readonly CanvasImage[]
+    readonly reference: (image: CanvasImage) => SlotReference<D> | undefined
+  }
   /** 草稿还没恢复、读图期间换了会话之类：返回 false 就不往里放（要提示的自己提示）。 */
   readonly accepting?: () => boolean
 }
@@ -131,6 +140,7 @@ export function useAssetSlots<D extends ReferenceDraft>(
     host.write(clearAssetSlot(host.read(), occurrence))
   }
 
+  const canvas = host.canvas
   return (slot, occurrence) => {
     const images: AssetSlotImage[] = assetSlotImages(slot, host.read().references).map((image) => ({
       src: image.dataUrl,
@@ -143,6 +153,19 @@ export function useAssetSlots<D extends ReferenceDraft>(
         onPickAsset={(asset) => void pickAsset(occurrence, slot.key, asset)}
         onUpload={(files) => upload(occurrence, slot.key, files)}
         onClear={() => clear(occurrence)}
+        extraSources={
+          canvas &&
+          ((close) => (
+            <CanvasSlotSource
+              images={canvas.images()}
+              onPick={(image) => {
+                close()
+                const reference = canvas.reference(image)
+                if (reference) fill(occurrence, slot.key, [reference], begin(occurrence))
+              }}
+            />
+          ))
+        }
       />
     )
   }

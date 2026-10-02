@@ -33,7 +33,9 @@ import { agentDraft } from '../../../../features/agent/lib/drafts'
 import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { resetAgentSkillsCache } from '../../../../features/agent/lib/useAgentSkills'
 import { useAgentStore } from '../../../../features/agent/store'
+import ProjectWelcome from '../../../../features/canvas/components/ProjectWelcome'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import type { CanvasWorkspace } from '../../../../features/canvas/lib/workspaces'
 import { useCanvasProjectStore } from '../../../../features/canvas/projectStore'
 import { useLibraryStore } from '../../../../features/library/store'
 import type { AssetRecord } from '../../../../features/library/types'
@@ -66,7 +68,24 @@ const MAIN_IMAGE: AgentSkillSummary = {
   verified: true,
 }
 
+/** 两个位：交接到画布时编号要跟着位在句子里的次序，空着的那个留下位名。 */
+const MODEL_SHOT: AgentSkillSummary = {
+  name: 'model-shot',
+  title: '模特图',
+  description: '何时用：模特图。',
+  icon: 'user-round',
+  summary: '模特上身',
+  inputs: [
+    { key: 'product', label: { 'zh-CN': '商品素材' }, required: true, multiple: false },
+    { key: 'model', label: { 'zh-CN': '模特' }, required: false, multiple: false },
+  ],
+  starters: [{ text: { 'zh-CN': '让 {model} 拿着 {product} 拍一张' } }],
+  scene: 'scene-character',
+  verified: true,
+}
+
 const COVER = 'data:image/png;base64,Y292ZXI='
+const PIXEL = 'data:image/png;base64,cGl4ZWw='
 const FRONT = 'data:image/png;base64,ZnJvbnQ='
 
 /** 封面不是正面：位里该放的是正面那张（模板的视角选择规则），`@` 素材才带上全部视角。 */
@@ -136,34 +155,34 @@ function editor(): HTMLElement {
   return host.querySelector<HTMLElement>('[contenteditable]')!
 }
 
-function slotChip(): HTMLButtonElement | null {
-  return editor().querySelector<HTMLButtonElement>('[data-asset-slot-chip="product"]')
+function slotChip(key = 'product'): HTMLButtonElement | null {
+  return editor().querySelector<HTMLButtonElement>(`[data-asset-slot-chip="${key}"]`)
 }
 
-function panel(): HTMLElement {
-  const found = document.querySelector<HTMLElement>('[data-asset-slot-panel="product"]')
+function panel(key = 'product'): HTMLElement {
+  const found = document.querySelector<HTMLElement>(`[data-asset-slot-panel="${key}"]`)
   if (!found) throw new Error('slot panel is not open')
   return found
 }
 
-function openSlot(): void {
-  click(slotChip()!)
+function openSlot(key = 'product'): void {
+  click(slotChip(key)!)
 }
 
-async function pickAsset(name: string): Promise<void> {
-  openSlot()
-  click(panel().querySelector(`button[aria-label="${name}"]`)!)
-  await until(() => expect(slotChip()?.hasAttribute('data-filled')).toBe(true))
+async function pickAsset(name: string, key = 'product'): Promise<void> {
+  openSlot(key)
+  click(panel(key).querySelector(`button[aria-label="${name}"]`)!)
+  await until(() => expect(slotChip(key)?.hasAttribute('data-filled')).toBe(true))
 }
 
-async function upload(files: File[]): Promise<void> {
-  openSlot()
-  const input = panel().querySelector<HTMLInputElement>('input[type="file"]')!
+async function upload(files: File[], key = 'product'): Promise<void> {
+  openSlot(key)
+  const input = panel(key).querySelector<HTMLInputElement>('input[type="file"]')!
   Object.defineProperty(input, 'files', { value: files, configurable: true })
   act(() => {
     input.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await until(() => expect(slotChip()?.hasAttribute('data-filled')).toBe(true))
+  await until(() => expect(slotChip(key)?.hasAttribute('data-filled')).toBe(true))
 }
 
 /** 在句末打字，光标跟着落在句末——`@` 菜单按光标前的那一段找查询。 */
@@ -211,32 +230,43 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+async function projectSetup(): Promise<void> {
+  const session = agentDraft(null, PROJECT_ID)
+  await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+  session.update(EMPTY_DRAFT)
+  session.setSubmitting(false)
+  useCanvasProjectStore.setState({
+    projects: [
+      {
+        id: PROJECT_ID,
+        name: '项目',
+        customName: false,
+        conversationId: null,
+        sceneKey: `scene:${PROJECT_ID}`,
+        createdAt: 0,
+        updatedAt: 0,
+        hasContent: false,
+        kind: 'image',
+      },
+    ],
+    activeId: PROJECT_ID,
+  })
+}
+
+function slotPanelHeadings(): string[] {
+  return [...panel().querySelectorAll('h3')].map((one) => one.textContent ?? '')
+}
+
 describe('项目输入框里的素材位', () => {
+  let doc: CanvasDoc
+
   beforeEach(async () => {
-    const session = agentDraft(null, PROJECT_ID)
-    await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
-    session.update(EMPTY_DRAFT)
-    session.setSubmitting(false)
-    useCanvasProjectStore.setState({
-      projects: [
-        {
-          id: PROJECT_ID,
-          name: '项目',
-          customName: false,
-          conversationId: null,
-          sceneKey: `scene:${PROJECT_ID}`,
-          createdAt: 0,
-          updatedAt: 0,
-          hasContent: false,
-          kind: 'image',
-        },
-      ],
-      activeId: PROJECT_ID,
-    })
+    await projectSetup()
+    doc = new CanvasDoc()
     act(() => {
       root.render(
         <>
-          <AgentComposer doc={new CanvasDoc()} />
+          <AgentComposer doc={doc} />
           <SkillStarterGuide />
         </>,
       )
@@ -379,6 +409,45 @@ describe('项目输入框里的素材位', () => {
     expect(references?.map((one) => one.imageId)).toEqual(['mug-front'])
   })
 
+  it('从画布选一张图填位：与 `@` 引用画布图是同一份参考图', async () => {
+    act(() =>
+      doc.restore(
+        [
+          {
+            id: 'canvas-1',
+            type: 'image',
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            rotation: 0,
+            fileId: 'file-1',
+          },
+        ],
+        { 'file-1': PIXEL },
+      ),
+    )
+    pickStarter()
+    openSlot()
+    expect(slotPanelHeadings()).toEqual(['素材库', '画布'])
+    click(panel().querySelector('button[aria-label="画布图1"]')!)
+    expect(slotChip()?.hasAttribute('data-filled')).toBe(true)
+    expect(slotChip()?.querySelector('img')?.getAttribute('src')).toBe(PIXEL)
+
+    sendTurn()
+    expect(send).toHaveBeenCalledWith(
+      '/product-main-image 为 [image 1] 出一张白底主图',
+      [{ imageId: 'canvas-1', dataUrl: PIXEL }],
+      'image',
+    )
+  })
+
+  it('画布上没有图时不出「画布」来源', () => {
+    pickStarter()
+    openSlot()
+    expect(slotPanelHeadings()).toEqual(['素材库'])
+  })
+
   it('删掉空位胶囊本身，位就没了', async () => {
     pickStarter()
     const el = editor()
@@ -453,6 +522,52 @@ describe('首页对话输入框里的素材位', () => {
     ])
   })
 
+  it('首页的填位面板没有「画布」来源', () => {
+    pickStarter()
+    openSlot()
+    expect(slotPanelHeadings()).toEqual(['素材库'])
+  })
+
+  describe('两个位的技能', () => {
+    beforeEach(async () => {
+      fetchAgentSkills.mockResolvedValue([MODEL_SHOT])
+      resetAgentSkillsCache()
+      act(() => {
+        root.render(
+          <>
+            <InputBar inline />
+            <SkillStarterGuide key="two-slots" />
+          </>,
+        )
+      })
+      await settle()
+      click(navButton('场景角色'))
+      click(navButton('拍一张'))
+    })
+
+    it('先填后一个、再填前一个：交接时编号按句子次序，引用与文字对得上', async () => {
+      await upload([png('模特.png')], 'model')
+      await pickAsset('红色马克杯')
+
+      startCreating()
+      await until(() => expect(send).toHaveBeenCalled())
+      const [text, references] = send.mock.calls[0]!
+      expect(text).toBe('/model-shot 让 [image 1] 拿着 [image 2] 拍一张')
+      expect(references?.map((one) => one.imageId)).toEqual(['upload:模特.png', 'mug-front'])
+    })
+
+    it('只填一个：交接时空位留下位名，已填的编号从 1 开始', async () => {
+      await pickAsset('红色马克杯')
+
+      startCreating()
+      await until(() => expect(send).toHaveBeenCalled())
+      expect(send.mock.calls[0]?.slice(0, 2)).toEqual([
+        '/model-shot 让 模特 拿着 [image 1] 拍一张',
+        [{ imageId: 'mug-front', dataUrl: FRONT }],
+      ])
+    })
+  })
+
   it('拿掉参考图，位回到空态，交接时发位名', async () => {
     pickStarter()
     await pickAsset('红色马克杯')
@@ -467,5 +582,30 @@ describe('首页对话输入框里的素材位', () => {
       '/product-main-image 为 商品素材 出一张白底主图',
       [],
     ])
+  })
+})
+
+describe('空项目欢迎页的场景引导', () => {
+  beforeEach(async () => {
+    await projectSetup()
+    const workspace = { doc: new CanvasDoc(), editor: undefined } as unknown as CanvasWorkspace
+    act(() => {
+      root.render(<ProjectWelcome workspace={workspace} />)
+    })
+    await settle()
+  })
+
+  it('与首页同一套场景与起手句，点了填进这张卡里的项目输入框', async () => {
+    pickStarter()
+    expect(slotChip()?.textContent).toBe('商品素材')
+    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toContain('白底主图')
+
+    await pickAsset('红色马克杯')
+    click(host.querySelector('button[aria-label="发送并拟提示词"]')!)
+    expect(send).toHaveBeenCalledWith(
+      '/product-main-image 为 [image 1] 出一张白底主图',
+      [{ imageId: 'mug-front', dataUrl: FRONT, name: '红色马克杯' }],
+      'image',
+    )
   })
 })
