@@ -3,10 +3,16 @@ import { createRoot } from 'react-dom/client'
 import { BOOT_READY_EVENT } from './boot/constants'
 import { bootstrapLocale, i18next } from './i18n'
 import './index.css'
+import {
+  configureErrorReporting,
+  installErrorReporting,
+  reportClientError,
+} from './lib/errorReporting'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
 import { initTheme } from './theme'
 
+installErrorReporting()
 installMobileViewportGuards()
 
 /**
@@ -32,12 +38,19 @@ function BootReady({ children }: { children: ReactNode }) {
 // Capabilities and channel discovery share one startup round trip. The channel request can return
 // 401 before login; AuthGate retries it after establishing an authenticated session.
 const runtime = await loadRuntimeConfig()
+configureErrorReporting(runtime.bff.enabled ? runtime.bff.baseUrl : null)
 // 首帧的明暗已由 index.html 里的内联脚本定好；这里接手后续变化。
 initTheme()
 const [auth, { preloadChannels }, { bootstrapClientCapabilities }] = await gateModules
 // 频道清单只决定模型下拉里有什么，首帧不等它；能力决定登录页还是工作台，必须等。
 preloadChannels(runtime.bff.enabled, runtime.bff.baseUrl)
-const root = createRoot(document.getElementById('root')!)
+const root = createRoot(document.getElementById('root')!, {
+  // 没有错误边界接住的渲染异常会卸掉整棵树；带上组件栈报上去，再保留 React 默认的控制台输出。
+  onUncaughtError: (error, info) => {
+    reportClientError('react', error, { componentStack: info.componentStack?.slice(0, 2000) })
+    console.error(error)
+  },
+})
 const render = (node: ReactNode) =>
   root.render(
     <StrictMode>
@@ -52,7 +65,8 @@ async function mountAfterCapabilities(): Promise<void> {
       bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl, true),
     ])
     render(<auth.AuthGate />)
-  } catch {
+  } catch (error) {
+    reportClientError('error', error, { stage: 'capabilities' })
     render(
       <auth.ProblemScreen
         title={i18next.t('status.unavailableTitle', { ns: 'auth' })}
