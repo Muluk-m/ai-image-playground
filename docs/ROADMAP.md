@@ -90,7 +90,7 @@
 - 裁决 G1（2026-09-19）：云端只存资产（模板 / 素材 / 用户设置）与智能体会话；**生成产出不再扩大上云范围**，项目画布、草稿留本机。理由：产出量大、一次性，继续上云会让对象存储占用按生成量线性增长，带宽与存储成本不收敛——这正是 [ADR 0002](adr/0002-sync-templates-assets-not-generation-records.md) 原本的取舍。
 - **处置方式已裁决：只停止扩张，不回退删除。** 已上线的云端生成历史（`generation_images` / `media_objects` / `durableMediaStore`，前端 `CloudTaskTile` / `CloudGenerationDetail`）原样保留，不拆链路、不删用户既有数据。
 - **会话不变**：裁决 F1「对话历史存服务端」原义保留。智能体运行时在 BFF 进程内（[ADR 0003](adr/0003-agent-runtime-in-bff-process.md)），流式 SSE、工具调用幂等与刷新恢复都依赖服务端会话；且吃存储带宽的是媒体原件而非文本。G1 不触碰会话。
-- 本条推翻 [ADR 0007 生成原件长期保留与默认云同步边界](adr/0007-durable-generation-cloud-ownership.md)（accepted 2026-09-17），由 [ADR 0011](adr/0011-cloud-storage-limited-to-assets.md) supersede。
+- 本条推翻 [ADR 0017 生成原件长期保留与默认云同步边界](adr/0017-durable-generation-cloud-ownership.md)（accepted 2026-09-17），由 [ADR 0011](adr/0011-cloud-storage-limited-to-assets.md) supersede。
 - 四条省成本杠杆（替代回退，按此顺序做）：
   1. **[#440](https://github.com/Muluk-m/ai-image-playground/issues/440) 无引用媒体回收与容量释放** —— #422 六片里唯一省成本的，从「全停」中捞回本道。阻塞已解除（#438 / #439 已关），可开工；现状是 `projectMedia.ts` 只有 reserve / complete / access，`recycleProject` 只写 `deleted_at`，周期维护里没有媒体 GC。
   2. **[#222](https://github.com/Muluk-m/ai-image-playground/issues/222) 素材生命周期缺口** —— 删素材不回收字节（`sync-assets.ts` 没有删除路径，墓碑永久占住用户配额），被 413 / 415 拒绝的素材图永久摘出待推集合且无重试入口。同一类地板问题，与第 1 条一起做。
@@ -230,4 +230,4 @@
 - **D1** ~~视频首发顺序 Grok Imagine → Agnes → Veo，之后接 Seedance~~ → **2026-09-19 修订**：Grok Imagine → Agnes → Seedance 已落地；Veo 无限期推迟。
 - **E2** 智能体对话按 token 折算积分。
 - **F1** 对话历史存服务端。**与 G1 不冲突**：智能体运行时在 BFF 进程内（ADR 0003），会话必须在服务端；G1 约束的是产出媒体，不是会话。
-- **G1（2026-09-19，新）** 云端只存资产（模板、素材含图片本体、用户设置）与智能体会话；生成产出停止扩大上云范围，项目画布与草稿留本机。理由是存储与带宽成本不能随生成量线性增长。**处置为只停止扩张、不回退删除**；已上线的云端生成历史原样保留，靠配额、保留期与无引用回收（#440）压平成本曲线。本条由 [ADR 0011](adr/0011-cloud-storage-limited-to-assets.md) 记录并 supersede ADR 0007。
+- **G1（2026-09-19，新）** 云端只存资产（模板、素材含图片本体、用户设置）与智能体会话；生成产出停止扩大上云范围，项目画布与草稿留本机。理由是存储与带宽成本不能随生成量线性增长。**处置为只停止扩张、不回退删除**；已上线的云端生成历史原样保留，靠配额、保留期与无引用回收（#440）压平成本曲线。本条由 [ADR 0011](adr/0011-cloud-storage-limited-to-assets.md) 记录并 supersede ADR 0017。

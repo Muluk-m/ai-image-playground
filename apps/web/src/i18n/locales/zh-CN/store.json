@@ -37,7 +37,8 @@
   "mask": {
     "fullTitle": "确认编辑整张图片？",
     "fullMessage": "当前遮罩覆盖了整张图片，提交后可能会重绘全部内容。是否继续？",
-    "fullConfirm": "继续提交"
+    "fullConfirm": "继续提交",
+    "persistFailed": "遮罩这次可以用，但没能存到本地，刷新后需要重画"
   },
   "error": {
     "manifestMissing": "ZIP 中缺少 manifest.json",

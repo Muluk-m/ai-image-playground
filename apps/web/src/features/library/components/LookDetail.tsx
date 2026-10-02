@@ -56,15 +56,16 @@ export default function LookDetail({
 
   return (
     <Overlay onClose={onClose} tier="raised">
-      <div className="relative z-10 flex h-[min(90vh,900px)] w-[min(96vw,1200px)] overflow-hidden rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
-        <div className="flex min-w-0 flex-[3] flex-col bg-black/5 dark:bg-black/40">
-          <div className="relative flex min-h-0 flex-1 items-center justify-center p-6">
+      <div className="relative z-10 flex h-[min(90vh,900px)] w-[min(96vw,1200px)] flex-col overflow-hidden md:flex-row rounded-3xl border border-border bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in dark:ring-white/10">
+        {/* 窄屏改成上图下文：并排时 400px 的信息栏会把图片区挤到没有宽度。 */}
+        <div className="flex min-w-0 shrink-0 flex-col bg-black/5 md:flex-[3] md:shrink dark:bg-black/40">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center p-3 md:p-6">
             {current ? (
               <div className="relative max-h-full max-w-full overflow-hidden rounded-xl shadow-2xl">
                 <LookImage
                   source={current.source}
                   alt={look.name}
-                  className="max-h-[calc(90vh-8rem)] max-w-full object-contain"
+                  className="max-h-[28vh] max-w-full object-contain md:max-h-[calc(90vh-8rem)]"
                 />
                 <Badge tone="overlay" className="absolute left-2 top-2">
                   {current.label}
@@ -75,7 +76,7 @@ export default function LookDetail({
             )}
           </div>
           {images.length > 1 && (
-            <div className="flex gap-2 px-6 pb-4">
+            <div className="flex gap-2 overflow-x-auto px-3 pb-3 md:px-6 md:pb-4">
               {images.map((image, i) => (
                 <button
                   key={key(image.source)}
@@ -83,7 +84,7 @@ export default function LookDetail({
                   onClick={() => setIndex(i)}
                   aria-label={image.label}
                   aria-pressed={i === index}
-                  className={`h-16 w-12 overflow-hidden rounded-lg border-2 ${i === index ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                  className={`h-16 w-12 shrink-0 overflow-hidden rounded-lg border-2 ${i === index ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
                 >
                   <LookImage source={image.source} alt="" />
                 </button>
@@ -92,7 +93,7 @@ export default function LookDetail({
           )}
         </div>
 
-        <div className="flex w-[400px] max-w-full shrink-0 flex-col border-l border-border">
+        <div className="flex min-h-0 w-full flex-1 flex-col border-t border-border md:w-[400px] md:flex-none md:shrink-0 md:border-l md:border-t-0">
           <div className="flex items-start gap-2 border-b border-border px-5 py-4">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

@@ -477,6 +477,7 @@ export function getPersistedState(state: AppState) {
           prompt: state.prompt,
           slotValues: state.slotValues,
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
+          maskDraft: persistedMaskDraft(state),
         }
       : {}),
     inspirationCoachDismissed: state.inspirationCoachDismissed,
@@ -487,6 +488,30 @@ export function getPersistedState(state: AppState) {
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
     profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
+  }
+}
+
+/** 只有落进 IndexedDB 的遮罩才写进 localStorage，本体留空，启动时按 id 读回。 */
+function persistedMaskDraft(state: AppState): MaskDraft | null {
+  // 启动恢复还没结束时 store 里没有遮罩，这期间任何一次写盘都得把待恢复的引用原样留着，
+  // 不然恢复前再刷新一次，IndexedDB 里的遮罩就成了孤图被清掉。用户自己设或清遮罩会先取消它。
+  const draft = state.maskDraft ?? pendingPersistedMaskDraft
+  if (!draft?.maskImageId) return null
+  return { ...draft, maskDataUrl: '' }
+}
+
+/** 本地存储里读出的遮罩引用，等 initStore 读回本体后再进 store；先进 store 会被当成空遮罩提交。 */
+let pendingPersistedMaskDraft: MaskDraft | null = null
+
+function readPersistedMaskDraft(persisted: unknown): MaskDraft | null {
+  if (!persisted || typeof persisted !== 'object') return null
+  const { targetImageId, maskImageId, updatedAt } = persisted as Partial<MaskDraft>
+  if (typeof targetImageId !== 'string' || typeof maskImageId !== 'string') return null
+  return {
+    targetImageId,
+    maskImageId,
+    maskDataUrl: '',
+    updatedAt: typeof updatedAt === 'number' ? updatedAt : Date.now(),
   }
 }
 
@@ -506,6 +531,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 
   const persisted = persistedState as Partial<AppState>
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
+  pendingPersistedMaskDraft = settings.persistInputOnRestart
+    ? readPersistedMaskDraft(persisted.maskDraft)
+    : null
   return {
     ...currentState,
     ...persisted,
@@ -530,6 +558,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
         ? persisted.inputImages
         : [],
     slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
+    maskDraft: null,
   }
 }
 
@@ -746,15 +775,32 @@ export const useStore = create<AppState>()(
           return { inputImages: [...draft.references], prompt: draft.prompt }
         }),
       maskDraft: null,
-      setMaskDraft: (maskDraft) =>
+      setMaskDraft: (maskDraft) => {
+        pendingPersistedMaskDraft = null
         set((s) => {
           const draft = replaceReferences(
             { prompt: s.prompt, references: s.inputImages },
             orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId),
           )
           return { maskDraft, inputImages: [...draft.references], prompt: draft.prompt }
-        }),
-      clearMaskDraft: () => set({ maskDraft: null }),
+        })
+        if (maskDraft && !maskDraft.maskImageId) {
+          void storeImage(maskDraft.maskDataUrl, 'mask')
+            .then((maskImageId) => {
+              // 存盘期间遮罩换过或清掉了，就别把旧的写回去。
+              if (get().maskDraft !== maskDraft) return
+              set({ maskDraft: { ...maskDraft, maskImageId } })
+            })
+            .catch(() => {
+              if (get().maskDraft !== maskDraft) return
+              get().showToast(i18next.t('mask.persistFailed', { ns: 'store' }), 'error')
+            })
+        }
+      },
+      clearMaskDraft: () => {
+        pendingPersistedMaskDraft = null
+        set({ maskDraft: null })
+      },
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
@@ -1241,8 +1287,10 @@ async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>>
   const ids = await getReferencedImageIds(tasks)
   const { inputImages, maskDraft } = useStore.getState()
   for (const image of inputImages) ids.add(image.id)
-  if (maskDraft) {
-    ids.add(maskDraft.targetImageId)
+  for (const draft of [maskDraft, pendingPersistedMaskDraft]) {
+    if (!draft) continue
+    ids.add(draft.targetImageId)
+    if (draft.maskImageId) ids.add(draft.maskImageId)
   }
   return ids
 }
@@ -1304,6 +1352,25 @@ export async function initStore() {
   ) {
     useStore.getState().replaceInputImages(restoredInputImages)
   }
+  await restorePersistedMaskDraft(restoredInputImages)
+}
+
+async function restorePersistedMaskDraft(inputImages: readonly InputImage[]) {
+  const pending = pendingPersistedMaskDraft
+  try {
+    if (!pending?.maskImageId || useStore.getState().maskDraft) return
+    if (!inputImages.some((img) => img.id === pending.targetImageId)) return
+    const stored = await getImage(pending.maskImageId)
+    // 读盘期间用户设过或清过遮罩（会取消待恢复引用），或把目标图移出了参考图条，旧遮罩都不能回写；
+    // 只是加了别的图、调了顺序不算。
+    const state = useStore.getState()
+    if (!stored?.dataUrl || pendingPersistedMaskDraft !== pending || state.maskDraft) return
+    if (!state.inputImages.some((img) => img.id === pending.targetImageId)) return
+    cacheImage(pending.maskImageId, stored.dataUrl)
+    state.setMaskDraft({ ...pending, maskDataUrl: stored.dataUrl })
+  } finally {
+    if (pendingPersistedMaskDraft === pending) pendingPersistedMaskDraft = null
+  }
 }
 
 /** 归一化 + 透明输出改写。幂等：composer 的参数回写与提交接缝各推导一次，结果相同。 */
@@ -1352,6 +1419,54 @@ export interface PreparedSubmissionOptions {
   onLoginQueued?: () => void
 }
 
+type ConfirmDialog = NonNullable<AppState['confirmDialog']>
+
+/** 弹确认框并等结果；被别的弹窗顶掉、关掉或 signal 中止都算取消。 */
+export function confirmDialogAsync(
+  dialog: Omit<ConfirmDialog, 'action' | 'cancelAction'>,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false
+    let unsubscribe: (() => void) | undefined
+    const finish = (confirmed: boolean) => {
+      if (settled) return
+      settled = true
+      unsubscribe?.()
+      signal?.removeEventListener('abort', abort)
+      if (useStore.getState().confirmDialog === shown) useStore.getState().setConfirmDialog(null)
+      resolve(confirmed)
+    }
+    const abort = () => finish(false)
+    const shown: ConfirmDialog = {
+      ...dialog,
+      action: () => finish(true),
+      cancelAction: () => finish(false),
+    }
+    if (signal?.aborted) {
+      resolve(false)
+      return
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    useStore.getState().setConfirmDialog(shown)
+    unsubscribe = useStore.subscribe((state) => {
+      if (state.confirmDialog !== shown) finish(false)
+    })
+  })
+}
+
+/** 指定模型提交时：这份配置档案仍在设置里，并且仍提供这个模型。 */
+export function isModelAvailableForProfile(
+  settings: AppSettings,
+  profile: ClientProfile,
+  modelId: string,
+): boolean {
+  return (
+    normalizeSettings(settings).profiles.some((item) => item.id === profile.id) &&
+    getProfileModels(profile, getPublicChannels()).includes(modelId)
+  )
+}
+
 export async function submitPrepared(
   input: PreparedSubmission,
   options: PreparedSubmissionOptions = {},
@@ -1364,11 +1479,7 @@ export async function submitPrepared(
     input.profile ??
     normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
     getActiveApiProfile(normalizedSettings)
-  if (
-    input.modelId &&
-    (!normalizedSettings.profiles.some((item) => item.id === input.profileId) ||
-      !getProfileModels(selectedProfile, getPublicChannels()).includes(input.modelId))
-  ) {
+  if (input.modelId && !isModelAvailableForProfile(settings, selectedProfile, input.modelId)) {
     showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
     return []
   }
@@ -1423,33 +1534,15 @@ export async function submitPrepared(
       if (!current()) return []
       if (coverage === 'full') {
         options.onConfirmationPending?.(true)
-        const confirmed = await new Promise<boolean>((resolve) => {
-          let settled = false
-          let unsubscribe: (() => void) | undefined
-          const finish = (confirmed: boolean) => {
-            if (settled) return
-            settled = true
-            unsubscribe?.()
-            options.signal?.removeEventListener('abort', abort)
-            if (useStore.getState().confirmDialog === dialog)
-              useStore.getState().setConfirmDialog(null)
-            resolve(confirmed)
-          }
-          const abort = () => finish(false)
-          const dialog = {
+        const confirmed = await confirmDialogAsync(
+          {
             title: i18next.t('mask.fullTitle', { ns: 'store' }),
             message: i18next.t('mask.fullMessage', { ns: 'store' }),
             confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
-            tone: 'warning' as const,
-            action: () => finish(true),
-            cancelAction: () => finish(false),
-          }
-          options.signal?.addEventListener('abort', abort, { once: true })
-          useStore.getState().setConfirmDialog(dialog)
-          unsubscribe = useStore.subscribe((state) => {
-            if (state.confirmDialog !== dialog) finish(false)
-          })
-        }).finally(() => options.onConfirmationPending?.(false))
+            tone: 'warning',
+          },
+          options.signal,
+        ).finally(() => options.onConfirmationPending?.(false))
         if (!confirmed) return []
       }
       const imageId = await storeImage(input.maskDraft.maskDataUrl, 'mask')

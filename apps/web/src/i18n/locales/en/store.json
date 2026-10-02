@@ -37,7 +37,8 @@
   "mask": {
     "fullTitle": "Edit the whole image?",
     "fullMessage": "The mask covers the whole image, so submitting may repaint all of it. Continue?",
-    "fullConfirm": "Submit anyway"
+    "fullConfirm": "Submit anyway",
+    "persistFailed": "The mask works for now but couldn't be saved locally; you'll need to redraw it after a reload"
   },
   "error": {
     "manifestMissing": "The ZIP has no manifest.json",

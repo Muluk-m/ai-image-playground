@@ -30,3 +30,8 @@ deploy/cloudflared/credentials.json
 # 个人本地运维脚本（部署到自己机器等），含主机路径/私有约定，不进版本库。
 scripts/local/
 .DS_Store
+
+# 会话间的临时草稿（handoff、原型笔记）
+.scratch/
+# 技能效果验证的跑图产出（scripts/skill-verification/run.ts），只属于跑图那台机器。
+apps/bff/.verification-runs/

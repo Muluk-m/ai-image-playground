@@ -38,6 +38,9 @@ function makeSkill(overrides: Partial<AgentSkillSummary>): AgentSkillSummary {
     description: '何时用：…',
     icon: 'image',
     summary: '',
+    inputs: [],
+    starters: [],
+    verified: false,
     ...overrides,
   }
 }

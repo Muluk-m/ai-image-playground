@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { AuthUserView } from '@image-playground/shared'
+import { type AuthUserView, USER_SESSION_COOKIE } from '@image-playground/shared'
 import { eq, lte } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
 type SessionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
-export const USER_SESSION_COOKIE = 'image_playground_session'
+export { USER_SESSION_COOKIE }
 export const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 const SESSION_COOKIE_OPTIONS = {

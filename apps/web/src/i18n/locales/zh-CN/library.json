@@ -93,8 +93,12 @@
     "applied": "已切到 {{model}} · {{size}}",
     "slotMismatch": "这个模板需要 {{count}} 条素材",
     "empty": "还没有自己的模板",
-    "inputLimit": "需要 {{count}} 张输入图，最多支持 {{max}} 张。请减少模板参考图。",
-    "inputsUnavailable": "无法加载图片「{{image}}」，请检查后重试。",
+    "inputLimit": "这个模板需要 {{count}} 张输入图，超过上限 {{max}} 张，暂时无法使用。请换一个模板。",
+    "inputLimitOwn": "这个模板需要 {{count}} 张输入图，超过上限 {{max}} 张。请编辑模板，减少参考图后再试。",
+    "inputsUnavailable": "无法加载素材「{{image}}」的图片，请检查后重试。",
+    "referenceUnavailable": "模板「{{name}}」的参考图加载失败，请稍后重试。",
+    "inputUnavailable": "有一张输入图无法加载，请检查后重试。",
+    "prepareTimeout": "准备生成超时，请检查网络后重试。",
     "prepareFailed": "准备生成失败，请重试"
   },
   "lookDetail": {

@@ -371,7 +371,9 @@ export class CanvasEditor {
     const bounds = this.getElementPageBounds(id)
     if (!bounds) return
     const { width, height } = this.doc.viewport
-    const availableHeight = Math.max(120, height - panelHeight - 68)
+    // 矮视口（手机横竖都算）装不下整块面板：图至少占上方四成，面板在下面自己滚，
+    // 而不是让面板压在图上，用户看不见要框的地方。
+    const availableHeight = Math.max(120, height * 0.4, height - panelHeight - 68)
     const zoom = Math.max(0.05, Math.min(8, (width - 32) / bounds.w, availableHeight / bounds.h))
     const imageWidth = bounds.w * zoom
     const screenX = Math.max(16, (width - imageWidth) / 2)

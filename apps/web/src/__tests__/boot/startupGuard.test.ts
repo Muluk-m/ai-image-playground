@@ -2,10 +2,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { BOOT_READY_EVENT, PRELOAD_RELOAD_STORAGE_KEY } from '../../boot/constants'
 import { STARTUP_GUARD_SCRIPT, startupGuardPlugin } from '../../boot/vitePlugin'
+import { LOCALE_STORAGE_KEY } from '../../i18n/storageKey'
 
 const workerDescriptor = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker')
 const unregister = vi.fn().mockResolvedValue(true)
+const installed: Array<() => void> = []
 beforeEach(() => {
   unregister.mockClear()
   Object.defineProperty(navigator, 'serviceWorker', {
@@ -15,16 +18,36 @@ beforeEach(() => {
     },
   })
   vi.useFakeTimers()
-  localStorage.setItem('aip.locale', 'zh-CN')
+  localStorage.setItem(LOCALE_STORAGE_KEY, 'zh-CN')
   const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
   document.body.innerHTML = html.slice(html.indexOf('<body'), html.indexOf('</body>') + 7)
+  // The guard listens for the page's lifetime; record its listeners so each test gets a fresh guard.
+  const record = (target: Window | Document) => {
+    const add = target.addEventListener.bind(target)
+    return (
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions,
+    ) => {
+      installed.push(() => target.removeEventListener(type, listener, options))
+      add(type, listener, options)
+    }
+  }
+  const onWindowAdd = record(window)
+  const onDocumentAdd = record(document)
+  const onWindow = vi.spyOn(window, 'addEventListener').mockImplementation(onWindowAdd)
+  const onDocument = vi.spyOn(document, 'addEventListener').mockImplementation(onDocumentAdd)
   window.eval(STARTUP_GUARD_SCRIPT)
+  onWindow.mockRestore()
+  onDocument.mockRestore()
 })
 afterEach(() => {
-  document.dispatchEvent(new Event('app:boot-ready'))
+  document.dispatchEvent(new Event(BOOT_READY_EVENT))
   vi.useRealTimers()
   document.body.innerHTML = ''
-  localStorage.removeItem('aip.locale')
+  localStorage.removeItem(LOCALE_STORAGE_KEY)
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  for (const remove of installed.splice(0)) remove()
   if (workerDescriptor) Object.defineProperty(navigator, 'serviceWorker', workerDescriptor)
   else Reflect.deleteProperty(navigator, 'serviceWorker')
 })
@@ -39,36 +62,60 @@ it('offers recovery when the entry script fails before React exists', () => {
   expect(document.getElementById('root')?.children.length).toBe(0)
   expect(document.getElementById('boot-retry')?.textContent).toBe('重新加载')
 })
-it('stops indefinite loading even when a module request never finishes', () => {
+const ready = () => document.dispatchEvent(new Event(BOOT_READY_EVENT))
+const errorPanelVisible = () => document.getElementById('boot-error')?.hidden === false
+const preloadError = () => {
+  const event = new Event('vite:preloadError', { cancelable: true })
+  window.dispatchEvent(event)
+  return event
+}
+
+it('stops indefinite loading when React never renders', () => {
   vi.advanceTimersByTime(30000)
   expect(document.getElementById('boot')?.dataset.state).toBe('error')
 })
-it('catches a failed asynchronous bootstrap', () => {
+it('leaves runtime exceptions before the first render to the app', () => {
+  window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' }))
   window.dispatchEvent(new Event('unhandledrejection'))
-  expect(document.getElementById('boot-error')?.hidden).toBe(false)
+  expect(errorPanelVisible()).toBe(false)
 })
-it('does not replace a ready application with a timeout or later exception', () => {
-  document.dispatchEvent(new Event('app:boot-ready'))
+it('hands loading and errors to whatever screen React renders first', () => {
+  ready()
   vi.advanceTimersByTime(60000)
   window.dispatchEvent(new ErrorEvent('error'))
   expect(document.getElementById('boot')).toBeNull()
 })
+it('withdraws a timeout panel once a slow first render arrives', () => {
+  vi.advanceTimersByTime(30000)
+  expect(errorPanelVisible()).toBe(true)
+  ready()
+  expect(document.getElementById('boot')).toBeNull()
+})
 it('does not mistake an image failure for a failed application', () => {
   document.querySelector('#boot img')?.dispatchEvent(new Event('error'))
-  expect(document.getElementById('boot-error')?.hidden).toBe(true)
+  expect(errorPanelVisible()).toBe(false)
+})
+it('localizes the recovery panel from the stored app locale', () => {
+  localStorage.setItem(LOCALE_STORAGE_KEY, 'en')
+  vi.advanceTimersByTime(30000)
+  expect(document.getElementById('boot-retry')?.textContent).toBe('Reload')
 })
 
-it('restores recovery after the entry loads but the lazy workspace fails', () => {
-  document.getElementById('boot')?.classList.add('is-done')
-  window.dispatchEvent(new Event('unhandledrejection'))
-  expect(document.getElementById('boot')?.classList.contains('is-done')).toBe(false)
-  expect(document.getElementById('boot-error')?.hidden).toBe(false)
+it('reloads once when stale HTML references a deleted chunk, then asks instead of looping', () => {
+  ready()
+  const first = preloadError()
+  expect(first.defaultPrevented).toBe(true)
+  expect(Number(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY))).toBeGreaterThan(0)
+  expect(document.getElementById('boot')).toBeNull()
+
+  const second = preloadError()
+  expect(second.defaultPrevented).toBe(false)
+  expect(errorPanelVisible()).toBe(true)
 })
-it('keeps the timeout active while the lazy workspace is still pending', () => {
-  document.getElementById('boot')?.classList.add('is-done')
-  vi.advanceTimersByTime(30000)
-  expect(document.getElementById('boot')?.classList.contains('is-done')).toBe(false)
-  expect(document.getElementById('boot-error')?.hidden).toBe(false)
+it('retries a chunk failure again once the previous reload is old', () => {
+  sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, String(Date.now() - 120000))
+  expect(preloadError().defaultPrevented).toBe(true)
+  expect(errorPanelVisible()).toBe(false)
 })
 
 it('unregisters legacy workers without depending on the app module or deleting user storage', async () => {
@@ -87,18 +134,7 @@ it('ignores optional manifest and favicon resource failures', () => {
     link.dispatchEvent(new Event('error'))
     link.remove()
   }
-  expect(document.getElementById('boot-error')?.hidden).toBe(true)
-})
-it('keeps an error panel visible if a delayed bootstrap tries to dismiss it', () => {
-  vi.advanceTimersByTime(30000)
-  document.getElementById('boot')?.classList.add('is-done')
-  const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
-  const style = document.createElement('style')
-  style.textContent = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
-  document.head.append(style)
-  expect(getComputedStyle(document.getElementById('boot')!).opacity).toBe('1')
-  expect(getComputedStyle(document.getElementById('boot')!).pointerEvents).toBe('auto')
-  style.remove()
+  expect(errorPanelVisible()).toBe(false)
 })
 it('changes the HTML identity when only the recovery markup changes', () => {
   const transform = startupGuardPlugin().transformIndexHtml.handler
@@ -121,9 +157,8 @@ it('keeps recovery available when required styles fail even if React commits', (
   boot.remove()
   link.dispatchEvent(new Event('error'))
   document.body.append(boot)
-  document.dispatchEvent(new Event('app:boot-ready'))
-  expect(document.getElementById('boot-error')?.hidden).toBe(false)
-  expect(document.getElementById('boot-retry')?.onclick).toBeTypeOf('function')
+  ready()
+  expect(errorPanelVisible()).toBe(true)
   vi.advanceTimersByTime(60000)
   expect(document.getElementById('boot')?.dataset.state).toBe('error')
   link.remove()

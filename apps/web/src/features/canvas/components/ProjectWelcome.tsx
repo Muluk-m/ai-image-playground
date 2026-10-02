@@ -2,6 +2,7 @@ import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import AgentComposer from '../../agent/components/AgentComposer'
 import AgentHistoryStatus from '../../agent/components/AgentHistoryStatus'
+import SkillStarterGuide from '../../agent/components/SkillStarterGuide'
 import { fillAgentComposer } from '../../agent/lib/composerFill'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
@@ -71,6 +72,8 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
               <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />
             </div>
           </div>
+          {/* 与首页对话页签同一套场景引导，填的是这张卡里的输入框。视频档没有起手句。 */}
+          {!video && <SkillStarterGuide />}
           <AgentHistoryStatus />
           {error && !historyFailed && (
             <p role="alert" className="mt-3 text-sm text-muted-foreground">

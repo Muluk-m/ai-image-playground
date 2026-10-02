@@ -128,6 +128,24 @@
     "fitImage": "Fit to window",
     "markCapacity": "Too many marks. Undo some marks or clear the selection to redraw. You can still pan the image."
   },
+  "video": {
+    "parameters": "Video parameters",
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "firstFrame": "First frame",
+    "lastFrame": "Last frame",
+    "references_one": "{{count}} reference image",
+    "references_other": "{{count}} reference images",
+    "estimatedCost": "Estimated cost",
+    "playbackFailed": "This video could not be played. Try reloading it.",
+    "reload": "Reload video",
+    "downloading": "Downloading…",
+    "downloadFailed": "Video download failed. Please try again.",
+    "notSubmitted": "Video generation was not submitted",
+    "retrying": "Submitting retry…",
+    "retry": "Retry video generation",
+    "retryFailed": "The retry could not be submitted. Please try again."
+  },
   "confirm": {
     "pending": "Read the prompt below — you can edit it — then press Confirm and generate.",
     "fieldAria": "Prompt awaiting confirmation",
@@ -663,22 +681,24 @@
     "generationSource": "Basis for generation",
     "sourceUnavailable": "Source analysis details are unavailable"
   },
-  "video": {
-    "parameters": "Video parameters",
-    "seconds_one": "{{count}} second",
-    "seconds_other": "{{count}} seconds",
-    "firstFrame": "First frame",
-    "lastFrame": "Last frame",
-    "references_one": "{{count}} reference image",
-    "references_other": "{{count}} reference images",
-    "estimatedCost": "Estimated cost",
-    "playbackFailed": "This video could not be played. Try reloading it.",
-    "reload": "Reload video",
-    "downloading": "Downloading…",
-    "downloadFailed": "Video download failed. Please try again.",
-    "notSubmitted": "Video generation was not submitted",
-    "retrying": "Submitting retry…",
-    "retry": "Retry video generation",
-    "retryFailed": "The retry could not be submitted. Please try again."
+  "starters": {
+    "lead": "Start with:",
+    "use": "Use",
+    "back": "Back",
+    "aria": "Start by scenario",
+    "scene": {
+      "ecommerce": "E-commerce",
+      "poster": "Posters & graphics",
+      "scene-character": "Scenes & characters",
+      "look": "Built-in templates"
+    }
+  },
+  "slot": {
+    "fillAria": "Fill {{label}}",
+    "library": "Library",
+    "libraryEmpty": "No assets in your library yet",
+    "upload": "Upload images",
+    "clear": "Clear",
+    "canvas": "Canvas"
   }
 }

@@ -1,4 +1,48 @@
 {
   "icon": "image-plus",
-  "summary": "做一张带标题文案的海报或活动主视觉"
+  "summary": "做一张带标题文案的海报或活动主视觉",
+  "inputs": [
+    {
+      "key": "product",
+      "label": {
+        "zh-CN": "商品素材",
+        "en": "Product"
+      },
+      "required": false,
+      "multiple": true
+    }
+  ],
+  "scene": "poster",
+  "starters": [
+    {
+      "text": {
+        "zh-CN": "用 {product} 做一张 618 限时折扣的竖版海报",
+        "en": "Make a vertical 618 flash-sale poster with {product}"
+      },
+      "highlight": {
+        "zh-CN": "618 限时折扣",
+        "en": "618 flash-sale"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "为 {product} 做一张新品上市海报，标题写「焕新上市」",
+        "en": "Make a launch poster for {product} with the headline “New Arrival”"
+      },
+      "highlight": {
+        "zh-CN": "焕新上市",
+        "en": "New Arrival"
+      }
+    },
+    {
+      "text": {
+        "zh-CN": "做一张中秋节的横版 banner，主体放 {product}",
+        "en": "Make a horizontal Mid-Autumn banner featuring {product}"
+      },
+      "highlight": {
+        "zh-CN": "中秋节",
+        "en": "Mid-Autumn"
+      }
+    }
+  ]
 }
