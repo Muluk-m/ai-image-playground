@@ -43,15 +43,10 @@ export default function Sidebar() {
   const projects = useCanvasProjectStore((state) => state.projects)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const activeId = useCanvasProjectStore((state) => state.activeId)
-  // 画布是沉浸式的：那里**永远**没有这条宽栏，连手动展开都不给——左上角那颗 logo 直接回项目页。
-  // 别处默认摊开，用户收起过就以他的选择为准。
+  // 工作台（对话与画布）是沉浸式的：默认不摊开这条宽栏，左上角 logo 回首页、旁边按钮可手动展开。
+  // 别处默认摊开；用户在当前入口手动开合过，就以他的选择为准。
   const activeProject = projects.find((project) => project.id === activeId)
-  const expanded = useStore(
-    (state) =>
-      state.sidebarExpanded ??
-      (!isWorkbenchMode(state.appMode) ||
-        (activeProject ? projectExperience(activeProject) === 'chat' : true)),
-  )
+  const expanded = useStore((state) => state.sidebarExpanded ?? !isWorkbenchMode(state.appMode))
   const toggleSidebar = () => useStore.setState({ sidebarExpanded: !expanded })
   // 目录只在画布挂载时加载过；侧栏在别的入口也要列项目，所以自己也拉一次（重复调用是幂等的）。
   useEffect(() => {
