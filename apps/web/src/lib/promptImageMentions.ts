@@ -135,7 +135,7 @@ function scanPrompt(prompt: string, labelFor: MentionLabelResolver): PromptScan 
   const pushPlain = (to: number) => {
     for (let i = plainFrom; i < to; i++) {
       const char = prompt[i]!
-      if (char >= MENTION_START && char <= '\u2069') continue
+      if (char === MENTION_START || char === MENTION_END) continue
       promptIndexAt.push(i)
       visible.push(char)
     }

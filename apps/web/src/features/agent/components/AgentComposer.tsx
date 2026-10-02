@@ -62,8 +62,7 @@ import { peekCanvasWorkspace } from '../../canvas/lib/activeProject'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { cloudProjectsEnabled } from '../../canvas/lib/projectClient'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
-import { assetSlotImage, useLibraryStore } from '../../library/store'
-import type { AssetRecord } from '../../library/types'
+import { useLibraryStore } from '../../library/store'
 import { CARD_NOTE, GHOST_LINK, ICON_BUTTON } from '../agentStyles'
 import {
   type AgentMentionValue,
@@ -101,6 +100,7 @@ import type { MarkRenderer } from '../lib/markedReferences'
 import { currentProjectDraft } from '../lib/projectLifecycle'
 import { agentPromptHistory, rememberAgentPrompt } from '../lib/promptHistory'
 import {
+  type AgentDraft,
   type AgentReference,
   type AttachedReference,
   agentAdmission,
@@ -120,7 +120,7 @@ import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 import AgentSkillBadge from './AgentSkillBadge'
-import AssetSlotChip from './AssetSlotChip'
+import { useAssetSlots } from './useAssetSlots'
 
 const EDITOR_CLASS =
   'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
@@ -376,52 +376,23 @@ export default function AgentComposer({
     [draft.prompt, skills],
   )
 
-  /**
-   * 素材位里放图：图走参考图条（按 `id` 去重），位里装的就是指向它们的引用。读图是异步的，
-   * 落地时那一位要还在原处，不然宁可不放。
-   */
-  const fillSlot = (occurrence: number, key: string, images: readonly AgentReference[]) => {
-    const current = session.getSnapshot().draft
-    if (!assetSlotAt(current.prompt, occurrence, key)) return
-    const next = fillAssetSlot(current, occurrence, images, agentAdmission(transportRef.current))
-    if (!next.ok) {
-      useStore
-        .getState()
-        .showToast(referenceLimitMessage(next.reason, transportRef.current), 'error')
-      return
-    }
-    setDraft(next.draft)
-  }
-
-  const fillSlotWithAsset = async (occurrence: number, key: string, asset: AssetRecord) => {
-    const image = await assetSlotImage(asset)
-    if (useAgentStore.getState().conversationId !== conversationId) return
-    if (!image) {
-      useStore.getState().showToast(t('composer.assetViewsUnavailable'), 'error')
-      return
-    }
-    void useLibraryStore.getState().noteAssetUsed(asset.id)
-    fillSlot(occurrence, key, [{ ...image, name: asset.name }])
-  }
-
-  /** 上传图只是这一轮的参考图，不建素材。 */
-  const fillSlotWithFiles = (occurrence: number, key: string, files: File[]) => {
-    if (loading) {
-      useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
-      return
-    }
-    const added = filesToReferences(files)
-    if (Array.isArray(added)) {
-      fillSlot(occurrence, key, added)
-      return
-    }
-    void added
-      .then((references) => {
-        if (useAgentStore.getState().conversationId === conversationId)
-          fillSlot(occurrence, key, references)
-      })
-      .catch(() => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error'))
-  }
+  const renderSlot = useAssetSlots<AgentDraft>({
+    read: () => session.getSnapshot().draft,
+    write: setDraft,
+    admission: () => agentAdmission(transportRef.current),
+    refusalMessage: (reason) => referenceLimitMessage(reason, transportRef.current),
+    fromAsset: (image, asset) => ({ ...image, name: asset.name }),
+    fromFiles: filesToReferences,
+    imageName: (reference) => reference.name,
+    accepting: () => {
+      const snapshot = session.getSnapshot()
+      if (snapshot.loading || snapshot.recoveryBlocked) {
+        useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
+        return false
+      }
+      return useAgentStore.getState().conversationId === conversationId
+    },
+  })
 
   const promptEditor = usePromptEditor({
     value: draft.prompt,
@@ -449,18 +420,7 @@ export default function AgentComposer({
         </>
       )
     },
-    renderSlot: (slot, occurrence) => (
-      <AssetSlotChip
-        slot={slot}
-        images={assetSlotImages(slot, draft.references).map((reference) => ({
-          src: reference.dataUrl,
-          name: reference.name,
-        }))}
-        onPickAsset={(asset) => void fillSlotWithAsset(occurrence, slot.key, asset)}
-        onUpload={(files) => fillSlotWithFiles(occurrence, slot.key, files)}
-        onClear={() => setDraft((current) => clearAssetSlot(current, occurrence))}
-      />
-    ),
+    renderSlot,
     onEdit: () => menuRef.current.open(),
     onKeyDown: (event) => {
       if (menuRef.current.handleKeyDown(event)) return

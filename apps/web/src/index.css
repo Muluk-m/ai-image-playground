@@ -1341,7 +1341,7 @@ input[type="number"] {
   color: hsl(var(--primary));
 }
 
-.mention-tag.asset-slot-tag.selected > * {
+:where(.mention-tag.asset-slot-tag.selected) > * {
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.35);
 }
 

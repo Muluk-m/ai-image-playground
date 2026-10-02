@@ -19,6 +19,13 @@ vi.mock('../../../../features/agent/panelLayout', async (original) => ({
   agentPanelPresent: () => true,
 }))
 
+// 首页的上传图进 image store；存图（含缩略图解码）不是这里要测的，换成按文件名给 id。
+const UPLOADED = 'data:image/png;base64,dXBsb2FkZWQ='
+vi.mock('../../../../store', async (original) => ({
+  ...(await original<typeof import('../../../../store')>()),
+  storeImageFromFile: async (file: File) => ({ id: `upload:${file.name}`, dataUrl: UPLOADED }),
+}))
+
 import InputBar from '../../../../components/InputBar'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import SkillStarterGuide from '../../../../features/agent/components/SkillStarterGuide'
@@ -324,14 +331,18 @@ describe('项目输入框里的素材位', () => {
     expect(send).toHaveBeenCalledWith('/product-main-image 为 商品素材 出一张白底主图', [], 'image')
   })
 
-  it('在胶囊上清空：位回到空态，只为它附进来的图一并拿掉', async () => {
+  it('在胶囊上清空：位回到空态，图与删掉一个 `@` 胶囊时一样留在参考图条里', async () => {
     pickStarter()
     await upload([png('正面.png')])
 
     openSlot()
     click([...panel().querySelectorAll('button')].find((one) => one.textContent === '清空')!)
     expect(slotChip()?.hasAttribute('data-filled')).toBe(false)
-    expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.references).toEqual([])
+
+    sendTurn()
+    const [text, references] = send.mock.calls[0]!
+    expect(text).toBe('/product-main-image 为 商品素材 出一张白底主图')
+    expect(references?.map((one) => one.name)).toEqual(['正面'])
   })
 
   it('删掉空位胶囊本身，位就没了', async () => {
@@ -395,12 +406,32 @@ describe('首页对话输入框里的素材位', () => {
     ])
   })
 
-  it('拿掉参考图，位回到空态', async () => {
+  it('上传图填位：交接时按引用带过去，不建素材', async () => {
+    pickStarter()
+    await upload([png('正面.png')])
+    expect(useLibraryStore.getState().assets).toEqual([MUG])
+
+    startCreating()
+    await until(() => expect(send).toHaveBeenCalled())
+    expect(send.mock.calls[0]?.slice(0, 2)).toEqual([
+      '/product-main-image 为 [image 1] 出一张白底主图',
+      [{ imageId: 'upload:正面.png', dataUrl: UPLOADED }],
+    ])
+  })
+
+  it('拿掉参考图，位回到空态，交接时发位名', async () => {
     pickStarter()
     await pickAsset('红色马克杯')
 
     act(() => useStore.getState().removeInputImage(0))
     expect(slotChip()?.hasAttribute('data-filled')).toBe(false)
     expect(slotChip()?.textContent).toBe('商品素材')
+
+    startCreating()
+    await until(() => expect(send).toHaveBeenCalled())
+    expect(send.mock.calls[0]?.slice(0, 2)).toEqual([
+      '/product-main-image 为 商品素材 出一张白底主图',
+      [],
+    ])
   })
 })

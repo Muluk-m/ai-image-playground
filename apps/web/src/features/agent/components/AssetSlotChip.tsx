@@ -7,7 +7,6 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { PromptAssetSlot } from '../../../lib/promptImageMentions'
 import AssetThumb from '../../library/components/AssetThumb'
-import { matchAssetsByName } from '../../library/lib/assetMentions'
 import { useLibraryStore } from '../../library/store'
 import { type AssetRecord, assetCoverImageId } from '../../library/types'
 
@@ -20,6 +19,11 @@ export interface AssetSlotImage {
 const CHIP =
   'mx-0.5 inline-flex max-w-56 items-center gap-1 rounded-md px-1.5 py-0.5 align-middle text-sm leading-5 transition-colors'
 const EMPTY = 'border border-dashed border-primary/60 text-primary'
+
+/** 素材库里最近用过的排前面，与 `@` 菜单同一个次序。 */
+function recentFirst(assets: readonly AssetRecord[]): AssetRecord[] {
+  return [...assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+}
 
 /**
  * 空位的外观：虚线框加位名。起手句列表里摆的就是它，点开之前两处长得一样。
@@ -113,20 +117,21 @@ export default function AssetSlotChip({
               <p className="text-xs text-muted-foreground">{t('slot.libraryEmpty')}</p>
             ) : (
               <ul className="grid max-h-48 grid-cols-4 gap-1.5 overflow-y-auto">
-                {matchAssetsByName(assets, '').map((asset) => (
+                {recentFirst(assets).map((asset) => (
                   <li key={asset.id}>
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
                       aria-label={asset.name}
                       title={asset.name}
-                      className="group block aspect-square w-full overflow-hidden rounded-md border border-border hover:border-primary"
+                      className="group block aspect-square h-auto w-full overflow-hidden p-0 hover:border-primary"
                       onClick={() => {
                         close()
                         onPickAsset(asset)
                       }}
                     >
                       <AssetThumb imageId={assetCoverImageId(asset)} alt="" />
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>

@@ -1,6 +1,5 @@
 import type { InputImage } from '../types'
 import {
-  getMentionedImageIndexes,
   getPromptAssetSlots,
   type PromptAssetSlot,
   setPromptAssetSlotImages,
@@ -10,7 +9,6 @@ import {
   attachReferences,
   type ReferenceAdmission,
   type ReferenceDraft,
-  replaceReferences,
 } from './referenceDraft'
 
 /**
@@ -31,32 +29,9 @@ export function assetSlotAt(
 }
 
 /**
- * 只为这一位附进来的图，位不再装着它、提示词里也没有别的引用指向它时一并拿掉：上传图只是这一轮
- * 的参考图，位清空了它就没有留在条里的理由。条里原本就有、或者别处还 `@` 着的图留着。
- */
-function dropOrphans<D extends ReferenceDraft>(
-  before: D,
-  after: D,
-  previous: readonly number[],
-): D {
-  const mentioned = new Set(getMentionedImageIndexes(after.prompt))
-  const candidates = new Set(
-    previous.flatMap((index) => {
-      const id = before.references[index]?.id
-      return id ? [id] : []
-    }),
-  )
-  const references = after.references.filter(
-    (reference, index) => !candidates.has(reference.id) || mentioned.has(index),
-  ) as DraftReference<D>[]
-  return references.length === after.references.length
-    ? after
-    : replaceReferences(after, references)
-}
-
-/**
  * 把一组图放进第 `occurrence` 个素材位。位不能放多图时只取第一张；原来装着的图被换掉。
- * 放不下就整组不放，理由与附图一致。
+ * 放不下就整组不放，理由与附图一致。换下来的图与删掉一个 `@` 胶囊一样留在参考图条里，
+ * 条里的图是谁附的草稿不记，所以不替用户拿掉。
  */
 export function fillAssetSlot<D extends ReferenceDraft>(
   draft: D,
@@ -70,20 +45,15 @@ export function fillAssetSlot<D extends ReferenceDraft>(
   const attached = attachReferences(draft, incoming, admission)
   if (!attached.ok) return attached
   const indexes = [...new Set(attached.indexes)]
-  const filled = {
-    ...attached.draft,
-    prompt: setPromptAssetSlotImages(attached.draft.prompt, occurrence, indexes),
-  }
-  const replaced = slot.imageIndexes.filter((index) => !indexes.includes(index))
-  return { ok: true, draft: dropOrphans(attached.draft, filled, replaced), indexes }
+  const prompt = setPromptAssetSlotImages(attached.draft.prompt, occurrence, indexes)
+  return { ok: true, draft: { ...attached.draft, prompt }, indexes }
 }
 
-/** 把第 `occurrence` 个素材位变回空位。 */
+/** 把第 `occurrence` 个素材位变回空位；图留在参考图条里（见 `fillAssetSlot`）。 */
 export function clearAssetSlot<D extends ReferenceDraft>(draft: D, occurrence: number): D {
   const slot = getPromptAssetSlots(draft.prompt)[occurrence]
   if (!slot || slot.imageIndexes.length === 0) return draft
-  const cleared = { ...draft, prompt: setPromptAssetSlotImages(draft.prompt, occurrence, []) }
-  return dropOrphans(draft, cleared, slot.imageIndexes)
+  return { ...draft, prompt: setPromptAssetSlotImages(draft.prompt, occurrence, []) }
 }
 
 /** 填好的位里那几张图，按位里的顺序。 */
