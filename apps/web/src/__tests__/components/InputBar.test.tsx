@@ -309,7 +309,7 @@ describe('开头的 /技能 命令', () => {
   })
 })
 
-it('template preparation uses the send/stop button and gates a newer draft', async () => {
+it('template preparation turns the send button into a click-only stop, even with a draft', async () => {
   await bootstrapClientCapabilities(false, '')
   const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
   const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
@@ -347,10 +347,27 @@ it('template preparation uses the send/stop button and gates a newer draft', asy
     })
     expect(useLookSubmission.getState().submitting).toBe(true)
     expect(send!.textContent).toContain('取消')
+    expect(send!.textContent).not.toContain('■')
+    expect(send!.querySelector('svg')).not.toBeNull()
     type('new draft')
-    expect(send!.disabled).toBe(true)
-    type('')
+    // 输入框有字也照样能停。
     expect(send!.disabled).toBe(false)
+    expect(send!.textContent).toContain('取消')
+    // 回车既不取消也不另发一条。
+    for (const enterSubmit of [true, false]) {
+      act(() => useStore.getState().setSettings({ enterSubmit }))
+      act(() => {
+        editor().dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            ctrlKey: !enterSubmit,
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+      })
+      expect(useLookSubmission.getState().submitting).toBe(true)
+    }
     await act(async () => {
       send!.click()
     })
