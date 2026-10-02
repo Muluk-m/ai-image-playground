@@ -494,7 +494,7 @@ export function getPersistedState(state: AppState) {
 /** 只有落进 IndexedDB 的遮罩才写进 localStorage，本体留空，启动时按 id 读回。 */
 function persistedMaskDraft(state: AppState): MaskDraft | null {
   // 启动恢复还没结束时 store 里没有遮罩，这期间任何一次写盘都得把待恢复的引用原样留着，
-  // 不然恢复前再刷新一次，IndexedDB 里的遮罩就成了孤图被清掉。
+  // 不然恢复前再刷新一次，IndexedDB 里的遮罩就成了孤图被清掉。用户自己设或清遮罩会先取消它。
   const draft = state.maskDraft ?? pendingPersistedMaskDraft
   if (!draft?.maskImageId) return null
   return { ...draft, maskDataUrl: '' }
@@ -776,6 +776,7 @@ export const useStore = create<AppState>()(
         }),
       maskDraft: null,
       setMaskDraft: (maskDraft) => {
+        pendingPersistedMaskDraft = null
         set((s) => {
           const draft = replaceReferences(
             { prompt: s.prompt, references: s.inputImages },
@@ -796,7 +797,10 @@ export const useStore = create<AppState>()(
             })
         }
       },
-      clearMaskDraft: () => set({ maskDraft: null }),
+      clearMaskDraft: () => {
+        pendingPersistedMaskDraft = null
+        set({ maskDraft: null })
+      },
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
@@ -1356,11 +1360,11 @@ async function restorePersistedMaskDraft(inputImages: readonly InputImage[]) {
   try {
     if (!pending?.maskImageId || useStore.getState().maskDraft) return
     if (!inputImages.some((img) => img.id === pending.targetImageId)) return
-    // 读盘期间用户删了图、清了条或自己画了新遮罩，参考图条就不再是这一份，旧遮罩不能回写。
-    const before = useStore.getState().inputImages
     const stored = await getImage(pending.maskImageId)
+    // 读盘期间用户设过或清过遮罩（会取消待恢复引用），或把目标图移出了参考图条，旧遮罩都不能回写；
+    // 只是加了别的图、调了顺序不算。
     const state = useStore.getState()
-    if (!stored?.dataUrl || state.maskDraft || state.inputImages !== before) return
+    if (!stored?.dataUrl || pendingPersistedMaskDraft !== pending || state.maskDraft) return
     if (!state.inputImages.some((img) => img.id === pending.targetImageId)) return
     cacheImage(pending.maskImageId, stored.dataUrl)
     state.setMaskDraft({ ...pending, maskDataUrl: stored.dataUrl })
