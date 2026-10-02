@@ -1,8 +1,5 @@
 {
   "panel": {
-    "title": "Inspiration",
-    "count_one": "{{count}} item",
-    "count_other": "{{count}} items",
     "searchPlaceholder": "Search title / prompt / tag"
   },
   "filter": {

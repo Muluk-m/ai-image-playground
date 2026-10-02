@@ -5,8 +5,7 @@
     "return_handoff_failed": "Stopped messages have not been saved back to your draft. Retry recovery before leaving this conversation."
   },
   "customProvider": {
-    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again",
-    "fallback": "The custom provider request failed. Check its settings and try again"
+    "template_too_deep": "The custom provider request template is nested too deeply. Simplify it and try again"
   },
   "login": {
     "invalid_credentials": "That email address or password is not correct",
@@ -68,11 +67,6 @@
     "recovery_copy_failed": "Could not save a recovery copy. Free browser storage and retry. Your current changes were not replaced.",
     "recovery_changed": "New changes were made while saving the copy. They remain on this canvas. Choose a recovery action again.",
     "project_deleted": "This project was deleted. Your current edits are preserved and can be saved as a new project."
-  },
-  "cloudPlacement": {
-    "place_failed": "Could not add to the current project. Please retry.",
-    "project_not_ready": "The project is still saving or has a conflict. Finish saving or resolve the conflict first.",
-    "fallback": "Could not add to the current project. Please retry."
   },
   "projectRecycle": {
     "fallback": "The recycle bin operation failed. Please retry."

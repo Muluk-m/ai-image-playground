@@ -9,10 +9,6 @@
     "looks": "模板"
   },
   "panel": {
-    "title": "我的资产",
-    "tabProjects": "我的项目",
-    "tabAssets": "素材",
-    "tabTemplates": "模板",
     "searchProjects": "搜索项目名",
     "searchAssets": "搜索素材名",
     "searchTemplates": "搜索提示词名",
@@ -92,7 +88,6 @@
     "more": "更多模板",
     "applied": "已切到 {{model}} · {{size}}",
     "slotMismatch": "这个模板需要 {{count}} 条素材",
-    "empty": "还没有自己的模板",
     "inputLimit": "这个模板需要 {{count}} 张输入图，超过上限 {{max}} 张，暂时无法使用。请换一个模板。",
     "inputLimitOwn": "这个模板需要 {{count}} 张输入图，超过上限 {{max}} 张。请编辑模板，减少参考图后再试。",
     "inputsUnavailable": "无法加载素材「{{image}}」的图片，请检查后重试。",

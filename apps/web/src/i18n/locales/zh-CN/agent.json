@@ -22,7 +22,6 @@
     "resizeTitle": "拖动调整宽度",
     "collapseAria": "收起面板",
     "expand": "展开对话",
-    "backToChat": "返回对话",
     "aria": "创作对话",
     "newProjectAria": "新建项目",
     "logAria": "对话记录",
@@ -108,7 +107,6 @@
     "loadingPreview": "正在载入产物…",
     "previewUnavailable": "暂时无法预览",
     "retryPreview": "重试载入",
-    "imageGenerating": "图片正在生成",
     "status": {
       "running": "进行中",
       "queued": "排队中",
@@ -119,8 +117,6 @@
     },
     "downloadFailed": "下载失败，请重试",
     "markLasso": "圈选",
-    "region": "区域 {{number}}",
-    "removeRegion": "删除区域 {{number}}",
     "markRectangle": "矩形选区",
     "clearMark": "清空选区",
     "fitImage": "适应窗口",
@@ -150,7 +146,6 @@
     "empty": "提示词不能为空",
     "outputsImage_other": "确认后生成 {{count}} 张",
     "outputsVideo_other": "确认后生成 {{count}} 段视频",
-    "model": "模型 {{name}}",
     "gone": "这张草稿卡已经不在了，让助手重新拟一份吧。",
     "notConfirmable": "这份草稿已失效（可能在别处确认过），让助手重新拟一份吧。",
     "failed": "没能提交，改过的提示词已保留，请重试。",
@@ -213,7 +208,6 @@
     "clearSelectionAria": "不带画布上选中的这些图",
     "abort": "中止",
     "abortTitle": "中止：只停这段回复，已经开始的出图继续跑",
-    "interject": "插话",
     "send": "发送",
     "dropHint": "松开即作为参考图",
     "draftLoadingToast": "草稿正在恢复，请稍后添加图片。",
@@ -230,16 +224,12 @@
     "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
     "tooManyUploads_other": "上传的图、素材一轮最多带 {{count}} 张",
     "abortedToast": "已中止，草稿已放回输入框。",
-    "modeAria": "创作类型",
-    "modeImage": "图片",
-    "modeVideo": "视频",
     "queue": "加入排队",
     "autoSubmitAria": "出图模式",
     "autoSubmitOnTitle": "出图模式：助手拟好提示词直接开始生成并扣费，不再逐张等你确认",
     "autoSubmitOffTitle": "对话模式：助手先拟提示词，你确认后才开始生成。点一下切到出图模式（直接生成、直接扣费）",
     "assetViewsUnavailable": "素材部分视角无法读取，请重试后再添加。",
     "attachmentReadFailed": "部分图片无法读取，本次未添加，请重新选择。",
-    "uploadUnsupported": "请先转换为 PNG、JPEG 或 WebP 格式。",
     "retryUpload": "重试",
     "retryUploadAria": "重试上传 {{label}}",
     "upload": {
@@ -315,9 +305,6 @@
     "canvasName": "网图",
     "sourceTitle": "打开来源"
   },
-  "trail": {
-    "sources": "来源"
-  },
   "error": {
     "turnFailed": "这一轮没有跑完",
     "rateLimited": "发送太频繁，稍后再试",
@@ -326,7 +313,6 @@
     "invalidSelection": "选区无法使用，请重新圈选。草稿已保留。",
     "invalidReference": "有参考图已不可用，请重新添加或选择图片。草稿已保留。",
     "referencesNotUploaded": "有几张图还没能上传到云端，这一轮没有发出。请重试，草稿已保留。",
-    "interjectFailed": "插话未发送成功，草稿已保留，请重试。",
     "canvasBindFailed": "项目未能保存到新会话，请重试。原项目和草稿已保留。",
     "turnAlreadyRunning": "会话中已有任务运行，本次消息未发送，草稿已保留。",
     "stopFailed": "中止未成功，请点击中止重试。",
@@ -405,7 +391,6 @@
     "retry": "重新加载"
   },
   "navigation": {
-    "back": "返回项目列表",
     "switchAria": "切换项目，当前：{{name}}",
     "switchTitle": "切换项目",
     "search": "搜索项目",

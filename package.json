@@ -10,7 +10,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "lint": "biome check . && bun run scripts/check-private-boundary.ts && bun run scripts/check-adr-numbers.ts",
+    "lint": "biome check . && bun run scripts/check-private-boundary.ts && bun run scripts/check-adr-numbers.ts && bun run scripts/check-i18n-keys.ts",
     "i18n:check": "bun run scripts/check-i18n-keys.ts",
     "lint:sh": "shellcheck -x -P SCRIPTDIR -S warning scripts/*.sh scripts/lib/*.sh deploy/backup/*.sh",
     "format": "biome format --write .",
