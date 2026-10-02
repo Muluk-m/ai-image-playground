@@ -78,7 +78,8 @@
     "favoriteOnlyOff": "取消只看收藏",
     "statusAll": "全部状态",
     "statusDone": "已完成",
-    "placeholder": "搜索提示词、参数..."
+    "placeholder": "搜索提示词、参数...",
+    "status": "状态"
   },
   "param": {
     "aspectRatio": "比例",
@@ -93,7 +94,8 @@
     "moderation": "审核",
     "count": "数量",
     "noModel": "未选择",
-    "more": "更多"
+    "more": "更多",
+    "model": "模型"
   },
   "size": {
     "titleRatio": "设置画面比例",

@@ -1055,7 +1055,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           tabIndex={0}
           aria-label={mentionLabels(idx) ?? undefined}
           onKeyDown={(e) => {
-            if (e.key !== 'Enter' && e.key !== ' ') return
+            if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
             e.preventDefault()
             e.currentTarget.click()
           }}

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useState } from 'react'
+import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Overlay from '../../components/Overlay'
@@ -226,6 +226,36 @@ describe('Overlay', () => {
 
       act(() => last.click())
       expect(document.activeElement).toBe(opener)
+    })
+
+    it('still returns focus to the opener under StrictMode effect replays', () => {
+      render(
+        <StrictMode>
+          <Harness />
+        </StrictMode>,
+      )
+      const opener = host.querySelector('button') as HTMLButtonElement
+      opener.focus()
+      act(() => opener.click())
+      expect(document.activeElement?.textContent).toBe('first')
+      const last = [...overlayRoot().querySelectorAll('button')].find(
+        (b) => b.textContent === 'last',
+      )!
+      act(() => last.click())
+      expect(document.activeElement).toBe(opener)
+    })
+
+    it('treats the surface itself as a boundary for Shift+Tab', () => {
+      render(<Harness />)
+      act(() => (host.querySelector('button') as HTMLButtonElement).click())
+      const surface = overlayRoot()
+      surface.focus()
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+        )
+      })
+      expect(document.activeElement?.textContent).toBe('last')
     })
 
     it('leaves the dialog role to content that declares its own', () => {

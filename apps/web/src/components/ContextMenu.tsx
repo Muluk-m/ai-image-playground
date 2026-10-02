@@ -8,7 +8,6 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
-import { useFocusTrap } from '../hooks/useFocusTrap'
 
 interface ContextMenuProps {
   x: number
@@ -49,8 +48,20 @@ export default function ContextMenu({
   handlersRef.current = { onClose, onOutsidePointer }
   useCloseOnEscape(true, onClose)
 
-  // 打开时聚焦第一项，关闭时还给打开前的元素（多半是被右键的缩略图）。
-  useFocusTrap(menuRef)
+  // 菜单不是模态：打开时聚焦第一项、关闭时还给打开者，但不锁 Tab——Tab 直接收起菜单。
+  // 打开者在渲染时记下，effect 里读到的可能已是菜单项。
+  const openerRef = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  )
+  useEffect(() => {
+    const opener = openerRef.current
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true })
+    return () => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true })
+    }
+  }, [])
 
   useEffect(() => {
     const close = (e: Event) => {
@@ -78,6 +89,10 @@ export default function ContextMenu({
       ref={menuRef}
       role="menu"
       onKeyDown={(e) => {
+        if (e.key === 'Tab') {
+          handlersRef.current.onClose()
+          return
+        }
         if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
         e.preventDefault()
         const items = [

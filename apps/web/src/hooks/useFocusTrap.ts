@@ -39,7 +39,13 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, enable
     if (!enabled) return
     const container = containerRef.current
     if (!container) return
-    const opener = openerRef.current
+    // 同一次提交里替换弹窗（Lightbox 加载态 → 正文）时，渲染时记下的可能是刚卸载的旧弹窗；
+    // 旧弹窗的清理已先把焦点还给真正的打开者，这时以当前焦点为准。
+    let opener = openerRef.current
+    if (!opener?.isConnected && document.activeElement instanceof HTMLElement) {
+      opener = container.contains(document.activeElement) ? null : document.activeElement
+      openerRef.current = opener
+    }
     trapStack.push(containerRef)
 
     if (!container.contains(document.activeElement)) {
@@ -60,10 +66,12 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>, enable
       const first = items[0]
       const last = items[items.length - 1]
       const active = document.activeElement
-      if (event.shiftKey && (active === first || !container.contains(active))) {
+      // 焦点停在容器本身（tabIndex=-1）时它也是边界，否则 Shift+Tab 会直接跳到背景页。
+      const outside = active === container || !container.contains(active)
+      if (event.shiftKey && (active === first || outside)) {
         event.preventDefault()
         last.focus()
-      } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+      } else if (!event.shiftKey && (active === last || outside)) {
         event.preventDefault()
         first.focus()
       }

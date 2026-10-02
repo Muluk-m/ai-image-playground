@@ -89,7 +89,8 @@
     "favoriteOnlyOff": "Show all",
     "statusAll": "All statuses",
     "statusDone": "Completed",
-    "placeholder": "Search prompts and parameters..."
+    "placeholder": "Search prompts and parameters...",
+    "status": "Status"
   },
   "param": {
     "aspectRatio": "Ratio",
@@ -104,7 +105,8 @@
     "moderation": "Moderation",
     "count": "Count",
     "noModel": "Not selected",
-    "more": "More"
+    "more": "More",
+    "model": "Model"
   },
   "size": {
     "titleRatio": "Set aspect ratio",

@@ -73,7 +73,8 @@
     "source": "Source",
     "createdAt": "Created {{time}}",
     "elapsed": "Took {{duration}}",
-    "copyAll": "Copy all"
+    "copyAll": "Copy all",
+    "dialog": "Work details"
   },
   "rawUrls": {
     "title": "Raw image links ({{n}})",
@@ -94,7 +95,8 @@
   "lightbox": {
     "saveImage": "Save image",
     "saveFailed": "Save failed",
-    "loadingOriginal": "Loading full image"
+    "loadingOriginal": "Loading full image",
+    "dialog": "Image preview"
   },
   "grid": {
     "viewAll": "View all",

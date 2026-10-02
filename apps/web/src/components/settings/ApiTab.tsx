@@ -831,6 +831,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                 {t('provider.type')}
               </span>
               <Select
+                label={t('provider.type')}
                 value={activeProfile.provider}
                 onChange={handleProviderTypeChange}
                 options={providerOptions}
@@ -967,6 +968,7 @@ export default function ApiTab({ flushRef }: ApiTabProps) {
                   {t('apiMode.label')}
                 </span>
                 <Select
+                  label={t('apiMode.label')}
                   value={activeProfile.apiMode ?? ('images' as const)}
                   onChange={(value) => {
                     const apiMode = value as 'images' | 'responses'

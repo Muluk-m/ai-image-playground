@@ -35,6 +35,8 @@ interface SelectProps {
   wrapperClassName?: string
   /** 隐藏选中值文本（chip 模式由外层 chip 自己渲染 value，只保留 chevron 触发）。 */
   hideSelectedLabel?: boolean
+  /** 字段名（「质量」「格式」），读屏用；同一行里多个 auto 靠它区分 */
+  label?: string
 }
 
 export default function Select({
@@ -46,6 +48,7 @@ export default function Select({
   className,
   wrapperClassName,
   hideSelectedLabel,
+  label,
 }: SelectProps) {
   const { t } = useTranslation(['composer', 'common'])
   const [isOpen, setIsOpen] = useState(false)
@@ -107,7 +110,8 @@ export default function Select({
       const option = options[activeIndex]
       if (option) onChange(option.value)
       setIsOpen(false)
-    } else if (e.key === 'Tab') {
+    } else if (e.key === 'Tab' && !options.some((option) => option.actions?.length)) {
+      // 带编辑 / 删除按钮的列表不在 Tab 时收起，让焦点能走进这些按钮。
       setIsOpen(false)
     }
   }
@@ -232,7 +236,11 @@ export default function Select({
         aria-controls={isOpen ? listId : undefined}
         aria-activedescendant={isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined}
         aria-disabled={disabled || undefined}
-        aria-label={hideSelectedLabel ? (selectedOption?.label ?? String(value)) : undefined}
+        aria-label={
+          hideSelectedLabel
+            ? [label, selectedOption?.label ?? String(value)].filter(Boolean).join(' ')
+            : label
+        }
         title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}

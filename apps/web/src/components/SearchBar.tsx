@@ -43,6 +43,7 @@ export default function SearchBar({ compact = false }: { compact?: boolean } = {
         </button>
         <div className="relative w-28">
           <Select
+            label={t('search.status')}
             value={filterStatus}
             onChange={(val) => setFilterStatus(val as any)}
             options={[
