@@ -451,7 +451,6 @@
   },
   "resize": {
     "action": "Resize",
-    "hint": "Generate this image at another aspect ratio",
     "ratio": {
       "square": "Square",
       "portrait": "Portrait",
