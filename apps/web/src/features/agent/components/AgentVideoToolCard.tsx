@@ -226,7 +226,13 @@ export default function AgentVideoToolCard({
               void useAgentStore
                 .getState()
                 .placeOnCanvas(message.id)
-                .then(() => onViewCanvas?.())
+                .then(() => {
+                  const delivered = useAgentStore
+                    .getState()
+                    .messages.find((one) => one.id === message.id)
+                  if (delivered?.kind === 'tool' && delivered.delivery === 'placed')
+                    onViewCanvas?.()
+                })
                 .catch(() => setPlacementFailed(true))
                 .finally(() => {
                   placementLock.current = false

@@ -276,3 +276,33 @@ it('keeps canvas recovery out of Chat video results', async () => {
   expect(host.textContent).not.toContain('载入失败')
   expect(host.querySelector('video')).not.toBeNull()
 })
+
+it.each([
+  'failed',
+  'unavailable',
+  'placed',
+] as const)('opens the canvas only after confirmed placement, not a resolved %s outcome', async (delivery) => {
+  fixtures.canvasAvailable = true
+  const message: AgentToolMessage = {
+    ...base,
+    status: 'succeeded',
+    delivery: 'failed',
+    artifacts: [
+      {
+        artifactId: 'clip',
+        media: 'video',
+        taskId: 'video-task',
+        outputIndex: 0,
+        mime: 'video/mp4',
+      },
+    ],
+  }
+  const view = vi.fn()
+  fixtures.state.placeOnCanvas.mockImplementationOnce(async () => {
+    fixtures.state.messages = [{ ...message, delivery }]
+  })
+  await act(async () => root.render(<AgentToolCard message={message} onViewCanvas={view} />))
+  await act(async () => button('放入画布').click())
+  expect(view).toHaveBeenCalledTimes(delivery === 'placed' ? 1 : 0)
+  expect(fixtures.state.retry).not.toHaveBeenCalled()
+})
