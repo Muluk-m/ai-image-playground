@@ -5,6 +5,7 @@ import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from 
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
+import { purgeOldClientErrors } from './lib/client-errors'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
@@ -95,6 +96,15 @@ startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
     },
   },
   { event: 'periodic.private_maintenance_failed', run: runPrivateMaintenance },
+  {
+    event: 'periodic.purge_client_errors_failed',
+    run: async () => {
+      const removed = await purgeOldClientErrors()
+      if (removed > 0) {
+        log.info({ event: 'periodic.purged_client_errors', count: removed }, 'purged client errors')
+      }
+    },
+  },
   // worker 的维护循环也清；没有 worker 的部署只有这里清。
   { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
   ...(syncEnabled
