@@ -108,6 +108,7 @@ import {
 } from './lib/referenceDraft'
 import { deleteRemoteGeneration, mediaRef, readRemoteGeneration } from './lib/remoteGenerations'
 import { cloudReuseSourceFromTask, reuseCloudGeneration } from './lib/reuseCloudGeneration'
+import { watchSubmissionContext } from './lib/submissionContext'
 import { readPendingChanges, writePendingChanges } from './lib/sync/pending'
 import { taskErrorTypeOf } from './lib/taskError'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
@@ -1406,7 +1407,7 @@ export interface PreparedSubmission {
 
 /**
  * 显式参数提交入口，composer 与套内逐镜提交共用：归一化、槽位展开、数量分发、
- * 落库并发起，返回创建的任务 id。composer 专属的校验与状态回写在 submitTask 里。
+ * 落库并发起，返回创建的任务 id。提交校验只在这一处；composer 的状态回写与收尾在 submitTask 里。
  */
 export interface PreparedSubmissionOptions {
   signal?: AbortSignal
@@ -1636,89 +1637,51 @@ export async function submitPrepared(
   return jobs.map((job) => job.taskId)
 }
 
-/** 提交新任务 */
-export async function submitTask(options: { allowFullMask?: boolean } = {}) {
-  const {
-    settings,
-    prompt,
-    slotValues,
-    inputImages,
-    maskDraft,
-    params,
-    showToast,
-    setConfirmDialog,
-  } = useStore.getState()
+/**
+ * 提交新任务：把 composer 状态组装成一次提交，校验与整幅遮罩确认都在 submitPrepared 里。
+ * 这里只管 composer 自己的事：孤儿遮罩草稿兜底、归一化参数写回、成功后的收尾。
+ */
+export async function submitTask() {
+  const { settings, prompt, slotValues, inputImages, maskDraft, params, showToast } =
+    useStore.getState()
 
-  const normalizedSettings = normalizeSettings(settings)
-  const activeProfile = getActiveApiProfile(settings)
-  const requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
-
-  const unfilledSlots = getUnfilledPromptSlots(prompt, slotValues)
-  if (unfilledSlots.length > 0) {
-    showToast(
-      i18next.t('submit.slotUnfilled', { ns: 'store', slot: `{${unfilledSlots[0]}}` }),
-      'error',
-    )
+  // 遮罩草稿的目标图已不在参考图条里：草稿留着也提交不了，清掉并提示重新选区。
+  if (maskDraft && !inputImages.some((img) => img.id === maskDraft.targetImageId)) {
+    useStore.getState().clearMaskDraft()
+    showToast(i18next.t('mask.baseImageMissing', { ns: 'lib' }), 'error')
     return
   }
 
-  let orderedInputImages = inputImages
-  let maskImageId: string | null = null
-  let maskTargetImageId: string | null = null
-
-  if (maskDraft) {
-    try {
-      orderedInputImages = orderInputImagesForMask(inputImages, maskDraft.targetImageId)
-      const coverage = await validateMaskMatchesImage(
-        maskDraft.maskDataUrl,
-        orderedInputImages[0].dataUrl,
-      )
-      if (coverage === 'full' && !options.allowFullMask) {
-        setConfirmDialog({
-          title: i18next.t('mask.fullTitle', { ns: 'store' }),
-          message: i18next.t('mask.fullMessage', { ns: 'store' }),
-          confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
-          tone: 'warning',
-          action: () => {
-            void submitTask({ allowFullMask: true })
-          },
-        })
-        return
-      }
-      maskImageId = await storeImage(maskDraft.maskDataUrl, 'mask')
-      cacheImage(maskImageId, maskDraft.maskDataUrl)
-      maskTargetImageId = maskDraft.targetImageId
-    } catch (err) {
-      if (!inputImages.some((img) => img.id === maskDraft.targetImageId)) {
-        useStore.getState().clearMaskDraft()
-      }
-      showToast(err instanceof Error ? err.message : String(err), 'error')
-      return
-    }
-  }
-
+  const activeProfile = getActiveApiProfile(settings)
+  const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
+  const orderedInputImages = maskDraft
+    ? orderInputImagesForMask(inputImages, maskDraft.targetImageId)
+    : inputImages
   const taskParams = deriveTaskParams(params, requestSettings, orderedInputImages.length > 0)
   const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
   }
 
-  if (getSubmissionImageCount(prompt.trim(), slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
-    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
-    return
+  // 整幅遮罩要等用户确认：确认期间离开了这个账号或页面，这次提交作废，确认框一并收起。
+  const controller = new AbortController()
+  const context = watchSubmissionContext(undefined, () => controller.abort())
+  let createdTaskIds: string[]
+  try {
+    createdTaskIds = await submitPrepared(
+      {
+        prompt,
+        slotValues,
+        inputImages: orderedInputImages,
+        params: taskParams,
+        maskDraft,
+        profileId: activeProfile.id,
+      },
+      { signal: controller.signal, isCurrent: context.isCurrent },
+    )
+  } finally {
+    context.dispose()
   }
-
-  const createdTaskIds = await submitPrepared({
-    prompt,
-    slotValues,
-    inputImages: orderedInputImages,
-    params: taskParams,
-    mask:
-      maskImageId && maskTargetImageId
-        ? { imageId: maskImageId, targetImageId: maskTargetImageId }
-        : null,
-    profileId: activeProfile.id,
-  })
   if (createdTaskIds.length === 0) return
 
   if (settings.clearInputAfterSubmit) {
