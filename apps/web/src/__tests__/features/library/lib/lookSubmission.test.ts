@@ -322,6 +322,35 @@ it('resumes the original frozen template once after login and preserves the late
   expect(useStore.getState().prompt).toBe('next draft')
 })
 
+it('resumes a template sent from /image after OAuth lands on the root address', async () => {
+  window.history.replaceState(null, '', '/image')
+  try {
+    await prepareLogin()
+    window.history.replaceState(null, '', '/')
+    setSignedIn(true)
+    setClientStorageScope('alice')
+    await resumePendingSubmission()
+    expect(useStore.getState().tasks).toHaveLength(1)
+    expect(window.location.pathname).toBe('/image')
+  } finally {
+    window.history.replaceState(null, '', '/')
+  }
+})
+
+it('does not resume a template on a different composer address', async () => {
+  window.history.replaceState(null, '', '/image')
+  try {
+    await prepareLogin()
+    window.history.replaceState(null, '', '/explore')
+    setSignedIn(true)
+    setClientStorageScope('alice')
+    await resumePendingSubmission()
+    expect(useStore.getState().tasks).toHaveLength(0)
+  } finally {
+    window.history.replaceState(null, '', '/')
+  }
+})
+
 it('cancelling login or leaving the generator drops the pending template', async () => {
   await prepareLogin()
   await discardPendingSubmission()
