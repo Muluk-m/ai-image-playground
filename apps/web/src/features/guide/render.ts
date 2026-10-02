@@ -159,11 +159,11 @@ function renderBlock(block: Block, content: GuideContent, options: GuideRenderOp
       const marks = (block.marks ?? [])
         .map(
           (mark, index) =>
-            `<span aria-hidden="true" class="absolute grid h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-primary font-mono text-[11px] font-bold text-primary-foreground ring-[3px] ring-background" style="left:${mark.x}%;top:${mark.y}%">${index + 1}</span>`,
+            `<span aria-hidden="true" class="absolute grid h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-primary font-mono text-label-sm font-bold text-primary-foreground ring-[3px] ring-background" style="left:${mark.x}%;top:${mark.y}%">${index + 1}</span>`,
         )
         .join('')
       const caption = block.caption
-        ? `<figcaption class="mt-3 text-center text-[13px] text-muted-foreground">${renderInline(block.caption)}</figcaption>`
+        ? `<figcaption class="mt-3 text-center text-body-sm text-muted-foreground">${renderInline(block.caption)}</figcaption>`
         : ''
       return `<figure class="my-8"><a href="${escapeHtml(block.src)}" target="_blank" rel="noopener" class="block rounded-xl border border-border bg-muted/40 p-1.5 transition-colors hover:border-foreground/20"><span class="relative block overflow-hidden rounded-lg"><img class="block h-auto w-full" src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt)}" width="${width}" height="${height}" loading="lazy" decoding="async" />${marks}</span></a>${caption}</figure>`
     }
@@ -352,14 +352,14 @@ function renderHeader(
   const { chrome } = content
   const other = options.editions.find((edition) => edition.lang !== content.lang)
   const language = other
-    ? `<a href="${guidePagePath(other, chapter?.id ?? null)}" hreflang="${other.lang}" lang="${other.lang}" class="whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground">${escapeHtml(chrome.otherLanguage)}</a>`
+    ? `<a href="${guidePagePath(other, chapter?.id ?? null)}" hreflang="${other.lang}" lang="${other.lang}" class="whitespace-nowrap rounded-full px-3 py-1.5 text-body-sm text-muted-foreground transition-colors hover:text-foreground">${escapeHtml(chrome.otherLanguage)}</a>`
     : ''
   return `<header class="fixed inset-x-0 top-3 z-40 px-3 sm:top-4 sm:px-4">
       <div class="mx-auto flex h-12 max-w-6xl items-center gap-2 rounded-full border border-border bg-background/75 pl-4 pr-1.5 shadow-lg shadow-black/[0.06] backdrop-blur-xl">
         <a href="/" class="flex shrink-0 items-center gap-2 whitespace-nowrap text-[14px] font-semibold"><img src="/brand/muvloom-mark.svg" alt="" width="24" height="24" class="h-6 w-6" />${escapeHtml(chrome.brand)}</a>
-        <a href="${content.root}" class="hidden whitespace-nowrap px-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:inline">${escapeHtml(chrome.title)}</a>
-        <button type="button" data-search-open aria-label="${escapeHtml(chrome.search)}" class="ml-auto flex h-8 items-center gap-2 rounded-full border border-border bg-muted/40 px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground md:ml-4 md:w-56 md:px-3">${icon(Search, 'h-4 w-4')}<span class="hidden md:inline">${escapeHtml(chrome.search)}</span><kbd class="ml-auto hidden rounded border border-border bg-background px-1.5 font-mono text-[11px] md:inline">⌘K</kbd></button>
-        <div class="flex shrink-0 items-center gap-1 md:ml-auto">${language}<a href="/" class="whitespace-nowrap rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90">${escapeHtml(chrome.start)}</a></div>
+        <a href="${content.root}" class="hidden whitespace-nowrap px-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground sm:inline">${escapeHtml(chrome.title)}</a>
+        <button type="button" data-search-open aria-label="${escapeHtml(chrome.search)}" class="ml-auto flex h-8 items-center gap-2 rounded-full border border-border bg-muted/40 px-2.5 text-body-sm text-muted-foreground transition-colors hover:text-foreground md:ml-4 md:w-56 md:px-3">${icon(Search, 'h-4 w-4')}<span class="hidden md:inline">${escapeHtml(chrome.search)}</span><kbd class="ml-auto hidden rounded border border-border bg-background px-1.5 font-mono text-label-sm md:inline">⌘K</kbd></button>
+        <div class="flex shrink-0 items-center gap-1 md:ml-auto">${language}<a href="/" class="whitespace-nowrap rounded-full bg-primary px-4 py-2 text-body-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">${escapeHtml(chrome.start)}</a></div>
       </div>
     </header>`
 }
@@ -368,7 +368,7 @@ function renderSearchDialog(content: GuideContent): string {
   const { chrome } = content
   return `<dialog data-search data-index="${content.root}search.json" data-empty="${escapeHtml(chrome.searchEmpty)}" class="m-0 h-full max-h-none w-full max-w-none bg-transparent p-4 backdrop:bg-black/50 backdrop:backdrop-blur-sm">
       <div data-search-panel class="mx-auto mt-[10vh] w-full max-w-[640px] overflow-hidden rounded-2xl border border-border bg-popover text-foreground shadow-2xl">
-        <label class="flex h-14 items-center gap-3 border-b border-border px-5">${icon(Search, 'h-5 w-5 text-muted-foreground')}<input data-search-input type="search" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(chrome.searchPlaceholder)}" class="h-full flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden" /><kbd class="rounded border border-border px-1.5 font-mono text-[11px] text-muted-foreground">Esc</kbd></label>
+        <label class="flex h-14 items-center gap-3 border-b border-border px-5">${icon(Search, 'h-5 w-5 text-muted-foreground')}<input data-search-input type="search" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(chrome.searchPlaceholder)}" class="h-full flex-1 bg-transparent text-title outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden" /><kbd class="rounded border border-border px-1.5 font-mono text-label-sm text-muted-foreground">Esc</kbd></label>
         <div data-search-results role="listbox" class="max-h-[60vh] overflow-y-auto p-2 empty:hidden"></div>
       </div>
     </dialog>`
@@ -376,7 +376,7 @@ function renderSearchDialog(content: GuideContent): string {
 
 function renderFooter(content: GuideContent, options: GuideRenderOptions): string {
   return `<footer class="border-t border-border">
-      <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-8 text-[13px] text-muted-foreground">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-8 text-body-sm text-muted-foreground">
         <a href="/" class="flex items-center gap-2 font-medium text-foreground"><img src="/brand/muvloom-mark.svg" alt="" width="20" height="20" class="h-5 w-5" />${escapeHtml(content.chrome.brand)}</a>
         <span>${escapeHtml(content.chrome.updated)} <time datetime="${options.updated}">${options.updated}</time></span>
       </div>
@@ -435,14 +435,14 @@ function renderHome(content: GuideContent, options: GuideRenderOptions): string 
         </div>
       </section>
       <section aria-labelledby="chapters" class="mx-auto max-w-6xl px-6 pb-28">
-        <h2 id="chapters" class="mb-6 text-[13px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">${escapeHtml(chrome.chaptersTitle)}</h2>
+        <h2 id="chapters" class="mb-6 text-body-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">${escapeHtml(chrome.chaptersTitle)}</h2>
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">${cards}</div>
       </section>
       <section aria-labelledby="${content.faq.id}" class="border-t border-border py-28">
         <div class="mx-auto max-w-6xl px-6">
           <h2 id="${content.faq.id}" class="scroll-mt-24 text-center font-display text-[36px] font-semibold tracking-tight sm:text-[48px]">${escapeHtml(content.faq.title)}</h2>
           <div class="mt-14 grid gap-4 md:grid-cols-2">${faq}</div>
-          <div class="guide-cta mt-20 overflow-hidden rounded-3xl border border-primary/25 px-8 py-14 text-center"><p class="font-display text-[28px] font-semibold tracking-tight sm:text-[32px]">${escapeHtml(chrome.ctaTitle)}</p><a href="/" class="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90">${escapeHtml(chrome.start)}${icon(ArrowRight, 'h-4 w-4')}</a></div>
+          <div class="guide-cta mt-20 overflow-hidden rounded-3xl border border-primary/25 px-8 py-14 text-center"><p class="font-display text-[28px] font-semibold tracking-tight sm:text-[32px]">${escapeHtml(chrome.ctaTitle)}</p><a href="/" class="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-title font-semibold text-primary-foreground transition-opacity hover:opacity-90">${escapeHtml(chrome.start)}${icon(ArrowRight, 'h-4 w-4')}</a></div>
         </div>
       </section>
     </main>
@@ -465,10 +465,10 @@ function renderChapterNav(content: GuideContent, current: GuideChapter): string 
             `<li><a href="${here ? '' : guidePagePath(content, chapter.id)}#${entry.id}" ${here ? `data-toc="${entry.id}"` : ''} class="-ml-px block border-l border-transparent py-[5px] pl-4 text-[13.5px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground aria-[current=true]:border-primary aria-[current=true]:font-medium aria-[current=true]:text-foreground">${escapeHtml(entry.title)}</a></li>`,
         )
         .join('')
-      return `<div class="mb-7"><a href="${guidePagePath(content, chapter.id)}" ${here ? 'aria-current="page"' : ''} class="mb-2 flex items-center gap-2 text-[13px] font-semibold text-foreground/80 transition-colors hover:text-foreground aria-[current=page]:text-foreground">${chapterIcon(chapter, `h-4 w-4 ${here ? 'text-primary' : 'text-muted-foreground'}`)}${escapeHtml(chapter.title)}</a><ul class="ml-2 border-l border-border">${subsections}</ul></div>`
+      return `<div class="mb-7"><a href="${guidePagePath(content, chapter.id)}" ${here ? 'aria-current="page"' : ''} class="mb-2 flex items-center gap-2 text-body-sm font-semibold text-foreground/80 transition-colors hover:text-foreground aria-[current=page]:text-foreground">${chapterIcon(chapter, `h-4 w-4 ${here ? 'text-primary' : 'text-muted-foreground'}`)}${escapeHtml(chapter.title)}</a><ul class="ml-2 border-l border-border">${subsections}</ul></div>`
     })
     .join('')
-  return `${chapters}<a href="${content.root}#${content.faq.id}" class="flex items-center gap-2 text-[13px] font-semibold text-foreground/80 transition-colors hover:text-foreground">${icon(CircleHelp, 'h-4 w-4 text-muted-foreground')}${escapeHtml(content.faq.title)}</a>`
+  return `${chapters}<a href="${content.root}#${content.faq.id}" class="flex items-center gap-2 text-body-sm font-semibold text-foreground/80 transition-colors hover:text-foreground">${icon(CircleHelp, 'h-4 w-4 text-muted-foreground')}${escapeHtml(content.faq.title)}</a>`
 }
 
 function renderPager(content: GuideContent, index: number): string {
@@ -476,7 +476,7 @@ function renderPager(content: GuideContent, index: number): string {
   const next = content.chapters[index + 1]
   const link = (chapter: GuideChapter | undefined, label: string, align: 'left' | 'right') =>
     chapter
-      ? `<a href="${guidePagePath(content, chapter.id)}" class="group rounded-xl border border-border p-4 transition-colors hover:border-primary/40 ${align === 'right' ? 'text-right sm:col-start-2' : ''}"><span class="flex items-center gap-1.5 text-[12.5px] text-muted-foreground ${align === 'right' ? 'justify-end' : ''}">${align === 'left' ? icon(ArrowLeft, 'h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5') : ''}${escapeHtml(label)}${align === 'right' ? icon(ArrowRight, 'h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5') : ''}</span><span class="mt-1 block text-[15px] font-semibold text-foreground">${escapeHtml(chapter.title)}</span></a>`
+      ? `<a href="${guidePagePath(content, chapter.id)}" class="group rounded-xl border border-border p-4 transition-colors hover:border-primary/40 ${align === 'right' ? 'text-right sm:col-start-2' : ''}"><span class="flex items-center gap-1.5 text-[12.5px] text-muted-foreground ${align === 'right' ? 'justify-end' : ''}">${align === 'left' ? icon(ArrowLeft, 'h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5') : ''}${escapeHtml(label)}${align === 'right' ? icon(ArrowRight, 'h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5') : ''}</span><span class="mt-1 block text-title font-semibold text-foreground">${escapeHtml(chapter.title)}</span></a>`
       : ''
   return `<nav class="mt-20 grid gap-3 sm:grid-cols-2">${link(prev, content.chrome.prev, 'left')}${link(next, content.chrome.next, 'right')}</nav>`
 }
@@ -496,7 +496,7 @@ function renderChapter(
   const rail = railEntries
     .map(
       (entry) =>
-        `<li><a href="#${entry.id}" data-toc="${entry.id}" class="block py-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground aria-[current=true]:text-primary">${escapeHtml(entry.title)}</a></li>`,
+        `<li><a href="#${entry.id}" data-toc="${entry.id}" class="block py-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground aria-[current=true]:text-primary">${escapeHtml(entry.title)}</a></li>`,
     )
     .join('')
   const subsections = chapter.subsections
@@ -519,7 +519,7 @@ function renderChapter(
       </aside>
       <main class="min-w-0 flex-1 px-5 pb-28 pt-8 sm:px-10 lg:px-16" data-selectable-text>
         <article class="mx-auto max-w-[740px]">
-          <p class="text-[13px] text-muted-foreground"><a href="${content.root}" class="transition-colors hover:text-foreground">${escapeHtml(chrome.title)}</a><span aria-hidden="true" class="mx-2 text-border">/</span><span class="text-foreground">${escapeHtml(chapter.title)}</span></p>
+          <p class="text-body-sm text-muted-foreground"><a href="${content.root}" class="transition-colors hover:text-foreground">${escapeHtml(chrome.title)}</a><span aria-hidden="true" class="mx-2 text-border">/</span><span class="text-foreground">${escapeHtml(chapter.title)}</span></p>
           <details data-mobile-toc class="mt-6 rounded-xl border border-border lg:hidden">
             <summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-[14px] font-medium [&::-webkit-details-marker]:hidden">${escapeHtml(chrome.toc)}${icon(ChevronDown, 'h-4 w-4 text-muted-foreground')}</summary>
             <nav aria-label="${escapeHtml(chrome.toc)}" class="border-t border-border px-4 pt-5">${nav}</nav>

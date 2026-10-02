@@ -204,7 +204,7 @@ export default function InspirationDetail() {
             </div>
 
             {item.tags && item.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap gap-1.5 text-label-sm text-muted-foreground">
                 {item.tags.map((tag) => (
                   <span key={tag} className="rounded-full bg-muted px-2 py-0.5">
                     #{tag}

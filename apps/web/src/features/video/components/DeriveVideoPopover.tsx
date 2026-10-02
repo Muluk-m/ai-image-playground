@@ -102,13 +102,13 @@ export default function DeriveVideoPopover({
 
         <div className={`${PANEL_SECTION} mt-4`}>
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-destructive dark:text-destructive">
+            <p className="mb-1.5 text-label-sm text-destructive dark:text-destructive">
               {guard.disabledReason}
             </p>
           )}
           <SubmissionBillingAction
             blockedAction={guard.blockedAction}
-            className="mb-1.5 text-[11px]"
+            className="mb-1.5 text-label-sm"
           />
           <button
             type="button"

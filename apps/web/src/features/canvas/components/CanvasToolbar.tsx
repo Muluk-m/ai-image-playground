@@ -1,4 +1,4 @@
-import { FolderOpen, Images, Maximize2, Paperclip } from 'lucide-react'
+import { FolderOpen, Images, Maximize2, Minus, Paperclip, Plus } from 'lucide-react'
 import { type MouseEvent, useState, useSyncExternalStore } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { Button } from '../../../components/ui/button'
@@ -235,18 +235,18 @@ export default function CanvasToolbar({
         </ToolButton>
       </div>
       <ToolButton title={t('toolbar.zoomOut')} onClick={() => zoomStep(-1)}>
-        <span className="text-base leading-none">−</span>
+        <Minus size={18} aria-hidden="true" />
       </ToolButton>
       <button
         type="button"
         title={t('toolbar.resetZoom')}
         onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-        className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 w-9 px-0 text-[10px]`}
+        className="h-9 w-9 rounded-xl px-0 text-label-sm text-foreground tabular-nums transition-colors hover:bg-muted"
       >
         {camera.zoom < 0.01 ? '<1%' : `${Math.round(camera.zoom * 100)}%`}
       </button>
       <ToolButton title={t('toolbar.zoomIn')} onClick={() => zoomStep(1)}>
-        <span className="text-base leading-none">＋</span>
+        <Plus size={18} aria-hidden="true" />
       </ToolButton>
     </>
   )

@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/DropOverlay'
 import { PlusIcon, SparkleIcon } from '../../../components/icons'
+import PageHeader from '../../../components/PageHeader'
+import SearchField from '../../../components/SearchField'
+import SegmentedTabs from '../../../components/SegmentedTabs'
+import { Button } from '../../../components/ui/button'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
@@ -31,10 +35,12 @@ import TemplateDetail from './TemplateDetail'
 
 const TABS: readonly LibraryTab[] = ['projects', 'assets', 'prompts', 'looks']
 
-const HEAD_BUTTON =
-  'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition'
-const GHOST = `${HEAD_BUTTON} border border-border text-foreground hover:bg-muted`
-const PRIMARY = `${HEAD_BUTTON} bg-primary text-primary-foreground hover:opacity-90`
+const SEARCH_PLACEHOLDER = {
+  projects: 'panel.searchProjects',
+  assets: 'panel.searchAssets',
+  prompts: 'panel.searchTemplates',
+  looks: 'panel.searchLooks',
+} as const satisfies Record<LibraryTab, string>
 
 /**
  * 「资产」入口：自己攒下的料——**项目**（画布）、**素材**（产品 / 人物的一组视角）、
@@ -109,45 +115,21 @@ export default function LibraryPage() {
         : `/create-look 基于预置模板「${look.name}」复制一份来改`,
     )
 
-  const placeholder =
-    tab === 'projects'
-      ? t('panel.searchProjects')
-      : tab === 'prompts'
-        ? t('panel.searchTemplates')
-        : tab === 'looks'
-          ? t('panel.searchLooks')
-          : t('panel.searchAssets')
-
   return (
-    <main className="flex min-h-[calc(100dvh-3.5rem)] flex-col">
-      <div className="studio-page-head flex shrink-0 flex-wrap items-center gap-3 border-b border-border py-3 pl-5 pr-16 md:pr-60">
-        <h1 className="font-display text-[15px] font-medium">{APP_MODE_LABELS.library}</h1>
-        <div className="flex items-center gap-1">
-          {TABS.map((one) => (
-            <button
-              key={one}
-              type="button"
-              onClick={() => setTab(one)}
-              aria-pressed={tab === one}
-              className={`rounded-full px-3 py-1 text-[13px] transition-colors ${
-                tab === one
-                  ? 'bg-accent font-medium text-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              {t(`tab.${one}`)}
-            </button>
-          ))}
-        </div>
-        <label className="ml-auto flex h-9 w-full max-w-xs items-center rounded-lg border border-border px-3">
-          <input
-            type="search"
-            value={searchKeyword}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={placeholder}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
-        </label>
+    <main className="flex min-h-dvh flex-col">
+      <PageHeader title={APP_MODE_LABELS.library}>
+        <SegmentedTabs
+          tabs={TABS.map((one) => ({ value: one, label: t(`tab.${one}`) }))}
+          value={tab}
+          onChange={setTab}
+          label={APP_MODE_LABELS.library}
+        />
+        <SearchField
+          className="ml-auto"
+          value={searchKeyword}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={t(SEARCH_PLACEHOLDER[tab])}
+        />
         {tab === 'assets' && (
           <>
             <input
@@ -166,46 +148,38 @@ export default function LibraryPage() {
                 confirmImageBatch(images.length, () => void importAssetFiles(images))
               }}
             />
-            <button type="button" onClick={() => setCreating('asset')} className={GHOST}>
+            <Button variant="outline" onClick={() => setCreating('asset')}>
               <PlusIcon className="h-4 w-4" />
               {t('asset.new')}
-            </button>
+            </Button>
             {agentReady && (
-              <button
-                type="button"
-                onClick={() => handoffToAgent('/create-asset ')}
-                className={PRIMARY}
-              >
+              <Button onClick={() => handoffToAgent('/create-asset ')}>
                 <SparkleIcon className="h-4 w-4" />
                 {t('asset.createWithAgent')}
-              </button>
+              </Button>
             )}
           </>
         )}
         {tab === 'looks' && (
           <>
-            <button type="button" onClick={() => setCreating('look')} className={GHOST}>
+            <Button variant="outline" onClick={() => setCreating('look')}>
               <PlusIcon className="h-4 w-4" />
               {t('look.new')}
-            </button>
+            </Button>
             {agentReady && (
-              <button
-                type="button"
-                onClick={() => handoffToAgent('/create-look ')}
-                className={PRIMARY}
-              >
+              <Button onClick={() => handoffToAgent('/create-look ')}>
                 <SparkleIcon className="h-4 w-4" />
                 {t('look.createWithAgent')}
-              </button>
+              </Button>
             )}
           </>
         )}
-      </div>
+      </PageHeader>
 
       {tab === 'projects' ? (
         <ProjectsTab search={searchKeyword} />
       ) : tab === 'prompts' ? (
-        <div className="min-h-0 flex-1 p-5">
+        <div className="min-h-0 flex-1 p-6">
           {templates.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {templates.map((template) => (
@@ -219,7 +193,7 @@ export default function LibraryPage() {
           )}
         </div>
       ) : tab === 'looks' ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-6 p-5">
+        <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
           <section>
             <h2 className="mb-2 text-xs font-medium text-muted-foreground">
               {t('look.mine')} · {mine.length}
@@ -270,7 +244,7 @@ export default function LibraryPage() {
       ) : (
         // 落点包在滚动容器外面，高亮层才盖住看得见的那一屏，而不是随内容滚走。
         <div {...dropZoneProps} className="relative flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 p-5">
+          <div className="min-h-0 flex-1 p-6">
             {assets.length > 0 ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
                 <NewTile label={t('asset.new')} onClick={() => setCreating('asset')} />

@@ -107,7 +107,7 @@ export default function CreateRecordDialog(props: Props) {
             <button
               type="button"
               onClick={() => handoffToAgent(command)}
-              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 text-[13px] font-medium text-primary transition hover:bg-primary/15"
+              className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 text-body-sm font-medium text-primary transition hover:bg-primary/15"
             >
               <SparkleIcon className="h-4 w-4" />
               {isAsset ? t('asset.createWithAgent') : t('look.createWithAgent')}
@@ -123,7 +123,7 @@ export default function CreateRecordDialog(props: Props) {
           </button>
         </div>
 
-        <span className="mb-1.5 block text-[13px] font-medium text-foreground">
+        <span className="mb-1.5 block text-body-sm font-medium text-foreground">
           {t(`${ns}.images`)} <span className="text-destructive">*</span>
         </span>
         <div
@@ -171,7 +171,7 @@ export default function CreateRecordDialog(props: Props) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-[13px] text-foreground transition hover:bg-muted"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-body-sm text-foreground transition hover:bg-muted"
             >
               <PlusIcon className="h-4 w-4" />
               {t(`${ns}.fromLocal`)}
@@ -180,7 +180,7 @@ export default function CreateRecordDialog(props: Props) {
               <button
                 type="button"
                 onClick={() => folderInputRef.current?.click()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-[13px] text-foreground transition hover:bg-muted"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-card px-4 text-body-sm text-foreground transition hover:bg-muted"
               >
                 <FolderIcon className="h-4 w-4" />
                 {t('createAsset.fromFolder')}
@@ -217,7 +217,7 @@ export default function CreateRecordDialog(props: Props) {
 
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1.5 block text-[13px] font-medium text-foreground">
+            <span className="mb-1.5 block text-body-sm font-medium text-foreground">
               {t(`${ns}.name`)} <span className="text-destructive">*</span>
             </span>
             <span className="relative block">
@@ -228,13 +228,13 @@ export default function CreateRecordDialog(props: Props) {
                 maxLength={NAME_MAX}
                 className={`${FIELD} pr-14`}
               />
-              <span className="pointer-events-none absolute right-3 top-3 text-[11px] text-muted-foreground">
+              <span className="pointer-events-none absolute right-3 top-3 text-label-sm text-muted-foreground">
                 {name.length}/{NAME_MAX}
               </span>
             </span>
           </label>
           <div>
-            <span className="mb-1.5 block text-[13px] font-medium text-foreground">
+            <span className="mb-1.5 block text-body-sm font-medium text-foreground">
               {isAsset ? t('createAsset.kind') : t('createLook.purpose')}
             </span>
             <div className="flex gap-1.5" role="radiogroup">
@@ -269,7 +269,7 @@ export default function CreateRecordDialog(props: Props) {
 
         {!isAsset && (
           <label className="mt-4 block">
-            <span className="mb-1.5 block text-[13px] font-medium text-foreground">
+            <span className="mb-1.5 block text-body-sm font-medium text-foreground">
               {t('createLook.description')}
             </span>
             <textarea

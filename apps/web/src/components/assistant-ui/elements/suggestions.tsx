@@ -52,7 +52,7 @@ export function Suggestions({
           onClick={() => onSuggestion(suggestion)}
           className={cn(
             paper,
-            'fade-in slide-in-from-bottom-2 animate-in fill-mode-both h-auto whitespace-normal flex cursor-pointer items-center text-[13px] transition-transform duration-300 hover:-translate-y-px active:scale-[0.96] motion-reduce:animate-none',
+            'fade-in slide-in-from-bottom-2 animate-in fill-mode-both h-auto whitespace-normal flex cursor-pointer items-center text-body-sm transition-transform duration-300 hover:-translate-y-px active:scale-[0.96] motion-reduce:animate-none',
             list ? 'w-full rounded-2xl px-4 py-2.5 text-start' : 'rounded-full px-4 py-2',
             selectedSuggestion === suggestion && 'bg-primary/10 text-primary',
           )}

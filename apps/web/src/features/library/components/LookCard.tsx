@@ -58,13 +58,13 @@ export default function LookCard({
             {t('look.slots', { count: look.slotCount })}
           </span>
         </div>
-        <span className="truncate text-[11px] text-muted-foreground">{look.size}</span>
+        <span className="truncate text-label-sm text-muted-foreground">{look.size}</span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             disabled={needsRetune || !canGenerate}
             onClick={() => onGenerate(look)}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t('look.generate')}
           </button>
@@ -72,7 +72,7 @@ export default function LookCard({
             type="button"
             disabled={!canGenerate}
             onClick={() => onTune(look)}
-            className="rounded-lg border border-border px-2.5 py-1 text-[11px] text-foreground transition hover:bg-muted"
+            className="rounded-lg border border-border px-2.5 py-1 text-label-sm text-foreground transition hover:bg-muted"
           >
             {look.origin === 'user' ? t('look.tune') : t('look.fork')}
           </button>

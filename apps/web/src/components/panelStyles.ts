@@ -30,12 +30,5 @@ export const GHOST_BUTTON =
 export const SELECT =
   'rounded-lg border border-border bg-card px-2 py-1 text-sm text-foreground focus:border-primary focus:outline-none dark:border-white/[0.08]'
 
-/** 分段控件的一格，选中时叠 `ACTIVE_SEGMENT`，否则叠 `IDLE_SEGMENT`。 */
-export const SEGMENT = 'rounded-md px-2.5 py-1 text-xs transition'
-
-export const ACTIVE_SEGMENT = 'bg-card font-medium text-foreground shadow-sm'
-
-export const IDLE_SEGMENT = 'text-muted-foreground disabled:opacity-50'
-
 /** 顶栏是 fixed 的，吸顶元素得自己让开它加上刘海的高度。 */
 export const HEADER_OFFSET = 'calc(var(--safe-area-top) + var(--header-height))'

@@ -125,7 +125,7 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
                       <span className="block text-xs font-medium text-foreground">
                         {example.title}
                       </span>
-                      <span className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                      <span className="line-clamp-2 text-label-sm leading-relaxed text-muted-foreground">
                         {example.prompt}
                       </span>
                     </span>

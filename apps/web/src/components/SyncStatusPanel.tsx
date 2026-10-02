@@ -20,13 +20,13 @@ export default function SyncStatusPanel() {
       <div className="min-w-0">
         <h4 className="text-sm font-bold text-foreground">{t('sync.title')}</h4>
         <p
-          className={`mt-1 text-[13px] ${failed ? 'text-destructive dark:text-destructive' : 'text-muted-foreground dark:text-muted-foreground'}`}
+          className={`mt-1 text-body-sm ${failed ? 'text-destructive dark:text-destructive' : 'text-muted-foreground dark:text-muted-foreground'}`}
         >
           {syncLabel({ status, pending, lastSyncedAt, uploads })}
         </p>
         {failed && (
           // 只说「失败」等于让用户自己猜：把处置办法一并写出来。
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-body-sm text-muted-foreground">
             {t(`sync.failure.${failure ?? 'network'}`)}
           </p>
         )}

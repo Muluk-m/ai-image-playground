@@ -69,7 +69,7 @@ export default function AssetDetail({
               void attachAsset(asset.id)
               onClose()
             }}
-            className="rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20"
+            className="rounded-lg bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary transition hover:bg-primary/20"
           >
             {t('asset.addAsReference')}
           </button>
@@ -100,7 +100,7 @@ export default function AssetDetail({
                     </Badge>
                   )}
                 </button>
-                <span className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="flex items-center justify-between text-label-sm text-muted-foreground">
                   <span>{t(`asset.view.${view.label}`)}</span>
                   <span>{t(`asset.source.${view.source}`)}</span>
                 </span>

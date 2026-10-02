@@ -20,14 +20,14 @@ export default function UpdateBanner() {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-lg bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground transition hover:bg-primary/90"
+            className="rounded-lg bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
             {t('update.refresh')}
           </button>
           <button
             type="button"
             onClick={skip}
-            className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-muted-foreground transition hover:bg-card"
+            className="rounded-lg border border-border px-3 py-1.5 text-body-sm text-muted-foreground transition hover:bg-card"
           >
             {t('update.skip')}
           </button>
